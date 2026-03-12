@@ -962,17 +962,18 @@ model CompanyProfile {
 
 #### 修改计划（建议写入近期版本）
 
-**P0：卖家端表单收口**
-- 在 `/company/settings` 新增”企业 AI 搜索资料 Card”
-- 将”企业类型 / 主营品类 / 主营产品关键词 / 服务地区 / 产品特征 / 供给方式 / 认证资质”做成结构化表单
-- 服务地区由企业信息 Card 的地址字段升级提供（增加省/市/区结构化选择）
-- 仍保留原”企业亮点 Card”，但弱化为展示补充，不再承担核心搜索语义
+**P0：卖家端表单收口** — ✅ 已完成（2026-03-12）
+- ✅ 在 `/company/settings` 新增”企业 AI 搜索资料 Card”（7 个结构化表单字段）
+- ✅ 服务地区先作为独立字段存在 highlights 里（自由输入 + 后端 trim/去重），P2 再升级为结构化地址联动
+- ✅ 原”企业亮点 Card”保留，弱化为展示补充
 
-**P1：后端 DTO 与存储收口**
-- `seller/company` 的 DTO 增加上述结构化字段
-- 先落到 `CompanyProfile.highlights` 固定 schema（Phase 1 JSON 结构）
-- `company.service.ts` 消费侧按兼容规则读取：优先结构化字段 → 回退旧字段
-- `address` DTO 增加 `province/city/district` 可选字段
+**P1：后端 DTO 与存储收口** — ✅ 已完成（2026-03-12）
+- ✅ `UpdateAiSearchProfileDto` 含完整枚举校验（`@IsIn` 逐元素验证）
+- ✅ `GET/PUT /seller/company/ai-search-profile` 端点（OWNER/MANAGER，含审计日志）
+- ✅ 数据落到 `CompanyProfile.highlights` 固定 schema（Phase 1 JSON 结构）
+- ✅ 派生字段自动计算：`mainBusiness` = industryTags + productKeywords，`badges` = features + certs + modes + areas
+- ✅ `updateHighlights` 改为 merge 模式（Serializable 事务，AI 搜索字段不被企业亮点 Card 覆盖）
+- ⏳ `address` 结构化升级留给 P2
 
 **P2：搜索消费侧升级**
 - 企业搜索页和 AI 企业搜索优先消费结构化字段，而不是只拼接字符串
