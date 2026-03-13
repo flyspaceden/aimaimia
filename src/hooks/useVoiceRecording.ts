@@ -101,6 +101,8 @@ export function useVoiceRecording(
     setContinueChatContext(null);
     setUserTranscript('');
     setIsProcessing(false);
+    setNeedsAuth(false);
+    setPendingIntent(null);
   };
 
   // ── 语音历史持久化 ──
@@ -380,13 +382,23 @@ export function useVoiceRecording(
       recommend: candidate.recommend,
     };
 
-    const result = await resolveIntent(nextIntent, {
-      isLoggedIn,
-      cartCount,
-      selectedCartCount,
-    });
-    if (mountedRef.current) {
-      applyIntentResult(result, nextIntent);
+    try {
+      const result = await resolveIntent(nextIntent, {
+        isLoggedIn,
+        cartCount,
+        selectedCartCount,
+      });
+      if (mountedRef.current) {
+        applyIntentResult(result, nextIntent);
+      }
+    } catch (error: any) {
+      console.error('selectClarify 失败:', error?.message || error);
+      if (mountedRef.current) {
+        setIsProcessing(false);
+        setFeedbackText('处理失败，请重试');
+        setFeedbackVisible(true);
+        feedbackTimerRef.current = setTimeout(() => dismissFeedbackInternal(), 2000);
+      }
     }
   }, [clarifyIntent, isLoggedIn, cartCount, selectedCartCount, applyIntentResult]);
 
