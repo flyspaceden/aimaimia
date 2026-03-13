@@ -1,8 +1,5 @@
 // src/utils/navigateByIntent.ts
-import type {
-  AiVoiceIntent,
-  AiVoiceNavigateTarget,
-} from '../types/domain/Ai';
+import type { AiVoiceIntent } from '../types/domain/Ai';
 import { OrderRepo } from '../repos/OrderRepo';
 import { CompanyRepo } from '../repos/CompanyRepo';
 
