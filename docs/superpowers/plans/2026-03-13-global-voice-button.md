@@ -89,7 +89,7 @@ function normalizeCompanyLookupText(value: string): string {
     .trim();
 }
 
-const PROTECTED_ROUTES: Set<string> = new Set(['settings', 'orders']);
+const PROTECTED_ROUTES: Set<string> = new Set(['settings', 'orders', 'payment', 'checkout']);
 
 function isProtectedRoute(target: string): boolean {
   return PROTECTED_ROUTES.has(target);
@@ -398,11 +398,15 @@ function resolveNavigateIntent(
       break;
   }
 
-  // 登录保护
+  // 登录保护（settings / orders / payment / checkout）
   if (route && navigateTarget && isProtectedRoute(navigateTarget) && !options.isLoggedIn) {
-    feedback = navigateTarget === 'settings'
-      ? '请先登录，再为你打开设置...'
-      : '请先登录，再为你打开订单页面...';
+    const loginPrompts: Record<string, string> = {
+      settings: '请先登录，再为你打开设置...',
+      orders: '请先登录，再为你打开订单页面...',
+      payment: '请先登录，才能进行支付操作...',
+      checkout: '请先登录，再为你结算...',
+    };
+    feedback = loginPrompts[navigateTarget] || '请先登录...';
     return {
       action: 'navigate',
       feedbackText: feedback,
@@ -682,7 +686,15 @@ export function useVoiceRecording(
     // 持久化语音历史
     saveVoiceToStore(intent.transcript, result.feedbackText || intent.feedback || '');
 
+    // ── 统一清理上一轮残留状态（关键：防止 needsAuth → navigate 等跨类型切换时旧状态残留）──
     setIsProcessing(false);
+    setFeedbackVisible(false);
+    setClarifyIntent(null);
+    setContinueChatContext(null);
+    setActionLabel(null);
+    setActionRoute(null);
+    setActionParams(null);
+    setFeedbackText('');
 
     if (result.needsAuth) {
       setNeedsAuth(true);
@@ -694,13 +706,15 @@ export function useVoiceRecording(
 
     switch (result.action) {
       case 'navigate':
-        // hook 仅展示 Toast + 设 actionRoute，调用方决定是否/何时跳转
+        // Toast 反馈 + 设 feedbackText（首页用来决定延迟跳转）
         if (result.toastText) {
           showToast({ message: result.toastText, type: 'success', duration: 2000 });
+          setFeedbackText(result.toastText);
         }
         setActionRoute(result.route || null);
         setActionParams(result.params || null);
-        // navigate 不设 feedbackVisible（由调用方自行处理）
+        // navigate 不设 feedbackVisible —— 首页内联显示 feedbackText，
+        // AiFloatingCompanion 靠 Toast。调用方通过 actionRoute 触发跳转。
         break;
 
       case 'feedback':
@@ -1578,21 +1592,31 @@ const handleLongPress = useCallback(() => {
     }
   }, [voice.needsAuth]);
 
-  const handleAuthSuccess = useCallback((session: any) => {
+  const handleAuthSuccess = useCallback((session: AuthSession) => {
     setAuthModalOpen(false);
-    // 更新登录状态（AuthModal onSuccess 返回 session）
-    useAuthStore.getState().setLoggedIn(session);
+    // 更新登录状态（沿用 home.tsx / ai/chat.tsx 的字段映射）
+    useAuthStore.getState().setLoggedIn({
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      userId: session.userId,
+      loginMethod: session.loginMethod,
+    });
     // 刷新登录相关缓存
-    void queryClient.invalidateQueries();
+    void Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
+    ]);
     // 重新解析意图
     voice.retryAfterAuth();
   }, [voice, queryClient]);
 ```
 
-> **注意**: 需要确保组件已导入 `useAuthStore` 和 `useQueryClient`。在 imports 中添加：
+> **注意**: 需要确保组件已导入以下内容。在 imports 中添加：
 > ```typescript
 > import { useQueryClient } from '@tanstack/react-query';
 > import { useAuthStore } from '../../store/useAuthStore';
+> import type { AuthSession } from '../overlay/AuthModal'; // 或 AuthModal 导出的 session 类型
 > ```
 > 在组件内部添加 `const queryClient = useQueryClient();`
 
@@ -1737,14 +1761,23 @@ const handleOrbPressOut = useCallback(async () => {
 
 17. **handleClarifyCandidatePress** (701-722)：改为调用 `voice.selectClarify(candidateId)`
 
-18. **handleVoiceAuthSuccess** (724-745)：替换为：
+18. **handleVoiceAuthSuccess** (724-745)：替换为（沿用原有的 `setLoggedIn` 字段映射模式）：
 ```typescript
-const handleVoiceAuthSuccess = useCallback((session: any) => {
+const handleVoiceAuthSuccess = useCallback((session: AuthSession) => {
   setAuthModalOpen(false);
-  useAuthStore.getState().setLoggedIn(session);
-  void queryClient.invalidateQueries();
+  setLoggedIn({
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+    userId: session.userId,
+    loginMethod: session.loginMethod,
+  });
+  void Promise.allSettled([
+    queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
+    queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+    queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
+  ]);
   voice.retryAfterAuth();
-}, [voice, queryClient]);
+}, [voice, queryClient, setLoggedIn]);
 ```
 
 - [ ] **Step 3: Add auto-navigate useEffect for home page**
