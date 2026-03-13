@@ -194,18 +194,18 @@ export default function HomeScreen() {
 
   // --- 语音交互处理器 ---
 
-  const handleLongPress = useCallback(async () => {
+  const handleLongPress = useCallback(() => {
     suppressShortPressUntilRef.current = Date.now() + 1500;
     void voice.startRecording();
-  }, [voice]);
+  }, [voice.startRecording]);
 
-  const handleOrbPressOut = useCallback(async () => {
+  const handleOrbPressOut = useCallback(() => {
     void voice.stopRecording();
-  }, [voice]);
+  }, [voice.stopRecording]);
 
   const handleClarifyCandidatePress = useCallback((candidateId: string) => {
     void voice.selectClarify(candidateId);
-  }, [voice]);
+  }, [voice.selectClarify]);
 
   const handleVoiceAuthSuccess = useCallback((session: AuthSession) => {
     setAuthModalOpen(false);
@@ -221,7 +221,7 @@ export default function HomeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
     ]);
     voice.retryAfterAuth();
-  }, [voice, queryClient, setLoggedIn]);
+  }, [voice.retryAfterAuth, queryClient, setLoggedIn]);
 
   // 首页自动跳转行为
   useEffect(() => {
@@ -635,7 +635,6 @@ export default function HomeScreen() {
                   <Pressable
                     onPress={() => {
                       const ctx = voice.continueChatContext;
-                      voice.dismissFeedback();
                       if (ctx) {
                         router.push({
                           pathname: '/ai/chat',
@@ -645,6 +644,7 @@ export default function HomeScreen() {
                           },
                         });
                       }
+                      voice.dismissFeedback();
                     }}
                     style={[
                       styles.clarifyChip,
