@@ -40,7 +40,7 @@ export function VoiceOverlay({
   onClarifySelect,
   anchorBottom,
 }: VoiceOverlayProps) {
-  const { colors, radius, spacing, typography, shadow } = useTheme();
+  const { colors, radius, typography, shadow } = useTheme();
 
   // ── 状态 1：录音中 ──
   if (isRecording) {
