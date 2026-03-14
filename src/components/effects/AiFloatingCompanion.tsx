@@ -214,7 +214,7 @@ export function AiFloatingCompanion() {
   const composed = useMemo(() => {
     const longPress = Gesture.LongPress()
       .minDuration(400)
-      .maxDist(300) // 允许手指在录音期间大范围移动，不会误判为松手
+      .shouldCancelWhenOutside(false) // 手指移出视图范围时不取消手势
       .onStart(() => {
         runOnJS(handleLongPressStart)();
       })
