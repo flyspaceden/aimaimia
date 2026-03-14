@@ -223,15 +223,26 @@ export function AiFloatingCompanion() {
 
     const pan = Gesture.Pan()
       .enabled(!voice.isRecording)
-      .activeOffsetX(20)
+      .activeOffsetX([-20, 20])
       .failOffsetY([-30, 30])
       .onChange((e) => {
-        // 只允许向右拖（正向），从展开位置偏移
-        const newTx = EXPANDED_TX + Math.max(0, e.translationX);
-        orbTranslateX.value = newTx;
+        // 停靠状态：从 DOCKED_TX 向左拖出（负方向）
+        // 展开状态：从 EXPANDED_TX 向右拖回（正方向）
+        const base = orbTranslateX.value;
+        const newTx = base + e.changeX;
+        // 限制范围：不超过展开位置（左边界）和停靠位置（右边界）
+        orbTranslateX.value = Math.min(DOCKED_TX, Math.max(EXPANDED_TX, newTx));
       })
-      .onEnd((e) => {
-        runOnJS(handlePanEnd)(e.translationX);
+      .onEnd(() => {
+        // 根据当前位置决定停靠还是展开
+        const mid = (DOCKED_TX + EXPANDED_TX) / 2;
+        if (orbTranslateX.value > mid) {
+          // 偏右 → 收回停靠
+          runOnJS(dock)();
+        } else {
+          // 偏左 → 展开
+          runOnJS(expand)();
+        }
       });
 
     const tap = Gesture.Tap().onEnd(() => {
@@ -239,7 +250,7 @@ export function AiFloatingCompanion() {
     });
 
     return Gesture.Exclusive(longPress, Gesture.Race(pan, tap));
-  }, [handleTap, handleLongPressStart, handleLongPressEnd, handlePanEnd, orbTranslateX, voice.isRecording]);
+  }, [handleTap, handleLongPressStart, handleLongPressEnd, dock, expand, orbTranslateX, voice.isRecording]);
 
   // ── 反馈浮层操作按钮点击 ──
   const handleVoiceActionPress = useCallback(() => {
