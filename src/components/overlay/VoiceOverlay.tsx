@@ -1,5 +1,5 @@
 // src/components/overlay/VoiceOverlay.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   FadeIn,
@@ -7,9 +7,49 @@ import Animated, {
   FadeOut,
   FadeOutDown,
   SlideInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../../theme';
 import type { AiVoiceIntent } from '../../types/domain/Ai';
+
+// 波形动画条
+const WAVE_BARS = [
+  { base: 8, peak: 20, delay: 0 },
+  { base: 14, peak: 24, delay: 80 },
+  { base: 20, peak: 10, delay: 160 },
+  { base: 12, peak: 22, delay: 240 },
+  { base: 16, peak: 8, delay: 120 },
+  { base: 10, peak: 18, delay: 200 },
+  { base: 18, peak: 14, delay: 40 },
+];
+
+function AnimatedWaveBar({ base, peak, delay, color }: { base: number; peak: number; delay: number; color: string }) {
+  const height = useSharedValue(base);
+  useEffect(() => {
+    height.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(peak, { duration: 300 }),
+          withTiming(base, { duration: 300 }),
+        ),
+        -1, // 无限循环
+        true,
+      ),
+    );
+  }, [base, peak, delay, height]);
+
+  const animStyle = useAnimatedStyle(() => ({ height: height.value }));
+
+  return (
+    <Animated.View style={[styles.waveBar, { backgroundColor: color }, animStyle]} />
+  );
+}
 
 type VoiceOverlayProps = {
   isRecording: boolean;
@@ -69,11 +109,8 @@ export function VoiceOverlay({
         </View>
         {/* 波形动画条 */}
         <View style={styles.waveformRow}>
-          {[8, 14, 20, 12, 16, 10, 18].map((h, i) => (
-            <View
-              key={i}
-              style={[styles.waveBar, { height: h, backgroundColor: colors.ai.start }]}
-            />
+          {WAVE_BARS.map((bar, i) => (
+            <AnimatedWaveBar key={i} base={bar.base} peak={bar.peak} delay={bar.delay} color={colors.ai.start} />
           ))}
         </View>
         <Text style={[typography.caption, { color: colors.text.tertiary, textAlign: 'center', marginTop: 4 }]}>

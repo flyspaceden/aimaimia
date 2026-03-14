@@ -70,23 +70,35 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
     };
   }
 
+  const searchParams: Record<string, string> = {
+    ...(resolvedQuery ? { q: resolvedQuery } : {}),
+    source: 'voice',
+    ...(intent.search?.action ? { action: intent.search.action } : {}),
+    ...(resolvedProductId ? { productId: resolvedProductId } : {}),
+    ...(resolvedProductName ? { productName: resolvedProductName } : {}),
+    ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
+    ...(resolvedCategoryName ? { categoryName: resolvedCategoryName } : {}),
+    ...(resolvedPreferRecommended ? { preferRecommended: '1' } : {}),
+    ...(resolvedConstraints?.length ? { constraints: resolvedConstraints.join(',') } : {}),
+    ...(resolvedThemes?.length ? { recommendThemes: resolvedThemes.join(',') } : {}),
+  };
+
+  // 匹配到具体商品 → 直接跳商品详情
+  if (resolvedProductId) {
+    return {
+      action: 'navigate',
+      route: '/product/[id]',
+      params: { id: resolvedProductId },
+      toastText: intent.feedback,
+    };
+  }
+
+  // 有搜索信号 → 直接跳搜索页
   return {
-    action: 'feedback',
-    feedbackText: intent.feedback,
-    actionLabel: '去搜索',
-    actionRoute: '/search',
-    actionParams: {
-      ...(resolvedQuery ? { q: resolvedQuery } : {}),
-      source: 'voice',
-      ...(intent.search?.action ? { action: intent.search.action } : {}),
-      ...(resolvedProductId ? { productId: resolvedProductId } : {}),
-      ...(resolvedProductName ? { productName: resolvedProductName } : {}),
-      ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
-      ...(resolvedCategoryName ? { categoryName: resolvedCategoryName } : {}),
-      ...(resolvedPreferRecommended ? { preferRecommended: '1' } : {}),
-      ...(resolvedConstraints?.length ? { constraints: resolvedConstraints.join(',') } : {}),
-      ...(resolvedThemes?.length ? { recommendThemes: resolvedThemes.join(',') } : {}),
-    },
+    action: 'navigate',
+    route: '/search',
+    params: searchParams,
+    toastText: intent.feedback,
   };
 }
 
@@ -111,41 +123,37 @@ async function resolveCompanyIntent(intent: AiVoiceIntent): Promise<IntentResult
 
   if (mode === 'list') {
     return {
-      action: 'feedback',
-      feedbackText: intent.feedback || '先带你看看有哪些农场和企业...',
-      actionLabel: '查看企业',
-      actionRoute: '/company/search',
-      actionParams: searchParams,
+      action: 'navigate',
+      route: '/company/search',
+      params: searchParams,
+      toastText: intent.feedback || '先带你看看有哪些农场和企业...',
     };
   }
 
   if (resolvedCompanyId) {
     return {
-      action: 'feedback',
-      feedbackText: intent.feedback || `正在为你打开"${resolvedCompanyName || rawName}"...`,
-      actionLabel: '查看企业',
-      actionRoute: '/company/[id]',
-      actionParams: { id: resolvedCompanyId },
+      action: 'navigate',
+      route: '/company/[id]',
+      params: { id: resolvedCompanyId },
+      toastText: intent.feedback || `正在为你打开"${resolvedCompanyName || rawName}"...`,
     };
   }
 
   if (!rawName || !normalizeCompanyLookupText(rawName)) {
     return {
-      action: 'feedback',
-      feedbackText: '先带你看看有哪些农场和企业...',
-      actionLabel: '查看企业',
-      actionRoute: '/company/search',
-      actionParams: searchParams,
+      action: 'navigate',
+      route: '/company/search',
+      params: searchParams,
+      toastText: '先带你看看有哪些农场和企业...',
     };
   }
 
   if (/^(?:c-|cmp-|company-)/i.test(rawName)) {
     return {
-      action: 'feedback',
-      feedbackText: intent.feedback || `正在为你打开"${rawName}"...`,
-      actionLabel: '查看企业',
-      actionRoute: '/company/[id]',
-      actionParams: { id: rawName },
+      action: 'navigate',
+      route: '/company/[id]',
+      params: { id: rawName },
+      toastText: intent.feedback || `正在为你打开"${rawName}"...`,
     };
   }
 
@@ -153,11 +161,10 @@ async function resolveCompanyIntent(intent: AiVoiceIntent): Promise<IntentResult
   const result = await CompanyRepo.list();
   if (!result.ok) {
     return {
-      action: 'feedback',
-      feedbackText: `先为你查找"${rawName}"相关企业...`,
-      actionLabel: '查看企业',
-      actionRoute: '/company/search',
-      actionParams: searchParams,
+      action: 'navigate',
+      route: '/company/search',
+      params: searchParams,
+      toastText: `先为你查找"${rawName}"相关企业...`,
     };
   }
 
@@ -167,22 +174,20 @@ async function resolveCompanyIntent(intent: AiVoiceIntent): Promise<IntentResult
   );
   if (exactMatch) {
     return {
-      action: 'feedback',
-      feedbackText: intent.feedback || `正在为你打开"${exactMatch.name}"...`,
-      actionLabel: '查看企业',
-      actionRoute: '/company/[id]',
-      actionParams: { id: exactMatch.id },
+      action: 'navigate',
+      route: '/company/[id]',
+      params: { id: exactMatch.id },
+      toastText: intent.feedback || `正在为你打开"${exactMatch.name}"...`,
     };
   }
 
   return {
-    action: 'feedback',
-    feedbackText: mode === 'detail'
+    action: 'navigate',
+    route: '/company/search',
+    params: searchParams,
+    toastText: mode === 'detail'
       ? `先为你查找"${rawName}"相关企业...`
       : (intent.feedback || `先为你查找"${rawName}"相关企业...`),
-    actionLabel: '查看企业',
-    actionRoute: '/company/search',
-    actionParams: searchParams,
   };
 }
 
@@ -206,7 +211,6 @@ async function resolveTransactionIntent(
 
   switch (action) {
     case 'track-order': {
-      // 查找可追踪订单
       const orderResult = await OrderRepo.list(undefined, { page: 1, pageSize: 20 });
       if (orderResult.ok) {
         const preferredStatuses = ['shipping', 'delivered', 'completed'] as const;
@@ -214,32 +218,29 @@ async function resolveTransactionIntent(
           const order = orderResult.data.items.find((item) => item.status === status);
           if (order) {
             return {
-              action: 'feedback',
-              feedbackText: intent.feedback,
-              actionLabel: '查看订单',
-              actionRoute: '/orders/track',
-              actionParams: { orderId: order.id },
+              action: 'navigate',
+              route: '/orders/track',
+              params: { orderId: order.id },
+              toastText: intent.feedback,
             };
           }
         }
       }
       return {
-        action: 'feedback',
-        feedbackText: '暂时没找到可追踪的订单，先带你去订单页看看...',
-        actionLabel: '查看订单',
-        actionRoute: '/orders',
-        actionParams: {},
+        action: 'navigate',
+        route: '/orders',
+        params: {},
+        toastText: '暂时没找到可追踪的订单，先带你去订单页看看...',
       };
     }
     case 'pay': {
       const pendingPayResult = await OrderRepo.list('pendingPay', { page: 1, pageSize: 1 });
       const hasPendingPay = pendingPayResult.ok && pendingPayResult.data.items.length > 0;
       return {
-        action: 'feedback',
-        feedbackText: hasPendingPay ? intent.feedback : '暂时没有待付款订单，先带你去订单页看看...',
-        actionLabel: '查看订单',
-        actionRoute: '/orders',
-        actionParams: hasPendingPay ? { status: 'pendingPay' } : {},
+        action: 'navigate',
+        route: '/orders',
+        params: hasPendingPay ? { status: 'pendingPay' } : {},
+        toastText: hasPendingPay ? intent.feedback : '暂时没有待付款订单，先带你去订单页看看...',
       };
     }
     case 'refund':
@@ -249,39 +250,35 @@ async function resolveTransactionIntent(
       const latestIssueResult = await OrderRepo.getLatestIssue();
       if (latestIssueResult.ok && latestIssueResult.data?.id) {
         return {
-          action: 'feedback',
-          feedbackText: intent.feedback,
-          actionLabel: '查看售后',
-          actionRoute: '/orders/after-sale/[id]',
-          actionParams: { id: latestIssueResult.data.id },
+          action: 'navigate',
+          route: '/orders/after-sale/[id]',
+          params: { id: latestIssueResult.data.id },
+          toastText: intent.feedback,
         };
       }
       const afterSaleResult = await OrderRepo.list('afterSale', { page: 1, pageSize: 1 });
       const afterSaleOrderId = afterSaleResult.ok ? afterSaleResult.data.items[0]?.id : null;
       if (afterSaleOrderId) {
         return {
-          action: 'feedback',
-          feedbackText: '先带你去相关订单看看售后进度...',
-          actionLabel: '查看订单',
-          actionRoute: '/orders/[id]',
-          actionParams: { id: afterSaleOrderId },
+          action: 'navigate',
+          route: '/orders/[id]',
+          params: { id: afterSaleOrderId },
+          toastText: '先带你去相关订单看看售后进度...',
         };
       }
       return {
-        action: 'feedback',
-        feedbackText: '先带你去售后订单页看看...',
-        actionLabel: '查看订单',
-        actionRoute: '/orders',
-        actionParams: { status: 'afterSale' },
+        action: 'navigate',
+        route: '/orders',
+        params: { status: 'afterSale' },
+        toastText: '先带你去售后订单页看看...',
       };
     }
     default:
       return {
-        action: 'feedback',
-        feedbackText: intent.feedback || '正在打开订单列表...',
-        actionLabel: '查看订单',
-        actionRoute: '/orders',
-        actionParams: {},
+        action: 'navigate',
+        route: '/orders',
+        params: {},
+        toastText: intent.feedback || '正在打开订单列表...',
       };
   }
 }
@@ -361,11 +358,10 @@ function resolveRecommendIntent(intent: AiVoiceIntent): IntentResult {
   const recommend = intent.recommend;
   const resolved = intent.resolved;
   return {
-    action: 'feedback',
-    feedbackText: intent.feedback || '正在为你打开 AI 推荐...',
-    actionLabel: '查看推荐',
-    actionRoute: '/ai/recommend',
-    actionParams: {
+    action: 'navigate',
+    route: '/ai/recommend',
+    toastText: intent.feedback || '正在为你打开 AI 推荐...',
+    params: {
       ...(resolved?.query ?? recommend?.query ? { q: resolved?.query ?? recommend?.query ?? '' } : {}),
       source: 'voice',
       ...(resolved?.matchedCategoryId ?? recommend?.matchedCategoryId

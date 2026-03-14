@@ -220,8 +220,8 @@ export function AiFloatingCompanion() {
 
     const pan = Gesture.Pan()
       .enabled(!voice.isRecording)
-      .activeOffsetX(15)
-      .failOffsetY([-20, 20])
+      .activeOffsetX(20)
+      .failOffsetY([-30, 30])
       .onChange((e) => {
         // 只允许向右拖（正向），从展开位置偏移
         const newTx = EXPANDED_TX + Math.max(0, e.translationX);
@@ -468,8 +468,8 @@ export function AiFloatingCompanion() {
       <GestureDetector gesture={composed}>
         <Animated.View
           style={[styles.orbContainer, orbAnimStyle]}
-          // 停靠时扩大触摸区域，满足无障碍 44px 最小要求
-          hitSlop={isDocked ? { left: 20, top: 14, bottom: 14, right: 0 } : undefined}
+          // 扩大触摸区域：停靠时大范围，展开时也加大防止长按偏移
+          hitSlop={isDocked ? { left: 24, top: 20, bottom: 20, right: 8 } : { left: 16, top: 16, bottom: 16, right: 16 }}
         >
           <AiOrb size="small" interactive={false} />
         </Animated.View>
