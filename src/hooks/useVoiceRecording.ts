@@ -262,8 +262,13 @@ export function useVoiceRecording(
   }, []);
 
   // ── 停止录音 ──
+  // 使用 recordingRef 而非 isRecording 作为 guard：
+  // 手势 onEnd 回调通过 runOnJS 调用时，捕获的是手势创建时的闭包。
+  // 由于 startRecording 在手势 onStart 中设置 isRecording=true 后触发重渲染，
+  // 但活跃手势的 onEnd 仍引用旧闭包中的 isRecording=false，导致 guard 误判。
+  // recordingRef 是 ref，始终反映最新值，不受闭包影响。
   const stopRecording = useCallback(async () => {
-    if (!isRecording) return;
+    if (!recordingRef.current) return;
 
     setIsRecording(false);
     setIsProcessing(true);
@@ -351,7 +356,7 @@ export function useVoiceRecording(
         feedbackTimerRef.current = setTimeout(() => dismissFeedbackInternal(), 1500);
       }
     }
-  }, [isRecording, page, isLoggedIn, cartCount, selectedCartCount, queryClient, applyIntentResult]);
+  }, [page, isLoggedIn, cartCount, selectedCartCount, queryClient, applyIntentResult]);
 
   // ── dismissFeedback（公开版） ──
   const dismissFeedback = useCallback(() => {

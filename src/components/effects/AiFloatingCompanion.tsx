@@ -264,12 +264,18 @@ export function AiFloatingCompanion() {
     dock();
   }, [voice, router, dock]);
 
-  // ── navigate 意图自动跳转 ──
+  // ── navigate 意图自动跳转（幂等性保护：防止同一路由重复跳转）──
+  const lastNavigatedRef = useRef<string | null>(null);
   useEffect(() => {
     if (voice.actionRoute && !voice.feedbackVisible && !voice.needsAuth) {
+      const key = `${voice.actionRoute}:${JSON.stringify(voice.actionParams)}`;
+      if (lastNavigatedRef.current === key) return;
+      lastNavigatedRef.current = key;
       router.push({ pathname: voice.actionRoute as any, params: voice.actionParams || {} });
       voice.dismissFeedback();
       dock();
+    } else {
+      lastNavigatedRef.current = null;
     }
   }, [voice.actionRoute, voice.feedbackVisible, voice.needsAuth, voice.actionParams, voice.dismissFeedback, router, dock]);
 
