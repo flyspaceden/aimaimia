@@ -267,7 +267,11 @@ export function AiFloatingCompanion() {
       runOnJS(handleTap)();
     });
 
-    return Gesture.Exclusive(longPress, Gesture.Race(pan, tap));
+    // Race: 三个手势同时竞争，谁先满足条件谁激活
+    // - pan: 手指移动 >20px → 拖拽（在 400ms 前快速移动可抢先于长按）
+    // - longPress: 按住 400ms → 录音
+    // - tap: 快速点击释放
+    return Gesture.Race(longPress, pan, tap);
   }, [handleTap, handleLongPressStart, handleLongPressEnd, dock, expandAfterDrag, orbTranslateX, voice.isRecording]);
 
   // ── 反馈浮层操作按钮点击 ──
