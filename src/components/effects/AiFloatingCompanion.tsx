@@ -147,6 +147,14 @@ export function AiFloatingCompanion() {
     setTimeout(() => setMenuVisible(false), 160);
   }, [menuOpacity, menuScale]);
 
+  // 拖拽展开后显示菜单（弹性动画由 Pan.onEnd 的 withSpring 处理）
+  const expandAfterDrag = useCallback(() => {
+    clearAutoDock();
+    setIsDocked(false);
+    // 延迟显示菜单，等弹性动画稳定
+    setTimeout(() => showMenu(), 150);
+  }, [clearAutoDock, showMenu]);
+
   // 点击处理：停靠→展开+菜单 / 展开→切换菜单
   const handleTap = useCallback(() => {
     if (isDocked) {
@@ -238,15 +246,20 @@ export function AiFloatingCompanion() {
         // 限制范围：不超过展开位置（左边界）和停靠位置（右边界）
         orbTranslateX.value = Math.min(DOCKED_TX, Math.max(EXPANDED_TX, newTx));
       })
-      .onEnd(() => {
-        // 根据当前位置决定停靠还是展开
+      .onEnd((e) => {
+        // 根据当前位置 + 速度方向决定停靠还是展开
         const mid = (DOCKED_TX + EXPANDED_TX) / 2;
-        if (orbTranslateX.value > mid) {
-          // 偏右 → 收回停靠
-          runOnJS(dock)();
+        const movingLeft = e.velocityX < -50;
+        const movingRight = e.velocityX > 50;
+        const shouldExpand = movingLeft || (!movingRight && orbTranslateX.value < mid);
+
+        if (shouldExpand) {
+          // 弹性展开：先 overshoot 再回弹，模拟点击展开的弹性感
+          orbTranslateX.value = withSpring(EXPANDED_TX, { damping: 12, stiffness: 180, velocity: e.velocityX });
+          runOnJS(expandAfterDrag)();
         } else {
-          // 偏左 → 展开
-          runOnJS(expand)();
+          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 15, stiffness: 150, velocity: e.velocityX });
+          runOnJS(dock)();
         }
       });
 
@@ -255,7 +268,7 @@ export function AiFloatingCompanion() {
     });
 
     return Gesture.Exclusive(longPress, Gesture.Race(pan, tap));
-  }, [handleTap, handleLongPressStart, handleLongPressEnd, dock, expand, orbTranslateX, voice.isRecording]);
+  }, [handleTap, handleLongPressStart, handleLongPressEnd, dock, expandAfterDrag, orbTranslateX, voice.isRecording]);
 
   // ── 反馈浮层操作按钮点击 ──
   const handleVoiceActionPress = useCallback(() => {
