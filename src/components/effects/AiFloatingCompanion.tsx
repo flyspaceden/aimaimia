@@ -264,8 +264,7 @@ export function AiFloatingCompanion() {
           runOnJS(expandAfterDrag)();
         } else {
           orbTranslateX.value = DOCKED_TX + 18;
-          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 10, stiffness: 120, mass: 0.8 }),
-          );
+          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 10, stiffness: 120, mass: 0.8 });
           runOnJS(dock)();
         }
       });
