@@ -219,78 +219,47 @@ export function AiFloatingCompanion() {
   }, [hideMenu, startAutoDock]);
 
   // ── 手势 ──
-  // 用单个 Pan 同时处理拖拽和长按录音，避免两个 Pan 在 Exclusive 中冲突。
-  // 逻辑：手指按下启动 400ms 定时器，
-  //   - 如果 400ms 内移动超过阈值 → 取消定时器，进入拖拽模式
-  //   - 如果 400ms 到期未大幅移动 → 进入录音模式
-  //   - 松手时根据模式分别处理
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gestureMode = useRef<'idle' | 'drag' | 'recording'>('idle');
-
   const composed = useMemo(() => {
-    const pan = Gesture.Pan()
+    // 用 Pan + activateAfterLongPress 替代 LongPress 手势：
+    // LongPress 有内置移动距离阈值（~10px），手指稍动就取消，无法配置。
+    // Pan 天然跟踪手指移动，activateAfterLongPress(400) 让它等待 400ms 后才激活，
+    // 激活后手指可以自由移动不会取消，只有真正抬手才触发 onEnd。
+    const longPress = Gesture.Pan()
+      .activateAfterLongPress(400)
       .shouldCancelWhenOutside(false)
-      .minDistance(0)
-      .onBegin(() => {
-        // 手指按下：启动长按定时器
-        gestureMode.current = 'idle';
-        longPressTimerRef.current = setTimeout(() => {
-          if (gestureMode.current === 'idle') {
-            gestureMode.current = 'recording';
-            handleLongPressStart();
-          }
-        }, 400);
+      .onStart(() => {
+        runOnJS(handleLongPressStart)();
       })
-      .onUpdate((e) => {
-        // 手指移动：如果移动超过 15px 且不在录音中，切换为拖拽模式
-        if (gestureMode.current === 'idle' && (Math.abs(e.translationX) > 15 || Math.abs(e.translationY) > 15)) {
-          // 取消长按定时器，进入拖拽
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-          }
-          gestureMode.current = 'drag';
-        }
+      .onEnd(() => {
+        runOnJS(handleLongPressEnd)();
+      });
 
-        if (gestureMode.current === 'drag') {
-          const base = orbTranslateX.value - e.changeX + e.changeX; // 用 changeX 增量
-          const newTx = orbTranslateX.value + e.changeX;
-          orbTranslateX.value = Math.min(DOCKED_TX, Math.max(EXPANDED_TX, newTx));
-        }
-        // recording 模式：不做任何位移操作，手指自由移动
+    const pan = Gesture.Pan()
+      .enabled(!voice.isRecording)
+      .activeOffsetX([-20, 20])
+      .failOffsetY([-30, 30])
+      .onChange((e) => {
+        // 停靠状态：从 DOCKED_TX 向左拖出（负方向）
+        // 展开状态：从 EXPANDED_TX 向右拖回（正方向）
+        const base = orbTranslateX.value;
+        const newTx = base + e.changeX;
+        // 限制范围：不超过展开位置（左边界）和停靠位置（右边界）
+        orbTranslateX.value = Math.min(DOCKED_TX, Math.max(EXPANDED_TX, newTx));
       })
       .onEnd((e) => {
-        const mode = gestureMode.current;
-        gestureMode.current = 'idle';
-        if (longPressTimerRef.current) {
-          clearTimeout(longPressTimerRef.current);
-          longPressTimerRef.current = null;
-        }
+        // 根据当前位置 + 速度方向决定停靠还是展开
+        const mid = (DOCKED_TX + EXPANDED_TX) / 2;
+        const movingLeft = e.velocityX < -50;
+        const movingRight = e.velocityX > 50;
+        const shouldExpand = movingLeft || (!movingRight && orbTranslateX.value < mid);
 
-        if (mode === 'recording') {
-          runOnJS(handleLongPressEnd)();
-        } else if (mode === 'drag') {
-          // 根据位置 + 速度决定停靠/展开
-          const mid = (DOCKED_TX + EXPANDED_TX) / 2;
-          const movingLeft = e.velocityX < -50;
-          const movingRight = e.velocityX > 50;
-          const shouldExpand = movingLeft || (!movingRight && orbTranslateX.value < mid);
-
-          if (shouldExpand) {
-            orbTranslateX.value = withSpring(EXPANDED_TX, { damping: 12, stiffness: 180, velocity: e.velocityX });
-            runOnJS(expandAfterDrag)();
-          } else {
-            orbTranslateX.value = withSpring(DOCKED_TX, { damping: 15, stiffness: 150, velocity: e.velocityX });
-            runOnJS(dock)();
-          }
-        }
-        // idle 模式（快速点击 <400ms 未移动）→ 由 tap 处理
-      })
-      .onFinalize(() => {
-        // 确保清理定时器
-        if (longPressTimerRef.current) {
-          clearTimeout(longPressTimerRef.current);
-          longPressTimerRef.current = null;
+        if (shouldExpand) {
+          // 弹性展开：先 overshoot 再回弹，模拟点击展开的弹性感
+          orbTranslateX.value = withSpring(EXPANDED_TX, { damping: 12, stiffness: 180, velocity: e.velocityX });
+          runOnJS(expandAfterDrag)();
+        } else {
+          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 15, stiffness: 150, velocity: e.velocityX });
+          runOnJS(dock)();
         }
       });
 
@@ -298,9 +267,8 @@ export function AiFloatingCompanion() {
       runOnJS(handleTap)();
     });
 
-    // Pan 优先处理拖拽和长按，Tap 处理快速点击
-    return Gesture.Exclusive(pan, tap);
-  }, [handleTap, handleLongPressStart, handleLongPressEnd, dock, expandAfterDrag, orbTranslateX]);
+    return Gesture.Exclusive(longPress, Gesture.Race(pan, tap));
+  }, [handleTap, handleLongPressStart, handleLongPressEnd, dock, expandAfterDrag, orbTranslateX, voice.isRecording]);
 
   // ── 反馈浮层操作按钮点击 ──
   const handleVoiceActionPress = useCallback(() => {
