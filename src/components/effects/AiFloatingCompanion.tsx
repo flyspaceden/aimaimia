@@ -91,6 +91,8 @@ export function AiFloatingCompanion() {
   const menuScale = useSharedValue(0.8);
   // 停靠 tab 辉光脉冲
   const glowOpacity = useSharedValue(0.4);
+  // 长按时放大光球
+  const orbScale = useSharedValue(1);
 
   // ── 计时器 ──
   const autoDockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -162,20 +164,21 @@ export function AiFloatingCompanion() {
     }
   }, [isDocked, menuVisible, expand, showMenu, hideMenu, startAutoDock, clearAutoDock]);
 
-  // 长按开始录音
+  // 长按开始录音：放大光球 2x 防止偏移
   const handleLongPressStart = useCallback(() => {
     hideMenu();
-    // 如果处于 docked 状态，自动展开
     if (isDocked) {
       expand();
     }
+    orbScale.value = withSpring(2, { damping: 12, stiffness: 180 });
     void voice.startRecording();
-  }, [hideMenu, isDocked, expand, voice]);
+  }, [hideMenu, isDocked, expand, voice, orbScale]);
 
-  // 长按结束停止录音
+  // 长按结束停止录音：缩回原始大小
   const handleLongPressEnd = useCallback(() => {
+    orbScale.value = withSpring(1, { damping: 15, stiffness: 200 });
     void voice.stopRecording();
-  }, [voice]);
+  }, [voice, orbScale]);
 
   // 拖拽结束后判断是否收回
   const handlePanEnd = useCallback(
@@ -345,7 +348,10 @@ export function AiFloatingCompanion() {
   // ── 动画样式 ──
   // 光球位移 + 停靠时虚化（透明度随位置平滑变化）
   const orbAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: orbTranslateX.value }],
+    transform: [
+      { translateX: orbTranslateX.value },
+      { scale: orbScale.value },
+    ],
     opacity: interpolate(
       orbTranslateX.value,
       [DOCKED_TX, EXPANDED_TX],
