@@ -212,9 +212,13 @@ export function AiFloatingCompanion() {
 
   // ── 手势 ──
   const composed = useMemo(() => {
-    const longPress = Gesture.LongPress()
-      .minDuration(400)
-      .shouldCancelWhenOutside(false) // 手指移出视图范围时不取消手势
+    // 用 Pan + activateAfterLongPress 替代 LongPress 手势：
+    // LongPress 有内置移动距离阈值（~10px），手指稍动就取消，无法配置。
+    // Pan 天然跟踪手指移动，activateAfterLongPress(400) 让它等待 400ms 后才激活，
+    // 激活后手指可以自由移动不会取消，只有真正抬手才触发 onEnd。
+    const longPress = Gesture.Pan()
+      .activateAfterLongPress(400)
+      .shouldCancelWhenOutside(false)
       .onStart(() => {
         runOnJS(handleLongPressStart)();
       })
