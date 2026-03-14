@@ -254,11 +254,19 @@ export function AiFloatingCompanion() {
         const shouldExpand = movingLeft || (!movingRight && orbTranslateX.value < mid);
 
         if (shouldExpand) {
-          // 弹性展开：先 overshoot 再回弹，模拟点击展开的弹性感
-          orbTranslateX.value = withSpring(EXPANDED_TX, { damping: 12, stiffness: 180, velocity: e.velocityX });
+          // 拖拽时 onChange 已将 orb 移到接近目标位置，
+          // 直接 withSpring 几乎没有距离可弹。
+          // 先 overshoot 弹过目标 15px 再回弹，制造弹性感。
+          orbTranslateX.value = withSequence(
+            withTiming(EXPANDED_TX - 15, { duration: 80 }),
+            withSpring(EXPANDED_TX, { damping: 12, stiffness: 200 }),
+          );
           runOnJS(expandAfterDrag)();
         } else {
-          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 15, stiffness: 150, velocity: e.velocityX });
+          orbTranslateX.value = withSequence(
+            withTiming(DOCKED_TX + 10, { duration: 80 }),
+            withSpring(DOCKED_TX, { damping: 15, stiffness: 150 }),
+          );
           runOnJS(dock)();
         }
       });
