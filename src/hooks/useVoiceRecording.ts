@@ -72,6 +72,9 @@ export function useVoiceRecording(
   const preparePromiseRef = useRef<Promise<string | null> | null>(null);
   const preparedIdRef = useRef<string | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 协调快速松手：如果 startRecording 尚未完成就调用了 stopRecording，
+  // 设置此标记让 startRecording 完成后立即停止。
+  const pendingStopRef = useRef(false);
 
   // ── 生命周期清理 ──
   useEffect(() => {
@@ -133,9 +136,6 @@ export function useVoiceRecording(
   ) => {
     if (!mountedRef.current) return;
 
-    // 持久化语音历史
-    saveVoiceToStore(intent.transcript, result.feedbackText || intent.feedback || '');
-
     // ── 统一清理上一轮残留状态 ──
     setIsProcessing(false);
     setFeedbackVisible(false);
@@ -147,12 +147,16 @@ export function useVoiceRecording(
     setFeedbackText('');
 
     if (result.needsAuth) {
+      // needsAuth 时不持久化语音历史——登录后 retryAfterAuth 会重新 resolve 并持久化
       setNeedsAuth(true);
       setPendingIntent(intent);
       setFeedbackText(result.feedbackText || '请先登录...');
       setFeedbackVisible(true);
       return;
     }
+
+    // 持久化语音历史（仅非 auth 场景，避免 retry 时双写）
+    saveVoiceToStore(intent.transcript, result.feedbackText || intent.feedback || '');
 
     switch (result.action) {
       case 'navigate':
@@ -186,6 +190,7 @@ export function useVoiceRecording(
   // ── 开始录音 ──
   const startRecording = useCallback(async () => {
     dismissFeedbackInternal();
+    pendingStopRef.current = false;
 
     try {
       if (recordingRef.current) {
@@ -196,6 +201,12 @@ export function useVoiceRecording(
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) {
         Alert.alert('需要麦克风权限', '请在设置中允许麦克风访问');
+        return;
+      }
+
+      // 权限获取后检查：用户可能在等待权限弹窗时已松手
+      if (pendingStopRef.current) {
+        pendingStopRef.current = false;
         return;
       }
 
@@ -233,6 +244,19 @@ export function useVoiceRecording(
       recordingRef.current = recording;
       recordingStartedAtRef.current = Date.now();
 
+      // 录音启动后检查：用户可能在 prepare+start 期间已松手
+      if (pendingStopRef.current) {
+        pendingStopRef.current = false;
+        // 录音已启动但用户已松手，立即走 stopRecording 逻辑
+        // 不设 isRecording=true，直接清理
+        try { await recording.stopAndUnloadAsync(); } catch (_) {}
+        recordingRef.current = null;
+        recordingStartedAtRef.current = 0;
+        try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch (_) {}
+        if (mountedRef.current) setIsRecording(false);
+        return;
+      }
+
       preparePromiseRef.current = AiAssistantRepo.prepareVoiceIntent()
         .then((result) => {
           if (!result.ok) {
@@ -251,6 +275,7 @@ export function useVoiceRecording(
       if (mountedRef.current) setIsRecording(true);
     } catch (error: any) {
       console.error('录音启动失败:', error?.message || error);
+      pendingStopRef.current = false;
       if (mountedRef.current) {
         setIsRecording(false);
       }
@@ -268,7 +293,11 @@ export function useVoiceRecording(
   // 但活跃手势的 onEnd 仍引用旧闭包中的 isRecording=false，导致 guard 误判。
   // recordingRef 是 ref，始终反映最新值，不受闭包影响。
   const stopRecording = useCallback(async () => {
-    if (!recordingRef.current) return;
+    if (!recordingRef.current) {
+      // 录音尚未启动完成（startRecording 仍在 await），标记待停止
+      pendingStopRef.current = true;
+      return;
+    }
 
     setIsRecording(false);
     setIsProcessing(true);
@@ -278,7 +307,9 @@ export function useVoiceRecording(
       const recording = recordingRef.current;
       if (!recording) {
         if (mountedRef.current) {
+          setIsProcessing(false);
           setFeedbackText('录音失败，请重试');
+          setFeedbackVisible(true);
           feedbackTimerRef.current = setTimeout(() => dismissFeedbackInternal(), 1500);
         }
         return;
@@ -294,7 +325,9 @@ export function useVoiceRecording(
         preparePromiseRef.current = null;
         preparedIdRef.current = null;
         if (mountedRef.current) {
+          setIsProcessing(false);
           setFeedbackText('录音失败，请重试');
+          setFeedbackVisible(true);
           feedbackTimerRef.current = setTimeout(() => dismissFeedbackInternal(), 1500);
         }
         return;

@@ -1,6 +1,6 @@
 // src/components/overlay/VoiceOverlay.tsx
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   FadeIn,
   FadeInUp,
@@ -127,14 +127,16 @@ export function VoiceOverlay({
   const hasClarify = clarifyIntent?.clarify?.candidates && clarifyIntent.clarify.candidates.length > 0;
   const hasContinueChat = !!onContinueChat;
 
+  // 使用 Modal 让反馈浮层渲染到原生层级，逃出 AiFloatingCompanion wrapper 的坐标系
   return (
-    <Animated.View
-      entering={SlideInUp.duration(300)}
-      exiting={FadeOut.duration(200)}
-      style={styles.feedbackContainer}
-    >
-      {/* 半透明遮罩 */}
-      <Pressable style={styles.feedbackBackdrop} onPress={onDismiss} />
+    <Modal visible transparent animationType="none" statusBarTranslucent>
+      <Animated.View
+        entering={SlideInUp.duration(300)}
+        exiting={FadeOut.duration(200)}
+        style={styles.feedbackContainer}
+      >
+        {/* 半透明遮罩 */}
+        <Pressable style={styles.feedbackBackdrop} onPress={onDismiss} />
 
       <View style={[styles.feedbackContent, { backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }]}>
         {/* 用户原话 */}
@@ -210,7 +212,8 @@ export function VoiceOverlay({
           <Text style={[typography.caption, { color: colors.text.tertiary }]}>点击关闭</Text>
         </Pressable>
       </View>
-    </Animated.View>
+      </Animated.View>
+    </Modal>
   );
 }
 
