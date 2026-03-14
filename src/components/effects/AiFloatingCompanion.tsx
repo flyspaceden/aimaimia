@@ -257,15 +257,14 @@ export function AiFloatingCompanion() {
           // 拖拽时 onChange 已将 orb 移到接近目标位置，
           // 直接 withSpring 几乎没有距离可弹。
           // 先 overshoot 弹过目标 15px 再回弹，制造弹性感。
-          orbTranslateX.value = withSequence(
-            withTiming(EXPANDED_TX - 30, { duration: 100 }),
-            withSpring(EXPANDED_TX, { damping: 10, stiffness: 180 }),
-          );
+          // 用单次 withSpring + 低阻尼实现自然回弹，避免 withSequence 的顿挫感
+          // 先手动偏移到 overshoot 位置，spring 从那里弹回目标
+          orbTranslateX.value = EXPANDED_TX - 25;
+          orbTranslateX.value = withSpring(EXPANDED_TX, { damping: 8, stiffness: 120, mass: 0.8 });
           runOnJS(expandAfterDrag)();
         } else {
-          orbTranslateX.value = withSequence(
-            withTiming(DOCKED_TX + 20, { duration: 100 }),
-            withSpring(DOCKED_TX, { damping: 12, stiffness: 150 }),
+          orbTranslateX.value = DOCKED_TX + 18;
+          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 10, stiffness: 120, mass: 0.8 }),
           );
           runOnJS(dock)();
         }
