@@ -589,13 +589,12 @@ export class AiService {
 
     this.logger.log(JSON.stringify({
       message: 'voice-intent-processed',
-      userId: undefined,
-      transcript,
+      transcript: transcript.length > 20 ? transcript.substring(0, 20) + '...' : transcript,
       pipeline: result.pipeline || 'rule',
       wasUpgraded: result.wasUpgraded || false,
       intent: result.intent,
       confidence: result.confidence,
-      slots: result.params,
+      slotKeys: result.params ? Object.keys(result.params).filter(k => result.params[k] != null) : [],
       fallbackReason: result.fallbackReason,
       latencyMs: Date.now() - startTime,
     }));
