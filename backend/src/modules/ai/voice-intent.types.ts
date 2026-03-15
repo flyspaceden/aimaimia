@@ -216,6 +216,8 @@ export interface VoiceIntentClassification {
   pipeline?: 'rule' | 'fast' | 'flash' | 'plus';
   /** Flash 是否升级到 Plus */
   wasUpgraded?: boolean;
+  /** 语义分流原因：out-of-domain / too-vague / unsafe */
+  fallbackReason?: string;
 }
 
 // ===== Phase 2: 多轮对话类型 =====
