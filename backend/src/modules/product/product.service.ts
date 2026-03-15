@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TtlCache } from '../../common/ttl-cache';
 import type { AiRecommendTheme } from '../ai/voice-intent.types';
+import { computeSemanticScore, determineDegradeLevel, type SemanticSlots, type ProductSemanticFields } from './semantic-score';
 
 type ProductCategory = {
   id: string;
@@ -34,6 +35,12 @@ type ListableProduct = {
   skus?: Array<{ id: string; price: number; stock?: number | null }>;
   category?: { id: string; name: string } | null;
   companyId?: string;
+  // 语义搜索字段（Task 7 新增）
+  flavorTags?: string[];
+  seasonalMonths?: number[];
+  usageScenarios?: string[];
+  dietaryTags?: string[];
+  originRegion?: string | null;
 };
 
 @Injectable()
@@ -59,6 +66,7 @@ export class ProductService {
     constraints: string[] = [],
     maxPrice?: number,
     recommendThemes: AiRecommendTheme[] = [],
+    slots?: SemanticSlots,
   ) {
     const skip = (page - 1) * pageSize;
     const categories = categoryId || keyword ? await this.getCategories() : [];
@@ -155,6 +163,7 @@ export class ProductService {
               normalizedConstraints,
               categories,
               normalizedRecommendThemes,
+              slots,
             ),
           }))
         .sort((a, b) => {
@@ -164,6 +173,32 @@ export class ProductService {
 
       total = rankedItems.length;
       items = rankedItems.slice(skip, skip + pageSize).map((entry) => entry.product);
+
+      // 语义评分降级日志（仅在开关开启且有槽位时输出）
+      const scoringEnabled = (process.env.AI_SEMANTIC_SCORING_ENABLED ?? '') === 'true';
+      if (scoringEnabled && slots) {
+        // 取第一条结果计算 matchedDimensions 用于降级判断（代表性样本）
+        const firstProduct = items[0];
+        if (firstProduct) {
+          const semanticFields: ProductSemanticFields = {
+            categoryName: firstProduct.category?.name,
+            categoryPath: categories.find((c) => c.id === firstProduct.categoryId)?.path,
+            usageScenarios: firstProduct.usageScenarios || [],
+            originRegion: firstProduct.originRegion,
+            dietaryTags: firstProduct.dietaryTags || [],
+            flavorTags: firstProduct.flavorTags || [],
+            seasonalMonths: firstProduct.seasonalMonths || [],
+          };
+          const { matchedDimensions } = computeSemanticScore(slots as SemanticSlots, semanticFields);
+          const degradeLevel = determineDegradeLevel(slots as SemanticSlots, matchedDimensions);
+          this.logger.log(JSON.stringify({
+            message: 'search-scored',
+            degradeLevel,
+            resultCount: rankedItems.length,
+            matchedDimensions,
+          }));
+        }
+      }
     } else {
       const result = await Promise.all([
         this.prisma.product.findMany({
@@ -599,6 +634,7 @@ export class ProductService {
     constraints: string[],
     categories: ProductCategory[],
     recommendThemes: AiRecommendTheme[],
+    slots?: SemanticSlots,
   ): number {
     const title = this.normalizeSearchKeyword(product.title || '');
     const subtitle = this.normalizeSearchKeyword(product.subtitle || '');
@@ -649,6 +685,38 @@ export class ProductService {
       ),
       0,
     );
+
+    // 语义评分（由 AI_SEMANTIC_SCORING_ENABLED 特性开关控制）
+    const scoringEnabled = (process.env.AI_SEMANTIC_SCORING_ENABLED ?? '') === 'true';
+
+    if (scoringEnabled && slots) {
+      const semanticFields: ProductSemanticFields = {
+        categoryName: product.category?.name,
+        categoryPath: categories.find((c) => c.id === product.categoryId)?.path,
+        usageScenarios: product.usageScenarios || [],
+        originRegion: product.originRegion,
+        dietaryTags: product.dietaryTags || [],
+        flavorTags: product.flavorTags || [],
+        seasonalMonths: product.seasonalMonths || [],
+      };
+
+      const { score: semanticScore } = computeSemanticScore(slots as SemanticSlots, semanticFields);
+      score += semanticScore;
+    }
+
+    // 折扣分
+    if (product.basePrice && product.skus?.[0]?.price) {
+      const discountRate = (product.basePrice - product.skus[0].price) / product.basePrice;
+      if (discountRate > 0) {
+        score += 10 + Math.round(discountRate * 15);
+      }
+    }
+
+    // 热度分：Phase 2 暂用 createdAt 新鲜度替代，Redis 缓存在 C 阶段实现
+    const daysSinceCreated = (Date.now() - new Date(product.createdAt).getTime()) / 86400000;
+    if (daysSinceCreated < 7) {
+      score += Math.round((7 - daysSinceCreated) / 7 * 10);
+    }
 
     return score;
   }
