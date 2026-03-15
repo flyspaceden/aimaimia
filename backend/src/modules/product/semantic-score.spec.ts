@@ -71,11 +71,19 @@ describe('computeSemanticScore', () => {
     expect(result.matchedDimensions).toBe(1);
   });
 
-  it('constraints 与 dietaryTags 交集 → 每项 +10', () => {
+  it('constraints 与 dietaryTags 交集（英文枚举→中文标签映射）→ 每项 +10', () => {
     const slots: SemanticSlots = { constraints: ['organic', 'low-sugar'] };
-    const product = { ...emptyProduct(), dietaryTags: ['organic', '低糖', 'low-sugar'] };
+    const product = { ...emptyProduct(), dietaryTags: ['有机', '低糖'] };
     const result = computeSemanticScore(slots, product);
     expect(result.score).toBe(2 * SEMANTIC_WEIGHTS.constraintPerItem);
+    expect(result.matchedDimensions).toBe(1);
+  });
+
+  it('constraints 映射支持部分包含匹配（如"有机蔬菜"包含"有机"）', () => {
+    const slots: SemanticSlots = { constraints: ['organic'] };
+    const product = { ...emptyProduct(), dietaryTags: ['有机蔬菜'] };
+    const result = computeSemanticScore(slots, product);
+    expect(result.score).toBe(SEMANTIC_WEIGHTS.constraintPerItem);
     expect(result.matchedDimensions).toBe(1);
   });
 
@@ -86,20 +94,33 @@ describe('computeSemanticScore', () => {
     expect(result.score).toBe(SEMANTIC_WEIGHTS.dietaryPreference);
   });
 
-  it('当季月份匹配 → +10', () => {
+  it('当季月份 + constraints 含 seasonal → +10', () => {
+    const currentMonth = new Date().getMonth() + 1;
+    const slots: SemanticSlots = { constraints: ['seasonal'] };
+    const product = { ...emptyProduct(), seasonalMonths: [currentMonth], dietaryTags: ['当季'] };
+    const result = computeSemanticScore(slots, product);
+    // constraints 命中 seasonal→当季 +10，seasonalMonth +10
+    expect(result.score).toBe(SEMANTIC_WEIGHTS.constraintPerItem + SEMANTIC_WEIGHTS.seasonalMonth);
+    expect(result.matchedDimensions).toBe(2);
+  });
+
+  it('当季月份但无 seasonal 约束 → 不加分', () => {
     const currentMonth = new Date().getMonth() + 1;
     const product = { ...emptyProduct(), seasonalMonths: [currentMonth] };
     const result = computeSemanticScore({}, product);
-    expect(result.score).toBe(SEMANTIC_WEIGHTS.seasonalMonth);
-    expect(result.matchedDimensions).toBe(1);
+    expect(result.score).toBe(0);
+    expect(result.matchedDimensions).toBe(0);
   });
 
-  it('非当季月份 → 0', () => {
+  it('非当季月份 + constraints 含 seasonal → 仅 constraint 加分', () => {
     const currentMonth = new Date().getMonth() + 1;
     const offSeason = currentMonth === 12 ? 1 : currentMonth + 1;
-    const product = { ...emptyProduct(), seasonalMonths: [offSeason] };
-    const result = computeSemanticScore({}, product);
-    expect(result.score).toBe(0);
+    const slots: SemanticSlots = { constraints: ['seasonal'] };
+    const product = { ...emptyProduct(), seasonalMonths: [offSeason], dietaryTags: ['应季'] };
+    const result = computeSemanticScore(slots, product);
+    // constraints 命中 seasonal→应季 +10，但月份不匹配所以 seasonalMonth 不加
+    expect(result.score).toBe(SEMANTIC_WEIGHTS.constraintPerItem);
+    expect(result.matchedDimensions).toBe(1);
   });
 
   it('flavorPreference 匹配 → +8', () => {
@@ -115,6 +136,7 @@ describe('computeSemanticScore', () => {
       categoryHint: '海鲜',
       usageScenario: '做饭',
       originPreference: '山东',
+      constraints: ['seasonal'],
       flavorPreference: '鲜',
     };
     const product: ProductSemanticFields = {
@@ -122,7 +144,7 @@ describe('computeSemanticScore', () => {
       categoryPath: undefined,
       usageScenarios: ['做饭', '火锅'],
       originRegion: '山东青岛',
-      dietaryTags: [],
+      dietaryTags: ['当季'],
       flavorTags: ['鲜', '嫩'],
       seasonalMonths: [currentMonth],
     };
@@ -131,10 +153,11 @@ describe('computeSemanticScore', () => {
       SEMANTIC_WEIGHTS.categoryHint +
       SEMANTIC_WEIGHTS.usageScenario +
       SEMANTIC_WEIGHTS.originPreference +
+      SEMANTIC_WEIGHTS.constraintPerItem +
       SEMANTIC_WEIGHTS.flavorPreference +
       SEMANTIC_WEIGHTS.seasonalMonth;
-    expect(result.score).toBe(expected); // 20+20+15+8+10 = 73
-    expect(result.matchedDimensions).toBe(5);
+    expect(result.score).toBe(expected); // 20+20+15+10+8+10 = 83
+    expect(result.matchedDimensions).toBe(6);
   });
 
   it('空字段商品不扣分 → 0', () => {

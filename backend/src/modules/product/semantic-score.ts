@@ -5,6 +5,18 @@
  * 只加分不扣分，空字段商品不被惩罚
  */
 
+/** 约束枚举到中文标签的映射 */
+export const CONSTRAINT_LABEL_MAP: Record<string, string[]> = {
+  'organic': ['有机', '绿色', '无公害'],
+  'low-sugar': ['低糖', '无糖', '控糖'],
+  'fresh': ['新鲜', '鲜活', '现摘'],
+  'seasonal': ['当季', '应季', '时令'],
+  'traceable': ['溯源', '追溯', '可追溯'],
+  'cold-chain': ['冷链', '冷冻', '冷藏'],
+  'geo-certified': ['地理标志', '原产地', '产地保护'],
+  'healthy': ['健康', '营养', '养生'],
+};
+
 /** 评分权重常量（可调整） */
 export const SEMANTIC_WEIGHTS = {
   categoryHint: 20,
@@ -79,9 +91,12 @@ export function computeSemanticScore(
 
   // constraints → dietaryTags（交集，每命中一项 +10）
   if (slots.constraints?.length && product.dietaryTags.length > 0) {
-    const hits = slots.constraints.filter((c) =>
-      product.dietaryTags.some((t) => t.includes(c) || c.includes(t)),
-    );
+    const hits = slots.constraints.filter((c) => {
+      const labels = CONSTRAINT_LABEL_MAP[c] || [c];
+      return product.dietaryTags.some((t) =>
+        labels.some((label) => t.includes(label) || label.includes(t)),
+      );
+    });
     if (hits.length > 0) {
       score += hits.length * SEMANTIC_WEIGHTS.constraintPerItem;
       matchedDimensions++;
@@ -97,8 +112,8 @@ export function computeSemanticScore(
     }
   }
 
-  // seasonalMonths → 当前月
-  if (product.seasonalMonths.length > 0) {
+  // seasonalMonths → 仅当用户表达了"当季"约束时才加分
+  if (slots.constraints?.includes('seasonal') && product.seasonalMonths.length > 0) {
     const currentMonth = new Date().getMonth() + 1;
     if (product.seasonalMonths.includes(currentMonth)) {
       score += SEMANTIC_WEIGHTS.seasonalMonth;
