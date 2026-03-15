@@ -958,6 +958,7 @@ export class AiService {
         classification.params.people,
         classification.params.group,
       ),
+      slots: classification.params,
     });
 
     return this.withResolvedIntent({
@@ -990,6 +991,11 @@ export class AiService {
         preferRecommended,
         recommendThemes: fallbackRecommendThemes.length > 0 ? fallbackRecommendThemes : undefined,
         sortIntent: slots.sortIntent,
+        usageScenario: (classification.params?.usageScenario as string) || slots?.usageScenario,
+        originPreference: (classification.params?.originPreference as string) || slots?.originPreference,
+        dietaryPreference: (classification.params?.dietaryPreference as string) || slots?.dietaryPreference,
+        promotionIntent: slots?.promotionIntent,
+        bundleIntent: slots?.bundleIntent,
       } : undefined,
       fallbackReason: hasStructuredSearch ? undefined : 'missing-query',
     });
@@ -1182,6 +1188,7 @@ export class AiService {
         classification.params.people,
         classification.params.group,
       ),
+      slots: classification.params,
     });
 
     return this.withResolvedIntent({
@@ -1211,6 +1218,11 @@ export class AiService {
         preferRecommended,
         recommendThemes: recommendThemes.length > 0 ? recommendThemes : undefined,
         sortIntent: slots.sortIntent,
+        usageScenario: (classification.params?.usageScenario as string) || slots?.usageScenario,
+        originPreference: (classification.params?.originPreference as string) || slots?.originPreference,
+        dietaryPreference: (classification.params?.dietaryPreference as string) || slots?.dietaryPreference,
+        promotionIntent: slots?.promotionIntent,
+        bundleIntent: slots?.bundleIntent,
       },
     });
   }
@@ -3035,6 +3047,7 @@ export class AiService {
         params.query = this.pickFirstString(params.query, params.categoryHint, params.category, params.keyword);
         params.categoryHint = this.pickFirstString(params.categoryHint, params.category);
         params.usage = this.pickFirstString(params.usage, params.scene, params.scenario);
+        params.usageScenario = params.usageScenario || params.usage;
         params.audience = this.pickFirstString(params.audience, params.persona, params.people, params.group);
         params.constraints = this.pickStringArray(params.constraints);
         params.budget = this.pickNumber(params.budget) ?? this.extractBudget(transcript);
@@ -3047,6 +3060,7 @@ export class AiService {
         params.query = this.pickFirstString(params.query, params.categoryHint, params.category, params.keyword, params.param);
         params.categoryHint = this.pickFirstString(params.categoryHint, params.category);
         params.usage = this.pickFirstString(params.usage, params.scene, params.scenario);
+        params.usageScenario = params.usageScenario || params.usage;
         params.audience = this.pickFirstString(params.audience, params.persona, params.people, params.group);
         params.constraints = this.pickStringArray(params.constraints);
         params.recommendThemes = this.pickRecommendThemes(
