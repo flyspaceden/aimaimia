@@ -37,6 +37,8 @@ export type UseVoiceRecordingReturn = {
   dismissFeedback: () => void;
   selectClarify: (candidateId: string) => Promise<void>;
   retryAfterAuth: () => void;
+  /** 直接处理预构建的意图（菜单快捷入口，跳过语音/ASR） */
+  processIntent: (intent: AiVoiceIntent) => Promise<void>;
 };
 
 export function useVoiceRecording(
@@ -72,6 +74,8 @@ export function useVoiceRecording(
   const preparePromiseRef = useRef<Promise<string | null> | null>(null);
   const preparedIdRef = useRef<string | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 处理阶段文案计时器（识别中 → 思考中 → 快好了）
+  const stageTimerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
   // 协调快速松手：如果 startRecording 尚未完成就调用了 stopRecording，
   // 设置此标记让 startRecording 完成后立即停止。
   const pendingStopRef = useRef(false);
@@ -89,12 +93,17 @@ export function useVoiceRecording(
       preparePromiseRef.current = null;
       preparedIdRef.current = null;
       if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      stageTimerRefs.current.forEach(clearTimeout);
     };
   }, []);
 
   // ── dismissFeedback（内部版本，非 useCallback 以避免循环依赖）──
   const dismissFeedbackInternal = () => {
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = null;
+    // 清理处理阶段计时器，防止录音 stage timer 覆盖 processIntent 结果
+    stageTimerRefs.current.forEach(clearTimeout);
+    stageTimerRefs.current = [];
     setFeedbackText('');
     setFeedbackVisible(false);
     setActionLabel(null);
@@ -137,6 +146,12 @@ export function useVoiceRecording(
     if (!mountedRef.current) return;
 
     // ── 统一清理上一轮残留状态 ──
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = null;
+    }
+    stageTimerRefs.current.forEach(clearTimeout);
+    stageTimerRefs.current = [];
     setIsProcessing(false);
     setFeedbackVisible(false);
     setClarifyIntent(null);
@@ -152,6 +167,17 @@ export function useVoiceRecording(
       setPendingIntent(intent);
       setFeedbackText(result.feedbackText || '请先登录...');
       setFeedbackVisible(true);
+      return;
+    }
+
+    // chatResponse：后端返回富文本回复 → 跳转聊天页展示（含建议操作按钮）
+    if (intent.chatResponse) {
+      saveVoiceToStore(intent.transcript, intent.chatResponse.reply);
+      setActionRoute('/ai/chat');
+      setActionParams({
+        initialMessage: intent.chatResponse.reply,
+        suggestedActions: JSON.stringify(intent.chatResponse.suggestedActions),
+      });
       return;
     }
 
@@ -301,7 +327,17 @@ export function useVoiceRecording(
 
     setIsRecording(false);
     setIsProcessing(true);
-    setFeedbackText('正在识别语音...');
+
+    // ── 阶段文案：首页带"正在"前缀，其他页面简洁 ──
+    const isHome = page === 'home';
+    const stageText = (home: string, other: string) => (isHome ? home : other);
+
+    // 阶段 1：传输语音（松手即刻，真实事件）
+    setFeedbackText(stageText('正在传输语音...', '传输语音...'));
+
+    // 清理上一轮残留的阶段计时器
+    stageTimerRefs.current.forEach(clearTimeout);
+    stageTimerRefs.current = [];
 
     try {
       const recording = recordingRef.current;
@@ -350,8 +386,30 @@ export function useVoiceRecording(
       preparePromiseRef.current = null;
       preparedIdRef.current = null;
 
+      // 阶段 2：识别文字（调用 API 时，真实事件）
+      if (mountedRef.current) {
+        setFeedbackText(stageText('正在识别文字...', '识别文字...'));
+      }
+
+      // 阶段 3：思考中（API 发出 ~1.2s 后，估算计时器）
+      stageTimerRefs.current.push(setTimeout(() => {
+        if (mountedRef.current) {
+          setFeedbackText(stageText('正在思考...', '思考中...'));
+        }
+      }, 1200));
+
+      // 阶段 4：快好了（API 发出 ~2.8s 后，估算计时器）
+      stageTimerRefs.current.push(setTimeout(() => {
+        if (mountedRef.current) {
+          setFeedbackText(stageText('马上就好...', '快好了...'));
+        }
+      }, 2800));
+
       // 解析语音意图
       const result = await AiAssistantRepo.parseVoiceIntent(uri, prepareId || undefined, { page });
+      // 响应到达，清除剩余的阶段计时器
+      stageTimerRefs.current.forEach(clearTimeout);
+      stageTimerRefs.current = [];
       if (!mountedRef.current) return;
 
       if (result.ok) {
@@ -469,6 +527,33 @@ export function useVoiceRecording(
       });
   }, [pendingIntent, cartCount, selectedCartCount, applyIntentResult]);
 
+  // ── processIntent：直接处理预构建意图（菜单快捷入口） ──
+  const processIntent = useCallback(async (intent: AiVoiceIntent) => {
+    dismissFeedbackInternal();
+    setIsProcessing(true);
+    setUserTranscript(intent.transcript);
+    setFeedbackText(intent.feedback || '处理中...');
+
+    try {
+      const result = await resolveIntent(intent, {
+        isLoggedIn,
+        cartCount,
+        selectedCartCount,
+      });
+      if (mountedRef.current) {
+        applyIntentResult(result, intent);
+      }
+    } catch (error: any) {
+      console.error('processIntent 失败:', error?.message || error);
+      if (mountedRef.current) {
+        setIsProcessing(false);
+        setFeedbackText('处理失败，请重试');
+        setFeedbackVisible(true);
+        feedbackTimerRef.current = setTimeout(() => dismissFeedbackInternal(), 2000);
+      }
+    }
+  }, [isLoggedIn, cartCount, selectedCartCount, applyIntentResult]);
+
   return {
     isRecording,
     isProcessing,
@@ -487,5 +572,6 @@ export function useVoiceRecording(
     dismissFeedback,
     selectClarify,
     retryAfterAuth,
+    processIntent,
   };
 }

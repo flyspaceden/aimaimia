@@ -70,6 +70,10 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
     };
   }
 
+  const resolvedUsageScenario = resolved?.usageScenario || intent.slots?.usageScenario || intent.slots?.usage;
+  const resolvedOriginPreference = resolved?.originPreference || intent.slots?.originPreference;
+  const resolvedDietaryPreference = resolved?.dietaryPreference || intent.slots?.dietaryPreference;
+
   const searchParams: Record<string, string> = {
     ...(resolvedQuery ? { q: resolvedQuery } : {}),
     source: 'voice',
@@ -81,6 +85,9 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
     ...(resolvedPreferRecommended ? { preferRecommended: '1' } : {}),
     ...(resolvedConstraints?.length ? { constraints: resolvedConstraints.join(',') } : {}),
     ...(resolvedThemes?.length ? { recommendThemes: resolvedThemes.join(',') } : {}),
+    ...(resolvedUsageScenario ? { usageScenario: resolvedUsageScenario } : {}),
+    ...(resolvedOriginPreference ? { originPreference: resolvedOriginPreference } : {}),
+    ...(resolvedDietaryPreference ? { dietaryPreference: resolvedDietaryPreference } : {}),
   };
 
   // 匹配到具体商品 → 直接跳商品详情
