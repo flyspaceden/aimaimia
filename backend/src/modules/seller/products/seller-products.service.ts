@@ -169,25 +169,54 @@ export class SellerProductsService {
       // 记录卖家提供的语义字段来源，写入 attributes.semanticMeta
       // 格式与 SemanticFillService 保持一致：{ source: 'seller', updatedAt: ISO字符串 }
       // canAiFill() 会检查 meta.source === 'ai'，只有此格式才能正确阻止 AI 覆盖卖家数据
+      // 规则：字段非空 → source='seller'；字段显式传空 → 删除 source 条目，允许 AI 重新填充
       const now = new Date().toISOString();
       type SellerFieldMeta = { source: 'seller'; updatedAt: string };
-      const semanticMeta: Record<string, SellerFieldMeta> = {};
-      if (dto.flavorTags?.length) semanticMeta.flavorTags = { source: 'seller', updatedAt: now };
-      if (dto.seasonalMonths?.length) semanticMeta.seasonalMonths = { source: 'seller', updatedAt: now };
-      if (dto.usageScenarios?.length) semanticMeta.usageScenarios = { source: 'seller', updatedAt: now };
-      if (dto.dietaryTags?.length) semanticMeta.dietaryTags = { source: 'seller', updatedAt: now };
-      if (dto.originRegion) semanticMeta.originRegion = { source: 'seller', updatedAt: now };
+      const existingAttrs = (product.attributes as Record<string, any>) || {};
+      const existingMeta = (existingAttrs.semanticMeta as Record<string, SellerFieldMeta>) || {};
 
-      if (Object.keys(semanticMeta).length > 0) {
-        const existingAttrs = (product.attributes as Record<string, any>) || {};
-        const existingMeta = (existingAttrs.semanticMeta as Record<string, SellerFieldMeta>) || {};
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            attributes: { ...existingAttrs, semanticMeta: { ...existingMeta, ...semanticMeta } },
-          },
-        });
+      if (dto.flavorTags !== undefined) {
+        if (dto.flavorTags.length > 0) {
+          existingMeta.flavorTags = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.flavorTags;
+        }
       }
+      if (dto.seasonalMonths !== undefined) {
+        if (dto.seasonalMonths.length > 0) {
+          existingMeta.seasonalMonths = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.seasonalMonths;
+        }
+      }
+      if (dto.usageScenarios !== undefined) {
+        if (dto.usageScenarios.length > 0) {
+          existingMeta.usageScenarios = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.usageScenarios;
+        }
+      }
+      if (dto.dietaryTags !== undefined) {
+        if (dto.dietaryTags.length > 0) {
+          existingMeta.dietaryTags = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.dietaryTags;
+        }
+      }
+      if (dto.originRegion !== undefined) {
+        if (dto.originRegion) {
+          existingMeta.originRegion = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.originRegion;
+        }
+      }
+
+      await tx.product.update({
+        where: { id: product.id },
+        data: {
+          attributes: { ...existingAttrs, semanticMeta: existingMeta },
+        },
+      });
 
       return product;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -280,26 +309,55 @@ export class SellerProductsService {
       // 记录卖家提供的语义字段来源，写入 attributes.semanticMeta
       // 格式与 SemanticFillService 保持一致：{ source: 'seller', updatedAt: ISO字符串 }
       // canAiFill() 会检查 meta.source === 'ai'，只有此格式才能正确阻止 AI 覆盖卖家数据
+      // 规则：字段非空 → source='seller'；字段显式传空 → 删除 source 条目，允许 AI 重新填充
       const now = new Date().toISOString();
       type SellerFieldMeta = { source: 'seller'; updatedAt: string };
-      const semanticMeta: Record<string, SellerFieldMeta> = {};
-      if (dto.flavorTags?.length) semanticMeta.flavorTags = { source: 'seller', updatedAt: now };
-      if (dto.seasonalMonths?.length) semanticMeta.seasonalMonths = { source: 'seller', updatedAt: now };
-      if (dto.usageScenarios?.length) semanticMeta.usageScenarios = { source: 'seller', updatedAt: now };
-      if (dto.dietaryTags?.length) semanticMeta.dietaryTags = { source: 'seller', updatedAt: now };
-      if (dto.originRegion) semanticMeta.originRegion = { source: 'seller', updatedAt: now };
+      // 使用 update 后的 attributes 作为基础，避免覆盖其他属性
+      const existingAttrs = (result.attributes as Record<string, any>) || {};
+      const existingMeta = (existingAttrs.semanticMeta as Record<string, SellerFieldMeta>) || {};
 
-      if (Object.keys(semanticMeta).length > 0) {
-        // 使用 update 后的 attributes 作为基础，避免覆盖其他属性
-        const existingAttrs = (result.attributes as Record<string, any>) || {};
-        const existingMeta = (existingAttrs.semanticMeta as Record<string, SellerFieldMeta>) || {};
-        await tx.product.update({
-          where: { id: productId },
-          data: {
-            attributes: { ...existingAttrs, semanticMeta: { ...existingMeta, ...semanticMeta } },
-          },
-        });
+      if (dto.flavorTags !== undefined) {
+        if (dto.flavorTags.length > 0) {
+          existingMeta.flavorTags = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.flavorTags;
+        }
       }
+      if (dto.seasonalMonths !== undefined) {
+        if (dto.seasonalMonths.length > 0) {
+          existingMeta.seasonalMonths = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.seasonalMonths;
+        }
+      }
+      if (dto.usageScenarios !== undefined) {
+        if (dto.usageScenarios.length > 0) {
+          existingMeta.usageScenarios = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.usageScenarios;
+        }
+      }
+      if (dto.dietaryTags !== undefined) {
+        if (dto.dietaryTags.length > 0) {
+          existingMeta.dietaryTags = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.dietaryTags;
+        }
+      }
+      if (dto.originRegion !== undefined) {
+        if (dto.originRegion) {
+          existingMeta.originRegion = { source: 'seller', updatedAt: now };
+        } else {
+          delete existingMeta.originRegion;
+        }
+      }
+
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          attributes: { ...existingAttrs, semanticMeta: existingMeta },
+        },
+      });
 
       return result;
     });
