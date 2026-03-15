@@ -259,6 +259,7 @@ export default function ProductEditPage() {
             seasonalMonths: (product as unknown as Record<string, unknown>).seasonalMonths as number[] | undefined,
             usageScenarios: (product as unknown as Record<string, unknown>).usageScenarios as string[] | undefined,
             dietaryTags: (product as unknown as Record<string, unknown>).dietaryTags as string[] | undefined,
+            originRegion: (product as unknown as Record<string, unknown>).originRegion as string | undefined,
           }}
         >
           <Form.Item
@@ -393,6 +394,9 @@ export default function ProductEditPage() {
                           tokenSeparators={[',', '，']}
                           style={{ width: '100%' }}
                         />
+                      </Form.Item>
+                      <Form.Item name="originRegion" label="产地">
+                        <Input placeholder="如：山东青岛、云南" />
                       </Form.Item>
                     </>
                   ),

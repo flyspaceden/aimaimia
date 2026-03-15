@@ -135,6 +135,7 @@ function ProductEditForm({ id }: { id: string }) {
       seasonalMonths: (product as unknown as Record<string, unknown>).seasonalMonths as number[] | undefined,
       usageScenarios: (product as unknown as Record<string, unknown>).usageScenarios as string[] | undefined,
       dietaryTags: (product as unknown as Record<string, unknown>).dietaryTags as string[] | undefined,
+      originRegion: (product as unknown as Record<string, unknown>).originRegion as string | undefined,
     });
 
     skuForm.setFieldsValue({
@@ -218,6 +219,7 @@ function ProductEditForm({ id }: { id: string }) {
         seasonalMonths: (values.seasonalMonths as number[] | undefined) || undefined,
         usageScenarios: (values.usageScenarios as string[] | undefined) || undefined,
         dietaryTags: (values.dietaryTags as string[] | undefined) || undefined,
+        originRegion: (values.originRegion as string | undefined) || undefined,
       };
 
       await updateProduct(id, data);
@@ -432,6 +434,9 @@ function ProductEditForm({ id }: { id: string }) {
                           style={{ width: '100%' }}
                         />
                       </Form.Item>
+                      <Form.Item name="originRegion" label="产地">
+                        <Input placeholder="如：山东青岛、云南" />
+                      </Form.Item>
                     </>
                   ),
                 },
@@ -626,6 +631,7 @@ function ProductCreateForm() {
         seasonalMonths: (allValues.seasonalMonths as number[] | undefined) || undefined,
         usageScenarios: (allValues.usageScenarios as string[] | undefined) || undefined,
         dietaryTags: (allValues.dietaryTags as string[] | undefined) || undefined,
+        originRegion: (allValues.originRegion as string | undefined) || undefined,
         skus: skuList.map((s) => ({
           specName: s.specName as string,
           cost: Number(s.cost),
@@ -849,6 +855,9 @@ function ProductCreateForm() {
                             tokenSeparators={[',', '，']}
                             style={{ width: '100%' }}
                           />
+                        </Form.Item>
+                        <Form.Item name="originRegion" label="产地">
+                          <Input placeholder="如：山东青岛、云南" />
                         </Form.Item>
                       </>
                     ),
