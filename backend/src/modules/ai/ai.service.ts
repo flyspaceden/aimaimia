@@ -549,38 +549,58 @@ export class AiService {
    * 一级意图分类：硬指令规则优先，其他交给 Qwen-Flash
    */
   private async classifyIntent(transcript: string): Promise<VoiceIntentClassification> {
+    const startTime = Date.now();
+    let result: VoiceIntentClassification;
+
     const ruleClassification = this.classifyIntentByRules(transcript);
     if (ruleClassification) {
-      return ruleClassification;
-    }
+      result = ruleClassification;
+    } else {
+      const fastSearchClassification = await this.classifyFastSearchIntent(transcript);
+      if (fastSearchClassification) {
+        this.logger.log(`快速搜索分类命中：query="${this.pickFirstString(fastSearchClassification.params.query)}"`);
+        result = fastSearchClassification;
+      } else {
+        this.logger.log('硬指令规则未命中，调用 Qwen-Flash 进行一级分类');
+        const semanticSlotsEnabled =
+          (process.env.AI_SEMANTIC_SLOTS_ENABLED ?? '') === 'true';
+        let modelClassification: VoiceIntentClassification | null = null;
+        try {
+          modelClassification = await this.qwenIntentClassify(transcript, semanticSlotsEnabled);
+        } catch (err) {
+          this.logger.error(`Qwen 一级分类失败：${err.message}`);
+        }
 
-    const fastSearchClassification = await this.classifyFastSearchIntent(transcript);
-    if (fastSearchClassification) {
-      this.logger.log(`快速搜索分类命中：query="${this.pickFirstString(fastSearchClassification.params.query)}"`);
-      return fastSearchClassification;
-    }
-
-    this.logger.log('硬指令规则未命中，调用 Qwen-Flash 进行一级分类');
-    const semanticSlotsEnabled =
-      (process.env.AI_SEMANTIC_SLOTS_ENABLED ?? '') === 'true';
-    try {
-      const modelClassification = await this.qwenIntentClassify(transcript, semanticSlotsEnabled);
-      if (modelClassification) {
-        return modelClassification;
+        if (modelClassification) {
+          result = modelClassification;
+        } else {
+          result = {
+            intent: 'chat',
+            confidence: 0.2,
+            source: 'fallback',
+            params: {
+              message: transcript,
+              reply: '我来帮你处理这个问题。',
+            },
+          };
+        }
       }
-    } catch (err) {
-      this.logger.error(`Qwen 一级分类失败：${err.message}`);
     }
 
-    return {
-      intent: 'chat',
-      confidence: 0.2,
-      source: 'fallback',
-      params: {
-        message: transcript,
-        reply: '我来帮你处理这个问题。',
-      },
-    };
+    this.logger.log(JSON.stringify({
+      message: 'voice-intent-processed',
+      userId: undefined,
+      transcript,
+      pipeline: result.pipeline || 'rule',
+      wasUpgraded: result.wasUpgraded || false,
+      intent: result.intent,
+      confidence: result.confidence,
+      slots: result.params,
+      fallbackReason: result.fallbackReason,
+      latencyMs: Date.now() - startTime,
+    }));
+
+    return result;
   }
 
   private async classifyFastSearchIntent(transcript: string): Promise<VoiceIntentClassification | null> {
