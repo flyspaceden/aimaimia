@@ -166,17 +166,21 @@ export class SellerProductsService {
         });
       }
 
-      // 记录卖家提供的语义字段来源（source = 'seller'），写入 attributes.semanticMeta
-      const semanticMeta: Record<string, string> = {};
-      if (dto.flavorTags?.length) semanticMeta.flavorTags = 'seller';
-      if (dto.seasonalMonths?.length) semanticMeta.seasonalMonths = 'seller';
-      if (dto.usageScenarios?.length) semanticMeta.usageScenarios = 'seller';
-      if (dto.dietaryTags?.length) semanticMeta.dietaryTags = 'seller';
-      if (dto.originRegion) semanticMeta.originRegion = 'seller';
+      // 记录卖家提供的语义字段来源，写入 attributes.semanticMeta
+      // 格式与 SemanticFillService 保持一致：{ source: 'seller', updatedAt: ISO字符串 }
+      // canAiFill() 会检查 meta.source === 'ai'，只有此格式才能正确阻止 AI 覆盖卖家数据
+      const now = new Date().toISOString();
+      type SellerFieldMeta = { source: 'seller'; updatedAt: string };
+      const semanticMeta: Record<string, SellerFieldMeta> = {};
+      if (dto.flavorTags?.length) semanticMeta.flavorTags = { source: 'seller', updatedAt: now };
+      if (dto.seasonalMonths?.length) semanticMeta.seasonalMonths = { source: 'seller', updatedAt: now };
+      if (dto.usageScenarios?.length) semanticMeta.usageScenarios = { source: 'seller', updatedAt: now };
+      if (dto.dietaryTags?.length) semanticMeta.dietaryTags = { source: 'seller', updatedAt: now };
+      if (dto.originRegion) semanticMeta.originRegion = { source: 'seller', updatedAt: now };
 
       if (Object.keys(semanticMeta).length > 0) {
         const existingAttrs = (product.attributes as Record<string, any>) || {};
-        const existingMeta = (existingAttrs.semanticMeta as Record<string, string>) || {};
+        const existingMeta = (existingAttrs.semanticMeta as Record<string, SellerFieldMeta>) || {};
         await tx.product.update({
           where: { id: product.id },
           data: {
@@ -273,18 +277,22 @@ export class SellerProductsService {
         }
       }
 
-      // 记录卖家提供的语义字段来源（source = 'seller'），写入 attributes.semanticMeta
-      const semanticMeta: Record<string, string> = {};
-      if (dto.flavorTags?.length) semanticMeta.flavorTags = 'seller';
-      if (dto.seasonalMonths?.length) semanticMeta.seasonalMonths = 'seller';
-      if (dto.usageScenarios?.length) semanticMeta.usageScenarios = 'seller';
-      if (dto.dietaryTags?.length) semanticMeta.dietaryTags = 'seller';
-      if (dto.originRegion) semanticMeta.originRegion = 'seller';
+      // 记录卖家提供的语义字段来源，写入 attributes.semanticMeta
+      // 格式与 SemanticFillService 保持一致：{ source: 'seller', updatedAt: ISO字符串 }
+      // canAiFill() 会检查 meta.source === 'ai'，只有此格式才能正确阻止 AI 覆盖卖家数据
+      const now = new Date().toISOString();
+      type SellerFieldMeta = { source: 'seller'; updatedAt: string };
+      const semanticMeta: Record<string, SellerFieldMeta> = {};
+      if (dto.flavorTags?.length) semanticMeta.flavorTags = { source: 'seller', updatedAt: now };
+      if (dto.seasonalMonths?.length) semanticMeta.seasonalMonths = { source: 'seller', updatedAt: now };
+      if (dto.usageScenarios?.length) semanticMeta.usageScenarios = { source: 'seller', updatedAt: now };
+      if (dto.dietaryTags?.length) semanticMeta.dietaryTags = { source: 'seller', updatedAt: now };
+      if (dto.originRegion) semanticMeta.originRegion = { source: 'seller', updatedAt: now };
 
       if (Object.keys(semanticMeta).length > 0) {
         // 使用 update 后的 attributes 作为基础，避免覆盖其他属性
         const existingAttrs = (result.attributes as Record<string, any>) || {};
-        const existingMeta = (existingAttrs.semanticMeta as Record<string, string>) || {};
+        const existingMeta = (existingAttrs.semanticMeta as Record<string, SellerFieldMeta>) || {};
         await tx.product.update({
           where: { id: productId },
           data: {
