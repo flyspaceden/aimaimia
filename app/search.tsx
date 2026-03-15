@@ -123,6 +123,9 @@ export default function SearchScreen() {
     constraints,
     maxPrice,
     recommendThemes,
+    usageScenario: usageScenarioParam,
+    originPreference: originPreferenceParam,
+    dietaryPreference: dietaryPreferenceParam,
   } = useLocalSearchParams<{
     q?: string;
     source?: string;
@@ -136,6 +139,9 @@ export default function SearchScreen() {
     constraints?: string;
     maxPrice?: string;
     recommendThemes?: string;
+    usageScenario?: string;
+    originPreference?: string;
+    dietaryPreference?: string;
   }>();
   const { show } = useToast();
   const addItem = useCartStore((s) => s.addItem);
@@ -170,6 +176,9 @@ export default function SearchScreen() {
       .map((item: string) => item.trim())
       .filter((item: string): item is AiRecommendTheme => item in recommendThemeLabelMap);
   }, [recommendThemes]);
+  const initialUsageScenario = (Array.isArray(usageScenarioParam) ? usageScenarioParam[0] : usageScenarioParam) || undefined;
+  const initialOriginPreference = (Array.isArray(originPreferenceParam) ? originPreferenceParam[0] : originPreferenceParam) || undefined;
+  const initialDietaryPreference = (Array.isArray(dietaryPreferenceParam) ? dietaryPreferenceParam[0] : dietaryPreferenceParam) || undefined;
   const initialQuery = useMemo(() => {
     if (!rawQuery) return '';
     if (!isVoiceSource) return rawQuery;
@@ -269,6 +278,9 @@ export default function SearchScreen() {
       constraints: searchConstraints,
       maxPrice: searchMaxPrice,
       recommendThemes: searchRecommendThemes,
+      usageScenario: initialUsageScenario,
+      originPreference: initialOriginPreference,
+      dietaryPreference: initialDietaryPreference,
     }),
     staleTime: 60_000,
     enabled: hasSearchContext,
