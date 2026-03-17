@@ -529,7 +529,7 @@ export class AiService {
 
     this.logger.log(
       `[VoiceRoute] classified intent=${classification.intent} source=${classification.source} ` +
-      `confidence=${classification.confidence.toFixed(2)} params=${JSON.stringify(classification.params).slice(0, 300)}`,
+      `confidence=${classification.confidence.toFixed(2)} paramKeys=${classification.params ? Object.keys(classification.params).filter(k => classification.params[k] != null).join(',') : 'none'}`,
     );
 
     if (this.shouldClarifyClassification(classification)) {

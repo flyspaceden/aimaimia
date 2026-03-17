@@ -406,9 +406,10 @@ function resolveRecommendIntent(intent: AiVoiceIntent): IntentResult {
         ? { originPreference: resolved?.originPreference || intent.slots?.originPreference || '' } : {}),
       ...(resolved?.dietaryPreference || intent.slots?.dietaryPreference
         ? { dietaryPreference: resolved?.dietaryPreference || intent.slots?.dietaryPreference || '' } : {}),
-      // flavorPreference / categoryHint 仅在 AiVoiceDemandSlots 中定义，从 slots 读取
-      ...(intent.slots?.flavorPreference ? { flavorPreference: intent.slots.flavorPreference } : {}),
-      ...(intent.slots?.categoryHint ? { categoryHint: intent.slots.categoryHint } : {}),
+      ...(resolved?.flavorPreference || intent.slots?.flavorPreference
+        ? { flavorPreference: resolved?.flavorPreference || intent.slots?.flavorPreference || '' } : {}),
+      ...(resolved?.categoryHint || intent.slots?.categoryHint
+        ? { categoryHint: resolved?.categoryHint || intent.slots?.categoryHint || '' } : {}),
     },
   };
 }
