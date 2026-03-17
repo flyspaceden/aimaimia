@@ -201,6 +201,9 @@ export default function SearchScreen() {
       || initialConstraints.length > 0
       || initialMaxPrice
       || initialRecommendThemes.length > 0
+      || initialUsageScenario
+      || initialOriginPreference
+      || initialDietaryPreference
     ),
   );
   const [activeTab, setActiveTab] = useState<'product' | 'company'>(initialTab);
@@ -208,7 +211,7 @@ export default function SearchScreen() {
 
   // 从 overlay 带参数进入时，保存到最近搜索
   useEffect(() => {
-    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0) return;
+    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0 && !initialUsageScenario && !initialOriginPreference && !initialDietaryPreference) return;
     setQuery(initialQuery);
     setSearchTerm(initialQuery);
     setSearchCategoryId(initialCategoryId);
@@ -234,6 +237,9 @@ export default function SearchScreen() {
     initialQuery,
     initialRecommendThemes,
     initialTab,
+    initialUsageScenario,
+    initialOriginPreference,
+    initialDietaryPreference,
     voiceAction,
     voiceProductId,
     voiceProductName,
@@ -242,11 +248,11 @@ export default function SearchScreen() {
 
   // 无参数进入时自动聚焦
   useEffect(() => {
-    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0) {
+    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0 && !initialUsageScenario && !initialOriginPreference && !initialDietaryPreference) {
       const timer = setTimeout(() => inputRef.current?.focus(), 300);
       return () => clearTimeout(timer);
     }
-  }, [rawQuery, initialCategoryId, initialPreferRecommended, initialConstraints, initialMaxPrice, initialRecommendThemes]);
+  }, [rawQuery, initialCategoryId, initialPreferRecommended, initialConstraints, initialMaxPrice, initialRecommendThemes, initialUsageScenario, initialOriginPreference, initialDietaryPreference]);
 
   const hasSearchContext = submitted && !!(
     searchTerm.trim().length > 0
@@ -255,6 +261,9 @@ export default function SearchScreen() {
     || searchConstraints.length > 0
     || searchMaxPrice
     || searchRecommendThemes.length > 0
+    || initialUsageScenario
+    || initialOriginPreference
+    || initialDietaryPreference
   );
   const hasTextQuery = submitted && searchTerm.trim().length > 0;
 
@@ -268,6 +277,9 @@ export default function SearchScreen() {
       searchConstraints.join('|'),
       searchMaxPrice ?? 'none',
       searchRecommendThemes.join('|'),
+      initialUsageScenario ?? '',
+      initialOriginPreference ?? '',
+      initialDietaryPreference ?? '',
     ],
     queryFn: () => ProductRepo.list({
       page: 1,
