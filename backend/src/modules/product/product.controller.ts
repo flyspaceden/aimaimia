@@ -22,9 +22,11 @@ export class ProductController {
     @Query('usageScenario') usageScenario?: string,
     @Query('originPreference') originPreference?: string,
     @Query('dietaryPreference') dietaryPreference?: string,
+    @Query('flavorPreference') flavorPreference?: string,
+    @Query('categoryHint') categoryHint?: string,
   ) {
     // 将语义槽位组装为 SemanticSlots（仅当至少有一项非空时传入）
-    const hasSemanticSlots = usageScenario || originPreference || dietaryPreference;
+    const hasSemanticSlots = usageScenario || originPreference || dietaryPreference || flavorPreference || categoryHint;
     const parsedConstraints = constraints
       ? constraints
           .split(',')
@@ -36,6 +38,8 @@ export class ProductController {
           ...(usageScenario && { usageScenario }),
           ...(originPreference && { originPreference }),
           ...(dietaryPreference && { dietaryPreference }),
+          ...(flavorPreference && { flavorPreference }),
+          ...(categoryHint && { categoryHint }),
           ...(parsedConstraints.length > 0 && { constraints: parsedConstraints }),
         }
       : undefined;

@@ -73,6 +73,8 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
   const resolvedUsageScenario = resolved?.usageScenario || intent.slots?.usageScenario || intent.slots?.usage;
   const resolvedOriginPreference = resolved?.originPreference || intent.slots?.originPreference;
   const resolvedDietaryPreference = resolved?.dietaryPreference || intent.slots?.dietaryPreference;
+  const resolvedFlavorPreference = resolved?.flavorPreference || intent.slots?.flavorPreference;
+  const resolvedCategoryHint = resolved?.categoryHint || intent.slots?.categoryHint;
 
   const searchParams: Record<string, string> = {
     ...(resolvedQuery ? { q: resolvedQuery } : {}),
@@ -88,6 +90,8 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
     ...(resolvedUsageScenario ? { usageScenario: resolvedUsageScenario } : {}),
     ...(resolvedOriginPreference ? { originPreference: resolvedOriginPreference } : {}),
     ...(resolvedDietaryPreference ? { dietaryPreference: resolvedDietaryPreference } : {}),
+    ...(resolvedFlavorPreference ? { flavorPreference: resolvedFlavorPreference } : {}),
+    ...(resolvedCategoryHint ? { categoryHint: resolvedCategoryHint } : {}),
   };
 
   // 匹配到具体商品 → 直接跳商品详情

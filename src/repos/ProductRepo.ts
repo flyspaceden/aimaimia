@@ -88,6 +88,8 @@ export const ProductRepo = {
       usageScenario?: string;
       originPreference?: string;
       dietaryPreference?: string;
+      flavorPreference?: string;
+      categoryHint?: string;
     },
   ): Promise<Result<PaginationResult<Product>>> => {
     if (USE_MOCK) {
@@ -171,6 +173,8 @@ export const ProductRepo = {
       ...(options?.usageScenario && { usageScenario: options.usageScenario }),
       ...(options?.originPreference && { originPreference: options.originPreference }),
       ...(options?.dietaryPreference && { dietaryPreference: options.dietaryPreference }),
+      ...(options?.flavorPreference && { flavorPreference: options.flavorPreference }),
+      ...(options?.categoryHint && { categoryHint: options.categoryHint }),
     });
     if (res.ok) {
       return { ok: true, data: normalizePagination(res.data) };

@@ -126,6 +126,8 @@ export default function SearchScreen() {
     usageScenario: usageScenarioParam,
     originPreference: originPreferenceParam,
     dietaryPreference: dietaryPreferenceParam,
+    flavorPreference: flavorPreferenceParam,
+    categoryHint: categoryHintParam,
   } = useLocalSearchParams<{
     q?: string;
     source?: string;
@@ -142,6 +144,8 @@ export default function SearchScreen() {
     usageScenario?: string;
     originPreference?: string;
     dietaryPreference?: string;
+    flavorPreference?: string;
+    categoryHint?: string;
   }>();
   const { show } = useToast();
   const addItem = useCartStore((s) => s.addItem);
@@ -179,6 +183,8 @@ export default function SearchScreen() {
   const initialUsageScenario = (Array.isArray(usageScenarioParam) ? usageScenarioParam[0] : usageScenarioParam) || undefined;
   const initialOriginPreference = (Array.isArray(originPreferenceParam) ? originPreferenceParam[0] : originPreferenceParam) || undefined;
   const initialDietaryPreference = (Array.isArray(dietaryPreferenceParam) ? dietaryPreferenceParam[0] : dietaryPreferenceParam) || undefined;
+  const initialFlavorPreference = (Array.isArray(flavorPreferenceParam) ? flavorPreferenceParam[0] : flavorPreferenceParam) || undefined;
+  const initialCategoryHint = (Array.isArray(categoryHintParam) ? categoryHintParam[0] : categoryHintParam) || undefined;
   const initialQuery = useMemo(() => {
     if (!rawQuery) return '';
     if (!isVoiceSource) return rawQuery;
@@ -193,6 +199,12 @@ export default function SearchScreen() {
   const [searchMaxPrice, setSearchMaxPrice] = useState<number | undefined>(initialMaxPrice);
   const [searchRecommendThemes, setSearchRecommendThemes] = useState<AiRecommendTheme[]>(initialRecommendThemes);
   const [pendingVoiceAction, setPendingVoiceAction] = useState<'add-to-cart' | undefined>(voiceAction);
+  // 语义参数使用可重置的 state，避免手动搜索时旧语义参数仍然生效
+  const [searchUsageScenario, setSearchUsageScenario] = useState(initialUsageScenario || '');
+  const [searchOriginPreference, setSearchOriginPreference] = useState(initialOriginPreference || '');
+  const [searchDietaryPreference, setSearchDietaryPreference] = useState(initialDietaryPreference || '');
+  const [searchFlavorPreference, setSearchFlavorPreference] = useState(initialFlavorPreference);
+  const [searchCategoryHint, setSearchCategoryHint] = useState(initialCategoryHint);
   const [submitted, setSubmitted] = useState(
     !!(
       initialQuery
@@ -204,6 +216,8 @@ export default function SearchScreen() {
       || initialUsageScenario
       || initialOriginPreference
       || initialDietaryPreference
+      || initialFlavorPreference
+      || initialCategoryHint
     ),
   );
   const [activeTab, setActiveTab] = useState<'product' | 'company'>(initialTab);
@@ -211,7 +225,7 @@ export default function SearchScreen() {
 
   // 从 overlay 带参数进入时，保存到最近搜索
   useEffect(() => {
-    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0 && !initialUsageScenario && !initialOriginPreference && !initialDietaryPreference) return;
+    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0 && !initialUsageScenario && !initialOriginPreference && !initialDietaryPreference && !initialFlavorPreference && !initialCategoryHint) return;
     setQuery(initialQuery);
     setSearchTerm(initialQuery);
     setSearchCategoryId(initialCategoryId);
@@ -220,6 +234,11 @@ export default function SearchScreen() {
     setSearchConstraints(initialConstraints);
     setSearchMaxPrice(initialMaxPrice);
     setSearchRecommendThemes(initialRecommendThemes);
+    setSearchUsageScenario(initialUsageScenario || '');
+    setSearchOriginPreference(initialOriginPreference || '');
+    setSearchDietaryPreference(initialDietaryPreference || '');
+    setSearchFlavorPreference(initialFlavorPreference);
+    setSearchCategoryHint(initialCategoryHint);
     handledVoiceActionRef.current = '';
     setPendingVoiceAction(voiceAction);
     setActiveTab(initialTab);
@@ -240,6 +259,8 @@ export default function SearchScreen() {
     initialUsageScenario,
     initialOriginPreference,
     initialDietaryPreference,
+    initialFlavorPreference,
+    initialCategoryHint,
     voiceAction,
     voiceProductId,
     voiceProductName,
@@ -248,11 +269,11 @@ export default function SearchScreen() {
 
   // 无参数进入时自动聚焦
   useEffect(() => {
-    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0 && !initialUsageScenario && !initialOriginPreference && !initialDietaryPreference) {
+    if (!rawQuery && !initialCategoryId && !initialPreferRecommended && initialConstraints.length === 0 && !initialMaxPrice && initialRecommendThemes.length === 0 && !initialUsageScenario && !initialOriginPreference && !initialDietaryPreference && !initialFlavorPreference && !initialCategoryHint) {
       const timer = setTimeout(() => inputRef.current?.focus(), 300);
       return () => clearTimeout(timer);
     }
-  }, [rawQuery, initialCategoryId, initialPreferRecommended, initialConstraints, initialMaxPrice, initialRecommendThemes, initialUsageScenario, initialOriginPreference, initialDietaryPreference]);
+  }, [rawQuery, initialCategoryId, initialPreferRecommended, initialConstraints, initialMaxPrice, initialRecommendThemes, initialUsageScenario, initialOriginPreference, initialDietaryPreference, initialFlavorPreference, initialCategoryHint]);
 
   const hasSearchContext = submitted && !!(
     searchTerm.trim().length > 0
@@ -261,9 +282,11 @@ export default function SearchScreen() {
     || searchConstraints.length > 0
     || searchMaxPrice
     || searchRecommendThemes.length > 0
-    || initialUsageScenario
-    || initialOriginPreference
-    || initialDietaryPreference
+    || searchUsageScenario
+    || searchOriginPreference
+    || searchDietaryPreference
+    || searchFlavorPreference
+    || searchCategoryHint
   );
   const hasTextQuery = submitted && searchTerm.trim().length > 0;
 
@@ -277,9 +300,11 @@ export default function SearchScreen() {
       searchConstraints.join('|'),
       searchMaxPrice ?? 'none',
       searchRecommendThemes.join('|'),
-      initialUsageScenario ?? '',
-      initialOriginPreference ?? '',
-      initialDietaryPreference ?? '',
+      searchUsageScenario,
+      searchOriginPreference,
+      searchDietaryPreference,
+      searchFlavorPreference ?? '',
+      searchCategoryHint ?? '',
     ],
     queryFn: () => ProductRepo.list({
       page: 1,
@@ -290,9 +315,11 @@ export default function SearchScreen() {
       constraints: searchConstraints,
       maxPrice: searchMaxPrice,
       recommendThemes: searchRecommendThemes,
-      usageScenario: initialUsageScenario,
-      originPreference: initialOriginPreference,
-      dietaryPreference: initialDietaryPreference,
+      usageScenario: searchUsageScenario || undefined,
+      originPreference: searchOriginPreference || undefined,
+      dietaryPreference: searchDietaryPreference || undefined,
+      flavorPreference: searchFlavorPreference,
+      categoryHint: searchCategoryHint,
     }),
     staleTime: 60_000,
     enabled: hasSearchContext,
@@ -397,6 +424,12 @@ export default function SearchScreen() {
       setSearchConstraints([]);
       setSearchMaxPrice(undefined);
       setSearchRecommendThemes([]);
+      // 热词选择时清除语义参数
+      setSearchUsageScenario('');
+      setSearchOriginPreference('');
+      setSearchDietaryPreference('');
+      setSearchFlavorPreference(undefined);
+      setSearchCategoryHint(undefined);
     }
     setSubmitted(true);
     addRecent(term);
@@ -620,6 +653,12 @@ export default function SearchScreen() {
               setSearchConstraints([]);
               setSearchMaxPrice(undefined);
               setSearchRecommendThemes([]);
+              // 用户手动输入时清除语义参数，避免旧 AI 语义影响新的搜索结果
+              setSearchUsageScenario('');
+              setSearchOriginPreference('');
+              setSearchDietaryPreference('');
+              setSearchFlavorPreference(undefined);
+              setSearchCategoryHint(undefined);
               if (!text.trim()) {
                 setSearchTerm('');
                 setSubmitted(false);
