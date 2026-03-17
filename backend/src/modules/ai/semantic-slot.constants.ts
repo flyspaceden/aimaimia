@@ -119,5 +119,9 @@ export function isFlashResultGood(
   // 有 constraints 也算好结果
   if (hasConstraints) return true;
 
+  // 高置信度 + 明确 query（如"找鸡蛋"）→ 不升级 Plus，直接使用 Flash 结果
+  const hasQuery = !!slots?.query && slots.query.trim() !== '';
+  if (confidence >= 0.85 && hasQuery) return true;
+
   return false;
 }

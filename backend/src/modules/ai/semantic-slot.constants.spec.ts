@@ -67,10 +67,16 @@ describe('isFlashResultGood', () => {
     })).toBe(false);
   });
 
-  it('只有 query → false（贫瘠）', () => {
-    expect(isFlashResultGood(0.9, {
+  it('只有 query + 低置信度 → false（贫瘠）', () => {
+    expect(isFlashResultGood(0.7, {
       query: '鸡蛋',
     })).toBe(false);
+  });
+
+  it('高置信度 query → true（不升级 Plus）', () => {
+    expect(isFlashResultGood(0.85, {
+      query: '鸡蛋',
+    })).toBe(true);
   });
 
   it('全空槽位 → false', () => {
