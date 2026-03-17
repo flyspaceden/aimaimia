@@ -39,32 +39,80 @@ const TAB_WIDTH = 28;
 const TAB_HEIGHT = 72;
 
 // ── 上下文菜单项 ─────────────────────────────────────
-type MenuItem = { label: string; prompt: string };
+type MenuItem = {
+  label: string;
+  intent: import('../../types/domain/Ai').AiVoiceIntent;
+};
 
-// 根据路由返回不同的上下文菜单
-function getMenuItems(pathname: string): MenuItem[] {
-  if (pathname.startsWith('/product/')) {
-    return [
-      { label: '这个值得买吗？', prompt: '帮我分析一下这个商品值不值得买' },
-      { label: '有没有类似的？', prompt: '帮我推荐类似的商品' },
-    ];
+// 按页面上下文 × 意图类型组织的建议词池，每次弹出随机抽 2 条
+const SUGGESTION_POOLS: Record<string, MenuItem[]> = {
+  default: [
+    // search 意图
+    { label: '帮我找新鲜水果', intent: { type: 'search', transcript: '帮我找新鲜水果', feedback: '正在为你搜索新鲜水果...', search: { query: '新鲜水果' } } },
+    { label: '有什么时令蔬菜？', intent: { type: 'search', transcript: '有什么时令蔬菜', feedback: '正在为你搜索时令蔬菜...', search: { query: '时令蔬菜', preferRecommended: true } } },
+    { label: '搜一下有机食品', intent: { type: 'search', transcript: '搜一下有机食品', feedback: '正在为你搜索有机食品...', search: { query: '有机食品' } } },
+    { label: '找点好吃的零食', intent: { type: 'search', transcript: '找点好吃的零食', feedback: '正在为你搜索零食...', search: { query: '零食' } } },
+    { label: '有没有本地特产？', intent: { type: 'search', transcript: '有没有本地特产', feedback: '正在为你搜索本地特产...', search: { query: '特产', slots: { categoryHint: '特产', originPreference: '本地' } } } },
+    { label: '找点新鲜海鲜', intent: { type: 'search', transcript: '找点新鲜海鲜', feedback: '正在为你搜索新鲜海鲜...', search: { query: '海鲜', constraints: ['fresh'], slots: { categoryHint: '海鲜', constraints: ['fresh'] } } } },
+    { label: '有什么五谷杂粮？', intent: { type: 'search', transcript: '有什么五谷杂粮', feedback: '正在为你搜索五谷杂粮...', search: { query: '五谷杂粮' } } },
+    // recommend 意图
+    { label: '100块能买什么？', intent: { type: 'recommend', transcript: '100块能买什么', feedback: '正在为你推荐100元好物...', recommend: { budget: 100 } } },
+    { label: '今晚做饭买什么？', intent: { type: 'recommend', transcript: '今晚做饭买什么', feedback: '正在为你推荐做饭食材...', recommend: { slots: { usageScenario: '晚餐做饭' } } } },
+    { label: '有什么应季好物？', intent: { type: 'recommend', transcript: '有什么应季好物', feedback: '正在为你推荐应季商品...', recommend: { recommendThemes: ['seasonal'] } } },
+    { label: '性价比高的推荐', intent: { type: 'recommend', transcript: '性价比高的推荐', feedback: '正在为你推荐高性价比商品...', recommend: { recommendThemes: ['discount'] } } },
+    { label: '50块买点水果', intent: { type: 'recommend', transcript: '50块买点水果', feedback: '正在为你推荐水果...', recommend: { budget: 50, query: '水果' } } },
+    // company 意图
+    { label: '有什么好店推荐？', intent: { type: 'company', transcript: '有什么好店推荐', feedback: '先带你看看有哪些好店铺...', company: { mode: 'list' } } },
+    { label: '哪家农场评价好？', intent: { type: 'company', transcript: '哪家农场评价好', feedback: '先带你看看评价好的农场...', company: { mode: 'list', companyType: 'farm' } } },
+    // chat 意图
+    { label: '今天吃什么？', intent: { type: 'chat', transcript: '今天吃什么', feedback: '让我根据时令帮你推荐...' } },
+    { label: '什么水果正当季？', intent: { type: 'chat', transcript: '什么水果正当季', feedback: '让我看看当季水果...' } },
+    { label: '下雨天适合吃什么？', intent: { type: 'chat', transcript: '下雨天适合吃什么', feedback: '下雨天适合吃点暖身的...' } },
+  ],
+  product: [
+    { label: '这个值得买吗？', intent: { type: 'chat', transcript: '这个值得买吗', feedback: '让我帮你分析一下...' } },
+    { label: '有没有类似的？', intent: { type: 'search', transcript: '有没有类似的', feedback: '正在为你搜索类似商品...', search: { query: '类似商品', preferRecommended: true } } },
+    { label: '有更便宜的吗？', intent: { type: 'recommend', transcript: '有更便宜的吗', feedback: '正在为你搜索更划算的...', recommend: { slots: { promotionIntent: 'best-deal' } } } },
+    { label: '这个怎么做好吃？', intent: { type: 'chat', transcript: '这个怎么做好吃', feedback: '让我推荐几种做法...' } },
+    { label: '搭配什么一起买？', intent: { type: 'recommend', transcript: '搭配什么一起买', feedback: '正在为你推荐搭配...', recommend: { recommendThemes: ['tasty'] } } },
+    { label: '适合送人吗？', intent: { type: 'chat', transcript: '适合送人吗', feedback: '让我帮你分析一下...' } },
+    { label: '和别家比怎么样？', intent: { type: 'chat', transcript: '和别家比怎么样', feedback: '让我帮你对比一下...' } },
+  ],
+  cart: [
+    { label: '帮我凑个满减', intent: { type: 'recommend', transcript: '帮我凑个满减', feedback: '正在为你推荐凑单商品...', recommend: { slots: { promotionIntent: 'threshold-optimization' } } } },
+    { label: '推荐搭配商品', intent: { type: 'recommend', transcript: '推荐搭配商品', feedback: '正在为你推荐搭配...', recommend: {} } },
+    { label: '还需要买点什么？', intent: { type: 'recommend', transcript: '还需要买点什么', feedback: '正在为你推荐补充商品...', recommend: {} } },
+    { label: '哪个可以不买？', intent: { type: 'chat', transcript: '哪个可以不买', feedback: '让我帮你看看购物车...' } },
+    { label: '有更划算的替代吗？', intent: { type: 'recommend', transcript: '有更划算的替代吗', feedback: '正在为你寻找替代...', recommend: { recommendThemes: ['discount'] } } },
+    { label: '这些够几个人吃？', intent: { type: 'chat', transcript: '这些够几个人吃', feedback: '让我帮你估算一下...' } },
+  ],
+  order: [
+    { label: '快递到哪了？', intent: { type: 'transaction', transcript: '快递到哪了', feedback: '正在查询物流信息...', transaction: { action: 'track-order' } } },
+    { label: '申请售后', intent: { type: 'transaction', transcript: '申请售后', feedback: '正在为你打开售后...', transaction: { action: 'after-sale' } } },
+    { label: '帮我催发货', intent: { type: 'transaction', transcript: '帮我催发货', feedback: '正在查询待发货订单...', transaction: { action: 'track-order' } } },
+    { label: '怎么申请退款？', intent: { type: 'transaction', transcript: '怎么申请退款', feedback: '正在为你查询退款...', transaction: { action: 'refund' } } },
+    { label: '再买一单同样的', intent: { type: 'navigate', transcript: '再买一单同样的', feedback: '正在打开订单列表...', resolved: { navigateTarget: 'orders' } } },
+    { label: '预计什么时候到？', intent: { type: 'transaction', transcript: '预计什么时候到', feedback: '正在查询物流信息...', transaction: { action: 'track-order' } } },
+  ],
+};
+
+// 从词池中随机抽取 count 条不重复建议
+function pickRandom(items: MenuItem[], count: number): MenuItem[] {
+  const shuffled = [...items];
+  // Fisher-Yates 洗牌（只洗前 count 个位置即可）
+  for (let i = 0; i < Math.min(count, shuffled.length); i++) {
+    const j = i + Math.floor(Math.random() * (shuffled.length - i));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  if (pathname === '/cart' || pathname.startsWith('/cart')) {
-    return [
-      { label: '帮我凑个满减', prompt: '帮我看看怎么凑满减更划算' },
-      { label: '推荐搭配商品', prompt: '根据购物车内容推荐搭配商品' },
-    ];
-  }
-  if (pathname.startsWith('/orders/') || pathname.startsWith('/order/')) {
-    return [
-      { label: '我的快递到哪了？', prompt: '帮我查询最新的物流信息' },
-      { label: '申请售后', prompt: '我想申请售后服务' },
-    ];
-  }
-  return [
-    { label: '帮我找商品', prompt: '帮我搜索商品' },
-    { label: '今天吃什么？', prompt: '根据时令推荐今天吃什么' },
-  ];
+  return shuffled.slice(0, count);
+}
+
+// 根据路由匹配词池 key
+function getPoolKey(pathname: string): string {
+  if (pathname.startsWith('/product/')) return 'product';
+  if (pathname === '/cart' || pathname.startsWith('/cart')) return 'cart';
+  if (pathname.startsWith('/orders/') || pathname.startsWith('/order/')) return 'order';
+  return 'default';
 }
 
 // ── AI 浮动伴侣：边缘收纳 + 手势驱动 ────────────────
@@ -97,8 +145,8 @@ export function AiFloatingCompanion() {
   // ── 计时器 ──
   const autoDockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 菜单项
-  const menuItems = getMenuItems(pathname);
+  // 菜单项：每次弹出随机抽取 2 条
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
 
   // ── 辅助函数 ──
   const clearAutoDock = useCallback(() => {
@@ -133,12 +181,14 @@ export function AiFloatingCompanion() {
     menuOpacity.value = withTiming(0, { duration: 150 });
   }, [clearAutoDock, orbTranslateX, menuOpacity]);
 
-  // 显示菜单
+  // 显示菜单：每次弹出从当前页面对应词池随机抽 2 条
   const showMenu = useCallback(() => {
+    const pool = SUGGESTION_POOLS[getPoolKey(pathname)] ?? SUGGESTION_POOLS.default;
+    setMenuItems(pickRandom(pool, 2));
     setMenuVisible(true);
     menuOpacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.ease) });
     menuScale.value = withSpring(1, { damping: 15, stiffness: 200 });
-  }, [menuOpacity, menuScale]);
+  }, [menuOpacity, menuScale, pathname]);
 
   // 隐藏菜单（动画完成后再更新状态，避免瞬间消失）
   const hideMenu = useCallback(() => {
@@ -202,14 +252,14 @@ export function AiFloatingCompanion() {
     [screenWidth, dock, orbTranslateX]
   );
 
-  // 菜单项点击
+  // 菜单项点击：通过意图解析链路执行真实操作
   const handleMenuItemPress = useCallback(
-    (prompt: string) => {
+    (item: MenuItem) => {
       hideMenu();
       dock();
-      router.push({ pathname: '/ai/chat', params: { prompt } });
+      void voice.processIntent(item.intent);
     },
-    [hideMenu, dock, router]
+    [hideMenu, dock, voice]
   );
 
   // 关闭菜单遮罩
@@ -239,32 +289,47 @@ export function AiFloatingCompanion() {
       .activeOffsetX([-20, 20])
       .failOffsetY([-30, 30])
       .onChange((e) => {
-        // 停靠状态：从 DOCKED_TX 向左拖出（负方向）
-        // 展开状态：从 EXPANDED_TX 向右拖回（正方向）
         const base = orbTranslateX.value;
         const newTx = base + e.changeX;
-        // 限制范围：不超过展开位置（左边界）和停靠位置（右边界）
-        orbTranslateX.value = Math.min(DOCKED_TX, Math.max(EXPANDED_TX, newTx));
+        // 橡皮筋阻力：拖过边界时 0.3x 衰减，不硬截止
+        if (newTx < EXPANDED_TX) {
+          const overshoot = EXPANDED_TX - newTx;
+          orbTranslateX.value = EXPANDED_TX - overshoot * 0.3;
+        } else if (newTx > DOCKED_TX) {
+          const overshoot = newTx - DOCKED_TX;
+          orbTranslateX.value = DOCKED_TX + overshoot * 0.3;
+        } else {
+          orbTranslateX.value = newTx;
+        }
       })
       .onEnd((e) => {
-        // 根据当前位置 + 速度方向决定停靠还是展开
         const mid = (DOCKED_TX + EXPANDED_TX) / 2;
         const movingLeft = e.velocityX < -50;
         const movingRight = e.velocityX > 50;
         const shouldExpand = movingLeft || (!movingRight && orbTranslateX.value < mid);
 
+        // 速度越快 → 阻尼越低 → 弹跳次数越多、幅度越大
+        // 慢松手 (~0): damping≈16, 轻微回弹 1-2 次
+        // 中速 (~600): damping≈10, 明显弹跳 2-3 次
+        // 快甩 (~1200+): damping≈5, 连弹 3-4 次
+        const speed = Math.min(Math.abs(e.velocityX), 1400);
+        const damping = 16 - (speed / 1400) * 11; // 16 → 5
+
         if (shouldExpand) {
-          // 拖拽时 onChange 已将 orb 移到接近目标位置，
-          // 直接 withSpring 几乎没有距离可弹。
-          // 先 overshoot 弹过目标 15px 再回弹，制造弹性感。
-          // 用单次 withSpring + 低阻尼实现自然回弹，避免 withSequence 的顿挫感
-          // 先手动偏移到 overshoot 位置，spring 从那里弹回目标
-          orbTranslateX.value = EXPANDED_TX - 25;
-          orbTranslateX.value = withSpring(EXPANDED_TX, { damping: 8, stiffness: 120, mass: 0.8 });
+          orbTranslateX.value = withSpring(EXPANDED_TX, {
+            velocity: e.velocityX,
+            damping,
+            stiffness: 150,
+            mass: 0.7,
+          });
           runOnJS(expandAfterDrag)();
         } else {
-          orbTranslateX.value = DOCKED_TX + 18;
-          orbTranslateX.value = withSpring(DOCKED_TX, { damping: 10, stiffness: 120, mass: 0.8 });
+          orbTranslateX.value = withSpring(DOCKED_TX, {
+            velocity: e.velocityX,
+            damping,
+            stiffness: 150,
+            mass: 0.7,
+          });
           runOnJS(dock)();
         }
       });
@@ -451,7 +516,7 @@ export function AiFloatingCompanion() {
           {menuItems.map((item, index) => (
             <Pressable
               key={item.label}
-              onPress={() => handleMenuItemPress(item.prompt)}
+              onPress={() => handleMenuItemPress(item)}
               style={[
                 styles.menuItem,
                 {
