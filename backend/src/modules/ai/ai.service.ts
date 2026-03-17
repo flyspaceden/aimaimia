@@ -3692,6 +3692,14 @@ export class AiService {
     constraints?: string[];
     maxPrice?: number;
     recommendThemes?: string[];
+    // 语义槽参数（来自语音意图解析）
+    usageScenario?: string;
+    promotionIntent?: string;
+    bundleIntent?: string;
+    originPreference?: string;
+    dietaryPreference?: string;
+    flavorPreference?: string;
+    categoryHint?: string;
   }) {
     const query = this.cleanupSearchKeyword(input.query || '');
     const categoryId = this.pickFirstString(input.categoryId);
@@ -3703,15 +3711,29 @@ export class AiService {
       : undefined;
     const preferRecommended = !!input.preferRecommended || recommendThemes.length > 0 || (!query && !categoryId && !maxPrice && constraints.length === 0);
 
+    // 构造语义槽位对象，传递给商品搜索以提升匹配精度
+    const slots = {
+      usageScenario: input.usageScenario,
+      promotionIntent: input.promotionIntent,
+      bundleIntent: input.bundleIntent,
+      originPreference: input.originPreference,
+      dietaryPreference: input.dietaryPreference,
+      flavorPreference: input.flavorPreference,
+      categoryHint: input.categoryHint,
+    };
+    // 若 categoryHint 存在但 query 为空，将 categoryHint 作为搜索词兜底
+    const effectiveQuery = query || (input.categoryHint ? input.categoryHint : '') || '';
+
     const productResult = await this.productService.list(
       1,
       8,
       categoryId || undefined,
-      query || undefined,
+      effectiveQuery || undefined,
       preferRecommended,
       constraints,
       maxPrice,
       recommendThemes,
+      slots,
     );
 
     const products = productResult.items;
@@ -3752,6 +3774,14 @@ export class AiService {
       constraints,
       recommendThemes,
       preferRecommended,
+      // 语义槽位原样透传，供前端在"查看全部"时回传给搜索页
+      usageScenario: input.usageScenario,
+      promotionIntent: input.promotionIntent,
+      bundleIntent: input.bundleIntent,
+      originPreference: input.originPreference,
+      dietaryPreference: input.dietaryPreference,
+      flavorPreference: input.flavorPreference,
+      categoryHint: input.categoryHint,
       summary,
       aiReason,
       tags,

@@ -485,6 +485,14 @@ export default function AiRecommendScreen() {
       constraints: constraints.length > 0 ? constraints.join(',') : undefined,
       maxPrice: budget ? String(budget) : undefined,
       recommendThemes: recommendThemes.length > 0 ? recommendThemes.join(',') : undefined,
+      // 语义槽位参数透传，确保搜索页能继承语音意图的语义上下文
+      ...(usageScenario ? { usageScenario } : {}),
+      ...(promotionIntent ? { promotionIntent } : {}),
+      ...(bundleIntent ? { bundleIntent } : {}),
+      ...(originPreference ? { originPreference } : {}),
+      ...(dietaryPreference ? { dietaryPreference } : {}),
+      ...(flavorPreference ? { flavorPreference } : {}),
+      ...(categoryHint ? { categoryHint } : {}),
     },
   };
 
