@@ -53,6 +53,11 @@ export class AiService {
   private readonly CHAT_MAX_ROUNDS = 8;           // 最多保留最近 8 轮（16 条消息）
   private readonly CHAT_MAX_INPUT_TOKENS = 7000;   // 输入 token 预算（粗估）
 
+  /** 隐私保护：日志中截断转录文本，避免泄露用户语音内容 */
+  private redactTranscript(t: string): string {
+    return t.length > 20 ? t.substring(0, 20) + '...' : t;
+  }
+
   private readonly CHAT_SYSTEM_PROMPT = `你是"农脉 AI 助手"，一个农业电商平台的智能客服。
 
 ## 角色
@@ -482,7 +487,7 @@ export class AiService {
       });
     }
 
-    this.logger.log(`语音转录结果：${transcript}`);
+    this.logger.log(`语音转录结果：${this.redactTranscript(transcript)}`);
 
     // 第二步：意图解析
     const intent = await this.parseIntent(transcript, 'voice', timing);
@@ -765,7 +770,7 @@ export class AiService {
 
     const greetingReply = this.matchShortGreeting(trimmed);
     if (greetingReply) {
-      this.logger.log(`[VoiceRoute] short-greeting-hit transcript="${trimmed}"`);
+      this.logger.log(`[VoiceRoute] short-greeting-hit transcript="${this.redactTranscript(trimmed)}"`);
       return {
         intent: 'chat',
         params: {
@@ -887,7 +892,7 @@ export class AiService {
 
     if (source === 'voice') {
       this.logger.log(
-        `[VoiceSearch] transcript="${transcript}" extracted="${extractedKeyword}" confidence=${classification.confidence}`,
+        `[VoiceSearch] transcript="${this.redactTranscript(transcript)}" extracted="${extractedKeyword}" confidence=${classification.confidence}`,
       );
     }
 
@@ -2037,11 +2042,11 @@ export class AiService {
   private async rewriteVoiceSearchKeyword(transcript: string, extractedKeyword: string): Promise<string> {
     const shouldRewrite = this.shouldRewriteVoiceSearchKeyword(transcript, extractedKeyword);
     if (!shouldRewrite) {
-      this.logger.log(`[VoiceSearch] skip-rewrite transcript="${transcript}" extracted="${extractedKeyword}"`);
+      this.logger.log(`[VoiceSearch] skip-rewrite transcript="${this.redactTranscript(transcript)}" extracted="${extractedKeyword}"`);
       return extractedKeyword;
     }
 
-    this.logger.log(`[VoiceSearch] rewrite-request model=${this.QWEN_SEARCH_REWRITE_MODEL} transcript="${transcript}" extracted="${extractedKeyword}"`);
+    this.logger.log(`[VoiceSearch] rewrite-request model=${this.QWEN_SEARCH_REWRITE_MODEL} transcript="${this.redactTranscript(transcript)}" extracted="${extractedKeyword}"`);
 
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
@@ -2095,7 +2100,7 @@ export class AiService {
       const data = await response.json() as any;
       const content = data?.choices?.[0]?.message?.content;
       if (!content) {
-        this.logger.warn(`[VoiceSearch] rewrite-empty-response transcript="${transcript}" extracted="${extractedKeyword}"`);
+        this.logger.warn(`[VoiceSearch] rewrite-empty-response transcript="${this.redactTranscript(transcript)}" extracted="${extractedKeyword}"`);
         return extractedKeyword;
       }
 
@@ -2106,15 +2111,15 @@ export class AiService {
       const rewritten = this.cleanupSearchKeyword(parsed?.keyword || '');
 
       if (!rewritten) {
-        this.logger.warn(`[VoiceSearch] rewrite-empty-keyword transcript="${transcript}" extracted="${extractedKeyword}"`);
+        this.logger.warn(`[VoiceSearch] rewrite-empty-keyword transcript="${this.redactTranscript(transcript)}" extracted="${extractedKeyword}"`);
         return extractedKeyword;
       }
 
-      this.logger.log(`Qwen 搜索词重写："${transcript}" -> "${rewritten}"（原提取="${extractedKeyword}"）`);
+      this.logger.log(`Qwen 搜索词重写："${this.redactTranscript(transcript)}" -> "${rewritten}"（原提取="${extractedKeyword}"）`);
       return rewritten;
     } catch (err) {
       this.logger.error(`Qwen 搜索词重写异常：${err.message}`);
-      this.logger.warn(`[VoiceSearch] rewrite-fallback transcript="${transcript}" extracted="${extractedKeyword}"`);
+      this.logger.warn(`[VoiceSearch] rewrite-fallback transcript="${this.redactTranscript(transcript)}" extracted="${extractedKeyword}"`);
       return extractedKeyword;
     }
   }
