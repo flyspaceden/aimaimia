@@ -90,10 +90,63 @@ export class AdminProductsService {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('商品不存在');
 
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id },
       data: dto,
     });
+
+    // 记录运营（ops）提供的语义字段来源，写入 attributes.semanticMeta
+    // 格式与 SemanticFillService 保持一致：{ source: 'ops', updatedAt: ISO字符串 }
+    // canAiFill() 会检查 meta.source，source='ops' 时阻止 AI 覆盖运营已人工填写的数据
+    // 规则：字段非空 → source='ops'；字段显式传空 → 删除 source 条目，允许 AI 重新填充
+    const now = new Date().toISOString();
+    type OpsFieldMeta = { source: 'ops'; updatedAt: string };
+    // 使用 update 后的 attributes 作为基础，避免覆盖其他属性
+    const existingAttrs = (updated.attributes as Record<string, any>) || {};
+    const existingMeta = (existingAttrs.semanticMeta as Record<string, OpsFieldMeta>) || {};
+
+    if (dto.flavorTags !== undefined) {
+      if (dto.flavorTags.length > 0) {
+        existingMeta.flavorTags = { source: 'ops', updatedAt: now };
+      } else {
+        delete existingMeta.flavorTags;
+      }
+    }
+    if (dto.seasonalMonths !== undefined) {
+      if (dto.seasonalMonths.length > 0) {
+        existingMeta.seasonalMonths = { source: 'ops', updatedAt: now };
+      } else {
+        delete existingMeta.seasonalMonths;
+      }
+    }
+    if (dto.usageScenarios !== undefined) {
+      if (dto.usageScenarios.length > 0) {
+        existingMeta.usageScenarios = { source: 'ops', updatedAt: now };
+      } else {
+        delete existingMeta.usageScenarios;
+      }
+    }
+    if (dto.dietaryTags !== undefined) {
+      if (dto.dietaryTags.length > 0) {
+        existingMeta.dietaryTags = { source: 'ops', updatedAt: now };
+      } else {
+        delete existingMeta.dietaryTags;
+      }
+    }
+    if (dto.originRegion !== undefined) {
+      if (dto.originRegion) {
+        existingMeta.originRegion = { source: 'ops', updatedAt: now };
+      } else {
+        delete existingMeta.originRegion;
+      }
+    }
+
+    await this.prisma.product.update({
+      where: { id },
+      data: { attributes: { ...existingAttrs, semanticMeta: existingMeta } },
+    });
+
+    return updated;
   }
 
   /** 上下架 */
