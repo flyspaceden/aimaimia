@@ -230,6 +230,8 @@ export type AiVoiceResolved = {
   dietaryPreference?: string;
   promotionIntent?: 'threshold-optimization' | 'best-deal';
   bundleIntent?: 'meal-kit' | 'complement';
+  flavorPreference?: string;
+  categoryHint?: string;
 };
 
 export type AiVoiceClarifyCandidate = {

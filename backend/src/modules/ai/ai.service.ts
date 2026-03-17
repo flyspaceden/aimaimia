@@ -1000,6 +1000,8 @@ export class AiService {
         dietaryPreference: (classification.params?.dietaryPreference as string) || slots?.dietaryPreference,
         promotionIntent: slots?.promotionIntent,
         bundleIntent: slots?.bundleIntent,
+        flavorPreference: (classification.params?.flavorPreference as string) || undefined,
+        categoryHint: (classification.params?.categoryHint as string) || undefined,
       } : undefined,
       fallbackReason: hasStructuredSearch ? undefined : 'missing-query',
     });
@@ -1227,6 +1229,8 @@ export class AiService {
         dietaryPreference: (classification.params?.dietaryPreference as string) || slots?.dietaryPreference,
         promotionIntent: slots?.promotionIntent,
         bundleIntent: slots?.bundleIntent,
+        flavorPreference: (classification.params?.flavorPreference as string) || undefined,
+        categoryHint: (classification.params?.categoryHint as string) || undefined,
       },
     });
   }

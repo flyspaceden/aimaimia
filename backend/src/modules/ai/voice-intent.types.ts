@@ -134,6 +134,8 @@ export interface AiVoiceResolved {
   dietaryPreference?: string;
   promotionIntent?: 'threshold-optimization' | 'best-deal';
   bundleIntent?: 'meal-kit' | 'complement';
+  flavorPreference?: string;
+  categoryHint?: string;
 }
 
 export interface AiVoiceClarifyCandidate {

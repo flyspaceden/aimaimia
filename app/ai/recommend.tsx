@@ -334,6 +334,13 @@ export default function AiRecommendScreen() {
     constraints?: string;
     maxPrice?: string;
     recommendThemes?: string;
+    usageScenario?: string;
+    promotionIntent?: string;
+    bundleIntent?: string;
+    originPreference?: string;
+    dietaryPreference?: string;
+    flavorPreference?: string;
+    categoryHint?: string;
   }>();
 
   const query = normalizeSingleParam(params.q)?.trim() || '';
@@ -357,6 +364,14 @@ export default function AiRecommendScreen() {
     || recommendThemes.length > 0
     || (!query && !categoryId && !budget && constraints.length === 0);
   const isVoiceSource = source === 'voice';
+  // 语义槽参数（来自语音意图解析）
+  const usageScenario = normalizeSingleParam(params.usageScenario) || undefined;
+  const promotionIntent = normalizeSingleParam(params.promotionIntent) as 'threshold-optimization' | 'best-deal' | undefined;
+  const bundleIntent = normalizeSingleParam(params.bundleIntent) as 'meal-kit' | 'complement' | undefined;
+  const originPreference = normalizeSingleParam(params.originPreference) || undefined;
+  const dietaryPreference = normalizeSingleParam(params.dietaryPreference) || undefined;
+  const flavorPreference = normalizeSingleParam(params.flavorPreference) || undefined;
+  const categoryHint = normalizeSingleParam(params.categoryHint) || undefined;
   const localSummary = useMemo(
     () => buildRecommendSummary({ query, categoryName, budget, constraints, recommendThemes }),
     [budget, categoryName, constraints, query, recommendThemes],
@@ -393,6 +408,13 @@ export default function AiRecommendScreen() {
       constraints.join('|'),
       recommendThemes.join('|'),
       preferRecommended ? '1' : '0',
+      usageScenario ?? '',
+      promotionIntent ?? '',
+      bundleIntent ?? '',
+      originPreference ?? '',
+      dietaryPreference ?? '',
+      flavorPreference ?? '',
+      categoryHint ?? '',
     ],
     queryFn: () => AiFeatureRepo.getRecommendPlan({
       query: query || undefined,
@@ -402,6 +424,13 @@ export default function AiRecommendScreen() {
       constraints,
       maxPrice: budget,
       recommendThemes,
+      usageScenario,
+      promotionIntent,
+      bundleIntent,
+      originPreference,
+      dietaryPreference,
+      flavorPreference,
+      categoryHint,
     }),
   });
 
