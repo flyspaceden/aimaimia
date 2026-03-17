@@ -417,19 +417,20 @@ export default function SearchScreen() {
     setPendingVoiceAction(undefined);
     setQuery(term);
     setSearchTerm(term);
+    // 任何手动搜索（键盘回车或热词点击）都清除语义参数，避免旧 AI 语义影响新结果
+    setSearchUsageScenario('');
+    setSearchOriginPreference('');
+    setSearchDietaryPreference('');
+    setSearchFlavorPreference(undefined);
+    setSearchCategoryHint(undefined);
     if (keyword) {
+      // 热词点击时额外清除分类/推荐相关参数
       setSearchCategoryId(undefined);
       setSearchCategoryName(undefined);
       setPreferRecommendedOnly(false);
       setSearchConstraints([]);
       setSearchMaxPrice(undefined);
       setSearchRecommendThemes([]);
-      // 热词选择时清除语义参数
-      setSearchUsageScenario('');
-      setSearchOriginPreference('');
-      setSearchDietaryPreference('');
-      setSearchFlavorPreference(undefined);
-      setSearchCategoryHint(undefined);
     }
     setSubmitted(true);
     addRecent(term);

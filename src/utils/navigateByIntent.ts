@@ -395,6 +395,20 @@ function resolveRecommendIntent(intent: AiVoiceIntent): IntentResult {
         : recommend?.recommendThemes?.length
           ? { recommendThemes: recommend.recommendThemes.join(',') }
           : {}),
+      // 语义槽位：优先 resolved（若字段存在），回退到 intent.slots
+      ...(resolved?.usageScenario || intent.slots?.usageScenario
+        ? { usageScenario: resolved?.usageScenario || intent.slots?.usageScenario || '' } : {}),
+      ...(resolved?.promotionIntent || intent.slots?.promotionIntent
+        ? { promotionIntent: resolved?.promotionIntent || intent.slots?.promotionIntent || '' } : {}),
+      ...(resolved?.bundleIntent || intent.slots?.bundleIntent
+        ? { bundleIntent: resolved?.bundleIntent || intent.slots?.bundleIntent || '' } : {}),
+      ...(resolved?.originPreference || intent.slots?.originPreference
+        ? { originPreference: resolved?.originPreference || intent.slots?.originPreference || '' } : {}),
+      ...(resolved?.dietaryPreference || intent.slots?.dietaryPreference
+        ? { dietaryPreference: resolved?.dietaryPreference || intent.slots?.dietaryPreference || '' } : {}),
+      // flavorPreference / categoryHint 仅在 AiVoiceDemandSlots 中定义，从 slots 读取
+      ...(intent.slots?.flavorPreference ? { flavorPreference: intent.slots.flavorPreference } : {}),
+      ...(intent.slots?.categoryHint ? { categoryHint: intent.slots.categoryHint } : {}),
     },
   };
 }

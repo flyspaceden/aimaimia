@@ -28,6 +28,45 @@ const WAVE_BARS = [
   { base: 18, peak: 14, delay: 40 },
 ];
 
+// 识别中跳动圆点
+function AnimatedDot({ delay, color }: { delay: number; color: string }) {
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(0.4);
+  useEffect(() => {
+    translateY.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(-8, { duration: 300 }),
+          withTiming(0, { duration: 300 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 300 }),
+          withTiming(0.4, { duration: 300 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+  }, [delay, translateY, opacity]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.dot, { backgroundColor: color }, animStyle]} />
+  );
+}
+
 function AnimatedWaveBar({ base, peak, delay, color }: { base: number; peak: number; delay: number; color: string }) {
   const height = useSharedValue(base);
   useEffect(() => {
@@ -142,16 +181,13 @@ export function VoiceOverlay({
             <Text style={{ fontSize: 14 }}>🎤</Text>
           </View>
           <Text style={[typography.bodySm, { color: colors.ai.start, fontWeight: '600' }]}>
-            识别中...
+            {feedbackText || '识别中...'}
           </Text>
         </View>
         {/* 三点跳动 */}
         <View style={styles.dotsRow}>
-          {[0, 1, 2].map((i) => (
-            <View
-              key={i}
-              style={[styles.dot, { backgroundColor: colors.ai.start }]}
-            />
+          {[0, 150, 300].map((delay, i) => (
+            <AnimatedDot key={i} delay={delay} color={colors.ai.start} />
           ))}
         </View>
       </Animated.View>
@@ -166,7 +202,7 @@ export function VoiceOverlay({
 
   // 使用 Modal 让反馈浮层渲染到原生层级，逃出 AiFloatingCompanion wrapper 的坐标系
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent>
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onDismiss}>
       <Animated.View
         entering={SlideInUp.duration(300)}
         exiting={FadeOut.duration(200)}
