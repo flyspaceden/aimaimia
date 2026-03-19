@@ -242,7 +242,7 @@ export default function CartScreen() {
                 <Text style={[typography.bodySm, { color: colors.text.primary, marginLeft: spacing.xs }]}>全选</Text>
               </Pressable>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>
-                已选 {selCount}/{items.length}
+                已选 {items.filter((item) => selectedIds.has(item.skuId ? `${item.productId}:${item.skuId}` : item.productId)).reduce((sum, item) => sum + item.quantity, 0)}/{items.reduce((sum, item) => sum + item.quantity, 0)}
               </Text>
             </View>
           </>
