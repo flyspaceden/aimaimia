@@ -186,10 +186,8 @@ export function useVoiceRecording(
 
     switch (result.action) {
       case 'navigate':
-        if (result.toastText) {
-          showToast({ message: result.toastText, type: 'success', duration: 2000 });
-          setFeedbackText(result.toastText);
-        }
+        // 不显示 toast — 导航立即发生，toast 会残留在结果页上方造成"搜到了但还显示正在搜索"的错觉
+        // 如需反馈文案，由目标页自行处理（如搜索页的 AI 摘要）
         setActionRoute(result.route || null);
         setActionParams(result.params || null);
         break;
