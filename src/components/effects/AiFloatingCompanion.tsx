@@ -497,44 +497,6 @@ export function AiFloatingCompanion() {
         />
       )}
 
-      {/* 上下文菜单 */}
-      {menuVisible && (
-        <Animated.View
-          style={[
-            styles.menu,
-            shadow.md,
-            {
-              backgroundColor: colors.surface,
-              borderRadius: radius.lg,
-              borderColor: colors.border,
-              bottom: 64,
-              right: 16,
-            },
-            menuAnimStyle,
-          ]}
-        >
-          {menuItems.map((item, index) => (
-            <Pressable
-              key={item.label}
-              onPress={() => handleMenuItemPress(item)}
-              style={[
-                styles.menuItem,
-                {
-                  borderBottomWidth: index < menuItems.length - 1 ? 1 : 0,
-                  borderBottomColor: colors.divider,
-                  paddingHorizontal: spacing.lg,
-                  paddingVertical: spacing.md,
-                },
-              ]}
-            >
-              <Text style={[typography.bodySm, { color: colors.text.primary }]}>
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
-        </Animated.View>
-      )}
-
       {/* 语音录音 UI */}
       <VoiceOverlay
         isRecording={voice.isRecording}
@@ -574,17 +536,53 @@ export function AiFloatingCompanion() {
         />
       )}
 
-      {/* 浮动光球 + 手势 */}
+      {/* 浮动光球 + 手势（渲染在菜单之前，菜单在其上方覆盖） */}
       <GestureDetector gesture={composed}>
         <Animated.View
           style={[styles.orbContainer, orbAnimStyle]}
-          // 菜单可见时取消 hitSlop，防止光球触摸区域遮挡菜单项
-          hitSlop={menuVisible ? undefined : isDocked ? { left: 24, top: 20, bottom: 20, right: 8 } : { left: 16, top: 16, bottom: 16, right: 16 }}
-          pointerEvents={menuVisible ? 'none' : 'auto'}
+          hitSlop={isDocked ? { left: 24, top: 20, bottom: 20, right: 8 } : { left: 16, top: 16, bottom: 16, right: 16 }}
         >
           <AiOrb size="small" interactive={false} />
         </Animated.View>
       </GestureDetector>
+
+      {/* 上下文菜单（渲染在光球之后，z-index 更高，触摸优先级高于光球） */}
+      {menuVisible && (
+        <Animated.View
+          style={[
+            styles.menu,
+            shadow.md,
+            {
+              backgroundColor: colors.surface,
+              borderRadius: radius.lg,
+              borderColor: colors.border,
+              bottom: 64,
+              right: 16,
+            },
+            menuAnimStyle,
+          ]}
+        >
+          {menuItems.map((item, index) => (
+            <Pressable
+              key={item.label}
+              onPress={() => handleMenuItemPress(item)}
+              style={[
+                styles.menuItem,
+                {
+                  borderBottomWidth: index < menuItems.length - 1 ? 1 : 0,
+                  borderBottomColor: colors.divider,
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.md,
+                },
+              ]}
+            >
+              <Text style={[typography.bodySm, { color: colors.text.primary }]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          ))}
+        </Animated.View>
+      )}
     </View>
   );
 }
