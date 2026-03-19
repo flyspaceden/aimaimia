@@ -51,7 +51,7 @@
 - ✅ 推荐类语音已完成（预算导购 / 组合推荐 / 语义场景推荐）
 - ✅ 交易类语音意图已完成（付款 / 订单 / 售后）
 - ✅ **Phase B 语义意图升级已完成**：7 语义槽位 + Flash→Plus 管道 + Product 语义字段 + 多维评分 + out-of-domain 引导 + 真机测试通过
-- ⬜ Phase C 待启动：满减凑单 / 搭配推荐 / 用户历史上下文 / Redis 热度缓存
+- ⬜ Phase C 待启动：凑单优化 / 搭配推荐 / 场景卡片协议 / 用户偏好摘要 / Redis 热度缓存 / AI 分析仪表盘
 - 🟢 AI 对话页已接入 Qwen-Plus 多轮对话（Phase 2 核心已实现）
 - 🟢 聊天页已切到 `chatWithContext()` 多轮对话，支持 suggestedActions 卡片 + followUpQuestions 快捷按钮
 - 🟢 首页 → 聊天页初始上下文注入已实现（"继续对话"按钮跳转）
@@ -1516,91 +1516,163 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 
 > **前置条件**：Phase B 已完成并通过真机测试。Phase C 在 Phase B 数据积累（存量商品 AI 填充）稳定后启动。
 
-### 15.1 满减凑单逻辑
+### 15.1 Phase C 启动原则
 
-**现状**：Phase B 中 `promotionIntent: 'threshold-optimization'` 降级为 `recommendThemes: ['discount']`（推荐优惠商品），不做真正的凑单计算。
+Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复杂推荐能力拆成独立能力：
+- 通用推荐仍使用 `GET /ai/recommend/plan`
+- 满减凑单独立为 `POST /ai/recommend/promotion-optimize`
+- 搭配推荐独立为 `POST /ai/recommend/bundle`
+
+**核心原则**：
+- 规则与结构化数据优先，LLM 只负责语义归一化、解释文案和兜底
+- 购物车、优惠活动、历史行为等“用户态能力”只在登录态下启用，匿名用户必须有降级路径
+- 场景化 UI 依赖后端协议先稳定，再做页面重构，避免前后端各自造临时结构
+- 观测和埋点先于分析后台，否则仪表盘会缺少可靠数据源
+
+**建议启动顺序**：
+- `C1` 满减凑单服务
+- `C2` 搭配推荐服务
+- `C3` 场景化推荐卡片协议 + UI
+- `C4` 用户历史偏好摘要注入
+- `C5` Redis 热度缓存
+- `C6` 管理后台 AI 意图分析仪表盘
+
+### 15.2 C1：满减凑单服务
+
+**现状**：Phase B 中 `promotionIntent: 'threshold-optimization'` 仅降级为 `recommendThemes: ['discount']`，不做真正凑单。
 
 **Phase C 目标**：
-- 读取当前生效的满减活动规则（门槛金额、优惠额度）
-- 读取用户购物车当前总金额
-- 计算差额，推荐能凑满门槛的商品组合（按性价比排序）
-- 前端展示"再买 ¥X 可减 ¥Y"引导卡片 + 凑单商品列表
+- 读取当前生效的满减活动规则（门槛金额、优惠额度、适用品类）
+- 读取用户购物车当前总金额、已选商品、可参与活动商品
+- 计算“距下一档门槛差额”，推荐 1~3 组凑单组合（优先低干扰、低超额、高折扣）
+- 购物车页展示“再买 ¥X 可减 ¥Y”卡片，支持一键加入推荐凑单商品
+
+**建议接口**：
+- `POST /ai/recommend/promotion-optimize`
+- 入参：`cartSnapshot / activePromotions / budgetGap / transcript / slots`
+- 出参：`targetPromotion / gapAmount / candidateBundles[] / explanation / fallbackMode`
 
 **涉及模块**：
-- 后端：`coupon` 模块（读取活动规则）+ `cart` 模块（读取购物车）+ 新建 `promotion-optimizer` 服务
-- 前端：推荐页新增凑单模式 UI，购物车页新增凑单入口
+- 后端：`coupon` 模块 + `cart` 模块 + 新建 `promotion-optimizer` 服务
+- 前端：购物车页新增凑单入口，推荐页支持凑单结果模式
 
-### 15.2 搭配推荐引擎
+**降级策略**：
+- 未登录：降级为折扣商品推荐
+- 无有效活动：返回普通优惠推荐
+- 购物车金额已达标：提示“当前已满足优惠条件”
 
-**现状**：Phase B 中 `bundleIntent: 'complement'` 降级为通用推荐，无真正搭配逻辑。
+### 15.3 C2：搭配推荐服务
+
+**现状**：Phase B 中 `bundleIntent: 'complement'` 仍降级为通用推荐，无真正搭配逻辑。
 
 **Phase C 目标**：
-- 基于当前商品/购物车内容，推荐互补商品（如买了牛肉推荐调料、配菜）
-- 数据来源：商品共购关系（历史订单中同时出现的商品对）+ 品类互补规则
-- 后端定时任务计算商品共购矩阵，存入 Redis
+- 基于当前商品或购物车上下文，推荐互补商品（如买牛肉推荐调料、配菜、火锅底料）
+- 数据来源分两层：
+  - 第一层：品类互补规则（可控、可解释）
+  - 第二层：历史共购关系（订单中高频共现商品对）
+- 支持“单商品搭配”和“购物车整体补全”两种模式
+
+**建议接口**：
+- `POST /ai/recommend/bundle`
+- 入参：`productId? / cartProductIds? / transcript / slots`
+- 出参：`bundleMode / anchorItems[] / recommendations[] / reasons[] / fallbackMode`
 
 **涉及模块**：
-- 后端：新建 `bundle-recommend` 服务，依赖 `order` 模块历史数据
-- 前端：商品详情页 / 购物车页新增"搭配推荐"卡片区域
+- 后端：新建 `bundle-recommend` 服务，依赖 `order` 模块与规则配置
+- 前端：商品详情页 / 购物车页新增“搭配推荐”卡片区域
 
-### 15.3 场景化推荐卡片 UI
+**降级策略**：
+- 无共购数据：回退到品类互补规则
+- 无规则命中：回退到当前分类热门商品
 
-**现状**：推荐结果以商品列表形式展示，无场景化包装。
+### 15.4 C3：场景化推荐卡片协议 + UI
+
+**现状**：推荐结果主要是商品列表，缺少场景包装与“一键成套”能力。
 
 **Phase C 目标**：
-- 当 `usageScenario` 存在时（如"晚餐做饭"），推荐页顶部展示场景卡片：标题（"晚餐食材推荐"）+ 场景图 + 一键加购按钮
-- 按场景分组展示商品（主食 / 配菜 / 调味料）
-- 支持"一键加购整套食材"
+- 当 `usageScenario` 存在时，推荐页顶部展示场景卡片，如“晚餐食材推荐”“露营备菜推荐”
+- 后端返回结构化分组结果，而不只是平铺商品列表
+- 支持“整套加购”“按分组查看”“替换某一件商品”
+
+**建议协议扩展**：
+- 仍基于 `GET /ai/recommend/plan`
+- 返回新增字段：`mode / scenarioCard / groupedSections[] / bundleCta`
+- `groupedSections[]` 示例：`主菜 / 配菜 / 调味 / 加购补充`
 
 **涉及模块**：
-- 前端：推荐页 UI 重构，新增场景卡片组件
-- 后端：推荐接口返回分组结构（按品类/用途分组）
+- 后端：推荐接口增加场景分组结构
+- 前端：推荐页 UI 重构，新增场景卡片、一键整套加购、分组列表
 
-### 15.4 用户历史上下文注入
+**降级策略**：
+- 无 `usageScenario`：保持当前列表模式
+- 分组失败：展示普通推荐列表，不阻断结果页
 
-**现状**：每次语音/搜索独立处理，不考虑用户历史。
+### 15.5 C4：用户历史偏好摘要注入
+
+**现状**：推荐链路按单次请求处理，不利用用户近期行为。
 
 **Phase C 目标**：
-- 将用户最近 7 天的搜索记录、购买记录、收藏记录注入 LLM 推荐 prompt
-- 实现"根据你最近买的 XX，推荐搭配的 YY"
-- 避免重复推荐已购商品（除非是高频消耗品）
+- 汇总用户最近 7~30 天行为，形成结构化偏好摘要，而不是把原始流水直接塞给 LLM
+- 摘要包含：高频品类、价格带、复购品、已购排除项、偏好标签
+- 实现“根据你最近买的 XX，推荐搭配 YY”“减少重复推荐”
+
+**建议实现方式**：
+- 新建 `user-preference-summary` 生成逻辑
+- 先用规则/统计生成摘要，再注入推荐 prompt 或排序逻辑
+- LLM 只消费摘要文本或结构化摘要，不直接读取原始历史明细
 
 **涉及模块**：
-- 后端：`ai.service.ts` 推荐 prompt 注入用户上下文（从 `order`/`cart`/搜索历史读取）
-- 需要用户登录态才能使用（匿名用户降级为无历史推荐）
+- 后端：`order` / `cart` / 搜索历史 / 收藏记录
+- 需要登录态；匿名用户继续走无历史推荐
 
-### 15.5 Redis 热度缓存 + 定时刷新
+**降级策略**：
+- 无登录态：不使用历史上下文
+- 历史数据稀疏：只使用近期搜索或当前会话上下文
 
-**现状**：Phase B 用 `createdAt` 新鲜度替代热度分（新商品 +0~10 分），无真实热度数据。
+### 15.6 C5：Redis 热度缓存 + 定时刷新
+
+**现状**：Phase B 以 `createdAt` 新鲜度替代热度分，无真实热点信号。
 
 **Phase C 目标**：
-- 定时任务（每小时）计算每个商品的热度分：`hotScore = (7日订单量 + 浏览量×0.1 + 收藏量×0.3) / 归一化因子`
-- 存入 Redis，搜索评分时读取叠加
-- 管理后台可手动 boost 指定商品
+- 每小时计算商品热度分：`hotScore = 7日订单量 + 浏览量×0.1 + 收藏量×0.3`
+- 归一化后写入 Redis，搜索/推荐排序实时读取
+- 支持后台对特定商品做手动 boost
 
 **涉及模块**：
-- 后端：新建 `hot-score` 定时任务，写入 Redis
-- `product.service.ts` 搜索时从 Redis 读取 hotScore 叠加到总分
+- 后端：新建 `hot-score` 定时任务与 Redis key 规范
+- `product.service.ts` / 推荐服务读取 hotScore 叠加到排序分
 
-### 15.6 管理后台 AI 意图分析仪表盘
+**降级策略**：
+- Redis 不可用：回退到当前 `createdAt` 新鲜度逻辑
+- 某商品无缓存：hotScore 视为 0，不阻塞搜索
 
-**现状**：Phase B 有结构化日志（pipeline/intent/slotKeys/degradeLevel），但只能通过日志查询查看。
+### 15.7 C6：管理后台 AI 意图分析仪表盘
+
+**现状**：Phase B 只有结构化日志，尚未形成稳定的分析数据源。
 
 **Phase C 目标**：
-- 管理后台新增"AI 意图分析"页面
-- 展示指标趋势图：搜索点击率、推荐转化率、澄清率、out-of-domain 占比、Plus 升级率、Level C 降级率、平均延迟
+- 管理后台新增“AI 意图分析”页面
+- 展示趋势指标：搜索点击率、推荐转化率、澄清率、out-of-domain 占比、Plus 升级率、Level C 降级率、平均延迟
 - 支持按时间范围、intent 类型、pipeline 层级筛选
 - 展示高频 transcript 词云（脱敏后）
 
+**前置依赖**：
+- 先补统一埋点或聚合表，不能直接依赖原始日志做 BI
+- 建议新增 `ai_analytics_events` 或离线聚合任务
+
 **涉及模块**：
-- 后端：新建 `ai-analytics` 模块，从日志/数据库聚合指标
-- 前端：管理后台新增仪表盘页面（@ant-design/charts）
+- 后端：新建 `ai-analytics` 模块，从事件表/聚合表读取指标
+- 前端：管理后台新增仪表盘页面（`@ant-design/charts`）
+
+**降级策略**：
+- Phase C 初期先做表格 + 基础折线图
+- 词云与复杂筛选可后续迭代，不阻塞首版上线
 
 ---
 
 ## 16. 已知问题与调试记录
 
-### 14.1 已解决问题
+### 16.1 已解决问题
 
 | 问题 | 原因 | 修复 |
 |------|------|------|
@@ -1615,11 +1687,12 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 | Loading 圆圈不旋转 | MaterialCommunityIcons 'loading' 是静态图标 | 改用 React Native ActivityIndicator |
 | Only one Recording object | 上一次录音未释放 | handleLongPress 开头清理 recordingRef |
 
-### 14.2 当前限制
+### 16.2 当前限制
 
 - **聊天页语音输入未实现**：聊天页已支持文字多轮对话（Qwen-Plus），但语音输入（ASR → 文字 → Qwen-Plus）尚未接入
-- **动作语音当前仅接在首页入口**：购物车页、订单页等上下文页内还没有独立语音入口
-- **统一 `resolved intent` 协议仍在过渡态**：后端已回填 `intent / confidence / slots / resolved / fallbackReason`，但前端执行层仍保留旧 `type + param + feedback` 降级链，会话/落库链路也还没切到统一结构
+- ~~**动作语音当前仅接在首页入口**~~：✅ Phase B 已解决 — 浮动 AI 伴侣覆盖所有页面（首页除外，首页有独立语音入口）
+- ~~**统一 `resolved intent` 协议仍在过渡态**~~：✅ Phase B 已解决 — 前后端统一使用 `slots / resolved / fallbackReason` 协议，7 个语义槽位 + 9 个 resolved 字段全链路打通
 - **录音偶尔启动失败**：连续多次录音时，iOS 音频会话可能未完全释放，需要等待几秒再试
 - **识别延迟**：全链路约 2-4 秒（含上传 + ASR + 意图识别），体感偏慢
   - 已于 **2026-03-11** 确认本轮修复方案：`max_end_silence=400ms`、`sentence_end` 提前返回、问候类短句绕过 Qwen、补充分段耗时日志
+  - Phase B 新增 Flash→Plus 条件升级，明确指令走 Flash (~300ms)，复杂表达才升级 Plus (~1.5s)
