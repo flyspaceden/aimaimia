@@ -94,7 +94,17 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
     ...(resolvedCategoryHint ? { categoryHint: resolvedCategoryHint } : {}),
   };
 
-  // 匹配到具体商品 → 直接跳商品详情
+  // 加购意图 + 匹配到商品 → 跳搜索页执行加购（搜索页有加购逻辑）
+  if (intent.search?.action === 'add-to-cart' && resolvedProductId) {
+    return {
+      action: 'navigate',
+      route: '/search',
+      params: searchParams,
+      toastText: intent.feedback,
+    };
+  }
+
+  // 匹配到具体商品（非加购）→ 直接跳商品详情
   if (resolvedProductId) {
     return {
       action: 'navigate',
