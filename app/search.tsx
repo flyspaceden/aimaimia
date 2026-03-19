@@ -149,7 +149,7 @@ export default function SearchScreen() {
   }>();
   const { show } = useToast();
   const addItem = useCartStore((s) => s.addItem);
-  const cartItemCount = useCartStore((s) => s.items.length);
+  const cartItemCount = useCartStore((s) => s.items.reduce((sum, item) => sum + item.quantity, 0));
   const inputRef = useRef<TextInput>(null);
   const handledVoiceActionRef = useRef<string>('');
   const rawQuery = Array.isArray(q) ? q[0] : q;
