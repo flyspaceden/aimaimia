@@ -578,8 +578,9 @@ export function AiFloatingCompanion() {
       <GestureDetector gesture={composed}>
         <Animated.View
           style={[styles.orbContainer, orbAnimStyle]}
-          // 扩大触摸区域：停靠时大范围，展开时也加大防止长按偏移
-          hitSlop={isDocked ? { left: 24, top: 20, bottom: 20, right: 8 } : { left: 16, top: 16, bottom: 16, right: 16 }}
+          // 菜单可见时取消 hitSlop，防止光球触摸区域遮挡菜单项
+          hitSlop={menuVisible ? undefined : isDocked ? { left: 24, top: 20, bottom: 20, right: 8 } : { left: 16, top: 16, bottom: 16, right: 16 }}
+          pointerEvents={menuVisible ? 'none' : 'auto'}
         >
           <AiOrb size="small" interactive={false} />
         </Animated.View>
