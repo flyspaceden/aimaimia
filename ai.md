@@ -19,7 +19,8 @@
 11. [常见问题](#11-常见问题)
 12. [后续升级路线](#12-后续升级路线)
 13. [实施进度](#13-实施进度)
-14. [已知问题与调试记录](#14-已知问题与调试记录)
+14. [语义意图升级（Phase B）](#14-语义意图升级phase-b)
+15. [已知问题与调试记录](#15-已知问题与调试记录)
 
 ---
 
@@ -44,10 +45,12 @@
 - ✅ 录音时按钮动画反馈（脉动光环 + 扩散波纹）
 - ✅ 识别中 Loading 动画（ActivityIndicator 旋转）
 - ✅ chat 意图在首页展示回复，不强制跳转
-- ⬜ 语音入口尚未扩到购物车、订单等上下文页内
-- 🟡 统一语音路由器重构已启动（目标：`ASR -> 分类器 -> 槽位 -> 实体 -> 执行`）
-- 🟡 推荐类语音已拆到专用意图，当前已覆盖推荐搜索 / 预算推荐，并开始由后端编排组合导购方案，复杂组合重排待继续补齐
-- 🟡 交易类语音已拆到专用意图，但推荐/退款等深层业务校验仍待继续补齐
+- ✅ 语音入口已扩展到所有页面（浮动 AI 伴侣，含上下文菜单）
+- ✅ 统一语音路由器已完成（`ASR -> 分类器 -> 槽位 -> 实体 -> 执行`）
+- ✅ 推荐类语音已完成（预算导购 / 组合推荐 / 语义场景推荐）
+- ✅ 交易类语音意图已完成（付款 / 订单 / 售后）
+- ✅ **Phase B 语义意图升级已完成**：7 语义槽位 + Flash→Plus 管道 + Product 语义字段 + 多维评分 + out-of-domain 引导 + 真机测试通过
+- ⬜ Phase C 待启动：满减凑单 / 搭配推荐 / 用户历史上下文 / Redis 热度缓存
 - 🟢 AI 对话页已接入 Qwen-Plus 多轮对话（Phase 2 核心已实现）
 - 🟢 聊天页已切到 `chatWithContext()` 多轮对话，支持 suggestedActions 卡片 + followUpQuestions 快捷按钮
 - 🟢 首页 → 聊天页初始上下文注入已实现（"继续对话"按钮跳转）
@@ -1436,8 +1439,8 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 | **Phase 1.1** | ASR 细分耗时（`connect / wait_final / total`） | ✅ 已完成 |
 | **Phase 1.1** | 问候类短句规则命中，绕过 Qwen | ✅ 已完成 |
 | **Phase 1.1** | 语音链路分段耗时埋点与复测 | ✅ 已完成 |
-| **Phase 1.2** | 统一语音路由器（分类器 / 槽位 / 实体 / 执行） | 🟡 进行中 |
-| **Phase 1.2** | Qwen 模型分工（`flash` 分类/抽取/实体 / `plus` 推荐） | 🟡 进行中 |
+| **Phase 1.2** | 统一语音路由器（分类器 / 槽位 / 实体 / 执行） | ✅ 已完成 |
+| **Phase 1.2** | Qwen 模型分工（`flash` 分类/抽取/实体 / `plus` 推荐） | ✅ 已完成 |
 | **Phase 1.2** | 动作类语音意图（购物车 / 结算 / 页面跳转） | ✅ 已完成 |
 | **Phase 1.2** | 搜索页商品检索切到后端关键词搜索 | ✅ 已完成 |
 | **Phase 1.2** | 搜索实体解析第一阶段（实时分类树 + 父分类召回 + `qwen-flash` 候选匹配） | ✅ 已完成 |
@@ -1445,8 +1448,8 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 | **Phase 1.2** | 语音搜索返回结构化搜索参数并传递到搜索页 | ✅ 已完成 |
 | **Phase 1.2** | 搜索结果开始消费 `preferRecommended / constraints` 做排序 | ✅ 已完成 |
 | **Phase 1.2** | 交易类语音意图（付款 / 订单 / 售后） | ✅ 已完成 |
-| **Phase 1.2** | `resolved intent` 统一返回协议（后端产出 + 首页消费） | 🟡 进行中 |
-| **Phase 1.2** | 推荐类语音意图（预算导购 / 组合推荐） | 🟡 进行中 |
+| **Phase 1.2** | `resolved intent` 统一返回协议（后端产出 + 首页消费） | ✅ 已完成 |
+| **Phase 1.2** | 推荐类语音意图（预算导购 / 组合推荐） | ✅ 已完成 |
 | **Phase 2** | AI 聊天页接入真实 `/ai/sessions` 会话链路 | ✅ 已完成 |
 | **Phase 2** | 后端 AiSession / AiUtterance 基础落库 | ✅ 已完成 |
 | **Phase 2** | `chatWithContext()` 方法（Qwen-Plus 多轮 + suggestedActions） | ✅ 已完成 |
@@ -1455,6 +1458,23 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 | **Phase 2** | 前端 followUpQuestions 快捷按钮渲染 | ✅ 已完成 |
 | **Phase 2** | 聊天页语音输入（ASR → 文字 → Qwen-Plus） | ⬜ 未开始 |
 | **Phase 2** | 首页 → 聊天页初始上下文注入 | ✅ 已完成 |
+| **Phase B** | 语义槽位扩展（7 个新槽位 + fallbackReason 分流） | ✅ 已完成 |
+| **Phase B** | Flash→Plus 条件升级管道 + 质量检查 | ✅ 已完成 |
+| **Phase B** | Product 语义字段（5 字段 + AI 填充 + semanticMeta 追踪） | ✅ 已完成 |
+| **Phase B** | 多维语义评分引擎 + 中英文约束映射 + 三级降级 | ✅ 已完成 |
+| **Phase B** | 搜索/推荐全链路语义参数透传（前端→Repo→Controller→Service） | ✅ 已完成 |
+| **Phase B** | 卖家/管理后台语义标签编辑 + AI 重新生成 | ✅ 已完成 |
+| **Phase B** | out-of-domain 引导式回复 + chat 页接收 | ✅ 已完成 |
+| **Phase B** | 浮动伴侣菜单升级为语义槽位格式 | ✅ 已完成 |
+| **Phase B** | 隐私脱敏日志 + 3 个功能开关 + Prisma migration | ✅ 已完成 |
+| **Phase B** | 42 个单元测试（评分 + 质量检查） | ✅ 已完成 |
+| **Phase B** | 真机测试通过（Expo Go） | ✅ 已完成 |
+| **Phase C** | 满减凑单逻辑（promotionIntent 真实计算） | ⬜ 未开始 |
+| **Phase C** | 搭配推荐引擎（bundleIntent 真实推荐） | ⬜ 未开始 |
+| **Phase C** | 场景化推荐卡片 UI | ⬜ 未开始 |
+| **Phase C** | 用户历史上下文注入（购买记录/搜索记录影响推荐） | ⬜ 未开始 |
+| **Phase C** | Redis 热度缓存 + 定时刷新 | ⬜ 未开始 |
+| **Phase C** | 管理后台 AI 意图分析仪表盘 | ⬜ 未开始 |
 | **Phase 3** | 流式 ASR 升级 | ⬜ 未开始 |
 | **Phase 4** | 上下文感知意图 | ⬜ 未开始 |
 | **Phase 5** | AI 智能推荐与 RAG | ⬜ 未开始 |
@@ -1463,35 +1483,35 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 
 ---
 
-## 13. 语义意图升级（Phase B）
+## 14. 语义意图升级（Phase B）
 
-### 13.1 语义槽位扩展
+### 14.1 语义槽位扩展
 
 新增 7 个语义槽位：usageScenario（使用场景）、promotionIntent（促销意图）、bundleIntent（组合购买）、dietaryPreference（饮食偏好）、freshness（新鲜度）、originPreference（产地偏好）、flavorPreference（口味偏好）。扩展用户查询的语义理解维度，提高商品匹配精准度。
 
-### 13.2 LLM 管道变化
+### 14.2LLM 管道变化
 
 意图识别流程升级为：Flash（初始分类）→ 质量检查（置信度 + 完整性验证）→ 条件升级 Plus（高风险或复杂查询才调用），平衡性能与精准度。
 
-### 13.3 fallbackReason 分流
+### 14.3fallbackReason 分流
 
 识别失败的原因分为三类：out-of-domain（超出业务范围）、too-vague（查询过于模糊）、unsafe（安全风险），指导前端降级策略。
 
-### 13.4 Product 语义字段
+### 14.4Product 语义字段
 
 商品新增语义字段：flavorTags（口味标签）、seasonalMonths（上市月份）、usageScenarios（应用场景）、dietaryTags（饮食类标签）、originRegion（产地区域）及 semanticMeta（源数据追踪，用于审计和更新）。
 
-### 13.5 搜索评分变化
+### 14.5搜索评分变化
 
 融合语义匹配权重到排序模型，支持三级降级策略（A 级：语义精确匹配、B 级：关键词部分匹配、C 级：后备数据驱动），提升搜索相关性。
 
-### 13.6 功能开关
+### 14.6功能开关
 
 引入三个环境变量控制增量灰度：AI_SEMANTIC_SLOTS_ENABLED（槽位抽取）、AI_PRODUCT_SEMANTIC_FIELDS_ENABLED（商品语义化）、AI_SEMANTIC_SCORING_ENABLED（语义评分）。
 
 ---
 
-## 14. 已知问题与调试记录
+## 15. 已知问题与调试记录
 
 ### 14.1 已解决问题
 
