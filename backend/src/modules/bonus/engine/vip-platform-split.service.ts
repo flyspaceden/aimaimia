@@ -3,11 +3,11 @@ import { PLATFORM_USER_ID } from './constants';
 
 /** VIP平台分割的 5 个池（奖励由 VipUpstreamService 处理） */
 interface VipPlatformPools {
-  platformProfit: number;  // 50%
-  industryFund: number;    // 16%
-  charityFund: number;     // 8%
-  techFund: number;        // 8%
-  reserveFund: number;     // 2%
+  platformProfit: number;
+  industryFund: number;
+  charityFund: number;
+  techFund: number;
+  reserveFund: number;
 }
 
 @Injectable()
@@ -17,11 +17,11 @@ export class VipPlatformSplitService {
   /**
    * VIP平台分割：处理除奖励外的 5 个池
    *
-   * - PLATFORM_PROFIT (50%) → 平台用户账户
-   * - INDUSTRY_FUND (16%) → 按商品利润占比分给各卖家公司 OWNER
-   * - CHARITY_FUND (8%) → 平台账户
-   * - TECH_FUND (8%) → 平台账户
-   * - RESERVE_FUND (2%) → 平台账户
+   * - PLATFORM_PROFIT → 平台用户账户
+   * - INDUSTRY_FUND → 按商品利润占比分给各卖家公司 OWNER
+   * - CHARITY_FUND → 平台账户
+   * - TECH_FUND → 平台账户
+   * - RESERVE_FUND → 平台账户
    */
   async split(
     tx: any,

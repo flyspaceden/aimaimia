@@ -157,7 +157,7 @@ export class BonusAllocationService {
             if (routing === 'VIP_UPSTREAM') {
               const resolvedVipPools = vipPools!;
               vipAncestorUserId = await this.executeVipUpstreamSixWay(tx, orderId, order.userId, order.totalAmount, resolvedVipPools, config);
-              // 7. VIP 平台六分分润（50/16/8/8/2）
+              // VIP 平台六分分润（默认50/10/2/2/6，可配置）
               await this.executeVipPlatformSplit(tx, orderId, resolvedVipPools, config.ruleVersion);
             } else if (routing === 'VIP_EXITED') {
               // VIP 已退出（解锁完毕），仍是VIP身份，奖励归平台（不回普通树）
