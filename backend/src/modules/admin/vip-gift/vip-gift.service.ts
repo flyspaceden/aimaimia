@@ -9,6 +9,7 @@ import {
   CreateVipGiftOptionDto,
   UpdateVipGiftOptionDto,
   UpdateVipGiftOptionStatusDto,
+  BatchSortVipGiftDto,
   VipGiftItemDto,
 } from './vip-gift.dto';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
@@ -244,6 +245,19 @@ export class VipGiftService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+  }
+
+  /** 批量排序赠品方案 */
+  async batchSort(dto: BatchSortVipGiftDto) {
+    await this.prisma.$transaction(
+      dto.items.map((item) =>
+        this.prisma.vipGiftOption.update({
+          where: { id: item.id },
+          data: { sortOrder: item.sortOrder },
+        }),
+      ),
+    );
+    return { ok: true };
   }
 
   /** 删除赠品方案（VipGiftItem 通过 onDelete: Cascade 自动删除） */

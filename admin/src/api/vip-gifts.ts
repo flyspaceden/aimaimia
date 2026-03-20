@@ -128,3 +128,8 @@ export const getRewardSkus = (productId?: string): Promise<RewardSkuOption[]> =>
 // 查询 SKU 引用情况
 export const getSkuReferences = (skuId: string): Promise<SkuReferenceInfo> =>
   client.get(`/admin/vip/gift-options/sku-references/${skuId}`);
+
+// 批量排序赠品方案
+export const batchSortVipGiftOptions = (
+  items: { id: string; sortOrder: number }[],
+): Promise<void> => client.put('/admin/vip/gift-options/batch/sort', { items });

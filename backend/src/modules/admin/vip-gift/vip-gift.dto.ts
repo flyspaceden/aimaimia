@@ -123,3 +123,21 @@ export class UpdateVipGiftOptionStatusDto {
   @IsEnum(VipGiftOptionStatus, { message: '状态不合法' })
   status: VipGiftOptionStatus;
 }
+
+/** 批量排序子项 */
+class VipGiftSortItem {
+  @IsString({ message: 'ID 必须为字符串' })
+  id: string;
+
+  @IsInt({ message: '排序值必须为整数' })
+  @Min(0, { message: '排序值不能小于 0' })
+  sortOrder: number;
+}
+
+/** 批量排序赠品方案 */
+export class BatchSortVipGiftDto {
+  @IsArray({ message: 'items 必须为数组' })
+  @ValidateNested({ each: true })
+  @Type(() => VipGiftSortItem)
+  items: VipGiftSortItem[];
+}

@@ -29,7 +29,23 @@ import {
   GiftOutlined,
   CloseOutlined,
   UploadOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   getVipGiftOptions,
@@ -38,6 +54,7 @@ import {
   updateVipGiftOptionStatus,
   deleteVipGiftOption,
   getRewardSkus,
+  batchSortVipGiftOptions,
 } from '@/api/vip-gifts';
 import type {
   VipGiftOption,
@@ -239,12 +256,50 @@ function CoverPreview({ mode, images }: { mode: CoverMode; images: string[] }) {
   );
 }
 
+/** 可拖拽的表格行 */
+function DraggableRow(props: React.HTMLAttributes<HTMLTableRowElement> & { 'data-row-key'?: string }) {
+  const id = props['data-row-key'] || '';
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <tr
+      {...props}
+      ref={setNodeRef}
+      style={{
+        ...props.style,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        cursor: 'default',
+      }}
+      {...attributes}
+    >
+      {props.children}
+    </tr>
+  );
+}
+
+/** 拖拽手柄 */
+function DragHandle({ id }: { id: string }) {
+  const { listeners, setActivatorNodeRef } = useSortable({ id });
+  return (
+    <HolderOutlined
+      ref={setActivatorNodeRef}
+      {...listeners}
+      style={{ cursor: 'grab', color: '#999', fontSize: 16 }}
+    />
+  );
+}
+
 export default function VipGiftsPage() {
   const actionRef = useRef<ActionType>(null);
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<VipGiftOption | null>(null);
   const [form] = Form.useForm();
+
+  // 拖拽排序相关
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [listData, setListData] = useState<VipGiftOption[]>([]);
 
   // 每行商品搜索状态（按 Form.List field.key 管理，key 是稳定且不会复用的）
   const [rowStates, setRowStates] = useState<Record<number, RowProductState>>({});
@@ -326,13 +381,39 @@ export default function VipGiftsPage() {
     },
   });
 
+  // 拖拽排序结束
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = listData.findIndex((item) => item.id === active.id);
+    const newIndex = listData.findIndex((item) => item.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = [...listData];
+    const [moved] = reordered.splice(oldIndex, 1);
+    reordered.splice(newIndex, 0, moved);
+
+    const updates = reordered.map((item, idx) => ({ id: item.id, sortOrder: idx }));
+
+    // 乐观更新 UI
+    setListData(reordered.map((item, idx) => ({ ...item, sortOrder: idx })));
+
+    try {
+      await batchSortVipGiftOptions(updates);
+      actionRef.current?.reload();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '排序保存失败');
+      actionRef.current?.reload();
+    }
+  };
+
   // 打开新增抽屉
   const openCreateDrawer = () => {
     setEditingRecord(null);
     setRowStates({});
     form.resetFields();
     form.setFieldsValue({
-      sortOrder: 0,
       status: 'ACTIVE',
       coverMode: 'AUTO_GRID',
       items: [{ quantity: 1 }],
@@ -362,7 +443,6 @@ export default function VipGiftsPage() {
       title: record.title,
       subtitle: record.subtitle || '',
       badge: record.badge || '',
-      sortOrder: record.sortOrder,
       status: record.status,
       coverMode: record.coverMode || 'AUTO_GRID',
       coverUrl: record.coverUrl || undefined,
@@ -398,7 +478,6 @@ export default function VipGiftsPage() {
         title: values.title,
         subtitle: values.subtitle || undefined,
         badge: values.badge || undefined,
-        sortOrder: values.sortOrder ?? 0,
         status: values.status ?? 'ACTIVE',
         coverMode: itemCount > 1 ? (values.coverMode ?? 'AUTO_GRID') : undefined,
         coverUrl: values.coverMode === 'CUSTOM' ? values.coverUrl : undefined,
@@ -476,6 +555,12 @@ export default function VipGiftsPage() {
   // 表格列定义
   const columns: ProColumns<VipGiftOption>[] = [
     {
+      title: '排序',
+      width: 60,
+      search: false,
+      render: (_: unknown, r: VipGiftOption) => <DragHandle id={r.id} />,
+    },
+    {
       title: '方案标题',
       dataIndex: 'title',
       width: 160,
@@ -516,12 +601,6 @@ export default function VipGiftsPage() {
       search: false,
       render: (_: unknown, r: VipGiftOption) =>
         r.badge ? <Tag color="gold">{r.badge}</Tag> : <Text type="secondary">-</Text>,
-    },
-    {
-      title: '排序值',
-      dataIndex: 'sortOrder',
-      width: 80,
-      search: false,
     },
     {
       title: '状态',
@@ -674,34 +753,46 @@ export default function VipGiftsPage() {
       />
 
       {/* 赠品方案列表 */}
-      <ProTable<VipGiftOption>
-        headerTitle="赠品方案列表"
-        actionRef={actionRef}
-        columns={columns}
-        rowKey="id"
-        scroll={{ x: 1100 }}
-        request={async (params) => {
-          const res = await getVipGiftOptions({
-            page: params.current || 1,
-            pageSize: params.pageSize || 20,
-            status: params.status || undefined,
-          });
-          return { data: res.items, total: res.total, success: true };
-        }}
-        pagination={{ defaultPageSize: 20 }}
-        search={{ labelWidth: 'auto' }}
-        toolBarRender={() => [
-          <PermissionGate key="add" permission={PERMISSIONS.VIP_GIFT_CREATE}>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={openCreateDrawer}
-            >
-              新增赠品方案
-            </Button>
-          </PermissionGate>,
-        ]}
-      />
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={listData.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+          <ProTable<VipGiftOption>
+            headerTitle="赠品方案列表"
+            actionRef={actionRef}
+            columns={columns}
+            rowKey="id"
+            scroll={{ x: 1100 }}
+            dataSource={listData}
+            request={async (params) => {
+              const res = await getVipGiftOptions({
+                page: params.current || 1,
+                pageSize: params.pageSize || 20,
+                status: params.status || undefined,
+              });
+              setListData(res.items);
+              return { data: res.items, total: res.total, success: true };
+            }}
+            pagination={{ defaultPageSize: 20 }}
+            search={{ labelWidth: 'auto' }}
+            components={{ body: { row: DraggableRow } }}
+            toolBarRender={() => [
+              <PermissionGate key="add" permission={PERMISSIONS.VIP_GIFT_CREATE}>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={openCreateDrawer}
+                >
+                  新增赠品方案
+                </Button>
+              </PermissionGate>,
+            ]}
+          />
+        </SortableContext>
+      </DndContext>
 
       {/* 新增/编辑抽屉 */}
       <Drawer
@@ -727,7 +818,6 @@ export default function VipGiftsPage() {
           form={form}
           layout="vertical"
           initialValues={{
-            sortOrder: 0,
             status: 'ACTIVE',
             coverMode: 'AUTO_GRID',
             items: [{ quantity: 1 }],
@@ -763,31 +853,19 @@ export default function VipGiftsPage() {
             <Input placeholder="如：热销、鲜品、产地直发" maxLength={20} showCount />
           </Form.Item>
 
-          <Space size="large">
-            <Form.Item name="sortOrder" label="排序值">
-              <InputNumber
-                min={0}
-                step={1}
-                precision={0}
-                placeholder="数字越小排序越靠前"
-                style={{ width: 200 }}
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="status"
-              label="状态"
-              rules={[{ required: true, message: '请选择状态' }]}
-            >
-              <Select
-                style={{ width: 200 }}
-                options={[
-                  { label: '上架', value: 'ACTIVE' },
-                  { label: '下架', value: 'INACTIVE' },
-                ]}
-              />
-            </Form.Item>
-          </Space>
+          <Form.Item
+            name="status"
+            label="状态"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select
+              style={{ width: 200 }}
+              options={[
+                { label: '上架', value: 'ACTIVE' },
+                { label: '下架', value: 'INACTIVE' },
+              ]}
+            />
+          </Form.Item>
 
           {/* ===== 商品列表 ===== */}
           <Divider orientation="left">组合商品</Divider>

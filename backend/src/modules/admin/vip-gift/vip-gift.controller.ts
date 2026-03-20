@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Param,
@@ -21,6 +22,7 @@ import {
   CreateVipGiftOptionDto,
   UpdateVipGiftOptionDto,
   UpdateVipGiftOptionStatusDto,
+  BatchSortVipGiftDto,
 } from './vip-gift.dto';
 
 @Public()
@@ -43,6 +45,19 @@ export class VipGiftController {
       pageSize ? parseInt(pageSize) : 20,
       status,
     );
+  }
+
+  /** 批量排序赠品方案（静态路由必须在参数路由 :id 之前） */
+  @Put('batch/sort')
+  @RequirePermission('vip_gift:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'vip_gift',
+    targetType: 'VipGiftOption',
+    isReversible: true,
+  })
+  batchSort(@Body() dto: BatchSortVipGiftDto) {
+    return this.vipGiftService.batchSort(dto);
   }
 
   /** 奖励商品 SKU 选择器（必须在 :id 路由之前） */
