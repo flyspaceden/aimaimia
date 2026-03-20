@@ -846,14 +846,6 @@ export default function VipGiftsPage() {
           </Form.Item>
 
           <Form.Item
-            name="badge"
-            label="标签"
-            rules={[{ max: 20, message: '标签不能超过20个字符' }]}
-          >
-            <Input placeholder="如：热销、鲜品、产地直发" maxLength={20} showCount />
-          </Form.Item>
-
-          <Form.Item
             name="status"
             label="状态"
             rules={[{ required: true, message: '请选择状态' }]}
