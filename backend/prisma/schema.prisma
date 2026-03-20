@@ -278,6 +278,13 @@ enum VipGiftOptionStatus {
   INACTIVE  // 下架，前台不可选
 }
 
+enum CoverMode {
+  AUTO_GRID      // 宫格拼图（默认）
+  AUTO_DIAGONAL  // 对角线分割
+  AUTO_STACKED   // 层叠卡片
+  CUSTOM         // 自定义上传
+}
+
 enum VipActivationStatus {
   PENDING     // 支付已确认，待进入激活流程
   ACTIVATING  // 正在执行 VIP 开通事务
@@ -1048,7 +1055,7 @@ model ProductSKU {
   orderItems       OrderItem[]
   inventoryLedgers InventoryLedger[]
   lotteryPrizes    LotteryPrize[]
-  vipGiftOptions   VipGiftOption[]
+  vipGiftItems     VipGiftItem[]
 }
 
 model ProductMedia {
@@ -2165,20 +2172,33 @@ model CouponTriggerEvent {
 // L 域：VIP 礼包赠品方案
 // =============================================
 model VipGiftOption {
-  id          String              @id @default(cuid())
-  title       String              // 方案标题（如"甄选红酒礼遇"）
-  subtitle    String?             // 副标题（如"法国波尔多干红 1 瓶"）
-  coverUrl    String?             // 封面图 URL
-  skuId       String              // 绑定的奖励商品 SKU
-  sku         ProductSKU          @relation(fields: [skuId], references: [id])
-  marketPrice Float?              // 市场参考价
-  badge       String?             // 前台标签（如"热销""鲜品""产地直发"）
-  sortOrder   Int                 @default(0) // 排序值，越小越靠前
-  status      VipGiftOptionStatus @default(ACTIVE)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id        String              @id @default(cuid())
+  title     String              // 方案标题
+  subtitle  String?             // 副标题
+  coverMode CoverMode           @default(AUTO_GRID) // 封面拼合样式
+  coverUrl  String?             // 仅 CUSTOM 模式使用
+  badge     String?             // 前台标签
+  sortOrder Int                 @default(0)
+  status    VipGiftOptionStatus @default(ACTIVE)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  items     VipGiftItem[]       // 组合商品列表
 
   @@index([status, sortOrder])
+}
+
+model VipGiftItem {
+  id           String        @id @default(cuid())
+  giftOptionId String
+  giftOption   VipGiftOption @relation(fields: [giftOptionId], references: [id], onDelete: Cascade)
+  skuId        String
+  sku          ProductSKU    @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  quantity     Int           @default(1)
+  sortOrder    Int           @default(0)
+  createdAt    DateTime      @default(now())
+
+  @@unique([giftOptionId, skuId])
+  @@index([giftOptionId])
 }
 
 // =============================================
