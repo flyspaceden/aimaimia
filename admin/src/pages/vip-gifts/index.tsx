@@ -68,6 +68,177 @@ interface RowProductState {
   selectedProductId?: string;
 }
 
+// ========== 封面样式预览组件 ==========
+const PREVIEW_SIZE = 120;
+const PLACEHOLDER_COLORS = ['#ffecd2', '#e8d5f5', '#d5f5e3', '#fce4ec', '#e3f2fd', '#fff9c4'];
+
+function CoverPreview({ mode, images }: { mode: CoverMode; images: string[] }) {
+  // 至少需要有占位色块
+  const count = Math.max(images.length, 2);
+  const slots = Array.from({ length: count }, (_, i) => images[i] || null);
+
+  const renderSlot = (index: number, style: React.CSSProperties) => {
+    const url = slots[index];
+    return (
+      <div
+        key={index}
+        style={{
+          background: url ? `url(${url}) center/cover no-repeat` : PLACEHOLDER_COLORS[index % PLACEHOLDER_COLORS.length],
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#999',
+          fontSize: 12,
+          ...style,
+        }}
+      >
+        {!url && `商品${index + 1}`}
+      </div>
+    );
+  };
+
+  const containerStyle: React.CSSProperties = {
+    width: PREVIEW_SIZE,
+    height: PREVIEW_SIZE,
+    borderRadius: 8,
+    overflow: 'hidden',
+    border: '1px solid #e8e8e8',
+    position: 'relative',
+    flexShrink: 0,
+  };
+
+  let content: React.ReactNode;
+
+  if (mode === 'AUTO_GRID') {
+    if (count <= 2) {
+      content = (
+        <div style={{ ...containerStyle, display: 'flex' }}>
+          {renderSlot(0, { flex: 1, borderRight: '1px solid #fff' })}
+          {renderSlot(1, { flex: 1 })}
+        </div>
+      );
+    } else if (count === 3) {
+      content = (
+        <div style={{ ...containerStyle, display: 'flex', flexDirection: 'column' }}>
+          {renderSlot(0, { flex: 1, borderBottom: '1px solid #fff' })}
+          <div style={{ flex: 1, display: 'flex' }}>
+            {renderSlot(1, { flex: 1, borderRight: '1px solid #fff' })}
+            {renderSlot(2, { flex: 1 })}
+          </div>
+        </div>
+      );
+    } else {
+      content = (
+        <div style={{ ...containerStyle, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, display: 'flex' }}>
+            {renderSlot(0, { flex: 1, borderRight: '1px solid #fff', borderBottom: '1px solid #fff' })}
+            {renderSlot(1, { flex: 1, borderBottom: '1px solid #fff' })}
+          </div>
+          <div style={{ flex: 1, display: 'flex' }}>
+            {renderSlot(2, { flex: 1, borderRight: '1px solid #fff' })}
+            {renderSlot(3, { flex: 1 })}
+          </div>
+          {count > 4 && (
+            <div style={{
+              position: 'absolute', bottom: 4, right: 4,
+              background: 'rgba(0,0,0,0.5)', color: '#fff',
+              borderRadius: 4, padding: '1px 6px', fontSize: 11,
+            }}>
+              +{count - 4}
+            </div>
+          )}
+        </div>
+      );
+    }
+  } else if (mode === 'AUTO_DIAGONAL') {
+    content = (
+      <div style={containerStyle}>
+        <svg viewBox="0 0 120 120" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+          <defs>
+            <clipPath id="diag-tl"><polygon points="0,0 120,0 0,120" /></clipPath>
+            <clipPath id="diag-br"><polygon points="120,0 120,120 0,120" /></clipPath>
+          </defs>
+          {slots[0] ? (
+            <image href={slots[0]} x="0" y="0" width="120" height="120" clipPath="url(#diag-tl)" preserveAspectRatio="xMidYMid slice" />
+          ) : (
+            <rect clipPath="url(#diag-tl)" width="120" height="120" fill={PLACEHOLDER_COLORS[0]} />
+          )}
+          {slots[1] ? (
+            <image href={slots[1]} x="0" y="0" width="120" height="120" clipPath="url(#diag-br)" preserveAspectRatio="xMidYMid slice" />
+          ) : (
+            <rect clipPath="url(#diag-br)" width="120" height="120" fill={PLACEHOLDER_COLORS[1]} />
+          )}
+          <line x1="0" y1="120" x2="120" y2="0" stroke="#fff" strokeWidth="2" />
+        </svg>
+        {!slots[0] && (
+          <div style={{ position: 'absolute', top: 20, left: 16, color: '#999', fontSize: 11 }}>商品1</div>
+        )}
+        {!slots[1] && (
+          <div style={{ position: 'absolute', bottom: 20, right: 16, color: '#999', fontSize: 11 }}>商品2</div>
+        )}
+      </div>
+    );
+  } else if (mode === 'AUTO_STACKED') {
+    content = (
+      <div style={{ ...containerStyle, background: '#f9f9f9' }}>
+        {/* 底层大图 */}
+        <div style={{
+          position: 'absolute', top: 8, left: 8, width: 80, height: 80, borderRadius: 8,
+          background: slots[0] ? `url(${slots[0]}) center/cover no-repeat` : PLACEHOLDER_COLORS[0],
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#999', fontSize: 11,
+        }}>
+          {!slots[0] && '商品1'}
+        </div>
+        {/* 叠加小图 */}
+        <div style={{
+          position: 'absolute', bottom: 8, right: 8, width: 64, height: 64, borderRadius: 8,
+          background: slots[1] ? `url(${slots[1]}) center/cover no-repeat` : PLACEHOLDER_COLORS[1],
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)', border: '2px solid #fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#999', fontSize: 11,
+        }}>
+          {!slots[1] && '商品2'}
+        </div>
+        {count > 2 && (
+          <div style={{
+            position: 'absolute', top: 16, right: 10, width: 48, height: 48, borderRadius: 8,
+            background: slots[2] ? `url(${slots[2]}) center/cover no-repeat` : PLACEHOLDER_COLORS[2],
+            boxShadow: '0 2px 6px rgba(0,0,0,0.12)', border: '2px solid #fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#999', fontSize: 10,
+          }}>
+            {!slots[2] && '商品3'}
+          </div>
+        )}
+      </div>
+    );
+  } else {
+    content = null;
+  }
+
+  if (!content) return null;
+
+  return (
+    <div style={{ marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+      <div>
+        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+          封面预览（买家端展示效果）
+        </Text>
+        {content}
+      </div>
+      <div style={{ flex: 1, paddingTop: 20 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {mode === 'AUTO_GRID' && '商品图片按宫格排列，2件左右各半，3件上1下2，4件以上2×2网格'}
+          {mode === 'AUTO_DIAGONAL' && '取前2件商品图片，沿对角线分割展示'}
+          {mode === 'AUTO_STACKED' && '商品图片层叠排列，有礼包视觉效果'}
+        </Text>
+      </div>
+    </div>
+  );
+}
+
 export default function VipGiftsPage() {
   const actionRef = useRef<ActionType>(null);
   const queryClient = useQueryClient();
@@ -439,6 +610,28 @@ export default function VipGiftsPage() {
 
   const summary = calculateSummary();
 
+  // 收集当前所有已选商品的图片 URL（用于封面预览）
+  const getItemImages = useCallback((): string[] => {
+    const images: string[] = [];
+    const items = form.getFieldValue('items') || [];
+    items.forEach((_: unknown, idx: number) => {
+      const fieldKey = fieldKeysRef.current[idx];
+      const productId = fieldKey != null ? rowStates[fieldKey]?.selectedProductId : undefined;
+      if (productId) {
+        const cachedProducts = queryClient.getQueryData<{ items: RewardProduct[] }>([
+          'reward-products-picker-vip',
+          rowStates[fieldKey]?.keyword || '',
+        ]);
+        const product = cachedProducts?.items?.find((p) => p.id === productId);
+        const url = product?.media?.[0]?.url;
+        if (url) {
+          images.push(url);
+        }
+      }
+    });
+    return images;
+  }, [form, rowStates, queryClient]);
+
   return (
     <div style={{ padding: 24 }}>
       {/* 页面标题 */}
@@ -683,6 +876,14 @@ export default function VipGiftsPage() {
                   <Radio value="CUSTOM">自定义上传</Radio>
                 </Radio.Group>
               </Form.Item>
+
+              {/* 封面预览 */}
+              {watchedCoverMode !== 'CUSTOM' && (
+                <CoverPreview
+                  mode={(watchedCoverMode || 'AUTO_GRID') as CoverMode}
+                  images={getItemImages()}
+                />
+              )}
 
               {watchedCoverMode === 'CUSTOM' && (
                 <Form.Item
