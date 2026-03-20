@@ -87,31 +87,39 @@ export function GiftCoverImage({
     );
   }
 
-  // AUTO_STACKED — 层叠偏移布局
+  // AUTO_STACKED — 层叠卡片布局（大图在底，小图叠在右下）
   if (coverMode === 'AUTO_STACKED' && images.length >= 2) {
-    const stackImages = images.slice(0, 3);
     return (
       <View style={[style, coverStyles.container]}>
-        {stackImages.map((uri, i) => (
-          <View
-            key={i}
-            style={[
-              coverStyles.stackedItem,
-              {
-                left: 10 + i * 20,
-                top: 10 + i * 12,
-                zIndex: stackImages.length - i,
-              },
-            ]}
-          >
+        {/* 底层大图 — 左上 */}
+        <View style={coverStyles.stackedBase}>
+          <Image
+            source={{ uri: images[0] }}
+            style={coverStyles.stackedImage}
+            contentFit="cover"
+            transition={300}
+          />
+        </View>
+        {/* 叠加小图 — 右下，带白色边框 */}
+        <View style={coverStyles.stackedOverlay}>
+          <Image
+            source={{ uri: images[1] }}
+            style={coverStyles.stackedImage}
+            contentFit="cover"
+            transition={300}
+          />
+        </View>
+        {/* 第三张（可选）— 右上角更小 */}
+        {images.length >= 3 && (
+          <View style={coverStyles.stackedThird}>
             <Image
-              source={{ uri }}
+              source={{ uri: images[2] }}
               style={coverStyles.stackedImage}
               contentFit="cover"
               transition={300}
             />
           </View>
-        ))}
+        )}
       </View>
     );
   }
@@ -241,15 +249,52 @@ const coverStyles = StyleSheet.create({
     height: '100%',
   },
   // AUTO_STACKED 布局
-  stackedItem: {
+  stackedBase: {
     position: 'absolute',
-    width: '60%',
-    height: '70%',
+    top: '5%',
+    left: '5%',
+    width: '68%',
+    height: '68%',
     borderRadius: 12,
     overflow: 'hidden',
+    zIndex: 1,
     shadowColor: '#000',
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.15,
     shadowOffset: { width: 2, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  stackedOverlay: {
+    position: 'absolute',
+    bottom: '5%',
+    right: '5%',
+    width: '55%',
+    height: '55%',
+    borderRadius: 10,
+    overflow: 'hidden',
+    zIndex: 2,
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 2, height: 2 },
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  stackedThird: {
+    position: 'absolute',
+    top: '15%',
+    right: '8%',
+    width: '42%',
+    height: '42%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    zIndex: 3,
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 1, height: 1 },
     shadowRadius: 4,
     elevation: 4,
   },
