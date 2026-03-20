@@ -75,11 +75,14 @@ export default function VipGiftsPage() {
   const [editingRecord, setEditingRecord] = useState<VipGiftOption | null>(null);
   const [form] = Form.useForm();
 
-  // 每行商品搜索状态（按 Form.List index 管理）
+  // 每行商品搜索状态（按 Form.List field.key 管理，key 是稳定且不会复用的）
   const [rowStates, setRowStates] = useState<Record<number, RowProductState>>({});
 
   // 防抖计时器
   const searchTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
+  // 当前 Form.List fields 快照（index → key 映射），用于 calculateSummary
+  const fieldKeysRef = useRef<number[]>([]);
 
   // 获取 VIP 统一价格
   const { data: vipPriceConfig } = useQuery({
@@ -88,9 +91,9 @@ export default function VipGiftsPage() {
   });
   const vipPrice = vipPriceConfig ? extractConfigValue(vipPriceConfig) : null;
 
-  // 按行获取奖励商品列表
-  const useRowProducts = (rowIndex: number) => {
-    const keyword = rowStates[rowIndex]?.keyword || '';
+  // 按行获取奖励商品列表（使用 field.key 作为标识）
+  const useRowProducts = (rowKey: number) => {
+    const keyword = rowStates[rowKey]?.keyword || '';
     const { data, isLoading } = useQuery({
       queryKey: ['reward-products-picker-vip', keyword],
       queryFn: () => getRewardProducts({ page: 1, pageSize: 50, keyword: keyword || undefined }),
@@ -98,9 +101,9 @@ export default function VipGiftsPage() {
     return { products: data?.items ?? [], loading: isLoading };
   };
 
-  // 按行获取 SKU 列表
-  const useRowSkus = (rowIndex: number) => {
-    const productId = rowStates[rowIndex]?.selectedProductId;
+  // 按行获取 SKU 列表（使用 field.key 作为标识）
+  const useRowSkus = (rowKey: number) => {
+    const productId = rowStates[rowKey]?.selectedProductId;
     const { data, isLoading } = useQuery({
       queryKey: ['reward-skus', productId],
       queryFn: () => getRewardSkus(productId),
@@ -170,6 +173,7 @@ export default function VipGiftsPage() {
   const openEditDrawer = (record: VipGiftOption) => {
     setEditingRecord(record);
     // 构建行状态（预填每行的商品/SKU选择）
+    // Form.List 初始 key 从 0 开始递增，与 idx 一致
     const newRowStates: Record<number, RowProductState> = {};
     const formItems = record.items.map((item, idx) => {
       newRowStates[idx] = {
@@ -244,35 +248,35 @@ export default function VipGiftsPage() {
     }
   };
 
-  // 行级别：商品搜索防抖
-  const handleRowProductSearch = useCallback((rowIndex: number, val: string) => {
-    if (searchTimers.current[rowIndex]) {
-      clearTimeout(searchTimers.current[rowIndex]);
+  // 行级别：商品搜索防抖（rowKey = field.key，fieldName = field.name）
+  const handleRowProductSearch = useCallback((rowKey: number, val: string) => {
+    if (searchTimers.current[rowKey]) {
+      clearTimeout(searchTimers.current[rowKey]);
     }
-    searchTimers.current[rowIndex] = setTimeout(() => {
+    searchTimers.current[rowKey] = setTimeout(() => {
       setRowStates((prev) => ({
         ...prev,
-        [rowIndex]: { ...prev[rowIndex], keyword: val },
+        [rowKey]: { ...prev[rowKey], keyword: val },
       }));
     }, 400);
   }, []);
 
-  // 行级别：商品选择变更
-  const handleRowProductChange = useCallback((rowIndex: number, productId: string | undefined, products: RewardProduct[]) => {
+  // 行级别：商品选择变更（rowKey = field.key，fieldName = field.name 用于表单操作）
+  const handleRowProductChange = useCallback((rowKey: number, fieldName: number, productId: string | undefined, products: RewardProduct[]) => {
     setRowStates((prev) => ({
       ...prev,
-      [rowIndex]: { ...prev[rowIndex], selectedProductId: productId },
+      [rowKey]: { ...prev[rowKey], selectedProductId: productId },
     }));
     // 清空该行已选 SKU
     const items = form.getFieldValue('items') || [];
-    items[rowIndex] = { ...items[rowIndex], skuId: undefined };
+    items[fieldName] = { ...items[fieldName], skuId: undefined };
     form.setFieldsValue({ items });
 
     // 如果只有一个 SKU，自动选中
     if (productId) {
       const product = products.find((p) => p.id === productId);
       if (product && product.skus.length === 1) {
-        items[rowIndex] = { ...items[rowIndex], skuId: product.skus[0].id };
+        items[fieldName] = { ...items[fieldName], skuId: product.skus[0].id };
         form.setFieldsValue({ items });
       }
     }
@@ -409,7 +413,7 @@ export default function VipGiftsPage() {
   const watchedItems = Form.useWatch('items', form) || [];
   const watchedCoverMode = Form.useWatch('coverMode', form);
 
-  // 计算总价统计
+  // 计算总价统计（使用 fieldKeysRef 将 index 映射回 field.key 以查找 rowStates）
   const calculateSummary = () => {
     let totalQty = 0;
     let totalPrice = 0;
@@ -418,8 +422,9 @@ export default function VipGiftsPage() {
       if (!item?.skuId) return;
       const qty = item.quantity ?? 1;
       totalQty += qty;
-      // 尝试从 rowSkus 拿价格
-      const productId = rowStates[idx]?.selectedProductId;
+      // 用 field.key 查找 rowStates
+      const fieldKey = fieldKeysRef.current[idx];
+      const productId = fieldKey != null ? rowStates[fieldKey]?.selectedProductId : undefined;
       if (productId) {
         // 通过 queryClient 获取已缓存的 SKU 数据
         const cachedSkus = queryClient.getQueryData<RewardSkuOption[]>(['reward-skus', productId]);
@@ -602,47 +607,55 @@ export default function VipGiftsPage() {
                   if (!items || items.length === 0) {
                     return Promise.reject(new Error('至少需要添加一件商品'));
                   }
+                  if (items.length > 20) {
+                    return Promise.reject(new Error('最多添加 20 件商品'));
+                  }
                 },
               },
             ]}
           >
-            {(fields, { add, remove }, { errors }) => (
-              <>
-                {fields.map((field) => (
-                  <ItemRow
-                    key={field.key}
-                    field={field}
-                    rowIndex={field.name}
-                    rowStates={rowStates}
-                    form={form}
-                    onProductSearch={handleRowProductSearch}
-                    onProductChange={handleRowProductChange}
-                    onRemove={fields.length > 1 ? () => {
-                      remove(field.name);
-                      // 清理行状态
-                      setRowStates((prev) => {
-                        const next = { ...prev };
-                        delete next[field.name];
-                        return next;
-                      });
-                    } : undefined}
-                    useRowProducts={useRowProducts}
-                    useRowSkus={useRowSkus}
-                  />
-                ))}
-                <Form.Item>
-                  <Button
-                    type="dashed"
-                    onClick={() => add({ quantity: 1 })}
-                    block
-                    icon={<PlusOutlined />}
-                  >
-                    添加商品
-                  </Button>
-                  <Form.ErrorList errors={errors} />
-                </Form.Item>
-              </>
-            )}
+            {(fields, { add, remove }, { errors }) => {
+              // 同步 index → key 映射供 calculateSummary 使用
+              fieldKeysRef.current = fields.map((f) => f.key);
+              return (
+                <>
+                  {fields.map((field) => (
+                    <ItemRow
+                      key={field.key}
+                      field={field}
+                      rowKey={field.key}
+                      rowStates={rowStates}
+                      form={form}
+                      onProductSearch={handleRowProductSearch}
+                      onProductChange={handleRowProductChange}
+                      onRemove={fields.length > 1 ? () => {
+                        remove(field.name);
+                        // 清理行状态（使用 field.key，不受重新索引影响）
+                        setRowStates((prev) => {
+                          const next = { ...prev };
+                          delete next[field.key];
+                          return next;
+                        });
+                      } : undefined}
+                      useRowProducts={useRowProducts}
+                      useRowSkus={useRowSkus}
+                    />
+                  ))}
+                  <Form.Item>
+                    <Button
+                      type="dashed"
+                      onClick={() => add({ quantity: 1 })}
+                      block
+                      icon={<PlusOutlined />}
+                      disabled={fields.length >= 20}
+                    >
+                      添加商品{fields.length >= 20 ? '（已达上限）' : ''}
+                    </Button>
+                    <Form.ErrorList errors={errors} />
+                  </Form.Item>
+                </>
+              );
+            }}
           </Form.List>
 
           {/* 价格统计 */}
@@ -691,19 +704,19 @@ export default function VipGiftsPage() {
 // ========== 每行商品选择器组件 ==========
 interface ItemRowProps {
   field: { key: number; name: number };
-  rowIndex: number;
+  rowKey: number;
   rowStates: Record<number, RowProductState>;
   form: ReturnType<typeof Form.useForm>[0];
-  onProductSearch: (rowIndex: number, val: string) => void;
-  onProductChange: (rowIndex: number, productId: string | undefined, products: RewardProduct[]) => void;
+  onProductSearch: (rowKey: number, val: string) => void;
+  onProductChange: (rowKey: number, fieldName: number, productId: string | undefined, products: RewardProduct[]) => void;
   onRemove?: () => void;
-  useRowProducts: (rowIndex: number) => { products: RewardProduct[]; loading: boolean };
-  useRowSkus: (rowIndex: number) => { skus: RewardSkuOption[]; loading: boolean };
+  useRowProducts: (rowKey: number) => { products: RewardProduct[]; loading: boolean };
+  useRowSkus: (rowKey: number) => { skus: RewardSkuOption[]; loading: boolean };
 }
 
 function ItemRow({
   field,
-  rowIndex,
+  rowKey,
   rowStates,
   form,
   onProductSearch,
@@ -712,13 +725,13 @@ function ItemRow({
   useRowProducts,
   useRowSkus,
 }: ItemRowProps) {
-  const { products, loading: productsLoading } = useRowProducts(rowIndex);
-  const { skus, loading: skusLoading } = useRowSkus(rowIndex);
-  const selectedProductId = rowStates[rowIndex]?.selectedProductId;
+  const { products, loading: productsLoading } = useRowProducts(rowKey);
+  const { skus, loading: skusLoading } = useRowSkus(rowKey);
+  const selectedProductId = rowStates[rowKey]?.selectedProductId;
 
-  // 获取当前行表单值来计算小计
+  // 获取当前行表单值来计算小计（field.name 是当前在数组中的索引）
   const items = Form.useWatch('items', form) || [];
-  const currentItem = items[rowIndex];
+  const currentItem = items[field.name];
   const selectedSkuId = currentItem?.skuId;
   const quantity = currentItem?.quantity ?? 1;
 
@@ -784,8 +797,8 @@ function ItemRow({
               showSearch
               allowClear
               placeholder="搜索并选择奖励商品"
-              onChange={(val) => onProductChange(rowIndex, val, products)}
-              onSearch={(val) => onProductSearch(rowIndex, val)}
+              onChange={(val) => onProductChange(rowKey, field.name, val, products)}
+              onSearch={(val) => onProductSearch(rowKey, val)}
               filterOption={false}
               loading={productsLoading}
               options={products.map((p) => ({

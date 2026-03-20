@@ -12,7 +12,9 @@ import { AppHeader, Screen } from '../src/components/layout';
 import { AuthModal } from '../src/components/overlay';
 import { EmptyState, useToast } from '../src/components/feedback';
 import { AiDivider } from '../src/components/ui/AiDivider';
+import { GiftCoverImage } from '../src/components/cards';
 import { paymentMethods } from '../src/constants';
+import type { CoverMode } from '../src/types/domain/Bonus';
 import { AddressRepo, BonusRepo, OrderRepo } from '../src/repos';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { useTheme } from '../src/theme';
@@ -476,13 +478,14 @@ export default function CheckoutScreen() {
                 </View>
                 <AiDivider />
                 <View style={styles.itemRow}>
-                  {vipPackageSelection.coverUrl ? (
-                    <Image source={{ uri: vipPackageSelection.coverUrl }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.cover, { borderRadius: radius.md, backgroundColor: '#FFF8E1', alignItems: 'center', justifyContent: 'center' }]}>
-                      <MaterialCommunityIcons name="gift" size={28} color="#C9A96E" />
-                    </View>
-                  )}
+                  <GiftCoverImage
+                    items={vipPackageSelection.items}
+                    coverMode={(vipPackageSelection.coverMode as CoverMode) || 'AUTO_GRID'}
+                    coverUrl={vipPackageSelection.coverUrl ?? null}
+                    style={[styles.cover, { borderRadius: radius.md }]}
+                    placeholderColor="#C9A96E"
+                    placeholderBg="#FFF8E1"
+                  />
                   <View style={{ flex: 1, marginLeft: spacing.md }}>
                     <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
                       {vipPackageSelection.title}

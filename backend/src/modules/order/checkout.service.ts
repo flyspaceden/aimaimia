@@ -698,7 +698,13 @@ export class CheckoutService {
             sku: {
               include: {
                 product: {
-                  select: { id: true, title: true, companyId: true, status: true },
+                  select: {
+                    id: true,
+                    title: true,
+                    companyId: true,
+                    status: true,
+                    media: { orderBy: { sortOrder: 'asc' as const }, take: 1 },
+                  },
                 },
               },
             },
@@ -770,7 +776,7 @@ export class CheckoutService {
       productId: giftItem.sku.product?.id || '',
       title: giftItem.sku.product?.title || '',
       skuTitle: giftItem.sku.title,
-      image: giftOption.coverUrl || null,
+      image: giftItem.sku.product?.media?.[0]?.url ?? null,
       unitPrice: giftItem.sku.price,
       quantity: giftItem.quantity,
       isPrize: false,

@@ -1207,7 +1207,7 @@ model CheckoutSession {
   user            User                  @relation(fields: [userId], references: [id])
   status          CheckoutSessionStatus @default(ACTIVE)
   bizType         CheckoutBizType       @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
-  bizMeta         Json?                 // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftSkuId, giftTitle, snapshotPrice, shippingFeeMode}
+  bizMeta         Json?                 // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
 
   // 结算快照（创建时冻结）
   itemsSnapshot   Json                  // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
@@ -1252,7 +1252,7 @@ model Order {
   user            User         @relation(fields: [userId], references: [id], onDelete: Restrict) // H17: 防止删除有订单的用户
   status          OrderStatus  @default(PENDING_PAYMENT)
   bizType         OrderBizType @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
-  bizMeta         Json?        // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftSkuId, giftTitle, snapshotPrice}
+  bizMeta         Json?        // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
   addressSnapshot Json? // 下单时地址快照
   totalAmount     Float // 总金额（元）
   goodsAmount     Float // 商品金额（元）
@@ -1617,7 +1617,7 @@ model VipPurchase {
   // VIP 赠品快照
   giftOptionId     String?             // 用户选中的赠品方案 ID
   giftSkuId        String?             // 赠品 SKU ID
-  giftSnapshot     Json?               // 赠品快照 {title, coverUrl, marketPrice, badge}
+  giftSnapshot     Json?               // 赠品快照：新格式 {title, coverMode, coverUrl, badge, items: [{skuId, skuTitle, productTitle, productImage, price, quantity}]}；旧格式 {title, coverUrl, marketPrice, badge}
 
   // 来源与激活状态
   source           String?             // APP_VIP_PACKAGE / ADMIN_GRANT / ACTIVITY
