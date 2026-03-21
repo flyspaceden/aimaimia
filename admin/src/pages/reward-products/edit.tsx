@@ -9,6 +9,7 @@ import {
   Input,
   InputNumber,
   Select,
+  Switch,
   Table,
   Space,
   Breadcrumb,
@@ -106,11 +107,18 @@ export default function RewardProductEditPage() {
     enabled: !!id,
   });
 
-  // 是否为单规格商品
-  const isSingleSku = useMemo(() => {
-    if (!product) return true;
-    const skus = product.skus || [];
-    return skus.length <= 1;
+  // 是否为单规格模式（可切换）
+  const [multiSpecMode, setMultiSpecMode] = useState(false);
+
+  // 根据商品数据初始化模式
+  const isSingleSku = !multiSpecMode;
+
+  // 商品加载后根据 SKU 数量设置初始模式
+  useMemo(() => {
+    if (product) {
+      const skuCount = product.skus?.length ?? 0;
+      setMultiSpecMode(skuCount > 1);
+    }
   }, [product]);
 
   // 更新商品基本信息
@@ -520,6 +528,30 @@ export default function RewardProductEditPage() {
               <Form.Item label="状态" name="status" rules={[{ required: true }]}>
                 <Select options={statusOptions} placeholder="选择状态" />
               </Form.Item>
+            </Col>
+          </Row>
+
+          {/* 多规格开关 */}
+          <Row style={{ marginTop: 8, marginBottom: 16 }}>
+            <Col>
+              <Space>
+                <Text>多规格商品</Text>
+                <Switch
+                  checked={multiSpecMode}
+                  onChange={(checked) => {
+                    if (checked && isSingleSku) {
+                      // 单→多：把当前单规格值带入，后续通过"添加规格"管理
+                    }
+                    if (!checked && skus.length > 1) {
+                      message.warning('当前有多个规格，切换为单规格后将仅保留第一个规格的数据显示');
+                    }
+                    setMultiSpecMode(checked);
+                  }}
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {multiSpecMode ? '可管理多个规格（如不同包装、重量）' : '适用于只有一种规格的商品'}
+                </Text>
+              </Space>
             </Col>
           </Row>
 
