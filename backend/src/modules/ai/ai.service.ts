@@ -2489,9 +2489,15 @@ export class AiService {
     if (mode === 'list') {
       const locationHint = this.extractCompanyLocationHint(cleaned);
       if (locationHint === cleaned) return '';
+      // "在武汉" → 去掉介词"在/到/去"后等于 locationHint → 清空（location 已单独提取）
+      const withoutPreposition = cleaned.replace(/^(?:在|到|去)/u, '');
+      if (locationHint && locationHint === withoutPreposition) return '';
       if (locationHint && cleaned.startsWith(locationHint) && /^(?:有哪(?:些|家)|有哪些|有什么|什么|哪些|哪家|有没有|有没)$/u.test(cleaned.slice(locationHint.length))) {
         return '';
       }
+      // "在武汉的" → 去掉介词和"的"后等于 locationHint → 清空
+      const withoutPrepositionAndDe = withoutPreposition.replace(/的$/u, '');
+      if (locationHint && locationHint === withoutPrepositionAndDe) return '';
       if (/^(?:有哪(?:些|家)|有哪些|什么|哪些|哪家|有没有)$/u.test(cleaned)) return '';
       if (/^(?:农场|企业|公司|店铺|合作社|基地|工厂)$/u.test(cleaned)) return '';
     }
