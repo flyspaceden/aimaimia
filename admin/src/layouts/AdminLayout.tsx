@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { Dropdown, message, Modal } from 'antd';
+import { Dropdown, message } from 'antd';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import {
   DashboardOutlined,
@@ -172,17 +172,11 @@ export default function AdminLayout() {
         <a onClick={() => {
           if (!item.path) return;
           if (isGlobalDirty()) {
-            Modal.confirm({
-              title: '未保存的更改',
-              content: '你有未保存的更改，确定离开吗？离开后更改将丢失。',
-              okText: '确定离开',
-              cancelText: '继续编辑',
-              okButtonProps: { danger: true },
-              onOk: () => navigate(item.path!),
-            });
-          } else {
-            navigate(item.path);
+            // eslint-disable-next-line no-restricted-globals
+            const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
+            if (!confirmed) return;
           }
+          navigate(item.path);
         }}>
           {dom}
         </a>
