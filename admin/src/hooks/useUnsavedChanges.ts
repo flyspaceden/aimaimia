@@ -2,30 +2,26 @@
  * 未保存更改警告 Hook
  *
  * 当页面存在未保存的更改时：
- * 1. 阻止 SPA 内导航，弹出确认对话框
- * 2. 阻止浏览器关闭/刷新，触发浏览器原生提示
+ * 1. 阻止浏览器关闭/刷新，触发浏览器原生提示
+ * 2. 通过全局状态标记，供 AdminLayout 在侧边栏导航时拦截
  */
 import { useEffect } from 'react';
-import { useBlocker } from 'react-router';
-import { Modal } from 'antd';
+
+// 全局 dirty 状态（供 AdminLayout menuItemRender 读取）
+let _globalDirty = false;
+
+export function isGlobalDirty() {
+  return _globalDirty;
+}
 
 export function useUnsavedChanges(isDirty: boolean) {
-  // 阻止 SPA 内部导航
-  const blocker = useBlocker(isDirty);
-
+  // 同步到全局状态
   useEffect(() => {
-    if (blocker.state === 'blocked') {
-      Modal.confirm({
-        title: '未保存的更改',
-        content: '你有未保存的更改，确定离开吗？离开后更改将丢失。',
-        okText: '确定离开',
-        cancelText: '继续编辑',
-        okButtonProps: { danger: true },
-        onOk: () => blocker.proceed?.(),
-        onCancel: () => blocker.reset?.(),
-      });
-    }
-  }, [blocker]);
+    _globalDirty = isDirty;
+    return () => {
+      _globalDirty = false;
+    };
+  }, [isDirty]);
 
   // 阻止浏览器关闭/刷新
   useEffect(() => {
