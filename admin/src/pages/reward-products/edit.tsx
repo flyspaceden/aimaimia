@@ -47,6 +47,7 @@ import type {
   CreateSkuInput,
   UpdateSkuInput,
 } from '@/api/reward-products';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 
@@ -99,6 +100,10 @@ export default function RewardProductEditPage() {
 
   // 保存中状态
   const [saving, setSaving] = useState(false);
+
+  // 监听表单变化以跟踪未保存更改
+  Form.useWatch([], basicForm);
+  useUnsavedChanges(basicForm.isFieldsTouched());
 
   // 查询商品详情
   const { data: product, isLoading, error } = useQuery({

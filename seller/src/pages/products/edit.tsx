@@ -25,6 +25,7 @@ import {
   type CategoryNode,
 } from '@/api/products';
 import { getMarkupRate } from '@/api/config';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import type { UploadFile } from 'antd/es/upload/interface';
@@ -87,6 +88,10 @@ function ProductEditForm({ id }: { id: string }) {
   const token = useAuthStore((s) => s.token);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // 监听表单变化以跟踪未保存更改
+  Form.useWatch([], form);
+  useUnsavedChanges(form.isFieldsTouched());
 
   // 加载商品数据
   const { data: product, isLoading } = useQuery({

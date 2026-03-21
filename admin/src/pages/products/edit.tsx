@@ -25,6 +25,7 @@ import { getProduct, updateProduct, refillSemanticTags, getCategories, type Cate
 
 const { Text } = Typography;
 import { getTargetAuditLogs } from '@/api/audit';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
@@ -35,6 +36,10 @@ export default function ProductEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [form] = Form.useForm();
+
+  // 监听表单变化以跟踪未保存更改
+  Form.useWatch([], form);
+  useUnsavedChanges(form.isFieldsTouched());
 
   const { data: product, isLoading } = useQuery({
     queryKey: ['admin', 'product', id],
