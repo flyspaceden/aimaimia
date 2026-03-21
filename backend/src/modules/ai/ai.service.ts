@@ -1859,6 +1859,8 @@ export class AiService {
     if (/(?:买什么|吃什么|选什么|怎么选|怎么搭配|帮我搭配|给我搭配)/u.test(compact)) return true;
     if (/(?:推荐点|推荐些|推荐一下|给我推荐|帮我推荐|推荐给我)/u.test(compact)) return true;
     if (/^推荐/u.test(compact)) return true;
+    // 包含推荐主题关键词（爆款/热销/折扣/优惠/特价/当季/应季）→ 走推荐链路
+    if (/(?:爆款|热销|热门|畅销|折扣|优惠|特价|便宜|省钱|当季|应季|时令)/u.test(compact)) return true;
     return false;
   }
 
@@ -2489,15 +2491,25 @@ export class AiService {
     if (mode === 'list') {
       const locationHint = this.extractCompanyLocationHint(cleaned);
       if (locationHint === cleaned) return '';
-      // "在武汉" → 去掉介词"在/到/去"后等于 locationHint → 清空（location 已单独提取）
+      // 去掉介词"在/到/去"和"的"
       const withoutPreposition = cleaned.replace(/^(?:在|到|去)/u, '');
       if (locationHint && locationHint === withoutPreposition) return '';
+      const withoutPrepositionAndDe = withoutPreposition.replace(/的$/u, '');
+      if (locationHint && locationHint === withoutPrepositionAndDe) return '';
+      // "在武汉的企业" / "武汉企业" / "武汉的企业" → 去掉 location + 介词/的 后只剩泛化词 → 清空
+      if (locationHint) {
+        const stripped = cleaned
+          .replace(/^(?:在|到|去)/u, '')
+          .replace(locationHint, '')
+          .replace(/的/gu, '')
+          .trim();
+        if (!stripped || /^(?:农场|企业|公司|店铺|合作社|基地|工厂|商家|商户|门店|旗舰店)+$/u.test(stripped)) {
+          return '';
+        }
+      }
       if (locationHint && cleaned.startsWith(locationHint) && /^(?:有哪(?:些|家)|有哪些|有什么|什么|哪些|哪家|有没有|有没)$/u.test(cleaned.slice(locationHint.length))) {
         return '';
       }
-      // "在武汉的" → 去掉介词和"的"后等于 locationHint → 清空
-      const withoutPrepositionAndDe = withoutPreposition.replace(/的$/u, '');
-      if (locationHint && locationHint === withoutPrepositionAndDe) return '';
       if (/^(?:有哪(?:些|家)|有哪些|什么|哪些|哪家|有没有)$/u.test(cleaned)) return '';
       if (/^(?:农场|企业|公司|店铺|合作社|基地|工厂)$/u.test(cleaned)) return '';
     }
