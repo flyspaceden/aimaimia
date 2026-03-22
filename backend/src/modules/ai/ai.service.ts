@@ -22,8 +22,8 @@ import {
 } from './voice-intent.types';
 import { ProductService } from '../product/product.service';
 import {
-  FLASH_SEMANTIC_PROMPT,
-  PLUS_SEMANTIC_PROMPT,
+  UNIFIED_CLASSIFY_PROMPT,
+  PLUS_EXTRA_INSTRUCTIONS,
   OUT_OF_DOMAIN_BRIDGE_PROMPT,
   isFlashResultGood,
 } from './semantic-slot.constants';
@@ -1859,8 +1859,8 @@ export class AiService {
     if (/(?:买什么|吃什么|选什么|怎么选|怎么搭配|帮我搭配|给我搭配)/u.test(compact)) return true;
     if (/(?:推荐点|推荐些|推荐一下|给我推荐|帮我推荐|推荐给我)/u.test(compact)) return true;
     if (/^推荐/u.test(compact)) return true;
-    // 包含推荐主题关键词（爆款/热销/折扣/优惠/特价/当季/应季）→ 走推荐链路
-    if (/(?:爆款|热销|热门|畅销|折扣|优惠|特价|便宜|省钱|当季|应季|时令)/u.test(compact)) return true;
+    // 推荐主题关键词交给 LLM 统一 prompt 判断，不在规则层拦截
+    // 避免"便宜的苹果""当季水果"等搜索型表达被误判为推荐
     return false;
   }
 
@@ -2875,53 +2875,60 @@ export class AiService {
       return null;
     }
 
-    // ===== 语义槽位双层管道：Flash → (可选) Plus =====
+    // ===== 统一分类+槽位管道：用合并 prompt 同时做分类和槽位抽取 =====
+    // 统一 prompt 包含传统 prompt 的分类规则+示例（保证分类准确性）
+    // + 语义槽位 output schema（获得新能力）
     if (semanticSlotsEnabled) {
       try {
-        const flashResult = await this.callSemanticModel(apiKey, transcript, FLASH_SEMANTIC_PROMPT, this.QWEN_INTENT_MODEL, 5000);
+        const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'Asia/Shanghai' });
+        const flashPrompt = UNIFIED_CLASSIFY_PROMPT.replace('{{TODAY}}', today);
+        const flashResult = await this.callSemanticModel(apiKey, transcript, flashPrompt, this.QWEN_INTENT_MODEL, 5000);
         if (flashResult) {
           const validIntents = ['navigate', 'search', 'company', 'transaction', 'recommend', 'chat'] as const;
           const intent = validIntents.includes(flashResult.intent as any) ? flashResult.intent as VoiceIntentClassification['intent'] : 'chat';
           const confidence = typeof flashResult.confidence === 'number'
             ? Math.max(0, Math.min(flashResult.confidence, 1))
             : 0.5;
-          const slots = flashResult.slots && typeof flashResult.slots === 'object' ? flashResult.slots : {};
-          const fallbackReason = typeof flashResult.fallbackReason === 'string' && flashResult.fallbackReason !== 'null'
-            ? flashResult.fallbackReason
+          const params = flashResult.params && typeof flashResult.params === 'object' ? flashResult.params : {};
+          const fallbackReason = typeof (flashResult.fallbackReason ?? params.fallbackReason) === 'string'
+            && (flashResult.fallbackReason ?? params.fallbackReason) !== 'null'
+            ? (flashResult.fallbackReason ?? params.fallbackReason)
             : undefined;
 
-          if (isFlashResultGood(confidence, slots)) {
-            this.logger.log(`[SemanticPipeline] Flash 结果足够好，直接使用 intent=${intent} confidence=${confidence.toFixed(2)}`);
+          if (isFlashResultGood(confidence, params)) {
+            this.logger.log(`[UnifiedPipeline] Flash 结果足够好，直接使用 intent=${intent} confidence=${confidence.toFixed(2)}`);
             return {
               intent,
               confidence,
               source: 'model',
-              params: { ...slots, reply: flashResult.reply, fallbackReason },
+              params: { ...params, fallbackReason },
               pipeline: 'flash',
               wasUpgraded: false,
               fallbackReason,
             };
           }
 
-          // Flash 结果不够好 → 升级到 Plus
-          this.logger.log(`[SemanticPipeline] Flash 结果不充分（confidence=${confidence.toFixed(2)}），升级到 Plus`);
-          const plusResult = await this.callSemanticModel(apiKey, transcript, PLUS_SEMANTIC_PROMPT, this.QWEN_CHAT_MODEL, 8000);
+          // Flash 结果槽位不够丰富 → 升级到 Plus（同样用统一 prompt + 深度推断补充指令）
+          this.logger.log(`[UnifiedPipeline] Flash 槽位不充分（confidence=${confidence.toFixed(2)}），升级到 Plus`);
+          const plusPrompt = flashPrompt + PLUS_EXTRA_INSTRUCTIONS;
+          const plusResult = await this.callSemanticModel(apiKey, transcript, plusPrompt, this.QWEN_CHAT_MODEL, 8000);
           if (plusResult) {
             const plusIntent = validIntents.includes(plusResult.intent as any) ? plusResult.intent as VoiceIntentClassification['intent'] : 'chat';
             const plusConfidence = typeof plusResult.confidence === 'number'
               ? Math.max(0, Math.min(plusResult.confidence, 1))
               : 0.5;
-            const plusSlots = plusResult.slots && typeof plusResult.slots === 'object' ? plusResult.slots : {};
-            const plusFallbackReason = typeof plusResult.fallbackReason === 'string' && plusResult.fallbackReason !== 'null'
-              ? plusResult.fallbackReason
+            const plusParams = plusResult.params && typeof plusResult.params === 'object' ? plusResult.params : {};
+            const plusFallbackReason = typeof (plusResult.fallbackReason ?? plusParams.fallbackReason) === 'string'
+              && (plusResult.fallbackReason ?? plusParams.fallbackReason) !== 'null'
+              ? (plusResult.fallbackReason ?? plusParams.fallbackReason)
               : undefined;
 
-            this.logger.log(`[SemanticPipeline] Plus 结果 intent=${plusIntent} confidence=${plusConfidence.toFixed(2)}`);
+            this.logger.log(`[UnifiedPipeline] Plus 结果 intent=${plusIntent} confidence=${plusConfidence.toFixed(2)}`);
             return {
               intent: plusIntent,
               confidence: plusConfidence,
               source: 'model',
-              params: { ...plusSlots, reply: plusResult.reply, fallbackReason: plusFallbackReason },
+              params: { ...plusParams, fallbackReason: plusFallbackReason },
               pipeline: 'plus',
               wasUpgraded: true,
               fallbackReason: plusFallbackReason,
@@ -2929,9 +2936,9 @@ export class AiService {
           }
         }
       } catch (err) {
-        this.logger.error(`[SemanticPipeline] 语义管道异常，回退到传统分类：${err.message}`);
+        this.logger.error(`[UnifiedPipeline] 统一管道异常，回退到传统分类：${(err as Error)?.message}`);
       }
-      // 语义管道失败 → 回退到下方传统逻辑
+      // 统一管道失败 → 回退到下方传统逻辑
     }
 
     const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'Asia/Shanghai' });
