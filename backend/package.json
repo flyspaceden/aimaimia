@@ -1,7 +1,7 @@
 {
   "name": "nongmai-backend",
   "version": "0.1.0",
-  "description": "农脉 AI农业电商平台后端",
+  "description": "爱买买 AI农业电商平台后端",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -34,6 +34,7 @@
     "jsqr": "^1.4.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pinyin-pro": "^3.28.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sharp": "^0.34.5",

@@ -214,6 +214,39 @@ export class ProductService {
       total = result[1];
     }
 
+    // ===== 拼音回退：精确搜索无结果时，用拼音模糊匹配兜底同音字问题 =====
+    if (total === 0 && normalizedKeyword && normalizedKeyword.length >= 2) {
+      try {
+        const { pinyin } = await import('pinyin-pro');
+        const queryPinyin = pinyin(normalizedKeyword, { toneType: 'none', type: 'array' }).join('');
+        if (queryPinyin && queryPinyin.length >= 2) {
+          // 拉取所有 ACTIVE 商品的标题做拼音比较
+          const allProducts = await this.prisma.product.findMany({
+            where: { status: 'ACTIVE', auditStatus: 'APPROVED', company: { isPlatform: false } },
+            select: { id: true, title: true },
+            take: 500,
+          });
+          const pinyinMatches = allProducts.filter((p) => {
+            const titlePinyin = pinyin(p.title, { toneType: 'none', type: 'array' }).join('');
+            return titlePinyin.includes(queryPinyin) || queryPinyin.includes(titlePinyin);
+          });
+
+          if (pinyinMatches.length > 0) {
+            this.logger.log(`[PinyinFallback] "${normalizedKeyword}" → 拼音匹配到 ${pinyinMatches.length} 个商品: ${pinyinMatches.map(p => p.title).join(', ')}`);
+            const pinyinIds = pinyinMatches.map((p) => p.id);
+            const pinyinProducts = await this.prisma.product.findMany({
+              where: { id: { in: pinyinIds } },
+              include,
+            });
+            items = pinyinProducts as ListableProduct[];
+            total = items.length;
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`[PinyinFallback] 拼音回退失败: ${(err as Error)?.message}`);
+      }
+    }
+
     const nextPage = skip + pageSize < total ? page + 1 : undefined;
 
     return {
@@ -516,7 +549,7 @@ export class ProductService {
       level: category.level,
     }));
 
-    const systemPrompt = `你是农脉App的商品搜索实体解析器。你的任务是把用户搜索词映射到“当前系统真实存在的分类候选集合”。
+    const systemPrompt = `你是爱买买App的商品搜索实体解析器。你的任务是把用户搜索词映射到“当前系统真实存在的分类候选集合”。
 
 严格要求：
 1. 只能从候选集合中选择 matchedCategoryId，不允许编造不存在的分类
