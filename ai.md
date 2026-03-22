@@ -1,4 +1,4 @@
-# 农脉 AI 语音助手集成方案
+# 爱买买 AI 语音助手集成方案
 
 > **权威来源**：所有 AI 语音、意图识别、大模型集成相关的设计、进度、问题均在此文档更新。
 
@@ -21,7 +21,8 @@
 13. [实施进度](#13-实施进度)
 14. [语义意图升级（Phase B）](#14-语义意图升级phase-b)
 15. [语义意图升级路线 — Phase C](#15-语义意图升级路线--phase-c待启动)
-16. [已知问题与调试记录](#16-已知问题与调试记录)
+16. [用户定位与"附近"查询 — Phase D](#16-用户定位与附近查询--phase-d待启动)
+17. [已知问题与调试记录](#17-已知问题与调试记录)
 
 ---
 
@@ -266,7 +267,7 @@ parseVoiceIntent: async (localUri: string): Promise<Result<AiVoiceIntent>> => {
 
 **iOS** (`app.json`)：
 ```json
-{ "ios": { "infoPlist": { "NSMicrophoneUsageDescription": "农脉需要使用麦克风来接收你的语音指令" } } }
+{ "ios": { "infoPlist": { "NSMicrophoneUsageDescription": "爱买买需要使用麦克风来接收你的语音指令" } } }
 ```
 
 **Android** (`app.json`)：
@@ -1300,7 +1301,7 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 #### 2.4 system prompt 设计
 
 **第一版要短**（约 400-600 token），只放：
-- 角色定义（农脉 AI 助手）
+- 角色定义（爱买买 AI 助手）
 - 回答边界（农业电商范围内的问答、推荐、导购）
 - 安全规则（不编造商品信息、不承诺价格、不代替用户做支付决策）
 - 可输出结构（reply + suggestedActions + followUpQuestions 的 JSON schema）
@@ -1476,6 +1477,7 @@ Qwen-Plus 输出 JSON → 后端检测到 suggestedActions
 | **Phase C** | 用户历史上下文注入（购买记录/搜索记录影响推荐） | ⬜ 未开始 |
 | **Phase C** | Redis 热度缓存 + 定时刷新 | ⬜ 未开始 |
 | **Phase C** | 管理后台 AI 意图分析仪表盘 | ⬜ 未开始 |
+| **Phase D** | 用户定位 + "附近"企业/商品查询（expo-location + 距离排序） | ⬜ 未开始 |
 | **Phase 3** | 流式 ASR 升级 | ⬜ 未开始 |
 | **Phase 4** | 上下文感知意图 | ⬜ 未开始 |
 | **Phase 5** | AI 智能推荐与 RAG | ⬜ 未开始 |
@@ -1670,9 +1672,62 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 
 ---
 
-## 16. 已知问题与调试记录
+## 16. 用户定位与"附近"查询 — Phase D（待启动）
 
-### 16.1 已解决问题
+> **前置条件**：无硬性前置依赖，可独立于 Phase C 开发。
+> **触发场景**：用户语音"附近有什么农场""有哪些附近的企业""本地的水果"等包含相对位置概念的查询。
+
+### 16.1 现状与问题
+
+当前系统不支持基于位置的查询。当用户说"附近的企业"时，`companyLocation="附近"` 被传到搜索页做文本匹配，没有企业 location 字段包含"附近"二字，导致搜索结果为空。
+
+### 16.2 技术方案
+
+**前端定位（React Native / Expo）**：
+- 使用 `expo-location` 获取用户 GPS 经纬度
+- 首次使用时请求前台定位权限（`requestForegroundPermissionsAsync`）
+- 定位结果存入 Zustand store（`useLocationStore`），全局可用
+- 所有搜索/推荐 API 请求自动附带 `lat`/`lng` 参数
+- 定位失败或用户拒绝权限时降级为无位置搜索
+
+**后端距离计算**：
+- Company 表新增 `latitude Float?` / `longitude Float?` 字段
+- 企业搜索 API 新增 `lat`/`lng`/`radius`（km）查询参数
+- 使用 Haversine 公式计算用户与企业的距离
+- 支持"按距离排序"和"半径过滤"两种模式
+- 商品搜索也可按所属企业的位置做距离排序（可选）
+
+**AI 语义层适配**：
+- "附近/周边/本地" 不再作为 `companyLocation` 传递
+- 改为后端检测到 `location` 为相对位置词时，自动切换为坐标+半径模式
+- 默认半径：附近=10km，周边=30km，本地=50km
+
+### 16.3 改动范围
+
+| 层 | 改什么 |
+|---|--------|
+| Prisma Schema | Company 加 `latitude Float?` / `longitude Float?` |
+| 前端 | 安装 `expo-location` + `useLocationStore` + API 请求自动带坐标 |
+| 后端 Company API | 接收 `lat/lng/radius` + Haversine 距离计算 + 按距离排序 |
+| 后端 AI 语义层 | "附近/周边/本地" → 不传 location 文本，改为坐标+半径 |
+| 前端企业搜索页 | 显示距离标签（如"距你 3.2km"），支持按距离排序 |
+| 种子数据 / 管理后台 | 给企业补经纬度（管理后台企业编辑页加地图选点或坐标输入） |
+
+### 16.4 降级策略
+
+- 用户拒绝定位权限 → 不显示距离，不按距离排序，"附近"查询返回全部企业
+- 企业无经纬度 → 该企业不参与距离排序，排在有坐标企业之后
+- GPS 信号弱 → 使用上次缓存的位置，超过 30 分钟提示重新定位
+
+### 16.5 短期临时方案
+
+在 Phase D 开发前，先做一行代码修复：当 `location` 为"附近/周边/本地/这里/这边"时，不传 location 过滤，返回全部企业列表，避免搜索为空。
+
+---
+
+## 17. 已知问题与调试记录
+
+### 17.1 已解决问题
 
 | 问题 | 原因 | 修复 |
 |------|------|------|
@@ -1687,7 +1742,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 | Loading 圆圈不旋转 | MaterialCommunityIcons 'loading' 是静态图标 | 改用 React Native ActivityIndicator |
 | Only one Recording object | 上一次录音未释放 | handleLongPress 开头清理 recordingRef |
 
-### 16.2 当前限制
+### 17.2 当前限制
 
 - **聊天页语音输入未实现**：聊天页已支持文字多轮对话（Qwen-Plus），但语音输入（ASR → 文字 → Qwen-Plus）尚未接入
 - ~~**动作语音当前仅接在首页入口**~~：✅ Phase B 已解决 — 浮动 AI 伴侣覆盖所有页面（首页除外，首页有独立语音入口）
