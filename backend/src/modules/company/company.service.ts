@@ -19,7 +19,7 @@ export class CompanyService {
         profile: true,
         products: {
           where: { status: 'ACTIVE', auditStatus: 'APPROVED' },
-          take: 3,
+          take: 8,
           orderBy: { createdAt: 'desc' },
           include: {
             media: {
