@@ -22,6 +22,16 @@ export default function Navbar() {
     window.scrollTo(0, 0)
   }, [location.pathname])
 
+  // Escape 键关闭移动端菜单
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [menuOpen])
+
   const toggleMenu = useCallback(() => setMenuOpen(v => !v), [])
 
   return (

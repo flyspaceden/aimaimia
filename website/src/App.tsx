@@ -21,8 +21,16 @@ function MetaUpdater() {
     const meta = PAGE_META[location.pathname]
     if (meta) {
       document.title = meta.title
-      const desc = document.querySelector('meta[name="description"]')
-      if (desc) desc.setAttribute('content', meta.description)
+      const updateMeta = (sel: string, attr: string, val: string) => {
+        const el = document.querySelector(sel)
+        if (el) el.setAttribute(attr, val)
+      }
+      updateMeta('meta[name="description"]', 'content', meta.description)
+      updateMeta('meta[property="og:title"]', 'content', meta.title)
+      updateMeta('meta[property="og:description"]', 'content', meta.description)
+      updateMeta('meta[property="og:url"]', 'content', window.location.href)
+      updateMeta('meta[name="twitter:title"]', 'content', meta.title)
+      updateMeta('meta[name="twitter:description"]', 'content', meta.description)
     }
   }, [location.pathname])
 
