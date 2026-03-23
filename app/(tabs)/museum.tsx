@@ -90,12 +90,6 @@ export default function MuseumScreen() {
     transform: [{ translateY: cardTranslateY.value }],
   }));
 
-  // 标签页内容淡入淡出动画
-  const tabOpacity = useSharedValue(1);
-  const tabAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: tabOpacity.value,
-  }));
-
   // AI 推荐横滑提示动画（首次加载左移提示可滚动）
   const scrollHintX = useSharedValue(0);
   useEffect(() => {
@@ -206,18 +200,12 @@ export default function MuseumScreen() {
   // 标签页切换
   const handleTabSwitch = useCallback(
     (tab: 'products' | 'companies') => {
-      // 内容淡出再淡入（200ms 总时长）
-      tabOpacity.value = withSequence(
-        withTiming(0, { duration: 100 }),
-        withTiming(1, { duration: 100 }),
-      );
-      // 延迟状态变更到淡出完成后，避免内容在淡出过程中闪变
-      setTimeout(() => setActiveTab(tab), 100);
+      setActiveTab(tab);
       // 动画移动下划线指示器
       const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
-      tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 250 });
+      tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 200 });
     },
-    [tabIndicatorX, tabOpacity],
+    [tabIndicatorX],
   );
 
   // 下拉刷新
@@ -754,7 +742,7 @@ export default function MuseumScreen() {
       {StickyHeader}
 
       {/* 商品标签页 */}
-      <Animated.View style={[{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }, tabAnimatedStyle]}>
+      <View style={{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }}>
         <ScrollView
           style={{ flex: 1 }}
           refreshControl={
@@ -981,10 +969,10 @@ export default function MuseumScreen() {
             </View>
           )}
         </ScrollView>
-      </Animated.View>
+      </View>
 
       {/* 企业标签页 */}
-      <Animated.View style={[{ flex: 1, display: activeTab === 'companies' ? 'flex' : 'none' }, tabAnimatedStyle]}>
+      <View style={{ flex: 1, display: activeTab === 'companies' ? 'flex' : 'none' }}>
         <FlatList
           data={allCompanies}
           renderItem={renderCompanyItem}
@@ -1067,7 +1055,7 @@ export default function MuseumScreen() {
             )
           }
         />
-      </Animated.View>
+      </View>
 
       <SearchOverlay visible={searchActive} onClose={() => setSearchActive(false)} />
     </Screen>
