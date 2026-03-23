@@ -58,8 +58,8 @@ const AI_RECOMMENDATIONS = [
 const COMPANY_FILTERS: Array<{ label: string; value: string | null }> = [
   { label: '全部', value: null },
   { label: '🌿 有机认证', value: 'certified' },
-  { label: '🍎 水果', value: 'fruit' },
-  { label: '🍵 茶叶', value: 'tea' },
+  { label: '🍎 水果', value: '水果' },
+  { label: '🍵 茶叶', value: '茶叶' },
   { label: '📍 附近', value: 'nearby' },
 ];
 
@@ -179,7 +179,9 @@ export default function MuseumScreen() {
   // 扁平化所有页的企业
   const allCompanies = useMemo(() => {
     if (!companiesQuery.data) return [];
-    return companiesQuery.data.pages.flatMap((page) => (page.ok ? page.data.items : []));
+    return companiesQuery.data.pages
+      .flatMap((page) => (page.ok ? page.data.items : []))
+      .filter(Boolean) as Company[];
   }, [companiesQuery.data]);
 
   // 企业数据（用于地图视图，不分页，取第一页的）
@@ -301,17 +303,20 @@ export default function MuseumScreen() {
 
   // 企业卡片渲染
   const renderCompanyItem = useCallback(
-    ({ item }: { item: Company }) => (
-      <View style={{ paddingHorizontal: HORIZONTAL_PADDING }}>
-        <CompanyCard
-          company={item}
-          onPress={(c) => router.push({ pathname: '/company/[id]', params: { id: c.id } })}
-          onProductPress={(productId) =>
-            router.push({ pathname: '/product/[id]', params: { id: productId } })
-          }
-        />
-      </View>
-    ),
+    ({ item }: { item: Company }) => {
+      if (!item) return null;
+      return (
+        <View style={{ paddingHorizontal: HORIZONTAL_PADDING }}>
+          <CompanyCard
+            company={item}
+            onPress={(c) => router.push({ pathname: '/company/[id]', params: { id: c.id } })}
+            onProductPress={(productId) =>
+              router.push({ pathname: '/product/[id]', params: { id: productId } })
+            }
+          />
+        </View>
+      );
+    },
     [router],
   );
 
@@ -949,7 +954,7 @@ export default function MuseumScreen() {
         <FlatList
           data={allCompanies}
           renderItem={renderCompanyItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => item?.id ?? `company-${index}`}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
