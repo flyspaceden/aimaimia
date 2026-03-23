@@ -165,8 +165,8 @@ export default function MuseumScreen() {
       return undefined;
     },
     initialPageParam: 1,
-    // 地图模式也需要企业数据
-    enabled: activeTab === 'companies' || viewMode === 'map',
+    // 始终启用，避免切换 Tab 时显示空状态
+    enabled: true,
     staleTime: 3 * 60_000,
   });
 
@@ -282,22 +282,35 @@ export default function MuseumScreen() {
 
   // ==================== 渲染辅助 ====================
 
-  // 商品卡片渲染（FlatList renderItem）
-  const renderProductItem = useCallback(
-    ({ item, index }: { item: Product; index: number }) => {
-      const imageHeight = IMAGE_HEIGHTS[index % IMAGE_HEIGHTS.length];
-      return (
-        <View style={{ flex: 1, maxWidth: CARD_WIDTH, marginBottom: COLUMN_GAP }}>
-          <ProductCard
-            product={item}
-            width={CARD_WIDTH}
-            imageHeight={imageHeight}
-            onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
-            onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
-          />
-        </View>
-      );
-    },
+  // 瀑布流双列分割
+  const { leftColumn, rightColumn } = useMemo(() => {
+    const left: Product[] = [];
+    const right: Product[] = [];
+    allProducts.forEach((product, index) => {
+      if (index % 2 === 0) left.push(product);
+      else right.push(product);
+    });
+    return { leftColumn: left, rightColumn: right };
+  }, [allProducts]);
+
+  // 瀑布流单列渲染
+  const renderMasonryColumn = useCallback(
+    (items: Product[], columnOffset: number) =>
+      items.map((product, index) => {
+        const globalIndex = columnOffset + index * 2;
+        const imageHeight = IMAGE_HEIGHTS[globalIndex % IMAGE_HEIGHTS.length];
+        return (
+          <View key={product.id} style={{ marginBottom: COLUMN_GAP }}>
+            <ProductCard
+              product={product}
+              width={CARD_WIDTH}
+              imageHeight={imageHeight}
+              onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
+              onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
+            />
+          </View>
+        );
+      }),
     [router, addItem],
   );
 
@@ -735,22 +748,20 @@ export default function MuseumScreen() {
 
       {/* 商品标签页 */}
       <Animated.View style={[{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }, tabAnimatedStyle]}>
-        <FlatList
-          data={allProducts}
-          renderItem={renderProductItem}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={{
-            gap: COLUMN_GAP,
-            paddingHorizontal: HORIZONTAL_PADDING,
-          }}
+        <ScrollView
+          style={{ flex: 1 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
-          onEndReached={handleProductsLoadMore}
-          onEndReachedThreshold={0.5}
-          ListHeaderComponent={
-            <View>
+          onScroll={({ nativeEvent }) => {
+            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+            if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 300) {
+              handleProductsLoadMore();
+            }
+          }}
+          scrollEventThrottle={400}
+        >
+          <View>
               {/* 分类横滑标签 */}
               <Animated.View entering={FadeInDown.duration(300).delay(0)}>
                 <ScrollView
@@ -900,6 +911,7 @@ export default function MuseumScreen() {
               />
 
               {/* 热门商品标题 */}
+              {/* 热门商品标题 */}
               <Animated.View entering={FadeInDown.duration(300).delay(160)}>
                 <Text
                   style={[
@@ -915,38 +927,53 @@ export default function MuseumScreen() {
                   热门商品
                 </Text>
               </Animated.View>
+          </View>
+
+          {/* 瀑布流双列 */}
+          {allProducts.length > 0 ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                paddingHorizontal: HORIZONTAL_PADDING,
+                paddingBottom: spacing['3xl'],
+              }}
+            >
+              <View style={{ flex: 1, marginRight: COLUMN_GAP / 2 }}>
+                {renderMasonryColumn(leftColumn, 0)}
+              </View>
+              <View style={{ flex: 1, marginLeft: COLUMN_GAP / 2 }}>
+                {renderMasonryColumn(rightColumn, 1)}
+              </View>
             </View>
-          }
-          ListFooterComponent={
-            productsQuery.isFetchingNextPage ? (
-              <View style={{ padding: spacing.xl, alignItems: 'center' }}>
-                <Text style={[typography.bodySm, { color: colors.muted }]}>加载中...</Text>
+          ) : productsQuery.isLoading ? (
+            <View style={{ padding: HORIZONTAL_PADDING, paddingTop: spacing.xl }}>
+              <View style={styles.skeletonRow}>
+                <Skeleton height={220} radius={radius.lg} style={{ flex: 1, marginRight: COLUMN_GAP }} />
+                <Skeleton height={220} radius={radius.lg} style={{ flex: 1 }} />
               </View>
-            ) : !productsQuery.hasNextPage && allProducts.length > 0 ? (
-              <View style={{ padding: spacing.xl, alignItems: 'center' }}>
-                <Text style={[typography.bodySm, { color: colors.muted }]}>已加载全部商品</Text>
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            productsQuery.isLoading ? (
-              <View style={{ padding: HORIZONTAL_PADDING, paddingTop: spacing.xl }}>
-                <View style={styles.skeletonRow}>
-                  <Skeleton height={220} radius={radius.lg} style={{ flex: 1, marginRight: COLUMN_GAP }} />
-                  <Skeleton height={220} radius={radius.lg} style={{ flex: 1 }} />
-                </View>
-              </View>
-            ) : productsError ? (
-              <ErrorState
-                title="加载失败"
-                description={productsError.displayMessage ?? '请稍后再试'}
-                onAction={() => productsQuery.refetch()}
-              />
-            ) : (
-              <EmptyState title="暂无商品" description="稍后再来看看" />
-            )
-          }
-        />
+            </View>
+          ) : productsError ? (
+            <ErrorState
+              title="加载失败"
+              description={productsError.displayMessage ?? '请稍后再试'}
+              onAction={() => productsQuery.refetch()}
+            />
+          ) : (
+            <EmptyState title="暂无商品" description="稍后再来看看" />
+          )}
+
+          {/* 加载更多指示 */}
+          {productsQuery.isFetchingNextPage && (
+            <View style={{ padding: spacing.xl, alignItems: 'center' }}>
+              <Text style={[typography.bodySm, { color: colors.muted }]}>加载中...</Text>
+            </View>
+          )}
+          {!productsQuery.hasNextPage && allProducts.length > 0 && (
+            <View style={{ padding: spacing.xl, alignItems: 'center' }}>
+              <Text style={[typography.bodySm, { color: colors.muted }]}>已加载全部商品</Text>
+            </View>
+          )}
+        </ScrollView>
       </Animated.View>
 
       {/* 企业标签页 */}
