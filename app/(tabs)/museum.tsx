@@ -303,7 +303,6 @@ export default function MuseumScreen() {
           <View key={product.id} style={{ marginBottom: COLUMN_GAP }}>
             <ProductCard
               product={product}
-              width={CARD_WIDTH}
               imageHeight={imageHeight}
               onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
               onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}

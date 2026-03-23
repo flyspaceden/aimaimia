@@ -11,7 +11,7 @@ import { AiBadge } from '../ui/AiBadge';
 
 type ProductCardProps = {
   product: Product;
-  width: number;
+  width?: number;
   imageHeight?: number;
   onPress?: (product: Product) => void;
   onAdd?: (product: Product) => void;
@@ -37,7 +37,7 @@ export const ProductCard = React.memo(({
   const { colors, radius, spacing, typography, shadow } = useTheme();
   const router = useRouter();
   const scale = useRef(new Animated.Value(1)).current;
-  const coverHeight = imageHeight ?? width;
+  const coverHeight = imageHeight ?? width ?? 150;
 
   const handleAdd = () => {
     Animated.sequence([
@@ -52,7 +52,7 @@ export const ProductCard = React.memo(({
       onPress={() => onPress?.(product)}
       accessibilityLabel={`${product.title}，${product.origin}，价格${product.price}元`}
       accessibilityRole="button"
-      style={[styles.card, shadow.sm, { width, borderRadius: radius.lg, backgroundColor: colors.surface }]}
+      style={[styles.card, shadow.sm, { width: width || '100%', borderRadius: radius.lg, backgroundColor: colors.surface }]}
     >
       <Image
         source={{ uri: product.image || undefined }}
