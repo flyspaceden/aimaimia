@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
-  FlatList,
   Image,
   Pressable,
   RefreshControl,
@@ -18,6 +17,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { FlashList } from '@shopify/flash-list';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -75,8 +75,6 @@ export default function MuseumScreen() {
   const [companyFilter, setCompanyFilter] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [mapProvider, setMapProvider] = useState<MapProvider>('amap');
-  // 企业 Tab 是否曾经被激活过（用于懒渲染）
-  const [companiesTabMounted, setCompaniesTabMounted] = useState(false);
   // 地图模式选中企业（用于底部浮动卡片）
   const [selectedMapCompany, setSelectedMapCompany] = useState<Company | null>(null);
 
@@ -202,15 +200,12 @@ export default function MuseumScreen() {
   // 标签页切换
   const handleTabSwitch = useCallback(
     (tab: 'products' | 'companies') => {
-      if (tab === 'companies' && !companiesTabMounted) {
-        setCompaniesTabMounted(true);
-      }
       setActiveTab(tab);
       // 动画移动下划线指示器
       const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
       tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 200 });
     },
-    [tabIndicatorX, companiesTabMounted],
+    [tabIndicatorX],
   );
 
   // 下拉刷新
@@ -747,7 +742,7 @@ export default function MuseumScreen() {
       {StickyHeader}
 
       {/* 商品标签页 */}
-      <View style={{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }}>
+      {activeTab === 'products' && <View style={{ flex: 1 }}>
         <ScrollView
           style={{ flex: 1 }}
           refreshControl={
@@ -974,11 +969,11 @@ export default function MuseumScreen() {
             </View>
           )}
         </ScrollView>
-      </View>
+      </View>}
 
-      {/* 企业标签页（懒渲染：首次切换到企业 Tab 才挂载 FlatList） */}
-      <View style={{ flex: 1, display: activeTab === 'companies' ? 'flex' : 'none' }}>
-        {!companiesTabMounted ? null : <FlatList
+      {/* 企业标签页 */}
+      {activeTab === 'companies' && <View style={{ flex: 1 }}>
+        <FlashList
           data={allCompanies}
           renderItem={renderCompanyItem}
           keyExtractor={(item, index) => item?.id ?? `company-${index}`}
@@ -987,9 +982,6 @@ export default function MuseumScreen() {
           }
           onEndReached={handleCompaniesLoadMore}
           onEndReachedThreshold={0.5}
-          initialNumToRender={4}
-          maxToRenderPerBatch={4}
-          removeClippedSubviews
           ListHeaderComponent={
             <View>
               {/* 企业筛选标签 */}
@@ -1062,8 +1054,8 @@ export default function MuseumScreen() {
               <EmptyState title="暂无企业" description="稍后再来看看" />
             )
           }
-        />}
-      </View>
+        />
+      </View>}
 
       <SearchOverlay visible={searchActive} onClose={() => setSearchActive(false)} />
     </Screen>
