@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Company } from '../../types';
 import { useTheme } from '../../theme';
 import { Tag } from '../ui/Tag';
+import { formatPrice } from '../../utils/formatPrice';
 
 type CompanyCardProps = {
   company: Company;
@@ -151,7 +152,7 @@ export const CompanyCard = React.memo(({ company, onPress, onProductPress }: Com
                   style={[typography.caption, { color: colors.brand.primary }]}
                   numberOfLines={1}
                 >
-                  ¥{product.price.toFixed(2)}
+                  ¥{formatPrice(product.price)}
                 </Text>
               </Pressable>
             );
