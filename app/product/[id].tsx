@@ -281,7 +281,9 @@ export default function ProductDetailScreen() {
               {product!.origin}
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.md }}>
-              {product!.tags.map((tag, index) => (
+              {(product!.tags ?? [])
+                .filter((tag): tag is string => typeof tag === 'string')
+                .map((tag, index) => (
                 <Tag key={`${tag}-${index}`} label={tag} style={{ marginRight: spacing.xs, marginBottom: spacing.xs }} />
               ))}
             </View>
@@ -452,26 +454,32 @@ export default function ProductDetailScreen() {
           )}
 
           {/* 商品属性 */}
-          {detail?.attributes && Object.keys(detail.attributes).length > 0 && (
-            <Animated.View entering={FadeInDown.duration(300).delay(370)} style={{ marginTop: spacing.xl }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
-                <View style={[styles.sectionLine, { backgroundColor: colors.brand.primary }]} />
-                <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: spacing.sm }]}>
-                  商品属性
-                </Text>
-              </View>
-              <View style={[{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, ...shadow.sm }]}>
-                {Object.entries(detail.attributes)
-                  .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
-                  .map(([key, value]) => (
-                  <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
-                    <Text style={[typography.bodySm, { color: colors.text.tertiary }]}>{key}</Text>
-                    <Text style={[typography.bodySm, { color: colors.text.primary }]}>{String(value)}</Text>
-                  </View>
-                ))}
-              </View>
-            </Animated.View>
-          )}
+          {(() => {
+            const primitiveAttrs = detail?.attributes
+              ? Object.entries(detail.attributes).filter(
+                  ([, value]) => typeof value === 'string' || typeof value === 'number',
+                )
+              : [];
+            if (primitiveAttrs.length === 0) return null;
+            return (
+              <Animated.View entering={FadeInDown.duration(300).delay(370)} style={{ marginTop: spacing.xl }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+                  <View style={[styles.sectionLine, { backgroundColor: colors.brand.primary }]} />
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: spacing.sm }]}>
+                    商品属性
+                  </Text>
+                </View>
+                <View style={[{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, ...shadow.sm }]}>
+                  {primitiveAttrs.map(([key, value]) => (
+                    <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+                      <Text style={[typography.bodySm, { color: colors.text.tertiary }]}>{key}</Text>
+                      <Text style={[typography.bodySm, { color: colors.text.primary }]}>{String(value)}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+            );
+          })()}
 
           {/* 图文详情 */}
           <Animated.View entering={FadeInDown.duration(300).delay(400)} style={{ marginTop: spacing.xl }}>

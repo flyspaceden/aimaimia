@@ -135,8 +135,9 @@ export const CompanyRepo = {
     const res = await ApiClient.get<any>('/companies');
     if (res.ok) {
       const raw = res.data;
-      // 兼容后端返回普通数组的情况：客户端做分页和筛选
-      const allCompanies: Company[] = Array.isArray(raw) ? raw : (raw.items ?? []);
+      // 兼容后端返回普通数组的情况：客户端做分页和筛选；排除平台公司
+      const allCompanies: Company[] = (Array.isArray(raw) ? raw : (raw.items ?? []))
+        .filter((c: any) => c.id !== 'PLATFORM_COMPANY');
       const page = options?.page ?? 1;
       const pageSize = options?.pageSize ?? PAGE_SIZE;
 

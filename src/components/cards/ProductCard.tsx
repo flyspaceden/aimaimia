@@ -55,7 +55,7 @@ export const ProductCard = React.memo(({
       style={[styles.card, shadow.sm, { width, borderRadius: radius.lg, backgroundColor: colors.surface }]}
     >
       <Image
-        source={{ uri: product.image }}
+        source={{ uri: product.image || undefined }}
         style={{ height: coverHeight, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg }}
         contentFit="cover"
         cachePolicy="memory-disk"
@@ -76,7 +76,10 @@ export const ProductCard = React.memo(({
           {product.origin}
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.sm, minHeight: 28 }}>
-          {product.tags.slice(0, 2).map((tag, index) => (
+          {(product.tags ?? [])
+            .filter((tag): tag is string => typeof tag === 'string')
+            .slice(0, 2)
+            .map((tag, index) => (
             <Tag
               key={`${tag}-${index}`}
               label={tag}
