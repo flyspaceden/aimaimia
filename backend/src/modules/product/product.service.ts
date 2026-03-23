@@ -136,6 +136,7 @@ export class ProductService {
       tags: { include: { tag: true } },
       skus: { where: { status: 'ACTIVE' as const }, take: 1 },
       category: { select: { id: true, name: true } },
+      company: { select: { id: true, name: true } },
     };
 
     let items: ListableProduct[] = [];
@@ -868,6 +869,7 @@ export class ProductService {
       categoryId: product.categoryId,
       categoryName: product.category?.name || '',
       companyId: product.companyId,
+      companyName: product.company?.name || undefined,
       rating: undefined,
     };
   }
