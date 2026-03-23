@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import Animated, {
   FadeInDown,
+  FadeInUp,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -61,7 +63,7 @@ const COMPANY_FILTERS: Array<{ label: string; value: string | null }> = [
 ];
 
 export default function MuseumScreen() {
-  const { colors, radius, spacing, typography } = useTheme();
+  const { colors, radius, spacing, shadow, typography } = useTheme();
   const router = useRouter();
 
   // 标签页与视图状态
@@ -72,11 +74,19 @@ export default function MuseumScreen() {
   const [companyFilter, setCompanyFilter] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [mapProvider, setMapProvider] = useState<MapProvider>('amap');
+  // 地图模式选中企业（用于底部浮动卡片）
+  const [selectedMapCompany, setSelectedMapCompany] = useState<Company | null>(null);
 
   // 标签页下划线动画
   const tabIndicatorX = useSharedValue(0);
   const tabIndicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tabIndicatorX.value }],
+  }));
+
+  // 底部卡片滑入动画
+  const cardTranslateY = useSharedValue(120);
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: cardTranslateY.value }],
   }));
 
   const addItem = useCartStore((state) => state.addItem);
@@ -130,7 +140,8 @@ export default function MuseumScreen() {
       return undefined;
     },
     initialPageParam: 1,
-    enabled: activeTab === 'companies',
+    // 地图模式也需要企业数据
+    enabled: activeTab === 'companies' || viewMode === 'map',
     staleTime: 3 * 60_000,
   });
 
@@ -211,6 +222,21 @@ export default function MuseumScreen() {
       companiesQuery.fetchNextPage();
     }
   }, [companiesQuery]);
+
+  // 地图点位选中
+  const handleMapMarkerSelect = useCallback(
+    (company: Company) => {
+      setSelectedMapCompany(company);
+      cardTranslateY.value = withTiming(0, { duration: 300 });
+    },
+    [cardTranslateY],
+  );
+
+  // 关闭底部浮动卡片
+  const handleCloseMapCard = useCallback(() => {
+    cardTranslateY.value = withTiming(120, { duration: 250 });
+    setTimeout(() => setSelectedMapCompany(null), 260);
+  }, [cardTranslateY]);
 
   // 错误状态
   const productsError =
@@ -395,53 +421,275 @@ export default function MuseumScreen() {
   if (viewMode === 'map') {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        {StickyHeader}
-        <ScrollView
-          style={{ flex: 1 }}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-          }
-        >
-          <View style={{ paddingHorizontal: HORIZONTAL_PADDING, paddingTop: spacing.md }}>
-            {/* 地图供应商切换 */}
-            <View style={styles.mapProviderRow}>
-              {mapProviders.map((provider) => {
-                const active = mapProvider === provider.value;
-                return (
-                  <Pressable
-                    key={provider.value}
-                    onPress={() => setMapProvider(provider.value)}
+        {/* 地图全屏底层 */}
+        <View style={StyleSheet.absoluteFillObject}>
+          <MapView
+            provider={mapProvider}
+            markers={mapCompanies}
+            onSelect={handleMapMarkerSelect}
+            fullScreen
+            selectedMarker={selectedMapCompany}
+          />
+        </View>
+
+        {/* 顶部浮动区：标题栏 + 搜索框 + Tab Pill */}
+        <View style={styles.mapFloatingTop} pointerEvents="box-none">
+          {/* 半透明标题栏 */}
+          <View
+            style={[
+              styles.mapTitleBar,
+              {
+                backgroundColor: 'rgba(255,255,255,0.92)',
+                borderRadius: radius.lg,
+                marginHorizontal: HORIZONTAL_PADDING,
+                ...shadow.sm,
+              },
+            ]}
+          >
+            <Text style={[typography.headingLg, { color: colors.text.primary }]}>发现</Text>
+            <View style={styles.titleIcons}>
+              {/* 列表模式切换 */}
+              <Pressable
+                onPress={() => {
+                  setSelectedMapCompany(null);
+                  cardTranslateY.value = 120;
+                  setViewMode('list');
+                }}
+                style={styles.iconBtn}
+              >
+                <MaterialCommunityIcons
+                  name="format-list-bulleted"
+                  size={22}
+                  color={colors.text.secondary}
+                />
+              </Pressable>
+              {/* 购物车 */}
+              <Pressable onPress={() => router.push('/cart')} style={styles.iconBtn}>
+                <MaterialCommunityIcons
+                  name="cart-outline"
+                  size={22}
+                  color={colors.text.secondary}
+                />
+                {cartCount > 0 && (
+                  <View style={[styles.cartBadge, { backgroundColor: colors.brand.primary }]}>
+                    <Text
+                      style={[
+                        typography.captionSm,
+                        { color: colors.text.inverse, fontSize: 10, lineHeight: 14 },
+                      ]}
+                    >
+                      {cartCount > 99 ? '99+' : cartCount}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
+          </View>
+
+          {/* 浮动搜索框 */}
+          <Pressable
+            onPress={() => setSearchActive(true)}
+            style={[
+              styles.mapSearchBar,
+              {
+                backgroundColor: '#FFFFFF',
+                borderRadius: radius.pill,
+                marginHorizontal: HORIZONTAL_PADDING,
+                marginTop: spacing.sm,
+                ...shadow.md,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="magnify" size={20} color={colors.muted} />
+            <Text style={[typography.bodyMd, { color: colors.muted, marginLeft: spacing.sm }]}>
+              搜索商品、品类、企业...
+            </Text>
+          </Pressable>
+
+          {/* 地图供应商 Tab Pill */}
+          <View style={[styles.mapTabPills, { marginHorizontal: HORIZONTAL_PADDING, marginTop: spacing.sm }]}>
+            {mapProviders.map((provider) => {
+              const active = mapProvider === provider.value;
+              return (
+                <Pressable
+                  key={provider.value}
+                  onPress={() => setMapProvider(provider.value)}
+                  style={[
+                    styles.tabPill,
+                    {
+                      backgroundColor: active ? colors.brand.primary : '#FFFFFF',
+                      borderRadius: radius.pill,
+                      marginRight: spacing.sm,
+                      ...shadow.sm,
+                    },
+                  ]}
+                >
+                  <Text
                     style={[
-                      styles.filterChip,
+                      typography.caption,
+                      { color: active ? '#FFFFFF' : colors.text.secondary, fontWeight: '600' },
+                    ]}
+                  >
+                    {provider.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* 底部浮动企业卡片（点击点位后展示） */}
+        {selectedMapCompany && (
+          <Animated.View
+            style={[
+              styles.mapBottomCard,
+              {
+                backgroundColor: colors.surface,
+                borderRadius: radius.xl,
+                marginHorizontal: HORIZONTAL_PADDING,
+                marginBottom: spacing.xl,
+                ...shadow.lg,
+              },
+              cardAnimatedStyle,
+            ]}
+          >
+            {/* 关闭按钮 */}
+            <Pressable
+              onPress={handleCloseMapCard}
+              style={[styles.mapCardClose, { backgroundColor: colors.bgSecondary }]}
+            >
+              <MaterialCommunityIcons name="close" size={16} color={colors.text.secondary} />
+            </Pressable>
+
+            {/* 企业基本信息 */}
+            <View style={styles.mapCardHeader}>
+              {/* Logo 占位 */}
+              <View
+                style={[
+                  styles.mapCardLogo,
+                  { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="store-outline"
+                  size={24}
+                  color={colors.brand.primary}
+                />
+              </View>
+
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <View style={styles.mapCardNameRow}>
+                  <Text
+                    style={[typography.bodyStrong, { color: colors.text.primary }]}
+                    numberOfLines={1}
+                  >
+                    {selectedMapCompany.name}
+                  </Text>
+                  {selectedMapCompany.badges?.[0] && (
+                    <View
+                      style={[
+                        styles.mapCardBadge,
+                        {
+                          backgroundColor: colors.brand.primarySoft,
+                          borderRadius: radius.sm,
+                          marginLeft: spacing.xs,
+                        },
+                      ]}
+                    >
+                      <Text style={[typography.captionSm, { color: colors.brand.primary }]}>
+                        {selectedMapCompany.badges[0]}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                  {selectedMapCompany.distanceKm != null
+                    ? `距离约 ${selectedMapCompany.distanceKm.toFixed(1)} km`
+                    : selectedMapCompany.location}
+                </Text>
+              </View>
+            </View>
+
+            {/* 商品预览 + 进店按钮 */}
+            <View style={[styles.mapCardFooter, { marginTop: spacing.md }]}>
+              {/* 商品缩略图 */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ gap: spacing.sm }}
+              >
+                {(selectedMapCompany.topProducts ?? []).slice(0, 4).map((product, index) => (
+                  <Pressable
+                    key={product.id}
+                    onPress={() =>
+                      router.push({ pathname: '/product/[id]', params: { id: product.id } })
+                    }
+                    style={[
+                      styles.mapCardProduct,
+                      { borderRadius: radius.md, backgroundColor: colors.bgSecondary },
+                    ]}
+                  >
+                    {product.image ? (
+                      <Image
+                        source={{ uri: product.image }}
+                        style={[StyleSheet.absoluteFillObject, { borderRadius: radius.md }]}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name="image-outline"
+                        size={20}
+                        color={colors.muted}
+                      />
+                    )}
+                  </Pressable>
+                ))}
+                {(selectedMapCompany.topProducts?.length ?? 0) > 4 && (
+                  <View
+                    style={[
+                      styles.mapCardProduct,
                       {
-                        backgroundColor: active ? colors.brand.primary : colors.surface,
-                        borderColor: active ? colors.brand.primary : colors.border,
-                        borderRadius: radius.pill,
-                        marginRight: spacing.sm,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.bgSecondary,
+                        alignItems: 'center',
+                        justifyContent: 'center',
                       },
                     ]}
                   >
-                    <Text
-                      style={[
-                        typography.caption,
-                        { color: active ? colors.text.inverse : colors.text.secondary },
-                      ]}
-                    >
-                      {provider.label} · {provider.note}
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
+                      +{(selectedMapCompany.topProducts?.length ?? 0) - 4}
                     </Text>
-                  </Pressable>
-                );
-              })}
+                  </View>
+                )}
+              </ScrollView>
+
+              {/* 进店按钮 */}
+              <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: '/company/[id]',
+                    params: { id: selectedMapCompany.id },
+                  })
+                }
+                style={[
+                  styles.mapCardEnterBtn,
+                  {
+                    backgroundColor: colors.brand.primary,
+                    borderRadius: radius.pill,
+                    marginLeft: spacing.md,
+                  },
+                ]}
+              >
+                <Text style={[typography.captionSm, { color: '#FFFFFF', fontWeight: '700' }]}>
+                  进店
+                </Text>
+                <MaterialCommunityIcons name="chevron-right" size={14} color="#FFFFFF" />
+              </Pressable>
             </View>
-            <MapView
-              provider={mapProvider}
-              markers={mapCompanies}
-              onSelect={(company) =>
-                router.push({ pathname: '/company/[id]', params: { id: company.id } })
-              }
-            />
-          </View>
-        </ScrollView>
+          </Animated.View>
+        )}
+
         <SearchOverlay visible={searchActive} onClose={() => setSearchActive(false)} />
       </Screen>
     );
@@ -784,11 +1032,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  mapProviderRow: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    marginTop: 8,
-  },
   cartBadge: {
     position: 'absolute',
     top: 2,
@@ -802,5 +1045,90 @@ const styles = StyleSheet.create({
   },
   skeletonRow: {
     flexDirection: 'row',
+  },
+  // ---- 地图模式样式 ----
+  mapFloatingTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    paddingTop: 12,
+  },
+  mapTitleBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  mapSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  mapTabPills: {
+    flexDirection: 'row',
+  },
+  tabPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  mapBottomCard: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    padding: 16,
+  },
+  mapCardClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  mapCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 32, // 避免被关闭按钮遮挡
+  },
+  mapCardLogo: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapCardNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mapCardBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  mapCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mapCardProduct: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  mapCardEnterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 2,
   },
 });
