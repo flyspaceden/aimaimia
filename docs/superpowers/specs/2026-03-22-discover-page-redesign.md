@@ -139,19 +139,42 @@
 
 ## 技术考量
 
-### 瀑布流实现
-- React Native 中 FlashList 不原生支持瀑布流
-- 方案：使用 `@shopify/flash-list` 的 `MasonryFlashList` 或手动双列布局（两个独立 FlatList 交替分配数据）
-- 需要提前获取图片高度或使用 `onLayout` 动态调整
+### Tab 状态管理
+- Tab 状态：`const [activeTab, setActiveTab] = useState<'products' | 'companies'>('products')`
+- 数据加载策略：商品 Tab 立即加载，企业 Tab 懒加载（首次切换时触发）
+- 滚动位置：两个 Tab 各自维护独立的 ScrollView/FlatList ref，切换时恢复各自的滚动位置
+- Tab 切换动画：内容区淡入淡出 200ms
 
-### Tab 切换
-- 使用 React 状态管理 Tab 切换，保持两个 Tab 的滚动位置独立
-- 企业 Tab 数据独立查询，带分页
+### 瀑布流实现
+- 推荐方案：手动双列布局（两个独立 VirtualizedList 交替分配数据）
+- 图片高度策略：后端返回图片宽高比（`imageRatio`），前端根据列宽计算高度；若无比例数据则默认 4:3
+- 无限滚动阈值：`onEndReachedThreshold: 0.5`
+
+### AI 推荐横滑
+- 最后一张卡片半露出（约 50% 可见），提示用户可继续滑动
+- 首次加载时卡片轻微左移动画（translateX -20px → 0），暗示可滑动
+- 如果 AI 推荐接口加载失败，静默隐藏该区域（不显示错误态），直接展示热门商品
 
 ### 地图模式浮动控件
 - 使用 `position: absolute` 将搜索框和 Tab 叠加在地图组件上方
 - 底部企业卡片使用 `BottomSheet` 或自定义 Animated 组件
+- 地图模式下 Tab 切换：企业 Tab 显示企业位置标点，商品 Tab 显示产地/发货地标点
+- 商品 Tab 标点数据复用现有商品列表的 `origin` 字段定位
+
+### 企业筛选标签语义
+- `全部`：不筛选
+- `🌿 有机认证`：`?certified=true`，按企业认证状态筛选
+- `🍎 水果` / `🍵 茶叶`：`?productCategory=fruit`，按企业主营品类筛选
+- `📍 附近`：`?sortBy=distance`，按距离升序排序（需要用户位置权限；若未授权则提示授权）
 
 ### 企业热门商品数据
-- 需要后端接口支持：企业列表接口返回每个企业的 top 3 热门商品（含缩略图、名称、价格）
-- 或使用现有企业详情接口的商品字段
+- 企业列表接口扩展：返回每个企业的 `topProducts: Product[]`（3 个热销商品，含缩略图、名称、价格）
+- 接口：`GET /api/v1/companies?page=&includeTopProducts=true`
+
+### 交叉引流嵌套点击
+- 企业卡片整体用 `Pressable` 包裹，跳转企业详情页
+- 内部商品缩略图各自用独立 `Pressable`，跳转商品详情页
+- 内层 `Pressable` 的 `onPress` 调用 `e.stopPropagation()` 阻止冒泡到外层
+
+### 搜索框文案
+- 统一为"搜索商品、品类、企业..."
