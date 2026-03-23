@@ -131,19 +131,40 @@ export const CompanyRepo = {
     }
 
     // 真实 API 模式
-    const res = await ApiClient.get<{ items: Company[]; total: number; page: number; pageSize: number }>(
-      '/companies',
-      {
-        page: options?.page ?? 1,
-        pageSize: options?.pageSize ?? PAGE_SIZE,
-        ...(options?.certified !== undefined && { certified: options.certified ? 1 : 0 }),
-        ...(options?.productCategory && { productCategory: options.productCategory }),
-        ...(options?.sortBy && { sortBy: options.sortBy }),
-        ...(options?.includeTopProducts && { includeTopProducts: 1 }),
-      },
-    );
+    // 后端可能返回数组 Company[] 或分页对象 { items, total, page, pageSize }
+    const res = await ApiClient.get<any>('/companies');
     if (res.ok) {
-      return { ok: true, data: normalizePagination(res.data) };
+      const raw = res.data;
+      // 兼容后端返回普通数组的情况：客户端做分页和筛选
+      const allCompanies: Company[] = Array.isArray(raw) ? raw : (raw.items ?? []);
+      const page = options?.page ?? 1;
+      const pageSize = options?.pageSize ?? PAGE_SIZE;
+
+      let filtered = allCompanies;
+      if (options?.certified !== undefined) {
+        filtered = filtered.filter((c) =>
+          options.certified
+            ? (c.certifications?.length ?? 0) > 0
+            : (c.certifications?.length ?? 0) === 0,
+        );
+      }
+      if (options?.productCategory) {
+        const cat = options.productCategory.toLowerCase();
+        filtered = filtered.filter((c) =>
+          c.industryTags?.some((tag) => tag.toLowerCase().includes(cat)),
+        );
+      }
+      if (options?.sortBy === 'distance') {
+        filtered = [...filtered].sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
+      }
+
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const items = filtered.slice(start, end);
+      const total = filtered.length;
+      const nextPage = end < total ? page + 1 : undefined;
+
+      return { ok: true, data: { items, total, page, pageSize, nextPage } };
     }
     return res as Result<PaginationResult<Company>>;
   },
