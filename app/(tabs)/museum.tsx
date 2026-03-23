@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -61,7 +61,7 @@ const COMPANY_FILTERS: Array<{ label: string; value: string | null }> = [
 ];
 
 export default function MuseumScreen() {
-  const { colors, radius, spacing, typography, shadow } = useTheme();
+  const { colors, radius, spacing, typography } = useTheme();
   const router = useRouter();
 
   // 标签页与视图状态
