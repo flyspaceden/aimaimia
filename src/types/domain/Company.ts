@@ -45,5 +45,6 @@ export type Company = {
     title: string;
     price: number;
     image: string;
+    defaultSkuId?: string;
   }>;
 };

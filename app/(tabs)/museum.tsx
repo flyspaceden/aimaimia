@@ -326,7 +326,12 @@ export default function MuseumScreen() {
               router.push({ pathname: '/product/[id]', params: { id: productId } })
             }
             onAddToCart={(product) =>
-              addItem({ id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' }, 1, undefined, product.price)
+              addItem(
+                { id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' },
+                1,
+                product.defaultSkuId,
+                product.price,
+              )
             }
           />
         </View>

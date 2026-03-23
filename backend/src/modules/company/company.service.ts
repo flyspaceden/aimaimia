@@ -44,6 +44,7 @@ export class CompanyService {
         title: p.title,
         price: p.skus[0]?.price ?? p.basePrice ?? 0,
         image: p.media[0]?.url ?? '',
+        defaultSkuId: p.skus[0]?.id ?? null,
       })),
     }));
     this.listCache.set('companies:all', result);

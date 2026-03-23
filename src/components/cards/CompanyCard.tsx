@@ -11,7 +11,7 @@ type CompanyCardProps = {
   company: Company;
   onPress?: (company: Company) => void;
   onProductPress?: (productId: string) => void;
-  onAddToCart?: (product: { id: string; title: string; price: number; image: string }) => void;
+  onAddToCart?: (product: { id: string; title: string; price: number; image: string; defaultSkuId?: string }) => void;
 };
 
 // 企业卡片：全宽布局，含横滑商品缩略图行
