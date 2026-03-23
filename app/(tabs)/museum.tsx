@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -15,6 +15,8 @@ import Animated, {
   FadeInUp,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -87,6 +89,24 @@ export default function MuseumScreen() {
   const cardTranslateY = useSharedValue(120);
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: cardTranslateY.value }],
+  }));
+
+  // 标签页内容淡入淡出动画
+  const tabOpacity = useSharedValue(1);
+  const tabAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: tabOpacity.value,
+  }));
+
+  // AI 推荐横滑提示动画（首次加载左移提示可滚动）
+  const scrollHintX = useSharedValue(0);
+  useEffect(() => {
+    scrollHintX.value = withSequence(
+      withDelay(500, withTiming(-20, { duration: 300 })),
+      withTiming(0, { duration: 300 }),
+    );
+  }, []);
+  const scrollHintStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: scrollHintX.value }],
   }));
 
   const addItem = useCartStore((state) => state.addItem);
@@ -190,12 +210,17 @@ export default function MuseumScreen() {
   // 标签页切换
   const handleTabSwitch = useCallback(
     (tab: 'products' | 'companies') => {
+      // 内容淡出再淡入（200ms 总时长）
+      tabOpacity.value = withSequence(
+        withTiming(0, { duration: 100 }),
+        withTiming(1, { duration: 100 }),
+      );
       setActiveTab(tab);
       // 动画移动下划线指示器
       const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
       tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 250 });
     },
-    [tabIndicatorX],
+    [tabIndicatorX, tabOpacity],
   );
 
   // 下拉刷新
@@ -701,7 +726,7 @@ export default function MuseumScreen() {
       {StickyHeader}
 
       {/* 商品标签页 */}
-      <View style={{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }}>
+      <Animated.View style={[{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }, tabAnimatedStyle]}>
         <ScrollView
           style={{ flex: 1 }}
           refreshControl={
@@ -717,7 +742,7 @@ export default function MuseumScreen() {
           scrollEventThrottle={400}
         >
           {/* 分类横滑标签 */}
-          <Animated.View entering={FadeInDown.duration(300).delay(80)}>
+          <Animated.View entering={FadeInDown.duration(300).delay(0)}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -771,7 +796,7 @@ export default function MuseumScreen() {
 
           {/* 脉脉精选区 — 横滑 */}
           {aiProducts.length > 0 && (
-            <Animated.View entering={FadeInDown.duration(300).delay(160)} style={{ marginTop: spacing.lg }}>
+            <Animated.View entering={FadeInDown.duration(300).delay(80)} style={{ marginTop: spacing.lg }}>
               <View
                 style={[
                   styles.sectionHeader,
@@ -787,34 +812,37 @@ export default function MuseumScreen() {
                   marginHorizontal: HORIZONTAL_PADDING,
                 }}
               />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  paddingHorizontal: HORIZONTAL_PADDING,
-                  paddingBottom: spacing.sm,
-                }}
-              >
-                {aiProducts.map((item, index) => (
-                  <View
-                    key={item.product.id + '-ai-' + index}
-                    style={{ width: AI_CARD_WIDTH, marginRight: spacing.md }}
-                  >
-                    <ProductCard
-                      product={item.product}
-                      width={AI_CARD_WIDTH}
-                      imageHeight={AI_IMAGE_HEIGHT}
-                      aiRecommend
-                      aiReason={item.reason}
-                      monthlySales={item.monthlySales}
-                      onPress={(p) =>
-                        router.push({ pathname: '/product/[id]', params: { id: p.id } })
-                      }
-                      onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
-                    />
-                  </View>
-                ))}
-              </ScrollView>
+              {/* 包裹 ScrollView 以应用横滑提示动画 */}
+              <Animated.View style={scrollHintStyle}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{
+                    paddingHorizontal: HORIZONTAL_PADDING,
+                    paddingBottom: spacing.sm,
+                  }}
+                >
+                  {aiProducts.map((item, index) => (
+                    <View
+                      key={item.product.id + '-ai-' + index}
+                      style={{ width: AI_CARD_WIDTH, marginRight: spacing.md }}
+                    >
+                      <ProductCard
+                        product={item.product}
+                        width={AI_CARD_WIDTH}
+                        imageHeight={AI_IMAGE_HEIGHT}
+                        aiRecommend
+                        aiReason={item.reason}
+                        monthlySales={item.monthlySales}
+                        onPress={(p) =>
+                          router.push({ pathname: '/product/[id]', params: { id: p.id } })
+                        }
+                        onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+              </Animated.View>
             </Animated.View>
           )}
 
@@ -827,46 +855,48 @@ export default function MuseumScreen() {
             }}
           />
 
-          {/* 热门商品标题 */}
-          <Text
-            style={[
-              typography.headingSm,
-              {
-                color: colors.text.primary,
-                paddingHorizontal: HORIZONTAL_PADDING,
-                marginTop: spacing.lg,
-                marginBottom: spacing.md,
-              },
-            ]}
-          >
-            热门商品
-          </Text>
-
-          {/* 瀑布流双列 */}
-          {allProducts.length > 0 ? (
-            <View
-              style={{
-                flexDirection: 'row',
-                paddingHorizontal: HORIZONTAL_PADDING,
-                paddingBottom: spacing['3xl'],
-              }}
+          {/* 热门商品标题 + 瀑布流（错落入场，延迟 160ms） */}
+          <Animated.View entering={FadeInDown.duration(300).delay(160)}>
+            <Text
+              style={[
+                typography.headingSm,
+                {
+                  color: colors.text.primary,
+                  paddingHorizontal: HORIZONTAL_PADDING,
+                  marginTop: spacing.lg,
+                  marginBottom: spacing.md,
+                },
+              ]}
             >
-              <View style={{ flex: 1, marginRight: COLUMN_GAP / 2 }}>
-                {renderMasonryColumn(leftColumn, 0)}
+              热门商品
+            </Text>
+
+            {/* 瀑布流双列 */}
+            {allProducts.length > 0 ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  paddingHorizontal: HORIZONTAL_PADDING,
+                  paddingBottom: spacing['3xl'],
+                }}
+              >
+                <View style={{ flex: 1, marginRight: COLUMN_GAP / 2 }}>
+                  {renderMasonryColumn(leftColumn, 0)}
+                </View>
+                <View style={{ flex: 1, marginLeft: COLUMN_GAP / 2 }}>
+                  {renderMasonryColumn(rightColumn, 1)}
+                </View>
               </View>
-              <View style={{ flex: 1, marginLeft: COLUMN_GAP / 2 }}>
-                {renderMasonryColumn(rightColumn, 1)}
-              </View>
-            </View>
-          ) : productsError ? (
-            <ErrorState
-              title="加载失败"
-              description={productsError.displayMessage ?? '请稍后再试'}
-              onAction={() => productsQuery.refetch()}
-            />
-          ) : (
-            <EmptyState title="暂无商品" description="稍后再来看看" />
-          )}
+            ) : productsError ? (
+              <ErrorState
+                title="加载失败"
+                description={productsError.displayMessage ?? '请稍后再试'}
+                onAction={() => productsQuery.refetch()}
+              />
+            ) : (
+              <EmptyState title="暂无商品" description="稍后再来看看" />
+            )}
+          </Animated.View>
 
           {/* 加载更多指示 */}
           {productsQuery.isFetchingNextPage && (
@@ -880,10 +910,10 @@ export default function MuseumScreen() {
             </View>
           )}
         </ScrollView>
-      </View>
+      </Animated.View>
 
       {/* 企业标签页 */}
-      <View style={{ flex: 1, display: activeTab === 'companies' ? 'flex' : 'none' }}>
+      <Animated.View style={[{ flex: 1, display: activeTab === 'companies' ? 'flex' : 'none' }, tabAnimatedStyle]}>
         <FlatList
           data={allCompanies}
           renderItem={renderCompanyItem}
@@ -966,7 +996,7 @@ export default function MuseumScreen() {
             )
           }
         />
-      </View>
+      </Animated.View>
 
       <SearchOverlay visible={searchActive} onClose={() => setSearchActive(false)} />
     </Screen>
