@@ -6,7 +6,7 @@ import './styles/globals.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename="/aimaimia">
       <App />
     </BrowserRouter>
   </StrictMode>,
