@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* 注意：不设置 scroll-behavior: smooth，避免与 GSAP ScrollTrigger 冲突 */
+  }
+
+  body {
+    @apply font-sans text-text-primary bg-light-bg antialiased;
+  }
+
+  /* 全局 focus 样式 */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand;
+  }
+
+  /* Skip to content */
+  .skip-to-content {
+    @apply absolute -top-10 left-4 z-[100] bg-brand text-white px-4 py-2 rounded-md transition-all;
+  }
+  .skip-to-content:focus {
+    @apply top-4;
+  }
+}
+
+@layer components {
+  /* 暗明过渡段落 */
+  .section-dark {
+    @apply bg-dark-bg text-text-on-dark;
+  }
+  .section-light {
+    @apply bg-light-bg text-text-primary;
+  }
+
+  /* AI 渐变文字 */
+  .text-ai-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-ai-start via-ai-end to-ai-glow;
+  }
+
+  /* AI 渐变边框 */
+  .border-ai-gradient {
+    border-image: linear-gradient(135deg, #2E7D32, #00897B, #00BFA5) 1;
+  }
+}
+
+@layer utilities {
+  /* prefers-reduced-motion 全局降级 */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* 合作伙伴滚动动画 */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 25s linear infinite;
+}
