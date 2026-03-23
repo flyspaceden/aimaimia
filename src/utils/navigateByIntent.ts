@@ -190,7 +190,7 @@ async function resolveCompanyIntent(intent: AiVoiceIntent): Promise<IntentResult
   }
 
   const normalizedTarget = normalizeCompanyLookupText(rawName);
-  const exactMatch = result.data.find(
+  const exactMatch = result.data.items.find(
     (company) => normalizeCompanyLookupText(company.name) === normalizedTarget,
   );
   if (exactMatch) {

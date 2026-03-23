@@ -287,7 +287,7 @@ export default function CompanySearchScreen() {
     staleTime: 3 * 60_000,
   });
 
-  const companies = companiesQuery.data?.ok ? companiesQuery.data.data : [];
+  const companies = companiesQuery.data?.ok ? companiesQuery.data.data.items : [];
   const queryTokens = useMemo(
     () => buildCompanyTokens(searchTerm, isVoiceSource),
     [isVoiceSource, searchTerm],

@@ -332,7 +332,7 @@ export default function SearchScreen() {
   });
 
   const products = productResult?.ok ? productResult.data.items : [];
-  const companies = companyResult?.ok ? companyResult.data : [];
+  const companies = companyResult?.ok ? companyResult.data.items : [];
   const productError = productResult && !productResult.ok ? productResult.error : null;
   const companyError = companyResult && !companyResult.ok ? companyResult.error : null;
   const isLoading = hasSearchContext && (productsLoading || companiesLoading);
