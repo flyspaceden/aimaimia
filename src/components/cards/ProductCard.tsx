@@ -132,8 +132,7 @@ export const ProductCard = React.memo(({
         {/* 商家来源标签 */}
         {product.companyName && (
           <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
+            onPress={() => {
               if (product.companyId) {
                 router.push({ pathname: '/company/[id]', params: { id: product.companyId } });
               }
