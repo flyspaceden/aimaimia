@@ -75,6 +75,8 @@ export default function MuseumScreen() {
   const [companyFilter, setCompanyFilter] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [mapProvider, setMapProvider] = useState<MapProvider>('amap');
+  // 企业 Tab 是否曾经被激活过（用于懒渲染）
+  const [companiesTabMounted, setCompaniesTabMounted] = useState(false);
   // 地图模式选中企业（用于底部浮动卡片）
   const [selectedMapCompany, setSelectedMapCompany] = useState<Company | null>(null);
 
@@ -200,12 +202,15 @@ export default function MuseumScreen() {
   // 标签页切换
   const handleTabSwitch = useCallback(
     (tab: 'products' | 'companies') => {
+      if (tab === 'companies' && !companiesTabMounted) {
+        setCompaniesTabMounted(true);
+      }
       setActiveTab(tab);
       // 动画移动下划线指示器
       const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
       tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 200 });
     },
-    [tabIndicatorX],
+    [tabIndicatorX, companiesTabMounted],
   );
 
   // 下拉刷新
@@ -971,9 +976,9 @@ export default function MuseumScreen() {
         </ScrollView>
       </View>
 
-      {/* 企业标签页 */}
+      {/* 企业标签页（懒渲染：首次切换到企业 Tab 才挂载 FlatList） */}
       <View style={{ flex: 1, display: activeTab === 'companies' ? 'flex' : 'none' }}>
-        <FlatList
+        {!companiesTabMounted ? null : <FlatList
           data={allCompanies}
           renderItem={renderCompanyItem}
           keyExtractor={(item, index) => item?.id ?? `company-${index}`}
@@ -982,6 +987,9 @@ export default function MuseumScreen() {
           }
           onEndReached={handleCompaniesLoadMore}
           onEndReachedThreshold={0.5}
+          initialNumToRender={4}
+          maxToRenderPerBatch={4}
+          removeClippedSubviews
           ListHeaderComponent={
             <View>
               {/* 企业筛选标签 */}
@@ -1054,7 +1062,7 @@ export default function MuseumScreen() {
               <EmptyState title="暂无企业" description="稍后再来看看" />
             )
           }
-        />
+        />}
       </View>
 
       <SearchOverlay visible={searchActive} onClose={() => setSearchActive(false)} />
