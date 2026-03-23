@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import Animated, {
   FadeInDown,
-  FadeInUp,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -29,7 +28,7 @@ import { Screen } from '../../src/components/layout';
 import { AiBadge, AiDivider } from '../../src/components/ui';
 import { MapView } from '../../src/components/overlay/MapView';
 import { SearchOverlay } from '../../src/components/overlay/SearchOverlay';
-import { mapProviders, MapProvider } from '../../src/constants';
+import { MapProvider } from '../../src/constants';
 import { CategoryRepo, CompanyRepo, ProductRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
@@ -109,6 +108,9 @@ export default function MuseumScreen() {
     transform: [{ translateX: scrollHintX.value }],
   }));
 
+  // 关闭卡片定时器引用（防止泄漏）
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const addItem = useCartStore((state) => state.addItem);
   const cartCount = useCartStore((state) =>
     state.items.reduce((sum, item) => sum + item.quantity, 0),
@@ -130,10 +132,13 @@ export default function MuseumScreen() {
     [categoriesQuery.data],
   );
 
-  // 商品分页数据（无限滚动，60 秒缓存）
+  // 商品分页数据（无限滚动，60 秒缓存，支持分类筛选）
   const productsQuery = useInfiniteQuery({
-    queryKey: ['products', 'discovery'],
-    queryFn: ({ pageParam = 1 }) => ProductRepo.list({ page: pageParam }),
+    queryKey: ['products', 'discovery', selectedCategory],
+    queryFn: ({ pageParam = 1 }) => ProductRepo.list({
+      page: pageParam,
+      ...(selectedCategory ? { categoryId: selectedCategory } : {}),
+    }),
     getNextPageParam: (lastPage) => {
       if (lastPage.ok && lastPage.data.nextPage) return lastPage.data.nextPage;
       return undefined;
@@ -194,17 +199,6 @@ export default function MuseumScreen() {
     })).filter((item) => item.product);
   }, [allProducts]);
 
-  // 瀑布流双列分割
-  const { leftColumn, rightColumn } = useMemo(() => {
-    const left: Product[] = [];
-    const right: Product[] = [];
-    allProducts.forEach((product, index) => {
-      if (index % 2 === 0) left.push(product);
-      else right.push(product);
-    });
-    return { leftColumn: left, rightColumn: right };
-  }, [allProducts]);
-
   // ==================== 事件处理 ====================
 
   // 标签页切换
@@ -215,7 +209,8 @@ export default function MuseumScreen() {
         withTiming(0, { duration: 100 }),
         withTiming(1, { duration: 100 }),
       );
-      setActiveTab(tab);
+      // 延迟状态变更到淡出完成后，避免内容在淡出过程中闪变
+      setTimeout(() => setActiveTab(tab), 100);
       // 动画移动下划线指示器
       const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
       tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 250 });
@@ -260,8 +255,15 @@ export default function MuseumScreen() {
   // 关闭底部浮动卡片
   const handleCloseMapCard = useCallback(() => {
     cardTranslateY.value = withTiming(120, { duration: 250 });
-    setTimeout(() => setSelectedMapCompany(null), 260);
+    closeTimerRef.current = setTimeout(() => setSelectedMapCompany(null), 260);
   }, [cardTranslateY]);
+
+  // 清理定时器，防止组件卸载后泄漏
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   // 错误状态
   const productsError =
@@ -278,24 +280,22 @@ export default function MuseumScreen() {
 
   // ==================== 渲染辅助 ====================
 
-  // 瀑布流单列渲染
-  const renderMasonryColumn = useCallback(
-    (items: Product[], columnOffset: number) =>
-      items.map((product, index) => {
-        const globalIndex = columnOffset + index * 2;
-        const imageHeight = IMAGE_HEIGHTS[globalIndex % IMAGE_HEIGHTS.length];
-        return (
-          <View key={product.id} style={{ marginBottom: COLUMN_GAP }}>
-            <ProductCard
-              product={product}
-              width={CARD_WIDTH}
-              imageHeight={imageHeight}
-              onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
-              onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
-            />
-          </View>
-        );
-      }),
+  // 商品卡片渲染（FlatList renderItem）
+  const renderProductItem = useCallback(
+    ({ item, index }: { item: Product; index: number }) => {
+      const imageHeight = IMAGE_HEIGHTS[index % IMAGE_HEIGHTS.length];
+      return (
+        <View style={{ flex: 1, maxWidth: CARD_WIDTH, marginBottom: COLUMN_GAP }}>
+          <ProductCard
+            product={item}
+            width={CARD_WIDTH}
+            imageHeight={imageHeight}
+            onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
+            onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
+          />
+        </View>
+      );
+    },
     [router, addItem],
   );
 
@@ -531,14 +531,17 @@ export default function MuseumScreen() {
             </Text>
           </Pressable>
 
-          {/* 地图供应商 Tab Pill */}
+          {/* 地图模式 企业/商品 切换 Tab Pill */}
           <View style={[styles.mapTabPills, { marginHorizontal: HORIZONTAL_PADDING, marginTop: spacing.sm }]}>
-            {mapProviders.map((provider) => {
-              const active = mapProvider === provider.value;
+            {([
+              { label: '企业', value: 'companies' as const },
+              { label: '商品', value: 'products' as const },
+            ]).map((option) => {
+              const active = activeTab === option.value;
               return (
                 <Pressable
-                  key={provider.value}
-                  onPress={() => setMapProvider(provider.value)}
+                  key={option.value}
+                  onPress={() => setActiveTab(option.value)}
                   style={[
                     styles.tabPill,
                     {
@@ -555,7 +558,7 @@ export default function MuseumScreen() {
                       { color: active ? '#FFFFFF' : colors.text.secondary, fontWeight: '600' },
                     ]}
                   >
-                    {provider.label}
+                    {option.label}
                   </Text>
                 </Pressable>
               );
@@ -727,164 +730,205 @@ export default function MuseumScreen() {
 
       {/* 商品标签页 */}
       <Animated.View style={[{ flex: 1, display: activeTab === 'products' ? 'flex' : 'none' }, tabAnimatedStyle]}>
-        <ScrollView
-          style={{ flex: 1 }}
+        <FlatList
+          data={allProducts}
+          renderItem={renderProductItem}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          columnWrapperStyle={{
+            gap: COLUMN_GAP,
+            paddingHorizontal: HORIZONTAL_PADDING,
+          }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
-          onScroll={({ nativeEvent }) => {
-            // 简单的滚动到底部检测，触发加载更多
-            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-            if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 300) {
-              handleProductsLoadMore();
-            }
-          }}
-          scrollEventThrottle={400}
-        >
-          {/* 分类横滑标签 */}
-          <Animated.View entering={FadeInDown.duration(300).delay(0)}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.categoryScroll,
-                { paddingHorizontal: HORIZONTAL_PADDING },
-              ]}
-            >
-              {categories.map((cat) => (
-                <Pressable
-                  key={cat.id}
-                  onPress={() => {
-                    setSelectedCategory(selectedCategory === cat.id ? null : cat.id);
-                    router.push({ pathname: '/category/[id]', params: { id: cat.id } });
-                  }}
-                  hitSlop={10}
-                  style={[
-                    styles.filterChip,
-                    {
-                      backgroundColor:
-                        selectedCategory === cat.id ? colors.brand.primarySoft : colors.surface,
-                      borderColor:
-                        selectedCategory === cat.id ? colors.brand.primary : colors.border,
-                      borderRadius: radius.pill,
-                    },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name={(cat.icon || 'shape-outline') as any}
-                    size={16}
-                    color={
-                      selectedCategory === cat.id ? colors.brand.primary : colors.text.secondary
-                    }
-                  />
-                  <Text
-                    style={[
-                      typography.bodySm,
-                      {
-                        color:
-                          selectedCategory === cat.id ? colors.brand.primary : colors.text.primary,
-                        marginLeft: spacing.xs,
-                      },
-                    ]}
-                  >
-                    {cat.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </Animated.View>
-
-          {/* 脉脉精选区 — 横滑 */}
-          {aiProducts.length > 0 && (
-            <Animated.View entering={FadeInDown.duration(300).delay(80)} style={{ marginTop: spacing.lg }}>
-              <View
-                style={[
-                  styles.sectionHeader,
-                  { paddingHorizontal: HORIZONTAL_PADDING },
-                ]}
-              >
-                <AiBadge variant="curated" />
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>为你推荐</Text>
-              </View>
-              <AiDivider
-                style={{
-                  marginVertical: spacing.sm,
-                  marginHorizontal: HORIZONTAL_PADDING,
-                }}
-              />
-              {/* 包裹 ScrollView 以应用横滑提示动画 */}
-              <Animated.View style={scrollHintStyle}>
+          onEndReached={handleProductsLoadMore}
+          onEndReachedThreshold={0.5}
+          ListHeaderComponent={
+            <View>
+              {/* 分类横滑标签 */}
+              <Animated.View entering={FadeInDown.duration(300).delay(0)}>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{
-                    paddingHorizontal: HORIZONTAL_PADDING,
-                    paddingBottom: spacing.sm,
-                  }}
+                  contentContainerStyle={[
+                    styles.categoryScroll,
+                    { paddingHorizontal: HORIZONTAL_PADDING },
+                  ]}
                 >
-                  {aiProducts.map((item, index) => (
-                    <View
-                      key={item.product.id + '-ai-' + index}
-                      style={{ width: AI_CARD_WIDTH, marginRight: spacing.md }}
+                  {/* "全部" 分类芯片 */}
+                  <Pressable
+                    onPress={() => setSelectedCategory(null)}
+                    hitSlop={10}
+                    style={[
+                      styles.filterChip,
+                      {
+                        backgroundColor:
+                          selectedCategory === null ? colors.brand.primarySoft : colors.surface,
+                        borderColor:
+                          selectedCategory === null ? colors.brand.primary : colors.border,
+                        borderRadius: radius.pill,
+                      },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="view-grid-outline"
+                      size={16}
+                      color={
+                        selectedCategory === null ? colors.brand.primary : colors.text.secondary
+                      }
+                    />
+                    <Text
+                      style={[
+                        typography.bodySm,
+                        {
+                          color:
+                            selectedCategory === null ? colors.brand.primary : colors.text.primary,
+                          marginLeft: spacing.xs,
+                        },
+                      ]}
                     >
-                      <ProductCard
-                        product={item.product}
-                        width={AI_CARD_WIDTH}
-                        imageHeight={AI_IMAGE_HEIGHT}
-                        aiRecommend
-                        aiReason={item.reason}
-                        monthlySales={item.monthlySales}
-                        onPress={(p) =>
-                          router.push({ pathname: '/product/[id]', params: { id: p.id } })
+                      全部
+                    </Text>
+                  </Pressable>
+                  {categories.map((cat) => (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => {
+                        setSelectedCategory(selectedCategory === cat.id ? null : cat.id);
+                      }}
+                      hitSlop={10}
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor:
+                            selectedCategory === cat.id ? colors.brand.primarySoft : colors.surface,
+                          borderColor:
+                            selectedCategory === cat.id ? colors.brand.primary : colors.border,
+                          borderRadius: radius.pill,
+                        },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name={(cat.icon || 'shape-outline') as any}
+                        size={16}
+                        color={
+                          selectedCategory === cat.id ? colors.brand.primary : colors.text.secondary
                         }
-                        onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
                       />
-                    </View>
+                      <Text
+                        style={[
+                          typography.bodySm,
+                          {
+                            color:
+                              selectedCategory === cat.id ? colors.brand.primary : colors.text.primary,
+                            marginLeft: spacing.xs,
+                          },
+                        ]}
+                      >
+                        {cat.name}
+                      </Text>
+                    </Pressable>
                   ))}
                 </ScrollView>
               </Animated.View>
-            </Animated.View>
-          )}
 
-          {/* 分隔区域 */}
-          <View
-            style={{
-              height: 6,
-              backgroundColor: colors.bgSecondary,
-              marginTop: spacing.md,
-            }}
-          />
+              {/* 脉脉精选区 — 横滑 */}
+              {aiProducts.length > 0 && (
+                <Animated.View entering={FadeInDown.duration(300).delay(80)} style={{ marginTop: spacing.lg }}>
+                  <View
+                    style={[
+                      styles.sectionHeader,
+                      { paddingHorizontal: HORIZONTAL_PADDING },
+                    ]}
+                  >
+                    <AiBadge variant="curated" />
+                    <Text style={[typography.caption, { color: colors.text.secondary }]}>为你推荐</Text>
+                  </View>
+                  <AiDivider
+                    style={{
+                      marginVertical: spacing.sm,
+                      marginHorizontal: HORIZONTAL_PADDING,
+                    }}
+                  />
+                  {/* 包裹 ScrollView 以应用横滑提示动画 */}
+                  <Animated.View style={scrollHintStyle}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{
+                        paddingHorizontal: HORIZONTAL_PADDING,
+                        paddingBottom: spacing.sm,
+                      }}
+                    >
+                      {aiProducts.map((item, index) => (
+                        <View
+                          key={item.product.id + '-ai-' + index}
+                          style={{ width: AI_CARD_WIDTH, marginRight: spacing.md }}
+                        >
+                          <ProductCard
+                            product={item.product}
+                            width={AI_CARD_WIDTH}
+                            imageHeight={AI_IMAGE_HEIGHT}
+                            aiRecommend
+                            aiReason={item.reason}
+                            monthlySales={item.monthlySales}
+                            onPress={(p) =>
+                              router.push({ pathname: '/product/[id]', params: { id: p.id } })
+                            }
+                            onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
+                          />
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </Animated.View>
+                </Animated.View>
+              )}
 
-          {/* 热门商品标题 + 瀑布流（错落入场，延迟 160ms） */}
-          <Animated.View entering={FadeInDown.duration(300).delay(160)}>
-            <Text
-              style={[
-                typography.headingSm,
-                {
-                  color: colors.text.primary,
-                  paddingHorizontal: HORIZONTAL_PADDING,
-                  marginTop: spacing.lg,
-                  marginBottom: spacing.md,
-                },
-              ]}
-            >
-              热门商品
-            </Text>
-
-            {/* 瀑布流双列 */}
-            {allProducts.length > 0 ? (
+              {/* 分隔区域 */}
               <View
                 style={{
-                  flexDirection: 'row',
-                  paddingHorizontal: HORIZONTAL_PADDING,
-                  paddingBottom: spacing['3xl'],
+                  height: 6,
+                  backgroundColor: colors.bgSecondary,
+                  marginTop: spacing.md,
                 }}
-              >
-                <View style={{ flex: 1, marginRight: COLUMN_GAP / 2 }}>
-                  {renderMasonryColumn(leftColumn, 0)}
-                </View>
-                <View style={{ flex: 1, marginLeft: COLUMN_GAP / 2 }}>
-                  {renderMasonryColumn(rightColumn, 1)}
+              />
+
+              {/* 热门商品标题 */}
+              <Animated.View entering={FadeInDown.duration(300).delay(160)}>
+                <Text
+                  style={[
+                    typography.headingSm,
+                    {
+                      color: colors.text.primary,
+                      paddingHorizontal: HORIZONTAL_PADDING,
+                      marginTop: spacing.lg,
+                      marginBottom: spacing.md,
+                    },
+                  ]}
+                >
+                  热门商品
+                </Text>
+              </Animated.View>
+            </View>
+          }
+          ListFooterComponent={
+            productsQuery.isFetchingNextPage ? (
+              <View style={{ padding: spacing.xl, alignItems: 'center' }}>
+                <Text style={[typography.bodySm, { color: colors.muted }]}>加载中...</Text>
+              </View>
+            ) : !productsQuery.hasNextPage && allProducts.length > 0 ? (
+              <View style={{ padding: spacing.xl, alignItems: 'center' }}>
+                <Text style={[typography.bodySm, { color: colors.muted }]}>已加载全部商品</Text>
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            productsQuery.isLoading ? (
+              <View style={{ padding: HORIZONTAL_PADDING, paddingTop: spacing.xl }}>
+                <View style={styles.skeletonRow}>
+                  <Skeleton height={220} radius={radius.lg} style={{ flex: 1, marginRight: COLUMN_GAP }} />
+                  <Skeleton height={220} radius={radius.lg} style={{ flex: 1 }} />
                 </View>
               </View>
             ) : productsError ? (
@@ -895,21 +939,9 @@ export default function MuseumScreen() {
               />
             ) : (
               <EmptyState title="暂无商品" description="稍后再来看看" />
-            )}
-          </Animated.View>
-
-          {/* 加载更多指示 */}
-          {productsQuery.isFetchingNextPage && (
-            <View style={{ padding: spacing.xl, alignItems: 'center' }}>
-              <Text style={[typography.bodySm, { color: colors.muted }]}>加载中...</Text>
-            </View>
-          )}
-          {!productsQuery.hasNextPage && allProducts.length > 0 && (
-            <View style={{ padding: spacing.xl, alignItems: 'center' }}>
-              <Text style={[typography.bodySm, { color: colors.muted }]}>已加载全部商品</Text>
-            </View>
-          )}
-        </ScrollView>
+            )
+          }
+        />
       </Animated.View>
 
       {/* 企业标签页 */}
