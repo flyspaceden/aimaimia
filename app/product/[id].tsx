@@ -461,10 +461,12 @@ export default function ProductDetailScreen() {
                 </Text>
               </View>
               <View style={[{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, ...shadow.sm }]}>
-                {Object.entries(detail.attributes).map(([key, value]) => (
+                {Object.entries(detail.attributes)
+                  .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+                  .map(([key, value]) => (
                   <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
                     <Text style={[typography.bodySm, { color: colors.text.tertiary }]}>{key}</Text>
-                    <Text style={[typography.bodySm, { color: colors.text.primary }]}>{value}</Text>
+                    <Text style={[typography.bodySm, { color: colors.text.primary }]}>{String(value)}</Text>
                   </View>
                 ))}
               </View>
