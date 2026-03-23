@@ -8,7 +8,7 @@ export default function Footer() {
           {/* 品牌 */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-3 mb-4">
-              <img src="/logo.png" alt="爱买买" className="h-8 w-auto" />
+              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="爱买买" className="h-8 w-auto" />
               <span className="text-white font-bold text-lg">爱买买</span>
             </div>
             <p className="text-sm leading-relaxed">

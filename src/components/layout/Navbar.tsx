@@ -50,7 +50,7 @@ export default function Navbar() {
         <nav className="max-w-page mx-auto px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3">
-            <img src="/logo.png" alt="爱买买" className="h-8 w-auto" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="爱买买" className="h-8 w-auto" />
             <span className="text-white font-bold text-lg">爱买买</span>
           </Link>
 
