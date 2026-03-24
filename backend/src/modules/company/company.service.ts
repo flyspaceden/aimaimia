@@ -57,14 +57,26 @@ export class CompanyService {
   }
 
   /** 企业详情 */
-  async getById(id: string) {
+  async getById(id: string, userId?: string) {
     const company = await this.prisma.company.findUnique({
       where: { id },
       include: { profile: true },
     });
     if (!company) throw new NotFoundException('企业信息不存在');
 
-    return this.mapToFrontend(company);
+    let isFollowed = false;
+    if (userId) {
+      const follow = await this.prisma.follow.findUnique({
+        where: { followerId_followedId: { followerId: userId, followedId: id } },
+      });
+      isFollowed = !!follow;
+    }
+
+    return {
+      ...this.mapToFrontend(company),
+      servicePhone: company.servicePhone ?? null,
+      isFollowed,
+    };
   }
 
   /** 企业商品分页列表 */
@@ -80,6 +92,7 @@ export class CompanyService {
       companyId,
       status: 'ACTIVE',
       auditStatus: 'APPROVED',
+      lotteryPrizes: { none: {} },
     };
 
     if (options.category) {
@@ -108,6 +121,7 @@ export class CompanyService {
         companyId,
         status: 'ACTIVE',
         auditStatus: 'APPROVED',
+        lotteryPrizes: { none: {} },
       },
       select: { category: { select: { name: true } } },
       distinct: ['categoryId'],

@@ -98,6 +98,7 @@ export default function CompanyDetailScreen() {
     hasNextPage,
     isFetchingNextPage,
     isLoading: productsLoading,
+    isError: productsError,
     refetch: refetchProducts,
   } = useInfiniteQuery<CompanyProductsResponse, AppError>({
     queryKey: ['companyProducts', companyId, selectedCategory],
@@ -358,7 +359,7 @@ export default function CompanyDetailScreen() {
                 {company.mainBusiness}
               </Text>
               <Text style={[typography.caption, { color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>
-                {company.location} · {company.distanceKm.toFixed(1)} km
+                {company.location}{company.distanceKm > 0 ? ` · ${company.distanceKm.toFixed(1)} km` : ''}
               </Text>
             </View>
           </View>
@@ -740,7 +741,7 @@ export default function CompanyDetailScreen() {
             { label: '主营', value: company.mainBusiness },
             { label: '类型', value: company.companyType },
             { label: '地址', value: company.address?.text || company.location },
-            { label: '距离', value: `${company.distanceKm.toFixed(1)} km` },
+            ...(company.distanceKm > 0 ? [{ label: '距离', value: `${company.distanceKm.toFixed(1)} km` }] : []),
           ].map(
             (item) =>
               item.value ? (
@@ -1139,6 +1140,14 @@ export default function CompanyDetailScreen() {
                     <Skeleton height={cardWidth + 110} radius={radius.lg} style={{ width: cardWidth }} />
                   </View>
                 </View>
+              );
+            }
+            if (productsError) {
+              return (
+                <ErrorState
+                  title="商品加载失败"
+                  onAction={() => refetchProducts()}
+                />
               );
             }
             return (
