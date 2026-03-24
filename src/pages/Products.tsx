@@ -37,7 +37,7 @@ export default function Products() {
             一个平台，<span className="text-ai-gradient">连接产地与餐桌</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            从买家到卖家，从前台到后台，AI爱买买为农业电商的每个环节提供AI解决方案
+            从买家到卖家，从前台到后台，AI爱买买为农业直销的每个环节提供AI解决方案
           </p>
         </div>
       </section>

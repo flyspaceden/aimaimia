@@ -12,7 +12,7 @@ export default function Footer() {
               <span className="text-white font-bold text-lg">AI爱买买</span>
             </div>
             <p className="text-sm leading-relaxed">
-              AI赋能农业电商平台<br />
+              AI赋能农业直销平台<br />
               从田间到餐桌的AI连接
             </p>
           </div>

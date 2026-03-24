@@ -148,7 +148,7 @@ export default function Merchants() {
         </div>
         <div className="relative z-10 max-w-page mx-auto px-6 text-center">
           <ScrollReveal>
-            <h2 className="text-h1-mobile md:text-h1 text-white mb-4">开启您的农业电商之旅</h2>
+            <h2 className="text-h1-mobile md:text-h1 text-white mb-4">开启您的农业直销之旅</h2>
             <p className="text-lg text-white/80 mb-8">
               加入AI爱买买，让 AI 帮您把好产品卖给好买家
             </p>

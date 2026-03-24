@@ -42,7 +42,7 @@ export default function AiTech() {
             AI，<span className="text-ai-gradient">不只是技术</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            从溯源到搜索，从语音到推荐，AI 深入农业电商的每一个环节
+            从溯源到搜索，从语音到推荐，AI 深入农业直销的每一个环节
           </p>
         </div>
       </section>

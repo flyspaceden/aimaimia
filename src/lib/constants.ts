@@ -75,8 +75,8 @@ export const NAV_LINKS = [
 // ============================================
 export const PAGE_META: Record<string, { title: string; description: string }> = {
   '/': {
-    title: 'AI爱买买 — AI赋能农业电商平台',
-    description: 'AI 驱动的农业电商平台，AI溯源、品质保障，从田间到餐桌的AI连接',
+    title: 'AI爱买买 — AI赋能农业直销平台',
+    description: 'AI 驱动的农业直销平台，AI溯源、品质保障，从田间到餐桌的AI连接',
   },
   '/products': {
     title: '产品功能 — AI爱买买',
@@ -84,7 +84,7 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
   },
   '/ai': {
     title: 'AI 技术 — AI爱买买',
-    description: 'AI 溯源、语义搜索、语音助手，用AI重新定义农产品电商',
+    description: 'AI 溯源、语义搜索、语音助手，用AI重新定义农产品直销',
   },
   '/about': {
     title: '关于我们 — AI爱买买',
@@ -106,7 +106,7 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
 export const TEAM_MEMBERS = [
   { name: '张明远', role: 'CEO & 创始人', bio: '连续创业者，深耕农业科技10年', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80' },
   { name: '李芳华', role: 'CTO', bio: 'AI 算法专家，前大厂技术总监', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80' },
-  { name: '王建国', role: '产品VP', bio: '电商产品专家，主导多个千万级项目', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80' },
+  { name: '王建国', role: '产品VP', bio: '直销产品专家，主导多个千万级项目', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80' },
   { name: '陈晓梅', role: '运营总监', bio: '农业供应链专家，助力乡村振兴', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80' },
 ] as const
 

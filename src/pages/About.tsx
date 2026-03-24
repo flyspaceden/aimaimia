@@ -5,7 +5,7 @@ import { IMAGES, TEAM_MEMBERS, TIMELINE } from '@/lib/constants'
 
 const VALUES = [
   { title: '使命', desc: '用 AI 技术降低农产品流通成本，让优质农产品走出田间、走上餐桌', icon: '🎯' },
-  { title: '愿景', desc: '成为中国领先的 AI 农业电商平台，推动农业数字化转型', icon: '🔭' },
+  { title: '愿景', desc: '成为中国领先的 AI 农业直销平台，推动农业数字化转型', icon: '🔭' },
   { title: '价值观', desc: '诚信为本、科技驱动、普惠共赢、绿色可持续', icon: '💎' },
 ]
 
@@ -20,7 +20,7 @@ export default function About() {
             让农业拥抱<span className="text-ai-gradient">AI时代</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            AI爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品电商
+            AI爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品直销
           </p>
         </div>
       </section>
