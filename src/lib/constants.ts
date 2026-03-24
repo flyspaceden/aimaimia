@@ -75,28 +75,28 @@ export const NAV_LINKS = [
 // ============================================
 export const PAGE_META: Record<string, { title: string; description: string }> = {
   '/': {
-    title: '爱买买 — AI赋能农业电商平台',
+    title: 'AI爱买买 — AI赋能农业电商平台',
     description: 'AI 驱动的农业电商平台，智能溯源、品质保障，从田间到餐桌的智慧连接',
   },
   '/products': {
-    title: '产品功能 — 爱买买',
+    title: '产品功能 — AI爱买买',
     description: '买家端智能搜索、卖家端数据分析、AI 助手，一站式农产品交易体验',
   },
   '/ai': {
-    title: 'AI 技术 — 爱买买',
+    title: 'AI 技术 — AI爱买买',
     description: 'AI 溯源、语义搜索、语音助手，用人工智能重新定义农产品电商',
   },
   '/about': {
-    title: '关于我们 — 爱买买',
-    description: '让农业拥抱智能时代，了解爱买买的使命、团队与发展历程',
+    title: '关于我们 — AI爱买买',
+    description: '让农业拥抱智能时代，了解AI爱买买的使命、团队与发展历程',
   },
   '/merchants': {
-    title: '商户入驻 — 爱买买',
-    description: '零门槛入驻、AI 智能定价、流量扶持，与爱买买共创农业未来',
+    title: '商户入驻 — AI爱买买',
+    description: '零门槛入驻、AI 智能定价、流量扶持，与AI爱买买共创农业未来',
   },
   '/contact': {
-    title: '联系我们 — 爱买买',
-    description: '商务合作、商户咨询、技术支持，与爱买买取得联系',
+    title: '联系我们 — AI爱买买',
+    description: '商务合作、商户咨询、技术支持，与AI爱买买取得联系',
   },
 }
 
@@ -129,7 +129,7 @@ export const SUCCESS_STORIES = [
     name: '绿源果业',
     image: IMAGES.agriculture.orchard,
     stat: '月销量增长 320%',
-    quote: '入驻爱买买后，AI 定价让我们的水果卖出了合理的好价钱，再也不用担心被压价。',
+    quote: '入驻AI爱买买后，AI 定价让我们的水果卖出了合理的好价钱，再也不用担心被压价。',
   },
   {
     name: '田园农场',

@@ -8,8 +8,8 @@ export default function Footer() {
           {/* 品牌 */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-3 mb-4">
-              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="爱买买" className="h-8 w-auto" />
-              <span className="text-white font-bold text-lg">爱买买</span>
+              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="AI爱买买" className="h-8 w-auto" />
+              <span className="text-white font-bold text-lg">AI爱买买</span>
             </div>
             <p className="text-sm leading-relaxed">
               AI赋能农业电商平台<br />
@@ -50,7 +50,7 @@ export default function Footer() {
 
         {/* 底部 */}
         <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
-          <span>© 2026 爱买买 All rights reserved</span>
+          <span>© 2026 AI爱买买 All rights reserved</span>
           <div className="flex gap-6">
             <a href="#" className="hover:text-white transition-colors">隐私政策</a>
             <a href="#" className="hover:text-white transition-colors">服务条款</a>

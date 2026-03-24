@@ -20,7 +20,7 @@ export default function About() {
             让农业拥抱<span className="text-ai-gradient">智能时代</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品电商
+            AI爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品电商
           </p>
         </div>
       </section>
@@ -38,12 +38,12 @@ export default function About() {
                     好产品卖不出好价钱，消费者也难以买到真正新鲜、安全的农产品。
                   </p>
                   <p>
-                    爱买买的创始团队深入田间地头，走访了数百个农业合作社和家庭农场。我们发现，
+                    AI爱买买的创始团队深入田间地头，走访了数百个农业合作社和家庭农场。我们发现，
                     <span className="text-ai-end font-medium">AI 技术可以从根本上改变这一现状</span>——
                     从智能溯源建立信任，到语义搜索连接供需，再到数据分析优化经营。
                   </p>
                   <p>
-                    于是，爱买买诞生了。我们的名字寓意着对农产品的热爱，对品质的追求，
+                    于是，AI爱买买诞生了。我们的名字寓意着对农产品的热爱，对品质的追求，
                     对每一次购物体验的珍视。<span className="text-ai-end font-medium">爱，买买。</span>
                   </p>
                 </div>

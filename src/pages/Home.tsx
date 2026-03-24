@@ -87,7 +87,7 @@ export default function Home() {
       <section id="values" className="py-20 md:py-28 bg-gradient-to-b from-dark-elevated to-dark-surface">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="为什么选择爱买买" subtitle="AI + 农业 + 电商，三位一体的智慧平台" light={false} />
+            <SectionHeading title="为什么选择AI爱买买" subtitle="AI + 农业 + 电商，三位一体的智慧平台" light={false} />
           </ScrollReveal>
 
           <div className="grid md:grid-cols-3 gap-6 md:gap-8">
@@ -180,7 +180,7 @@ export default function Home() {
       {/* ======== 合作伙伴（滚动）======== */}
       <section className="py-12 bg-light-surface overflow-hidden">
         <div className="max-w-page mx-auto px-6 text-center">
-          <p className="text-text-tertiary text-sm mb-6">信赖爱买买的合作伙伴</p>
+          <p className="text-text-tertiary text-sm mb-6">信赖AI爱买买的合作伙伴</p>
           <div className="relative">
             <div className="flex animate-marquee gap-16 whitespace-nowrap">
               {[...Array(2)].map((_, loop) => (
@@ -202,7 +202,7 @@ export default function Home() {
           <ScrollReveal>
             <h2 className="text-h1-mobile md:text-h1 text-white mb-4">开启智慧农业之旅</h2>
             <p className="text-lg text-white/80 mb-8 max-w-lg mx-auto">
-              下载爱买买 App，体验 AI 驱动的农产品购物
+              下载AI爱买买 App，体验 AI 驱动的农产品购物
             </p>
             <Button variant="gold" size="lg" onClick={() => setDownloadOpen(true)}>
               立即下载

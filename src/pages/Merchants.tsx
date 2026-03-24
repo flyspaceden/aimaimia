@@ -32,7 +32,7 @@ export default function Merchants() {
         <ParticleCanvas particleCount={10} />
         <div className="relative z-10 max-w-page mx-auto px-6 text-center">
           <h1 className="text-display-mobile md:text-display text-text-on-dark mb-4">
-            与爱买买同行，<span className="text-ai-gradient">共创农业未来</span>
+            与AI爱买买同行，<span className="text-ai-gradient">共创农业未来</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto mb-8">
             零门槛入驻，AI 赋能经营，让好产品遇见好买家
@@ -47,7 +47,7 @@ export default function Merchants() {
       <section className="py-20 md:py-28 bg-gradient-to-b from-dark-elevated to-light-bg">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="为什么选择爱买买" subtitle="AI 驱动的全方位经营支持" light={false} />
+            <SectionHeading title="为什么选择AI爱买买" subtitle="AI 驱动的全方位经营支持" light={false} />
           </ScrollReveal>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
@@ -114,7 +114,7 @@ export default function Merchants() {
       <section className="py-20 md:py-28 bg-light-bg">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="成功案例" subtitle="他们在爱买买找到了增长" />
+            <SectionHeading title="成功案例" subtitle="他们在AI爱买买找到了增长" />
           </ScrollReveal>
 
           <div className="grid md:grid-cols-3 gap-6">
@@ -150,7 +150,7 @@ export default function Merchants() {
           <ScrollReveal>
             <h2 className="text-h1-mobile md:text-h1 text-white mb-4">开启您的农业电商之旅</h2>
             <p className="text-lg text-white/80 mb-8">
-              加入爱买买，让 AI 帮您把好产品卖给好买家
+              加入AI爱买买，让 AI 帮您把好产品卖给好买家
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button variant="gold" size="lg" onClick={() => setDownloadOpen(true)}>

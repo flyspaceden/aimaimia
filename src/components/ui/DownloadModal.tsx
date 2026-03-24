@@ -34,7 +34,7 @@ export default function DownloadModal({ open, onClose }: Props) {
       onClose={onClose}
     >
       <div className="text-center">
-        <h3 className="text-h3 text-text-primary mb-2">下载爱买买 App</h3>
+        <h3 className="text-h3 text-text-primary mb-2">下载AI爱买买 App</h3>
         <p className="text-text-secondary mb-6">扫描二维码下载，或等待应用商店上架</p>
 
         {/* 二维码占位 */}
