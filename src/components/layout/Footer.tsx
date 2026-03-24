@@ -50,7 +50,7 @@ export default function Footer() {
 
         {/* 底部 */}
         <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
-          <span>© 2026 AI爱买买 All rights reserved</span>
+          <span>© 2026 深圳华海农业科技集团有限公司 All rights reserved</span>
           <div className="flex gap-6">
             <a href="#" className="hover:text-white transition-colors">隐私政策</a>
             <a href="#" className="hover:text-white transition-colors">服务条款</a>
