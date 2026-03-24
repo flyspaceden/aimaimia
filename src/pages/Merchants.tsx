@@ -9,7 +9,7 @@ import { IMAGES, SUCCESS_STORIES } from '@/lib/constants'
 
 const ADVANTAGES = [
   { icon: '📈', title: '流量扶持', desc: 'AI 算法精准推荐，新店也能获得曝光，不用花钱买流量' },
-  { icon: '💡', title: 'AI 智能定价', desc: '根据市场行情、季节、品类自动推荐最优售价，告别拍脑袋定价' },
+  { icon: '💡', title: 'AI定价', desc: '根据市场行情、季节、品类自动推荐最优售价，告别拍脑袋定价' },
   { icon: '📊', title: '数据分析', desc: '实时销售看板、客户画像、库存预警，数据驱动经营决策' },
   { icon: '🚚', title: '物流支持', desc: '一键对接主流快递，冷链物流解决方案，降低配送成本' },
 ]

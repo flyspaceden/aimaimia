@@ -89,11 +89,11 @@ export default function AiTech() {
         </div>
       </section>
 
-      {/* 智能搜索 */}
+      {/* AI搜索 */}
       <section className="py-20 md:py-28 bg-gradient-to-b from-dark-surface to-light-bg">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="语义智能搜索" subtitle="不用精确关键词，说人话就能找到" light={false} />
+            <SectionHeading title="语义AI搜索" subtitle="不用精确关键词，说人话就能找到" light={false} />
           </ScrollReveal>
 
           <div className="space-y-4 max-w-2xl mx-auto">

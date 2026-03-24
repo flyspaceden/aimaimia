@@ -11,8 +11,8 @@ import { IMAGES, STATS } from '@/lib/constants'
 const CORE_VALUES = [
   {
     icon: '🤖',
-    title: 'AI 智能',
-    desc: '深度学习驱动的智能推荐、语义搜索和语音交互，让购物更懂你',
+    title: 'AI',
+    desc: '深度学习驱动的AI推荐、语义搜索和语音交互，让购物更懂你',
     image: IMAGES.tech.ai,
   },
   {
@@ -24,7 +24,7 @@ const CORE_VALUES = [
   {
     icon: '🤝',
     title: '普惠农业',
-    desc: '零门槛入驻、AI 智能定价，让好产品卖出好价钱',
+    desc: '零门槛入驻、AI定价，让好产品卖出好价钱',
     image: IMAGES.agriculture.farmer,
   },
 ]
@@ -32,21 +32,21 @@ const CORE_VALUES = [
 const PLATFORM_FEATURES = [
   {
     title: '买家端 App',
-    desc: '智能搜索、AI 溯源、语音助手、一键下单，全方位智慧购物体验',
+    desc: 'AI搜索、AI 溯源、语音助手、一键下单，全方位AI购物体验',
     image: IMAGES.produce.fruits,
-    features: ['语义搜索', '品质溯源', '智能推荐', '语音助手'],
+    features: ['语义搜索', '品质溯源', 'AI推荐', '语音助手'],
   },
   {
     title: '卖家后台',
     desc: '订单管理、数据分析、AI 定价、物流对接，轻松经营每一天',
     image: IMAGES.tech.dataViz,
-    features: ['订单管理', '数据分析', '智能定价', '物流追踪'],
+    features: ['订单管理', '数据分析', 'AI定价', '物流追踪'],
   },
   {
     title: 'AI 助手',
     desc: '自然语言交互、意图理解、个性化推荐，你的专属农产品顾问',
     image: IMAGES.tech.network,
-    features: ['语音交互', '意图识别', '个性化推荐', '智能客服'],
+    features: ['语音交互', '意图识别', '个性化推荐', 'AI客服'],
   },
 ]
 
@@ -66,7 +66,7 @@ export default function Home() {
             AI赋能，<span className="text-ai-gradient">从田间到餐桌</span>
           </h1>
           <p className="text-lg md:text-xl text-text-on-dark-secondary max-w-xl mx-auto mb-8">
-            智能溯源 · 品质保障 · 让每一粒粮食都有智慧的脉搏
+            AI溯源 · 品质保障 · 让每一粒粮食都有AI的脉搏
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -87,7 +87,7 @@ export default function Home() {
       <section id="values" className="py-20 md:py-28 bg-gradient-to-b from-dark-elevated to-dark-surface">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="为什么选择AI爱买买" subtitle="AI + 农业 + 电商，三位一体的智慧平台" light={false} />
+            <SectionHeading title="为什么选择AI爱买买" subtitle="AI + 农业 + 直销，三位一体的AI平台" light={false} />
           </ScrollReveal>
 
           <div className="grid md:grid-cols-3 gap-6 md:gap-8">
@@ -200,7 +200,7 @@ export default function Home() {
         </div>
         <div className="relative z-10 max-w-page mx-auto px-6 text-center">
           <ScrollReveal>
-            <h2 className="text-h1-mobile md:text-h1 text-white mb-4">开启智慧农业之旅</h2>
+            <h2 className="text-h1-mobile md:text-h1 text-white mb-4">开启AI农业之旅</h2>
             <p className="text-lg text-white/80 mb-8 max-w-lg mx-auto">
               下载AI爱买买 App，体验 AI 驱动的农产品购物
             </p>

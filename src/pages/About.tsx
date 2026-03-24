@@ -17,7 +17,7 @@ export default function About() {
         <ParticleCanvas particleCount={10} />
         <div className="relative z-10 max-w-page mx-auto px-6 text-center">
           <h1 className="text-display-mobile md:text-display text-text-on-dark mb-4">
-            让农业拥抱<span className="text-ai-gradient">智能时代</span>
+            让农业拥抱<span className="text-ai-gradient">AI时代</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
             AI爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品电商
@@ -40,7 +40,7 @@ export default function About() {
                   <p>
                     AI爱买买的创始团队深入田间地头，走访了数百个农业合作社和家庭农场。我们发现，
                     <span className="text-ai-end font-medium">AI 技术可以从根本上改变这一现状</span>——
-                    从智能溯源建立信任，到语义搜索连接供需，再到数据分析优化经营。
+                    从AI溯源建立信任，到语义搜索连接供需，再到数据分析优化经营。
                   </p>
                   <p>
                     于是，AI爱买买诞生了。我们的名字寓意着对农产品的热爱，对品质的追求，

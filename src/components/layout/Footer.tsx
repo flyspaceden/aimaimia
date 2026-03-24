@@ -13,7 +13,7 @@ export default function Footer() {
             </div>
             <p className="text-sm leading-relaxed">
               AI赋能农业电商平台<br />
-              从田间到餐桌的智慧连接
+              从田间到餐桌的AI连接
             </p>
           </div>
 
@@ -32,7 +32,7 @@ export default function Footer() {
             <h4 className="text-white font-semibold mb-4">技术</h4>
             <ul className="space-y-2 text-sm">
               <li><Link to="/ai" className="hover:text-white transition-colors">AI 溯源</Link></li>
-              <li><Link to="/ai" className="hover:text-white transition-colors">智能搜索</Link></li>
+              <li><Link to="/ai" className="hover:text-white transition-colors">AI搜索</Link></li>
               <li><Link to="/ai" className="hover:text-white transition-colors">语音助手</Link></li>
             </ul>
           </div>

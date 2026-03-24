@@ -4,24 +4,24 @@ import ParticleCanvas from '@/components/effects/ParticleCanvas'
 import { IMAGES } from '@/lib/constants'
 
 const BUYER_FEATURES = [
-  { title: '智能搜索', desc: '自然语言搜索，"给爸妈买点好消化的"也能精准匹配', icon: '🔍' },
+  { title: 'AI搜索', desc: '自然语言搜索，"给爸妈买点好消化的"也能精准匹配', icon: '🔍' },
   { title: '品质溯源', desc: '扫码查看从产地到餐桌的完整品质档案', icon: '🌿' },
-  { title: '一键下单', desc: '智能购物车、优惠自动计算、多支付方式', icon: '🛒' },
+  { title: '一键下单', desc: 'AI购物车、优惠自动计算、多支付方式', icon: '🛒' },
   { title: 'AI 推荐', desc: '基于购买习惯和偏好的个性化商品推荐', icon: '✨' },
 ]
 
 const SELLER_FEATURES = [
   { title: '订单管理', desc: '实时订单追踪、自动状态流转、异常预警', icon: '📦' },
   { title: '数据分析', desc: '销售趋势、客户画像、库存预警一目了然', icon: '📊' },
-  { title: '智能定价', desc: 'AI 分析市场数据，自动推荐最优售价', icon: '💰' },
+  { title: 'AI定价', desc: 'AI 分析市场数据，自动推荐最优售价', icon: '💰' },
   { title: '物流对接', desc: '一键对接主流快递，自动生成电子面单', icon: '🚚' },
 ]
 
 const COMPARISON = [
   { feature: '搜索方式', us: 'AI 语义搜索', them: '关键词匹配' },
   { feature: '品质保障', us: '全链路 AI 溯源', them: '商家自述' },
-  { feature: '定价策略', us: 'AI 智能定价', them: '手动设价' },
-  { feature: '数据分析', us: '实时智能看板', them: '基础统计' },
+  { feature: '定价策略', us: 'AI AI定价', them: '手动设价' },
+  { feature: '数据分析', us: '实时AI看板', them: '基础统计' },
   { feature: '客户服务', us: 'AI 语音助手', them: '在线客服' },
   { feature: '物流追踪', us: '全链路可视化', them: '快递单号查询' },
 ]
@@ -37,7 +37,7 @@ export default function Products() {
             一个平台，<span className="text-ai-gradient">连接产地与餐桌</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            从买家到卖家，从前台到后台，AI爱买买为农业电商的每个环节提供智能解决方案
+            从买家到卖家，从前台到后台，AI爱买买为农业电商的每个环节提供AI解决方案
           </p>
         </div>
       </section>
@@ -49,7 +49,7 @@ export default function Products() {
             <div className="flex flex-col md:flex-row gap-12 items-center">
               <div className="flex-1">
                 <span className="text-ai-end text-sm font-semibold tracking-wider uppercase mb-4 block">买家端</span>
-                <h2 className="text-h1-mobile md:text-h1 text-text-on-dark mb-6">智慧购物体验</h2>
+                <h2 className="text-h1-mobile md:text-h1 text-text-on-dark mb-6">AI购物体验</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {BUYER_FEATURES.map(f => (
                     <div key={f.title} className="p-4 rounded-card bg-dark-elevated/50 border border-white/5">

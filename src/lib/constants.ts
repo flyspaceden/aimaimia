@@ -76,23 +76,23 @@ export const NAV_LINKS = [
 export const PAGE_META: Record<string, { title: string; description: string }> = {
   '/': {
     title: 'AI爱买买 — AI赋能农业电商平台',
-    description: 'AI 驱动的农业电商平台，智能溯源、品质保障，从田间到餐桌的智慧连接',
+    description: 'AI 驱动的农业电商平台，AI溯源、品质保障，从田间到餐桌的AI连接',
   },
   '/products': {
     title: '产品功能 — AI爱买买',
-    description: '买家端智能搜索、卖家端数据分析、AI 助手，一站式农产品交易体验',
+    description: '买家端AI搜索、卖家端数据分析、AI 助手，一站式农产品交易体验',
   },
   '/ai': {
     title: 'AI 技术 — AI爱买买',
-    description: 'AI 溯源、语义搜索、语音助手，用人工智能重新定义农产品电商',
+    description: 'AI 溯源、语义搜索、语音助手，用AI重新定义农产品电商',
   },
   '/about': {
     title: '关于我们 — AI爱买买',
-    description: '让农业拥抱智能时代，了解AI爱买买的使命、团队与发展历程',
+    description: '让农业拥抱AI时代，了解AI爱买买的使命、团队与发展历程',
   },
   '/merchants': {
     title: '商户入驻 — AI爱买买',
-    description: '零门槛入驻、AI 智能定价、流量扶持，与AI爱买买共创农业未来',
+    description: '零门槛入驻、AI定价、流量扶持，与AI爱买买共创农业未来',
   },
   '/contact': {
     title: '联系我们 — AI爱买买',
@@ -141,6 +141,6 @@ export const SUCCESS_STORIES = [
     name: '阳光蔬菜合作社',
     image: IMAGES.produce.vegetables,
     stat: '运营成本降低 40%',
-    quote: '智能订单管理和物流对接节省了大量人工，我们能专注于种好菜。',
+    quote: 'AI订单管理和物流对接节省了大量人工，我们能专注于种好菜。',
   },
 ] as const
