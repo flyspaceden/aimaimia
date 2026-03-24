@@ -1,7 +1,7 @@
-# 农脉 - AI赋能农业电商平台
+# 爱买买 - AI赋能农业电商平台
 
 ## 项目概述
-农脉是一个 AI 赋能的农业电商平台，采用多商户入驻模式。包含买家 App（React Native）、卖家后台（React Web）和管理后台（React Web）。后端 NestJS 统一服务。
+爱买买是一个 AI 赋能的农业电商平台，采用多商户入驻模式。包含买家 App（React Native）、卖家后台（React Web）和管理后台（React Web）。后端 NestJS 统一服务。
 
 ## 相关文档
 - `data-system.md` — 完整数据库设计（9 大域，67 模型，41 枚举，**权威来源**）
@@ -26,6 +26,8 @@
 - `test-reward.md` — 分润奖励系统商业模式盈利测试模型（资金流分析、解析模型、时序仿真设计、参数扫描、压力测试、报表设计，**分润系统盈利测试权威来源**）
 - `docs/superpowers/specs/2026-03-20-vip-gift-multi-sku-design.md` — VIP 赠品多商品组合设计方案（数据模型、API、管理后台、买家App、迁移策略，**VIP赠品组合系统权威来源**）
 - `docs/superpowers/plans/2026-03-20-vip-gift-multi-sku.md` — VIP 赠品多商品组合实施计划（15个任务、全栈改造，**VIP赠品组合实施排程**）
+- `deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
+- `docs/superpowers/specs/2026-03-24-merchant-onboarding-design.md` — 商户自助入驻功能设计方案（数据模型、API 设计、安全措施、管理后台改动、网站表单、审核自动化流程，**商户入驻功能开发权威来源**）
 
 ## 关键架构决策
 
@@ -46,7 +48,7 @@
 | 订单流程 | **付款后才创建订单**：引入 CheckoutSession → 支付回调原子建单（PAID），无 PENDING_PAYMENT 状态 |
 | 赠品锁定 | THRESHOLD_GIFT 入购物车锁定，按勾选非奖品商品总额实时解锁，解锁后自动包含在订单中 |
 | 奖品过期 | 可配置过期时间（小时），从入购物车起算，wonCount 永不回退 |
-| 平台公司 | 命名"农脉app"，Company.isPlatform=true，奖品商品归属平台，用户搜索排除奖励商品 |
+| 平台公司 | 命名"爱买买app"，Company.isPlatform=true，奖品商品归属平台，用户搜索排除奖励商品 |
 | 超卖容忍 | 允许库存变为负数，卖家收到补货通知，不退款 |
 | 奖品不可退 | 清空购物车删奖品为预期行为，wonCount 永不回退，过期名额不释放 |
 | VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
