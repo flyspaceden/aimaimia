@@ -32,6 +32,7 @@ import { CouponModule } from './modules/coupon/coupon.module';
 import { BuyerAliasModule } from './modules/buyer-alias/buyer-alias.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
 import { CaptchaModule } from './modules/captcha/captcha.module';
+import { MerchantApplicationModule } from './modules/merchant-application/merchant-application.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { InfraModule } from './common/infra/infra.module';
@@ -78,6 +79,7 @@ import { InfraModule } from './common/infra/infra.module';
     BuyerAliasModule,
     InvoiceModule,
     CaptchaModule,
+    MerchantApplicationModule,
   ],
   providers: [
     // 全局 JWT 守卫：所有端点默认需要认证，用 @Public() 装饰器豁免
