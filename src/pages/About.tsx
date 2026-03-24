@@ -13,7 +13,7 @@ export default function About() {
   return (
     <>
       {/* Hero */}
-      <section className="relative pt-32 pb-20 bg-gradient-to-b from-dark-bg to-dark-elevated overflow-hidden">
+      <section className="relative pt-32 pb-20 bg-dark-bg overflow-hidden">
         <ParticleCanvas particleCount={10} />
         <div className="relative z-10 max-w-page mx-auto px-6 text-center">
           <h1 className="text-display-mobile md:text-display text-text-on-dark mb-4">
