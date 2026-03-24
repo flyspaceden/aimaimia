@@ -10,6 +10,7 @@ const Products = lazy(() => import('@/pages/Products'))
 const AiTech = lazy(() => import('@/pages/AiTech'))
 const About = lazy(() => import('@/pages/About'))
 const Merchants = lazy(() => import('@/pages/Merchants'))
+const MerchantApply = lazy(() => import('@/pages/MerchantApply'))
 const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
 
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="/ai" element={<AiTech />} />
             <Route path="/about" element={<About />} />
             <Route path="/merchants" element={<Merchants />} />
+            <Route path="/merchants/apply" element={<MerchantApply />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
