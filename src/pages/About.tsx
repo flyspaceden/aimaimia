@@ -1,7 +1,7 @@
 import ParticleCanvas from '@/components/effects/ParticleCanvas'
 import ScrollReveal from '@/components/effects/ScrollReveal'
 import SectionHeading from '@/components/ui/SectionHeading'
-import { IMAGES, TEAM_MEMBERS, TIMELINE } from '@/lib/constants'
+import { IMAGES, TIMELINE } from '@/lib/constants'
 
 const VALUES = [
   { title: '使命', desc: '用 AI 技术降低农产品流通成本，让优质农产品走出田间、走上餐桌', icon: '🎯' },
