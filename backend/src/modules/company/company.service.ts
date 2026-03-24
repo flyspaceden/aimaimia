@@ -67,6 +67,76 @@ export class CompanyService {
     return this.mapToFrontend(company);
   }
 
+  /** 企业商品分页列表 */
+  async listCompanyProducts(
+    companyId: string,
+    options: { page?: number; pageSize?: number; category?: string },
+  ) {
+    const page = options.page ?? 1;
+    const pageSize = options.pageSize ?? 10;
+    const skip = (page - 1) * pageSize;
+
+    const where: any = {
+      companyId,
+      status: 'ACTIVE',
+      auditStatus: 'APPROVED',
+    };
+
+    if (options.category) {
+      where.category = { name: options.category };
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          media: { take: 1, orderBy: { sortOrder: 'asc' } },
+          skus: { take: 1, orderBy: { price: 'asc' } },
+          category: { select: { name: true } },
+          tags: { include: { tag: true } },
+        },
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    // 获取该公司所有商品的去重分类列表
+    const allCategories = await this.prisma.product.findMany({
+      where: {
+        companyId,
+        status: 'ACTIVE',
+        auditStatus: 'APPROVED',
+      },
+      select: { category: { select: { name: true } } },
+      distinct: ['categoryId'],
+    });
+
+    const categories = allCategories
+      .map((p) => p.category?.name)
+      .filter(Boolean) as string[];
+
+    return {
+      items: items.map((p) => ({
+        id: p.id,
+        title: p.title,
+        price: p.skus[0]?.price ?? 0,
+        image: p.media[0]?.url ?? '',
+        defaultSkuId: p.skus[0]?.id ?? '',
+        tags: p.tags.map((pt) => pt.tag.name),
+        unit: (p.attributes as any)?.unit ?? '',
+        origin: (p.origin as any)?.text ?? p.originRegion ?? '',
+        categoryName: p.category?.name ?? '',
+      })),
+      total,
+      page,
+      pageSize,
+      nextPage: skip + pageSize < total ? page + 1 : undefined,
+      categories,
+    };
+  }
+
   /** 企业活动列表 */
   async listActivities(companyId: string) {
     const activities = await this.prisma.companyActivity.findMany({
