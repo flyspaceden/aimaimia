@@ -26,25 +26,25 @@ export default function About() {
       </section>
 
       {/* 品牌故事 */}
-      <section className="py-20 md:py-28 bg-gradient-to-b from-dark-elevated to-light-bg">
+      <section className="py-20 md:py-28 bg-light-bg">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
             <div className="flex flex-col md:flex-row gap-12 items-center">
               <div className="flex-1">
-                <h2 className="text-h1-mobile md:text-h1 text-text-on-dark mb-6">品牌故事</h2>
-                <div className="space-y-4 text-text-on-dark-secondary leading-relaxed">
+                <h2 className="text-h1-mobile md:text-h1 text-text-primary mb-6">品牌故事</h2>
+                <div className="space-y-4 text-text-secondary leading-relaxed">
                   <p>
                     在中国广袤的农村，有最好的食材、最勤劳的农民，却往往因为信息不对称和流通环节冗长，
                     好产品卖不出好价钱，消费者也难以买到真正新鲜、安全的农产品。
                   </p>
                   <p>
                     AI爱买买的创始团队深入田间地头，走访了数百个农业合作社和家庭农场。我们发现，
-                    <span className="text-ai-end font-medium">AI 技术可以从根本上改变这一现状</span>——
+                    <span className="text-brand font-medium">AI 技术可以从根本上改变这一现状</span>——
                     从AI溯源建立信任，到语义搜索连接供需，再到数据分析优化经营。
                   </p>
                   <p>
                     于是，AI爱买买诞生了。我们的名字寓意着对农产品的热爱，对品质的追求，
-                    对每一次购物体验的珍视。<span className="text-ai-end font-medium">爱，买买。</span>
+                    对每一次购物体验的珍视。<span className="text-brand font-medium">爱，买买。</span>
                   </p>
                 </div>
               </div>
