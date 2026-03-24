@@ -899,6 +899,32 @@ model CompanyDocument {
   @@index([companyId])
 }
 
+enum MerchantApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model MerchantApplication {
+  id             String                      @id @default(cuid())
+  companyName    String
+  category       String
+  contactName    String
+  phone          String
+  email          String?
+  licenseFileUrl String
+  status         MerchantApplicationStatus   @default(PENDING)
+  rejectReason   String?
+  reviewedAt     DateTime?
+  reviewedBy     String?
+  companyId      String?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+
+  @@index([status])
+  @@index([phone])
+}
+
 model CompanyCreditEvent {
   id          String                 @id @default(cuid())
   companyId   String
