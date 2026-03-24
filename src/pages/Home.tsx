@@ -12,7 +12,7 @@ const CORE_VALUES = [
   {
     icon: "🤖",
     title: "AI",
-    desc: "深度学习驱动的AI推荐、语义搜索和语音交互，让购物更懂你",
+    desc: "强化学习驱动的AI推荐、语义搜索和语音交互，让购物更懂你",
     image: IMAGES.tech.ai,
   },
   {
