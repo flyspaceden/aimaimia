@@ -47,4 +47,26 @@ export type Company = {
     image: string;
     defaultSkuId?: string;
   }>;
+  isFollowed?: boolean;
+};
+
+export type CompanyProduct = {
+  id: string;
+  title: string;
+  price: number;
+  image: string;
+  defaultSkuId: string;
+  tags: string[];
+  unit: string;
+  origin: string;
+  categoryName: string;
+};
+
+export type CompanyProductsResponse = {
+  items: CompanyProduct[];
+  total: number;
+  page: number;
+  pageSize: number;
+  nextPage?: number;
+  categories: string[];
 };

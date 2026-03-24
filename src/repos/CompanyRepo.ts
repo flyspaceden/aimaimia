@@ -10,7 +10,7 @@
  *   - `GET /api/v1/companies/{id}` → `Result<Company>`
  */
 import { mockCompanies } from '../mocks';
-import { Company, PaginationResult, Result, err } from '../types';
+import { Company, CompanyProductsResponse, PaginationResult, Result, err } from '../types';
 import { createAppError, simulateRequest } from './helpers';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
@@ -185,5 +185,52 @@ export const CompanyRepo = {
       return simulateRequest(company);
     }
     return ApiClient.get<Company>(`/companies/${id}`);
+  },
+
+  /**
+   * 获取企业商品分页列表
+   * - 用途：企业详情页「全部商品」Tab
+   * - 后端接口：`GET /api/v1/companies/{id}/products`
+   */
+  listProducts: async (
+    companyId: string,
+    options?: { page?: number; pageSize?: number; category?: string },
+  ): Promise<Result<CompanyProductsResponse>> => {
+    if (USE_MOCK) {
+      // mock 数据：从已有的 topProducts 扩展
+      const company = mockCompanies.find((c) => c.id === companyId);
+      const products = (company?.topProducts ?? []).map((p, i) => ({
+        ...p,
+        defaultSkuId: p.defaultSkuId ?? `sku-${p.id}`,
+        tags: ['有机', '当季'].slice(0, (i % 2) + 1),
+        unit: ['斤', '盒', '袋'][i % 3],
+        origin: '湖南长沙',
+        categoryName: ['有机蔬菜', '精品水果', '生态禽蛋'][i % 3],
+      }));
+
+      const page = options?.page ?? 1;
+      const pageSize = options?.pageSize ?? 10;
+      const filtered = options?.category
+        ? products.filter((p) => p.categoryName === options.category)
+        : products;
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      const categories = [...new Set(products.map((p) => p.categoryName))];
+
+      return simulateRequest({
+        items: paged,
+        total: filtered.length,
+        page,
+        pageSize,
+        nextPage: start + pageSize < filtered.length ? page + 1 : undefined,
+        categories,
+      });
+    }
+
+    // ApiClient.get 第二个参数直接是 Record<string, string | number | undefined>
+    return ApiClient.get<CompanyProductsResponse>(
+      `/companies/${companyId}/products`,
+      { page: options?.page, pageSize: options?.pageSize, category: options?.category },
+    );
   },
 };
