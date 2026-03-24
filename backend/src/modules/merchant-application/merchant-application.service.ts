@@ -81,7 +81,9 @@ export class MerchantApplicationService {
   }
 
   private async saveFile(file: Express.Multer.File): Promise<string> {
-    const ext = file.originalname.split('.').pop() || 'bin';
+    const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'pdf'];
+    const rawExt = (file.originalname.split('.').pop() || '').toLowerCase();
+    const ext = ALLOWED_EXTS.includes(rawExt) ? rawExt : 'bin';
     const filename = `${createId()}.${ext}`;
     const dir = 'uploads/merchant-applications';
 

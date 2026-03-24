@@ -4,6 +4,7 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RejectMerchantApplicationDto } from '../../merchant-application/dto/reject-merchant-application.dto';
 
@@ -67,7 +68,7 @@ export class AdminMerchantApplicationsService {
       take: 10,
     });
 
-    return { application, history };
+    return { ...application, history };
   }
 
   // ===================== 待审核数量（Badge） =====================
@@ -77,7 +78,7 @@ export class AdminMerchantApplicationsService {
     const count = await this.prisma.merchantApplication.count({
       where: { status: 'PENDING' },
     });
-    return { count };
+    return count;
   }
 
   // ===================== 审批通过 =====================
@@ -112,7 +113,7 @@ export class AdminMerchantApplicationsService {
       if (existingIdentity) {
         userId = existingIdentity.userId;
       } else {
-        // 创建新用户 + AuthIdentity + UserProfile
+        // 创建新用户 + AuthIdentity + UserProfile + MemberProfile
         const newUser = await tx.user.create({
           data: {
             authIdentities: {
@@ -127,6 +128,7 @@ export class AdminMerchantApplicationsService {
                 nickname: application.contactName,
               },
             },
+            memberProfile: { create: {} },
           },
         });
         userId = newUser.id;
@@ -145,8 +147,13 @@ export class AdminMerchantApplicationsService {
         },
       });
 
+      // 创建 CompanyProfile（卖家系统、AI 搜索等功能依赖此记录）
+      await tx.companyProfile.create({
+        data: { companyId: company.id },
+      });
+
       // 4. 创建企业员工（role=OWNER, status=ACTIVE）
-      await tx.companyStaff.create({
+      const staff = await tx.companyStaff.create({
         data: {
           userId,
           companyId: company.id,
@@ -167,7 +174,7 @@ export class AdminMerchantApplicationsService {
       });
 
       // 6. 更新申请状态
-      const updated = await tx.merchantApplication.update({
+      await tx.merchantApplication.update({
         where: { id },
         data: {
           status: 'APPROVED',
@@ -177,12 +184,12 @@ export class AdminMerchantApplicationsService {
         },
       });
 
-      return { application: updated, companyId: company.id, userId };
-    });
+      return { companyId: company.id, staffId: staff.id };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     // 7. 事务外：发送通知（占位实现）
     this.logger.log(
-      `[通知] 入驻申请已通过 - 申请ID: ${id}, 企业ID: ${result.companyId}, 用户ID: ${result.userId}`,
+      `[通知] 入驻申请已通过 - 申请ID: ${id}, 企业ID: ${result.companyId}, 员工ID: ${result.staffId}`,
     );
     this.logger.log(
       `[SMS] 向手机号发送入驻成功短信（占位）`,
@@ -191,7 +198,7 @@ export class AdminMerchantApplicationsService {
       `[Email] 向联系邮箱发送入驻成功邮件（占位）`,
     );
 
-    return result;
+    return { companyId: result.companyId, staffId: result.staffId };
   }
 
   // ===================== 审批拒绝 =====================
@@ -223,7 +230,7 @@ export class AdminMerchantApplicationsService {
       });
 
       return updated;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     // 事务外：发送通知（占位实现）
     this.logger.log(

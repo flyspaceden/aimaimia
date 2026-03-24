@@ -66,7 +66,7 @@ export class AdminMerchantApplicationsController {
   })
   approve(
     @Param('id') id: string,
-    @CurrentAdmin('id') adminId: string,
+    @CurrentAdmin('sub') adminId: string,
   ) {
     return this.service.approve(id, adminId);
   }
@@ -83,7 +83,7 @@ export class AdminMerchantApplicationsController {
   reject(
     @Param('id') id: string,
     @Body() dto: RejectMerchantApplicationDto,
-    @CurrentAdmin('id') adminId: string,
+    @CurrentAdmin('sub') adminId: string,
   ) {
     return this.service.reject(id, dto, adminId);
   }
