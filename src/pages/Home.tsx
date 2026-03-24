@@ -19,13 +19,13 @@ const CORE_VALUES = [
     icon: '🌿',
     title: '品质溯源',
     desc: '从种子到餐桌全链路追踪，每一份食材都有完整的品质档案',
-    image: IMAGES.agriculture.greenhouse,
+    image: `${import.meta.env.BASE_URL}images/home/品质溯源.jpg`,
   },
   {
     icon: '🤝',
     title: '普惠农业',
     desc: '零门槛入驻、AI定价，让好产品卖出好价钱',
-    image: IMAGES.agriculture.farmer,
+    image: `${import.meta.env.BASE_URL}images/home/AI农业.png`,
   },
 ]
 
