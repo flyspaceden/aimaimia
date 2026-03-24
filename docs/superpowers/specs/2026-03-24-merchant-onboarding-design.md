@@ -101,7 +101,11 @@ Content-Type: multipart/form-data
 
 **重要：手机号重复（已有 PENDING 申请）时不返回 409，统一返回成功消息，防止手机号枚举攻击。**
 
+**文件上传策略：** merchant-applications 控制器自行处理 multipart 上传（使用 NestJS `FileInterceptor` + multer 配置），不复用现有的 `/api/v1/upload` 端点（该端点需要登录）。控制器内完成文件校验（MIME + magic bytes + 大小）后，用 cuid 重命名存储到 `uploads/merchant-applications/` 目录。
+
 ### 2.2 管理端接口（需管理员登录）
+
+**权限标识：** 复用现有企业管理权限，列表/详情使用 `companies:read`，通过/拒绝使用 `companies:audit`。
 
 #### `GET /admin/merchant-applications` — 申请列表
 
@@ -119,15 +123,20 @@ Query: page, pageSize, status(可选过滤), keyword(搜索公司名/手机号)
 #### `POST /admin/merchant-applications/:id/approve` — 审核通过
 
 ```
-自动执行（单个数据库事务内）:
-  1. 查找或创建 User(phone) + AuthIdentity(PHONE)
+前置校验:
+  - 如果 application.status !== PENDING，返回 409 "该申请已被处理"（幂等保护）
+
+自动执行（单个数据库事务内，默认隔离级别，无资金操作无需 Serializable）:
+  1. 查找或创建 User(phone) + AuthIdentity(PHONE, appId=null)
   2. 创建 Company(status=ACTIVE, name=companyName, contact={name,phone})
+     注意：自助入驻的企业直接为 ACTIVE。管理员手动创建的企业走
+     现有 PENDING→ACTIVE 审核流程，两条路径各自独立。
   3. 创建 CompanyStaff(role=OWNER, status=ACTIVE)
-  4. 复制营业执照到 CompanyDocument(type=LICENSE, verifyStatus=VERIFIED)
+  4. 复制营业执照到 CompanyDocument(type=LICENSE, title="营业执照", verifyStatus=VERIFIED)
   5. 更新 MerchantApplication(status=APPROVED, companyId, reviewedAt, reviewedBy)
   --- 事务结束 ---
-  6. 发送短信通知："您的入驻申请已通过，请访问 seller.爱买买.com 登录"
-  7. 如有邮箱，发送邮件通知
+  6. 发送短信通知："【爱买买】您的入驻申请已通过，请访问 seller.爱买买.com 用手机号登录卖家后台"
+  7. 如有邮箱，发送邮件通知（包含登录地址、操作指引）
 
 返回: { ok: true, data: { companyId, staffId } }
 ```
@@ -135,12 +144,15 @@ Query: page, pageSize, status(可选过滤), keyword(搜索公司名/手机号)
 #### `POST /admin/merchant-applications/:id/reject` — 审核拒绝
 
 ```
+前置校验:
+  - 如果 application.status !== PENDING，返回 409 "该申请已被处理"（幂等保护）
+
 Body: { reason: string (必填) }
 
 自动执行:
   1. 更新 MerchantApplication(status=REJECTED, rejectReason, reviewedAt, reviewedBy)
-  2. 发送短信通知（含拒绝原因摘要）
-  3. 如有邮箱，发送邮件通知
+  2. 发送短信通知："【爱买买】您的入驻申请未通过，原因：{reason}。如有疑问请联系客服"
+  3. 如有邮箱，发送邮件通知（包含完整拒绝原因）
 
 返回: { ok: true }
 ```
@@ -154,6 +166,8 @@ Body: { reason: string (必填) }
 | 手机号对应的 User 已存在 | 复用该 User，不重复创建 |
 | 该 User 已是其他公司 Owner | 允许，一个人可拥有多个公司 |
 | approve 事务中任一步失败 | 全部回滚，申请状态不变，管理员可重试 |
+| approve/reject 重复调用 | 前置检查 status !== PENDING 则返回 409，幂等保护 |
+| 商户提交后发现信息有误 | 当前无法自助修改，需联系客服。后续可增加"查询申请状态"端点 |
 
 ## 三、安全措施
 
@@ -162,7 +176,7 @@ Body: { reason: string (必填) }
 | 措施 | 实现 | 说明 |
 |------|------|------|
 | **验证码** | 图形验证码（前期占位），后续可升级为滑块验证（腾讯天御/阿里云） | 防机器人批量提交，必须在表单提交前通过 |
-| **IP 频率限制** | 每 IP 每小时 5 次 | NestJS @Throttle 装饰器 |
+| **IP 频率限制** | `@Throttle({ default: { ttl: 3600000, limit: 5 } })` 提交接口；验证码接口 `@Throttle({ default: { ttl: 60000, limit: 10 } })` | 防批量提交和验证码刷取 |
 | **统一错误响应** | 手机号重复不返回特殊错误码 | 防止手机号枚举探测 |
 | **文件类型校验** | MIME 白名单（image/jpeg, image/png, application/pdf）+ magic bytes 校验 | 不仅看扩展名，验证文件头部字节 |
 | **文件大小限制** | ≤ 5MB | 后端校验 + Nginx client_max_body_size |
@@ -191,6 +205,13 @@ Body: { reason: string (必填) }
 ```
 
 后续可升级为第三方滑块验证服务，只需替换前端组件 + 后端校验逻辑。
+
+### 3.4 验证码模块结构
+
+新建 `backend/src/modules/captcha/` 独立模块：
+- `CaptchaController` — `GET /api/v1/captcha`（公开接口，`@Throttle({ default: { ttl: 60000, limit: 10 } })`）
+- `CaptchaService` — 生成图形验证码 + Redis 存储/校验/删除
+- 可被任何需要验证码保护的公开接口复用（如未来的"查询申请状态"端点）
 
 ## 四、管理后台前端改动
 
@@ -273,9 +294,11 @@ MerchantApply.tsx（新页面）
 
 ### 5.3 新增路由
 
+注意：网站使用 HashRouter（GitHub Pages 不支持 SPA 服务端路由），实际 URL 为 `/#/merchants/apply`。
+
 ```
-/merchants         → Merchants.tsx（现有，营销页面）
-/merchants/apply   → MerchantApply.tsx（新增，入驻申请表单）
+/#/merchants         → Merchants.tsx（现有，营销页面）
+/#/merchants/apply   → MerchantApply.tsx（新增，入驻申请表单）
 ```
 
 ## 六、审核通过自动化流程
@@ -283,10 +306,13 @@ MerchantApply.tsx（新页面）
 管理员点击"通过"后，后端在一个数据库事务内完成以下步骤：
 
 ```
+步骤 0：前置校验
+  └── 如果 application.status !== PENDING → 返回 409 "该申请已被处理"
+
 步骤 1：查找或创建 User
-  ├── 查找 AuthIdentity(provider=PHONE, identifier=phone)
+  ├── 查找 AuthIdentity(provider=PHONE, identifier=phone)（与卖家登录一致，不过滤 appId）
   ├── 存在 → 复用该 User
-  └── 不存在 → 创建 User + UserProfile(nickname=contactName) + AuthIdentity(PHONE)
+  └── 不存在 → 创建 User + UserProfile(nickname=contactName) + AuthIdentity(PHONE, appId=null)
 
 步骤 2：创建 Company
   ├── name = companyName
@@ -303,6 +329,7 @@ MerchantApply.tsx（新页面）
 步骤 4：复制营业执照
   ├── 创建 CompanyDocument
   ├── type = LICENSE
+  ├── title = "营业执照"
   ├── fileUrl = 申请中的 licenseFileUrl
   └── verifyStatus = VERIFIED
 
@@ -327,6 +354,8 @@ MerchantApply.tsx（新页面）
 2. **登录通知** — 首次登录时发短信告知"您的企业系统账号已在 xxx 登录"
 3. **设备指纹 + 异地登录二次验证** — 记录常用设备，新设备登录要求额外验证
 4. **经营品类下拉选择** — category 从自由文本改为关联 Category 表或预设选项
+5. **申请状态查询** — 商户用手机号 + 验证码查询自己的申请状态（解决提交后无法自助查询/修改的问题）
+6. **管理员新申请通知** — 新申请提交时通知管理员（邮件或实时推送），目前仅靠管理员主动刷新页面查看
 
 ## 八、不涉及改动的现有模块
 
