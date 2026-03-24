@@ -82,39 +82,28 @@ export default function About() {
         </div>
       </section>
 
-      {/* 团队 */}
+      {/* 核心团队 */}
       <section className="py-20 md:py-28 bg-light-surface">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="核心团队" subtitle="一群热爱农业和技术的人" />
+            <SectionHeading title="核心团队" subtitle="顶尖学术背景与产业实战经验的深度融合" />
           </ScrollReveal>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {TEAM_MEMBERS.map((member, i) => (
-              <ScrollReveal key={member.name} delay={i * 0.1}>
-                <div className="text-center">
-                  <img
-                    src={member.avatar}
-                    alt={member.name}
-                    className="w-24 h-24 md:w-32 md:h-32 rounded-full mx-auto mb-4 object-cover shadow-card"
-                    loading="lazy"
-                  />
-                  <h3 className="font-semibold text-text-primary">{member.name}</h3>
-                  <p className="text-brand text-sm font-medium">{member.role}</p>
-                  <p className="text-text-tertiary text-sm mt-1">{member.bio}</p>
-                </div>
-              </ScrollReveal>
-            ))}
-          </div>
-
           <ScrollReveal>
-            <div className="mt-12 rounded-card-lg overflow-hidden">
-              <img
-                src={IMAGES.team.collaboration}
-                alt="团队协作"
-                className="w-full h-48 md:h-72 object-cover"
-                loading="lazy"
-              />
+            <div className="max-w-3xl mx-auto bg-white rounded-card-lg p-8 md:p-12 shadow-card">
+              <p className="text-text-primary leading-loose text-base md:text-lg">
+                核心技术团队由美国麻省大学计算机系博士领衔，曾参与 2024 年图灵奖「群智机器人」核心项目，
+                是哈尔滨工业大学（深圳）国际人工智能研究院创始人之一。团队成员入选教育部优秀归国人才计划，
+                担任 IEEE 高级会员、科技部及国家自然科学基金评审专家，并受聘为印度理工学院（孟买）客座教授、
+                香港城市大学与香港理工大学特聘高级研究员。
+              </p>
+              <div className="mt-6 pt-6 border-t border-light-soft">
+                <p className="text-text-secondary leading-relaxed text-sm md:text-base">
+                  团队主持国家自然科学基金、科技部中以国际科技合作专项等多个国家级项目，
+                  研究成果获科技部产业化优秀案例奖及 ACM/IEEE IoTDI 最佳产业应用国际奖，
+                  在 AI 与农业产业融合领域拥有丰富的理论研究与落地实践经验。
+                </p>
+              </div>
             </div>
           </ScrollReveal>
         </div>
