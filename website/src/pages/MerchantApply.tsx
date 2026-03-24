@@ -93,6 +93,10 @@ export default function MerchantApply() {
       errors.email = '请输入正确的邮箱地址'
     }
 
+    if (!file) {
+      errors.file = '请上传营业执照'
+    }
+
     if (!captchaInput.trim()) {
       errors.captcha = '请输入验证码'
     }
@@ -139,7 +143,7 @@ export default function MerchantApply() {
       formData.append('contactName', contactName.trim())
       formData.append('phone', phone.trim())
       if (email.trim()) formData.append('email', email.trim())
-      if (file) formData.append('license', file)
+      if (file) formData.append('licenseFile', file!)
       formData.append('captchaId', captchaId)
       formData.append('captchaCode', captchaInput.trim())
 
@@ -284,7 +288,7 @@ export default function MerchantApply() {
 
             {/* 营业执照上传 */}
             <div>
-              <label className={labelClass}>营业执照 <span className="text-text-tertiary font-normal">(选填，支持 JPG/PNG/PDF，最大 5MB)</span></label>
+              <label className={labelClass}>营业执照 <span className="text-red-500">*</span> <span className="text-text-tertiary font-normal">(支持 JPG/PNG/PDF，最大 5MB)</span></label>
               <input
                 ref={fileInputRef}
                 type="file"
