@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Input, Space, Badge } from 'antd';
+import { Button, Tag, message, Modal, Input, Space, Badge, Tabs } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { getCompanies, auditCompany } from '@/api/companies';
 import { getMerchantApplicationPendingCount } from '@/api/merchant-applications';
@@ -106,46 +106,50 @@ export default function CompanyListPage() {
     },
   ];
 
-  const tabMenuConfig = {
-    type: 'tab' as const,
-    activeKey: activeTab,
-    items: [
-      { key: 'all', label: '全部企业' },
-      {
-        key: 'pending',
-        label: (
-          <Badge count={pendingCount} offset={[12, 0]} size="small">
-            待审核
-          </Badge>
-        ),
-      },
-      {
-        key: 'applications',
-        label: (
-          <Badge count={applicationCount} offset={[12, 0]} size="small">
-            入驻申请
-          </Badge>
-        ),
-      },
-    ],
-    onChange: (key: string) => {
-      setActiveTab(key as TabKey);
-      if (key !== 'applications') {
-        actionRef.current?.reload();
-      }
+  const tabItems = [
+    {
+      key: 'all',
+      label: '全部企业',
     },
-  };
+    {
+      key: 'pending',
+      label: (
+        <Badge count={pendingCount} offset={[12, 0]} size="small">
+          待审核
+        </Badge>
+      ),
+    },
+    {
+      key: 'applications',
+      label: (
+        <Badge count={applicationCount} offset={[12, 0]} size="small">
+          入驻申请
+        </Badge>
+      ),
+    },
+  ];
 
   return (
     <div style={{ padding: 24 }}>
+      <Tabs
+        activeKey={activeTab}
+        items={tabItems}
+        onChange={(key) => {
+          setActiveTab(key as TabKey);
+          if (key !== 'applications') {
+            actionRef.current?.reload();
+          }
+        }}
+        style={{ marginBottom: 16 }}
+      />
+
       {activeTab !== 'applications' && (
         <>
           <ProTable<Company>
-            headerTitle="企业管理"
+            headerTitle={false}
             actionRef={actionRef}
             rowKey="id"
             columns={columns}
-            toolbar={{ menu: tabMenuConfig }}
             request={async (params) => {
               const { current, pageSize, status, name: keyword } = params;
               const res = await getCompanies({
@@ -154,7 +158,6 @@ export default function CompanyListPage() {
                 status: activeTab === 'pending' ? 'PENDING' : status,
                 keyword,
               });
-              // 获取待审核总数用于 Badge
               if (activeTab === 'all') {
                 getCompanies({ page: 1, pageSize: 1, status: 'PENDING' }).then((r) => setPendingCount(r.total));
               } else {
@@ -191,20 +194,7 @@ export default function CompanyListPage() {
       )}
 
       {activeTab === 'applications' && (
-        <ProTable<never>
-          headerTitle="企业管理"
-          columns={[]}
-          dataSource={[]}
-          search={false}
-          options={false}
-          pagination={false}
-          toolbar={{ menu: tabMenuConfig }}
-          tableRender={() => (
-            <div style={{ padding: '0 24px 24px' }}>
-              <ApplicationsTab onPendingCountChange={setApplicationCount} />
-            </div>
-          )}
-        />
+        <ApplicationsTab onPendingCountChange={setApplicationCount} />
       )}
     </div>
   );
