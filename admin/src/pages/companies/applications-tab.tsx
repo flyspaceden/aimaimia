@@ -293,8 +293,10 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
                 type="primary"
                 icon={<CheckCircleOutlined />}
                 onClick={() => {
+                  const record = { ...detail };
                   setDrawerOpen(false);
-                  handleApprove(detail);
+                  setDetail(null);
+                  setTimeout(() => handleApprove(record as MerchantApplication), 300);
                 }}
               >
                 通过
@@ -303,8 +305,10 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
                 danger
                 icon={<CloseCircleOutlined />}
                 onClick={() => {
+                  const record = { ...detail };
                   setDrawerOpen(false);
-                  handleRejectOpen(detail);
+                  setDetail(null);
+                  setTimeout(() => handleRejectOpen(record as MerchantApplication), 300);
                 }}
               >
                 拒绝
