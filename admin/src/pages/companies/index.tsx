@@ -146,7 +146,7 @@ export default function CompanyListPage() {
       {activeTab !== 'applications' && (
         <>
           <ProTable<Company>
-            headerTitle={false}
+            headerTitle="企业管理"
             actionRef={actionRef}
             rowKey="id"
             columns={columns}
