@@ -287,26 +287,30 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
         onClose={() => { setDrawerOpen(false); setDetail(null); }}
         loading={detailLoading}
         extra={
-          detail?.status === 'PENDING' && (
-            <PermissionGate permission={PERMISSIONS.COMPANIES_AUDIT}>
-              <Space>
-                <Button
-                  type="primary"
-                  icon={<CheckCircleOutlined />}
-                  onClick={() => handleApprove(detail)}
-                >
-                  通过
-                </Button>
-                <Button
-                  danger
-                  icon={<CloseCircleOutlined />}
-                  onClick={() => handleRejectOpen(detail)}
-                >
-                  拒绝
-                </Button>
-              </Space>
-            </PermissionGate>
-          )
+          detail && detail.status === 'PENDING' ? (
+            <Space>
+              <Button
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={() => {
+                  setDrawerOpen(false);
+                  handleApprove(detail);
+                }}
+              >
+                通过
+              </Button>
+              <Button
+                danger
+                icon={<CloseCircleOutlined />}
+                onClick={() => {
+                  setDrawerOpen(false);
+                  handleRejectOpen(detail);
+                }}
+              >
+                拒绝
+              </Button>
+            </Space>
+          ) : null
         }
       >
         {detail && (
