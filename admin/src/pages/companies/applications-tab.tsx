@@ -113,6 +113,7 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
       okText: '确认通过',
       cancelText: '取消',
       okType: 'primary',
+      zIndex: 1100,
       icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
       onOk: async () => {
         try {
@@ -409,6 +410,7 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
       <Modal
         title={`拒绝入驻申请: ${rejectTarget?.companyName}`}
         open={rejectModalOpen}
+        zIndex={1100}
         onCancel={() => {
           setRejectModalOpen(false);
           setRejectReason('');
