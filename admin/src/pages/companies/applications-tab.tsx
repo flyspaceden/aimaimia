@@ -42,6 +42,17 @@ function isImageUrl(url: string): boolean {
   return /\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(url);
 }
 
+// 将相对路径的文件 URL 转为后端完整 URL
+function resolveFileUrl(url: string): string {
+  if (!url) return url;
+  if (url.startsWith('http')) return url;
+  // API base 是 /api/v1，文件在 /uploads/，需要用后端 origin
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  // 从 http://localhost:3000/api/v1 提取 http://localhost:3000
+  const origin = apiBase.replace(/\/api\/v\d+$/, '');
+  return origin ? `${origin}${url}` : url;
+}
+
 // 状态标签颜色映射
 const statusColorMap: Record<string, string> = {
   PENDING: 'orange',
@@ -307,7 +318,7 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
                 {detail.contactName}
               </Descriptions.Item>
               <Descriptions.Item label="手机号">
-                {maskPhone(detail.phone)}
+                {detail.phone}
               </Descriptions.Item>
               <Descriptions.Item label="邮箱" span={2}>
                 {detail.email || '-'}
@@ -344,7 +355,7 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
               {detail.licenseFileUrl ? (
                 isImageUrl(detail.licenseFileUrl) ? (
                   <Image
-                    src={detail.licenseFileUrl}
+                    src={resolveFileUrl(detail.licenseFileUrl)}
                     alt="营业执照"
                     width={300}
                     style={{ borderRadius: 8 }}
@@ -353,7 +364,7 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
                   <Button
                     type="link"
                     icon={<DownloadOutlined />}
-                    href={detail.licenseFileUrl}
+                    href={resolveFileUrl(detail.licenseFileUrl)}
                     target="_blank"
                   >
                     下载营业执照文件
