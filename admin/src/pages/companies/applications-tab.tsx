@@ -75,6 +75,9 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detail, setDetail] = useState<MerchantApplicationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<MerchantApplication | null>(null);
+  const [approveLoading, setApproveLoading] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<MerchantApplication | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -105,32 +108,27 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
     }
   };
 
-  // 审核通过
-  const handleApprove = (record: MerchantApplication) => {
-    Modal.confirm({
-      title: '确认通过入驻申请',
-      content: `确认通过「${record.companyName}」的入驻申请？通过后将自动创建企业和管理员账号。`,
-      okText: '确认通过',
-      cancelText: '取消',
-      okType: 'primary',
-      zIndex: 1100,
-      icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
-      onOk: async () => {
-        try {
-          await approveMerchantApplication(record.id);
-          message.success('入驻申请已通过');
-          actionRef.current?.reload();
-          refreshPendingCount();
-          // 如果详情抽屉打开，也刷新详情
-          if (drawerOpen && detail?.id === record.id) {
-            const data = await getMerchantApplication(record.id);
-            setDetail(data);
-          }
-        } catch {
-          message.error('操作失败');
-        }
-      },
-    });
+  // 审核通过（状态驱动）
+  const handleApproveOpen = (record: MerchantApplication) => {
+    setApproveTarget(record);
+    setApproveModalOpen(true);
+  };
+
+  const handleApproveSubmit = async () => {
+    if (!approveTarget) return;
+    setApproveLoading(true);
+    try {
+      await approveMerchantApplication(approveTarget.id);
+      message.success('入驻申请已通过');
+      setApproveModalOpen(false);
+      setApproveTarget(null);
+      actionRef.current?.reload();
+      refreshPendingCount();
+    } catch {
+      message.error('操作失败');
+    } finally {
+      setApproveLoading(false);
+    }
   };
 
   // 审核拒绝
@@ -235,7 +233,7 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
                   size="small"
                   icon={<CheckCircleOutlined />}
                   style={{ color: '#52c41a' }}
-                  onClick={() => handleApprove(record)}
+                  onClick={() => handleApproveOpen(record)}
                 >
                   通过
                 </Button>
@@ -292,24 +290,14 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
               <Button
                 type="primary"
                 icon={<CheckCircleOutlined />}
-                onClick={() => {
-                  const record = { ...detail };
-                  setDrawerOpen(false);
-                  setDetail(null);
-                  setTimeout(() => handleApprove(record as MerchantApplication), 300);
-                }}
+                onClick={() => handleApproveOpen(detail)}
               >
                 通过
               </Button>
               <Button
                 danger
                 icon={<CloseCircleOutlined />}
-                onClick={() => {
-                  const record = { ...detail };
-                  setDrawerOpen(false);
-                  setDetail(null);
-                  setTimeout(() => handleRejectOpen(record as MerchantApplication), 300);
-                }}
+                onClick={() => handleRejectOpen(detail)}
               >
                 拒绝
               </Button>
@@ -413,6 +401,24 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
           </>
         )}
       </Drawer>
+
+      {/* 通过确认弹窗 */}
+      <Modal
+        title={`确认通过入驻申请: ${approveTarget?.companyName}`}
+        open={approveModalOpen}
+        zIndex={1100}
+        onCancel={() => {
+          setApproveModalOpen(false);
+          setApproveTarget(null);
+        }}
+        onOk={handleApproveSubmit}
+        okText="确认通过"
+        confirmLoading={approveLoading}
+        cancelText="取消"
+      >
+        <p>确认通过「{approveTarget?.companyName}」的入驻申请？</p>
+        <p style={{ color: '#999', fontSize: 13 }}>通过后将自动创建企业和管理员账号，商户可立即登录卖家后台。</p>
+      </Modal>
 
       {/* 拒绝原因弹窗 */}
       <Modal
