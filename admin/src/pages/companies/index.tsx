@@ -2,9 +2,9 @@ import { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Input, Space, Badge, Tabs } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, EyeOutlined } from '@ant-design/icons';
-import { getCompanies, auditCompany } from '@/api/companies';
+import { Button, Tag, message, Modal, Input, Space, Badge, Tabs, Form } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
+import { getCompanies, auditCompany, createCompany } from '@/api/companies';
 import { getMerchantApplicationPendingCount } from '@/api/merchant-applications';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -24,11 +24,31 @@ export default function CompanyListPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('all');
   const [pendingCount, setPendingCount] = useState(0);
   const [applicationCount, setApplicationCount] = useState(0);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createForm] = Form.useForm();
 
   // 获取入驻申请待审核计数
   useEffect(() => {
     getMerchantApplicationPendingCount().then((count) => setApplicationCount(count));
   }, []);
+
+  const handleCreateCompany = async () => {
+    try {
+      const values = await createForm.validateFields();
+      setCreateLoading(true);
+      await createCompany(values);
+      message.success('企业创建成功');
+      setCreateModalOpen(false);
+      createForm.resetFields();
+      actionRef.current?.reload();
+    } catch (err: any) {
+      if (err?.errorFields) return; // form validation error
+      message.error(err?.message || '创建失败');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   const handleAudit = async (status: 'APPROVED' | 'REJECTED') => {
     if (!currentCompany) return;
@@ -165,6 +185,18 @@ export default function CompanyListPage() {
               }
               return { data: res.items, total: res.total, success: true };
             }}
+            toolBarRender={() => [
+              activeTab === 'all' && (
+                <Button
+                  key="create"
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setCreateModalOpen(true)}
+                >
+                  添加企业
+                </Button>
+              ),
+            ]}
             search={{ labelWidth: 'auto' }}
             pagination={{ defaultPageSize: 20 }}
             scroll={{ x: 800 }}
@@ -189,6 +221,35 @@ export default function CompanyListPage() {
               value={auditNote}
               onChange={(e) => setAuditNote(e.target.value)}
             />
+          </Modal>
+
+          <Modal
+            title="添加企业"
+            open={createModalOpen}
+            onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
+            onOk={handleCreateCompany}
+            confirmLoading={createLoading}
+            okText="创建"
+            cancelText="取消"
+            destroyOnClose
+          >
+            <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
+              <Form.Item name="companyName" label="公司名称" rules={[{ required: true, message: '请输入公司名称' }]}>
+                <Input placeholder="请输入公司全称" />
+              </Form.Item>
+              <Form.Item name="contactName" label="联系人姓名" rules={[{ required: true, message: '请输入联系人姓名' }]}>
+                <Input placeholder="请输入联系人姓名" />
+              </Form.Item>
+              <Form.Item name="phone" label="手机号" rules={[{ required: true, message: '请输入手机号' }, { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号' }]}>
+                <Input placeholder="用于创建卖家账号" />
+              </Form.Item>
+              <Form.Item name="category" label="经营品类" rules={[{ required: true, message: '请输入经营品类' }]}>
+                <Input placeholder="如：水果、茶叶、粮油" />
+              </Form.Item>
+              <Form.Item name="description" label="公司简介">
+                <Input.TextArea rows={3} placeholder="选填" />
+              </Form.Item>
+            </Form>
           </Modal>
         </>
       )}
