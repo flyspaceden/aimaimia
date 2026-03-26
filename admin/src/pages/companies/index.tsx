@@ -240,7 +240,7 @@ export default function CompanyListPage() {
               <Form.Item name="contactName" label="联系人姓名" rules={[{ required: true, message: '请输入联系人姓名' }]}>
                 <Input placeholder="请输入联系人姓名" />
               </Form.Item>
-              <Form.Item name="phone" label="手机号" rules={[{ required: true, message: '请输入手机号' }, { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号' }]}>
+              <Form.Item name="phone" label="手机号" rules={[{ required: true, message: '请输入手机号' }, { pattern: /^1\d{10}$/, message: '请输入正确的手机号' }]}>
                 <Input placeholder="用于创建卖家账号" />
               </Form.Item>
               <Form.Item name="category" label="经营品类" rules={[{ required: true, message: '请输入经营品类' }]}>

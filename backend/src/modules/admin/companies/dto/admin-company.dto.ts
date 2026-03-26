@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsObject, IsArray, ArrayMinSize, IsIn, IsNotEmpty, IsMobilePhone } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsObject, IsArray, ArrayMinSize, IsIn, IsNotEmpty, Matches } from 'class-validator';
 import { CompanyStatus, VerifyStatus } from '@prisma/client';
 
 export class AdminUpdateCompanyDto {
@@ -103,7 +103,8 @@ export class AdminCreateCompanyDto {
   @IsNotEmpty()
   contactName: string;
 
-  @IsMobilePhone('zh-CN')
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '请输入正确的手机号' })
   phone: string;
 
   @IsString()
