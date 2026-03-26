@@ -98,6 +98,10 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
     title: '联系我们 — AI爱买买',
     description: '商务合作、商户咨询、技术支持，与AI爱买买取得联系',
   },
+  '/merchants/apply': {
+    title: 'AI爱买买 - 商户入驻申请',
+    description: '在线提交商户入驻申请，加入AI爱买买农业直销平台',
+  },
 }
 
 // ============================================

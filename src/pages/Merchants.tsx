@@ -1,10 +1,8 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ParticleCanvas from '@/components/effects/ParticleCanvas'
 import ScrollReveal from '@/components/effects/ScrollReveal'
 import SectionHeading from '@/components/ui/SectionHeading'
 import Button from '@/components/ui/Button'
-import DownloadModal from '@/components/ui/DownloadModal'
 import { IMAGES, SUCCESS_STORIES } from '@/lib/constants'
 
 const ADVANTAGES = [
@@ -23,7 +21,6 @@ const STEPS = [
 
 export default function Merchants() {
   const navigate = useNavigate()
-  const [downloadOpen, setDownloadOpen] = useState(false)
 
   return (
     <>
@@ -37,7 +34,7 @@ export default function Merchants() {
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto mb-8">
             零门槛入驻，AI 赋能经营，让好产品遇见好买家
           </p>
-          <Button size="lg" onClick={() => document.getElementById('steps')?.scrollIntoView({ behavior: 'smooth' })}>
+          <Button size="lg" onClick={() => navigate('/merchants/apply')}>
             立即入驻
           </Button>
         </div>
@@ -153,7 +150,7 @@ export default function Merchants() {
               加入AI爱买买，让 AI 帮您把好产品卖给好买家
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button variant="gold" size="lg" onClick={() => setDownloadOpen(true)}>
+              <Button variant="gold" size="lg" onClick={() => navigate('/merchants/apply')}>
                 立即入驻
               </Button>
               <Button variant="ghost" size="lg" onClick={() => navigate('/contact')}>
@@ -164,7 +161,6 @@ export default function Merchants() {
         </div>
       </section>
 
-      <DownloadModal open={downloadOpen} onClose={() => setDownloadOpen(false)} />
     </>
   )
 }
