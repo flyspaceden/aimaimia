@@ -1769,3 +1769,53 @@ npm install wechatpay-node-v3 alipay-sdk ali-oss @alicloud/dysmsapi20170525 @ali
 | 3. ProductCard | `src/components/cards/ProductCard.tsx` | 编辑 — 新增 aiRecommend/aiReason/monthlySales |
 | 4. Tab 栏 | `app/(tabs)/_layout.tsx` | 编辑 — AiOrb mini 图标 + 光点指示器 |
 | 5. 我的页 | `app/(tabs)/me.tsx` | 重写 — 渐变用户卡 + 钱包VIP双卡 + 工具网格 + AI 助手区 |
+
+---
+
+## 阶段十：商户入驻与部署上线
+
+> **状态**：核心功能 ✅ / 部署待执行 / 后续功能待开发
+
+### 10.1 商户自助入驻 ✅（2026-03-24 ~ 2026-03-25）
+
+已完成：
+- 网站入驻申请表单（验证码 + 文件上传）
+- 后端公开提交 API + Redis/内存双模式验证码模块
+- 管理后台入驻申请 Tab（列表/详情/通过/拒绝）
+- 审核通过自动创建 Company + User + CompanyStaff(OWNER) + CompanyDocument
+- 管理后台"添加企业"按钮（手动创建企业）
+- 卖家端邀请员工自动创建用户（无需预注册）
+- 全链路测试通过（网站提交 → 管理审核 → 卖家登录 → 邀请员工 → 员工登录）
+
+相关文档：
+- 设计方案：`docs/superpowers/specs/2026-03-24-merchant-onboarding-design.md`
+- 实施计划：`docs/superpowers/plans/2026-03-24-merchant-onboarding.md`
+- 部署手册：`deployment.md`
+
+### 10.2 部署上线 ⬜
+
+> 详见 `deployment.md`，以下为执行清单
+
+| # | 步骤 | 状态 | 说明 |
+|---|------|------|------|
+| 1 | 购买云服务器（2核4G） | ⬜ | 阿里云/腾讯云 ECS |
+| 2 | 安装环境（Node.js/PostgreSQL/Redis/Nginx/PM2） | ⬜ | |
+| 3 | 域名 DNS 配置（@/seller/admin/api → 服务器 IP） | ⬜ | 爱买买.com 子域名 |
+| 4 | SSL 证书（certbot 一键申请） | ⬜ | |
+| 5 | 部署后端（.env 配置 + prisma migrate + PM2 启动） | ⬜ | |
+| 6 | 部署管理后台（npm run build + Nginx 静态托管） | ⬜ | admin.爱买买.com |
+| 7 | 部署企业系统（npm run build + Nginx 静态托管） | ⬜ | seller.爱买买.com |
+| 8 | 部署官网（npm run build 或继续 GitHub Pages） | ⬜ | 爱买买.com |
+| 9 | 联调验证（全链路跑通） | ⬜ | |
+
+### 10.3 后续功能 ⬜
+
+| # | 功能 | 优先级 | 说明 |
+|---|------|--------|------|
+| 1 | 真实短信/邮件发送 | 高 | 需在云服务商注册短信签名+模板，替换当前 Mock 实现 |
+| 2 | 卖家端自定义权限系统 | 高 | 参考管理后台 AdminRole/AdminPermission 模式，新建 CompanyRole/CompanyPermission 表，企业可自定义角色和权限 |
+| 3 | 入驻申请状态查询 | 中 | 商户用手机号+验证码查询自己的申请进度 |
+| 4 | 管理员新申请通知 | 中 | 新申请提交时通知管理员（邮件或实时推送） |
+| 5 | 经营品类下拉选择 | 低 | category 从自由文本改为关联 Category 表或预设选项 |
+| 6 | 登录通知 | 低 | 首次登录短信提醒 |
+| 7 | 设备指纹 + 异地登录二次验证 | 低 | 记录常用设备，新设备要求额外验证 |
