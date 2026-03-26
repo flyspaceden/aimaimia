@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>VIP 会员购买 — 多档位 Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-start: #0A1F1A;
+    --bg-end: #0D0D0D;
+    --gold: #C9A96E;
+    --gold-light: #E8D5A3;
+    --warm-white: #F5F0E8;
+    --subtle-gray: #8A8578;
+    --card-bg: rgba(255,255,255,0.06);
+    --card-border: rgba(201,169,110,0.3);
+    --card-border-active: rgba(201,169,110,0.8);
+    --referral-bg: rgba(201,169,110,0.08);
+    --bottom-bar-bg: rgba(13,13,13,0.85);
+  }
+
+  body {
+    font-family: -apple-system, 'SF Pro Display', 'PingFang SC', sans-serif;
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  .phone-frame {
+    width: 390px;
+    height: 844px;
+    border-radius: 40px;
+    overflow: hidden;
+    position: relative;
+    background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%);
+    box-shadow: 0 0 60px rgba(201,169,110,0.15), 0 0 0 2px rgba(255,255,255,0.1);
+  }
+
+  /* Particles */
+  .particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--gold);
+    animation: float linear infinite;
+  }
+  @keyframes float {
+    0% { transform: translateY(900px); opacity: 0; }
+    10% { opacity: var(--p-opacity); }
+    90% { opacity: var(--p-opacity); }
+    100% { transform: translateY(-20px); opacity: 0; }
+  }
+
+  /* Navbar */
+  .navbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    padding: 54px 8px 8px;
+  }
+  .back-btn {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--warm-white);
+    font-size: 24px;
+    cursor: pointer;
+    background: none; border: none;
+  }
+
+  /* Scrollable content */
+  .scroll-content {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    padding-top: 100px;
+    padding-bottom: 140px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .scroll-content::-webkit-scrollbar { display: none; }
+
+  /* Title */
+  .title-section {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .main-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 2px;
+  }
+  .pulsing { animation: pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+  .sub-title {
+    font-size: 14px;
+    color: var(--warm-white);
+    margin-top: 8px;
+    letter-spacing: 1px;
+  }
+
+  /* ============ PRICE TABS (NEW) ============ */
+  .price-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 24px;
+    margin-bottom: 24px;
+  }
+  .price-tab {
+    flex: 1;
+    position: relative;
+    padding: 14px 8px 12px;
+    border-radius: 12px;
+    border: 1.5px solid var(--card-border);
+    background: var(--card-bg);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+    overflow: hidden;
+  }
+  .price-tab:hover {
+    border-color: rgba(201,169,110,0.5);
+  }
+  .price-tab.active {
+    border-color: var(--gold);
+    background: rgba(201,169,110,0.12);
+    box-shadow: 0 0 16px rgba(201,169,110,0.2), inset 0 0 20px rgba(201,169,110,0.05);
+  }
+  .price-tab.active::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--gold), var(--gold-light));
+  }
+  .price-tab-amount {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--subtle-gray);
+    transition: color 0.3s;
+  }
+  .price-tab.active .price-tab-amount {
+    color: var(--gold);
+  }
+  .price-tab-currency {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--subtle-gray);
+    margin-right: 2px;
+  }
+  .price-tab.active .price-tab-currency {
+    color: var(--gold);
+  }
+  .price-tab-label {
+    font-size: 11px;
+    color: var(--subtle-gray);
+    margin-top: 4px;
+    transition: color 0.3s;
+  }
+  .price-tab.active .price-tab-label {
+    color: var(--warm-white);
+  }
+  .price-tab-gift-count {
+    font-size: 10px;
+    color: var(--subtle-gray);
+    margin-top: 2px;
+  }
+  .price-tab.active .price-tab-gift-count {
+    color: rgba(245,240,232,0.6);
+  }
+
+  /* Referral bar */
+  .referral-bar {
+    margin: 0 24px 20px;
+    padding: 12px 16px 12px 20px;
+    background: var(--referral-bg);
+    border-radius: 8px;
+    position: relative;
+    font-size: 13px;
+    color: var(--warm-white);
+  }
+  .referral-bar::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--gold);
+    border-radius: 2px;
+  }
+
+  /* Gift carousel */
+  .carousel-section { position: relative; }
+  .carousel-label {
+    font-size: 13px;
+    color: var(--subtle-gray);
+    text-align: center;
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+  }
+  .carousel {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    padding: 0 calc((390px - 320px) / 2);
+    -webkit-overflow-scrolling: touch;
+  }
+  .carousel::-webkit-scrollbar { display: none; }
+
+  .gift-card {
+    min-width: 320px;
+    flex-shrink: 0;
+    scroll-snap-align: center;
+    border-radius: 16px;
+    border: 1.5px solid var(--card-border);
+    background: var(--card-bg);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+  .gift-card:hover {
+    border-color: rgba(201,169,110,0.5);
+  }
+  .gift-card.selected {
+    border-color: var(--card-border-active);
+    box-shadow: 0 0 16px rgba(201,169,110,0.25);
+  }
+  .gift-card-image {
+    width: 100%;
+    aspect-ratio: 1.2;
+    background: rgba(255,255,255,0.03);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .gift-card-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .gift-card-image .placeholder-icon {
+    font-size: 48px;
+    opacity: 0.3;
+  }
+  .gift-card-info {
+    padding: 16px;
+  }
+  .gift-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--gold);
+    margin-bottom: 6px;
+  }
+  .gift-card-subtitle {
+    font-size: 14px;
+    color: var(--warm-white);
+    line-height: 20px;
+    margin-bottom: 8px;
+  }
+  .gift-card-items {
+    font-size: 12px;
+    color: var(--subtle-gray);
+    line-height: 18px;
+    margin-bottom: 6px;
+  }
+  .gift-card-price {
+    font-size: 14px;
+    color: var(--subtle-gray);
+    text-decoration: line-through;
+    margin-bottom: 8px;
+  }
+  .gift-card-badge {
+    display: inline-block;
+    border: 1px solid var(--gold);
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 12px;
+    color: var(--gold);
+    font-weight: 500;
+  }
+  /* Selected check */
+  .gift-card.selected::after {
+    content: '\2713';
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    background: var(--gold);
+    color: #1A1207;
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(201,169,110,0.4);
+  }
+
+  /* Indicators */
+  .indicator-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .indicator-dot {
+    width: 6px; height: 6px;
+    border-radius: 3px;
+    background: var(--gold);
+    opacity: 0.3;
+    transition: all 0.3s;
+  }
+  .indicator-dot.active {
+    opacity: 1;
+    transform: scale(1.5);
+  }
+  .indicator-text {
+    font-size: 12px;
+    color: var(--warm-white);
+    margin-left: 4px;
+  }
+
+  /* Benefits */
+  .benefits-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-around;
+    padding: 0 16px;
+    margin-top: 28px;
+  }
+  .benefit-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: calc(100% / 6 - 8px);
+    margin-bottom: 12px;
+  }
+  .benefit-icon {
+    font-size: 22px;
+    color: var(--gold);
+    margin-bottom: 6px;
+  }
+  .benefit-label {
+    font-size: 10px;
+    color: var(--warm-white);
+    text-align: center;
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 12px 20px 34px;
+    border-top: 1px solid rgba(201,169,110,0.15);
+    background: var(--bottom-bar-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 20;
+  }
+  .bottom-bar-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .bottom-price-section { flex: 1; }
+  .bottom-label {
+    font-size: 13px;
+    color: var(--warm-white);
+  }
+  .bottom-price {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--gold);
+    transition: all 0.3s;
+  }
+  .checkout-btn {
+    padding: 14px 32px;
+    border-radius: 24px;
+    background: linear-gradient(90deg, var(--gold), var(--gold-light));
+    font-size: 16px;
+    font-weight: 700;
+    color: #1A1207;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+  .checkout-btn:hover { opacity: 0.85; }
+  .checkout-btn:disabled {
+    background: linear-gradient(90deg, #555, #444);
+    color: #888;
+    cursor: default;
+  }
+  .bottom-hint {
+    font-size: 12px;
+    color: var(--subtle-gray);
+    text-align: center;
+    margin-top: 6px;
+  }
+
+  /* Animate tab switch */
+  .fade-in { animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="phone-frame">
+  <!-- Particles -->
+  <div class="particles" id="particles"></div>
+
+  <!-- Navbar -->
+  <div class="navbar">
+    <button class="back-btn">&lsaquo;</button>
+  </div>
+
+  <!-- Scrollable content -->
+  <div class="scroll-content">
+    <!-- Title -->
+    <div class="title-section">
+      <div>
+        <span class="pulsing" style="color:var(--gold);font-size:20px">&#10022;</span>
+        <span class="main-title"> VIP 会员专属空间 </span>
+        <span class="pulsing" style="color:var(--gold);font-size:20px">&#10022;</span>
+      </div>
+      <div class="sub-title">所有礼遇，仅为 VIP 准备</div>
+    </div>
+
+    <!-- ======== PRICE TABS (NEW) ======== -->
+    <div class="price-tabs" id="priceTabs">
+      <div class="price-tab active" data-price="399" data-tier="0" onclick="selectTier(0)">
+        <div class="price-tab-amount"><span class="price-tab-currency">¥</span>399</div>
+        <div class="price-tab-label">VIP 礼包</div>
+        <div class="price-tab-gift-count">3 款赠品可选</div>
+      </div>
+      <div class="price-tab" data-price="899" data-tier="1" onclick="selectTier(1)">
+        <div class="price-tab-amount"><span class="price-tab-currency">¥</span>899</div>
+        <div class="price-tab-label">VIP 礼包</div>
+        <div class="price-tab-gift-count">2 款赠品可选</div>
+      </div>
+      <div class="price-tab" data-price="1599" data-tier="2" onclick="selectTier(2)">
+        <div class="price-tab-amount"><span class="price-tab-currency">¥</span>1599</div>
+        <div class="price-tab-label">VIP 礼包</div>
+        <div class="price-tab-gift-count">2 款赠品可选</div>
+      </div>
+    </div>
+
+    <!-- Referral bar -->
+    <div class="referral-bar">
+      扫描好友邀请码，绑定专属推荐人
+    </div>
+
+    <!-- Gift carousel -->
+    <div class="carousel-section" id="carouselSection">
+      <div class="carousel-label">选择您心仪的赠品方案</div>
+      <div class="carousel" id="carousel"></div>
+      <div class="indicator-row" id="indicators"></div>
+    </div>
+
+    <!-- Benefits -->
+    <div class="benefits-row">
+      <div class="benefit-item"><div class="benefit-icon">📈</div><div class="benefit-label">专属奖励</div></div>
+      <div class="benefit-item"><div class="benefit-icon">👥</div><div class="benefit-label">邀请收益</div></div>
+      <div class="benefit-item"><div class="benefit-icon">🎁</div><div class="benefit-label">专属礼包</div></div>
+      <div class="benefit-item"><div class="benefit-icon">🎧</div><div class="benefit-label">优先客服</div></div>
+      <div class="benefit-item"><div class="benefit-icon">🚚</div><div class="benefit-label">包邮特权</div></div>
+      <div class="benefit-item"><div class="benefit-icon">⭐</div><div class="benefit-label">消费奖励</div></div>
+    </div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar">
+    <div class="bottom-bar-content">
+      <div class="bottom-price-section">
+        <div class="bottom-label">开通 VIP</div>
+        <div class="bottom-price" id="bottomPrice">¥399</div>
+      </div>
+      <button class="checkout-btn" id="checkoutBtn" disabled>立即开通</button>
+    </div>
+    <div class="bottom-hint">包邮 · 支付即开通 VIP</div>
+  </div>
+</div>
+
+<script>
+// Gift data per tier
+const tiers = [
+  {
+    price: 399,
+    referralRate: 0.15,
+    gifts: [
+      { id: 1, title: '普洱茶饼·生茶', subtitle: '云南古树普洱 357g 生茶饼', items: '普洱茶饼(生)×1', marketPrice: 168, badge: '臻选', color: '#3d2e1f' },
+      { id: 2, title: '五常大米 10kg 家庭装', subtitle: '有机稻花香 真空锁鲜', items: '五常大米 10kg×1', marketPrice: 138, badge: '热销', color: '#4a3f2c' },
+      { id: 3, title: '阿克苏冰糖心苹果 10斤', subtitle: '新疆产地直发 特大果', items: '冰糖心苹果 10斤×1', marketPrice: 99, badge: '鲜品', color: '#2d3a2a' },
+    ]
+  },
+  {
+    price: 899,
+    referralRate: 0.15,
+    gifts: [
+      { id: 4, title: '茅台镇酱香白酒双瓶装', subtitle: '53度坤沙酒 500ml×2 礼盒', items: '酱香白酒 500ml×2', marketPrice: 588, badge: '尊享', color: '#3a2020' },
+      { id: 5, title: '有机茶叶+蜂蜜礼盒', subtitle: '龙井 250g + 椴树蜂蜜 500g', items: '龙井茶×1 + 蜂蜜×1', marketPrice: 468, badge: '甄选', color: '#2a3328' },
+    ]
+  },
+  {
+    price: 1599,
+    referralRate: 0.15,
+    gifts: [
+      { id: 6, title: '农品大师年度礼盒', subtitle: '六大名品荟萃 送礼首选', items: '普洱茶×1 + 大米 5kg×1 + 蜂蜜×1 + 红枣×1 + 枸杞×1 + 核桃×1', marketPrice: 1280, badge: '至尊', color: '#2e2218' },
+      { id: 7, title: '产地直供鲜品全家桶', subtitle: '时令水果+生鲜 按季配送', items: '季度果蔬箱×4 (按季配送)', marketPrice: 1160, badge: '限定', color: '#1e2e28' },
+    ]
+  }
+];
+
+let currentTier = 0;
+let selectedGiftId = null;
+
+function selectTier(index) {
+  currentTier = index;
+  selectedGiftId = null;
+
+  // Update tabs
+  document.querySelectorAll('.price-tab').forEach((tab, i) => {
+    tab.classList.toggle('active', i === index);
+  });
+
+  // Update bottom price
+  const tier = tiers[index];
+  document.getElementById('bottomPrice').textContent = '¥' + tier.price;
+  document.getElementById('checkoutBtn').disabled = true;
+
+  // Render gifts
+  renderGifts();
+}
+
+function selectGift(id) {
+  selectedGiftId = id;
+  document.getElementById('checkoutBtn').disabled = false;
+
+  // Update card selection
+  document.querySelectorAll('.gift-card').forEach(card => {
+    card.classList.toggle('selected', parseInt(card.dataset.id) === id);
+  });
+}
+
+function renderGifts() {
+  const tier = tiers[currentTier];
+  const carousel = document.getElementById('carousel');
+  const indicators = document.getElementById('indicators');
+
+  // Render cards
+  carousel.innerHTML = tier.gifts.map(gift => `
+    <div class="gift-card fade-in ${selectedGiftId === gift.id ? 'selected' : ''}"
+         data-id="${gift.id}"
+         onclick="selectGift(${gift.id})">
+      <div class="gift-card-image" style="background:${gift.color}">
+        <div class="placeholder-icon">🎁</div>
+      </div>
+      <div class="gift-card-info">
+        <div class="gift-card-title">${gift.title}</div>
+        <div class="gift-card-subtitle">${gift.subtitle}</div>
+        <div class="gift-card-items">${gift.items}</div>
+        <div class="gift-card-price">市场参考价 ¥${gift.marketPrice}</div>
+        ${gift.badge ? `<span class="gift-card-badge">${gift.badge}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  // Render indicators
+  indicators.innerHTML = tier.gifts.map((_, i) => `
+    <div class="indicator-dot ${i === 0 ? 'active' : ''}"></div>
+  `).join('') + `<span class="indicator-text">1 / ${tier.gifts.length}</span>`;
+
+  // Reset scroll
+  carousel.scrollLeft = 0;
+}
+
+// Generate particles
+function createParticles() {
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = 2 + Math.random() * 3;
+    const x = Math.random() * 390;
+    const opacity = 0.15 + Math.random() * 0.25;
+    const duration = 8 + Math.random() * 6;
+    const delay = Math.random() * 8;
+    p.style.cssText = `
+      left: ${x}px;
+      width: ${size}px;
+      height: ${size}px;
+      --p-opacity: ${opacity};
+      animation-duration: ${duration}s;
+      animation-delay: ${delay}s;
+    `;
+    container.appendChild(p);
+  }
+}
+
+// Init
+createParticles();
+renderGifts();
+</script>
+
+</body>
+</html>
