@@ -60,7 +60,14 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.CORS_ORIGINS
       ? process.env.CORS_ORIGINS.split(',')
-      : ['http://localhost:5173', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5179', 'http://localhost:8081'],
+      : (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+          // 本地开发：允许所有 localhost 端口
+          if (!origin || /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+            callback(null, true);
+          } else {
+            callback(new Error('CORS blocked'));
+          }
+        },
     credentials: true,
   });
 
