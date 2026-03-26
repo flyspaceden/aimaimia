@@ -122,6 +122,8 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
       message.success('入驻申请已通过');
       setApproveModalOpen(false);
       setApproveTarget(null);
+      setDrawerOpen(false);
+      setDetail(null);
       actionRef.current?.reload();
       refreshPendingCount();
     } catch {
@@ -150,13 +152,10 @@ export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTa
       setRejectModalOpen(false);
       setRejectReason('');
       setRejectTarget(null);
+      setDrawerOpen(false);
+      setDetail(null);
       actionRef.current?.reload();
       refreshPendingCount();
-      // 如果详情抽屉打开，也刷新详情
-      if (drawerOpen && detail?.id === rejectTarget.id) {
-        const data = await getMerchantApplication(rejectTarget.id);
-        setDetail(data);
-      }
     } catch {
       message.error('操作失败');
     }
