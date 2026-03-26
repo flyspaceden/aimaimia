@@ -276,7 +276,7 @@ export default function CompanySettingsPage() {
             <ProForm.Item
               name="productKeywords"
               label="主营产品关键词"
-              tooltip="输入后回车添加，如"蓝莓""有机五常大米""
+              tooltip='输入后回车添加，如"蓝莓""有机五常大米"'
             >
               <Select
                 mode="tags"
