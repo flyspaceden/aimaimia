@@ -289,7 +289,7 @@ export default function CompanySettingsPage() {
               name="serviceAreas"
               label="服务地区"
               rules={[{ required: true, message: '请输入至少一个服务地区' }]}
-              tooltip="输入后回车添加，如"湖北""武汉""武昌区""
+              tooltip='输入后回车添加，如"湖北""武汉""武昌区"'
             >
               <Select
                 mode="tags"
