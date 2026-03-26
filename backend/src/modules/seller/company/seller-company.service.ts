@@ -207,13 +207,28 @@ export class SellerCompanyService {
       throw new BadRequestException('不能邀请新的企业主');
     }
 
-    // 通过手机号查找用户
-    const identity = await this.prisma.authIdentity.findFirst({
+    // 通过手机号查找用户，不存在则自动创建
+    let identity = await this.prisma.authIdentity.findFirst({
       where: { provider: 'PHONE', identifier: dto.phone },
     });
 
     if (!identity) {
-      throw new BadRequestException('该手机号未注册，请先注册农脉账号');
+      // 手机号未注册，自动创建用户（App 未上线前员工无法自行注册）
+      const newUser = await this.prisma.user.create({
+        data: {
+          profile: { create: { nickname: dto.phone } },
+          memberProfile: { create: {} },
+          authIdentities: {
+            create: {
+              provider: 'PHONE',
+              identifier: dto.phone,
+              verified: true,
+            },
+          },
+        },
+        include: { authIdentities: { where: { provider: 'PHONE' }, take: 1 } },
+      });
+      identity = newUser.authIdentities[0];
     }
 
     // 检查是否已是该企业员工
