@@ -73,8 +73,13 @@ export const useAuthStore = create<AuthState>()(
             if (!code) return;
             import('../repos').then(({ BonusRepo }) => {
               BonusRepo.useReferralCode(code)
-                .catch(() => {})
-                .finally(() => clearPendingReferralCode());
+                .then(() => {
+                  // 成功或业务错误（推荐码无效等），清除 pending
+                  clearPendingReferralCode();
+                })
+                .catch(() => {
+                  // 网络故障等临时错误，保留 pending code 供下次重试
+                });
             });
           });
         }).catch(() => {});

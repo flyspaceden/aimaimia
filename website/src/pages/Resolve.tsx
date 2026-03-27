@@ -19,7 +19,7 @@ export default function Resolve() {
             const data = await res.json()
             const code = data.data?.referralCode
             if (code) {
-              window.location.href = `aimaimai://referral?code=${code}`
+              window.location.href = `aimaimai://referral?code=${encodeURIComponent(code)}`
               return
             }
           }

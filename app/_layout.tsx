@@ -58,12 +58,24 @@ async function performDeferredLinkCheck() {
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
     ]);
 
-    if (result && typeof result === 'object' && 'type' in result && result.type === 'success' && 'url' in result) {
-      const code = extractReferralCodeFromURL(result.url as string);
+    if (
+      result &&
+      typeof result === 'object' &&
+      'type' in result &&
+      result.type === 'success' &&
+      'url' in result &&
+      typeof result.url === 'string'
+    ) {
+      const code = extractReferralCodeFromURL(result.url);
       if (code && code !== 'none') {
         await handleReferralCode(code);
         cookieResolved = true;
       }
+    }
+
+    // 如果超时，确保关闭浏览器会话
+    if (!result) {
+      WebBrowser.dismissBrowser().catch(() => {});
     }
 
     if (!cookieResolved) {

@@ -18,7 +18,13 @@ function isWechat(): boolean {
 
 function setCookie(name: string, value: string, days: number) {
   const expires = new Date(Date.now() + days * 864e5).toUTCString()
-  document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/;SameSite=Lax`
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  const domainStr = isLocalhost ? '' : 'domain=.xn--ckqa175y.com;'
+  document.cookie = `${name}=${encodeURIComponent(value)};${domainStr}expires=${expires};path=/;SameSite=Lax`
+}
+
+function isValidReferralCode(code?: string): boolean {
+  return !!code && /^[A-Za-z0-9]{8}$/.test(code)
 }
 
 export default function Download() {
@@ -28,7 +34,7 @@ export default function Download() {
   const wechat = isWechat()
 
   useEffect(() => {
-    if (!code) return
+    if (!code || !isValidReferralCode(code)) return
 
     const reportFingerprint = async () => {
       try {
