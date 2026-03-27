@@ -29,6 +29,8 @@
 - `deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
 - `docs/superpowers/specs/2026-03-24-merchant-onboarding-design.md` — 商户自助入驻功能设计方案（数据模型、API 设计、安全措施、管理后台改动、网站表单、审核自动化流程，**商户入驻功能开发权威来源**）
 - `docs/superpowers/plans/2026-03-24-merchant-onboarding.md` — 商户自助入驻实施计划（8 个任务、Schema/Captcha/公开API/管理端/前端/网站/联调，**商户入驻实施排程**）
+- `docs/superpowers/specs/2026-03-26-vip-multi-package-design.md` — VIP 多档位礼包设计方案（VipPackage 数据模型、多价格结账、按比例推荐奖励、管理后台档位管理、买家App档位选择，**VIP 多档位系统权威来源**）
+- `docs/superpowers/plans/2026-03-26-vip-multi-package.md` — VIP 多档位礼包实施计划（12 个任务、Schema/Seed/CRUD/结账/奖励/配置清理/管理前端/买家App，**VIP 多档位实施排程**）
 
 ## 关键架构决策
 
