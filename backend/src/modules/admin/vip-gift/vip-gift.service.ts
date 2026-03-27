@@ -12,7 +12,6 @@ import {
   BatchSortVipGiftDto,
   VipGiftItemDto,
 } from './vip-gift.dto';
-import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
 import { CoverMode } from '@prisma/client';
 
 /** items include 子句：查询赠品方案时一并加载 items → sku → product */
@@ -57,7 +56,6 @@ function computeTotalPrice(items: Array<{ quantity: number; sku: { price: number
 export class VipGiftService {
   constructor(
     private prisma: PrismaService,
-    private bonusConfig: BonusConfigService,
   ) {}
 
   /** 赠品方案列表（管理端） */
@@ -87,16 +85,13 @@ export class VipGiftService {
       this.prisma.vipGiftOption.count({ where }),
     ]);
 
-    // 获取当前 VIP 价格
-    const vipConfig = await this.bonusConfig.getVipConfig();
-
-    // 为每个方案计算总价
+    // 为每个方案计算总价（价格由各 VipPackage 自身管理，不再从全局配置读取）
     const items = options.map((opt) => ({
       ...opt,
       totalPrice: computeTotalPrice(opt.items),
     }));
 
-    return { items, total, page, pageSize, vipPrice: vipConfig.vipPrice };
+    return { items, total, page, pageSize };
   }
 
   /** 赠品方案详情 */

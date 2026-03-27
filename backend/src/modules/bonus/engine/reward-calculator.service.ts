@@ -267,7 +267,7 @@ export class RewardCalculatorService {
     return Math.round(val * 100) / 100;
   }
 
-  /** VIP 配置快照（用于审计） */
+  /** VIP 配置快照（用于审计） @deprecated 供 NORMAL_BROADCAST 遗留路径使用 */
   private snapshot(config: BonusConfig): Record<string, any> {
     return {
       rebateRatio: config.rebateRatio,
@@ -276,7 +276,6 @@ export class RewardCalculatorService {
       fundPercent: config.fundPercent,
       pointsPercent: config.pointsPercent,
       normalBroadcastX: config.normalBroadcastX,
-      vipMinAmount: config.vipMinAmount,
       vipMaxLayers: config.vipMaxLayers,
       ruleVersion: config.ruleVersion,
     };

@@ -12,8 +12,6 @@ export interface VipBonusConfig {
   vipMinAmount: number;         // VIP 有效消费最低金额
   vipMaxLayers: number;         // VIP 最多收取层数
   vipBranchFactor: number;      // 三叉树分叉数
-  vipPrice: number;             // VIP 礼包价格
-  vipReferralBonus: number;     // VIP 推荐奖励金额（元）
   vipFreezeDays: number;        // VIP冻结奖励过期天数
 }
 
@@ -74,8 +72,6 @@ const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
   VIP_MIN_AMOUNT: 'vipMinAmount',
   VIP_MAX_LAYERS: 'vipMaxLayers',
   VIP_BRANCH_FACTOR: 'vipBranchFactor',
-  VIP_PRICE: 'vipPrice',
-  VIP_REFERRAL_BONUS: 'vipReferralBonus',
   VIP_FREEZE_DAYS: 'vipFreezeDays',
   // @deprecated 旧VIP分配键，NORMAL_BROADCAST遗留路径仍需要
   REBATE_RATIO: 'rebateRatio',
@@ -141,8 +137,6 @@ const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
   vipMinAmount: 100.0,
   vipMaxLayers: 15,
   vipBranchFactor: 3,
-  vipPrice: 399.0,
-  vipReferralBonus: 50.0,
   vipFreezeDays: 30,
   // @deprecated 旧VIP分配默认值，NORMAL_BROADCAST遗留路径仍需要
   rebateRatio: 0.5,
@@ -227,8 +221,6 @@ export class BonusConfigService {
       vipMinAmount: config.vipMinAmount,
       vipMaxLayers: config.vipMaxLayers,
       vipBranchFactor: config.vipBranchFactor,
-      vipPrice: config.vipPrice,
-      vipReferralBonus: config.vipReferralBonus,
       vipFreezeDays: config.vipFreezeDays,
     };
   }

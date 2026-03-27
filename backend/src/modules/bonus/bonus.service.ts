@@ -104,9 +104,6 @@ export class BonusService {
    * 并捕获 P2002 唯一约束违反作为最终兜底。
    */
   async purchaseVip(userId: string) {
-    // 事务外预取配置，避免事务内进行缓存/DB 查询
-    const config = await this.bonusConfig.getConfig();
-
     try {
       // S05修复：Serializable 隔离级别，防止 VIP 树并发插入位置冲突
       await this.prisma.$transaction(async (tx) => {
@@ -125,9 +122,9 @@ export class BonusService {
           throw new BadRequestException('已是 VIP 会员');
         }
 
-        // 创建 VIP 购买记录
+        // 创建 VIP 购买记录（遗留路径：价格由 VipPackage 管理，此处 amount=0 仅供兼容）
         const vipPurchase = await tx.vipPurchase.create({
-          data: { userId, amount: config.vipPrice, status: 'PAID', packageId: undefined, referralBonusRate: 0 },
+          data: { userId, amount: 0, status: 'PAID', packageId: undefined, referralBonusRate: 0 },
         });
 
         // 更新会员等级

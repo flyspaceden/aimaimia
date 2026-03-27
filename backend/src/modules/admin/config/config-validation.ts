@@ -118,18 +118,6 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     min: 2,
     max: 10,
   },
-  VIP_PRICE: {
-    type: 'number',
-    description: 'VIP 礼包价格（元）',
-    min: 0.01,
-    max: 100000,
-  },
-  VIP_REFERRAL_BONUS: {
-    type: 'number',
-    description: 'VIP 推荐奖励金额（元）',
-    min: 0,
-    max: 100000,
-  },
   VIP_FREEZE_DAYS: {
     type: 'integer',
     description: 'VIP 冻结奖励过期天数',
