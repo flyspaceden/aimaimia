@@ -667,9 +667,14 @@ export class CheckoutService {
    * 独立于普通商品 checkout，无购物车、无红包、无分润奖励、包邮。
    */
   async checkoutVipPackage(userId: string, dto: VipCheckoutDto) {
-    // 1. 读取 VIP 价格配置
-    const vipConfig = await this.bonusConfig.getVipConfig();
-    const vipPrice = vipConfig.vipPrice;
+    // 1. 读取 VIP 档位信息（价格来自 VipPackage 而非全局配置）
+    const pkg = await this.prisma.vipPackage.findUnique({
+      where: { id: dto.packageId },
+    });
+    if (!pkg || pkg.status !== 'ACTIVE') {
+      throw new BadRequestException('VIP 档位不存在或已下架');
+    }
+    const vipPrice = pkg.price;
 
     // 2. 幂等检查（按 bizType 过滤，避免与普通订单 idempotencyKey 冲突）
     if (dto.idempotencyKey) {
@@ -717,6 +722,9 @@ export class CheckoutService {
     }
     if (giftOption.status !== 'ACTIVE') {
       throw new BadRequestException('该赠品方案已下架');
+    }
+    if (giftOption.packageId !== dto.packageId) {
+      throw new BadRequestException('赠品方案与所选档位不匹配');
     }
     if (giftOption.items.length === 0) {
       throw new BadRequestException('该赠品方案没有配置商品');
@@ -785,6 +793,8 @@ export class CheckoutService {
 
     // 7. bizMeta（VIP 礼包专用元数据）
     const bizMeta = {
+      vipPackageId: pkg.id,
+      referralBonusRate: pkg.referralBonusRate,
       vipGiftOptionId: giftOption.id,
       giftTitle: giftOption.title,
       giftCoverMode: giftOption.coverMode,
