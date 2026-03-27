@@ -127,7 +127,7 @@ export class BonusService {
 
         // 创建 VIP 购买记录
         const vipPurchase = await tx.vipPurchase.create({
-          data: { userId, amount: config.vipPrice, status: 'PAID' },
+          data: { userId, amount: config.vipPrice, status: 'PAID', packageId: undefined, referralBonusRate: 0 },
         });
 
         // 更新会员等级
@@ -157,7 +157,8 @@ export class BonusService {
 
         // ===== 推荐人 VIP 推荐奖励 =====
         const inviterUserId = updatedMember.inviterUserId || member?.inviterUserId;
-        const referralBonus = config.vipReferralBonus;
+        const referralBonusRate = vipPurchase.referralBonusRate ?? 0;
+        const referralBonus = Math.round(vipPurchase.amount * referralBonusRate * 100) / 100;
 
         if (inviterUserId && referralBonus > 0) {
           await this.grantVipReferralBonus(tx, inviterUserId, userId, referralBonus, vipPurchase.id);
@@ -201,6 +202,8 @@ export class BonusService {
     giftOptionId: string,
     amount: number,
     giftSnapshot: Record<string, any>,
+    packageId?: string,
+    referralBonusRate?: number,
   ) {
     const config = await this.bonusConfig.getConfig();
     let vipPurchaseId: string | null = null;
@@ -265,6 +268,8 @@ export class BonusService {
             giftSnapshot,
             source: 'APP_VIP_PACKAGE',
             activationStatus: 'PENDING',
+            packageId: packageId ?? null,
+            referralBonusRate: referralBonusRate ?? 0,
           },
         });
         return { skip: false, vipPurchaseId: vipPurchase.id, retrying: false };
@@ -338,9 +343,10 @@ export class BonusService {
         // 分配三叉树节点
         await this.assignVipTreeNode(tx, userId);
 
-        // 推荐人 VIP 推荐奖励
+        // 推荐人 VIP 推荐奖励（按购买金额 × 推荐奖励比例计算）
         const inviterUserId = updatedMember.inviterUserId || member?.inviterUserId;
-        const referralBonus = config.vipReferralBonus;
+        const referralBonusRateSnapshot = vipPurchase.referralBonusRate ?? 0;
+        const referralBonus = Math.round(vipPurchase.amount * referralBonusRateSnapshot * 100) / 100;
         if (inviterUserId && referralBonus > 0) {
           await this.grantVipReferralBonus(tx, inviterUserId, userId, referralBonus, vipPurchase.id);
         }

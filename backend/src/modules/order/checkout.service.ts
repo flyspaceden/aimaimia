@@ -1456,6 +1456,8 @@ export class CheckoutService {
                   bizMeta.vipGiftOptionId,
                   bizMeta.snapshotPrice,
                   giftSnapshot,
+                  (bizMeta as any)?.vipPackageId,
+                  (bizMeta as any)?.referralBonusRate,
                 );
                 vipActivated = true;
                 this.logger.log(
