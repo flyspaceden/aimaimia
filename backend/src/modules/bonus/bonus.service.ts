@@ -47,7 +47,7 @@ export class BonusService {
     };
   }
 
-  /** 使用推荐码 */
+  /** 使用推荐码（支持换绑：VIP 前允许更换推荐人） */
   async useReferralCode(userId: string, code: string) {
     const inviter = await this.prisma.memberProfile.findUnique({
       where: { referralCode: code },
@@ -55,20 +55,44 @@ export class BonusService {
     if (!inviter) throw new BadRequestException('推荐码无效');
     if (inviter.userId === userId) throw new BadRequestException('不能使用自己的推荐码');
 
+    // 检查当前用户是否已购买 VIP（已购买则锁定推荐关系）
+    const currentMember = await this.prisma.memberProfile.findUnique({
+      where: { userId },
+    });
+    if (currentMember?.tier === 'VIP') {
+      throw new BadRequestException('已加入 VIP 团队，无法更换推荐人');
+    }
+
     // 检查是否已有邀请关系
     const existing = await this.prisma.referralLink.findUnique({
       where: { inviteeUserId: userId },
     });
-    if (existing) throw new BadRequestException('已绑定推荐人，无法重复绑定');
+
+    if (existing && existing.inviterUserId === inviter.userId) {
+      // 已绑定同一推荐人，幂等返回
+      return { success: true, inviterUserId: inviter.userId };
+    }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.referralLink.create({
-        data: {
-          inviterUserId: inviter.userId,
-          inviteeUserId: userId,
-          codeUsed: code,
-        },
-      });
+      if (existing) {
+        // 换绑：更新已有的 ReferralLink
+        await tx.referralLink.update({
+          where: { inviteeUserId: userId },
+          data: {
+            inviterUserId: inviter.userId,
+            codeUsed: code,
+          },
+        });
+      } else {
+        // 首次绑定：创建 ReferralLink
+        await tx.referralLink.create({
+          data: {
+            inviterUserId: inviter.userId,
+            inviteeUserId: userId,
+            codeUsed: code,
+          },
+        });
+      }
 
       await tx.memberProfile.upsert({
         where: { userId },
