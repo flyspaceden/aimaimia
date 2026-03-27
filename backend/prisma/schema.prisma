@@ -278,6 +278,19 @@ enum VipGiftOptionStatus {
   INACTIVE  // 下架，前台不可选
 }
 
+model VipPackage {
+  id                String              @id @default(cuid())
+  price             Float               // 档位价格（元），如 399 / 899 / 1599
+  referralBonusRate Float               @default(0.15) // 推荐奖励比例，0.15 = 15%
+  sortOrder         Int                 @default(0)
+  status            VipGiftOptionStatus @default(ACTIVE) // 复用 ACTIVE/INACTIVE
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  giftOptions       VipGiftOption[]
+
+  @@index([status, sortOrder])
+}
+
 enum CoverMode {
   AUTO_GRID      // 宫格拼图（默认）
   AUTO_DIAGONAL  // 对角线分割
@@ -1645,6 +1658,10 @@ model VipPurchase {
   giftSkuId        String?             // 赠品 SKU ID
   giftSnapshot     Json?               // 赠品快照：新格式 {title, coverMode, coverUrl, badge, items: [{skuId, skuTitle, productTitle, productImage, price, quantity}]}；旧格式 {title, coverUrl, marketPrice, badge}
 
+  // 档位快照
+  packageId         String?
+  referralBonusRate Float?             // 购买时快照的推荐奖励比例
+
   // 来源与激活状态
   source           String?             // APP_VIP_PACKAGE / ADMIN_GRANT / ACTIVITY
   activationStatus VipActivationStatus @default(SUCCESS) // 激活状态机
@@ -2210,7 +2227,11 @@ model VipGiftOption {
   updatedAt DateTime            @updatedAt
   items     VipGiftItem[]       // 组合商品列表
 
-  @@index([status, sortOrder])
+  // 所属档位
+  packageId String?
+  package   VipPackage? @relation(fields: [packageId], references: [id], onDelete: Restrict)
+
+  @@index([packageId, status, sortOrder])
 }
 
 model VipGiftItem {
