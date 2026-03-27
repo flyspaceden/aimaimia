@@ -182,34 +182,40 @@ export const BonusRepo = {
   getVipGiftOptions: async (): Promise<Result<VipGiftOptionsResponse>> => {
     if (USE_MOCK) {
       return simulateRequest({
-        options: [
+        packages: [
           {
-            id: 'gift-1', title: '有机茶叶礼盒', subtitle: '精选高山绿茶', coverUrl: null,
-            coverMode: 'AUTO_GRID' as const, totalPrice: 128.00, badge: '热门', available: true,
-            items: [
-              { skuId: 'sku-gift-1a', productTitle: '高山绿茶', productImage: null, skuTitle: '250g装', price: 68.00, quantity: 1 },
-              { skuId: 'sku-gift-1b', productTitle: '铁观音', productImage: null, skuTitle: '200g装', price: 60.00, quantity: 1 },
-            ],
-          },
-          {
-            id: 'gift-2', title: '农家蜂蜜套装', subtitle: '天然百花蜜500g×2', coverUrl: null,
-            coverMode: 'AUTO_STACKED' as const, totalPrice: 99.00, badge: null, available: true,
-            items: [
-              { skuId: 'sku-gift-2a', productTitle: '百花蜜', productImage: null, skuTitle: '500g', price: 49.50, quantity: 2 },
-            ],
-          },
-          {
-            id: 'gift-3', title: '五谷杂粮大礼包', subtitle: '10种粗粮组合', coverUrl: null,
-            coverMode: 'AUTO_GRID' as const, totalPrice: 158.00, badge: '限量', available: false,
-            items: [
-              { skuId: 'sku-gift-3a', productTitle: '红豆', productImage: null, skuTitle: '500g', price: 15.00, quantity: 2 },
-              { skuId: 'sku-gift-3b', productTitle: '黑米', productImage: null, skuTitle: '500g', price: 18.00, quantity: 2 },
-              { skuId: 'sku-gift-3c', productTitle: '燕麦', productImage: null, skuTitle: '500g', price: 22.00, quantity: 2 },
-              { skuId: 'sku-gift-3d', productTitle: '小米', productImage: null, skuTitle: '500g', price: 12.00, quantity: 2 },
+            id: 'mock-pkg-001',
+            price: 399,
+            sortOrder: 0,
+            giftOptions: [
+              {
+                id: 'gift-1', title: '有机茶叶礼盒', subtitle: '精选高山绿茶', coverUrl: null,
+                coverMode: 'AUTO_GRID' as const, totalPrice: 128.00, badge: '热门', available: true,
+                items: [
+                  { skuId: 'sku-gift-1a', productTitle: '高山绿茶', productImage: null, skuTitle: '250g装', price: 68.00, quantity: 1 },
+                  { skuId: 'sku-gift-1b', productTitle: '铁观音', productImage: null, skuTitle: '200g装', price: 60.00, quantity: 1 },
+                ],
+              },
+              {
+                id: 'gift-2', title: '农家蜂蜜套装', subtitle: '天然百花蜜500g×2', coverUrl: null,
+                coverMode: 'AUTO_STACKED' as const, totalPrice: 99.00, badge: null, available: true,
+                items: [
+                  { skuId: 'sku-gift-2a', productTitle: '百花蜜', productImage: null, skuTitle: '500g', price: 49.50, quantity: 2 },
+                ],
+              },
+              {
+                id: 'gift-3', title: '五谷杂粮大礼包', subtitle: '10种粗粮组合', coverUrl: null,
+                coverMode: 'AUTO_GRID' as const, totalPrice: 158.00, badge: '限量', available: false,
+                items: [
+                  { skuId: 'sku-gift-3a', productTitle: '红豆', productImage: null, skuTitle: '500g', price: 15.00, quantity: 2 },
+                  { skuId: 'sku-gift-3b', productTitle: '黑米', productImage: null, skuTitle: '500g', price: 18.00, quantity: 2 },
+                  { skuId: 'sku-gift-3c', productTitle: '燕麦', productImage: null, skuTitle: '500g', price: 22.00, quantity: 2 },
+                  { skuId: 'sku-gift-3d', productTitle: '小米', productImage: null, skuTitle: '500g', price: 12.00, quantity: 2 },
+                ],
+              },
             ],
           },
         ],
-        vipPrice: 299.00,
       });
     }
     return ApiClient.get<VipGiftOptionsResponse>('/bonus/vip/gift-options');

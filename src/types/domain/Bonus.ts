@@ -156,8 +156,15 @@ export interface VipGiftOption {
   items: VipGiftItemInfo[];
 }
 
-// VIP 赠品方案列表响应
+// VIP 档位
+export interface VipPackage {
+  id: string;
+  price: number;
+  sortOrder: number;
+  giftOptions: VipGiftOption[];
+}
+
+// VIP 档位列表响应
 export interface VipGiftOptionsResponse {
-  options: VipGiftOption[];
-  vipPrice: number;
+  packages: VipPackage[];
 }

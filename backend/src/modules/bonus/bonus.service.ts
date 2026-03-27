@@ -399,40 +399,47 @@ export class BonusService {
 
   // ========== VIP 赠品方案 ==========
 
-  /** 获取 VIP 赠品方案列表（前台，多商品组合） */
+  /** 获取 VIP 档位列表及各档位赠品方案（前台） */
   async getVipGiftOptions() {
-    const [options, vipConfig] = await Promise.all([
-      this.prisma.vipGiftOption.findMany({
-        where: { status: 'ACTIVE' },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-        select: {
-          id: true,
-          title: true,
-          subtitle: true,
-          coverMode: true,
-          coverUrl: true,
-          badge: true,
-          items: {
-            orderBy: { sortOrder: 'asc' },
-            select: {
-              skuId: true,
-              quantity: true,
-              sku: {
-                select: {
-                  id: true,
-                  title: true,
-                  price: true,
-                  stock: true,
-                  status: true,
-                  product: {
-                    select: {
-                      title: true,
-                      status: true,
-                      media: {
-                        where: { type: 'IMAGE' },
-                        orderBy: { sortOrder: 'asc' },
-                        take: 1,
-                        select: { url: true },
+    const packages = await this.prisma.vipPackage.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: [{ sortOrder: 'asc' }, { price: 'asc' }],
+      select: {
+        id: true,
+        price: true,
+        sortOrder: true,
+        giftOptions: {
+          where: { status: 'ACTIVE' },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+          select: {
+            id: true,
+            title: true,
+            subtitle: true,
+            coverMode: true,
+            coverUrl: true,
+            badge: true,
+            items: {
+              orderBy: { sortOrder: 'asc' },
+              select: {
+                skuId: true,
+                quantity: true,
+                sku: {
+                  select: {
+                    id: true,
+                    title: true,
+                    price: true,
+                    stock: true,
+                    status: true,
+                    product: {
+                      select: {
+                        title: true,
+                        status: true,
+                        media: {
+                          where: { type: 'IMAGE' },
+                          orderBy: { sortOrder: 'asc' },
+                          take: 1,
+                          select: { url: true },
+                        },
                       },
                     },
                   },
@@ -441,45 +448,45 @@ export class BonusService {
             },
           },
         },
-      }),
-      this.bonusConfig.getVipConfig(),
-    ]);
+      },
+    });
 
     return {
-      options: options.map((opt) => {
-        // 计算组合总价
-        const totalPrice = opt.items.reduce(
-          (sum, item) => sum + item.sku.price * item.quantity,
-          0,
-        );
-        // 可用性：所有子项的 SKU/商品均 ACTIVE 且库存充足
-        const available = opt.items.length > 0 && opt.items.every(
-          (item) =>
-            item.sku.status === 'ACTIVE' &&
-            item.sku.product?.status === 'ACTIVE' &&
-            item.sku.stock >= item.quantity,
-        );
-
-        return {
-          id: opt.id,
-          title: opt.title,
-          subtitle: opt.subtitle,
-          coverMode: opt.coverMode,
-          coverUrl: opt.coverUrl,
-          badge: opt.badge,
-          totalPrice,
-          available,
-          items: opt.items.map((item) => ({
-            skuId: item.skuId,
-            productTitle: item.sku.product?.title || '',
-            productImage: item.sku.product?.media?.[0]?.url || null,
-            skuTitle: item.sku.title,
-            price: item.sku.price,
-            quantity: item.quantity,
-          })),
-        };
-      }),
-      vipPrice: vipConfig.vipPrice,
+      packages: packages.map((pkg) => ({
+        id: pkg.id,
+        price: pkg.price,
+        sortOrder: pkg.sortOrder,
+        giftOptions: pkg.giftOptions.map((opt) => {
+          const totalPrice = opt.items.reduce(
+            (sum, item) => sum + item.sku.price * item.quantity,
+            0,
+          );
+          const available = opt.items.length > 0 && opt.items.every(
+            (item) =>
+              item.sku.status === 'ACTIVE' &&
+              item.sku.product?.status === 'ACTIVE' &&
+              item.sku.stock >= item.quantity,
+          );
+          return {
+            id: opt.id,
+            title: opt.title,
+            subtitle: opt.subtitle,
+            coverMode: opt.coverMode,
+            coverUrl: opt.coverUrl,
+            badge: opt.badge,
+            totalPrice,
+            available,
+            items: opt.items.map((item) => ({
+              skuId: item.skuId,
+              productTitle: item.sku.product?.title || '',
+              productImage: item.sku.product?.media?.[0]?.url || null,
+              skuTitle: item.sku.title,
+              price: item.sku.price,
+              quantity: item.quantity,
+            })),
+          };
+        }),
+      })),
     };
   }
 
