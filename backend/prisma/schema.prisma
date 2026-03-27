@@ -1681,6 +1681,24 @@ model ReferralLink {
   createdAt     DateTime @default(now())
 }
 
+model DeferredDeepLink {
+  id            String   @id @default(cuid())
+  referralCode  String
+  fingerprint   String
+  ipAddress     String
+  userAgent     String
+  screenInfo    String?
+  language      String?
+  cookieId      String   @unique
+  matched       Boolean  @default(false)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([fingerprint, matched, expiresAt])
+  @@index([ipAddress, matched, expiresAt])
+  @@index([expiresAt])
+}
+
 model VipTreeNode {
   id            String        @id @default(cuid())
   rootId        String // A1..A10
