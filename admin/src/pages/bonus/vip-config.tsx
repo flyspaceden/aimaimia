@@ -80,28 +80,6 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
 
   // VIP 基础设置
   {
-    key: 'VIP_PRICE',
-    label: 'VIP 礼包价格',
-    group: 'vip',
-    type: 'number',
-    min: 1,
-    max: 9999,
-    suffix: '元',
-    precision: 2,
-    description: '购买 VIP 礼包的价格',
-  },
-  {
-    key: 'VIP_MIN_AMOUNT',
-    label: '有效消费最低金额',
-    group: 'vip',
-    type: 'number',
-    min: 1,
-    max: 9999,
-    suffix: '元',
-    precision: 2,
-    description: '触发 VIP 分润的单笔消费最低金额',
-  },
-  {
     key: 'VIP_MAX_LAYERS',
     label: '最多收取层数',
     group: 'vip',
@@ -122,18 +100,6 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     suffix: '叉',
     integer: true,
     description: 'VIP 三叉树每个节点的最大子节点数',
-  },
-  {
-    key: 'VIP_REFERRAL_BONUS',
-    label: '推荐奖励金额',
-    group: 'vip',
-    type: 'number',
-    min: 0,
-    max: 9999,
-    suffix: '元',
-    precision: 2,
-    defaultValue: 50,
-    description: '成功推荐一名 VIP 的奖励金额',
   },
 
   // VIP 奖励有效期
@@ -191,7 +157,7 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
 // 业务说明文案
 const GROUP_DESCRIPTIONS = {
   ratio: 'VIP利润六分比例决定了VIP用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/30/10/2/2/6）。',
-  vip: 'VIP基础设置控制VIP礼包定价、推荐奖励、有效消费门槛和树结构参数。调整这些参数会影响VIP系统的用户获取成本和奖励分配广度。',
+  vip: 'VIP基础设置控制奖励树结构参数。调整这些参数会影响VIP系统的奖励分配广度。VIP 档位价格和推荐奖励比例在「购买VIP赠品」页面管理。',
   expiry: '冻结天数和奖励有效期控制VIP用户获得奖励后的资金流转节奏。冻结期内奖励不可提现，过期后未提现的奖励将归平台所有。',
 } as const;
 
