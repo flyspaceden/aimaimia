@@ -21,6 +21,7 @@ import {
   Divider,
   Card,
   Flex,
+  Modal,
 } from 'antd';
 import {
   PlusOutlined,
@@ -30,6 +31,7 @@ import {
   CloseOutlined,
   UploadOutlined,
   HolderOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -55,6 +57,10 @@ import {
   deleteVipGiftOption,
   getRewardSkus,
   batchSortVipGiftOptions,
+  getVipPackages,
+  createVipPackage,
+  updateVipPackage,
+  deleteVipPackage,
 } from '@/api/vip-gifts';
 import type {
   VipGiftOption,
@@ -62,11 +68,11 @@ import type {
   CreateVipGiftOptionInput,
   CoverMode,
   RewardSkuOption,
+  VipPackage,
+  UpdateVipPackageInput,
 } from '@/api/vip-gifts';
 import { getRewardProducts } from '@/api/reward-products';
 import type { RewardProduct, RewardProductSku } from '@/api/reward-products';
-import { getConfig } from '@/api/config';
-import { extractConfigValue } from '@/types';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
@@ -310,12 +316,34 @@ export default function VipGiftsPage() {
   // 当前 Form.List fields 快照（index → key 映射），用于 calculateSummary
   const fieldKeysRef = useRef<number[]>([]);
 
-  // 获取 VIP 统一价格
-  const { data: vipPriceConfig } = useQuery({
-    queryKey: ['config', 'VIP_PRICE'],
-    queryFn: () => getConfig('VIP_PRICE'),
+  // VIP 档位管理
+  const { data: packages = [], refetch: refetchPackages } = useQuery({
+    queryKey: ['admin', 'vip-packages'],
+    queryFn: getVipPackages,
   });
-  const vipPrice = vipPriceConfig ? extractConfigValue(vipPriceConfig) : null;
+
+  const createPkgMutation = useMutation({
+    mutationFn: createVipPackage,
+    onSuccess: () => { message.success('档位创建成功'); refetchPackages(); },
+    onError: (err: Error) => message.error(err.message),
+  });
+  const updatePkgMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateVipPackageInput }) => updateVipPackage(id, data),
+    onSuccess: () => { message.success('档位更新成功'); refetchPackages(); },
+    onError: (err: Error) => message.error(err.message),
+  });
+  const deletePkgMutation = useMutation({
+    mutationFn: deleteVipPackage,
+    onSuccess: () => { message.success('档位已删除'); refetchPackages(); },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const [pkgModalOpen, setPkgModalOpen] = useState(false);
+  const [editingPkg, setEditingPkg] = useState<VipPackage | null>(null);
+  const [pkgForm] = Form.useForm();
+
+  // 档位筛选
+  const [filterPackageId, setFilterPackageId] = useState<string | undefined>(undefined);
 
   // 按行获取奖励商品列表（使用 field.key 作为标识）
   const useRowProducts = (rowKey: number) => {
@@ -446,6 +474,7 @@ export default function VipGiftsPage() {
       status: record.status,
       coverMode: record.coverMode || 'AUTO_GRID',
       coverUrl: record.coverUrl || undefined,
+      packageId: record.packageId,
       items: formItems,
     });
     setDrawerOpen(true);
@@ -481,6 +510,7 @@ export default function VipGiftsPage() {
         status: values.status ?? 'ACTIVE',
         coverMode: itemCount > 1 ? (values.coverMode ?? 'AUTO_GRID') : undefined,
         coverUrl: values.coverMode === 'CUSTOM' ? values.coverUrl : undefined,
+        packageId: values.packageId,
         items: items.map((item: { skuId: string; quantity: number }, idx: number) => ({
           skuId: item.skuId,
           quantity: item.quantity ?? 1,
@@ -565,6 +595,14 @@ export default function VipGiftsPage() {
       dataIndex: 'title',
       width: 160,
       ellipsis: true,
+    },
+    {
+      title: '所属档位',
+      dataIndex: ['package', 'price'],
+      width: 100,
+      search: false,
+      render: (_: unknown, record: VipGiftOption) =>
+        record.package ? <Tag color="gold">¥{record.package.price}</Tag> : <Tag>未分配</Tag>,
     },
     {
       title: '组合内容',
@@ -726,6 +764,81 @@ export default function VipGiftsPage() {
         </Space>
       </div>
 
+      {/* VIP 档位管理 */}
+      <Card
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <CrownOutlined style={{ color: '#C9A96E' }} />
+            <span>VIP 档位管理</span>
+          </Space>
+        }
+        extra={
+          <PermissionGate permission={PERMISSIONS.CONFIG_UPDATE}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setEditingPkg(null);
+                pkgForm.resetFields();
+                setPkgModalOpen(true);
+              }}
+            >
+              新增档位
+            </Button>
+          </PermissionGate>
+        }
+      >
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {packages.map((pkg) => (
+            <Card
+              key={pkg.id}
+              size="small"
+              style={{ width: 200, borderColor: pkg.status === 'ACTIVE' ? '#C9A96E' : '#d9d9d9' }}
+              actions={[
+                <EditOutlined key="edit" onClick={() => {
+                  setEditingPkg(pkg);
+                  pkgForm.setFieldsValue({
+                    price: pkg.price,
+                    referralBonusRate: pkg.referralBonusRate * 100,
+                    status: pkg.status,
+                  });
+                  setPkgModalOpen(true);
+                }} />,
+                <Popconfirm
+                  key="delete"
+                  title="确定删除此档位？"
+                  description="需先移除该档位下所有赠品方案"
+                  onConfirm={() => deletePkgMutation.mutate(pkg.id)}
+                >
+                  <DeleteOutlined />
+                </Popconfirm>,
+              ]}
+            >
+              <div style={{ textAlign: 'center' }}>
+                <Text strong style={{ fontSize: 24, color: '#C9A96E' }}>¥{pkg.price}</Text>
+                <div style={{ marginTop: 4 }}>
+                  <Tag>奖励 {(pkg.referralBonusRate * 100).toFixed(0)}%</Tag>
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {pkg._count?.giftOptions ?? 0} 个赠品方案
+                  </Text>
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <Tag color={pkg.status === 'ACTIVE' ? 'green' : 'default'}>
+                    {pkg.status === 'ACTIVE' ? '上架' : '下架'}
+                  </Tag>
+                </div>
+              </div>
+            </Card>
+          ))}
+          {packages.length === 0 && (
+            <Text type="secondary">暂无档位，请先创建</Text>
+          )}
+        </div>
+      </Card>
+
       {/* 说明卡 */}
       <Alert
         type="info"
@@ -739,15 +852,7 @@ export default function VipGiftsPage() {
             <li>用户购买 VIP 后不可退款</li>
             <li>每个账号仅能购买一次 VIP</li>
             <li>VIP 礼包订单包邮</li>
-            <li>
-              当前 VIP 统一价格：
-              <Text strong style={{ color: '#C9A96E' }}>
-                {vipPrice != null ? `¥${Number(vipPrice).toFixed(2)}` : '加载中...'}
-              </Text>
-              <Text type="secondary" style={{ marginLeft: 8 }}>
-                (在 VIP 系统设置页修改)
-              </Text>
-            </li>
+            <li>每个赠品方案关联到对应的 VIP 档位，不同档位有不同的价格和推荐奖励比例</li>
           </ul>
         }
       />
@@ -772,6 +877,7 @@ export default function VipGiftsPage() {
                 page: params.current || 1,
                 pageSize: params.pageSize || 20,
                 status: params.status || undefined,
+                packageId: filterPackageId,
               });
               setListData(res.items);
               return { data: res.items, total: res.total, success: true };
@@ -780,6 +886,18 @@ export default function VipGiftsPage() {
             search={{ labelWidth: 'auto' }}
             components={{ body: { row: DraggableRow } }}
             toolBarRender={() => [
+              <Select
+                key="filter-package"
+                placeholder="按档位筛选"
+                allowClear
+                style={{ width: 200 }}
+                value={filterPackageId}
+                onChange={(val) => {
+                  setFilterPackageId(val);
+                  actionRef.current?.reload();
+                }}
+                options={packages.map(p => ({ label: `¥${p.price}`, value: p.id }))}
+              />,
               <PermissionGate key="add" permission={PERMISSIONS.VIP_GIFT_CREATE}>
                 <Button
                   type="primary"
@@ -856,6 +974,13 @@ export default function VipGiftsPage() {
                 { label: '上架', value: 'ACTIVE' },
                 { label: '下架', value: 'INACTIVE' },
               ]}
+            />
+          </Form.Item>
+
+          <Form.Item name="packageId" label="所属档位" rules={[{ required: true, message: '请选择档位' }]}>
+            <Select
+              placeholder="选择档位"
+              options={packages.map(p => ({ label: `¥${p.price}`, value: p.id }))}
             />
           </Form.Item>
 
@@ -968,6 +1093,43 @@ export default function VipGiftsPage() {
           )}
         </Form>
       </Drawer>
+
+      {/* VIP 档位新增/编辑弹窗 */}
+      <Modal
+        title={editingPkg ? '编辑档位' : '新增档位'}
+        open={pkgModalOpen}
+        onCancel={() => setPkgModalOpen(false)}
+        onOk={async () => {
+          const values = await pkgForm.validateFields();
+          const data = {
+            price: values.price,
+            referralBonusRate: values.referralBonusRate / 100,
+            status: values.status,
+          };
+          if (editingPkg) {
+            await updatePkgMutation.mutateAsync({ id: editingPkg.id, data });
+          } else {
+            await createPkgMutation.mutateAsync(data);
+          }
+          setPkgModalOpen(false);
+        }}
+        confirmLoading={createPkgMutation.isPending || updatePkgMutation.isPending}
+      >
+        <Form form={pkgForm} layout="vertical" initialValues={{ referralBonusRate: 15, status: 'ACTIVE' }}>
+          <Form.Item name="price" label="价格" rules={[{ required: true, message: '请输入价格' }]}>
+            <InputNumber min={0.01} max={99999} precision={2} addonAfter="元" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="referralBonusRate" label="推荐奖励比例" rules={[{ required: true, message: '请输入比例' }]}>
+            <InputNumber min={0} max={100} precision={1} addonAfter="%" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="status" label="状态">
+            <Radio.Group>
+              <Radio value="ACTIVE">上架</Radio>
+              <Radio value="INACTIVE">下架</Radio>
+            </Radio.Group>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

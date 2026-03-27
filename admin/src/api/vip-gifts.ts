@@ -38,6 +38,8 @@ export interface VipGiftOption {
   status: VipGiftOptionStatus;
   items: VipGiftItemInfo[];
   totalPrice: number;
+  packageId: string;
+  package?: { id: string; price: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -59,6 +61,7 @@ export interface CreateVipGiftOptionInput {
   coverMode?: CoverMode;
   coverUrl?: string;
   items: VipGiftItemInput[];
+  packageId: string;
 }
 
 // 更新赠品方案
@@ -71,11 +74,13 @@ export interface UpdateVipGiftOptionInput {
   coverMode?: CoverMode;
   coverUrl?: string;
   items?: VipGiftItemInput[];
+  packageId?: string;
 }
 
 // 查询参数
 interface VipGiftOptionParams extends PaginationParams {
   status?: string;
+  packageId?: string;
 }
 
 // 奖励商品 SKU（用于选择器）
@@ -133,3 +138,42 @@ export const getSkuReferences = (skuId: string): Promise<SkuReferenceInfo> =>
 export const batchSortVipGiftOptions = (
   items: { id: string; sortOrder: number }[],
 ): Promise<void> => client.put('/admin/vip/gift-options/batch/sort', { items });
+
+// ===== VIP 档位 =====
+
+export interface VipPackage {
+  id: string;
+  price: number;
+  referralBonusRate: number;
+  sortOrder: number;
+  status: VipGiftOptionStatus;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { giftOptions: number };
+}
+
+export interface CreateVipPackageInput {
+  price: number;
+  referralBonusRate?: number;
+  sortOrder?: number;
+  status?: VipGiftOptionStatus;
+}
+
+export interface UpdateVipPackageInput {
+  price?: number;
+  referralBonusRate?: number;
+  sortOrder?: number;
+  status?: VipGiftOptionStatus;
+}
+
+export const getVipPackages = (): Promise<VipPackage[]> =>
+  client.get('/admin/vip/packages');
+
+export const createVipPackage = (data: CreateVipPackageInput): Promise<VipPackage> =>
+  client.post('/admin/vip/packages', data);
+
+export const updateVipPackage = (id: string, data: UpdateVipPackageInput): Promise<VipPackage> =>
+  client.patch(`/admin/vip/packages/${id}`, data);
+
+export const deleteVipPackage = (id: string): Promise<{ ok: boolean }> =>
+  client.delete(`/admin/vip/packages/${id}`);
