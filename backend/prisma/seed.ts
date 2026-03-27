@@ -582,7 +582,7 @@ async function main() {
     province: '云南省',
     city: '昆明市',
     district: '盘龙区',
-    detail: '翠湖路 88 号农脉大厦 12 楼',
+    detail: '翠湖路 88 号爱买买大厦 12 楼',
   };
 
   const ordersData = [
@@ -1246,7 +1246,7 @@ async function main() {
       status: 'ACTIVE',
       profile: {
         create: {
-          nickname: '农脉平台',
+          nickname: '爱买买平台',
           avatarUrl: null,
           level: '系统',
         },
@@ -1260,10 +1260,10 @@ async function main() {
   // ============================================================
   await prisma.company.upsert({
     where: { id: 'PLATFORM_COMPANY' },
-    update: { name: '农脉app', isPlatform: true },
+    update: { name: '爱买买app', isPlatform: true },
     create: {
       id: 'PLATFORM_COMPANY',
-      name: '农脉app',
+      name: '爱买买app',
       isPlatform: true,
       status: 'ACTIVE',
       address: { text: '平台自营', lat: 0, lng: 0 },
@@ -1312,8 +1312,7 @@ async function main() {
     { key: 'VIP_MIN_AMOUNT', value: 100.0, desc: 'VIP 有效消费最低金额（元）' },
     { key: 'VIP_MAX_LAYERS', value: 15, desc: 'VIP 最多收取层数' },
     { key: 'VIP_BRANCH_FACTOR', value: 3, desc: '三叉树分叉数' },
-    { key: 'VIP_PRICE', value: 399.0, desc: 'VIP 礼包价格（元）' },
-    { key: 'VIP_REFERRAL_BONUS', value: 50.0, desc: 'VIP 推荐奖励金额（元）' },
+
     { key: 'BUCKET_RANGES', value: [[0, 10], [10, 50], [50, 100], [100, 500], [500, null]], desc: '@deprecated 普通桶金额区间（已废弃）' },
     { key: 'AUTO_CONFIRM_DAYS', value: 7, desc: '自动确认收货天数' },
     // --- 普通用户系统配置（NORMAL_* 前缀，与VIP完全独立） ---
@@ -2230,10 +2229,10 @@ async function main() {
     { id: 'p-010', companyId: 'c-002', title: '有机黄瓜', basePrice: 6.5, cost: 3.0, categoryId: 'cat-veg', status: 'INACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '江苏·苏州' }, tags: ['可信溯源'], skus: [
       { id: 'sku-p-010', title: '500g装', price: 6.5, cost: 3.0, stock: 50 },
     ]},
-    { id: 'p-011', companyId: 'PLATFORM_COMPANY', title: '农脉精选白酒（抽奖）', basePrice: 299, cost: 80, categoryId: null, status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '四川·宜宾' }, tags: [], skus: [
+    { id: 'p-011', companyId: 'PLATFORM_COMPANY', title: '爱买买精选白酒（抽奖）', basePrice: 299, cost: 80, categoryId: null, status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '四川·宜宾' }, tags: [], skus: [
       { id: 'sku-p-011', title: '500ml瓶装', price: 299, cost: 80, stock: 50 },
     ]},
-    { id: 'p-012', companyId: 'PLATFORM_COMPANY', title: '农脉特供东北大米（抽奖）', basePrice: 59.9, cost: 25, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['地理标志'], skus: [
+    { id: 'p-012', companyId: 'PLATFORM_COMPANY', title: '爱买买特供东北大米（抽奖）', basePrice: 59.9, cost: 25, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['地理标志'], skus: [
       { id: 'sku-p-012', title: '5kg装', price: 59.9, cost: 25, stock: 100 },
     ]},
     { id: 'p-013', companyId: 'c-001', title: '生态蜂蜜', basePrice: 88, cost: 40, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '云南·西双版纳' }, tags: ['有机认证', '可信溯源'], skus: [
@@ -2404,6 +2403,24 @@ async function main() {
   console.log(`✅ ${vipRewardProducts.length} 个VIP赠品奖励商品已创建`);
 
   // ============================================================
+  // VIP 档位（VipPackage）
+  // ============================================================
+  const vipPackages = [
+    { id: 'vpkg-001', price: 399, referralBonusRate: 0.15, sortOrder: 0, status: 'ACTIVE' as const },
+    { id: 'vpkg-002', price: 899, referralBonusRate: 0.15, sortOrder: 1, status: 'ACTIVE' as const },
+    { id: 'vpkg-003', price: 1599, referralBonusRate: 0.15, sortOrder: 2, status: 'ACTIVE' as const },
+  ];
+
+  for (const pkg of vipPackages) {
+    await prisma.vipPackage.upsert({
+      where: { id: pkg.id },
+      update: {},
+      create: pkg,
+    });
+  }
+  console.log(`✅ ${vipPackages.length} 个VIP档位已创建`);
+
+  // ============================================================
   // VIP 赠品方案（VipGiftOption）
   // ============================================================
   const vipGiftOptions = [
@@ -2415,6 +2432,7 @@ async function main() {
       badge: '臻选',
       sortOrder: 0,
       status: 'ACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-001a', quantity: 1, sortOrder: 0 }],
     },
     {
@@ -2425,6 +2443,7 @@ async function main() {
       badge: '热销',
       sortOrder: 1,
       status: 'ACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-002b', quantity: 1, sortOrder: 0 }],
     },
     {
@@ -2435,6 +2454,7 @@ async function main() {
       badge: '鲜品',
       sortOrder: 2,
       status: 'ACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-003b', quantity: 1, sortOrder: 0 }],
     },
     {
@@ -2445,6 +2465,7 @@ async function main() {
       badge: '应季',
       sortOrder: 3,
       status: 'ACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-004', quantity: 1, sortOrder: 0 }],
     },
     {
@@ -2455,6 +2476,7 @@ async function main() {
       badge: '尊享',
       sortOrder: 4,
       status: 'ACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-005b', quantity: 1, sortOrder: 0 }],
     },
     {
@@ -2465,6 +2487,7 @@ async function main() {
       badge: null as string | null,
       sortOrder: 5,
       status: 'ACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-006', quantity: 1, sortOrder: 0 }],
     },
     {
@@ -2475,6 +2498,7 @@ async function main() {
       badge: null as string | null,
       sortOrder: 99,
       status: 'INACTIVE' as const,
+      packageId: 'vpkg-001',
       items: [{ skuId: 'sku-vip-001b', quantity: 1, sortOrder: 0 }],
     },
   ];
