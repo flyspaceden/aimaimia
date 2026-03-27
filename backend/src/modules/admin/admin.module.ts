@@ -19,6 +19,7 @@ import { AdminReplacementsModule } from './replacements/admin-replacements.modul
 import { AdminRefundsModule } from './refunds/admin-refunds.module';
 import { AdminCouponModule } from './coupon/admin-coupon.module';
 import { VipGiftModule } from './vip-gift/vip-gift.module';
+import { VipPackageModule } from './vip-package/vip-package.module';
 import { AdminCategoriesModule } from './categories/admin-categories.module';
 import { AdminInvoicesModule } from './invoices/admin-invoices.module';
 import { AdminMerchantApplicationsModule } from './merchant-applications/admin-merchant-applications.module';
@@ -45,6 +46,7 @@ import { AdminMerchantApplicationsModule } from './merchant-applications/admin-m
     AdminRefundsModule,
     AdminCouponModule,
     VipGiftModule,
+    VipPackageModule,
     AdminCategoriesModule,
     AdminInvoicesModule,
     AdminMerchantApplicationsModule,
