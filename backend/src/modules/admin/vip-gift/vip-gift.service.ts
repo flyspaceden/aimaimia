@@ -110,10 +110,11 @@ export class VipGiftService {
 
   /** 创建赠品方案 */
   async create(dto: CreateVipGiftOptionDto) {
-    // 校验 packageId 对应的 VipPackage 存在
+    // 校验 packageId 对应的 VipPackage 存在且处于上架状态
     if (dto.packageId) {
       const pkg = await this.prisma.vipPackage.findUnique({ where: { id: dto.packageId } });
       if (!pkg) throw new BadRequestException('所选档位不存在');
+      if (pkg.status !== 'ACTIVE') throw new BadRequestException('所选档位已下架，不能关联赠品方案');
     }
 
     // 校验 items 中无重复 skuId
@@ -164,10 +165,11 @@ export class VipGiftService {
     });
     if (!existing) throw new NotFoundException('赠品方案不存在');
 
-    // 如果提供了 packageId，校验对应档位存在
+    // 如果提供了 packageId，校验对应档位存在且处于上架状态
     if (dto.packageId !== undefined) {
       const pkg = await this.prisma.vipPackage.findUnique({ where: { id: dto.packageId } });
       if (!pkg) throw new BadRequestException('所选档位不存在');
+      if (pkg.status !== 'ACTIVE') throw new BadRequestException('所选档位已下架，不能关联赠品方案');
     }
 
     // 如果提供了 items，校验无重复 skuId + SKU 合法性

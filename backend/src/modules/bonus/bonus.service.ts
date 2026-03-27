@@ -245,6 +245,8 @@ export class BonusService {
               activationStatus:
                 existingPurchase.activationStatus === 'SUCCESS' ? 'SUCCESS' : nextStatus,
               activationError: null,
+              packageId: packageId ?? null,
+              referralBonusRate: referralBonusRate ?? 0,
             },
           });
           return {
@@ -1055,7 +1057,7 @@ export class BonusService {
    * 给推荐人发放 VIP 推荐奖励
    *
    * 被推荐用户购买 VIP 后，推荐人立即获得可用奖励。
-   * 金额由系统配置 VIP_REFERRAL_BONUS 决定。
+   * 金额由 VipPurchase 记录中的 amount × referralBonusRate 计算。
    */
   private async grantVipReferralBonus(
     tx: any,
