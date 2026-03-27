@@ -327,7 +327,7 @@ export default function VipConfigPage() {
       impacts.push('修改分润比例将影响后续所有新订单的VIP用户奖励分配金额');
     }
     if (hasVipChange) {
-      impacts.push('修改VIP基础设置将影响礼包定价、推荐奖励和树结构参数');
+      impacts.push('修改VIP基础设置将影响奖励树结构参数');
     }
     if (hasExpiryChange) {
       impacts.push('修改奖励有效期将影响后续新产生的奖励冻结和过期时间');

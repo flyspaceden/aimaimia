@@ -311,6 +311,7 @@ export default function CheckoutScreen() {
     setSubmitting(true);
     try {
       const sessionResult = await OrderRepo.createVipCheckoutSession({
+        packageId: vipPackageSelection.packageId,
         giftOptionId: vipPackageSelection.giftOptionId,
         addressId: selectedAddress.id,
         paymentChannel: paymentMethod,
