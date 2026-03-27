@@ -32,6 +32,9 @@ export class VipGiftItemDto {
 
 /** 创建赠品方案 */
 export class CreateVipGiftOptionDto {
+  @IsString({ message: '档位 ID 必须为字符串' })
+  packageId: string;
+
   @IsString({ message: '方案标题必须为字符串' })
   @MaxLength(60, { message: '方案标题不能超过 60 个字符' })
   title: string;
@@ -75,6 +78,10 @@ export class CreateVipGiftOptionDto {
 
 /** 更新赠品方案 */
 export class UpdateVipGiftOptionDto {
+  @IsOptional()
+  @IsString({ message: '档位 ID 必须为字符串' })
+  packageId?: string;
+
   @IsOptional()
   @IsString({ message: '方案标题必须为字符串' })
   @MaxLength(60, { message: '方案标题不能超过 60 个字符' })

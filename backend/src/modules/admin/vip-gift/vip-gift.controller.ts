@@ -39,12 +39,14 @@ export class VipGiftController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
+    @Query('packageId') packageId?: string,
   ) {
-    return this.vipGiftService.findAll(
-      page ? parseInt(page) : 1,
-      pageSize ? parseInt(pageSize) : 20,
+    return this.vipGiftService.findAll({
+      page: page ? parseInt(page) : 1,
+      pageSize: pageSize ? parseInt(pageSize) : 20,
       status,
-    );
+      packageId,
+    });
   }
 
   /** 批量排序赠品方案（静态路由必须在参数路由 :id 之前） */

@@ -61,11 +61,16 @@ export class VipGiftService {
   ) {}
 
   /** 赠品方案列表（管理端） */
-  async findAll(page = 1, pageSize = 20, status?: string) {
+  async findAll(params: { page?: number; pageSize?: number; status?: string; packageId?: string }) {
+    const page = params.page ?? 1;
+    const pageSize = params.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
     const where: any = {};
-    if (status) {
-      where.status = status;
+    if (params.status) {
+      where.status = params.status;
+    }
+    if (params.packageId) {
+      where.packageId = params.packageId;
     }
 
     const [options, total] = await Promise.all([
@@ -74,7 +79,10 @@ export class VipGiftService {
         skip,
         take: pageSize,
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-        include: ITEMS_INCLUDE,
+        include: {
+          ...ITEMS_INCLUDE,
+          package: { select: { id: true, price: true } },
+        },
       }),
       this.prisma.vipGiftOption.count({ where }),
     ]);
@@ -107,6 +115,12 @@ export class VipGiftService {
 
   /** 创建赠品方案 */
   async create(dto: CreateVipGiftOptionDto) {
+    // 校验 packageId 对应的 VipPackage 存在
+    if (dto.packageId) {
+      const pkg = await this.prisma.vipPackage.findUnique({ where: { id: dto.packageId } });
+      if (!pkg) throw new BadRequestException('所选档位不存在');
+    }
+
     // 校验 items 中无重复 skuId
     this.validateNoDuplicateSkus(dto.items);
 
@@ -119,6 +133,7 @@ export class VipGiftService {
     const result = await this.prisma.$transaction(async (tx) => {
       const option = await tx.vipGiftOption.create({
         data: {
+          packageId: dto.packageId,
           title: dto.title,
           subtitle: dto.subtitle,
           coverMode: dto.coverMode ?? 'AUTO_GRID',
@@ -154,6 +169,12 @@ export class VipGiftService {
     });
     if (!existing) throw new NotFoundException('赠品方案不存在');
 
+    // 如果提供了 packageId，校验对应档位存在
+    if (dto.packageId !== undefined) {
+      const pkg = await this.prisma.vipPackage.findUnique({ where: { id: dto.packageId } });
+      if (!pkg) throw new BadRequestException('所选档位不存在');
+    }
+
     // 如果提供了 items，校验无重复 skuId + SKU 合法性
     if (dto.items) {
       this.validateNoDuplicateSkus(dto.items);
@@ -188,6 +209,7 @@ export class VipGiftService {
       const option = await tx.vipGiftOption.update({
         where: { id },
         data: {
+          ...(dto.packageId !== undefined && { packageId: dto.packageId }),
           ...(dto.title !== undefined && { title: dto.title }),
           ...(dto.subtitle !== undefined && { subtitle: dto.subtitle }),
           ...(dto.coverMode !== undefined && { coverMode: dto.coverMode }),
