@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -61,20 +61,22 @@ export class DeferredLinkService {
       return { referralCode: null };
     }
 
-    const record = await this.prisma.deferredDeepLink.findUnique({
-      where: { cookieId },
+    const now = new Date();
+    // 事务内原子操作：查找 + 标记已消费
+    const record = await this.prisma.$transaction(async (tx) => {
+      const found = await tx.deferredDeepLink.findUnique({
+        where: { cookieId },
+      });
+      if (!found || found.matched || found.expiresAt < now) {
+        return null;
+      }
+      return tx.deferredDeepLink.update({
+        where: { id: found.id },
+        data: { matched: true },
+      });
     });
 
-    if (!record || record.matched || record.expiresAt < new Date()) {
-      return { referralCode: null };
-    }
-
-    await this.prisma.deferredDeepLink.update({
-      where: { id: record.id },
-      data: { matched: true },
-    });
-
-    return { referralCode: record.referralCode };
+    return { referralCode: record?.referralCode ?? null };
   }
 
   async match(
@@ -86,44 +88,47 @@ export class DeferredLinkService {
     const fingerprint = this.computeFingerprint(ipAddress, dto.userAgent, screenInfo, language);
     const now = new Date();
 
-    // 精确匹配：完整指纹
-    const exactMatch = await this.prisma.deferredDeepLink.findFirst({
-      where: {
-        fingerprint,
-        matched: false,
-        expiresAt: { gt: now },
-      },
-      orderBy: { createdAt: 'desc' },
+    // 事务内原子操作：查找 + 标记已消费
+    const record = await this.prisma.$transaction(async (tx) => {
+      // 第一优先级：精确指纹匹配
+      const exactMatch = await tx.deferredDeepLink.findFirst({
+        where: {
+          fingerprint,
+          matched: false,
+          expiresAt: { gt: now },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (exactMatch) {
+        return tx.deferredDeepLink.update({
+          where: { id: exactMatch.id },
+          data: { matched: true },
+        });
+      }
+
+      // 第二优先级：模糊匹配（同 IP + 相同屏幕信息）
+      const fuzzyMatch = await tx.deferredDeepLink.findFirst({
+        where: {
+          ipAddress,
+          screenInfo,
+          matched: false,
+          expiresAt: { gt: now },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (fuzzyMatch) {
+        return tx.deferredDeepLink.update({
+          where: { id: fuzzyMatch.id },
+          data: { matched: true },
+        });
+      }
+
+      return null;
     });
 
-    if (exactMatch) {
-      await this.prisma.deferredDeepLink.update({
-        where: { id: exactMatch.id },
-        data: { matched: true },
-      });
-      return { referralCode: exactMatch.referralCode };
-    }
-
-    // 模糊匹配：IP + 屏幕分辨率
-    const fuzzyMatch = await this.prisma.deferredDeepLink.findFirst({
-      where: {
-        ipAddress,
-        screenInfo,
-        matched: false,
-        expiresAt: { gt: now },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (fuzzyMatch) {
-      await this.prisma.deferredDeepLink.update({
-        where: { id: fuzzyMatch.id },
-        data: { matched: true },
-      });
-      return { referralCode: fuzzyMatch.referralCode };
-    }
-
-    return { referralCode: null };
+    return { referralCode: record?.referralCode ?? null };
   }
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
@@ -137,11 +142,6 @@ export class DeferredLinkService {
   }
 
   private generateCookieId(): string {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    let id = 'ddl_';
-    for (let i = 0; i < 24; i++) {
-      id += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return id;
+    return 'ddl_' + randomBytes(18).toString('hex');
   }
 }

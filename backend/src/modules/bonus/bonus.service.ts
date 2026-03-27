@@ -55,27 +55,24 @@ export class BonusService {
     if (!inviter) throw new BadRequestException('推荐码无效');
     if (inviter.userId === userId) throw new BadRequestException('不能使用自己的推荐码');
 
-    // 检查当前用户是否已购买 VIP（已购买则锁定推荐关系）
-    const currentMember = await this.prisma.memberProfile.findUnique({
-      where: { userId },
-    });
-    if (currentMember?.tier === 'VIP') {
-      throw new BadRequestException('已加入 VIP 团队，无法更换推荐人');
-    }
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 事务内检查 VIP 状态（防并发绕过）
+      const currentMember = await tx.memberProfile.findUnique({
+        where: { userId },
+      });
+      if (currentMember?.tier === 'VIP') {
+        throw new BadRequestException('已加入 VIP 团队，无法更换推荐人');
+      }
 
-    // 检查是否已有邀请关系
-    const existing = await this.prisma.referralLink.findUnique({
-      where: { inviteeUserId: userId },
-    });
+      const existing = await tx.referralLink.findUnique({
+        where: { inviteeUserId: userId },
+      });
 
-    if (existing && existing.inviterUserId === inviter.userId) {
-      // 已绑定同一推荐人，幂等返回
-      return { success: true, inviterUserId: inviter.userId };
-    }
+      if (existing && existing.inviterUserId === inviter.userId) {
+        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
+      }
 
-    await this.prisma.$transaction(async (tx) => {
       if (existing) {
-        // 换绑：更新已有的 ReferralLink
         await tx.referralLink.update({
           where: { inviteeUserId: userId },
           data: {
@@ -84,7 +81,6 @@ export class BonusService {
           },
         });
       } else {
-        // 首次绑定：创建 ReferralLink
         await tx.referralLink.create({
           data: {
             inviterUserId: inviter.userId,
@@ -103,20 +99,26 @@ export class BonusService {
         },
         update: { inviterUserId: inviter.userId },
       });
+
+      return { success: true, inviterUserId: inviter.userId, isIdempotent: false };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
-    // Phase F: 邀请成功后触发 INVITE 红包（发给邀请人，失败不阻塞主流程）
-    this.couponEngine
-      .handleTrigger(inviter.userId, 'INVITE', {
-        inviteeUserId: userId,
-      })
-      .catch((err: any) => {
-        this.logger.warn(
-          `INVITE 红包触发失败: inviterUserId=${inviter.userId}, inviteeUserId=${userId}, error=${err?.message}`,
-        );
-      });
+    // 仅非幂等请求时触发 INVITE 红包
+    if (!result.isIdempotent) {
+      this.couponEngine
+        .handleTrigger(inviter.userId, 'INVITE', {
+          inviteeUserId: userId,
+        })
+        .catch((err: any) => {
+          this.logger.warn(
+            `INVITE 红包触发失败: inviterUserId=${inviter.userId}, inviteeUserId=${userId}, error=${err?.message}`,
+          );
+        });
+    }
 
-    return { success: true, inviterUserId: inviter.userId };
+    return { success: true, inviterUserId: result.inviterUserId };
   }
 
   /**
