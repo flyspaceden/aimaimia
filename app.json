@@ -1,10 +1,31 @@
 {
   "expo": {
-    "scheme": "acme",
+    "name": "AI爱买买",
+    "slug": "ai-aimaimai",
+    "scheme": "aimaimai",
     "plugins": [
       "expo-router"
     ],
-    "name": "temp-app",
-    "slug": "temp-app"
+    "android": {
+      "package": "com.aimaimai.shop",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.xn--ckqa175y.com",
+              "pathPrefix": "/r/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.aimaimai.shop",
+      "associatedDomains": ["applinks:app.xn--ckqa175y.com"]
+    }
   }
 }
