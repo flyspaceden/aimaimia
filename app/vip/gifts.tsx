@@ -275,8 +275,11 @@ export default function VipGiftsScreen() {
     enabled: isLoggedIn,
   });
 
-  const giftOptions = giftData?.ok ? giftData.data.options : [];
-  const vipPrice = giftData?.ok ? giftData.data.vipPrice : 399;
+  const packages = giftData?.ok ? giftData.data.packages : [];
+  const [selectedPackageIndex, setSelectedPackageIndex] = useState(0);
+  const currentPackage = packages[selectedPackageIndex];
+  const giftOptions = currentPackage?.giftOptions ?? [];
+  const vipPrice = currentPackage?.price ?? 0;
   const member = memberData?.ok ? memberData.data : null;
   const isVip = member?.tier === 'VIP';
 
@@ -311,24 +314,25 @@ export default function VipGiftsScreen() {
 
   // 选中赠品并进入结账
   const handleCheckout = useCallback(() => {
-    if (selectedIndex === null) return;
+    if (selectedIndex === null || !currentPackage) return;
     const selected = giftOptions[selectedIndex];
     if (!selected || !selected.available) return;
 
     // 持久化选择到 store
     setVipPackageSelection({
+      packageId: currentPackage.id,
       giftOptionId: selected.id,
       title: selected.title,
       coverMode: selected.coverMode,
       coverUrl: selected.coverUrl ?? undefined,
       totalPrice: selected.totalPrice,
-      price: vipPrice,
+      price: currentPackage.price,
       items: selected.items,
     });
 
     // 进入结账页（结账页会处理登录判断）
     router.push('/checkout');
-  }, [selectedIndex, giftOptions, vipPrice, setVipPackageSelection, router]);
+  }, [selectedIndex, giftOptions, currentPackage, setVipPackageSelection, router]);
 
   // 已是 VIP — 显示提示页
   if (isLoggedIn && isVip) {
@@ -409,6 +413,42 @@ export default function VipGiftsScreen() {
           </View>
           <Text style={styles.subTitle}>所有礼遇，仅为 VIP 准备</Text>
         </Animated.View>
+
+        {/* 价格档位选择 */}
+        {packages.length > 0 && (
+          <Animated.View entering={FadeInDown.delay(150).duration(500)} style={styles.priceTabs}>
+            {packages.map((pkg, index) => (
+              <Pressable
+                key={pkg.id}
+                onPress={() => {
+                  setSelectedPackageIndex(index);
+                  setSelectedIndex(null);
+                  flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+                }}
+                style={[
+                  styles.priceTab,
+                  selectedPackageIndex === index && styles.priceTabActive,
+                ]}
+              >
+                <Text style={[
+                  styles.priceTabAmount,
+                  selectedPackageIndex === index && styles.priceTabAmountActive,
+                ]}>
+                  ¥{pkg.price}
+                </Text>
+                <Text style={[
+                  styles.priceTabLabel,
+                  selectedPackageIndex === index && styles.priceTabLabelActive,
+                ]}>
+                  VIP 礼包
+                </Text>
+                <Text style={styles.priceTabCount}>
+                  {pkg.giftOptions.length} 款可选
+                </Text>
+              </Pressable>
+            ))}
+          </Animated.View>
+        )}
 
         {/* 推荐人提示条（无推荐人时显示） */}
         {(!isLoggedIn || (member && !member.inviterUserId)) ? (
@@ -794,6 +834,49 @@ const styles = StyleSheet.create({
     color: VIP.warmWhite,
     marginTop: 6,
     textAlign: 'center',
+  },
+  // 价格档位选择
+  priceTabs: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 24,
+    marginBottom: 20,
+  },
+  priceTab: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(201,169,110,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  priceTabActive: {
+    borderColor: '#C9A96E',
+    backgroundColor: 'rgba(201,169,110,0.12)',
+  },
+  priceTabAmount: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#8A8578',
+  },
+  priceTabAmountActive: {
+    color: '#C9A96E',
+  },
+  priceTabLabel: {
+    fontSize: 11,
+    color: '#8A8578',
+    marginTop: 4,
+  },
+  priceTabLabelActive: {
+    color: '#F5F0E8',
+  },
+  priceTabCount: {
+    fontSize: 10,
+    color: '#8A8578',
+    marginTop: 2,
   },
   // 底部固定栏
   bottomBar: {

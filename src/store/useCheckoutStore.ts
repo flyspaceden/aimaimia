@@ -10,6 +10,7 @@ import { Platform } from 'react-native';
 
 /** VIP 赠品套餐选择 */
 export interface VipPackageSelection {
+  packageId: string;        // 选中的档位 ID
   giftOptionId: string;
   title: string;
   coverMode?: string;
