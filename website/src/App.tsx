@@ -13,6 +13,8 @@ const Merchants = lazy(() => import('@/pages/Merchants'))
 const MerchantApply = lazy(() => import('@/pages/MerchantApply'))
 const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
+const Download = lazy(() => import('@/pages/Download'))
+const Resolve = lazy(() => import('@/pages/Resolve'))
 
 /** 动态更新页面 title 和 meta description */
 function MetaUpdater() {
@@ -47,10 +49,13 @@ function PageLoader() {
 }
 
 export default function App() {
+  const location = useLocation()
+  const isLandingPage = location.pathname.startsWith('/r/') || location.pathname === '/download' || location.pathname === '/resolve'
+
   return (
     <>
       <MetaUpdater />
-      <Navbar />
+      {!isLandingPage && <Navbar />}
       <main id="main-content">
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -61,11 +66,14 @@ export default function App() {
             <Route path="/merchants" element={<Merchants />} />
             <Route path="/merchants/apply" element={<MerchantApply />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/r/:code" element={<Download />} />
+            <Route path="/download" element={<Download />} />
+            <Route path="/resolve" element={<Resolve />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       </main>
-      <Footer />
+      {!isLandingPage && <Footer />}
     </>
   )
 }
