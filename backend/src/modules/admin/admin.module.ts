@@ -23,6 +23,7 @@ import { VipPackageModule } from './vip-package/vip-package.module';
 import { AdminCategoriesModule } from './categories/admin-categories.module';
 import { AdminInvoicesModule } from './invoices/admin-invoices.module';
 import { AdminMerchantApplicationsModule } from './merchant-applications/admin-merchant-applications.module';
+import { AdminTagsModule } from './tags/admin-tags.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { AdminMerchantApplicationsModule } from './merchant-applications/admin-m
     AdminCategoriesModule,
     AdminInvoicesModule,
     AdminMerchantApplicationsModule,
+    AdminTagsModule,
   ],
 })
 export class AdminModule {}
