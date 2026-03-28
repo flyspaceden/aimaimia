@@ -51,6 +51,21 @@ export class CompanyService {
     return result;
   }
 
+  /** 获取标签类别（含 active 标签），供前端选择器使用 */
+  async listTagCategories(scope?: string) {
+    return this.prisma.tagCategory.findMany({
+      where: scope ? { scope: scope as any } : undefined,
+      orderBy: { sortOrder: 'asc' },
+      include: {
+        tags: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true, name: true, synonyms: true },
+        },
+      },
+    });
+  }
+
   /** 企业列表缓存失效（供管理端修改企业后调用） */
   invalidateListCache() {
     this.listCache.invalidate('companies:all');

@@ -144,6 +144,21 @@ export class AdminCompaniesController {
     return this.companiesService.updateHighlights(id, dto);
   }
 
+  // ===================== 企业标签 =====================
+
+  @Get(':id/tags')
+  @RequirePermission('companies:read')
+  getCompanyTags(@Param('id') id: string) {
+    return this.companiesService.getCompanyTags(id);
+  }
+
+  @Put(':id/tags')
+  @RequirePermission('companies:update')
+  @AuditLog({ action: 'UPDATE', module: 'companies', targetType: 'CompanyTag', targetIdParam: 'params.id', isReversible: true })
+  updateCompanyTags(@Param('id') id: string, @Body() body: { tagIds: string[] }) {
+    return this.companiesService.updateCompanyTags(id, body.tagIds);
+  }
+
   @Post(':id/documents/:docId/verify')
   @RequirePermission('companies:audit')
   @AuditLog({

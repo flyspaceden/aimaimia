@@ -365,6 +365,70 @@ export class AdminCompaniesService {
     }, { isolationLevel: 'Serializable' });
   }
 
+  /** 获取企业标签（按类别分组） */
+  async getCompanyTags(companyId: string) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('企业不存在');
+
+    const companyTags = await this.prisma.companyTag.findMany({
+      where: { companyId },
+      include: {
+        tag: {
+          include: { category: { select: { id: true, name: true, code: true, scope: true } } },
+        },
+      },
+    });
+
+    // 按类别分组返回
+    const grouped: Record<string, { categoryId: string; categoryName: string; categoryCode: string; tags: { id: string; name: string }[] }> = {};
+    for (const ct of companyTags) {
+      const code = ct.tag.category.code;
+      if (!grouped[code]) {
+        grouped[code] = {
+          categoryId: ct.tag.category.id,
+          categoryName: ct.tag.category.name,
+          categoryCode: code,
+          tags: [],
+        };
+      }
+      grouped[code].tags.push({ id: ct.tag.id, name: ct.tag.name });
+    }
+    return Object.values(grouped);
+  }
+
+  /** 更新企业标签（全量替换） */
+  async updateCompanyTags(companyId: string, tagIds: string[]) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('企业不存在');
+
+    // 验证所有 tagIds 存在且 scope 为 COMPANY
+    if (tagIds.length > 0) {
+      const tags = await this.prisma.tag.findMany({
+        where: { id: { in: tagIds } },
+        include: { category: { select: { scope: true } } },
+      });
+      const invalidTags = tags.filter(t => t.category.scope !== 'COMPANY');
+      if (invalidTags.length > 0) {
+        throw new BadRequestException(`以下标签不适用于企业：${invalidTags.map(t => t.name).join(', ')}`);
+      }
+      if (tags.length !== tagIds.length) {
+        throw new BadRequestException('部分标签 ID 不存在');
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.companyTag.deleteMany({ where: { companyId } }),
+      ...(tagIds.length > 0
+        ? [this.prisma.companyTag.createMany({
+            data: tagIds.map(tagId => ({ companyId, tagId })),
+            skipDuplicates: true,
+          })]
+        : []),
+    ]);
+
+    return this.getCompanyTags(companyId);
+  }
+
   /** 审核资质文件 */
   async verifyDocument(companyId: string, documentId: string, dto: AdminVerifyDocumentDto) {
     const doc = await this.prisma.companyDocument.findFirst({
