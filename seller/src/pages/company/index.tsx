@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Space, Button, Modal, Select, Upload } from 'antd';
-import { PlusOutlined, MinusCircleOutlined, UploadOutlined } from '@ant-design/icons';
+import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getCompany, updateCompany, updateHighlights, getDocuments, addDocument, getAiSearchProfile, updateAiSearchProfile } from '@/api/company';
+import { getCompany, updateCompany, getDocuments, addDocument, getAiSearchProfile, updateAiSearchProfile } from '@/api/company';
 import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
@@ -122,19 +122,6 @@ export default function CompanySettingsPage() {
     }
   };
 
-  const handleUpdateHighlights = async (values: { highlights: Array<{ key: string; value: string }> }) => {
-    try {
-      const highlights = Object.fromEntries(
-        (values.highlights || []).filter((p) => p.key && p.value).map((p) => [p.key, p.value]),
-      );
-      await updateHighlights(highlights);
-      message.success('企业亮点已更新');
-      queryClient.invalidateQueries({ queryKey: ['seller-company'] });
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '更新失败');
-    }
-  };
-
   const handleAddDocument = async (values: { type: string; title: string; issuer?: string }) => {
     if (!uploadedFileUrl) {
       message.error('请先上传文件');
@@ -158,12 +145,6 @@ export default function CompanySettingsPage() {
   if (isLoading || !company) {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   }
-
-  // 从 company.profile.highlights 提取键值对
-  const profileHighlights = (company.profile as { highlights?: Record<string, string> } | null)?.highlights;
-  const highlightPairs = profileHighlights
-    ? Object.entries(profileHighlights).map(([key, value]) => ({ key, value }))
-    : [{ key: '主营产品', value: '' }, { key: '认证资质', value: '' }, { key: '特色优势', value: '' }];
 
   return (
     <div>
@@ -216,48 +197,6 @@ export default function CompanySettingsPage() {
           </Descriptions>
         )}
       </Card>
-
-      {/* 企业亮点 - AI 搜索依赖 */}
-      {canEdit && (
-        <Card title="企业亮点" style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 12, color: '#666' }}>
-            企业亮点会展示在企业主页，AI 也会根据这些信息向买家推荐您的企业
-          </div>
-          <Form
-            onFinish={handleUpdateHighlights}
-            initialValues={{ highlights: highlightPairs }}
-            style={{ maxWidth: 600 }}
-          >
-            <Form.List name="highlights">
-              {(fields, { add, remove }) => (
-                <>
-                  {fields.map((field) => (
-                    <Space key={field.key} align="start" style={{ display: 'flex', marginBottom: 8 }}>
-                      <Form.Item {...field} name={[field.name, 'key']} rules={[{ required: true, message: '项目' }]}>
-                        <Input placeholder="如：主营产品" style={{ width: 140 }} />
-                      </Form.Item>
-                      <Form.Item {...field} name={[field.name, 'value']} rules={[{ required: true, message: '内容' }]}>
-                        <Input placeholder="如：有机五常大米、东北黑木耳" style={{ width: 340 }} />
-                      </Form.Item>
-                      {fields.length > 1 && (
-                        <MinusCircleOutlined style={{ marginTop: 8, color: '#999' }} onClick={() => remove(field.name)} />
-                      )}
-                    </Space>
-                  ))}
-                  <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} style={{ marginBottom: 16 }}>
-                    添加亮点
-                  </Button>
-                </>
-              )}
-            </Form.List>
-            <Form.Item>
-              <Button type="primary" htmlType="submit">
-                保存亮点
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-      )}
 
       {/* AI 搜索资料 - 结构化搜索字段 */}
       {canEdit && (
