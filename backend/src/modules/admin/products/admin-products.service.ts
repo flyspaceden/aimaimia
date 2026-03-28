@@ -90,18 +90,37 @@ export class AdminProductsService {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('商品不存在');
 
+    // 提取 tagIds，不传给 Prisma product.update
+    const { tagIds, ...productData } = dto;
+
     const updated = await this.prisma.product.update({
       where: { id },
-      data: dto,
+      data: productData,
     });
 
+    // 更新商品标签关联
+    if (tagIds !== undefined) {
+      await this.prisma.productTag.deleteMany({ where: { productId: id } });
+      if (tagIds.length > 0) {
+        const tags = await this.prisma.tag.findMany({
+          where: { id: { in: tagIds }, isActive: true },
+          include: { category: { select: { scope: true } } },
+        });
+        const validTagIds = tags
+          .filter((t) => t.category.scope === 'PRODUCT')
+          .map((t) => t.id);
+        if (validTagIds.length > 0) {
+          await this.prisma.productTag.createMany({
+            data: validTagIds.map((tagId) => ({ productId: id, tagId })),
+            skipDuplicates: true,
+          });
+        }
+      }
+    }
+
     // 记录运营（ops）提供的语义字段来源，写入 attributes.semanticMeta
-    // 格式与 SemanticFillService 保持一致：{ source: 'ops', updatedAt: ISO字符串 }
-    // canAiFill() 会检查 meta.source，source='ops' 时阻止 AI 覆盖运营已人工填写的数据
-    // 规则：字段非空 → source='ops'；字段显式传空 → 删除 source 条目，允许 AI 重新填充
     const now = new Date().toISOString();
     type OpsFieldMeta = { source: 'ops'; updatedAt: string };
-    // 使用 update 后的 attributes 作为基础，避免覆盖其他属性
     const existingAttrs = (updated.attributes as Record<string, any>) || {};
     const existingMeta = (existingAttrs.semanticMeta as Record<string, OpsFieldMeta>) || {};
 

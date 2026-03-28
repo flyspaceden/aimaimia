@@ -70,6 +70,11 @@ export class AdminUpdateProductDto {
   @IsOptional()
   @IsString()
   originRegion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagIds?: string[];
 }
 
 /** H16: 商品状态切换 DTO（替换 @Body('status')） */
