@@ -141,7 +141,6 @@ async function main() {
       highlights: {
         cover: 'https://placehold.co/800x480/png',
         mainBusiness: '有机蔬菜与富硒粮油',
-        badges: ['优选基地', '品质认证'],
         latestTestedAt: '2024-11-20',
         groupTargetSize: 30,
       },
@@ -154,7 +153,6 @@ async function main() {
       highlights: {
         cover: 'https://placehold.co/800x480/png',
         mainBusiness: '水培蔬菜、基地直供',
-        badges: ['产地直供', '低碳种植'],
         latestTestedAt: '2024-12-02',
         groupTargetSize: 40,
       },
@@ -166,7 +164,6 @@ async function main() {
       highlights: {
         cover: 'https://placehold.co/800x480/png',
         mainBusiness: '蓝莓/果品深加工',
-        badges: ['品质认证'],
         latestTestedAt: '2024-10-10',
         groupTargetSize: 25,
       },
@@ -178,7 +175,6 @@ async function main() {
       highlights: {
         cover: 'https://placehold.co/800x480/png',
         mainBusiness: '茶饮/礼盒/产地直销',
-        badges: ['优选基地'],
         latestTestedAt: '2024-09-01',
         groupTargetSize: 35,
       },
@@ -365,12 +361,8 @@ async function main() {
   // ===== 标签类别与标签 =====
   const tagCategories = [
     {
-      code: 'company_badge', name: '企业徽章', scope: 'COMPANY' as const, sortOrder: 1,
-      tags: ['优选基地', '品质认证', '产地直供', '低碳种植', '冷链保障', '源头工厂'],
-    },
-    {
-      code: 'company_cert', name: '企业认证', scope: 'COMPANY' as const, sortOrder: 2,
-      tags: ['圳品', '出口认证', '绿色食品', '地理标志', 'GAP认证', 'SC认证', 'ISO22000', 'HACCP'],
+      code: 'company_cert', name: '企业认证', scope: 'COMPANY' as const, sortOrder: 1,
+      tags: ['圳品', '出口认证', '绿色食品', '地理标志', 'GAP认证', 'SC认证', 'ISO22000', 'HACCP', '优选基地', '品质认证', '产地直供', '低碳种植', '冷链保障', '源头工厂'],
     },
     {
       code: 'industry', name: '行业标签', scope: 'COMPANY' as const, sortOrder: 3,
@@ -1314,7 +1306,6 @@ async function main() {
           highlights: {
             cover: 'https://placehold.co/800x480/png',
             mainBusiness: '奖励商品、抽奖奖品',
-            badges: ['平台自营', '品质保障'],
           },
         },
       },
@@ -1651,7 +1642,7 @@ async function main() {
   for (const m of vipMembers) {
     await prisma.memberProfile.upsert({
       where: { userId: m.userId },
-      update: { tier: 'VIP', vipNodeId: m.nodeId },
+      update: { tier: 'VIP', vipNodeId: m.nodeId, referralCode: m.code },
       create: {
         userId: m.userId,
         tier: 'VIP',
@@ -3509,14 +3500,27 @@ async function main() {
     });
   }
 
-  // 会员资料补充
+  // 会员资料补充（每个用户必须有推荐码）
+  const normalUserCodes: Record<string, string> = {
+    'u-003': 'ZM2026AB',
+    'u-004': 'LWQ2026C',
+    'u-007': 'ZMQ2026D',
+    'u-008': 'QZY2026E',
+    'u-009': 'SYT2026F',
+    'u-010': 'ZJG2026G',
+  };
   for (const uid of ['u-003', 'u-004', 'u-007', 'u-008', 'u-009', 'u-010']) {
     await prisma.memberProfile.upsert({
       where: { userId: uid },
-      update: { normalEligible: true, normalTreeNodeId: normalTreeNodes.find(n => n.userId === uid)?.id },
+      update: {
+        normalEligible: true,
+        normalTreeNodeId: normalTreeNodes.find(n => n.userId === uid)?.id,
+        referralCode: normalUserCodes[uid],
+      },
       create: {
         userId: uid,
         tier: 'NORMAL',
+        referralCode: normalUserCodes[uid],
         normalEligible: true,
         normalTreeNodeId: normalTreeNodes.find(n => n.userId === uid)?.id,
         normalJoinedAt: new Date('2026-02-01'),
@@ -3692,7 +3696,6 @@ async function main() {
         productFeatures: ['有机', '可溯源'],
         certifications: ['圳品', '绿色食品'],
         mainBusiness: '水果、蓝莓、草莓、柑橘',
-        badges: ['优选基地', '产地直供'],
         latestTestedAt: '2025-02-15',
         groupTargetSize: 25,
       },
@@ -3714,7 +3717,6 @@ async function main() {
         productFeatures: ['有机', '可溯源'],
         certifications: ['地理标志', 'GAP认证'],
         mainBusiness: '粮油、五常大米、杂粮、黑米',
-        badges: ['品质认证', '产地直供'],
         latestTestedAt: '2025-01-20',
         groupTargetSize: 40,
       },
@@ -3736,7 +3738,6 @@ async function main() {
         productFeatures: ['有机', '可溯源'],
         certifications: ['SC认证', '出口认证'],
         mainBusiness: '蜂蜜、荔枝蜜、龙眼蜜、百花蜜、蜂王浆',
-        badges: ['优选基地', '品质认证'],
         latestTestedAt: '2025-03-01',
         groupTargetSize: 20,
       },
@@ -3758,7 +3759,6 @@ async function main() {
         productFeatures: ['冷链', '可溯源'],
         certifications: ['HACCP'],
         mainBusiness: '水产、大虾、海参、鲍鱼、扇贝',
-        badges: ['冷链保障', '源头工厂'],
         latestTestedAt: '2025-02-28',
         groupTargetSize: 30,
       },
@@ -3780,7 +3780,6 @@ async function main() {
         productFeatures: ['冷链', '无添加'],
         certifications: ['绿色食品', 'ISO22000'],
         mainBusiness: '乳制品、鲜牛奶、酸奶、奶酪、牦牛奶',
-        badges: ['品质认证', '冷链保障'],
         latestTestedAt: '2025-01-10',
         groupTargetSize: 50,
       },
@@ -3802,7 +3801,6 @@ async function main() {
         productFeatures: ['可溯源', '手工制作'],
         certifications: ['地理标志', '圳品'],
         mainBusiness: '茶叶、龙井、碧螺春、安吉白茶、西湖龙井',
-        badges: ['优选基地', '产地直供'],
         latestTestedAt: '2025-03-05',
         groupTargetSize: 15,
       },
@@ -4386,7 +4384,6 @@ async function main() {
       productFeatures: ['可溯源', '当季采摘'],
       certifications: ['圳品', 'GAP认证'],
       mainBusiness: '蔬菜、粮油、富硒蔬菜、富硒粮油',
-      badges: ['优选基地', '产地直供'],
     },
     'c-002': {
       companyType: 'farm',
@@ -4395,7 +4392,6 @@ async function main() {
       productFeatures: ['可溯源', '无添加'],
       certifications: ['绿色食品'],
       mainBusiness: '蔬菜、水培蔬菜、黄瓜、生菜',
-      badges: ['低碳种植', '品质认证'],
     },
     'c-003': {
       companyType: 'base',
@@ -4404,7 +4400,6 @@ async function main() {
       productFeatures: ['冷链', '可溯源'],
       certifications: ['地理标志', '出口认证'],
       mainBusiness: '水果、蓝莓、蓝莓干',
-      badges: ['冷链保障', '品质认证'],
     },
     'c-004': {
       companyType: 'cooperative',
@@ -4413,7 +4408,6 @@ async function main() {
       productFeatures: ['手工制作', '可溯源'],
       certifications: ['地理标志', '圳品'],
       mainBusiness: '茶叶、大红袍、岩茶、茶礼盒',
-      badges: ['优选基地', '产地直供'],
     },
   };
 
@@ -4447,7 +4441,6 @@ async function main() {
   for (const company of allCompanies) {
     const highlights = (company.profile?.highlights as any) || {};
     const mapping: Record<string, string[]> = {
-      company_badge: highlights.badges || [],
       company_cert: highlights.certifications || [],
       industry: highlights.industryTags || [],
       product_feature: highlights.productFeatures || [],

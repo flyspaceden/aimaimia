@@ -7,7 +7,7 @@ import { CompanyService } from '../../company/company.service';
 
 // AI 搜索字段键名（用于 highlights merge 保护，包含历史字段以防旧数据覆盖）
 const AI_SEARCH_KEYS = [
-  'companyType', 'mainBusiness', 'badges',
+  'companyType', 'mainBusiness',
   'industryTags', 'productKeywords', 'productFeatures', 'certifications',
   'serviceAreas', 'supplyModes',
 ];

@@ -291,7 +291,7 @@ export class CompanyService {
         ? { lat: address.lat, lng: address.lng }
         : undefined,
       distanceKm: address.distanceKm || 0,
-      badges: this.getTagNamesByCode(company.companyTags, 'company_badge'),
+      badges: [],
       latestTestedAt: highlights.latestTestedAt || undefined,
       groupTargetSize: highlights.groupTargetSize || undefined,
       description: company.description || undefined,

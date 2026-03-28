@@ -58,7 +58,7 @@ export class AiService {
     return t.length > 20 ? t.substring(0, 20) + '...' : t;
   }
 
-  private readonly CHAT_SYSTEM_PROMPT = `你是"农脉 AI 助手"，一个农业电商平台的智能客服。
+  private readonly CHAT_SYSTEM_PROMPT = `你是"爱买买 AI 助手"，一个农业电商平台的智能客服。
 
 ## 角色
 - 帮助用户了解平台商品、企业、农产品知识
@@ -139,7 +139,7 @@ export class AiService {
     return {
       id: `greeting-${Date.now()}`,
       role: 'assistant',
-      content: `${greeting}！我是农脉 AI 农管家，可以帮你查订单、推荐商品、溯源产地。有什么需要帮忙的吗？`,
+      content: `${greeting}！我是爱买买 AI 农管家，可以帮你查订单、推荐商品、溯源产地。有什么需要帮忙的吗？`,
       createdAt: new Date().toISOString(),
     };
   }
@@ -155,7 +155,7 @@ export class AiService {
   }
 
   private getShortGreetingReply() {
-    return `${this.getGreetingPrefix()}！我是农脉 AI 农管家，可以帮你查订单、推荐商品、溯源产地，也能帮你打开页面。`;
+    return `${this.getGreetingPrefix()}！我是爱买买 AI 农管家，可以帮你查订单、推荐商品、溯源产地，也能帮你打开页面。`;
   }
 
   /** 将首页已完成的一问一答写入 session（不调 Qwen），确保后续多轮有历史上下文 */
@@ -2060,7 +2060,7 @@ export class AiService {
       return extractedKeyword;
     }
 
-    const systemPrompt = `你是农脉App的语音搜索改写器。任务是把语音转写内容改写成最适合商品搜索的核心关键词。
+    const systemPrompt = `你是爱买买App的语音搜索改写器。任务是把语音转写内容改写成最适合商品搜索的核心关键词。
 
 要求：
 1. 只保留用户真正想搜的商品/品类/属性关键词
@@ -2163,7 +2163,7 @@ export class AiService {
       };
     }
 
-    const systemPrompt = `你是农脉App的推荐需求解析器。你的任务是把用户的推荐请求改写成结构化推荐参数。
+    const systemPrompt = `你是爱买买App的推荐需求解析器。你的任务是把用户的推荐请求改写成结构化推荐参数。
 
 严格只返回 JSON，不要输出其他内容：
 {"query":"","constraints":[],"budget":0,"recommendThemes":[],"reply":""}
@@ -2548,7 +2548,7 @@ export class AiService {
   private filterCompanyCandidatesByContext(
     companies: Array<{
       id: string; name: string; shortName?: string; mainBusiness?: string;
-      location?: string; badges?: string[];
+      location?: string;
       companyType?: string; industryTags?: string[]; productKeywords?: string[];
       productFeatures?: string[]; certifications?: string[];
     }>,
@@ -2564,7 +2564,7 @@ export class AiService {
       // 优先用结构化字段精确匹配，未命中再 fallback 到字符串 haystack
       const haystack = normalize([
         company.name, company.shortName || '', company.mainBusiness || '',
-        company.location || '', ...(company.badges || []),
+        company.location || '', ...(company.certifications || []),
       ].join(' '));
 
       // 地区：用 location 字段匹配
@@ -2802,7 +2802,7 @@ export class AiService {
             {
               role: 'system',
               content:
-                '你是农脉App的企业名纠偏器。任务：根据语音转写和当前企业候选列表，只从候选列表里选择最可能的企业官方名称。要能纠正常见 ASR 同音/近音错字，比如“清河”可能对应“青禾”。如果无法高置信匹配，返回空字符串。严格只返回 JSON：{"name":"","confidence":0}.',
+                '你是爱买买App的企业名纠偏器。任务：根据语音转写和当前企业候选列表，只从候选列表里选择最可能的企业官方名称。要能纠正常见 ASR 同音/近音错字，比如“清河”可能对应“青禾”。如果无法高置信匹配，返回空字符串。严格只返回 JSON：{"name":"","confidence":0}.',
             },
             {
               role: 'user',
@@ -2942,7 +2942,7 @@ export class AiService {
     }
 
     const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'Asia/Shanghai' });
-    const systemPrompt = `你是农脉App的语音一级分类器。当前日期：${today}。用户通过语音下达指令，你只负责判断任务类型并输出结构化 JSON。
+    const systemPrompt = `你是爱买买App的语音一级分类器。当前日期：${today}。用户通过语音下达指令，你只负责判断任务类型并输出结构化 JSON。
 
 严格只返回以下 JSON 格式，不要输出其他内容：
 {"intent":"navigate|search|company|transaction|recommend|chat","confidence":0.0,"params":{}}
