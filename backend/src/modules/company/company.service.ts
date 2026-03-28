@@ -17,6 +17,9 @@ export class CompanyService {
       orderBy: { createdAt: 'desc' },
       include: {
         profile: true,
+        companyTags: {
+          include: { tag: { include: { category: { select: { code: true } } } } },
+        },
         products: {
           where: { status: 'ACTIVE', auditStatus: 'APPROVED' },
           take: 8,
@@ -75,7 +78,12 @@ export class CompanyService {
   async getById(id: string, userId?: string) {
     const company = await this.prisma.company.findUnique({
       where: { id },
-      include: { profile: true },
+      include: {
+        profile: true,
+        companyTags: {
+          include: { tag: { include: { category: { select: { code: true } } } } },
+        },
+      },
     });
     if (!company) throw new NotFoundException('企业信息不存在');
 
@@ -214,6 +222,13 @@ export class CompanyService {
     };
   }
 
+  private getTagNamesByCode(companyTags: any[], categoryCode: string): string[] {
+    if (!companyTags) return [];
+    return companyTags
+      .filter((ct: any) => ct.tag?.category?.code === categoryCode)
+      .map((ct: any) => ct.tag.name);
+  }
+
   /** 映射新 Schema 到前端期望的 Company 格式 */
   private mapToFrontend(company: any) {
     const address = company.address as any || {};
@@ -235,7 +250,7 @@ export class CompanyService {
         ? { lat: address.lat, lng: address.lng }
         : undefined,
       distanceKm: address.distanceKm || 0,
-      badges: highlights.badges || [],
+      badges: this.getTagNamesByCode(company.companyTags, 'company_badge'),
       latestTestedAt: highlights.latestTestedAt || undefined,
       groupTargetSize: highlights.groupTargetSize || undefined,
       description: company.description || undefined,
@@ -248,10 +263,10 @@ export class CompanyService {
         detail: address.detail || undefined,
       },
       companyType: highlights.companyType || null,
-      industryTags: highlights.industryTags || [],
+      industryTags: this.getTagNamesByCode(company.companyTags, 'industry'),
       productKeywords: highlights.productKeywords || [],
-      productFeatures: highlights.productFeatures || [],
-      certifications: highlights.certifications || [],
+      productFeatures: this.getTagNamesByCode(company.companyTags, 'product_feature'),
+      certifications: this.getTagNamesByCode(company.companyTags, 'company_cert'),
     };
   }
 }
