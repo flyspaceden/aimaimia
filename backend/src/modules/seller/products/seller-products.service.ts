@@ -139,31 +139,21 @@ export class SellerProductsService {
         include: { skus: true, media: true },
       });
 
-      // 处理标签（批量操作替代逐条 upsert：2T 次→3-4 次查询）
-      if (dto.tags && dto.tags.length > 0) {
-        // 查已有标签
-        const existingTags = await tx.tag.findMany({
-          where: { name: { in: dto.tags } },
+      // 创建商品标签关联（通过 tagId）
+      if (dto.tagIds && dto.tagIds.length > 0) {
+        const tags = await tx.tag.findMany({
+          where: { id: { in: dto.tagIds }, isActive: true },
+          include: { category: { select: { scope: true } } },
         });
-        const existingNames = new Set(existingTags.map((t) => t.name));
-        // 批量创建缺失标签
-        const newNames = dto.tags.filter((n) => !existingNames.has(n));
-        if (newNames.length > 0) {
-          await tx.tag.createMany({
-            data: newNames.map((name) => ({ name, type: 'PRODUCT' as const })),
+        const validTagIds = tags
+          .filter(t => t.category.scope === 'PRODUCT')
+          .map(t => t.id);
+        if (validTagIds.length > 0) {
+          await tx.productTag.createMany({
+            data: validTagIds.map(tagId => ({ productId: product.id, tagId })),
             skipDuplicates: true,
           });
         }
-        // 获取所有标签 ID
-        const allTags = await tx.tag.findMany({
-          where: { name: { in: dto.tags } },
-          select: { id: true },
-        });
-        // 批量创建关联
-        await tx.productTag.createMany({
-          data: allTags.map((t) => ({ productId: product.id, tagId: t.id })),
-          skipDuplicates: true,
-        });
       }
 
       // 记录卖家提供的语义字段来源，写入 attributes.semanticMeta
@@ -276,33 +266,23 @@ export class SellerProductsService {
         }
       }
 
-      // 更新标签（批量操作替代逐条 upsert）
-      if (dto.tags) {
+      // 更新标签（通过 tagId）
+      if (dto.tagIds) {
         await tx.productTag.deleteMany({ where: { productId } });
-        if (dto.tags.length > 0) {
-          // 查已有标签
-          const existingTags = await tx.tag.findMany({
-            where: { name: { in: dto.tags } },
+        if (dto.tagIds.length > 0) {
+          const tags = await tx.tag.findMany({
+            where: { id: { in: dto.tagIds }, isActive: true },
+            include: { category: { select: { scope: true } } },
           });
-          const existingNames = new Set(existingTags.map((t) => t.name));
-          // 批量创建缺失标签
-          const newNames = dto.tags.filter((n) => !existingNames.has(n));
-          if (newNames.length > 0) {
-            await tx.tag.createMany({
-              data: newNames.map((name) => ({ name, type: 'PRODUCT' as const })),
+          const validTagIds = tags
+            .filter(t => t.category.scope === 'PRODUCT')
+            .map(t => t.id);
+          if (validTagIds.length > 0) {
+            await tx.productTag.createMany({
+              data: validTagIds.map(tagId => ({ productId, tagId })),
               skipDuplicates: true,
             });
           }
-          // 获取所有标签 ID
-          const allTags = await tx.tag.findMany({
-            where: { name: { in: dto.tags } },
-            select: { id: true },
-          });
-          // 批量创建关联
-          await tx.productTag.createMany({
-            data: allTags.map((t) => ({ productId, tagId: t.id })),
-            skipDuplicates: true,
-          });
         }
       }
 

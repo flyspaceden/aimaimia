@@ -58,7 +58,7 @@ export class CreateProductDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  tags?: string[];
+  tagIds?: string[];
 
   @IsArray()
   @ArrayMinSize(1)
@@ -129,7 +129,7 @@ export class UpdateProductDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  tags?: string[];
+  tagIds?: string[];
 
   @IsOptional()
   attributes?: any;
