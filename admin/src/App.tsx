@@ -44,6 +44,7 @@ const CategoriesPage = lazy(() => import('@/pages/categories/index'));
 const InvoiceListPage = lazy(() => import('@/pages/invoices/index'));
 const InvoiceDetailPage = lazy(() => import('@/pages/invoices/detail'));
 const TagManagementPage = lazy(() => import('@/pages/tags/index'));
+const DiscoveryFiltersPage = lazy(() => import('@/pages/config/discovery-filters'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -127,6 +128,7 @@ export default function App() {
             <Route path="tags" element={<TagManagementPage />} />
             <Route path="trace" element={<TraceListPage />} />
             <Route path="config" element={<ConfigPage />} />
+            <Route path="config/discovery-filters" element={<DiscoveryFiltersPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/roles" element={<RolesPage />} />
