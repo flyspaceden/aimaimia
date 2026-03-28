@@ -73,15 +73,13 @@ DISCOVERY_COMPANY_FILTERS: {
 GET /companies/discovery-filters
 ```
 
-响应格式：
+响应格式（直接返回数组）：
 
 ```json
-{
-  "filters": [
-    { "tagId": "clxxx1", "label": "有机认证", "icon": "🌿" },
-    { "tagId": "clxxx2", "label": "水果", "icon": "🍎" }
-  ]
-}
+[
+  { "tagId": "clxxx1", "label": "有机认证", "icon": "🌿" },
+  { "tagId": "clxxx2", "label": "水果", "icon": "🍎" }
+]
 ```
 
 实现逻辑：

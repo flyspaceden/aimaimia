@@ -343,7 +343,7 @@ export default function MuseumScreen() {
         </View>
       );
     },
-    [router],
+    [router, addItem, show],
   );
 
   // ==================== 加载态 ====================

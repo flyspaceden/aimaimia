@@ -78,8 +78,11 @@ export class CompanyService {
     });
   }
 
-  /** 获取发现页企业筛选配置（公开） */
+  /** 获取发现页企业筛选配置（公开，5 分钟缓存） */
   async getDiscoveryFilters() {
+    const cached = this.listCache.get('discovery:filters');
+    if (cached) return cached;
+
     const config = await this.prisma.ruleConfig.findUnique({
       where: { key: 'DISCOVERY_COMPANY_FILTERS' },
     });
@@ -96,13 +99,15 @@ export class CompanyService {
     const tagMap = new Map(tags.map((t) => [t.id, t.name]));
 
     // 保持配置的顺序，过滤已删除/停用的标签
-    return entries
+    const result = entries
       .filter((e) => tagMap.has(e.tagId))
       .map((e) => ({
         tagId: e.tagId,
         label: tagMap.get(e.tagId)!,
         icon: e.icon,
       }));
+    this.listCache.set('discovery:filters', result);
+    return result;
   }
 
   /** 企业列表缓存失效（供管理端修改企业后调用） */
