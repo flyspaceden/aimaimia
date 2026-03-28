@@ -4463,6 +4463,36 @@ async function main() {
   }
   console.log('✅ 企业标签关联已创建');
 
+  // =================== 发现页企业筛选配置 ===================
+  const discoveryTagNames = [
+    { name: '有机认证', categoryCode: 'company_cert', icon: '🌿' },
+    { name: '水果', categoryCode: 'industry', icon: '🍎' },
+    { name: '茶叶', categoryCode: 'industry', icon: '🍵' },
+  ];
+
+  const discoveryFilters: Array<{ tagId: string; icon: string }> = [];
+  for (const entry of discoveryTagNames) {
+    const tag = await prisma.tag.findFirst({
+      where: {
+        name: entry.name,
+        category: { code: entry.categoryCode },
+      },
+    });
+    if (tag) {
+      discoveryFilters.push({ tagId: tag.id, icon: entry.icon });
+    }
+  }
+
+  await prisma.ruleConfig.upsert({
+    where: { key: 'DISCOVERY_COMPANY_FILTERS' },
+    update: {},
+    create: {
+      key: 'DISCOVERY_COMPANY_FILTERS',
+      value: discoveryFilters as any,
+    },
+  });
+  console.log(`  ✅ 发现页筛选配置已设置：${discoveryFilters.length} 项`);
+
   console.log('🌾 种子数据填充完成！');
 }
 

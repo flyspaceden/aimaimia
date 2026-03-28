@@ -216,18 +216,6 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     min: 0,
     max: 100,
   },
-  VIP_REWARD_EXPIRY_DAYS: {
-    type: 'integer',
-    description: 'VIP 已释放奖励有效期（天）',
-    min: 1,
-    max: 365,
-  },
-  NORMAL_REWARD_EXPIRY_DAYS: {
-    type: 'integer',
-    description: '普通用户已释放奖励有效期（天）',
-    min: 1,
-    max: 365,
-  },
   VIP_FREE_SHIPPING_THRESHOLD: {
     type: 'number',
     description: 'VIP用户免运费门槛（元），0=无条件免运费',
@@ -239,6 +227,22 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     description: '普通用户免运费门槛（元），0=无条件免运费',
     min: 0,
     max: 10000,
+  },
+
+  // =================== 发现页配置 ===================
+  DISCOVERY_COMPANY_FILTERS: {
+    type: 'json',
+    description: '发现页企业筛选栏配置（有序标签数组）',
+    custom: (value: any) => {
+      if (!Array.isArray(value)) return 'DISCOVERY_COMPANY_FILTERS 的值必须是数组';
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i];
+        if (!item || typeof item !== 'object') return `[${i}] 必须是对象`;
+        if (!item.tagId || typeof item.tagId !== 'string') return `[${i}].tagId 必须是非空字符串`;
+        if (!item.icon || typeof item.icon !== 'string') return `[${i}].icon 必须是非空字符串`;
+      }
+      return null;
+    },
   },
 
   // =================== @deprecated 废弃字段（保留兼容） ===================
