@@ -5,9 +5,11 @@ import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, 
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { CompanyService } from '../../company/company.service';
 
+// AI 搜索字段键名（用于 highlights merge 保护，包含历史字段以防旧数据覆盖）
 const AI_SEARCH_KEYS = [
-  'companyType', 'industryTags', 'productKeywords',
-  'productFeatures', 'certifications', 'mainBusiness', 'badges',
+  'companyType', 'mainBusiness', 'badges',
+  'industryTags', 'productKeywords', 'productFeatures', 'certifications',
+  'serviceAreas', 'supplyModes',
 ];
 
 @Injectable()
@@ -308,7 +310,7 @@ export class AdminCompaniesService {
     return profile?.highlights || {};
   }
 
-  /** 获取 AI 搜索资料 */
+  /** 获取 AI 搜索资料（仅 companyType，其他字段已迁移到 CompanyTag） */
   async getAiSearchProfile(companyId: string) {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('企业不存在');
@@ -320,34 +322,16 @@ export class AdminCompaniesService {
     const highlights = (profile?.highlights as Record<string, any>) || {};
     return {
       companyType: highlights.companyType || null,
-      industryTags: highlights.industryTags || [],
-      productKeywords: highlights.productKeywords || [],
-      productFeatures: highlights.productFeatures || [],
-      certifications: highlights.certifications || [],
     };
   }
 
-  /** 更新 AI 搜索资料 */
+  /** 更新 AI 搜索资料（仅 companyType，其他字段已迁移到 CompanyTag） */
   async updateAiSearchProfile(companyId: string, dto: AdminUpdateAiSearchProfileDto) {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('企业不存在');
 
-    // 计算派生字段
-    const keywords = dto.productKeywords || [];
-    const mainBusiness = [...dto.industryTags, ...keywords].join('、');
-    const badges = [
-      ...(dto.productFeatures || []),
-      ...(dto.certifications || []),
-    ].slice(0, 8);
-
     const aiFields: Record<string, any> = {
       companyType: dto.companyType,
-      industryTags: dto.industryTags,
-      productKeywords: keywords,
-      productFeatures: dto.productFeatures,
-      certifications: dto.certifications || [],
-      mainBusiness,
-      badges,
     };
 
     return this.prisma.$transaction(async (tx) => {
@@ -359,13 +343,7 @@ export class AdminCompaniesService {
         create: { companyId, highlights: merged },
         update: { highlights: merged },
       });
-      return {
-        companyType: dto.companyType,
-        industryTags: dto.industryTags,
-        productKeywords: keywords,
-        productFeatures: dto.productFeatures,
-        certifications: dto.certifications || [],
-      };
+      return { companyType: dto.companyType };
     }, { isolationLevel: 'Serializable' });
   }
 

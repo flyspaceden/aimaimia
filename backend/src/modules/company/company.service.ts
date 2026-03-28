@@ -246,7 +246,7 @@ export class CompanyService {
       name: company.name,
       shortName: company.shortName || undefined,
       cover: highlights.cover || '',
-      mainBusiness: highlights.mainBusiness || company.description || '',
+      mainBusiness: this.getTagNamesByCode(company.companyTags, 'industry').join('、') || company.description || '',
       location: locationText,
       coordinates: address.lat && address.lng
         ? { lat: address.lat, lng: address.lng }
@@ -266,9 +266,10 @@ export class CompanyService {
       },
       companyType: highlights.companyType || null,
       industryTags: this.getTagNamesByCode(company.companyTags, 'industry'),
-      productKeywords: highlights.productKeywords || [],
       productFeatures: this.getTagNamesByCode(company.companyTags, 'product_feature'),
       certifications: this.getTagNamesByCode(company.companyTags, 'company_cert'),
+      supplyModes: this.getTagNamesByCode(company.companyTags, 'supply_mode'),
+      serviceAreas: this.getTagNamesByCode(company.companyTags, 'service_area'),
     };
   }
 }

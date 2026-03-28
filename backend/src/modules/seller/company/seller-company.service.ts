@@ -85,7 +85,7 @@ export class SellerCompanyService {
 
   // ===================== AI 搜索资料 =====================
 
-  /** 获取 AI 搜索资料（从 highlights 提取结构化字段） */
+  /** 获取 AI 搜索资料（仅 companyType，其他字段已迁移到 CompanyTag） */
   async getAiSearchProfile(companyId: string) {
     const profile = await this.prisma.companyProfile.findUnique({
       where: { companyId },
@@ -94,52 +94,12 @@ export class SellerCompanyService {
     const h = (profile?.highlights as Record<string, any>) ?? {};
     return {
       companyType: h.companyType ?? null,
-      industryTags: h.industryTags ?? [],
-      productKeywords: h.productKeywords ?? [],
-      serviceAreas: h.serviceAreas ?? [],
-      productFeatures: h.productFeatures ?? [],
-      supplyModes: h.supplyModes ?? [],
-      certifications: h.certifications ?? [],
     };
   }
 
-  /** 更新 AI 搜索资料（原子合并到 highlights + 计算派生字段） */
-  async updateAiSearchProfile(companyId: string, dto: {
-    companyType: string;
-    industryTags: string[];
-    productKeywords?: string[];
-    serviceAreas: string[];
-    productFeatures: string[];
-    supplyModes?: string[];
-    certifications?: string[];
-  }) {
-    // 清洗 serviceAreas：trim + 去重 + 过滤空串
-    const cleanedAreas = [...new Set(
-      dto.serviceAreas.map((s) => s.trim()).filter(Boolean),
-    )];
-
-    const aiFields = {
-      companyType: dto.companyType,
-      industryTags: dto.industryTags,
-      productKeywords: dto.productKeywords ?? [],
-      serviceAreas: cleanedAreas,
-      productFeatures: dto.productFeatures,
-      supplyModes: dto.supplyModes ?? [],
-      certifications: dto.certifications ?? [],
-    };
-
-    // 计算派生字段
-    const mainBusiness = [
-      ...aiFields.industryTags,
-      ...aiFields.productKeywords,
-    ].join('、');
-
-    const badges = [
-      ...aiFields.productFeatures,
-      ...aiFields.certifications,
-      ...aiFields.supplyModes.slice(0, 2),
-      ...aiFields.serviceAreas.slice(0, 2),
-    ].slice(0, 8);
+  /** 更新 AI 搜索资料（仅 companyType，其他字段已迁移到 CompanyTag） */
+  async updateAiSearchProfile(companyId: string, dto: { companyType: string }) {
+    const aiFields = { companyType: dto.companyType };
 
     return this.prisma.$transaction(async (tx) => {
       const profile = await tx.companyProfile.findUnique({
@@ -147,7 +107,7 @@ export class SellerCompanyService {
         select: { highlights: true },
       });
       const existing = (profile?.highlights as Record<string, any>) ?? {};
-      const merged = { ...existing, ...aiFields, mainBusiness, badges };
+      const merged = { ...existing, ...aiFields };
 
       await tx.companyProfile.upsert({
         where: { companyId },

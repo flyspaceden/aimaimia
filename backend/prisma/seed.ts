@@ -379,7 +379,15 @@ async function main() {
       tags: ['有机', '可溯源', '冷链', '认证'],
     },
     {
-      code: 'product_tag', name: '商品标签', scope: 'PRODUCT' as const, sortOrder: 5,
+      code: 'supply_mode', name: '供应方式', scope: 'COMPANY' as const, sortOrder: 5,
+      tags: ['批发', '零售', '直供', '同城配送', '可预约考察'],
+    },
+    {
+      code: 'service_area', name: '服务区域', scope: 'COMPANY' as const, sortOrder: 6,
+      tags: ['本地', '全省', '全国', '华东', '华南', '华北', '华中', '西南', '西北', '东北'],
+    },
+    {
+      code: 'product_tag', name: '商品标签', scope: 'PRODUCT' as const, sortOrder: 7,
       tags: ['可信溯源', '检测报告', '有机认证', '地理标志', '当季鲜采'],
     },
   ];

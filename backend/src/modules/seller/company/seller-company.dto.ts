@@ -1,6 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsMobilePhone, IsUrl, IsObject, ValidateNested, IsDateString, IsArray, ArrayMinSize, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsMobilePhone, IsObject, IsDateString, IsIn } from 'class-validator';
 import { CompanyStaffRole, DocumentType } from '@prisma/client';
-import { Type } from 'class-transformer';
 
 /** 更新企业信息 */
 export class UpdateCompanyDto {
@@ -82,53 +81,16 @@ export class AddDocumentDto {
 // ============ AI 搜索资料枚举常量 ============
 
 export const COMPANY_TYPES = ['farm', 'company', 'cooperative', 'base', 'factory', 'store'] as const;
-export const INDUSTRY_TAGS = ['水果', '蔬菜', '粮油', '肉禽', '水产', '茶叶', '蜂蜜', '乳制品', '其他'] as const;
-export const PRODUCT_FEATURES = ['有机', '可溯源', '冷链', '认证'] as const;
-export const SUPPLY_MODES = ['批发', '零售', '直供', '同城配送', '可预约考察'] as const;
-export const CERTIFICATIONS = ['有机认证', '绿色食品', '地理标志'] as const;
 
-/** AI 搜索字段键名（用于 highlights merge 保护） */
+/** AI 搜索字段键名（用于 highlights merge 保护，包含历史字段以防旧数据覆盖） */
 export const AI_SEARCH_KEYS = [
-  'companyType', 'industryTags', 'productKeywords', 'serviceAreas',
-  'productFeatures', 'supplyModes', 'certifications', 'mainBusiness', 'badges',
+  'companyType', 'mainBusiness', 'badges',
+  'industryTags', 'productKeywords', 'productFeatures', 'certifications',
+  'serviceAreas', 'supplyModes',
 ] as const;
 
-/** 更新 AI 搜索资料 DTO */
+/** 更新 AI 搜索资料 DTO（仅 companyType，其他字段已迁移到 CompanyTag） */
 export class UpdateAiSearchProfileDto {
   @IsIn(COMPANY_TYPES)
   companyType: string;
-
-  @IsArray()
-  @ArrayMinSize(1)
-  @IsString({ each: true })
-  @IsIn(INDUSTRY_TAGS, { each: true })
-  industryTags: string[];
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  productKeywords?: string[];
-
-  @IsArray()
-  @ArrayMinSize(1)
-  @IsString({ each: true })
-  serviceAreas: string[];
-
-  @IsArray()
-  @ArrayMinSize(1)
-  @IsString({ each: true })
-  @IsIn(PRODUCT_FEATURES, { each: true })
-  productFeatures: string[];
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @IsIn(SUPPLY_MODES, { each: true })
-  supplyModes?: string[];
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @IsIn(CERTIFICATIONS, { each: true })
-  certifications?: string[];
 }
