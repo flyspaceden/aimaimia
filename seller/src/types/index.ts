@@ -255,20 +255,8 @@ export const COMPANY_TYPE_OPTIONS = [
   { value: 'store', label: '店铺' },
 ];
 
-export const INDUSTRY_TAG_OPTIONS = [
-  '水果', '蔬菜', '粮油', '肉禽', '水产', '茶叶', '蜂蜜', '乳制品', '其他',
-].map((v) => ({ value: v, label: v }));
-
-export const PRODUCT_FEATURE_OPTIONS = [
-  '有机', '可溯源', '冷链', '认证',
-].map((v) => ({ value: v, label: v }));
-
 export const SUPPLY_MODE_OPTIONS = [
   '批发', '零售', '直供', '同城配送', '可预约考察',
-].map((v) => ({ value: v, label: v }));
-
-export const CERTIFICATION_OPTIONS = [
-  '有机认证', '绿色食品', '地理标志',
 ].map((v) => ({ value: v, label: v }));
 
 export interface CompanyDocument {

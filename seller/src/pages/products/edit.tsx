@@ -20,6 +20,7 @@ import {
   type CategoryNode,
 } from '@/api/products';
 import { getMarkupRate } from '@/api/config';
+import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
@@ -258,14 +259,20 @@ function ImageUploadSection({
 // ============================================================
 // 共享：更多设置折叠面板内容
 // ============================================================
-function AdvancedSettingsContent() {
+function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { value: string; label: string }[] }) {
   return (
     <>
       <Form.Item label="副标题" name="subtitle">
         <Input placeholder="可选，补充商品卖点" maxLength={200} />
       </Form.Item>
-      <Form.Item label="标签" name="tags">
-        <Input placeholder="多个标签用逗号分隔，如：有机,新米,东北" />
+      <Form.Item label="标签" name="tagIds">
+        <Select
+          mode="multiple"
+          placeholder="请选择商品标签"
+          options={productTagOptions}
+          showSearch
+          optionFilterProp="label"
+        />
       </Form.Item>
       <Form.Item
         label="AI 搜索关键词"
@@ -317,10 +324,8 @@ function buildPayload(
   markupRate: number,
   fileList: UploadFile[],
 ) {
-  // 处理标签
-  const tags = typeof values.tags === 'string'
-    ? values.tags.split(',').map((s: string) => s.trim()).filter(Boolean)
-    : undefined;
+  // 处理标签（使用标签池 ID 列表）
+  const tagIds = (values.tagIds as string[] | undefined) || undefined;
 
   // 处理 AI 关键词
   const aiKeywords = typeof values.aiKeywords === 'string'
@@ -360,7 +365,7 @@ function buildPayload(
     basePrice,
     categoryId: values.categoryId,
     origin: values.originText ? { text: values.originText } : undefined,
-    tags,
+    tagIds,
     aiKeywords,
     attributes,
     mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
@@ -422,6 +427,14 @@ function ProductEditForm({ id }: { id: string }) {
   });
   const markupRate = configData?.markupRate ?? 1.3;
 
+  // 商品标签选项（从标签池加载）
+  const { data: productCategories = [] } = useQuery({
+    queryKey: ['tag-categories-product'],
+    queryFn: () => getTagCategories('PRODUCT'),
+  });
+  const productTagOptions = productCategories
+    .flatMap(cat => cat.tags.map(t => ({ value: t.id, label: t.name })));
+
   // 商品数据加载后填充表单并判断是否多规格
   useEffect(() => {
     if (!product) return;
@@ -446,7 +459,7 @@ function ProductEditForm({ id }: { id: string }) {
       description: product.description,
       categoryId: product.categoryId,
       originText,
-      tags: product.tags?.map((t) => t.tag.name).join(',') || '',
+      tagIds: product.tags?.map((t: any) => t.tag?.id || t.tagId) || [],
       aiKeywords: (product.aiKeywords || []).join(','),
       attributes: attrPairs.length > 0 ? attrPairs : [],
       // 单规格字段
@@ -746,7 +759,7 @@ function ProductEditForm({ id }: { id: string }) {
               {
                 key: 'advanced',
                 label: <Text strong>更多设置</Text>,
-                children: <AdvancedSettingsContent />,
+                children: <AdvancedSettingsContent productTagOptions={productTagOptions} />,
               },
             ]}
           />
@@ -784,6 +797,14 @@ function ProductCreateForm() {
     queryFn: getMarkupRate,
   });
   const markupRate = configData?.markupRate ?? 1.3;
+
+  // 商品标签选项（从标签池加载）
+  const { data: productCategories = [] } = useQuery({
+    queryKey: ['tag-categories-product'],
+    queryFn: () => getTagCategories('PRODUCT'),
+  });
+  const productTagOptions = productCategories
+    .flatMap(cat => cat.tags.map(t => ({ value: t.id, label: t.name })));
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -996,7 +1017,7 @@ function ProductCreateForm() {
               {
                 key: 'advanced',
                 label: <Text strong>更多设置</Text>,
-                children: <AdvancedSettingsContent />,
+                children: <AdvancedSettingsContent productTagOptions={productTagOptions} />,
               },
             ]}
           />

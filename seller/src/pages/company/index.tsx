@@ -1,15 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Space, Button, Modal, Select, Upload } from 'antd';
 import { PlusOutlined, MinusCircleOutlined, UploadOutlined } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCompany, updateCompany, updateHighlights, getDocuments, addDocument, getAiSearchProfile, updateAiSearchProfile } from '@/api/company';
+import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
-import {
-  COMPANY_TYPE_OPTIONS, INDUSTRY_TAG_OPTIONS, PRODUCT_FEATURE_OPTIONS,
-  SUPPLY_MODE_OPTIONS, CERTIFICATION_OPTIONS,
-} from '@/types';
+import { COMPANY_TYPE_OPTIONS, SUPPLY_MODE_OPTIONS } from '@/types';
 import type { AiSearchProfile } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -58,6 +56,26 @@ export default function CompanySettingsPage() {
     enabled: canEdit,
   });
 
+  // 动态标签分类和企业已选标签
+  const { data: tagCategories = [] } = useQuery({
+    queryKey: ['tag-categories-company'],
+    queryFn: () => getTagCategories('COMPANY'),
+  });
+
+  const { data: companyTagGroups = [] } = useQuery({
+    queryKey: ['seller-company-tags'],
+    queryFn: getCompanyTags,
+  });
+
+  const [aiForm] = Form.useForm();
+
+  // 当企业标签数据加载后，填充标签表单字段
+  useEffect(() => {
+    for (const group of companyTagGroups) {
+      aiForm.setFieldValue(`tag_${group.categoryCode}`, group.tags.map(t => t.id));
+    }
+  }, [companyTagGroups, aiForm]);
+
   const [aiSaving, setAiSaving] = useState(false);
 
   const handleUpdateAiSearchProfile = async (values: Record<string, any>) => {
@@ -72,9 +90,19 @@ export default function CompanySettingsPage() {
         supplyModes: values.supplyModes || [],
         certifications: values.certifications || [],
       });
+
+      // 提交动态标签
+      const allTagIds: string[] = [];
+      for (const cat of tagCategories) {
+        const fieldValue = aiForm.getFieldValue(`tag_${cat.code}`) || [];
+        allTagIds.push(...fieldValue);
+      }
+      await updateCompanyTags(allTagIds);
+
       message.success('AI 搜索资料已更新');
       queryClient.invalidateQueries({ queryKey: ['seller-ai-search-profile'] });
       queryClient.invalidateQueries({ queryKey: ['seller-company'] });
+      queryClient.invalidateQueries({ queryKey: ['seller-company-tags'] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '更新失败');
     } finally {
@@ -241,6 +269,7 @@ export default function CompanySettingsPage() {
             这些信息帮助买家通过搜索和 AI 更精准地找到您的企业，请认真填写
           </div>
           <ProForm
+            form={aiForm}
             onFinish={handleUpdateAiSearchProfile}
             initialValues={aiProfile || {}}
             loading={aiSaving}
@@ -257,19 +286,6 @@ export default function CompanySettingsPage() {
               <Select
                 options={COMPANY_TYPE_OPTIONS}
                 placeholder="请选择企业类型"
-              />
-            </ProForm.Item>
-
-            <ProForm.Item
-              name="industryTags"
-              label="主营品类"
-              rules={[{ required: true, message: '请选择至少一个主营品类' }]}
-            >
-              <Select
-                mode="multiple"
-                options={INDUSTRY_TAG_OPTIONS}
-                placeholder="请选择主营品类"
-                showSearch
               />
             </ProForm.Item>
 
@@ -299,18 +315,6 @@ export default function CompanySettingsPage() {
             </ProForm.Item>
 
             <ProForm.Item
-              name="productFeatures"
-              label="产品特征"
-              rules={[{ required: true, message: '请选择至少一个产品特征' }]}
-            >
-              <Select
-                mode="multiple"
-                options={PRODUCT_FEATURE_OPTIONS}
-                placeholder="请选择产品特征"
-              />
-            </ProForm.Item>
-
-            <ProForm.Item
               name="supplyModes"
               label="供给方式"
             >
@@ -321,16 +325,24 @@ export default function CompanySettingsPage() {
               />
             </ProForm.Item>
 
-            <ProForm.Item
-              name="certifications"
-              label="认证资质"
-            >
-              <Select
-                mode="multiple"
-                options={CERTIFICATION_OPTIONS}
-                placeholder="请选择认证资质"
-              />
-            </ProForm.Item>
+            {/* 动态标签分类（从后端加载，替代硬编码的主营品类/产品特征/认证资质） */}
+            {tagCategories
+              .filter(cat => cat.code !== 'product_tag')
+              .map(cat => (
+                <ProForm.Item
+                  key={cat.code}
+                  name={`tag_${cat.code}`}
+                  label={cat.name}
+                >
+                  <Select
+                    mode="multiple"
+                    placeholder={`请选择${cat.name}`}
+                    options={cat.tags.map(t => ({ value: t.id, label: t.name }))}
+                    showSearch
+                    optionFilterProp="label"
+                  />
+                </ProForm.Item>
+              ))}
           </ProForm>
         </Card>
       )}
