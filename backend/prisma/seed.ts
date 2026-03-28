@@ -281,7 +281,7 @@ async function main() {
       cost: 9.9, // 成本价（约 50%）
       origin: { text: '云南·玉溪' },
       image: 'https://images.pexels.com/photos/2817549/pexels-photo-2817549.jpeg?auto=compress&cs=tinysrgb&w=600',
-      tags: ['有机认证', '当季鲜采'],
+      tags: ['圳品认证', '当季鲜采'],
       companyId: 'c-001',
       skuTitle: '1斤装',
       skuPrice: 19.8,
@@ -337,7 +337,7 @@ async function main() {
       cost: 58.0, // 成本价（约 45%）
       origin: { text: '福建·武夷' },
       image: 'https://images.pexels.com/photos/8474087/pexels-photo-8474087.jpeg?auto=compress&cs=tinysrgb&w=600',
-      tags: ['有机认证'],
+      tags: ['圳品认证'],
       companyId: 'c-004',
       skuTitle: '1盒装',
       skuPrice: 128,
@@ -364,23 +364,23 @@ async function main() {
   const tagCategories = [
     {
       code: 'company_badge', name: '企业徽章', scope: 'COMPANY' as const, sortOrder: 1,
-      tags: ['优选基地', '品质认证', '产地直供', '低碳种植'],
+      tags: ['优选基地', '品质认证', '产地直供', '低碳种植', '冷链保障', '源头工厂'],
     },
     {
       code: 'company_cert', name: '企业认证', scope: 'COMPANY' as const, sortOrder: 2,
-      tags: ['有机认证', '绿色食品', '地理标志', 'GAP认证', 'SC认证'],
+      tags: ['圳品', '出口认证', '绿色食品', '地理标志', 'GAP认证', 'SC认证', 'ISO22000', 'HACCP'],
     },
     {
       code: 'industry', name: '行业标签', scope: 'COMPANY' as const, sortOrder: 3,
-      tags: ['水果', '蔬菜', '粮油', '肉禽', '水产', '茶叶', '蜂蜜', '乳制品'],
+      tags: ['水果', '蔬菜', '粮油', '肉禽', '水产', '茶叶', '蜂蜜', '乳制品', '干货', '调味品'],
     },
     {
       code: 'product_feature', name: '产品特色', scope: 'COMPANY' as const, sortOrder: 4,
-      tags: ['有机', '可溯源', '冷链', '认证'],
+      tags: ['可溯源', '冷链', '无添加', '非转基因', '手工制作', '当季采摘'],
     },
     {
       code: 'supply_mode', name: '供应方式', scope: 'COMPANY' as const, sortOrder: 5,
-      tags: ['批发', '零售', '直供', '同城配送', '可预约考察'],
+      tags: ['批发', '零售', '直供', '同城配送', '可预约考察', '一件代发'],
     },
     {
       code: 'service_area', name: '服务区域', scope: 'COMPANY' as const, sortOrder: 6,
@@ -388,7 +388,7 @@ async function main() {
     },
     {
       code: 'product_tag', name: '商品标签', scope: 'PRODUCT' as const, sortOrder: 7,
-      tags: ['可信溯源', '检测报告', '有机认证', '地理标志', '当季鲜采'],
+      tags: ['可信溯源', '检测报告', '圳品认证', '地理标志', '当季鲜采', '冷链直达', '非转基因'],
     },
   ];
 
@@ -2403,7 +2403,7 @@ async function main() {
     'p-014': 'https://images.pexels.com/photos/7195272/pexels-photo-7195272.jpeg?auto=compress&cs=tinysrgb&w=600',
   };
   const moreProducts = [
-    { id: 'p-007', companyId: 'c-001', title: '有机胡萝卜', basePrice: 8.8, cost: 4.0, categoryId: 'cat-veg-root', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '云南·玉溪' }, tags: ['有机认证'], skus: [
+    { id: 'p-007', companyId: 'c-001', title: '有机胡萝卜', basePrice: 8.8, cost: 4.0, categoryId: 'cat-veg-root', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '云南·玉溪' }, tags: ['圳品认证'], skus: [
       { id: 'sku-p-007', title: '500g装', price: 8.8, cost: 4.0, stock: 300 },
       { id: 'sku-p-007-b', title: '1kg装', price: 15.8, cost: 7.5, stock: 200 },
     ]},
@@ -2424,7 +2424,7 @@ async function main() {
     { id: 'p-012', companyId: 'PLATFORM_COMPANY', title: '爱买买特供东北大米（抽奖）', basePrice: 59.9, cost: 25, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['地理标志'], skus: [
       { id: 'sku-p-012', title: '5kg装', price: 59.9, cost: 25, stock: 100 },
     ]},
-    { id: 'p-013', companyId: 'c-001', title: '生态蜂蜜', basePrice: 88, cost: 40, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '云南·西双版纳' }, tags: ['有机认证', '可信溯源'], skus: [
+    { id: 'p-013', companyId: 'c-001', title: '生态蜂蜜', basePrice: 88, cost: 40, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '云南·西双版纳' }, tags: ['圳品认证', '可信溯源'], skus: [
       { id: 'sku-p-013', title: '500g装', price: 88, cost: 40, stock: 80 },
     ]},
     { id: 'p-014', companyId: 'c-002', title: '有机菠菜', basePrice: 9.9, cost: 4.5, categoryId: 'cat-veg-leaf', status: 'ACTIVE' as const, auditStatus: 'REJECTED' as const, origin: { text: '江苏·苏州' }, tags: [], skus: [
@@ -3688,9 +3688,9 @@ async function main() {
         industryTags: ['水果'],
         productKeywords: ['蓝莓', '草莓', '柑橘'],
         productFeatures: ['有机', '可溯源'],
-        certifications: ['有机认证', '绿色食品'],
+        certifications: ['圳品', '绿色食品'],
         mainBusiness: '水果、蓝莓、草莓、柑橘',
-        badges: ['有机', '可溯源', '有机认证', '绿色食品'],
+        badges: ['优选基地', '产地直供'],
         latestTestedAt: '2025-02-15',
         groupTargetSize: 25,
       },
@@ -3710,9 +3710,9 @@ async function main() {
         industryTags: ['粮油'],
         productKeywords: ['五常大米', '有机大米', '杂粮', '黑米'],
         productFeatures: ['有机', '可溯源'],
-        certifications: ['有机认证', '地理标志'],
-        mainBusiness: '粮油、五常大米、有机大米、杂粮、黑米',
-        badges: ['有机', '可溯源', '有机认证', '地理标志'],
+        certifications: ['地理标志', 'GAP认证'],
+        mainBusiness: '粮油、五常大米、杂粮、黑米',
+        badges: ['品质认证', '产地直供'],
         latestTestedAt: '2025-01-20',
         groupTargetSize: 40,
       },
@@ -3732,9 +3732,9 @@ async function main() {
         industryTags: ['蜂蜜'],
         productKeywords: ['荔枝蜜', '龙眼蜜', '百花蜜', '蜂王浆'],
         productFeatures: ['有机', '可溯源'],
-        certifications: ['有机认证'],
+        certifications: ['SC认证', '出口认证'],
         mainBusiness: '蜂蜜、荔枝蜜、龙眼蜜、百花蜜、蜂王浆',
-        badges: ['有机', '可溯源', '有机认证'],
+        badges: ['优选基地', '品质认证'],
         latestTestedAt: '2025-03-01',
         groupTargetSize: 20,
       },
@@ -3754,9 +3754,9 @@ async function main() {
         industryTags: ['水产'],
         productKeywords: ['大虾', '海参', '鲍鱼', '扇贝'],
         productFeatures: ['冷链', '可溯源'],
-        certifications: [],
+        certifications: ['HACCP'],
         mainBusiness: '水产、大虾、海参、鲍鱼、扇贝',
-        badges: ['冷链', '可溯源'],
+        badges: ['冷链保障', '源头工厂'],
         latestTestedAt: '2025-02-28',
         groupTargetSize: 30,
       },
@@ -3775,10 +3775,10 @@ async function main() {
         companyType: 'company',
         industryTags: ['乳制品'],
         productKeywords: ['鲜牛奶', '酸奶', '奶酪', '牦牛奶'],
-        productFeatures: ['有机', '冷链'],
-        certifications: ['绿色食品'],
+        productFeatures: ['冷链', '无添加'],
+        certifications: ['绿色食品', 'ISO22000'],
         mainBusiness: '乳制品、鲜牛奶、酸奶、奶酪、牦牛奶',
-        badges: ['有机', '冷链', '绿色食品'],
+        badges: ['品质认证', '冷链保障'],
         latestTestedAt: '2025-01-10',
         groupTargetSize: 50,
       },
@@ -3797,10 +3797,10 @@ async function main() {
         companyType: 'store',
         industryTags: ['茶叶'],
         productKeywords: ['龙井', '碧螺春', '安吉白茶', '西湖龙井'],
-        productFeatures: ['有机', '可溯源'],
-        certifications: ['有机认证', '地理标志'],
+        productFeatures: ['可溯源', '手工制作'],
+        certifications: ['地理标志', '圳品'],
         mainBusiness: '茶叶、龙井、碧螺春、安吉白茶、西湖龙井',
-        badges: ['有机', '可溯源', '有机认证', '地理标志'],
+        badges: ['优选基地', '产地直供'],
         latestTestedAt: '2025-03-05',
         groupTargetSize: 15,
       },
@@ -3920,7 +3920,7 @@ async function main() {
   // -- 新企业商品 --
   const newCompanyProducts = [
     // c-005 武汉鲜果合作社（水果）
-    { id: 'p-015', companyId: 'c-005', title: '有机蓝莓鲜果', basePrice: 68, cost: 32, categoryId: 'cat-fruit-berry', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '湖北·武汉' }, tags: ['有机认证'], skus: [
+    { id: 'p-015', companyId: 'c-005', title: '有机蓝莓鲜果', basePrice: 68, cost: 32, categoryId: 'cat-fruit-berry', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '湖北·武汉' }, tags: ['圳品认证'], skus: [
       { id: 'sku-p-015', title: '250g精品装', price: 68, cost: 32, stock: 120 },
       { id: 'sku-p-015-b', title: '500g家庭装', price: 118, cost: 58, stock: 80 },
     ]},
@@ -3933,25 +3933,25 @@ async function main() {
     ]},
 
     // c-006 东北黑土粮仓（粮油）
-    { id: 'p-018', companyId: 'c-006', title: '有机五常稻花香大米', basePrice: 89, cost: 40, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['有机认证', '地理标志'], skus: [
+    { id: 'p-018', companyId: 'c-006', title: '有机五常稻花香大米', basePrice: 89, cost: 40, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['圳品认证', '地理标志'], skus: [
       { id: 'sku-p-018-s', title: '5kg装', price: 89, cost: 40, stock: 500 },
       { id: 'sku-p-018-l', title: '10kg装', price: 158, cost: 72, stock: 200 },
     ]},
     { id: 'p-019', companyId: 'c-006', title: '东北黑米', basePrice: 28, cost: 12, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·哈尔滨' }, tags: ['可信溯源'], skus: [
       { id: 'sku-p-019', title: '1kg装', price: 28, cost: 12, stock: 300 },
     ]},
-    { id: 'p-020', companyId: 'c-006', title: '有机杂粮礼盒', basePrice: 168, cost: 75, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['有机认证'], skus: [
+    { id: 'p-020', companyId: 'c-006', title: '有机杂粮礼盒', basePrice: 168, cost: 75, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['圳品认证'], skus: [
       { id: 'sku-p-020', title: '精选8种杂粮', price: 168, cost: 75, stock: 100 },
     ]},
 
     // c-007 闽南百花蜂蜜基地（蜂蜜）
-    { id: 'p-021', companyId: 'c-007', title: '荔枝蜜', basePrice: 78, cost: 35, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['有机认证'], skus: [
+    { id: 'p-021', companyId: 'c-007', title: '荔枝蜜', basePrice: 78, cost: 35, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['圳品认证'], skus: [
       { id: 'sku-p-021', title: '500g装', price: 78, cost: 35, stock: 150 },
     ]},
-    { id: 'p-022', companyId: 'c-007', title: '龙眼蜜', basePrice: 88, cost: 40, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['有机认证', '可信溯源'], skus: [
+    { id: 'p-022', companyId: 'c-007', title: '龙眼蜜', basePrice: 88, cost: 40, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['圳品认证', '可信溯源'], skus: [
       { id: 'sku-p-022', title: '500g装', price: 88, cost: 40, stock: 120 },
     ]},
-    { id: 'p-023', companyId: 'c-007', title: '蜂王浆', basePrice: 198, cost: 90, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['有机认证'], skus: [
+    { id: 'p-023', companyId: 'c-007', title: '蜂王浆', basePrice: 198, cost: 90, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['圳品认证'], skus: [
       { id: 'sku-p-023', title: '250g瓶装', price: 198, cost: 90, stock: 50 },
     ]},
 
@@ -3979,12 +3979,12 @@ async function main() {
     ]},
 
     // c-010 茗山有机茶庄（茶叶）
-    { id: 'p-030', companyId: 'c-010', title: '明前西湖龙井', basePrice: 358, cost: 160, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['有机认证', '地理标志'], skus: [
+    { id: 'p-030', companyId: 'c-010', title: '明前西湖龙井', basePrice: 358, cost: 160, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['圳品认证', '地理标志'], skus: [
       { id: 'sku-p-030-s', title: '50g品鉴装', price: 98, cost: 42, stock: 200 },
       { id: 'sku-p-030-m', title: '125g罐装', price: 228, cost: 100, stock: 100 },
       { id: 'sku-p-030-l', title: '250g礼盒装', price: 358, cost: 160, stock: 50 },
     ]},
-    { id: 'p-031', companyId: 'c-010', title: '安吉白茶', basePrice: 198, cost: 88, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·安吉' }, tags: ['有机认证'], skus: [
+    { id: 'p-031', companyId: 'c-010', title: '安吉白茶', basePrice: 198, cost: 88, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·安吉' }, tags: ['圳品认证'], skus: [
       { id: 'sku-p-031', title: '100g装', price: 198, cost: 88, stock: 80 },
     ]},
     { id: 'p-032', companyId: 'c-010', title: '碧螺春', basePrice: 268, cost: 120, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '江苏·苏州' }, tags: ['地理标志'], skus: [
@@ -4044,7 +4044,7 @@ async function main() {
 
   const extraProducts = [
     // c-001 澄源生态农业
-    { id: 'p-033', companyId: 'c-001', title: '有机番茄', basePrice: 18, cost: 8, categoryId: 'cat-veg', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['有机认证'], image: 'https://images.pexels.com/photos/1327838/pexels-photo-1327838.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-033', companyId: 'c-001', title: '有机番茄', basePrice: 18, cost: 8, categoryId: 'cat-veg', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['圳品认证'], image: 'https://images.pexels.com/photos/1327838/pexels-photo-1327838.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-033', title: '2斤装', price: 18, cost: 8, stock: 300 },
     ]},
     { id: 'p-034', companyId: 'c-001', title: '紫薯', basePrice: 15, cost: 6, categoryId: 'cat-veg-root', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: [], image: 'https://images.pexels.com/photos/9956725/pexels-photo-9956725.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4056,7 +4056,7 @@ async function main() {
     { id: 'p-036', companyId: 'c-001', title: '散养柴鸡', basePrice: 88, cost: 40, categoryId: 'cat-meat-poultry', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['可信溯源'], image: 'https://images.pexels.com/photos/13422436/pexels-photo-13422436.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-036', title: '整只约3斤', price: 88, cost: 40, stock: 60 },
     ]},
-    { id: 'p-037', companyId: 'c-001', title: '有机糙米', basePrice: 32, cost: 14, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['有机认证'], image: 'https://images.pexels.com/photos/6103071/pexels-photo-6103071.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-037', companyId: 'c-001', title: '有机糙米', basePrice: 32, cost: 14, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '浙江·杭州' }, tags: ['圳品认证'], image: 'https://images.pexels.com/photos/6103071/pexels-photo-6103071.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-037', title: '2.5kg装', price: 32, cost: 14, stock: 200 },
     ]},
 
@@ -4064,7 +4064,7 @@ async function main() {
     { id: 'p-038', companyId: 'c-002', title: '水培生菜', basePrice: 12, cost: 5, categoryId: 'cat-veg-leaf', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '四川·成都' }, tags: [], image: 'https://images.pexels.com/photos/4199758/pexels-photo-4199758.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-038', title: '200g/盒', price: 12, cost: 5, stock: 500 },
     ]},
-    { id: 'p-039', companyId: 'c-002', title: '有机胡萝卜', basePrice: 10, cost: 4, categoryId: 'cat-veg-root', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '四川·成都' }, tags: ['有机认证'], image: 'https://images.pexels.com/photos/73640/pexels-photo-73640.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-039', companyId: 'c-002', title: '有机胡萝卜', basePrice: 10, cost: 4, categoryId: 'cat-veg-root', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '四川·成都' }, tags: ['圳品认证'], image: 'https://images.pexels.com/photos/73640/pexels-photo-73640.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-039', title: '1斤装', price: 10, cost: 4, stock: 400 },
     ]},
     { id: 'p-040', companyId: 'c-002', title: '圣女果', basePrice: 22, cost: 10, categoryId: 'cat-veg', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '四川·攀枝花' }, tags: ['当季鲜采'], image: 'https://images.pexels.com/photos/2817549/pexels-photo-2817549.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4138,7 +4138,7 @@ async function main() {
     { id: 'p-060', companyId: 'c-006', title: '绿豆', basePrice: 18, cost: 7, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·哈尔滨' }, tags: [], image: 'https://images.pexels.com/photos/5843559/pexels-photo-5843559.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-060', title: '1kg装', price: 18, cost: 7, stock: 400 },
     ]},
-    { id: 'p-061', companyId: 'c-006', title: '有机黄豆', basePrice: 20, cost: 8, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['有机认证'], image: 'https://images.pexels.com/photos/4518616/pexels-photo-4518616.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-061', companyId: 'c-006', title: '有机黄豆', basePrice: 20, cost: 8, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·五常' }, tags: ['圳品认证'], image: 'https://images.pexels.com/photos/4518616/pexels-photo-4518616.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-061', title: '1kg装', price: 20, cost: 8, stock: 300 },
     ]},
     { id: 'p-062', companyId: 'c-006', title: '荞麦面条', basePrice: 15, cost: 6, categoryId: 'cat-grain', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '黑龙江·哈尔滨' }, tags: [], image: 'https://images.pexels.com/photos/4518665/pexels-photo-4518665.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4146,7 +4146,7 @@ async function main() {
     ]},
 
     // c-007 闽南百花蜂蜜基地
-    { id: 'p-063', companyId: 'c-007', title: '百花蜜', basePrice: 68, cost: 30, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['有机认证'], image: 'https://images.pexels.com/photos/4480158/pexels-photo-4480158.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-063', companyId: 'c-007', title: '百花蜜', basePrice: 68, cost: 30, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['圳品认证'], image: 'https://images.pexels.com/photos/4480158/pexels-photo-4480158.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-063', title: '500g装', price: 68, cost: 30, stock: 200 },
     ]},
     { id: 'p-064', companyId: 'c-007', title: '天然蜂花粉', basePrice: 128, cost: 55, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: [], image: 'https://images.pexels.com/photos/1046207/pexels-photo-1046207.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4155,7 +4155,7 @@ async function main() {
     { id: 'p-065', companyId: 'c-007', title: '纯天然蜂蜡', basePrice: 45, cost: 18, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: [], image: 'https://images.pexels.com/photos/3194327/pexels-photo-3194327.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-065', title: '200g块', price: 45, cost: 18, stock: 100 },
     ]},
-    { id: 'p-066', companyId: 'c-007', title: '枇杷蜜', basePrice: 108, cost: 48, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·莆田' }, tags: ['有机认证'], image: 'https://images.pexels.com/photos/7936722/pexels-photo-7936722.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-066', companyId: 'c-007', title: '枇杷蜜', basePrice: 108, cost: 48, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·莆田' }, tags: ['圳品认证'], image: 'https://images.pexels.com/photos/7936722/pexels-photo-7936722.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-066', title: '500g装', price: 108, cost: 48, stock: 100 },
     ]},
     { id: 'p-067', companyId: 'c-007', title: '蜂巢蜜', basePrice: 158, cost: 70, categoryId: 'cat-honey', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '福建·泉州' }, tags: ['可信溯源'], image: 'https://images.pexels.com/photos/1406954/pexels-photo-1406954.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4197,7 +4197,7 @@ async function main() {
     ]},
 
     // c-010 茗山有机茶庄
-    { id: 'p-078', companyId: 'c-010', title: '黄山毛峰', basePrice: 218, cost: 95, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '安徽·黄山' }, tags: ['有机认证', '地理标志'], image: 'https://images.pexels.com/photos/6870857/pexels-photo-6870857.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-078', companyId: 'c-010', title: '黄山毛峰', basePrice: 218, cost: 95, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '安徽·黄山' }, tags: ['圳品认证', '地理标志'], image: 'https://images.pexels.com/photos/6870857/pexels-photo-6870857.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-078', title: '100g罐装', price: 218, cost: 95, stock: 80 },
     ]},
     { id: 'p-079', companyId: 'c-010', title: '六安瓜片', basePrice: 258, cost: 115, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '安徽·六安' }, tags: ['地理标志'], image: 'https://images.pexels.com/photos/5672690/pexels-photo-5672690.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4206,7 +4206,7 @@ async function main() {
     { id: 'p-080', companyId: 'c-010', title: '信阳毛尖', basePrice: 198, cost: 88, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '河南·信阳' }, tags: ['地理标志'], image: 'https://images.pexels.com/photos/11669658/pexels-photo-11669658.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-080', title: '100g袋装', price: 198, cost: 88, stock: 100 },
     ]},
-    { id: 'p-081', companyId: 'c-010', title: '太平猴魁', basePrice: 388, cost: 175, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '安徽·黄山' }, tags: ['有机认证', '地理标志'], image: 'https://images.pexels.com/photos/32908162/pexels-photo-32908162.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
+    { id: 'p-081', companyId: 'c-010', title: '太平猴魁', basePrice: 388, cost: 175, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '安徽·黄山' }, tags: ['圳品认证', '地理标志'], image: 'https://images.pexels.com/photos/32908162/pexels-photo-32908162.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
       { id: 'sku-p-081', title: '50g精品罐', price: 388, cost: 175, stock: 40 },
     ]},
     { id: 'p-082', companyId: 'c-010', title: '祁门红茶', basePrice: 168, cost: 75, categoryId: 'cat-tea', status: 'ACTIVE' as const, auditStatus: 'APPROVED' as const, origin: { text: '安徽·祁门' }, tags: ['地理标志'], image: 'https://images.pexels.com/photos/12078902/pexels-photo-12078902.jpeg?auto=compress&cs=tinysrgb&w=600', skus: [
@@ -4375,39 +4375,39 @@ async function main() {
   const oldCompanyAiProfiles: Record<string, Record<string, any>> = {
     'c-001': {
       companyType: 'farm',
-      industryTags: ['蔬菜', '粮油', '蜂蜜'],
-      productKeywords: ['有机蔬菜', '富硒粮油', '蜂蜜'],
-      productFeatures: ['有机', '可溯源'],
-      certifications: ['有机认证'],
-      mainBusiness: '蔬菜、粮油、蜂蜜、有机蔬菜、富硒粮油',
-      badges: ['有机', '可溯源', '有机认证'],
+      industryTags: ['蔬菜', '粮油'],
+      productKeywords: ['富硒蔬菜', '富硒粮油'],
+      productFeatures: ['可溯源', '当季采摘'],
+      certifications: ['圳品', 'GAP认证'],
+      mainBusiness: '蔬菜、粮油、富硒蔬菜、富硒粮油',
+      badges: ['优选基地', '产地直供'],
     },
     'c-002': {
       companyType: 'farm',
       industryTags: ['蔬菜'],
-      productKeywords: ['水培蔬菜', '有机黄瓜', '生菜'],
-      productFeatures: ['有机', '可溯源'],
-      certifications: [],
-      mainBusiness: '蔬菜、水培蔬菜、有机黄瓜、生菜',
-      badges: ['有机', '可溯源'],
+      productKeywords: ['水培蔬菜', '黄瓜', '生菜'],
+      productFeatures: ['可溯源', '无添加'],
+      certifications: ['绿色食品'],
+      mainBusiness: '蔬菜、水培蔬菜、黄瓜、生菜',
+      badges: ['低碳种植', '品质认证'],
     },
     'c-003': {
       companyType: 'base',
       industryTags: ['水果'],
       productKeywords: ['蓝莓', '蓝莓干'],
       productFeatures: ['冷链', '可溯源'],
-      certifications: ['地理标志'],
+      certifications: ['地理标志', '出口认证'],
       mainBusiness: '水果、蓝莓、蓝莓干',
-      badges: ['冷链', '可溯源', '地理标志'],
+      badges: ['冷链保障', '品质认证'],
     },
     'c-004': {
       companyType: 'cooperative',
       industryTags: ['茶叶'],
       productKeywords: ['大红袍', '岩茶', '茶礼盒'],
-      productFeatures: ['有机'],
-      certifications: ['有机认证', '地理标志'],
+      productFeatures: ['手工制作', '可溯源'],
+      certifications: ['地理标志', '圳品'],
       mainBusiness: '茶叶、大红袍、岩茶、茶礼盒',
-      badges: ['有机', '有机认证', '地理标志'],
+      badges: ['优选基地', '产地直供'],
     },
   };
 
@@ -4465,9 +4465,11 @@ async function main() {
 
   // =================== 发现页企业筛选配置 ===================
   const discoveryTagNames = [
-    { name: '有机认证', categoryCode: 'company_cert', icon: '🌿' },
+    { name: '圳品', categoryCode: 'company_cert', icon: '🏅' },
     { name: '水果', categoryCode: 'industry', icon: '🍎' },
     { name: '茶叶', categoryCode: 'industry', icon: '🍵' },
+    { name: '水产', categoryCode: 'industry', icon: '🦐' },
+    { name: '乳制品', categoryCode: 'industry', icon: '🥛' },
   ];
 
   const discoveryFilters: Array<{ tagId: string; icon: string }> = [];

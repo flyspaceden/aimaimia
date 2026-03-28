@@ -114,9 +114,11 @@ export const CompanyRepo = {
       // 过滤：tagId — 匹配 certifications 或 industryTags
       if (options?.tagId) {
         const mockTagNames: Record<string, string> = {
-          'mock-cert-organic': '有机认证',
+          'mock-cert-zhenpim': '圳品',
           'mock-industry-fruit': '水果',
           'mock-industry-tea': '茶叶',
+          'mock-industry-seafood': '水产',
+          'mock-industry-dairy': '乳制品',
         };
         const tagName = mockTagNames[options.tagId];
         if (tagName) {
@@ -262,9 +264,11 @@ export const CompanyRepo = {
   getDiscoveryFilters: async (): Promise<Result<Array<{ tagId: string; label: string; icon: string }>>> => {
     if (USE_MOCK) {
       return simulateRequest([
-        { tagId: 'mock-cert-organic', label: '有机认证', icon: '🌿' },
+        { tagId: 'mock-cert-zhenpim', label: '圳品', icon: '🏅' },
         { tagId: 'mock-industry-fruit', label: '水果', icon: '🍎' },
         { tagId: 'mock-industry-tea', label: '茶叶', icon: '🍵' },
+        { tagId: 'mock-industry-seafood', label: '水产', icon: '🦐' },
+        { tagId: 'mock-industry-dairy', label: '乳制品', icon: '🥛' },
       ]);
     }
 
