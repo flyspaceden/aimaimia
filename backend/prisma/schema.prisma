@@ -120,11 +120,21 @@ enum MediaType {
   VIDEO
 }
 
-enum TagType {
-  PRODUCT
+enum TagScope {
   COMPANY
-  TRACE
-  AI
+  PRODUCT
+}
+
+model TagCategory {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?
+  scope       TagScope
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tags        Tag[]
 }
 
 enum InventoryType {
@@ -884,6 +894,7 @@ model Company {
   virtualCallRestrictedUntil DateTime?
   suspendedUntil DateTime?
   creditEvents CompanyCreditEvent[]
+  companyTags   CompanyTag[]
 }
 
 model CompanyProfile {
@@ -1025,12 +1036,32 @@ model Category {
 }
 
 model Tag {
-  id       String   @id @default(cuid())
-  name     String   @unique
-  type     TagType
-  synonyms String[] @default([])
+  id         String      @id @default(cuid())
+  name       String
+  categoryId String
+  category   TagCategory @relation(fields: [categoryId], references: [id])
+  synonyms   String[]    @default([])
+  sortOrder  Int         @default(0)
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
 
   productTags ProductTag[]
+  companyTags CompanyTag[]
+
+  @@unique([name, categoryId])
+  @@index([categoryId])
+}
+
+model CompanyTag {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, tagId])
+  @@index([companyId])
+  @@index([tagId])
 }
 
 model Product {
