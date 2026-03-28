@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { AdminCompaniesService } from './admin-companies.service';
 import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto } from './dto/admin-company.dto';
+import { SetCompanyTagsDto } from '../tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -155,8 +156,8 @@ export class AdminCompaniesController {
   @Put(':id/tags')
   @RequirePermission('companies:update')
   @AuditLog({ action: 'UPDATE', module: 'companies', targetType: 'CompanyTag', targetIdParam: 'params.id', isReversible: true })
-  updateCompanyTags(@Param('id') id: string, @Body() body: { tagIds: string[] }) {
-    return this.companiesService.updateCompanyTags(id, body.tagIds);
+  updateCompanyTags(@Param('id') id: string, @Body() dto: SetCompanyTagsDto) {
+    return this.companiesService.updateCompanyTags(id, dto.tagIds);
   }
 
   @Post(':id/documents/:docId/verify')

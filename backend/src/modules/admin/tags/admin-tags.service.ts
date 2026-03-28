@@ -33,7 +33,14 @@ export class AdminTagsService {
   async updateCategory(id: string, dto: UpdateTagCategoryDto) {
     const category = await this.prisma.tagCategory.findUnique({ where: { id } });
     if (!category) throw new NotFoundException('标签类别不存在');
-    return this.prisma.tagCategory.update({ where: { id }, data: dto });
+    return this.prisma.tagCategory.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
+      },
+    });
   }
 
   async deleteCategory(id: string) {

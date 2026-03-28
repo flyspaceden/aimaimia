@@ -56,8 +56,10 @@ export class CompanyService {
 
   /** 获取标签类别（含 active 标签），供前端选择器使用 */
   async listTagCategories(scope?: string) {
+    const validScopes = ['COMPANY', 'PRODUCT'];
+    const parsedScope = scope && validScopes.includes(scope) ? (scope as any) : undefined;
     return this.prisma.tagCategory.findMany({
-      where: scope ? { scope: scope as any } : undefined,
+      where: parsedScope ? { scope: parsedScope } : undefined,
       orderBy: { sortOrder: 'asc' },
       include: {
         tags: {

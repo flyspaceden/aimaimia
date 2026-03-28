@@ -8,10 +8,14 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, AI_SEARCH_KEYS } from './seller-company.dto';
 import { maskName, maskPhone } from '../../../common/security/privacy-mask';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
+import { CompanyService } from '../../company/company.service';
 
 @Injectable()
 export class SellerCompanyService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private companyService: CompanyService,
+  ) {}
 
   // ===================== 企业信息 =====================
 
@@ -184,29 +188,33 @@ export class SellerCompanyService {
   }
 
   async updateCompanyTags(companyId: string, tagIds: string[]) {
-    if (tagIds.length > 0) {
-      const tags = await this.prisma.tag.findMany({
-        where: { id: { in: tagIds } },
-        include: { category: { select: { scope: true } } },
-      });
-      const invalidTags = tags.filter(t => t.category.scope !== 'COMPANY');
-      if (invalidTags.length > 0) {
-        throw new BadRequestException(`以下标签不适用于企业：${invalidTags.map(t => t.name).join(', ')}`);
+    await this.prisma.$transaction(async (tx) => {
+      // 验证所有 tagIds 存在且 scope 为 COMPANY（在事务内确保一致性）
+      if (tagIds.length > 0) {
+        const tags = await tx.tag.findMany({
+          where: { id: { in: tagIds } },
+          include: { category: { select: { scope: true } } },
+        });
+        const invalidTags = tags.filter(t => t.category.scope !== 'COMPANY');
+        if (invalidTags.length > 0) {
+          throw new BadRequestException(`以下标签不适用于企业：${invalidTags.map(t => t.name).join(', ')}`);
+        }
+        if (tags.length !== tagIds.length) {
+          throw new BadRequestException('部分标签 ID 不存在');
+        }
       }
-      if (tags.length !== tagIds.length) {
-        throw new BadRequestException('部分标签 ID 不存在');
-      }
-    }
 
-    await this.prisma.$transaction([
-      this.prisma.companyTag.deleteMany({ where: { companyId } }),
-      ...(tagIds.length > 0
-        ? [this.prisma.companyTag.createMany({
-            data: tagIds.map(tagId => ({ companyId, tagId })),
-            skipDuplicates: true,
-          })]
-        : []),
-    ]);
+      await tx.companyTag.deleteMany({ where: { companyId } });
+      if (tagIds.length > 0) {
+        await tx.companyTag.createMany({
+          data: tagIds.map(tagId => ({ companyId, tagId })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    // 事务完成后失效缓存
+    this.companyService.invalidateListCache();
 
     return this.getCompanyTags(companyId);
   }

@@ -1,6 +1,14 @@
 import { IsString, IsOptional, IsInt, IsArray, IsEnum, IsBoolean, Min } from 'class-validator';
 import { TagScope } from '@prisma/client';
 
+// ===== Company Tag 关联 DTO =====
+
+export class SetCompanyTagsDto {
+  @IsArray()
+  @IsString({ each: true })
+  tagIds: string[];
+}
+
 // ===== TagCategory DTOs =====
 
 export class CreateTagCategoryDto {

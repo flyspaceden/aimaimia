@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { SellerCompanyService } from './seller-company.service';
 import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, UpdateHighlightsDto, AddDocumentDto, UpdateAiSearchProfileDto } from './seller-company.dto';
+import { SetCompanyTagsDto } from '../../admin/tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
 import { SellerRoleGuard, SellerRoles } from '../common/guards/seller-role.guard';
@@ -90,9 +91,9 @@ export class SellerCompanyController {
   @Put('tags')
   updateCompanyTags(
     @CurrentSeller('companyId') companyId: string,
-    @Body() body: { tagIds: string[] },
+    @Body() dto: SetCompanyTagsDto,
   ) {
-    return this.companyService.updateCompanyTags(companyId, body.tagIds);
+    return this.companyService.updateCompanyTags(companyId, dto.tagIds);
   }
 
   // ===================== 资质文件 =====================
