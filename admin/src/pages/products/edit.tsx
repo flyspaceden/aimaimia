@@ -22,6 +22,7 @@ import {
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import { getProduct, updateProduct, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
+import { getPublicTagCategories } from '@/api/tags';
 
 const { Text } = Typography;
 import { getTargetAuditLogs } from '@/api/audit';
@@ -51,6 +52,13 @@ export default function ProductEditPage() {
     queryKey: ['categories'],
     queryFn: getCategories,
   });
+
+  const { data: productTagCategories = [] } = useQuery({
+    queryKey: ['tag-categories-product'],
+    queryFn: () => getPublicTagCategories('PRODUCT'),
+  });
+  const productTagOptions = productTagCategories
+    .flatMap((cat: any) => (cat.tags || []).map((t: any) => ({ value: t.id, label: t.name })));
 
   // 获取该商品的审计日志
   const { data: auditLogs, isLoading: auditLoading } = useQuery({
@@ -116,6 +124,8 @@ export default function ProductEditPage() {
   const attrPairs = product.attributes && typeof product.attributes === 'object'
     ? Object.entries(product.attributes as Record<string, string>).map(([key, value]) => ({ key, value }))
     : [];
+
+  const initialTagIds = (product as any).tags?.map((t: any) => t.tag?.id || t.tagId) || [];
 
   // 商品规格表格列
   const skuColumns = [
@@ -259,6 +269,7 @@ export default function ProductEditPage() {
             originText,
             aiKeywords: product.aiKeywords || [],
             attributes: attrPairs,
+            tagIds: initialTagIds,
             // 语义字段
             flavorTags: (product as unknown as Record<string, unknown>).flavorTags as string[] | undefined,
             seasonalMonths: (product as unknown as Record<string, unknown>).seasonalMonths as number[] | undefined,
@@ -310,6 +321,15 @@ export default function ProductEditPage() {
               placeholder="输入后按回车添加"
               style={{ width: '100%' }}
               tokenSeparators={[',']}
+            />
+          </Form.Item>
+          <Form.Item label="商品标签" name="tagIds">
+            <Select
+              mode="multiple"
+              placeholder="请选择商品标签"
+              options={productTagOptions}
+              showSearch
+              optionFilterProp="label"
             />
           </Form.Item>
 

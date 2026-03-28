@@ -40,6 +40,7 @@ export const updateProduct = (id: string, data: {
   usageScenarios?: string[];
   dietaryTags?: string[];
   originRegion?: string;
+  tagIds?: string[];
 }): Promise<Product> =>
   client.put(`/admin/products/${id}`, data);
 
