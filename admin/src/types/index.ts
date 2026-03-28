@@ -379,10 +379,6 @@ export interface CompanyStaff {
 
 export interface AiSearchProfile {
   companyType: string | null;
-  industryTags: string[];
-  productKeywords: string[];
-  productFeatures: string[];
-  certifications: string[];
 }
 
 export const COMPANY_TYPE_OPTIONS = [

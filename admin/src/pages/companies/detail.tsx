@@ -171,7 +171,6 @@ export default function CompanyDetailPage() {
     try {
       await updateCompanyAiSearchProfile(id!, {
         companyType: values.companyType,
-        productKeywords: values.productKeywords || [],
       });
       // 收集所有标签 ID
       const allTagIds: string[] = [];
@@ -495,7 +494,6 @@ export default function CompanyDetailPage() {
             onFinish={handleUpdateAiSearchProfile}
             initialValues={{
               companyType: aiProfile?.companyType || undefined,
-              productKeywords: aiProfile?.productKeywords || [],
             }}
             layout="vertical"
             style={{ maxWidth: 600 }}
@@ -521,9 +519,6 @@ export default function CompanyDetailPage() {
                   />
                 </ProForm.Item>
               ))}
-            <ProForm.Item name="productKeywords" label="主营产品关键词">
-              <Select mode="tags" placeholder="输入后回车添加" />
-            </ProForm.Item>
           </ProForm>
         </Card>
       </PermissionGate>

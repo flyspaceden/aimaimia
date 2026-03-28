@@ -7,7 +7,7 @@ import { getCompany, updateCompany, getDocuments, addDocument, getAiSearchProfil
 import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
-import { COMPANY_TYPE_OPTIONS, SUPPLY_MODE_OPTIONS } from '@/types';
+import { COMPANY_TYPE_OPTIONS } from '@/types';
 import type { AiSearchProfile } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -83,9 +83,6 @@ export default function CompanySettingsPage() {
     try {
       await updateAiSearchProfile({
         companyType: values.companyType,
-        productKeywords: values.productKeywords || [],
-        serviceAreas: values.serviceAreas || [],
-        supplyModes: values.supplyModes || [],
       });
 
       // 提交动态标签
@@ -222,42 +219,6 @@ export default function CompanySettingsPage() {
               <Select
                 options={COMPANY_TYPE_OPTIONS}
                 placeholder="请选择企业类型"
-              />
-            </ProForm.Item>
-
-            <ProForm.Item
-              name="productKeywords"
-              label="主营产品关键词"
-              tooltip='输入后回车添加，如"蓝莓""有机五常大米"'
-            >
-              <Select
-                mode="tags"
-                placeholder="输入关键词后回车添加"
-                tokenSeparators={[',', '，']}
-              />
-            </ProForm.Item>
-
-            <ProForm.Item
-              name="serviceAreas"
-              label="服务地区"
-              rules={[{ required: true, message: '请输入至少一个服务地区' }]}
-              tooltip='输入后回车添加，如"湖北""武汉""武昌区"'
-            >
-              <Select
-                mode="tags"
-                placeholder="输入地区后回车添加"
-                tokenSeparators={[',', '，']}
-              />
-            </ProForm.Item>
-
-            <ProForm.Item
-              name="supplyModes"
-              label="供给方式"
-            >
-              <Select
-                mode="multiple"
-                options={SUPPLY_MODE_OPTIONS}
-                placeholder="请选择供给方式"
               />
             </ProForm.Item>
 

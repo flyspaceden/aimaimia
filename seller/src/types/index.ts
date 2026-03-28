@@ -237,12 +237,6 @@ export interface Company {
 
 export interface AiSearchProfile {
   companyType: string | null;
-  industryTags: string[];
-  productKeywords: string[];
-  serviceAreas: string[];
-  productFeatures: string[];
-  supplyModes: string[];
-  certifications: string[];
 }
 
 /** AI 搜索资料 — 枚举常量（与后端 seller-company.dto.ts 保持一致） */
@@ -254,10 +248,6 @@ export const COMPANY_TYPE_OPTIONS = [
   { value: 'factory', label: '工厂' },
   { value: 'store', label: '店铺' },
 ];
-
-export const SUPPLY_MODE_OPTIONS = [
-  '批发', '零售', '直供', '同城配送', '可预约考察',
-].map((v) => ({ value: v, label: v }));
 
 export interface CompanyDocument {
   id: string;
