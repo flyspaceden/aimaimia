@@ -8,12 +8,19 @@ export class CompanyService {
 
   constructor(private prisma: PrismaService) {}
 
-  /** 企业列表（3 分钟内存缓存，含每家企业 top 3 商品） */
-  async list() {
-    const cached = this.listCache.get('companies:all');
+  /** 企业列表（3 分钟内存缓存，含每家企业 top 8 商品） */
+  async list(tagId?: string) {
+    const cacheKey = tagId ? `companies:tag:${tagId}` : 'companies:all';
+    const cached = this.listCache.get(cacheKey);
     if (cached) return cached;
 
+    const where: any = {};
+    if (tagId) {
+      where.companyTags = { some: { tagId } };
+    }
+
     const companies = await this.prisma.company.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         profile: true,
@@ -50,7 +57,7 @@ export class CompanyService {
         defaultSkuId: p.skus[0]?.id ?? null,
       })),
     }));
-    this.listCache.set('companies:all', result);
+    this.listCache.set(cacheKey, result);
     return result;
   }
 
@@ -69,6 +76,33 @@ export class CompanyService {
         },
       },
     });
+  }
+
+  /** 获取发现页企业筛选配置（公开） */
+  async getDiscoveryFilters() {
+    const config = await this.prisma.ruleConfig.findUnique({
+      where: { key: 'DISCOVERY_COMPANY_FILTERS' },
+    });
+    if (!config || !Array.isArray(config.value)) return [];
+
+    const entries = config.value as Array<{ tagId: string; icon: string }>;
+    if (entries.length === 0) return [];
+
+    const tagIds = entries.map((e) => e.tagId);
+    const tags = await this.prisma.tag.findMany({
+      where: { id: { in: tagIds }, isActive: true },
+      select: { id: true, name: true },
+    });
+    const tagMap = new Map(tags.map((t) => [t.id, t.name]));
+
+    // 保持配置的顺序，过滤已删除/停用的标签
+    return entries
+      .filter((e) => tagMap.has(e.tagId))
+      .map((e) => ({
+        tagId: e.tagId,
+        label: tagMap.get(e.tagId)!,
+        icon: e.icon,
+      }));
   }
 
   /** 企业列表缓存失效（供管理端修改企业后调用） */

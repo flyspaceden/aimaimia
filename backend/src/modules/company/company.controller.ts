@@ -12,8 +12,8 @@ export class CompanyController {
 
   @Public()
   @Get()
-  list() {
-    return this.companyService.list();
+  list(@Query('tagId') tagId?: string) {
+    return this.companyService.list(tagId || undefined);
   }
 
   /** 公开接口：获取标签类别与标签选项 */
@@ -21,6 +21,13 @@ export class CompanyController {
   @Get('tag-categories')
   listTagCategories(@Query('scope') scope?: string) {
     return this.companyService.listTagCategories(scope);
+  }
+
+  /** 公开接口：获取发现页企业筛选配置 */
+  @Public()
+  @Get('discovery-filters')
+  getDiscoveryFilters() {
+    return this.companyService.getDiscoveryFilters();
   }
 
   @Public()
