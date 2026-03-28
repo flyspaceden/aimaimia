@@ -273,6 +273,8 @@ async function main() {
   // ============================================================
   // 商品（Product + ProductMedia + ProductSKU + Tag/ProductTag）
   // ============================================================
+  // 先清空所有 ProductTag 关联，后面各批次重新创建
+  await prisma.productTag.deleteMany({});
   const products = [
     {
       id: 'p-001',
@@ -444,8 +446,7 @@ async function main() {
     // 如果商品已存在，更新其图片
     await prisma.productMedia.updateMany({ where: { productId: p.id }, data: { url: p.image } });
 
-    // 创建 ProductTag 关联（先清空该商品的旧关联）
-    await prisma.productTag.deleteMany({ where: { productId: p.id } });
+    // 创建 ProductTag 关联
     const productTagCategory = await prisma.tagCategory.findUnique({ where: { code: 'product_tag' } });
     for (const tagName of p.tags) {
       const tag = await prisma.tag.findUnique({
