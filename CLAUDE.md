@@ -31,6 +31,12 @@
 - `docs/superpowers/plans/2026-03-24-merchant-onboarding.md` — 商户自助入驻实施计划（8 个任务、Schema/Captcha/公开API/管理端/前端/网站/联调，**商户入驻实施排程**）
 - `docs/superpowers/specs/2026-03-26-vip-multi-package-design.md` — VIP 多档位礼包设计方案（VipPackage 数据模型、多价格结账、按比例推荐奖励、管理后台档位管理、买家App档位选择，**VIP 多档位系统权威来源**）
 - `docs/superpowers/plans/2026-03-26-vip-multi-package.md` — VIP 多档位礼包实施计划（12 个任务、Schema/Seed/CRUD/结账/奖励/配置清理/管理前端/买家App，**VIP 多档位实施排程**）
+- `docs/superpowers/specs/2026-03-27-deferred-deep-link-design.md` — 延迟深度链接设计方案（推荐码全链路无感知传递、Cookie+指纹双层匹配、落地页、Universal Link、换绑逻辑、域名统一，**推荐码深度链接系统权威来源**）
+- `docs/superpowers/plans/2026-03-27-deferred-deep-link.md` — 延迟深度链接实施计划（13 个任务、Schema/后端模块/换绑/域名统一/网站落地页/App端匹配/部署配置，**推荐码深度链接实施排程**）
+- `docs/superpowers/specs/2026-03-27-configurable-tag-system-design.md` — 可配置标签系统设计方案（TagCategory+Tag+CompanyTag 数据模型、管理后台标签管理页、企业/商品标签动态配置、数据迁移策略，**标签系统权威来源**）
+- `docs/superpowers/plans/2026-03-27-configurable-tag-system.md` — 可配置标签系统实施计划（13 个任务、Schema/Seed/管理CRUD/公开API/企业标签/卖家标签/商品标签/管理前端/卖家前端/清理，**标签系统实施排程**）
+- `docs/superpowers/specs/2026-03-28-discovery-filter-design.md` — 发现页企业筛选栏动态化设计方案（配置数据模型、管理后台页面、App端动态加载、管理端商品标签编辑，**发现页筛选配置权威来源**）
+- `docs/superpowers/plans/2026-03-28-discovery-filter.md` — 发现页企业筛选栏动态化实施计划（8个任务、后端配置/公开API/管理前端/拖拽排序/App端动态化/Mock同步，**发现页筛选实施排程**）
 
 ## 关键架构决策
 
