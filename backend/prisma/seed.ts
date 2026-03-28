@@ -360,16 +360,45 @@ async function main() {
     },
   ];
 
-  // 先创建 Tag
-  const allTagNames = [...new Set(products.flatMap((p) => p.tags))];
-  for (const tagName of allTagNames) {
-    await prisma.tag.upsert({
-      where: { name: tagName },
-      update: {},
-      create: { name: tagName, type: 'PRODUCT' },
+  // ===== 标签类别与标签 =====
+  const tagCategories = [
+    {
+      code: 'company_badge', name: '企业徽章', scope: 'COMPANY' as const, sortOrder: 1,
+      tags: ['优选基地', '品质认证', '产地直供', '低碳种植'],
+    },
+    {
+      code: 'company_cert', name: '企业认证', scope: 'COMPANY' as const, sortOrder: 2,
+      tags: ['有机认证', '绿色食品', '地理标志', 'GAP认证', 'SC认证'],
+    },
+    {
+      code: 'industry', name: '行业标签', scope: 'COMPANY' as const, sortOrder: 3,
+      tags: ['水果', '蔬菜', '粮油', '肉禽', '水产', '茶叶', '蜂蜜', '乳制品'],
+    },
+    {
+      code: 'product_feature', name: '产品特色', scope: 'COMPANY' as const, sortOrder: 4,
+      tags: ['有机', '可溯源', '冷链', '认证'],
+    },
+    {
+      code: 'product_tag', name: '商品标签', scope: 'PRODUCT' as const, sortOrder: 5,
+      tags: ['可信溯源', '检测报告', '有机认证', '地理标志', '当季鲜采'],
+    },
+  ];
+
+  for (const cat of tagCategories) {
+    const category = await prisma.tagCategory.upsert({
+      where: { code: cat.code },
+      update: { name: cat.name, scope: cat.scope, sortOrder: cat.sortOrder },
+      create: { code: cat.code, name: cat.name, scope: cat.scope, sortOrder: cat.sortOrder },
     });
+    for (let i = 0; i < cat.tags.length; i++) {
+      await prisma.tag.upsert({
+        where: { name_categoryId: { name: cat.tags[i], categoryId: category.id } },
+        update: { sortOrder: i },
+        create: { name: cat.tags[i], categoryId: category.id, sortOrder: i },
+      });
+    }
   }
-  console.log(`✅ ${allTagNames.length} 个标签已创建`);
+  console.log('✅ 标签类别与标签已创建');
 
   for (const p of products) {
     // 创建商品 + SKU + 媒体（含成本价，用于分润计算）
@@ -408,8 +437,11 @@ async function main() {
     await prisma.productMedia.updateMany({ where: { productId: p.id }, data: { url: p.image } });
 
     // 创建 ProductTag 关联
+    const productTagCategory = await prisma.tagCategory.findUnique({ where: { code: 'product_tag' } });
     for (const tagName of p.tags) {
-      const tag = await prisma.tag.findUnique({ where: { name: tagName } });
+      const tag = await prisma.tag.findUnique({
+        where: { name_categoryId: { name: tagName, categoryId: productTagCategory!.id } },
+      });
       if (tag) {
         await prisma.productTag.upsert({
           where: { productId_tagId: { productId: p.id, tagId: tag.id } },
@@ -1334,9 +1366,6 @@ async function main() {
     // --- 抽奖系统 ---
     { key: 'LOTTERY_ENABLED', value: true, desc: '抽奖功能开关' },
     { key: 'LOTTERY_DAILY_CHANCES', value: 1, desc: '每日抽奖次数' },
-    // --- F5: 奖励过期可配置 ---
-    { key: 'VIP_REWARD_EXPIRY_DAYS', value: 30, desc: 'VIP用户奖励有效期（天）' },
-    { key: 'NORMAL_REWARD_EXPIRY_DAYS', value: 30, desc: '普通用户奖励有效期（天）' },
   ];
 
   for (const rc of ruleConfigs) {
@@ -1685,11 +1714,18 @@ async function main() {
   console.log('✅ VIP 奖励树演示数据扩充完成（9 个新节点 + 账户 + 流水）');
 
   // 5. 创建奖励账户和演示流水
-  // balance=68.50 可用，frozen=62.30（其中 12.30 VIP 冻结 + 50 提现冻结）
+  // 林青禾 VIP 奖励账户：balance=186.30 可用，frozen=47.60 待解锁
   const u001Account = await prisma.rewardAccount.upsert({
     where: { userId_type: { userId: 'u-001', type: 'VIP_REWARD' } },
-    update: { balance: 68.50, frozen: 62.30 },
-    create: { userId: 'u-001', type: 'VIP_REWARD', balance: 68.50, frozen: 62.30 },
+    update: { balance: 186.30, frozen: 47.60 },
+    create: { userId: 'u-001', type: 'VIP_REWARD', balance: 186.30, frozen: 47.60 },
+  });
+
+  // 林青禾 普通奖励账户
+  await prisma.rewardAccount.upsert({
+    where: { userId_type: { userId: 'u-001', type: 'NORMAL_REWARD' } },
+    update: { balance: 50.50, frozen: 12.00 },
+    create: { userId: 'u-001', type: 'NORMAL_REWARD', balance: 50.50, frozen: 12.00 },
   });
 
   const u002Account = await prisma.rewardAccount.upsert({
@@ -1735,28 +1771,173 @@ async function main() {
   await prisma.rewardLedger.deleteMany({
     where: { allocationId: demoAllocation.id },
   });
+
+  // 日期辅助
+  const daysAgo = (d: number) => new Date(Date.now() - d * 86400000);
+
   await prisma.rewardLedger.createMany({
     data: [
+      // ---- 林青禾 已到账奖励 ----
       {
         allocationId: demoAllocation.id,
         accountId: u001Account.id,
         userId: 'u-001',
         entryType: 'RELEASE',
-        amount: 30.00,
+        amount: 18.60,
         status: 'AVAILABLE',
         refType: 'ORDER',
         meta: { scheme: 'VIP_UPSTREAM', demo: true },
+        createdAt: daysAgo(1),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 50.00,
+        status: 'AVAILABLE',
+        refType: 'REFERRAL',
+        meta: { scheme: 'VIP_REFERRAL', sourceUserId: 'u-008', demo: true },
+        createdAt: daysAgo(3),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 9.30,
+        status: 'AVAILABLE',
+        refType: 'ORDER',
+        meta: { scheme: 'NORMAL_TREE', demo: true },
+        createdAt: daysAgo(5),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 24.50,
+        status: 'AVAILABLE',
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_UPSTREAM', demo: true },
+        createdAt: daysAgo(9),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 50.00,
+        status: 'AVAILABLE',
+        refType: 'REFERRAL',
+        meta: { scheme: 'VIP_REFERRAL', sourceUserId: 'u-005', demo: true },
+        createdAt: daysAgo(15),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 15.80,
+        status: 'AVAILABLE',
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_UPSTREAM', demo: true },
+        createdAt: daysAgo(19),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 6.20,
+        status: 'AVAILABLE',
+        refType: 'ORDER',
+        meta: { scheme: 'NORMAL_TREE', demo: true },
+        createdAt: daysAgo(22),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'RELEASE',
+        amount: 12.40,
+        status: 'AVAILABLE',
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_UPSTREAM', demo: true },
+        createdAt: daysAgo(35),
+      },
+
+      // ---- 林青禾 待解锁奖励（冻结） ----
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'FREEZE',
+        amount: 8.50,
+        status: 'FROZEN',
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_UPSTREAM', requiredLevel: 4, expiresAt: daysAgo(-24).toISOString(), demo: true },
+        createdAt: daysAgo(6),
       },
       {
         allocationId: demoAllocation.id,
         accountId: u001Account.id,
         userId: 'u-001',
         entryType: 'FREEZE',
-        amount: 12.30,
+        amount: 15.30,
         status: 'FROZEN',
         refType: 'ORDER',
-        meta: { scheme: 'VIP_UPSTREAM', requiredLevel: 4, demo: true },
+        meta: { scheme: 'VIP_UPSTREAM', requiredLevel: 6, expiresAt: daysAgo(-19).toISOString(), demo: true },
+        createdAt: daysAgo(11),
       },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'FREEZE',
+        amount: 5.20,
+        status: 'FROZEN',
+        refType: 'ORDER',
+        meta: { scheme: 'NORMAL_TREE', requiredLevel: 8, expiresAt: daysAgo(-3).toISOString(), demo: true },
+        createdAt: daysAgo(27),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'FREEZE',
+        amount: 18.60,
+        status: 'FROZEN',
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_UPSTREAM', requiredLevel: 10, expiresAt: daysAgo(-2).toISOString(), demo: true },
+        createdAt: daysAgo(28),
+      },
+
+      // ---- 林青禾 提现记录 ----
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'WITHDRAW',
+        amount: -100.00,
+        status: 'WITHDRAWN',
+        refType: 'WITHDRAW',
+        meta: { channel: 'WECHAT', demo: true },
+        createdAt: daysAgo(12),
+      },
+      {
+        allocationId: demoAllocation.id,
+        accountId: u001Account.id,
+        userId: 'u-001',
+        entryType: 'WITHDRAW',
+        amount: -50.00,
+        status: 'WITHDRAWN',
+        refType: 'WITHDRAW',
+        meta: { channel: 'ALIPAY', demo: true },
+        createdAt: daysAgo(27),
+      },
+
+      // ---- u-002 演示数据 ----
       {
         allocationId: demoAllocation.id,
         accountId: u002Account.id,
@@ -2270,8 +2451,11 @@ async function main() {
       await prisma.productMedia.updateMany({ where: { productId: p.id }, data: { url: moreProductImages[p.id] } });
     }
     // 关联标签
+    const ptCatMore = await prisma.tagCategory.findUnique({ where: { code: 'product_tag' } });
     for (const tagName of tags) {
-      const tag = await prisma.tag.findUnique({ where: { name: tagName } });
+      const tag = await prisma.tag.findUnique({
+        where: { name_categoryId: { name: tagName, categoryId: ptCatMore!.id } },
+      });
       if (tag) {
         await prisma.productTag.upsert({
           where: { productId_tagId: { productId: p.id, tagId: tag.id } },
@@ -3829,8 +4013,11 @@ async function main() {
         data: { url: productImages[p.id] },
       });
     }
+    const ptCat = await prisma.tagCategory.findUnique({ where: { code: 'product_tag' } });
     for (const tagName of tags) {
-      const tag = await prisma.tag.findUnique({ where: { name: tagName } });
+      const tag = await prisma.tag.findUnique({
+        where: { name_categoryId: { name: tagName, categoryId: ptCat!.id } },
+      });
       if (tag) {
         await prisma.productTag.upsert({
           where: { productId_tagId: { productId: p.id, tagId: tag.id } },
@@ -4046,8 +4233,11 @@ async function main() {
       where: { productId: p.id },
       data: { url: image },
     });
+    const ptCat2 = await prisma.tagCategory.findUnique({ where: { code: 'product_tag' } });
     for (const tagName of tags) {
-      const tag = await prisma.tag.findUnique({ where: { name: tagName } });
+      const tag = await prisma.tag.findUnique({
+        where: { name_categoryId: { name: tagName, categoryId: ptCat2!.id } },
+      });
       if (tag) {
         await prisma.productTag.upsert({
           where: { productId_tagId: { productId: p.id, tagId: tag.id } },
@@ -4236,6 +4426,34 @@ async function main() {
     await prisma.company.update({ where: { id: companyId }, data: { address } });
   }
   console.log('✅ 4 个旧企业地址已升级为结构化格式');
+
+  // ===== 企业标签关联（从 highlights 迁移） =====
+  const allCompanies = await prisma.company.findMany({ include: { profile: true } });
+  for (const company of allCompanies) {
+    const highlights = (company.profile?.highlights as any) || {};
+    const mapping: Record<string, string[]> = {
+      company_badge: highlights.badges || [],
+      company_cert: highlights.certifications || [],
+      industry: highlights.industryTags || [],
+      product_feature: highlights.productFeatures || [],
+    };
+    for (const [code, names] of Object.entries(mapping)) {
+      const category = await prisma.tagCategory.findUnique({ where: { code } });
+      if (!category) continue;
+      for (const name of names) {
+        let tag = await prisma.tag.findUnique({ where: { name_categoryId: { name, categoryId: category.id } } });
+        if (!tag) {
+          tag = await prisma.tag.create({ data: { name, categoryId: category.id } });
+        }
+        await prisma.companyTag.upsert({
+          where: { companyId_tagId: { companyId: company.id, tagId: tag.id } },
+          update: {},
+          create: { companyId: company.id, tagId: tag.id },
+        });
+      }
+    }
+  }
+  console.log('✅ 企业标签关联已创建');
 
   console.log('🌾 种子数据填充完成！');
 }
