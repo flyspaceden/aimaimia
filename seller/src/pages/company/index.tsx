@@ -83,12 +83,9 @@ export default function CompanySettingsPage() {
     try {
       await updateAiSearchProfile({
         companyType: values.companyType,
-        industryTags: values.industryTags || [],
         productKeywords: values.productKeywords || [],
         serviceAreas: values.serviceAreas || [],
-        productFeatures: values.productFeatures || [],
         supplyModes: values.supplyModes || [],
-        certifications: values.certifications || [],
       });
 
       // 提交动态标签

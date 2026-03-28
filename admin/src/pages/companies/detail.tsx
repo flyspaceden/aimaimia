@@ -48,7 +48,7 @@ import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import type { CompanyStaff, CompanyDocument, AiSearchProfile } from '@/types';
 import { COMPANY_TYPE_OPTIONS } from '@/types';
-import { getPublicTagCategories, getCompanyTags, updateCompanyTags, type TagCategory } from '@/api/tags';
+import { getPublicTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import dayjs from 'dayjs';
 
 const statusMap: Record<string, { text: string; color: string }> = {
@@ -194,10 +194,7 @@ export default function CompanyDetailPage() {
     try {
       await updateCompanyAiSearchProfile(id!, {
         companyType: values.companyType,
-        industryTags: values.industryTags || [],
         productKeywords: values.productKeywords || [],
-        productFeatures: values.productFeatures || [],
-        certifications: values.certifications || [],
       });
       // 收集所有标签 ID
       const allTagIds: string[] = [];
@@ -573,10 +570,7 @@ export default function CompanyDetailPage() {
             onFinish={handleUpdateAiSearchProfile}
             initialValues={{
               companyType: aiProfile?.companyType || undefined,
-              industryTags: aiProfile?.industryTags || [],
               productKeywords: aiProfile?.productKeywords || [],
-              productFeatures: aiProfile?.productFeatures || [],
-              certifications: aiProfile?.certifications || [],
             }}
             layout="vertical"
             style={{ maxWidth: 600 }}

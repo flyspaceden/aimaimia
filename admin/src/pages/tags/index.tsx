@@ -60,10 +60,10 @@ export default function TagManagementPage() {
 
   const deleteCategoryMut = useMutation({
     mutationFn: deleteTagCategory,
-    onSuccess: () => {
+    onSuccess: (_data, deletedId) => {
       message.success('类别已删除');
       queryClient.invalidateQueries({ queryKey: ['admin-tag-categories'] });
-      if (selectedCategory?.id === editingCategory?.id) setSelectedCategory(null);
+      if (selectedCategory?.id === deletedId) setSelectedCategory(null);
     },
     onError: (e: any) => message.error(e?.message || '删除失败'),
   });
