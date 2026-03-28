@@ -93,79 +93,81 @@ export class AdminProductsService {
     // 提取 tagIds，不传给 Prisma product.update
     const { tagIds, ...productData } = dto;
 
-    const updated = await this.prisma.product.update({
-      where: { id },
-      data: productData,
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.product.update({
+        where: { id },
+        data: productData,
+      });
 
-    // 更新商品标签关联
-    if (tagIds !== undefined) {
-      await this.prisma.productTag.deleteMany({ where: { productId: id } });
-      if (tagIds.length > 0) {
-        const tags = await this.prisma.tag.findMany({
-          where: { id: { in: tagIds }, isActive: true },
-          include: { category: { select: { scope: true } } },
-        });
-        const validTagIds = tags
-          .filter((t) => t.category.scope === 'PRODUCT')
-          .map((t) => t.id);
-        if (validTagIds.length > 0) {
-          await this.prisma.productTag.createMany({
-            data: validTagIds.map((tagId) => ({ productId: id, tagId })),
-            skipDuplicates: true,
+      // 更新商品标签关联
+      if (tagIds !== undefined) {
+        await tx.productTag.deleteMany({ where: { productId: id } });
+        if (tagIds.length > 0) {
+          const tags = await tx.tag.findMany({
+            where: { id: { in: tagIds }, isActive: true },
+            include: { category: { select: { scope: true } } },
           });
+          const validTagIds = tags
+            .filter((t) => t.category.scope === 'PRODUCT')
+            .map((t) => t.id);
+          if (validTagIds.length > 0) {
+            await tx.productTag.createMany({
+              data: validTagIds.map((tagId) => ({ productId: id, tagId })),
+              skipDuplicates: true,
+            });
+          }
         }
       }
-    }
 
-    // 记录运营（ops）提供的语义字段来源，写入 attributes.semanticMeta
-    const now = new Date().toISOString();
-    type OpsFieldMeta = { source: 'ops'; updatedAt: string };
-    const existingAttrs = (updated.attributes as Record<string, any>) || {};
-    const existingMeta = (existingAttrs.semanticMeta as Record<string, OpsFieldMeta>) || {};
+      // 记录运营（ops）提供的语义字段来源，写入 attributes.semanticMeta
+      const now = new Date().toISOString();
+      type OpsFieldMeta = { source: 'ops'; updatedAt: string };
+      const existingAttrs = (updated.attributes as Record<string, any>) || {};
+      const existingMeta = (existingAttrs.semanticMeta as Record<string, OpsFieldMeta>) || {};
 
-    if (dto.flavorTags !== undefined) {
-      if (dto.flavorTags.length > 0) {
-        existingMeta.flavorTags = { source: 'ops', updatedAt: now };
-      } else {
-        delete existingMeta.flavorTags;
+      if (dto.flavorTags !== undefined) {
+        if (dto.flavorTags.length > 0) {
+          existingMeta.flavorTags = { source: 'ops', updatedAt: now };
+        } else {
+          delete existingMeta.flavorTags;
+        }
       }
-    }
-    if (dto.seasonalMonths !== undefined) {
-      if (dto.seasonalMonths.length > 0) {
-        existingMeta.seasonalMonths = { source: 'ops', updatedAt: now };
-      } else {
-        delete existingMeta.seasonalMonths;
+      if (dto.seasonalMonths !== undefined) {
+        if (dto.seasonalMonths.length > 0) {
+          existingMeta.seasonalMonths = { source: 'ops', updatedAt: now };
+        } else {
+          delete existingMeta.seasonalMonths;
+        }
       }
-    }
-    if (dto.usageScenarios !== undefined) {
-      if (dto.usageScenarios.length > 0) {
-        existingMeta.usageScenarios = { source: 'ops', updatedAt: now };
-      } else {
-        delete existingMeta.usageScenarios;
+      if (dto.usageScenarios !== undefined) {
+        if (dto.usageScenarios.length > 0) {
+          existingMeta.usageScenarios = { source: 'ops', updatedAt: now };
+        } else {
+          delete existingMeta.usageScenarios;
+        }
       }
-    }
-    if (dto.dietaryTags !== undefined) {
-      if (dto.dietaryTags.length > 0) {
-        existingMeta.dietaryTags = { source: 'ops', updatedAt: now };
-      } else {
-        delete existingMeta.dietaryTags;
+      if (dto.dietaryTags !== undefined) {
+        if (dto.dietaryTags.length > 0) {
+          existingMeta.dietaryTags = { source: 'ops', updatedAt: now };
+        } else {
+          delete existingMeta.dietaryTags;
+        }
       }
-    }
-    if (dto.originRegion !== undefined) {
-      if (dto.originRegion) {
-        existingMeta.originRegion = { source: 'ops', updatedAt: now };
-      } else {
-        delete existingMeta.originRegion;
+      if (dto.originRegion !== undefined) {
+        if (dto.originRegion) {
+          existingMeta.originRegion = { source: 'ops', updatedAt: now };
+        } else {
+          delete existingMeta.originRegion;
+        }
       }
-    }
 
-    await this.prisma.product.update({
-      where: { id },
-      data: { attributes: { ...existingAttrs, semanticMeta: existingMeta } },
+      await tx.product.update({
+        where: { id },
+        data: { attributes: { ...existingAttrs, semanticMeta: existingMeta } },
+      });
+
+      return updated;
     });
-
-    return updated;
   }
 
   /** 上下架 */

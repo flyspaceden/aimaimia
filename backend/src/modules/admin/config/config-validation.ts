@@ -216,6 +216,18 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     min: 0,
     max: 100,
   },
+  VIP_REWARD_EXPIRY_DAYS: {
+    type: 'integer',
+    description: 'VIP 已释放奖励有效期（天）',
+    min: 1,
+    max: 365,
+  },
+  NORMAL_REWARD_EXPIRY_DAYS: {
+    type: 'integer',
+    description: '普通用户已释放奖励有效期（天）',
+    min: 1,
+    max: 365,
+  },
   VIP_FREE_SHIPPING_THRESHOLD: {
     type: 'number',
     description: 'VIP用户免运费门槛（元），0=无条件免运费',

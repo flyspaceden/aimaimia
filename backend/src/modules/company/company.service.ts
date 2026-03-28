@@ -107,7 +107,7 @@ export class CompanyService {
 
   /** 企业列表缓存失效（供管理端修改企业后调用） */
   invalidateListCache() {
-    this.listCache.invalidate('companies:all');
+    this.listCache.invalidatePrefix('companies:');
   }
 
   /** 企业详情 */
