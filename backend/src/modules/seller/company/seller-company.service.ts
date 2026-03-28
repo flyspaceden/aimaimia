@@ -155,6 +155,62 @@ export class SellerCompanyService {
     }, { isolationLevel: 'Serializable' });
   }
 
+  // ===================== 企业标签 =====================
+
+  async getCompanyTags(companyId: string) {
+    const companyTags = await this.prisma.companyTag.findMany({
+      where: { companyId },
+      include: {
+        tag: {
+          include: { category: { select: { id: true, name: true, code: true, scope: true } } },
+        },
+      },
+    });
+
+    const grouped: Record<string, { categoryId: string; categoryName: string; categoryCode: string; tags: { id: string; name: string }[] }> = {};
+    for (const ct of companyTags) {
+      const code = ct.tag.category.code;
+      if (!grouped[code]) {
+        grouped[code] = {
+          categoryId: ct.tag.category.id,
+          categoryName: ct.tag.category.name,
+          categoryCode: code,
+          tags: [],
+        };
+      }
+      grouped[code].tags.push({ id: ct.tag.id, name: ct.tag.name });
+    }
+    return Object.values(grouped);
+  }
+
+  async updateCompanyTags(companyId: string, tagIds: string[]) {
+    if (tagIds.length > 0) {
+      const tags = await this.prisma.tag.findMany({
+        where: { id: { in: tagIds } },
+        include: { category: { select: { scope: true } } },
+      });
+      const invalidTags = tags.filter(t => t.category.scope !== 'COMPANY');
+      if (invalidTags.length > 0) {
+        throw new BadRequestException(`以下标签不适用于企业：${invalidTags.map(t => t.name).join(', ')}`);
+      }
+      if (tags.length !== tagIds.length) {
+        throw new BadRequestException('部分标签 ID 不存在');
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.companyTag.deleteMany({ where: { companyId } }),
+      ...(tagIds.length > 0
+        ? [this.prisma.companyTag.createMany({
+            data: tagIds.map(tagId => ({ companyId, tagId })),
+            skipDuplicates: true,
+          })]
+        : []),
+    ]);
+
+    return this.getCompanyTags(companyId);
+  }
+
   // ===================== 资质文件 =====================
 
   /** 资质文件列表 */

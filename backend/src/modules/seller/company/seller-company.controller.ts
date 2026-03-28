@@ -75,6 +75,26 @@ export class SellerCompanyController {
     return this.companyService.updateAiSearchProfile(companyId, dto);
   }
 
+  // ===================== 企业标签 =====================
+
+  /** 获取企业标签 */
+  @SellerRoles('OWNER', 'MANAGER')
+  @Get('tags')
+  getCompanyTags(@CurrentSeller('companyId') companyId: string) {
+    return this.companyService.getCompanyTags(companyId);
+  }
+
+  /** 更新企业标签 */
+  @SellerAudit({ action: 'UPDATE_COMPANY_TAGS', module: 'company', targetType: 'Company' })
+  @SellerRoles('OWNER', 'MANAGER')
+  @Put('tags')
+  updateCompanyTags(
+    @CurrentSeller('companyId') companyId: string,
+    @Body() body: { tagIds: string[] },
+  ) {
+    return this.companyService.updateCompanyTags(companyId, body.tagIds);
+  }
+
   // ===================== 资质文件 =====================
 
   /** 资质文件列表 */
