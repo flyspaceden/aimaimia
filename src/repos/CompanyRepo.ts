@@ -66,6 +66,7 @@ export const CompanyRepo = {
       productCategory?: string;
       sortBy?: 'distance' | 'rating';
       includeTopProducts?: boolean;
+      tagId?: string;
     },
   ): Promise<Result<PaginationResult<Company>>> => {
     if (USE_MOCK) {
@@ -110,6 +111,23 @@ export const CompanyRepo = {
         );
       }
 
+      // 过滤：tagId — 匹配 certifications 或 industryTags
+      if (options?.tagId) {
+        const mockTagNames: Record<string, string> = {
+          'mock-cert-organic': '有机认证',
+          'mock-industry-fruit': '水果',
+          'mock-industry-tea': '茶叶',
+        };
+        const tagName = mockTagNames[options.tagId];
+        if (tagName) {
+          filtered = filtered.filter((company) =>
+            [...(company.certifications || []), ...(company.industryTags || [])].some(
+              (t) => t.includes(tagName),
+            ),
+          );
+        }
+      }
+
       // 排序：distance 按 distanceKm 升序
       if (sortBy === 'distance') {
         filtered = [...filtered].sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
@@ -132,7 +150,10 @@ export const CompanyRepo = {
 
     // 真实 API 模式
     // 后端可能返回数组 Company[] 或分页对象 { items, total, page, pageSize }
-    const res = await ApiClient.get<any>('/companies');
+    const params = new URLSearchParams();
+    if (options?.tagId) params.set('tagId', options.tagId);
+    const queryString = params.toString();
+    const res = await ApiClient.get<any>(`/companies${queryString ? `?${queryString}` : ''}`);
     if (res.ok) {
       const raw = res.data;
       // 兼容后端返回普通数组的情况：客户端做分页和筛选；排除平台公司
@@ -232,5 +253,21 @@ export const CompanyRepo = {
       `/companies/${companyId}/products`,
       { page: options?.page, pageSize: options?.pageSize, category: options?.category },
     );
+  },
+
+  /**
+   * 获取发现页企业筛选配置
+   * - 后端接口：`GET /api/v1/companies/discovery-filters`
+   */
+  getDiscoveryFilters: async (): Promise<Result<Array<{ tagId: string; label: string; icon: string }>>> => {
+    if (USE_MOCK) {
+      return simulateRequest([
+        { tagId: 'mock-cert-organic', label: '有机认证', icon: '🌿' },
+        { tagId: 'mock-industry-fruit', label: '水果', icon: '🍎' },
+        { tagId: 'mock-industry-tea', label: '茶叶', icon: '🍵' },
+      ]);
+    }
+
+    return ApiClient.get('/companies/discovery-filters');
   },
 };

@@ -23,7 +23,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { CompanyCard } from '../../src/components/cards';
 import { ProductCard } from '../../src/components/cards/ProductCard';
-import { EmptyState, ErrorState, Skeleton } from '../../src/components/feedback';
+import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { Screen } from '../../src/components/layout';
 import { AiBadge, AiDivider } from '../../src/components/ui';
 import { MapView } from '../../src/components/overlay/MapView';
@@ -54,18 +54,11 @@ const AI_RECOMMENDATIONS = [
   { productIndex: 3, reason: '限时产地直供，比市场价低 30%', monthlySales: 980 },
 ];
 
-// 企业筛选项
-const COMPANY_FILTERS: Array<{ label: string; value: string | null }> = [
-  { label: '全部', value: null },
-  { label: '🌿 有机认证', value: 'certified' },
-  { label: '🍎 水果', value: '水果' },
-  { label: '🍵 茶叶', value: '茶叶' },
-  { label: '📍 附近', value: 'nearby' },
-];
 
 export default function MuseumScreen() {
   const { colors, radius, spacing, shadow, typography } = useTheme();
   const router = useRouter();
+  const { show } = useToast();
 
   // 标签页与视图状态
   const [activeTab, setActiveTab] = useState<'products' | 'companies'>('products');
@@ -126,6 +119,28 @@ export default function MuseumScreen() {
     [categoriesQuery.data],
   );
 
+  // 企业筛选配置（10 分钟缓存）
+  const discoveryFiltersQuery = useQuery({
+    queryKey: ['discovery-company-filters'],
+    queryFn: () => CompanyRepo.getDiscoveryFilters(),
+    staleTime: 10 * 60_000,
+  });
+
+  // 企业筛选项：全部 + 后台配置 + 附近
+  const companyFilters = useMemo(() => {
+    const apiFilters = discoveryFiltersQuery.data?.ok
+      ? discoveryFiltersQuery.data.data
+      : [];
+    return [
+      { label: '全部', value: null as string | null },
+      ...apiFilters.map((f) => ({
+        label: `${f.icon} ${f.label}`,
+        value: f.tagId,
+      })),
+      { label: '📍 附近', value: 'nearby' },
+    ];
+  }, [discoveryFiltersQuery.data]);
+
   // 商品分页数据（无限滚动，60 秒缓存，支持分类筛选）
   const productsQuery = useInfiniteQuery({
     queryKey: ['products', 'discovery', selectedCategory],
@@ -148,10 +163,9 @@ export default function MuseumScreen() {
       CompanyRepo.list({
         page: pageParam,
         includeTopProducts: true,
-        ...(companyFilter === 'certified' ? { certified: true } : {}),
         ...(companyFilter === 'nearby' ? { sortBy: 'distance' as const } : {}),
-        ...(companyFilter && !['certified', 'nearby'].includes(companyFilter)
-          ? { productCategory: companyFilter }
+        ...(companyFilter && companyFilter !== 'nearby'
+          ? { tagId: companyFilter }
           : {}),
       }),
     getNextPageParam: (lastPage) => {
@@ -293,12 +307,15 @@ export default function MuseumScreen() {
               product={product}
               imageHeight={imageHeight}
               onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
-              onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
+              onAdd={(p) => {
+                addItem(p, 1, p.defaultSkuId, p.price);
+                show({ message: '已加入购物车', type: 'success' });
+              }}
             />
           </View>
         );
       }),
-    [router, addItem],
+    [router, addItem, show],
   );
 
   // 企业卡片渲染
@@ -313,14 +330,15 @@ export default function MuseumScreen() {
             onProductPress={(productId) =>
               router.push({ pathname: '/product/[id]', params: { id: productId } })
             }
-            onAddToCart={(product) =>
+            onAddToCart={(product) => {
               addItem(
                 { id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' },
                 1,
                 product.defaultSkuId,
                 product.price,
-              )
-            }
+              );
+              show({ message: '已加入购物车', type: 'success' });
+            }}
           />
         </View>
       );
@@ -355,17 +373,7 @@ export default function MuseumScreen() {
       <View style={[styles.titleRow, { paddingHorizontal: HORIZONTAL_PADDING }]}>
         <Text style={[typography.headingLg, { color: colors.text.primary }]}>发现</Text>
         <View style={styles.titleIcons}>
-          {/* 视图切换 */}
-          <Pressable
-            onPress={() => setViewMode((v) => (v === 'list' ? 'map' : 'list'))}
-            style={styles.iconBtn}
-          >
-            <MaterialCommunityIcons
-              name={viewMode === 'list' ? 'map-outline' : 'format-list-bulleted'}
-              size={22}
-              color={colors.text.secondary}
-            />
-          </Pressable>
+          {/* TODO: 地图/列表切换功能后续开发，暂时隐藏 */}
           {/* 购物车 */}
           <Pressable onPress={() => router.push('/cart')} style={styles.iconBtn}>
             <MaterialCommunityIcons name="cart-outline" size={22} color={colors.text.secondary} />
@@ -741,8 +749,13 @@ export default function MuseumScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       {StickyHeader}
 
+      {/* 标签页容器 — 绝对定位堆叠，两个标签页始终挂载且保持完整布局 */}
+      <View style={{ flex: 1 }}>
       {/* 商品标签页 */}
-      {activeTab === 'products' && <View style={{ flex: 1 }}>
+      <View
+        style={[StyleSheet.absoluteFill, { zIndex: activeTab === 'products' ? 1 : 0, backgroundColor: colors.background }]}
+        pointerEvents={activeTab === 'products' ? 'auto' : 'none'}
+      >
         <ScrollView
           style={{ flex: 1 }}
           refreshControl={
@@ -887,7 +900,10 @@ export default function MuseumScreen() {
                             onPress={(p) =>
                               router.push({ pathname: '/product/[id]', params: { id: p.id } })
                             }
-                            onAdd={(p) => addItem(p, 1, p.defaultSkuId, p.price)}
+                            onAdd={(p) => {
+                              addItem(p, 1, p.defaultSkuId, p.price);
+                              show({ message: '已加入购物车', type: 'success' });
+                            }}
                           />
                         </View>
                       ))}
@@ -969,10 +985,13 @@ export default function MuseumScreen() {
             </View>
           )}
         </ScrollView>
-      </View>}
+      </View>
 
       {/* 企业标签页 */}
-      {activeTab === 'companies' && <View style={{ flex: 1 }}>
+      <View
+        style={[StyleSheet.absoluteFill, { zIndex: activeTab === 'companies' ? 1 : 0, backgroundColor: colors.background }]}
+        pointerEvents={activeTab === 'companies' ? 'auto' : 'none'}
+      >
         <FlashList
           data={allCompanies}
           renderItem={renderCompanyItem}
@@ -993,11 +1012,11 @@ export default function MuseumScreen() {
                   { paddingHorizontal: HORIZONTAL_PADDING },
                 ]}
               >
-                {COMPANY_FILTERS.map((filter) => {
+                {companyFilters.map((filter) => {
                   const isActive = companyFilter === filter.value;
                   return (
                     <Pressable
-                      key={filter.label}
+                      key={filter.value ?? 'all'}
                       onPress={() => setCompanyFilter(filter.value)}
                       style={[
                         styles.filterChip,
@@ -1055,7 +1074,8 @@ export default function MuseumScreen() {
             )
           }
         />
-      </View>}
+      </View>
+      </View>
 
       <SearchOverlay visible={searchActive} onClose={() => setSearchActive(false)} />
     </Screen>
