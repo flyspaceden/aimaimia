@@ -18,7 +18,7 @@ export type Company = {
     lng: number;
   };
   distanceKm: number;
-  badges: string[];
+  badges: string[]; // @deprecated — 已合并到 certifications，保留向后兼容
   latestTestedAt?: string;
   groupTargetSize?: number;
   /** 后端新增字段 — 企业详情展示 */

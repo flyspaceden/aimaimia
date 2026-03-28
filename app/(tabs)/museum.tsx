@@ -634,7 +634,7 @@ export default function MuseumScreen() {
                   >
                     {selectedMapCompany.name}
                   </Text>
-                  {selectedMapCompany.badges?.[0] && (
+                  {selectedMapCompany.certifications?.[0] && (
                     <View
                       style={[
                         styles.mapCardBadge,
@@ -646,7 +646,7 @@ export default function MuseumScreen() {
                       ]}
                     >
                       <Text style={[typography.captionSm, { color: colors.brand.primary }]}>
-                        {selectedMapCompany.badges[0]}
+                        {selectedMapCompany.certifications[0]}
                       </Text>
                     </View>
                   )}

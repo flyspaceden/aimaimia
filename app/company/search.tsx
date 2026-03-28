@@ -75,7 +75,7 @@ const buildCompanySearchIndex = (company: any) => {
       .join(' '),
   );
   const description = normalizeCompanySearchText(company.description || '');
-  const badges = normalizeCompanySearchText((company.badges || []).join(' '));
+  const badges = normalizeCompanySearchText((company.certifications || []).join(' '));
   const industryTags = (company.industryTags || []).map(normalizeCompanySearchText).join(' ');
   const productFeatures = (company.productFeatures || []).map(normalizeCompanySearchText).join(' ');
   const certifications = (company.certifications || []).map(normalizeCompanySearchText).join(' ');

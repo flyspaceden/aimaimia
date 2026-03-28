@@ -18,10 +18,8 @@ type CompanyCardProps = {
 export const CompanyCard = React.memo(({ company, onPress, onProductPress, onAddToCart }: CompanyCardProps) => {
   const { colors, radius, spacing, typography } = useTheme();
 
-  // 认证标签：优先使用 certifications，回退到 badges
-  const badges = company.certifications && company.certifications.length > 0
-    ? company.certifications
-    : company.badges;
+  // 认证标签：统一使用 certifications
+  const badges = company.certifications ?? [];
 
   const topProducts = company.topProducts ?? [];
   const hasProducts = topProducts.length > 0;

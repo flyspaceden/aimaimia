@@ -405,7 +405,7 @@ export default function SearchScreen() {
     const tokens = buildSearchTokens(searchTerm, isVoiceSource);
     if (tokens.length === 0) return companies;
     return companies.filter((c) => {
-      const haystack = normalizeSearchText([c.name, c.mainBusiness, c.location, c.badges.join(' ')].join(' '));
+      const haystack = normalizeSearchText([c.name, c.mainBusiness, c.location, (c.certifications || []).join(' ')].join(' '));
       return tokens.some((t) => haystack.includes(t));
     });
   }, [companies, hasTextQuery, searchTerm, isVoiceSource]);
@@ -614,7 +614,7 @@ export default function SearchScreen() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.xs }}>
-                    {company.badges.slice(0, 3).map((badge) => (
+                    {(company.certifications || []).slice(0, 3).map((badge) => (
                       <Tag key={`${company.id}-${badge}`} label={badge} tone="brand" style={{ marginRight: 6 }} />
                     ))}
                   </View>

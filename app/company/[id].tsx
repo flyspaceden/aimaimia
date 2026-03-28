@@ -37,9 +37,11 @@ const parseDateTime = (date: string, time: string) => new Date(`${date}T${time}`
 // 四标签页定义（图标 + 文字纵向排列）
 const TABS = [
   { key: 'products', label: '商品', icon: 'cart-outline' as const },
-  { key: 'events', label: '活动预约', icon: 'calendar-clock' as const },
+  // TODO: 活动预约功能后续开发，暂时隐藏
+  // { key: 'events', label: '活动预约', icon: 'calendar-clock' as const },
   { key: 'profile', label: '企业档案', icon: 'file-document-outline' as const },
-  { key: 'group', label: '组团', icon: 'account-group-outline' as const },
+  // TODO: 组团功能后续开发，暂时隐藏
+  // { key: 'group', label: '组团', icon: 'account-group-outline' as const },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -407,9 +409,9 @@ export default function CompanyDetailScreen() {
       </View>
 
       {/* 3. 徽章行 */}
-      {company.badges.length > 0 ? (
+      {(company.certifications || []).length > 0 ? (
         <View style={[styles.tagRow, { paddingHorizontal: spacing.xl }]}>
-          {company.badges.map((badge, index) => (
+          {(company.certifications || []).map((badge, index) => (
             <Tag
               key={`${company.id}-${badge}-${index}`}
               label={badge}
@@ -772,16 +774,10 @@ export default function CompanyDetailScreen() {
           已通过多项品质与产地认证，支持产地溯源。
         </Text>
         <View style={styles.certTagRow}>
-          {company.badges.map((badge, index) => (
+          {(company.certifications || []).map((badge, index) => (
             <View key={`cert-${company.id}-${badge}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', marginRight: spacing.md, marginBottom: spacing.sm }}>
               <MaterialCommunityIcons name="check-circle" size={14} color={colors.brand.primary} style={{ marginRight: spacing.xs }} />
               <Text style={[typography.bodySm, { color: colors.text.primary }]}>{badge}</Text>
-            </View>
-          ))}
-          {(company.certifications ?? []).map((cert, index) => (
-            <View key={`cert-detail-${index}`} style={{ flexDirection: 'row', alignItems: 'center', marginRight: spacing.md, marginBottom: spacing.sm }}>
-              <MaterialCommunityIcons name="check-circle" size={14} color={colors.brand.primary} style={{ marginRight: spacing.xs }} />
-              <Text style={[typography.bodySm, { color: colors.text.primary }]}>{cert}</Text>
             </View>
           ))}
         </View>
@@ -1200,9 +1196,10 @@ export default function CompanyDetailScreen() {
       >
         {renderHeaderContent()}
 
-        {activeTab === 'events' ? renderEventsTab() : null}
+        {/* TODO: 活动预约和组团功能后续开发，暂时隐藏 */}
+        {/* {activeTab === 'events' ? renderEventsTab() : null} */}
         {activeTab === 'profile' ? renderProfileTab() : null}
-        {activeTab === 'group' ? renderGroupTab() : null}
+        {/* {activeTab === 'group' ? renderGroupTab() : null} */}
       </ScrollView>
       {renderBottomSheets()}
     </Screen>
