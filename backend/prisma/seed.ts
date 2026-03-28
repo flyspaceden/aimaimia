@@ -444,7 +444,8 @@ async function main() {
     // 如果商品已存在，更新其图片
     await prisma.productMedia.updateMany({ where: { productId: p.id }, data: { url: p.image } });
 
-    // 创建 ProductTag 关联
+    // 创建 ProductTag 关联（先清空该商品的旧关联）
+    await prisma.productTag.deleteMany({ where: { productId: p.id } });
     const productTagCategory = await prisma.tagCategory.findUnique({ where: { code: 'product_tag' } });
     for (const tagName of p.tags) {
       const tag = await prisma.tag.findUnique({
@@ -3811,7 +3812,11 @@ async function main() {
     const { highlights, contact, ...companyData } = c;
     await prisma.company.upsert({
       where: { id: c.id },
-      update: {},
+      update: {
+        ...companyData,
+        contact,
+        profile: { upsert: { update: { highlights }, create: { highlights } } },
+      },
       create: {
         ...companyData,
         contact,
@@ -4435,7 +4440,8 @@ async function main() {
   }
   console.log('✅ 4 个旧企业地址已升级为结构化格式');
 
-  // ===== 企业标签关联（从 highlights 迁移） =====
+  // ===== 企业标签关联（从 highlights 迁移，先清空再创建） =====
+  await prisma.companyTag.deleteMany({});
   const allCompanies = await prisma.company.findMany({ include: { profile: true } });
   for (const company of allCompanies) {
     const highlights = (company.profile?.highlights as any) || {};
