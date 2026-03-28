@@ -28,8 +28,6 @@ import {
   CloseCircleOutlined,
   UserAddOutlined,
   EditOutlined,
-  PlusOutlined,
-  MinusCircleOutlined,
 } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import {
@@ -38,8 +36,6 @@ import {
   auditCompany,
   getCompanyStaff,
   bindCompanyOwner,
-  getCompanyHighlights,
-  updateCompanyHighlights,
   verifyDocument,
   getCompanyAiSearchProfile,
   updateCompanyAiSearchProfile,
@@ -99,12 +95,6 @@ export default function CompanyDetailPage() {
   const { data: staffList, isLoading: staffLoading } = useQuery({
     queryKey: ['admin', 'company-staff', id],
     queryFn: () => getCompanyStaff(id!),
-    enabled: !!id,
-  });
-
-  const { data: highlights, refetch: refetchHighlights } = useQuery({
-    queryKey: ['admin', 'company-highlights', id],
-    queryFn: () => getCompanyHighlights(id!),
     enabled: !!id,
   });
 
@@ -177,19 +167,6 @@ export default function CompanyDetailPage() {
     }
   };
 
-  const handleUpdateHighlights = async (values: { highlights: Array<{ key: string; value: string }> }) => {
-    try {
-      const obj = Object.fromEntries(
-        (values.highlights || []).filter((p) => p.key && p.value).map((p) => [p.key, p.value]),
-      );
-      await updateCompanyHighlights(id!, obj);
-      message.success('企业亮点已更新');
-      refetchHighlights();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '更新失败');
-    }
-  };
-
   const handleUpdateAiSearchProfile = async (values: Record<string, any>) => {
     try {
       await updateCompanyAiSearchProfile(id!, {
@@ -246,17 +223,6 @@ export default function CompanyDetailPage() {
   };
   const contact = company.contact as Record<string, string> | null;
   const addressText = (company.address as Record<string, any>)?.text || '';
-  // 过滤 AI 搜索结构化字段，避免数组值污染亮点表单
-  const AI_SEARCH_KEYS = [
-    'companyType', 'industryTags', 'productKeywords',
-    'productFeatures', 'certifications', 'mainBusiness', 'badges',
-  ];
-  const filteredHighlights = highlights && typeof highlights === 'object'
-    ? Object.entries(highlights as Record<string, any>).filter(([k]) => !AI_SEARCH_KEYS.includes(k))
-    : [];
-  const highlightPairs = filteredHighlights.length > 0
-    ? filteredHighlights.map(([key, value]) => ({ key, value: typeof value === 'string' ? value : '' }))
-    : [{ key: '主营产品', value: '' }, { key: '认证资质', value: '' }, { key: '特色优势', value: '' }];
 
   const hasOwner = staffList?.some((s: CompanyStaff) => s.role === 'OWNER');
 
@@ -516,47 +482,6 @@ export default function CompanyDetailPage() {
           </div>
         </>)}
       </Card>
-
-      {/* 企业亮点 */}
-      <Divider orientation="left">企业亮点</Divider>
-      <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-        <Card title="企业亮点" style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 12, color: '#666' }}>
-            企业亮点用于展示在企业主页和 AI 搜索推荐
-          </div>
-          <Form
-            onFinish={handleUpdateHighlights}
-            initialValues={{ highlights: highlightPairs }}
-            style={{ maxWidth: 600 }}
-          >
-            <Form.List name="highlights">
-              {(fields, { add, remove }) => (
-                <>
-                  {fields.map((field) => (
-                    <Space key={field.key} align="start" style={{ display: 'flex', marginBottom: 8 }}>
-                      <Form.Item {...field} name={[field.name, 'key']} rules={[{ required: true, message: '项目' }]}>
-                        <Input placeholder="如：主营产品" style={{ width: 140 }} />
-                      </Form.Item>
-                      <Form.Item {...field} name={[field.name, 'value']} rules={[{ required: true, message: '内容' }]}>
-                        <Input placeholder="如：有机五常大米、东北黑木耳" style={{ width: 340 }} />
-                      </Form.Item>
-                      {fields.length > 1 && (
-                        <MinusCircleOutlined style={{ marginTop: 8, color: '#999' }} onClick={() => remove(field.name)} />
-                      )}
-                    </Space>
-                  ))}
-                  <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} style={{ marginBottom: 16 }}>
-                    添加亮点
-                  </Button>
-                </>
-              )}
-            </Form.List>
-            <Form.Item>
-              <Button type="primary" htmlType="submit">保存亮点</Button>
-            </Form.Item>
-          </Form>
-        </Card>
-      </PermissionGate>
 
       {/* AI 搜索资料 */}
       <Divider orientation="left">AI 搜索资料</Divider>
