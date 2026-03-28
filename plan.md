@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划
 
-> 项目状态：阶段一 ✅ / 阶段二 ✅ / 阶段三 ✅ / 阶段四 ✅ / 阶段五 买家 App UI ✅ / 阶段六 卖家系统 ✅ / 性能优化 ✅ / UI 增强 ✅ / 阶段七 普通用户分润奖励系统改造 ✅ / 全系统审查修复（9 轮）✅ / 阶段八 平台红包系统 ✅ / **当前：阶段九 第三方服务** / 阶段十 部署
+> 项目状态：阶段一 ✅ / 阶段二 ✅ / 阶段三 ✅ / 阶段四 ✅ / 阶段五 买家 App UI ✅ / 阶段六 卖家系统 ✅ / 性能优化 ✅ / UI 增强 ✅ / 阶段七 普通用户分润奖励系统改造 ✅ / 全系统审查修复（9 轮）✅ / 阶段八 平台红包系统 ✅ / **当前：阶段九 第三方服务** / 阶段十 商户入驻 ✅ + 推荐码深度链接 ✅（代码完成，待部署真机验证）+ 部署上线 ⬜
 
 ## 系统架构
 
@@ -1705,6 +1705,41 @@ npm install wechatpay-node-v3 alipay-sdk ali-oss @alicloud/dysmsapi20170525 @ali
 
 ---
 
+## 待规划：地理位置服务（IP 定位 + 可选 GPS）
+
+> 状态：待设计。为"附近"筛选、AI 语音搜索、同城配送等场景提供位置能力。
+
+### 核心方案
+
+- **默认 IP 定位（无需授权）**：后端根据请求 IP 判断用户所在城市/省份，自动匹配企业服务区域
+- **可选 GPS 精准定位**：用户主动点击"精准定位"时请求 `expo-location` 权限，获取经纬度后按距离排序
+
+### 功能覆盖
+
+| 场景 | 定位方式 | 说明 |
+|------|----------|------|
+| 发现页"附近"筛选 | IP 定位 → 按城市匹配；GPS 开启后 → 按距离排序 | 当前"附近"按钮为空壳 |
+| AI 语音"附近的商品/公司" | 复用位置服务，意图识别到"附近"时自动注入坐标 | 需与 ai.service.ts 联动 |
+| 企业服务区域匹配 | IP 定位城市 → 匹配企业 `service_area` 标签 | 无需 GPS |
+| 同城配送判断 | IP 或 GPS → 与企业 `supply_mode` 标签联动 | 按需 |
+
+### 技术要点
+
+| 模块 | 内容 |
+|------|------|
+| 后端 IP 定位 | 高德 IP 定位 API（或纯真 IP 库），从请求头获取 IP → 返回城市/省份/经纬度 |
+| 后端距离计算 | 企业需有真实经纬度；Haversine 公式或 PostGIS 计算距离排序 |
+| App 定位 | `expo-location` 权限请求 + 定位结果缓存（Zustand store） |
+| AI 集成 | 意图识别增加 `location` 槽位，搜索时注入用户坐标 |
+| 企业坐标 | 种子数据 / 商户入驻时填写地址自动地理编码（高德地理编码 API） |
+
+### 依赖
+
+- 高德 Web API Key（阶段九第三批已规划）
+- `expo-location` 包安装
+
+---
+
 ## 阶段十：生产部署（远期）
 
 - 服务器选型（阿里云 ECS / AWS）
@@ -1792,7 +1827,58 @@ npm install wechatpay-node-v3 alipay-sdk ali-oss @alicloud/dysmsapi20170525 @ali
 - 实施计划：`docs/superpowers/plans/2026-03-24-merchant-onboarding.md`
 - 部署手册：`deployment.md`
 
-### 10.2 部署上线 ⬜
+### 10.2 推荐码延迟深度链接系统 ✅ 代码完成 / ⬜ 待真机验证（2026-03-27）
+
+> 推荐码从扫码到注册的全链路无感知传递（Cookie 为主 + 指纹匹配兜底）
+
+**后端实现 ✅**
+
+| 模块 | 说明 | 状态 |
+|------|------|------|
+| DeferredDeepLink 模型 | Prisma 模型 + 迁移 + 3 个索引 | ✅ |
+| DeferredLinkService | create/resolve/match/cleanupExpired（每日 3:00 清理过期记录） | ✅ |
+| DeferredLinkController | 3 个 @Public 限流端点（POST create / GET resolve / POST match） | ✅ |
+| useReferralCode 换绑 | VIP 前允许更换推荐人，Serializable 事务内检查 | ✅ |
+| 并发安全 | resolve/match 事务原子操作，cookieId 加密安全随机数 | ✅ |
+| API 测试（22 项） | create/resolve/match/DTO 校验/绑定/换绑/幂等/VIP 锁定/微信 UA 归一化 | ✅ |
+
+**网站落地页 ✅**
+
+| 页面 | 说明 | 状态 |
+|------|------|------|
+| Download.tsx（/r/:code + /download） | 指纹采集 + Cookie 存储 + 微信引导遮罩 + 平台检测 | ✅ |
+| Resolve.tsx（/resolve） | Cookie 读取 + scheme 回传给 App | ✅ |
+| App.tsx 路由 | BrowserRouter + 落地页隐藏 Navbar/Footer | ✅ |
+| .well-known 文件 | apple-app-site-association + assetlinks.json（TEAM_ID 待部署时替换） | ✅ |
+
+**App 端 ✅**
+
+| 模块 | 说明 | 状态 |
+|------|------|------|
+| deferredLink.ts | AsyncStorage 暂存 + 指纹兜底匹配 + URL 提取 | ✅ |
+| _layout.tsx | Universal Link 拦截 + 首次启动 Cookie/指纹双层匹配 | ✅ |
+| useAuthStore.ts | 注册/登录后自动绑定 pending 推荐码 | ✅ |
+| 域名统一 | nongmai.app → app.xn--ckqa175y.com（app.json + referral + scanner + me） | ✅ |
+| app.json | iOS associatedDomains + Android intentFilters 配置 | ✅ |
+
+**⬜ 待部署后真机验证**
+
+| # | 验证项 | 前置条件 |
+|---|--------|---------|
+| 1 | 落地页在 `app.爱买买.com` 正常显示 | 域名 DNS + Nginx + SSL |
+| 2 | `.well-known` 文件可访问（替换真实 TEAM_ID / SHA256） | 同上 |
+| 3 | iOS Safari 扫码 → Universal Link 唤起 App | App 签名 + associatedDomains |
+| 4 | Android Chrome 扫码 → App Link 唤起 App | App 签名 + assetlinks |
+| 5 | 微信扫码 → 落地页 → "在浏览器中打开" 引导 | 落地页部署 |
+| 6 | 未装 App → 落地页 → 下载 → 首次启动 → Cookie 匹配推荐码 | 全链路 |
+| 7 | 未装 App（微信）→ 落地页 → 下载 → 首次启动 → 指纹匹配推荐码 | 全链路 |
+| 8 | 注册成功后自动绑定推荐关系 | 全链路 |
+
+相关文档：
+- 设计方案：`docs/superpowers/specs/2026-03-27-deferred-deep-link-design.md`
+- 实施计划：`docs/superpowers/plans/2026-03-27-deferred-deep-link.md`
+
+### 10.3 部署上线 ⬜
 
 > 详见 `deployment.md`，以下为执行清单
 
@@ -1800,15 +1886,17 @@ npm install wechatpay-node-v3 alipay-sdk ali-oss @alicloud/dysmsapi20170525 @ali
 |---|------|------|------|
 | 1 | 购买云服务器（2核4G） | ⬜ | 阿里云/腾讯云 ECS |
 | 2 | 安装环境（Node.js/PostgreSQL/Redis/Nginx/PM2） | ⬜ | |
-| 3 | 域名 DNS 配置（@/seller/admin/api → 服务器 IP） | ⬜ | 爱买买.com 子域名 |
-| 4 | SSL 证书（certbot 一键申请） | ⬜ | |
+| 3 | 域名 DNS 配置（@/app/seller/admin → 服务器 IP） | ⬜ | 爱买买.com 五个子域 |
+| 4 | SSL 证书（certbot 一键申请，含 app.爱买买.com） | ⬜ | |
 | 5 | 部署后端（.env 配置 + prisma migrate + PM2 启动） | ⬜ | |
 | 6 | 部署管理后台（npm run build + Nginx 静态托管） | ⬜ | admin.爱买买.com |
 | 7 | 部署企业系统（npm run build + Nginx 静态托管） | ⬜ | seller.爱买买.com |
-| 8 | 部署官网（npm run build 或继续 GitHub Pages） | ⬜ | 爱买买.com |
-| 9 | 联调验证（全链路跑通） | ⬜ | |
+| 8 | 部署官网（npm run build + Nginx 静态托管） | ⬜ | 爱买买.com |
+| 9 | 部署 App 落地页（npm run build + Nginx + .well-known） | ⬜ | app.爱买买.com |
+| 10 | 推荐系统真机验证（10.2 待验证项） | ⬜ | 依赖 #9 完成 |
+| 11 | 联调验证（全链路跑通） | ⬜ | |
 
-### 10.3 后续功能 ⬜
+### 10.4 后续功能 ⬜
 
 | # | 功能 | 优先级 | 说明 |
 |---|------|--------|------|
