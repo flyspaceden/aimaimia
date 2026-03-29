@@ -1,8 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { UploadOutlined, HolderOutlined } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates,
+  useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { getCompany, updateCompany, getDocuments, addDocument, getAiSearchProfile, updateAiSearchProfile } from '@/api/company';
 import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import useAuthStore from '@/store/useAuthStore';
@@ -29,6 +38,36 @@ const DOC_TYPES = [
   { value: 'OTHER', label: '其他' },
 ];
 
+// 可拖拽排序的认证标签项
+function SortableTagItem({ id, name, onRemove }: { id: string; name: string; onRemove: (id: string) => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        ...style,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 8px',
+        marginBottom: 2,
+        background: '#fafafa',
+        borderRadius: 4,
+        border: '1px solid #f0f0f0',
+      }}
+    >
+      <HolderOutlined {...attributes} {...listeners} style={{ cursor: 'grab', color: '#999' }} />
+      <span style={{ flex: 1, fontSize: 13 }}>{name}</span>
+      <span onClick={() => onRemove(id)} style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}>✕</span>
+    </div>
+  );
+}
+
 export default function CompanySettingsPage() {
   const queryClient = useQueryClient();
   const hasRole = useAuthStore((s) => s.hasRole);
@@ -38,6 +77,9 @@ export default function CompanySettingsPage() {
   const [docForm] = Form.useForm();
   const [docLoading, setDocLoading] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+
+  // 企业认证标签有序列表（单独维护，支持拖拽排序）
+  const [certTagOrder, setCertTagOrder] = useState<string[]>([]);
 
   const { data: company, isLoading } = useQuery({
     queryKey: ['seller-company'],
@@ -69,12 +111,51 @@ export default function CompanySettingsPage() {
 
   const [aiForm] = Form.useForm();
 
-  // 当企业标签数据加载后，填充标签表单字段
+  // 当企业标签数据加载后，填充标签表单字段，并初始化认证标签顺序
   useEffect(() => {
     for (const group of companyTagGroups) {
-      aiForm.setFieldValue(`tag_${group.categoryCode}`, group.tags.map(t => t.id));
+      const ids = group.tags.map(t => t.id);
+      aiForm.setFieldValue(`tag_${group.categoryCode}`, ids);
+      // 保留认证标签的排序（后端返回时已按 sortOrder 排序）
+      if (group.categoryCode === 'company_cert') {
+        setCertTagOrder(ids);
+      }
     }
   }, [companyTagGroups, aiForm]);
+
+  // dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // 拖拽结束：更新认证标签顺序，同步到表单
+  const handleCertDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = certTagOrder.indexOf(active.id as string);
+    const newIndex = certTagOrder.indexOf(over.id as string);
+    const newOrder = arrayMove(certTagOrder, oldIndex, newIndex);
+    setCertTagOrder(newOrder);
+    aiForm.setFieldValue('tag_company_cert', newOrder);
+  };
+
+  // 认证标签下拉选择变更：保留顺序，新增追加到末尾
+  const handleCertSelectChange = (selectedIds: string[]) => {
+    // 保留已有顺序中仍被选中的项，再追加新选中项
+    const kept = certTagOrder.filter(id => selectedIds.includes(id));
+    const added = selectedIds.filter(id => !certTagOrder.includes(id));
+    const newOrder = [...kept, ...added];
+    setCertTagOrder(newOrder);
+    aiForm.setFieldValue('tag_company_cert', newOrder);
+  };
+
+  // 从认证列表中移除某个标签
+  const handleCertRemove = (id: string) => {
+    const newOrder = certTagOrder.filter(tagId => tagId !== id);
+    setCertTagOrder(newOrder);
+    aiForm.setFieldValue('tag_company_cert', newOrder);
+  };
 
   const [aiSaving, setAiSaving] = useState(false);
 
@@ -85,13 +166,15 @@ export default function CompanySettingsPage() {
         companyType: values.companyType,
       });
 
-      // 提交动态标签
-      const allTagIds: string[] = [];
+      // 提交动态标签：认证标签放在最前，确保 sortOrder 保留排序
+      const certIds = aiForm.getFieldValue('tag_company_cert') || certTagOrder;
+      const otherIds: string[] = [];
       for (const cat of tagCategories) {
+        if (cat.code === 'company_cert') continue;
         const fieldValue = aiForm.getFieldValue(`tag_${cat.code}`) || [];
-        allTagIds.push(...fieldValue);
+        otherIds.push(...fieldValue);
       }
-      await updateCompanyTags(allTagIds);
+      await updateCompanyTags([...certIds, ...otherIds]);
 
       message.success('AI 搜索资料已更新');
       queryClient.invalidateQueries({ queryKey: ['seller-ai-search-profile'] });
@@ -137,6 +220,13 @@ export default function CompanySettingsPage() {
     } finally {
       setDocLoading(false);
     }
+  };
+
+  // 根据标签 ID 查找标签名称（用于拖拽列表显示）
+  const getCertTagName = (id: string): string => {
+    const certCat = tagCategories.find(c => c.code === 'company_cert');
+    const tag = certCat?.tags.find(t => t.id === id);
+    return tag?.name ?? id;
   };
 
   if (isLoading || !company) {
@@ -225,21 +315,76 @@ export default function CompanySettingsPage() {
             {/* 动态标签分类（从后端加载，替代硬编码的主营品类/产品特征/认证资质） */}
             {tagCategories
               .filter(cat => cat.code !== 'product_tag')
-              .map(cat => (
-                <ProForm.Item
-                  key={cat.code}
-                  name={`tag_${cat.code}`}
-                  label={cat.name}
-                >
-                  <Select
-                    mode="multiple"
-                    placeholder={`请选择${cat.name}`}
-                    options={cat.tags.map(t => ({ value: t.id, label: t.name }))}
-                    showSearch
-                    optionFilterProp="label"
-                  />
-                </ProForm.Item>
-              ))}
+              .map(cat => {
+                // 企业认证分类：Select + 可拖拽排序列表
+                if (cat.code === 'company_cert') {
+                  return (
+                    <ProForm.Item
+                      key={cat.code}
+                      name={`tag_${cat.code}`}
+                      label={cat.name}
+                    >
+                      <div>
+                        {/* 下拉选择（添加/移除认证） */}
+                        <Select
+                          mode="multiple"
+                          placeholder={`请选择${cat.name}`}
+                          options={cat.tags.map(t => ({ value: t.id, label: t.name }))}
+                          showSearch
+                          optionFilterProp="label"
+                          value={certTagOrder}
+                          onChange={handleCertSelectChange}
+                          style={{ width: '100%', marginBottom: 8 }}
+                        />
+                        {/* 可拖拽排序列表 */}
+                        {certTagOrder.length > 0 && (
+                          <>
+                            <DndContext
+                              sensors={sensors}
+                              collisionDetection={closestCenter}
+                              onDragEnd={handleCertDragEnd}
+                            >
+                              <SortableContext
+                                items={certTagOrder}
+                                strategy={verticalListSortingStrategy}
+                              >
+                                {certTagOrder.map(id => (
+                                  <SortableTagItem
+                                    key={id}
+                                    id={id}
+                                    name={getCertTagName(id)}
+                                    onRemove={handleCertRemove}
+                                  />
+                                ))}
+                              </SortableContext>
+                            </DndContext>
+                            <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                              拖拽调整顺序，前 2 个将显示在企业卡片上
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </ProForm.Item>
+                  );
+                }
+
+                // 其他标签分类：普通多选
+                return (
+                  <ProForm.Item
+                    key={cat.code}
+                    name={`tag_${cat.code}`}
+                    label={cat.name}
+                  >
+                    <Select
+                      mode="multiple"
+                      placeholder={`请选择${cat.name}`}
+                      options={cat.tags.map(t => ({ value: t.id, label: t.name }))}
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </ProForm.Item>
+                );
+              })}
           </ProForm>
         </Card>
       )}
