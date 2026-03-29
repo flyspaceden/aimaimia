@@ -358,6 +358,15 @@ async function main() {
     },
   ];
 
+  // ===== 清理已废弃的标签类别 =====
+  const deprecatedCategory = await prisma.tagCategory.findUnique({ where: { code: 'company_badge' } });
+  if (deprecatedCategory) {
+    await prisma.companyTag.deleteMany({ where: { tag: { categoryId: deprecatedCategory.id } } });
+    await prisma.tag.deleteMany({ where: { categoryId: deprecatedCategory.id } });
+    await prisma.tagCategory.delete({ where: { id: deprecatedCategory.id } });
+    console.log('  🗑️ 已清理废弃的 company_badge 标签类别');
+  }
+
   // ===== 标签类别与标签 =====
   const tagCategories = [
     {
