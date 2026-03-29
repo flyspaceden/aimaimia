@@ -4454,6 +4454,7 @@ async function main() {
       industry: highlights.industryTags || [],
       product_feature: highlights.productFeatures || [],
     };
+    let tagSortOrder = 0;
     for (const [code, names] of Object.entries(mapping)) {
       const category = await prisma.tagCategory.findUnique({ where: { code } });
       if (!category) continue;
@@ -4464,9 +4465,10 @@ async function main() {
         }
         await prisma.companyTag.upsert({
           where: { companyId_tagId: { companyId: company.id, tagId: tag.id } },
-          update: {},
-          create: { companyId: company.id, tagId: tag.id },
+          update: { sortOrder: tagSortOrder },
+          create: { companyId: company.id, tagId: tag.id, sortOrder: tagSortOrder },
         });
+        tagSortOrder++;
       }
     }
   }

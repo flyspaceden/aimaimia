@@ -25,6 +25,7 @@ export class CompanyService {
       include: {
         profile: true,
         companyTags: {
+          orderBy: { sortOrder: 'asc' },
           include: { tag: { include: { category: { select: { code: true } } } } },
         },
         products: {
@@ -122,6 +123,7 @@ export class CompanyService {
       include: {
         profile: true,
         companyTags: {
+          orderBy: { sortOrder: 'asc' },
           include: { tag: { include: { category: { select: { code: true } } } } },
         },
       },

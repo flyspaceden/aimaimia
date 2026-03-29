@@ -124,6 +124,7 @@ export class SellerCompanyService {
   async getCompanyTags(companyId: string) {
     const companyTags = await this.prisma.companyTag.findMany({
       where: { companyId },
+      orderBy: { sortOrder: 'asc' },
       include: {
         tag: {
           include: { category: { select: { id: true, name: true, code: true, scope: true } } },
@@ -167,7 +168,7 @@ export class SellerCompanyService {
       await tx.companyTag.deleteMany({ where: { companyId } });
       if (tagIds.length > 0) {
         await tx.companyTag.createMany({
-          data: tagIds.map(tagId => ({ companyId, tagId })),
+          data: tagIds.map((tagId, index) => ({ companyId, tagId, sortOrder: index })),
           skipDuplicates: true,
         });
       }
