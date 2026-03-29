@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
 import { UploadOutlined, HolderOutlined } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
@@ -129,7 +129,7 @@ export default function CompanySettingsPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // 拖拽结束：更新认证标签顺序，同步到表单
+  // 拖拽结束：更新认证标签顺序，同步到表单，自动保存
   const handleCertDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -138,30 +138,38 @@ export default function CompanySettingsPage() {
     const newOrder = arrayMove(certTagOrder, oldIndex, newIndex);
     setCertTagOrder(newOrder);
     aiForm.setFieldValue('tag_company_cert', newOrder);
+    autoSave();
   };
 
-  // 认证标签下拉选择变更：保留顺序，新增追加到末尾
+  // 认证标签下拉选择变更：保留顺序，新增追加到末尾，自动保存
   const handleCertSelectChange = (selectedIds: string[]) => {
-    // 保留已有顺序中仍被选中的项，再追加新选中项
     const kept = certTagOrder.filter(id => selectedIds.includes(id));
     const added = selectedIds.filter(id => !certTagOrder.includes(id));
     const newOrder = [...kept, ...added];
     setCertTagOrder(newOrder);
     aiForm.setFieldValue('tag_company_cert', newOrder);
+    autoSave();
   };
 
-  // 从认证列表中移除某个标签
+  // 从认证列表中移除某个标签，自动保存
   const handleCertRemove = (id: string) => {
     const newOrder = certTagOrder.filter(tagId => tagId !== id);
     setCertTagOrder(newOrder);
     aiForm.setFieldValue('tag_company_cert', newOrder);
+    autoSave();
   };
 
-  const [aiSaving, setAiSaving] = useState(false);
+  // 防抖自动保存
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedAutoSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => autoSave(), 800);
+  }, [tagCategories, certTagOrder]);
 
-  const handleUpdateAiSearchProfile = async (values: Record<string, any>) => {
-    setAiSaving(true);
+  // 自动保存：收集当前所有字段并提交
+  const autoSave = async () => {
     try {
+      const values = aiForm.getFieldsValue();
       await updateAiSearchProfile({
         companyType: values.companyType,
       });
@@ -176,14 +184,12 @@ export default function CompanySettingsPage() {
       }
       await updateCompanyTags([...certIds, ...otherIds]);
 
-      message.success('AI 搜索资料已更新');
+      message.success('已自动保存');
       queryClient.invalidateQueries({ queryKey: ['seller-ai-search-profile'] });
       queryClient.invalidateQueries({ queryKey: ['seller-company'] });
       queryClient.invalidateQueries({ queryKey: ['seller-company-tags'] });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '更新失败');
-    } finally {
-      setAiSaving(false);
+      message.error(err instanceof Error ? err.message : '保存失败');
     }
   };
 
@@ -293,13 +299,13 @@ export default function CompanySettingsPage() {
           </div>
           <ProForm
             form={aiForm}
-            onFinish={handleUpdateAiSearchProfile}
+            onFinish={autoSave}
             initialValues={aiProfile || {}}
-            loading={aiSaving}
             layout="vertical"
             style={{ maxWidth: 600 }}
             key={JSON.stringify(aiProfile)}
-            submitter={{ searchConfig: { submitText: '保存搜索资料' } }}
+            submitter={false}
+            onValuesChange={() => debouncedAutoSave()}
           >
             <ProForm.Item
               name="companyType"
