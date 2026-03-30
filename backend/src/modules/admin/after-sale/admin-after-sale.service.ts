@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentService } from '../../payment/payment.service';
+import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import {
@@ -33,6 +34,7 @@ export class AdminAfterSaleService {
   constructor(
     private prisma: PrismaService,
     private paymentService: PaymentService,
+    private afterSaleRewardService: AfterSaleRewardService,
   ) {}
 
   // ========== 列表查询 ==========
@@ -328,11 +330,11 @@ export class AdminAfterSaleService {
                 request.afterSaleType === 'QUALITY_RETURN';
 
               if (isReturnType) {
-                // 退货退款：货物已在卖家，直接触发退款
+                // 退货退款：货物已在卖家，直接触发退款（跳过 APPROVED 中间态）
                 const cas = await tx.afterSaleRequest.updateMany({
                   where: { id, status: currentStatus },
                   data: {
-                    status: 'APPROVED',
+                    status: 'REFUNDING',
                     arbitrationSource: currentStatus,
                     reviewerId: adminUserId,
                     reviewNote: dto.reason,
@@ -442,16 +444,21 @@ export class AdminAfterSaleService {
       },
     });
 
-    // 更新售后状态为退款中，关联退款记录
+    // 关联退款记录；如果调用方已将状态设为 REFUNDING 则只更新 refundId
+    const current = await tx.afterSaleRequest.findUnique({
+      where: { id: request.id },
+      select: { status: true },
+    });
     await tx.afterSaleRequest.update({
       where: { id: request.id },
       data: {
-        status: 'REFUNDING',
+        ...(current?.status !== 'REFUNDING' ? { status: 'REFUNDING' } : {}),
         refundId: refund.id,
       },
     });
 
     // 事务提交后异步调用支付退款（占位实现）
+    const capturedOrderId = request.orderId;
     setImmediate(async () => {
       try {
         const result = await this.paymentService.initiateRefund(
@@ -471,6 +478,14 @@ export class AdminAfterSaleService {
               providerRefundId: result.providerRefundId,
             },
           });
+          // 退款成功后触发奖励归平台
+          await this.afterSaleRewardService
+            .voidRewardsForOrder(capturedOrderId)
+            .catch((voidErr: any) => {
+              this.logger.error(
+                `管理员仲裁退款后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
+              );
+            });
         }
         // 退款失败则保持 REFUNDING 状态，由补偿任务重试
       } catch (err) {

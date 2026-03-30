@@ -294,9 +294,9 @@ export class BonusAllocationService {
           .filter((l: any) => l.status !== 'VOIDED');
 
         if (nonVoidedLedgers.length > 0) {
-          // 仅回滚可逆状态（AVAILABLE/FROZEN）。WITHDRAWN 等状态保留，后续走追缴流程。
+          // 仅回滚可逆状态（AVAILABLE/FROZEN/RETURN_FROZEN）。WITHDRAWN 等状态保留，后续走追缴流程。
           const reversibleLedgers = nonVoidedLedgers.filter((l: any) =>
-            l.status === 'AVAILABLE' || l.status === 'FROZEN',
+            l.status === 'AVAILABLE' || l.status === 'FROZEN' || l.status === 'RETURN_FROZEN',
           );
           const withdrawnLedgers = nonVoidedLedgers.filter((l: any) => l.status === 'WITHDRAWN');
 
@@ -312,13 +312,14 @@ export class BonusAllocationService {
             await tx.rewardLedger.updateMany({
               where: {
                 id: { in: ledgerIds },
-                status: { in: ['AVAILABLE', 'FROZEN'] }, // S18修复：限定来源状态
+                status: { in: ['AVAILABLE', 'FROZEN', 'RETURN_FROZEN'] }, // S18修复：限定来源状态
               },
               data: { status: 'VOIDED', entryType: 'VOID' },
             });
           }
 
           // 2. 按 accountId 聚合 AVAILABLE 和 FROZEN 金额
+          // RETURN_FROZEN 未计入 RewardAccount（对用户不可见），无需扣减账户
           const availableByAccount = new Map<string, number>();
           const frozenByAccount = new Map<string, number>();
           for (const ledger of nonVoidedLedgers) {
@@ -333,6 +334,7 @@ export class BonusAllocationService {
                 (frozenByAccount.get((ledger as any).accountId) ?? 0) + (ledger as any).amount,
               );
             }
+            // RETURN_FROZEN: 已作废但无需扣减账户（分配时未计入 frozen）
           }
 
           // 3. 每个 account 一次 balance decrement

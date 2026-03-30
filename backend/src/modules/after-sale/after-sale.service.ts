@@ -21,6 +21,7 @@ import {
   AFTER_SALE_CONFIG_KEYS,
   ACTIVE_STATUSES,
 } from './after-sale.constants';
+import { AfterSaleRewardService } from './after-sale-reward.service';
 
 // 允许申请售后的订单状态
 const AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED', 'DELIVERED', 'RECEIVED'];
@@ -43,7 +44,10 @@ const MAX_RETRIES = 3;
 export class AfterSaleService {
   private readonly logger = new Logger(AfterSaleService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private afterSaleRewardService: AfterSaleRewardService,
+  ) {}
 
   /**
    * 构造理由文本（与 replacement.service.ts 保持一致）
@@ -439,7 +443,17 @@ export class AfterSaleService {
             },
           });
 
-          // TODO: 换货完成后触发奖励归平台（将在 Task 6 中接入）
+          // 换货完成后异步触发奖励归平台（不阻塞主事务）
+          const capturedOrderId = request.orderId;
+          setImmediate(() => {
+            this.afterSaleRewardService
+              .voidRewardsForOrder(capturedOrderId)
+              .catch((err: any) => {
+                this.logger.error(
+                  `换货完成后奖励归平台失败: orderId=${capturedOrderId}, error=${err?.message}`,
+                );
+              });
+          });
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

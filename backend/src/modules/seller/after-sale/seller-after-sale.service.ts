@@ -15,6 +15,7 @@ import {
 } from '../../../common/security/privacy-mask';
 import { SellerShippingService } from '../shipping/seller-shipping.service';
 import { PaymentService } from '../../payment/payment.service';
+import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 
 /** P2034 序列化冲突重试次数 */
@@ -32,6 +33,7 @@ export class SellerAfterSaleService {
     private configService: ConfigService,
     private shippingService: SellerShippingService,
     private paymentService: PaymentService,
+    private afterSaleRewardService: AfterSaleRewardService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -1119,6 +1121,7 @@ export class SellerAfterSaleService {
     // 事务提交后异步调用支付退款（占位实现）
     // 注意：PaymentService.initiateRefund 是幂等的占位方法
     // 实际生产中应使用消息队列异步触发
+    const capturedOrderId = request.orderId;
     setImmediate(async () => {
       try {
         const result = await this.paymentService.initiateRefund(
@@ -1138,6 +1141,14 @@ export class SellerAfterSaleService {
               providerRefundId: result.providerRefundId,
             },
           });
+          // 退款成功后触发奖励归平台
+          await this.afterSaleRewardService
+            .voidRewardsForOrder(capturedOrderId)
+            .catch((voidErr: any) => {
+              this.logger.error(
+                `退款成功后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
+              );
+            });
         }
         // 退款失败则保持 REFUNDING 状态，由补偿任务重试
       } catch (err) {
