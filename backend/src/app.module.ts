@@ -34,6 +34,7 @@ import { InvoiceModule } from './modules/invoice/invoice.module';
 import { CaptchaModule } from './modules/captcha/captcha.module';
 import { MerchantApplicationModule } from './modules/merchant-application/merchant-application.module';
 import { DeferredLinkModule } from './modules/deferred-link/deferred-link.module';
+import { AfterSaleModule } from './modules/after-sale/after-sale.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { InfraModule } from './common/infra/infra.module';
@@ -82,6 +83,7 @@ import { InfraModule } from './common/infra/infra.module';
     CaptchaModule,
     MerchantApplicationModule,
     DeferredLinkModule,
+    AfterSaleModule,
   ],
   providers: [
     // 全局 JWT 守卫：所有端点默认需要认证，用 @Public() 装饰器豁免
