@@ -41,8 +41,8 @@ const menuRoutes: ProLayoutProps['route'] = {
     // 退款记录暂时隐藏，当前售后以换货为主，后续需要时恢复
     // { path: '/refunds', name: '退款记录', icon: <RollbackOutlined /> },
     {
-      path: '/replacements',
-      name: '换货管理',
+      path: '/after-sale',
+      name: '售后管理',
       icon: <SwapOutlined />,
     },
     {
@@ -111,7 +111,7 @@ export default function SellerLayout() {
 
   return (
     <ProLayout
-      title="农脉卖家中心"
+      title="爱买买卖家中心"
       logo={null}
       layout="mix"
       fixSiderbar
@@ -169,7 +169,7 @@ export default function SellerLayout() {
       }}
       footerRender={() => (
         <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12 }}>
-          农脉卖家中心 &copy; 2026
+          爱买买卖家中心 &copy; 2026
         </div>
       )}
     >
