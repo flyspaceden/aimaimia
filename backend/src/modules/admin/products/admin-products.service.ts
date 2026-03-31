@@ -39,7 +39,7 @@ export class AdminProductsService {
         orderBy: { createdAt: 'desc' },
         include: {
           company: { select: { id: true, name: true, status: true } },
-          category: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true, returnPolicy: true } },
           skus: { select: { id: true, price: true, cost: true, stock: true } },
           media: { select: { url: true }, take: 1 },
         },

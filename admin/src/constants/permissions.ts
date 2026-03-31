@@ -72,9 +72,13 @@ export const PERMISSIONS = {
   SHIPPING_UPDATE: 'shipping:update',
   SHIPPING_DELETE: 'shipping:delete',
 
-  // 换货仲裁
+  // 换货仲裁（旧，兼容保留）
   REPLACEMENTS_READ: 'replacements:read',
   REPLACEMENTS_ARBITRATE: 'replacements:arbitrate',
+
+  // 统一售后仲裁
+  AFTER_SALE_READ: 'after-sale:read',
+  AFTER_SALE_ARBITRATE: 'after-sale:arbitrate',
 
   // 红包（平台红包/优惠券）
   COUPON_READ: 'coupon:read',

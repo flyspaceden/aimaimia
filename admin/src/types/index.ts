@@ -224,7 +224,7 @@ export interface Product {
   description: string | null;
   basePrice: number;
   categoryId: string | null;
-  category?: { id: string; name: string } | null;
+  category?: { id: string; name: string; returnPolicy?: string } | null;
   origin: Record<string, any> | null;
   attributes: Record<string, any> | null;
   aiKeywords: string[];
