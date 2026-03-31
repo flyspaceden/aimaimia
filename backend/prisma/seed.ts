@@ -1376,6 +1376,15 @@ async function main() {
     // --- 抽奖系统 ---
     { key: 'LOTTERY_ENABLED', value: true, desc: '抽奖功能开关' },
     { key: 'LOTTERY_DAILY_CHANCES', value: 1, desc: '每日抽奖次数' },
+    // --- 售后系统 ---
+    { key: 'RETURN_WINDOW_DAYS', value: 7, desc: '无理由退货窗口（天）' },
+    { key: 'NORMAL_RETURN_DAYS', value: 7, desc: '普通退货窗口（天）' },
+    { key: 'FRESH_RETURN_HOURS', value: 24, desc: '生鲜退货窗口（小时）' },
+    { key: 'RETURN_NO_SHIP_THRESHOLD', value: 50, desc: '免退货退款金额门槛（元）' },
+    { key: 'SELLER_REVIEW_TIMEOUT_DAYS', value: 3, desc: '卖家审核超时（天）' },
+    { key: 'BUYER_SHIP_TIMEOUT_DAYS', value: 7, desc: '买家退货寄回超时（天）' },
+    { key: 'SELLER_RECEIVE_TIMEOUT_DAYS', value: 7, desc: '卖家签收退货超时（天）' },
+    { key: 'BUYER_CONFIRM_TIMEOUT_DAYS', value: 7, desc: '买家确认收货超时（天）' },
   ];
 
   for (const rc of ruleConfigs) {

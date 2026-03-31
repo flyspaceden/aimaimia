@@ -191,8 +191,12 @@ export async function getConfigValue(
 
   if (!config) return fallback;
 
-  // RuleConfig.value 是 Json 类型，可能直接是数字或包装在对象中
-  const val = config.value;
+  // RuleConfig.value 是 Json 类型
+  // 可能的格式：直接数字、字符串数字、或 { value: xxx, description: xxx } 对象
+  const raw = config.value;
+  const val = (typeof raw === 'object' && raw !== null && (raw as any).value !== undefined)
+    ? (raw as any).value
+    : raw;
   if (typeof val === 'number') return val;
   if (typeof val === 'string') {
     const parsed = Number(val);
