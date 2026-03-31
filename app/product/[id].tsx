@@ -271,6 +271,10 @@ export default function ProductDetailScreen() {
                 </View>
               )}
               </View>
+              {/* 退换货政策提示（TODO: 待后端 product API 返回 returnPolicy 字段后按实际值判断） */}
+              <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: spacing.sm, fontSize: 11 }]}>
+                支持7天无理由退换 · 质量问题可申请售后
+              </Text>
             </View>
           </Animated.View>
 

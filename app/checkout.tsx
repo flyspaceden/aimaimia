@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,7 +15,8 @@ import { AiDivider } from '../src/components/ui/AiDivider';
 import { GiftCoverImage } from '../src/components/cards';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
-import { AddressRepo, BonusRepo, OrderRepo } from '../src/repos';
+import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
+import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
@@ -55,6 +56,14 @@ export default function CheckoutScreen() {
   const [remark, setRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  // 退换货政策协议弹窗状态
+  const [policyModalVisible, setPolicyModalVisible] = useState(false);
+  const [policyChecked, setPolicyChecked] = useState(false);
+  const [policyAgreeing, setPolicyAgreeing] = useState(false);
+  // 记录本次会话内是否已同意（避免弹窗后再次弹窗）
+  const [localAgreed, setLocalAgreed] = useState(false);
+  // 待执行的结算函数（同意政策后触发）
+  const pendingCheckoutRef = useRef<(() => void) | null>(null);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
   const idempotencyKeyRef = useRef(`ik_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
 
@@ -98,6 +107,14 @@ export default function CheckoutScreen() {
   const selectedAddress = storeAddressId
     ? addresses.find((a) => a.id === storeAddressId)
     : addresses.find((a) => a.isDefault) ?? addresses[0];
+
+  // 用户资料（用于判断是否已同意退换货政策）
+  const { data: profileData } = useQuery({
+    queryKey: ['me-profile'],
+    queryFn: () => UserRepo.profile(),
+    enabled: isLoggedIn,
+  });
+  const hasAgreedReturnPolicy = localAgreed || (profileData?.ok ? profileData.data.hasAgreedReturnPolicy : false);
 
   // N09修复：调用预结算接口获取服务端计算结果
   const { data: previewData, isError: previewError, isLoading: previewLoading } = useQuery({
@@ -213,6 +230,38 @@ export default function CheckoutScreen() {
     }
   };
 
+  // 退换货政策协议：同意后调用后端并继续结算
+  const handleAgreePolicy = async () => {
+    setPolicyAgreeing(true);
+    try {
+      const result = await AfterSaleRepo.agreePolicy();
+      if (!result.ok) {
+        show({ message: '确认失败，请重试', type: 'error' });
+        return;
+      }
+      setLocalAgreed(true);
+      setPolicyModalVisible(false);
+      setPolicyChecked(false);
+      await queryClient.invalidateQueries({ queryKey: ['me-profile'] });
+      // 执行之前被拦截的结算操作
+      if (pendingCheckoutRef.current) {
+        const fn = pendingCheckoutRef.current;
+        pendingCheckoutRef.current = null;
+        fn();
+      }
+    } finally {
+      setPolicyAgreeing(false);
+    }
+  };
+
+  // 政策拦截：首次结算时弹窗
+  const ensurePolicyAgreed = (onProceed: () => void): boolean => {
+    if (hasAgreedReturnPolicy) return true;
+    pendingCheckoutRef.current = onProceed;
+    setPolicyModalVisible(true);
+    return false;
+  };
+
   const handleCheckout = async () => {
     if (previewPending) {
       show({ message: '价格校验中，请稍候再提交', type: 'warning' });
@@ -222,6 +271,8 @@ export default function CheckoutScreen() {
       show({ message: '请先选择收货地址', type: 'warning' });
       return;
     }
+    // 退换货政策拦截：未同意则弹窗，同意后自动重新触发
+    if (!ensurePolicyAgreed(handleCheckout)) return;
     if (submitting) return;
     setSubmitting(true);
     try {
@@ -307,6 +358,8 @@ export default function CheckoutScreen() {
       router.push('/checkout-address');
       return;
     }
+    // 退换货政策拦截（VIP 同样需要）
+    if (!ensurePolicyAgreed(handleVipCheckout)) return;
     if (submitting) return;
     setSubmitting(true);
     try {
@@ -837,6 +890,104 @@ export default function CheckoutScreen() {
         )
       )}
 
+      {/* 退换货政策协议弹窗 */}
+      <Modal
+        visible={policyModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPolicyModalVisible(false);
+          pendingCheckoutRef.current = null;
+        }}
+      >
+        <View style={policyStyles.overlay}>
+          <View style={[policyStyles.container, { backgroundColor: colors.surface, borderRadius: radius.xl }]}>
+            {/* 标题 */}
+            <View style={policyStyles.header}>
+              <MaterialCommunityIcons name="shield-check-outline" size={22} color={colors.brand.primary} />
+              <Text style={[typography.title3, { color: colors.text.primary, marginLeft: spacing.sm }]}>
+                退换货规则
+              </Text>
+            </View>
+
+            {/* 政策内容 */}
+            <ScrollView style={policyStyles.content} showsVerticalScrollIndicator={false}>
+              <Text style={[typography.bodySm, { color: colors.text.secondary, lineHeight: 22 }]}>
+                为保障您的购物权益，请在下单前阅读以下退换货规则：
+              </Text>
+              <View style={{ marginTop: spacing.md }}>
+                <Text style={[typography.bodySm, { color: colors.text.primary, lineHeight: 22 }]}>
+                  1. 普通商品自签收之日起 7 天内支持无理由退货，商品须保持完好未使用状态。
+                </Text>
+                <Text style={[typography.bodySm, { color: colors.text.primary, lineHeight: 22, marginTop: spacing.sm }]}>
+                  2. 生鲜/易腐商品签收后 24 小时内如有质量问题可申请退换。
+                </Text>
+                <Text style={[typography.bodySm, { color: colors.text.primary, lineHeight: 22, marginTop: spacing.sm }]}>
+                  3. 质量问题退换货自签收 15 天内可申请，需提供照片凭证。
+                </Text>
+                <Text style={[typography.bodySm, { color: colors.text.primary, lineHeight: 22, marginTop: spacing.sm }]}>
+                  4. VIP 礼包订单及抽奖奖品订单不支持退换货。
+                </Text>
+                <Text style={[typography.bodySm, { color: colors.text.primary, lineHeight: 22, marginTop: spacing.sm }]}>
+                  5. 退款将原路返回至支付账户，处理周期为 1-7 个工作日。
+                </Text>
+              </View>
+            </ScrollView>
+
+            {/* 勾选 + 按钮 */}
+            <View style={{ marginTop: spacing.lg }}>
+              <Pressable
+                onPress={() => setPolicyChecked(!policyChecked)}
+                style={policyStyles.checkRow}
+              >
+                <View style={[
+                  policyStyles.checkbox,
+                  {
+                    borderColor: policyChecked ? colors.brand.primary : colors.border,
+                    backgroundColor: policyChecked ? colors.brand.primary : 'transparent',
+                    borderRadius: radius.sm,
+                  },
+                ]}>
+                  {policyChecked && (
+                    <MaterialCommunityIcons name="check" size={14} color={colors.text.inverse} />
+                  )}
+                </View>
+                <Text style={[typography.bodySm, { color: colors.text.secondary, flex: 1 }]}>
+                  我已阅读并同意退换货规则
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleAgreePolicy}
+                disabled={!policyChecked || policyAgreeing}
+                style={[
+                  policyStyles.confirmButton,
+                  {
+                    backgroundColor: policyChecked ? colors.brand.primary : colors.muted,
+                    borderRadius: radius.lg,
+                    opacity: policyChecked && !policyAgreeing ? 1 : 0.5,
+                  },
+                ]}
+              >
+                <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                  {policyAgreeing ? '确认中...' : '确认并继续'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setPolicyModalVisible(false);
+                  pendingCheckoutRef.current = null;
+                }}
+                style={policyStyles.cancelButton}
+              >
+                <Text style={[typography.bodySm, { color: colors.text.tertiary }]}>取消</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <AuthModal
         open={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -913,6 +1064,54 @@ const styles = StyleSheet.create({
   merchantSubtotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 4,
+  },
+});
+
+// 退换货政策弹窗样式
+const policyStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  container: {
+    width: '100%',
+    maxHeight: '75%',
+    padding: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  content: {
+    maxHeight: 260,
+    marginBottom: 4,
+  },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  confirmButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  cancelButton: {
+    paddingVertical: 10,
+    alignItems: 'center',
     marginTop: 4,
   },
 });
