@@ -6,7 +6,7 @@ import { SellerAnalyticsModule } from './analytics/seller-analytics.module';
 import { SellerCompanyModule } from './company/seller-company.module';
 import { SellerShipmentsModule } from './shipments/seller-shipments.module';
 import { SellerTraceModule } from './trace/seller-trace.module';
-import { SellerReplacementsModule } from './replacements/seller-replacements.module';
+
 import { SellerConfigModule } from './config/seller-config.module';
 import { SellerRefundsModule } from './refunds/seller-refunds.module';
 import { VirtualCallModule } from './virtual-call/virtual-call.module';
@@ -27,7 +27,7 @@ import { SellerAfterSaleModule } from './after-sale/seller-after-sale.module';
     SellerShipmentsModule,
     SellerShippingModule,
     SellerTraceModule,
-    SellerReplacementsModule,
+
     SellerRefundsModule,
     SellerConfigModule,
     VirtualCallModule,

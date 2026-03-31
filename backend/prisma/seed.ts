@@ -3256,44 +3256,54 @@ async function main() {
   console.log(`✅ ${shippingRules.length} 条运费规则已创建`);
 
   // ============================================================
-  // 换货请求（ReplacementRequest）
+  // 售后申请（AfterSaleRequest）
   // ============================================================
-  const replacements = [
+  const afterSaleRequests = [
     {
-      id: 'rr-001', orderId: 'o-004', userId: 'u-001', orderItemId: 'oi-005', reason: '鸡蛋收到时有3个碎裂',
+      id: 'rr-001', orderId: 'o-004', userId: 'u-001', orderItemId: 'oi-005',
+      afterSaleType: 'QUALITY_EXCHANGE' as const, reasonType: 'DAMAGED' as const,
+      reason: '鸡蛋收到时有3个碎裂',
       photos: ['https://placehold.co/400x300/png', 'https://placehold.co/400x300/png'],
       status: 'COMPLETED' as const, reviewNote: '确认包装问题，同意换货', reviewedAt: new Date('2026-01-22'),
       replacementShipmentId: 'SF-REPLACE-001',
     },
     {
-      id: 'rr-002', orderId: 'o-009', userId: 'u-004', orderItemId: 'oi-016', reason: '鸡蛋新鲜度不达标',
+      id: 'rr-002', orderId: 'o-009', userId: 'u-004', orderItemId: 'oi-016',
+      afterSaleType: 'QUALITY_RETURN' as const, reasonType: 'QUALITY_ISSUE' as const,
+      reason: '鸡蛋新鲜度不达标',
       photos: ['https://placehold.co/400x300/png'],
       status: 'UNDER_REVIEW' as const,
     },
     {
-      id: 'rr-003', orderId: 'o-012', userId: 'u-008', orderItemId: 'oi-024', reason: '胡萝卜有腐烂',
+      id: 'rr-003', orderId: 'o-012', userId: 'u-008', orderItemId: 'oi-024',
+      afterSaleType: 'QUALITY_EXCHANGE' as const, reasonType: 'QUALITY_ISSUE' as const,
+      reason: '胡萝卜有腐烂',
       photos: ['https://placehold.co/400x300/png', 'https://placehold.co/400x300/png', 'https://placehold.co/400x300/png'],
       status: 'APPROVED' as const, reviewNote: '已确认，安排补发', reviewedAt: new Date('2026-03-04'),
     },
     {
-      id: 'rr-004', orderId: 'o-012', userId: 'u-008', orderItemId: 'oi-022', reason: '绿茶礼盒包装严重破损',
+      id: 'rr-004', orderId: 'o-012', userId: 'u-008', orderItemId: 'oi-022',
+      afterSaleType: 'QUALITY_RETURN' as const, reasonType: 'DAMAGED' as const,
+      reason: '绿茶礼盒包装严重破损',
       photos: ['https://placehold.co/400x300/png'],
       status: 'REJECTED' as const, reviewNote: '经核实属运输途中正常磨损，建议联系快递理赔', reviewedAt: new Date('2026-03-04'),
     },
     {
-      id: 'rr-005', orderId: 'o-009', userId: 'u-004', orderItemId: 'oi-015', reason: '胡萝卜尺寸与描述不符',
+      id: 'rr-005', orderId: 'o-009', userId: 'u-004', orderItemId: 'oi-015',
+      afterSaleType: 'QUALITY_EXCHANGE' as const, reasonType: 'NOT_AS_DESCRIBED' as const,
+      reason: '胡萝卜尺寸与描述不符',
       photos: ['https://placehold.co/400x300/png'],
-      status: 'SHIPPED' as const, reviewNote: '同意换货', reviewedAt: new Date('2026-02-19'), replacementShipmentId: 'SF-REPLACE-002',
+      status: 'REPLACEMENT_SHIPPED' as const, reviewNote: '同意换货', reviewedAt: new Date('2026-02-19'), replacementShipmentId: 'SF-REPLACE-002',
     },
   ];
-  for (const rr of replacements) {
-    await prisma.replacementRequest.upsert({
+  for (const rr of afterSaleRequests) {
+    await prisma.afterSaleRequest.upsert({
       where: { id: rr.id },
       update: {},
       create: rr,
     });
   }
-  console.log(`✅ ${replacements.length} 条换货请求已创建`);
+  console.log(`✅ ${afterSaleRequests.length} 条售后申请已创建`);
 
   // ============================================================
   // 平台红包活动（CouponCampaign）+ 实例 + 使用记录

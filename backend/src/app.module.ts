@@ -27,7 +27,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { SellerModule } from './modules/seller/seller.module';
 import { RecommendationModule } from './modules/recommendation/recommendation.module';
 import { LotteryModule } from './modules/lottery/lottery.module';
-import { ReplacementModule } from './modules/replacement/replacement.module';
+
 import { CouponModule } from './modules/coupon/coupon.module';
 import { BuyerAliasModule } from './modules/buyer-alias/buyer-alias.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
@@ -76,7 +76,7 @@ import { InfraModule } from './common/infra/infra.module';
     SellerModule,
     RecommendationModule,
     LotteryModule,
-    ReplacementModule,
+
     CouponModule,
     BuyerAliasModule,
     InvoiceModule,

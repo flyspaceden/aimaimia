@@ -15,7 +15,7 @@ import { AdminReconciliationModule } from './reconciliation/admin-reconciliation
 import { AdminLotteryModule } from './lottery/admin-lottery.module';
 import { RewardProductModule } from './reward-product/reward-product.module';
 import { ShippingRuleModule } from './shipping-rule/shipping-rule.module';
-import { AdminReplacementsModule } from './replacements/admin-replacements.module';
+
 import { AdminRefundsModule } from './refunds/admin-refunds.module';
 import { AdminCouponModule } from './coupon/admin-coupon.module';
 import { VipGiftModule } from './vip-gift/vip-gift.module';
@@ -44,7 +44,7 @@ import { AdminAfterSaleModule } from './after-sale/admin-after-sale.module';
     AdminLotteryModule,
     RewardProductModule,
     ShippingRuleModule,
-    AdminReplacementsModule,
+
     AdminRefundsModule,
     AdminCouponModule,
     VipGiftModule,
