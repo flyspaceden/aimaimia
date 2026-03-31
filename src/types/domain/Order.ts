@@ -37,6 +37,10 @@ export type OrderItem = {
   image: string;
   price: number;
   quantity: number;
+  /** 是否为抽奖奖品（奖品不支持退换） */
+  isPrize?: boolean;
+  /** 是否来自已完成的换货（不支持无理由退货） */
+  isPostReplacement?: boolean;
 };
 
 /** 物流详情（独立查询 GET /shipments/:orderId） */
