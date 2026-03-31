@@ -17,7 +17,6 @@ export class CreateAfterSaleDto {
   /** 指定退货/换货的商品项 ID */
   @IsNotEmpty({ message: 'orderItemId 不能为空' })
   @IsString({ message: 'orderItemId 必须为字符串' })
-  @Matches(/^c[a-z0-9]{24}$/i, { message: 'orderItemId 必须为有效的 CUID' })
   orderItemId: string;
 
   /** 售后类型 */
