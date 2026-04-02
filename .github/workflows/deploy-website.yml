@@ -33,9 +33,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TARGET="${{ github.event.inputs.deploy_target }}"
-            echo "website=$( [ '$TARGET' = 'all' ] || [ '$TARGET' = 'website' ] && echo true || echo false )" >> $GITHUB_OUTPUT
-            echo "admin=$( [ '$TARGET' = 'all' ] || [ '$TARGET' = 'admin' ] && echo true || echo false )" >> $GITHUB_OUTPUT
-            echo "seller=$( [ '$TARGET' = 'all' ] || [ '$TARGET' = 'seller' ] && echo true || echo false )" >> $GITHUB_OUTPUT
+            if [ "$TARGET" = "all" ] || [ "$TARGET" = "website" ]; then echo "website=true" >> $GITHUB_OUTPUT; else echo "website=false" >> $GITHUB_OUTPUT; fi
+            if [ "$TARGET" = "all" ] || [ "$TARGET" = "admin" ]; then echo "admin=true" >> $GITHUB_OUTPUT; else echo "admin=false" >> $GITHUB_OUTPUT; fi
+            if [ "$TARGET" = "all" ] || [ "$TARGET" = "seller" ]; then echo "seller=true" >> $GITHUB_OUTPUT; else echo "seller=false" >> $GITHUB_OUTPUT; fi
           else
             echo "website=$(git diff --name-only HEAD~1 HEAD | grep -q '^website/' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "admin=$(git diff --name-only HEAD~1 HEAD | grep -q '^admin/' && echo true || echo false)" >> $GITHUB_OUTPUT
