@@ -41,6 +41,7 @@ export type ProductDetail = Product & {
     title: string;
     price: number;
     stock: number;
+    maxPerOrder?: number | null;
     skuCode?: string;
   }>;
 };

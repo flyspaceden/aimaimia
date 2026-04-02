@@ -10,6 +10,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { CartMergeResultItem, Product, ServerCartItem } from '../types';
 import { CartRepo } from '../repos/CartRepo';
 import { useAuthStore } from './useAuthStore';
@@ -51,6 +52,8 @@ export type CartItem = {
   price: number;
   image: string;
   quantity: number;
+  /** 每单限购数量（null 表示不限） */
+  maxPerOrder?: number | null;
   /** 服务端购物车项 ID */
   id?: string;
   /** 是否为奖品 */
@@ -102,6 +105,7 @@ const serverToLocal = (si: ServerCartItem): CartItem => ({
   prizeRecordId: si.prizeRecordId,
   prizeType: si.prizeType,
   originalPrice: si.product.originalPrice,
+  maxPerOrder: si.product.maxPerOrder ?? null,
 });
 
 type CartState = {
@@ -111,7 +115,7 @@ type CartState = {
   /** 从服务端同步购物车 */
   syncFromServer: () => Promise<void>;
   /** 添加商品（乐观 + 服务端） */
-  addItem: (product: Product, quantity?: number, skuId?: string, skuPrice?: number) => void;
+  addItem: (product: Product & { maxPerOrder?: number | null }, quantity?: number, skuId?: string, skuPrice?: number) => void;
   /** 删除商品（乐观 + 服务端） */
   removeItem: (productId: string, skuId?: string) => void;
   /** 删除奖品项（乐观 + 服务端，按 cartItemId 删除） */
@@ -182,6 +186,21 @@ export const useCartStore = create<CartState>()(
       addItem: (product, quantity = 1, skuId, skuPrice) => {
         const key = cartKey(product.id, skuId);
 
+        // 单笔限购校验
+        const maxPerOrder = product.maxPerOrder;
+        if (maxPerOrder != null) {
+          const existing = get().items.find((item) => itemKey(item) === key);
+          const currentQty = existing?.quantity ?? 0;
+          if (currentQty + Math.max(1, quantity) > maxPerOrder) {
+            Toast.show({
+              type: 'info',
+              text1: `该商品每单限购 ${maxPerOrder} 件`,
+              text2: currentQty > 0 ? `购物车已有 ${currentQty} 件` : undefined,
+            });
+            return;
+          }
+        }
+
         // 乐观更新（本地模式和服务端模式都执行）
         set((state) => {
           const existing = state.items.find((item) => itemKey(item) === key);
@@ -210,6 +229,7 @@ export const useCartStore = create<CartState>()(
                 price: skuPrice ?? product.price,
                 image: product.image,
                 quantity: Math.max(1, quantity),
+                maxPerOrder: product.maxPerOrder ?? null,
               },
             ],
             selectedIds: newSelectedIds,
@@ -334,6 +354,16 @@ export const useCartStore = create<CartState>()(
 
         if (quantity <= 0) {
           get().removeItem(productId, skuId);
+          return;
+        }
+
+        // 单笔限购校验
+        const item = get().items.find((i) => itemKey(i) === key);
+        if (item?.maxPerOrder != null && quantity > item.maxPerOrder) {
+          Toast.show({
+            type: 'info',
+            text1: `该商品每单限购 ${item.maxPerOrder} 件`,
+          });
           return;
         }
 

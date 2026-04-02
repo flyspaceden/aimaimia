@@ -14,6 +14,7 @@ export interface ServerCartItem {
     /** 奖品项的 SKU 原价（用于划线展示），普通商品项为 null */
     originalPrice: number | null;
     stock: number;
+    maxPerOrder?: number | null;
   };
   /** 是否为抽奖奖品 */
   isPrize?: boolean;
