@@ -1,0 +1,205 @@
+<h2>组合封面图方案 — 多商品时如何生成展示图？</h2>
+<p class="subtitle">当组合包含多个商品时，管理员可以选择上传自定义图 或 自动拼合商品图。以下是自动拼合的几种样式</p>
+
+<!-- Section 1: Form row with image preview -->
+<div class="section">
+  <h3>确认：带图片的表单行效果</h3>
+  <p class="subtitle">方案 A 基础上，每行增加商品缩略图</p>
+  <div class="mockup">
+    <div class="mockup-header">Drawer — 商品行带缩略图</div>
+    <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+      <!-- Item 1 with image -->
+      <div style="background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px; margin-bottom: 8px; position: relative;">
+        <div style="position: absolute; top: 8px; right: 8px; color: #ff4d4f; cursor: pointer; font-size: 12px;">✕ 删除</div>
+        <div style="display: flex; gap: 10px;">
+          <div style="width: 56px; height: 56px; border-radius: 8px; background: linear-gradient(135deg, #ff9a9e, #fecfef); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;">🦐</div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; gap: 8px; align-items: flex-end;">
+              <div style="flex: 2;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 3px;">奖励商品</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 5px; padding: 4px 8px; font-size: 12px;">深海大虾礼盒</div>
+              </div>
+              <div style="flex: 1.2;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 3px;">SKU</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 5px; padding: 4px 8px; font-size: 12px;">500g 装</div>
+              </div>
+              <div style="flex: 0.4;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 3px;">数量</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 5px; padding: 4px 8px; font-size: 12px; text-align: center;">2</div>
+              </div>
+            </div>
+            <div style="margin-top: 4px; color: #999; font-size: 11px;">单价: ¥128.00 | 小计: ¥256.00</div>
+          </div>
+        </div>
+      </div>
+      <!-- Item 2 with image -->
+      <div style="background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px; margin-bottom: 8px; position: relative;">
+        <div style="position: absolute; top: 8px; right: 8px; color: #ff4d4f; cursor: pointer; font-size: 12px;">✕ 删除</div>
+        <div style="display: flex; gap: 10px;">
+          <div style="width: 56px; height: 56px; border-radius: 8px; background: linear-gradient(135deg, #a18cd1, #fbc2eb); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;">🍷</div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; gap: 8px; align-items: flex-end;">
+              <div style="flex: 2;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 3px;">奖励商品</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 5px; padding: 4px 8px; font-size: 12px;">法国进口红酒</div>
+              </div>
+              <div style="flex: 1.2;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 3px;">SKU</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 5px; padding: 4px 8px; font-size: 12px;">500ml 珍藏版</div>
+              </div>
+              <div style="flex: 0.4;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 3px;">数量</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 5px; padding: 4px 8px; font-size: 12px; text-align: center;">1</div>
+              </div>
+            </div>
+            <div style="margin-top: 4px; color: #999; font-size: 11px;">单价: ¥299.00 | 小计: ¥299.00</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Section 2: Cover image generation styles -->
+<h3 style="margin-top: 24px;">自动拼合样式选择</h3>
+<p class="subtitle">当有多个商品时，系统自动将各商品图拼合成一张封面图。请选择你喜欢的拼合风格</p>
+
+<div class="options">
+  <!-- Style A: Diagonal Split -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>对角线分割</h3>
+      <p>你提出的方案。左上/右下对角切割，每个区域放一个商品图。2 个商品效果好，3+ 个时切割区域变小。</p>
+      <div style="display: flex; gap: 16px; margin-top: 12px; justify-content: center;">
+        <!-- 2 products -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #e8e8e8;">
+            <svg viewBox="0 0 120 120" style="position: absolute; inset: 0;">
+              <defs>
+                <clipPath id="diag-top"><polygon points="0,0 120,0 0,120"/></clipPath>
+                <clipPath id="diag-bot"><polygon points="120,0 120,120 0,120"/></clipPath>
+              </defs>
+              <rect clip-path="url(#diag-top)" width="120" height="120" fill="#ffecd2"/>
+              <text clip-path="url(#diag-top)" x="30" y="50" font-size="32">🦐</text>
+              <rect clip-path="url(#diag-bot)" width="120" height="120" fill="#e8d5f5"/>
+              <text clip-path="url(#diag-bot)" x="65" y="95" font-size="32">🍷</text>
+              <line x1="0" y1="120" x2="120" y2="0" stroke="#fff" stroke-width="2"/>
+            </svg>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">2 件商品</div>
+        </div>
+        <!-- 3 products -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #e8e8e8;">
+            <svg viewBox="0 0 120 120" style="position: absolute; inset: 0;">
+              <defs>
+                <clipPath id="tri1"><polygon points="0,0 120,0 60,60"/></clipPath>
+                <clipPath id="tri2"><polygon points="0,0 0,120 60,60"/></clipPath>
+                <clipPath id="tri3"><polygon points="120,0 120,120 0,120 60,60"/></clipPath>
+              </defs>
+              <rect clip-path="url(#tri1)" width="120" height="120" fill="#ffecd2"/>
+              <text clip-path="url(#tri1)" x="42" y="30" font-size="24">🦐</text>
+              <rect clip-path="url(#tri2)" width="120" height="120" fill="#e8d5f5"/>
+              <text clip-path="url(#tri2)" x="8" y="72" font-size="24">🍷</text>
+              <rect clip-path="url(#tri3)" width="120" height="120" fill="#d5f5e3"/>
+              <text clip-path="url(#tri3)" x="72" y="95" font-size="24">🍊</text>
+            </svg>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">3 件商品</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Style B: Grid -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>宫格拼图</h3>
+      <p>类似微信群头像风格。2 件商品上下或左右各半，3 件上1下2，4 件 2×2 格子。<strong>最通用，任意数量都好看。</strong></p>
+      <div style="display: flex; gap: 16px; margin-top: 12px; justify-content: center;">
+        <!-- 2 products grid -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; display: flex; border: 2px solid #e8e8e8;">
+            <div style="flex: 1; background: #ffecd2; display: flex; align-items: center; justify-content: center; font-size: 36px; border-right: 2px solid #fff;">🦐</div>
+            <div style="flex: 1; background: #e8d5f5; display: flex; align-items: center; justify-content: center; font-size: 36px;">🍷</div>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">2 件商品</div>
+        </div>
+        <!-- 3 products grid -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #e8e8e8;">
+            <div style="flex: 1; background: #ffecd2; display: flex; align-items: center; justify-content: center; font-size: 28px; border-bottom: 2px solid #fff;">🦐</div>
+            <div style="flex: 1; display: flex;">
+              <div style="flex: 1; background: #e8d5f5; display: flex; align-items: center; justify-content: center; font-size: 28px; border-right: 2px solid #fff;">🍷</div>
+              <div style="flex: 1; background: #d5f5e3; display: flex; align-items: center; justify-content: center; font-size: 28px;">🍊</div>
+            </div>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">3 件商品</div>
+        </div>
+        <!-- 4 products grid -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #e8e8e8;">
+            <div style="flex: 1; display: flex;">
+              <div style="flex: 1; background: #ffecd2; display: flex; align-items: center; justify-content: center; font-size: 24px; border-right: 2px solid #fff; border-bottom: 2px solid #fff;">🦐</div>
+              <div style="flex: 1; background: #e8d5f5; display: flex; align-items: center; justify-content: center; font-size: 24px; border-bottom: 2px solid #fff;">🍷</div>
+            </div>
+            <div style="flex: 1; display: flex;">
+              <div style="flex: 1; background: #d5f5e3; display: flex; align-items: center; justify-content: center; font-size: 24px; border-right: 2px solid #fff;">🍊</div>
+              <div style="flex: 1; background: #fce4ec; display: flex; align-items: center; justify-content: center; font-size: 24px;">🥩</div>
+            </div>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">4 件商品</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Style C: Stacked Cards -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>层叠卡片</h3>
+      <p>商品图以卡片形式错落叠放，有层次感和"礼包"的视觉暗示。第一个商品最大在底层，后续商品依次缩小叠在右下角。</p>
+      <div style="display: flex; gap: 16px; margin-top: 12px; justify-content: center;">
+        <!-- 2 products stacked -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #e8e8e8; background: #f9f9f9;">
+            <div style="position: absolute; top: 8px; left: 8px; width: 80px; height: 80px; background: #ffecd2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 36px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">🦐</div>
+            <div style="position: absolute; bottom: 8px; right: 8px; width: 64px; height: 64px; background: #e8d5f5; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 28px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 2px solid #fff;">🍷</div>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">2 件商品</div>
+        </div>
+        <!-- 3 products stacked -->
+        <div style="text-align: center;">
+          <div style="width: 120px; height: 120px; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #e8e8e8; background: #f9f9f9;">
+            <div style="position: absolute; top: 6px; left: 6px; width: 72px; height: 72px; background: #ffecd2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">🦐</div>
+            <div style="position: absolute; top: 20px; right: 8px; width: 56px; height: 56px; background: #e8d5f5; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); border: 2px solid #fff;">🍷</div>
+            <div style="position: absolute; bottom: 6px; left: 28px; width: 52px; height: 52px; background: #d5f5e3; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border: 2px solid #fff;">🍊</div>
+          </div>
+          <div style="font-size: 11px; color: #999; margin-top: 4px;">3 件商品</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cover image logic summary -->
+<div style="margin-top: 24px; padding: 16px; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 8px; font-size: 13px;">
+  <div style="font-weight: 600; margin-bottom: 8px; color: #389e0d;">📋 封面图逻辑汇总</div>
+  <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+    <tr style="border-bottom: 1px solid #d9f7be;">
+      <td style="padding: 6px 0; color: #666; width: 120px;">单个商品时</td>
+      <td style="padding: 6px 0;">自动使用该商品的图片，无需管理员操作</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #d9f7be;">
+      <td style="padding: 6px 0; color: #666;">多个商品时</td>
+      <td style="padding: 6px 0;">管理员可选：<strong>① 上传自定义封面图</strong> 或 <strong>② 使用自动拼合图</strong></td>
+    </tr>
+    <tr>
+      <td style="padding: 6px 0; color: #666;">默认行为</td>
+      <td style="padding: 6px 0;">未上传时默认使用自动拼合；上传后优先展示自定义图</td>
+    </tr>
+  </table>
+</div>

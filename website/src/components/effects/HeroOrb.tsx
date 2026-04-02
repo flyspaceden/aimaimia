@@ -60,7 +60,7 @@ export default function HeroOrb({ size = 200, className = '' }: Props) {
       className={`relative ${className}`}
       style={{ width: size, height: size }}
       role="img"
-      aria-label="AI 智能光球"
+      aria-label="AI光球"
     >
       {/* 外层光晕 */}
       <div

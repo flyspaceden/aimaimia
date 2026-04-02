@@ -15,8 +15,9 @@ export class CreateTagCategoryDto {
   @IsString()
   name: string;
 
+  @IsOptional()
   @IsString()
-  code: string;
+  code?: string;
 
   @IsEnum(TagScope)
   scope: TagScope;

@@ -1,0 +1,811 @@
+<template>
+  <Screen :safeTop="true">
+    <view class="nm-header">
+      <text class="nm-header__title">心愿池</text>
+      <text class="nm-header__subtitle">让你的想法被看见</text>
+      <view class="nm-tabs">
+        <view
+          v-for="tab in tabs"
+          :key="tab.id"
+          :class="[
+            'nm-tab',
+            tab.id === 'publish' ? 'nm-tab--publish' : '',
+            activeTab === tab.id ? 'nm-tab--active' : '',
+            tab.id === 'publish' && activeTab === tab.id ? 'nm-tab--publish-active' : '',
+          ]"
+          @click="activeTab = tab.id"
+        >
+          <Icon
+            v-if="tab.id === 'publish'"
+            class="nm-tab__icon"
+            name="pencil-plus"
+            :size="32"
+            :color="activeTab === tab.id ? textInverse : brandPrimary"
+          />
+          <text :class="['nm-tab__text', activeTab === tab.id ? 'nm-tab__text--active' : '']">{{ tab.label }}</text>
+        </view>
+      </view>
+    </view>
+
+    <scroll-view
+      v-if="activeTab === 'publish'"
+      class="nm-compose"
+      scroll-y
+      refresher-enabled
+      :refresher-triggered="refreshing"
+      @refresherrefresh="onRefresh"
+    >
+      <view class="nm-compose__card">
+        <text class="nm-compose__title">发布心愿</text>
+        <text class="nm-compose__desc">选择心愿类型、填写内容、添加标签，并可@相关企业。</text>
+
+        <text class="nm-compose__label">类型</text>
+        <view class="nm-compose__row">
+          <view
+            v-for="type in wishTypes"
+            :key="type"
+            :class="['nm-type-chip', form.type === type ? 'nm-type-chip--active' : '']"
+            @click="form.type = type"
+          >
+            <text :class="['nm-type-chip__text', form.type === type ? 'nm-type-chip__text--active' : '']">
+              {{ type }}
+            </text>
+          </view>
+        </view>
+
+        <text class="nm-compose__label">标题</text>
+        <input class="nm-input" v-model="form.title" placeholder="一句话描述你的心愿" placeholder-class="nm-placeholder" />
+        <text v-if="formErrors.title" class="nm-form-error">{{ formErrors.title }}</text>
+
+        <text class="nm-compose__label">内容</text>
+        <textarea
+          class="nm-textarea"
+          v-model="form.content"
+          placeholder="描述你的需求、场景、期望"
+          placeholder-class="nm-placeholder"
+        />
+        <text v-if="formErrors.content" class="nm-form-error">{{ formErrors.content }}</text>
+
+        <text v-if="form.type === '给企业'" class="nm-compose__label">@企业（可选）</text>
+        <view v-if="form.type === '给企业'" class="nm-compose__row">
+          <input
+            class="nm-input nm-input--inline"
+            v-model="form.company"
+            placeholder="搜索/选择企业"
+            placeholder-class="nm-placeholder"
+          />
+          <view class="nm-link" @click="form.company = ''">暂不关联</view>
+        </view>
+        <text v-if="form.type === '给企业'" class="nm-compose__hint">
+          {{ form.company ? `已选择企业：${form.company}` : '可先发布，后续再关联企业' }}
+        </text>
+
+        <text class="nm-compose__label">标签</text>
+        <view class="nm-ai-tags">
+          <view class="nm-section__header">
+            <text class="nm-section__title">AI 推荐标签</text>
+            <view class="nm-link" @click="addAiTags">一键加入</view>
+          </view>
+          <view class="nm-compose__row">
+            <view
+              v-for="tag in aiTags"
+              :key="tag.id"
+              :class="['nm-chip', selectedTags.includes(tag.label) ? 'nm-chip--accent' : '']"
+              @click="toggleTag(tag.label)"
+            >
+              <text :class="['nm-chip__text', selectedTags.includes(tag.label) ? 'nm-chip__text--accent' : '']">
+                #{{ tag.label }}
+              </text>
+            </view>
+          </view>
+        </view>
+
+        <view class="nm-compose__row">
+          <view
+            v-for="tag in formTags"
+            :key="tag"
+            :class="['nm-chip', selectedTags.includes(tag) ? 'nm-chip--active' : '']"
+            @click="toggleTag(tag)"
+          >
+            <text :class="['nm-chip__text', selectedTags.includes(tag) ? 'nm-chip__text--active' : '']">
+              {{ tag }}
+            </text>
+          </view>
+        </view>
+        <text v-if="formErrors.tags" class="nm-form-error">{{ formErrors.tags }}</text>
+
+        <view class="nm-primary" @click="submitWish">提交心愿</view>
+      </view>
+    </scroll-view>
+
+    <list v-else class="nm-list">
+      <refresh class="nm-refresh" :display="refreshing ? 'show' : 'hide'" @refresh="onRefresh">
+        <text class="nm-refresh__text">刷新中...</text>
+      </refresh>
+
+      <cell class="nm-panel">
+        <view class="nm-panel-card">
+          <view class="nm-panel__header">
+            <text class="nm-section__title">心愿榜单</text>
+            <view class="nm-rank-tabs">
+              <view
+                v-for="period in rankOptions"
+                :key="period.id"
+                :class="['nm-rank-chip', rankPeriod === period.id ? 'nm-rank-chip--active' : '']"
+                @click="rankPeriod = period.id"
+              >
+                <text :class="['nm-rank-chip__text', rankPeriod === period.id ? 'nm-rank-chip__text--active' : '']">
+                  {{ period.label }}
+                </text>
+              </view>
+            </view>
+          </view>
+          <view v-for="item in leaderboard" :key="item.id" class="nm-rank-row" @click="goDetail(item.wishId)">
+            <view class="nm-rank-index">#{{ item.rank }}</view>
+            <view class="nm-rank-info">
+              <text class="nm-rank-title">{{ item.title }}</text>
+              <text class="nm-rank-author">{{ item.authorName || '匿名' }}</text>
+            </view>
+            <text class="nm-rank-score">{{ item.score }} 分</text>
+          </view>
+        </view>
+      </cell>
+
+      <cell class="nm-panel">
+        <view class="nm-panel-card">
+          <view class="nm-panel__header">
+            <text class="nm-section__title">AI 推荐心愿</text>
+            <text class="nm-link" @click="onRefresh">换一批</text>
+          </view>
+          <view v-for="item in aiRecommendations" :key="item.id" class="nm-ai-row" @click="goDetail(item.wishId)">
+            <view class="nm-ai-row__info">
+              <text class="nm-ai-row__title">{{ item.title }}</text>
+              <text class="nm-ai-row__reason">{{ item.reason }}</text>
+              <view class="nm-ai-row__tags">
+                <view v-for="tag in item.tags" :key="tag" class="nm-tag">
+                  <text class="nm-tag__text">{{ tag }}</text>
+                </view>
+              </view>
+            </view>
+            <Icon class="nm-ai-row__arrow-icon" name="chevron-right" :size="40" :color="textSecondary" />
+          </view>
+        </view>
+      </cell>
+
+      <cell class="nm-panel">
+        <view class="nm-tag-row">
+          <view
+            v-for="tag in tags"
+            :key="tag"
+            :class="['nm-chip', activeTag === tag ? 'nm-chip--active' : '']"
+            @click="activeTag = tag"
+          >
+            <text :class="['nm-chip__text', activeTag === tag ? 'nm-chip__text--active' : '']">{{ tag }}</text>
+          </view>
+        </view>
+      </cell>
+
+      <cell v-if="errorMessage">
+        <ErrorState :text="errorMessage" @retry="onRefresh" />
+      </cell>
+      <cell v-else-if="loading && wishes.length === 0">
+        <Skeleton :count="3" type="card" class="nm-skeleton-wrap" />
+      </cell>
+      <cell v-else-if="!loading && wishes.length === 0">
+        <EmptyState text="暂无心愿" />
+      </cell>
+      <cell v-else v-for="item in filteredWishes" :key="item.id" @click="goDetail(item.id)">
+        <WishCard :item="item" />
+      </cell>
+      <loading class="nm-loading" :display="loading ? 'show' : 'hide'" @loading="onLoadMore">
+        <LoadMore text="加载更多..." />
+      </loading>
+    </list>
+  </Screen>
+</template>
+
+<script>
+import { navTo } from '@/utils/nav';
+import Screen from '@/components/layout/Screen.nvue';
+import WishCard from '@/components/cards/WishCard.nvue';
+import Icon from '@/components/ui/Icon.nvue';
+import { EmptyState, ErrorState, Skeleton, LoadMore } from '@/components';
+import { WishRepo } from '@/services/repos';
+
+export default {
+  components: { Screen, WishCard, Icon, EmptyState, ErrorState, Skeleton, LoadMore },
+  data() {
+    return {
+      brandPrimary: '#2F8F4E',
+      textSecondary: '#4B5B53',
+      textInverse: '#FFFFFF',
+      tabs: [
+        { id: 'discover', label: '发现心愿' },
+        { id: 'publish', label: '发表我的心愿' },
+      ],
+      activeTab: 'discover',
+      wishes: [],
+      page: 1,
+      pageSize: 6,
+      hasMore: true,
+      loading: false,
+      refreshing: false,
+      errorMessage: '',
+      rankOptions: [
+        { id: 'weekly', label: '周榜' },
+        { id: 'monthly', label: '月榜' },
+      ],
+      rankPeriod: 'weekly',
+      leaderboard: [],
+      tags: ['全部', '采购需求', '技术求助', '新品尝鲜', '团购意向', '功能建议', '优化体验', '有机/绿色', 'GAP 认证'],
+      activeTag: '全部',
+      wishTypes: ['给平台', '给企业', '公开心愿'],
+      form: {
+        type: '给平台',
+        title: '',
+        content: '',
+        company: '',
+      },
+      formErrors: {
+        title: '',
+        content: '',
+        tags: '',
+      },
+      aiTags: [],
+      selectedTags: [],
+    };
+  },
+  created() {
+    this.fetchWishes(true);
+    this.fetchLeaderboard();
+    this.fetchAiTags();
+  },
+  watch: {
+    activeTab() {
+      if (this.activeTab === 'discover') {
+        this.hasMore = true;
+        this.fetchWishes(true);
+      }
+    },
+    activeTag() {
+      this.hasMore = true;
+      this.fetchWishes(true);
+    },
+    rankPeriod() {
+      this.fetchLeaderboard();
+    },
+    'form.title'(value) {
+      if (this.formErrors.title && value.trim()) {
+        this.formErrors.title = '';
+      }
+    },
+    'form.content'(value) {
+      if (this.formErrors.content && value.trim().length >= 5) {
+        this.formErrors.content = '';
+      }
+    },
+    selectedTags() {
+      if (this.formErrors.tags && this.selectedTags.length) {
+        this.formErrors.tags = '';
+      }
+    },
+  },
+  computed: {
+    filteredWishes() {
+      if (this.activeTag === '全部') return this.wishes;
+      return this.wishes.filter((wish) => (wish.tags || []).includes(this.activeTag));
+    },
+    formTags() {
+      return this.tags.filter((tag) => tag !== '全部');
+    },
+    aiRecommendations() {
+      return this.wishes.slice(0, 2).map((wish) => ({
+        id: `ai-${wish.id}`,
+        wishId: wish.id,
+        title: wish.title,
+        reason: 'AI 推荐：与你的心愿标签相关',
+        tags: (wish.tags || []).slice(0, 3),
+      }));
+    },
+  },
+  methods: {
+    goDetail(id) {
+      navTo({ url: `/pages-sub/wishes/wish-detail?id=${id}` });
+    },
+    async fetchWishes(reset) {
+      if (this.loading) return;
+      if (!this.hasMore && !reset) return;
+      this.loading = true;
+      const page = reset ? 1 : this.page + 1;
+      const res = await WishRepo.list({ page, pageSize: this.pageSize, tab: this.activeTab });
+      if (res.ok) {
+        this.errorMessage = '';
+        this.wishes = reset ? res.data.items : this.wishes.concat(res.data.items);
+        this.page = res.data.page;
+        this.hasMore = res.data.hasMore;
+      } else {
+        this.errorMessage = res.error.message || '加载失败';
+      }
+      this.loading = false;
+      if (this.refreshing) this.refreshing = false;
+    },
+    onRefresh() {
+      if (this.refreshing) return;
+      this.refreshing = true;
+      this.hasMore = true;
+      this.errorMessage = '';
+      this.fetchWishes(true);
+    },
+    onLoadMore() {
+      this.fetchWishes(false);
+    },
+    async fetchLeaderboard() {
+      const res = await WishRepo.listLeaderboard(this.rankPeriod);
+      if (res.ok) this.leaderboard = res.data;
+    },
+    async fetchAiTags() {
+      const res = await WishRepo.listAiTags({ content: this.form.content, type: this.form.type });
+      if (res.ok) this.aiTags = res.data;
+    },
+    toggleTag(label) {
+      if (this.selectedTags.includes(label)) {
+        this.selectedTags = this.selectedTags.filter((tag) => tag !== label);
+        return;
+      }
+      this.selectedTags = this.selectedTags.concat(label);
+    },
+    addAiTags() {
+      const next = this.selectedTags.slice();
+      this.aiTags.forEach((tag) => {
+        if (!next.includes(tag.label)) next.push(tag.label);
+      });
+      this.selectedTags = next;
+    },
+    async submitWish() {
+      const title = this.form.title.trim();
+      const content = this.form.content.trim();
+      this.formErrors = { title: '', content: '', tags: '' };
+      let valid = true;
+
+      if (!title) {
+        this.formErrors.title = '请输入心愿标题';
+        valid = false;
+      }
+      if (!content || content.length < 5) {
+        this.formErrors.content = '正文至少 5 个字';
+        valid = false;
+      }
+      if (!this.selectedTags.length) {
+        this.formErrors.tags = '请至少选择一个标签';
+        valid = false;
+      }
+
+      if (!valid) {
+        uni.showToast({ title: '请完善心愿信息', icon: 'none' });
+        return;
+      }
+
+      const res = await WishRepo.create({
+        type: this.form.type,
+        title,
+        content,
+        tags: this.selectedTags,
+        companyId: this.form.company || undefined,
+      });
+      if (res.ok) {
+        uni.showToast({ title: '发布成功（占位）', icon: 'success' });
+        this.form.title = '';
+        this.form.content = '';
+        this.form.company = '';
+        this.selectedTags = [];
+      } else {
+        uni.showToast({ title: res.error.message || '发布失败', icon: 'none' });
+      }
+    },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use '@/styles/tokens.scss' as *;
+
+.nm-header {
+  padding: $nm-space-lg $nm-space-xl 0;
+}
+
+.nm-header__title {
+  font-size: $nm-font-title2;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-header__subtitle {
+  margin-top: 6rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-tabs {
+  flex-direction: row;
+  margin-top: $nm-space-lg;
+}
+
+.nm-tab {
+  margin-right: $nm-space-sm;
+  padding: 16rpx 32rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-surface;
+  border: 1rpx solid $nm-border;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-tab--publish {
+  padding: 20rpx 36rpx;
+  background-color: $nm-brand-primary-soft;
+  border-color: transparent;
+  box-shadow: $nm-shadow-sm;
+}
+
+.nm-tab--active {
+  background-color: $nm-accent-blue-soft;
+  border-color: $nm-accent-blue;
+}
+
+.nm-tab--publish-active {
+  background-color: $nm-brand-primary;
+  border-color: transparent;
+}
+
+.nm-tab__icon {
+  margin-right: 12rpx;
+}
+
+.nm-tab__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-tab__text--active {
+  color: $nm-accent-blue;
+}
+
+.nm-tab--publish .nm-tab__text {
+  color: $nm-brand-primary;
+}
+
+.nm-tab--publish-active .nm-tab__text--active {
+  color: $nm-text-inverse;
+}
+
+.nm-compose {
+  padding: $nm-space-xl $nm-space-xl $nm-space-3xl;
+}
+
+.nm-compose__card {
+  padding: 36rpx;
+  border-radius: $nm-radius-lg;
+  background-color: $nm-surface;
+  box-shadow: $nm-shadow-sm;
+  border: 1rpx solid transparent;
+}
+
+.nm-compose__title {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-compose__desc {
+  margin-top: $nm-space-sm;
+  font-size: $nm-font-body;
+  line-height: $nm-line-body;
+  color: $nm-text-secondary;
+}
+
+.nm-compose__label {
+  margin-top: $nm-space-md;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-compose__row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: $nm-space-sm;
+}
+
+.nm-type-chip {
+  padding: 12rpx 24rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-background;
+  border: 1rpx solid $nm-border;
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.nm-type-chip__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-type-chip--active {
+  background-color: $nm-brand-primary;
+  border-color: transparent;
+}
+
+.nm-type-chip__text--active {
+  color: $nm-text-inverse;
+}
+
+.nm-chip {
+  padding: 12rpx 24rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-surface;
+  border: 1rpx solid $nm-border;
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.nm-chip--active {
+  background-color: $nm-brand-primary;
+  border-color: $nm-brand-primary;
+}
+
+.nm-chip--accent {
+  background-color: $nm-accent-blue-soft;
+  border-color: $nm-accent-blue;
+}
+
+.nm-chip__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-chip__text--active {
+  color: $nm-text-inverse;
+}
+
+.nm-chip__text--accent {
+  color: $nm-accent-blue;
+}
+
+.nm-chip--active .nm-chip__text {
+  color: $nm-text-inverse;
+}
+
+.nm-chip--accent .nm-chip__text {
+  color: $nm-accent-blue;
+}
+
+.nm-compose__hint {
+  margin-top: 12rpx;
+  font-size: $nm-font-caption;
+  color: $nm-muted;
+}
+
+.nm-input {
+  margin-top: 12rpx;
+  border-radius: $nm-radius-md;
+  background-color: $nm-background;
+  border: 1rpx solid $nm-border;
+  padding: 20rpx 24rpx;
+  font-size: $nm-font-body;
+  line-height: $nm-line-body;
+  color: $nm-text-primary;
+  flex: 1;
+}
+
+.nm-input--inline {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.nm-textarea {
+  margin-top: 12rpx;
+  min-height: 180rpx;
+  border-radius: $nm-radius-md;
+  background-color: $nm-background;
+  border: 1rpx solid $nm-border;
+  padding: 20rpx 24rpx;
+  font-size: $nm-font-body;
+  line-height: $nm-line-body;
+  color: $nm-text-primary;
+}
+
+.nm-link {
+  margin-left: $nm-space-sm;
+  font-size: $nm-font-caption;
+  color: $nm-accent-blue;
+  flex-shrink: 0;
+}
+
+.nm-ai-tags {
+  margin-top: $nm-space-md;
+}
+
+.nm-primary {
+  margin-top: $nm-space-lg;
+  padding: 24rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary;
+  color: $nm-text-inverse;
+  text-align: center;
+  font-size: $nm-font-body;
+  font-weight: 600;
+}
+
+.nm-placeholder {
+  color: $nm-muted;
+}
+
+.nm-form-error {
+  margin-top: 8rpx;
+  font-size: $nm-font-caption;
+  color: $nm-danger;
+}
+
+.nm-list {
+  padding: 0 $nm-space-xl $nm-space-3xl;
+}
+
+.nm-panel {
+  margin-top: $nm-space-md;
+}
+
+.nm-panel-card {
+  padding: $nm-space-lg;
+  border-radius: $nm-radius-lg;
+  background-color: $nm-surface;
+  border: 1rpx solid transparent;
+  box-shadow: $nm-shadow-sm;
+}
+
+.nm-panel__header {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $nm-space-md;
+}
+
+.nm-section__title {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-rank-tabs {
+  flex-direction: row;
+}
+
+.nm-rank-chip {
+  padding: 8rpx 20rpx;
+  border-radius: $nm-radius-pill;
+  border: 1rpx solid $nm-border;
+  margin-left: 12rpx;
+  background-color: $nm-surface;
+}
+
+.nm-rank-chip--active {
+  background-color: $nm-brand-primary;
+  border-color: transparent;
+}
+
+.nm-rank-chip__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-rank-chip__text--active {
+  color: $nm-text-inverse;
+}
+
+.nm-rank-row {
+  flex-direction: row;
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+.nm-rank-index {
+  width: 72rpx;
+  height: 48rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary-soft;
+  align-items: center;
+  justify-content: center;
+  margin-right: 20rpx;
+  font-size: $nm-font-caption;
+  color: $nm-brand-primary;
+}
+
+.nm-rank-info {
+  flex: 1;
+}
+
+.nm-rank-title {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-rank-author {
+  margin-top: 4rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-rank-score {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-ai-row {
+  flex-direction: row;
+  align-items: center;
+  padding: 20rpx 0;
+}
+
+.nm-ai-row__info {
+  flex: 1;
+}
+
+.nm-ai-row__title {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-ai-row__reason {
+  margin-top: 8rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-ai-row__tags {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 12rpx;
+}
+
+.nm-tag {
+  padding: 6rpx 16rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary-soft;
+  margin-right: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.nm-tag__text {
+  font-size: $nm-font-caption;
+  color: $nm-brand-primary;
+}
+
+.nm-ai-row__arrow-icon {
+  color: $nm-text-secondary;
+}
+
+.nm-tag-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 32rpx;
+  margin-bottom: 24rpx;
+}
+
+.nm-refresh {
+  height: 80rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-refresh__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-skeleton-wrap {
+  padding: 0 0 $nm-space-xl;
+}
+</style>

@@ -1,4 +1,4 @@
-# 农脉后端技术文档
+# 爱买买后端技术文档
 
 > 版本：v3.0（CheckoutSession 流程重构 + 全系统审查修复）
 > 最后更新：2026-03-01
@@ -7,7 +7,7 @@
 
 ## 1. 概述
 
-农脉后端基于 **NestJS + Prisma + PostgreSQL** 构建，为买家 React Native App 和管理后台 Web Dashboard 提供统一 RESTful API。
+爱买买后端基于 **NestJS + Prisma + PostgreSQL** 构建，为买家 React Native App 和管理后台 Web Dashboard 提供统一 RESTful API。
 
 **已实现：**
 - **买家端 21 个模块**：Auth / Product / Company / User / Order（含 CheckoutSession）/ Payment / Shipment / Address / Cart / Booking / Group / Follow / Task / CheckIn / Inbox / Trace / AI / Bonus / Upload / Lottery / **Coupon**
@@ -174,7 +174,7 @@ npx prisma generate
 npx prisma migrate dev
 npx prisma db seed
 npm run start:dev
-# → 🌾 农脉后端已启动: http://localhost:3000/api/v1
+# → 🌾 爱买买后端已启动: http://localhost:3000/api/v1
 ```
 
 ### 常用命令

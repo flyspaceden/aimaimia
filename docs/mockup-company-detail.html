@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公司详情页 - 设计稿</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    padding: 20px;
+  }
+
+  .phone-frame {
+    width: 375px;
+    min-height: 812px;
+    background: #f5f5f0;
+    border-radius: 40px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  .phone-scroll {
+    height: 812px;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+  .phone-scroll::-webkit-scrollbar { display: none; }
+
+  /* ===== Cover / Hero ===== */
+  .cover {
+    position: relative;
+    height: 260px;
+    overflow: hidden;
+  }
+  .cover-img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .cover-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.65) 100%);
+  }
+  .cover-top {
+    position: absolute; top: 48px; left: 16px; right: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 2;
+  }
+  .cover-top-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.18); backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 18px; cursor: pointer;
+    border: none;
+  }
+  .cover-top-right { display: flex; gap: 8px; }
+  .cover-bottom {
+    position: absolute; bottom: 16px; left: 16px; right: 16px;
+    z-index: 2; display: flex; align-items: flex-end; justify-content: space-between;
+  }
+  .cover-info { display: flex; align-items: center; gap: 12px; flex: 1; }
+  .company-logo {
+    width: 52px; height: 52px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.5);
+    object-fit: cover; flex-shrink: 0;
+  }
+  .company-text { color: #fff; }
+  .company-name { font-size: 20px; font-weight: 700; line-height: 1.3; }
+  .company-biz { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+  .company-loc { font-size: 11px; opacity: 0.7; margin-top: 4px; display: flex; gap: 12px; }
+  .follow-btn {
+    background: #2E7D32; color: #fff; border: none;
+    padding: 8px 20px; border-radius: 20px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .follow-btn.followed {
+    background: rgba(255,255,255,0.18); backdrop-filter: blur(8px);
+  }
+  .follow-btn:hover { transform: scale(1.05); }
+
+  /* ===== Info Bar ===== */
+  .info-bar {
+    padding: 14px 16px;
+    background: #fff;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #f0f0e8;
+  }
+  .rating-area { display: flex; align-items: center; gap: 8px; }
+  .stars { color: #f5a623; font-size: 14px; letter-spacing: 1px; }
+  .rating-num { font-size: 16px; font-weight: 700; color: #333; }
+  .rating-count { font-size: 11px; color: #999; }
+  .phone-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: #e8f5e9; color: #2E7D32;
+    padding: 7px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    border: none; transition: all 0.2s;
+  }
+  .phone-btn:hover { background: #c8e6c9; }
+
+  .badge-row {
+    padding: 10px 16px 6px;
+    background: #fff;
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .badge {
+    padding: 4px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 500;
+  }
+  .badge-green { background: #e8f5e9; color: #2E7D32; }
+  .badge-blue { background: #e3f2fd; color: #1565c0; }
+  .badge-orange { background: #fff3e0; color: #e65100; }
+
+  /* ===== Tabs ===== */
+  .tab-bar {
+    display: flex; gap: 0;
+    padding: 10px 16px;
+    background: #fff;
+    overflow-x: auto;
+    border-bottom: 1px solid #f0f0e8;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-item {
+    flex: 1;
+    padding: 10px 0;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer; border: none;
+    color: #999; white-space: nowrap;
+    transition: all 0.3s; background: transparent;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    position: relative;
+  }
+  .tab-icon {
+    width: 36px; height: 36px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; transition: all 0.3s;
+    background: #f5f5f0;
+  }
+  .tab-label { font-size: 11px; transition: all 0.3s; }
+  .tab-item.active .tab-icon {
+    background: linear-gradient(135deg, #2E7D32, #43a047);
+    box-shadow: 0 4px 12px rgba(46,125,50,0.3);
+    transform: translateY(-2px);
+  }
+  .tab-item.active .tab-label {
+    color: #2E7D32; font-weight: 600;
+  }
+  .tab-item:not(.active):hover .tab-icon {
+    background: #eee;
+    transform: translateY(-1px);
+  }
+  .tab-item::after {
+    content: '';
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 0; height: 2px; border-radius: 1px;
+    background: linear-gradient(90deg, #2E7D32, #43a047);
+    transition: width 0.3s;
+  }
+  .tab-item.active::after { width: 24px; }
+
+  .tab-content { display: none; padding: 12px 16px 24px; }
+  .tab-content.active { display: block; }
+
+  /* ===== 商品 Tab ===== */
+  .category-filter {
+    display: flex; gap: 8px; overflow-x: auto;
+    padding-bottom: 12px;
+  }
+  .category-filter::-webkit-scrollbar { display: none; }
+  .cat-chip {
+    padding: 6px 14px; border-radius: 16px;
+    font-size: 12px; white-space: nowrap;
+    border: 1px solid #e0e0d8; color: #666;
+    cursor: pointer; background: #fff;
+    transition: all 0.2s;
+  }
+  .cat-chip.active {
+    background: #2E7D32; color: #fff; border-color: #2E7D32;
+  }
+
+  .masonry { display: flex; gap: 10px; }
+  .masonry-col { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .product-card {
+    background: #fff; border-radius: 12px;
+    overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    transition: transform 0.2s;
+  }
+  .product-card:hover { transform: translateY(-2px); }
+  .product-img {
+    width: 100%; aspect-ratio: auto;
+    object-fit: cover; display: block;
+  }
+  .product-body { padding: 10px; }
+  .product-title {
+    font-size: 13px; font-weight: 500; color: #333;
+    line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .product-tags { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+  .product-tag {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    background: #f0f7f0; color: #2E7D32;
+  }
+  .product-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 8px;
+  }
+  .product-price { font-size: 16px; font-weight: 700; color: #d32f2f; }
+  .product-price span { font-size: 11px; }
+  .product-unit { font-size: 11px; color: #999; }
+  .add-btn {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #2E7D32; color: #fff;
+    border: none; font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s; line-height: 1;
+  }
+  .add-btn:hover { background: #1b5e20; transform: scale(1.1); }
+
+  /* ===== 活动预约 Tab ===== */
+  .section-title {
+    font-size: 16px; font-weight: 600; color: #333;
+    margin-bottom: 12px;
+  }
+  .section-subtitle {
+    font-size: 12px; color: #999; margin-top: 2px;
+  }
+  .calendar-strip {
+    display: flex; gap: 6px; overflow-x: auto;
+    padding: 12px; background: #fff; border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .calendar-strip::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0;
+    height: 3px; border-radius: 12px 12px 0 0;
+    background: linear-gradient(90deg, #2E7D32, #1565c0, #7c4dff);
+  }
+  .cal-day {
+    min-width: 44px; text-align: center; padding: 8px 6px;
+    border-radius: 10px; cursor: pointer; transition: all 0.2s;
+  }
+  .cal-day:hover { background: #f5f5f0; }
+  .cal-day.active { background: #2E7D32; }
+  .cal-day.active .cal-weekday,
+  .cal-day.active .cal-date { color: #fff; }
+  .cal-weekday { font-size: 10px; color: #999; }
+  .cal-date { font-size: 16px; font-weight: 600; color: #333; margin-top: 4px; }
+  .cal-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #2E7D32; margin: 4px auto 0;
+  }
+  .cal-day.active .cal-dot { background: #fff; }
+
+  .event-card {
+    background: #fff; border-radius: 12px; padding: 14px;
+    margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    display: flex; gap: 12px;
+  }
+  .event-time-pill {
+    width: 64px; padding: 8px 0; text-align: center;
+    background: #e8f5e9; border-radius: 10px; flex-shrink: 0;
+  }
+  .event-time { font-size: 14px; font-weight: 600; color: #2E7D32; }
+  .event-time-end { font-size: 10px; color: #999; margin-top: 2px; }
+  .event-body { flex: 1; }
+  .event-header { display: flex; justify-content: space-between; align-items: center; }
+  .event-title { font-size: 14px; font-weight: 600; color: #333; }
+  .event-type {
+    font-size: 10px; padding: 3px 8px; border-radius: 10px;
+    background: #e8f5e9; color: #2E7D32; font-weight: 500;
+  }
+  .event-type.activity { background: #e3f2fd; color: #1565c0; }
+  .event-loc { font-size: 11px; color: #999; margin-top: 4px; }
+  .event-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 8px;
+  }
+  .event-status {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    font-weight: 500;
+  }
+  .status-open { background: #e8f5e9; color: #2E7D32; }
+  .status-full { background: #f5f5f0; color: #999; }
+  .book-btn {
+    background: #2E7D32; color: #fff; border: none;
+    padding: 6px 16px; border-radius: 20px;
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .book-btn:hover { background: #1b5e20; }
+
+  .my-bookings { margin-top: 20px; }
+  .booking-card {
+    background: #fff; border-radius: 12px; padding: 14px;
+    margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .booking-header {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .booking-date { font-size: 14px; font-weight: 600; color: #333; }
+  .booking-status {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    font-weight: 500;
+  }
+  .status-pending { background: #e8f5e9; color: #2E7D32; }
+  .status-approved { background: #e3f2fd; color: #1565c0; }
+  .booking-detail { font-size: 12px; color: #999; margin-top: 6px; }
+
+  /* ===== 企业档案 Tab ===== */
+  .profile-card {
+    background: #fff; border-radius: 12px; padding: 16px;
+    margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .profile-card-title {
+    font-size: 15px; font-weight: 600; color: #333;
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .profile-card-title .icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .profile-desc {
+    font-size: 13px; color: #666; line-height: 1.8;
+  }
+  .profile-kv {
+    display: flex; padding: 6px 0;
+    border-bottom: 1px solid #f5f5f0;
+  }
+  .profile-kv:last-child { border-bottom: none; }
+  .profile-key { width: 70px; font-size: 12px; color: #999; flex-shrink: 0; }
+  .profile-val { font-size: 12px; color: #333; flex: 1; }
+
+  .cert-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .cert-item {
+    padding: 8px 14px; border-radius: 10px;
+    background: #f0f7f0; border: 1px solid #e0efe0;
+    font-size: 12px; color: #2E7D32; font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .cert-icon { font-size: 14px; }
+
+  .test-summary {
+    display: flex; gap: 12px; margin-bottom: 12px;
+  }
+  .test-stat {
+    flex: 1; padding: 12px; border-radius: 10px;
+    background: #f8f8f4; text-align: center;
+  }
+  .test-stat-num { font-size: 20px; font-weight: 700; color: #2E7D32; }
+  .test-stat-label { font-size: 11px; color: #999; margin-top: 4px; }
+
+  .gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .gallery-img {
+    width: 100%; aspect-ratio: 1;
+    object-fit: cover; border-radius: 8px;
+    cursor: pointer; transition: transform 0.2s;
+  }
+  .gallery-img:hover { transform: scale(1.03); }
+  .gallery-img.wide {
+    grid-column: span 2;
+    aspect-ratio: 2/1;
+  }
+
+  /* ===== 组团 Tab ===== */
+  .group-card {
+    background: #fff; border-radius: 12px; padding: 16px;
+    margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .group-header {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .group-title { font-size: 15px; font-weight: 600; color: #333; }
+  .group-meta { font-size: 12px; color: #999; margin-top: 6px; }
+  .progress-track {
+    height: 6px; background: #f0f0e8; border-radius: 3px;
+    margin-top: 12px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, #2E7D32, #1565c0, #7c4dff);
+    transition: width 0.5s;
+  }
+  .group-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 12px;
+  }
+  .group-status { font-size: 12px; color: #999; }
+  .join-btn {
+    background: linear-gradient(135deg, #2E7D32, #1565c0);
+    color: #fff; border: none;
+    padding: 8px 20px; border-radius: 20px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .join-btn:hover { transform: scale(1.05); }
+
+  /* ===== Divider ===== */
+  .section-divider {
+    display: flex; align-items: center; gap: 8px;
+    margin: 16px 0 12px;
+  }
+  .section-divider::after {
+    content: ''; flex: 1; height: 1px; background: #e8e8e0;
+  }
+  .section-divider-text {
+    font-size: 13px; font-weight: 600; color: #666;
+  }
+
+  /* ===== Toast demo ===== */
+  .toast {
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+    background: #2E7D32; color: #fff; padding: 10px 24px;
+    border-radius: 20px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 16px rgba(46,125,50,0.3);
+    opacity: 0; transition: all 0.3s; pointer-events: none;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ===== Label ===== */
+  .design-label {
+    position: fixed; bottom: 16px; right: 16px;
+    background: rgba(0,0,0,0.6); color: #fff;
+    padding: 8px 16px; border-radius: 20px;
+    font-size: 11px; backdrop-filter: blur(8px);
+  }
+</style>
+</head>
+<body>
+
+<div class="toast" id="toast">✓ 已加入购物车</div>
+
+<div class="phone-frame">
+<div class="phone-scroll">
+
+  <!-- ===== Cover / Hero ===== -->
+  <div class="cover">
+    <img class="cover-img" src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80" alt="cover">
+    <div class="cover-overlay"></div>
+    <div class="cover-top">
+      <button class="cover-top-btn">←</button>
+      <div class="cover-top-right">
+        <button class="cover-top-btn">↗</button>
+        <button class="cover-top-btn">⋯</button>
+      </div>
+    </div>
+    <div class="cover-bottom">
+      <div class="cover-info">
+        <img class="company-logo" src="https://images.unsplash.com/photo-1560493676-04071c5f467b?w=200&q=80" alt="logo">
+        <div class="company-text">
+          <div class="company-name">绿源生态农场</div>
+          <div class="company-biz">有机蔬果 · 生态养殖</div>
+          <div class="company-loc">
+            <span>📍 湖南长沙 · 望城区</span>
+            <span>3.2 km</span>
+          </div>
+        </div>
+      </div>
+      <button class="follow-btn" id="followBtn" onclick="toggleFollow()">+ 关注</button>
+    </div>
+  </div>
+
+  <!-- ===== Info Bar ===== -->
+  <div class="info-bar">
+    <div class="rating-area">
+      <span class="stars">★★★★★</span>
+      <span class="rating-num">4.8</span>
+      <span class="rating-count">328条评价</span>
+    </div>
+    <button class="phone-btn" onclick="showToastMsg('📞 正在拨号...')">
+      📞 联系商家
+    </button>
+  </div>
+
+  <div class="badge-row">
+    <span class="badge badge-green">✓ 有机认证</span>
+    <span class="badge badge-green">✓ 绿色食品</span>
+    <span class="badge badge-blue">✓ 产地直供</span>
+    <span class="badge badge-orange">✓ ISO9001</span>
+  </div>
+
+  <!-- ===== Tab Bar ===== -->
+  <div class="tab-bar">
+    <button class="tab-item active" data-tab="products" onclick="switchTab('products')">
+      <span class="tab-icon">🛒</span>
+      <span class="tab-label">商品</span>
+    </button>
+    <button class="tab-item" data-tab="events" onclick="switchTab('events')">
+      <span class="tab-icon">📅</span>
+      <span class="tab-label">活动预约</span>
+    </button>
+    <button class="tab-item" data-tab="profile" onclick="switchTab('profile')">
+      <span class="tab-icon">📋</span>
+      <span class="tab-label">企业档案</span>
+    </button>
+    <button class="tab-item" data-tab="group" onclick="switchTab('group')">
+      <span class="tab-icon">👥</span>
+      <span class="tab-label">组团</span>
+    </button>
+  </div>
+
+  <!-- ===== 商品 Tab ===== -->
+  <div class="tab-content active" id="tab-products">
+    <div class="category-filter">
+      <span class="cat-chip active">全部</span>
+      <span class="cat-chip" onclick="this.parentElement.querySelector('.active').classList.remove('active');this.classList.add('active')">有机蔬菜</span>
+      <span class="cat-chip" onclick="this.parentElement.querySelector('.active').classList.remove('active');this.classList.add('active')">精品水果</span>
+      <span class="cat-chip" onclick="this.parentElement.querySelector('.active').classList.remove('active');this.classList.add('active')">生态禽蛋</span>
+      <span class="cat-chip" onclick="this.parentElement.querySelector('.active').classList.remove('active');this.classList.add('active')">粮油干货</span>
+    </div>
+
+    <div class="masonry">
+      <div class="masonry-col">
+        <div class="product-card">
+          <img class="product-img" src="https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&q=80" style="height:130px" alt="">
+          <div class="product-body">
+            <div class="product-title">有机小番茄 当季现摘 自然成熟</div>
+            <div class="product-tags">
+              <span class="product-tag">有机</span>
+              <span class="product-tag">当季</span>
+            </div>
+            <div class="product-footer">
+              <div>
+                <span class="product-price"><span>¥</span>12.8</span>
+                <span class="product-unit">/斤</span>
+              </div>
+              <button class="add-btn" onclick="addToCart()">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <img class="product-img" src="https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=400&q=80" style="height:160px" alt="">
+          <div class="product-body">
+            <div class="product-title">散养土鸡蛋 30枚装 营养丰富</div>
+            <div class="product-tags">
+              <span class="product-tag">散养</span>
+            </div>
+            <div class="product-footer">
+              <div>
+                <span class="product-price"><span>¥</span>35.0</span>
+                <span class="product-unit">/盒</span>
+              </div>
+              <button class="add-btn" onclick="addToCart()">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <img class="product-img" src="https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&q=80" style="height:120px" alt="">
+          <div class="product-body">
+            <div class="product-title">新鲜西兰花 绿色无公害</div>
+            <div class="product-tags">
+              <span class="product-tag">绿色</span>
+            </div>
+            <div class="product-footer">
+              <div>
+                <span class="product-price"><span>¥</span>6.5</span>
+                <span class="product-unit">/斤</span>
+              </div>
+              <button class="add-btn" onclick="addToCart()">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="masonry-col">
+        <div class="product-card">
+          <img class="product-img" src="https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400&q=80" style="height:170px" alt="">
+          <div class="product-body">
+            <div class="product-title">阳光玫瑰葡萄 香甜多汁 精品礼盒装</div>
+            <div class="product-tags">
+              <span class="product-tag">精品</span>
+              <span class="product-tag">礼盒</span>
+            </div>
+            <div class="product-footer">
+              <div>
+                <span class="product-price"><span>¥</span>68.0</span>
+                <span class="product-unit">/盒</span>
+              </div>
+              <button class="add-btn" onclick="addToCart()">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <img class="product-img" src="https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=400&q=80" style="height:130px" alt="">
+          <div class="product-body">
+            <div class="product-title">五常大米 东北长粒香 5kg</div>
+            <div class="product-tags">
+              <span class="product-tag">产地直供</span>
+            </div>
+            <div class="product-footer">
+              <div>
+                <span class="product-price"><span>¥</span>49.9</span>
+                <span class="product-unit">/袋</span>
+              </div>
+              <button class="add-btn" onclick="addToCart()">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <img class="product-img" src="https://images.unsplash.com/photo-1518977676601-b53f82ber630?w=400&q=80" style="height:140px" alt="">
+          <div class="product-body">
+            <div class="product-title">冷榨亚麻籽油 纯天然 500ml</div>
+            <div class="product-tags">
+              <span class="product-tag">冷榨</span>
+              <span class="product-tag">纯天然</span>
+            </div>
+            <div class="product-footer">
+              <div>
+                <span class="product-price"><span>¥</span>58.0</span>
+                <span class="product-unit">/瓶</span>
+              </div>
+              <button class="add-btn" onclick="addToCart()">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 活动预约 Tab ===== -->
+  <div class="tab-content" id="tab-events">
+    <div class="section-title">可预约日历<br><span class="section-subtitle">未来 7 天滚动窗口</span></div>
+
+    <div class="calendar-strip">
+      <div class="cal-day">
+        <div class="cal-weekday">周日</div>
+        <div class="cal-date">23</div>
+      </div>
+      <div class="cal-day active">
+        <div class="cal-weekday">周一</div>
+        <div class="cal-date">24</div>
+        <div class="cal-dot"></div>
+      </div>
+      <div class="cal-day">
+        <div class="cal-weekday">周二</div>
+        <div class="cal-date">25</div>
+        <div class="cal-dot"></div>
+      </div>
+      <div class="cal-day">
+        <div class="cal-weekday">周三</div>
+        <div class="cal-date">26</div>
+      </div>
+      <div class="cal-day">
+        <div class="cal-weekday">周四</div>
+        <div class="cal-date">27</div>
+        <div class="cal-dot"></div>
+      </div>
+      <div class="cal-day">
+        <div class="cal-weekday">周五</div>
+        <div class="cal-date">28</div>
+      </div>
+      <div class="cal-day">
+        <div class="cal-weekday">周六</div>
+        <div class="cal-date">29</div>
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+      <div class="section-title" style="margin:0">3月24日 · 2 场</div>
+      <span style="font-size:12px; color:#1565c0; cursor:pointer">查看全部日程</span>
+    </div>
+
+    <div class="event-card">
+      <div class="event-time-pill">
+        <div class="event-time">09:00</div>
+        <div class="event-time-end">~ 11:30</div>
+      </div>
+      <div class="event-body">
+        <div class="event-header">
+          <span class="event-title">春季有机蔬果采摘</span>
+          <span class="event-type">参观</span>
+        </div>
+        <div class="event-loc">📍 采摘园区A区 · 已报名 12/30</div>
+        <div class="event-footer">
+          <span class="event-status status-open">可预约</span>
+          <button class="book-btn">预约</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="event-card">
+      <div class="event-time-pill">
+        <div class="event-time">14:00</div>
+        <div class="event-time-end">~ 16:00</div>
+      </div>
+      <div class="event-body">
+        <div class="event-header">
+          <span class="event-title">有机种植技术分享会</span>
+          <span class="event-type activity">活动</span>
+        </div>
+        <div class="event-loc">📍 会议中心 · 已报名 45/50</div>
+        <div class="event-footer">
+          <span class="event-status status-open">可预约</span>
+          <button class="book-btn">预约</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-divider">
+      <span class="section-divider-text">我的预约</span>
+    </div>
+
+    <div class="booking-card">
+      <div class="booking-header">
+        <span class="booking-date">2026-03-20</span>
+        <span class="booking-status status-approved">已通过</span>
+      </div>
+      <div class="booking-detail">人数 2 · 身份 消费者 · 春季茶园体验</div>
+    </div>
+    <div class="booking-card">
+      <div class="booking-header">
+        <span class="booking-date">2026-03-28</span>
+        <span class="booking-status status-pending">待审核</span>
+      </div>
+      <div class="booking-detail">人数 5 · 身份 采购商 · 企业参观考察</div>
+    </div>
+  </div>
+
+  <!-- ===== 企业档案 Tab ===== -->
+  <div class="tab-content" id="tab-profile">
+    <div class="profile-card">
+      <div class="profile-card-title">
+        <span class="icon" style="background:#e8f5e9; color:#2E7D32">📋</span>
+        企业简介
+      </div>
+      <div class="profile-desc">
+        绿源生态农场始建于2008年，占地1200亩，是湖南省首批获得有机认证的生态农业企业。农场采用生态循环农业模式，坚持"零农药、零化肥、零激素"的种植理念，致力于为消费者提供安全、健康、高品质的农产品。
+      </div>
+      <div style="margin-top: 12px">
+        <div class="profile-kv">
+          <span class="profile-key">主营业务</span>
+          <span class="profile-val">有机蔬果 · 生态养殖 · 农产品加工</span>
+        </div>
+        <div class="profile-kv">
+          <span class="profile-key">企业类型</span>
+          <span class="profile-val">生态农场</span>
+        </div>
+        <div class="profile-kv">
+          <span class="profile-key">地址</span>
+          <span class="profile-val">湖南省长沙市望城区乌山街道绿源路88号</span>
+        </div>
+        <div class="profile-kv">
+          <span class="profile-key">距离</span>
+          <span class="profile-val">3.2 km</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="profile-card-title">
+        <span class="icon" style="background:#fff3e0; color:#e65100">🏅</span>
+        资质认证
+      </div>
+      <div class="cert-grid">
+        <div class="cert-item"><span class="cert-icon">✓</span> 有机认证</div>
+        <div class="cert-item"><span class="cert-icon">✓</span> 绿色食品</div>
+        <div class="cert-item"><span class="cert-icon">✓</span> 产地直供</div>
+        <div class="cert-item"><span class="cert-icon">✓</span> ISO9001</div>
+        <div class="cert-item"><span class="cert-icon">✓</span> HACCP</div>
+        <div class="cert-item"><span class="cert-icon">✓</span> GAP认证</div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="profile-card-title">
+        <span class="icon" style="background:#e3f2fd; color:#1565c0">🔬</span>
+        检测报告
+      </div>
+      <div class="test-summary">
+        <div class="test-stat">
+          <div class="test-stat-num">36</div>
+          <div class="test-stat-label">检测批次</div>
+        </div>
+        <div class="test-stat">
+          <div class="test-stat-num">100%</div>
+          <div class="test-stat-label">合格率</div>
+        </div>
+        <div class="test-stat">
+          <div class="test-stat-num">3月</div>
+          <div class="test-stat-label">最近检测</div>
+        </div>
+      </div>
+      <div style="font-size:12px; color:#999; text-align:center; padding:12px; background:#f8f8f4; border-radius:8px;">
+        点击查看完整检测报告 →
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="profile-card-title">
+        <span class="icon" style="background:#fce4ec; color:#c62828">📸</span>
+        企业风采
+      </div>
+      <div class="gallery-grid">
+        <img class="gallery-img wide" src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=400&q=80" alt="">
+        <img class="gallery-img" src="https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&q=80" alt="">
+        <img class="gallery-img" src="https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&q=80" alt="">
+        <img class="gallery-img" src="https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80" alt="">
+        <img class="gallery-img" src="https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=400&q=80" alt="">
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 组团 Tab ===== -->
+  <div class="tab-content" id="tab-group">
+    <div class="profile-card" style="background:linear-gradient(135deg, #e8f5e9, #e3f2fd); border:none;">
+      <div class="section-title" style="margin:0">组团状态看板</div>
+      <div style="font-size:12px; color:#666; margin-top:4px;">
+        目标成团人数由后台配置，当前默认 30 人
+      </div>
+    </div>
+
+    <div class="group-card">
+      <div class="group-header">
+        <span class="group-title">春季有机农场深度体验团</span>
+      </div>
+      <div class="group-meta">
+        目的地：绿源生态农场 · 采摘园区<br>
+        进度 22/30 · 截止 2026-04-15
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" style="width:73%"></div>
+      </div>
+      <div class="group-footer">
+        <span class="group-status">组团中</span>
+        <button class="join-btn">一键参团</button>
+      </div>
+    </div>
+
+    <div class="group-card">
+      <div class="group-header">
+        <span class="group-title">茶园采摘文化之旅</span>
+      </div>
+      <div class="group-meta">
+        目的地：绿源茶园 · 高山茶区<br>
+        进度 30/30 · 截止 2026-03-30
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" style="width:100%"></div>
+      </div>
+      <div class="group-footer">
+        <span class="group-status">已成团 ✓</span>
+        <button class="join-btn" style="opacity:0.5; cursor:default">已满员</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="design-label">公司详情页 · 设计稿 V1</div>
+
+<script>
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+  document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById(`tab-${tabId}`).classList.add('active');
+}
+
+function toggleFollow() {
+  const btn = document.getElementById('followBtn');
+  if (btn.classList.contains('followed')) {
+    btn.classList.remove('followed');
+    btn.textContent = '+ 关注';
+  } else {
+    btn.classList.add('followed');
+    btn.textContent = '✓ 已关注';
+  }
+}
+
+function addToCart() {
+  showToastMsg('✓ 已加入购物车');
+}
+
+function showToastMsg(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 1500);
+}
+</script>
+
+</body>
+</html>

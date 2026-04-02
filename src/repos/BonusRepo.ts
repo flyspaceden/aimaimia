@@ -21,20 +21,20 @@ import { ApiClient } from './http/ApiClient';
 import { simulateRequest } from './helpers';
 import { USE_MOCK } from './http/config';
 
-// Mock 数据
+// Mock 数据 — 林青禾（VIP 用户）
 const mockMember: MemberProfile = {
-  tier: 'NORMAL',
-  referralCode: 'NM8K2X4P',
-  inviterUserId: null,
-  vipPurchasedAt: null,
+  tier: 'VIP',
+  referralCode: 'LQHE2025',
+  inviterUserId: 'u-001',
+  vipPurchasedAt: '2026-01-15T10:30:00Z',
   normalEligible: true,
-  vipProgress: null,
+  vipProgress: { selfPurchaseCount: 6, unlockedLevel: 4 },
 };
 
 const mockWallet: Wallet = {
-  balance: 128.5, frozen: 20.0, total: 148.5,
-  vip: { balance: 96.0, frozen: 15.0 },
-  normal: { balance: 32.5, frozen: 5.0 },
+  balance: 236.80, frozen: 47.60, total: 384.40,
+  vip: { balance: 186.30, frozen: 35.60 },
+  normal: { balance: 50.50, frozen: 12.00 },
 };
 
 export const BonusRepo = {
@@ -87,9 +87,16 @@ export const BonusRepo = {
     if (USE_MOCK) {
       return simulateRequest({
         items: [
-          { id: 'l-1', entryType: 'CREDIT', amount: 12.8, status: 'SETTLED', refType: 'ORDER', meta: null, createdAt: '2026-02-10' },
-          { id: 'l-2', entryType: 'DEBIT', amount: -20.0, status: 'FROZEN', refType: 'WITHDRAW', meta: null, createdAt: '2026-02-12' },
-          { id: 'l-3', entryType: 'CREDIT', amount: 8.5, status: 'SETTLED', refType: 'REFERRAL', meta: null, createdAt: '2026-02-14' },
+          { id: 'l-01', entryType: 'CREDIT', amount: 18.60, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-03-26' },
+          { id: 'l-02', entryType: 'CREDIT', amount: 50.00, status: 'SETTLED', refType: 'VIP_REFERRAL', meta: null, createdAt: '2026-03-24' },
+          { id: 'l-03', entryType: 'CREDIT', amount: 9.30, status: 'SETTLED', refType: 'NORMAL_TREE', meta: null, createdAt: '2026-03-22' },
+          { id: 'l-04', entryType: 'CREDIT', amount: 24.50, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-03-18' },
+          { id: 'l-05', entryType: 'DEBIT', amount: -100.00, status: 'SETTLED', refType: 'WITHDRAW', meta: null, createdAt: '2026-03-15' },
+          { id: 'l-06', entryType: 'CREDIT', amount: 50.00, status: 'SETTLED', refType: 'VIP_REFERRAL', meta: null, createdAt: '2026-03-12' },
+          { id: 'l-07', entryType: 'CREDIT', amount: 15.80, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-03-08' },
+          { id: 'l-08', entryType: 'CREDIT', amount: 6.20, status: 'SETTLED', refType: 'ORDER', meta: null, createdAt: '2026-03-05' },
+          { id: 'l-09', entryType: 'DEBIT', amount: -50.00, status: 'SETTLED', refType: 'WITHDRAW', meta: null, createdAt: '2026-02-28' },
+          { id: 'l-10', entryType: 'CREDIT', amount: 12.40, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-02-20' },
         ],
         nextPage: undefined,
       });
@@ -168,11 +175,12 @@ export const BonusRepo = {
     if (USE_MOCK) {
       return simulateRequest({
         items: [
-          { id: 'nrp-1', amount: 3.00, status: 'AVAILABLE' as const, entryType: 'RELEASE' as const, requiredLevel: null, expiresAt: null, remainingDays: null, sourceOrderId: 'o-1', scheme: 'NORMAL_TREE', createdAt: '2026-02-20' },
-          { id: 'nrp-2', amount: 5.80, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 3, expiresAt: '2026-03-25T00:00:00Z', remainingDays: 24, sourceOrderId: 'o-2', scheme: 'NORMAL_TREE', createdAt: '2026-02-23' },
-          { id: 'nrp-3', amount: 2.10, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 5, expiresAt: '2026-03-10T00:00:00Z', remainingDays: 9, sourceOrderId: 'o-3', scheme: 'NORMAL_TREE', createdAt: '2026-02-08' },
+          { id: 'nrp-1', amount: 8.50, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 4, expiresAt: '2026-04-20T00:00:00Z', remainingDays: 24, sourceOrderId: 'o-201', scheme: 'VIP_UPSTREAM', createdAt: '2026-03-21' },
+          { id: 'nrp-2', amount: 15.30, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 6, expiresAt: '2026-04-15T00:00:00Z', remainingDays: 19, sourceOrderId: 'o-202', scheme: 'VIP_UPSTREAM', createdAt: '2026-03-16' },
+          { id: 'nrp-3', amount: 5.20, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 8, expiresAt: '2026-03-30T00:00:00Z', remainingDays: 3, sourceOrderId: 'o-203', scheme: 'NORMAL_TREE', createdAt: '2026-02-28' },
+          { id: 'nrp-4', amount: 18.60, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 10, expiresAt: '2026-03-29T00:00:00Z', remainingDays: 2, sourceOrderId: 'o-204', scheme: 'VIP_UPSTREAM', createdAt: '2026-02-27' },
         ],
-        total: 3, page: 1, pageSize: 20,
+        total: 4, page: 1, pageSize: 20,
       });
     }
     return ApiClient.get<NormalRewardPage>('/bonus/normal-rewards', { page, pageSize });

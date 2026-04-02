@@ -1,0 +1,163 @@
+<template>
+  <view class="nm-card">
+    <image :src="item.image" class="nm-card__image" :style="imageStyle" mode="aspectFill" />
+    <view class="nm-card__body">
+      <text class="nm-card__title" number-of-lines="2">{{ item.title }}</text>
+      <text class="nm-card__origin">{{ item.origin }}</text>
+      <view v-if="item.tags && item.tags.length" class="nm-card__tags">
+        <view v-for="(tag, index) in item.tags.slice(0, 2)" :key="`${item.id}-${tag}-${index}`" class="nm-tag">
+          <text class="nm-tag__text">{{ tag }}</text>
+        </view>
+      </view>
+      <view class="nm-card__row">
+        <view class="nm-card__price-wrap">
+          <view class="nm-card__price-row">
+            <text class="nm-card__price">¥{{ item.price }}</text>
+            <text class="nm-card__unit">/{{ item.unit }}</text>
+          </view>
+          <text v-if="item.strikePrice" class="nm-card__strike">¥{{ item.strikePrice }}</text>
+        </view>
+        <view class="nm-card__cart" @click.stop="onAddToCart">
+          <Icon class="nm-card__cart-icon" name="cart" :size="36" :color="textInverse" />
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script>
+import Icon from '@/components/ui/Icon.nvue';
+// 商品卡片（nvue）：首页瀑布流使用（公共组件需中文注释）
+import { CartState } from '@/services/state';
+
+export default {
+  components: { Icon },
+  props: {
+    item: { type: Object, required: true },
+    imageHeight: { type: Number, default: 240 },
+  },
+  computed: {
+    textInverse() {
+      return '#FFFFFF';
+    },
+    imageStyle() {
+      return {
+        height: `${this.imageHeight}rpx`,
+      };
+    },
+  },
+  methods: {
+    onAddToCart() {
+      // TODO(后端)：后续如改为服务端购物车，这里应调用 CartRepo.addItem，再同步 CartState
+      CartState.addProduct(
+        { id: this.item.id, title: this.item.title, price: this.item.price, image: this.item.image },
+        1
+      );
+      uni.showToast({ title: '已加入购物车', icon: 'success', duration: 1200 });
+    },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use '@/styles/tokens.scss' as *;
+
+.nm-card {
+  background-color: $nm-surface;
+  border-radius: $nm-radius-lg;
+  box-shadow: $nm-shadow-sm;
+  margin-bottom: $nm-space-md;
+  overflow: hidden;
+}
+
+.nm-card__image {
+  width: 100%;
+  background-color: $nm-skeleton;
+}
+
+.nm-card__body {
+  padding: $nm-space-md;
+}
+
+.nm-card__title {
+  font-size: $nm-font-body;
+  line-height: $nm-line-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-card__origin {
+  margin-top: 6rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-card__tags {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.nm-tag {
+  padding: 6rpx 14rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-background;
+  border: 1rpx solid $nm-border;
+  margin-right: 8rpx;
+  margin-bottom: 8rpx;
+}
+
+.nm-tag__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-card__row {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nm-card__price-wrap {
+  flex: 1;
+}
+
+.nm-card__price-row {
+  flex-direction: row;
+  align-items: baseline;
+}
+
+.nm-card__price {
+  font-size: $nm-font-body;
+  line-height: $nm-line-body;
+  font-weight: 600;
+  color: $nm-brand-primary;
+}
+
+.nm-card__unit {
+  margin-left: 4rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-card__strike {
+  margin-top: 2rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+  text-decoration: line-through;
+}
+
+.nm-card__cart {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-card__cart-icon {
+  color: $nm-text-inverse;
+}
+</style>

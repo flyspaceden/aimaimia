@@ -1,0 +1,206 @@
+<h2>VIP 赠品组合编辑器 — 交互方案选择</h2>
+<p class="subtitle">管理员如何在后台添加/编辑「多商品组合赠品」？请选择你偏好的交互模式</p>
+
+<div class="options">
+  <!-- Option A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>动态表单行（Form.List）</h3>
+      <p>Drawer 内保留当前表单布局，将单个商品选择器替换为<strong>可重复添加的行</strong>。每行：商品搜索 → SKU选择 → 数量输入。底部"+ 添加商品"按钮。</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-header">Drawer 预览 — 方案 A</div>
+        <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+          <div style="margin-bottom: 12px;">
+            <div style="color: #666; font-size: 11px; margin-bottom: 4px;">方案标题 *</div>
+            <div style="background: #f5f5f5; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; color: #999;">海鲜红酒尊享组合</div>
+          </div>
+          <div style="margin-bottom: 8px; font-weight: 600; color: #333;">组合商品 *</div>
+          <!-- Item 1 -->
+          <div style="background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px; margin-bottom: 8px; position: relative;">
+            <div style="position: absolute; top: 8px; right: 8px; color: #ff4d4f; cursor: pointer; font-size: 12px;">✕ 删除</div>
+            <div style="display: flex; gap: 8px; align-items: flex-end;">
+              <div style="flex: 2;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 4px;">奖励商品</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; font-size: 12px;">🔍 深海大虾礼盒</div>
+              </div>
+              <div style="flex: 1.5;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 4px;">SKU 规格</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; font-size: 12px;">500g 装</div>
+              </div>
+              <div style="flex: 0.5;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 4px;">数量</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center;">2</div>
+              </div>
+            </div>
+            <div style="margin-top: 6px; color: #999; font-size: 11px;">单价: ¥128.00 | 小计: ¥256.00</div>
+          </div>
+          <!-- Item 2 -->
+          <div style="background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px; margin-bottom: 8px; position: relative;">
+            <div style="position: absolute; top: 8px; right: 8px; color: #ff4d4f; cursor: pointer; font-size: 12px;">✕ 删除</div>
+            <div style="display: flex; gap: 8px; align-items: flex-end;">
+              <div style="flex: 2;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 4px;">奖励商品</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; font-size: 12px;">🔍 法国进口红酒</div>
+              </div>
+              <div style="flex: 1.5;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 4px;">SKU 规格</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; font-size: 12px;">500ml 珍藏版</div>
+              </div>
+              <div style="flex: 0.5;">
+                <div style="color: #666; font-size: 11px; margin-bottom: 4px;">数量</div>
+                <div style="background: #fff; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center;">1</div>
+              </div>
+            </div>
+            <div style="margin-top: 6px; color: #999; font-size: 11px;">单价: ¥299.00 | 小计: ¥299.00</div>
+          </div>
+          <!-- Add button -->
+          <div style="border: 1px dashed #1890ff; border-radius: 8px; padding: 8px; text-align: center; color: #1890ff; cursor: pointer; font-size: 13px; margin-bottom: 12px;">
+            ＋ 添加商品
+          </div>
+          <!-- Summary -->
+          <div style="background: #f0f7ff; border-radius: 8px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #666; font-size: 12px;">组合总价（自动计算）</span>
+            <span style="color: #C9A96E; font-weight: 700; font-size: 16px;">¥555.00</span>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top: 12px;">
+        <div class="pros"><h4>优点</h4><ul><li>延续现有 Drawer 交互，改动最小</li><li>Ant Design Form.List 原生支持</li><li>管理员学习成本低</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>商品多时 Drawer 会较长</li><li>没有商品图片预览</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>可编辑表格（Editable ProTable）</h3>
+      <p>Drawer 分为<strong>上半部分基础信息 + 下半部分商品表格</strong>。表格支持行内编辑、添加行、删除行，更结构化。</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-header">Drawer 预览 — 方案 B</div>
+        <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+          <div style="margin-bottom: 12px;">
+            <div style="color: #666; font-size: 11px; margin-bottom: 4px;">方案标题 *</div>
+            <div style="background: #f5f5f5; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; color: #999;">海鲜红酒尊享组合</div>
+          </div>
+          <div style="margin-bottom: 8px; font-weight: 600; color: #333;">组合商品 *</div>
+          <!-- Table header -->
+          <div style="display: flex; background: #fafafa; border: 1px solid #e8e8e8; border-radius: 6px 6px 0 0; padding: 8px 12px; font-size: 11px; color: #666; font-weight: 600;">
+            <div style="flex: 2;">商品名称</div>
+            <div style="flex: 1.5;">SKU 规格</div>
+            <div style="flex: 0.6; text-align: center;">数量</div>
+            <div style="flex: 0.8; text-align: right;">小计</div>
+            <div style="flex: 0.4; text-align: center;">操作</div>
+          </div>
+          <!-- Table row 1 -->
+          <div style="display: flex; border: 1px solid #e8e8e8; border-top: none; padding: 10px 12px; font-size: 12px; align-items: center;">
+            <div style="flex: 2;">深海大虾礼盒</div>
+            <div style="flex: 1.5; color: #666;">500g 装</div>
+            <div style="flex: 0.6; text-align: center;">
+              <span style="background: #f5f5f5; border: 1px solid #d9d9d9; border-radius: 4px; padding: 2px 8px;">2</span>
+            </div>
+            <div style="flex: 0.8; text-align: right; color: #C9A96E;">¥256.00</div>
+            <div style="flex: 0.4; text-align: center; color: #ff4d4f;">删除</div>
+          </div>
+          <!-- Table row 2 -->
+          <div style="display: flex; border: 1px solid #e8e8e8; border-top: none; border-radius: 0 0 6px 6px; padding: 10px 12px; font-size: 12px; align-items: center;">
+            <div style="flex: 2;">法国进口红酒</div>
+            <div style="flex: 1.5; color: #666;">500ml 珍藏版</div>
+            <div style="flex: 0.6; text-align: center;">
+              <span style="background: #f5f5f5; border: 1px solid #d9d9d9; border-radius: 4px; padding: 2px 8px;">1</span>
+            </div>
+            <div style="flex: 0.8; text-align: right; color: #C9A96E;">¥299.00</div>
+            <div style="flex: 0.4; text-align: center; color: #ff4d4f;">删除</div>
+          </div>
+          <!-- Add row -->
+          <div style="text-align: center; padding: 8px; color: #1890ff; cursor: pointer; font-size: 12px; border: 1px dashed #1890ff; border-top: none; border-radius: 0 0 6px 6px; margin-top: -1px;">
+            ＋ 添加商品行
+          </div>
+          <!-- Summary -->
+          <div style="background: #f0f7ff; border-radius: 8px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+            <span style="color: #666; font-size: 12px;">组合总价（2 件商品，共 3 件）</span>
+            <span style="color: #C9A96E; font-weight: 700; font-size: 16px;">¥555.00</span>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top: 12px;">
+        <div class="pros"><h4>优点</h4><ul><li>表格视觉更清晰，信息对齐</li><li>适合商品数量较多的组合</li><li>小计/总价一目了然</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>Drawer 宽度有限，表格列可能拥挤</li><li>行内编辑交互较复杂</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>卡片式（带商品图片预览）</h3>
+      <p>每个商品以<strong>横向卡片</strong>展示，包含缩略图、商品名、规格、数量调节器。视觉更丰富，适合需要直观确认商品的场景。</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-header">Drawer 预览 — 方案 C</div>
+        <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+          <div style="margin-bottom: 12px;">
+            <div style="color: #666; font-size: 11px; margin-bottom: 4px;">方案标题 *</div>
+            <div style="background: #f5f5f5; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 10px; color: #999;">海鲜红酒尊享组合</div>
+          </div>
+          <div style="margin-bottom: 8px; font-weight: 600; color: #333;">组合商品 *</div>
+          <!-- Card 1 -->
+          <div style="display: flex; gap: 12px; background: #fafafa; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px; margin-bottom: 8px; position: relative;">
+            <div style="position: absolute; top: 8px; right: 10px; color: #ff4d4f; cursor: pointer; font-size: 12px;">✕</div>
+            <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #f093fb, #f5576c); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; flex-shrink: 0;">🦐</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 2px;">深海大虾礼盒</div>
+              <div style="color: #999; font-size: 11px; margin-bottom: 6px;">规格: 500g 装 | 单价: ¥128.00</div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 11px; color: #666;">数量:</span>
+                <div style="display: flex; align-items: center; border: 1px solid #d9d9d9; border-radius: 6px; overflow: hidden;">
+                  <span style="padding: 2px 8px; background: #fafafa; cursor: pointer; font-size: 12px;">−</span>
+                  <span style="padding: 2px 12px; font-size: 12px; font-weight: 600;">2</span>
+                  <span style="padding: 2px 8px; background: #fafafa; cursor: pointer; font-size: 12px;">+</span>
+                </div>
+                <span style="margin-left: auto; color: #C9A96E; font-weight: 600; font-size: 13px;">¥256.00</span>
+              </div>
+            </div>
+          </div>
+          <!-- Card 2 -->
+          <div style="display: flex; gap: 12px; background: #fafafa; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px; margin-bottom: 8px; position: relative;">
+            <div style="position: absolute; top: 8px; right: 10px; color: #ff4d4f; cursor: pointer; font-size: 12px;">✕</div>
+            <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #a18cd1, #fbc2eb); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; flex-shrink: 0;">🍷</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 2px;">法国进口红酒</div>
+              <div style="color: #999; font-size: 11px; margin-bottom: 6px;">规格: 500ml 珍藏版 | 单价: ¥299.00</div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 11px; color: #666;">数量:</span>
+                <div style="display: flex; align-items: center; border: 1px solid #d9d9d9; border-radius: 6px; overflow: hidden;">
+                  <span style="padding: 2px 8px; background: #fafafa; cursor: pointer; font-size: 12px;">−</span>
+                  <span style="padding: 2px 12px; font-size: 12px; font-weight: 600;">1</span>
+                  <span style="padding: 2px 8px; background: #fafafa; cursor: pointer; font-size: 12px;">+</span>
+                </div>
+                <span style="margin-left: auto; color: #C9A96E; font-weight: 600; font-size: 13px;">¥299.00</span>
+              </div>
+            </div>
+          </div>
+          <!-- Add button -->
+          <div style="border: 1px dashed #1890ff; border-radius: 10px; padding: 12px; text-align: center; color: #1890ff; cursor: pointer; font-size: 13px; margin-bottom: 12px;">
+            ＋ 添加商品到组合
+          </div>
+          <!-- Summary -->
+          <div style="background: #f0f7ff; border-radius: 8px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #666; font-size: 12px;">组合总价（2 件商品，共 3 件）</span>
+            <span style="color: #C9A96E; font-weight: 700; font-size: 16px;">¥555.00</span>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top: 12px;">
+        <div class="pros"><h4>优点</h4><ul><li>视觉最直观，商品图片一目了然</li><li>数量调节器交互友好（±按钮）</li><li>管理员能直观确认选对了商品</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>每张卡片占空间较大</li><li>实现复杂度稍高</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 20px; padding: 12px 16px; background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px; font-size: 13px; color: #8c6d1f;">
+  💡 <strong>推荐方案 A</strong> — 延续现有 Ant Design Form.List 模式，改动最小，管理员无学习成本。如果商品带图片预览很重要，可以在 A 的基础上给每行加个缩略图。
+</div>

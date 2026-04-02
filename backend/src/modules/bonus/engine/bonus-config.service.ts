@@ -35,8 +35,6 @@ export interface SystemConfig {
   autoConfirmDays: number;      // 自动确认收货天数
   lotteryEnabled: boolean;      // 抽奖功能开关
   lotteryDailyChances: number;  // 每日抽奖次数
-  vipRewardExpiryDays: number;        // VIP 已释放奖励有效期（天）
-  normalRewardExpiryDays: number;     // 普通用户已释放奖励有效期（天）
   vipDiscountRate: number;         // VIP用户商品折扣率
   vipFreeShippingThreshold: number;    // VIP用户免运费门槛（元），0=无条件免运费
   normalFreeShippingThreshold: number; // 普通用户免运费门槛（元），0=无条件免运费
@@ -95,8 +93,6 @@ const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
   AUTO_CONFIRM_DAYS: 'autoConfirmDays',
   LOTTERY_ENABLED: 'lotteryEnabled',
   LOTTERY_DAILY_CHANCES: 'lotteryDailyChances',
-  VIP_REWARD_EXPIRY_DAYS: 'vipRewardExpiryDays',
-  NORMAL_REWARD_EXPIRY_DAYS: 'normalRewardExpiryDays',
   VIP_DISCOUNT_RATE: 'vipDiscountRate',
   VIP_FREE_SHIPPING_THRESHOLD: 'vipFreeShippingThreshold',
   NORMAL_FREE_SHIPPING_THRESHOLD: 'normalFreeShippingThreshold',
@@ -160,8 +156,6 @@ const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
   autoConfirmDays: 7,
   lotteryEnabled: true,
   lotteryDailyChances: 1,
-  vipRewardExpiryDays: 30,
-  normalRewardExpiryDays: 30,
   vipDiscountRate: 0.95,
   vipFreeShippingThreshold: 49.0,
   normalFreeShippingThreshold: 99.0,
@@ -234,8 +228,6 @@ export class BonusConfigService {
       autoConfirmDays: config.autoConfirmDays,
       lotteryEnabled: config.lotteryEnabled,
       lotteryDailyChances: config.lotteryDailyChances,
-      vipRewardExpiryDays: config.vipRewardExpiryDays,
-      normalRewardExpiryDays: config.normalRewardExpiryDays,
       vipDiscountRate: config.vipDiscountRate,
       vipFreeShippingThreshold: config.vipFreeShippingThreshold,
       normalFreeShippingThreshold: config.normalFreeShippingThreshold,

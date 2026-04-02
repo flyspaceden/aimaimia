@@ -1,3 +1,4 @@
+import 'react-native-reanimated';
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { QueryClientProvider } from '@tanstack/react-query';

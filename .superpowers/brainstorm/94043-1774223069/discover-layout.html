@@ -1,0 +1,218 @@
+<h2>发现页布局方案</h2>
+<p class="subtitle">商品与企业同等重要，方便切换，AI 贯穿搜索和推荐</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f8faf8;">
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">方案 A：顶部 Tab 切换</div>
+      <!-- Phone mockup -->
+      <div style="width:220px;margin:0 auto;border:2px solid #333;border-radius:20px;overflow:hidden;background:#fff;font-size:10px;">
+        <!-- Status bar -->
+        <div style="background:#2E7D32;color:#fff;padding:6px 12px;font-size:9px;display:flex;justify-content:space-between;">
+          <span>发现</span>
+          <span>🛒</span>
+        </div>
+        <!-- Search bar -->
+        <div style="margin:8px;padding:6px 10px;background:#f5f5f5;border-radius:20px;color:#999;font-size:9px;display:flex;align-items:center;gap:4px;">
+          <span>🔍</span> AI 智能搜索商品、企业...
+          <span style="margin-left:auto;font-size:8px;">🎤</span>
+        </div>
+        <!-- Tab bar -->
+        <div style="display:flex;border-bottom:1px solid #eee;margin:0 8px;">
+          <div style="flex:1;text-align:center;padding:8px 0;font-size:10px;font-weight:bold;color:#2E7D32;border-bottom:2px solid #2E7D32;">商品</div>
+          <div style="flex:1;text-align:center;padding:8px 0;font-size:10px;color:#999;">企业</div>
+        </div>
+        <!-- Category chips -->
+        <div style="display:flex;gap:4px;padding:6px 8px;overflow:hidden;">
+          <span style="padding:3px 8px;background:#e8f5e9;border-radius:10px;font-size:8px;color:#2E7D32;white-space:nowrap;">水果</span>
+          <span style="padding:3px 8px;background:#f5f5f5;border-radius:10px;font-size:8px;white-space:nowrap;">蔬菜</span>
+          <span style="padding:3px 8px;background:#f5f5f5;border-radius:10px;font-size:8px;white-space:nowrap;">茶叶</span>
+          <span style="padding:3px 8px;background:#f5f5f5;border-radius:10px;font-size:8px;white-space:nowrap;">粮油</span>
+        </div>
+        <!-- AI Recommendation -->
+        <div style="margin:4px 8px;padding:6px;background:linear-gradient(135deg,#e8f5e9,#e0f2f1);border-radius:8px;">
+          <div style="font-size:8px;color:#2E7D32;font-weight:bold;">✦ 为你推荐</div>
+          <div style="font-size:7px;color:#666;margin-top:2px;">根据你的浏览偏好智能推荐</div>
+        </div>
+        <!-- Product grid -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px 8px 12px;">
+          <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+            <div style="height:50px;background:#c8e6c9;"></div>
+            <div style="padding:4px;font-size:8px;">有机苹果<br><span style="color:#e53935;font-weight:bold;">¥12.9</span></div>
+          </div>
+          <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+            <div style="height:50px;background:#b2dfdb;"></div>
+            <div style="padding:4px;font-size:8px;">龙井茶叶<br><span style="color:#e53935;font-weight:bold;">¥89.0</span></div>
+          </div>
+          <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+            <div style="height:50px;background:#dcedc8;"></div>
+            <div style="padding:4px;font-size:8px;">土鸡蛋<br><span style="color:#e53935;font-weight:bold;">¥25.8</span></div>
+          </div>
+          <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+            <div style="height:50px;background:#fff9c4;"></div>
+            <div style="padding:4px;font-size:8px;">五常大米<br><span style="color:#e53935;font-weight:bold;">¥39.9</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 顶部 Tab 切换</h3>
+      <p>搜索框下方放「商品 | 企业」Tab，切换后整个内容区替换。两者完全平等，结构清晰。分类标签跟随 Tab 变化（商品分类 vs 企业地区/类型）。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>切换成本最低，一目了然</li><li>两个维度各自独立，不互相干扰</li><li>企业 Tab 可做独立的筛选/排序</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>商品和企业完全割裂，无法交叉发现</li><li>用户默认只看一个 Tab，另一个曝光低</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f8faf8;">
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">方案 B：智能信息流混排</div>
+      <!-- Phone mockup -->
+      <div style="width:220px;margin:0 auto;border:2px solid #333;border-radius:20px;overflow:hidden;background:#fff;font-size:10px;">
+        <!-- Status bar -->
+        <div style="background:#2E7D32;color:#fff;padding:6px 12px;font-size:9px;display:flex;justify-content:space-between;">
+          <span>发现</span>
+          <span>🛒</span>
+        </div>
+        <!-- Search bar -->
+        <div style="margin:8px;padding:6px 10px;background:#f5f5f5;border-radius:20px;color:#999;font-size:9px;display:flex;align-items:center;gap:4px;">
+          <span>🔍</span> AI 智能搜索...
+          <span style="margin-left:auto;font-size:8px;">🎤</span>
+        </div>
+        <!-- Filter pills -->
+        <div style="display:flex;gap:4px;padding:4px 8px;">
+          <span style="padding:3px 8px;background:#2E7D32;color:#fff;border-radius:10px;font-size:8px;">全部</span>
+          <span style="padding:3px 8px;background:#f5f5f5;border-radius:10px;font-size:8px;">水果</span>
+          <span style="padding:3px 8px;background:#f5f5f5;border-radius:10px;font-size:8px;">蔬菜</span>
+          <span style="padding:3px 8px;background:#f5f5f5;border-radius:10px;font-size:8px;">茶叶</span>
+        </div>
+        <!-- AI Section -->
+        <div style="margin:4px 8px;padding:6px;background:linear-gradient(135deg,#e8f5e9,#e0f2f1);border-radius:8px;">
+          <div style="font-size:8px;color:#2E7D32;font-weight:bold;">✦ 为你推荐</div>
+        </div>
+        <!-- Mixed feed -->
+        <div style="padding:4px 8px;">
+          <!-- Product row -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:45px;background:#c8e6c9;"></div>
+              <div style="padding:3px;font-size:8px;">有机苹果<br><span style="color:#e53935;font-weight:bold;">¥12.9</span></div>
+            </div>
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:45px;background:#b2dfdb;"></div>
+              <div style="padding:3px;font-size:8px;">龙井茶叶<br><span style="color:#e53935;font-weight:bold;">¥89.0</span></div>
+            </div>
+          </div>
+          <!-- Company card inserted -->
+          <div style="background:#f0f7f0;border:1px solid #c8e6c9;border-radius:8px;padding:6px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+            <div style="width:32px;height:32px;background:#2E7D32;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:8px;flex-shrink:0;">🏢</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:9px;font-weight:bold;">绿源有机农场</div>
+              <div style="font-size:7px;color:#666;">AI 推荐 · 好评 98% · 12km</div>
+            </div>
+            <div style="font-size:7px;color:#2E7D32;">进店 →</div>
+          </div>
+          <!-- More products -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:45px;background:#dcedc8;"></div>
+              <div style="padding:3px;font-size:8px;">土鸡蛋<br><span style="color:#e53935;font-weight:bold;">¥25.8</span></div>
+            </div>
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:45px;background:#fff9c4;"></div>
+              <div style="padding:3px;font-size:8px;">五常大米<br><span style="color:#e53935;font-weight:bold;">¥39.9</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 智能信息流混排</h3>
+      <p>商品瀑布流中每隔几个商品插入一张企业推荐卡。AI 根据用户正在浏览的商品类型，智能插入相关企业。比如用户在看水果，就推荐水果农场。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>商品和企业自然关联，交叉发现</li><li>AI 感最强——"它懂我在看什么"</li><li>不需要用户主动切换</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>想专门找企业时不够高效</li><li>混排逻辑复杂，初期可能不准</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f8faf8;">
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">方案 C：Tab + 混排结合（推荐）</div>
+      <!-- Phone mockup -->
+      <div style="width:220px;margin:0 auto;border:2px solid #333;border-radius:20px;overflow:hidden;background:#fff;font-size:10px;">
+        <!-- Status bar -->
+        <div style="background:#2E7D32;color:#fff;padding:6px 12px;font-size:9px;display:flex;justify-content:space-between;">
+          <span>发现</span>
+          <span>🛒</span>
+        </div>
+        <!-- Search bar with AI hint -->
+        <div style="margin:8px;padding:6px 10px;background:#f5f5f5;border-radius:20px;color:#999;font-size:9px;display:flex;align-items:center;gap:4px;">
+          <span>🔍</span>
+          <span style="flex:1;">试试说"附近的有机农场"</span>
+          <span style="background:linear-gradient(135deg,#2E7D32,#00897B);color:#fff;padding:1px 5px;border-radius:8px;font-size:7px;">AI</span>
+          <span style="font-size:10px;">🎤</span>
+        </div>
+        <!-- Three tabs -->
+        <div style="display:flex;border-bottom:1px solid #eee;margin:0 8px;">
+          <div style="flex:1;text-align:center;padding:7px 0;font-size:10px;font-weight:bold;color:#2E7D32;border-bottom:2px solid #2E7D32;">推荐</div>
+          <div style="flex:1;text-align:center;padding:7px 0;font-size:10px;color:#999;">商品</div>
+          <div style="flex:1;text-align:center;padding:7px 0;font-size:10px;color:#999;">企业</div>
+        </div>
+        <!-- "推荐" tab: mixed AI content -->
+        <div style="padding:4px 8px;">
+          <!-- AI banner -->
+          <div style="padding:5px 6px;background:linear-gradient(135deg,#e8f5e9,#e0f2f1);border-radius:8px;margin-bottom:6px;">
+            <div style="font-size:8px;color:#2E7D32;font-weight:bold;">✦ 脉脉精选 · 为你而选</div>
+            <div style="font-size:7px;color:#666;margin-top:1px;">基于你的口味偏好和购买历史</div>
+          </div>
+          <!-- Product pair -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px;">
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;position:relative;">
+              <div style="height:42px;background:#c8e6c9;"></div>
+              <div style="position:absolute;top:2px;left:2px;background:linear-gradient(135deg,#2E7D32,#00897B);color:#fff;padding:1px 4px;border-radius:4px;font-size:6px;">AI推荐</div>
+              <div style="padding:3px;font-size:8px;">有机苹果<br><span style="color:#e53935;font-weight:bold;">¥12.9</span></div>
+            </div>
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:42px;background:#b2dfdb;"></div>
+              <div style="padding:3px;font-size:8px;">龙井茶叶<br><span style="color:#e53935;font-weight:bold;">¥89.0</span></div>
+            </div>
+          </div>
+          <!-- Company recommendation -->
+          <div style="background:#f0f7f0;border:1px solid #c8e6c9;border-radius:8px;padding:5px;margin-bottom:5px;display:flex;align-items:center;gap:5px;">
+            <div style="width:28px;height:28px;background:#2E7D32;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:7px;flex-shrink:0;">🌿</div>
+            <div style="flex:1;">
+              <div style="font-size:8px;font-weight:bold;">绿源有机农场 <span style="color:#2E7D32;font-size:7px;">✦ 匹配</span></div>
+              <div style="font-size:7px;color:#666;">你常买的有机蔬果，这家好评最多</div>
+            </div>
+          </div>
+          <!-- More products -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:42px;background:#dcedc8;"></div>
+              <div style="padding:3px;font-size:8px;">土鸡蛋<br><span style="color:#e53935;font-weight:bold;">¥25.8</span></div>
+            </div>
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:42px;background:#fff9c4;"></div>
+              <div style="padding:3px;font-size:8px;">五常大米<br><span style="color:#e53935;font-weight:bold;">¥39.9</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 三 Tab：推荐 | 商品 | 企业（推荐）</h3>
+      <p>三个子 Tab：<strong>「推荐」</strong>是 AI 混排信息流（商品+企业智能穿插），<strong>「商品」</strong>是纯商品瀑布流+分类筛选，<strong>「企业」</strong>是企业列表+地图/筛选。搜索框贯穿所有 Tab，AI 标识突出。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>推荐 Tab 展现 AI 智能感，商品/企业 Tab 满足定向浏览</li><li>三种场景都有高效路径</li><li>搜索 + 语音贯穿全局，AI 感一致</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>三个子 Tab 比两个稍复杂</li><li>推荐 Tab 的混排逻辑需要后端支持</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>

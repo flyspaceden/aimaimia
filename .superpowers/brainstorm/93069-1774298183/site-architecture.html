@@ -1,0 +1,190 @@
+<h2>爱买买官网 — 整体架构设计</h2>
+<p class="subtitle">6 页面结构 + 全局导航 + 暗明叙事节奏</p>
+
+<div class="section">
+  <h3>全局导航栏</h3>
+  <div class="mockup">
+    <div class="mockup-header">Navigation — 全站统一，滚动时毛玻璃效果</div>
+    <div class="mockup-body" style="background:#0a0f0a;padding:16px 32px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#2E7D32,#00BFA5);"></div>
+        <span style="color:#fff;font-weight:600;font-size:16px;">爱买买</span>
+      </div>
+      <div style="display:flex;gap:28px;font-size:14px;">
+        <span style="color:#fff;">首页</span>
+        <span style="color:#a0b0a0;">产品功能</span>
+        <span style="color:#a0b0a0;">AI 技术</span>
+        <span style="color:#a0b0a0;">关于我们</span>
+        <span style="color:#a0b0a0;">商户入驻</span>
+        <span style="color:#a0b0a0;">联系我们</span>
+      </div>
+      <div style="padding:8px 20px;border-radius:999px;background:linear-gradient(135deg,#2E7D32,#00897B);color:#fff;font-size:13px;">下载 App</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>页面结构总览</h3>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+
+    <div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(180deg,#0a0f0a,#1a2e1a);padding:24px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+        <div style="width:40px;height:40px;border-radius:50%;background:radial-gradient(circle,#00E5CC,#00897B,transparent);box-shadow:0 0 20px #00BFA540;margin-bottom:8px;"></div>
+        <div style="color:#fff;font-size:11px;">AI 光球 + 粒子背景</div>
+      </div>
+      <div style="padding:12px;">
+        <div style="font-weight:600;font-size:14px;">① 首页</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6;">
+          Hero（暗色）→ 核心价值 → 三大能力卡片 → 数据亮点 → 合作伙伴 → 下载 CTA
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(180deg,#0d1a0d,#E8F5E9);padding:24px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+        <div style="display:flex;gap:8px;">
+          <div style="width:30px;height:50px;border-radius:8px;background:#fff;border:2px solid #2E7D32;"></div>
+          <div style="width:30px;height:50px;border-radius:8px;background:#fff;border:2px solid #00897B;"></div>
+        </div>
+        <div style="color:#5A6B5A;font-size:11px;margin-top:8px;">App 截图展示</div>
+      </div>
+      <div style="padding:12px;">
+        <div style="font-weight:600;font-size:14px;">② 产品功能</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6;">
+          买家端功能 → 卖家端功能 → 管理后台 → 功能对比表
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(180deg,#060E06,#0d2622);padding:24px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+        <div style="display:flex;gap:4px;align-items:end;">
+          <div style="width:4px;height:20px;background:#00BFA5;border-radius:2px;"></div>
+          <div style="width:4px;height:35px;background:#00E5CC;border-radius:2px;"></div>
+          <div style="width:4px;height:25px;background:#2E7D32;border-radius:2px;"></div>
+          <div style="width:4px;height:45px;background:#4CAF50;border-radius:2px;"></div>
+          <div style="width:4px;height:30px;background:#00897B;border-radius:2px;"></div>
+        </div>
+        <div style="color:#00BFA5;font-size:11px;margin-top:8px;">数据可视化 + 流程图</div>
+      </div>
+      <div style="padding:12px;">
+        <div style="font-weight:600;font-size:14px;">③ AI 技术</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6;">
+          AI 溯源 → 智能搜索 → 语音助手 → 技术架构图 → 数据安全
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(180deg,#1a2e1a,#FAFCFA);padding:24px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+        <div style="display:flex;gap:-8px;">
+          <div style="width:36px;height:36px;border-radius:50%;background:#E8F5E9;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:14px;">🌾</div>
+          <div style="width:36px;height:36px;border-radius:50%;background:#E0F7F4;border:2px solid #fff;margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:14px;">💡</div>
+          <div style="width:36px;height:36px;border-radius:50%;background:#FFF8E1;border:2px solid #fff;margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:14px;">🤝</div>
+        </div>
+        <div style="color:#5A6B5A;font-size:11px;margin-top:8px;">使命 / 愿景 / 团队</div>
+      </div>
+      <div style="padding:12px;">
+        <div style="font-weight:600;font-size:14px;">④ 关于我们</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6;">
+          品牌故事 → 使命愿景 → 团队介绍 → 发展历程时间线
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(180deg,#0d1a0d,#E8F5E9);padding:24px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:center;">
+          <div style="display:flex;gap:6px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:#2E7D32;"></div>
+            <div style="width:40px;height:8px;border-radius:4px;background:#E8F5E9;"></div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:#00897B;"></div>
+            <div style="width:40px;height:8px;border-radius:4px;background:#E0F7F4;"></div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:#00BFA5;"></div>
+            <div style="width:40px;height:8px;border-radius:4px;background:#B2DFDB;"></div>
+          </div>
+        </div>
+        <div style="color:#5A6B5A;font-size:11px;margin-top:8px;">入驻流程步骤</div>
+      </div>
+      <div style="padding:12px;">
+        <div style="font-weight:600;font-size:14px;">⑤ 商户入驻</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6;">
+          平台优势 → 入驻流程 → 卖家后台展示 → 成功案例 → 立即入驻 CTA
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(180deg,#FAFCFA,#E8F5E9);padding:24px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+        <div style="width:48px;height:48px;border-radius:12px;background:#fff;border:1px solid #E2EAE2;display:flex;align-items:center;justify-content:center;">
+          <div style="width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#2E7D32,#00BFA5);"></div>
+        </div>
+        <div style="color:#5A6B5A;font-size:11px;margin-top:8px;">表单 + 地图</div>
+      </div>
+      <div style="padding:12px;">
+        <div style="font-weight:600;font-size:14px;">⑥ 联系我们</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6;">
+          联系表单 → 公司信息 → 地图位置 → 社交媒体链接
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>全局 Footer</h3>
+  <div class="mockup">
+    <div class="mockup-header">Footer — 暗色，与 Hero 呼应</div>
+    <div class="mockup-body" style="background:#0a0f0a;padding:24px 32px;color:#a0b0a0;font-size:12px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="color:#fff;font-weight:600;margin-bottom:8px;">爱买买</div>
+          <div>AI赋能农业电商平台</div>
+        </div>
+        <div>
+          <div style="color:#fff;font-weight:500;margin-bottom:8px;">产品</div>
+          <div>买家 App · 卖家后台</div>
+        </div>
+        <div>
+          <div style="color:#fff;font-weight:500;margin-bottom:8px;">技术</div>
+          <div>AI 溯源 · 智能搜索</div>
+        </div>
+        <div>
+          <div style="color:#fff;font-weight:500;margin-bottom:8px;">合作</div>
+          <div>商户入驻 · 联系我们</div>
+        </div>
+      </div>
+      <div style="border-top:1px solid #1a2a1a;padding-top:12px;display:flex;justify-content:space-between;">
+        <span>© 2026 爱买买 All rights reserved</span>
+        <span>隐私政策 · 服务条款</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>关键交互设计</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div style="padding:16px;background:#f8f9fa;border-radius:8px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🎬 滚动动画</div>
+      <div style="font-size:12px;color:#666;line-height:1.6;">GSAP ScrollTrigger 驱动，元素随滚动淡入/视差移动。首页 Hero 的 AI 光球跟随鼠标微动。</div>
+    </div>
+    <div style="padding:16px;background:#f8f9fa;border-radius:8px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">✨ 粒子系统</div>
+      <div style="font-size:12px;color:#666;line-height:1.6;">Canvas 绘制的浮动粒子，暗色段密集（科技感），亮色段稀疏渐隐（自然过渡）。</div>
+    </div>
+    <div style="padding:16px;background:#f8f9fa;border-radius:8px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">🌓 暗明过渡</div>
+      <div style="font-size:12px;color:#666;line-height:1.6;">每个页面顶部暗色渐变到底部明亮，通过 CSS gradient + ScrollTrigger 背景色插值实现。</div>
+    </div>
+    <div style="padding:16px;background:#f8f9fa;border-radius:8px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">📱 响应式</div>
+      <div style="font-size:12px;color:#666;line-height:1.6;">桌面优先，适配平板和手机。移动端导航折叠为汉堡菜单，粒子数量减少以保证性能。</div>
+    </div>
+  </div>
+</div>

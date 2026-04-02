@@ -4,7 +4,10 @@
     "slug": "ai-aimaimai",
     "scheme": "aimaimai",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-font"
     ],
     "android": {
       "package": "com.aimaimai.shop",
@@ -19,13 +22,18 @@
               "pathPrefix": "/r/"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
     "ios": {
       "bundleIdentifier": "com.aimaimai.shop",
-      "associatedDomains": ["applinks:app.xn--ckqa175y.com"]
+      "associatedDomains": [
+        "applinks:app.xn--ckqa175y.com"
+      ]
     }
   }
 }

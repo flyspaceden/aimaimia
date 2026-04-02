@@ -102,7 +102,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     description: 'VIP 三叉树每个节点的最大子节点数',
   },
 
-  // VIP 奖励有效期
+  // VIP 冻结设置
   {
     key: 'VIP_FREEZE_DAYS',
     label: '冻结天数',
@@ -115,19 +115,6 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     integer: true,
     defaultValue: 30,
     description: 'VIP 奖励冻结后多少天过期归平台',
-  },
-  {
-    key: 'VIP_REWARD_EXPIRY_DAYS',
-    label: '奖励有效期',
-    group: 'expiry',
-    type: 'number',
-    min: 1,
-    max: 365,
-    step: 1,
-    suffix: '天',
-    integer: true,
-    defaultValue: 90,
-    description: 'VIP 奖励领取后多少天过期',
   },
 ];
 
@@ -158,7 +145,7 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
 const GROUP_DESCRIPTIONS = {
   ratio: 'VIP利润六分比例决定了VIP用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/30/10/2/2/6）。',
   vip: 'VIP基础设置控制奖励树结构参数。调整这些参数会影响VIP系统的奖励分配广度。VIP 档位价格和推荐奖励比例在「购买VIP赠品」页面管理。',
-  expiry: '冻结天数和奖励有效期控制VIP用户获得奖励后的资金流转节奏。冻结期内奖励不可提现，过期后未提现的奖励将归平台所有。',
+  expiry: '冻结天数控制VIP用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
 } as const;
 
 /** 从配置列表中按 key 取原始值 */
@@ -330,7 +317,7 @@ export default function VipConfigPage() {
       impacts.push('修改VIP基础设置将影响奖励树结构参数');
     }
     if (hasExpiryChange) {
-      impacts.push('修改奖励有效期将影响后续新产生的奖励冻结和过期时间');
+      impacts.push('修改冻结天数将影响后续新产生的奖励冻结过期时间');
     }
 
     Modal.confirm({
@@ -578,7 +565,7 @@ export default function VipConfigPage() {
               title={
                 <Space>
                   <ClockCircleOutlined style={{ color: '#722ed1', fontSize: 18 }} />
-                  <Text strong style={{ fontSize: 15 }}>VIP 奖励有效期</Text>
+                  <Text strong style={{ fontSize: 15 }}>VIP 冻结设置</Text>
                 </Space>
               }
             >

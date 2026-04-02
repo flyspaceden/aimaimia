@@ -553,12 +553,12 @@ export class BonusService {
 
     const [items, total] = await Promise.all([
       this.prisma.rewardLedger.findMany({
-        where: { userId },
+        where: { userId, status: { not: 'RETURN_FROZEN' } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
       }),
-      this.prisma.rewardLedger.count({ where: { userId } }),
+      this.prisma.rewardLedger.count({ where: { userId, status: { not: 'RETURN_FROZEN' } } }),
     ]);
 
     return {
@@ -715,17 +715,12 @@ export class BonusService {
   async getAvailableRewards(userId: string) {
     const now = new Date();
 
-    // F5修复：获取可配置奖励有效期
-    const config = await this.bonusConfig.getConfig();
-
     // 查询用户已解锁的可用奖励条目（VIP + 普通奖励账户，entryType=RELEASE, status=AVAILABLE）
     const accounts = await this.prisma.rewardAccount.findMany({
       where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] } },
       select: { id: true, type: true },
     });
     const accountIds = accounts.map((a) => a.id);
-    // 建立 accountId → type 映射，用于确定奖励过期天数
-    const accountTypeMap = new Map(accounts.map(a => [a.id, a.type]));
 
     const entries = await this.prisma.rewardLedger.findMany({
       where: {
@@ -756,24 +751,14 @@ export class BonusService {
     };
 
     return available.map((entry) => {
-      // F5修复：根据账户类型使用可配置奖励有效期
-      const accountType = accountTypeMap.get(entry.accountId);
-      const expiryDays = accountType === 'NORMAL_REWARD'
-        ? config.normalRewardExpiryDays
-        : config.vipRewardExpiryDays;
-      const expireAt = new Date(entry.createdAt);
-      expireAt.setDate(expireAt.getDate() + expiryDays);
-
-      const isExpired = expireAt < now;
-
       return {
         id: entry.id,
         amount: entry.amount,
         sourceType: entry.refType || null,
         source: sourceMap[entry.refType || ''] || '平台奖励',
         minOrderAmount: entry.amount >= 10 ? entry.amount * 5 : 0,
-        expireAt: expireAt.toISOString().slice(0, 10),
-        status: isExpired ? 'EXPIRED' : 'AVAILABLE',
+        expireAt: null,
+        status: 'AVAILABLE' as const,
       };
     });
   }

@@ -36,7 +36,7 @@ const TOOL_GRID = [
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
-  { label: '奖励', icon: 'ticket-percent-outline' as const, route: '/me/rewards' },
+  { label: '奖励', icon: 'ticket-percent-outline' as const, route: '/me/wallet' },
   { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
 ];
 
@@ -172,9 +172,9 @@ export default function MeScreen() {
     action();
   };
   const handleVipPress = () => {
-    // VIP用户直接进入VIP赠品选择页，未登录/普通用户弹出权益弹窗
+    // VIP用户直接进入会员权益页，未登录/普通用户弹出权益弹窗
     if (isAuthed && member?.tier === 'VIP') {
-      router.push('/vip/gifts');
+      router.push('/me/vip');
     } else {
       setVipModalOpen(true);
     }

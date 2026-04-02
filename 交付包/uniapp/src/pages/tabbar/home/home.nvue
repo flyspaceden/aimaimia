@@ -1,0 +1,587 @@
+<template>
+  <Screen :safeTop="true">
+    <view class="nm-topbar">
+      <view class="nm-logo">
+        <text class="nm-logo__text">农脉</text>
+        <view class="nm-logo__chip">
+          <text class="nm-logo__chip-text">AI</text>
+        </view>
+      </view>
+      <view class="nm-tagline">
+        <text class="nm-tagline__text" lines="1">{{ tagline }}</text>
+      </view>
+      <view class="nm-cart-btn" @click="goCart">
+        <text class="nm-cart__icon">🛒</text>
+        <view v-if="cartCount" class="nm-cart__badge">
+          <text class="nm-cart__badge-text">{{ cartCount > 99 ? '99+' : cartCount }}</text>
+        </view>
+      </view>
+    </view>
+
+    <scroll-view
+      class="nm-scroll"
+      scroll-y
+      refresher-enabled
+      :refresher-triggered="refreshing"
+      @refresherrefresh="onRefresh"
+      @scrolltolower="onLoadMore"
+    >
+      <view class="nm-header">
+        <view class="nm-search-bar" @click="goSearch">
+          <text class="nm-search-placeholder">搜索农产品/企业</text>
+        </view>
+
+        <scroll-view class="nm-banner" scroll-x paging-enabled show-scrollbar="false">
+          <view
+            class="nm-banner__item"
+            v-for="(item, index) in banners"
+            :key="index"
+            :style="{ marginRight: index === banners.length - 1 ? '0rpx' : '24rpx' }"
+          >
+            <image :src="item" class="nm-banner__image" mode="aspectFill" />
+          </view>
+        </scroll-view>
+
+        <view class="nm-categories">
+          <view
+            class="nm-category"
+            v-for="(item, index) in categories"
+            :key="item.id"
+            @click="goCategory(item.id)"
+          >
+            <view :class="['nm-category__icon', `nm-category__icon--${index % 4}`]">
+              <Icon class="nm-category__icon-icon" :name="item.icon" :size="48" :color="categoryIconColor(index)" />
+            </view>
+            <text class="nm-category__text" lines="1">{{ item.name }}</text>
+          </view>
+        </view>
+
+        <view class="nm-ai-strip">
+          <view
+            v-for="item in aiItems"
+            :key="item.id"
+            :class="['nm-ai-card', `nm-ai-card--${item.tone}`]"
+            @click="handleAiPress(item)"
+          >
+            <view class="nm-ai-glow" />
+            <view class="nm-ai-accent" />
+            <view class="nm-ai-icon">
+              <Icon class="nm-ai-icon__text" :name="item.icon" :size="36" :color="aiToneColor(item.tone)" />
+            </view>
+            <text class="nm-ai-title">{{ item.title }}</text>
+            <text class="nm-ai-desc">{{ item.description }}</text>
+          </view>
+        </view>
+
+        <view class="nm-section-title">
+          <text class="nm-section-title__text">推荐商品</text>
+        </view>
+      </view>
+
+      <view v-if="errorMessage">
+        <ErrorState :text="errorMessage" @retry="onRefresh" />
+      </view>
+      <view v-else-if="loading && products.length === 0">
+        <Skeleton :count="4" type="card" class="nm-skeleton-wrap" />
+      </view>
+      <view v-else-if="!loading && products.length === 0">
+        <EmptyState text="暂无商品" />
+      </view>
+      <view v-else class="nm-grid">
+        <view
+          v-for="(column, colIndex) in columnItems"
+          :key="`col-${colIndex}`"
+          :class="['nm-grid__col', colIndex === columnItems.length - 1 ? 'nm-grid__col--last' : '']"
+        >
+          <view
+            v-for="entry in column"
+            :key="entry.product.id"
+            class="nm-grid__item"
+            @click="goDetail(entry.product.id)"
+          >
+            <ProductCard :item="entry.product" :image-height="entry.imageHeight" />
+          </view>
+        </view>
+      </view>
+
+      <view v-if="loading" class="nm-loading">
+        <LoadMore text="加载更多..." />
+      </view>
+      <view v-else-if="!hasMore && products.length > 0" class="nm-loading">
+        <LoadMore text="没有更多了" />
+      </view>
+    </scroll-view>
+  </Screen>
+</template>
+
+<script>
+import { navTo } from '@/utils/nav';
+import Screen from '@/components/layout/Screen.nvue';
+import ProductCard from '@/components/cards/ProductCard.nvue';
+import { EmptyState, ErrorState, Skeleton, LoadMore } from '@/components';
+import Icon from '@/components/ui/Icon.nvue';
+import { ProductRepo } from '@/services/repos';
+import { APP_EVENTS, CartState, onAppEvent } from '@/services/state';
+
+export default {
+  components: { Screen, ProductCard, EmptyState, ErrorState, Skeleton, LoadMore, Icon },
+  data() {
+    return {
+      cartCount: 0,
+      tagline: 'AI赋能农业，夯实健康之路',
+      banners: [
+        'https://placehold.co/900x480/png',
+        'https://placehold.co/900x480/png',
+        'https://placehold.co/900x480/png',
+      ],
+      categories: [
+        { id: 'fresh', name: '生鲜', icon: 'fish' },
+        { id: 'vegetable', name: '蔬菜', icon: 'sprout' },
+        { id: 'fruit', name: '水果', icon: 'fruit-watermelon' },
+        { id: 'organic', name: '天然有机', icon: 'leaf' },
+        { id: 'grain', name: '粮油', icon: 'rice' },
+        { id: 'tea', name: '茶饮', icon: 'tea' },
+        { id: 'gift', name: '礼盒', icon: 'gift' },
+        { id: 'equipment', name: '农资', icon: 'tractor' },
+      ],
+      aiItems: [
+        { id: 'ai-trace', title: 'AI 溯源', description: '全链路溯源图谱', icon: 'timeline-text', tone: 'blue' },
+        { id: 'ai-reco', title: 'AI 推荐', description: '个性化精选', icon: 'brain', tone: 'green' },
+        { id: 'ai-fin', title: 'AI 金融', description: '金融服务入口', icon: 'cash-multiple', tone: 'neutral' },
+      ],
+      products: [],
+      columnCount: 2,
+      page: 1,
+      pageSize: 8,
+      hasMore: true,
+      loading: false,
+      refreshing: false,
+      errorMessage: '',
+    };
+  },
+  computed: {
+    columnItems() {
+      const cols = Array.from({ length: this.columnCount }, () => []);
+      const heights = Array.from({ length: this.columnCount }, () => 0);
+      this.products.forEach((product, index) => {
+        const imageHeight = this.getImageHeight(index);
+        const estimated = imageHeight + 220;
+        const minHeight = Math.min(...heights);
+        const targetIndex = heights.indexOf(minHeight);
+        cols[targetIndex].push({ product, imageHeight });
+        heights[targetIndex] += estimated + 24;
+      });
+      return cols;
+    },
+  },
+  created() {
+    this.columnCount = 2;
+    // 初始化购物车角标（由 CartState 本地占位，后续可替换为后端购物车接口）
+    this.cartCount = CartState.getSnapshot().count;
+    this.__offCart = onAppEvent(APP_EVENTS.CART_CHANGED, (snap) => {
+      this.cartCount = (snap && snap.count) || 0;
+    });
+    this.fetchProducts(true);
+  },
+  onShow() {
+    // 从购物车页返回时，确保角标是最新的
+    this.cartCount = CartState.getSnapshot().count;
+  },
+  beforeDestroy() {
+    if (this.__offCart) this.__offCart();
+  },
+  methods: {
+    categoryIconColor(index) {
+      const palette = ['#2F8F4E', '#2B6CB0', '#23703C', '#4B5B53'];
+      return palette[index % palette.length];
+    },
+    aiToneColor(tone) {
+      if (tone === 'green') return '#2F8F4E';
+      if (tone === 'blue') return '#2B6CB0';
+      return '#4B5B53';
+    },
+    goSearch() {
+      navTo({ url: '/pages-sub/common/search' });
+    },
+    goCategory(id) {
+      navTo({ url: `/pages-sub/home/category?id=${id}` });
+    },
+    goDetail(id) {
+      navTo({ url: `/pages-sub/home/product-detail?id=${id}` });
+    },
+    goCart() {
+      navTo({ url: '/pages-sub/order/cart' });
+    },
+    handleAiPress(item) {
+      if (item.id === 'ai-trace') {
+        navTo({ url: '/pages-sub/ai/trace' });
+        return;
+      }
+      if (item.id === 'ai-reco') {
+        navTo({ url: '/pages-sub/ai/recommend' });
+        return;
+      }
+      if (item.id === 'ai-fin') {
+        navTo({ url: '/pages-sub/ai/finance' });
+        return;
+      }
+      uni.showToast({ title: '功能即将上线', icon: 'none' });
+    },
+    getImageHeight(index) {
+      const heights = [220, 300, 360, 280, 400];
+      return heights[index % heights.length];
+    },
+    async fetchProducts(reset) {
+      if (this.loading) return;
+      if (!this.hasMore && !reset) return;
+      this.loading = true;
+      const page = reset ? 1 : this.page + 1;
+      const res = await ProductRepo.list({ page, pageSize: this.pageSize });
+      if (res.ok) {
+        this.errorMessage = '';
+        this.products = reset ? res.data.items : this.products.concat(res.data.items);
+        this.page = res.data.page;
+        this.hasMore = res.data.hasMore;
+      } else {
+        this.errorMessage = res.error.message || '加载失败';
+      }
+      this.loading = false;
+      if (this.refreshing) this.refreshing = false;
+    },
+    onRefresh() {
+      if (this.refreshing) return;
+      this.refreshing = true;
+      this.hasMore = true;
+      this.errorMessage = '';
+      this.fetchProducts(true);
+    },
+    onLoadMore() {
+      this.fetchProducts(false);
+    },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use '@/styles/tokens.scss' as *;
+
+.nm-topbar {
+  padding: $nm-space-sm $nm-space-xl;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  background-color: $nm-background;
+  border-bottom: 1rpx solid $nm-border;
+}
+
+.nm-logo {
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.nm-logo__text {
+  font-size: $nm-font-title2;
+  font-weight: 700;
+  color: $nm-brand-primary;
+}
+
+.nm-logo__chip {
+  margin-left: 12rpx;
+  padding: 4rpx 12rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-accent-blue-soft;
+}
+
+.nm-logo__chip-text {
+  font-size: $nm-font-caption;
+  color: $nm-accent-blue;
+}
+
+.nm-tagline {
+  flex: 1;
+  align-items: center;
+  padding: 0 $nm-space-sm;
+  min-width: 0;
+}
+
+.nm-tagline__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-cart-btn {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 28rpx;
+  background-color: $nm-brand-primary-soft;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.nm-cart__icon {
+  font-size: 36rpx;
+  color: $nm-brand-primary;
+}
+
+.nm-cart__badge {
+  position: absolute;
+  top: -8rpx;
+  right: -8rpx;
+  min-width: 36rpx;
+  height: 36rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-accent-blue;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8rpx;
+}
+
+.nm-cart__badge-text {
+  font-size: $nm-font-caption;
+  color: $nm-text-inverse;
+}
+
+.nm-header {
+  padding: $nm-space-md 0 $nm-space-sm;
+}
+
+.nm-search-bar {
+  padding: $nm-space-sm $nm-space-md;
+  border-radius: $nm-radius-lg;
+  background-color: $nm-surface;
+  border: 1rpx solid $nm-border;
+  flex-direction: row;
+  align-items: center;
+}
+
+.nm-search-placeholder {
+  color: $nm-muted;
+  font-size: $nm-font-body;
+}
+
+.nm-banner {
+  margin-top: $nm-space-lg;
+  white-space: nowrap;
+}
+
+.nm-banner__item {
+  width: 100%;
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.nm-banner__image {
+  height: 320rpx;
+  border-radius: $nm-radius-lg;
+  background-color: $nm-skeleton;
+}
+
+.nm-categories {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: $nm-space-lg;
+}
+
+.nm-category {
+  width: 25%;
+  align-items: center;
+  margin-bottom: $nm-space-md;
+}
+
+.nm-category__icon {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: $nm-radius-lg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-category__icon--0 {
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-category__icon--1 {
+  background-color: $nm-accent-blue-soft;
+}
+
+.nm-category__icon--2 {
+  background-color: $nm-skeleton;
+}
+
+.nm-category__icon--3 {
+  background-color: $nm-background;
+}
+
+.nm-category__icon-icon {
+  font-size: 48rpx;
+}
+
+.nm-category__text {
+  margin-top: 8rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-ai-strip {
+  margin-top: $nm-space-lg;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.nm-ai-card {
+  flex: 1;
+  margin-right: $nm-space-md;
+  padding: $nm-space-md;
+  border-radius: $nm-radius-lg;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+  min-height: 240rpx;
+  position: relative;
+  box-shadow: $nm-shadow-sm;
+}
+
+.nm-ai-card:last-child {
+  margin-right: 0;
+}
+
+.nm-ai-card--green {
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-ai-card--blue {
+  background-color: $nm-accent-blue-soft;
+}
+
+.nm-ai-card--neutral {
+  background-color: $nm-surface;
+}
+
+.nm-ai-glow {
+  position: absolute;
+  top: -40rpx;
+  right: -40rpx;
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: $nm-radius-pill;
+  opacity: 0.35;
+}
+
+.nm-ai-card--green .nm-ai-glow {
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-ai-card--blue .nm-ai-glow {
+  background-color: $nm-accent-blue-soft;
+}
+
+.nm-ai-card--neutral .nm-ai-glow {
+  background-color: $nm-background;
+}
+
+.nm-ai-accent {
+  position: absolute;
+  top: 24rpx;
+  left: 24rpx;
+  width: 44rpx;
+  height: 8rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary;
+}
+
+.nm-ai-card--blue .nm-ai-accent {
+  background-color: $nm-accent-blue;
+}
+
+.nm-ai-card--neutral .nm-ai-accent {
+  background-color: $nm-text-secondary;
+}
+
+.nm-ai-icon {
+  margin-top: $nm-space-sm;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-surface;
+  border: 1rpx solid $nm-border;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-ai-icon__text {
+  font-size: 32rpx;
+}
+
+.nm-ai-title {
+  margin-top: $nm-space-sm;
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-ai-card--green .nm-ai-title {
+  color: $nm-brand-primary;
+}
+
+.nm-ai-card--blue .nm-ai-title {
+  color: $nm-accent-blue;
+}
+
+.nm-ai-desc {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-section-title {
+  margin-top: $nm-space-lg;
+  margin-bottom: $nm-space-md;
+}
+
+.nm-section-title__text {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-skeleton-wrap {
+  padding: 0 0 $nm-space-xl;
+}
+
+.nm-scroll {
+  padding: 0 $nm-space-xl;
+  padding-bottom: $nm-space-3xl;
+  flex: 1;
+}
+
+.nm-grid {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.nm-grid__col {
+  flex: 1;
+  margin-right: $nm-space-md;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+.nm-grid__col--last {
+  margin-right: 0;
+}
+
+.nm-grid__item {
+  margin-bottom: 0;
+}
+
+.nm-loading {
+  align-items: center;
+  justify-content: center;
+  padding: $nm-space-md 0 $nm-space-xl;
+}
+</style>

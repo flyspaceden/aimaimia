@@ -1,0 +1,53 @@
+import { InboxMessage } from '../types';
+
+export const mockInboxMessages: InboxMessage[] = [
+  {
+    id: 'msg-001',
+    category: 'interaction',
+    type: 'expert_reply',
+    title: '专家回复了你的提问',
+    content: '青禾智慧农场已给出种植建议，点击查看详情。',
+    createdAt: '2024-12-07 10:12',
+    unread: true,
+    target: { route: '/company/[id]', params: { id: 'c-002' } },
+  },
+  {
+    id: 'msg-002',
+    category: 'interaction',
+    type: 'comment',
+    title: '有人回复了你',
+    content: '"冷链标准做得很细致，感谢分享！"',
+    createdAt: '2024-12-06 19:20',
+    unread: true,
+    target: { route: '/company/[id]', params: { id: 'c-003' } },
+  },
+  {
+    id: 'msg-003',
+    category: 'transaction',
+    type: 'tip_paid',
+    title: '打赏到账',
+    content: '用户向你的内容打赏 ¥18。',
+    createdAt: '2024-12-05 14:38',
+    unread: false,
+  },
+  {
+    id: 'msg-004',
+    category: 'transaction',
+    type: 'order_update',
+    title: '订单待收货',
+    content: '有机蓝莓已到达分拨中心，预计明日送达。',
+    createdAt: '2024-12-04 09:10',
+    unread: false,
+    target: { route: '/orders/[id]', params: { id: 'o-003' } },
+  },
+  {
+    id: 'msg-005',
+    category: 'system',
+    type: 'booking_update',
+    title: '考察预约已通过',
+    content: '青禾智慧农场已确认你的预约，点击查看详情。',
+    createdAt: '2024-12-03 16:05',
+    unread: false,
+    target: { route: '/company/[id]', params: { id: 'c-002' } },
+  },
+];

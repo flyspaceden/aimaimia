@@ -1,0 +1,330 @@
+<template>
+  <Screen :safeTop="true">
+    <AppHeader title="用户主页" />
+
+    <list class="nm-list">
+      <refresh class="nm-refresh" :display="refreshing ? 'show' : 'hide'" @refresh="onRefresh">
+        <text class="nm-refresh__text">刷新中...</text>
+      </refresh>
+
+      <cell v-if="loading">
+        <view class="nm-skeleton">
+          <Skeleton :count="1" type="card" :height="280" />
+          <view class="nm-skeleton__gap" />
+          <Skeleton :count="1" type="card" :height="440" />
+        </view>
+      </cell>
+      <cell v-else-if="errorMessage">
+        <ErrorState :text="errorMessage" @retry="onRefresh" />
+      </cell>
+      <cell v-else-if="!author">
+        <EmptyState text="资料不存在" hint="请稍后再试" />
+      </cell>
+      <cell v-else>
+        <view class="nm-card nm-profile">
+          <view class="nm-profile__row">
+            <image v-if="author.avatar" class="nm-avatar" :src="author.avatar" mode="aspectFill" />
+            <view v-else class="nm-avatar nm-avatar--empty" />
+            <view class="nm-profile__info">
+              <text class="nm-name">{{ author.name }}</text>
+              <text class="nm-meta">{{ author.title || (author.tags && author.tags[0]) || '内容创作者' }}</text>
+              <text class="nm-meta">{{ (author.city ? `${author.city} · ` : '') + `粉丝 ${author.followerCount || 0}` }}</text>
+            </view>
+            <view
+              v-if="!isSelf"
+              :class="['nm-follow', author.isFollowed ? 'nm-follow--active' : 'nm-follow--primary']"
+              @click="toggleFollow"
+            >
+              <text :class="['nm-follow__text', author.isFollowed ? 'nm-follow__text--active' : 'nm-follow__text--primary']">
+                {{ author.isFollowed ? '已关注' : '关注' }}
+              </text>
+            </view>
+          </view>
+          <view v-if="author.isFollowed" class="nm-intimacy">
+            <text class="nm-meta">亲密度 {{ intimacyLevel }}%</text>
+            <view class="nm-intimacy__track">
+              <view class="nm-intimacy__fill" :style="{ width: `${intimacyLevel}%` }" />
+            </view>
+          </view>
+          <text v-if="author.interestTags && author.interestTags.length" class="nm-meta nm-meta--spaced">
+            兴趣：{{ author.interestTags.slice(0, 3).join(' / ') }}
+          </text>
+        </view>
+      </cell>
+
+      <cell v-if="author">
+        <text class="nm-section-title">Ta 的内容</text>
+      </cell>
+
+      <cell v-if="postsLoading">
+        <view class="nm-skeleton">
+          <Skeleton :count="1" type="card" :height="440" />
+          <view class="nm-skeleton__gap" />
+          <Skeleton :count="1" type="card" :height="440" />
+        </view>
+      </cell>
+      <cell v-else-if="postsError">
+        <ErrorState :text="postsError" @retry="onRefresh" />
+      </cell>
+      <cell v-else-if="posts.length === 0">
+        <EmptyState text="暂无内容" hint="Ta 还没有发布内容" />
+      </cell>
+      <cell v-else v-for="item in posts" :key="item.id">
+        <view class="nm-post-wrap">
+          <PostCard
+            :item="item"
+            :currentUserId="currentUserId"
+            @press="openPost"
+            @like="onLike"
+            @comment="openPost"
+            @share="openShare"
+            @more="openMore"
+          />
+        </view>
+      </cell>
+    </list>
+
+    <PostShareSheet
+      :open="shareOpen"
+      :title="sharePost && sharePost.title"
+      :content="sharePost && sharePost.content"
+      :author="sharePost && (sharePost.authorName || sharePost.author)"
+      :cover="sharePost ? (sharePost.images && sharePost.images.length ? sharePost.images[0] : sharePost.image) : undefined"
+      :tags="sharePost && sharePost.tags"
+      :authorAvatar="author && author.avatar"
+      :createdAt="sharePost && sharePost.createdAt"
+      @close="shareOpen = false"
+    />
+  </Screen>
+</template>
+
+<script>
+import { navTo } from '@/utils/nav';
+import Screen from '@/components/layout/Screen.nvue';
+import AppHeader from '@/components/layout/AppHeader.nvue';
+import PostCard from '@/components/cards/PostCard.nvue';
+import { EmptyState, ErrorState, Skeleton } from '@/components';
+import { PostShareSheet } from '@/components/overlay';
+import { FeedRepo } from '@/services/repos';
+
+export default {
+  components: { Screen, AppHeader, PostCard, EmptyState, ErrorState, Skeleton, PostShareSheet },
+  data() {
+    return {
+      authorId: 'u_mock',
+      author: null,
+      posts: [],
+      loading: false,
+      postsLoading: false,
+      errorMessage: '',
+      postsError: '',
+      refreshing: false,
+      shareOpen: false,
+      sharePost: null,
+      currentUserId: 'u_mock',
+    };
+  },
+  computed: {
+    isSelf() {
+      return this.author && this.author.id === this.currentUserId;
+    },
+    intimacyLevel() {
+      return Math.min(100, Math.max(0, this.author?.intimacyLevel || 0));
+    },
+  },
+  onLoad(options) {
+    if (options && options.id) {
+      this.authorId = options.id;
+    }
+    this.fetchProfile();
+    this.fetchPosts();
+  },
+  methods: {
+    async fetchProfile() {
+      this.loading = true;
+      const res = await FeedRepo.getAuthorProfile(this.authorId);
+      if (res.ok) {
+        this.author = res.data;
+        this.errorMessage = '';
+      } else {
+        this.errorMessage = res.error.message || '资料加载失败';
+      }
+      this.loading = false;
+      if (this.refreshing) this.refreshing = false;
+    },
+    async fetchPosts() {
+      this.postsLoading = true;
+      const res = await FeedRepo.listByAuthor(this.authorId);
+      if (res.ok) {
+        this.posts = res.data;
+        this.postsError = '';
+      } else {
+        this.postsError = res.error.message || '内容加载失败';
+      }
+      this.postsLoading = false;
+      if (this.refreshing) this.refreshing = false;
+    },
+    onRefresh() {
+      if (this.refreshing) return;
+      this.refreshing = true;
+      Promise.all([this.fetchProfile(), this.fetchPosts()]).finally(() => {
+        this.refreshing = false;
+      });
+    },
+    async toggleFollow() {
+      const res = await FeedRepo.toggleFollow(this.authorId, this.currentUserId);
+      if (!res.ok) {
+        uni.showToast({ title: res.error.message || '关注失败', icon: 'none' });
+        return;
+      }
+      this.fetchProfile();
+    },
+    openPost(item) {
+      const id = item?.id || this.authorId;
+      navTo({ url: `/pages-sub/circle/post-detail?id=${id}` });
+    },
+    onLike(item) {
+      item.likes = (item.likes || 0) + 1;
+      uni.showToast({ title: '已记录点赞（占位）', icon: 'none' });
+    },
+    openShare(item) {
+      this.sharePost = item;
+      this.shareOpen = true;
+    },
+    openMore() {
+      uni.showToast({ title: '已记录反馈（占位）', icon: 'none' });
+    },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use '@/styles/tokens.scss' as *;
+
+.nm-list {
+  padding: $nm-space-xl $nm-space-xl $nm-space-3xl;
+}
+
+.nm-refresh {
+  height: 80rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-refresh__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-card {
+  padding: $nm-space-lg;
+  border-radius: $nm-radius-lg;
+  background-color: $nm-surface;
+  box-shadow: $nm-shadow-sm;
+  border: 1rpx solid transparent;
+  margin-bottom: 0;
+}
+
+.nm-profile__row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.nm-avatar {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 64rpx;
+  background-color: $nm-brand-primary-soft;
+  margin-right: $nm-space-md;
+}
+
+.nm-avatar--empty {
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-profile__info {
+  flex: 1;
+}
+
+.nm-name {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-meta {
+  margin-top: 8rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-meta--spaced {
+  margin-top: $nm-space-sm;
+}
+
+.nm-follow {
+  padding: 12rpx 24rpx;
+  border-radius: $nm-radius-pill;
+  border: 1rpx solid transparent;
+  background-color: $nm-brand-primary;
+}
+
+.nm-follow--active {
+  border-color: $nm-border;
+  background-color: $nm-surface;
+}
+
+.nm-follow--primary {
+  border-color: $nm-brand-primary;
+}
+
+.nm-follow__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-inverse;
+}
+
+.nm-follow__text--active {
+  color: $nm-text-secondary;
+}
+
+.nm-follow__text--primary {
+  color: $nm-text-inverse;
+}
+
+.nm-intimacy {
+  margin-top: $nm-space-sm;
+}
+
+.nm-intimacy__track {
+  margin-top: 12rpx;
+  height: 12rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-border;
+  overflow: hidden;
+}
+
+.nm-intimacy__fill {
+  height: 100%;
+  background-color: $nm-brand-primary;
+}
+
+.nm-section-title {
+  margin-top: $nm-space-lg;
+  margin-bottom: 0;
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-post-wrap {
+  margin-top: $nm-space-md;
+}
+
+.nm-skeleton {
+  margin-top: $nm-space-sm;
+}
+
+.nm-skeleton__gap {
+  height: $nm-space-md;
+}
+</style>

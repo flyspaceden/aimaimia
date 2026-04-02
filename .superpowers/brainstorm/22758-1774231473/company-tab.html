@@ -1,0 +1,183 @@
+<h2>企业 Tab 详细布局</h2>
+<p class="subtitle">切换到企业 Tab 后的展示方式，含筛选标签 + 企业卡片（带热门商品缩略图）</p>
+
+<div style="display:flex;justify-content:center;padding:20px 0;">
+  <div style="width:320px;border:3px solid #222;border-radius:32px;overflow:hidden;background:#fff;font-size:12px;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
+
+    <!-- Header -->
+    <div style="background:#fff;padding:8px 16px 0;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:700;font-size:18px;color:#1a1a1a;">发现</span>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <div style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        </div>
+        <div style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+          <div style="position:absolute;top:2px;right:0;background:#2E7D32;color:#fff;font-size:8px;width:14px;height:14px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:bold;">3</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div style="margin:10px 16px;padding:10px 14px;background:#f5f5f5;border-radius:24px;color:#999;font-size:13px;display:flex;align-items:center;gap:6px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      搜索商品、品类、企业...
+    </div>
+
+    <!-- Tab bar: 企业 active -->
+    <div style="display:flex;margin:0 16px;border-bottom:1px solid #eee;">
+      <div style="flex:1;text-align:center;padding:10px 0;font-size:14px;color:#bbb;">商品</div>
+      <div style="flex:1;text-align:center;padding:10px 0;font-size:14px;font-weight:600;color:#2E7D32;border-bottom:2.5px solid #2E7D32;">企业</div>
+    </div>
+
+    <!-- Filter chips for companies -->
+    <div style="display:flex;gap:8px;padding:12px 16px 8px;overflow-x:auto;">
+      <span style="padding:6px 14px;background:#e8f5e9;border-radius:20px;font-size:11px;color:#2E7D32;font-weight:600;white-space:nowrap;border:1px solid #c8e6c9;">全部</span>
+      <span style="padding:6px 14px;background:#fff;border:1px solid #e0e0e0;border-radius:20px;font-size:11px;color:#555;white-space:nowrap;">🌿 有机认证</span>
+      <span style="padding:6px 14px;background:#fff;border:1px solid #e0e0e0;border-radius:20px;font-size:11px;color:#555;white-space:nowrap;">🍎 水果</span>
+      <span style="padding:6px 14px;background:#fff;border:1px solid #e0e0e0;border-radius:20px;font-size:11px;color:#555;white-space:nowrap;">🍵 茶叶</span>
+      <span style="padding:6px 14px;background:#fff;border:1px solid #e0e0e0;border-radius:20px;font-size:11px;color:#555;white-space:nowrap;">📍 附近</span>
+    </div>
+
+    <!-- Company List -->
+    <div style="padding:4px 16px 16px;">
+
+      <!-- Company Card 1 -->
+      <div style="background:#fff;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🌿</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:14px;font-weight:700;color:#1a1a1a;">绿源有机农场</span>
+              <span style="background:#e8f5e9;color:#2E7D32;padding:1px 6px;border-radius:4px;font-size:8px;font-weight:600;">有机认证</span>
+            </div>
+            <div style="font-size:11px;color:#888;margin-top:3px;">浙江杭州 · 2.3km · 好评 98%</div>
+          </div>
+        </div>
+        <!-- Hot products thumbnails -->
+        <div style="display:flex;gap:6px;margin-top:2px;">
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#a5d6a7,#81c784);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">有机苹果</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥12.9</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#c8e6c9,#a5d6a7);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">有机生菜</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥6.8</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#dcedc8,#c5e1a5);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">土鸡蛋</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥25.8</div>
+            </div>
+          </div>
+          <div style="width:36px;height:auto;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;flex-shrink:0;">
+            +5
+          </div>
+        </div>
+      </div>
+
+      <!-- Company Card 2 -->
+      <div style="background:#fff;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#fce4ec,#f8bbd0);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🍎</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:14px;font-weight:700;color:#1a1a1a;">红富士果园</span>
+            </div>
+            <div style="font-size:11px;color:#888;margin-top:3px;">山东烟台 · 5.1km · 好评 96%</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:2px;">
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#ffccbc,#ff8a65);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">红富士苹果</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥18.9</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#fff9c4,#fff176);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">黄元帅苹果</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥15.5</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#c8e6c9,#a5d6a7);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">苹果脆片</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥22.0</div>
+            </div>
+          </div>
+          <div style="width:36px;height:auto;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;flex-shrink:0;">
+            +9
+          </div>
+        </div>
+      </div>
+
+      <!-- Company Card 3 -->
+      <div style="background:#fff;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#e0f2f1,#b2dfdb);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🍵</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:14px;font-weight:700;color:#1a1a1a;">龙井茶庄</span>
+              <span style="background:#e0f2f1;color:#00897B;padding:1px 6px;border-radius:4px;font-size:8px;font-weight:600;">非遗传承</span>
+            </div>
+            <div style="font-size:11px;color:#888;margin-top:3px;">浙江杭州 · 8.7km · 好评 99%</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:2px;">
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#b2dfdb,#80cbc4);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">明前龙井</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥89.0</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#e0f2f1,#b2dfdb);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">雨前龙井</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥56.0</div>
+            </div>
+          </div>
+          <div style="flex:1;background:#f9f9f9;border-radius:8px;overflow:hidden;">
+            <div style="height:52px;background:linear-gradient(135deg,#c8e6c9,#a5d6a7);"></div>
+            <div style="padding:4px 5px;">
+              <div style="font-size:9px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">碧螺春</div>
+              <div style="font-size:10px;color:#e53935;font-weight:700;">¥128</div>
+            </div>
+          </div>
+          <div style="width:36px;height:auto;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;flex-shrink:0;">
+            +4
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Loading -->
+    <div style="text-align:center;padding:4px 0 20px;font-size:11px;color:#bbb;">
+      上拉加载更多...
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="max-width:600px;margin:20px auto 0;">
+  <h3>设计要点</h3>
+  <ul style="font-size:14px;line-height:1.8;color:#555;">
+    <li><strong>企业卡片</strong> — 全宽卡片（非两列），信息更丰富：Logo + 企业名 + 认证标签 + 距离 + 好评率</li>
+    <li><strong>热门商品缩略图</strong> — 每个企业卡片底部展示 3 个热销商品 + "+N" 更多提示，实现企业→商品的交叉引流</li>
+    <li><strong>筛选标签</strong> — 按企业维度筛选：有机认证 / 品类 / 附近，跟商品 Tab 的分类标签区分</li>
+    <li><strong>列表布局</strong> — 企业用单列列表（非瀑布流），每张卡片信息密度高</li>
+  </ul>
+</div>

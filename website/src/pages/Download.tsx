@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { QRCodeSVG } from 'qrcode.react'
+import { getApiBaseUrl } from '@/lib/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1'
+const API_BASE = getApiBaseUrl()
 
 type Platform = 'ios' | 'android' | 'desktop'
 
@@ -129,9 +131,25 @@ export default function Download() {
           {platform === 'ios' ? '前往 App Store 下载' : '前往应用商店下载'}
         </button>
       ) : (
-        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
-          请在手机上打开此页面下载 App
-        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{
+            padding: 16, borderRadius: 16, backgroundColor: '#fff',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          }}>
+            <QRCodeSVG
+              value={window.location.href}
+              size={180}
+              fgColor="#1a2744"
+              bgColor="#ffffff"
+            />
+          </div>
+          <p style={{
+            fontSize: 14, color: 'rgba(255,255,255,0.5)',
+            marginTop: 16, textAlign: 'center',
+          }}>
+            用手机扫码下载 App
+          </p>
+        </div>
       )}
 
       {showWechatGuide && (

@@ -1,11 +1,11 @@
 import ParticleCanvas from '@/components/effects/ParticleCanvas'
 import ScrollReveal from '@/components/effects/ScrollReveal'
 import SectionHeading from '@/components/ui/SectionHeading'
-import { IMAGES, TEAM_MEMBERS, TIMELINE } from '@/lib/constants'
+import { IMAGES, TIMELINE } from '@/lib/constants'
 
 const VALUES = [
   { title: '使命', desc: '用 AI 技术降低农产品流通成本，让优质农产品走出田间、走上餐桌', icon: '🎯' },
-  { title: '愿景', desc: '成为中国领先的 AI 农业电商平台，推动农业数字化转型', icon: '🔭' },
+  { title: '愿景', desc: '成为中国领先的 AI 农业直销平台，推动农业数字化转型', icon: '🔭' },
   { title: '价值观', desc: '诚信为本、科技驱动、普惠共赢、绿色可持续', icon: '💎' },
 ]
 
@@ -13,38 +13,38 @@ export default function About() {
   return (
     <>
       {/* Hero */}
-      <section className="relative pt-32 pb-20 bg-gradient-to-b from-dark-bg to-dark-elevated overflow-hidden">
+      <section className="relative pt-32 pb-20 bg-dark-bg overflow-hidden">
         <ParticleCanvas particleCount={10} />
         <div className="relative z-10 max-w-page mx-auto px-6 text-center">
           <h1 className="text-display-mobile md:text-display text-text-on-dark mb-4">
-            让农业拥抱<span className="text-ai-gradient">智能时代</span>
+            让农业拥抱<span className="text-ai-gradient">AI时代</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品电商
+            AI爱买买成立于 2024 年，致力于用 AI 技术重新定义农产品直销
           </p>
         </div>
       </section>
 
       {/* 品牌故事 */}
-      <section className="py-20 md:py-28 bg-gradient-to-b from-dark-elevated to-light-bg">
+      <section className="py-20 md:py-28 bg-light-bg">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
             <div className="flex flex-col md:flex-row gap-12 items-center">
               <div className="flex-1">
-                <h2 className="text-h1-mobile md:text-h1 text-text-on-dark mb-6">品牌故事</h2>
-                <div className="space-y-4 text-text-on-dark-secondary leading-relaxed">
+                <h2 className="text-h1-mobile md:text-h1 text-text-primary mb-6">品牌故事</h2>
+                <div className="space-y-4 text-text-secondary leading-relaxed">
                   <p>
                     在中国广袤的农村，有最好的食材、最勤劳的农民，却往往因为信息不对称和流通环节冗长，
                     好产品卖不出好价钱，消费者也难以买到真正新鲜、安全的农产品。
                   </p>
                   <p>
-                    爱买买的创始团队深入田间地头，走访了数百个农业合作社和家庭农场。我们发现，
-                    <span className="text-ai-end font-medium">AI 技术可以从根本上改变这一现状</span>——
-                    从智能溯源建立信任，到语义搜索连接供需，再到数据分析优化经营。
+                    AI爱买买的创始团队深入田间地头，走访了数百个农业合作社和家庭农场。我们发现，
+                    <span className="text-brand font-medium">AI 技术可以从根本上改变这一现状</span>——
+                    从AI溯源建立信任，到语义搜索连接供需，再到数据分析优化经营。
                   </p>
                   <p>
-                    于是，爱买买诞生了。我们的名字寓意着对农产品的热爱，对品质的追求，
-                    对每一次购物体验的珍视。<span className="text-ai-end font-medium">爱，买买。</span>
+                    于是，AI爱买买诞生了。我们的名字寓意着对农产品的热爱，对品质的追求，
+                    对每一次购物体验的珍视。<span className="text-brand font-medium">爱，买买。</span>
                   </p>
                 </div>
               </div>
@@ -82,39 +82,28 @@ export default function About() {
         </div>
       </section>
 
-      {/* 团队 */}
+      {/* 核心团队 */}
       <section className="py-20 md:py-28 bg-light-surface">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="核心团队" subtitle="一群热爱农业和技术的人" />
+            <SectionHeading title="核心团队" subtitle="顶尖学术背景与产业实战经验的深度融合" />
           </ScrollReveal>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {TEAM_MEMBERS.map((member, i) => (
-              <ScrollReveal key={member.name} delay={i * 0.1}>
-                <div className="text-center">
-                  <img
-                    src={member.avatar}
-                    alt={member.name}
-                    className="w-24 h-24 md:w-32 md:h-32 rounded-full mx-auto mb-4 object-cover shadow-card"
-                    loading="lazy"
-                  />
-                  <h3 className="font-semibold text-text-primary">{member.name}</h3>
-                  <p className="text-brand text-sm font-medium">{member.role}</p>
-                  <p className="text-text-tertiary text-sm mt-1">{member.bio}</p>
-                </div>
-              </ScrollReveal>
-            ))}
-          </div>
-
           <ScrollReveal>
-            <div className="mt-12 rounded-card-lg overflow-hidden">
-              <img
-                src={IMAGES.team.collaboration}
-                alt="团队协作"
-                className="w-full h-48 md:h-72 object-cover"
-                loading="lazy"
-              />
+            <div className="max-w-3xl mx-auto bg-white rounded-card-lg p-8 md:p-12 shadow-card">
+              <p className="text-text-primary leading-loose text-base md:text-lg">
+                核心技术团队由美国麻省大学计算机系博士领衔，曾参与 2024 年图灵奖「群智机器人」核心项目，
+                是哈尔滨工业大学（深圳）国际人工智能研究院创始人之一。团队成员入选教育部优秀归国人才计划，
+                担任 IEEE 高级会员、科技部及国家自然科学基金评审专家，并受聘为印度理工学院（孟买）客座教授、
+                香港城市大学与香港理工大学特聘高级研究员。
+              </p>
+              <div className="mt-6 pt-6 border-t border-light-soft">
+                <p className="text-text-secondary leading-relaxed text-sm md:text-base">
+                  团队主持国家自然科学基金、科技部中以国际科技合作专项等多个国家级项目，
+                  研究成果获科技部产业化优秀案例奖及 ACM/IEEE IoTDI 最佳产业应用国际奖，
+                  在 AI 与农业产业融合领域拥有丰富的理论研究与落地实践经验。
+                </p>
+              </div>
             </div>
           </ScrollReveal>
         </div>

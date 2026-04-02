@@ -1,0 +1,192 @@
+<h2>地图视图：切换到地图模式后怎么展示？</h2>
+<p class="subtitle">当前地图只显示企业标点，如何结合商品/企业 Tab 做得更有用？</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f8faf8;">
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">方案 A：地图 + 底部半屏列表</div>
+      <div style="width:220px;margin:0 auto;border:2px solid #333;border-radius:20px;overflow:hidden;background:#fff;font-size:10px;">
+        <!-- Header -->
+        <div style="background:#fff;padding:6px 12px;font-size:9px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;">
+          <span style="font-weight:bold;font-size:11px;">发现</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="padding:2px 6px;background:#2E7D32;color:#fff;border-radius:4px;font-size:7px;">列表</span>
+            <span>🛒</span>
+          </div>
+        </div>
+        <!-- Search -->
+        <div style="margin:6px 8px;padding:5px 10px;background:#f5f5f5;border-radius:20px;color:#999;font-size:9px;">
+          🔍 搜索商品、企业...
+        </div>
+        <!-- Tab stays -->
+        <div style="display:flex;border-bottom:1px solid #eee;margin:0 8px;">
+          <div style="flex:1;text-align:center;padding:6px 0;font-size:10px;color:#999;">商品</div>
+          <div style="flex:1;text-align:center;padding:6px 0;font-size:10px;font-weight:bold;color:#2E7D32;border-bottom:2px solid #2E7D32;">企业</div>
+        </div>
+        <!-- Map area -->
+        <div style="height:120px;background:linear-gradient(135deg,#e8f5e9 0%,#c8e6c9 30%,#a5d6a7 60%,#dcedc8 100%);position:relative;overflow:hidden;">
+          <!-- Map texture -->
+          <div style="position:absolute;inset:0;opacity:0.15;">
+            <div style="position:absolute;top:20px;left:30px;width:60px;height:1px;background:#333;transform:rotate(15deg);"></div>
+            <div style="position:absolute;top:50px;left:10px;width:80px;height:1px;background:#333;transform:rotate(-5deg);"></div>
+            <div style="position:absolute;top:80px;left:60px;width:50px;height:1px;background:#333;transform:rotate(25deg);"></div>
+          </div>
+          <!-- Markers -->
+          <div style="position:absolute;top:25px;left:40px;width:18px;height:18px;background:#2E7D32;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;">🌿</div>
+          <div style="position:absolute;top:55px;left:110px;width:18px;height:18px;background:#e53935;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;">🍎</div>
+          <div style="position:absolute;top:35px;left:160px;width:18px;height:18px;background:#2E7D32;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;">🏢</div>
+          <!-- User location -->
+          <div style="position:absolute;top:65px;left:80px;width:10px;height:10px;background:#1976D2;border-radius:50%;border:2px solid #fff;box-shadow:0 0 6px rgba(25,118,210,0.5);"></div>
+          <div style="position:absolute;top:60px;left:75px;width:20px;height:20px;border-radius:50%;border:1px solid rgba(25,118,210,0.3);background:rgba(25,118,210,0.08);"></div>
+        </div>
+        <!-- Bottom sheet: company list -->
+        <div style="background:#fff;border-top:1px solid #eee;border-radius:12px 12px 0 0;margin-top:-8px;position:relative;z-index:1;">
+          <!-- Drag handle -->
+          <div style="text-align:center;padding:6px 0 2px;"><div style="width:32px;height:3px;background:#ddd;border-radius:2px;margin:0 auto;"></div></div>
+          <div style="padding:2px 8px 4px;font-size:8px;color:#666;">附近企业 · 3家</div>
+          <!-- Company items -->
+          <div style="padding:0 8px 6px;">
+            <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f5f5f5;">
+              <div style="width:28px;height:28px;background:#e8f5e9;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:8px;">🌿</div>
+              <div style="flex:1;">
+                <div style="font-size:9px;font-weight:bold;">绿源有机农场</div>
+                <div style="font-size:7px;color:#666;">有机认证 · 2.3km · 热销8款</div>
+              </div>
+              <div style="font-size:7px;color:#2E7D32;">→</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;padding:5px 0;">
+              <div style="width:28px;height:28px;background:#fce4ec;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:8px;">🍎</div>
+              <div style="flex:1;">
+                <div style="font-size:9px;font-weight:bold;">红富士果园</div>
+                <div style="font-size:7px;color:#666;">水果专营 · 5.1km · 热销12款</div>
+              </div>
+              <div style="font-size:7px;color:#2E7D32;">→</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 地图 + 底部半屏列表</h3>
+      <p>上半屏地图显示标点，下半屏可拖拽的列表卡片。点击标点 → 列表自动滚到对应企业。列表可向上拖拽覆盖地图变成全屏列表。</p>
+      <p><strong>Tab 行为：</strong>商品 Tab 地图标点 = 产地/发货地，企业 Tab 标点 = 企业位置。</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f8faf8;">
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">方案 B：地图仅企业 Tab 可用</div>
+      <div style="width:220px;margin:0 auto;border:2px solid #333;border-radius:20px;overflow:hidden;background:#fff;font-size:10px;">
+        <!-- Header -->
+        <div style="background:#fff;padding:6px 12px;font-size:9px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;">
+          <span style="font-weight:bold;font-size:11px;">发现</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="padding:2px 6px;background:#eee;color:#999;border-radius:4px;font-size:7px;">地图</span>
+            <span>🛒</span>
+          </div>
+        </div>
+        <!-- Search -->
+        <div style="margin:6px 8px;padding:5px 10px;background:#f5f5f5;border-radius:20px;color:#999;font-size:9px;">
+          🔍 搜索商品、企业...
+        </div>
+        <!-- Tab: 商品 active, map button greyed -->
+        <div style="display:flex;border-bottom:1px solid #eee;margin:0 8px;">
+          <div style="flex:1;text-align:center;padding:6px 0;font-size:10px;font-weight:bold;color:#2E7D32;border-bottom:2px solid #2E7D32;">商品</div>
+          <div style="flex:1;text-align:center;padding:6px 0;font-size:10px;color:#999;">企业</div>
+        </div>
+        <!-- Products - map not available -->
+        <div style="padding:8px;text-align:center;">
+          <div style="padding:8px;background:#f5f5f5;border-radius:8px;margin-bottom:8px;">
+            <div style="font-size:9px;color:#999;">📍 商品 Tab 无地图视图</div>
+            <div style="font-size:8px;color:#bbb;margin-top:2px;">切换到「企业」Tab 查看地图</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:42px;background:#c8e6c9;"></div>
+              <div style="padding:3px;font-size:8px;">有机苹果<br><span style="color:#e53935;font-weight:bold;">¥12.9</span></div>
+            </div>
+            <div style="background:#f9f9f9;border-radius:6px;overflow:hidden;">
+              <div style="height:42px;background:#b2dfdb;"></div>
+              <div style="padding:3px;font-size:8px;">龙井茶叶<br><span style="color:#e53935;font-weight:bold;">¥89.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 地图仅限企业 Tab</h3>
+      <p>地图切换按钮只在企业 Tab 下激活。商品 Tab 下按钮置灰或隐藏。逻辑简单——地图本来就是看企业位置的。</p>
+      <p><strong>优点：</strong>概念清晰，商品不需要地图。<strong>缺点：</strong>限制了功能可用性。</p>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f8faf8;">
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">方案 C：全屏地图 + 浮动卡片（推荐）</div>
+      <div style="width:220px;margin:0 auto;border:2px solid #333;border-radius:20px;overflow:hidden;background:#fff;font-size:10px;">
+        <!-- Full map -->
+        <div style="height:280px;background:linear-gradient(135deg,#e8f5e9 0%,#c8e6c9 30%,#a5d6a7 60%,#dcedc8 100%);position:relative;overflow:hidden;">
+          <!-- Top floating bar -->
+          <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:6px 8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-weight:bold;font-size:11px;color:#333;text-shadow:0 1px 2px rgba(255,255,255,0.8);">发现</span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span style="padding:2px 6px;background:rgba(255,255,255,0.9);color:#2E7D32;border-radius:4px;font-size:7px;font-weight:bold;">列表</span>
+                <span style="background:rgba(255,255,255,0.9);width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;">🛒</span>
+              </div>
+            </div>
+            <!-- Floating search -->
+            <div style="padding:5px 10px;background:rgba(255,255,255,0.95);border-radius:20px;color:#999;font-size:9px;box-shadow:0 1px 4px rgba(0,0,0,0.1);">
+              🔍 搜索商品、企业...
+            </div>
+            <!-- Floating tabs -->
+            <div style="display:flex;gap:6px;margin-top:6px;">
+              <span style="padding:4px 12px;background:rgba(255,255,255,0.95);border-radius:16px;font-size:9px;color:#999;box-shadow:0 1px 3px rgba(0,0,0,0.1);">商品</span>
+              <span style="padding:4px 12px;background:#2E7D32;color:#fff;border-radius:16px;font-size:9px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.1);">企业</span>
+            </div>
+          </div>
+          <!-- Map texture -->
+          <div style="position:absolute;inset:0;opacity:0.12;">
+            <div style="position:absolute;top:60px;left:30px;width:80px;height:1px;background:#333;transform:rotate(15deg);"></div>
+            <div style="position:absolute;top:120px;left:10px;width:100px;height:1px;background:#333;transform:rotate(-5deg);"></div>
+            <div style="position:absolute;top:170px;left:80px;width:70px;height:1px;background:#333;transform:rotate(25deg);"></div>
+            <div style="position:absolute;top:90px;left:130px;width:60px;height:1px;background:#333;transform:rotate(-15deg);"></div>
+          </div>
+          <!-- Markers -->
+          <div style="position:absolute;top:100px;left:50px;width:22px;height:22px;background:#2E7D32;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;">🌿</div>
+          <div style="position:absolute;top:140px;left:130px;width:22px;height:22px;background:#e53935;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;">🍎</div>
+          <div style="position:absolute;top:90px;left:170px;width:22px;height:22px;background:#FF9800;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;">🍵</div>
+          <!-- User location -->
+          <div style="position:absolute;top:155px;left:100px;width:12px;height:12px;background:#1976D2;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(25,118,210,0.5);"></div>
+          <div style="position:absolute;top:148px;left:93px;width:26px;height:26px;border-radius:50%;border:1px solid rgba(25,118,210,0.3);background:rgba(25,118,210,0.08);"></div>
+
+          <!-- Floating company card (clicked marker) -->
+          <div style="position:absolute;bottom:8px;left:8px;right:8px;background:#fff;border-radius:10px;padding:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;gap:8px;">
+            <div style="width:40px;height:40px;background:#e8f5e9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">🌿</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;font-weight:bold;">绿源有机农场</div>
+              <div style="font-size:8px;color:#666;margin-top:1px;">有机认证 · 2.3km</div>
+              <div style="display:flex;gap:3px;margin-top:3px;">
+                <div style="width:20px;height:20px;background:#f5f5f5;border-radius:3px;"></div>
+                <div style="width:20px;height:20px;background:#f5f5f5;border-radius:3px;"></div>
+                <div style="width:20px;height:20px;background:#f5f5f5;border-radius:3px;"></div>
+                <div style="font-size:7px;color:#999;display:flex;align-items:center;">+5</div>
+              </div>
+            </div>
+            <div style="font-size:9px;color:#2E7D32;font-weight:bold;">进店 →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 全屏地图 + 浮动卡片（推荐）</h3>
+      <p>地图模式下全屏显示地图，搜索框和 Tab 浮动在地图上方（半透明背景）。点击标点弹出底部浮动卡片，显示企业信息 + 热门商品缩略图。Tab 仍然可切换：企业 Tab 显示企业标点，商品 Tab 显示产地/发货地标点。</p>
+      <p><strong>优点：</strong>地图空间最大化，交互沉浸感强，信息不割裂。</p>
+    </div>
+  </div>
+
+</div>

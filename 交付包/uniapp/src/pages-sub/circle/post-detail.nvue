@@ -1,0 +1,1380 @@
+<template>
+  <Screen>
+    <AppHeader title="帖子详情" />
+
+    <list class="nm-list">
+      <refresh class="nm-refresh" :display="refreshing ? 'show' : 'hide'" @refresh="onRefresh">
+        <text class="nm-refresh__text">刷新中...</text>
+      </refresh>
+
+      <cell v-if="postLoading">
+        <Skeleton :count="2" type="card" class="nm-skeleton" />
+      </cell>
+      <cell v-else-if="postError">
+        <ErrorState :text="postError" @retry="onRefresh" />
+      </cell>
+      <cell v-else-if="post">
+        <PostCard
+          :item="post"
+          :currentUserId="currentUserId"
+          @product="openProduct(post)"
+          @author="openAuthor(post)"
+          @share="openShare(post)"
+        >
+          <template #extra>
+            <view class="nm-moderation">
+              <view class="nm-section__header">
+                <text class="nm-section__title nm-section__title--sm">内容状态</text>
+                <view class="nm-section__actions">
+                  <view class="nm-link" @click="showReport = true">举报</view>
+                </view>
+              </view>
+              <view class="nm-status-row">
+                <view :class="['nm-pill', moderationToneClass]">
+                  <text class="nm-pill__text">{{ moderationLabel }}</text>
+                </view>
+                <view v-if="post && post.isFeatured" class="nm-pill nm-pill--accent">
+                  <text class="nm-pill__text">精华</text>
+                </view>
+              </view>
+              <text class="nm-section__desc">
+                举报 {{ moderation.reportCount }} 条 ·
+                {{ moderation.lastReviewedAt ? `最近审核 ${moderation.lastReviewedAt}` : '待复核' }}
+              </text>
+              <text v-if="moderation.reviewNote" class="nm-section__desc">审核说明：{{ moderation.reviewNote }}</text>
+              <view v-if="latestReports.length" class="nm-report-list">
+                <text v-for="report in latestReports" :key="report.id" class="nm-report__text">
+                  举报原因：{{ reasonLabel(report.reason) }} · {{ reportStatusLabels[report.status] || report.status }}
+                </text>
+              </view>
+            </view>
+          </template>
+        </PostCard>
+      </cell>
+
+      <cell v-if="post">
+        <view class="nm-interaction">
+          <text class="nm-section__title">深度互动</text>
+          <text class="nm-section__desc">专家答疑、打赏与合作意向（占位）</text>
+          <view class="nm-deep__row">
+            <view class="nm-deep__item" @click="showExpert = true">
+              <view class="nm-deep__icon nm-deep__icon--accent">
+                <Icon name="comment-question-outline" :size="36" :color="accentBlue" />
+              </view>
+              <text class="nm-deep__item-title">专家提问</text>
+              <text class="nm-deep__item-desc">向企业专家提问</text>
+            </view>
+            <view class="nm-deep__item" @click="showReward = true">
+              <view class="nm-deep__icon nm-deep__icon--brand">
+                <Icon name="gift-outline" :size="36" :color="brandPrimary" />
+              </view>
+              <text class="nm-deep__item-title">打赏</text>
+              <text class="nm-deep__item-desc">支持优质内容</text>
+            </view>
+            <view class="nm-deep__item" @click="showCoop = true">
+              <view class="nm-deep__icon nm-deep__icon--accent">
+                <Icon name="handshake-outline" :size="36" :color="accentBlue" />
+              </view>
+              <text class="nm-deep__item-title">合作意向</text>
+              <text class="nm-deep__item-desc">发起合作沟通</text>
+            </view>
+          </view>
+        </view>
+      </cell>
+
+      <cell>
+        <view class="nm-comments">
+          <text class="nm-comments__title">评论</text>
+          <text class="nm-comments__desc">先聊聊你的看法</text>
+          <view v-if="commentError" class="nm-comments__list">
+            <ErrorState :text="commentError" @retry="onRefresh" />
+          </view>
+          <view v-else-if="loading && comments.length === 0" class="nm-comments__list">
+            <Skeleton :count="3" type="line" />
+          </view>
+          <view v-else-if="!loading && comments.length === 0" class="nm-comments__list">
+            <EmptyState text="暂无评论" hint="成为第一个发声的人" />
+          </view>
+          <view v-else class="nm-comments__list">
+            <view v-for="comment in sortedComments" :key="comment.id" class="nm-comment-thread">
+              <view class="nm-comment-card">
+                <view class="nm-comment-row">
+                  <view class="nm-comment__avatar" />
+                  <view class="nm-comment__body">
+                    <view class="nm-comment__name-row">
+                      <text class="nm-comment__name">{{ comment.author }}</text>
+                      <text v-if="comment.createdAt" class="nm-comment__time">{{ displayTime(comment.createdAt) }}</text>
+                    </view>
+                    <text class="nm-comment__content">{{ comment.content }}</text>
+                    <view class="nm-comment__actions">
+                      <text class="nm-comment__action" @click="startReply(comment)">回复</text>
+                      <view class="nm-comment__like" @click="toggleCommentLike(comment)">
+                        <Icon
+                          :name="comment.liked ? 'heart' : 'heart-outline'"
+                          :size="32"
+                          :color="comment.liked ? dangerColor : textSecondary"
+                        />
+                        <text class="nm-comment__like-text">{{ comment.likes || 0 }}</text>
+                      </view>
+                    </view>
+                  </view>
+                </view>
+                <view class="nm-comment__divider" />
+              </view>
+              <view v-if="comment.replies && comment.replies.length">
+                <view
+                  v-for="reply in comment.replies"
+                  :key="reply.id"
+                  class="nm-comment-card nm-comment-card--reply"
+                >
+                  <view class="nm-comment-row">
+                    <view class="nm-comment__avatar" />
+                    <view class="nm-comment__body">
+                      <view class="nm-comment__name-row">
+                        <text class="nm-comment__name">{{ reply.author }}</text>
+                        <text v-if="reply.createdAt" class="nm-comment__time">{{ displayTime(reply.createdAt) }}</text>
+                      </view>
+                      <text class="nm-comment__content">{{ reply.content }}</text>
+                      <view class="nm-comment__actions">
+                        <view class="nm-comment__like" @click="toggleCommentLike(reply, true)">
+                          <Icon
+                            :name="reply.liked ? 'heart' : 'heart-outline'"
+                            :size="32"
+                            :color="reply.liked ? dangerColor : textSecondary"
+                          />
+                          <text class="nm-comment__like-text">{{ reply.likes || 0 }}</text>
+                        </view>
+                      </view>
+                    </view>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+      </cell>
+
+      <loading class="nm-loading" :display="loading ? 'show' : 'hide'" @loading="onLoadMore">
+        <LoadMore text="加载更多..." />
+      </loading>
+    </list>
+
+    <CommentInput
+      :value="inputText"
+      :placeholder="replyTarget ? '回复...' : '写下你的评论...'"
+      :replyTo="replyTarget ? replyTarget.author : ''"
+      :disabled="!inputText || !inputText.trim()"
+      @input="onInputText"
+      @send="sendComment"
+      @cancel="clearReply"
+    />
+
+    <ProductQuickSheet :open="productSheetOpen" :productId="productId" @close="productSheetOpen = false" />
+    <PostShareSheet
+      :open="showShare"
+      :title="post ? post.title : undefined"
+      :content="post ? post.content : undefined"
+      :author="post ? (post.authorName || post.author) : undefined"
+      :cover="post ? (post.images && post.images.length ? post.images[0] : post.image) : undefined"
+      :tags="post ? post.tags : undefined"
+      :createdAt="post ? post.createdAt : undefined"
+      @close="showShare = false"
+    />
+
+    <BottomSheet :open="showExpert" mode="half" title="专家提问" :scrollable="true" @close="showExpert = false">
+      <view v-if="expertTicket" class="nm-ticket">
+        <view class="nm-ticket__header">
+          <text class="nm-ticket__title">咨询进度</text>
+          <text class="nm-link" @click="refreshExpertTicket">刷新</text>
+        </view>
+        <view class="nm-ticket__timeline">
+          <view v-for="(step, index) in expertSteps" :key="step.key" class="nm-ticket__item">
+            <view :class="['nm-ticket__dot', expertStepIndex >= index ? 'nm-ticket__dot--active' : '']" />
+            <view class="nm-ticket__content">
+              <text class="nm-ticket__label">{{ step.label }}</text>
+              <text class="nm-ticket__time">{{ timelineTime(step.key) }}</text>
+            </view>
+          </view>
+        </view>
+        <view class="nm-ticket__meta">
+          <text class="nm-ticket__meta-label">问题</text>
+          <text class="nm-ticket__question">{{ expertTicket.question }}</text>
+          <text v-if="expertProgressing" class="nm-ticket__progress">专家处理中，请稍候…</text>
+        </view>
+        <view class="nm-ticket__reply">
+          <text class="nm-ticket__meta-label">专家回复</text>
+          <view v-if="expertTicket.replies && expertTicket.replies.length">
+            <view v-for="reply in expertTicket.replies" :key="reply.id" class="nm-reply-card">
+              <view class="nm-reply-card__header">
+                <text class="nm-reply-card__name">{{ reply.responder }}</text>
+                <text class="nm-reply-card__time">{{ reply.createdAt }}</text>
+              </view>
+              <text class="nm-reply-card__content">{{ reply.content }}</text>
+            </view>
+          </view>
+          <text v-else class="nm-section__desc">暂无回复</text>
+        </view>
+      </view>
+
+      <view :class="['nm-form', expertTicket ? 'nm-form--offset' : '']">
+        <text class="nm-form__hint">你的问题会同步给企业专家，回复后将站内通知。</text>
+        <textarea
+          class="nm-textarea"
+          v-model="expertQuestion"
+          placeholder="请输入问题（至少 5 字）"
+          placeholder-class="nm-placeholder"
+        />
+        <input
+          class="nm-input"
+          v-model="expertContact"
+          placeholder="联系方式（选填）"
+          placeholder-class="nm-placeholder"
+        />
+        <view :class="['nm-primary', expertSubmitting ? 'nm-primary--disabled' : '']" @click="submitExpert">
+          {{ expertSubmitting ? '提交中…' : '提交问题' }}
+        </view>
+      </view>
+    </BottomSheet>
+
+    <BottomSheet :open="showReward" mode="half" title="打赏支持" :scrollable="true" @close="showReward = false">
+      <view class="nm-flow">
+        <text class="nm-form__label">支付流程</text>
+        <view class="nm-flow__row">
+          <view v-for="(step, index) in tipSteps" :key="step.key" class="nm-flow__step">
+            <view :class="['nm-flow__dot', tipStepIndex >= index ? 'nm-flow__dot--active' : '']" />
+            <text :class="['nm-flow__text', tipStepIndex >= index ? 'nm-flow__text--active' : '']">
+              {{ step.label }}
+            </text>
+          </view>
+        </view>
+      </view>
+
+      <view v-if="tipStage === 'input'" class="nm-form">
+        <text class="nm-form__label">选择金额</text>
+        <view class="nm-chip-row">
+          <view
+            v-for="amount in tipOptions"
+            :key="amount"
+            :class="['nm-chip', tipAmount === amount ? 'nm-chip--active' : '']"
+            @click="tipAmount = amount"
+          >
+            ¥{{ amount }}
+          </view>
+        </view>
+        <text class="nm-form__label">备注（选填）</text>
+        <input class="nm-input" v-model="tipMessage" placeholder="给作者一句鼓励" placeholder-class="nm-placeholder" />
+        <text class="nm-form__label">支付方式（占位）</text>
+        <view class="nm-chip-row">
+          <view
+            v-for="method in tipMethods"
+            :key="method.value"
+            :class="['nm-chip', tipMethod === method.value ? 'nm-chip--accent' : '']"
+            @click="tipMethod = method.value"
+          >
+            {{ method.label }}
+          </view>
+        </view>
+        <view :class="['nm-primary', tipLoading ? 'nm-primary--disabled' : '']" @click="createTipOrder">
+          {{ tipLoading ? '创建订单中…' : '下一步' }}
+        </view>
+      </view>
+
+      <view v-else-if="tipStage === 'checkout' && tipOrder" class="nm-form">
+        <view class="nm-order-card">
+          <view class="nm-order-row">
+            <text class="nm-order-label">订单号</text>
+            <text class="nm-order-value">{{ tipOrder.id }}</text>
+          </view>
+          <view class="nm-order-row">
+            <text class="nm-order-label">金额</text>
+            <text class="nm-order-value nm-order-value--strong">¥{{ tipOrder.amount }}</text>
+          </view>
+          <view class="nm-order-row">
+            <text class="nm-order-label">方式</text>
+            <text class="nm-order-value">{{ tipMethodLabel }}</text>
+          </view>
+          <view class="nm-order-row">
+            <text class="nm-order-label">创建时间</text>
+            <text class="nm-order-value">{{ tipOrder.createdAt }}</text>
+          </view>
+        </view>
+        <view :class="['nm-primary', tipLoading ? 'nm-primary--disabled' : '']" @click="startTipPayment">
+          {{ tipLoading ? '拉起支付…' : '去支付' }}
+        </view>
+        <view class="nm-secondary" @click="resetTip">返回修改</view>
+      </view>
+
+      <view v-else-if="tipStage === 'paying' && tipOrder" class="nm-form">
+        <view class="nm-pay-card">
+          <text class="nm-pay-title">等待支付完成</text>
+          <text class="nm-pay-desc">完成支付后点击确认</text>
+          <view :class="['nm-primary', tipLoading ? 'nm-primary--disabled' : '']" @click="confirmTipPayment">
+            {{ tipLoading ? '确认中…' : '已完成支付' }}
+          </view>
+        </view>
+      </view>
+
+      <view v-else-if="tipStage === 'success' && tipOrder" class="nm-form">
+        <view class="nm-success-card">
+          <text class="nm-success-title">支付成功</text>
+          <text class="nm-success-desc">感谢你的支持！</text>
+          <view class="nm-success-meta">
+            <text class="nm-success-meta__text">订单号 {{ tipOrder.id }}</text>
+            <text class="nm-success-meta__text">支付时间 {{ tipOrder.paidAt || tipOrder.createdAt }}</text>
+          </view>
+          <view class="nm-primary" @click="finishTip">完成</view>
+        </view>
+      </view>
+    </BottomSheet>
+
+    <BottomSheet :open="showCoop" mode="half" title="合作意向" :scrollable="true" @close="showCoop = false">
+      <view class="nm-form">
+        <text class="nm-form__hint">提交后企业会与您联系（占位）</text>
+        <input class="nm-input" v-model="coopCompany" placeholder="公司/机构名称" placeholder-class="nm-placeholder" />
+        <input class="nm-input" v-model="coopContact" placeholder="联系人" placeholder-class="nm-placeholder" />
+        <input class="nm-input" v-model="coopPhone" placeholder="联系电话" placeholder-class="nm-placeholder" />
+        <textarea class="nm-textarea" v-model="coopMessage" placeholder="合作需求简述" placeholder-class="nm-placeholder" />
+        <view class="nm-primary" @click="submitCoop">提交合作意向</view>
+      </view>
+    </BottomSheet>
+
+    <BottomSheet :open="showReport" mode="half" title="举报内容" :scrollable="true" @close="showReport = false">
+      <view class="nm-form">
+        <text class="nm-form__label">请选择举报原因</text>
+        <view class="nm-chip-row">
+          <view
+            v-for="reason in reportReasons"
+            :key="reason.value"
+            :class="['nm-chip', reportReason === reason.value ? 'nm-chip--accent' : '']"
+            @click="reportReason = reason.value"
+          >
+            {{ reason.label }}
+          </view>
+        </view>
+        <text class="nm-form__label">补充说明（选填）</text>
+        <textarea
+          class="nm-textarea"
+          v-model="reportNote"
+          placeholder="补充说明有助于更快处理"
+          placeholder-class="nm-placeholder"
+        />
+        <view :class="['nm-primary', reportSubmitting ? 'nm-primary--disabled' : '']" @click="submitReport">
+          {{ reportSubmitting ? '提交中…' : '提交举报' }}
+        </view>
+      </view>
+    </BottomSheet>
+  </Screen>
+</template>
+
+<script>
+import { navTo } from '@/utils/nav';
+import Screen from '@/components/layout/Screen.nvue';
+import AppHeader from '@/components/layout/AppHeader.nvue';
+import PostCard from '@/components/cards/PostCard.nvue';
+import PostShareSheet from '@/components/overlay/PostShareSheet.vue';
+import BottomSheet from '@/components/overlay/BottomSheet.vue';
+import CommentInput from '@/components/inputs/CommentInput.nvue';
+import ProductQuickSheet from '@/components/overlay/ProductQuickSheet.vue';
+import { EmptyState, ErrorState, Skeleton, LoadMore } from '@/components';
+import Icon from '@/components/ui/Icon.nvue';
+import { CommentRepo, InteractionRepo, InboxRepo, FeedRepo, ContentOpsRepo } from '@/services/repos';
+import { InboxState } from '@/services/state';
+
+export default {
+  components: { Screen, AppHeader, PostCard, PostShareSheet, BottomSheet, CommentInput, EmptyState, ErrorState, Skeleton, LoadMore, ProductQuickSheet, Icon },
+  data() {
+    return {
+      currentUserId: 'u1',
+      textSecondary: '#4B5B53',
+      accentBlue: '#2B6CB0',
+      brandPrimary: '#2F8F4E',
+      dangerColor: '#C0392B',
+      postId: 'p1',
+      post: null,
+      postLoading: false,
+      postError: '',
+      showShare: false,
+      showExpert: false,
+      showReward: false,
+      showCoop: false,
+      showReport: false,
+      inputText: '',
+      replyTarget: null,
+      productSheetOpen: false,
+      productId: '',
+      comments: [],
+      expertQuestion: '',
+      expertContact: '',
+      expertTicket: null,
+      expertSubmitting: false,
+      expertProgressing: false,
+      tipAmount: 18,
+      tipMessage: '',
+      tipMethod: 'wechat',
+      tipStage: 'input',
+      tipLoading: false,
+      tipOrder: null,
+      tipOptions: [5, 18, 52, 88],
+      tipMethods: [
+        { value: 'wechat', label: '微信' },
+        { value: 'alipay', label: '支付宝' },
+      ],
+      coopCompany: '',
+      coopContact: '',
+      coopPhone: '',
+      coopMessage: '',
+      reportReason: '',
+      reportNote: '',
+      reportSubmitting: false,
+      expertSteps: [
+        { key: 'submitted', label: '已提交' },
+        { key: 'assigned', label: '分配专家' },
+        { key: 'answered', label: '已回复' },
+      ],
+      tipSteps: [
+        { key: 'created', label: '创建订单' },
+        { key: 'paying', label: '支付中' },
+        { key: 'paid', label: '完成' },
+      ],
+      reportReasons: [
+        { value: 'spam', label: '垃圾营销' },
+        { value: 'fraud', label: '虚假宣传' },
+        { value: 'misinfo', label: '错误信息' },
+        { value: 'abuse', label: '不当内容' },
+        { value: 'other', label: '其他' },
+      ],
+      reportStatusLabels: {
+        reviewing: '审核中',
+        resolved: '已处理',
+        dismissed: '已忽略',
+      },
+      moderation: {
+        status: 'approved',
+        reportCount: 0,
+        lastReviewedAt: '',
+        reviewNote: '',
+        reports: [],
+      },
+      page: 1,
+      pageSize: 6,
+      hasMore: true,
+      loading: false,
+      refreshing: false,
+      commentError: '',
+    };
+  },
+  computed: {
+    moderationLabel() {
+      return ContentOpsRepo.getModerationLabel(this.moderation.status) || '待审核';
+    },
+    moderationToneClass() {
+      if (this.moderation.status === 'approved') return 'nm-pill--brand';
+      if (this.moderation.status === 'flagged') return 'nm-pill--accent';
+      return 'nm-pill--neutral';
+    },
+    latestReports() {
+      return this.moderation.reports ? this.moderation.reports.slice(0, 2) : [];
+    },
+    expertStepIndex() {
+      if (!this.expertTicket) return -1;
+      return this.expertSteps.findIndex((step) => step.key === this.expertTicket.status);
+    },
+    tipStepIndex() {
+      if (!this.tipOrder) return -1;
+      return this.tipSteps.findIndex((step) => step.key === this.tipOrder.status);
+    },
+    tipMethodLabel() {
+      const currentMethod = this.tipOrder && this.tipOrder.method ? this.tipOrder.method : this.tipMethod;
+      const current = this.tipMethods.find((method) => method.value === currentMethod);
+      return current ? current.label : '微信';
+    },
+    sortedComments() {
+      const list = [...this.comments];
+      const toTime = (value) => (value ? new Date(value.replace(' ', 'T')).getTime() : 0);
+      return list.sort((a, b) => toTime(b.createdAt) - toTime(a.createdAt));
+    },
+  },
+  onLoad(query) {
+    this.postId = (query && query.id) || 'p1';
+    this.fetchPost();
+    this.fetchComments(true);
+    this.fetchModeration();
+  },
+  methods: {
+    onInputText(value) {
+      this.inputText = value;
+    },
+    clearReply() {
+      this.replyTarget = null;
+    },
+    startReply(comment) {
+      this.replyTarget = comment;
+    },
+    sendComment() {
+      if (!this.inputText.trim()) return;
+      const replyName = this.replyTarget ? this.replyTarget.author : '';
+      uni.hideKeyboard();
+      this.inputText = '';
+      this.replyTarget = null;
+      uni.showToast({ title: replyName ? `已回复 @${replyName}（占位）` : '发送成功（占位）', icon: 'none' });
+    },
+    openShare() {
+      this.showShare = true;
+    },
+    openProduct(item) {
+      if (!item.productId) {
+        uni.showToast({ title: '暂无关联商品', icon: 'none' });
+        return;
+      }
+      this.productId = item.productId;
+      this.productSheetOpen = true;
+    },
+    openAuthor(item) {
+      if (item.authorType === 'company' && item.companyId) {
+        navTo({ url: `/pages-sub/museum/company-detail?id=${item.companyId}` });
+        return;
+      }
+      navTo({ url: `/pages-sub/circle/user?id=${item.authorId || 'u1'}` });
+    },
+    timelineTime(status) {
+      if (!this.expertTicket) return '等待更新';
+      const found = this.expertTicket.timeline.find((item) => item.status === status);
+      return found ? found.time : '等待更新';
+    },
+    reasonLabel(reason) {
+      return ContentOpsRepo.getReportReasonLabel(reason) || reason;
+    },
+    async refreshExpertTicket() {
+      if (!this.expertTicket) return;
+      const res = await InteractionRepo.getExpertTicket(this.expertTicket.id);
+      if (res.ok) {
+        this.expertTicket = res.data;
+      } else {
+        uni.showToast({ title: res.error.message || '刷新失败', icon: 'none' });
+      }
+    },
+    async submitExpert() {
+      if (this.expertSubmitting) return;
+      const question = (this.expertQuestion || '').trim();
+      if (question.length < 5) {
+        uni.showToast({ title: '问题至少 5 字', icon: 'none' });
+        return;
+      }
+      this.expertSubmitting = true;
+      const res = await InteractionRepo.submitExpertQuestion({
+        postId: this.postId,
+        question,
+        contact: (this.expertContact || '').trim() || undefined,
+      });
+      this.expertSubmitting = false;
+      if (!res.ok) {
+        uni.showToast({ title: res.error.message || '提交失败', icon: 'none' });
+        return;
+      }
+      this.expertTicket = res.data;
+      this.expertQuestion = '';
+      this.expertContact = '';
+      uni.showToast({ title: '问题已提交', icon: 'success' });
+      await InboxRepo.push({
+        title: '专家提问已提交',
+        desc: '等待专家回复',
+        type: '互动',
+        status: '待回复',
+        actionType: 'expert',
+      });
+      InboxState.refreshUnreadCount();
+
+      // 模拟分配与回复流程
+      this.expertProgressing = true;
+      const assigned = await InteractionRepo.assignExpert(res.data.id);
+      if (assigned.ok) {
+        this.expertTicket = assigned.data;
+      }
+      const replied = await InteractionRepo.replyExpertQuestion(res.data.id);
+      if (replied.ok) {
+        this.expertTicket = replied.data;
+      }
+      this.expertProgressing = false;
+    },
+    async createTipOrder() {
+      if (this.tipLoading) return;
+      this.tipLoading = true;
+      const res = await InteractionRepo.createTipOrder({
+        postId: this.postId,
+        amount: this.tipAmount,
+        method: this.tipMethod,
+        message: this.tipMessage,
+      });
+      this.tipLoading = false;
+      if (!res.ok) {
+        uni.showToast({ title: res.error.message || '创建订单失败', icon: 'none' });
+        return;
+      }
+      this.tipOrder = res.data;
+      this.tipStage = 'checkout';
+    },
+    async startTipPayment() {
+      if (!this.tipOrder || this.tipLoading) return;
+      this.tipLoading = true;
+      const res = await InteractionRepo.startTipPayment(this.tipOrder.id);
+      this.tipLoading = false;
+      if (!res.ok) {
+        uni.showToast({ title: res.error.message || '支付拉起失败', icon: 'none' });
+        return;
+      }
+      this.tipOrder = res.data;
+      this.tipStage = 'paying';
+    },
+    async confirmTipPayment() {
+      if (!this.tipOrder || this.tipLoading) return;
+      this.tipLoading = true;
+      const res = await InteractionRepo.confirmTipPayment(this.tipOrder.id);
+      this.tipLoading = false;
+      if (!res.ok) {
+        uni.showToast({ title: res.error.message || '支付失败', icon: 'none' });
+        return;
+      }
+      this.tipOrder = res.data;
+      this.tipStage = 'success';
+      uni.showToast({ title: '打赏成功（占位）', icon: 'success' });
+      await InboxRepo.push({
+        title: '打赏成功',
+        desc: '感谢你的支持',
+        type: '交易',
+        status: '已完成',
+        actionType: 'reward',
+      });
+      InboxState.refreshUnreadCount();
+    },
+    resetTip() {
+      this.tipStage = 'input';
+      this.tipOrder = null;
+      this.tipMessage = '';
+      this.tipMethod = 'wechat';
+      this.tipAmount = 18;
+      this.tipLoading = false;
+    },
+    finishTip() {
+      this.showReward = false;
+      this.resetTip();
+    },
+    async submitCoop() {
+      const res = await InteractionRepo.submitCooperationIntent({
+        postId: this.postId,
+        companyName: (this.coopCompany || '').trim(),
+        contactName: (this.coopContact || '').trim(),
+        contactPhone: (this.coopPhone || '').trim(),
+        message: (this.coopMessage || '').trim(),
+      });
+      if (res.ok) {
+        uni.showToast({ title: '合作意向已提交', icon: 'success' });
+        this.showCoop = false;
+        this.coopCompany = '';
+        this.coopContact = '';
+        this.coopPhone = '';
+        this.coopMessage = '';
+        await InboxRepo.push({
+          title: '合作意向已提交',
+          desc: '等待企业回复',
+          type: '互动',
+          status: '待处理',
+          actionType: 'coop',
+        });
+        InboxState.refreshUnreadCount();
+      } else {
+        uni.showToast({ title: res.error.message || '提交失败', icon: 'none' });
+      }
+    },
+    async submitReport() {
+      if (!this.reportReason) {
+        uni.showToast({ title: '请选择举报原因', icon: 'none' });
+        return;
+      }
+      if (this.reportSubmitting) return;
+      this.reportSubmitting = true;
+      const res = await ContentOpsRepo.submitReport({
+        postId: this.postId,
+        reason: this.reportReason,
+        note: (this.reportNote || '').trim() || undefined,
+      });
+      this.reportSubmitting = false;
+      if (!res.ok) {
+        uni.showToast({ title: res.error.message || '提交失败', icon: 'none' });
+        return;
+      }
+      this.moderation = res.data;
+      this.showReport = false;
+      this.reportReason = '';
+      this.reportNote = '';
+      uni.showToast({ title: '举报已提交', icon: 'success' });
+    },
+    async fetchPost() {
+      this.postLoading = true;
+      const res = await FeedRepo.getById(this.postId);
+      if (res.ok) {
+        this.post = res.data;
+        this.postError = '';
+      } else {
+        this.postError = res.error.message || '加载失败';
+      }
+      this.postLoading = false;
+    },
+    async fetchModeration() {
+      const res = await ContentOpsRepo.getModerationSnapshot(this.postId);
+      if (res.ok) {
+        this.moderation = res.data;
+      }
+    },
+    async fetchComments(reset) {
+      if (this.loading) return;
+      if (!this.hasMore && !reset) return;
+      this.loading = true;
+      const page = reset ? 1 : this.page + 1;
+      const res = await CommentRepo.list({ page, pageSize: this.pageSize, targetId: this.postId, targetType: 'post' });
+      if (res.ok) {
+        this.commentError = '';
+        this.comments = reset ? res.data.items : this.comments.concat(res.data.items);
+        this.page = res.data.page;
+        this.hasMore = res.data.hasMore;
+      } else {
+        this.commentError = res.error.message || '加载失败';
+      }
+      this.loading = false;
+      if (this.refreshing) this.refreshing = false;
+    },
+    onRefresh() {
+      if (this.refreshing) return;
+      this.refreshing = true;
+      this.hasMore = true;
+      this.commentError = '';
+      Promise.all([this.fetchPost(), this.fetchComments(true), this.fetchModeration()]).catch(() => {
+        this.refreshing = false;
+      });
+    },
+    onLoadMore() {
+      this.fetchComments(false);
+    },
+    displayTime(value) {
+      if (!value) return '';
+      return value.includes('T') ? value.split('T')[0] : value;
+    },
+    toggleCommentLike(comment, isReply) {
+      if (isReply) {
+        const nextLiked = !comment.liked;
+        const baseLikes = typeof comment.likes === 'number' ? comment.likes : 0;
+        const nextLikes = Math.max(0, baseLikes + (nextLiked ? 1 : -1));
+        this.$set(comment, 'liked', nextLiked);
+        this.$set(comment, 'likes', nextLikes);
+        return;
+      }
+      CommentRepo.toggleLike({ commentId: comment.id, liked: !!comment.liked }).then((res) => {
+        if (res.ok) {
+          comment.liked = res.data.liked;
+          comment.likes = res.data.likes;
+        }
+      });
+    },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use '@/styles/tokens.scss' as *;
+
+.nm-list {
+  padding: $nm-space-xl $nm-space-xl calc(#{$nm-space-3xl} + 220rpx);
+}
+
+.nm-refresh {
+  height: 80rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-refresh__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-skeleton {
+  padding: $nm-space-lg 0;
+}
+
+
+.nm-share-btn {
+  color: $nm-text-secondary;
+}
+
+.nm-moderation {
+  width: 100%;
+  margin-top: $nm-space-md;
+  padding-top: $nm-space-md;
+  border-top: 1rpx solid $nm-border;
+}
+
+.nm-section__header {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nm-section__actions {
+  flex-direction: row;
+  align-items: center;
+}
+
+.nm-section__title {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-section__title--sm {
+  font-size: $nm-font-body;
+  font-weight: 600;
+}
+
+.nm-section__desc {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-status-row {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+  align-items: center;
+}
+
+.nm-pill {
+  padding: 8rpx 20rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-border;
+  margin-right: $nm-space-sm;
+}
+
+.nm-pill__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-pill--brand {
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-pill--brand .nm-pill__text {
+  color: $nm-brand-primary;
+}
+
+.nm-pill--accent {
+  background-color: $nm-accent-blue-soft;
+}
+
+.nm-pill--accent .nm-pill__text {
+  color: $nm-accent-blue;
+}
+
+.nm-pill--neutral {
+  background-color: $nm-border;
+}
+
+.nm-pill--neutral .nm-pill__text {
+  color: $nm-text-secondary;
+}
+
+.nm-report-list {
+  margin-top: $nm-space-xs;
+}
+
+.nm-report__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+  margin-bottom: 0;
+}
+
+.nm-link {
+  font-size: $nm-font-caption;
+  color: $nm-accent-blue;
+}
+
+.nm-deep__row {
+  margin-top: $nm-space-md;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.nm-deep__item {
+  flex: 1;
+  padding: $nm-space-md;
+  border-radius: $nm-radius-lg;
+  background-color: $nm-surface;
+  border: 1rpx solid transparent;
+  box-shadow: $nm-shadow-sm;
+}
+
+.nm-deep__icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: $nm-radius-lg;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: $nm-space-sm;
+}
+
+.nm-deep__icon--accent {
+  background-color: $nm-accent-blue-soft;
+}
+
+.nm-deep__icon--brand {
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-deep__item-title {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-deep__item-desc {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-deep__item-tag {
+  margin-top: 6rpx;
+  font-size: $nm-font-caption;
+  color: $nm-brand-primary;
+}
+
+.nm-interaction {
+  margin-top: $nm-space-lg;
+}
+
+.nm-comments {
+  margin-top: $nm-space-lg;
+}
+
+.nm-comments__title {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-comments__desc {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-comments__list {
+  margin-top: $nm-space-md;
+}
+
+.nm-comment-thread {
+  margin-bottom: $nm-space-md;
+}
+
+.nm-comment-card {
+  padding: $nm-space-md;
+  border-radius: 28rpx;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+}
+
+.nm-comment-card--reply {
+  margin-left: 72rpx;
+  margin-top: 20rpx;
+  background-color: $nm-background;
+}
+
+.nm-comment-row {
+  flex-direction: row;
+}
+
+.nm-comment__avatar {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 32rpx;
+  background-color: $nm-brand-primary-soft;
+  margin-right: 20rpx;
+}
+
+.nm-comment__body {
+  flex: 1;
+}
+
+.nm-comment__name-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.nm-comment__name {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-comment__content {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-body;
+  color: $nm-text-primary;
+}
+
+.nm-comment__actions {
+  margin-top: 12rpx;
+  flex-direction: row;
+  align-items: center;
+}
+
+.nm-comment__action {
+  font-size: $nm-font-caption;
+  color: $nm-accent-blue;
+}
+
+.nm-comment__time {
+  margin-left: $nm-space-sm;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-comment__like {
+  flex-direction: row;
+  align-items: center;
+  margin-left: $nm-space-md;
+}
+
+.nm-comment__like-text {
+  margin-left: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-comment__divider {
+  height: 2rpx;
+  margin-top: $nm-space-md;
+  background-color: $nm-border;
+}
+
+.nm-form {
+  padding-bottom: $nm-space-lg;
+}
+
+.nm-form--offset {
+  margin-top: $nm-space-lg;
+}
+
+.nm-form__label {
+  margin-top: $nm-space-sm;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-form__label:first-child {
+  margin-top: 0;
+}
+
+.nm-form__hint {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+  margin-bottom: 0;
+}
+
+.nm-input,
+.nm-textarea {
+  margin-top: $nm-space-md;
+  padding: 20rpx 24rpx;
+  border-radius: $nm-radius-md;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+  font-size: $nm-font-body;
+  color: $nm-text-primary;
+}
+
+.nm-textarea {
+  min-height: 180rpx;
+}
+
+.nm-primary {
+  margin-top: $nm-space-lg;
+  padding: 24rpx 0;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary;
+  color: $nm-text-inverse;
+  text-align: center;
+  font-size: $nm-font-body;
+  font-weight: 600;
+}
+
+.nm-primary--disabled {
+  opacity: 0.7;
+}
+
+.nm-secondary {
+  margin-top: $nm-space-sm;
+  padding: 20rpx 0;
+  border-radius: $nm-radius-pill;
+  border: 1rpx solid $nm-border;
+  text-align: center;
+  font-size: $nm-font-body;
+  color: $nm-text-secondary;
+  background-color: $nm-surface;
+}
+
+.nm-chip-row {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.nm-chip {
+  padding: 12rpx 24rpx;
+  border-radius: $nm-radius-pill;
+  border: 1rpx solid $nm-border;
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+  background-color: $nm-surface;
+}
+
+.nm-chip--active {
+  background-color: $nm-brand-primary-soft;
+  border-color: $nm-brand-primary;
+  color: $nm-brand-primary;
+}
+
+.nm-chip--accent {
+  background-color: $nm-accent-blue-soft;
+  border-color: $nm-accent-blue;
+  color: $nm-accent-blue;
+}
+
+.nm-flow {
+  margin-bottom: $nm-space-md;
+}
+
+.nm-flow__row {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+}
+
+.nm-flow__step {
+  flex: 1;
+  align-items: center;
+}
+
+.nm-flow__dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-border;
+  margin-bottom: 12rpx;
+}
+
+.nm-flow__dot--active {
+  background-color: $nm-brand-primary;
+}
+
+.nm-flow__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-flow__text--active {
+  color: $nm-text-primary;
+}
+
+.nm-order-card {
+  padding: $nm-space-md;
+  border-radius: $nm-radius-md;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+}
+
+.nm-order-row {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $nm-space-sm;
+}
+
+.nm-order-label {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-order-value {
+  font-size: $nm-font-caption;
+  color: $nm-text-primary;
+}
+
+.nm-order-value--strong {
+  font-weight: 600;
+}
+
+.nm-pay-card {
+  padding: $nm-space-lg;
+  border-radius: $nm-radius-md;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+  align-items: center;
+}
+
+.nm-pay-title {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-pay-desc {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-success-card {
+  padding: $nm-space-lg;
+  border-radius: $nm-radius-md;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+}
+
+.nm-success-title {
+  font-size: $nm-font-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-success-desc {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-success-meta {
+  margin-top: $nm-space-sm;
+}
+
+.nm-success-meta__text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+  margin-top: $nm-space-xs;
+}
+
+.nm-ticket {
+  padding: 28rpx;
+  border-radius: $nm-radius-lg;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+  margin-bottom: $nm-space-md;
+}
+
+.nm-ticket__header {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nm-ticket__title {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-ticket__timeline {
+  margin-top: $nm-space-sm;
+}
+
+.nm-ticket__item {
+  flex-direction: row;
+  align-items: flex-start;
+  margin-bottom: 20rpx;
+}
+
+.nm-ticket__dot {
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 10rpx;
+  background-color: $nm-border;
+  margin-top: 8rpx;
+  margin-right: 16rpx;
+}
+
+.nm-ticket__dot--active {
+  background-color: $nm-brand-primary;
+}
+
+.nm-ticket__content {
+  flex: 1;
+}
+
+.nm-ticket__label {
+  font-size: $nm-font-body;
+  color: $nm-text-primary;
+}
+
+.nm-ticket__time {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-ticket__meta {
+  margin-top: $nm-space-sm;
+  padding-top: $nm-space-sm;
+  border-top: 1rpx solid $nm-border;
+}
+
+.nm-ticket__meta-label {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-ticket__question {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-body;
+  color: $nm-text-primary;
+}
+
+.nm-ticket__progress {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-ticket__reply {
+  margin-top: $nm-space-sm;
+}
+
+.nm-reply-card {
+  margin-top: $nm-space-sm;
+  padding: 20rpx;
+  border-radius: 20rpx;
+  border: 1rpx solid $nm-border;
+  background-color: $nm-surface;
+}
+
+.nm-reply-card__header {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nm-reply-card__name {
+  font-size: $nm-font-body;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-reply-card__time {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-reply-card__content {
+  margin-top: $nm-space-xs;
+  font-size: $nm-font-body;
+  color: $nm-text-primary;
+}
+</style>

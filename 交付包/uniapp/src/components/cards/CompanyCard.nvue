@@ -1,0 +1,99 @@
+<template>
+  <view class="nm-company">
+    <image :src="item.cover" class="nm-company__cover" mode="aspectFill" />
+    <view class="nm-company__body">
+      <text class="nm-company__name" number-of-lines="1">{{ item.name }}</text>
+      <text class="nm-company__desc" number-of-lines="1">{{ item.mainBusiness }}</text>
+      <view class="nm-company__meta">
+        <text class="nm-company__meta-text">{{ item.location }}</text>
+        <text class="nm-company__meta-text">距离 {{ Number(item.distanceKm).toFixed(1) }} km</text>
+      </view>
+      <view class="nm-company__tags">
+        <view v-for="tag in item.badges" :key="tag" class="nm-company__tag">
+          <text class="nm-company__tag-text">{{ tag }}</text>
+        </view>
+      </view>
+      <text v-if="item.latestTestedAt" class="nm-company__latest">最近检测：{{ item.latestTestedAt }}</text>
+    </view>
+  </view>
+</template>
+
+<script>
+// 企业卡片（nvue）：展览馆列表使用（公共组件需中文注释）
+export default {
+  props: {
+    item: { type: Object, required: true },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use '@/styles/tokens.scss' as *;
+
+.nm-company {
+  border-radius: $nm-radius-lg;
+  background-color: $nm-surface;
+  box-shadow: $nm-shadow-sm;
+  margin-bottom: $nm-space-lg;
+  overflow: hidden;
+}
+
+.nm-company__cover {
+  width: 100%;
+  height: 320rpx;
+  background-color: $nm-skeleton;
+}
+
+.nm-company__body {
+  padding: $nm-space-lg;
+}
+
+.nm-company__name {
+  font-size: $nm-font-title3;
+  line-height: $nm-line-title3;
+  font-weight: 600;
+  color: $nm-text-primary;
+}
+
+.nm-company__desc {
+  margin-top: 6rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-company__meta {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.nm-company__meta-text {
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+
+.nm-company__tags {
+  margin-top: $nm-space-sm;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.nm-company__tag {
+  margin-right: 8rpx;
+  margin-bottom: 8rpx;
+  padding: 6rpx 14rpx;
+  border-radius: $nm-radius-pill;
+  background-color: $nm-brand-primary-soft;
+}
+
+.nm-company__tag-text {
+  font-size: $nm-font-caption;
+  color: $nm-brand-primary;
+}
+
+.nm-company__latest {
+  margin-top: 6rpx;
+  font-size: $nm-font-caption;
+  color: $nm-text-secondary;
+}
+</style>

@@ -2,10 +2,11 @@
  * 赠品封面图组件 — 根据 coverMode 渲染组合封面
  * 从 app/vip/gifts.tsx 提取为共享组件，供 VIP 赠品选择页和结算页共用
  */
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Svg, { Defs, ClipPath, Polygon, Line, Image as SvgImage } from 'react-native-svg';
 import type { CoverMode, VipGiftItemInfo } from '../../types/domain/Bonus';
 
 interface GiftCoverImageProps {
@@ -63,28 +64,9 @@ export function GiftCoverImage({
     );
   }
 
-  // AUTO_DIAGONAL — 两张图对角线布局
+  // AUTO_DIAGONAL — 对角线分割布局（SVG ClipPath 实现真正对角线裁剪）
   if (coverMode === 'AUTO_DIAGONAL' && images.length >= 2) {
-    return (
-      <View style={[style, coverStyles.container]}>
-        <View style={coverStyles.diagonalTop}>
-          <Image
-            source={{ uri: images[0] }}
-            style={coverStyles.diagonalImage}
-            contentFit="cover"
-            transition={300}
-          />
-        </View>
-        <View style={coverStyles.diagonalBottom}>
-          <Image
-            source={{ uri: images[1] }}
-            style={coverStyles.diagonalImage}
-            contentFit="cover"
-            transition={300}
-          />
-        </View>
-      </View>
-    );
+    return <DiagonalCover images={images} style={style} />;
   }
 
   // AUTO_STACKED — 层叠卡片布局（大图在底，小图叠在右下）
@@ -171,6 +153,51 @@ export function GiftCoverImage({
   );
 }
 
+/** 对角线分割子组件 — 使用 SVG ClipPath + SVG Image 实现真正的对角线裁剪 */
+function DiagonalCover({ images, style }: { images: string[]; style: any }) {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const onLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width !== size.w || height !== size.h) {
+      setSize({ w: width, h: height });
+    }
+  };
+  const { w, h } = size;
+
+  return (
+    <View style={[style, coverStyles.container]} onLayout={onLayout}>
+      {w > 0 && h > 0 && (
+        <Svg width={w} height={h}>
+          <Defs>
+            <ClipPath id="diag-tl">
+              <Polygon points={`0,0 ${w},0 0,${h}`} />
+            </ClipPath>
+            <ClipPath id="diag-br">
+              <Polygon points={`${w},0 ${w},${h} 0,${h}`} />
+            </ClipPath>
+          </Defs>
+          {/* 图片1：左上三角 */}
+          <SvgImage
+            href={{ uri: images[0] }}
+            x={0} y={0} width={w} height={h}
+            preserveAspectRatio="xMidYMid slice"
+            clipPath="url(#diag-tl)"
+          />
+          {/* 图片2：右下三角 */}
+          <SvgImage
+            href={{ uri: images[1] }}
+            x={0} y={0} width={w} height={h}
+            preserveAspectRatio="xMidYMid slice"
+            clipPath="url(#diag-br)"
+          />
+          {/* 对角线分割线 */}
+          <Line x1={0} y1={h} x2={w} y2={0} stroke="rgba(255,255,255,0.35)" strokeWidth={2} />
+        </Svg>
+      )}
+    </View>
+  );
+}
+
 const coverStyles = StyleSheet.create({
   container: {
     overflow: 'hidden',
@@ -225,29 +252,7 @@ const coverStyles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
   },
-  // AUTO_DIAGONAL 布局
-  diagonalTop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '65%',
-    height: '65%',
-    borderBottomRightRadius: 16,
-    overflow: 'hidden',
-  },
-  diagonalBottom: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: '65%',
-    height: '65%',
-    borderTopLeftRadius: 16,
-    overflow: 'hidden',
-  },
-  diagonalImage: {
-    width: '100%',
-    height: '100%',
-  },
+  // AUTO_DIAGONAL 布局（SVG ClipPath，样式在 DiagonalCover 组件内处理）
   // AUTO_STACKED 布局
   stackedBase: {
     position: 'absolute',

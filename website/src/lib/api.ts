@@ -1,9 +1,11 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+import { getApiBaseUrl } from './apiBase'
+
+const BASE_URL = getApiBaseUrl()
 
 interface ApiResponse<T = any> {
-  ok: boolean;
-  data: T;
-  error?: string;
+  ok: boolean
+  data: T
+  error?: string
 }
 
 export async function apiGet<T>(path: string): Promise<T> {

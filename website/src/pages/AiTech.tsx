@@ -12,7 +12,7 @@ const TRACE_STEPS = [
 ]
 
 const SEARCH_EXAMPLES = [
-  { input: '"给我爸妈买点好消化的"', output: '推荐：有机小米、南瓜、山药、燕麦片...' },
+  { input: '"今天推荐什么海鲜"', output: '今日推荐：湛江生蚝、北海对虾、大连鲍鱼，均为当日捕捞、冷链直达，新鲜保证！' },
   { input: '"预算 200 买水果礼盒"', output: '筛选：200 元以内精选水果礼盒，按好评排序...' },
   { input: '"无农药的蔬菜"', output: '匹配：有机认证蔬菜，附带溯源检测报告...' },
 ]
@@ -42,7 +42,7 @@ export default function AiTech() {
             AI，<span className="text-ai-gradient">不只是技术</span>
           </h1>
           <p className="text-lg text-text-on-dark-secondary max-w-2xl mx-auto">
-            从溯源到搜索，从语音到推荐，AI 深入农业电商的每一个环节
+            从溯源到搜索，从语音到推荐，AI 深入农业直销的每一个环节
           </p>
         </div>
       </section>
@@ -89,11 +89,11 @@ export default function AiTech() {
         </div>
       </section>
 
-      {/* 智能搜索 */}
+      {/* AI搜索 */}
       <section className="py-20 md:py-28 bg-gradient-to-b from-dark-surface to-light-bg">
         <div className="max-w-page mx-auto px-6">
           <ScrollReveal>
-            <SectionHeading title="语义智能搜索" subtitle="不用精确关键词，说人话就能找到" light={false} />
+            <SectionHeading title="语义AI搜索" subtitle="不用精确关键词，说人话就能找到" light={false} />
           </ScrollReveal>
 
           <div className="space-y-4 max-w-2xl mx-auto">

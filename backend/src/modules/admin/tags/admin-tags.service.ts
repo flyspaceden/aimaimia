@@ -25,9 +25,13 @@ export class AdminTagsService {
   }
 
   async createCategory(dto: CreateTagCategoryDto) {
-    const existing = await this.prisma.tagCategory.findUnique({ where: { code: dto.code } });
-    if (existing) throw new BadRequestException(`类别编码 "${dto.code}" 已存在`);
-    return this.prisma.tagCategory.create({ data: dto });
+    // 自动生成 code：优先使用传入值，否则基于名称+时间戳生成
+    const code = dto.code || `cat_${Date.now().toString(36)}`;
+    const existing = await this.prisma.tagCategory.findUnique({ where: { code } });
+    if (existing) throw new BadRequestException(`类别编码 "${code}" 已存在`);
+    return this.prisma.tagCategory.create({
+      data: { name: dto.name, code, scope: dto.scope, description: dto.description, sortOrder: dto.sortOrder },
+    });
   }
 
   async updateCategory(id: string, dto: UpdateTagCategoryDto) {

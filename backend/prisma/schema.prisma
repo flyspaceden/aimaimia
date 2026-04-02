@@ -356,6 +356,7 @@ enum RewardLedgerStatus {
   WITHDRAWN
   VOIDED
   RESERVED    // F1: 结算会话中预留红包
+  RETURN_FROZEN // 售后退货冻结，待退款完成后释放或扣回
 }
 
 enum WithdrawChannel {
@@ -399,6 +400,36 @@ enum ReplacementStatus {
   SHIPPED           // 已重新发货
   COMPLETED         // 用户确认收到
   REJECTED          // 驳回
+}
+
+// --- 统一售后系统枚举 ---
+enum AfterSaleType {
+  NO_REASON_RETURN   // 七天无理由退货退款
+  QUALITY_RETURN     // 质量问题退货退款
+  QUALITY_EXCHANGE   // 质量问题换货
+}
+
+enum AfterSaleStatus {
+  REQUESTED            // 用户提交申请
+  UNDER_REVIEW         // 卖家审核中
+  APPROVED             // 已批准
+  REJECTED             // 卖家驳回
+  PENDING_ARBITRATION  // 申请平台仲裁
+  RETURN_SHIPPING      // 买家退货寄回中
+  RECEIVED_BY_SELLER   // 卖家已收到退货
+  SELLER_REJECTED_RETURN // 卖家验收退货不合格
+  REFUNDING            // 退款处理中
+  REFUNDED             // 退款完成
+  REPLACEMENT_SHIPPED  // 换货已发出
+  COMPLETED            // 售后完成
+  CLOSED               // 系统关闭（超时等）
+  CANCELED             // 用户主动取消
+}
+
+enum ReturnPolicy {
+  RETURNABLE       // 支持七天无理由退货
+  NON_RETURNABLE   // 不支持退货（如生鲜）
+  INHERIT          // 继承上级品类设置
 }
 
 // 换货/退款标准化理由类型（防止买家在自由文本中泄露联系方式）
@@ -525,10 +556,11 @@ enum CouponInstanceStatus {
 // ============================================================
 
 model User {
-  id        String     @id @default(cuid())
-  status    UserStatus @default(ACTIVE)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id                     String     @id @default(cuid())
+  status                 UserStatus @default(ACTIVE)
+  hasAgreedReturnPolicy  Boolean    @default(false) // 是否已同意退货政策
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
 
   // 关系
   profile        UserProfile?
@@ -564,7 +596,7 @@ model User {
   normalProgress       NormalProgress?
   normalEligibleOrders NormalEligibleOrder[]
   lotteryRecords       LotteryRecord[]
-  replacementRequests  ReplacementRequest[]
+  afterSaleRequests    AfterSaleRequest[]
   checkoutSessions     CheckoutSession[]
 
   // 保留模块关系
@@ -1022,15 +1054,16 @@ model SellerSession {
 // ============================================================
 
 model Category {
-  id        String     @id @default(cuid())
-  parentId  String?
-  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children  Category[] @relation("CategoryTree")
-  name      String
-  path      String     @unique // 树路径
-  level     Int
-  sortOrder Int        @default(0)
-  isActive  Boolean    @default(true)
+  id           String       @id @default(cuid())
+  parentId     String?
+  parent       Category?    @relation("CategoryTree", fields: [parentId], references: [id])
+  children     Category[]   @relation("CategoryTree")
+  name         String
+  path         String       @unique // 树路径
+  level        Int
+  sortOrder    Int          @default(0)
+  isActive     Boolean      @default(true)
+  returnPolicy ReturnPolicy @default(INHERIT) // 退货政策：继承上级/支持/不支持
 
   products Product[]
 }
@@ -1058,6 +1091,7 @@ model CompanyTag {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   tagId     String
   tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  sortOrder Int     @default(0)
 
   @@unique([companyId, tagId])
   @@index([companyId])
@@ -1091,6 +1125,7 @@ model Product {
   originRegion    String?
   shippingTemplateId String?
   shippingTemplate   ShippingTemplate?  @relation(fields: [shippingTemplateId], references: [id])
+  returnPolicy       ReturnPolicy       @default(INHERIT) // 退货政策：继承品类/支持/不支持
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -1332,12 +1367,14 @@ model Order {
   checkoutSessionId String?
   checkoutSession   CheckoutSession? @relation(fields: [checkoutSessionId], references: [id])
   idempotencyKey  String?     @unique // 幂等键，防止重复创建订单
-  paidAt          DateTime?
-  receivedAt      DateTime?
-  autoReceiveAt   DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  deletedAt       DateTime?   // 软删除标记
+  paidAt                  DateTime?
+  receivedAt              DateTime?
+  autoReceiveAt           DateTime?
+  deliveredAt             DateTime?  // 物流签收时间（触发退货窗口计时）
+  returnWindowExpiresAt   DateTime?  // 退货窗口截止时间（deliveredAt + N天）
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+  deletedAt               DateTime?   // 软删除标记
 
   // 关系
   items         OrderItem[]
@@ -1354,9 +1391,9 @@ model Order {
   rewardAllocations  RewardAllocation[]
   normalQueueMembers NormalQueueMember[] // @deprecated 废弃：滑动窗口
 
-  // J 域关系（普通用户系统改造）
+  // J 域关系（普通用户系统改造 + 统一售后）
   normalEligibleOrder NormalEligibleOrder?
-  replacementRequests ReplacementRequest[]
+  afterSaleRequests   AfterSaleRequest[]
   virtualCallBindings VirtualCallBinding[] @relation("OrderVirtualCallBindings")
 
   // K 域关系（平台红包）
@@ -1387,7 +1424,7 @@ model OrderItem {
   orderItemTraceLinks OrderItemTraceLink[]
   // H02修复：关联退款明细行
   refundItems          RefundItem[]
-  replacementRequests  ReplacementRequest[]
+  afterSaleRequests    AfterSaleRequest[]
 
   @@index([orderId]) // 订单商品项查询
 }
@@ -2092,21 +2129,40 @@ model ShippingRule {
 }
 
 // --- J7: 换货请求（替代退款 Refund） ---
-model ReplacementRequest {
+model AfterSaleRequest {
   id                    String            @id @default(cuid())
   orderId               String
-  order                 Order             @relation(fields: [orderId], references: [id])
+  order                 Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
   userId                String
-  user                  User              @relation(fields: [userId], references: [id])
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   orderItemId           String?           // 具体商品项（null=整单）
-  orderItem             OrderItem?        @relation(fields: [orderItemId], references: [id])
-  reasonType            ReplacementReasonType? // 标准化理由类型（新版）
-  reason                String            // 问题描述（旧版自由文本 / OTHER 时的补充说明）
+  orderItem             OrderItem?        @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  afterSaleType         AfterSaleType     // 售后类型：无理由退货/质量退货/质量换货
+  reasonType            ReplacementReasonType? // 标准化理由类型
+  reason                String            // 问题描述（OTHER 时的补充说明）
   photos                String[]          // 照片URL列表（必须上传）
-  status                ReplacementStatus @default(REQUESTED)
+  status                AfterSaleStatus   @default(REQUESTED)
+  isPostReplacement     Boolean           @default(false) // 换货后二次售后标记
+  arbitrationSource     String?           // 仲裁来源（如"买家申请"/"系统自动"）
+  requiresReturn        Boolean           @default(false) // 是否需要买家退回商品
+  // 买家退货物流
+  returnCarrierName     String?           // 退货快递公司
+  returnWaybillNo       String?           // 退货快递单号
+  returnShippedAt       DateTime?         // 买家寄出退货时间
+  // 卖家验收退货
+  sellerRejectReason    String?           // 卖家拒收退货理由
+  sellerRejectPhotos    String[]          @default([]) // 卖家拒收退货照片
+  sellerReturnWaybillNo String?           // 卖家退回快递单号（拒收退货时回寄）
+  // 退款信息
+  refundAmount          Float?            // 退款金额（元）
+  refundId              String?           // 关联退款记录 ID
+  // 审核信息
   reviewerId            String?           // 审核人（卖家staff或管理员）
   reviewNote            String?
   reviewedAt            DateTime?
+  approvedAt            DateTime?         // 审批通过时间
+  sellerReceivedAt      DateTime?         // 卖家签收退货时间
+  // 换货发货（沿用原字段）
   replacementCarrierCode String?
   replacementCarrierName String?
   replacementWaybillNo  String?
@@ -2116,8 +2172,10 @@ model ReplacementRequest {
   updatedAt             DateTime          @updatedAt
   virtualCallBindings   VirtualCallBinding[] @relation("ReplacementVirtualCallBindings")
 
+  @@map("after_sale_request")
   @@index([orderId])
   @@index([userId, status])
+  @@index([status, createdAt])
 }
 
 // ============================================================
@@ -2321,8 +2379,8 @@ model VirtualCallBinding {
   id              String   @id @default(cuid())
   orderId         String?  // 订单场景
   order           Order?   @relation("OrderVirtualCallBindings", fields: [orderId], references: [id], onDelete: SetNull)
-  replacementId   String?  // 换货场景
-  replacement     ReplacementRequest? @relation("ReplacementVirtualCallBindings", fields: [replacementId], references: [id], onDelete: SetNull)
+  replacementId   String?  // 售后场景（保留字段名兼容旧数据）
+  replacement     AfterSaleRequest? @relation("ReplacementVirtualCallBindings", fields: [replacementId], references: [id], onDelete: SetNull)
   companyId       String
   company         Company  @relation(fields: [companyId], references: [id])
   sellerPhone     String   // 卖家客服电话

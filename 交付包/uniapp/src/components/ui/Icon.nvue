@@ -1,0 +1,39 @@
+<template>
+  <text class="nm-icon" :style="iconStyle">{{ glyph }}</text>
+</template>
+
+<script>
+import { MATERIAL_ICONS } from '@/utils/material-community-icons';
+
+export default {
+  props: {
+    name: { type: String, required: true },
+    size: { type: Number, default: 32 },
+    color: { type: String, default: '' },
+  },
+  computed: {
+    glyph() {
+      const code = MATERIAL_ICONS[this.name];
+      return typeof code === 'number' ? String.fromCodePoint(code) : '';
+    },
+    iconStyle() {
+      return {
+        fontFamily: 'MaterialCommunityIcons',
+        fontSize: `${this.size}rpx`,
+        lineHeight: `${this.size}rpx`,
+        width: `${this.size}rpx`,
+        height: `${this.size}rpx`,
+        display: 'inline-block',
+        textAlign: 'center',
+        color: this.color || undefined,
+      };
+    },
+  },
+};
+</script>
+
+<style scoped>
+.nm-icon {
+  text-align: center;
+}
+</style>

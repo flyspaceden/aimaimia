@@ -112,19 +112,6 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     description: '普通奖励冻结后多少天过期归平台',
     defaultValue: 30,
   },
-  {
-    key: 'NORMAL_REWARD_EXPIRY_DAYS',
-    label: '奖励有效期',
-    group: 'reward',
-    type: 'number',
-    min: 1,
-    max: 365,
-    step: 1,
-    suffix: '天',
-    integer: true,
-    description: '普通奖励领取后多少天过期',
-    defaultValue: 90,
-  },
 
   // 利润六分比例（须合计 = 1.0）
   {
@@ -221,7 +208,7 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
 // 业务说明文案
 const GROUP_DESCRIPTIONS = {
   tree: '普通用户奖励树决定了奖励如何在用户之间传递。分叉数控制每个节点最多可以有几个下级，最大分配层数决定一笔订单的奖励最多向上分配几层。调整这些参数会影响普通用户奖励分配的广度和深度。',
-  reward: '冻结天数和奖励有效期控制用户获得奖励后的资金流转节奏。冻结期内奖励不可提现，过期后未提现的奖励将归平台所有。合理设置可平衡用户体验和平台资金安全。',
+  reward: '冻结天数控制普通用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
   ratio: '利润六分比例决定了普通用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/16/16/8/8/2），该比例经过业务验证，能保证平台可持续运营。',
 } as const;
 

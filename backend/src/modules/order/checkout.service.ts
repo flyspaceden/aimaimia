@@ -456,10 +456,8 @@ export class CheckoutService {
 
     // 预留奖励前的只读校验（在事务外执行，减少事务持有时间）
     let rewardLedger: any = null;
-    let rewardExpiryDays = 0;
 
     if (dto.rewardId) {
-      const rewardConfig = await this.bonusConfig.getConfig();
       // 先读取奖励信息进行校验（只读，不修改状态）
       const ledger = await this.prisma.rewardLedger.findUnique({
         where: { id: dto.rewardId },
@@ -472,22 +470,6 @@ export class CheckoutService {
       }
       if (ledger.status !== 'AVAILABLE') {
         throw new BadRequestException('奖励已被使用');
-      }
-
-      const rewardAccount = await this.prisma.rewardAccount.findUnique({
-        where: { id: ledger.accountId },
-        select: { type: true },
-      });
-      rewardExpiryDays =
-        rewardAccount?.type === 'NORMAL_REWARD'
-          ? rewardConfig.normalRewardExpiryDays
-          : rewardConfig.vipRewardExpiryDays;
-
-      // 过期检查
-      const expiryDate = new Date(ledger.createdAt);
-      expiryDate.setDate(expiryDate.getDate() + rewardExpiryDays);
-      if (new Date() > expiryDate) {
-        throw new BadRequestException('奖励已过期');
       }
 
       // 最低消费检查（CAS 之前验证，避免预留后再回滚）
@@ -522,16 +504,12 @@ export class CheckoutService {
           let reservedRewardId: string | null = null;
 
           if (dto.rewardId && rewardLedger) {
-            const expiryThreshold = new Date();
-            expiryThreshold.setDate(expiryThreshold.getDate() - rewardExpiryDays);
-
             const updated = await tx.rewardLedger.updateMany({
               where: {
                 id: dto.rewardId,
                 userId,
                 status: 'AVAILABLE',
                 entryType: 'RELEASE',
-                createdAt: { gte: expiryThreshold },
                 refId: null,
               },
               data: { status: 'RESERVED' },

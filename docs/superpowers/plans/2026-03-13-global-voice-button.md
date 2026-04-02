@@ -512,7 +512,7 @@ export async function resolveIntent(
 
 - [ ] **Step 7: Verify TypeScript compilation**
 
-Run: `cd /Users/jamesheden/Desktop/农脉\ -\ AI赋能农业电商平台 && npx tsc --noEmit --pretty 2>&1 | head -30`
+Run: `cd /Users/jamesheden/Desktop/爱买买\ -\ AI赋能农业电商平台 && npx tsc --noEmit --pretty 2>&1 | head -30`
 
 检查 `src/utils/navigateByIntent.ts` 无类型错误。如果 `OrderRepo.list` 或 `CompanyRepo.list` 的签名与调用不匹配，需要调整参数传递（对照 `src/repos/OrderRepo.ts` 和 `src/repos/CompanyRepo.ts` 的实际签名）。
 

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import { getApiBaseUrl } from '@/lib/apiBase'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1'
+const API_BASE = getApiBaseUrl()
 
 function getCookie(name: string): string | null {
   const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))

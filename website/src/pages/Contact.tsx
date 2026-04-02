@@ -131,8 +131,8 @@ export default function Contact() {
                   <div className="space-y-4">
                     {[
                       { icon: '📍', label: '地址', value: '中国 · 深圳市南山区科技园' },
-                      { icon: '📞', label: '电话', value: '400-888-8888' },
-                      { icon: '✉️', label: '邮箱', value: 'contact@aimaimai.com' },
+                      { icon: '📞', label: '电话', value: '13923710623' },
+                      { icon: '✉️', label: '邮箱', value: 'zenweifeng3@163.com' },
                       { icon: '🕐', label: '工作时间', value: '周一至周五 9:00-18:00' },
                     ].map(item => (
                       <div key={item.label} className="flex items-start gap-4">

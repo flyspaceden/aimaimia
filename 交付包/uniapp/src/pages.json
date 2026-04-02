@@ -1,0 +1,378 @@
+{
+  "pages": [
+    {
+      "path": "pages/tabbar/home/home",
+      "style": {
+        "navigationBarStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/tabbar/museum/museum",
+      "style": {
+        "navigationBarStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/tabbar/wishes/wishes",
+      "style": {
+        "navigationBarStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/tabbar/circle/circle",
+      "style": {
+        "navigationBarStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/tabbar/me/me",
+      "style": {
+        "navigationBarStyle": "custom"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "爱买买",
+    "navigationBarBackgroundColor": "#F5F7F4",
+    "backgroundColor": "#F5F7F4"
+  },
+  "tabBar": {
+    "color": "#8A9B90",
+    "selectedColor": "#2F8F4E",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/tabbar/home/home",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/tabbar/museum/museum",
+        "text": "展览馆"
+      },
+      {
+        "pagePath": "pages/tabbar/wishes/wishes",
+        "text": "心愿池"
+      },
+      {
+        "pagePath": "pages/tabbar/circle/circle",
+        "text": "爱买买圈"
+      },
+      {
+        "pagePath": "pages/tabbar/me/me",
+        "text": "我的"
+      }
+    ]
+  },
+  "subPackages": [
+    {
+      "root": "pages-sub/common",
+      "pages": [
+        {
+          "path": "search",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/home",
+      "pages": [
+        {
+          "path": "category",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "product-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/circle",
+      "pages": [
+        {
+          "path": "post-create",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "drafts",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "post-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "user",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "featured",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "rankings",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "analytics",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "moderation",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "interests",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "ops",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/museum",
+      "pages": [
+        {
+          "path": "company-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/wishes",
+      "pages": [
+        {
+          "path": "wish-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/me",
+      "pages": [
+        {
+          "path": "inbox",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "interaction-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "interaction-expert",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "interaction-reward",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "interaction-coop",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "following",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "profile",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "vip",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "tasks",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "recommend",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "appearance",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "settings",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "privacy",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "about",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "help",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/order",
+      "pages": [
+        {
+          "path": "cart",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "orders",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "order-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "checkout",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "track",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "after-sale",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/ai",
+      "pages": [
+        {
+          "path": "assistant",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "chat",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "trace",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "recommend",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        },
+        {
+          "path": "finance",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/admin",
+      "pages": [
+        {
+          "path": "audit",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/group",
+      "pages": [
+        {
+          "path": "group-detail",
+          "style": {
+            "navigationBarStyle": "custom"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -37,6 +37,10 @@
 - `docs/superpowers/plans/2026-03-27-configurable-tag-system.md` — 可配置标签系统实施计划（13 个任务、Schema/Seed/管理CRUD/公开API/企业标签/卖家标签/商品标签/管理前端/卖家前端/清理，**标签系统实施排程**）
 - `docs/superpowers/specs/2026-03-28-discovery-filter-design.md` — 发现页企业筛选栏动态化设计方案（配置数据模型、管理后台页面、App端动态加载、管理端商品标签编辑，**发现页筛选配置权威来源**）
 - `docs/superpowers/plans/2026-03-28-discovery-filter.md` — 发现页企业筛选栏动态化实施计划（8个任务、后端配置/公开API/管理前端/拖拽排序/App端动态化/Mock同步，**发现页筛选实施排程**）
+- `docs/superpowers/specs/2026-03-30-unified-after-sale-design.md` — 统一退换货系统设计方案（数据模型、状态机、统一售后API、分润冻结、退款计算、超时Cron、三端改造，**退换货系统权威来源**）
+- `docs/superpowers/specs/2026-03-30-unified-after-sale-test-plan.md` — 统一退换货系统测试方案（58个测试用例、单元/集成/API/端到端/并发/边界/回归，**退换货系统测试权威来源**）
+- `refund.md` — 退换货系统完整规则文档（23条规则 + 2个附录、法律依据、配置参数，**退换货业务规则权威来源**）
+- `docs/superpowers/plans/2026-03-30-unified-after-sale.md` — 统一退换货系统实施计划（17个任务、Schema/后端6模块/前端3端/Cron/测试，**退换货系统实施排程**）
 
 ## 关键架构决策
 

@@ -601,8 +601,12 @@ export default function VipGiftsPage() {
       dataIndex: ['package', 'price'],
       width: 100,
       search: false,
-      render: (_: unknown, record: VipGiftOption) =>
-        record.package ? <Tag color="gold">¥{record.package.price}</Tag> : <Tag>未分配</Tag>,
+      render: (_: unknown, record: VipGiftOption) => {
+        if (!record.package) return <Tag>未分配</Tag>;
+        const p = record.package.price;
+        const color = p >= 1500 ? 'purple' : p >= 800 ? 'blue' : 'green';
+        return <Tag color={color}>¥{p}</Tag>;
+      },
     },
     {
       title: '组合内容',

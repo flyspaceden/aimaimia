@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Card, Row, Col, Button, Space, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, InputNumber } from 'antd';
+import { Card, Row, Col, Button, Space, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
@@ -152,13 +152,11 @@ export default function TagManagementPage() {
 
   const categoryColumns: ProColumns<TagCategory>[] = [
     { title: '名称', dataIndex: 'name', width: 120 },
-    { title: '编码', dataIndex: 'code', width: 120, copyable: true },
     {
       title: '范围', dataIndex: 'scope', width: 80,
       render: (_, r) => <Tag color={r.scope === 'COMPANY' ? 'blue' : 'green'}>{r.scope === 'COMPANY' ? '企业' : '商品'}</Tag>,
     },
     { title: '标签数', width: 60, render: (_, r) => r.tags?.length || 0 },
-    { title: '排序', dataIndex: 'sortOrder', width: 60 },
     {
       title: '操作', width: 100,
       render: (_, record) => (
@@ -177,7 +175,6 @@ export default function TagManagementPage() {
   const tagColumns: ProColumns<TagItem>[] = [
     { title: '标签名', dataIndex: 'name', width: 120 },
     { title: '同义词', dataIndex: 'synonyms', width: 160, render: (_, r) => r.synonyms?.join(', ') || '-' },
-    { title: '排序', dataIndex: 'sortOrder', width: 60 },
     {
       title: '状态', dataIndex: 'isActive', width: 80,
       render: (_, r) => (
@@ -272,20 +269,12 @@ export default function TagManagementPage() {
             <Input placeholder="如：企业徽章" />
           </Form.Item>
           {!editingCategory && (
-            <>
-              <Form.Item name="code" label="类别编码" rules={[{ required: true, message: '请输入编码' }, { pattern: /^[a-z_]+$/, message: '只允许小写字母和下划线' }]}>
-                <Input placeholder="如：company_badge" />
-              </Form.Item>
-              <Form.Item name="scope" label="适用范围" rules={[{ required: true, message: '请选择范围' }]}>
-                <Select options={[{ value: 'COMPANY', label: '企业' }, { value: 'PRODUCT', label: '商品' }]} />
-              </Form.Item>
-            </>
+            <Form.Item name="scope" label="适用范围" rules={[{ required: true, message: '请选择范围' }]}>
+              <Select options={[{ value: 'COMPANY', label: '企业' }, { value: 'PRODUCT', label: '商品' }]} />
+            </Form.Item>
           )}
           <Form.Item name="description" label="说明">
             <Input.TextArea rows={2} placeholder="可选" />
-          </Form.Item>
-          <Form.Item name="sortOrder" label="排序" initialValue={0}>
-            <InputNumber min={0} />
           </Form.Item>
         </Form>
       </Modal>
@@ -304,9 +293,6 @@ export default function TagManagementPage() {
           </Form.Item>
           <Form.Item name="synonyms" label="同义词（逗号分隔）">
             <Input placeholder="如：有机, 绿色有机" />
-          </Form.Item>
-          <Form.Item name="sortOrder" label="排序" initialValue={0}>
-            <InputNumber min={0} />
           </Form.Item>
           {editingTag && (
             <Form.Item name="isActive" label="启用" valuePropName="checked" initialValue={true}>
