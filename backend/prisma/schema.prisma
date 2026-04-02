@@ -1148,7 +1148,8 @@ model ProductSKU {
   title      String
   price      Float // 价格（元），卖家商品由系统自动计算 (= cost × markupRate)
   cost       Float     @default(0) // 成本价（元），卖家商品必填，平台/抽奖商品由后台设置
-  stock      Int       @default(0)
+  stock        Int       @default(0)
+  maxPerOrder  Int?      // 单笔订单限购数量，null = 不限制
   weightGram Int?
   barcode    String?
   status     SkuStatus @default(ACTIVE)
