@@ -336,7 +336,18 @@ export default function CartScreen() {
                   {isPrize ? (
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>x{item.quantity}</Text>
                   ) : (
-                    <QuantityStepper value={item.quantity} onChange={(next) => updateQty(item.productId, next, item.skuId)} />
+                    <View>
+                      <QuantityStepper
+                        value={item.quantity}
+                        max={item.maxPerOrder ?? 99}
+                        onChange={(next) => updateQty(item.productId, next, item.skuId)}
+                      />
+                      {item.maxPerOrder != null && (
+                        <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 2 }]}>
+                          限购 {item.maxPerOrder} 件
+                        </Text>
+                      )}
+                    </View>
                   )}
                   {/* 普通商品和未锁定奖品可以删除 */}
                   {!isLocked && (
