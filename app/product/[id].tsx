@@ -104,11 +104,11 @@ export default function ProductDetailScreen() {
   const skus = detail?.skus || [];
   const activeSkuId = selectedSkuId || skus[0]?.id;
   // N08修复：从选中 SKU 获取实际价格，传入购物车避免使用商品默认价格
-  const activeSkuPrice = useMemo(() => {
+  const selectedSku = useMemo(() => {
     if (!activeSkuId || !skus.length) return undefined;
-    const sku = skus.find((s) => s.id === activeSkuId);
-    return sku?.price;
+    return skus.find((s) => s.id === activeSkuId);
   }, [activeSkuId, skus]);
+  const activeSkuPrice = selectedSku?.price;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -334,6 +334,12 @@ export default function ProductDetailScreen() {
                   );
                 })}
               </View>
+              {/* 每单限购提示 */}
+              {selectedSku?.maxPerOrder != null && (
+                <Text style={[typography.captionSm, { color: colors.warning, marginTop: spacing.xs }]}>
+                  每单限购 {selectedSku.maxPerOrder} 件
+                </Text>
+              )}
             </Animated.View>
           )}
 
@@ -526,7 +532,7 @@ export default function ProductDetailScreen() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
           <Pressable
             onPress={() => {
-              addItem(product!, 1, activeSkuId, activeSkuPrice);
+              addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               show({ message: '已加入购物车', type: 'success' });
             }}
             style={[
@@ -550,7 +556,7 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
-                addItem(product!, 1, activeSkuId, activeSkuPrice);
+                addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
                 router.push('/checkout');
               }}
               style={styles.ctaInner}
@@ -574,7 +580,7 @@ export default function ProductDetailScreen() {
         >
           <Pressable
             onPress={() => {
-              addItem(product!, 1, activeSkuId, activeSkuPrice);
+              addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               show({ message: '已加入购物车', type: 'success' });
             }}
             style={[
@@ -598,7 +604,7 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
-                addItem(product!, 1, activeSkuId, activeSkuPrice);
+                addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
                 router.push('/checkout');
               }}
               style={styles.ctaInner}
