@@ -169,6 +169,11 @@ export class CartService {
     if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
     if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
 
+    // 单笔限购校验（放在事务外做初步检查，事务内做精确检查）
+    if (sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
+      throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
+    }
+
     const cart = await this.ensureCart(userId);
 
     // 事务内查+写，防止并发请求创建重复普通商品行
@@ -183,6 +188,11 @@ export class CartService {
 
           if (existing) {
             const newQty = existing.quantity + quantity;
+            if (sku.maxPerOrder !== null && newQty > sku.maxPerOrder) {
+              throw new BadRequestException(
+                `该商品每单限购 ${sku.maxPerOrder} 件，购物车已有 ${existing.quantity} 件`,
+              );
+            }
             if (newQty > sku.stock) throw new BadRequestException('库存不足');
 
             await tx.cartItem.update({
@@ -190,6 +200,9 @@ export class CartService {
               data: { quantity: newQty },
             });
           } else {
+            if (sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
+              throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
+            }
             if (quantity > sku.stock) throw new BadRequestException('库存不足');
 
             await tx.cartItem.create({
@@ -227,6 +240,9 @@ export class CartService {
 
     const sku = await this.prisma.productSKU.findUnique({ where: { id: skuId } });
     if (sku && quantity > sku.stock) throw new BadRequestException('库存不足');
+    if (sku && sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
+      throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
+    }
 
     await this.prisma.cartItem.update({
       where: { id: item.id },
@@ -825,6 +841,7 @@ export class CartService {
         price,
         originalPrice, // 奖品项为 SKU 原价（前端划线展示），普通商品项为 null
         stock: sku?.stock || 0,
+        maxPerOrder: sku?.maxPerOrder ?? null,
         categoryId: product?.categoryId || null,
         companyId: product?.companyId || null,
       },
