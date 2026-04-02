@@ -3051,7 +3051,7 @@ export default function Contact() {
                     type="email"
                     required
                     className="w-full px-4 py-3 rounded-card border border-light-soft bg-white text-text-primary focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
-                    placeholder="your@email.com"
+                    placeholder="your@163.com"
                   />
                 </div>
 

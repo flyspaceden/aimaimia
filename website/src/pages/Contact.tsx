@@ -1,34 +1,34 @@
-import { useState, type FormEvent } from 'react'
-import ScrollReveal from '@/components/effects/ScrollReveal'
-import Button from '@/components/ui/Button'
-import { IMAGES } from '@/lib/constants'
+import { useState, type FormEvent } from "react";
+import ScrollReveal from "@/components/effects/ScrollReveal";
+import Button from "@/components/ui/Button";
+import { IMAGES } from "@/lib/constants";
 
-type FormStatus = 'idle' | 'loading' | 'success' | 'error'
+type FormStatus = "idle" | "loading" | "success" | "error";
 
 export default function Contact() {
-  const [status, setStatus] = useState<FormStatus>('idle')
+  const [status, setStatus] = useState<FormStatus>("idle");
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setStatus('loading')
+    e.preventDefault();
+    setStatus("loading");
 
     // Formspree 或其他表单服务 — 占位实现
     // 替换 YOUR_FORM_ID 为实际 Formspree endpoint
     try {
-      const form = e.currentTarget
-      const data = new FormData(form)
+      const form = e.currentTarget;
+      const data = new FormData(form);
 
       // Honeypot 检查
-      if (data.get('_honey')) return
+      if (data.get("_honey")) return;
 
       // 占位：模拟提交成功
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      setStatus('success')
-      form.reset()
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      setStatus("success");
+      form.reset();
     } catch {
-      setStatus('error')
+      setStatus("error");
     }
-  }
+  };
 
   return (
     <>
@@ -52,10 +52,21 @@ export default function Contact() {
             <ScrollReveal>
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Honeypot */}
-                <input type="text" name="_honey" className="hidden" tabIndex={-1} aria-hidden="true" />
+                <input
+                  type="text"
+                  name="_honey"
+                  className="hidden"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
 
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-text-primary mb-2">姓名 *</label>
+                  <label
+                    htmlFor="name"
+                    className="block text-sm font-medium text-text-primary mb-2"
+                  >
+                    姓名 *
+                  </label>
                   <input
                     id="name"
                     name="name"
@@ -69,19 +80,29 @@ export default function Contact() {
                 </div>
 
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-text-primary mb-2">邮箱 *</label>
+                  <label
+                    htmlFor="email"
+                    className="block text-sm font-medium text-text-primary mb-2"
+                  >
+                    邮箱 *
+                  </label>
                   <input
                     id="email"
                     name="email"
                     type="email"
                     required
                     className="w-full px-4 py-3 rounded-card border border-light-soft bg-white text-text-primary focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
-                    placeholder="your@email.com"
+                    placeholder="your@163.com"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="subject" className="block text-sm font-medium text-text-primary mb-2">主题 *</label>
+                  <label
+                    htmlFor="subject"
+                    className="block text-sm font-medium text-text-primary mb-2"
+                  >
+                    主题 *
+                  </label>
                   <select
                     id="subject"
                     name="subject"
@@ -97,7 +118,12 @@ export default function Contact() {
                 </div>
 
                 <div>
-                  <label htmlFor="message" className="block text-sm font-medium text-text-primary mb-2">消息 *</label>
+                  <label
+                    htmlFor="message"
+                    className="block text-sm font-medium text-text-primary mb-2"
+                  >
+                    消息 *
+                  </label>
                   <textarea
                     id="message"
                     name="message"
@@ -110,15 +136,24 @@ export default function Contact() {
                   />
                 </div>
 
-                <Button type="submit" size="lg" className="w-full" disabled={status === 'loading'}>
-                  {status === 'loading' ? '发送中...' : '发送消息'}
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full"
+                  disabled={status === "loading"}
+                >
+                  {status === "loading" ? "发送中..." : "发送消息"}
                 </Button>
 
-                {status === 'success' && (
-                  <p className="text-brand font-medium text-center">消息已发送，我们会尽快回复您！</p>
+                {status === "success" && (
+                  <p className="text-brand font-medium text-center">
+                    消息已发送，我们会尽快回复您！
+                  </p>
                 )}
-                {status === 'error' && (
-                  <p className="text-red-500 font-medium text-center">发送失败，请稍后重试或直接联系我们</p>
+                {status === "error" && (
+                  <p className="text-red-500 font-medium text-center">
+                    发送失败，请稍后重试或直接联系我们
+                  </p>
                 )}
               </form>
             </ScrollReveal>
@@ -130,16 +165,32 @@ export default function Contact() {
                   <h3 className="text-h3 text-text-primary mb-6">联系方式</h3>
                   <div className="space-y-4">
                     {[
-                      { icon: '📍', label: '地址', value: '中国 · 深圳市南山区科技园' },
-                      { icon: '📞', label: '电话', value: '13923710623' },
-                      { icon: '✉️', label: '邮箱', value: 'zenweifeng3@163.com' },
-                      { icon: '🕐', label: '工作时间', value: '周一至周五 9:00-18:00' },
-                    ].map(item => (
+                      {
+                        icon: "📍",
+                        label: "地址",
+                        value: "中国 · 深圳市南山区科技园",
+                      },
+                      { icon: "📞", label: "电话", value: "13923710623" },
+                      {
+                        icon: "✉️",
+                        label: "邮箱",
+                        value: "zenweifeng3@163.com",
+                      },
+                      {
+                        icon: "🕐",
+                        label: "工作时间",
+                        value: "周一至周五 9:00-18:00",
+                      },
+                    ].map((item) => (
                       <div key={item.label} className="flex items-start gap-4">
                         <span className="text-2xl">{item.icon}</span>
                         <div>
-                          <p className="text-text-tertiary text-sm">{item.label}</p>
-                          <p className="text-text-primary font-medium">{item.value}</p>
+                          <p className="text-text-tertiary text-sm">
+                            {item.label}
+                          </p>
+                          <p className="text-text-primary font-medium">
+                            {item.value}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -168,9 +219,11 @@ export default function Contact() {
 
                 {/* 社交媒体 */}
                 <div>
-                  <h4 className="text-text-primary font-semibold mb-3">关注我们</h4>
+                  <h4 className="text-text-primary font-semibold mb-3">
+                    关注我们
+                  </h4>
                   <div className="flex gap-4">
-                    {['微信公众号', '微博', '抖音'].map(platform => (
+                    {["微信公众号", "微博", "抖音"].map((platform) => (
                       <span
                         key={platform}
                         className="px-4 py-2 rounded-pill text-sm bg-light-surface text-text-secondary border border-light-soft hover:border-brand hover:text-brand transition-colors cursor-pointer"
@@ -186,5 +239,5 @@ export default function Contact() {
         </div>
       </section>
     </>
-  )
+  );
 }
