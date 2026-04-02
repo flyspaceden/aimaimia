@@ -905,6 +905,7 @@ export class ProductService {
         price: s.price,
         stock: s.stock,
         skuCode: s.skuCode,
+        maxPerOrder: s.maxPerOrder ?? null,
       })),
       attributes: product.attributes || {},
       aiKeywords: product.aiKeywords || [],
