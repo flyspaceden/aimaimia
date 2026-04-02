@@ -202,6 +202,13 @@ export class CheckoutService {
         this.logger.warn(`R12: SKU ${sku.id} 库存已为 ${sku.stock}，允许继续结算（超卖容忍）`);
       }
 
+      // 单笔限购校验
+      if (sku.maxPerOrder !== null && item.quantity > sku.maxPerOrder) {
+        throw new BadRequestException(
+          `商品规格「${sku.title}」每单限购 ${sku.maxPerOrder} 件`,
+        );
+      }
+
       const resolvedSkuId = (item as any)._resolvedSkuId || sku.id;
 
       // 匹配奖品购物车项
