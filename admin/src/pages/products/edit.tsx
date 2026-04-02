@@ -155,6 +155,13 @@ export default function ProductEditPage() {
     },
     { title: '库存', dataIndex: 'stock', key: 'stock', width: 80 },
     {
+      title: '单笔限购',
+      dataIndex: 'maxPerOrder',
+      key: 'maxPerOrder',
+      width: 100,
+      render: (v: number | null) => v != null ? `${v} 件` : '不限',
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
