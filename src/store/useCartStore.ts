@@ -114,8 +114,8 @@ type CartState = {
   loading: boolean;
   /** 从服务端同步购物车 */
   syncFromServer: () => Promise<void>;
-  /** 添加商品（乐观 + 服务端） */
-  addItem: (product: Product & { maxPerOrder?: number | null }, quantity?: number, skuId?: string, skuPrice?: number) => void;
+  /** 添加商品（乐观 + 服务端），返回 true 表示成功加入，false 表示被限购拦截 */
+  addItem: (product: Product & { maxPerOrder?: number | null }, quantity?: number, skuId?: string, skuPrice?: number) => boolean;
   /** 删除商品（乐观 + 服务端） */
   removeItem: (productId: string, skuId?: string) => void;
   /** 删除奖品项（乐观 + 服务端，按 cartItemId 删除） */
@@ -197,7 +197,7 @@ export const useCartStore = create<CartState>()(
               text1: `该商品每单限购 ${maxPerOrder} 件`,
               text2: currentQty > 0 ? `购物车已有 ${currentQty} 件` : undefined,
             });
-            return;
+            return false;
           }
         }
 
@@ -269,6 +269,8 @@ export const useCartStore = create<CartState>()(
             }
           });
         }
+
+        return true;
       },
 
       removeItem: (productId, skuId) => {
@@ -357,14 +359,15 @@ export const useCartStore = create<CartState>()(
           return;
         }
 
-        // 单笔限购校验
+        // 单笔限购校验：超出限购数量时截断到上限，而非直接拒绝
         const item = get().items.find((i) => itemKey(i) === key);
-        if (item?.maxPerOrder != null && quantity > item.maxPerOrder) {
+        let clampedQty = quantity;
+        if (item?.maxPerOrder != null && clampedQty > item.maxPerOrder) {
+          clampedQty = item.maxPerOrder;
           Toast.show({
             type: 'info',
             text1: `该商品每单限购 ${item.maxPerOrder} 件`,
           });
-          return;
         }
 
         const snapshot = get().items;
@@ -372,14 +375,14 @@ export const useCartStore = create<CartState>()(
         // 乐观更新
         set((state) => ({
           items: state.items.map((item) =>
-            itemKey(item) === key ? { ...item, quantity } : item
+            itemKey(item) === key ? { ...item, quantity: clampedQty } : item
           ),
         }));
 
         // 已登录时才异步服务端同步
         if (useAuthStore.getState().isLoggedIn) {
           const actualSkuId = skuId ?? productId;
-          CartRepo.updateQuantity(actualSkuId, quantity).then((result) => {
+          CartRepo.updateQuantity(actualSkuId, clampedQty).then((result) => {
             if (!result.ok) {
               set({ items: snapshot });
             }

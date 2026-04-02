@@ -532,8 +532,10 @@ export default function ProductDetailScreen() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
           <Pressable
             onPress={() => {
-              addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
-              show({ message: '已加入购物车', type: 'success' });
+              const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+              if (added) {
+                show({ message: '已加入购物车', type: 'success' });
+              }
             }}
             style={[
               styles.ctaButton,
@@ -556,8 +558,10 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
-                addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
-                router.push('/checkout');
+                const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+                if (added) {
+                  router.push('/checkout');
+                }
               }}
               style={styles.ctaInner}
             >
@@ -580,8 +584,10 @@ export default function ProductDetailScreen() {
         >
           <Pressable
             onPress={() => {
-              addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
-              show({ message: '已加入购物车', type: 'success' });
+              const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+              if (added) {
+                show({ message: '已加入购物车', type: 'success' });
+              }
             }}
             style={[
               styles.ctaButton,
@@ -604,8 +610,10 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
-                addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
-                router.push('/checkout');
+                const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+                if (added) {
+                  router.push('/checkout');
+                }
               }}
               style={styles.ctaInner}
             >
