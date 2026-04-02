@@ -3,6 +3,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsNumber,
+  IsInt,
   IsArray,
   ValidateNested,
   Min,
@@ -23,6 +24,11 @@ export class CreateSkuDto {
   @IsNumber()
   @Min(0)
   stock: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxPerOrder?: number; // 单笔限购，null/不传 = 不限制
 
   @IsOptional()
   @IsNumber()
@@ -190,6 +196,11 @@ export class SkuItemDto {
   @IsNumber()
   @Min(0)
   stock: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxPerOrder?: number;
 
   @IsOptional()
   @IsNumber()

@@ -124,6 +124,7 @@ export class SellerProductsService {
               cost: sku.cost,
               stock: sku.stock,
               weightGram: sku.weightGram,
+              maxPerOrder: sku.maxPerOrder ?? null,
             })),
           },
           media: dto.mediaUrls
@@ -404,6 +405,7 @@ export class SellerProductsService {
               cost: sku.cost,
               stock: sku.stock,
               weightGram: sku.weightGram,
+              maxPerOrder: sku.maxPerOrder ?? null,
             },
           });
           newSkuIds.add(sku.id);
@@ -417,6 +419,7 @@ export class SellerProductsService {
               cost: sku.cost,
               stock: sku.stock,
               weightGram: sku.weightGram,
+              maxPerOrder: sku.maxPerOrder ?? null,
             },
           });
           newSkuIds.add(created.id);
