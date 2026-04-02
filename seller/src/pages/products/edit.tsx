@@ -131,7 +131,7 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
               style={{ marginBottom: 8, background: '#fafafa' }}
             >
               <Row gutter={12} align="middle">
-                <Col span={6}>
+                <Col span={5}>
                   <Form.Item
                     {...field}
                     name={[field.name, 'id']}
@@ -163,7 +163,7 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                     <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
                   </Form.Item>
                 </Col>
-                <Col span={6}>
+                <Col span={5}>
                   <Form.Item shouldUpdate noStyle>
                     {({ getFieldValue }) => {
                       const cost = getFieldValue(['skus', field.name, 'cost']);
@@ -192,6 +192,19 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                 <Col span={3}>
                   <Form.Item
                     {...field}
+                    name={[field.name, 'maxPerOrder']}
+                    label="单笔限购"
+                    rules={[
+                      { type: 'number', min: 1, message: '最少为1' },
+                    ]}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={3}>
+                  <Form.Item
+                    {...field}
                     name={[field.name, 'weightGram']}
                     label="重量"
                     style={{ marginBottom: 0 }}
@@ -199,7 +212,7 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                     <InputNumber placeholder="克" min={0} style={{ width: '100%' }} addonAfter="g" />
                   </Form.Item>
                 </Col>
-                <Col span={2} style={{ textAlign: 'center', paddingTop: 28 }}>
+                <Col span={1} style={{ textAlign: 'center', paddingTop: 28 }}>
                   {fields.length > 1 && (
                     <MinusCircleOutlined
                       style={{ fontSize: 18, color: '#999', cursor: 'pointer' }}
@@ -356,6 +369,7 @@ function buildPayload(
     cost: Number(s.cost),
     stock: Number(s.stock),
     weightGram: s.weightGram === undefined || s.weightGram === null ? undefined : Number(s.weightGram),
+    maxPerOrder: s.maxPerOrder === undefined || s.maxPerOrder === null ? undefined : Number(s.maxPerOrder),
   }));
 
   return {
@@ -476,6 +490,7 @@ function ProductEditForm({ id }: { id: string }) {
           cost: s.cost,
           stock: s.stock,
           weightGram: s.weightGram,
+          maxPerOrder: s.maxPerOrder,
         })),
       } : {}),
       // 语义字段
