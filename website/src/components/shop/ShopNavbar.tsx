@@ -17,9 +17,17 @@ export default function ShopNavbar({ cartCount = 3 }: Props) {
     setMenuOpen(false)
   }, [location.pathname])
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   const handleSearch = () => {
     if (searchQuery.trim()) {
-      navigate(`/shop/category/all`)
+      navigate(`/shop/category/all?q=${encodeURIComponent(searchQuery.trim())}`)
     }
   }
 
@@ -81,6 +89,8 @@ export default function ShopNavbar({ cartCount = 3 }: Props) {
           className="sm:hidden text-gray-600 flex-shrink-0 p-1"
           onClick={() => setMenuOpen(v => !v)}
           aria-label={menuOpen ? '关闭菜单' : '打开菜单'}
+          aria-expanded={menuOpen}
+          aria-controls="shop-mobile-menu"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             {menuOpen
@@ -110,7 +120,7 @@ export default function ShopNavbar({ cartCount = 3 }: Props) {
 
       {/* Mobile dropdown menu */}
       {menuOpen && (
-        <div className="sm:hidden bg-white border-t border-gray-100 shadow-lg">
+        <div className="sm:hidden bg-white border-t border-gray-100 shadow-lg" id="shop-mobile-menu">
           <div className="px-4 py-3 flex flex-col">
             {SHOP_CATEGORIES.map(cat => (
               <Link
