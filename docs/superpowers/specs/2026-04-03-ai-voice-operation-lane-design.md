@@ -158,6 +158,22 @@ Direct order-detail navigation is allowed only when:
 - a single order is clearly identified
 - or current context narrows to one order with high confidence
 
+### Out-Of-Scope Requests At The Operation Entry
+
+The first-stage voice entry remains operation-first. Requests that are primarily:
+
+- open-ended chat
+- complex recommendation
+- exploratory conversation without an actionable operation target
+
+should not be forced through operation execution logic.
+
+Default behavior for these requests:
+
+- do not enter heavy execution resolution
+- return safe feedback
+- optionally offer a transition to the chat experience, but do not block the operation lane on conversational reasoning
+
 ## Target Architecture
 
 The operation lane should use a fixed four-step structure:
@@ -276,6 +292,8 @@ Responsibilities:
 - downgrade rules
 - auth and business safeguards
 
+Threshold ownership should stay inside `ExecutionPolicy`, not inside the model layer. The model may output confidence, but product-grade execution thresholds are owned by the app.
+
 ## Online Model Budget
 
 The operation lane should have a hard online budget:
@@ -309,6 +327,7 @@ They do not apply to open-ended chat or rich recommendation reasoning.
 - one normalization step max
 - execution decisions stay local
 - list-first is the default safe and fast path
+- non-operation requests should short-circuit to safe feedback rather than borrowing the operation lane budget
 
 ## Measurement and Evaluation
 
