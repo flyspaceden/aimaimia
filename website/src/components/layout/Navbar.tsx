@@ -76,6 +76,12 @@ export default function Navbar() {
 
           {/* CTA + 汉堡 */}
           <div className="flex items-center gap-4">
+            <Link
+              to="/shop"
+              className="hidden md:inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-pill border border-brand-light text-brand-light hover:bg-brand-light hover:text-white transition-colors"
+            >
+              进入商城
+            </Link>
             <Button
               size="sm"
               className="hidden md:inline-flex"
@@ -119,6 +125,12 @@ export default function Navbar() {
                   {link.label}
                 </Link>
               ))}
+              <Link
+                to="/shop"
+                className="py-2 text-base text-brand-light font-medium"
+              >
+                🛒 进入商城
+              </Link>
               <Button size="sm" className="mt-2" onClick={() => setDownloadOpen(true)}>
                 下载 App
               </Button>

@@ -16,6 +16,15 @@ const NotFound = lazy(() => import('@/pages/NotFound'))
 const Download = lazy(() => import('@/pages/Download'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
 
+// 商城模块
+const ShopLayout = lazy(() => import('@/components/shop/ShopLayout'))
+const ShopHome = lazy(() => import('@/pages/shop/ShopHome'))
+const ShopCategory = lazy(() => import('@/pages/shop/ShopCategory'))
+const ShopProduct = lazy(() => import('@/pages/shop/ShopProduct'))
+const ShopCart = lazy(() => import('@/pages/shop/ShopCart'))
+const ShopCheckout = lazy(() => import('@/pages/shop/ShopCheckout'))
+const ShopUser = lazy(() => import('@/pages/shop/ShopUser'))
+
 /** 动态更新页面 title 和 meta description */
 function MetaUpdater() {
   const location = useLocation()
@@ -51,11 +60,12 @@ function PageLoader() {
 export default function App() {
   const location = useLocation()
   const isLandingPage = location.pathname.startsWith('/r/') || location.pathname === '/download' || location.pathname === '/resolve'
+  const isShopPage = location.pathname.startsWith('/shop')
 
   return (
     <>
       <MetaUpdater />
-      {!isLandingPage && <Navbar />}
+      {!isLandingPage && !isShopPage && <Navbar />}
       <main id="main-content">
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -69,11 +79,20 @@ export default function App() {
             <Route path="/r/:code" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />
+            {/* 商城路由（嵌套在 ShopLayout 下） */}
+            <Route path="/shop" element={<ShopLayout />}>
+              <Route index element={<ShopHome />} />
+              <Route path="category/:id" element={<ShopCategory />} />
+              <Route path="product/:id" element={<ShopProduct />} />
+              <Route path="cart" element={<ShopCart />} />
+              <Route path="checkout" element={<ShopCheckout />} />
+              <Route path="user" element={<ShopUser />} />
+            </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       </main>
-      {!isLandingPage && <Footer />}
+      {!isLandingPage && !isShopPage && <Footer />}
     </>
   )
 }
