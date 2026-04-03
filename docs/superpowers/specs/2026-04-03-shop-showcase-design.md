@@ -34,6 +34,7 @@
 /shop/category/:id        → ShopCategory   分类商品列表
 /shop/product/:id         → ShopProduct    商品详情
 /shop/cart                → ShopCart       购物车
+/shop/checkout            → ShopCheckout  结账付款页
 /shop/user                → ShopUser       个人中心（模拟登录态）
 ```
 
@@ -112,7 +113,26 @@
   - 安全支付说明
   - 猜你喜欢（2个商品推荐）
 
-### 5.5 个人中心（ShopUser）
+### 5.5 结账付款页（ShopCheckout）
+
+**入口：** 购物车页"结算"按钮 → `/shop/checkout`
+
+**桌面：左侧订单信息 + 右侧支付摘要两栏；移动端：单列堆叠**
+
+- **左侧 - 收货信息**：
+  - 收货地址区（mock 地址：广州市天河区某小区，含姓名+手机号）
+  - 商品清单（缩略图 + 名称 + 规格 + 数量 + 小计）
+  - 配送方式选择：顺丰冷链（¥0）/ 次日达（¥12）（radio 选择，mock）
+  - 买家备注输入框（textarea，不实际提交）
+
+- **右侧 - 支付摘要**：
+  - 商品合计 / 运费 / 优惠
+  - 实付金额（红色大字）
+  - 支付方式选择：微信支付 / 支付宝 / 银行卡（radio 图标选择）
+  - **"确认支付"按钮**（橙色大按钮）→ 点击后弹出"支付成功"提示弹窗（mock），弹窗含订单号 + "查看订单"按钮 → 跳转个人中心
+  - 安全加密说明（🔒 SSL 加密保护）
+
+### 5.6 个人中心（ShopUser）
 
 - 顶部用户信息区：头像 + 姓名"李**" + 会员等级标签
 - 数据统计：待付款 / 待发货 / 待收货 / 已完成（mock 数字）
@@ -162,6 +182,7 @@ website/src/
 │   ├── ShopCategory.tsx    # 分类列表页
 │   ├── ShopProduct.tsx     # 商品详情页
 │   ├── ShopCart.tsx        # 购物车页
+│   ├── ShopCheckout.tsx    # 结账付款页
 │   └── ShopUser.tsx        # 个人中心
 ├── components/shop/
 │   ├── ShopLayout.tsx      # 商城外层布局（含 Navbar + Footer）
@@ -203,5 +224,6 @@ website/src/
 - 商品详情页可查看规格、价格、描述，可"加入购物车"
 - 购物车页展示已选商品，可增减数量，显示合计
 - 个人中心展示模拟用户信息和订单状态
+- 结账页支付方式可选，点击"确认支付"弹出支付成功 mock 弹窗
 - 所有页面在手机（375px）、平板（768px）、桌面（1280px）均正常显示
 - TypeScript 编译无错误
