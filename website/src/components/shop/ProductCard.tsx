@@ -1,16 +1,29 @@
 // website/src/components/shop/ProductCard.tsx
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Product } from '@/data/shopMockData'
+import { useCart } from '@/contexts/CartContext'
 
 interface Props {
   product: Product
 }
 
 export default function ProductCard({ product }: Props) {
+  const { addItem } = useCart()
+  const [justAdded, setJustAdded] = useState(false)
+
+  const handleQuickAdd = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    addItem(product, 0, 1)
+    setJustAdded(true)
+    setTimeout(() => setJustAdded(false), 1200)
+  }
+
   return (
     <Link
       to={`/shop/product/${product.id}`}
-      className="block bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 group"
+      className="block bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 group relative"
     >
       {/* Product image area */}
       <div
@@ -41,6 +54,19 @@ export default function ProductCard({ product }: Props) {
           )}
         </div>
       </div>
+
+      {/* Quick-add button (appears on hover) */}
+      <button
+        onClick={handleQuickAdd}
+        aria-label={`加入购物车: ${product.name}`}
+        className={`absolute bottom-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold shadow-md transition-all duration-200
+          ${justAdded
+            ? 'bg-brand text-white opacity-100 scale-110'
+            : 'bg-brand text-white opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100'
+          }`}
+      >
+        {justAdded ? '✓' : '+'}
+      </button>
     </Link>
   )
 }

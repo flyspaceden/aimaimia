@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { SHOP_PRODUCTS, SHOP_CATEGORIES } from '@/data/shopMockData'
 import ProductCard from '@/components/shop/ProductCard'
+import { useCart } from '@/contexts/CartContext'
 
 export default function ShopProduct() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { addItem } = useCart()
   const product = SHOP_PRODUCTS.find(p => p.id === id)
 
   const [selectedSkuIdx, setSelectedSkuIdx] = useState(0)
@@ -49,12 +51,14 @@ export default function ShopProduct() {
   const maxQty = Math.max(1, product.stock)
 
   const handleAddToCart = () => {
+    addItem(product, selectedSkuIdx, quantity)
     if (timerRef.current) clearTimeout(timerRef.current)
     setAddedToCart(true)
     timerRef.current = setTimeout(() => setAddedToCart(false), 2000)
   }
 
   const handleBuyNow = () => {
+    addItem(product, selectedSkuIdx, quantity)
     navigate('/shop/checkout')
   }
 
@@ -68,6 +72,19 @@ export default function ShopProduct() {
 
   return (
     <div className="max-w-page mx-auto px-4 sm:px-6 py-4">
+      {/* Add-to-cart Toast */}
+      <div
+        className={`fixed top-20 right-4 z-50 transition-all duration-300 ${
+          addedToCart ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
+        }`}
+      >
+        <div className="bg-gray-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2.5 text-sm">
+          <span className="text-green-400 font-bold">✓</span>
+          <span>已加入购物车</span>
+          <span className="text-gray-400 text-xs">{product.name}</span>
+        </div>
+      </div>
+
       {/* Breadcrumb */}
       <nav className="text-xs text-gray-400 mb-5 flex items-center gap-1.5">
         <Link to="/shop" className="hover:text-brand transition-colors">首页</Link>

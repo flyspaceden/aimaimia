@@ -2,12 +2,11 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { SHOP_CATEGORIES } from '@/data/shopMockData'
+import { useCart } from '@/contexts/CartContext'
 
-interface Props {
-  cartCount?: number
-}
-
-export default function ShopNavbar({ cartCount = 0 }: Props) {
+export default function ShopNavbar() {
+  const { items } = useCart()
+  const cartCount = items.reduce((sum, i) => sum + i.quantity, 0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const location = useLocation()

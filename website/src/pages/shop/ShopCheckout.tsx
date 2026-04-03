@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { MOCK_CART_ITEMS } from '@/data/shopMockData'
+import { useCart } from '@/contexts/CartContext'
 
 type DeliveryOption = 'sf_cold' | 'next_day'
 type PaymentMethod = 'wechat' | 'alipay' | 'card'
@@ -53,6 +53,7 @@ function SuccessModal({ orderNo, onClose }: { orderNo: string; onClose: () => vo
 
 export default function ShopCheckout() {
   const navigate = useNavigate()
+  const { items, clearCart } = useCart()
   const [delivery, setDelivery] = useState<DeliveryOption>('sf_cold')
   const [payment, setPayment] = useState<PaymentMethod>('wechat')
   const [remark, setRemark] = useState('')
@@ -61,7 +62,7 @@ export default function ShopCheckout() {
   // Frozen at mount time so it doesn't change on every re-render
   const [orderNo] = useState(() => `AMM${Date.now().toString().slice(-10)}`)
 
-  const checkedItems = MOCK_CART_ITEMS.filter(i => i.checked)
+  const checkedItems = items.filter(i => i.checked)
   const subtotal = checkedItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
   const deliveryFee = DELIVERY_OPTIONS.find(o => o.key === delivery)?.price ?? 0
   const total = subtotal + deliveryFee
@@ -71,6 +72,7 @@ export default function ShopCheckout() {
   }
 
   const handleCloseSuccess = () => {
+    clearCart()
     setShowSuccess(false)
     navigate('/shop')
   }

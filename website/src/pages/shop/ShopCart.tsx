@@ -1,35 +1,16 @@
-import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { MOCK_CART_ITEMS, SHOP_PRODUCTS, type CartItem } from '@/data/shopMockData'
+import { SHOP_PRODUCTS } from '@/data/shopMockData'
+import { useCart } from '@/contexts/CartContext'
 
 export default function ShopCart() {
-  const [items, setItems] = useState<CartItem[]>(MOCK_CART_ITEMS)
+  const { items, removeItem, updateQty, toggleCheck, toggleAll } = useCart()
   const navigate = useNavigate()
 
   const checkedItems = items.filter(i => i.checked)
   const subtotal = checkedItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
-
-  const toggleCheck = (productId: string) => {
-    setItems(prev => prev.map(i => i.productId === productId ? { ...i, checked: !i.checked } : i))
-  }
-  const toggleAll = () => {
-    const allChecked = items.every(i => i.checked)
-    setItems(prev => prev.map(i => ({ ...i, checked: !allChecked })))
-  }
-  const updateQty = (productId: string, delta: number) => {
-    setItems(prev => prev.map(i => {
-      if (i.productId !== productId) return i
-      const maxQty = SHOP_PRODUCTS.find(p => p.id === productId)?.stock ?? 99
-      return { ...i, quantity: Math.min(Math.max(1, maxQty), Math.max(1, i.quantity + delta)) }
-    }))
-  }
-  const removeItem = (productId: string) => {
-    setItems(prev => prev.filter(i => i.productId !== productId))
-  }
-
   const allChecked = items.length > 0 && items.every(i => i.checked)
 
-  // Recommended products (2 items shown; no intermediate slice needed)
+  // Recommended products not in cart
   const recommended = SHOP_PRODUCTS.filter(p => !items.find(i => i.productId === p.id)).slice(0, 2)
 
   return (
@@ -67,62 +48,66 @@ export default function ShopCart() {
 
             {/* Items */}
             <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-              {items.map((item, idx) => (
-                <div key={item.productId} className={`flex items-start gap-3 p-4 ${idx > 0 ? 'border-t border-gray-50' : ''}`}>
-                  {/* Checkbox */}
-                  <button
-                    onClick={() => toggleCheck(item.productId)}
-                    className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-1 transition-colors ${
-                      item.checked ? 'bg-brand border-brand text-white' : 'border-gray-300'
-                    }`}
-                  >
-                    {item.checked && <span className="text-xs leading-none">✓</span>}
-                  </button>
+              {items.map((item, idx) => {
+                const product = SHOP_PRODUCTS.find(p => p.id === item.productId)
+                const maxQty = Math.max(1, product?.stock ?? 99)
+                return (
+                  <div key={item.productId} className={`flex items-start gap-3 p-4 ${idx > 0 ? 'border-t border-gray-50' : ''}`}>
+                    {/* Checkbox */}
+                    <button
+                      onClick={() => toggleCheck(item.productId)}
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-1 transition-colors ${
+                        item.checked ? 'bg-brand border-brand text-white' : 'border-gray-300'
+                      }`}
+                    >
+                      {item.checked && <span className="text-xs leading-none">✓</span>}
+                    </button>
 
-                  {/* Image */}
-                  <div
-                    className="w-16 h-16 rounded-lg flex items-center justify-center text-3xl flex-shrink-0"
-                    style={{ background: item.bgGradient }}
-                    aria-hidden="true"
-                  >
-                    {item.emoji}
-                  </div>
+                    {/* Image */}
+                    <div
+                      className="w-16 h-16 rounded-lg flex items-center justify-center text-3xl flex-shrink-0"
+                      style={{ background: item.bgGradient }}
+                      aria-hidden="true"
+                    >
+                      {item.emoji}
+                    </div>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold truncate ${item.checked ? 'text-gray-900' : 'text-gray-400'}`}>
-                      {item.name}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">规格：{item.spec}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-base font-bold text-red-500">¥{item.price}</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => updateQty(item.productId, -1)}
-                          className="w-7 h-7 rounded border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand hover:text-brand transition-colors"
-                        >
-                          −
-                        </button>
-                        <span className="text-sm font-semibold w-6 text-center">{item.quantity}</span>
-                        <button
-                          onClick={() => updateQty(item.productId, 1)}
-                          className="w-7 h-7 rounded border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand hover:text-brand transition-colors"
-                        >
-                          +
-                        </button>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold truncate ${item.checked ? 'text-gray-900' : 'text-gray-400'}`}>
+                        {item.name}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">规格：{item.spec}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-base font-bold text-red-500">¥{item.price}</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateQty(item.productId, -1)}
+                            className="w-7 h-7 rounded border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand hover:text-brand transition-colors"
+                          >
+                            −
+                          </button>
+                          <span className="text-sm font-semibold w-6 text-center">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQty(item.productId, 1, maxQty)}
+                            className="w-7 h-7 rounded border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand hover:text-brand transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Delete */}
-                  <button
-                    onClick={() => removeItem(item.productId)}
-                    className="text-gray-300 hover:text-red-400 transition-colors text-xs flex-shrink-0"
-                  >
-                    删除
-                  </button>
-                </div>
-              ))}
+                    {/* Delete */}
+                    <button
+                      onClick={() => removeItem(item.productId)}
+                      className="text-gray-300 hover:text-red-400 transition-colors text-xs flex-shrink-0"
+                    >
+                      删除
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
