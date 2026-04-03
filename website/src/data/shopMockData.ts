@@ -672,7 +672,7 @@ export const HOME_SECTIONS = [
   {
     title: '🥬 时令蔬菜',
     categoryId: 'vegetable',
-    productIds: ['p016', 'p017', 'p018', 'p028'],
+    productIds: ['p016', 'p017', 'p018', 'p027'],
   },
 ]
 
