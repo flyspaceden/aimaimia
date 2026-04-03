@@ -6,10 +6,10 @@ import ShopFooter from './ShopFooter'
 export default function ShopLayout() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <ShopNavbar cartCount={3} />
-      <main className="flex-1">
+      <ShopNavbar />
+      <div className="flex-1">
         <Outlet />
-      </main>
+      </div>
       <ShopFooter />
     </div>
   )

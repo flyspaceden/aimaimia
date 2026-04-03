@@ -76,9 +76,9 @@ export default function ShopUser() {
           {ORDER_STATS.map(stat => (
             <button key={stat.label} className="flex flex-col items-center gap-1.5 p-3 rounded-xl hover:bg-gray-50 transition-colors">
               <span className="text-2xl">{stat.emoji}</span>
-              {stat.count > 0 && (
-                <span className="text-base font-bold text-brand">{stat.count}</span>
-              )}
+              <span className={`text-base font-bold ${stat.count > 0 ? 'text-brand' : 'text-gray-300'}`}>
+                {stat.count}
+              </span>
               <span className="text-xs text-gray-500">{stat.label}</span>
             </button>
           ))}
@@ -143,7 +143,10 @@ export default function ShopUser() {
             <span className="text-gray-300">›</span>
           </Link>
         ))}
-        <button className="w-full flex items-center gap-3 px-5 py-4 border-t border-gray-50 hover:bg-red-50 transition-colors text-red-400">
+        <button
+          onClick={() => alert('已退出登录')}
+          className="w-full flex items-center gap-3 px-5 py-4 border-t border-gray-50 hover:bg-red-50 transition-colors text-red-400"
+        >
           <span className="text-xl">🚪</span>
           <span className="text-sm font-medium flex-1 text-left">退出登录</span>
         </button>

@@ -7,7 +7,7 @@ interface Props {
   cartCount?: number
 }
 
-export default function ShopNavbar({ cartCount = 3 }: Props) {
+export default function ShopNavbar({ cartCount = 0 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const location = useLocation()

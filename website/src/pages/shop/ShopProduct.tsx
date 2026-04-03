@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { SHOP_PRODUCTS, SHOP_CATEGORIES } from '@/data/shopMockData'
 import ProductCard from '@/components/shop/ProductCard'
@@ -12,6 +12,26 @@ export default function ShopProduct() {
   const [quantity, setQuantity] = useState(1)
   const [activeThumb, setActiveThumb] = useState(0)
   const [addedToCart, setAddedToCart] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Reset state when navigating to a different product
+  useEffect(() => {
+    setSelectedSkuIdx(0)
+    setQuantity(1)
+    setActiveThumb(0)
+    setAddedToCart(false)
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [id])
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
 
   if (!product) {
     return (
@@ -26,10 +46,12 @@ export default function ShopProduct() {
   const category = product.categoryId
   const currentSku = product.skus[selectedSkuIdx]
   const currentPrice = currentSku?.price ?? product.price
+  const maxQty = Math.max(1, product.stock)
 
   const handleAddToCart = () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
     setAddedToCart(true)
-    setTimeout(() => setAddedToCart(false), 2000)
+    timerRef.current = setTimeout(() => setAddedToCart(false), 2000)
   }
 
   const handleBuyNow = () => {
@@ -41,7 +63,7 @@ export default function ShopProduct() {
     .filter(p => p.categoryId === category && p.id !== product.id)
     .slice(0, 4)
 
-  // Mock thumbnails (same emoji repeated for demo)
+  // Mock thumbnails
   const thumbs = [product.emoji, '📦', '🚚', '✅']
 
   return (
@@ -65,10 +87,10 @@ export default function ShopProduct() {
             {/* Main image */}
             <div
               className="flex items-center justify-center text-8xl"
-              style={{ background: product.bgGradient, height: '280px' }}
+              style={{ background: activeThumb === 0 ? product.bgGradient : '#f3f4f6', height: '280px' }}
               aria-hidden="true"
             >
-              {thumbs[activeThumb] === product.emoji ? product.emoji : thumbs[activeThumb]}
+              {thumbs[activeThumb]}
             </div>
             {/* Thumbnails */}
             <div className="flex gap-2 p-3">
@@ -152,7 +174,7 @@ export default function ShopProduct() {
                 </button>
                 <span className="text-base font-semibold w-8 text-center">{quantity}</span>
                 <button
-                  onClick={() => setQuantity(q => Math.min(product.stock, q + 1))}
+                  onClick={() => setQuantity(q => Math.min(maxQty, q + 1))}
                   className="w-9 h-9 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand transition-colors text-lg"
                 >
                   +

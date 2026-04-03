@@ -1,31 +1,71 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { SHOP_PRODUCTS, SHOP_CATEGORIES } from '@/data/shopMockData'
 import ProductCard from '@/components/shop/ProductCard'
 
-type SortKey = 'default' | 'sales' | 'price_asc' | 'price_desc'
+type SortKey = 'default' | 'price_asc' | 'price_desc'
+
+// Keyword map for subcategory filtering (name/subtitle based matching)
+const SUB_KEYWORDS: Record<string, string[]> = {
+  '螃蟹': ['蟹'],
+  '虾类': ['虾'],
+  '贝类': ['蚝', '蚶', '蛤'],
+  '淡水鱼': ['鲩', '鳗'],
+  '海水鱼': ['石斑', '带鱼'],
+  '冻鱼': ['冻'],
+  '荔枝龙眼': ['荔枝', '龙眼'],
+  '热带水果': ['菠萝', '香蕉'],
+  '柑橘类': ['柚', '橙', '柑'],
+  '叶菜类': ['菜心', '芥菜'],
+  '根茎类': ['竹笋', '笋'],
+  '瓜类': ['节瓜', '冬瓜', '苦瓜'],
+}
 
 export default function ShopCategory() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
-  const searchQuery = searchParams.get('q')?.trim().toLowerCase() ?? ''
+  const displayQuery = searchParams.get('q')?.trim() ?? ''
+  const searchQuery = displayQuery.toLowerCase()
   const [sortKey, setSortKey] = useState<SortKey>('default')
   const [activeSubCat, setActiveSubCat] = useState<string>('全部')
+
+  // Reset subcategory filter when navigating to a different category
+  useEffect(() => {
+    setActiveSubCat('全部')
+    setSortKey('default')
+  }, [id])
 
   const category = SHOP_CATEGORIES.find(c => c.id === id)
   const subCategories = ['全部', ...(category?.subCategories ?? [])]
 
-  // Filter products
+  // Filter by category
   let products = id === 'all'
     ? SHOP_PRODUCTS
     : SHOP_PRODUCTS.filter(p => p.categoryId === id)
 
+  // Filter by search query
   if (searchQuery) {
     products = products.filter(p =>
       p.name.toLowerCase().includes(searchQuery) ||
       p.subtitle.toLowerCase().includes(searchQuery) ||
       p.origin.toLowerCase().includes(searchQuery)
     )
+  }
+
+  // Filter by subcategory (keyword-based for demo)
+  if (activeSubCat !== '全部') {
+    const keywords = SUB_KEYWORDS[activeSubCat]
+    if (keywords && keywords.length > 0) {
+      products = products.filter(p =>
+        keywords.some(kw => p.name.includes(kw) || p.subtitle.includes(kw))
+      )
+    } else {
+      // '其他': products not matching any known subcategory keyword in this category
+      const allKws = Object.values(SUB_KEYWORDS).flat()
+      products = products.filter(p =>
+        !allKws.some(kw => p.name.includes(kw) || p.subtitle.includes(kw))
+      )
+    }
   }
 
   // Sort
@@ -46,9 +86,9 @@ export default function ShopCategory() {
         <span className="text-gray-700">{categoryLabel}</span>
       </nav>
 
-      {searchQuery && (
+      {displayQuery && (
         <div className="mb-3 text-sm text-gray-600">
-          搜索 "<span className="font-semibold text-brand">{searchQuery}</span>" 的结果
+          搜索 "<span className="font-semibold text-brand">{displayQuery}</span>" 的结果
         </div>
       )}
 
@@ -103,7 +143,6 @@ export default function ShopCategory() {
             <span className="text-xs text-gray-400 mr-2">排序：</span>
             {([
               { key: 'default' as SortKey, label: '综合' },
-              { key: 'sales' as SortKey, label: '销量' },
               { key: 'price_asc' as SortKey, label: '价格↑' },
               { key: 'price_desc' as SortKey, label: '价格↓' },
             ]).map(opt => (

@@ -1,6 +1,5 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
 import { PAGE_META } from '@/lib/constants'
@@ -60,7 +59,7 @@ function PageLoader() {
 export default function App() {
   const location = useLocation()
   const isLandingPage = location.pathname.startsWith('/r/') || location.pathname === '/download' || location.pathname === '/resolve'
-  const isShopPage = location.pathname.startsWith('/shop')
+  const isShopPage = location.pathname === '/shop' || location.pathname.startsWith('/shop/')
 
   return (
     <>

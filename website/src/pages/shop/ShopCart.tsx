@@ -17,11 +17,11 @@ export default function ShopCart() {
     setItems(prev => prev.map(i => ({ ...i, checked: !allChecked })))
   }
   const updateQty = (productId: string, delta: number) => {
-    setItems(prev => prev.map(i =>
-      i.productId === productId
-        ? { ...i, quantity: Math.max(1, i.quantity + delta) }
-        : i
-    ))
+    setItems(prev => prev.map(i => {
+      if (i.productId !== productId) return i
+      const maxQty = SHOP_PRODUCTS.find(p => p.id === productId)?.stock ?? 99
+      return { ...i, quantity: Math.min(Math.max(1, maxQty), Math.max(1, i.quantity + delta)) }
+    }))
   }
   const removeItem = (productId: string) => {
     setItems(prev => prev.filter(i => i.productId !== productId))
@@ -29,8 +29,8 @@ export default function ShopCart() {
 
   const allChecked = items.length > 0 && items.every(i => i.checked)
 
-  // Recommended products
-  const recommended = SHOP_PRODUCTS.filter(p => !items.find(i => i.productId === p.id)).slice(0, 4)
+  // Recommended products (2 items shown; no intermediate slice needed)
+  const recommended = SHOP_PRODUCTS.filter(p => !items.find(i => i.productId === p.id)).slice(0, 2)
 
   return (
     <div className="max-w-page mx-auto px-4 sm:px-6 py-6">
@@ -174,7 +174,7 @@ export default function ShopCart() {
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-xs font-semibold text-gray-600 mb-3">猜你喜欢</p>
                   <div className="grid grid-cols-2 gap-2">
-                    {recommended.slice(0, 2).map(p => (
+                    {recommended.map(p => (
                       <Link
                         key={p.id}
                         to={`/shop/product/${p.id}`}

@@ -15,7 +15,7 @@ export default function ProductCard({ product }: Props) {
       {/* Product image area */}
       <div
         className="flex items-center justify-center text-5xl"
-        style={{ background: product.bgGradient, height: '120px' }}
+        style={{ background: product.bgGradient || 'linear-gradient(135deg, #e8f5e9, #c8e6c9)', height: '120px' }}
         aria-hidden="true"
       >
         {product.emoji}

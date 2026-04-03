@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { MOCK_CART_ITEMS } from '@/data/shopMockData'
 
 type DeliveryOption = 'sf_cold' | 'next_day'
@@ -58,12 +58,13 @@ export default function ShopCheckout() {
   const [remark, setRemark] = useState('')
   const [showSuccess, setShowSuccess] = useState(false)
 
+  // Frozen at mount time so it doesn't change on every re-render
+  const [orderNo] = useState(() => `AMM${Date.now().toString().slice(-10)}`)
+
   const checkedItems = MOCK_CART_ITEMS.filter(i => i.checked)
   const subtotal = checkedItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
   const deliveryFee = DELIVERY_OPTIONS.find(o => o.key === delivery)?.price ?? 0
   const total = subtotal + deliveryFee
-
-  const orderNo = `AMM${Date.now().toString().slice(-10)}`
 
   const handlePay = () => {
     setShowSuccess(true)
@@ -72,6 +73,18 @@ export default function ShopCheckout() {
   const handleCloseSuccess = () => {
     setShowSuccess(false)
     navigate('/shop')
+  }
+
+  if (checkedItems.length === 0) {
+    return (
+      <div className="text-center py-20 text-gray-400">
+        <div className="text-5xl mb-4">🛒</div>
+        <p className="text-lg mb-4">请先选择要结算的商品</p>
+        <Link to="/shop/cart" className="bg-brand text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-brand-dark transition-colors">
+          返回购物车
+        </Link>
+      </div>
+    )
   }
 
   return (
