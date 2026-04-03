@@ -3,6 +3,9 @@
 # dependencies
 node_modules/
 
+# worktrees
+.worktrees/
+
 # Expo
 .expo/
 dist/
