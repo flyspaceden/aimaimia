@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { SHOP_PRODUCTS, SHOP_CATEGORIES } from '@/data/shopMockData'
 import ProductCard from '@/components/shop/ProductCard'
 
@@ -7,6 +7,8 @@ type SortKey = 'default' | 'sales' | 'price_asc' | 'price_desc'
 
 export default function ShopCategory() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const searchQuery = searchParams.get('q')?.trim().toLowerCase() ?? ''
   const [sortKey, setSortKey] = useState<SortKey>('default')
   const [activeSubCat, setActiveSubCat] = useState<string>('全部')
 
@@ -17,6 +19,14 @@ export default function ShopCategory() {
   let products = id === 'all'
     ? SHOP_PRODUCTS
     : SHOP_PRODUCTS.filter(p => p.categoryId === id)
+
+  if (searchQuery) {
+    products = products.filter(p =>
+      p.name.toLowerCase().includes(searchQuery) ||
+      p.subtitle.toLowerCase().includes(searchQuery) ||
+      p.origin.toLowerCase().includes(searchQuery)
+    )
+  }
 
   // Sort
   const sorted = [...products].sort((a, b) => {
@@ -35,6 +45,12 @@ export default function ShopCategory() {
         <span>›</span>
         <span className="text-gray-700">{categoryLabel}</span>
       </nav>
+
+      {searchQuery && (
+        <div className="mb-3 text-sm text-gray-600">
+          搜索 "<span className="font-semibold text-brand">{searchQuery}</span>" 的结果
+        </div>
+      )}
 
       <div className="flex gap-4">
         {/* Desktop: left sub-category sidebar */}

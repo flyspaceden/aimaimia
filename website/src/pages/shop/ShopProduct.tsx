@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { SHOP_PRODUCTS } from '@/data/shopMockData'
+import { SHOP_PRODUCTS, SHOP_CATEGORIES } from '@/data/shopMockData'
 import ProductCard from '@/components/shop/ProductCard'
 
 export default function ShopProduct() {
@@ -51,13 +51,7 @@ export default function ShopProduct() {
         <Link to="/shop" className="hover:text-brand transition-colors">首页</Link>
         <span>›</span>
         <Link to={`/shop/category/${product.categoryId}`} className="hover:text-brand transition-colors">
-          {product.categoryId === 'seafood' ? '海鲜水产'
-            : product.categoryId === 'fish' ? '鱼类'
-            : product.categoryId === 'fruit' ? '新鲜水果'
-            : product.categoryId === 'vegetable' ? '时令蔬菜'
-            : product.categoryId === 'meat' ? '肉禽蛋'
-            : product.categoryId === 'specialty' ? '农家特产'
-            : '冷冻食品'}
+          {SHOP_CATEGORIES.find(c => c.id === product.categoryId)?.label ?? product.categoryId}
         </Link>
         <span>›</span>
         <span className="text-gray-700 truncate max-w-xs">{product.name}</span>
