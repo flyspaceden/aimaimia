@@ -64,13 +64,17 @@ export default function ShopCart() {
                     </button>
 
                     {/* Image */}
-                    <div
-                      className="w-16 h-16 rounded-lg flex items-center justify-center text-3xl flex-shrink-0"
-                      style={{ background: item.bgGradient }}
-                      aria-hidden="true"
-                    >
-                      {item.emoji}
-                    </div>
+                    {item.image ? (
+                      <img src={item.image} alt={item.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <div
+                        className="w-16 h-16 rounded-lg flex items-center justify-center text-3xl flex-shrink-0"
+                        style={{ background: item.bgGradient }}
+                        aria-hidden="true"
+                      >
+                        {item.emoji}
+                      </div>
+                    )}
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">

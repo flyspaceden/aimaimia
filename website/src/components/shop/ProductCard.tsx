@@ -11,6 +11,7 @@ interface Props {
 export default function ProductCard({ product }: Props) {
   const { addItem } = useCart()
   const [justAdded, setJustAdded] = useState(false)
+  const [imgError, setImgError] = useState(false)
 
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -26,13 +27,24 @@ export default function ProductCard({ product }: Props) {
       className="block bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 group relative"
     >
       {/* Product image area */}
-      <div
-        className="flex items-center justify-center text-5xl"
-        style={{ background: product.bgGradient || 'linear-gradient(135deg, #e8f5e9, #c8e6c9)', height: '120px' }}
-        aria-hidden="true"
-      >
-        {product.emoji}
-      </div>
+      {product.image && !imgError ? (
+        <img
+          src={product.image}
+          alt={product.name}
+          className="w-full object-cover"
+          style={{ height: '120px' }}
+          loading="lazy"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <div
+          className="flex items-center justify-center text-5xl"
+          style={{ background: product.bgGradient || 'linear-gradient(135deg, #e8f5e9, #c8e6c9)', height: '120px' }}
+          aria-hidden="true"
+        >
+          {product.emoji}
+        </div>
+      )}
 
       {/* Product info */}
       <div className="p-3">

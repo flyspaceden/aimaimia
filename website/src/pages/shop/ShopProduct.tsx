@@ -14,6 +14,7 @@ export default function ShopProduct() {
   const [quantity, setQuantity] = useState(1)
   const [activeThumb, setActiveThumb] = useState(0)
   const [addedToCart, setAddedToCart] = useState(false)
+  const [imgError, setImgError] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Reset state when navigating to a different product
@@ -22,6 +23,7 @@ export default function ShopProduct() {
     setQuantity(1)
     setActiveThumb(0)
     setAddedToCart(false)
+    setImgError(false)
     if (timerRef.current) {
       clearTimeout(timerRef.current)
       timerRef.current = null
@@ -102,27 +104,40 @@ export default function ShopProduct() {
           {/* Gallery */}
           <div className="lg:w-80 flex-shrink-0">
             {/* Main image */}
-            <div
-              className="flex items-center justify-center text-8xl"
-              style={{ background: activeThumb === 0 ? product.bgGradient : '#f3f4f6', height: '280px' }}
-              aria-hidden="true"
-            >
-              {thumbs[activeThumb]}
-            </div>
+            {activeThumb === 0 && product.image && !imgError ? (
+              <img
+                src={product.image}
+                alt={product.name}
+                className="w-full object-cover"
+                style={{ height: '280px' }}
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              <div
+                className="flex items-center justify-center text-8xl"
+                style={{ background: activeThumb === 0 ? product.bgGradient : '#f3f4f6', height: '280px' }}
+                aria-hidden="true"
+              >
+                {thumbs[activeThumb]}
+              </div>
+            )}
             {/* Thumbnails */}
             <div className="flex gap-2 p-3">
               {thumbs.map((thumb, idx) => (
                 <button
                   key={idx}
                   onClick={() => setActiveThumb(idx)}
-                  className={`w-14 h-14 rounded-lg flex items-center justify-center text-2xl border-2 transition-colors ${
+                  className={`w-14 h-14 rounded-lg flex items-center justify-center border-2 transition-colors overflow-hidden ${
                     activeThumb === idx
                       ? 'border-brand bg-brand-soft'
                       : 'border-gray-200 bg-gray-50 hover:border-gray-300'
                   }`}
-                  style={idx === 0 ? { background: product.bgGradient } : undefined}
                 >
-                  {thumb}
+                  {idx === 0 && product.image && !imgError ? (
+                    <img src={product.image} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-2xl" style={idx === 0 ? { background: product.bgGradient } : undefined}>{thumb}</span>
+                  )}
                 </button>
               ))}
             </div>

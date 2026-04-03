@@ -42,6 +42,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           quantity: Math.min(maxQty, qty),
           checked: true,
           emoji: product.emoji,
+          image: product.image,
           bgGradient: product.bgGradient || 'linear-gradient(135deg, #e8f5e9, #c8e6c9)',
         },
       ]

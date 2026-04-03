@@ -130,13 +130,17 @@ export default function ShopCheckout() {
             <div className="space-y-3">
               {checkedItems.map(item => (
                 <div key={item.productId} className="flex items-center gap-3">
-                  <div
-                    className="w-14 h-14 rounded-lg flex items-center justify-center text-2xl flex-shrink-0"
-                    style={{ background: item.bgGradient }}
-                    aria-hidden="true"
-                  >
-                    {item.emoji}
-                  </div>
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
+                  ) : (
+                    <div
+                      className="w-14 h-14 rounded-lg flex items-center justify-center text-2xl flex-shrink-0"
+                      style={{ background: item.bgGradient }}
+                      aria-hidden="true"
+                    >
+                      {item.emoji}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
                     <p className="text-xs text-gray-400">规格：{item.spec} · 数量：×{item.quantity}</p>
