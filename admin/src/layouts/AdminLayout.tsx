@@ -17,6 +17,7 @@ import {
   LogoutOutlined,
   ApartmentOutlined,
   TagsOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -82,6 +83,20 @@ const menuRoutes: ProLayoutProps['route'] = {
       routes: [
         { path: '/coupons', name: '红包管理', permission: PERMISSIONS.COUPON_READ },
         { path: '/lottery', name: '抽奖管理', permission: PERMISSIONS.LOTTERY_READ },
+      ],
+    },
+    {
+      path: '/cs',
+      name: '客服中心',
+      icon: <MessageOutlined />,
+      permission: PERMISSIONS.CS_READ,
+      routes: [
+        { path: '/cs/workstation', name: '对话工作台' },
+        { path: '/cs/tickets', name: '工单管理' },
+        { path: '/cs/faq', name: 'FAQ 管理' },
+        { path: '/cs/quick-entries', name: '快捷入口配置' },
+        { path: '/cs/quick-replies', name: '坐席快捷回复' },
+        { path: '/cs/dashboard', name: '数据看板' },
       ],
     },
     {

@@ -46,6 +46,12 @@ const InvoiceListPage = lazy(() => import('@/pages/invoices/index'));
 const InvoiceDetailPage = lazy(() => import('@/pages/invoices/detail'));
 const TagManagementPage = lazy(() => import('@/pages/tags/index'));
 const DiscoveryFiltersPage = lazy(() => import('@/pages/config/discovery-filters'));
+const CsWorkstationPage = lazy(() => import('@/pages/cs/workstation'));
+const CsTicketsPage = lazy(() => import('@/pages/cs/tickets'));
+const CsFaqPage = lazy(() => import('@/pages/cs/faq'));
+const CsQuickEntriesPage = lazy(() => import('@/pages/cs/quick-entries'));
+const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
+const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -131,6 +137,12 @@ export default function App() {
             <Route path="trace" element={<TraceListPage />} />
             <Route path="config" element={<ConfigPage />} />
             <Route path="config/discovery-filters" element={<DiscoveryFiltersPage />} />
+            <Route path="cs/workstation" element={<CsWorkstationPage />} />
+            <Route path="cs/tickets" element={<CsTicketsPage />} />
+            <Route path="cs/faq" element={<CsFaqPage />} />
+            <Route path="cs/quick-entries" element={<CsQuickEntriesPage />} />
+            <Route path="cs/quick-replies" element={<CsQuickRepliesPage />} />
+            <Route path="cs/dashboard" element={<CsDashboardPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/roles" element={<RolesPage />} />

@@ -101,4 +101,8 @@ export const PERMISSIONS = {
   // 标签管理
   TAGS_READ: 'tags:read',
   TAGS_MANAGE: 'tags:manage',
+
+  // 客服中心
+  CS_READ: 'cs:read',
+  CS_MANAGE: 'cs:manage',
 } as const;
