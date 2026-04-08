@@ -33,3 +33,4 @@ export * from './CouponRepo';
 export * from './CategoryRepo';
 export * from './InvoiceRepo';
 export * from './AfterSaleRepo';
+export * from './CsRepo';
