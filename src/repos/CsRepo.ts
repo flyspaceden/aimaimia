@@ -78,6 +78,28 @@ export const CsRepo = {
   },
 
   /**
+   * 发送消息到客服会话
+   * - 用途：用户在客服聊天页面发送文字消息
+   * - 后端接口：`POST /api/v1/cs/sessions/:id/messages`
+   * - Mock 模式下返回一条模拟的 AI 回复
+   */
+  sendMessage: async (sessionId: string, content: string): Promise<Result<CsMessage>> => {
+    if (USE_MOCK) {
+      // Mock 模式：模拟 AI 自动回复
+      const mockReply: CsMessage = {
+        id: `mock-ai-${Date.now()}`,
+        sessionId,
+        senderType: 'AI',
+        contentType: 'TEXT',
+        content: getMockAiReply(content),
+        createdAt: new Date().toISOString(),
+      };
+      return simulateRequest(mockReply, { delay: 800 });
+    }
+    return ApiClient.post<CsMessage>(`/cs/sessions/${sessionId}/messages`, { content });
+  },
+
+  /**
    * 提交会话评价
    * - 用途：客服会话结束后用户评分
    * - 后端接口：`POST /api/v1/cs/sessions/:id/rating`
@@ -87,3 +109,24 @@ export const CsRepo = {
     return ApiClient.post<any>(`/cs/sessions/${sessionId}/rating`, data);
   },
 };
+
+// Mock 模式下的 AI 自动回复
+function getMockAiReply(userMessage: string): string {
+  const msg = userMessage.toLowerCase();
+  if (msg.includes('快递') || msg.includes('物流')) {
+    return '正在为您查询物流信息，请稍候...\n\n您的包裹目前已到达【杭州转运中心】，预计明天送达。如需进一步帮助，请随时告诉我。';
+  }
+  if (msg.includes('退') || msg.includes('换')) {
+    return '关于退换货，我来为您解答：\n\n1. 收到商品7天内可申请无理由退货\n2. 商品质量问题可随时申请退换\n3. 退款一般3-5个工作日到账\n\n需要我帮您发起退换货申请吗？';
+  }
+  if (msg.includes('地址')) {
+    return '修改收货地址的操作步骤：\n\n1. 进入"我的订单"页面\n2. 找到对应订单\n3. 点击"修改地址"\n\n注意：已发货的订单无法修改地址。需要我帮您查看订单状态吗？';
+  }
+  if (msg.includes('优惠') || msg.includes('券')) {
+    return '关于优惠券使用说明：\n\n1. 在结算页面自动展示可用优惠券\n2. 选择优惠券后金额会自动抵扣\n3. 每笔订单仅可使用一张优惠券\n\n如有其他问题请继续咨询。';
+  }
+  if (msg.includes('vip') || msg.includes('会员')) {
+    return 'VIP会员权益包括：\n\n1. 专属优惠价格\n2. 优先发货\n3. 专属客服通道\n4. 积分加速累积\n\n您可以在"我的"页面查看VIP详情和开通方式。';
+  }
+  return '感谢您的咨询！我已收到您的问题，正在为您分析中。\n\n如果需要人工客服，请点击右上角转人工按钮。还有什么可以帮您的吗？';
+}
