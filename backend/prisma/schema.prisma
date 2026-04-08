@@ -29,7 +29,6 @@ enum UserStatus {
 
 enum AuthProvider {
   PHONE
-  EMAIL
   WECHAT
   GUEST // @deprecated 游客模式已移除，保留用于清理历史数据（B6），清理完毕后删除此值
 }
@@ -613,6 +612,10 @@ model User {
   // 卖家域关系
   companyStaffs   CompanyStaff[]   // 一个用户可以是多家企业的员工
   buyerAliases    BuyerAlias[]     // 在各店铺的匿名编号
+
+  // N 域关系（智能客服）
+  csTickets    CsTicket[]
+  csSessions   CsSession[]
 }
 
 model UserProfile {
@@ -2413,6 +2416,191 @@ model SellerAuditLog {
   @@index([companyId, createdAt])
   @@index([staffId, createdAt])
   @@index([action])
+}
+
+// =============================================
+// N 域：智能客服系统
+// =============================================
+
+enum CsTicketCategory {
+  LOGISTICS
+  AFTERSALE
+  PAYMENT
+  PRODUCT
+  ACCOUNT
+  OTHER
+}
+
+enum CsTicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum CsTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum CsSessionStatus {
+  AI_HANDLING
+  QUEUING
+  AGENT_HANDLING
+  CLOSED
+}
+
+enum CsSessionSource {
+  MY_PAGE
+  ORDER_DETAIL
+  AFTERSALE_DETAIL
+}
+
+enum CsMessageSender {
+  USER
+  AI
+  AGENT
+  SYSTEM
+}
+
+enum CsContentType {
+  TEXT
+  RICH_CARD
+  ACTION_CONFIRM
+  ACTION_RESULT
+  IMAGE
+}
+
+enum CsAgentOnlineStatus {
+  ONLINE
+  BUSY
+  OFFLINE
+}
+
+enum CsFaqAnswerType {
+  TEXT
+  RICH_CARD
+}
+
+enum CsQuickEntryType {
+  QUICK_ACTION
+  HOT_QUESTION
+}
+
+model CsTicket {
+  id                  String            @id @default(cuid())
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  category            CsTicketCategory  @default(OTHER)
+  priority            CsTicketPriority  @default(MEDIUM)
+  status              CsTicketStatus    @default(OPEN)
+  summary             String?
+  relatedOrderId      String?
+  relatedAfterSaleId  String?
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  sessions            CsSession[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([relatedOrderId])
+}
+
+model CsSession {
+  id            String           @id @default(cuid())
+  ticketId      String?
+  ticket        CsTicket?        @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status        CsSessionStatus  @default(AI_HANDLING)
+  source        CsSessionSource
+  sourceId      String?
+  agentId       String?
+  agentJoinedAt DateTime?
+  closedAt      DateTime?
+  createdAt     DateTime         @default(now())
+  messages      CsMessage[]
+  rating        CsRating?
+
+  @@index([userId, status])
+  @@index([userId, source, sourceId])
+  @@index([agentId, status])
+  @@index([status, createdAt])
+}
+
+model CsMessage {
+  id          String          @id @default(cuid())
+  sessionId   String
+  session     CsSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  senderType  CsMessageSender
+  senderId    String?
+  contentType CsContentType   @default(TEXT)
+  content     String
+  metadata    Json?
+  routeLayer  Int?
+  createdAt   DateTime        @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+model CsAgentStatus {
+  id              String              @id @default(cuid())
+  adminId         String              @unique
+  status          CsAgentOnlineStatus @default(OFFLINE)
+  currentSessions Int                 @default(0)
+  maxSessions     Int                 @default(5)
+  lastActiveAt    DateTime            @default(now())
+}
+
+model CsFaq {
+  id         String          @id @default(cuid())
+  keywords   String[]
+  pattern    String?
+  answer     String
+  answerType CsFaqAnswerType @default(TEXT)
+  metadata   Json?
+  priority   Int             @default(0)
+  enabled    Boolean         @default(true)
+  sortOrder  Int             @default(0)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([enabled, priority])
+}
+
+model CsQuickEntry {
+  id        String           @id @default(cuid())
+  type      CsQuickEntryType
+  label     String
+  action    String?
+  message   String?
+  icon      String?
+  enabled   Boolean          @default(true)
+  sortOrder Int              @default(0)
+}
+
+model CsQuickReply {
+  id        String  @id @default(cuid())
+  category  String
+  title     String
+  content   String
+  sortOrder Int     @default(0)
+  enabled   Boolean @default(true)
+}
+
+model CsRating {
+  id        String    @id @default(cuid())
+  sessionId String    @unique
+  session   CsSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  score     Int
+  tags      String[]
+  comment   String?
+  createdAt DateTime  @default(now())
 }
 
 // =============================================
