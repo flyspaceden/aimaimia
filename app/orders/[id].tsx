@@ -304,6 +304,13 @@ export default function OrderDetailScreen() {
               </LinearGradient>
             </Pressable>
           ) : null}
+          {/* 联系客服 */}
+          <Pressable
+            onPress={() => router.push(`/cs?source=ORDER_DETAIL&sourceId=${orderId}`)}
+            style={[styles.actionButtonOutline, { borderColor: colors.border, borderRadius: radius.pill }]}
+          >
+            <Text style={[typography.caption, { color: colors.text.secondary }]}>联系客服</Text>
+          </Pressable>
         </View>
 
         {/* 售后时间线 — 脉动当前节点 + 渐变连接线 */}

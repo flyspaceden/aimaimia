@@ -38,6 +38,7 @@ const TOOL_GRID = [
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
   { label: '奖励', icon: 'ticket-percent-outline' as const, route: '/me/wallet' },
   { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
+  { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
 ];
 
 // AI 小助手 3 格
