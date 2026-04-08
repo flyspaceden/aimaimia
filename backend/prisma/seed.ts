@@ -11,6 +11,210 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+// =================== 客服模块种子数据 ===================
+async function seedCustomerService() {
+  // FAQ 规则
+  const faqs = [
+    {
+      keywords: ['退款', '到账', '多久退款'],
+      pattern: '退款.*到账|多久.*退',
+      answer: '退款将在审核通过后1-3个工作日内原路退回到您的支付账户。',
+      priority: 10,
+    },
+    {
+      keywords: ['退货', '退换货', '怎么退'],
+      pattern: '怎么.*退|退货.*流程',
+      answer: '您可以在订单详情页点击"申请退货"，选择退货原因并上传商品照片，我们会在24小时内审核。',
+      priority: 10,
+    },
+    {
+      keywords: ['运费', '包邮', '邮费'],
+      pattern: undefined,
+      answer: '单笔订单满49元包邮（偏远地区除外），不满49元收取8元运费。',
+      priority: 5,
+    },
+    {
+      keywords: ['VIP', '会员', '权益'],
+      pattern: undefined,
+      answer: '爱买买VIP会员享受专属折扣、优先客服、免运费等权益。在"我的"页面可以查看详细权益说明。',
+      priority: 5,
+    },
+    {
+      keywords: ['发票', '开票'],
+      pattern: undefined,
+      answer: '您可以在"我的-发票管理"中申请电子发票，支持增值税普通发票和专用发票。',
+      priority: 3,
+    },
+    {
+      keywords: ['优惠券', '红包', '怎么用'],
+      pattern: undefined,
+      answer: '优惠券可以在结算页面选择使用，系统会自动匹配可用的优惠券。您也可以在"优惠券中心"领取新优惠券。',
+      priority: 3,
+    },
+  ];
+
+  // 快捷入口
+  const quickEntries: Array<{
+    type: 'QUICK_ACTION' | 'HOT_QUESTION';
+    label: string;
+    action?: string;
+    message?: string;
+    icon?: string;
+    sortOrder: number;
+  }> = [
+    {
+      type: 'QUICK_ACTION',
+      label: '查物流',
+      action: 'query_logistics',
+      icon: 'truck',
+      sortOrder: 1,
+    },
+    {
+      type: 'QUICK_ACTION',
+      label: '退换货',
+      action: 'apply_aftersale',
+      icon: 'refresh',
+      sortOrder: 2,
+    },
+    {
+      type: 'QUICK_ACTION',
+      label: '改地址',
+      action: 'modify_address',
+      icon: 'map-pin',
+      sortOrder: 3,
+    },
+    {
+      type: 'QUICK_ACTION',
+      label: '查退款',
+      action: 'query_aftersale',
+      icon: 'dollar-sign',
+      sortOrder: 4,
+    },
+    {
+      type: 'HOT_QUESTION',
+      label: '我的快递到哪了？',
+      message: '我的快递到哪了？',
+      sortOrder: 1,
+    },
+    {
+      type: 'HOT_QUESTION',
+      label: '怎么申请退货退款？',
+      message: '怎么申请退货退款？',
+      sortOrder: 2,
+    },
+    {
+      type: 'HOT_QUESTION',
+      label: '退款多久到账？',
+      message: '退款多久到账？',
+      sortOrder: 3,
+    },
+    {
+      type: 'HOT_QUESTION',
+      label: '怎么修改收货地址？',
+      message: '怎么修改收货地址？',
+      sortOrder: 4,
+    },
+    {
+      type: 'HOT_QUESTION',
+      label: 'VIP会员有什么权益？',
+      message: 'VIP会员有什么权益？',
+      sortOrder: 5,
+    },
+    {
+      type: 'HOT_QUESTION',
+      label: '优惠券怎么用？',
+      message: '优惠券怎么用？',
+      sortOrder: 6,
+    },
+  ];
+
+  // 快速回复
+  const quickReplies = [
+    {
+      category: '通用',
+      title: '问候',
+      content: '您好，很高兴为您服务！请问有什么可以帮您的？',
+      sortOrder: 1,
+    },
+    {
+      category: '通用',
+      title: '感谢耐心',
+      content: '感谢您的耐心等待，我正在为您处理。',
+      sortOrder: 2,
+    },
+    {
+      category: '通用',
+      title: '结束',
+      content: '感谢您的咨询，如有其他问题随时联系我们。祝您购物愉快！',
+      sortOrder: 3,
+    },
+    {
+      category: '物流',
+      title: '查询中',
+      content: '我正在帮您查询物流信息，请稍等。',
+      sortOrder: 1,
+    },
+    {
+      category: '物流',
+      title: '已发货',
+      content: '您的订单已发货，预计2-3天送达，您可以在订单详情页查看物流轨迹。',
+      sortOrder: 2,
+    },
+    {
+      category: '退款',
+      title: '已受理',
+      content: '您的退货退款申请已受理，我们会在24小时内完成审核。',
+      sortOrder: 1,
+    },
+    {
+      category: '退款',
+      title: '退款进度',
+      content: '退款将在审核通过后1-3个工作日内原路退回到您的支付账户。',
+      sortOrder: 2,
+    },
+    {
+      category: '退款',
+      title: '需要照片',
+      content: '为了加快审核，麻烦您拍几张商品照片发给我，谢谢。',
+      sortOrder: 3,
+    },
+  ];
+
+  // 检查现有数据
+  const existingFaqCount = await prisma.csFaq.count();
+  if (existingFaqCount > 0) {
+    console.log('  ℹ️  FAQ 规则已存在，跳过创建');
+  } else {
+    await prisma.csFaq.createMany({
+      data: faqs,
+      skipDuplicates: true,
+    });
+    console.log(`  ✅ ${faqs.length} 条 FAQ 规则已创建`);
+  }
+
+  const existingEntryCount = await prisma.csQuickEntry.count();
+  if (existingEntryCount > 0) {
+    console.log('  ℹ️  快捷入口已存在，跳过创建');
+  } else {
+    await prisma.csQuickEntry.createMany({
+      data: quickEntries,
+      skipDuplicates: true,
+    });
+    console.log(`  ✅ ${quickEntries.length} 个快捷入口已创建`);
+  }
+
+  const existingReplyCount = await prisma.csQuickReply.count();
+  if (existingReplyCount > 0) {
+    console.log('  ℹ️  快速回复已存在，跳过创建');
+  } else {
+    await prisma.csQuickReply.createMany({
+      data: quickReplies,
+      skipDuplicates: true,
+    });
+    console.log(`  ✅ ${quickReplies.length} 条快速回复已创建`);
+  }
+}
+
 async function main() {
   console.log('🌱 开始填充种子数据...');
 
@@ -4524,6 +4728,9 @@ async function main() {
     },
   });
   console.log(`  ✅ 发现页筛选配置已设置：${discoveryFilters.length} 项`);
+
+  // =================== 客服模块种子数据 ===================
+  await seedCustomerService();
 
   console.log('🌾 种子数据填充完成！');
 }
