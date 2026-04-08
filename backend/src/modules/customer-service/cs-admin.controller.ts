@@ -80,7 +80,7 @@ export class CsAdminController {
   @Patch('faq/:id')
   @RequirePermission('cs:manage')
   @AuditLog({ action: 'UPDATE', module: 'cs-faq', targetType: 'CsFaq' })
-  updateFaq(@Param('id') id: string, @Body() dto: UpdateCsFaqDto) { return this.faqService.update(id, dto); }
+  updateFaq(@Param('id') id: string, @Body() dto: UpdateCsFaqDto) { return this.faqService.update(id, dto as any); }
 
   @Delete('faq/:id')
   @RequirePermission('cs:manage')

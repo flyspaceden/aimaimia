@@ -58,7 +58,7 @@ export class CsRoutingService {
         return {
           layer: 2,
           reply: aiResult.reply,
-          contentType: aiResult.contentType ?? 'TEXT',
+          contentType: (aiResult.contentType as any) ?? 'TEXT',
           metadata: aiResult.metadata,
           shouldTransferToAgent: false,
           aiIntent: aiResult.intent,

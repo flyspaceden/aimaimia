@@ -103,7 +103,7 @@ export class CsService {
           senderType: 'AI',
           contentType: (routeResult.contentType as CsContentType) ?? 'TEXT',
           content: routeResult.reply,
-          metadata: routeResult.metadata ?? undefined,
+          metadata: (routeResult.metadata as any) ?? undefined,
           routeLayer: routeResult.layer,
         },
       });
@@ -288,7 +288,7 @@ export class CsService {
       try {
         const order = await this.prisma.order.findUnique({
           where: { id: session.sourceId },
-          select: { id: true, status: true, goodsAmount: true, shippingFee: true, createdAt: true, items: { select: { productTitle: true, quantity: true, price: true } } },
+          select: { id: true, status: true, goodsAmount: true, shippingFee: true, createdAt: true, items: { select: { productSnapshot: true, quantity: true, unitPrice: true } } },
         });
         if (order) context.orderInfo = order as any;
       } catch { /* non-critical */ }
