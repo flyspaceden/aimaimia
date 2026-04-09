@@ -9,8 +9,12 @@ function createMocks() {
       findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
+    },
+    csAgentStatus: {
+      upsert: jest.fn(),
     },
     csMessage: {
       create: jest.fn(),
@@ -258,6 +262,21 @@ describe('CsService', () => {
       expect(agent.assignAgent).toHaveBeenCalled();
       expect(result.transferred).toBe(true);
     });
+
+    it('handleUserMessage — QUEUING 状态不走路由（防重复工单）', async () => {
+      const { service, prisma, routing } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', userId: 'u1', status: 'QUEUING',
+        messages: [],
+      });
+      prisma.csMessage.create.mockResolvedValue({ id: 'msg-1', content: 'test' });
+
+      const result = await service.handleUserMessage('s1', 'u1', 'hello');
+
+      expect(result.aiReply).toBeNull();
+      expect(result.transferred).toBe(false);
+      expect(routing.route).not.toHaveBeenCalled(); // 关键断言：排队中不走路由
+    });
   });
 
   // ====================================================================
@@ -298,6 +317,41 @@ describe('CsService', () => {
         data: { status: 'QUEUING' },
       });
       expect(result).toBe(false);
+    });
+  });
+
+  // ====================================================================
+  // agentAcceptSession
+  // ====================================================================
+
+  describe('agentAcceptSession()', () => {
+    it('CAS 更新防竞态 + 递增坐席计数', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
+      prisma.csAgentStatus.upsert.mockResolvedValue({});
+
+      await service.agentAcceptSession('s1', 'admin-1');
+
+      // 验证 CAS：updateMany 带 status=QUEUING 条件
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', status: 'QUEUING' },
+        data: expect.objectContaining({ status: 'AGENT_HANDLING', agentId: 'admin-1' }),
+      });
+      // 验证 currentSessions 递增
+      expect(prisma.csAgentStatus.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { adminId: 'admin-1' },
+          update: expect.objectContaining({ currentSessions: { increment: 1 } }),
+        }),
+      );
+    });
+
+    it('已被其他坐席接入时拒绝', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 0 }); // CAS 失败
+
+      await expect(service.agentAcceptSession('s1', 'admin-1'))
+        .rejects.toThrow('会话不在排队状态或已被其他坐席接入');
     });
   });
 

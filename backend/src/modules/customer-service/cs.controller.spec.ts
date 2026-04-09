@@ -9,6 +9,7 @@ function createMocks() {
     getAdminSessionDetail: jest.fn(),
     submitRating: jest.fn(),
     getQuickEntries: jest.fn(),
+    closeSession: jest.fn(),
   };
   const csGateway = {
     server: {
@@ -116,6 +117,19 @@ describe('CsController', () => {
       content: '正在为您转接人工客服，请稍候...',
     }));
     expect(result.transferred).toBe(false);
+  });
+
+  it('closeSession — 调用 csService 关闭会话并通知 Socket.IO', async () => {
+    const { controller, csService, csGateway } = createMocks();
+    csService.getSessionMessages.mockResolvedValue([]); // 归属检查
+    csService.closeSession.mockResolvedValue(undefined);
+
+    const result = await controller.closeSession('u1', 's1');
+
+    expect(csService.closeSession).toHaveBeenCalledWith('s1');
+    expect(csGateway.server.to).toHaveBeenCalledWith('session:s1');
+    expect(csGateway.server.emit).toHaveBeenCalledWith('cs:session_closed', { sessionId: 's1' });
+    expect(result).toEqual({ ok: true });
   });
 
   it('submitRating — 传入正确参数', async () => {
