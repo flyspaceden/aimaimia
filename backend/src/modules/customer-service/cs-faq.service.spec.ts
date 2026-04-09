@@ -226,18 +226,14 @@ describe('CsFaqService', () => {
       expect(result).toBeNull();
     });
 
-    it('关键词为空字符串：验证是否会匹配一切（空字符串 .includes bug）', async () => {
-      // 空字符串 ''.toLowerCase() = ''，而 any_string.includes('') === true
-      // 这是一个已知的行为特性——这里验证实际行为
+    it('关键词为空字符串：应跳过，不匹配任何消息', async () => {
       const faq = makeFaq({ keywords: [''] });
       const { service } = createService([faq]);
 
       const result = await service.match('任意消息');
 
-      // 空字符串 .includes('') 确实返回 true，所以会匹配
-      // 这验证了潜在的 bug：keywords 含空字符串会匹配任何消息
-      expect(result).not.toBeNull();
-      expect(result!.faqId).toBe('faq-1');
+      // 空字符串关键词被跳过，不会匹配
+      expect(result).toBeNull();
     });
 
     it('超长消息（10000字符）：不崩溃，正则只在前500字符执行', async () => {

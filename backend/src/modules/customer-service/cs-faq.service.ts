@@ -60,7 +60,7 @@ export class CsFaqService {
     for (const faq of faqs) {
       // 关键词匹配：任一关键词命中即算匹配
       const keywordMatch = faq.keywords.some((kw) =>
-        normalized.includes(kw.toLowerCase()),
+        kw.length > 0 && normalized.includes(kw.toLowerCase()),
       );
       if (keywordMatch) {
         return {
