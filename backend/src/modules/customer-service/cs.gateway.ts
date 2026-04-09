@@ -138,9 +138,9 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       if (client.data.isAgent && client.data.adminId) {
-        // 坐席发消息
+        // 坐席发消息：广播给房间内其他人（排除发送者自己，前端已本地添加）
         const msg = await this.csService.handleAgentMessage(sessionId, client.data.adminId, content, contentType as any);
-        this.server.to(`session:${sessionId}`).emit('cs:message', msg);
+        client.to(`session:${sessionId}`).emit('cs:message', msg);
       } else if (client.data.userId) {
         // 先验证归属再加入房间
         const session = await this.csService.getActiveSession(client.data.userId, '', undefined);
