@@ -5,7 +5,7 @@ import { PermissionGuard } from '../admin/common/guards/permission.guard';
 import { RequirePermission } from '../admin/common/decorators/require-permission';
 import { AuditLogInterceptor } from '../admin/common/interceptors/audit-log.interceptor';
 import { AuditLog } from '../admin/common/decorators/audit-action';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentAdmin } from '../admin/common/decorators/current-admin';
 import { CsService } from './cs.service';
 import { CsFaqService } from './cs-faq.service';
 import { CsTicketService } from './cs-ticket.service';
@@ -63,7 +63,7 @@ export class CsAdminController {
   @Patch('tickets/:id')
   @RequirePermission('cs:manage')
   @AuditLog({ action: 'UPDATE', module: 'cs-tickets', targetType: 'CsTicket' })
-  updateTicket(@Param('id') id: string, @Body() dto: UpdateCsTicketDto, @CurrentUser('sub') adminId: string) {
+  updateTicket(@Param('id') id: string, @Body() dto: UpdateCsTicketDto, @CurrentAdmin('sub') adminId: string) {
     return this.ticketService.update(id, dto, adminId);
   }
 

@@ -84,6 +84,16 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
 
         await this.agentService.updateStatus(payload.sub, 'ONLINE');
+
+        // 重连时重新加入正在处理的会话房间
+        const activeSessionIds = await this.agentService.getActiveSessionIds(payload.sub);
+        for (const sid of activeSessionIds) {
+          client.join(`session:${sid}`);
+        }
+        if (activeSessionIds.length > 0) {
+          this.logger.log(`坐席 ${payload.sub} 重连，恢复 ${activeSessionIds.length} 个会话房间`);
+        }
+
         return;
       } catch { /* not an admin token */ }
 
@@ -102,6 +112,9 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const timer = setTimeout(async () => {
         try {
           await this.agentService.handleDisconnect(adminId);
+          // 通知其他坐席排队数更新（会话已退回排队）
+          const queueCount = await this.agentService.getQueueCount();
+          this.server?.to('agent:lobby').emit('cs:queue_update', { queueCount });
         } catch (e) {
           this.logger.error(`坐席离线处理失败: ${adminId}`, e);
         }

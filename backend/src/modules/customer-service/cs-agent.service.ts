@@ -49,12 +49,28 @@ export class CsAgentService {
     });
   }
 
-  /** 坐席断线：标记离线 */
+  /** 坐席断线：标记离线 + 将其 AGENT_HANDLING 会话退回 QUEUING */
   async handleDisconnect(adminId: string) {
+    // 1. 将该坐席正在处理的会话退回排队
+    await this.prisma.csSession.updateMany({
+      where: { agentId: adminId, status: 'AGENT_HANDLING' },
+      data: { status: 'QUEUING', agentId: null, agentJoinedAt: null },
+    });
+
+    // 2. 标记离线，重置会话计数
     await this.prisma.csAgentStatus.updateMany({
       where: { adminId },
-      data: { status: 'OFFLINE', lastActiveAt: new Date() },
+      data: { status: 'OFFLINE', currentSessions: 0, lastActiveAt: new Date() },
     });
+  }
+
+  /** 获取坐席正在处理的会话 ID 列表（重连时加入房间用） */
+  async getActiveSessionIds(adminId: string): Promise<string[]> {
+    const sessions = await this.prisma.csSession.findMany({
+      where: { agentId: adminId, status: 'AGENT_HANDLING' },
+      select: { id: true },
+    });
+    return sessions.map((s) => s.id);
   }
 
   /** 获取排队会话数 */

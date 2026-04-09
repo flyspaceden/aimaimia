@@ -118,12 +118,22 @@ export class CsService {
     return { userMessage: userMsg, aiReply, transferred, routeResult };
   }
 
-  /** 转人工（事务保护：工单创建 + 坐席分配 + 会话状态更新） */
+  /** 转人工（CAS 防并发 + 幂等工单创建） */
   async transferToAgent(sessionId: string): Promise<boolean> {
-    // 先创建工单（允许失败后工单存在但无坐席，后续可补偿）
+    // CAS：仅当 status 仍为 AI_HANDLING 时才允许转人工（防并发重复调用）
+    const casResult = await this.prisma.csSession.updateMany({
+      where: { id: sessionId, status: 'AI_HANDLING' },
+      data: { status: 'QUEUING' }, // 先进排队，再尝试分配坐席
+    });
+    if (casResult.count === 0) {
+      // 已被其他并发请求转走，跳过
+      return false;
+    }
+
+    // 创建工单（CAS 成功后才创建，避免重复）
     await this.ticketService.createTicket(sessionId);
 
-    // 原子分配坐席（assignAgent 内部已是原子操作）
+    // 尝试分配坐席
     const adminId = await this.agentService.assignAgent();
 
     if (adminId) {
@@ -134,32 +144,47 @@ export class CsService {
       return true;
     }
 
-    // 无可用坐席，排队
-    await this.prisma.csSession.update({
-      where: { id: sessionId },
-      data: { status: 'QUEUING' },
-    });
+    // 无可用坐席，保持 QUEUING 状态（已在 CAS 步骤设置）
     return false;
   }
 
-  /** 坐席手动接入排队中的会话（CAS 防竞态 + 递增坐席计数） */
+  /** 坐席手动接入排队中的会话（CAS 防竞态 + 容量检查 + 递增计数） */
   async agentAcceptSession(sessionId: string, adminId: string) {
-    // CAS 更新：只在 status=QUEUING 时才能接入，防止两个坐席同时接入
+    // 1. 检查坐席容量（原子操作：只在 currentSessions < maxSessions 时递增）
+    const capacityResult = await this.prisma.$queryRaw<{ adminId: string }[]>`
+      UPDATE "CsAgentStatus"
+      SET "currentSessions" = "currentSessions" + 1,
+          "lastActiveAt" = NOW(),
+          status = 'ONLINE'
+      WHERE "adminId" = ${adminId}
+        AND "currentSessions" < "maxSessions"
+      RETURNING "adminId"
+    `;
+
+    // 如果坐席不存在，先创建再检查
+    if (capacityResult.length === 0) {
+      // 尝试创建新坐席记录（首次接入场景）
+      const existing = await this.prisma.csAgentStatus.findUnique({ where: { adminId } });
+      if (!existing) {
+        await this.prisma.csAgentStatus.create({
+          data: { adminId, status: 'ONLINE', currentSessions: 1, lastActiveAt: new Date() },
+        });
+      } else {
+        throw new BadRequestException('坐席会话数已达上限');
+      }
+    }
+
+    // 2. CAS 更新会话状态：只在 status=QUEUING 时才能接入
     const result = await this.prisma.csSession.updateMany({
       where: { id: sessionId, status: 'QUEUING' },
       data: { status: 'AGENT_HANDLING', agentId: adminId, agentJoinedAt: new Date() },
     });
 
     if (result.count === 0) {
+      // 回退坐席计数
+      await this.agentService.releaseAgent(adminId);
       throw new BadRequestException('会话不在排队状态或已被其他坐席接入');
     }
-
-    // 递增坐席会话计数（与自动分配一致）+ 确保在线状态
-    await this.prisma.csAgentStatus.upsert({
-      where: { adminId },
-      create: { adminId, status: 'ONLINE', currentSessions: 1, lastActiveAt: new Date() },
-      update: { status: 'ONLINE', currentSessions: { increment: 1 }, lastActiveAt: new Date() },
-    });
   }
 
   /** 坐席发送消息 */
