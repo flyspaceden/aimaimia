@@ -308,9 +308,29 @@ export default function CsIndexScreen() {
               },
             ]}
           >
-            <Text style={[typography.body, { color: colors.text.tertiary }]}>
-              会话已结束
-            </Text>
+            <Pressable
+              onPress={() => {
+                setSessionClosed(false);
+                setSessionId(null);
+                setMessages([]);
+                // 重新创建会话
+                CsRepo.createSession(source ?? 'MY_PAGE', sourceId).then((res) => {
+                  if (res.ok) setSessionId(res.data.sessionId);
+                });
+              }}
+              style={({ pressed }) => [
+                {
+                  paddingVertical: spacing.sm,
+                  paddingHorizontal: spacing.xl,
+                  borderRadius: radius.pill,
+                  backgroundColor: pressed ? colors.brand.primarySoft : colors.brand.primary,
+                },
+              ]}
+            >
+              <Text style={[typography.body, { color: colors.text.inverse, fontWeight: '600' }]}>
+                重新开始对话
+              </Text>
+            </Pressable>
           </View>
         ) : Platform.OS === 'ios' ? (
           <BlurView
