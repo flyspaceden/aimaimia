@@ -173,7 +173,14 @@ export default function CsIndexScreen() {
     }
 
     // 添加 AI/客服回复
-    setMessages((prev) => [...prev, result.data]);
+    const { aiReply, transferred } = result.data;
+    if (aiReply) {
+      setMessages((prev) => [...prev, aiReply]);
+    }
+    // 转人工排队时添加系统提示
+    if (transferred === false && result.data.userMessage) {
+      // 检查是否有转人工排队的系统消息（通过 Socket.IO 推送，这里仅做 transferred 状态记录）
+    }
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [input, sessionId, sessionClosed, show]);
 
@@ -190,8 +197,12 @@ export default function CsIndexScreen() {
   }, [handleSend]);
 
   // 结束会话并弹出评价
-  const handleEndSession = useCallback(() => {
+  const handleEndSession = useCallback(async () => {
     setSessionClosed(true);
+    // 通知后端关闭会话（释放坐席计数）
+    if (sessionId) {
+      await CsRepo.closeSession(sessionId).catch(() => {});
+    }
     // 添加系统消息
     const systemMsg: CsMessage = {
       id: `system-end-${Date.now()}`,

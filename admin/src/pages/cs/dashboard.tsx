@@ -29,10 +29,10 @@ const STAT_CARDS = [
   },
   {
     key: 'agentHandled' as const,
-    title: '平均响应',
+    title: '人工处理',
     icon: <ClockCircleOutlined />,
     color: '#faad14',
-    suffix: 's',
+    suffix: '次',
   },
   {
     key: 'avgRating' as const,

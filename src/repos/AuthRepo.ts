@@ -6,10 +6,9 @@
  * - USE_MOCK=false：调用后端 API
  *
  * 后端接口：
- *   - `POST /api/v1/auth/login`（手机号/邮箱 + 验证码或密码）
- *   - `POST /api/v1/auth/register`（手机号/邮箱 + 验证码或密码）
+ *   - `POST /api/v1/auth/login`（手机号 + 验证码或密码）
+ *   - `POST /api/v1/auth/register`（手机号 + 验证码）
  *   - `POST /api/v1/auth/sms/code`（发送短信验证码）
- *   - `POST /api/v1/auth/email/code`（发送邮箱验证码）
  *   - `POST /api/v1/auth/oauth/wechat`（微信授权登录/注册）
  *   - `POST /api/v1/auth/refresh`（刷新 Token）
  */
@@ -29,32 +28,17 @@ export const AuthRepo = {
   // 手机号登录
   loginWithPhone: async (payload: { phone: string; code?: string; password?: string; mode: LoginMode }): Promise<Result<AuthSession>> => {
     if (USE_MOCK) return simulateRequest({ ...createSession(), loginMethod: 'phone' }, { delay: 420 });
-    return ApiClient.post<AuthSession>('/auth/login', { channel: 'phone', ...payload });
-  },
-  // 邮箱登录
-  loginWithEmail: async (payload: { email: string; code?: string; password?: string; mode: LoginMode }): Promise<Result<AuthSession>> => {
-    if (USE_MOCK) return simulateRequest({ ...createSession(), loginMethod: 'email' }, { delay: 420 });
-    return ApiClient.post<AuthSession>('/auth/login', { channel: 'email', ...payload });
+    return ApiClient.post<AuthSession>('/auth/login', payload);
   },
   // 手机号注册
   registerWithPhone: async (payload: { phone: string; code: string; name: string; password: string }): Promise<Result<AuthSession>> => {
     if (USE_MOCK) return simulateRequest({ ...createSession(), loginMethod: 'phone' }, { delay: 480 });
-    return ApiClient.post<AuthSession>('/auth/register', { channel: 'phone', mode: 'code', ...payload });
-  },
-  // 邮箱注册
-  registerWithEmail: async (payload: { email: string; code: string; name: string; password: string }): Promise<Result<AuthSession>> => {
-    if (USE_MOCK) return simulateRequest({ ...createSession(), loginMethod: 'email' }, { delay: 480 });
-    return ApiClient.post<AuthSession>('/auth/register', { channel: 'email', mode: 'code', ...payload });
+    return ApiClient.post<AuthSession>('/auth/register', payload);
   },
   // 发送短信验证码
   requestSmsCode: async (phone: string): Promise<Result<{ ok: boolean }>> => {
     if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 300 });
     return ApiClient.post<{ ok: boolean }>('/auth/sms/code', { phone });
-  },
-  // 发送邮箱验证码
-  requestEmailCode: async (email: string): Promise<Result<{ ok: boolean }>> => {
-    if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 300 });
-    return ApiClient.post<{ ok: boolean }>('/auth/email/code', { email });
   },
   // 微信授权登录/注册（OAuth：用授权码换取 Session，后端自动创建账号）
   loginWithWeChat: async (code: string): Promise<Result<AuthSession>> => {

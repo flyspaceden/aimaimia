@@ -75,8 +75,8 @@ export class CsService {
       data: { sessionId, senderType: 'USER', senderId: userId, contentType, content },
     });
 
-    // 如果已转人工，不走路由
-    if (session.status === 'AGENT_HANDLING') {
+    // 已转人工或排队中 → 只保存消息，不走路由（避免重复建工单）
+    if (session.status === 'AGENT_HANDLING' || session.status === 'QUEUING') {
       return { userMessage: userMsg, aiReply: null, transferred: false };
     }
 
@@ -142,19 +142,24 @@ export class CsService {
     return false;
   }
 
-  /** 坐席接入排队中的会话 */
+  /** 坐席手动接入排队中的会话（CAS 防竞态 + 递增坐席计数） */
   async agentAcceptSession(sessionId: string, adminId: string) {
-    const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
-    if (!session || session.status !== 'QUEUING') {
-      throw new BadRequestException('会话不在排队状态');
-    }
-
-    await this.prisma.csSession.update({
-      where: { id: sessionId },
+    // CAS 更新：只在 status=QUEUING 时才能接入，防止两个坐席同时接入
+    const result = await this.prisma.csSession.updateMany({
+      where: { id: sessionId, status: 'QUEUING' },
       data: { status: 'AGENT_HANDLING', agentId: adminId, agentJoinedAt: new Date() },
     });
 
-    await this.agentService.updateStatus(adminId, 'ONLINE');
+    if (result.count === 0) {
+      throw new BadRequestException('会话不在排队状态或已被其他坐席接入');
+    }
+
+    // 递增坐席会话计数（与自动分配一致）+ 确保在线状态
+    await this.prisma.csAgentStatus.upsert({
+      where: { adminId },
+      create: { adminId, status: 'ONLINE', currentSessions: 1, lastActiveAt: new Date() },
+      update: { status: 'ONLINE', currentSessions: { increment: 1 }, lastActiveAt: new Date() },
+    });
   }
 
   /** 坐席发送消息 */

@@ -25,6 +25,8 @@ export type Product = {
 
 /** 商品详情（后端 GET /products/:id 返回的完整数据） */
 export type ProductDetail = Product & {
+  /** 最终生效退货政策：RETURNABLE | NON_RETURNABLE */
+  effectiveReturnPolicy?: string | null;
   subtitle?: string;
   description?: string;
   detailRich?: unknown;

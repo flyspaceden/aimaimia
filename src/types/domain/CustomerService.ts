@@ -32,3 +32,10 @@ export interface CsMessage {
   routeLayer?: number;
   createdAt: string;
 }
+
+/** 发送消息后端返回结构 */
+export interface CsSendMessageResult {
+  userMessage: CsMessage;
+  aiReply: CsMessage | null;
+  transferred: boolean;
+}

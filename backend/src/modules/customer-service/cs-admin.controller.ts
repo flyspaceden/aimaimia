@@ -94,7 +94,7 @@ export class CsAdminController {
   // --- Quick Entries ---
   @Get('quick-entries')
   @RequirePermission('cs:read')
-  getQuickEntries() { return this.prisma.csQuickEntry.findMany({ where: { enabled: true }, orderBy: { sortOrder: 'asc' } }); }
+  getQuickEntries() { return this.prisma.csQuickEntry.findMany({ orderBy: { sortOrder: 'asc' } }); }
 
   @Post('quick-entries')
   @RequirePermission('cs:manage')
@@ -121,7 +121,7 @@ export class CsAdminController {
   // --- Quick Replies ---
   @Get('quick-replies')
   @RequirePermission('cs:read')
-  getQuickReplies() { return this.prisma.csQuickReply.findMany({ where: { enabled: true }, orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }] }); }
+  getQuickReplies() { return this.prisma.csQuickReply.findMany({ orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }] }); }
 
   @Post('quick-replies')
   @RequirePermission('cs:manage')

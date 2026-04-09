@@ -264,6 +264,11 @@ export type AiVoiceTiming = {
   entity_resolve_ms?: number;
   handler_ms?: number;
   total_ms?: number;
+  flash_ms?: number;
+  plus_ms?: number;
+  fast_route_hit?: boolean;
+  model_route?: 'rule' | 'fast' | 'flash' | 'plus' | 'fallback';
+  upgraded?: boolean;
 };
 
 export type AiVoiceIntent = {

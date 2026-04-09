@@ -12,7 +12,7 @@
  *   - `GET /api/v1/cs/sessions/:id/messages` → `Result<CsMessage[]>`
  *   - `POST /api/v1/cs/sessions/:id/rating` → `Result<any>`
  */
-import { CsMessage, CsQuickEntry, CsSessionInfo, Result } from '../types';
+import { CsMessage, CsQuickEntry, CsSessionInfo, CsSendMessageResult, Result } from '../types';
 import { simulateRequest } from './helpers';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
@@ -83,20 +83,37 @@ export const CsRepo = {
    * - 后端接口：`POST /api/v1/cs/sessions/:id/messages`
    * - Mock 模式下返回一条模拟的 AI 回复
    */
-  sendMessage: async (sessionId: string, content: string): Promise<Result<CsMessage>> => {
+  sendMessage: async (sessionId: string, content: string): Promise<Result<CsSendMessageResult>> => {
     if (USE_MOCK) {
       // Mock 模式：模拟 AI 自动回复
-      const mockReply: CsMessage = {
-        id: `mock-ai-${Date.now()}`,
-        sessionId,
-        senderType: 'AI',
-        contentType: 'TEXT',
-        content: getMockAiReply(content),
-        createdAt: new Date().toISOString(),
+      const mockReply: CsSendMessageResult = {
+        userMessage: {
+          id: `mock-user-${Date.now()}`,
+          sessionId,
+          senderType: 'USER',
+          contentType: 'TEXT',
+          content,
+          createdAt: new Date().toISOString(),
+        },
+        aiReply: {
+          id: `mock-ai-${Date.now()}`,
+          sessionId,
+          senderType: 'AI',
+          contentType: 'TEXT',
+          content: getMockAiReply(content),
+          createdAt: new Date().toISOString(),
+        },
+        transferred: false,
       };
       return simulateRequest(mockReply, { delay: 800 });
     }
-    return ApiClient.post<CsMessage>(`/cs/sessions/${sessionId}/messages`, { content });
+    return ApiClient.post<CsSendMessageResult>(`/cs/sessions/${sessionId}/messages`, { content });
+  },
+
+  /** 关闭客服会话（通知后端释放坐席） */
+  closeSession: async (sessionId: string): Promise<Result<any>> => {
+    if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 200 });
+    return ApiClient.post<any>(`/cs/sessions/${sessionId}/close`);
   },
 
   /**

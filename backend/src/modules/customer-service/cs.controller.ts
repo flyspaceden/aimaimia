@@ -73,6 +73,25 @@ export class CsController {
     return { userMessage: result.userMessage, aiReply: result.aiReply, transferred: result.transferred };
   }
 
+  /** 买家主动关闭会话 */
+  @Post('sessions/:id/close')
+  async closeSession(
+    @CurrentUser('sub') userId: string,
+    @Param('id') sessionId: string,
+  ) {
+    // 先验证归属
+    const session = await this.csService.getSessionMessages(sessionId, userId);
+    await this.csService.closeSession(sessionId);
+
+    // 通知坐席
+    const server = this.csGateway.server;
+    if (server) {
+      server.to(`session:${sessionId}`).emit('cs:session_closed', { sessionId });
+    }
+
+    return { ok: true };
+  }
+
   @Post('sessions/:id/rating')
   submitRating(
     @CurrentUser('sub') userId: string,
