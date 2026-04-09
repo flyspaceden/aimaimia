@@ -631,12 +631,14 @@ export default function CsWorkstationPage() {
       });
     });
 
-    // 会话关闭
+    // 会话关闭（坐席点击结束 或 买家端关闭 或 超时自动关闭）
     socket.on('cs:session_closed', (data: { sessionId: string }) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
       queryClient.invalidateQueries({
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
+      // 如果当前正在查看该会话，自动取消选中
+      setActiveSessionId((prev) => (prev === data.sessionId ? null : prev));
     });
 
     // 对方正在输入
@@ -761,6 +763,13 @@ export default function CsWorkstationPage() {
   const handleClose = useCallback(() => {
     if (!activeSessionId) return;
     socketRef.current?.emit('cs:close_session', { sessionId: activeSessionId });
+    // 清除当前选中 + 刷新列表
+    setActiveSessionId(null);
+    setLocalMessages((prev) => {
+      const next = new Map(prev);
+      next.delete(activeSessionId);
+      return next;
+    });
     queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
     message.success('会话已结束');
   }, [activeSessionId, queryClient]);

@@ -14,8 +14,15 @@ export class CsController {
   ) {}
 
   @Post('sessions')
-  createSession(@CurrentUser('sub') userId: string, @Body() dto: CreateCsSessionDto) {
-    return this.csService.createSession(userId, dto.source, dto.sourceId);
+  async createSession(@CurrentUser('sub') userId: string, @Body() dto: CreateCsSessionDto) {
+    const result = await this.csService.createSession(userId, dto.source, dto.sourceId);
+
+    // 如果旧会话被自动关闭（返回的是新会话），通知管理后台刷新
+    if (!result.isExisting && this.csGateway.server) {
+      this.csGateway.server.to('agent:lobby').emit('cs:queue_update', {});
+    }
+
+    return result;
   }
 
   @Get('sessions/active')

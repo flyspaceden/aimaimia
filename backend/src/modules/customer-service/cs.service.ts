@@ -21,7 +21,7 @@ export class CsService {
   ) {}
 
   /** 会话空闲超时（毫秒）：超过此时间无活动，下次进入自动开新会话 */
-  private readonly SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 小时
+  private readonly SESSION_IDLE_TIMEOUT_MS = 5 * 1000; // TODO: 测试用 5 秒，上线前改回 2 * 60 * 60 * 1000
 
   /** 创建客服会话（超过 2 小时无活动的旧会话自动关闭） */
   async createSession(userId: string, source: string, sourceId?: string) {
@@ -43,7 +43,7 @@ export class CsService {
       if (idleMs > this.SESSION_IDLE_TIMEOUT_MS) {
         // 超时：静默关闭旧会话，创建新会话
         await this.closeSession(existing.id);
-        this.logger.log(`会话 ${existing.id} 空闲超过 2 小时，已自动关闭`);
+        this.logger.log(`会话 ${existing.id} 空闲超时，已自动关闭`);
       } else {
         return { sessionId: existing.id, isExisting: true };
       }
