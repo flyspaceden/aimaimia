@@ -9,29 +9,27 @@ export class CsAgentService {
   constructor(private prisma: PrismaService) {}
 
   /**
-   * 分配坐席：从 ONLINE 且未满的坐席中选 currentSessions 最少的
+   * 原子分配坐席：UPDATE ... WHERE + RETURNING 确保不会超额分配
    * 返回 adminId，无可用坐席返回 null
    */
   async assignAgent(): Promise<string | null> {
-    // 使用原始查询确保 currentSessions < maxSessions 条件
+    // 原子操作：在单条 UPDATE 中同时选择和递增，避免 SELECT+UPDATE 竞态
     const result = await this.prisma.$queryRaw<{ adminId: string }[]>`
-      SELECT "adminId" FROM "CsAgentStatus"
-      WHERE status = 'ONLINE' AND "currentSessions" < "maxSessions"
-      ORDER BY "currentSessions" ASC
-      LIMIT 1
+      UPDATE "CsAgentStatus"
+      SET "currentSessions" = "currentSessions" + 1,
+          "lastActiveAt" = NOW()
+      WHERE "adminId" = (
+        SELECT "adminId" FROM "CsAgentStatus"
+        WHERE status = 'ONLINE' AND "currentSessions" < "maxSessions"
+        ORDER BY "currentSessions" ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING "adminId"
     `;
 
     if (result.length === 0) return null;
-
-    const adminId = result[0].adminId;
-
-    // 原子递增 currentSessions
-    await this.prisma.csAgentStatus.update({
-      where: { adminId },
-      data: { currentSessions: { increment: 1 }, lastActiveAt: new Date() },
-    });
-
-    return adminId;
+    return result[0].adminId;
   }
 
   /** 坐席结束会话时递减 currentSessions */

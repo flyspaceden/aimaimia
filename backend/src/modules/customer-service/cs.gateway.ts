@@ -7,7 +7,7 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
+import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -25,8 +25,12 @@ interface AuthenticatedSocket extends Socket {
 
 @WebSocketGateway({
   namespace: '/cs',
-  cors: { origin: '*' },
+  cors: {
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8081'],
+    credentials: true,
+  },
 })
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
 export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
@@ -72,10 +76,10 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.join('agent:lobby');
         this.logger.log(`坐席已连接: ${payload.sub}`);
 
-        // 清除断线定时器
-        const timer = this.agentDisconnectTimers.get(payload.sub);
-        if (timer) {
-          clearTimeout(timer);
+        // 清除断线定时器（重连场景）
+        const existingTimer = this.agentDisconnectTimers.get(payload.sub);
+        if (existingTimer) {
+          clearTimeout(existingTimer);
           this.agentDisconnectTimers.delete(payload.sub);
         }
 
@@ -96,9 +100,12 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.log(`坐席断线: ${adminId}，30秒后标记离线`);
 
       const timer = setTimeout(async () => {
-        await this.agentService.handleDisconnect(adminId);
+        try {
+          await this.agentService.handleDisconnect(adminId);
+        } catch (e) {
+          this.logger.error(`坐席离线处理失败: ${adminId}`, e);
+        }
         this.agentDisconnectTimers.delete(adminId);
-        this.logger.log(`坐席已标记离线: ${adminId}`);
       }, 30_000);
 
       this.agentDisconnectTimers.set(adminId, timer);
@@ -108,71 +115,106 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** 用户/坐席发送消息 */
   @SubscribeMessage('cs:send')
   async handleSend(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: CsSendPayload) {
-    const { sessionId, content, contentType } = data;
+    try {
+      const { sessionId, content, contentType } = data;
 
-    if (client.data.isAgent && client.data.adminId) {
-      const msg = await this.csService.handleAgentMessage(sessionId, client.data.adminId, content, contentType as any);
-      this.server.to(`session:${sessionId}`).emit('cs:message', msg);
-    } else if (client.data.userId) {
-      client.join(`session:${sessionId}`);
-      const result = await this.csService.handleUserMessage(sessionId, client.data.userId, content, contentType as any);
-
-      this.server.to(`session:${sessionId}`).emit('cs:message', result.userMessage);
-
-      if (result.aiReply) {
-        this.server.to(`session:${sessionId}`).emit('cs:message', result.aiReply);
+      // 内容长度校验
+      if (!content || content.length > 5000) {
+        client.emit('cs:error', { message: '消息内容无效或超长' });
+        return;
       }
 
-      if (result.transferred) {
-        const session = await this.csService.getAdminSessionDetail(sessionId);
-        if (session.agentId) {
-          this.server.to(`agent:${session.agentId}`).socketsJoin(`session:${sessionId}`);
-          this.server.to(`session:${sessionId}`).emit('cs:agent_joined', {
+      if (client.data.isAgent && client.data.adminId) {
+        // 坐席发消息
+        const msg = await this.csService.handleAgentMessage(sessionId, client.data.adminId, content, contentType as any);
+        this.server.to(`session:${sessionId}`).emit('cs:message', msg);
+      } else if (client.data.userId) {
+        // 先验证归属再加入房间
+        const session = await this.csService.getActiveSession(client.data.userId, '', undefined);
+        // 通过 handleUserMessage 的内部校验确认归属
+        const result = await this.csService.handleUserMessage(sessionId, client.data.userId, content, contentType as any);
+
+        // 校验通过后才加入房间
+        client.join(`session:${sessionId}`);
+
+        this.server.to(`session:${sessionId}`).emit('cs:message', result.userMessage);
+
+        if (result.aiReply) {
+          this.server.to(`session:${sessionId}`).emit('cs:message', result.aiReply);
+        }
+
+        if (result.transferred) {
+          const sessionDetail = await this.csService.getAdminSessionDetail(sessionId);
+          if (sessionDetail.agentId) {
+            this.server.to(`agent:${sessionDetail.agentId}`).socketsJoin(`session:${sessionId}`);
+            this.server.to(`session:${sessionId}`).emit('cs:agent_joined', {
+              sessionId,
+              agentName: '客服',
+            });
+          }
+        } else if (result.routeResult?.shouldTransferToAgent) {
+          // 获取用户详情用于通知
+          let userNickname = '用户';
+          try {
+            const detail = await this.csService.getAdminSessionDetail(sessionId);
+            userNickname = (detail.user as any)?.profile?.nickname || '用户';
+          } catch { /* non-critical */ }
+
+          this.server.to('agent:lobby').emit('cs:new_ticket', {
             sessionId,
-            agentName: '客服',
+            userId: client.data.userId,
+            userNickname,
+            category: 'OTHER',
+            waitingSince: new Date().toISOString(),
+          });
+          this.server.to(`session:${sessionId}`).emit('cs:message', {
+            senderType: 'SYSTEM',
+            content: '正在为您转接人工客服，请稍候...',
+            contentType: 'TEXT',
+            createdAt: new Date().toISOString(),
           });
         }
-      } else if (result.routeResult?.shouldTransferToAgent) {
-        this.server.to('agent:lobby').emit('cs:new_ticket', {
-          sessionId,
-          userId: client.data.userId,
-          category: 'OTHER',
-          waitingSince: new Date().toISOString(),
-        });
-        this.server.to(`session:${sessionId}`).emit('cs:message', {
-          senderType: 'SYSTEM',
-          content: '正在为您转接人工客服，请稍候...',
-          contentType: 'TEXT',
-          createdAt: new Date().toISOString(),
-        });
       }
+    } catch (error: any) {
+      this.logger.error('消息处理失败', error?.message);
+      client.emit('cs:error', { message: error?.message || '消息发送失败' });
     }
   }
 
   /** 坐席领取会话 */
   @SubscribeMessage('cs:accept_ticket')
   async handleAcceptTicket(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: { sessionId: string }) {
-    if (!client.data.isAgent || !client.data.adminId) return;
+    try {
+      if (!client.data.isAgent || !client.data.adminId) return;
 
-    await this.csService.agentAcceptSession(data.sessionId, client.data.adminId);
-    client.join(`session:${data.sessionId}`);
+      await this.csService.agentAcceptSession(data.sessionId, client.data.adminId);
+      client.join(`session:${data.sessionId}`);
 
-    this.server.to(`session:${data.sessionId}`).emit('cs:agent_joined', {
-      sessionId: data.sessionId,
-      agentName: '客服',
-    });
+      this.server.to(`session:${data.sessionId}`).emit('cs:agent_joined', {
+        sessionId: data.sessionId,
+        agentName: '客服',
+      });
 
-    const queueCount = await this.agentService.getQueueCount();
-    this.server.to('agent:lobby').emit('cs:queue_update', { queueCount });
+      const queueCount = await this.agentService.getQueueCount();
+      this.server.to('agent:lobby').emit('cs:queue_update', { queueCount });
+    } catch (error: any) {
+      this.logger.error('领取会话失败', error?.message);
+      client.emit('cs:error', { message: error?.message || '领取失败' });
+    }
   }
 
   /** 关闭会话 */
   @SubscribeMessage('cs:close_session')
   async handleCloseSession(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: { sessionId: string }) {
-    if (!client.data.isAgent) return;
+    try {
+      if (!client.data.isAgent) return;
 
-    await this.csService.closeSession(data.sessionId);
-    this.server.to(`session:${data.sessionId}`).emit('cs:session_closed', { sessionId: data.sessionId });
+      await this.csService.closeSession(data.sessionId);
+      this.server.to(`session:${data.sessionId}`).emit('cs:session_closed', { sessionId: data.sessionId });
+    } catch (error: any) {
+      this.logger.error('关闭会话失败', error?.message);
+      client.emit('cs:error', { message: error?.message || '关闭失败' });
+    }
   }
 
   /** 正在输入 */
@@ -185,7 +227,11 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** 坐席更新在线状态 */
   @SubscribeMessage('cs:agent_status')
   async handleAgentStatus(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: { status: string }) {
-    if (!client.data.isAgent || !client.data.adminId) return;
-    await this.agentService.updateStatus(client.data.adminId, data.status as any);
+    try {
+      if (!client.data.isAgent || !client.data.adminId) return;
+      await this.agentService.updateStatus(client.data.adminId, data.status as any);
+    } catch (error: any) {
+      this.logger.error('更新坐席状态失败', error?.message);
+    }
   }
 }

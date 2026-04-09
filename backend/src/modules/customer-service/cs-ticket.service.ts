@@ -60,26 +60,35 @@ export class CsTicketService {
 
     const conversationText = messages.map((m) => `${m.role}: ${m.content}`).join('\n');
 
-    const response = await fetch(this.QWEN_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.SUMMARY_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: '你是客服系统的摘要助手。请用一句话总结以下客服对话的核心问题，不超过100字。',
-          },
-          { role: 'user', content: conversationText },
-        ],
-        max_tokens: 200,
-      }),
-    });
+    // 10秒超时保护
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
-    const data = await response.json();
+    let data: any;
+    try {
+      const response = await fetch(this.QWEN_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.SUMMARY_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content: '你是客服系统的摘要助手。请用一句话总结以下客服对话的核心问题，不超过100字。',
+            },
+            { role: 'user', content: conversationText },
+          ],
+          max_tokens: 200,
+        }),
+      });
+      data = await response.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
     return data.choices?.[0]?.message?.content?.trim() || '（无法生成摘要）';
   }
 

@@ -26,7 +26,7 @@ export class CsService {
       where: {
         userId,
         source: source as any,
-        sourceId: sourceId ?? null,
+        sourceId: sourceId || null,
         status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
       },
       include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
@@ -37,7 +37,7 @@ export class CsService {
     }
 
     const session = await this.prisma.csSession.create({
-      data: { userId, source: source as any, sourceId },
+      data: { userId, source: source as any, sourceId: sourceId || null },
     });
 
     return { sessionId: session.id, isExisting: false };
@@ -49,7 +49,7 @@ export class CsService {
       where: {
         userId,
         source: source as any,
-        sourceId: sourceId ?? undefined,
+        sourceId: sourceId || null,
         status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
       },
       include: {
@@ -118,10 +118,12 @@ export class CsService {
     return { userMessage: userMsg, aiReply, transferred, routeResult };
   }
 
-  /** 转人工 */
+  /** 转人工（事务保护：工单创建 + 坐席分配 + 会话状态更新） */
   async transferToAgent(sessionId: string): Promise<boolean> {
+    // 先创建工单（允许失败后工单存在但无坐席，后续可补偿）
     await this.ticketService.createTicket(sessionId);
 
+    // 原子分配坐席（assignAgent 内部已是原子操作）
     const adminId = await this.agentService.assignAgent();
 
     if (adminId) {
@@ -132,6 +134,7 @@ export class CsService {
       return true;
     }
 
+    // 无可用坐席，排队
     await this.prisma.csSession.update({
       where: { id: sessionId },
       data: { status: 'QUEUING' },

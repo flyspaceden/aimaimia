@@ -109,18 +109,25 @@ export class CsRoutingService {
       .map((m) => `${m.role === 'user' ? '用户' : '客服'}: ${m.content}`)
       .join('\n');
 
-    const response = await fetch(this.QWEN_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.CS_INTENT_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: `你是爱买买电商平台的智能客服，帮助买家解决购物问题。
+    // 10秒超时保护
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+    let response: Response;
+    try {
+      response = await fetch(this.QWEN_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.CS_INTENT_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content: `你是爱买买电商平台的智能客服，帮助买家解决购物问题。
 
 ## 上下文
 ${contextInfo}
@@ -148,6 +155,9 @@ ${historyText || '（无）'}
         temperature: 0.3,
       }),
     });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const data = await response.json();
     const raw = data.choices?.[0]?.message?.content?.trim();

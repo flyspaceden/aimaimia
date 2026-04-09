@@ -98,18 +98,22 @@ export class CsAdminController {
 
   @Post('quick-entries')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'CREATE', module: 'cs-quick-entries', targetType: 'CsQuickEntry' })
   createQuickEntry(@Body() dto: CreateCsQuickEntryDto) { return this.prisma.csQuickEntry.create({ data: dto }); }
 
   @Patch('quick-entries/:id')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'UPDATE', module: 'cs-quick-entries', targetType: 'CsQuickEntry' })
   updateQuickEntry(@Param('id') id: string, @Body() dto: UpdateCsQuickEntryDto) { return this.prisma.csQuickEntry.update({ where: { id }, data: dto }); }
 
   @Delete('quick-entries/:id')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'DELETE', module: 'cs-quick-entries', targetType: 'CsQuickEntry' })
   deleteQuickEntry(@Param('id') id: string) { return this.prisma.csQuickEntry.delete({ where: { id } }); }
 
   @Patch('quick-entries/sort')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'UPDATE', module: 'cs-quick-entries', targetType: 'CsQuickEntry' })
   sortQuickEntries(@Body() dto: BatchSortDto) {
     return Promise.all(dto.items.map((item) => this.prisma.csQuickEntry.update({ where: { id: item.id }, data: { sortOrder: item.sortOrder } })));
   }
@@ -121,14 +125,17 @@ export class CsAdminController {
 
   @Post('quick-replies')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'CREATE', module: 'cs-quick-replies', targetType: 'CsQuickReply' })
   createQuickReply(@Body() dto: CreateCsQuickReplyDto) { return this.prisma.csQuickReply.create({ data: dto }); }
 
   @Patch('quick-replies/:id')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'UPDATE', module: 'cs-quick-replies', targetType: 'CsQuickReply' })
   updateQuickReply(@Param('id') id: string, @Body() dto: UpdateCsQuickReplyDto) { return this.prisma.csQuickReply.update({ where: { id }, data: dto }); }
 
   @Delete('quick-replies/:id')
   @RequirePermission('cs:manage')
+  @AuditLog({ action: 'DELETE', module: 'cs-quick-replies', targetType: 'CsQuickReply' })
   deleteQuickReply(@Param('id') id: string) { return this.prisma.csQuickReply.delete({ where: { id } }); }
 
   // --- Stats ---
