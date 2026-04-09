@@ -207,4 +207,155 @@ describe('CsGateway', () => {
     expect(mockServer.emit).not.toHaveBeenCalled();
     expect(client.emit).not.toHaveBeenCalled();
   });
+
+  // ---- 坐席 Socket 生命周期 ----
+
+  describe('坐席 Socket 生命周期', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('坐席重连清除断线定时器：disconnect → reconnect → agentService.handleDisconnect 不被调用', async () => {
+      const { gateway, jwtService, agentService } = createMocks();
+
+      // 第一个客户端连接为管理员
+      const client1 = createMockClient();
+      jwtService.verify
+        .mockImplementationOnce(() => { throw new Error('not buyer'); })
+        .mockReturnValueOnce({ sub: 'admin-1' });
+      await gateway.handleConnection(client1);
+      expect(agentService.updateStatus).toHaveBeenCalledWith('admin-1', 'ONLINE');
+
+      // 断线 → 设置 30 秒定时器
+      await gateway.handleDisconnect(createMockClient({ adminId: 'admin-1', isAgent: true }));
+
+      // 10 秒后重连（在 30 秒定时器触发前）
+      jest.advanceTimersByTime(10_000);
+      const client2 = createMockClient();
+      jwtService.verify
+        .mockImplementationOnce(() => { throw new Error('not buyer'); })
+        .mockReturnValueOnce({ sub: 'admin-1' });
+      await gateway.handleConnection(client2);
+
+      // 跑完剩余的 30 秒
+      jest.advanceTimersByTime(30_000);
+
+      // agentService.handleDisconnect 不应该被调用（定时器已被清除）
+      expect(agentService.handleDisconnect).not.toHaveBeenCalled();
+    });
+
+    it('坐席关闭会话后可接新会话', async () => {
+      const { gateway, csService, agentService } = createMocks();
+      const client = createMockClient({ adminId: 'admin-1', isAgent: true });
+
+      // 关闭会话
+      await gateway.handleCloseSession(client, { sessionId: 'session-1' });
+      expect(csService.closeSession).toHaveBeenCalledWith('session-1');
+
+      // 接新会话
+      await gateway.handleAcceptTicket(client, { sessionId: 'session-2' });
+      expect(csService.agentAcceptSession).toHaveBeenCalledWith('session-2', 'admin-1');
+    });
+
+    it('非坐席发 cs:accept_ticket → 被忽略', async () => {
+      const { gateway, csService } = createMocks();
+      const client = createMockClient({ userId: 'user-1', isAgent: false });
+
+      await gateway.handleAcceptTicket(client, { sessionId: 'session-1' });
+
+      expect(csService.agentAcceptSession).not.toHaveBeenCalled();
+    });
+
+    it('非坐席发 cs:close_session → 被忽略', async () => {
+      const { gateway, csService } = createMocks();
+      const client = createMockClient({ userId: 'user-1', isAgent: false });
+
+      await gateway.handleCloseSession(client, { sessionId: 'session-1' });
+
+      expect(csService.closeSession).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- Socket 事件 payload 形状 ----
+
+  describe('Socket 事件 payload 形状', () => {
+    it('cs:message 事件包含完整 CsMessage 字段', async () => {
+      const { gateway, csService, mockServer } = createMocks();
+      const client = createMockClient({ adminId: 'admin-1', isAgent: true });
+
+      const agentMsg = {
+        id: 'msg-100',
+        sessionId: 'session-1',
+        senderType: 'AGENT',
+        content: '您好，有什么可以帮您？',
+        contentType: 'TEXT',
+        createdAt: '2026-04-07T00:00:00.000Z',
+      };
+      csService.handleAgentMessage.mockResolvedValue(agentMsg);
+
+      await gateway.handleSend(client, { sessionId: 'session-1', content: '您好，有什么可以帮您？' });
+
+      expect(mockServer.to).toHaveBeenCalledWith('session:session-1');
+      const emittedPayload = mockServer.emit.mock.calls.find(
+        (c: any[]) => c[0] === 'cs:message',
+      )?.[1];
+      expect(emittedPayload).toBeDefined();
+      expect(emittedPayload).toHaveProperty('id');
+      expect(emittedPayload).toHaveProperty('sessionId');
+      expect(emittedPayload).toHaveProperty('senderType');
+      expect(emittedPayload).toHaveProperty('content');
+      expect(emittedPayload).toHaveProperty('contentType');
+      expect(emittedPayload).toHaveProperty('createdAt');
+    });
+
+    it('cs:agent_joined 事件包含 sessionId 和 agentName', async () => {
+      const { gateway, csService, agentService, mockServer } = createMocks();
+      const client = createMockClient({ adminId: 'admin-1', isAgent: true });
+
+      await gateway.handleAcceptTicket(client, { sessionId: 'session-1' });
+
+      const agentJoinedCall = mockServer.emit.mock.calls.find(
+        (c: any[]) => c[0] === 'cs:agent_joined',
+      );
+      expect(agentJoinedCall).toBeDefined();
+      const payload = agentJoinedCall![1];
+      expect(payload).toEqual({ sessionId: 'session-1', agentName: '客服' });
+    });
+
+    it('cs:error 事件在异常时发送', async () => {
+      const { gateway, csService } = createMocks();
+      const client = createMockClient({ adminId: 'admin-1', isAgent: true });
+
+      csService.handleAgentMessage.mockRejectedValue(new Error('无权在此会话发送消息'));
+
+      await gateway.handleSend(client, { sessionId: 'session-1', content: '你好' });
+
+      expect(client.emit).toHaveBeenCalledWith('cs:error', { message: '无权在此会话发送消息' });
+    });
+
+    it('cs:typing 事件中继 — 买家和坐席', () => {
+      const { gateway } = createMocks();
+
+      // 买家发 typing
+      const buyerClient = createMockClient({ userId: 'user-1', isAgent: false });
+      gateway.handleTyping(buyerClient, { sessionId: 'session-1', senderType: 'USER' as any });
+      expect(buyerClient.to).toHaveBeenCalledWith('session:session-1');
+      expect(buyerClient.emit).toHaveBeenCalledWith('cs:typing', {
+        sessionId: 'session-1',
+        senderType: 'USER',
+      });
+
+      // 坐席发 typing
+      const agentClient = createMockClient({ adminId: 'admin-1', isAgent: true });
+      gateway.handleTyping(agentClient, { sessionId: 'session-1', senderType: 'AGENT' as any });
+      expect(agentClient.to).toHaveBeenCalledWith('session:session-1');
+      expect(agentClient.emit).toHaveBeenCalledWith('cs:typing', {
+        sessionId: 'session-1',
+        senderType: 'AGENT',
+      });
+    });
+  });
 });
