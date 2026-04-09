@@ -86,7 +86,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
     },
     {
-      path: '/cs',
+      path: '/customer-service',
       name: '客服中心',
       icon: <MessageOutlined />,
       permission: PERMISSIONS.CS_READ,
