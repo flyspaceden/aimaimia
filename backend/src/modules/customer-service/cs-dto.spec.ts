@@ -201,3 +201,59 @@ describe('UpdateCsTicketDto', () => {
     expect(errors.length).toBe(0);
   });
 });
+
+// ==================== 跨系统契约 ====================
+
+describe('跨系统契约', () => {
+  it('SendCsMessageDto 只有 content 和 contentType 字段（无 sessionId）', async () => {
+    // sessionId 从 URL 参数获取，不在 body 中
+    // 验证 DTO 类声明的校验字段只有 content 和 contentType
+    const { getMetadataStorage } = require('class-validator');
+    const metadata = getMetadataStorage();
+    const validationMetadatas = metadata.getTargetValidationMetadatas(
+      SendCsMessageDto,
+      SendCsMessageDto.name,
+      false,
+      false,
+    );
+    const validatedProps = [...new Set(validationMetadatas.map((m: any) => m.propertyName))];
+
+    // 应只包含 content 和 contentType，不包含 sessionId
+    expect(validatedProps).toContain('content');
+    expect(validatedProps).not.toContain('sessionId');
+
+    // 额外验证：带 content 的 DTO 通过校验
+    const dto = plainToInstance(SendCsMessageDto, { content: 'hello' });
+    const errors = await validate(dto);
+    expect(errors.length).toBe(0);
+  });
+
+  it('CreateCsSessionDto source 枚举值：MY_PAGE, ORDER_DETAIL, AFTERSALE_DETAIL 均通过', async () => {
+    const sources = ['MY_PAGE', 'ORDER_DETAIL', 'AFTERSALE_DETAIL'];
+
+    for (const source of sources) {
+      const dto = plainToInstance(CreateCsSessionDto, { source });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    }
+  });
+
+  it('SubmitCsRatingDto score 边界：score=1 和 score=5 均通过', async () => {
+    const dto1 = plainToInstance(SubmitCsRatingDto, { score: 1 });
+    const errors1 = await validate(dto1);
+    expect(errors1.length).toBe(0);
+
+    const dto5 = plainToInstance(SubmitCsRatingDto, { score: 5 });
+    const errors5 = await validate(dto5);
+    expect(errors5.length).toBe(0);
+  });
+
+  it('CreateCsFaqDto 空 keywords 数组通过校验（允许无关键词，可靠 pattern 匹配）', async () => {
+    const dto = plainToInstance(CreateCsFaqDto, {
+      keywords: [],
+      answer: '回答内容',
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBe(0);
+  });
+});

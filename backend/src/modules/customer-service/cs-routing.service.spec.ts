@@ -140,4 +140,72 @@ describe('CsRoutingService', () => {
     expect(result.shouldTransferToAgent).toBe(false);
     expect(result.contentType).toBe('TEXT');
   });
+
+  // ====================================================================
+  // 边界条件
+  // ====================================================================
+
+  describe('边界条件', () => {
+    it('空消息：不崩溃，检查行为', async () => {
+      const { service } = createService(null);
+
+      // 空消息不应触发任何关键词匹配
+      const result = await service.route('', baseContext, 0);
+
+      // 空消息不包含转人工/情绪关键词，FAQ match('') 返回 null
+      // 无 API key → fallback
+      expect(result).toBeDefined();
+      expect(result.shouldTransferToAgent).toBe(false);
+      expect(result.layer).toBe(2);
+    });
+
+    it('超长消息中包含转人工关键词：应检测到并转人工', async () => {
+      const { service } = createService(null);
+
+      const longPrefix = '很长的文字'.repeat(200);
+      const message = longPrefix + '转人工' + '更多文字'.repeat(200);
+
+      const result = await service.route(message, baseContext, 0);
+
+      // .includes('转人工') 对任意长度字符串有效
+      expect(result.layer).toBe(3);
+      expect(result.shouldTransferToAgent).toBe(true);
+    });
+
+    it('同时包含 FAQ 关键词和转人工关键词："退款 转人工" → 转人工优先', async () => {
+      // route() 先检查 TRANSFER_KEYWORDS，再检查 FAQ
+      const faqResult = {
+        faqId: 'faq-1',
+        answer: '退款说明',
+        answerType: 'TEXT',
+        metadata: null,
+        priority: 0,
+      };
+      const { service } = createService(faqResult);
+
+      const result = await service.route('退款 转人工', baseContext, 0);
+
+      // 转人工关键词在 FAQ 之前检查
+      expect(result.layer).toBe(3);
+      expect(result.shouldTransferToAgent).toBe(true);
+    });
+
+    it('情绪词优先级："我要投诉退款" → 情绪关键词"投诉"在 FAQ"退款"之前检查', async () => {
+      const faqResult = {
+        faqId: 'faq-1',
+        answer: '退款说明',
+        answerType: 'TEXT',
+        metadata: null,
+        priority: 0,
+      };
+      const { service } = createService(faqResult);
+
+      const result = await service.route('我要投诉退款', baseContext, 0);
+
+      // EMOTION_KEYWORDS 在 FAQ 之前检查
+      expect(result.layer).toBe(3);
+      expect(result.shouldTransferToAgent).toBe(true);
+      expect(result.reply).toContain('转接人工客服');
+    });
+  });
 });

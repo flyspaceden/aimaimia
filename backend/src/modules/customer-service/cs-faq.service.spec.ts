@@ -212,4 +212,74 @@ describe('CsFaqService', () => {
       }),
     ).rejects.toThrow('正则表达式不安全');
   });
+
+  // ====================================================================
+  // 边界条件
+  // ====================================================================
+
+  describe('边界条件', () => {
+    it('0 条 FAQ 规则：match 返回 null', async () => {
+      const { service } = createService([]);
+
+      const result = await service.match('退款问题');
+
+      expect(result).toBeNull();
+    });
+
+    it('关键词为空字符串：验证是否会匹配一切（空字符串 .includes bug）', async () => {
+      // 空字符串 ''.toLowerCase() = ''，而 any_string.includes('') === true
+      // 这是一个已知的行为特性——这里验证实际行为
+      const faq = makeFaq({ keywords: [''] });
+      const { service } = createService([faq]);
+
+      const result = await service.match('任意消息');
+
+      // 空字符串 .includes('') 确实返回 true，所以会匹配
+      // 这验证了潜在的 bug：keywords 含空字符串会匹配任何消息
+      expect(result).not.toBeNull();
+      expect(result!.faqId).toBe('faq-1');
+    });
+
+    it('超长消息（10000字符）：不崩溃，正则只在前500字符执行', async () => {
+      const faq = makeFaq({
+        id: 'faq-long',
+        keywords: [],
+        pattern: '测试关键词',
+      });
+      const { service } = createService([faq]);
+
+      // 10000 字符的消息，关键词在末尾（超过 500 字符截断范围）
+      const longMessage = 'a'.repeat(10000) + '测试关键词';
+
+      const result = await service.match(longMessage);
+
+      // 正则只在前 500 字符执行，所以不会匹配到末尾的关键词
+      expect(result).toBeNull();
+    });
+
+    it('中文关键词匹配：消息"我想退款"匹配关键词"退款"（子串匹配）', async () => {
+      const faq = makeFaq({ keywords: ['退款'], answer: '退款流程说明' });
+      const { service } = createService([faq]);
+
+      const result = await service.match('我想退款');
+
+      expect(result).not.toBeNull();
+      expect(result!.faqId).toBe('faq-1');
+    });
+
+    it('正则特殊字符在关键词中：keywords=["退款(全额)"] 通过 .includes() 匹配', async () => {
+      const faq = makeFaq({
+        id: 'faq-special',
+        keywords: ['退款(全额)'],
+        answer: '全额退款说明',
+      });
+      const { service } = createService([faq]);
+
+      // .includes() 是字面量子串匹配，括号不需要转义
+      const result = await service.match('我想退款(全额)，可以吗');
+
+      expect(result).not.toBeNull();
+      expect(result!.faqId).toBe('faq-special');
+    });
+  });
 });
