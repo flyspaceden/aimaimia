@@ -13,6 +13,7 @@ function createMocks() {
     updateStatus: jest.fn(),
     handleDisconnect: jest.fn(),
     getQueueCount: jest.fn().mockResolvedValue(3),
+    getActiveSessionIds: jest.fn().mockResolvedValue([]),
   };
   const jwtService = {
     verify: jest.fn(),

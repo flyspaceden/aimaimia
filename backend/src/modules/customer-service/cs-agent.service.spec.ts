@@ -11,6 +11,8 @@ function createMocks() {
     },
     csSession: {
       count: jest.fn(),
+      updateMany: jest.fn(),
+      findMany: jest.fn(),
     },
   };
   const service = new CsAgentService(prisma as any);
@@ -88,15 +90,23 @@ describe('CsAgentService', () => {
   // ====================================================================
 
   describe('handleDisconnect()', () => {
-    it('标记离线', async () => {
+    it('将 AGENT_HANDLING 会话退回 QUEUING + 标记离线 + 重置 currentSessions', async () => {
       const { service, prisma } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 2 });
       prisma.csAgentStatus.updateMany.mockResolvedValue({ count: 1 });
 
       await service.handleDisconnect('admin-1');
 
+      // 1. 将该坐席正在处理的会话退回排队
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { agentId: 'admin-1', status: 'AGENT_HANDLING' },
+        data: { status: 'QUEUING', agentId: null, agentJoinedAt: null },
+      });
+
+      // 2. 标记离线，重置会话计数为 0
       expect(prisma.csAgentStatus.updateMany).toHaveBeenCalledWith({
         where: { adminId: 'admin-1' },
-        data: { status: 'OFFLINE', lastActiveAt: expect.any(Date) },
+        data: { status: 'OFFLINE', currentSessions: 0, lastActiveAt: expect.any(Date) },
       });
     });
   });
@@ -158,15 +168,20 @@ describe('CsAgentService', () => {
       expect(afterRelease).toBe('a1');
     });
 
-    it('断线→重连：handleDisconnect 标记 OFFLINE，updateStatus 标记 ONLINE', async () => {
+    it('断线→重连：handleDisconnect 退回会话+标记 OFFLINE，updateStatus 标记 ONLINE', async () => {
       const { service, prisma } = createMocks();
 
       // 断线
+      prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
       prisma.csAgentStatus.updateMany.mockResolvedValue({ count: 1 });
       await service.handleDisconnect('a1');
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { agentId: 'a1', status: 'AGENT_HANDLING' },
+        data: { status: 'QUEUING', agentId: null, agentJoinedAt: null },
+      });
       expect(prisma.csAgentStatus.updateMany).toHaveBeenCalledWith({
         where: { adminId: 'a1' },
-        data: { status: 'OFFLINE', lastActiveAt: expect.any(Date) },
+        data: { status: 'OFFLINE', currentSessions: 0, lastActiveAt: expect.any(Date) },
       });
 
       // 重连
