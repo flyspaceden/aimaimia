@@ -721,12 +721,13 @@ export default function CsWorkstationPage() {
       : sessions;
 
     const queuing = filtered.filter((s) => s.status === 'QUEUING');
-    const handling = filtered.filter(
-      (s) => s.status === 'AGENT_HANDLING' || s.status === 'AI_HANDLING',
-    );
+    // 「处理中」只显示真正接入的会话（AGENT_HANDLING）
+    const handling = filtered.filter((s) => s.status === 'AGENT_HANDLING');
+    // 「AI 接待中」单独分组（AI_HANDLING），坐席可监督但不需操作
+    const aiHandling = filtered.filter((s) => s.status === 'AI_HANDLING');
     const closed = filtered.filter((s) => s.status === 'CLOSED');
 
-    return { queuing, handling, closed };
+    return { queuing, handling, aiHandling, closed };
   }, [sessions, searchText]);
 
   // 发送消息
@@ -983,6 +984,42 @@ export default function CsWorkstationPage() {
                 </div>
               ) : (
                 groupedSessions.handling.map((s) => (
+                  <SessionItem
+                    key={s.id}
+                    session={s}
+                    isActive={activeSessionId === s.id}
+                    onClick={() => setActiveSessionId(s.id)}
+                  />
+                ))
+              )}
+
+              {/* AI 接待中（坐席未介入，可监督） */}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: '#f8fafc',
+                  borderBottom: '1px solid #f1f5f9',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  AI 接待中
+                </span>
+                {groupedSessions.aiHandling.length > 0 && (
+                  <Badge
+                    count={groupedSessions.aiHandling.length}
+                    style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}
+                  />
+                )}
+              </div>
+              {groupedSessions.aiHandling.length === 0 ? (
+                <div style={{ padding: '12px 16px', color: '#94a3b8', fontSize: 12 }}>
+                  暂无 AI 接待会话
+                </div>
+              ) : (
+                groupedSessions.aiHandling.map((s) => (
                   <SessionItem
                     key={s.id}
                     session={s}
