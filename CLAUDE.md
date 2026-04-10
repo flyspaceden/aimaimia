@@ -4,29 +4,62 @@
 爱买买是一个 AI 赋能的农业电商平台，采用多商户入驻模式。包含买家 App（React Native）、卖家后台（React Web）和管理后台（React Web）。后端 NestJS 统一服务。
 
 ## 相关文档
-- `data-system.md` — 完整数据库设计（9 大域，67 模型，41 枚举，**权威来源**）
-- `backend.md` — 后端技术文档（API/模块/部署）
-- `frontend.md` — 买家 App 前端设计文档（页面设计稿、组件规范、AI 视觉语言，**前端开发权威来源**）
-- `sales.md` — 卖家系统设计文档（数据模型、API 设计、前端页面、业务流程，**卖家端开发权威来源**）
-- `plan.md` — 项目路线图与进度追踪（**所有进度状态在这里更新**）
-- `tofix-safe.md` — 安全与并发一致性问题追踪（**时序安全、竞态条件、数据一致性问题权威来源**）
-- `security-audit.md` — 全面安全审计文档（认证/资金/API/隐私/基础设施/AI/多商户/监控，12 大维度）
-- `plan-treeforuser.md` — 普通用户分润奖励系统改造计划（抽奖/普通树/自动定价/运费/换货，Phase A~G 已完成 + Phase H~L 新增，**普通用户系统改造权威来源**）
-- `conflict1.md` — 后端全面审查冲突清单 v2（C/H/M/L 问题重评 + 管理端/卖家端新发现 + 需求引入新问题，**后端修复排程权威来源**）
-- `new-features-design.md` — 五大新功能设计方案（F1 订单流程重构 / F2 赠品锁定 / F3 奖品过期 / F4 平台公司 / F5 奖励过期可配置，**新功能实现权威来源**）
-- `普通用户红包分润系统.md` — 普通用户分润奖励系统需求原文（产品需求文档）
-- `tofix-app-frontend.md` — 买家 App 前端交互问题清单与修复计划（20 CRITICAL + 32 HIGH + 39 MEDIUM + 30 LOW，**买家端前端修复排程权威来源**）
-- `redpocket.md` — 平台红包（优惠券）系统完整设计方案（需求、数据模型、API、管理后台、买家App改造、实施步骤，**平台红包系统开发权威来源**）
-- `tofix5.md` — 平台红包系统代码审查问题清单（2P0 + 7P1 + 4P2 + 3P3，含修复方案与执行顺序，**红包系统修复排程权威来源**）
-- `tofix6.md` — 移除游客模式改造计划（认证二态统一、购物车本地化、抽奖公开化，F1-F14前端 + B1-B6后端，**游客模式移除排程权威来源**）
-- `ai.md` — AI 语音助手集成方案（ASR 接入、意图识别、大模型选型、全链路架构、费用估算、升级路线，**AI 功能开发权威来源，所有 AI 相关计划/问题/进度均在此文档更新**）
-- `seller.md` — 卖家系统完整设计方案（隐私保护策略、页面设计、安全架构、API 改造计划，**卖家系统开发权威来源，替代 sales.md 中的前端/隐私相关内容**）
-- `invoice.md` — 发票申请功能完整设计方案（需求定义、预期结果、4 Phase 实施计划、API 设计、安全要求，**发票功能开发权威来源**）
+
+### 架构设计 (`docs/architecture/`)
+- `docs/architecture/data-system.md` — 完整数据库设计（9 大域，67 模型，41 枚举，**权威来源**）
+- `docs/architecture/backend.md` — 后端技术文档（API/模块/部署）
+- `docs/architecture/frontend.md` — 买家 App 前端设计文档（页面设计稿、组件规范、AI 视觉语言，**前端开发权威来源**）
+- `docs/architecture/sales.md` — 卖家系统设计文档（数据模型、API 设计、前端页面、业务流程，**卖家端开发权威来源**）
+- `docs/architecture/seller.md` — 卖家系统完整设计方案（隐私保护策略、页面设计、安全架构、API 改造计划，**卖家系统开发权威来源，替代 sales.md 中的前端/隐私相关内容**）
+- `docs/architecture/admin-frontend.md` — 管理后台前端
+
+### AI 功能 (`docs/ai/`)
+- `docs/ai/ai.md` — AI 语音助手集成方案（ASR 接入、意图识别、大模型选型、全链路架构、费用估算、升级路线，**AI 功能开发权威来源，所有 AI 相关计划/问题/进度均在此文档更新**）
+- `docs/ai/ai搜索.md` — AI 搜索功能设计
+
+### 功能设计 (`docs/features/`)
+- `docs/features/redpocket.md` — 平台红包（优惠券）系统完整设计方案（需求、数据模型、API、管理后台、买家App改造、实施步骤，**平台红包系统开发权威来源**）
+- `docs/features/refund.md` — 退换货系统完整规则文档（23条规则 + 2个附录、法律依据、配置参数，**退换货业务规则权威来源**）
+- `docs/features/invoice.md` — 发票申请功能完整设计方案（需求定义、预期结果、4 Phase 实施计划、API 设计、安全要求，**发票功能开发权威来源**）
+- `docs/features/new-features-design.md` — 五大新功能设计方案（F1 订单流程重构 / F2 赠品锁定 / F3 奖品过期 / F4 平台公司 / F5 奖励过期可配置，**新功能实现权威来源**）
+- `docs/features/buy-vip.md` — VIP 购买流程
+- `docs/features/plan-treeforuser.md` — 普通用户分润奖励系统改造计划（抽奖/普通树/自动定价/运费/换货，Phase A~G 已完成 + Phase H~L 新增，**普通用户系统改造权威来源**）
+- `docs/features/test-reward.md` — 分润奖励系统商业模式盈利测试模型（资金流分析、解析模型、时序仿真设计、参数扫描、压力测试、报表设计，**分润系统盈利测试权威来源**）
+- `docs/features/admin-tree-frontend.md` — 管理端树前端
+- `docs/features/普通用户红包分润系统.md` — 普通用户分润奖励系统需求原文（产品需求文档）
+- `docs/features/shipping.md` — 快递物流链路实施文档（已完成部分、未完成问题、上线前配置清单、代码路径速查，**快递链路开发进度权威来源**）
+- `docs/features/支付宝支付.md` — 支付宝收款与付款集成方案（收款现状、分润出款商家转账方案、法律合规、个税代扣代缴、涉税报送、实施路线图，**支付宝支付/分润出款通道权威来源**）
+- `docs/features/智能客服.md` — 智能客服系统完整文档（三层路由、8个数据模型、Socket.IO事件清单、买家App+管理后台用户流程、跨系统数据流、bug修复历史、144个测试用例、待优化项、配置项与上线检查清单、常见问题排查，**智能客服系统运维与开发权威来源，每次客服bug/优化必须同步更新**）
+
+### 问题追踪 (`docs/issues/`)
+- `docs/issues/tofix-safe.md` — 安全与并发一致性问题追踪（**时序安全、竞态条件、数据一致性问题权威来源**）
+- `docs/issues/tofix-app-frontend.md` — 买家 App 前端交互问题清单与修复计划（20 CRITICAL + 32 HIGH + 39 MEDIUM + 30 LOW，**买家端前端修复排程权威来源**）
+- `docs/issues/tofix5.md` — 平台红包系统代码审查问题清单（2P0 + 7P1 + 4P2 + 3P3，含修复方案与执行顺序，**红包系统修复排程权威来源**）
+- `docs/issues/tofix6.md` — 移除游客模式改造计划（认证二态统一、购物车本地化、抽奖公开化，F1-F14前端 + B1-B6后端，**游客模式移除排程权威来源**）
+- `docs/issues/conflict1.md` — 后端全面审查冲突清单 v2（C/H/M/L 问题重评 + 管理端/卖家端新发现 + 需求引入新问题，**后端修复排程权威来源**）
+- `docs/issues/tofix.md` ~ `docs/issues/tofix7.md` — 各轮代码审查问题清单
+- `docs/issues/普通用户分润后端问题.md` — 分润后端问题
+
+### 安全与合规 (`docs/security/`)
+- `docs/security/security-audit.md` — 全面安全审计文档（认证/资金/API/隐私/基础设施/AI/多商户/监控，12 大维度）
+- `docs/security/电商法.md` — 电商法规参考
+
+### 部署运维 (`docs/operations/`)
+- `docs/operations/deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
+- `docs/operations/版本管理.md` — 版本管理指南（Git 分支策略 dev/staging/main、阿里云双环境规划、GitHub Actions 自动部署规则、App 三阶段发布流程、版本号规范，**版本管理权威来源**）
+- `docs/operations/github操作.md` — GitHub 日常操作指南（monorepo 推送命令、手动触发部署，**Git 操作快速参考**）
+- `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
+
+### 参考资料 (`docs/reference/`)
+- `docs/reference/apikey.md` — API 密钥说明
+- `docs/reference/prompt-frontend-audit.md` — 前端审计 prompt
+- `docs/reference/爱买买_项目框架说明.md` — 项目框架说明
+- `docs/reference/phase1-9-全栈开发记录-Schema重建与模块实现.md` — 历史全栈开发记录
+
+### 设计方案与实施计划 (`docs/superpowers/`)
 - `docs/superpowers/specs/2026-03-15-semantic-intent-design.md` — 语义意图升级设计方案（槽位扩展、LLM 管道、数据模型、搜索评分、实施分期，**语义意图改造权威来源**）
-- `test-reward.md` — 分润奖励系统商业模式盈利测试模型（资金流分析、解析模型、时序仿真设计、参数扫描、压力测试、报表设计，**分润系统盈利测试权威来源**）
 - `docs/superpowers/specs/2026-03-20-vip-gift-multi-sku-design.md` — VIP 赠品多商品组合设计方案（数据模型、API、管理后台、买家App、迁移策略，**VIP赠品组合系统权威来源**）
 - `docs/superpowers/plans/2026-03-20-vip-gift-multi-sku.md` — VIP 赠品多商品组合实施计划（15个任务、全栈改造，**VIP赠品组合实施排程**）
-- `deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
 - `docs/superpowers/specs/2026-03-24-merchant-onboarding-design.md` — 商户自助入驻功能设计方案（数据模型、API 设计、安全措施、管理后台改动、网站表单、审核自动化流程，**商户入驻功能开发权威来源**）
 - `docs/superpowers/plans/2026-03-24-merchant-onboarding.md` — 商户自助入驻实施计划（8 个任务、Schema/Captcha/公开API/管理端/前端/网站/联调，**商户入驻实施排程**）
 - `docs/superpowers/specs/2026-03-26-vip-multi-package-design.md` — VIP 多档位礼包设计方案（VipPackage 数据模型、多价格结账、按比例推荐奖励、管理后台档位管理、买家App档位选择，**VIP 多档位系统权威来源**）
@@ -39,8 +72,12 @@
 - `docs/superpowers/plans/2026-03-28-discovery-filter.md` — 发现页企业筛选栏动态化实施计划（8个任务、后端配置/公开API/管理前端/拖拽排序/App端动态化/Mock同步，**发现页筛选实施排程**）
 - `docs/superpowers/specs/2026-03-30-unified-after-sale-design.md` — 统一退换货系统设计方案（数据模型、状态机、统一售后API、分润冻结、退款计算、超时Cron、三端改造，**退换货系统权威来源**）
 - `docs/superpowers/specs/2026-03-30-unified-after-sale-test-plan.md` — 统一退换货系统测试方案（58个测试用例、单元/集成/API/端到端/并发/边界/回归，**退换货系统测试权威来源**）
-- `refund.md` — 退换货系统完整规则文档（23条规则 + 2个附录、法律依据、配置参数，**退换货业务规则权威来源**）
 - `docs/superpowers/plans/2026-03-30-unified-after-sale.md` — 统一退换货系统实施计划（17个任务、Schema/后端6模块/前端3端/Cron/测试，**退换货系统实施排程**）
+- `docs/superpowers/specs/2026-04-08-intelligent-customer-service-design.md` — 智能客服系统设计方案（三层路由、8个数据模型、Socket.IO实时通讯、管理后台6页面、买家App客服页、后端模块结构，**智能客服系统权威来源**）
+- `docs/superpowers/plans/2026-04-08-intelligent-customer-service.md` — 智能客服系统实施计划（17个任务、Schema/后端7服务/Socket.IO Gateway/管理前端7页面/买家App组件/种子数据，**智能客服系统实施排程**）
+
+### 项目管理（根目录）
+- `plan.md` — 项目路线图与进度追踪（**所有进度状态在这里更新**）
 
 ## 关键架构决策
 
@@ -105,7 +142,7 @@ admin/                  # 管理后台前端
 
 ### 强制流程
 1. **任何新需求先确认**：复述需求 → 提出修改建议 → 用户许可后才动代码
-2. **每完成一个前端任务**：立即更新 `frontend.md`（标记对应 Section/组件完成状态）和 `plan.md`（更新 Batch 进度），告诉用户下一步是什么
+2. **每完成一个前端任务**：立即更新 `docs/architecture/frontend.md`（标记对应 Section/组件完成状态）和 `plan.md`（更新 Batch 进度），告诉用户下一步是什么
 3. **所有前端开发必须先调用 `/ui-ux-pro-max`**：获取设计指导后再写 UI 代码（买家 App + 管理后台均适用）
 4. **Phase 完成前必须验证**：
    - 后端：`npx prisma validate` / TypeScript 编译 / API 测试
@@ -113,9 +150,9 @@ admin/                  # 管理后台前端
 5. **对齐检查**：后端模块间关联正确，前端 Repo/Types 与后端 Schema/API 一致
 6. **安全检查（每次代码变更必做）**：
    - 每次修改代码前，判断该改动是否涉及并发安全、资金操作、状态转换、认证鉴权等场景
-   - 如涉及，对照 `tofix-safe.md` 末尾的「安全检查清单」逐项检查
-   - 如发现新的安全/时序/竞态问题，立即追加到 `tofix-safe.md` 并告知用户
-   - 如改动解决了已有的安全问题，更新 `tofix-safe.md` 中对应条目的状态为 ✅ 已修复
+   - 如涉及，对照 `docs/issues/tofix-safe.md` 末尾的「安全检查清单」逐项检查
+   - 如发现新的安全/时序/竞态问题，立即追加到 `docs/issues/tofix-safe.md` 并告知用户
+   - 如改动解决了已有的安全问题，更新 `docs/issues/tofix-safe.md` 中对应条目的状态为 ✅ 已修复
    - **涉及金额、库存、奖励、奖金、支付的代码变更必须使用 Serializable 隔离级别**
 7. **文档同步（CLAUDE.md 是项目的单一入口）**：
    - 每次新建文档（`.md` 或其他说明文件）时，必须同步在 `CLAUDE.md` 的「相关文档」列表中添加该文档的路径、用途和权威范围
@@ -134,7 +171,7 @@ admin/                  # 管理后台前端
 
    **后端代码审查**：
    - Schema/模型：字段类型、关系双向声明、索引覆盖、枚举值完整性
-   - 与计划文档（plan-treeforuser.md 等）逐字段交叉比对，报告所有偏差
+   - 与计划文档（docs/features/plan-treeforuser.md 等）逐字段交叉比对，报告所有偏差
    - 并发安全：金额/库存/奖励操作是否用 Serializable、CAS 是否在事务内、幂等键设计
    - 种子数据：数据格式与 Schema 字段类型一致、JSON 字段结构与业务代码预期一致、新增配置项完整
    - 业务逻辑：状态机转换合法性、利润分配比例总和校验、配置回退机制
@@ -156,7 +193,7 @@ admin/                  # 管理后台前端
    **跨系统一致性审查**：
    - 枚举值三端一致（Schema 枚举 ↔ 前端 constants ↔ 后端 DTO）
    - 新增 API 端点在对应前端 Repo 中有调用方法
-   - 文档（plan.md / data-system.md / tofix-safe.md 等）与代码实际状态同步
+   - 文档（plan.md / docs/architecture/data-system.md / docs/issues/tofix-safe.md 等）与代码实际状态同步
 
 ### 代码约定
 
