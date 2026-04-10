@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ShipmentController } from './shipment.controller';
 import { ShipmentService } from './shipment.service';
+import { Kuaidi100Service } from './kuaidi100.service';
+import { Kuaidi100WaybillService } from './kuaidi100-waybill.service';
 import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
 
 @Module({
   controllers: [ShipmentController],
-  providers: [ShipmentService, WebhookIpGuard],
+  providers: [ShipmentService, Kuaidi100Service, Kuaidi100WaybillService, WebhookIpGuard],
+  exports: [Kuaidi100Service, Kuaidi100WaybillService],
 })
 export class ShipmentModule {}
