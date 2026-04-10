@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CsRoutingService } from './cs-routing.service';
 import { CsAgentService } from './cs-agent.service';
 import { CsTicketService } from './cs-ticket.service';
+import { CsMaskingService } from './cs-masking.service';
 import { CsRouteResult, CsAiContext } from './types/cs.types';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class CsService {
     private routingService: CsRoutingService,
     private agentService: CsAgentService,
     private ticketService: CsTicketService,
+    private maskingService: CsMaskingService,
   ) {}
 
   /** 会话空闲超时（毫秒）：超过此时间无活动，下次进入自动开新会话 */
@@ -117,9 +119,12 @@ export class CsService {
     if (session.userId !== userId) throw new NotFoundException('会话不存在');
     if (session.status === 'CLOSED') throw new BadRequestException('会话已关闭');
 
-    // 保存用户消息（带显式时间戳确保顺序）
+    // Sec1: 写入前对用户消息脱敏（身份证/银行卡/手机号/邮箱）
+    const maskedContent = this.maskingService.mask(content);
+
+    // 保存用户消息
     const userMsg = await this.prisma.csMessage.create({
-      data: { sessionId, senderType: 'USER', senderId: userId, contentType, content },
+      data: { sessionId, senderType: 'USER', senderId: userId, contentType, content: maskedContent },
     });
 
     // 已转人工或排队中 → 只保存消息，不走路由（避免重复建工单）
@@ -131,8 +136,9 @@ export class CsService {
     const context = await this.buildAiContext(session);
 
     // 路由（含外部 LLM 调用，可能数秒）
+    // Sec1: 路由也用脱敏后的内容，防止敏感信息泄漏给 LLM
     const failures = this.consecutiveFailures.get(sessionId) ?? 0;
-    const routeResult = await this.routingService.route(content, context, failures);
+    const routeResult = await this.routingService.route(maskedContent, context, failures);
 
     // D2 修复：路由完成后重新检查 session 状态（期间可能被关闭/转人工）
     const currentSession = await this.prisma.csSession.findUnique({
@@ -255,8 +261,10 @@ export class CsService {
       throw new BadRequestException('无权在此会话发送消息');
     }
 
+    // Sec1: 坐席消息也脱敏（防止坐席误发包含用户敏感信息的内容）
+    const maskedContent = this.maskingService.mask(content);
     return this.prisma.csMessage.create({
-      data: { sessionId, senderType: 'AGENT', senderId: adminId, contentType, content, metadata, routeLayer: 3 },
+      data: { sessionId, senderType: 'AGENT', senderId: adminId, contentType, content: maskedContent, metadata, routeLayer: 3 },
     });
   }
 

@@ -4,6 +4,7 @@ import {
   SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
@@ -11,6 +12,8 @@ import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { createAdapter } from '@socket.io/redis-adapter';
+import Redis from 'ioredis';
 import { CsService } from './cs.service';
 import { CsAgentService } from './cs-agent.service';
 import { CsSendPayload, CsTypingPayload } from './types/cs.types';
@@ -31,7 +34,7 @@ interface AuthenticatedSocket extends Socket {
   },
 })
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class CsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -40,12 +43,46 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** 坐席断线定时器：30秒内未重连则标记离线 */
   private agentDisconnectTimers = new Map<string, NodeJS.Timeout>();
 
+  /** Redis pub/sub clients for Socket.IO adapter */
+  private pubClient: Redis | null = null;
+  private subClient: Redis | null = null;
+
   constructor(
     private csService: CsService,
     private agentService: CsAgentService,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
+
+  /**
+   * S1 修复：Server 初始化时附加 Redis Adapter，支持多实例水平扩展
+   * - 没有 REDIS_URL 时降级为单实例模式（开发环境）
+   */
+  afterInit(server: Server) {
+    const redisUrl = this.configService.get<string>('REDIS_URL');
+    if (!redisUrl) {
+      this.logger.warn('REDIS_URL 未配置，Socket.IO 运行在单实例模式（生产环境必须配置）');
+      return;
+    }
+
+    try {
+      this.pubClient = new Redis(redisUrl, { lazyConnect: false });
+      this.subClient = this.pubClient.duplicate();
+
+      this.pubClient.on('error', (err) => {
+        this.logger.error(`Redis pub client 错误: ${err.message}`);
+      });
+      this.subClient.on('error', (err) => {
+        this.logger.error(`Redis sub client 错误: ${err.message}`);
+      });
+
+      // 注意：socket.io-redis-adapter 需要 ioredis 实例（不是 node-redis）
+      server.adapter(createAdapter(this.pubClient as any, this.subClient as any));
+      this.logger.log('Socket.IO Redis Adapter 已启用，支持多实例水平扩展');
+    } catch (e: any) {
+      this.logger.error(`Redis Adapter 初始化失败，降级为单实例模式: ${e.message}`);
+    }
+  }
 
   async handleConnection(client: AuthenticatedSocket) {
     try {

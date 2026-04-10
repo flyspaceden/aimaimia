@@ -56,9 +56,14 @@ function createMocks() {
   const ticket = {
     createTicket: jest.fn().mockResolvedValue('ticket-1'),
   };
+  // Sec1: MessagingMaskingService - no-op identity in tests by default
+  const masking = {
+    mask: jest.fn((text: string) => text),
+    containsSensitive: jest.fn(() => false),
+  };
 
-  const service = new CsService(prisma as any, routing as any, agent as any, ticket as any);
-  return { service, prisma, routing, agent, ticket };
+  const service = new CsService(prisma as any, routing as any, agent as any, ticket as any, masking as any);
+  return { service, prisma, routing, agent, ticket, masking };
 }
 
 describe('CsService', () => {
