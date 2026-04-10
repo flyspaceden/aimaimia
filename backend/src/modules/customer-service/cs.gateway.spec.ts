@@ -5,6 +5,7 @@ function createMocks() {
     handleUserMessage: jest.fn(),
     handleAgentMessage: jest.fn(),
     agentAcceptSession: jest.fn(),
+    agentReleaseSession: jest.fn(),
     closeSession: jest.fn(),
     getActiveSession: jest.fn(),
     getAdminSessionDetail: jest.fn(),
@@ -45,12 +46,16 @@ function createMocks() {
 }
 
 function createMockClient(data?: any): any {
+  const toEmit = jest.fn();
+  const to = jest.fn().mockReturnValue({ emit: toEmit });
   return {
     handshake: { auth: { token: 'test-token' } },
     data: data || {},
     join: jest.fn(),
+    leave: jest.fn(),
     emit: jest.fn(),
-    to: jest.fn().mockReturnThis(),
+    to,
+    _toEmit: toEmit, // helper for test assertions: client.to(room).emit(...)
     disconnect: jest.fn(),
   };
 }
@@ -139,7 +144,7 @@ describe('CsGateway', () => {
   });
 
   it('handleSend — 坐席发消息：调用 handleAgentMessage，广播 cs:message', async () => {
-    const { gateway, csService, mockServer } = createMocks();
+    const { gateway, csService } = createMocks();
     const client = createMockClient({ adminId: 'admin-1', isAgent: true });
 
     const agentMsg = { id: 'msg-2', content: '您好', senderType: 'AGENT' };
@@ -148,8 +153,9 @@ describe('CsGateway', () => {
     await gateway.handleSend(client, { sessionId: 'session-1', content: '您好' });
 
     expect(csService.handleAgentMessage).toHaveBeenCalledWith('session-1', 'admin-1', '您好', undefined);
-    expect(mockServer.to).toHaveBeenCalledWith('session:session-1');
-    expect(mockServer.emit).toHaveBeenCalledWith('cs:message', agentMsg);
+    // 坐席发消息使用 client.to(...)（排除发送者）而非 server.to(...)
+    expect(client.to).toHaveBeenCalledWith('session:session-1');
+    expect(client._toEmit).toHaveBeenCalledWith('cs:message', agentMsg);
   });
 
   it('handleSend — 消息超长(>5000) → emit cs:error', async () => {
@@ -284,7 +290,7 @@ describe('CsGateway', () => {
 
   describe('Socket 事件 payload 形状', () => {
     it('cs:message 事件包含完整 CsMessage 字段', async () => {
-      const { gateway, csService, mockServer } = createMocks();
+      const { gateway, csService } = createMocks();
       const client = createMockClient({ adminId: 'admin-1', isAgent: true });
 
       const agentMsg = {
@@ -299,8 +305,9 @@ describe('CsGateway', () => {
 
       await gateway.handleSend(client, { sessionId: 'session-1', content: '您好，有什么可以帮您？' });
 
-      expect(mockServer.to).toHaveBeenCalledWith('session:session-1');
-      const emittedPayload = mockServer.emit.mock.calls.find(
+      // 坐席发消息通过 client.to(...).emit(...) 广播（排除发送者）
+      expect(client.to).toHaveBeenCalledWith('session:session-1');
+      const emittedPayload = client._toEmit.mock.calls.find(
         (c: any[]) => c[0] === 'cs:message',
       )?.[1];
       expect(emittedPayload).toBeDefined();
@@ -344,7 +351,7 @@ describe('CsGateway', () => {
       const buyerClient = createMockClient({ userId: 'user-1', isAgent: false });
       gateway.handleTyping(buyerClient, { sessionId: 'session-1', senderType: 'USER' as any });
       expect(buyerClient.to).toHaveBeenCalledWith('session:session-1');
-      expect(buyerClient.emit).toHaveBeenCalledWith('cs:typing', {
+      expect(buyerClient._toEmit).toHaveBeenCalledWith('cs:typing', {
         sessionId: 'session-1',
         senderType: 'USER',
       });
@@ -353,10 +360,53 @@ describe('CsGateway', () => {
       const agentClient = createMockClient({ adminId: 'admin-1', isAgent: true });
       gateway.handleTyping(agentClient, { sessionId: 'session-1', senderType: 'AGENT' as any });
       expect(agentClient.to).toHaveBeenCalledWith('session:session-1');
-      expect(agentClient.emit).toHaveBeenCalledWith('cs:typing', {
+      expect(agentClient._toEmit).toHaveBeenCalledWith('cs:typing', {
         sessionId: 'session-1',
         senderType: 'AGENT',
       });
+    });
+  });
+
+  // ---- 坐席完成处理（柔性脱身） ----
+
+  describe('坐席完成处理（柔性脱身）', () => {
+    it('handleReleaseSession — 调用 agentReleaseSession + 广播 cs:agent_released + leave 房间', async () => {
+      const { gateway, csService, mockServer } = createMocks();
+      const client = createMockClient({ adminId: 'admin-1', isAgent: true });
+
+      csService.agentReleaseSession = jest.fn().mockResolvedValue({
+        systemMessage: { id: 'sys-1', content: '客服已完成本次服务' },
+      });
+
+      await gateway.handleReleaseSession(client, { sessionId: 'session-1' });
+
+      expect(csService.agentReleaseSession).toHaveBeenCalledWith('session-1', 'admin-1');
+      expect(mockServer.to).toHaveBeenCalledWith('session:session-1');
+      expect(mockServer.emit).toHaveBeenCalledWith(
+        'cs:agent_released',
+        expect.objectContaining({ sessionId: 'session-1' }),
+      );
+      expect(client.leave).toHaveBeenCalledWith('session:session-1');
+    });
+
+    it('handleReleaseSession — 非坐席调用被忽略', async () => {
+      const { gateway, csService } = createMocks();
+      const client = createMockClient({ userId: 'user-1', isAgent: false });
+      csService.agentReleaseSession = jest.fn();
+
+      await gateway.handleReleaseSession(client, { sessionId: 'session-1' });
+
+      expect(csService.agentReleaseSession).not.toHaveBeenCalled();
+    });
+
+    it('handleReleaseSession — 服务抛错时通过 cs:error 通知客户端', async () => {
+      const { gateway, csService } = createMocks();
+      const client = createMockClient({ adminId: 'admin-1', isAgent: true });
+      csService.agentReleaseSession = jest.fn().mockRejectedValue(new Error('无权释放此会话'));
+
+      await gateway.handleReleaseSession(client, { sessionId: 'session-1' });
+
+      expect(client.emit).toHaveBeenCalledWith('cs:error', expect.objectContaining({ message: '无权释放此会话' }));
     });
   });
 });

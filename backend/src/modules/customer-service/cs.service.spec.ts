@@ -809,6 +809,57 @@ describe('CsService', () => {
   });
 
   // ====================================================================
+  // agentReleaseSession（柔性脱身）
+  // ====================================================================
+
+  describe('agentReleaseSession()', () => {
+    it('成功释放：CAS 更新 agentId=null + status=AI_HANDLING + 释放坐席 + 插系统消息', async () => {
+      const { service, prisma, agent } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
+      prisma.csMessage.create.mockResolvedValue({ id: 'sys-1', content: '客服已完成' });
+      prisma.csSession.findUnique.mockResolvedValue({ ticketId: 't1' });
+      prisma.csTicket.update.mockResolvedValue({});
+
+      const result = await service.agentReleaseSession('s1', 'admin-1');
+
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', agentId: 'admin-1', status: 'AGENT_HANDLING' },
+        data: expect.objectContaining({
+          agentId: null,
+          agentJoinedAt: null,
+          status: 'AI_HANDLING',
+        }),
+      });
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
+      expect(prisma.csMessage.create).toHaveBeenCalled();
+      expect(prisma.csTicket.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: expect.objectContaining({ status: 'RESOLVED' }),
+      });
+      expect(result.systemMessage).toBeDefined();
+    });
+
+    it('CAS 失败（不是当前坐席接入的会话）→ 抛 BadRequestException', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.agentReleaseSession('s1', 'admin-1'))
+        .rejects.toThrow('无权释放此会话或会话状态已变更');
+    });
+
+    it('无关联工单时不调用 ticket update', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
+      prisma.csMessage.create.mockResolvedValue({ id: 'sys-1' });
+      prisma.csSession.findUnique.mockResolvedValue({ ticketId: null });
+
+      await service.agentReleaseSession('s1', 'admin-1');
+
+      expect(prisma.csTicket.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ====================================================================
   // 评价边界
   // ====================================================================
 
