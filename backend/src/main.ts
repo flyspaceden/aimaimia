@@ -9,6 +9,7 @@ import { ResultWrapperInterceptor } from './common/interceptors/result-wrapper.i
 import { PaginationInterceptor } from './common/interceptors/pagination.interceptor';
 import { AppExceptionFilter } from './common/filters/app-exception.filter';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
+import { RedisIoAdapter } from './common/adapters/redis-io.adapter';
 
 function parseTrustProxy(value: string): boolean | number | string | string[] {
   const normalized = value.trim();
@@ -92,6 +93,12 @@ async function bootstrap() {
 
   // 全局异常过滤器：错误响应包装为 { ok: false, error: AppError }
   app.useGlobalFilters(new AppExceptionFilter());
+
+  // Socket.IO 适配器：开启 Redis 跨实例广播（多实例部署必须）
+  // S1 修复：未配置 REDIS_URL 时静默降级为单实例 in-memory adapter
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis(process.env.REDIS_URL);
+  app.useWebSocketAdapter(redisIoAdapter);
 
   const port = process.env.PORT || 3000;
   await app.listen(port);

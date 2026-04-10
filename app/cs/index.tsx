@@ -80,7 +80,11 @@ export default function CsIndexScreen() {
         const messagesResult = await CsRepo.getMessages(result.data.sessionId);
         if (!cancelled && messagesResult.ok) {
           const sorted = [...messagesResult.data].sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            (a, b) => {
+              // D9: 复合排序 (createdAt, id)，避免同毫秒消息顺序不稳定
+              const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+              return dt !== 0 ? dt : a.id.localeCompare(b.id);
+            },
           );
           setMessages(sorted);
         }
@@ -111,7 +115,11 @@ export default function CsIndexScreen() {
           }
           // 按 createdAt 升序
           return Array.from(mergedMap.values()).sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            (a, b) => {
+              // D9: 复合排序 (createdAt, id)，避免同毫秒消息顺序不稳定
+              const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+              return dt !== 0 ? dt : a.id.localeCompare(b.id);
+            },
           );
         });
       }
@@ -210,10 +218,11 @@ export default function CsIndexScreen() {
           next.push(aiReply);
         }
       }
-      // 按 createdAt 排序（D1 防乱序）
-      return next.sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
+      // 按 (createdAt, id) 复合排序（D1 + D9 防乱序）
+      return next.sort((a, b) => {
+        const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        return dt !== 0 ? dt : a.id.localeCompare(b.id);
+      });
     });
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [input, sessionId, sessionClosed, show]);

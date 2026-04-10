@@ -690,9 +690,11 @@ export default function CsWorkstationPage() {
           ...serverMsgs,
           ...localMsgs.filter((m) => !serverIds.has(m.id)),
         ];
-        merged.sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        );
+        // D9: 复合排序 (createdAt, id)，避免同毫秒消息顺序不稳定
+        merged.sort((a, b) => {
+          const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          return dt !== 0 ? dt : a.id.localeCompare(b.id);
+        });
         next.set(activeSessionId, merged);
         return next;
       });
@@ -704,13 +706,14 @@ export default function CsWorkstationPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [localMessages, activeSessionId]);
 
-  // 获取当前会话的消息（D1 修复：按 createdAt 排序，避免 Socket 事件乱序导致显示乱序）
+  // 获取当前会话的消息（D1+D9 修复：按 (createdAt, id) 复合排序，避免同毫秒乱序）
   const currentMessages = useMemo(() => {
     if (!activeSessionId) return [];
     const msgs = localMessages.get(activeSessionId) || [];
-    return [...msgs].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+    return [...msgs].sort((a, b) => {
+      const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return dt !== 0 ? dt : a.id.localeCompare(b.id);
+    });
   }, [localMessages, activeSessionId]);
 
   // 获取当前选中的 session 对象
