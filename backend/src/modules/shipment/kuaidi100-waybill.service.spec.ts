@@ -167,34 +167,35 @@ describe('Kuaidi100WaybillService', () => {
   describe('cancelWaybill', () => {
     it('未配置时跳过并返回 success: false', async () => {
       const service = createService({ KUAIDI100_SECRET: '' });
-      const result = await service.cancelWaybill('TASK001');
+      const result = await service.cancelWaybill('SF', 'SF1234');
       expect(result.success).toBe(false);
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('空 taskId 时跳过', async () => {
+    it('空 waybillNo 时跳过', async () => {
       const service = createService();
-      const result = await service.cancelWaybill('');
+      const result = await service.cancelWaybill('SF', '');
       expect(result.success).toBe(false);
     });
 
-    it('成功取消且请求体包含 partnerId', async () => {
+    it('成功取消且请求体包含 kuaidicom 和 kuaidinum', async () => {
       const service = createService();
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ success: true, code: 200 }),
       });
 
-      const result = await service.cancelWaybill('TASK001');
+      const result = await service.cancelWaybill('SF', 'SF1234567890');
       expect(result.success).toBe(true);
 
-      // 验证 fetch body 中 param 包含 partnerId
+      // 验证 fetch body 中 param 包含 kuaidicom 和 kuaidinum
       const fetchCall = mockFetch.mock.calls[0];
       const body = fetchCall[1].body as string;
       const paramStr = new URLSearchParams(body).get('param')!;
       const paramObj = JSON.parse(paramStr);
       expect(paramObj.partnerId).toBe('test-partner');
-      expect(paramObj.taskId).toBe('TASK001');
+      expect(paramObj.kuaidicom).toBe('shunfeng');
+      expect(paramObj.kuaidinum).toBe('SF1234567890');
     });
 
     it('取消失败不抛异常', async () => {
@@ -204,7 +205,7 @@ describe('Kuaidi100WaybillService', () => {
         json: async () => ({ success: false, code: 30005, message: '取消失败' }),
       });
 
-      const result = await service.cancelWaybill('TASK001');
+      const result = await service.cancelWaybill('SF', 'SF1234567890');
       expect(result.success).toBe(false);
     });
   });

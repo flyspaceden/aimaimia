@@ -398,13 +398,13 @@ export class SellerShippingService {
     };
   }
 
-  async cancelCarrierWaybill(taskId: string) {
-    if (!taskId) {
-      this.logger.warn('取消面单跳过: 缺少 kuaidi100TaskId');
+  async cancelCarrierWaybill(carrierCode: string, waybillNo: string) {
+    if (!carrierCode || !waybillNo) {
+      this.logger.warn('取消面单跳过: 缺少快递编码或运单号');
       return;
     }
     try {
-      await this.kuaidi100Waybill.cancelWaybill(taskId);
+      await this.kuaidi100Waybill.cancelWaybill(carrierCode, waybillNo);
     } catch (err: any) {
       this.logger.warn(`取消面单调用快递100失败（不阻塞本地清除）: ${err.message}`);
     }
@@ -487,7 +487,7 @@ export class SellerShippingService {
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    await this.cancelCarrierWaybill(cancellation.kuaidi100TaskId ?? '');
+    await this.cancelCarrierWaybill(cancellation.carrierCode, cancellation.waybillNo);
 
     this.logger.log(
       `面单取消成功: orderId=${orderId}, waybillNo=${cancellation.waybillNo}`,
@@ -516,6 +516,6 @@ export class SellerShippingService {
     waybill: { carrierCode: string; waybillNo: string; taskId?: string } | null,
   ) {
     if (!waybill) return;
-    await this.cancelCarrierWaybill(waybill.taskId ?? '');
+    await this.cancelCarrierWaybill(waybill.carrierCode, waybill.waybillNo);
   }
 }

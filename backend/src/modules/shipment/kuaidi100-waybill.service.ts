@@ -150,9 +150,8 @@ export class Kuaidi100WaybillService {
       }
 
       if (!label) {
-        this.logger.warn(
-          `快递100面单返回缺少面单图片（kuaidinum=${waybillNo.slice(0, 4)}****）`,
-        );
+        this.logger.error(`快递100面单返回缺少面单图片: kuaidinum=${waybillNo}`);
+        throw new BadRequestException('面单生成失败: 未获取到面单图片，请稍后重试');
       }
 
       this.logger.log(
@@ -174,18 +173,27 @@ export class Kuaidi100WaybillService {
   /**
    * 取消面单
    * 调用快递100面单取消接口
+   * 参数为快递公司编码 + 运单号（非 taskId，taskId 仅用于重打印）
    */
-  async cancelWaybill(taskId: string): Promise<{ success: boolean }> {
-    if (!this.isConfigured() || !taskId) {
-      this.logger.warn('面单取消跳过: 服务未配置或缺少 taskId');
+  async cancelWaybill(carrierCode: string, waybillNo: string): Promise<{ success: boolean }> {
+    if (!this.isConfigured() || !waybillNo) {
+      this.logger.warn('面单取消跳过: 服务未配置或缺少运单号');
       return { success: false };
     }
 
-    const param = JSON.stringify({
-      taskId,
+    const kuaidicom = Kuaidi100Service.CARRIER_MAP[carrierCode.toUpperCase()];
+    if (!kuaidicom) {
+      this.logger.warn(`面单取消跳过: 不支持的快递编码 ${carrierCode}`);
+      return { success: false };
+    }
+
+    const paramObj: Record<string, any> = {
+      kuaidicom,
+      kuaidinum: waybillNo,
       partnerId: this.partnerId,
       partnerKey: this.partnerKey || undefined,
-    });
+    };
+    const param = JSON.stringify(paramObj);
     const t = String(Date.now());
     const sign = crypto
       .createHash('md5')
@@ -213,7 +221,7 @@ export class Kuaidi100WaybillService {
       if (!success) {
         this.logger.warn(`快递100面单取消失败: code=${data.code}, message=${data.message}`);
       } else {
-        this.logger.log(`面单取消成功: taskId=${taskId}`);
+        this.logger.log(`面单取消成功: ${carrierCode} ${waybillNo.slice(0, 4)}****`);
       }
 
       return { success };

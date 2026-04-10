@@ -964,7 +964,8 @@ export class SellerAfterSaleService {
     );
 
     await this.shippingService.cancelCarrierWaybill(
-      cancellation.kuaidi100TaskId ?? '',
+      cancellation.carrierCode,
+      cancellation.waybillNo,
     );
 
     return { ok: true };
@@ -1178,6 +1179,6 @@ export class SellerAfterSaleService {
     waybill: { carrierCode: string; waybillNo: string; taskId?: string } | null,
   ) {
     if (!waybill) return;
-    await this.shippingService.cancelCarrierWaybill(waybill.taskId ?? '');
+    await this.shippingService.cancelCarrierWaybill(waybill.carrierCode, waybill.waybillNo);
   }
 }
