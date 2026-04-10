@@ -9,14 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ShippingProvider } from './shipping-provider.interface';
-import { SfProvider } from './providers/sf.provider';
-import { YtoProvider } from './providers/yto.provider';
-import { ZtoProvider } from './providers/zto.provider';
-import { StoProvider } from './providers/sto.provider';
-import { YundaProvider } from './providers/yunda.provider';
-import { JdProvider } from './providers/jd.provider';
-import { EmsProvider } from './providers/ems.provider';
+import { Kuaidi100WaybillService } from '../../shipment/kuaidi100-waybill.service';
+import { Kuaidi100Service } from '../../shipment/kuaidi100.service';
 import { maskIp, maskTrackingNo } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
@@ -28,49 +22,14 @@ export class SellerShippingService {
   private readonly hmacSecret: string;
   private static readonly WAYBILL_LOCK_NAMESPACE = 'seller-waybill-order';
 
-  /** 快递服务商注册表，按 carrierCode 索引 */
-  private readonly providerRegistry: Map<string, ShippingProvider>;
-
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
     private sellerRiskControl: SellerRiskControlService,
-    sfProvider: SfProvider,
-    ytoProvider: YtoProvider,
-    ztoProvider: ZtoProvider,
-    stoProvider: StoProvider,
-    yundaProvider: YundaProvider,
-    jdProvider: JdProvider,
-    emsProvider: EmsProvider,
+    private kuaidi100Waybill: Kuaidi100WaybillService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
-    // 初始化服务商注册表
-    const providers: ShippingProvider[] = [
-      sfProvider,
-      ytoProvider,
-      ztoProvider,
-      stoProvider,
-      yundaProvider,
-      jdProvider,
-      emsProvider,
-    ];
-    this.providerRegistry = new Map(
-      providers.map((p) => [p.carrierCode, p]),
-    );
-  }
-
-  /**
-   * 获取快递服务商适配器
-   */
-  private getProvider(carrierCode: string): ShippingProvider {
-    const provider = this.providerRegistry.get(carrierCode.toUpperCase());
-    if (!provider) {
-      throw new BadRequestException(
-        `不支持的快递公司编码: ${carrierCode}，支持: ${[...this.providerRegistry.keys()].join(', ')}`,
-      );
-    }
-    return provider;
   }
 
   /**
@@ -160,7 +119,7 @@ export class SellerShippingService {
     orderId: string,
     carrierCode: string,
   ) {
-    let createdWaybill: { carrierCode: string; waybillNo: string } | null = null;
+    let createdWaybill: { carrierCode: string; waybillNo: string; taskId?: string } | null = null;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -219,6 +178,7 @@ export class SellerShippingService {
         createdWaybill = {
           carrierCode: waybillResult.carrierCode,
           waybillNo: waybillResult.waybillNo,
+          taskId: waybillResult.taskId,
         };
 
         if (existingShipment) {
@@ -232,6 +192,7 @@ export class SellerShippingService {
               waybillUrl: waybillResult.waybillUrl,
               carrierCode: waybillResult.carrierCode,
               carrierName: waybillResult.carrierName,
+              kuaidi100TaskId: waybillResult.taskId,
             },
           });
 
@@ -247,6 +208,7 @@ export class SellerShippingService {
               carrierName: waybillResult.carrierName,
               waybillNo: waybillResult.waybillNo,
               waybillUrl: waybillResult.waybillUrl,
+              kuaidi100TaskId: waybillResult.taskId,
               status: 'INIT',
               senderInfoSnapshot: waybillResult.senderInfoSnapshot as Prisma.InputJsonValue,
               receiverInfoSnapshot: waybillResult.receiverInfoSnapshot as Prisma.InputJsonValue,
@@ -404,37 +366,47 @@ export class SellerShippingService {
     addressSnapshot: unknown,
     items: Array<{ name: string; quantity: number; weight?: number }>,
   ) {
-    const provider = this.getProvider(carrierCode);
     const senderInfo = await this.getSenderInfo(companyId);
     const recipientInfo = this.parseAddressSnapshot(addressSnapshot);
-    const waybillResult = await provider.createWaybill({
-      ...senderInfo,
+    const cargo = items.map((i) => i.name).join(', ');
+    const totalWeight = items.reduce((sum, i) => sum + (i.weight || 0), 0);
+
+    const waybillResult = await this.kuaidi100Waybill.createWaybill({
+      carrierCode,
+      senderName: senderInfo.senderName,
+      senderPhone: senderInfo.senderPhone,
+      senderAddress: senderInfo.senderAddress,
       recipientName: recipientInfo.name,
       recipientPhone: recipientInfo.phone,
       recipientAddress: recipientInfo.address,
-      items,
+      cargo,
+      weight: totalWeight > 0 ? totalWeight : undefined,
+      count: 1,
     });
 
+    const carrierName =
+      Kuaidi100Service.CARRIER_NAME_MAP[carrierCode.toUpperCase()] || carrierCode;
+
     return {
-      carrierCode: provider.carrierCode,
-      carrierName: provider.carrierName,
+      carrierCode: carrierCode.toUpperCase(),
+      carrierName,
       waybillNo: waybillResult.waybillNo,
       waybillUrl: waybillResult.waybillImageUrl,
+      taskId: waybillResult.taskId,
       senderInfoSnapshot: senderInfo,
       receiverInfoSnapshot: recipientInfo,
     };
   }
 
-  async cancelCarrierWaybill(carrierCode: string, waybillNo: string) {
-    const provider = this.providerRegistry.get(carrierCode.toUpperCase());
-    if (!provider) {
-      this.logger.warn(`取消面单时未找到快递 Provider: carrierCode=${carrierCode}`);
+  async cancelCarrierWaybill(taskId: string) {
+    if (!taskId) {
+      this.logger.warn('取消面单跳过: 缺少 kuaidi100TaskId');
       return;
     }
     try {
-      await provider.cancelWaybill(waybillNo);
+      await this.kuaidi100Waybill.cancelWaybill(taskId);
     } catch (err: any) {
-      this.logger.warn(`取消面单调用服务商失败（不阻塞本地清除）: ${err.message}`);
+      this.logger.warn(`取消面单调用快递100失败（不阻塞本地清除）: ${err.message}`);
     }
   }
 
@@ -500,6 +472,7 @@ export class SellerShippingService {
           waybillNo: null,
           waybillUrl: null,
           trackingNo: null,
+          kuaidi100TaskId: null,
         },
       });
 
@@ -510,13 +483,11 @@ export class SellerShippingService {
       return {
         carrierCode: shipment.carrierCode,
         waybillNo: shipment.waybillNo,
+        kuaidi100TaskId: shipment.kuaidi100TaskId,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    await this.cancelCarrierWaybill(
-      cancellation.carrierCode,
-      cancellation.waybillNo,
-    );
+    await this.cancelCarrierWaybill(cancellation.kuaidi100TaskId ?? '');
 
     this.logger.log(
       `面单取消成功: orderId=${orderId}, waybillNo=${cancellation.waybillNo}`,
@@ -542,11 +513,9 @@ export class SellerShippingService {
   }
 
   private async rollbackCreatedWaybill(
-    waybill: { carrierCode: string; waybillNo: string } | null,
+    waybill: { carrierCode: string; waybillNo: string; taskId?: string } | null,
   ) {
-    if (!waybill) {
-      return;
-    }
-    await this.cancelCarrierWaybill(waybill.carrierCode, waybill.waybillNo);
+    if (!waybill) return;
+    await this.cancelCarrierWaybill(waybill.taskId ?? '');
   }
 }

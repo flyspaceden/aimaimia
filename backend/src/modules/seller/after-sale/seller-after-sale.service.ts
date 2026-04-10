@@ -745,7 +745,7 @@ export class SellerAfterSaleService {
     id: string,
     carrierCode: string,
   ) {
-    let createdWaybill: { carrierCode: string; waybillNo: string } | null =
+    let createdWaybill: { carrierCode: string; waybillNo: string; taskId?: string } | null =
       null;
 
     try {
@@ -836,6 +836,7 @@ export class SellerAfterSaleService {
           createdWaybill = {
             carrierCode: waybill.carrierCode,
             waybillNo: waybill.waybillNo,
+            taskId: waybill.taskId,
           };
 
           const cas = await tx.afterSaleRequest.updateMany({
@@ -954,14 +955,14 @@ export class SellerAfterSaleService {
         return {
           carrierCode: request.replacementCarrierCode || '',
           waybillNo: request.replacementWaybillNo,
+          kuaidi100TaskId: (request as any).replacementKuaidi100TaskId as string | undefined,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     await this.shippingService.cancelCarrierWaybill(
-      cancellation.carrierCode,
-      cancellation.waybillNo,
+      cancellation.kuaidi100TaskId ?? '',
     );
 
     return { ok: true };
@@ -1172,12 +1173,9 @@ export class SellerAfterSaleService {
   }
 
   private async rollbackCreatedWaybill(
-    waybill: { carrierCode: string; waybillNo: string } | null,
+    waybill: { carrierCode: string; waybillNo: string; taskId?: string } | null,
   ) {
     if (!waybill) return;
-    await this.shippingService.cancelCarrierWaybill(
-      waybill.carrierCode,
-      waybill.waybillNo,
-    );
+    await this.shippingService.cancelCarrierWaybill(waybill.taskId ?? '');
   }
 }
