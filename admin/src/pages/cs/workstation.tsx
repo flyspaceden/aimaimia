@@ -1400,7 +1400,7 @@ export default function CsWorkstationPage() {
                 </div>
                 <Button
                   type="primary"
-                  icon={<SendOutlined />}
+                  icon={<SendOutlined style={{ color: '#ffffff' }} />}
                   onClick={handleSend}
                   disabled={
                     !inputValue.trim() ||
@@ -1414,9 +1414,11 @@ export default function CsWorkstationPage() {
                     height: 40,
                     paddingInline: 20,
                     flexShrink: 0,
+                    color: '#ffffff',
+                    fontWeight: 600,
                   }}
                 >
-                  发送
+                  <span style={{ color: '#ffffff' }}>发送</span>
                 </Button>
               </div>
             </div>
