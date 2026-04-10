@@ -850,6 +850,7 @@ export class SellerAfterSaleService {
               replacementCarrierName: waybill.carrierName,
               replacementWaybillNo: waybill.waybillNo,
               replacementWaybillUrl: waybill.waybillUrl,
+              replacementKuaidi100TaskId: waybill.taskId,
             },
           });
 
@@ -943,6 +944,7 @@ export class SellerAfterSaleService {
             replacementCarrierName: null,
             replacementWaybillNo: null,
             replacementWaybillUrl: null,
+            replacementKuaidi100TaskId: null,
           },
         });
 
@@ -955,7 +957,7 @@ export class SellerAfterSaleService {
         return {
           carrierCode: request.replacementCarrierCode || '',
           waybillNo: request.replacementWaybillNo,
-          kuaidi100TaskId: (request as any).replacementKuaidi100TaskId as string | undefined,
+          kuaidi100TaskId: request.replacementKuaidi100TaskId ?? undefined,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

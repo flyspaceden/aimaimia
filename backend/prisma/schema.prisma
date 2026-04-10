@@ -2172,6 +2172,7 @@ model AfterSaleRequest {
   replacementCarrierName String?
   replacementWaybillNo  String?
   replacementWaybillUrl String?
+  replacementKuaidi100TaskId String?      // 换货面单快递100任务ID
   replacementShipmentId String?           // 换货物流单号
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
