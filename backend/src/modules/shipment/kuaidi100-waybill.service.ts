@@ -95,6 +95,11 @@ export class Kuaidi100WaybillService {
     const pollCallBackUrl = this.buildCallbackUrl();
     if (pollCallBackUrl) {
       paramObj.pollCallBackUrl = pollCallBackUrl;
+    } else {
+      this.logger.warn(
+        '未配置 KUAIDI100_CALLBACK_URL，物流推送订阅将不生效。面单可正常生成但无法自动接收物流更新',
+      );
+      paramObj.needSubscribe = false;
     }
 
     const param = JSON.stringify(paramObj);
@@ -144,6 +149,12 @@ export class Kuaidi100WaybillService {
         throw new BadRequestException('面单生成失败: 未获取到快递单号');
       }
 
+      if (!label) {
+        this.logger.warn(
+          `快递100面单返回缺少面单图片（kuaidinum=${waybillNo.slice(0, 4)}****）`,
+        );
+      }
+
       this.logger.log(
         `面单生成成功: carrier=${kuaidicom}, waybillNo=${waybillNo.slice(0, 4)}****`,
       );
@@ -170,7 +181,11 @@ export class Kuaidi100WaybillService {
       return { success: false };
     }
 
-    const param = JSON.stringify({ taskId });
+    const param = JSON.stringify({
+      taskId,
+      partnerId: this.partnerId,
+      partnerKey: this.partnerKey || undefined,
+    });
     const t = String(Date.now());
     const sign = crypto
       .createHash('md5')
