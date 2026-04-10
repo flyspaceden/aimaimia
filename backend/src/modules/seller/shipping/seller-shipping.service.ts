@@ -440,28 +440,28 @@ export class SellerShippingService {
    * 仅在未发货（status 为 INIT）时允许取消
    */
   async cancelWaybill(companyId: string, orderId: string) {
-    const cancellation = await this.prisma.$transaction(async (tx) => {
-      const shipment = await tx.shipment.findUnique({
-        where: {
-          orderId_companyId: {
-            orderId,
-            companyId,
-          },
-        },
-      });
+    // 1. 读取面单信息（事务外，用于远端取消）
+    const shipment = await this.prisma.shipment.findUnique({
+      where: {
+        orderId_companyId: { orderId, companyId },
+      },
+    });
 
-      if (!shipment) {
-        throw new NotFoundException('物流记录不存在');
-      }
+    if (!shipment) {
+      throw new NotFoundException('物流记录不存在');
+    }
+    if (!shipment.waybillNo) {
+      throw new BadRequestException('该订单未生成面单，无法取消');
+    }
+    if (shipment.status !== 'INIT') {
+      throw new BadRequestException('已发货的订单不可取消面单');
+    }
 
-      if (!shipment.waybillNo) {
-        throw new BadRequestException('该订单未生成面单，无法取消');
-      }
+    // 2. 先调快递100取消（best-effort）
+    await this.cancelCarrierWaybill(shipment.carrierCode, shipment.waybillNo);
 
-      if (shipment.status !== 'INIT') {
-        throw new BadRequestException('已发货的订单不可取消面单');
-      }
-
+    // 3. 远端取消后，清空本地记录
+    await this.prisma.$transaction(async (tx) => {
       const cas = await tx.shipment.updateMany({
         where: {
           id: shipment.id,
@@ -479,18 +479,10 @@ export class SellerShippingService {
       if (cas.count === 0) {
         throw new BadRequestException('该订单面单状态已变更，请刷新后重试');
       }
-
-      return {
-        carrierCode: shipment.carrierCode,
-        waybillNo: shipment.waybillNo,
-        kuaidi100TaskId: shipment.kuaidi100TaskId,
-      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    await this.cancelCarrierWaybill(cancellation.carrierCode, cancellation.waybillNo);
-
     this.logger.log(
-      `面单取消成功: orderId=${orderId}, waybillNo=${cancellation.waybillNo}`,
+      `面单取消成功: orderId=${orderId}, waybillNo=${shipment.waybillNo}`,
     );
 
     return { ok: true };

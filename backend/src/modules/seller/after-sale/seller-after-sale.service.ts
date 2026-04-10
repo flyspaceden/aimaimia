@@ -907,32 +907,40 @@ export class SellerAfterSaleService {
 
   /** 取消面单 */
   async cancelWaybill(companyId: string, id: string) {
-    const cancellation = await this.prisma.$transaction(
-      async (tx) => {
-        const request = await tx.afterSaleRequest.findUnique({
-          where: { id },
-          include: {
-            order: {
-              select: {
-                items: { select: { id: true, companyId: true } },
-              },
-            },
+    // 1. 读取售后申请信息（事务外，用于远端取消）
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      include: {
+        order: {
+          select: {
+            items: { select: { id: true, companyId: true } },
           },
-        });
-        if (!request) throw new NotFoundException('售后申请不存在');
+        },
+      },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
 
-        this.assertCompanyOwnsRequest(companyId, request as any);
+    this.assertCompanyOwnsRequest(companyId, request as any);
 
-        if (
-          request.status !== 'APPROVED' &&
-          request.status !== 'RECEIVED_BY_SELLER'
-        ) {
-          throw new BadRequestException('当前状态不可取消面单');
-        }
-        if (!request.replacementWaybillNo) {
-          throw new BadRequestException('该售后未生成面单，无法取消');
-        }
+    if (
+      request.status !== 'APPROVED' &&
+      request.status !== 'RECEIVED_BY_SELLER'
+    ) {
+      throw new BadRequestException('当前状态不可取消面单');
+    }
+    if (!request.replacementWaybillNo) {
+      throw new BadRequestException('该售后未生成面单，无法取消');
+    }
 
+    // 2. 先调快递100取消（best-effort）
+    await this.shippingService.cancelCarrierWaybill(
+      request.replacementCarrierCode || '',
+      request.replacementWaybillNo,
+    );
+
+    // 3. 远端取消后，清空本地记录
+    await this.prisma.$transaction(
+      async (tx) => {
         const cas = await tx.afterSaleRequest.updateMany({
           where: {
             id,
@@ -953,19 +961,8 @@ export class SellerAfterSaleService {
             '该售后面单状态已变更，请刷新后重试',
           );
         }
-
-        return {
-          carrierCode: request.replacementCarrierCode || '',
-          waybillNo: request.replacementWaybillNo,
-          kuaidi100TaskId: request.replacementKuaidi100TaskId ?? undefined,
-        };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
-
-    await this.shippingService.cancelCarrierWaybill(
-      cancellation.carrierCode,
-      cancellation.waybillNo,
     );
 
     return { ok: true };
