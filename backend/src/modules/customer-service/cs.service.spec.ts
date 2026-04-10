@@ -815,9 +815,11 @@ describe('CsService', () => {
   describe('agentReleaseSession()', () => {
     it('成功释放：CAS 更新 agentId=null + status=AI_HANDLING + 释放坐席 + 插系统消息', async () => {
       const { service, prisma, agent } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', status: 'AGENT_HANDLING', agentId: 'admin-1', ticketId: 't1',
+      });
       prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
       prisma.csMessage.create.mockResolvedValue({ id: 'sys-1', content: '客服已完成' });
-      prisma.csSession.findUnique.mockResolvedValue({ ticketId: 't1' });
       prisma.csTicket.update.mockResolvedValue({});
 
       const result = await service.agentReleaseSession('s1', 'admin-1');
@@ -839,19 +841,43 @@ describe('CsService', () => {
       expect(result.systemMessage).toBeDefined();
     });
 
-    it('CAS 失败（不是当前坐席接入的会话）→ 抛 BadRequestException', async () => {
+    it('会话不是 AGENT_HANDLING 状态 → 静默返回 alreadyReleased', async () => {
       const { service, prisma } = createMocks();
-      prisma.csSession.updateMany.mockResolvedValue({ count: 0 });
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', status: 'AI_HANDLING', agentId: null, ticketId: null,
+      });
+
+      const result = await service.agentReleaseSession('s1', 'admin-1');
+
+      expect(result).toEqual({ systemMessage: null, alreadyReleased: true });
+      expect(prisma.csSession.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('会话不存在 → 抛 BadRequestException', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue(null);
 
       await expect(service.agentReleaseSession('s1', 'admin-1'))
-        .rejects.toThrow('无权释放此会话或会话状态已变更');
+        .rejects.toThrow('会话不存在');
+    });
+
+    it('坐席不匹配 → 抛 BadRequestException', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', status: 'AGENT_HANDLING', agentId: 'other-admin', ticketId: null,
+      });
+
+      await expect(service.agentReleaseSession('s1', 'admin-1'))
+        .rejects.toThrow('无权释放此会话');
     });
 
     it('无关联工单时不调用 ticket update', async () => {
       const { service, prisma } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', status: 'AGENT_HANDLING', agentId: 'admin-1', ticketId: null,
+      });
       prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
       prisma.csMessage.create.mockResolvedValue({ id: 'sys-1' });
-      prisma.csSession.findUnique.mockResolvedValue({ ticketId: null });
 
       await service.agentReleaseSession('s1', 'admin-1');
 

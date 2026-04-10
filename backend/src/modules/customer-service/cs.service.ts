@@ -218,7 +218,27 @@ export class CsService {
    * - 解决问题 D5：避免坐席关闭与买家发消息的竞态
    */
   async agentReleaseSession(sessionId: string, adminId: string) {
-    // CAS：只允许当前接入的坐席释放自己
+    // 检查会话状态
+    const current = await this.prisma.csSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, status: true, agentId: true, ticketId: true },
+    });
+
+    if (!current) {
+      throw new BadRequestException('会话不存在');
+    }
+
+    // 已经不是 AGENT_HANDLING（可能是 AI_HANDLING/CLOSED）→ 无需释放，直接返回
+    if (current.status !== 'AGENT_HANDLING') {
+      return { systemMessage: null, alreadyReleased: true };
+    }
+
+    // 不是当前坐席接入的会话
+    if (current.agentId !== adminId) {
+      throw new BadRequestException('无权释放此会话（非当前接入的坐席）');
+    }
+
+    // CAS 更新：只在状态仍为 AGENT_HANDLING 且 agentId 匹配时才释放
     const result = await this.prisma.csSession.updateMany({
       where: { id: sessionId, agentId: adminId, status: 'AGENT_HANDLING' },
       data: {
@@ -229,7 +249,8 @@ export class CsService {
     });
 
     if (result.count === 0) {
-      throw new BadRequestException('无权释放此会话或会话状态已变更');
+      // 在检查到更新之间状态被改了
+      return { systemMessage: null, alreadyReleased: true };
     }
 
     // 释放坐席名额
@@ -245,14 +266,10 @@ export class CsService {
       },
     });
 
-    // 标记关联工单为已解决
-    const session = await this.prisma.csSession.findUnique({
-      where: { id: sessionId },
-      select: { ticketId: true },
-    });
-    if (session?.ticketId) {
+    // 标记关联工单为已解决（复用前面查询的 current.ticketId）
+    if (current.ticketId) {
       await this.prisma.csTicket.update({
-        where: { id: session.ticketId },
+        where: { id: current.ticketId },
         data: { status: 'RESOLVED', resolvedBy: adminId, resolvedAt: new Date() },
       });
     }

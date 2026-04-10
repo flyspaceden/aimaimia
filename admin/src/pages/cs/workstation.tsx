@@ -651,6 +651,11 @@ export default function CsWorkstationPage() {
       setActiveSessionId((prev) => (prev === data.sessionId ? null : prev));
     });
 
+    // 服务端错误反馈
+    socket.on('cs:error', (data: { message: string }) => {
+      message.error(data?.message || '操作失败');
+    });
+
     // 对方正在输入
     socket.on('cs:typing', (data: { sessionId: string }) => {
       setTypingSessionId(data.sessionId);
@@ -1119,51 +1124,97 @@ export default function CsWorkstationPage() {
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>
-                <Button
-                  size="small"
-                  icon={<SwapOutlined />}
-                  onClick={handleTransfer}
-                  style={{
-                    borderRadius: 8,
-                    fontSize: 12,
-                    height: 32,
-                    color: '#475569',
-                    backgroundColor: '#f1f5f9',
-                    borderColor: '#f1f5f9',
-                  }}
-                >
-                  转接
-                </Button>
-                <Button
-                  size="small"
-                  icon={<CheckCircleOutlined />}
-                  onClick={handleRelease}
-                  type="primary"
-                  style={{
-                    borderRadius: 8,
-                    fontSize: 12,
-                    height: 32,
-                    backgroundColor: '#2E7D32',
-                    borderColor: '#2E7D32',
-                  }}
-                  title="完成本次服务，会话保留供用户继续咨询"
-                >
-                  完成处理
-                </Button>
-                <Button
-                  size="small"
-                  icon={<CloseCircleOutlined />}
-                  onClick={handleForceClose}
-                  danger
-                  style={{
-                    borderRadius: 8,
-                    fontSize: 12,
-                    height: 32,
-                  }}
-                  title="强制关闭（仅违规情况使用）"
-                >
-                  强制结束
-                </Button>
+                {activeSession.status === 'CLOSED' ? (
+                  <span
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      backgroundColor: '#f1f5f9',
+                      color: '#94a3b8',
+                    }}
+                  >
+                    会话已结束
+                  </span>
+                ) : activeSession.status === 'AGENT_HANDLING' ? (
+                  <>
+                    <Button
+                      size="small"
+                      icon={<SwapOutlined />}
+                      onClick={handleTransfer}
+                      style={{
+                        borderRadius: 8,
+                        fontSize: 12,
+                        height: 32,
+                        color: '#475569',
+                        backgroundColor: '#f1f5f9',
+                        borderColor: '#f1f5f9',
+                      }}
+                    >
+                      转接
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<CheckCircleOutlined />}
+                      onClick={handleRelease}
+                      type="primary"
+                      style={{
+                        borderRadius: 8,
+                        fontSize: 12,
+                        height: 32,
+                        backgroundColor: '#2E7D32',
+                        borderColor: '#2E7D32',
+                      }}
+                      title="完成本次服务，会话保留供用户继续咨询"
+                    >
+                      完成处理
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<CloseCircleOutlined />}
+                      onClick={handleForceClose}
+                      danger
+                      style={{
+                        borderRadius: 8,
+                        fontSize: 12,
+                        height: 32,
+                      }}
+                      title="强制关闭（仅违规情况使用）"
+                    >
+                      强制结束
+                    </Button>
+                  </>
+                ) : activeSession.status === 'AI_HANDLING' ? (
+                  <span
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      backgroundColor: '#e0f2fe',
+                      color: '#0369a1',
+                    }}
+                  >
+                    AI 自助中（坐席未接入）
+                  </span>
+                ) : activeSession.status === 'QUEUING' ? (
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={() => {
+                      socketRef.current?.emit('cs:accept_ticket', { sessionId: activeSession.id });
+                      message.success('已接入');
+                    }}
+                    style={{
+                      borderRadius: 8,
+                      fontSize: 12,
+                      height: 32,
+                      backgroundColor: '#2E7D32',
+                      borderColor: '#2E7D32',
+                    }}
+                  >
+                    接入会话
+                  </Button>
+                ) : null}
               </div>
             </div>
 
@@ -1314,7 +1365,11 @@ export default function CsWorkstationPage() {
                   type="primary"
                   icon={<SendOutlined />}
                   onClick={handleSend}
-                  disabled={!inputValue.trim() || !activeSessionId}
+                  disabled={
+                    !inputValue.trim() ||
+                    !activeSessionId ||
+                    activeSession?.status !== 'AGENT_HANDLING'
+                  }
                   style={{
                     backgroundColor: BRAND_COLOR,
                     borderColor: BRAND_COLOR,
