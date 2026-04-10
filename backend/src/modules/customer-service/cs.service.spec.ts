@@ -2,8 +2,9 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { CsService } from './cs.service';
 
 function createMocks() {
-  const prisma = {
+  const prisma: any = {
     $queryRaw: jest.fn(),
+    $transaction: jest.fn(),
     csSession: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -36,6 +37,14 @@ function createMocks() {
     order: { findUnique: jest.fn() },
     afterSaleRequest: { findUnique: jest.fn() },
   };
+  // $transaction 默认实现：把 tx 替换为 prisma 本身，这样测试中对
+  // prisma.csSession.* 的 mock 在事务回调内部同样有效
+  prisma.$transaction.mockImplementation(async (fn: any) => {
+    if (typeof fn === 'function') {
+      return fn(prisma);
+    }
+    return fn;
+  });
   const routing = {
     route: jest.fn(),
   };
@@ -86,6 +95,7 @@ describe('CsService', () => {
       prisma.csSession.findFirst.mockResolvedValue({
         id: 'existing-session-1',
         messages: [],
+        createdAt: new Date(), // 新建会话，未超时
       });
 
       const result = await service.createSession('user-1', 'ORDER_DETAIL', 'order-1');
@@ -882,6 +892,105 @@ describe('CsService', () => {
       await service.agentReleaseSession('s1', 'admin-1');
 
       expect(prisma.csTicket.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ====================================================================
+  // D1-D8 数据一致性修复
+  // ====================================================================
+
+  describe('D1-D8 数据一致性修复', () => {
+    it('D2: 路由期间会话被关闭 → 不写入 AI 回复', async () => {
+      const { service, prisma, routing } = createMocks();
+      prisma.csSession.findUnique
+        .mockResolvedValueOnce({
+          id: 's1',
+          userId: 'u1',
+          status: 'AI_HANDLING',
+          source: 'PERSONAL_CENTER',
+          sourceId: null,
+          messages: [],
+        })
+        .mockResolvedValueOnce({ status: 'CLOSED' }); // 路由完成后状态变为 CLOSED
+      prisma.csMessage.create.mockResolvedValueOnce({ id: 'msg-1' });
+      routing.route.mockResolvedValue({
+        layer: 1,
+        reply: 'FAQ answer',
+        contentType: 'TEXT',
+        shouldTransferToAgent: false,
+      });
+
+      const result = await service.handleUserMessage('s1', 'u1', '退款');
+
+      // 用户消息已保存
+      expect(prisma.csMessage.create).toHaveBeenCalledTimes(1);
+      // AI 回复未保存（被丢弃）
+      expect(result.aiReply).toBeNull();
+      expect(result.transferred).toBe(false);
+    });
+
+    it('D2: 路由期间会话被转人工 (AGENT_HANDLING) → 不写入 AI 回复', async () => {
+      const { service, prisma, routing } = createMocks();
+      prisma.csSession.findUnique
+        .mockResolvedValueOnce({
+          id: 's1',
+          userId: 'u1',
+          status: 'AI_HANDLING',
+          source: 'PERSONAL_CENTER',
+          sourceId: null,
+          messages: [],
+        })
+        .mockResolvedValueOnce({ status: 'AGENT_HANDLING' });
+      prisma.csMessage.create.mockResolvedValueOnce({ id: 'msg-1' });
+      routing.route.mockResolvedValue({
+        layer: 1,
+        reply: 'FAQ answer',
+        contentType: 'TEXT',
+        shouldTransferToAgent: false,
+      });
+
+      const result = await service.handleUserMessage('s1', 'u1', '你好');
+
+      expect(prisma.csMessage.create).toHaveBeenCalledTimes(1);
+      expect(result.aiReply).toBeNull();
+    });
+
+    it('D3: createSession 使用 Serializable 隔离级别防并发', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findFirst.mockResolvedValue(null);
+      prisma.csSession.create.mockResolvedValue({ id: 's1' });
+
+      await service.createSession('u1', 'PERSONAL_CENTER');
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({ isolationLevel: 'Serializable' }),
+      );
+    });
+
+    it('D3: 序列化冲突 (P2034) 时重试一次，第二次复用已创建的会话', async () => {
+      const { service, prisma } = createMocks();
+      let callCount = 0;
+      prisma.$transaction.mockImplementation(async (fn: any) => {
+        callCount++;
+        if (callCount === 1) {
+          const err: any = new Error('serialization failure');
+          err.code = 'P2034';
+          throw err;
+        }
+        return fn(prisma);
+      });
+      prisma.csSession.findFirst.mockResolvedValue({
+        id: 'existing',
+        messages: [],
+        createdAt: new Date(),
+      });
+
+      const result = await service.createSession('u1', 'PERSONAL_CENTER');
+
+      expect(callCount).toBe(2);
+      expect(result.sessionId).toBe('existing');
+      expect(result.isExisting).toBe(true);
     });
   });
 
