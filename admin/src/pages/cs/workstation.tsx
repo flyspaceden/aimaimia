@@ -631,13 +631,23 @@ export default function CsWorkstationPage() {
       });
     });
 
-    // 会话关闭（坐席点击结束 或 买家端关闭 或 超时自动关闭）
+    // 会话关闭（强制结束 或 买家端关闭 或 超时自动关闭）
     socket.on('cs:session_closed', (data: { sessionId: string }) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
       queryClient.invalidateQueries({
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
       // 如果当前正在查看该会话，自动取消选中
+      setActiveSessionId((prev) => (prev === data.sessionId ? null : prev));
+    });
+
+    // 坐席完成处理（柔性脱身：会话退回 AI_HANDLING）
+    socket.on('cs:agent_released', (data: { sessionId: string }) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
+      queryClient.invalidateQueries({
+        queryKey: ['admin', 'cs', 'session', data.sessionId],
+      });
+      // 如果当前正在查看该会话，自动取消选中（其他坐席视角）
       setActiveSessionId((prev) => (prev === data.sessionId ? null : prev));
     });
 
@@ -759,10 +769,10 @@ export default function CsWorkstationPage() {
     [queryClient],
   );
 
-  // 关闭会话
-  const handleClose = useCallback(() => {
+  // 完成处理（柔性脱身）：仅释放自己，会话保留供用户继续咨询
+  const handleRelease = useCallback(() => {
     if (!activeSessionId) return;
-    socketRef.current?.emit('cs:close_session', { sessionId: activeSessionId });
+    socketRef.current?.emit('cs:release_session', { sessionId: activeSessionId });
     // 清除当前选中 + 刷新列表
     setActiveSessionId(null);
     setLocalMessages((prev) => {
@@ -771,7 +781,22 @@ export default function CsWorkstationPage() {
       return next;
     });
     queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
-    message.success('会话已结束');
+    message.success('已完成处理');
+  }, [activeSessionId, queryClient]);
+
+  // 强制关闭（特殊情况：恶意/违规，需要二次确认）
+  const handleForceClose = useCallback(() => {
+    if (!activeSessionId) return;
+    if (!window.confirm('强制结束会话会立即关闭对话，用户将无法继续。仅在异常情况（违规/恶意）使用。确定继续吗？')) return;
+    socketRef.current?.emit('cs:close_session', { sessionId: activeSessionId });
+    setActiveSessionId(null);
+    setLocalMessages((prev) => {
+      const next = new Map(prev);
+      next.delete(activeSessionId);
+      return next;
+    });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
+    message.success('会话已强制关闭');
   }, [activeSessionId, queryClient]);
 
   // 转接
@@ -1111,17 +1136,33 @@ export default function CsWorkstationPage() {
                 </Button>
                 <Button
                   size="small"
-                  icon={<CloseCircleOutlined />}
-                  onClick={handleClose}
-                  danger
+                  icon={<CheckCircleOutlined />}
+                  onClick={handleRelease}
                   type="primary"
                   style={{
                     borderRadius: 8,
                     fontSize: 12,
                     height: 32,
+                    backgroundColor: '#2E7D32',
+                    borderColor: '#2E7D32',
                   }}
+                  title="完成本次服务，会话保留供用户继续咨询"
                 >
-                  结束会话
+                  完成处理
+                </Button>
+                <Button
+                  size="small"
+                  icon={<CloseCircleOutlined />}
+                  onClick={handleForceClose}
+                  danger
+                  style={{
+                    borderRadius: 8,
+                    fontSize: 12,
+                    height: 32,
+                  }}
+                  title="强制关闭（仅违规情况使用）"
+                >
+                  强制结束
                 </Button>
               </div>
             </div>

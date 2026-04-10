@@ -216,7 +216,29 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  /** 关闭会话 */
+  /** 坐席完成处理（柔性脱身，会话保留） */
+  @SubscribeMessage('cs:release_session')
+  async handleReleaseSession(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: { sessionId: string }) {
+    try {
+      if (!client.data.isAgent || !client.data.adminId) return;
+
+      const result = await this.csService.agentReleaseSession(data.sessionId, client.data.adminId);
+
+      // 通知会话房间内所有人（坐席端清除选中、用户端显示系统消息）
+      this.server.to(`session:${data.sessionId}`).emit('cs:agent_released', {
+        sessionId: data.sessionId,
+        systemMessage: result.systemMessage,
+      });
+
+      // 坐席自己离开 session 房间
+      client.leave(`session:${data.sessionId}`);
+    } catch (error: any) {
+      this.logger.error('释放会话失败', error?.message);
+      client.emit('cs:error', { message: error?.message || '释放失败' });
+    }
+  }
+
+  /** 强制关闭会话（高权限，特殊情况使用） */
   @SubscribeMessage('cs:close_session')
   async handleCloseSession(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: { sessionId: string }) {
     try {

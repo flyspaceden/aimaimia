@@ -212,6 +212,54 @@ export class CsService {
     });
   }
 
+  /**
+   * 坐席完成处理（柔性脱身）：仅释放自己，不关闭会话
+   * - 用户视角：可继续咨询 AI 或重新转人工，会话自然延续
+   * - 解决问题 D5：避免坐席关闭与买家发消息的竞态
+   */
+  async agentReleaseSession(sessionId: string, adminId: string) {
+    // CAS：只允许当前接入的坐席释放自己
+    const result = await this.prisma.csSession.updateMany({
+      where: { id: sessionId, agentId: adminId, status: 'AGENT_HANDLING' },
+      data: {
+        agentId: null,
+        agentJoinedAt: null,
+        status: 'AI_HANDLING', // 退回 AI 接待
+      },
+    });
+
+    if (result.count === 0) {
+      throw new BadRequestException('无权释放此会话或会话状态已变更');
+    }
+
+    // 释放坐席名额
+    await this.agentService.releaseAgent(adminId);
+
+    // 插入系统消息通知用户
+    const sysMsg = await this.prisma.csMessage.create({
+      data: {
+        sessionId,
+        senderType: 'SYSTEM',
+        contentType: 'TEXT',
+        content: '客服已完成本次服务。如还有问题，可继续咨询智能助手或说"转人工"重新接入。',
+      },
+    });
+
+    // 标记关联工单为已解决
+    const session = await this.prisma.csSession.findUnique({
+      where: { id: sessionId },
+      select: { ticketId: true },
+    });
+    if (session?.ticketId) {
+      await this.prisma.csTicket.update({
+        where: { id: session.ticketId },
+        data: { status: 'RESOLVED', resolvedBy: adminId, resolvedAt: new Date() },
+      });
+    }
+
+    return { systemMessage: sysMsg };
+  }
+
   /** 关闭会话 */
   async closeSession(sessionId: string) {
     const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
