@@ -75,11 +75,14 @@ export default function CsIndexScreen() {
 
       setSessionId(result.data.sessionId);
 
-      // 如果是已有会话，加载历史消息
+      // 如果是已有会话，加载历史消息（按 createdAt 排序）
       if (result.data.isExisting) {
         const messagesResult = await CsRepo.getMessages(result.data.sessionId);
         if (!cancelled && messagesResult.ok) {
-          setMessages(messagesResult.data);
+          const sorted = [...messagesResult.data].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          );
+          setMessages(sorted);
         }
       }
     };
@@ -90,13 +93,27 @@ export default function CsIndexScreen() {
   }, [source, sourceId]);
 
   // HTTP 轮询获取新消息（非 Mock 模式）
+  // D1+D8 修复：合并服务器消息时按 createdAt 排序 + 按 id 去重
   useEffect(() => {
     if (USE_MOCK || !sessionId || sessionClosed) return;
 
     pollTimerRef.current = setInterval(async () => {
       const result = await CsRepo.getMessages(sessionId);
       if (result.ok) {
-        setMessages(result.data);
+        setMessages((prev) => {
+          // 保留本地未确认消息（_status=sending/failed）
+          const localPending = prev.filter((m: any) => m._status === 'sending' || m._status === 'failed');
+          // 合并服务器消息 + 本地待确认消息，按 id 去重
+          const mergedMap = new Map<string, CsMessage>();
+          for (const m of result.data) mergedMap.set(m.id, m);
+          for (const m of localPending) {
+            if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
+          }
+          // 按 createdAt 升序
+          return Array.from(mergedMap.values()).sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          );
+        });
       }
     }, POLL_INTERVAL);
 
@@ -141,18 +158,22 @@ export default function CsIndexScreen() {
   }, []);
 
   // 发送消息
+  // D4 修复：失败时不删除本地消息，标记为 failed 状态供重试
   const handleSend = useCallback(async (text?: string) => {
     const value = (text ?? input).trim();
     if (!value || !sessionId || sessionClosed) return;
 
-    // 添加用户消息到本地
+    // 添加用户消息到本地（带 status='sending' 标记）
+    const localId = `local-${Date.now()}`;
     const userMessage: CsMessage = {
-      id: `user-${Date.now()}`,
+      id: localId,
       sessionId,
       senderType: 'USER',
       contentType: 'TEXT',
       content: value,
       createdAt: new Date().toISOString(),
+      // @ts-ignore - extended local-only field
+      _status: 'sending',
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -166,23 +187,43 @@ export default function CsIndexScreen() {
     setSending(false);
 
     if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '发送失败', type: 'error' });
-      // 移除发送失败的用户消息
-      setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+      show({ message: result.error.displayMessage ?? '发送失败，请重试', type: 'error' });
+      // D4: 不删除消息，标记为 failed 让用户能看到并重发
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === localId ? ({ ...m, _status: 'failed' } as any) : m,
+        ),
+      );
       return;
     }
 
-    // 添加 AI/客服回复
-    const { aiReply, transferred } = result.data;
-    if (aiReply) {
-      setMessages((prev) => [...prev, aiReply]);
-    }
-    // 转人工排队时添加系统提示
-    if (transferred === false && result.data.userMessage) {
-      // 检查是否有转人工排队的系统消息（通过 Socket.IO 推送，这里仅做 transferred 状态记录）
-    }
+    // 成功：用后端返回的 userMessage 替换本地占位
+    setMessages((prev) => {
+      const next = prev.map((m) =>
+        m.id === localId ? { ...result.data.userMessage, _status: 'sent' } as any : m,
+      );
+      // 添加 AI/客服回复
+      const { aiReply } = result.data;
+      if (aiReply) {
+        // 按 id 去重（D8）
+        if (!next.some((m) => m.id === aiReply.id)) {
+          next.push(aiReply);
+        }
+      }
+      // 按 createdAt 排序（D1 防乱序）
+      return next.sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+    });
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [input, sessionId, sessionClosed, show]);
+
+  // D4: 失败消息重发
+  const handleResend = useCallback(async (failedMsg: CsMessage) => {
+    // 删除失败消息后重新发送
+    setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
+    await handleSend(failedMsg.content);
+  }, [handleSend]);
 
   // 处理快捷操作点击
   const handleQuickActionPress = useCallback((entry: CsQuickEntry) => {

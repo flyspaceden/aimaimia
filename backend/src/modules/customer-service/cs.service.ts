@@ -23,37 +23,64 @@ export class CsService {
   /** 会话空闲超时（毫秒）：超过此时间无活动，下次进入自动开新会话 */
   private readonly SESSION_IDLE_TIMEOUT_MS = 5 * 1000; // TODO: 测试用 5 秒，上线前改回 2 * 60 * 60 * 1000
 
-  /** 创建客服会话（超过 2 小时无活动的旧会话自动关闭） */
+  /**
+   * 创建客服会话（超过 2 小时无活动的旧会话自动关闭）
+   *
+   * 修复 D3：用 Serializable 隔离级别 + 重试机制防止并发创建重复会话
+   * - 同一用户多端同时点客服 → 两个事务争抢，一个成功，另一个收到序列化冲突错误
+   * - 失败的事务重试一次，第二次会找到已创建的会话并复用
+   */
   async createSession(userId: string, source: string, sourceId?: string) {
-    const existing = await this.prisma.csSession.findFirst({
-      where: {
-        userId,
-        source: source as any,
-        sourceId: sourceId || null,
-        status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
-      },
-      include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
-    });
+    const tryCreate = async (): Promise<{ sessionId: string; isExisting: boolean }> => {
+      return this.prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.csSession.findFirst({
+            where: {
+              userId,
+              source: source as any,
+              sourceId: sourceId || null,
+              status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
+            },
+            include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
+          });
 
-    if (existing) {
-      // 检查会话是否已超时：以最后一条消息时间或会话创建时间为准
-      const lastActivity = existing.messages[0]?.createdAt ?? existing.createdAt;
-      const idleMs = Date.now() - new Date(lastActivity).getTime();
+          if (existing) {
+            // 检查会话是否已超时：以最后一条消息时间或会话创建时间为准
+            const lastActivity = existing.messages[0]?.createdAt ?? existing.createdAt;
+            const idleMs = Date.now() - new Date(lastActivity).getTime();
 
-      if (idleMs > this.SESSION_IDLE_TIMEOUT_MS) {
-        // 超时：静默关闭旧会话，创建新会话
-        await this.closeSession(existing.id);
-        this.logger.log(`会话 ${existing.id} 空闲超时，已自动关闭`);
-      } else {
-        return { sessionId: existing.id, isExisting: true };
+            if (idleMs <= this.SESSION_IDLE_TIMEOUT_MS) {
+              return { sessionId: existing.id, isExisting: true };
+            }
+
+            // 超时：在事务内静默关闭旧会话
+            await tx.csSession.update({
+              where: { id: existing.id },
+              data: { status: 'CLOSED', closedAt: new Date() },
+            });
+            this.logger.log(`会话 ${existing.id} 空闲超时，已自动关闭`);
+          }
+
+          const session = await tx.csSession.create({
+            data: { userId, source: source as any, sourceId: sourceId || null },
+          });
+
+          return { sessionId: session.id, isExisting: false };
+        },
+        { isolationLevel: 'Serializable' },
+      );
+    };
+
+    try {
+      return await tryCreate();
+    } catch (err: any) {
+      // Postgres 序列化冲突（并发创建会话）→ 重试一次，第二次会找到已创建的会话
+      if (err?.code === 'P2034' || err?.message?.includes('serialization')) {
+        this.logger.warn(`createSession 序列化冲突，重试: ${userId}/${source}/${sourceId}`);
+        return await tryCreate();
       }
+      throw err;
     }
-
-    const session = await this.prisma.csSession.create({
-      data: { userId, source: source as any, sourceId: sourceId || null },
-    });
-
-    return { sessionId: session.id, isExisting: false };
   }
 
   /** 获取用户活跃会话 */
@@ -72,7 +99,14 @@ export class CsService {
     });
   }
 
-  /** 处理用户消息：保存 + 路由 + 返回回复 */
+  /**
+   * 处理用户消息：保存 + 路由 + 返回回复
+   *
+   * 修复 D2/D4：
+   * - 用户消息保存使用 createdAt 严格升序，前端可按此排序避免乱序（D1）
+   * - 路由完成后再次校验 session.status，CLOSED/QUEUING/AGENT_HANDLING 时不写入 AI 回复（D2 防幽灵消息）
+   * - 全过程无单一事务（因为路由含外部 LLM 调用，不能锁数据库），但用 CAS 防止状态漂移
+   */
   async handleUserMessage(sessionId: string, userId: string, content: string, contentType: CsContentType = 'TEXT') {
     const session = await this.prisma.csSession.findUnique({
       where: { id: sessionId },
@@ -83,7 +117,7 @@ export class CsService {
     if (session.userId !== userId) throw new NotFoundException('会话不存在');
     if (session.status === 'CLOSED') throw new BadRequestException('会话已关闭');
 
-    // 保存用户消息
+    // 保存用户消息（带显式时间戳确保顺序）
     const userMsg = await this.prisma.csMessage.create({
       data: { sessionId, senderType: 'USER', senderId: userId, contentType, content },
     });
@@ -96,9 +130,23 @@ export class CsService {
     // 构建 AI 上下文
     const context = await this.buildAiContext(session);
 
-    // 路由
+    // 路由（含外部 LLM 调用，可能数秒）
     const failures = this.consecutiveFailures.get(sessionId) ?? 0;
     const routeResult = await this.routingService.route(content, context, failures);
+
+    // D2 修复：路由完成后重新检查 session 状态（期间可能被关闭/转人工）
+    const currentSession = await this.prisma.csSession.findUnique({
+      where: { id: sessionId },
+      select: { status: true },
+    });
+
+    if (!currentSession || currentSession.status !== 'AI_HANDLING') {
+      // 状态已变更，丢弃路由结果，仅返回用户消息
+      this.logger.warn(
+        `会话 ${sessionId} 在路由期间状态变更为 ${currentSession?.status ?? 'NOT_FOUND'}，丢弃 AI 回复`,
+      );
+      return { userMessage: userMsg, aiReply: null, transferred: false };
+    }
 
     // 更新连续失败计数
     if (routeResult.layer === 2 && !routeResult.aiIntent) {

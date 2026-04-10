@@ -593,6 +593,11 @@ export default function CsWorkstationPage() {
 
     socket.on('connect', () => {
       console.log('[CS Workstation] Socket 已连接');
+      // D6+D7 修复：连接/重连时主动刷新所有会话和当前活跃会话的最新消息
+      // 防止 Socket 断线期间错过的消息丢失
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
+      // 当前查看的会话也强制刷新
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'session'] });
     });
 
     socket.on('disconnect', (reason) => {
@@ -699,10 +704,13 @@ export default function CsWorkstationPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [localMessages, activeSessionId]);
 
-  // 获取当前会话的消息
+  // 获取当前会话的消息（D1 修复：按 createdAt 排序，避免 Socket 事件乱序导致显示乱序）
   const currentMessages = useMemo(() => {
     if (!activeSessionId) return [];
-    return localMessages.get(activeSessionId) || [];
+    const msgs = localMessages.get(activeSessionId) || [];
+    return [...msgs].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
   }, [localMessages, activeSessionId]);
 
   // 获取当前选中的 session 对象
