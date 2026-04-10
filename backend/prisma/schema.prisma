@@ -1568,6 +1568,7 @@ model Shipment {
   senderInfoSnapshot   Json?
   receiverInfoSnapshot Json?
   rawCarrierPayload    Json?
+  kuaidi100TaskId      String?        // 快递100任务ID（用于取消/复打）
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
