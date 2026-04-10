@@ -587,6 +587,18 @@ export const OrderRepo = {
     return ApiClient.post<Order>(`/orders/${orderId}/cancel`);
   },
   /**
+   * 主动查询快递100物流轨迹并更新本地数据
+   * - 用途：下拉刷新时主动查询最新物流信息
+   * - 后端接口：`GET /api/v1/shipments/{orderId}/track`
+   */
+  refreshShipmentTracking: async (orderId: string): Promise<Result<ShipmentDetail | null>> => {
+    if (USE_MOCK) {
+      // Mock 模式复用 getShipment 逻辑
+      return OrderRepo.getShipment(orderId);
+    }
+    return ApiClient.get<ShipmentDetail | null>(`/shipments/${orderId}/track`);
+  },
+  /**
    * 查询物流详情
    * - 用途：订单详情页物流追踪
    * - 后端接口：`GET /api/v1/shipments/{orderId}`
