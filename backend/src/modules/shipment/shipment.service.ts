@@ -13,6 +13,7 @@ import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { maskTrackingNo } from '../../common/security/privacy-mask';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from '../after-sale/after-sale.constants';
+import { Kuaidi100Service } from './kuaidi100.service';
 
 @Injectable()
 export class ShipmentService {
@@ -21,6 +22,7 @@ export class ShipmentService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private kuaidi100Service: Kuaidi100Service,
   ) {}
 
   private summarizeShipmentStatus(statuses: string[]): string {
@@ -158,10 +160,13 @@ export class ShipmentService {
     events?: Array<{ time: string; message: string; location?: string }>,
     rawPayload?: any,
     headerSignature?: string,
+    options?: { skipSignatureVerification?: boolean },
   ) {
-    // 签名验证在事务外执行（不涉及数据库状态）
-    if (!this.verifyCallbackSignature(rawPayload, { trackingNo, status, events }, headerSignature)) {
-      throw new UnauthorizedException('物流回调签名验证失败');
+    // 快递100回调通过订阅机制保证来源可信，跳过通用签名验证
+    if (!options?.skipSignatureVerification) {
+      if (!this.verifyCallbackSignature(rawPayload, { trackingNo, status, events }, headerSignature)) {
+        throw new UnauthorizedException('物流回调签名验证失败');
+      }
     }
 
     const shipment = await this.prisma.shipment.findFirst({ where: { trackingNo } });
@@ -184,17 +189,31 @@ export class ShipmentService {
             },
           });
 
-          // 写入物流轨迹事件
+          // 写入物流轨迹事件（去重）
           if (events?.length) {
-            await tx.shipmentTrackingEvent.createMany({
-              data: events.map((e) => ({
-                shipmentId: shipment.id,
-                occurredAt: new Date(e.time),
-                message: e.message,
-                location: e.location || null,
-                statusCode: status,
-              })),
+            const existingEvents = await tx.shipmentTrackingEvent.findMany({
+              where: { shipmentId: shipment.id },
+              select: { occurredAt: true, message: true },
             });
+            const existingKeys = new Set(
+              existingEvents.map((e) => `${e.occurredAt.toISOString()}|${e.message}`),
+            );
+            const newEvents = events.filter((e) => {
+              const key = `${new Date(e.time).toISOString()}|${e.message}`;
+              return !existingKeys.has(key);
+            });
+
+            if (newEvents.length > 0) {
+              await tx.shipmentTrackingEvent.createMany({
+                data: newEvents.map((e) => ({
+                  shipmentId: shipment.id,
+                  occurredAt: new Date(e.time),
+                  message: e.message,
+                  location: e.location || null,
+                  statusCode: status,
+                })),
+              });
+            }
           }
 
           // 如果全部包裹均签收，CAS 更新 Order 状态为 DELIVERED
@@ -253,5 +272,213 @@ export class ShipmentService {
 
     this.logger.log(`物流回调处理完成: ${maskTrackingNo(trackingNo) ?? 'N/A'} → ${sanitizeStringForLog(status, { maxStringLength: 64 })}`);
     return { ok: true };
+  }
+
+  async handleKuaidi100Callback(
+    trackingNo: string,
+    status: string,
+    events: Array<{ time: string; message: string; location?: string }> | undefined,
+    rawPayload: any,
+    callbackToken?: string,
+  ) {
+    if (!this.verifyKuaidi100CallbackToken(callbackToken)) {
+      throw new UnauthorizedException('快递100回调认证失败');
+    }
+
+    return this.handleCallback(
+      trackingNo,
+      status,
+      events,
+      rawPayload,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+  }
+
+  private verifyKuaidi100CallbackToken(callbackToken?: string): boolean {
+    const expectedToken = this.configService.get<string>('KUAIDI100_CALLBACK_TOKEN');
+    if (!expectedToken) {
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error('KUAIDI100_CALLBACK_TOKEN 未配置，生产环境拒绝快递100回调');
+        return false;
+      }
+      this.logger.warn('开发环境跳过快递100回调 token 校验（KUAIDI100_CALLBACK_TOKEN 未配置）');
+      return true;
+    }
+
+    if (!callbackToken) {
+      this.logger.warn('快递100回调缺少 token');
+      return false;
+    }
+
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(callbackToken, 'utf8'),
+        Buffer.from(expectedToken, 'utf8'),
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 通过快递100主动查询物流轨迹并更新本地数据
+   * @param orderId 订单ID
+   * @param userId 当前用户ID（用于校验订单归属）
+   */
+  async queryTrackingFromKuaidi100(orderId: string, userId: string) {
+    // 验证订单归属
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order || order.userId !== userId) throw new NotFoundException('订单未找到');
+
+    const shipments = await this.prisma.shipment.findMany({
+      where: { orderId },
+      include: {
+        trackingEvents: { orderBy: { occurredAt: 'desc' } },
+      },
+    });
+
+    if (shipments.length === 0) {
+      return { updated: false, message: '该订单暂无物流信息' };
+    }
+
+    const results: Array<{
+      shipmentId: string;
+      carrierCode: string;
+      trackingNo: string | null;
+      updated: boolean;
+      status?: string;
+      eventsAdded?: number;
+    }> = [];
+
+    for (const shipment of shipments) {
+      // 跳过没有运单号的包裹
+      if (!shipment.trackingNo) {
+        results.push({
+          shipmentId: shipment.id,
+          carrierCode: shipment.carrierCode,
+          trackingNo: null,
+          updated: false,
+        });
+        continue;
+      }
+
+      // 从收件人信息快照中提取手机号（顺丰需要）
+      let phone: string | undefined;
+      if (shipment.carrierCode === 'SF' && shipment.receiverInfoSnapshot) {
+        const receiverInfo = shipment.receiverInfoSnapshot as Record<string, any>;
+        phone = receiverInfo.phone || receiverInfo.tel || receiverInfo.mobile;
+      }
+
+      // 调用快递100查询
+      const trackingResult = await this.kuaidi100Service.queryTracking(
+        shipment.carrierCode,
+        shipment.trackingNo,
+        phone,
+      );
+
+      if (!trackingResult) {
+        results.push({
+          shipmentId: shipment.id,
+          carrierCode: shipment.carrierCode,
+          trackingNo: shipment.trackingNo,
+          updated: false,
+        });
+        continue;
+      }
+
+      // 过滤出本地尚不存在的新事件（按时间+内容去重）
+      const existingEventKeys = new Set(
+        shipment.trackingEvents.map((e) => `${e.occurredAt.toISOString()}|${e.message}`),
+      );
+      const newEvents = trackingResult.events.filter((e) => {
+        const eventTime = new Date(e.time);
+        const key = `${eventTime.toISOString()}|${e.message}`;
+        return !existingEventKeys.has(key);
+      });
+
+      // 更新物流状态和事件
+      const newStatus = trackingResult.status;
+      const shouldUpdateStatus =
+        shipment.status !== 'DELIVERED' && // 已签收的不回退
+        newStatus !== shipment.status;
+
+      await this.prisma.$transaction(async (tx) => {
+        // 更新 Shipment 状态
+        if (shouldUpdateStatus) {
+          await tx.shipment.update({
+            where: { id: shipment.id },
+            data: {
+              status: newStatus as any,
+              deliveredAt: newStatus === 'DELIVERED' ? new Date() : undefined,
+            },
+          });
+        }
+
+        // 写入新的物流轨迹事件
+        if (newEvents.length > 0) {
+          await tx.shipmentTrackingEvent.createMany({
+            data: newEvents.map((e) => ({
+              shipmentId: shipment.id,
+              occurredAt: new Date(e.time),
+              message: e.message,
+              location: e.location || null,
+              statusCode: newStatus,
+            })),
+          });
+        }
+
+        // 如果签收，检查是否所有包裹都已签收，联动 Order 状态
+        if (newStatus === 'DELIVERED' && shouldUpdateStatus) {
+          const undeliveredCount = await tx.shipment.count({
+            where: {
+              orderId: shipment.orderId,
+              status: { not: 'DELIVERED' },
+            },
+          });
+          if (undeliveredCount === 0) {
+            const returnWindowDays = await getConfigValue(
+              tx as any,
+              AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS,
+              7,
+            );
+            const now = new Date();
+            const returnWindowExpiresAt = new Date(
+              now.getTime() + returnWindowDays * 24 * 60 * 60 * 1000,
+            );
+            const casResult = await tx.order.updateMany({
+              where: { id: shipment.orderId, status: 'SHIPPED' },
+              data: {
+                status: 'DELIVERED',
+                deliveredAt: now,
+                returnWindowExpiresAt,
+              },
+            });
+            if (casResult.count > 0) {
+              await tx.orderStatusHistory.create({
+                data: {
+                  orderId: shipment.orderId,
+                  fromStatus: 'SHIPPED',
+                  toStatus: 'DELIVERED',
+                  reason: '物流签收（主动查询）',
+                },
+              });
+            }
+          }
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      results.push({
+        shipmentId: shipment.id,
+        carrierCode: shipment.carrierCode,
+        trackingNo: shipment.trackingNo,
+        updated: shouldUpdateStatus || newEvents.length > 0,
+        status: newStatus,
+        eventsAdded: newEvents.length,
+      });
+    }
+
+    // 查询更新后的完整物流信息返回给前端
+    return this.getByOrderId(orderId, userId);
   }
 }
