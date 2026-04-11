@@ -20,19 +20,18 @@ import { CsAgentService } from './cs-agent.service';
 export class CsCleanupService {
   private readonly logger = new Logger(CsCleanupService.name);
 
-  // 与 cs.service.ts 的 SESSION_IDLE_TIMEOUT_MS 保持一致的语义
-  // 注意：当前为测试值（5 秒），上线前改为 2 小时
-  private readonly AI_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 小时
-  private readonly QUEUING_TIMEOUT_MS = 30 * 60 * 1000;     // 30 分钟
-  private readonly AGENT_IDLE_TIMEOUT_MS = 60 * 60 * 1000;  // 60 分钟
+  // ⚠️ 测试值：上线前改回生产阈值（见下面注释）
+  private readonly AI_IDLE_TIMEOUT_MS = 10 * 1000;      // 测试: 10 秒 | 生产: 2 * 60 * 60 * 1000 (2 小时)
+  private readonly QUEUING_TIMEOUT_MS = 30 * 1000;      // 测试: 30 秒 | 生产: 30 * 60 * 1000 (30 分钟)
+  private readonly AGENT_IDLE_TIMEOUT_MS = 60 * 1000;   // 测试: 60 秒 | 生产: 60 * 60 * 1000 (60 分钟)
 
   constructor(
     private prisma: PrismaService,
     private agentService: CsAgentService,
   ) {}
 
-  /** 每 10 分钟执行一次清理 */
-  @Cron(CronExpression.EVERY_10_MINUTES)
+  /** ⚠️ 测试值：每 30 秒执行一次 | 生产：每 10 分钟（EVERY_10_MINUTES） */
+  @Cron(CronExpression.EVERY_30_SECONDS)
   async cleanupIdleSessions() {
     const now = Date.now();
 
