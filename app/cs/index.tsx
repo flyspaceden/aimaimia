@@ -446,6 +446,8 @@ export default function CsIndexScreen() {
             onSubmitEditing={() => handleSend()}
             returnKeyType="send"
             editable={!sessionClosed}
+            blurOnSubmit={false}
+            multiline
           />
         </View>
 

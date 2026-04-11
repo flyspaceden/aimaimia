@@ -197,16 +197,33 @@ reply 要简洁友好，1-3 句话，不要啰嗦。
     }
 
     const data = await response.json();
+    if (data?.error) {
+      this.logger.warn(`DashScope API 错误: ${JSON.stringify(data.error)}`);
+    }
     const raw = data.choices?.[0]?.message?.content?.trim();
+    this.logger.debug(`AI 原始输出: ${raw?.substring(0, 200) ?? '(empty)'}`);
     if (!raw) return null;
 
     try {
       const jsonStr = raw.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(jsonStr);
+      let parsed: any = JSON.parse(jsonStr);
+      // Qwen 有时会把返回包在数组里 [{...}]，或者 { "result": {...} }，需要兼容
+      if (Array.isArray(parsed)) {
+        parsed = parsed[0] ?? {};
+      } else if (parsed && typeof parsed === 'object' && !parsed.intent && parsed.result) {
+        parsed = parsed.result;
+      }
+      this.logger.debug(`AI 解析结果: intent=${parsed.intent} confidence=${parsed.confidence} reply="${(parsed.reply ?? '').substring(0, 80)}"`);
 
       if (parsed.intent === 'unknown' || parsed.confidence < this.CONFIDENCE_THRESHOLD) {
+        this.logger.warn(`AI 意图为 unknown 或置信度过低: ${parsed.intent}@${parsed.confidence}`);
         return null;
       }
+
+      // 防御：reply 为空时用默认友好回复，不要返回空字符串导致 handleUserMessage 跳过保存
+      const finalReply = parsed.reply && parsed.reply.trim().length > 0
+        ? parsed.reply
+        : '好的，请问您有什么具体问题需要我帮您处理呢？';
 
       let metadata: Record<string, unknown> | undefined;
       if (parsed.intent === 'apply_aftersale' || parsed.intent === 'cancel_order') {
@@ -220,14 +237,13 @@ reply 要简洁友好，1-3 句话，不要啰嗦。
       return {
         intent: parsed.intent,
         confidence: parsed.confidence,
-        reply: parsed.reply,
+        reply: finalReply,
         contentType: metadata ? 'ACTION_CONFIRM' : 'TEXT',
         metadata,
       };
-    } catch {
-      this.logger.warn('AI 意图解析 JSON 失败，降级为 general_qa', raw);
-      // 防御性降级：如果 AI 返回了纯文本（不是 JSON），说明它"忘了"格式要求但内容可能是有效的
-      // 把它当作 general_qa 的自然回复返回，比直接走 fallback 体验好
+    } catch (e: any) {
+      this.logger.warn(`AI 意图解析 JSON 失败 (${e?.message}), raw=${raw?.substring(0, 200)}`);
+      // 防御性降级：AI 返回了纯文本（不是 JSON）→ 当作 general_qa 的自然回复
       if (raw && raw.length > 0 && raw.length < 500) {
         return {
           intent: 'general_qa',
