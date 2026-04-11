@@ -41,6 +41,7 @@ export default function CsIndexScreen() {
   }>();
 
   const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
@@ -204,25 +205,32 @@ export default function CsIndexScreen() {
     }
 
     // 成功：用后端返回的 userMessage 替换本地占位
+    // 修复竞态：如果 polling 已经提前拉到了后端消息，这里要避免重复
     setMessages((prev) => {
-      const next = prev.map((m) =>
-        m.id === localId ? { ...result.data.userMessage, _status: 'sent' } as any : m,
-      );
-      // 添加 AI/客服回复
+      const serverUserId = result.data.userMessage.id;
+      const serverUserMsg = { ...result.data.userMessage, _status: 'sent' } as any;
+
+      // 1. 去掉本地占位（localId）
+      // 2. 如果 polling 已经拉到 serverUserId，也要去重
+      const deduped = prev.filter((m) => m.id !== localId && m.id !== serverUserId);
+      deduped.push(serverUserMsg);
+
+      // 添加 AI 回复（按 id 去重）
       const { aiReply } = result.data;
-      if (aiReply) {
-        // 按 id 去重（D8）
-        if (!next.some((m) => m.id === aiReply.id)) {
-          next.push(aiReply);
-        }
+      if (aiReply && !deduped.some((m) => m.id === aiReply.id)) {
+        deduped.push(aiReply);
       }
       // 按 (createdAt, id) 复合排序（D1 + D9 防乱序）
-      return next.sort((a, b) => {
+      return deduped.sort((a, b) => {
         const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         return dt !== 0 ? dt : a.id.localeCompare(b.id);
       });
     });
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+      // 重新聚焦输入框（submitBehavior 不生效时的兜底）
+      inputRef.current?.focus();
+    });
   }, [input, sessionId, sessionClosed, show]);
 
   // D4: 失败消息重发
@@ -438,6 +446,7 @@ export default function CsIndexScreen() {
           ]}
         >
           <TextInput
+            ref={inputRef}
             value={input}
             onChangeText={setInput}
             placeholder="输入您的问题..."
@@ -446,7 +455,7 @@ export default function CsIndexScreen() {
             onSubmitEditing={() => handleSend()}
             returnKeyType="send"
             editable={!sessionClosed}
-            submitBehavior="submit"
+            blurOnSubmit={false}
           />
         </View>
 
