@@ -25,7 +25,6 @@ import { CsMessageBubble } from '../../src/components/cs/CsMessageBubble';
 import { CsQuickActions } from '../../src/components/cs/CsQuickActions';
 import { CsHotQuestions } from '../../src/components/cs/CsHotQuestions';
 import { CsTypingIndicator } from '../../src/components/cs/CsTypingIndicator';
-import { CsRatingSheet } from '../../src/components/cs/CsRatingSheet';
 import { useToast } from '../../src/components/feedback';
 import { USE_MOCK } from '../../src/repos/http/config';
 
@@ -50,7 +49,6 @@ export default function CsIndexScreen() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [showRating, setShowRating] = useState(false);
   const [sessionClosed, setSessionClosed] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -246,7 +244,7 @@ export default function CsIndexScreen() {
     void handleSend(text);
   }, [handleSend]);
 
-  // 结束会话并弹出评价
+  // 结束会话（不弹评价，用户想结束就直接结束）
   const handleEndSession = useCallback(async () => {
     setSessionClosed(true);
     // 通知后端关闭会话（释放坐席计数）
@@ -268,8 +266,6 @@ export default function CsIndexScreen() {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-    // 延迟弹出评价
-    setTimeout(() => setShowRating(true), 500);
   }, [sessionId]);
 
   // AI 欢迎消息
@@ -327,10 +323,22 @@ export default function CsIndexScreen() {
             </Animated.View>
           )}
 
-          {/* 消息列表 */}
-          {messages.map((message) => (
-            <CsMessageBubble key={message.id} message={message} />
-          ))}
+          {/* 消息列表 - U11: 每组消息首条显示时间戳（超过 5 分钟间隔或首条时） */}
+          {messages.map((message, idx) => {
+            const prev = messages[idx - 1];
+            const showTimestamp =
+              !prev ||
+              new Date(message.createdAt).getTime() -
+                new Date(prev.createdAt).getTime() >
+                5 * 60 * 1000;
+            return (
+              <CsMessageBubble
+                key={message.id}
+                message={message}
+                showTimestamp={showTimestamp}
+              />
+            );
+          })}
 
           {/* 正在输入指示器 */}
           {sending && (
@@ -412,12 +420,6 @@ export default function CsIndexScreen() {
         )}
       </View>
 
-      {/* 评价弹窗 */}
-      <CsRatingSheet
-        visible={showRating}
-        sessionId={sessionId ?? ''}
-        onClose={() => setShowRating(false)}
-      />
     </Screen>
   );
 

@@ -441,6 +441,15 @@ export class CsService {
     });
   }
 
+  /**
+   * U7 修复：构建 AI 上下文，注入完整订单信息
+   * - 订单基本信息 + 状态 + 金额
+   * - 订单商品清单（名称 + 数量 + 价格）
+   * - 物流信息（承运商 + 单号 + 发货/送达时间 + 状态）
+   * - 卖家名称
+   * - 售后申请（如有）
+   * - 收货地址（脱敏后的省市）
+   */
   private async buildAiContext(session: any): Promise<CsAiContext> {
     const context: CsAiContext = {
       source: session.source,
@@ -455,10 +464,110 @@ export class CsService {
       try {
         const order = await this.prisma.order.findUnique({
           where: { id: session.sourceId },
-          select: { id: true, status: true, goodsAmount: true, shippingFee: true, createdAt: true, items: { select: { productSnapshot: true, quantity: true, unitPrice: true } } },
+          select: {
+            id: true,
+            status: true,
+            totalAmount: true,
+            goodsAmount: true,
+            shippingFee: true,
+            discountAmount: true,
+            paidAt: true,
+            deliveredAt: true,
+            createdAt: true,
+            addressSnapshot: true,
+            items: {
+              select: {
+                productSnapshot: true,
+                quantity: true,
+                unitPrice: true,
+              },
+            },
+            shipments: {
+              select: {
+                carrierName: true,
+                trackingNo: true,
+                waybillNo: true,
+                status: true,
+                shippedAt: true,
+                deliveredAt: true,
+                company: { select: { name: true } },
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+            afterSaleRequests: {
+              select: {
+                id: true,
+                status: true,
+                afterSaleType: true,
+                reason: true,
+                refundAmount: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
         });
-        if (order) context.orderInfo = order as any;
-      } catch { /* non-critical */ }
+
+        if (order) {
+          // 精简成 AI 友好的结构：去掉冗余字段，提取商品名称
+          const items = order.items.map((item: any) => {
+            const snapshot = item.productSnapshot as any;
+            return {
+              name: snapshot?.title ?? snapshot?.name ?? '商品',
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+            };
+          });
+
+          const address = order.addressSnapshot as any;
+          const addressSummary = address
+            ? `${address.province ?? ''}${address.city ?? ''}${address.district ?? ''}`.trim() || null
+            : null;
+
+          const shipment = order.shipments?.[0];
+          const shipmentInfo = shipment
+            ? {
+                carrier: shipment.carrierName,
+                carrierCompany: shipment.company?.name,
+                trackingNo: shipment.trackingNo || shipment.waybillNo,
+                status: shipment.status,
+                shippedAt: shipment.shippedAt,
+                deliveredAt: shipment.deliveredAt,
+              }
+            : null;
+
+          const afterSale = order.afterSaleRequests?.[0];
+
+          context.orderInfo = {
+            id: order.id,
+            status: order.status,
+            totalAmount: order.totalAmount,
+            goodsAmount: order.goodsAmount,
+            shippingFee: order.shippingFee,
+            discountAmount: order.discountAmount,
+            paidAt: order.paidAt,
+            deliveredAt: order.deliveredAt,
+            createdAt: order.createdAt,
+            itemCount: items.length,
+            items,
+            address: addressSummary,
+            shipment: shipmentInfo,
+            pendingAfterSale: afterSale
+              ? {
+                  id: afterSale.id,
+                  status: afterSale.status,
+                  type: afterSale.afterSaleType,
+                  reason: afterSale.reason,
+                  refundAmount: afterSale.refundAmount,
+                }
+              : null,
+          } as any;
+        }
+      } catch (e: any) {
+        this.logger.warn(`构建订单上下文失败 ${session.sourceId}: ${e?.message}`);
+      }
     }
 
     if (session.source === 'AFTERSALE_DETAIL' && session.sourceId) {
@@ -466,10 +575,51 @@ export class CsService {
       try {
         const afterSale = await this.prisma.afterSaleRequest.findUnique({
           where: { id: session.sourceId },
-          select: { id: true, status: true, afterSaleType: true, reason: true, refundAmount: true },
+          select: {
+            id: true,
+            status: true,
+            afterSaleType: true,
+            reason: true,
+            refundAmount: true,
+            createdAt: true,
+            order: {
+              select: {
+                id: true,
+                status: true,
+                totalAmount: true,
+                items: {
+                  select: {
+                    productSnapshot: true,
+                    quantity: true,
+                  },
+                },
+              },
+            },
+          },
         });
-        if (afterSale) context.afterSaleInfo = afterSale as any;
-      } catch { /* non-critical */ }
+        if (afterSale) {
+          const items = afterSale.order?.items.map((item: any) => {
+            const snapshot = item.productSnapshot as any;
+            return {
+              name: snapshot?.title ?? snapshot?.name ?? '商品',
+              quantity: item.quantity,
+            };
+          }) ?? [];
+          context.afterSaleInfo = {
+            id: afterSale.id,
+            status: afterSale.status,
+            type: afterSale.afterSaleType,
+            reason: afterSale.reason,
+            refundAmount: afterSale.refundAmount,
+            createdAt: afterSale.createdAt,
+            orderId: afterSale.order?.id,
+            orderStatus: afterSale.order?.status,
+            orderItems: items,
+          } as any;
+        }
+      } catch (e: any) {
+        this.logger.warn(`构建售后上下文失败 ${session.sourceId}: ${e?.message}`);
+      }
     }
 
     return context;
