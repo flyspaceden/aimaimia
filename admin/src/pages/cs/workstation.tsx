@@ -554,6 +554,7 @@ export default function CsWorkstationPage() {
   const [inputValue, setInputValue] = useState('');
   const [typingSessionId, setTypingSessionId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [socketConnected, setSocketConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -593,19 +594,20 @@ export default function CsWorkstationPage() {
 
     socket.on('connect', () => {
       console.log('[CS Workstation] Socket 已连接');
+      setSocketConnected(true);
       // D6+D7 修复：连接/重连时主动刷新所有会话和当前活跃会话的最新消息
-      // 防止 Socket 断线期间错过的消息丢失
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
-      // 当前查看的会话也强制刷新
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'session'] });
     });
 
     socket.on('disconnect', (reason) => {
       console.log('[CS Workstation] Socket 断开:', reason);
+      setSocketConnected(false);
     });
 
     socket.on('connect_error', (err) => {
       console.warn('[CS Workstation] Socket 连接失败:', err.message);
+      setSocketConnected(false);
     });
 
     // 收到新消息
@@ -745,13 +747,22 @@ export default function CsWorkstationPage() {
   const handleSend = useCallback(() => {
     if (!inputValue.trim() || !activeSessionId) return;
 
+    // 关键修复：发送前检查 Socket 是否真的连接，否则给用户明确错误
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) {
+      message.error('实时通讯未连接，请刷新页面重试');
+      return;
+    }
+
+    const content = inputValue.trim();
+    const tempId = `temp-${Date.now()}`;
     const tempMsg: CsMessage = {
-      id: `temp-${Date.now()}`,
+      id: tempId,
       sessionId: activeSessionId,
       senderType: 'AGENT',
       senderId: null,
       contentType: 'TEXT',
-      content: inputValue.trim(),
+      content,
       metadata: null,
       routeLayer: null,
       createdAt: new Date().toISOString(),
@@ -765,10 +776,10 @@ export default function CsWorkstationPage() {
       return next;
     });
 
-    // 通过 Socket 发送
-    socketRef.current?.emit('cs:send', {
+    // 通过 Socket 发送（带 ack 确认）
+    socket.emit('cs:send', {
       sessionId: activeSessionId,
-      content: inputValue.trim(),
+      content,
       contentType: 'TEXT',
     });
 
@@ -1125,6 +1136,18 @@ export default function CsWorkstationPage() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* Socket 连接状态指示器 */}
+                <Tooltip title={socketConnected ? '实时通讯已连接' : '实时通讯已断开，无法发送消息'}>
+                  <div
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: socketConnected ? '#10b981' : '#ef4444',
+                      flexShrink: 0,
+                    }}
+                  />
+                </Tooltip>
                 <div
                   style={{
                     width: 32,
