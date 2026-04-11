@@ -188,6 +188,8 @@ reply 要简洁友好，1-3 句话，不要啰嗦。
           ],
           max_tokens: 500,
           temperature: 0.3,
+          // 强制 JSON 输出，避免模型在有历史上下文时回退到自然语言
+          response_format: { type: 'json_object' },
         }),
       });
     } finally {
@@ -223,7 +225,17 @@ reply 要简洁友好，1-3 句话，不要啰嗦。
         metadata,
       };
     } catch {
-      this.logger.warn('AI 意图解析 JSON 失败', raw);
+      this.logger.warn('AI 意图解析 JSON 失败，降级为 general_qa', raw);
+      // 防御性降级：如果 AI 返回了纯文本（不是 JSON），说明它"忘了"格式要求但内容可能是有效的
+      // 把它当作 general_qa 的自然回复返回，比直接走 fallback 体验好
+      if (raw && raw.length > 0 && raw.length < 500) {
+        return {
+          intent: 'general_qa',
+          confidence: 0.7,
+          reply: raw,
+          contentType: 'TEXT',
+        };
+      }
       return null;
     }
   }
