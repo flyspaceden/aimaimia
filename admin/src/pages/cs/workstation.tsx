@@ -12,6 +12,7 @@ import {
   Card,
   Divider,
   Typography,
+  Popover,
 } from 'antd';
 import {
   SendOutlined,
@@ -1353,7 +1354,7 @@ export default function CsWorkstationPage() {
 
             {/* 输入区域 */}
             <div style={{ borderTop: '1px solid #e2e8f0', padding: 16 }}>
-              {/* 快捷回复 */}
+              {/* 快捷回复（按分类组织，Popover 弹窗） */}
               {quickReplies.length > 0 && (
                 <div
                   style={{
@@ -1364,37 +1365,90 @@ export default function CsWorkstationPage() {
                     alignItems: 'center',
                   }}
                 >
-                  <span
-                    style={{
-                      padding: '4px 8px',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: '#64748b',
-                      backgroundColor: '#f1f5f9',
-                      borderRadius: 6,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
+                  <Popover
+                    placement="topLeft"
+                    trigger="click"
+                    overlayStyle={{ maxWidth: 600 }}
+                    content={
+                      <div style={{ maxHeight: 400, overflow: 'auto', minWidth: 480 }}>
+                        {(() => {
+                          // 按分类分组
+                          const grouped = quickReplies.reduce<Record<string, typeof quickReplies>>((acc, qr) => {
+                            const cat = qr.category || '通用';
+                            if (!acc[cat]) acc[cat] = [];
+                            acc[cat].push(qr);
+                            return acc;
+                          }, {});
+                          return Object.entries(grouped).map(([cat, items]) => (
+                            <div key={cat} style={{ marginBottom: 12 }}>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: '#64748b',
+                                  marginBottom: 6,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.5,
+                                }}
+                              >
+                                {cat}
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {items.map((qr) => (
+                                  <Tooltip key={qr.id} title={qr.content} placement="top">
+                                    <Button
+                                      size="small"
+                                      onClick={() => handleQuickReply(qr.content)}
+                                      style={{
+                                        fontSize: 12,
+                                        borderRadius: 6,
+                                        color: '#475569',
+                                        borderColor: '#e2e8f0',
+                                        backgroundColor: '#fff',
+                                      }}
+                                    >
+                                      {qr.title}
+                                    </Button>
+                                  </Tooltip>
+                                ))}
+                              </div>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    }
                   >
-                    <ThunderboltOutlined style={{ fontSize: 12 }} />
-                    快捷回复
-                  </span>
-                  {quickReplies.slice(0, 5).map((qr) => (
                     <Button
-                      key={qr.id}
                       size="small"
-                      onClick={() => handleQuickReply(qr.content)}
+                      icon={<ThunderboltOutlined />}
                       style={{
                         fontSize: 12,
                         borderRadius: 6,
-                        color: '#64748b',
+                        color: '#475569',
                         borderColor: '#e2e8f0',
                         backgroundColor: '#f8fafc',
                       }}
                     >
-                      {qr.title}
+                      快捷回复 ({quickReplies.length})
                     </Button>
+                  </Popover>
+                  {/* 常用前 4 条直接展示，方便快速点击 */}
+                  {quickReplies.slice(0, 4).map((qr) => (
+                    <Tooltip key={qr.id} title={qr.content} placement="top">
+                      <Button
+                        size="small"
+                        onClick={() => handleQuickReply(qr.content)}
+                        style={{
+                          fontSize: 12,
+                          borderRadius: 6,
+                          color: '#64748b',
+                          borderColor: '#e2e8f0',
+                          backgroundColor: '#f8fafc',
+                        }}
+                      >
+                        {qr.title}
+                      </Button>
+                    </Tooltip>
                   ))}
                 </div>
               )}
