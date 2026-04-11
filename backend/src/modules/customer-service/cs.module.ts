@@ -10,6 +10,7 @@ import { CsAgentService } from './cs-agent.service';
 import { CsFaqService } from './cs-faq.service';
 import { CsTicketService } from './cs-ticket.service';
 import { CsMaskingService } from './cs-masking.service';
+import { CsCleanupService } from './cs-cleanup.service';
 
 @Module({
   imports: [JwtModule, ConfigModule],
@@ -22,6 +23,7 @@ import { CsMaskingService } from './cs-masking.service';
     CsFaqService,
     CsTicketService,
     CsMaskingService,
+    CsCleanupService,
   ],
 })
 export class CustomerServiceModule {}
