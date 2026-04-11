@@ -43,6 +43,8 @@ export default function CsIndexScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 同步锁：防止快速连点发送时 useState 异步导致的重复发送
+  const sendingRef = useRef(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
   // 页面状态
@@ -101,25 +103,39 @@ export default function CsIndexScreen() {
     if (USE_MOCK || !sessionId || sessionClosed) return;
 
     pollTimerRef.current = setInterval(async () => {
+      // 修复竞态：发送中时跳过轮询，让 HTTP 响应独占状态更新
+      if (sendingRef.current) return;
+
       const result = await CsRepo.getMessages(sessionId);
       if (result.ok) {
         setMessages((prev) => {
-          // 保留本地未确认消息（_status=sending/failed）
-          const localPending = prev.filter((m: any) => m._status === 'sending' || m._status === 'failed');
+          // 保留本地 failed 消息（用户可重发）；sending 消息如果服务器已经有相同内容的 USER 消息则丢弃
+          const serverMsgs = result.data;
+          const localPending = prev.filter((m: any) => {
+            if (m._status === 'failed') return true;
+            if (m._status === 'sending') {
+              // 如果服务器已经收录了这条（content 匹配 + 时间接近），说明 HTTP 已完成
+              const hasServerCounterpart = serverMsgs.some(
+                (s) =>
+                  s.senderType === 'USER' &&
+                  s.content === m.content &&
+                  Math.abs(new Date(s.createdAt).getTime() - new Date(m.createdAt).getTime()) < 15000,
+              );
+              return !hasServerCounterpart; // 已被服务器收录则丢弃本地占位
+            }
+            return false;
+          });
           // 合并服务器消息 + 本地待确认消息，按 id 去重
           const mergedMap = new Map<string, CsMessage>();
-          for (const m of result.data) mergedMap.set(m.id, m);
+          for (const m of serverMsgs) mergedMap.set(m.id, m);
           for (const m of localPending) {
             if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
           }
-          // 按 createdAt 升序
-          return Array.from(mergedMap.values()).sort(
-            (a, b) => {
-              // D9: 复合排序 (createdAt, id)，避免同毫秒消息顺序不稳定
-              const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-              return dt !== 0 ? dt : a.id.localeCompare(b.id);
-            },
-          );
+          // 按 (createdAt, id) 复合排序
+          return Array.from(mergedMap.values()).sort((a, b) => {
+            const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+            return dt !== 0 ? dt : a.id.localeCompare(b.id);
+          });
         });
       }
     }, POLL_INTERVAL);
@@ -167,8 +183,12 @@ export default function CsIndexScreen() {
   // 发送消息
   // D4 修复：失败时不删除本地消息，标记为 failed 状态供重试
   const handleSend = useCallback(async (text?: string) => {
+    // 同步锁：防止快速连点重复发送 + 让轮询识别发送中状态
+    if (sendingRef.current) return;
     const value = (text ?? input).trim();
     if (!value || !sessionId || sessionClosed) return;
+
+    sendingRef.current = true;
 
     // 添加用户消息到本地（带 status='sending' 标记）
     const localId = `local-${Date.now()}`;
@@ -192,6 +212,7 @@ export default function CsIndexScreen() {
     // 调用 API 发送消息
     const result = await CsRepo.sendMessage(sessionId, value);
     setSending(false);
+    sendingRef.current = false;
 
     if (!result.ok) {
       show({ message: result.error.displayMessage ?? '发送失败，请重试', type: 'error' });
