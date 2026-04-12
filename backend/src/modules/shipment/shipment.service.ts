@@ -174,7 +174,12 @@ export class ShipmentService {
     const shipment = await this.prisma.shipment.findFirst({ where: { trackingNo } });
     if (!shipment) throw new NotFoundException('物流单号未找到');
 
-    const shipmentStatus = status === 'DELIVERED' ? 'DELIVERED' : status === 'IN_TRANSIT' ? 'IN_TRANSIT' : shipment.status;
+    const shipmentStatus =
+      status === 'DELIVERED' ? 'DELIVERED'
+      : status === 'IN_TRANSIT' ? 'IN_TRANSIT'
+      : status === 'SHIPPED' ? 'SHIPPED'
+      : status === 'EXCEPTION' ? 'EXCEPTION'
+      : shipment.status;
 
     // C7修复：Serializable 隔离 + CAS 防止与 confirmReceive 竞态导致重复状态转换
     const MAX_RETRIES = 3;

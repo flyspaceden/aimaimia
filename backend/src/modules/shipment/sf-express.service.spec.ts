@@ -453,7 +453,7 @@ describe('SfExpressService', () => {
     it('包含所有关键 opCode 映射', () => {
       expect(SfExpressService.OP_CODE_MAP['50']).toBe('DELIVERED');
       expect(SfExpressService.OP_CODE_MAP['10']).toBe('SHIPPED');
-      expect(SfExpressService.OP_CODE_MAP['31']).toBe('DELIVERING');
+      expect(SfExpressService.OP_CODE_MAP['31']).toBe('IN_TRANSIT');
       expect(SfExpressService.OP_CODE_MAP['36']).toBe('EXCEPTION');
       expect(SfExpressService.OP_CODE_MAP['80']).toBe('EXCEPTION');
       expect(SfExpressService.OP_CODE_MAP['54']).toBe('EXCEPTION');

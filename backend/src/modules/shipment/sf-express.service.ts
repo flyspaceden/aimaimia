@@ -57,7 +57,6 @@ export interface SfRouteResult {
 export type SfMappedStatus =
   | 'SHIPPED'
   | 'IN_TRANSIT'
-  | 'DELIVERING'
   | 'DELIVERED'
   | 'EXCEPTION';
 
@@ -99,7 +98,7 @@ export class SfExpressService {
     '99': 'EXCEPTION', // 退回
     '36': 'EXCEPTION', // 派件异常
     '54': 'EXCEPTION', // 退回签收
-    '31': 'DELIVERING', // 派件
+    '31': 'IN_TRANSIT', // 派件（派件中为运输中子状态）
     '30': 'IN_TRANSIT', // 正在派送
     '70': 'IN_TRANSIT', // 到达目的地城市
     '60': 'IN_TRANSIT', // 到达中转站
