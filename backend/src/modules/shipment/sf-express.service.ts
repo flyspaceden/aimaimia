@@ -441,6 +441,46 @@ export class SfExpressService {
     }
   }
 
+  // ─── 云打印面单 ───────────────────────────────────────
+
+  /**
+   * 云打印面单
+   * 调用 COM_RECE_CLOUD_PRINT_WAYBILLS
+   * 返回面单 PDF 的 Base64 编码
+   */
+  async printWaybill(waybillNo: string): Promise<{ pdfBase64: string }> {
+    if (!this.isConfigured()) {
+      throw new BadRequestException('顺丰丰桥服务未配置');
+    }
+
+    const msgData = {
+      templateCode: this.templateCode,
+      version: '2.0',
+      fileType: 'pdf',
+      sync: true,
+      documents: [
+        {
+          masterWaybillNo: waybillNo,
+        },
+      ],
+    };
+
+    const data = await this.callApi('COM_RECE_CLOUD_PRINT_WAYBILLS', msgData);
+
+    // 顺丰返回结构可能不同版本略有差异，做多种路径兼容
+    const fileBase64 = data?.obj?.files?.[0]?.token
+      || data?.obj?.files?.[0]?.url
+      || data?.files?.[0]?.token
+      || data?.files?.[0]?.fileBase64;
+
+    if (!fileBase64) {
+      this.logger.error(`顺丰面单打印返回缺少文件数据: waybillNo=${waybillNo}`);
+      throw new BadRequestException('面单打印失败: 未获取到面单文件');
+    }
+
+    return { pdfBase64: fileBase64 };
+  }
+
   /**
    * 验证顺丰推送签名
    * 推送签名 = Base64(MD5(bodyString + checkWord))

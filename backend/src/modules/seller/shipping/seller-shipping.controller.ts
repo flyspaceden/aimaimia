@@ -95,6 +95,24 @@ export class SellerShippingController {
       orderId,
     );
 
+    // PDF 面单直接返回（不加水印，PDF 水印处理复杂度高）
+    if (printData.waybillUrl.startsWith('data:application/pdf;base64,')) {
+      const base64Data = printData.waybillUrl.replace('data:application/pdf;base64,', '');
+      const pdfBuffer = Buffer.from(base64Data, 'base64');
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="waybill-${orderId}.pdf"`);
+
+      await this.shippingService.recordWaybillPrintAccess(
+        companyId, staffId, orderId, req.ip, req.headers['user-agent'],
+      );
+
+      return res.send(pdfBuffer);
+    }
+
+    // 原有图片逻辑保持不变（向后兼容）
     const printedAt = new Date();
     let imageBuffer: Buffer;
     try {

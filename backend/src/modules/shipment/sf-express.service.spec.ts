@@ -408,6 +408,45 @@ describe('SfExpressService', () => {
     });
   });
 
+  // ─── printWaybill ────────────────────────────────────
+
+  describe('printWaybill', () => {
+    it('未配置时抛出 BadRequestException', async () => {
+      const service = createService({ SF_CHECK_WORD: '' });
+      await expect(service.printWaybill('SF123')).rejects.toThrow(
+        '顺丰丰桥服务未配置',
+      );
+    });
+
+    it('成功返回 pdfBase64', async () => {
+      const service = createService();
+      mockFetch.mockResolvedValueOnce(sfSuccess({
+        obj: {
+          files: [{ token: 'JVBERi0xLjQK...base64data...' }],
+        },
+      }));
+
+      const result = await service.printWaybill('SF1234567890');
+      expect(result.pdfBase64).toBe('JVBERi0xLjQK...base64data...');
+    });
+
+    it('返回缺少文件数据时抛出 BadRequestException', async () => {
+      const service = createService();
+      mockFetch.mockResolvedValueOnce(sfSuccess({ obj: { files: [] } }));
+      await expect(service.printWaybill('SF123')).rejects.toThrow('面单打印失败');
+    });
+
+    it('兼容 files[0].fileBase64 路径', async () => {
+      const service = createService();
+      mockFetch.mockResolvedValueOnce(sfSuccess({
+        files: [{ fileBase64: 'ALTERNATE_BASE64_DATA' }],
+      }));
+
+      const result = await service.printWaybill('SF1234567890');
+      expect(result.pdfBase64).toBe('ALTERNATE_BASE64_DATA');
+    });
+  });
+
   // ─── OP_CODE_MAP 静态映射 ──────────────────────────
 
   describe('OP_CODE_MAP', () => {
