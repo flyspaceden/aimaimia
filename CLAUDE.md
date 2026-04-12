@@ -27,7 +27,7 @@
 - `docs/features/test-reward.md` — 分润奖励系统商业模式盈利测试模型（资金流分析、解析模型、时序仿真设计、参数扫描、压力测试、报表设计，**分润系统盈利测试权威来源**）
 - `docs/features/admin-tree-frontend.md` — 管理端树前端
 - `docs/features/普通用户红包分润系统.md` — 普通用户分润奖励系统需求原文（产品需求文档）
-- `docs/features/shipping.md` — 快递物流链路实施文档（已完成部分、未完成问题、上线前配置清单、代码路径速查，**快递链路开发进度权威来源**）
+- `docs/features/shipping.md` — 快递物流链路实施文档（顺丰丰桥直连已完成，含顺丰月结+API申请流程、迁移记录、代码路径速查，**快递链路开发权威来源**）
 - `docs/features/支付宝支付.md` — 支付宝收款与付款集成方案（收款现状、分润出款商家转账方案、法律合规、个税代扣代缴、涉税报送、实施路线图，**支付宝支付/分润出款通道权威来源**）
 - `docs/features/智能客服.md` — 智能客服系统完整文档（三层路由、8个数据模型、Socket.IO事件清单、买家App+管理后台用户流程、跨系统数据流、bug修复历史、144个测试用例、待优化项、配置项与上线检查清单、常见问题排查，**智能客服系统运维与开发权威来源，每次客服bug/优化必须同步更新**）
 
@@ -76,8 +76,13 @@
 - `docs/superpowers/specs/2026-04-08-intelligent-customer-service-design.md` — 智能客服系统设计方案（三层路由、8个数据模型、Socket.IO实时通讯、管理后台6页面、买家App客服页、后端模块结构，**智能客服系统权威来源**）
 - `docs/superpowers/plans/2026-04-08-intelligent-customer-service.md` — 智能客服系统实施计划（17个任务、Schema/后端7服务/Socket.IO Gateway/管理前端7页面/买家App组件/种子数据，**智能客服系统实施排程**）
 
+### 审查报告 (`docs/superpowers/reports/`)
+- `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
+- `docs/superpowers/reports/2026-04-11-drafts/` — 审查中间 draft 目录（18 个 draft 文件，按 L01-L17 + X1-X6 编号，每条链路的详细审查证据）
+
 ### 项目管理（根目录）
-- `plan.md` — 项目路线图与进度追踪（**所有进度状态在这里更新**）
+- `plan.md` — v1.0 上线冲刺路线图（6 批次 + 54 条 checkbox 待修 + 48 条 T2 + 17 条疑点，**活文档：每次修完打勾+每次新需求追加**）
+- `docs/reference/plan-history-2026Q1.md` — 历史开发记录归档（Phase 1-10 全栈开发记录，2026-02 至 2026-03）
 
 ## 关键架构决策
 
