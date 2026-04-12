@@ -70,7 +70,7 @@
 
 ---
 
-## 1. 整体架构（当前：快递100方案，待替换）
+## 1. 整体架构（历史：快递100方案，已于 2026-04-12 被顺丰丰桥直连替换，以下内容仅供历史参考）
 
 ### 1.1 数据流
 
@@ -124,7 +124,7 @@ Order: DELIVERED → RECEIVED
 
 ---
 
-## 2. 已完成的部分
+## 2. 已完成的部分（历史：快递100时期，已被顺丰直连替代）
 
 ### 2.1 后端核心服务
 
@@ -279,7 +279,7 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 
 ---
 
-## 3. 未完成的问题
+## 3. 未完成的问题（历史：快递100时期遗留，已在顺丰直连中解决或不再适用）
 
 ### 🔴 必须解决（阻断上线）
 
@@ -410,7 +410,7 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 
 ---
 
-## 4. 上线前 Checklist
+## 4. 上线前 Checklist（历史：快递100时期，已不适用）
 
 ### Phase 1: 代码补齐（3-4 天）
 - [ ] 面单图片持久化到 OSS（问题 4）
@@ -442,7 +442,25 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 
 ---
 
-## 5. 关键代码路径速查
+## 5. 关键代码路径速查（已更新为顺丰直连）
+
+> 以下路径已更新为顺丰丰桥直连方案的代码路径。
+
+### 5.0 当前核心入口
+
+| 场景 | 入口方法 | 文件 |
+|------|---------|------|
+| 卖家生成面单 | `SellerShippingService.generateWaybill()` | seller-shipping.service.ts |
+| 卖家取消面单 | `SellerShippingService.cancelWaybill()` | seller-shipping.service.ts |
+| 卖家确认发货 | `SellerOrdersService.ship()` | seller-orders.service.ts |
+| 买家查物流 | `ShipmentService.getByOrderId()` | shipment.service.ts |
+| 买家主动刷新物流 | `ShipmentService.queryTracking()` | shipment.service.ts |
+| 顺丰推送回调 | `ShipmentController.handleSfCallback()` | shipment.controller.ts |
+| 顺丰 API 封装 | `SfExpressService` | sf-express.service.ts |
+| 物流异常监控 | `ShipmentMonitorService.checkStaleShipments()` | shipment-monitor.service.ts |
+| 自动确认收货 | `OrderAutoConfirmService.handleAutoConfirm()` | order-auto-confirm.service.ts |
+
+### 5.1 历史代码路径（快递100，已删除，仅供参考）
 
 ### 5.1 核心业务入口
 
