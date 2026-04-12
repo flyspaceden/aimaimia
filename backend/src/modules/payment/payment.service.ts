@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
+import { InboxService } from '../inbox/inbox.service';
 
 @Injectable()
 export class PaymentService {
@@ -21,6 +22,7 @@ export class PaymentService {
     private configService: ConfigService,
     @Optional() private checkoutService?: CheckoutService,
     @Optional() private couponService?: CouponService,
+    @Optional() private inboxService?: InboxService,
   ) {}
 
   /** 查询订单的支付记录 */
@@ -231,11 +233,13 @@ export class PaymentService {
     paidAt?: string;
     rawPayload?: any;
     signature?: string;
+    /** 支付宝回调已在 controller 层用证书验签，跳过内部 HMAC 验证 */
+    skipSignatureVerification?: boolean;
   }) {
-    const { merchantOrderNo, providerTxnId, status, paidAt, rawPayload, signature } = body;
+    const { merchantOrderNo, providerTxnId, status, paidAt, rawPayload, signature, skipSignatureVerification } = body;
 
-    // C12修复：HMAC-SHA256 签名验证
-    if (!this.verifySignature(rawPayload, { merchantOrderNo, providerTxnId, status, paidAt }, signature)) {
+    // C12修复：HMAC-SHA256 签名验证（支付宝回调已在 controller 层完成验签，可跳过）
+    if (!skipSignatureVerification && !this.verifySignature(rawPayload, { merchantOrderNo, providerTxnId, status, paidAt }, signature)) {
       this.logger.error('支付回调签名验证失败');
       throw new UnauthorizedException('支付回调签名验证失败');
     }
@@ -260,6 +264,12 @@ export class PaymentService {
           this.logger.log(
             `CheckoutSession 支付回调成功：创建 ${result.orderIds.length} 笔订单`,
           );
+
+          // 通知相关商家有新订单待发货
+          this.notifySellersForOrders(result.orderIds).catch((err) =>
+            this.logger.warn(`新订单通知商家失败(checkout): ${(err as Error).message}`),
+          );
+
           return { code: 'SUCCESS', message: '处理成功', orderIds: result.orderIds };
         } else {
           // H7+M17修复：支付失败分支使用 Serializable 事务 + P2034 重试
@@ -474,6 +484,13 @@ export class PaymentService {
         `支付回调成功：merchantOrderNo=${this.maskBizId(merchantOrderNo)}，providerTxnId=${this.maskBizId(providerTxnId)}`,
       );
 
+      // 通知相关商家有新订单待发货（非自动退款场景）
+      if (updated && !updated.autoRefund) {
+        this.notifySellersForOrders([payment.orderId]).catch((err) =>
+          this.logger.warn(`新订单通知商家失败(legacy): ${(err as Error).message}`),
+        );
+      }
+
       // 订单已取消但支付成功：提交后立即尝试渠道自动退款（事务外执行，避免长事务）
       if (updated?.autoRefund) {
         const { orderId, amount, merchantRefundNo, refundId } = updated.autoRefund;
@@ -628,6 +645,48 @@ export class PaymentService {
       });
       return true;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  /**
+   * 通知相关商家有新订单待发货
+   * 查询订单涉及的所有商家，向每个商家的 OWNER 发送站内消息
+   */
+  private async notifySellersForOrders(orderIds: string[]): Promise<void> {
+    if (!this.inboxService || orderIds.length === 0) return;
+
+    // 查询所有订单涉及的去重 companyId
+    const orderItems = await this.prisma.orderItem.findMany({
+      where: { orderId: { in: orderIds } },
+      select: { companyId: true },
+      distinct: ['companyId'],
+    });
+
+    const companyIds = orderItems
+      .map((item) => item.companyId)
+      .filter((id): id is string => !!id);
+
+    if (companyIds.length === 0) return;
+
+    // 查每个商家的 OWNER 用户
+    const staffList = await this.prisma.companyStaff.findMany({
+      where: {
+        companyId: { in: companyIds },
+        role: 'OWNER',
+        status: 'ACTIVE',
+      },
+      select: { userId: true, companyId: true },
+    });
+
+    for (const staff of staffList) {
+      await this.inboxService.send({
+        userId: staff.userId,
+        category: 'order',
+        type: 'new_order',
+        title: '新订单待发货',
+        content: '您有新的订单需要处理，请尽快安排发货。',
+        target: { route: '/seller/orders', params: { status: 'PAID' } },
+      });
+    }
   }
 
   private maskBizId(value: string): string {
