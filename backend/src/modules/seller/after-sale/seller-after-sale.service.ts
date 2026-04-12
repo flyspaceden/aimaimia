@@ -829,6 +829,7 @@ export class SellerAfterSaleService {
 
           const waybill = await this.shippingService.createCarrierWaybill(
             companyId,
+            `AS_${id}`, // 售后换货面单用 after-sale request ID 作为幂等键
             carrierCode,
             request.order.addressSnapshot,
             items,

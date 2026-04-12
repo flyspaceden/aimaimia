@@ -972,6 +972,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
 
     await service.createCarrierWaybill(
       COMPANY_ID,
+      ORDER_PAID,
       'SF',
       ADDRESS_SNAPSHOT,
       [{ name: '有机苹果', quantity: 2 }],
@@ -995,6 +996,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
 
     await service.createCarrierWaybill(
       COMPANY_ID,
+      ORDER_PAID,
       'ZTO',
       ADDRESS_SNAPSHOT,
       [
@@ -1021,6 +1023,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
 
     const result = await service.createCarrierWaybill(
       COMPANY_ID,
+      ORDER_PAID,
       'SF',
       ADDRESS_SNAPSHOT,
       [{ name: '苹果', quantity: 1 }],

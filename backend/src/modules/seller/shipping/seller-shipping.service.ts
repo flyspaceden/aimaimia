@@ -202,6 +202,7 @@ export class SellerShippingService {
 
         const waybillResult = await this.createCarrierWaybill(
           companyId,
+          orderId,
           carrierCode,
           order.addressSnapshot,
           items,
@@ -393,6 +394,7 @@ export class SellerShippingService {
 
   async createCarrierWaybill(
     companyId: string,
+    orderId: string,
     carrierCode: string,
     addressSnapshot: unknown,
     items: Array<{ name: string; quantity: number; weight?: number }>,
@@ -410,8 +412,9 @@ export class SellerShippingService {
     const cargo = items.map((i) => i.name).join(', ');
     const totalWeight = items.reduce((sum, i) => sum + (i.weight || 0), 0);
 
+    // 使用 orderId_companyId 作为顺丰 orderId，确保幂等性
     const orderResult = await this.sfExpress.createOrder({
-      orderId: `WB_${companyId}_${Date.now()}`,
+      orderId: `${orderId}_${companyId}`,
       sender: {
         name: senderInfo.senderName,
         tel: senderInfo.senderPhone,
