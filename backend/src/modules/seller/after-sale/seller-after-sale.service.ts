@@ -745,7 +745,7 @@ export class SellerAfterSaleService {
     id: string,
     carrierCode: string,
   ) {
-    let createdWaybill: { carrierCode: string; waybillNo: string; taskId?: string } | null =
+    let createdWaybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null =
       null;
 
     try {
@@ -836,7 +836,7 @@ export class SellerAfterSaleService {
           createdWaybill = {
             carrierCode: waybill.carrierCode,
             waybillNo: waybill.waybillNo,
-            taskId: waybill.taskId,
+            sfOrderId: waybill.sfOrderId,
           };
 
           const cas = await tx.afterSaleRequest.updateMany({
@@ -850,7 +850,7 @@ export class SellerAfterSaleService {
               replacementCarrierName: waybill.carrierName,
               replacementWaybillNo: waybill.waybillNo,
               replacementWaybillUrl: waybill.waybillUrl,
-              replacementKuaidi100TaskId: waybill.taskId,
+              replacementSfOrderId: waybill.sfOrderId,
             },
           });
 
@@ -932,9 +932,9 @@ export class SellerAfterSaleService {
       throw new BadRequestException('该售后未生成面单，无法取消');
     }
 
-    // 2. 先调快递100取消（best-effort）
+    // 2. 先调顺丰取消（best-effort）
     await this.shippingService.cancelCarrierWaybill(
-      request.replacementCarrierCode || '',
+      request.replacementSfOrderId || '',
       request.replacementWaybillNo,
     );
 
@@ -952,7 +952,7 @@ export class SellerAfterSaleService {
             replacementCarrierName: null,
             replacementWaybillNo: null,
             replacementWaybillUrl: null,
-            replacementKuaidi100TaskId: null,
+            replacementSfOrderId: null,
           },
         });
 
@@ -1173,9 +1173,9 @@ export class SellerAfterSaleService {
   }
 
   private async rollbackCreatedWaybill(
-    waybill: { carrierCode: string; waybillNo: string; taskId?: string } | null,
+    waybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null,
   ) {
     if (!waybill) return;
-    await this.shippingService.cancelCarrierWaybill(waybill.carrierCode, waybill.waybillNo);
+    await this.shippingService.cancelCarrierWaybill(waybill.sfOrderId ?? '', waybill.waybillNo);
   }
 }

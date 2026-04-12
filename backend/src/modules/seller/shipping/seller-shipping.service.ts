@@ -9,8 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Kuaidi100WaybillService } from '../../shipment/kuaidi100-waybill.service';
-import { Kuaidi100Service } from '../../shipment/kuaidi100.service';
+import { SfExpressService } from '../../shipment/sf-express.service';
 import { maskIp, maskTrackingNo } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
@@ -26,7 +25,7 @@ export class SellerShippingService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private sellerRiskControl: SellerRiskControlService,
-    private kuaidi100Waybill: Kuaidi100WaybillService,
+    private sfExpress: SfExpressService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -148,7 +147,10 @@ export class SellerShippingService {
     orderId: string,
     carrierCode: string,
   ) {
-    let createdWaybill: { carrierCode: string; waybillNo: string; taskId?: string } | null = null;
+    let createdWaybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null = null;
+
+    // 只支持顺丰
+    carrierCode = 'SF';
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -207,7 +209,7 @@ export class SellerShippingService {
         createdWaybill = {
           carrierCode: waybillResult.carrierCode,
           waybillNo: waybillResult.waybillNo,
-          taskId: waybillResult.taskId,
+          sfOrderId: waybillResult.sfOrderId,
         };
 
         if (existingShipment) {
@@ -221,7 +223,7 @@ export class SellerShippingService {
               waybillUrl: waybillResult.waybillUrl,
               carrierCode: waybillResult.carrierCode,
               carrierName: waybillResult.carrierName,
-              kuaidi100TaskId: waybillResult.taskId,
+              sfOrderId: waybillResult.sfOrderId,
             },
           });
 
@@ -237,7 +239,7 @@ export class SellerShippingService {
               carrierName: waybillResult.carrierName,
               waybillNo: waybillResult.waybillNo,
               waybillUrl: waybillResult.waybillUrl,
-              kuaidi100TaskId: waybillResult.taskId,
+              sfOrderId: waybillResult.sfOrderId,
               status: 'INIT',
               senderInfoSnapshot: waybillResult.senderInfoSnapshot as Prisma.InputJsonValue,
               receiverInfoSnapshot: waybillResult.receiverInfoSnapshot as Prisma.InputJsonValue,
@@ -397,7 +399,7 @@ export class SellerShippingService {
   ) {
     const senderInfo = await this.getSenderInfo(companyId);
 
-    // 校验发件人地址完整性，未补充结构化地址的企业不允许生成面单
+    // PC-1 前置校验：未结构化的地址禁止发货
     if (!senderInfo.senderProvince || !senderInfo.senderCity) {
       throw new BadRequestException(
         '企业发货地址不完整，请在「企业信息」页面补充省市区详细地址后再发货',
@@ -408,42 +410,58 @@ export class SellerShippingService {
     const cargo = items.map((i) => i.name).join(', ');
     const totalWeight = items.reduce((sum, i) => sum + (i.weight || 0), 0);
 
-    const waybillResult = await this.kuaidi100Waybill.createWaybill({
-      carrierCode,
-      senderName: senderInfo.senderName,
-      senderPhone: senderInfo.senderPhone,
-      senderAddress: senderInfo.senderAddress,
-      recipientName: recipientInfo.name,
-      recipientPhone: recipientInfo.phone,
-      recipientAddress: recipientInfo.fullAddress,
+    const orderResult = await this.sfExpress.createOrder({
+      orderId: `WB_${companyId}_${Date.now()}`,
+      sender: {
+        name: senderInfo.senderName,
+        tel: senderInfo.senderPhone,
+        province: senderInfo.senderProvince,
+        city: senderInfo.senderCity,
+        district: senderInfo.senderDistrict,
+        detail: senderInfo.senderDetail,
+      },
+      receiver: {
+        name: recipientInfo.name,
+        tel: recipientInfo.phone,
+        province: recipientInfo.province,
+        city: recipientInfo.city,
+        district: recipientInfo.district,
+        detail: recipientInfo.detail,
+      },
       cargo,
-      weight: totalWeight > 0 ? totalWeight : undefined,
-      count: 1,
+      totalWeight: totalWeight > 0 ? totalWeight : undefined,
+      packageCount: 1,
     });
 
-    const carrierName =
-      Kuaidi100Service.CARRIER_NAME_MAP[carrierCode.toUpperCase()] || carrierCode;
+    // 获取面单 PDF
+    let waybillUrl = '';
+    try {
+      const printResult = await this.sfExpress.printWaybill(orderResult.waybillNo);
+      waybillUrl = `data:application/pdf;base64,${printResult.pdfBase64}`;
+    } catch (err: any) {
+      this.logger.warn(`面单打印失败（不阻塞发货）: ${err.message}`);
+    }
 
     return {
-      carrierCode: carrierCode.toUpperCase(),
-      carrierName,
-      waybillNo: waybillResult.waybillNo,
-      waybillUrl: waybillResult.waybillImageUrl,
-      taskId: waybillResult.taskId,
+      carrierCode: 'SF',
+      carrierName: '顺丰速运',
+      waybillNo: orderResult.waybillNo,
+      waybillUrl,
+      sfOrderId: orderResult.sfOrderId,
       senderInfoSnapshot: senderInfo,
       receiverInfoSnapshot: recipientInfo,
     };
   }
 
-  async cancelCarrierWaybill(carrierCode: string, waybillNo: string) {
-    if (!carrierCode || !waybillNo) {
-      this.logger.warn('取消面单跳过: 缺少快递编码或运单号');
+  async cancelCarrierWaybill(sfOrderId: string, waybillNo: string) {
+    if (!sfOrderId && !waybillNo) {
+      this.logger.warn('取消面单跳过: 缺少顺丰订单ID和运单号');
       return;
     }
     try {
-      await this.kuaidi100Waybill.cancelWaybill(carrierCode, waybillNo);
+      await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
     } catch (err: any) {
-      this.logger.warn(`取消面单调用快递100失败（不阻塞本地清除）: ${err.message}`);
+      this.logger.warn(`取消面单调用顺丰失败（不阻塞本地清除）: ${err.message}`);
     }
   }
 
@@ -494,8 +512,8 @@ export class SellerShippingService {
       throw new BadRequestException('已发货的订单不可取消面单');
     }
 
-    // 2. 先调快递100取消（best-effort）
-    await this.cancelCarrierWaybill(shipment.carrierCode, shipment.waybillNo);
+    // 2. 先调顺丰取消（best-effort）
+    await this.cancelCarrierWaybill(shipment.sfOrderId ?? '', shipment.waybillNo);
 
     // 3. 远端取消后，清空本地记录
     await this.prisma.$transaction(async (tx) => {
@@ -509,7 +527,7 @@ export class SellerShippingService {
           waybillNo: null,
           waybillUrl: null,
           trackingNo: null,
-          kuaidi100TaskId: null,
+          sfOrderId: null,
         },
       });
 
@@ -542,9 +560,9 @@ export class SellerShippingService {
   }
 
   private async rollbackCreatedWaybill(
-    waybill: { carrierCode: string; waybillNo: string; taskId?: string } | null,
+    waybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null,
   ) {
     if (!waybill) return;
-    await this.cancelCarrierWaybill(waybill.carrierCode, waybill.waybillNo);
+    await this.cancelCarrierWaybill(waybill.sfOrderId ?? '', waybill.waybillNo);
   }
 }
