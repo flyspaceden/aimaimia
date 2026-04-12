@@ -13,7 +13,7 @@ import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { maskTrackingNo } from '../../common/security/privacy-mask';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from '../after-sale/after-sale.constants';
-import { Kuaidi100Service } from './kuaidi100.service';
+import { SfExpressService } from './sf-express.service';
 
 @Injectable()
 export class ShipmentService {
@@ -22,7 +22,7 @@ export class ShipmentService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
-    private kuaidi100Service: Kuaidi100Service,
+    private sfExpress: SfExpressService,
   ) {}
 
   private summarizeShipmentStatus(statuses: string[]): string {
@@ -274,15 +274,17 @@ export class ShipmentService {
     return { ok: true };
   }
 
-  async handleKuaidi100Callback(
+  async handleSfCallback(
     trackingNo: string,
     status: string,
     events: Array<{ time: string; message: string; location?: string }> | undefined,
     rawPayload: any,
-    callbackToken?: string,
+    bodyStr?: string,
+    pushDigest?: string,
   ) {
-    if (!this.verifyKuaidi100CallbackToken(callbackToken)) {
-      throw new UnauthorizedException('快递100回调认证失败');
+    // 验证顺丰推送签名
+    if (bodyStr && !this.sfExpress.verifyPushSignature(bodyStr, pushDigest)) {
+      throw new UnauthorizedException('顺丰推送签名验证失败');
     }
 
     return this.handleCallback(
@@ -295,38 +297,12 @@ export class ShipmentService {
     );
   }
 
-  private verifyKuaidi100CallbackToken(callbackToken?: string): boolean {
-    const expectedToken = this.configService.get<string>('KUAIDI100_CALLBACK_TOKEN');
-    if (!expectedToken) {
-      if (process.env.NODE_ENV === 'production') {
-        this.logger.error('KUAIDI100_CALLBACK_TOKEN 未配置，生产环境拒绝快递100回调');
-        return false;
-      }
-      this.logger.warn('开发环境跳过快递100回调 token 校验（KUAIDI100_CALLBACK_TOKEN 未配置）');
-      return true;
-    }
-
-    if (!callbackToken) {
-      this.logger.warn('快递100回调缺少 token');
-      return false;
-    }
-
-    try {
-      return crypto.timingSafeEqual(
-        Buffer.from(callbackToken, 'utf8'),
-        Buffer.from(expectedToken, 'utf8'),
-      );
-    } catch {
-      return false;
-    }
-  }
-
   /**
-   * 通过快递100主动查询物流轨迹并更新本地数据
+   * 通过顺丰丰桥主动查询物流轨迹并更新本地数据
    * @param orderId 订单ID
    * @param userId 当前用户ID（用于校验订单归属）
    */
-  async queryTrackingFromKuaidi100(orderId: string, userId: string) {
+  async queryTracking(orderId: string, userId: string) {
     // 验证订单归属
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order || order.userId !== userId) throw new NotFoundException('订单未找到');
@@ -363,19 +339,8 @@ export class ShipmentService {
         continue;
       }
 
-      // 从收件人信息快照中提取手机号（顺丰需要）
-      let phone: string | undefined;
-      if (shipment.carrierCode === 'SF' && shipment.receiverInfoSnapshot) {
-        const receiverInfo = shipment.receiverInfoSnapshot as Record<string, any>;
-        phone = receiverInfo.phone || receiverInfo.tel || receiverInfo.mobile;
-      }
-
-      // 调用快递100查询
-      const trackingResult = await this.kuaidi100Service.queryTracking(
-        shipment.carrierCode,
-        shipment.trackingNo,
-        phone,
-      );
+      // 调用顺丰丰桥查询路由
+      const trackingResult = await this.sfExpress.queryRoutes(shipment.trackingNo);
 
       if (!trackingResult) {
         results.push({
