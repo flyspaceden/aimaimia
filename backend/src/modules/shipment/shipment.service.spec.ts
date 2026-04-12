@@ -39,22 +39,25 @@ function createMocks(configOverrides: Record<string, any> = {}) {
     get: jest.fn((key: string, defaultVal?: any) => {
       const config: Record<string, any> = {
         LOGISTICS_WEBHOOK_SECRET: 'test-secret',
-        KUAIDI100_CALLBACK_TOKEN: 'test-token',
         ...configOverrides,
       };
       return config[key] ?? defaultVal;
     }),
   };
-  const kuaidi100Service = {
-    queryTracking: jest.fn(),
-    parseCallbackPayload: jest.fn(),
+  const sfExpress = {
+    queryRoutes: jest.fn(),
+    parsePushPayload: jest.fn(),
+  };
+  const inboxService = {
+    send: jest.fn(),
   };
   const service = new ShipmentService(
     prisma as any,
     configService as any,
-    kuaidi100Service as any,
+    sfExpress as any,
+    inboxService as any,
   );
-  return { service, prisma, configService, kuaidi100Service };
+  return { service, prisma, configService, sfExpress, inboxService };
 }
 
 // 辅助: 构建 shipment 记录
@@ -90,7 +93,7 @@ function computeHmacSignature(
 }
 
 // =========================================================================
-// R5: 快递100回调更新物流轨迹
+// R5: 顺丰回调更新物流��迹
 // =========================================================================
 describe('handleCallback — 物流回调处理', () => {
   it('收到揽件状态，Shipment 更新为 IN_TRANSIT', async () => {
@@ -348,33 +351,32 @@ describe('handleCallback — Order 状态联动', () => {
 // =========================================================================
 // R7: 买家主动查询联动 Order
 // =========================================================================
-describe('queryTrackingFromKuaidi100 — 主动查询', () => {
-  it('调用快递100查询并更新 Shipment 状态', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
+describe('queryTracking — 主动查询', () => {
+  it('调用顺丰查询并更新 Shipment 状态', async () => {
+    const { service, prisma, sfExpress } = createMocks();
     const shipment = makeShipment({ status: 'SHIPPED', trackingEvents: [] });
 
-    // 第一次调用: queryTrackingFromKuaidi100 中的 order 和 shipment 查询
+    // 第一次调用: queryTracking 中的 order 和 shipment 查询
     prisma.order.findUnique.mockResolvedValue({
       id: ORDER_SHIPPED,
       userId: BUYER_USER_ID,
       status: 'SHIPPED',
     });
     prisma.shipment.findMany
-      .mockResolvedValueOnce([shipment]) // queryTrackingFromKuaidi100 内部查询
+      .mockResolvedValueOnce([shipment]) // queryTracking 内部查询
       .mockResolvedValueOnce([{ ...shipment, status: 'IN_TRANSIT', trackingEvents: [{ id: 'evt-1', occurredAt: new Date('2026-04-02T08:00:00Z'), message: '快件已揽收', location: '昆明', statusCode: 'IN_TRANSIT' }] }]); // getByOrderId 内部查询
 
-    kuaidi100Service.queryTracking.mockResolvedValue({
+    sfExpress.queryRoutes.mockResolvedValue({
       status: 'IN_TRANSIT',
-      rawState: '0',
+      rawOpCode: '50',
       events: [{ time: '2026-04-02T08:00:00Z', message: '快件已揽收', location: '昆明' }],
     });
     prisma.shipment.update.mockResolvedValue({ ...shipment, status: 'IN_TRANSIT' });
     prisma.shipmentTrackingEvent.createMany.mockResolvedValue({ count: 1 });
 
-    const result = await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
+    const result = await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
 
-    // ShipmentService 传递完整手机号，kuaidi100Service 内部取后4位
-    expect(kuaidi100Service.queryTracking).toHaveBeenCalledWith('SF', 'SF1234567890', '13800138000');
+    expect(sfExpress.queryRoutes).toHaveBeenCalledWith('SF1234567890');
     expect(prisma.shipment.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'IN_TRANSIT' }),
@@ -383,7 +385,7 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
   });
 
   it('签收时同样联动 Order SHIPPED→DELIVERED', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
     const shipment = makeShipment({ status: 'IN_TRANSIT', trackingEvents: [] });
 
     prisma.order.findUnique.mockResolvedValue({
@@ -395,9 +397,9 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
       .mockResolvedValueOnce([shipment])
       .mockResolvedValueOnce([{ ...shipment, status: 'DELIVERED', trackingEvents: [] }]);
 
-    kuaidi100Service.queryTracking.mockResolvedValue({
+    sfExpress.queryRoutes.mockResolvedValue({
       status: 'DELIVERED',
-      rawState: '3',
+      rawOpCode: '80',
       events: [{ time: '2026-04-05T14:00:00Z', message: '已签收' }],
     });
     prisma.shipment.update.mockResolvedValue({ ...shipment, status: 'DELIVERED' });
@@ -407,7 +409,7 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
 
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
+    await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -426,7 +428,7 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
   });
 
   it('已签收的 Shipment 不回退状态', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
     const shipment = makeShipment({
       status: 'DELIVERED',
       deliveredAt: new Date('2026-04-05T14:00:00Z'),
@@ -450,21 +452,21 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
       .mockResolvedValueOnce([shipment])
       .mockResolvedValueOnce([shipment]);
 
-    // 快递100返回 IN_TRANSIT，但 Shipment 已 DELIVERED，不应回退
-    kuaidi100Service.queryTracking.mockResolvedValue({
+    // 顺丰返回 IN_TRANSIT，但 Shipment 已 DELIVERED，不应回退
+    sfExpress.queryRoutes.mockResolvedValue({
       status: 'IN_TRANSIT',
-      rawState: '0',
+      rawOpCode: '50',
       events: [{ time: '2026-04-05T14:00:00Z', message: '已签收' }],
     });
 
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
+    await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
 
     // 不应更新 Shipment 状态
     expect(prisma.shipment.update).not.toHaveBeenCalled();
   });
 
   it('新事件写入，已有事件跳过（去重）', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
     const existingEvent = {
       id: 'evt-existing',
       occurredAt: new Date('2026-04-02T08:00:00Z'),
@@ -486,9 +488,9 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
       .mockResolvedValueOnce([shipment])
       .mockResolvedValueOnce([shipment]);
 
-    kuaidi100Service.queryTracking.mockResolvedValue({
+    sfExpress.queryRoutes.mockResolvedValue({
       status: 'IN_TRANSIT',
-      rawState: '0',
+      rawOpCode: '50',
       events: [
         { time: '2026-04-02T08:00:00Z', message: '快件已揽收', location: '昆明' }, // 已存在
         { time: '2026-04-03T10:00:00Z', message: '快件到达【北京转运中心】', location: '北京' }, // 新事件
@@ -496,7 +498,7 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
     });
     prisma.shipmentTrackingEvent.createMany.mockResolvedValue({ count: 1 });
 
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
+    await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
 
     // 只写入新事件
     expect(prisma.shipmentTrackingEvent.createMany).toHaveBeenCalledWith({
@@ -509,8 +511,8 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
     });
   });
 
-  it('快递100返回 null 时不更新', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
+  it('顺丰返回 null 时不更新', async () => {
+    const { service, prisma, sfExpress } = createMocks();
     const shipment = makeShipment({ status: 'SHIPPED', trackingEvents: [] });
 
     prisma.order.findUnique.mockResolvedValue({
@@ -522,16 +524,16 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
       .mockResolvedValueOnce([shipment])
       .mockResolvedValueOnce([shipment]);
 
-    kuaidi100Service.queryTracking.mockResolvedValue(null);
+    sfExpress.queryRoutes.mockResolvedValue(null);
 
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
+    await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
 
     expect(prisma.shipment.update).not.toHaveBeenCalled();
     expect(prisma.shipmentTrackingEvent.createMany).not.toHaveBeenCalled();
   });
 
   it('无运单号的包裹跳过', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
     const shipmentNoTracking = makeShipment({
       trackingNo: null,
       trackingEvents: [],
@@ -546,70 +548,10 @@ describe('queryTrackingFromKuaidi100 — 主动查询', () => {
       .mockResolvedValueOnce([shipmentNoTracking])
       .mockResolvedValueOnce([shipmentNoTracking]);
 
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
+    await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
 
-    // 不应调用快递100查询
-    expect(kuaidi100Service.queryTracking).not.toHaveBeenCalled();
-  });
-
-  it('顺丰包裹传递手机号后4位', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
-    const shipment = makeShipment({
-      carrierCode: 'SF',
-      receiverInfoSnapshot: { phone: '13800138000' },
-      trackingEvents: [],
-    });
-
-    prisma.order.findUnique.mockResolvedValue({
-      id: ORDER_SHIPPED,
-      userId: BUYER_USER_ID,
-      status: 'SHIPPED',
-    });
-    prisma.shipment.findMany
-      .mockResolvedValueOnce([shipment])
-      .mockResolvedValueOnce([shipment]);
-
-    kuaidi100Service.queryTracking.mockResolvedValue(null);
-
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
-
-    // 验证传递了手机号（完整号码，queryTracking 内部取后4位）
-    expect(kuaidi100Service.queryTracking).toHaveBeenCalledWith(
-      'SF',
-      'SF1234567890',
-      '13800138000',
-    );
-  });
-
-  it('非顺丰包裹不传递手机号', async () => {
-    const { service, prisma, kuaidi100Service } = createMocks();
-    const shipment = makeShipment({
-      carrierCode: 'YTO',
-      carrierName: '圆通快递',
-      trackingNo: 'YT1234567890',
-      receiverInfoSnapshot: { phone: '13800138000' },
-      trackingEvents: [],
-    });
-
-    prisma.order.findUnique.mockResolvedValue({
-      id: ORDER_SHIPPED,
-      userId: BUYER_USER_ID,
-      status: 'SHIPPED',
-    });
-    prisma.shipment.findMany
-      .mockResolvedValueOnce([shipment])
-      .mockResolvedValueOnce([shipment]);
-
-    kuaidi100Service.queryTracking.mockResolvedValue(null);
-
-    await service.queryTrackingFromKuaidi100(ORDER_SHIPPED, BUYER_USER_ID);
-
-    // 非顺丰不传手机号
-    expect(kuaidi100Service.queryTracking).toHaveBeenCalledWith(
-      'YTO',
-      'YT1234567890',
-      undefined,
-    );
+    // 不应调用顺丰查询
+    expect(sfExpress.queryRoutes).not.toHaveBeenCalled();
   });
 });
 

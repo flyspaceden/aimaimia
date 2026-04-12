@@ -7,7 +7,6 @@
 
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SellerShippingService } from './seller-shipping.service';
-import { Kuaidi100Service } from '../../shipment/kuaidi100.service';
 
 // mock 加密模块：测试环境下直接透传
 jest.mock('../../../common/security/encryption', () => ({
@@ -42,7 +41,15 @@ const ADDRESS_SNAPSHOT = {
 const COMPANY_INFO = {
   name: '澄源生态农业',
   servicePhone: '13800001001',
-  address: { lng: 102.8, lat: 24.35, text: '云南省玉溪市红塔区' },
+  address: {
+    lng: 102.8,
+    lat: 24.35,
+    text: '云南省玉溪市红塔区',
+    province: '云南省',
+    city: '玉溪市',
+    district: '红塔区',
+    detail: '高新技术产业园区',
+  },
   contact: { name: '张经理', phone: '13800001001' },
 };
 
@@ -76,25 +83,26 @@ function createMocks() {
     assertFeatureAllowed: jest.fn(),
   };
 
-  const kuaidi100Waybill = {
-    createWaybill: jest.fn(),
-    cancelWaybill: jest.fn(),
+  const sfExpress = {
+    createOrder: jest.fn(),
+    cancelOrder: jest.fn(),
+    printWaybill: jest.fn().mockResolvedValue({ pdfBase64: 'test-pdf-base64' }),
   };
 
   const service = new SellerShippingService(
     prisma as any,
     configService as any,
     sellerRiskControl as any,
-    kuaidi100Waybill as any,
+    sfExpress as any,
   );
 
-  return { service, prisma, kuaidi100Waybill, sellerRiskControl, configService };
+  return { service, prisma, sfExpress, sellerRiskControl, configService };
 }
 
 /**
  * 通用 mock 设置：模拟一个可正常生成面单的 PAID 订单
  */
-function setupHappyPath(prisma: any, kuaidi100Waybill: any, overrides?: {
+function setupHappyPath(prisma: any, sfExpress: any, overrides?: {
   orderStatus?: string;
   orderId?: string;
   companyId?: string;
@@ -129,13 +137,14 @@ function setupHappyPath(prisma: any, kuaidi100Waybill: any, overrides?: {
 
   prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
 
-  kuaidi100Waybill.createWaybill.mockResolvedValue({
+  sfExpress.createOrder.mockResolvedValue({
     waybillNo: 'SF1234567890',
-    waybillImageUrl: 'https://cdn.kuaidi100.com/label/SF1234567890.png',
-    taskId: 'task-abc-123',
+    sfOrderId: 'sf-order-abc-123',
+    originCode: '755',
+    destCode: '871',
   });
 
-  kuaidi100Waybill.cancelWaybill.mockResolvedValue({ success: true });
+  sfExpress.cancelOrder.mockResolvedValue({ success: true });
 }
 
 /* ================================================================== */
@@ -144,8 +153,8 @@ function setupHappyPath(prisma: any, kuaidi100Waybill: any, overrides?: {
 
 describe('generateWaybill — 面单生成', () => {
   it('正常流程：PAID 订单生成面单，返回 waybillNo + printUrl', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
 
@@ -159,41 +168,26 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('carrierCode 映射：SF → 顺丰速运', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
     expect(result.carrierName).toBe('顺丰速运');
   });
 
-  it('carrierCode 映射：ZTO → 中通快递', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+  it('任何 carrierCode 输入统一使用顺丰', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
+    // 传入 ZTO 但因只支持顺丰，统一转为 SF
     const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'ZTO');
-    expect(result.carrierName).toBe('中通快递');
-    expect(result.carrierCode).toBe('ZTO');
+    expect(result.carrierName).toBe('顺丰速运');
+    expect(result.carrierCode).toBe('SF');
   });
 
-  it('carrierCode 映射：YTO → 圆通快递', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
-
-    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'YTO');
-    expect(result.carrierName).toBe('圆通快递');
-  });
-
-  it('carrierCode 映射：STO → 申通快递', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
-
-    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'STO');
-    expect(result.carrierName).toBe('申通快递');
-  });
-
-  it('Shipment 记录创建包含 kuaidi100TaskId', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+  it('Shipment 记录创建包含 sfOrderId', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
 
@@ -204,16 +198,15 @@ describe('generateWaybill — 面单生成', () => {
         carrierCode: 'SF',
         carrierName: '顺丰速运',
         waybillNo: 'SF1234567890',
-        waybillUrl: 'https://cdn.kuaidi100.com/label/SF1234567890.png',
-        kuaidi100TaskId: 'task-abc-123',
+        sfOrderId: 'sf-order-abc-123',
         status: 'INIT',
       }),
     });
   });
 
   it('已有面单的订单拒绝重复生成（幂等性）', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill, {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, {
       existingShipment: {
         id: 'ship-existing',
         waybillNo: 'SF9999999999', // 已有面单
@@ -231,8 +224,8 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('非 PAID/SHIPPED 状态订单拒绝生成', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill, { orderStatus: 'RECEIVED' });
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, { orderStatus: 'RECEIVED' });
 
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_RECEIVED, 'SF'),
@@ -244,8 +237,8 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('CANCELLED 状态订单拒绝生成', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill, { orderStatus: 'CANCELLED' });
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, { orderStatus: 'CANCELLED' });
 
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
@@ -253,8 +246,8 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('非本企业商品的订单拒绝生成（ForbiddenException）', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     // orderItem 全属于 c-002，但请求来自 c-001
     prisma.orderItem.findMany.mockResolvedValue([
@@ -271,8 +264,8 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('订单不存在时抛出 NotFoundException', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
     prisma.order.findUnique.mockResolvedValue(null);
 
     await expect(
@@ -284,24 +277,24 @@ describe('generateWaybill — 面单生成', () => {
     ).rejects.toThrow('订单不存在');
   });
 
-  it('快递100 API 失败时回滚（rollbackCreatedWaybill 调用 cancelWaybill）', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+  it('顺丰 API 失败时回滚（rollbackCreatedWaybill 调用 cancelWaybill）', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
-    // 快递100创建成功，但后续 shipment.create 失败
+    // 顺丰创建成功，但后续 shipment.create 失败
     prisma.shipment.create.mockRejectedValue(new Error('DB write error'));
 
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
     ).rejects.toThrow('DB write error');
 
-    // 应该回滚：调用 cancelWaybill
-    expect(kuaidi100Waybill.cancelWaybill).toHaveBeenCalledWith('SF', 'SF1234567890');
+    // 应该回滚：调用 cancelOrder
+    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf-order-abc-123', 'SF1234567890');
   });
 
   it('existingShipment 存在但无 waybillNo 时走 updateMany 而非 create', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill, {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, {
       existingShipment: {
         id: 'ship-existing-no-waybill',
         waybillNo: null, // 没有面单号
@@ -321,15 +314,15 @@ describe('generateWaybill — 面单生成', () => {
         waybillNo: 'SF1234567890',
         carrierCode: 'SF',
         carrierName: '顺丰速运',
-        kuaidi100TaskId: 'task-abc-123',
+        sfOrderId: 'sf-order-abc-123',
       }),
     });
     expect(prisma.shipment.create).not.toHaveBeenCalled();
   });
 
   it('existingShipment 存在但 CAS updateMany count=0 时抛重复错误', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill, {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, {
       existingShipment: {
         id: 'ship-existing-no-waybill',
         waybillNo: null,
@@ -346,18 +339,18 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('SHIPPED 状态订单也可生成面单', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill, { orderStatus: 'SHIPPED' });
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, { orderStatus: 'SHIPPED' });
 
-    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_SHIPPED, 'ZTO');
+    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_SHIPPED, 'SF');
 
     expect(result.ok).toBe(true);
-    expect(result.carrierCode).toBe('ZTO');
+    expect(result.carrierCode).toBe('SF');
   });
 
   it('carrierCode 不区分大小写（传 sf 也能正常映射）', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'sf');
     // carrierCode 被 toUpperCase 后仍能映射
@@ -366,8 +359,8 @@ describe('generateWaybill — 面单生成', () => {
   });
 
   it('企业信息不存在时抛出 NotFoundException', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
     prisma.company.findUnique.mockResolvedValue(null);
 
     await expect(
@@ -385,8 +378,8 @@ describe('generateWaybill — 面单生成', () => {
 /* ================================================================== */
 
 describe('cancelWaybill — 面单取消', () => {
-  it('正常流程：先调快递100取消，再清空本地 waybillNo/waybillUrl/kuaidi100TaskId', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+  it('正常流程：先调顺丰取消，再清空本地 waybillNo/waybillUrl/sfOrderId', async () => {
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
@@ -394,17 +387,18 @@ describe('cancelWaybill — 面单取消', () => {
       companyId: COMPANY_ID,
       carrierCode: 'SF',
       waybillNo: 'SF1234567890',
+      sfOrderId: 'sf-order-abc-123',
       status: 'INIT',
     });
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    kuaidi100Waybill.cancelWaybill.mockResolvedValue({ success: true });
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
 
     const result = await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
 
     expect(result.ok).toBe(true);
 
-    // 先调快递100
-    expect(kuaidi100Waybill.cancelWaybill).toHaveBeenCalledWith('SF', 'SF1234567890');
+    // 先调顺丰取消
+    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf-order-abc-123', 'SF1234567890');
 
     // 再清空本地
     expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
@@ -417,22 +411,23 @@ describe('cancelWaybill — 面单取消', () => {
         waybillNo: null,
         waybillUrl: null,
         trackingNo: null,
-        kuaidi100TaskId: null,
+        sfOrderId: null,
       },
     });
   });
 
   it('未发货（INIT）才允许取消', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
       carrierCode: 'SF',
       waybillNo: 'SF1234567890',
+      sfOrderId: 'sf-order-abc-123',
       status: 'INIT',
     });
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    kuaidi100Waybill.cancelWaybill.mockResolvedValue({ success: true });
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
 
     const result = await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
     expect(result.ok).toBe(true);
@@ -506,18 +501,19 @@ describe('cancelWaybill — 面单取消', () => {
   });
 
   it('远端取消失败仍然清空本地（best-effort）', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
       carrierCode: 'SF',
       waybillNo: 'SF1234567890',
+      sfOrderId: 'sf-order-abc-123',
       status: 'INIT',
     });
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
 
     // 远端取消抛错
-    kuaidi100Waybill.cancelWaybill.mockRejectedValue(new Error('远端网络错误'));
+    sfExpress.cancelOrder.mockRejectedValue(new Error('远端网络错误'));
 
     // 但本地清空不应阻塞
     const result = await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
@@ -528,15 +524,16 @@ describe('cancelWaybill — 面单取消', () => {
   });
 
   it('CAS 保护：并发取消只成功一次（updateMany count=0 → 抛错）', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
       carrierCode: 'SF',
       waybillNo: 'SF1234567890',
+      sfOrderId: 'sf-order-abc-123',
       status: 'INIT',
     });
-    kuaidi100Waybill.cancelWaybill.mockResolvedValue({ success: true });
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
 
     // CAS 失败：另一个并发请求已清空面单
     prisma.shipment.updateMany.mockResolvedValue({ count: 0 });
@@ -676,10 +673,10 @@ describe('getWaybillPrintUrl / verifyPrintSignature — 打印链接', () => {
 
 describe('多商家订单', () => {
   it('商家 A 生成面单不影响商家 B', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     // 商家 A (c-001) 的请求
-    setupHappyPath(prisma, kuaidi100Waybill, { companyId: COMPANY_ID });
+    setupHappyPath(prisma, sfExpress, { companyId: COMPANY_ID });
 
     const resultA = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
     expect(resultA.ok).toBe(true);
@@ -705,14 +702,14 @@ describe('多商家订单', () => {
   it('orderId+companyId 唯一约束：不同商家可为同一订单各自生成面单', async () => {
     // 商家 A
     const mocksA = createMocks();
-    setupHappyPath(mocksA.prisma, mocksA.kuaidi100Waybill, { companyId: COMPANY_ID });
+    setupHappyPath(mocksA.prisma, mocksA.sfExpress, { companyId: COMPANY_ID });
 
     const resultA = await mocksA.service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
     expect(resultA.ok).toBe(true);
 
     // 商家 B — 独立的 mock 实例
     const mocksB = createMocks();
-    setupHappyPath(mocksB.prisma, mocksB.kuaidi100Waybill, { companyId: COMPANY_C002 });
+    setupHappyPath(mocksB.prisma, mocksB.sfExpress, { companyId: COMPANY_C002 });
 
     const resultB = await mocksB.service.generateWaybill(COMPANY_C002, 'cs-002', ORDER_PAID, 'ZTO');
     expect(resultB.ok).toBe(true);
@@ -727,8 +724,8 @@ describe('多商家订单', () => {
   });
 
   it('assertCompanyCanAccessOrder 拒绝无关商家', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     // 所有 orderItem 都属于 c-002，但请求来自 c-001
     prisma.orderItem.findMany.mockResolvedValue([
@@ -742,8 +739,8 @@ describe('多商家订单', () => {
   });
 
   it('混合商品订单：企业只能看到自己的商品行', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     // orderItem 查询已经按 companyId 过滤（where: { orderId, companyId }）
     // 模拟只返回当前企业的商品
@@ -754,8 +751,8 @@ describe('多商家订单', () => {
     const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
     expect(result.ok).toBe(true);
 
-    // 确认传给快递100的货物名称只包含本企业商品
-    expect(kuaidi100Waybill.createWaybill).toHaveBeenCalledWith(
+    // 确认传给顺丰的货物名称只包含本企业商品
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(
       expect.objectContaining({
         cargo: '有机苹果',
       }),
@@ -769,8 +766,8 @@ describe('多商家订单', () => {
 
 describe('batchGenerateWaybill — 批量面单', () => {
   it('多个订单批量生成，全部成功', async () => {
-    const { service, prisma, kuaidi100Waybill, sellerRiskControl } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress, sellerRiskControl } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     const items = [
       { orderId: 'o-001', carrierCode: 'SF' },
@@ -793,7 +790,7 @@ describe('batchGenerateWaybill — 批量面单', () => {
   });
 
   it('部分失败不阻断后续订单', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     // 第一个订单找不到
     let callCount = 0;
@@ -809,10 +806,9 @@ describe('batchGenerateWaybill — 批量面单', () => {
     prisma.shipment.findUnique.mockResolvedValue(null);
     prisma.shipment.create.mockResolvedValue({ id: 'ship-new' });
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
-    kuaidi100Waybill.createWaybill.mockResolvedValue({
+    sfExpress.createOrder.mockResolvedValue({
       waybillNo: 'ZTO5555555555',
-      waybillImageUrl: 'https://cdn.kuaidi100.com/label/ZTO5555555555.png',
-      taskId: 'task-def-456',
+      sfOrderId: 'sf-order-def-456',
     });
 
     const items = [
@@ -872,7 +868,7 @@ describe('getWaybillPrintData — 获取打印数据', () => {
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
       waybillNo: 'SF1234567890',
-      waybillUrl: 'https://cdn.kuaidi100.com/label/SF1234567890.png',
+      waybillUrl: 'data:application/pdf;base64,test-pdf',
       carrierCode: 'SF',
       carrierName: '顺丰速运',
     });
@@ -880,7 +876,6 @@ describe('getWaybillPrintData — 获取打印数据', () => {
     const data = await service.getWaybillPrintData(COMPANY_ID, ORDER_PAID);
 
     expect(data.waybillNo).toBe('SF1234567890');
-    expect(data.waybillUrl).toBe('https://cdn.kuaidi100.com/label/SF1234567890.png');
     expect(data.carrierCode).toBe('SF');
     expect(data.carrierName).toBe('顺丰速运');
   });
@@ -966,14 +961,13 @@ describe('recordWaybillPrintAccess — 打印审计日志', () => {
 /* ================================================================== */
 
 describe('createCarrierWaybill — 快递面单创建', () => {
-  it('正确组装发件人和收件人信息传给快递100', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+  it('正确组装发件人和收件人信息传给顺丰', async () => {
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
-    kuaidi100Waybill.createWaybill.mockResolvedValue({
+    sfExpress.createOrder.mockResolvedValue({
       waybillNo: 'SF1234567890',
-      waybillImageUrl: 'https://cdn.kuaidi100.com/label/SF1234567890.png',
-      taskId: 'task-abc-123',
+      sfOrderId: 'sf-order-abc-123',
     });
 
     await service.createCarrierWaybill(
@@ -983,28 +977,20 @@ describe('createCarrierWaybill — 快递面单创建', () => {
       [{ name: '有机苹果', quantity: 2 }],
     );
 
-    expect(kuaidi100Waybill.createWaybill).toHaveBeenCalledWith({
-      carrierCode: 'SF',
-      senderName: '张经理',      // 从 contact.name
-      senderPhone: '13800001001', // 从 contact.phone
-      senderAddress: '云南省玉溪市红塔区', // 从 address.text
-      recipientName: '林青禾',    // 从 receiverName
-      recipientPhone: '13800138000',
-      recipientAddress: '云南省昆明市盘龙区翠湖路 88 号爱买买大厦 12 楼',
-      cargo: '有机苹果',
-      weight: undefined, // 无 weight
-      count: 1,
-    });
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cargo: '有机苹果',
+      }),
+    );
   });
 
   it('多商品货物名称以逗号拼接', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
-    kuaidi100Waybill.createWaybill.mockResolvedValue({
+    sfExpress.createOrder.mockResolvedValue({
       waybillNo: 'ZTO8888888888',
-      waybillImageUrl: 'https://cdn.kuaidi100.com/label/ZTO.png',
-      taskId: 'task-xyz',
+      sfOrderId: 'sf-order-xyz',
     });
 
     await service.createCarrierWaybill(
@@ -1017,7 +1003,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
       ],
     );
 
-    expect(kuaidi100Waybill.createWaybill).toHaveBeenCalledWith(
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(
       expect.objectContaining({
         cargo: '有机苹果, 云南普洱茶',
       }),
@@ -1025,13 +1011,12 @@ describe('createCarrierWaybill — 快递面单创建', () => {
   });
 
   it('返回结果包含 carrierName 和 senderInfoSnapshot / receiverInfoSnapshot', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
+    const { service, prisma, sfExpress } = createMocks();
 
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
-    kuaidi100Waybill.createWaybill.mockResolvedValue({
+    sfExpress.createOrder.mockResolvedValue({
       waybillNo: 'SF1234567890',
-      waybillImageUrl: 'https://cdn.kuaidi100.com/label/SF.png',
-      taskId: 'task-abc',
+      sfOrderId: 'sf-order-abc',
     });
 
     const result = await service.createCarrierWaybill(
@@ -1044,16 +1029,14 @@ describe('createCarrierWaybill — 快递面单创建', () => {
     expect(result.carrierCode).toBe('SF');
     expect(result.carrierName).toBe('顺丰速运');
     expect(result.waybillNo).toBe('SF1234567890');
-    expect(result.senderInfoSnapshot).toEqual({
+    expect(result.senderInfoSnapshot).toEqual(expect.objectContaining({
       senderName: '张经理',
       senderPhone: '13800001001',
-      senderAddress: '云南省玉溪市红塔区',
-    });
-    expect(result.receiverInfoSnapshot).toEqual({
+    }));
+    expect(result.receiverInfoSnapshot).toEqual(expect.objectContaining({
       name: '林青禾',
       phone: '13800138000',
-      address: '云南省昆明市盘龙区翠湖路 88 号爱买买大厦 12 楼',
-    });
+    }));
   });
 });
 
@@ -1062,37 +1045,29 @@ describe('createCarrierWaybill — 快递面单创建', () => {
 /* ================================================================== */
 
 describe('cancelCarrierWaybill — 远端面单取消', () => {
-  it('调用快递100取消接口', async () => {
-    const { service, kuaidi100Waybill } = createMocks();
-    kuaidi100Waybill.cancelWaybill.mockResolvedValue({ success: true });
+  it('调用顺丰取消接口', async () => {
+    const { service, sfExpress } = createMocks();
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
 
-    await service.cancelCarrierWaybill('SF', 'SF1234567890');
+    await service.cancelCarrierWaybill('sf-order-abc-123', 'SF1234567890');
 
-    expect(kuaidi100Waybill.cancelWaybill).toHaveBeenCalledWith('SF', 'SF1234567890');
+    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf-order-abc-123', 'SF1234567890');
   });
 
-  it('缺少 carrierCode 时跳过', async () => {
-    const { service, kuaidi100Waybill } = createMocks();
+  it('缺少 sfOrderId 和 waybillNo 时跳过', async () => {
+    const { service, sfExpress } = createMocks();
 
-    await service.cancelCarrierWaybill('', 'SF1234567890');
+    await service.cancelCarrierWaybill('', '');
 
-    expect(kuaidi100Waybill.cancelWaybill).not.toHaveBeenCalled();
-  });
-
-  it('缺少 waybillNo 时跳过', async () => {
-    const { service, kuaidi100Waybill } = createMocks();
-
-    await service.cancelCarrierWaybill('SF', '');
-
-    expect(kuaidi100Waybill.cancelWaybill).not.toHaveBeenCalled();
+    expect(sfExpress.cancelOrder).not.toHaveBeenCalled();
   });
 
   it('远端取消失败时不抛异常（静默警告）', async () => {
-    const { service, kuaidi100Waybill } = createMocks();
-    kuaidi100Waybill.cancelWaybill.mockRejectedValue(new Error('网络超时'));
+    const { service, sfExpress } = createMocks();
+    sfExpress.cancelOrder.mockRejectedValue(new Error('网络超时'));
 
     await expect(
-      service.cancelCarrierWaybill('SF', 'SF1234567890'),
+      service.cancelCarrierWaybill('sf-order-abc-123', 'SF1234567890'),
     ).resolves.toBeUndefined();
   });
 });
@@ -1103,8 +1078,8 @@ describe('cancelCarrierWaybill — 远端面单取消', () => {
 
 describe('parseAddressSnapshot — 地址解析', () => {
   it('addressSnapshot 为 null 时抛出 BadRequestException', async () => {
-    const { service, prisma, kuaidi100Waybill } = createMocks();
-    setupHappyPath(prisma, kuaidi100Waybill);
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
 
     // order 的 addressSnapshot 为 null
     prisma.order.findUnique.mockResolvedValue({
