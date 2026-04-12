@@ -396,6 +396,14 @@ export class SellerShippingService {
     items: Array<{ name: string; quantity: number; weight?: number }>,
   ) {
     const senderInfo = await this.getSenderInfo(companyId);
+
+    // 校验发件人地址完整性，未补充结构化地址的企业不允许生成面单
+    if (!senderInfo.senderProvince || !senderInfo.senderCity) {
+      throw new BadRequestException(
+        '企业发货地址不完整，请在「企业信息」页面补充省市区详细地址后再发货',
+      );
+    }
+
     const recipientInfo = this.parseAddressSnapshot(addressSnapshot);
     const cargo = items.map((i) => i.name).join(', ');
     const totalWeight = items.reduce((sum, i) => sum + (i.weight || 0), 0);

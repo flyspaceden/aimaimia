@@ -153,10 +153,18 @@ export default function CompanyDetailPage() {
 
   const handleUpdateCompany = async (values: Record<string, unknown>) => {
     try {
-      const { addressText, ...rest } = values;
+      const { addressProvince, addressCity, addressDistrict, addressDetail, ...rest } = values;
+      const hasAddress = addressProvince || addressCity || addressDistrict || addressDetail;
       const data = {
         ...rest,
-        address: addressText ? { text: addressText } : undefined,
+        address: hasAddress
+          ? {
+              province: addressProvince || '',
+              city: addressCity || '',
+              district: addressDistrict || '',
+              detail: addressDetail || '',
+            }
+          : undefined,
       } as Parameters<typeof updateCompany>[1];
       await updateCompany(id!, data);
       message.success('企业信息已更新');
@@ -221,7 +229,13 @@ export default function CompanyDetailPage() {
     bookings: 0,
   };
   const contact = company.contact as Record<string, string> | null;
-  const addressText = (company.address as Record<string, any>)?.text || '';
+  const addressObj = company.address as Record<string, any> | null;
+  // 优先显示结构化地址，回退到旧格式 text
+  const addressText = addressObj
+    ? (addressObj.province || addressObj.city || addressObj.district || addressObj.detail)
+      ? [addressObj.province, addressObj.city, addressObj.district, addressObj.detail].filter(Boolean).join(' ')
+      : (addressObj.text || '')
+    : '';
 
   const hasOwner = staffList?.some((s: CompanyStaff) => s.role === 'OWNER');
 
@@ -412,7 +426,10 @@ export default function CompanyDetailPage() {
               description: company.description,
               servicePhone: company.servicePhone,
               serviceWeChat: company.serviceWeChat,
-              addressText,
+              addressProvince: addressObj?.province || '',
+              addressCity: addressObj?.city || '',
+              addressDistrict: addressObj?.district || '',
+              addressDetail: addressObj?.detail || '',
             }}
             layout="vertical"
             style={{ maxWidth: 600 }}
@@ -436,7 +453,13 @@ export default function CompanyDetailPage() {
               ]}
               fieldProps={{ rows: 4 }}
             />
-            <ProFormText name="addressText" label="经营地址" />
+            {/* 结构化地址字段 */}
+            <ProForm.Group title="经营地址">
+              <ProFormText name="addressProvince" label="省份" width="sm" placeholder="如：云南省" />
+              <ProFormText name="addressCity" label="城市" width="sm" placeholder="如：玉溪市" />
+              <ProFormText name="addressDistrict" label="区/县" width="sm" placeholder="如：红塔区" />
+            </ProForm.Group>
+            <ProFormText name="addressDetail" label="详细地址" placeholder="如：xxx路xxx号" />
             <ProFormText name="servicePhone" label="客服电话" />
             <ProFormText name="serviceWeChat" label="客服微信" />
           </ProForm>

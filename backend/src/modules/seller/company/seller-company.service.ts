@@ -46,6 +46,15 @@ export class SellerCompanyService {
 
   /** 更新企业信息 */
   async updateCompany(companyId: string, dto: UpdateCompanyDto) {
+    // 如果传入了结构化地址，自动拼接 text 字段
+    let address = dto.address;
+    if (address && (address.province || address.city || address.district || address.detail)) {
+      const text = [address.province, address.city, address.district, address.detail]
+        .filter(Boolean)
+        .join('');
+      address = { ...address, text };
+    }
+
     return this.prisma.company.update({
       where: { id: companyId },
       data: {
@@ -55,7 +64,7 @@ export class SellerCompanyService {
         servicePhone: dto.servicePhone,
         serviceWeChat: dto.serviceWeChat,
         contact: dto.contact,
-        address: dto.address,
+        address,
       },
     });
   }

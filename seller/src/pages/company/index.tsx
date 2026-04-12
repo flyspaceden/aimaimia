@@ -195,10 +195,19 @@ export default function CompanySettingsPage() {
 
   const handleUpdate = async (values: Record<string, unknown>) => {
     try {
-      const { addressText, ...rest } = values;
+      const { addressProvince, addressCity, addressDistrict, addressDetail, ...rest } = values;
+      // 构建结构化地址对象
+      const hasAddress = addressProvince || addressCity || addressDistrict || addressDetail;
       const data = {
         ...rest,
-        address: addressText ? { text: addressText } : undefined,
+        address: hasAddress
+          ? {
+              province: addressProvince || '',
+              city: addressCity || '',
+              district: addressDistrict || '',
+              detail: addressDetail || '',
+            }
+          : undefined,
       };
       await updateCompany(data);
       message.success('企业信息已更新');
@@ -251,7 +260,10 @@ export default function CompanySettingsPage() {
               description: company.description,
               servicePhone: company.servicePhone,
               serviceWeChat: company.serviceWeChat,
-              addressText: (company.address as { text?: string })?.text,
+              addressProvince: (company.address as Record<string, string> | undefined)?.province || '',
+              addressCity: (company.address as Record<string, string> | undefined)?.city || '',
+              addressDistrict: (company.address as Record<string, string> | undefined)?.district || '',
+              addressDetail: (company.address as Record<string, string> | undefined)?.detail || '',
             }}
             layout="vertical"
             style={{ maxWidth: 600 }}
@@ -268,10 +280,33 @@ export default function CompanySettingsPage() {
               placeholder="请详细描述企业经营范围、特色产品、种植理念等。AI 语音助手会根据描述向买家推荐您的企业"
               fieldProps={{ rows: 4 }}
             />
+            {/* 结构化发货地址（省/市/区/详细），顺丰快递 API 必需 */}
+            <ProForm.Group title="发货地址" titleStyle={{ marginBottom: 8 }}>
+              <ProFormText
+                name="addressProvince"
+                label="省份"
+                width="sm"
+                placeholder="如：云南省"
+                rules={[{ required: true, message: '请填写省份' }]}
+              />
+              <ProFormText
+                name="addressCity"
+                label="城市"
+                width="sm"
+                placeholder="如：玉溪市"
+                rules={[{ required: true, message: '请填写城市' }]}
+              />
+              <ProFormText
+                name="addressDistrict"
+                label="区/县"
+                width="sm"
+                placeholder="如：红塔区"
+              />
+            </ProForm.Group>
             <ProFormText
-              name="addressText"
-              label="经营地址"
-              placeholder="如：黑龙江省五常市xxx路，方便买家了解您的位置"
+              name="addressDetail"
+              label="详细地址"
+              placeholder="如：xxx路xxx号，方便快递员取件"
             />
             <ProFormText name="servicePhone" label="客服电话" />
             <ProFormText name="serviceWeChat" label="客服微信" />
@@ -281,7 +316,17 @@ export default function CompanySettingsPage() {
             <Descriptions.Item label="企业名称">{company.name}</Descriptions.Item>
             <Descriptions.Item label="简称">{company.shortName || '-'}</Descriptions.Item>
             <Descriptions.Item label="简介">{company.description || '-'}</Descriptions.Item>
-            <Descriptions.Item label="经营地址">{(company.address as { text?: string })?.text || '-'}</Descriptions.Item>
+            <Descriptions.Item label="经营地址">
+              {(() => {
+                const addr = company.address as Record<string, string> | undefined;
+                if (!addr) return '-';
+                // 优先显示结构化字段，回退到 text
+                if (addr.province || addr.city || addr.district || addr.detail) {
+                  return [addr.province, addr.city, addr.district, addr.detail].filter(Boolean).join(' ');
+                }
+                return addr.text || '-';
+              })()}
+            </Descriptions.Item>
             <Descriptions.Item label="客服电话">{company.servicePhone || '-'}</Descriptions.Item>
             <Descriptions.Item label="客服微信">{company.serviceWeChat || '-'}</Descriptions.Item>
             <Descriptions.Item label="状态">

@@ -27,7 +27,15 @@ export class UpdateCompanyDto {
   contact?: any; // JSON
 
   @IsOptional()
-  address?: any; // JSON { text, lat, lng }
+  address?: {
+    province?: string;
+    city?: string;
+    district?: string;
+    detail?: string;
+    text?: string;
+    lng?: number;
+    lat?: number;
+  }; // JSON { province, city, district, detail, text?, lng?, lat? }
 }
 
 /** 邀请员工 */
