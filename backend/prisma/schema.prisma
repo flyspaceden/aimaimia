@@ -1568,7 +1568,7 @@ model Shipment {
   senderInfoSnapshot   Json?
   receiverInfoSnapshot Json?
   rawCarrierPayload    Json?
-  kuaidi100TaskId      String?        // 快递100任务ID（用于取消/复打）
+  sfOrderId            String?        // 顺丰订单ID（用于取消/复打）
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -2172,7 +2172,7 @@ model AfterSaleRequest {
   replacementCarrierName String?
   replacementWaybillNo  String?
   replacementWaybillUrl String?
-  replacementKuaidi100TaskId String?      // 换货面单快递100任务ID
+  replacementSfOrderId String?  // 换货面单顺丰订单ID
   replacementShipmentId String?           // 换货物流单号
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
