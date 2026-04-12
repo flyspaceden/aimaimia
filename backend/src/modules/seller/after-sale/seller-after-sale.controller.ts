@@ -252,6 +252,28 @@ export class SellerAfterSaleController {
       companyId,
       id,
     );
+
+    // PDF 面单直接返回（不加水印）
+    if (printData.replacementWaybillUrl.startsWith('data:application/pdf;base64,')) {
+      const base64Data = printData.replacementWaybillUrl.replace('data:application/pdf;base64,', '');
+      const pdfBuffer = Buffer.from(base64Data, 'base64');
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="waybill-aftersale-${id}.pdf"`);
+
+      await this.afterSaleService.recordWaybillPrintAccess(
+        companyId,
+        staffId,
+        id,
+        req.ip,
+        req.headers['user-agent'],
+      );
+
+      return res.send(pdfBuffer);
+    }
+
     const printedAt = new Date();
     let imageBuffer: Buffer;
     try {
