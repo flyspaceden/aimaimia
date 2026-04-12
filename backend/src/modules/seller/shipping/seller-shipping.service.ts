@@ -48,17 +48,21 @@ export class SellerShippingService {
   /**
    * 解析地址快照
    * 兼容明文 JSON 与加密 envelope。
+   * 返回结构化地址（省/市/区/详细），供顺丰等快递 API 使用。
    */
   private parseAddressSnapshot(addressSnapshot: unknown): {
     name: string;
     phone: string;
-    address: string;
+    province: string;
+    city: string;
+    district: string;
+    detail: string;
+    fullAddress: string;
   } {
     if (!addressSnapshot) {
       throw new BadRequestException('订单地址信息缺失');
     }
 
-    // addressSnapshot 可能已经是对象或 JSON 字符串
     let addr: any;
     try {
       addr = decryptJsonValue(
@@ -70,11 +74,32 @@ export class SellerShippingService {
       throw new BadRequestException('订单地址信息格式错误');
     }
 
-    return {
-      name: (addr as any).name || (addr as any).receiverName || '',
-      phone: (addr as any).phone || (addr as any).receiverPhone || '',
-      address: [(addr as any).province, (addr as any).city, (addr as any).district, (addr as any).detail].filter(Boolean).join(''),
-    };
+    // 兼容新旧字段名：recipientName(checkout写入) > receiverName(旧) > name(更旧)
+    const name = addr.recipientName || addr.receiverName || addr.name || '';
+    const phone = addr.phone || addr.recipientPhone || addr.receiverPhone || '';
+
+    // 优先使用独立字段，fallback 从 regionText 解析
+    let province = addr.province || '';
+    let city = addr.city || '';
+    let district = addr.district || '';
+    const detail = addr.detail || '';
+
+    if (!province && addr.regionText) {
+      const m = addr.regionText.match(
+        /^(.+?(?:省|自治区|市))(.+?(?:市|自治州|地区|盟))(.+?(?:区|县|市|旗))?/,
+      );
+      if (m) {
+        province = m[1] || '';
+        city = m[2] || '';
+        district = m[3] || '';
+      } else {
+        province = addr.regionText;
+      }
+    }
+
+    const fullAddress = [province, city, district, detail].filter(Boolean).join('');
+
+    return { name, phone, province, city, district, detail, fullAddress };
   }
 
   /**
@@ -90,14 +115,18 @@ export class SellerShippingService {
       throw new NotFoundException('企业信息不存在');
     }
 
-    // 从 company.address（Json: {lng, lat, text}）和 contact（Json）提取发件信息
+    // 从 company.address（Json）和 contact（Json）提取结构化发件信息
     const address = company.address as Record<string, any> | null;
     const contact = company.contact as Record<string, any> | null;
 
     return {
       senderName: contact?.name || company.name,
       senderPhone: contact?.phone || company.servicePhone || '',
-      senderAddress: address?.text || '',
+      senderProvince: address?.province || '',
+      senderCity: address?.city || '',
+      senderDistrict: address?.district || '',
+      senderDetail: address?.detail || '',
+      senderAddress: address?.text || [address?.province, address?.city, address?.district, address?.detail].filter(Boolean).join('') || '',
     };
   }
 
@@ -378,7 +407,7 @@ export class SellerShippingService {
       senderAddress: senderInfo.senderAddress,
       recipientName: recipientInfo.name,
       recipientPhone: recipientInfo.phone,
-      recipientAddress: recipientInfo.address,
+      recipientAddress: recipientInfo.fullAddress,
       cargo,
       weight: totalWeight > 0 ? totalWeight : undefined,
       count: 1,
