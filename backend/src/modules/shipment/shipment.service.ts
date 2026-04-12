@@ -14,6 +14,7 @@ import { maskTrackingNo } from '../../common/security/privacy-mask';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from '../after-sale/after-sale.constants';
 import { SfExpressService } from './sf-express.service';
+import { InboxService } from '../inbox/inbox.service';
 
 @Injectable()
 export class ShipmentService {
@@ -23,6 +24,7 @@ export class ShipmentService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private sfExpress: SfExpressService,
+    private inboxService: InboxService,
   ) {}
 
   private summarizeShipmentStatus(statuses: string[]): string {
@@ -253,6 +255,26 @@ export class ShipmentService {
                     reason: '物流签收',
                   },
                 });
+
+                // 发送签收通知给买家
+                try {
+                  const orderForNotify = await tx.order.findUnique({
+                    where: { id: shipment.orderId },
+                    select: { userId: true },
+                  });
+                  if (orderForNotify) {
+                    await this.inboxService.send({
+                      userId: orderForNotify.userId,
+                      category: 'order',
+                      type: 'delivered',
+                      title: '包裹已送达',
+                      content: '您的包裹已签收，请确认收货。如有问题可申请售后。',
+                      target: { route: '/orders/[id]', params: { id: shipment.orderId } },
+                    });
+                  }
+                } catch (notifyErr: any) {
+                  this.logger.warn(`签收通知发送失败: ${notifyErr.message}`);
+                }
               }
             }
           }
@@ -267,6 +289,28 @@ export class ShipmentService {
           continue;
         }
         throw e;
+      }
+    }
+
+    // EXCEPTION 状态即时通知买家
+    if (shipmentStatus === 'EXCEPTION') {
+      try {
+        const orderForNotify = await this.prisma.order.findUnique({
+          where: { id: shipment.orderId },
+          select: { userId: true },
+        });
+        if (orderForNotify) {
+          await this.inboxService.send({
+            userId: orderForNotify.userId,
+            category: 'order',
+            type: 'logistics_exception',
+            title: '物流异常',
+            content: '您的包裹物流出现异常（退签/退回），请联系客服处理。',
+            target: { route: '/orders/[id]', params: { id: shipment.orderId } },
+          });
+        }
+      } catch (notifyErr: any) {
+        this.logger.warn(`物流异常通知发送失败: ${notifyErr.message}`);
       }
     }
 

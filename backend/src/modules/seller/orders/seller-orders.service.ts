@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -13,13 +14,17 @@ import {
   extractRegionText,
 } from '../../../common/security/privacy-mask';
 import { SellerShippingService } from '../shipping/seller-shipping.service';
+import { InboxService } from '../../inbox/inbox.service';
 
 @Injectable()
 export class SellerOrdersService {
+  private readonly logger = new Logger(SellerOrdersService.name);
+
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
     private shippingService: SellerShippingService,
+    private inboxService: InboxService,
   ) {}
 
   /**
@@ -290,7 +295,7 @@ export class SellerOrdersService {
     const { autoConfirmDays } = await this.bonusConfig.getSystemConfig();
 
     // 发货涉及订单状态变更，使用 Serializable 隔离级别防止并发重复发货
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 事务内重新检查订单状态，防止并发竞态
       const freshOrder = await tx.order.findUnique({
         where: { id: orderId },
@@ -355,6 +360,28 @@ export class SellerOrdersService {
 
       return { ok: true };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    // 发货通知买家
+    try {
+      const orderForNotify = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { userId: true },
+      });
+      if (orderForNotify) {
+        await this.inboxService.send({
+          userId: orderForNotify.userId,
+          category: 'order',
+          type: 'shipped',
+          title: '订单已发货',
+          content: '您的订单已由顺丰速运发出，请注意查收。',
+          target: { route: '/orders/[id]', params: { id: orderId } },
+        });
+      }
+    } catch (notifyErr: any) {
+      this.logger.warn(`发货通知发送失败: ${notifyErr.message}`);
+    }
+
+    return result;
   }
 
   /** 批量发货 */
