@@ -6,7 +6,6 @@ import {
   Card,
   message,
   Modal,
-  Select,
   Space,
   Statistic,
   Tag,
@@ -35,16 +34,6 @@ import { getOverview } from '@/api/analytics';
 import { orderStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
-
-const carrierOptions = [
-  { value: 'SF', label: '顺丰速运' },
-  { value: 'YTO', label: '圆通快递' },
-  { value: 'ZTO', label: '中通快递' },
-  { value: 'STO', label: '申通快递' },
-  { value: 'YUNDA', label: '韵达快递' },
-  { value: 'JD', label: '京东物流' },
-  { value: 'EMS', label: 'EMS' },
-];
 
 const orderStatusTabs = [
   { key: 'all', label: '全部', status: '' },
@@ -89,7 +78,6 @@ export default function OrderListPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [carrierModalOpen, setCarrierModalOpen] = useState(false);
-  const [carrierCode, setCarrierCode] = useState<string>();
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchShipping, setBatchShipping] = useState(false);
 
@@ -174,10 +162,6 @@ export default function OrderListPage() {
   };
 
   const handleBatchGenerateWaybill = async () => {
-    if (!carrierCode) {
-      message.warning('请选择快递公司');
-      return;
-    }
     if (pendingWaybillOrders.length === 0) {
       message.warning('请选择待发货且尚未生成面单的订单');
       return;
@@ -188,11 +172,10 @@ export default function OrderListPage() {
       const result = await batchGenerateWaybill(
         pendingWaybillOrders.map((order) => ({
           orderId: order.id,
-          carrierCode,
+          carrierCode: 'SF',
         })),
       );
       setCarrierModalOpen(false);
-      setCarrierCode(undefined);
       resetSelection();
       showBatchResult('批量生成面单', result.results);
       actionRef.current?.reload();
@@ -648,30 +631,20 @@ export default function OrderListPage() {
 
       {/* 批量生成面单弹窗 */}
       <Modal
-        title="批量生成面单"
+        title="批量生成面单（顺丰速运）"
         open={carrierModalOpen}
         onCancel={() => {
           if (batchGenerating) return;
           setCarrierModalOpen(false);
-          setCarrierCode(undefined);
         }}
         onOk={handleBatchGenerateWaybill}
         okText="生成"
         cancelText="取消"
         confirmLoading={batchGenerating}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Typography.Text type="secondary">
-            当前可生成面单的已选订单：{pendingWaybillOrders.length} 条
-          </Typography.Text>
-          <Select
-            placeholder="选择快递公司"
-            value={carrierCode}
-            onChange={setCarrierCode}
-            options={carrierOptions}
-            style={{ width: '100%' }}
-          />
-        </Space>
+        <Typography.Text type="secondary">
+          当前可生成面单的已选订单：{pendingWaybillOrders.length} 条，快递公司：顺丰速运
+        </Typography.Text>
       </Modal>
     </div>
   );

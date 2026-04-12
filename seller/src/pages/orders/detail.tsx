@@ -6,10 +6,8 @@ import {
   Button,
   Card,
   Descriptions,
-  Form,
   message,
   Modal,
-  Select,
   Space,
   Spin,
   Steps,
@@ -39,16 +37,6 @@ import {
 import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
-
-const carrierOptions = [
-  { value: 'SF', label: '顺丰速运' },
-  { value: 'YTO', label: '圆通快递' },
-  { value: 'ZTO', label: '中通快递' },
-  { value: 'STO', label: '申通快递' },
-  { value: 'YUNDA', label: '韵达快递' },
-  { value: 'JD', label: '京东物流' },
-  { value: 'EMS', label: 'EMS' },
-];
 
 // 根据订单状态和物流状态计算进度步骤
 function getOrderStep(order: {
@@ -305,31 +293,14 @@ export default function OrderDetailPage() {
               <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
                 生成电子面单后，平台将代为打印面单，卖家无需接触买家地址信息。
               </Typography.Paragraph>
-              <Form
-                layout="inline"
-                onFinish={(v) => handleGenerateWaybill(v.carrierCode)}
+              <Button
+                type="primary"
+                loading={generatingWaybill}
+                size="large"
+                onClick={() => handleGenerateWaybill('SF')}
               >
-                <Form.Item
-                  name="carrierCode"
-                  rules={[{ required: true, message: '请选择快递' }]}
-                >
-                  <Select
-                    placeholder="选择快递公司"
-                    options={carrierOptions}
-                    style={{ width: 200 }}
-                  />
-                </Form.Item>
-                <Form.Item>
-                  <Button
-                    type="primary"
-                    loading={generatingWaybill}
-                    htmlType="submit"
-                    size="large"
-                  >
-                    生成面单
-                  </Button>
-                </Form.Item>
-              </Form>
+                生成面单（顺丰速运）
+              </Button>
             </div>
           ) : (
             <div>
