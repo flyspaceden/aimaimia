@@ -23,7 +23,9 @@ function parseTrustProxy(value: string): boolean | number | string | string[] {
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   const isProduction = process.env.NODE_ENV === 'production';
 
   // 请求关联 ID（便于安全审计/问题排查）
