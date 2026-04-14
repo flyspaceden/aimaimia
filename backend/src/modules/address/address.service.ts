@@ -7,6 +7,7 @@ import {
   maskName,
   maskPhone,
 } from '../../common/security/privacy-mask';
+import { parseChineseAddress } from '../../common/utils/parse-region';
 
 @Injectable()
 export class AddressService {
@@ -151,16 +152,9 @@ export class AddressService {
     return address;
   }
 
-  /** 拆分 regionText 为 province/city/district */
+  /** 拆分 regionText 为 province/city/district（兼容分隔符/直接拼接/直辖市/自治区） */
   private parseRegionText(regionText: string): { province: string; city: string; district: string } {
-    if (!regionText) return { province: '', city: '', district: '' };
-    // 尝试按常见分隔符拆分（空格、逗号、/）
-    const parts = regionText.split(/[\s,/]+/).filter(Boolean);
-    return {
-      province: parts[0] || '',
-      city: parts[1] || parts[0] || '',
-      district: parts[2] || '',
-    };
+    return parseChineseAddress(regionText);
   }
 
   /** 合并 province/city/district 为 regionText */

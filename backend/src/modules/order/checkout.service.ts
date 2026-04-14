@@ -13,6 +13,7 @@ import { VipCheckoutDto } from './vip-checkout.dto';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 import { encryptJsonValue } from '../../common/security/encryption';
+import { parseChineseAddress } from '../../common/utils/parse-region';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -359,11 +360,15 @@ export class CheckoutService {
       const address = await this.prisma.address.findUnique({ where: { id: dto.addressId } });
       if (address && address.userId === userId) {
         regionCode = address.regionCode;
+        const region = parseChineseAddress(address.regionText);
         addressSnapshot = {
           recipientName: address.recipientName,
           phone: address.phone,
           regionCode: address.regionCode,
           regionText: address.regionText,
+          province: region.province,
+          city: region.city,
+          district: region.district,
           detail: address.detail,
         };
       }
@@ -774,11 +779,15 @@ export class CheckoutService {
     if (!address || address.userId !== userId) {
       throw new BadRequestException('收货地址无效');
     }
+    const region = parseChineseAddress(address.regionText);
     const addressSnapshot = {
       recipientName: address.recipientName,
       phone: address.phone,
       regionCode: address.regionCode,
       regionText: address.regionText,
+      province: region.province,
+      city: region.city,
+      district: region.district,
       detail: address.detail,
     };
     const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);

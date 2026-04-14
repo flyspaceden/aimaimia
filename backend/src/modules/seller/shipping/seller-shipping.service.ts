@@ -12,6 +12,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
 import { maskIp, maskTrackingNo } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
+import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
 
 @Injectable()
@@ -77,23 +78,18 @@ export class SellerShippingService {
     const name = addr.recipientName || addr.receiverName || addr.name || '';
     const phone = addr.phone || addr.recipientPhone || addr.receiverPhone || '';
 
-    // 优先使用独立字段，fallback 从 regionText 解析
+    // 优先使用独立字段；缺失时用统一 parser 解析 regionText
+    // （覆盖直辖市 / 自治区 / 空格分隔 / 直接拼接 四种格式）
     let province = addr.province || '';
     let city = addr.city || '';
     let district = addr.district || '';
     const detail = addr.detail || '';
 
     if (!province && addr.regionText) {
-      const m = addr.regionText.match(
-        /^(.+?(?:省|自治区|市))(.+?(?:市|自治州|地区|盟))(.+?(?:区|县|市|旗))?/,
-      );
-      if (m) {
-        province = m[1] || '';
-        city = m[2] || '';
-        district = m[3] || '';
-      } else {
-        province = addr.regionText;
-      }
+      const parsed = parseChineseAddress(addr.regionText);
+      province = parsed.province;
+      city = parsed.city;
+      district = parsed.district;
     }
 
     const fullAddress = [province, city, district, detail].filter(Boolean).join('');
