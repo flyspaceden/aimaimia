@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Image, Space, message, Modal, Input, Badge, Upload, Button } from 'antd';
+import { Tag, Image, Space, message, Modal, Input, Badge, Upload } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';

@@ -159,7 +159,7 @@ export default function AfterSaleDetailScreen() {
       return;
     }
     executeAction(
-      () => AfterSaleRepo.fillReturnShipping(asId, { carrierName: carrierName.trim(), waybillNo: waybillNo.trim() }),
+      () => AfterSaleRepo.fillReturnShipping(asId, { returnCarrierName: carrierName.trim(), returnWaybillNo: waybillNo.trim() }),
       '退货物流信息已提交',
     );
   };

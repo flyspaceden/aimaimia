@@ -261,21 +261,21 @@ export class BonusAllocationService {
 
     const refundKey = `ALLOC:REFUND:${orderId}`;
 
-    // 查询该订单的所有分配记录
-    const allocations = await this.prisma.rewardAllocation.findMany({
-      where: { orderId },
-      include: { ledgers: true },
-    });
-
-    if (allocations.length === 0) {
-      this.logger.log(`订单 ${orderId} 无分润记录，跳过回滚`);
-      return;
-    }
-
     const MAX_ROLLBACK_RETRIES = 3;
     for (let attempt = 1; attempt <= MAX_ROLLBACK_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(async (tx) => {
+        // C07修复：在事务内查询分配记录，避免 TOCTOU 竞态（事务外快照可能过期）
+        const allocations = await tx.rewardAllocation.findMany({
+          where: { orderId },
+          include: { ledgers: true },
+        });
+
+        if (allocations.length === 0) {
+          this.logger.log(`订单 ${orderId} 无分润记录，跳过回滚`);
+          return;
+        }
+
         // 创建退款回滚的 RewardAllocation
         await tx.rewardAllocation.create({
           data: {
@@ -294,15 +294,19 @@ export class BonusAllocationService {
           .filter((l: any) => l.status !== 'VOIDED');
 
         if (nonVoidedLedgers.length > 0) {
-          // 仅回滚可逆状态（AVAILABLE/FROZEN/RETURN_FROZEN）。WITHDRAWN 等状态保留，后续走追缴流程。
+          // 仅回滚可逆状态（AVAILABLE/FROZEN/RETURN_FROZEN）。WITHDRAWN 不应出现（退款在奖励可提现之前）。
           const reversibleLedgers = nonVoidedLedgers.filter((l: any) =>
             l.status === 'AVAILABLE' || l.status === 'FROZEN' || l.status === 'RETURN_FROZEN',
           );
           const withdrawnLedgers = nonVoidedLedgers.filter((l: any) => l.status === 'WITHDRAWN');
 
+          // C09修复：WITHDRAWN 在退款时不应出现（退款 7 天内，奖励 7 天后才可提现），出现说明系统异常
           if (withdrawnLedgers.length > 0) {
-            this.logger.warn(
-              `订单 ${orderId} 存在 ${withdrawnLedgers.length} 条已提现分润流水，保留 WITHDRAWN 状态等待追缴`,
+            this.logger.error(
+              `[CRITICAL] 订单 ${orderId} 存在 ${withdrawnLedgers.length} 条已提现分润流水，系统时序异常！`,
+            );
+            throw new InternalServerErrorException(
+              `订单 ${orderId} 退款回滚发现已提现流水，请联系管理员排查`,
             );
           }
 
@@ -416,7 +420,7 @@ export class BonusAllocationService {
             );
           }
         }
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000, maxWait: 5000 });
         break;
       } catch (err: any) {
         if (err?.code === 'P2002' && err?.meta?.target?.includes('idempotencyKey')) {
@@ -438,23 +442,7 @@ export class BonusAllocationService {
       }
     }
 
-    // 结构化审计：记录回滚摘要到日志（AdminAuditLog 需 adminUserId FK，
-    // 退款回滚由系统/买家触发无 admin 上下文，使用 Logger 结构化记录替代）
-    const voidedCount = allocations.reduce(
-      (sum, a) => sum + a.ledgers.filter((l: any) => ['AVAILABLE', 'FROZEN'].includes(l.status)).length,
-      0,
-    );
-    const totalAmount = allocations.reduce(
-      (sum, a) =>
-        sum + a.ledgers
-          .filter((l: any) => ['AVAILABLE', 'FROZEN'].includes(l.status))
-          .reduce((s: number, l: any) => s + l.amount, 0),
-      0,
-    );
-    this.logger.warn(
-      `[AUDIT] 订单 ${orderId} 退款回滚完成 — 作废 ${voidedCount} 条流水，回扣 ${totalAmount} 元，` +
-      `涉及 ${allocations.length} 个 Allocation: [${allocations.map((a) => a.id).join(', ')}]`,
-    );
+    this.logger.log(`[AUDIT] 订单 ${orderId} 退款回滚完成`);
   }
 
   /**

@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from './bonus-config.service';
 import { PLATFORM_USER_ID, getAccountTypeForScheme } from './constants';
 import { ACTIVE_STATUSES } from '../../after-sale/after-sale.constants';
+import { InboxService } from '../../inbox/inbox.service';
 
 /** 每批处理的最大数量 */
 const BATCH_SIZE = 100;
@@ -16,6 +17,7 @@ export class FreezeExpireService {
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
+    private inboxService: InboxService,
   ) {}
 
   /**
@@ -300,6 +302,20 @@ export class FreezeExpireService {
         this.logger.log(
           `冻结奖励过期：ledger ${ledger.id}，${ledger.amount} 元（${scheme}），用户 ${ledger.userId} → 平台`,
         );
+
+        // C12: 奖励过期通知
+        const expiredUserId = ledger.userId;
+        const expiredAmount = ledger.amount;
+        setImmediate(() => {
+          this.inboxService.send({
+            userId: expiredUserId,
+            category: 'transaction',
+            type: 'reward_expired',
+            title: '奖励已过期',
+            content: `您有 ${expiredAmount.toFixed(2)} 元奖励因超过解锁期限已过期。`,
+            target: { route: '/wallet' },
+          }).catch(() => {});
+        });
       },
       {
         timeout: 10000,

@@ -78,6 +78,42 @@ export class RedisCoordinatorService implements OnModuleDestroy {
     }
   }
 
+  async rollbackFixedWindow(rawKey: string, ttlSec: number): Promise<number | null> {
+    if (!this.client) return null;
+    const key = this.key(rawKey);
+    try {
+      await this.ensureConnected();
+      const result = await this.client.eval(
+        `
+          local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+          if current <= 0 then
+            return 0
+          end
+
+          current = redis.call('DECR', KEYS[1])
+          if current <= 0 then
+            redis.call('DEL', KEYS[1])
+            return 0
+          end
+
+          local ttl = redis.call('TTL', KEYS[1])
+          if ttl < 0 then
+            redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+          end
+
+          return current
+        `,
+        1,
+        key,
+        String(ttlSec),
+      );
+      return Number(result ?? 0);
+    } catch (err: any) {
+      this.logRedisFallbackOnce(err);
+      return null;
+    }
+  }
+
   async acquireLock(rawKey: string, owner: string, ttlMs: number): Promise<boolean | null> {
     if (!this.client) return null;
     const key = this.key(rawKey);
@@ -151,6 +187,30 @@ export class RedisCoordinatorService implements OnModuleDestroy {
     }
   }
 
+  /** 原子性 GET + DEL：读取并删除，防止并发重放 */
+  async getdel(rawKey: string): Promise<string | null> {
+    if (!this.client) return null;
+    const key = this.key(rawKey);
+    try {
+      await this.ensureConnected();
+      const result = await this.client.eval(
+        `
+          local v = redis.call('GET', KEYS[1])
+          if v then
+            redis.call('DEL', KEYS[1])
+          end
+          return v
+        `,
+        1,
+        key,
+      );
+      return result as string | null;
+    } catch (err: any) {
+      this.logRedisFallbackOnce(err);
+      return null;
+    }
+  }
+
   async del(...rawKeys: string[]): Promise<void> {
     if (!this.client || rawKeys.length === 0) return;
     try {
@@ -182,4 +242,3 @@ export class RedisCoordinatorService implements OnModuleDestroy {
     this.logger.warn(`Redis 操作失败，回退本地/数据库逻辑: ${err?.message ?? 'unknown error'}`);
   }
 }
-

@@ -17,7 +17,21 @@ export type InboxType =
   | 'comment'
   | 'follow'
   | 'order_update'
-  | 'booking_update';
+  | 'booking_update'
+  // C12: 钱相关事件
+  | 'reward_credited'
+  | 'reward_unfrozen'
+  | 'reward_expired'
+  | 'withdraw_approved'
+  | 'withdraw_rejected'
+  | 'vip_referral_bonus'
+  | 'refund_credited'
+  | 'coupon_granted'
+  | 'coupon_expired'
+  // 卖家通知
+  | 'new_order'
+  | 'stock_shortage'
+  | 'vip_activated';
 
 export type InboxTarget = {
   route: string;

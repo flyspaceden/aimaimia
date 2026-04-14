@@ -17,7 +17,6 @@ import {
   Typography,
   Popconfirm,
   Radio,
-  Upload,
   Divider,
   Card,
   Flex,
@@ -29,7 +28,6 @@ import {
   DeleteOutlined,
   GiftOutlined,
   CloseOutlined,
-  UploadOutlined,
   HolderOutlined,
   CrownOutlined,
 } from '@ant-design/icons';
@@ -72,11 +70,9 @@ import type {
   UpdateVipPackageInput,
 } from '@/api/vip-gifts';
 import { getRewardProducts } from '@/api/reward-products';
-import type { RewardProduct, RewardProductSku } from '@/api/reward-products';
+import type { RewardProduct } from '@/api/reward-products';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
-import dayjs from 'dayjs';
-
 const { Text, Title } = Typography;
 
 // 赠品方案状态映射
@@ -265,7 +261,7 @@ function CoverPreview({ mode, images }: { mode: CoverMode; images: string[] }) {
 /** 可拖拽的表格行 */
 function DraggableRow(props: React.HTMLAttributes<HTMLTableRowElement> & { 'data-row-key'?: string }) {
   const id = props['data-row-key'] || '';
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <tr
       {...props}

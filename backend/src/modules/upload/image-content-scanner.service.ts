@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import jsQR from 'jsqr';
-import sharp from 'sharp';
+import sharp = require('sharp');
 
 /**
  * 图片内容安全扫描服务（占位实现）

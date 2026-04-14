@@ -30,8 +30,14 @@ export const addDocument = (data: Record<string, unknown>): Promise<CompanyDocum
 export const getStaff = (): Promise<CompanyStaff[]> =>
   client.get('/seller/company/staff');
 
-export const inviteStaff = (phone: string, role: string): Promise<CompanyStaff> =>
-  client.post('/seller/company/staff', { phone, role });
+export const inviteStaff = (
+  phone: string,
+  role: 'MANAGER' | 'OPERATOR',
+  password?: string,
+): Promise<CompanyStaff> =>
+  client.post('/seller/company/staff', { phone, role, ...(password ? { password } : {}) });
+
+// TODO: 后端尚未提供「重置员工登录密码」接口，补充后需在此处新增 resetStaffPassword() 及管理 UI
 
 export const updateStaff = (id: string, data: Record<string, unknown>): Promise<CompanyStaff> =>
   client.put(`/seller/company/staff/${id}`, data);

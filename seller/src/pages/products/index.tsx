@@ -29,7 +29,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProducts, toggleProductStatus } from '@/api/products';
 import { getMarkupRate } from '@/api/config';
-import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
+import { productStatusMap, auditStatusMap, returnPolicyMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
 import { getOverview } from '@/api/analytics';
 
@@ -208,6 +208,29 @@ export default function ProductListPage() {
             {stock}
           </span>
         );
+      },
+    },
+    {
+      title: '单笔限购',
+      width: 80,
+      search: false,
+      render: (_, r) => {
+        const limits = (r.skus ?? []).map((s: any) => s.maxPerOrder).filter((v: any) => v != null);
+        if (limits.length === 0) return <span style={{ color: '#999' }}>不限</span>;
+        const min = Math.min(...limits);
+        const max = Math.max(...limits);
+        return min === max ? `${min} 件` : `${min}~${max} 件`;
+      },
+    },
+    {
+      title: '退货政策',
+      width: 110,
+      search: false,
+      render: (_, r) => {
+        const policy = (r as any).effectiveReturnPolicy;
+        if (!policy) return '-';
+        const entry = returnPolicyMap[policy];
+        return <Tag color={entry?.color || 'default'}>{entry?.text || policy}</Tag>;
       },
     },
     {

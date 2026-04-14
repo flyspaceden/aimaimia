@@ -23,6 +23,20 @@ const iconMap: Record<InboxType, { name: string; tone: 'brand' | 'accent' | 'neu
   follow: { name: 'account-plus-outline', tone: 'accent' },
   order_update: { name: 'truck-delivery-outline', tone: 'brand' },
   booking_update: { name: 'calendar-check-outline', tone: 'accent' },
+  // C12: 钱相关事件
+  reward_credited: { name: 'cash-plus', tone: 'brand' },
+  reward_unfrozen: { name: 'lock-open-outline', tone: 'brand' },
+  reward_expired: { name: 'clock-alert-outline', tone: 'neutral' },
+  withdraw_approved: { name: 'bank-transfer-out', tone: 'brand' },
+  withdraw_rejected: { name: 'bank-remove', tone: 'accent' },
+  vip_referral_bonus: { name: 'account-star-outline', tone: 'brand' },
+  refund_credited: { name: 'cash-refund', tone: 'accent' },
+  coupon_granted: { name: 'ticket-percent-outline', tone: 'brand' },
+  coupon_expired: { name: 'ticket-outline', tone: 'neutral' },
+  // 卖家/系统通知
+  new_order: { name: 'package-variant', tone: 'brand' },
+  stock_shortage: { name: 'alert-circle-outline', tone: 'accent' },
+  vip_activated: { name: 'crown-outline', tone: 'brand' },
 };
 
 export default function InboxScreen() {

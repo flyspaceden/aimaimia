@@ -16,7 +16,6 @@ import { AdminLotteryModule } from './lottery/admin-lottery.module';
 import { RewardProductModule } from './reward-product/reward-product.module';
 import { ShippingRuleModule } from './shipping-rule/shipping-rule.module';
 
-import { AdminRefundsModule } from './refunds/admin-refunds.module';
 import { AdminCouponModule } from './coupon/admin-coupon.module';
 import { VipGiftModule } from './vip-gift/vip-gift.module';
 import { VipPackageModule } from './vip-package/vip-package.module';
@@ -45,7 +44,6 @@ import { AdminAfterSaleModule } from './after-sale/admin-after-sale.module';
     RewardProductModule,
     ShippingRuleModule,
 
-    AdminRefundsModule,
     AdminCouponModule,
     VipGiftModule,
     VipPackageModule,

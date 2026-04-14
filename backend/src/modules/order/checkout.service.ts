@@ -50,8 +50,10 @@ export class CheckoutService {
   private couponService: any = null;
   // BonusService 通过可选注入（VIP 激活用）
   private bonusService: any = null;
-  // InboxService 通过可选注入（VIP 开通通知用）
-  private inboxService: any = null;
+  // InboxService 硬依赖（C13修复：确保上线后通知一定能发出去）
+  private inboxService: any = null; // 由 OrderModule.onModuleInit 注入，启动时校验
+  // AlipayService 通过可选注入（支付宝下单用）
+  private alipayService: any = null;
 
   constructor(
     private prisma: PrismaService,
@@ -78,6 +80,11 @@ export class CheckoutService {
     this.inboxService = service;
   }
 
+  /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
+  setAlipayService(service: any) {
+    this.alipayService = service;
+  }
+
   // ---------- 公开方法 ----------
 
   /** F1: 创建 CheckoutSession（校验库存+计算总额+预留奖励+返回支付参数） */
@@ -86,28 +93,47 @@ export class CheckoutService {
       throw new BadRequestException('购物车为空，请先添加商品');
     }
 
-    const toCheckoutResponse = (session: {
+    const toCheckoutResponse = async (session: {
       id: string;
       merchantOrderNo: string | null;
       expectedTotal: number;
       goodsAmount: number;
       shippingFee: number;
       discountAmount: number;
+      paymentChannel?: string | null;
       vipDiscountAmount?: number;
       totalCouponDiscount?: number;
       couponInstanceIds?: string[];
-    }) => ({
-      sessionId: session.id,
-      merchantOrderNo: session.merchantOrderNo,
-      expectedTotal: session.expectedTotal,
-      goodsAmount: session.goodsAmount,
-      shippingFee: session.shippingFee,
-      discountAmount: session.discountAmount,
-      vipDiscountAmount: session.vipDiscountAmount ?? 0,
-      totalCouponDiscount: session.totalCouponDiscount ?? 0,
-      couponInstanceIds: session.couponInstanceIds ?? [],
-      paymentParams: {},
-    });
+    }) => {
+      let paymentParams: Record<string, any> = {};
+
+      // 支付宝渠道：生成 APP 支付参数
+      if (session.paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
+        try {
+          const orderStr = await this.alipayService.createAppPayOrder({
+            merchantOrderNo: session.merchantOrderNo,
+            totalAmount: session.expectedTotal,
+            subject: `爱买买订单-${session.merchantOrderNo}`,
+          });
+          paymentParams = { channel: 'alipay', orderStr };
+        } catch (err: any) {
+          this.logger.error(`生成支付宝支付参数失败: ${err.message}`);
+        }
+      }
+
+      return {
+        sessionId: session.id,
+        merchantOrderNo: session.merchantOrderNo,
+        expectedTotal: session.expectedTotal,
+        goodsAmount: session.goodsAmount,
+        shippingFee: session.shippingFee,
+        discountAmount: session.discountAmount,
+        vipDiscountAmount: session.vipDiscountAmount ?? 0,
+        totalCouponDiscount: session.totalCouponDiscount ?? 0,
+        couponInstanceIds: session.couponInstanceIds ?? [],
+        paymentParams,
+      };
+    };
 
     // 幂等检查
     if (dto.idempotencyKey) {
@@ -118,7 +144,7 @@ export class CheckoutService {
         },
       });
       if (existing) {
-        return toCheckoutResponse(existing);
+        return await toCheckoutResponse(existing);
       }
     }
 
@@ -558,6 +584,10 @@ export class CheckoutService {
           }, 0);
           const expectedTotal = Math.max(0, totalGoodsForShipping - vipDiscountAmount - totalGroupDiscount + totalShippingFee);
 
+          if (expectedTotal <= 0) {
+            throw new BadRequestException('订单金额必须大于 0');
+          }
+
           // S12: 前端 expectedTotal 校验（在事务内，失败会自动回滚奖励预留）
           if (dto.expectedTotal !== undefined && dto.expectedTotal !== null) {
             const diff = Math.abs(expectedTotal - dto.expectedTotal);
@@ -602,7 +632,7 @@ export class CheckoutService {
           ((session.totalCouponDiscount ?? 0) > 0 ? `, 红包抵扣=${session.totalCouponDiscount}` : ''),
         );
 
-        return toCheckoutResponse(session);
+        return await toCheckoutResponse(session);
       } catch (err: any) {
         // P2034 序列化冲突重试（不释放红包，重试即可）
         if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
@@ -617,7 +647,7 @@ export class CheckoutService {
             where: { userId, idempotencyKey: dto.idempotencyKey },
           });
           if (existing) {
-            return toCheckoutResponse(existing);
+            return await toCheckoutResponse(existing);
           }
         }
         // 事务失败（非重试情况）：释放已锁定的红包，防止 RESERVED 泄漏
@@ -897,6 +927,21 @@ export class CheckoutService {
       `VIP 礼包 CheckoutSession 已创建：sessionId=${session.id}, userId=${userId}, giftOption=${giftOption.title}`,
     );
 
+    // 支付宝渠道：生成 APP 支付参数
+    let paymentParams: Record<string, any> = {};
+    if (paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
+      try {
+        const orderStr = await this.alipayService.createAppPayOrder({
+          merchantOrderNo: session.merchantOrderNo,
+          totalAmount: vipPrice,
+          subject: `爱买买VIP礼包-${giftOption.title}`,
+        });
+        paymentParams = { channel: 'alipay', orderStr };
+      } catch (err: any) {
+        this.logger.error(`VIP 结账生成支付宝参数失败: ${err.message}`);
+      }
+    }
+
     return {
       sessionId: session.id,
       merchantOrderNo: session.merchantOrderNo,
@@ -904,6 +949,7 @@ export class CheckoutService {
       goodsAmount: vipPrice,
       shippingFee: 0,
       discountAmount: 0,
+      paymentParams,
     };
   }
 
@@ -1215,7 +1261,34 @@ export class CheckoutService {
                 this.logger.warn(
                   `R12 超卖: skuId=${item.skuId}, currentStock=${updatedSku.stock}`,
                 );
-                // TODO: 发送卖家补货通知
+                // C10修复：超卖通知卖家补货
+                if (this.inboxService && item.companyId) {
+                  const ownerStaff = await tx.companyStaff.findFirst({
+                    where: { companyId: item.companyId, role: 'OWNER', status: 'ACTIVE' },
+                    select: { userId: true },
+                  });
+                  if (ownerStaff) {
+                    const sku = await tx.productSKU.findUnique({
+                      where: { id: item.skuId },
+                      include: { product: { select: { title: true } } },
+                    });
+                    const skuLabel = sku?.title || sku?.product?.title || item.skuId;
+                    // setImmediate 避免阻塞事务
+                    const inboxService = this.inboxService;
+                    const userId = ownerStaff.userId;
+                    const oversoldQty = Math.abs(updatedSku.stock);
+                    setImmediate(() => {
+                      inboxService.send({
+                        userId,
+                        category: 'transaction',
+                        type: 'stock_shortage',
+                        title: '商品超卖补货提醒',
+                        content: `商品「${skuLabel}」超卖 ${oversoldQty} 件，当前库存 ${updatedSku.stock}，请尽快补货。`,
+                        target: { route: '/seller/products', params: {} },
+                      }).catch(() => {});
+                    });
+                  }
+                }
               }
               await tx.inventoryLedger.create({
                 data: {

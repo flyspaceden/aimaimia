@@ -14,7 +14,7 @@ import {
   generateAfterSaleWaybill,
   cancelAfterSaleWaybill,
 } from '@/api/after-sale';
-import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap, carrierMap } from '@/constants/statusMaps';
+import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 export default function AfterSaleDetailPage() {

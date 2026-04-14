@@ -33,8 +33,8 @@ export interface ApplyAfterSaleDto {
 // ─── 填写退货物流 DTO ────────────────────────────────
 
 export interface FillReturnShippingDto {
-  carrierName: string;
-  waybillNo: string;
+  returnCarrierName: string;
+  returnWaybillNo: string;
 }
 
 // ─── 退货政策 ────────────────────────────────────────
@@ -120,8 +120,8 @@ export const AfterSaleRepo = {
         ...mockAfterSale,
         id,
         status: 'RETURN_SHIPPING' as const,
-        returnCarrierName: dto.carrierName,
-        returnWaybillNo: dto.waybillNo,
+        returnCarrierName: dto.returnCarrierName,
+        returnWaybillNo: dto.returnWaybillNo,
         returnShippedAt: new Date().toISOString(),
       });
     }

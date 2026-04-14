@@ -28,6 +28,7 @@ export default function AdminUsersPage() {
     username: string;
     password: string;
     realName?: string;
+    phone?: string;
     roleIds?: string[];
   }) => {
     await createAdminUser(values);
@@ -39,6 +40,7 @@ export default function AdminUsersPage() {
 
   const handleUpdate = async (values: {
     realName?: string;
+    phone?: string;
     status?: 'ACTIVE' | 'DISABLED';
     roleIds?: string[];
   }) => {
@@ -69,6 +71,14 @@ export default function AdminUsersPage() {
   const columns: ProColumns<AdminUser>[] = [
     { title: '用户名', dataIndex: 'username', width: 120 },
     { title: '姓名', dataIndex: 'realName', width: 100, render: (_: unknown, r: AdminUser) => r.realName || '-' },
+    {
+      // 手机号列：用于短信登录
+      title: '手机号',
+      dataIndex: 'phone',
+      width: 130,
+      search: false,
+      render: (_: unknown, r: AdminUser) => r.phone || '-',
+    },
     {
       // 角色列：超级管理员突出显示，其余角色蓝色标签
       title: '角色',
@@ -149,6 +159,7 @@ export default function AdminUsersPage() {
                 setEditing(record);
                 form.setFieldsValue({
                   realName: record.realName,
+                  phone: record.phone,
                   status: record.status,
                   roleIds: record.roles?.map((r) => r.id),
                 });
@@ -233,6 +244,18 @@ export default function AdminUsersPage() {
           )}
           <Form.Item name="realName" label="姓名">
             <Input placeholder="请输入姓名" />
+          </Form.Item>
+          <Form.Item
+            name="phone"
+            label="手机号（用于短信登录）"
+            rules={[
+              {
+                pattern: /^1\d{10}$/,
+                message: '手机号格式不正确，必须为 1 开头的 11 位数字',
+              },
+            ]}
+          >
+            <Input placeholder="1开头的11位数字" maxLength={11} />
           </Form.Item>
           {editing && (
             <Form.Item name="status" label="状态">

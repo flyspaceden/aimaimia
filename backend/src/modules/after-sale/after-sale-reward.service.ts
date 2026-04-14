@@ -189,4 +189,59 @@ export class AfterSaleRewardService {
       }
     }
   }
+
+  /**
+   * C02修复：检查订单所有非奖品项是否已全部退款，如果是则标记 Order.status = REFUNDED
+   */
+  async checkAndMarkOrderRefunded(orderId: string): Promise<void> {
+    try {
+      const nonPrizeItems = await this.prisma.orderItem.findMany({
+        where: { orderId, isPrize: false, deletedAt: null },
+        select: { id: true },
+      });
+
+      if (nonPrizeItems.length === 0) return;
+
+      // 统计已退款的非奖品项（用 distinct 防止同一 orderItem 多条 REFUNDED 记录导致虚高）
+      const refundedItems = await this.prisma.afterSaleRequest.findMany({
+        where: {
+          orderId,
+          orderItemId: { in: nonPrizeItems.map((i) => i.id) },
+          status: 'REFUNDED',
+        },
+        select: { orderItemId: true },
+        distinct: ['orderItemId'],
+      });
+
+      if (refundedItems.length >= nonPrizeItems.length) {
+        // 所有非奖品项已退款，读取当前订单状态后 CAS 更新
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          select: { status: true },
+        });
+        if (!order || order.status === 'REFUNDED' || order.status === 'CANCELED') return;
+
+        const updated = await this.prisma.order.updateMany({
+          where: { id: orderId, status: { notIn: ['REFUNDED', 'CANCELED'] } },
+          data: { status: 'REFUNDED' },
+        });
+
+        if (updated.count > 0) {
+          await this.prisma.orderStatusHistory.create({
+            data: {
+              orderId,
+              fromStatus: order.status,
+              toStatus: 'REFUNDED',
+              reason: '所有非奖品项已退款完成，订单标记为全额退款',
+            },
+          });
+          this.logger.log(`订单 ${orderId} 所有非奖品项已退款，状态更新为 REFUNDED`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(
+        `检查订单全退状态失败: orderId=${orderId}, error=${err?.message}`,
+      );
+    }
+  }
 }

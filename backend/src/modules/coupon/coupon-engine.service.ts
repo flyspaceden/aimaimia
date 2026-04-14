@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { InboxService } from '../inbox/inbox.service';
 
 /**
  * 红包触发类型（与 Prisma enum CouponTriggerType 保持一致）
@@ -44,7 +45,10 @@ const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 export class CouponEngineService {
   private readonly logger = new Logger(CouponEngineService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private inboxService: InboxService,
+  ) {}
 
   // ========== 事件驱动发放 ==========
 
@@ -269,6 +273,24 @@ export class CouponEngineService {
 
       if (result.count > 0) {
         this.logger.log(`已过期 ${result.count} 张红包`);
+
+        // C12: 红包过期通知（批量查询刚过期的用户，逐个通知）
+        const expiredInstances = await this.prisma.couponInstance.findMany({
+          where: { status: 'EXPIRED', expiresAt: { gte: new Date(now.getTime() - 60 * 60_000) } },
+          select: { userId: true },
+          distinct: ['userId'],
+          take: 100,
+        });
+        for (const instance of expiredInstances) {
+          this.inboxService.send({
+            userId: instance.userId,
+            category: 'transaction',
+            type: 'coupon_expired',
+            title: '红包已过期',
+            content: '您有红包已过期失效，请关注有效期及时使用。',
+            target: { route: '/coupons' },
+          }).catch(() => {});
+        }
       } else {
         this.logger.debug('无需过期的红包');
       }
@@ -375,7 +397,7 @@ export class CouponEngineService {
           return false;
         }
 
-        if (now < campaign.startAt || now >= campaign.endAt) {
+        if (now < campaign.startAt || now > campaign.endAt) {
           this.logger.debug(`活动 ${campaignId} 不在有效期内，跳过`);
           return false;
         }
@@ -450,6 +472,18 @@ export class CouponEngineService {
           `红包发放成功：活动 ${campaignId}（${campaign.name}）→ 用户 ${userId}，` +
           `类型=${campaign.discountType}，面值=${campaign.discountValue}，过期=${expiresAt.toISOString()}`,
         );
+
+        // C12: 红包到账通知
+        setImmediate(() => {
+          this.inboxService.send({
+            userId,
+            category: 'transaction',
+            type: 'coupon_granted',
+            title: '红包到账',
+            content: `您收到一张${campaign.discountType === 'FIXED' ? campaign.discountValue.toFixed(2) + '元' : campaign.discountValue + '折'}红包，快去使用吧！`,
+            target: { route: '/coupons' },
+          }).catch(() => {});
+        });
 
         return true;
       },

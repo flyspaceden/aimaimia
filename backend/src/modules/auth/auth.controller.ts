@@ -3,7 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { SendSmsCodeDto, SendEmailCodeDto, WeChatOAuthDto } from './dto/send-code.dto';
+import { SendSmsCodeDto, WeChatOAuthDto } from './dto/send-code.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -30,13 +30,6 @@ export class AuthController {
   @Post('sms/code')
   sendSmsCode(@Body() dto: SendSmsCodeDto) {
     return this.authService.sendSmsCode(dto.phone);
-  }
-
-  @Public()
-  @Throttle({ default: { ttl: 60000, limit: 1 } }) // 每 IP 每分钟 1 次
-  @Post('email/code')
-  sendEmailCode(@Body() dto: SendEmailCodeDto) {
-    return this.authService.sendEmailCode(dto.email);
   }
 
   @Public()

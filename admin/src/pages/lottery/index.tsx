@@ -3,7 +3,6 @@ import {
   ProTable,
   ProFormText,
   ProFormDigit,
-  ProFormSelect,
   StepsForm,
 } from '@ant-design/pro-components';
 import type { ActionType, ProColumns, ProFormInstance } from '@ant-design/pro-components';
@@ -409,7 +408,6 @@ function buildPrizePayload(values: any) {
 
 /** 奖品类型选择卡片 + 概率输入（新增和编辑共用） */
 function PrizeTypeFields({
-  selectedType,
   probValue,
   onTypeChange,
   onProbChange,

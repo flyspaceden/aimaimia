@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
   Button,
@@ -8,7 +8,6 @@ import {
   Input,
   InputNumber,
   Tag,
-  Table,
   Descriptions,
   Timeline,
   Empty,
@@ -21,7 +20,7 @@ import {
   Typography,
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined } from '@ant-design/icons';
-import { getProduct, updateProduct, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
+import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
 import { getPublicTagCategories } from '@/api/tags';
 
 const { Text } = Typography;
@@ -37,6 +36,8 @@ export default function ProductEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [form] = Form.useForm();
+  const [skuForm] = Form.useForm();
+  const queryClient = useQueryClient();
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -83,6 +84,7 @@ export default function ProductEditPage() {
       const data: Record<string, any> = { ...rest };
       if (ot !== undefined) {
         data.origin = ot ? { text: ot } : null;
+        data.originRegion = ot || undefined;
       }
       // 转换属性键值对为对象
       if (attrs) {
@@ -118,7 +120,9 @@ export default function ProductEditPage() {
   // 解析产地
   const originText = typeof product.origin === 'object' && product.origin
     ? (product.origin as Record<string, any>).text || ''
-    : (typeof product.origin === 'string' ? product.origin : '');
+    : (typeof product.origin === 'string'
+      ? product.origin
+      : ((product as unknown as Record<string, unknown>).originRegion as string | undefined) || '');
 
   // 解析属性为键值对
   const attrPairs = product.attributes && typeof product.attributes === 'object'
@@ -127,52 +131,33 @@ export default function ProductEditPage() {
 
   const initialTagIds = (product as any).tags?.map((t: any) => t.tag?.id || t.tagId) || [];
 
-  // 商品规格表格列
-  const skuColumns = [
-    {
-      title: '规格编码',
-      dataIndex: 'skuCode',
-      key: 'skuCode',
-      width: 140,
-      render: (v: string | null) => v || <Tag>无编码</Tag>,
-    },
-    { title: '规格名称', dataIndex: 'title', key: 'title' },
-    {
-      title: '成本价',
-      dataIndex: 'cost',
-      key: 'cost',
-      width: 100,
-      render: (v: number) => (
-        <span style={{ color: '#d48806' }}>¥{(v ?? 0).toFixed(2)}</span>
-      ),
-    },
-    {
-      title: '价格',
-      dataIndex: 'price',
-      key: 'price',
-      width: 100,
-      render: (v: number) => `¥${v.toFixed(2)}`,
-    },
-    { title: '库存', dataIndex: 'stock', key: 'stock', width: 80 },
-    {
-      title: '单笔限购',
-      dataIndex: 'maxPerOrder',
-      key: 'maxPerOrder',
-      width: 100,
-      render: (v: number | null) => v != null ? `${v} 件` : '不限',
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 80,
-      render: (v: string) => (
-        <Tag color={v === 'ACTIVE' ? 'green' : 'default'}>
-          {v === 'ACTIVE' ? '启用' : '停用'}
-        </Tag>
-      ),
-    },
-  ];
+  // 商品规格初始值（供 Form.List 使用）
+  const skuList = (((product as unknown as Record<string, unknown>).skus as Array<Record<string, any>>) || []).map((s) => ({
+    id: s.id,
+    specText: s.title,
+    price: s.price,
+    cost: s.cost ?? 0,
+    stock: s.stock ?? 0,
+  }));
+
+  // 保存 SKU
+  const handleSaveSkus = async () => {
+    try {
+      const values = await skuForm.validateFields();
+      const skus = (values.skus as any[]) || [];
+      if (skus.length === 0) {
+        message.warning('至少保留一条规格');
+        return;
+      }
+      await updateProductSkus(id!, skus);
+      message.success('规格已保存');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
+    } catch (err) {
+      if (err instanceof Error) {
+        message.error(err.message || '规格保存失败');
+      }
+    }
+  };
 
   // 图片列表
   const mediaList = (product as unknown as Record<string, unknown>).media as
@@ -245,7 +230,7 @@ export default function ProductEditPage() {
           <Descriptions.Item label="商品分类">
             {product.category?.name || '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="产地">
+          <Descriptions.Item label="产地 / 产区">
             {originText || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
@@ -307,7 +292,7 @@ export default function ProductEditPage() {
           <Form.Item label="商品描述" name="description" rules={[{ required: true, message: '请输入描述' }]}>
             <Input.TextArea rows={4} placeholder="请输入商品描述" />
           </Form.Item>
-          <Form.Item label="产地" name="originText">
+          <Form.Item label="产地 / 产区" name="originText">
             <Input placeholder="如：黑龙江省五常市" style={{ width: 300 }} />
           </Form.Item>
           <Form.Item
@@ -322,57 +307,14 @@ export default function ProductEditPage() {
               prefix="¥"
             />
           </Form.Item>
-          <Form.Item label="AI 搜索关键词" name="aiKeywords">
-            <Select
-              mode="tags"
-              placeholder="输入后按回车添加"
-              style={{ width: '100%' }}
-              tokenSeparators={[',']}
-            />
-          </Form.Item>
-          <Form.Item label="商品标签" name="tagIds">
-            <Select
-              mode="multiple"
-              placeholder="请选择商品标签"
-              options={productTagOptions}
-              showSearch
-              optionFilterProp="label"
-            />
-          </Form.Item>
-
-          {/* 商品属性 */}
-          <Form.Item label="商品属性">
-            <Form.List name="attributes">
-              {(fields, { add, remove }) => (
-                <>
-                  {fields.map((field) => (
-                    <Space key={field.key} align="start" style={{ display: 'flex', marginBottom: 8 }}>
-                      <Form.Item {...field} name={[field.name, 'key']} rules={[{ required: true, message: '属性名' }]}>
-                        <Input placeholder="属性名" style={{ width: 140 }} />
-                      </Form.Item>
-                      <Form.Item {...field} name={[field.name, 'value']} rules={[{ required: true, message: '属性值' }]}>
-                        <Input placeholder="属性值" style={{ width: 280 }} />
-                      </Form.Item>
-                      <MinusCircleOutlined style={{ marginTop: 8, color: '#999' }} onClick={() => remove(field.name)} />
-                    </Space>
-                  ))}
-                  <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
-                    添加属性
-                  </Button>
-                </>
-              )}
-            </Form.List>
-          </Form.Item>
-
-          {/* 语义标签（AI 搜索优化） */}
           <Form.Item style={{ marginBottom: 0 }}>
             <Collapse
               ghost
-              defaultActiveKey={[]}
+              defaultActiveKey={['search-optimization']}
               items={[
                 {
-                  key: 'semantic',
-                  label: <Text strong>语义标签（AI 搜索优化）</Text>,
+                  key: 'search-optimization',
+                  label: <Text strong>AI 搜索优化</Text>,
                   extra: (
                     <Button
                       size="small"
@@ -392,6 +334,17 @@ export default function ProductEditPage() {
                   ),
                   children: (
                     <>
+                      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                        后台优先维护买家真实会说的别名和搜索语义，不再重复录入产地/标签。
+                      </Text>
+                      <Form.Item label="别名 / 俗称 / 常见搜索词" name="aiKeywords">
+                        <Select
+                          mode="tags"
+                          placeholder="输入后按回车添加，如：毛尖、绿茶、春茶"
+                          style={{ width: '100%' }}
+                          tokenSeparators={[',']}
+                        />
+                      </Form.Item>
                       <Form.Item name="flavorTags" label="口味标签">
                         <Select
                           mode="tags"
@@ -427,8 +380,48 @@ export default function ProductEditPage() {
                           style={{ width: '100%' }}
                         />
                       </Form.Item>
-                      <Form.Item name="originRegion" label="产地">
-                        <Input placeholder="如：山东青岛、云南" />
+                    </>
+                  ),
+                },
+                {
+                  key: 'advanced',
+                  label: <Text strong>高级设置</Text>,
+                  children: (
+                    <>
+                      <Form.Item
+                        label="运营标签（选填）"
+                        name="tagIds"
+                        tooltip="用于后台运营和展示管理，不是 AI 搜索主字段。"
+                      >
+                        <Select
+                          mode="multiple"
+                          placeholder="请选择运营标签"
+                          options={productTagOptions}
+                          showSearch
+                          optionFilterProp="label"
+                        />
+                      </Form.Item>
+                      <Form.Item label="商品属性">
+                        <Form.List name="attributes">
+                          {(fields, { add, remove }) => (
+                            <>
+                              {fields.map((field) => (
+                                <Space key={field.key} align="start" style={{ display: 'flex', marginBottom: 8 }}>
+                                  <Form.Item {...field} name={[field.name, 'key']} rules={[{ required: true, message: '属性名' }]}>
+                                    <Input placeholder="属性名" style={{ width: 140 }} />
+                                  </Form.Item>
+                                  <Form.Item {...field} name={[field.name, 'value']} rules={[{ required: true, message: '属性值' }]}>
+                                    <Input placeholder="属性值" style={{ width: 280 }} />
+                                  </Form.Item>
+                                  <MinusCircleOutlined style={{ marginTop: 8, color: '#999' }} onClick={() => remove(field.name)} />
+                                </Space>
+                              ))}
+                              <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
+                                添加属性
+                              </Button>
+                            </>
+                          )}
+                        </Form.List>
                       </Form.Item>
                     </>
                   ),
@@ -469,17 +462,83 @@ export default function ProductEditPage() {
         </Card>
       )}
 
-      {/* 4. 商品规格列表 */}
-      <Card title="商品规格（不同包装/重量/口味等销售单元）" style={{ marginBottom: 16 }}>
-        <Table
-          columns={skuColumns}
-          dataSource={
-            ((product as unknown as Record<string, unknown>).skus as unknown[]) || []
-          }
-          rowKey="id"
-          pagination={false}
-          size="small"
-        />
+      {/* 4. 商品规格列表（可编辑） */}
+      <Card
+        title="商品规格（不同包装/重量/口味等销售单元）"
+        style={{ marginBottom: 16 }}
+        extra={
+          <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveSkus}>
+              保存规格
+            </Button>
+          </PermissionGate>
+        }
+      >
+        <Form form={skuForm} layout="vertical" initialValues={{ skus: skuList }}>
+          <Form.List name="skus">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field) => (
+                  <Space
+                    key={field.key}
+                    align="start"
+                    style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }}
+                  >
+                    {/* 隐藏 id 字段（已存在 SKU 保留 id，新增则无） */}
+                    <Form.Item {...field} name={[field.name, 'id']} hidden>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="规格名称"
+                      name={[field.name, 'specText']}
+                      rules={[{ required: true, message: '请输入规格名称' }]}
+                    >
+                      <Input placeholder="如：500g 礼盒装" style={{ width: 200 }} />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="成本价（元）"
+                      name={[field.name, 'cost']}
+                    >
+                      <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="售价（元）"
+                      name={[field.name, 'price']}
+                      rules={[{ required: true, message: '请输入售价' }]}
+                    >
+                      <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="库存"
+                      name={[field.name, 'stock']}
+                      rules={[{ required: true, message: '请输入库存' }]}
+                    >
+                      <InputNumber style={{ width: 120 }} />
+                    </Form.Item>
+                    <MinusCircleOutlined
+                      style={{ marginTop: 38, color: '#999' }}
+                      onClick={() => remove(field.name)}
+                    />
+                  </Space>
+                ))}
+                <Button
+                  type="dashed"
+                  onClick={() => add({ price: 0, stock: 0, cost: 0 })}
+                  icon={<PlusOutlined />}
+                >
+                  添加规格
+                </Button>
+                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                  注：UPSERT 模式，删除行仅从表单移除不会删除后端 SKU；如需停用请使用卖家后台的 SKU 状态切换。
+                </Text>
+              </>
+            )}
+          </Form.List>
+        </Form>
       </Card>
 
       {/* 5. 审核记录 */}

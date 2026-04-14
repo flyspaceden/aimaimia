@@ -52,6 +52,22 @@ function buildDisplayRows(list: AdminCategory[], expanded: Set<string>): Display
   return rows;
 }
 
+/** 沿父级链向上解析出实际生效的退货政策（跳过所有 INHERIT） */
+function resolveEffectivePolicy(
+  categoryId: string | null,
+  list: AdminCategory[],
+): 'RETURNABLE' | 'NON_RETURNABLE' {
+  const byId = new Map(list.map((c) => [c.id, c]));
+  let current = categoryId ? byId.get(categoryId) : undefined;
+  while (current) {
+    if (current.returnPolicy !== 'INHERIT') {
+      return current.returnPolicy as 'RETURNABLE' | 'NON_RETURNABLE';
+    }
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return 'RETURNABLE'; // 兜底
+}
+
 /** 可拖拽的表格行 */
 function DraggableRow(props: React.HTMLAttributes<HTMLTableRowElement> & {
   'data-row-key'?: string;
@@ -59,7 +75,7 @@ function DraggableRow(props: React.HTMLAttributes<HTMLTableRowElement> & {
   'data-row-parent-id'?: string | null;
 }) {
   const id = props['data-row-key'] || '';
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
   return (
     <tr
@@ -349,35 +365,48 @@ export default function CategoriesPage() {
     },
     {
       title: '退货政策',
-      width: 130,
+      width: 140,
       render: (_, record) => {
+        const parentEffective = resolveEffectivePolicy(record.parentId, flatList);
+        const parentLabel = returnPolicyMap[parentEffective]?.text || parentEffective;
+        const isInherit = record.returnPolicy === 'INHERIT';
         const entry = returnPolicyMap[record.returnPolicy];
+
         return (
           <PermissionGate
             permission={PERMISSIONS.CATEGORIES_MANAGE}
             fallback={
-              <Tag color={entry?.color || 'default'}>{entry?.text || record.returnPolicy}</Tag>
+              <Tag color={isInherit ? (returnPolicyMap[parentEffective]?.color || 'default') : (entry?.color || 'default')}>
+                {isInherit ? parentLabel : entry?.text}
+              </Tag>
             }
           >
-            <Select
-              size="small"
-              value={record.returnPolicy}
-              style={{ width: 120 }}
-              onChange={async (val) => {
-                try {
-                  await updateCategory(record.id, { returnPolicy: val });
-                  message.success('退货政策已更新');
-                  loadData();
-                } catch (err) {
-                  message.error(err instanceof Error ? err.message : '更新失败');
-                }
-              }}
-              options={[
-                { label: '支持退货', value: 'RETURNABLE' },
-                { label: '不支持退货', value: 'NON_RETURNABLE' },
-                { label: '继承父分类', value: 'INHERIT' },
-              ]}
-            />
+            <div>
+              <Select
+                size="small"
+                value={record.returnPolicy}
+                style={{ width: 130 }}
+                onChange={async (val) => {
+                  try {
+                    await updateCategory(record.id, { returnPolicy: val });
+                    message.success('退货政策已更新');
+                    loadData();
+                  } catch (err) {
+                    message.error(err instanceof Error ? err.message : '更新失败');
+                  }
+                }}
+                options={[
+                  { label: '7天无理由退换', value: 'RETURNABLE' },
+                  { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
+                  { label: '同上级', value: 'INHERIT' },
+                ]}
+              />
+              {isInherit && (
+                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                  即：{parentLabel}
+                </div>
+              )}
+            </div>
           </PermissionGate>
         );
       },
@@ -510,9 +539,9 @@ export default function CategoriesPage() {
           >
             <Select
               options={[
-                { label: '继承父分类', value: 'INHERIT' },
-                { label: '支持退货', value: 'RETURNABLE' },
-                { label: '不支持退货（如生鲜）', value: 'NON_RETURNABLE' },
+                { label: '继承上级', value: 'INHERIT' },
+                { label: '7天无理由退换', value: 'RETURNABLE' },
+                { label: '仅质量问题可退（如生鲜）', value: 'NON_RETURNABLE' },
               ]}
             />
           </Form.Item>

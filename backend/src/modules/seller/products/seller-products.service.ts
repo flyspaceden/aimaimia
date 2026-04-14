@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
 import { SemanticFillService } from '../../product/semantic-fill.service';
@@ -47,7 +47,7 @@ export class SellerProductsService {
           skus: true,
           media: { orderBy: { sortOrder: 'asc' } },
           tags: { include: { tag: true } },
-          category: { select: { id: true, name: true, path: true } },
+          category: { select: { id: true, name: true, path: true, returnPolicy: true, parentId: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
@@ -56,7 +56,39 @@ export class SellerProductsService {
       this.prisma.product.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    // 解析每个商品的最终生效退货政策
+    // 批量加载所有分类（避免 N+1），分类数量有限可全量缓存
+    const needResolve = items.filter(
+      (item) => (item.returnPolicy || 'INHERIT') === 'INHERIT',
+    );
+    let categoryMap: Map<string, { returnPolicy: ReturnPolicy; parentId: string | null }> | undefined;
+    if (needResolve.length > 0) {
+      const allCategories = await this.prisma.category.findMany({
+        select: { id: true, returnPolicy: true, parentId: true },
+      });
+      categoryMap = new Map(allCategories.map((c) => [c.id, { returnPolicy: c.returnPolicy, parentId: c.parentId }]));
+    }
+
+    const enriched = items.map((item) => {
+      const policy = item.returnPolicy || 'INHERIT';
+      if (policy !== 'INHERIT') {
+        return { ...item, effectiveReturnPolicy: policy };
+      }
+      let catPolicy: ReturnPolicy | undefined = item.category?.returnPolicy as ReturnPolicy | undefined;
+      let parentId = item.category?.parentId as string | null;
+      while (catPolicy === 'INHERIT' && parentId && categoryMap) {
+        const parent = categoryMap.get(parentId);
+        if (!parent) break;
+        catPolicy = parent.returnPolicy;
+        parentId = parent.parentId;
+      }
+      return {
+        ...item,
+        effectiveReturnPolicy: catPolicy === 'INHERIT' ? 'RETURNABLE' : catPolicy,
+      };
+    });
+
+    return { items: enriched, total, page, pageSize };
   }
 
   /** 商品详情 */
@@ -107,6 +139,7 @@ export class SellerProductsService {
           basePrice: dto.basePrice ?? Math.min(...skuPrices),
           cost: Math.min(...dto.skus.map((s) => s.cost)),
           categoryId: dto.categoryId,
+          returnPolicy: (dto.returnPolicy ?? 'INHERIT') as any,
           origin: dto.origin,
           attributes: dto.attributes,
           aiKeywords: dto.aiKeywords || [],
@@ -239,6 +272,7 @@ export class SellerProductsService {
           description: dto.description,
           basePrice: dto.basePrice,
           categoryId: dto.categoryId,
+          returnPolicy: dto.returnPolicy as any,
           origin: dto.origin,
           attributes: dto.attributes,
           aiKeywords: dto.aiKeywords,

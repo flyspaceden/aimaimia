@@ -262,9 +262,9 @@ export class RewardCalculatorService {
     };
   }
 
-  /** 四舍五入到分（2 位小数） */
+  /** 截断到分（2 位小数，舍弃后续位数） */
   private round2(val: number): number {
-    return Math.round(val * 100) / 100;
+    return Math.floor(val * 100) / 100;
   }
 
   /** VIP 配置快照（用于审计） @deprecated 供 NORMAL_BROADCAST 遗留路径使用 */

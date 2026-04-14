@@ -58,6 +58,10 @@ export class CreateProductDto {
   @IsNotEmpty()
   categoryId: string; // 分类必选
 
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string; // RETURNABLE / NON_RETURNABLE / INHERIT（默认）
+
   @IsNotEmpty()
   origin: any; // JSON { text, lat, lng }，产地必填
 
@@ -128,6 +132,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
 
   @IsOptional()
   origin?: any;

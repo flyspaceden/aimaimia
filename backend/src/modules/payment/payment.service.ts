@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, UnauthorizedException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, UnauthorizedException, NotImplementedException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
+import { AlipayService } from './alipay.service';
 import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
 import { InboxService } from '../inbox/inbox.service';
@@ -20,6 +21,7 @@ export class PaymentService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private alipayService: AlipayService,
     @Optional() private checkoutService?: CheckoutService,
     @Optional() private couponService?: CouponService,
     @Optional() private inboxService?: InboxService,
@@ -48,8 +50,8 @@ export class PaymentService {
   }
 
   /**
-   * C04: 发起退款（占位实现）
-   * 生产环境需对接微信支付/支付宝退款 API，当前仅记录日志并更新退款状态。
+   * 发起渠道退款
+   * 按 payment.channel 分发到对应的支付渠道退款 API
    * @param orderId 订单 ID
    * @param amount 退款金额（元）
    * @param merchantRefundNo 商户退款单号（可选，用于幂等）
@@ -61,7 +63,7 @@ export class PaymentService {
     merchantRefundNo?: string,
   ): Promise<{ success: boolean; providerRefundId?: string; message: string }> {
     this.logger.log(
-      `[占位] 发起渠道退款: orderId=${this.maskBizId(orderId)}, amount=${amount}, merchantRefundNo=${merchantRefundNo ? this.maskBizId(merchantRefundNo) : 'N/A'}`,
+      `发起渠道退款: orderId=${this.maskBizId(orderId)}, amount=${amount}, merchantRefundNo=${merchantRefundNo ? this.maskBizId(merchantRefundNo) : 'N/A'}`,
     );
 
     // 查询订单对应的支付记录，确定退款渠道
@@ -75,19 +77,27 @@ export class PaymentService {
       return { success: false, message: '未找到对应的支付记录' };
     }
 
-    // TODO: 接入真实支付退款 API
-    // 微信支付: 调用 v3/refund/domestic/refunds 接口
-    // 支付宝: 调用 alipay.trade.refund 接口
-    const mockProviderRefundId = `REFUND-${Date.now()}`;
-    this.logger.log(
-      `[占位] 渠道退款模拟成功: channel=${payment.channel}, providerRefundId=${this.maskBizId(mockProviderRefundId)}`,
-    );
+    if (payment.channel === 'ALIPAY') {
+      if (!this.alipayService.isAvailable()) {
+        this.logger.error(`支付宝 SDK 未初始化，无法退款: orderId=${this.maskBizId(orderId)}`);
+        return { success: false, message: '支付宝 SDK 未初始化' };
+      }
+      const refundNo = merchantRefundNo || `REFUND-${Date.now()}`;
+      const result = await this.alipayService.refund({
+        merchantOrderNo: payment.merchantOrderNo,
+        refundAmount: amount,
+        merchantRefundNo: refundNo,
+        refundReason: '用户退款',
+      });
+      return {
+        success: result.success,
+        providerRefundId: result.success ? refundNo : undefined,
+        message: result.message,
+      };
+    }
 
-    return {
-      success: true,
-      providerRefundId: mockProviderRefundId,
-      message: '退款请求已提交（占位实现）',
-    };
+    // 微信支付暂未接入，v1.0 仅支持支付宝
+    throw new NotImplementedException(`退款渠道 ${payment.channel} 暂未接入`);
   }
 
   /** 自动退款补偿任务：重试长时间停留在 FAILED/REFUNDING 的自动退款记录 */
@@ -97,10 +107,14 @@ export class PaymentService {
     const candidates = await this.prisma.refund.findMany({
       where: {
         deletedAt: null,
-        merchantRefundNo: { startsWith: 'AUTO-' },
         status: { in: ['FAILED', 'REFUNDING'] },
         updatedAt: { lte: cutoff },
-        order: { status: 'CANCELED' },
+        OR: [
+          // 自动退款（订单取消后支付成功）：需订单状态为 CANCELED
+          { merchantRefundNo: { startsWith: 'AUTO-' }, order: { status: 'CANCELED' } },
+          // 售后退款（管理员仲裁 / 卖家同意 / 超时自动）
+          { merchantRefundNo: { startsWith: 'AS-' } },
+        ],
       },
       orderBy: { updatedAt: 'asc' },
       take: this.autoRefundRetryBatchSize,

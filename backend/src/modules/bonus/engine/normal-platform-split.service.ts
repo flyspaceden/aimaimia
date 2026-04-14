@@ -194,8 +194,8 @@ export class NormalPlatformSplitService {
     return account;
   }
 
-  /** 四舍五入到分 */
+  /** 截断到分（2 位小数，舍弃后续位数） */
   private round2(val: number): number {
-    return Math.round(val * 100) / 100;
+    return Math.floor(val * 100) / 100;
   }
 }

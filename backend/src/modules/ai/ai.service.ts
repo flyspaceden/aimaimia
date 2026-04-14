@@ -23,7 +23,6 @@ import {
 import { ProductService } from '../product/product.service';
 import {
   UNIFIED_CLASSIFY_PROMPT,
-  PLUS_EXTRA_INSTRUCTIONS,
   OUT_OF_DOMAIN_BRIDGE_PROMPT,
   isFlashResultGood,
 } from './semantic-slot.constants';
@@ -389,11 +388,22 @@ export class AiService {
 
   private addTiming(
     timing: AiVoiceTiming | undefined,
-    key: keyof AiVoiceTiming,
+    key:
+      | 'asr_ms'
+      | 'asr_connect_ms'
+      | 'asr_wait_final_ms'
+      | 'classify_ms'
+      | 'clarify_ms'
+      | 'entity_resolve_ms'
+      | 'handler_ms'
+      | 'total_ms'
+      | 'flash_ms'
+      | 'plus_ms',
     value: number,
   ) {
     if (!timing) return;
-    timing[key] = Math.round((timing[key] ?? 0) + value);
+    const previous = typeof timing[key] === 'number' ? timing[key] : 0;
+    timing[key] = Math.round(previous + value);
   }
 
   private withResolvedIntent(
@@ -524,7 +534,7 @@ export class AiService {
     timing?: AiVoiceTiming,
   ): Promise<AiVoiceIntent> {
     const classifyStartedAt = Date.now();
-    const classification = await this.classifyIntent(transcript);
+    const classification = await this.classifyIntent(transcript, timing);
     this.addTiming(timing, 'classify_ms', Date.now() - classifyStartedAt);
 
     this.logger.log(
@@ -553,7 +563,10 @@ export class AiService {
   /**
    * 一级意图分类：硬指令规则优先，其他交给 Qwen-Flash
    */
-  private async classifyIntent(transcript: string): Promise<VoiceIntentClassification> {
+  private async classifyIntent(
+    transcript: string,
+    timing?: AiVoiceTiming,
+  ): Promise<VoiceIntentClassification> {
     const startTime = Date.now();
     let result: VoiceIntentClassification;
 
@@ -571,7 +584,7 @@ export class AiService {
           (process.env.AI_SEMANTIC_SLOTS_ENABLED ?? '') === 'true';
         let modelClassification: VoiceIntentClassification | null = null;
         try {
-          modelClassification = await this.qwenIntentClassify(transcript, semanticSlotsEnabled);
+          modelClassification = await this.qwenIntentClassify(transcript, semanticSlotsEnabled, timing);
         } catch (err) {
           this.logger.error(`Qwen 一级分类失败：${err.message}`);
         }
@@ -587,9 +600,18 @@ export class AiService {
               message: transcript,
               reply: '我来帮你处理这个问题。',
             },
+            pipeline: 'rule',
           };
         }
       }
+    }
+
+    if (timing) {
+      timing.fast_route_hit = result.source === 'rule';
+      timing.model_route = result.source === 'fallback'
+        ? 'fallback'
+        : (result.pipeline || (result.source === 'model' ? 'flash' : result.source));
+      timing.upgraded = !!result.wasUpgraded;
     }
 
     this.logger.log(JSON.stringify({
@@ -781,6 +803,16 @@ export class AiService {
       };
     }
 
+    const cartClassification = this.classifyCartIntentByRules(trimmed);
+    if (cartClassification) {
+      return cartClassification;
+    }
+
+    const recommendLiteClassification = this.classifyRecommendLiteByRules(trimmed);
+    if (recommendLiteClassification) {
+      return recommendLiteClassification;
+    }
+
     // 订单/物流/退款/退货 → 交易类，优先级高于 generic search，避免“有没有待付款订单”被识别成商品搜索
     const orderPattern = /订单|物流|快递|到哪了|发货|退[款货换]|付款|支付|买单|售后/;
     if (orderPattern.test(trimmed)) {
@@ -809,22 +841,140 @@ export class AiService {
       };
     }
 
-    // 加购物车 → 先进入商品搜索/确认，再执行加购；需要先于 generic search 命中以保留动作语义
-    const cartPattern = /加.*购物车|加购/;
-    if (cartPattern.test(trimmed)) {
-      const productName = this.extractCartProduct(trimmed);
+    const companyListClassification = this.classifyCompanyListByRules(trimmed);
+    if (companyListClassification) {
+      return companyListClassification;
+    }
+
+    return null;
+  }
+
+  private classifyCartIntentByRules(text: string): VoiceIntentClassification | null {
+    const compact = text.replace(/\s+/g, '');
+    if (!/(购物车|购物袋|购物篮|加购)/u.test(compact)) {
+      return null;
+    }
+
+    if (this.isCartAddRequest(compact)) {
+      const productName = this.extractCartProduct(text);
+      if (!productName) {
+        return null;
+      }
       return {
         intent: 'search',
+        confidence: 0.95,
+        source: 'rule',
         params: {
           query: productName,
           action: 'add-to-cart',
         },
-        confidence: productName ? 0.9 : 0.7,
+      };
+    }
+
+    if (this.isCartQueryRequest(compact) || this.isCartOpenRequest(compact)) {
+      return {
+        intent: 'navigate',
+        confidence: 0.95,
         source: 'rule',
+        params: { target: 'cart' },
       };
     }
 
     return null;
+  }
+
+  private classifyRecommendLiteByRules(text: string): VoiceIntentClassification | null {
+    const compact = text.replace(/\s+/g, '');
+    if (!this.isLiteRecommendRequest(compact)) {
+      return null;
+    }
+
+    const constraints = this.extractSearchConstraints(text);
+    const recommendThemes = this.extractRecommendThemes(text);
+    const query = this.extractLiteRecommendQuery(text);
+    if (!query && constraints.length === 0 && recommendThemes.length === 0) {
+      return null;
+    }
+
+    return {
+      intent: 'recommend',
+      confidence: 0.92,
+      source: 'rule',
+      params: {
+        query,
+        constraints,
+        recommendThemes,
+        preferRecommended: true,
+        lite: true,
+        reply: this.buildRecommendFeedback(query, undefined, constraints, recommendThemes),
+      },
+    };
+  }
+
+  private isCartAddRequest(text: string): boolean {
+    return /(?:加入|加到|加进|放入|放到|放进|放在|丢进|装进).*(?:购物车|购物袋|购物篮)|(?:加购)/u.test(text);
+  }
+
+  private isCartOpenRequest(text: string): boolean {
+    return /(?:打开|查看|看看|看下|看一下|去|进入|前往).*(?:购物车|购物袋|购物篮)|^(?:购物车|购物袋|购物篮)$/u.test(text);
+  }
+
+  private isCartQueryRequest(text: string): boolean {
+    return /(?:购物车|购物袋|购物篮).*(?:有多少|多少件|几件|几样|多少个|一共多少|总共多少|有哪些|有什么)/
+      .test(text)
+      || /(?:有多少|多少件|几件|几样|多少个|一共多少|总共多少).*(?:购物车|购物袋|购物篮)/u.test(text);
+  }
+
+  private isLiteRecommendRequest(text: string): boolean {
+    if (!/(推荐|有没有推荐|有什么推荐|现在有推荐|最近有推荐)/u.test(text)) {
+      return false;
+    }
+    if (/(企业|公司|店铺|农场|商家|旗舰店|合作社|基地|工厂)/u.test(text)) {
+      return false;
+    }
+    if (this.extractBudget(text)) {
+      return false;
+    }
+    if (this.extractUsageHint(text) || this.extractAudienceHint(text)) {
+      return false;
+    }
+    return true;
+  }
+
+  private classifyCompanyListByRules(text: string): VoiceIntentClassification | null {
+    if (!/(企业|公司|店铺|农场|商家|旗舰店|合作社|基地|工厂)/u.test(text)) {
+      return null;
+    }
+
+    if (!/(?:帮我|给我|替我)?(?:找一找|找一下|找找|查一下|查查|搜一下|搜搜|看一下|看下|看看|浏览|逛逛|找|查|搜|看)|(?:有哪(?:些|家)|有哪些|有什么|什么|哪些|哪家|有没有)/u.test(text)) {
+      return null;
+    }
+
+    const rawCompanyName = this.extractStoreName(text);
+    const companyContext = this.buildCompanyContext(text, {}, rawCompanyName, 'list');
+    const hasStructuredFilters = Boolean(
+      companyContext.location
+      || companyContext.industryHint
+      || companyContext.companyType
+      || companyContext.featureTags.length,
+    );
+
+    if (!hasStructuredFilters && companyContext.companyName) {
+      return null;
+    }
+
+    return {
+      intent: 'company',
+      confidence: 0.95,
+      source: 'rule',
+      params: {
+        mode: 'list',
+        ...(companyContext.industryHint ? { industryHint: companyContext.industryHint } : {}),
+        ...(companyContext.location ? { location: companyContext.location } : {}),
+        ...(companyContext.companyType ? { companyType: companyContext.companyType } : {}),
+        ...(companyContext.featureTags.length ? { featureTags: companyContext.featureTags } : {}),
+      },
+    };
   }
 
   private matchShortGreeting(text: string): string | null {
@@ -839,16 +989,24 @@ export class AiService {
 
     const greetingPattern = /^(?:你好|您好|哈喽|哈囉|hello|hi|嗨|嘿|在吗|在嘛|在不在|有人吗|早上好|上午好|中午好|下午好|晚上好|晚安)$/u;
     const followupPattern = /^(?:你好啊|您好呀|哈喽啊|哈喽呀|在吗啊|在吗呀|在吗呢|在不在啊)$/u;
+    const statusGreetingPattern = /^(?:你好吗|你还好吗|最近怎么样|最近还好吗|最近过得怎么样|最近咋样|最近如何|还好吗)$/u;
+    const presenceCheckPattern = /^(?:你)?(?:忙吗|忙不忙|在干嘛|在做什么|在忙什么)$/u;
 
-    if (!greetingPattern.test(compact) && !followupPattern.test(compact)) {
+    if (!greetingPattern.test(compact)
+      && !followupPattern.test(compact)
+      && !statusGreetingPattern.test(compact)
+      && !presenceCheckPattern.test(compact)) {
       return null;
     }
 
     if (/^(?:晚安)$/u.test(compact)) {
       return '晚安，我在呢。需要我帮你查商品、订单，还是直接打开某个页面？';
     }
-    if (/^(?:在吗|在嘛|在不在|有人吗|hi|hello|嗨|嘿)$/u.test(compact)) {
+    if (/^(?:在吗|在嘛|在不在|有人吗|hi|hello|嗨|嘿)$/u.test(compact) || presenceCheckPattern.test(compact)) {
       return '我在呢。你可以直接告诉我想找什么商品、想看哪个企业，或者让我帮你查订单。';
+    }
+    if (statusGreetingPattern.test(compact)) {
+      return '我很好，谢谢！有什么我可以帮你的吗？';
     }
 
     return this.getShortGreetingReply();
@@ -937,9 +1095,11 @@ export class AiService {
       : {};
     this.addTiming(timing, 'entity_resolve_ms', Date.now() - entityStartedAt);
     const hasStructuredSearch = !!(feedbackKeyword || fallbackRecommendThemes.length > 0);
-    const feedback = feedbackKeyword
-      ? `正在为你搜索"${feedbackKeyword}"...`
-      : this.buildRecommendFeedback('', undefined, normalizedConstraints, fallbackRecommendThemes).replace(/^正在为你推荐/u, '正在为你搜索');
+    const feedback = action === 'add-to-cart' && matchedProduct?.productId
+      ? `已将${matchedProduct.productName || feedbackKeyword || '商品'}加入购物车`
+      : feedbackKeyword
+        ? `正在为你搜索"${feedbackKeyword}"...`
+        : this.buildRecommendFeedback('', undefined, normalizedConstraints, fallbackRecommendThemes).replace(/^正在为你推荐/u, '正在为你搜索');
     const slots = this.buildDemandSlots({
       transcript,
       query: feedbackKeyword || undefined,
@@ -1150,26 +1310,48 @@ export class AiService {
     const rawBudget = this.pickNumber(classification.params.budget) ?? this.extractBudget(transcript);
     const rawRecommendThemes = this.pickRecommendThemes(classification.params.recommendThemes);
     const preferRecommended = true;
+    const isLiteRecommend = this.pickBoolean(classification.params.lite) && !rawBudget;
+    const fallbackConstraints = rawConstraints.length > 0 ? rawConstraints : this.extractSearchConstraints(transcript);
+    const fallbackThemes = rawRecommendThemes.length > 0 ? rawRecommendThemes : this.extractRecommendThemes(transcript);
+    const fallbackReply = this.pickFirstString(classification.params.reply);
     const entityStartedAt = Date.now();
-    const refined = await this.refineRecommendIntent(transcript, {
-      query: rawQuery,
-      constraints: rawConstraints.length > 0 ? rawConstraints : this.extractSearchConstraints(transcript),
-      budget: rawBudget,
-      recommendThemes: rawRecommendThemes.length > 0 ? rawRecommendThemes : this.extractRecommendThemes(transcript),
-      reply: this.pickFirstString(classification.params.reply),
-    });
-    const constraints = refined.constraints.length > 0 ? refined.constraints : this.extractSearchConstraints(transcript);
-    const recommendThemes = refined.recommendThemes.length > 0 ? refined.recommendThemes : this.extractRecommendThemes(transcript);
+    const refined = isLiteRecommend
+      ? {
+          query: rawQuery,
+          constraints: fallbackConstraints,
+          budget: rawBudget,
+          recommendThemes: fallbackThemes,
+          reply: fallbackReply || this.buildRecommendFeedback(rawQuery, rawBudget, fallbackConstraints, fallbackThemes),
+        }
+      : await this.refineRecommendIntent(transcript, {
+          query: rawQuery,
+          constraints: fallbackConstraints,
+          budget: rawBudget,
+          recommendThemes: fallbackThemes,
+          reply: fallbackReply,
+        });
+    const constraints = refined.constraints.length > 0 ? refined.constraints : fallbackConstraints;
+    const recommendThemes = refined.recommendThemes.length > 0 ? refined.recommendThemes : fallbackThemes;
     const normalizedRecommendQuery = this.normalizeRecommendQuery(refined.query, constraints, recommendThemes);
-    const searchEntity = normalizedRecommendQuery
-      ? await this.productService.resolveSearchEntity(normalizedRecommendQuery)
-      : {
-          normalizedKeyword: '',
+    const searchEntity = isLiteRecommend
+      ? {
+          normalizedKeyword: normalizedRecommendQuery,
           matchedCategoryIds: [],
+          matchedCategoryId: undefined,
+          matchedCategoryName: undefined,
           source: 'none' as const,
-        };
+        }
+      : normalizedRecommendQuery
+        ? await this.productService.resolveSearchEntity(normalizedRecommendQuery)
+        : {
+            normalizedKeyword: '',
+            matchedCategoryIds: [],
+            source: 'none' as const,
+          };
     const normalizedQuery = searchEntity.normalizedKeyword || normalizedRecommendQuery;
-    this.addTiming(timing, 'entity_resolve_ms', Date.now() - entityStartedAt);
+    if (!isLiteRecommend) {
+      this.addTiming(timing, 'entity_resolve_ms', Date.now() - entityStartedAt);
+    }
     const feedback = this.buildRecommendFeedback(normalizedQuery, refined.budget, constraints, recommendThemes);
     const slots = this.buildDemandSlots({
       transcript,
@@ -1201,7 +1383,7 @@ export class AiService {
       type: 'recommend',
       transcript,
       param: normalizedQuery || this.buildRecommendThemeLabel(recommendThemes) || String(refined.budget || 'recommend'),
-      feedback,
+      feedback: isLiteRecommend ? refined.reply : feedback,
       recommend: {
         query: normalizedQuery || undefined,
         matchedCategoryId: searchEntity.matchedCategoryId,
@@ -1894,6 +2076,23 @@ export class AiService {
     return Math.round(budget * 100) / 100;
   }
 
+  private extractLiteRecommendQuery(text: string): string {
+    const compact = text
+      .replace(/[“”"'`]/g, '')
+      .replace(/[，。！？,.!?]/g, '')
+      .replace(/\s+/g, '')
+      .trim();
+
+    const cleaned = compact
+      .replace(/^(?:现在|今天|最近|目前)?(?:有)?(?:没有|有没有|有没)?(?:推荐的|推荐(?:点|些|一下)?|什么推荐的|什么值得推荐的)/u, '')
+      .replace(/^(?:给我|帮我|替我)?(?:推荐的|推荐(?:点|些|一下)?)/u, '')
+      .replace(/(?:吗|呢|啊|呀|吧|哦)+$/u, '')
+      .replace(/^(?:一些|一点|点)/u, '')
+      .replace(/(?:商品|东西|好物|食物)+$/u, '');
+
+    return this.cleanupSearchKeyword(cleaned);
+  }
+
   private extractRecommendThemes(text: string): AiRecommendTheme[] {
     const normalized = text.replace(/\s+/g, '');
     const themes = new Set<AiRecommendTheme>();
@@ -2277,7 +2476,7 @@ export class AiService {
       .replace(/\s+/g, '')
       .trim();
     const extractionPatterns = [
-      /^(?:请|麻烦你)?(?:帮我|给我|替我)?(?:找|查(?:一下)?|看(?:一下)?|搜(?:索)?|打开|进入|去|逛逛)(.+)$/u,
+      /^(?:请|麻烦你)?(?:帮我|给我|替我)?(?:找一找|找一下|找找|查一下|查查|看一下|看下|看看|看一看|搜一下|搜搜|搜索|找|查|看|搜|打开|进入|去|逛逛)(.+)$/u,
       /^(?:有(?:没)?有|哪里有)(.+?)(?:吗|呢|啊|呀|吧|嘛|哦)?$/u,
     ];
 
@@ -2846,13 +3045,40 @@ export class AiService {
 
   /** 从加购语句中提取商品名 */
   private extractCartProduct(text: string): string {
-    const fillerWords = /我想|我要|请|帮我|把|加入|加到|加|购物车|加购|的|吗|呢|啊|吧|了/g;
-    return text.replace(fillerWords, '').trim();
+    const compact = text
+      .replace(/[“”"'`]/g, '')
+      .replace(/[，。！？,.!?]/g, '')
+      .replace(/\s+/g, '')
+      .trim();
+
+    const extractionPatterns = [
+      /^(?:我想|我要)?(?:请|麻烦你)?(?:帮我|给我|替我)?(?:把)?(.+?)(?:加入|加到|加进|放入|放到|放进|放在|丢进|装进)(?:购物车|购物袋|购物篮)(?:里|里面)?$/u,
+      /^(?:我想|我要)?(?:请|麻烦你)?(?:帮我|给我|替我)?(?:把)?(?:加购)(.+?)(?:一下)?$/u,
+      /^(?:我想|我要)?(?:请|麻烦你)?(?:帮我|给我|替我)?(?:把)?(.+?)(?:加购)(?:一下)?$/u,
+    ];
+
+    for (const pattern of extractionPatterns) {
+      const match = compact.match(pattern);
+      if (!match?.[1]) continue;
+      const cleaned = this.cleanupSearchKeyword(match[1]);
+      if (cleaned && !/^(?:帮我|给我|替我|请|我要|我想)$/u.test(cleaned)) return cleaned;
+    }
+
+    const fillerWords = /我想|我要|请|帮我|给我|替我|把|加购|加入|加到|加进|放入|放到|放进|放在|丢进|装进|加|购物车|购物袋|购物篮|的|吗|呢|啊|吧|了/g;
+    const cleaned = this.cleanupSearchKeyword(
+      compact
+        .replace(fillerWords, '')
+        .replace(/(?:里|里面)$/u, ''),
+    );
+    if (/^(?:帮我|给我|替我|请|我要|我想)$/u.test(cleaned)) {
+      return '';
+    }
+    return cleaned;
   }
 
   private cleanupStoreName(value: string): string {
     return value
-      .replace(/^(?:请|麻烦你)?(?:帮我|给我|替我)?(?:打开|进入|去|逛逛|查看|看看|查(?:一下)?|搜(?:索)?|找)+/u, '')
+      .replace(/^(?:请|麻烦你)?(?:帮我|给我|替我)?(?:打开|进入|去|逛逛|查看|看一看|看一下|看下|看看|一看|查一下|查查|一查|搜一下|搜搜|一搜|搜索|找一找|找一下|找找|一找|查|搜|找|看)+/u, '')
       .replace(/^(?:现在|目前|最近|这边|这里|附近)?(?:都)?(?:有哪(?:些|家)|有什?么|哪些|什么)/u, '')
       .replace(/^(?:这个|那个|这家|那家)/u, '')
       .replace(/(?:的)?(?:店铺|农场|商家|公司|企业|旗舰店)/gu, '')
@@ -2868,7 +3094,11 @@ export class AiService {
    * 调用 Qwen-Flash 做一级意图分类
    * 仅输出统一的 classify 结果，不直接做业务处理
    */
-  private async qwenIntentClassify(transcript: string, semanticSlotsEnabled = false): Promise<VoiceIntentClassification | null> {
+  private async qwenIntentClassify(
+    transcript: string,
+    semanticSlotsEnabled = false,
+    timing?: AiVoiceTiming,
+  ): Promise<VoiceIntentClassification | null> {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
       this.logger.warn('DASHSCOPE_API_KEY 未设置，跳过 Qwen 一级分类');
@@ -2882,7 +3112,13 @@ export class AiService {
       try {
         const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'Asia/Shanghai' });
         const flashPrompt = UNIFIED_CLASSIFY_PROMPT.replace('{{TODAY}}', today);
-        const flashResult = await this.callSemanticModel(apiKey, transcript, flashPrompt, this.QWEN_INTENT_MODEL, 5000);
+        let flashResult: Record<string, any> | null = null;
+        const flashStartedAt = Date.now();
+        try {
+          flashResult = await this.callSemanticModel(apiKey, transcript, flashPrompt, this.QWEN_INTENT_MODEL, 5000);
+        } finally {
+          this.addTiming(timing, 'flash_ms', Date.now() - flashStartedAt);
+        }
         if (flashResult) {
           const validIntents = ['navigate', 'search', 'company', 'transaction', 'recommend', 'chat'] as const;
           const intent = validIntents.includes(flashResult.intent as any) ? flashResult.intent as VoiceIntentClassification['intent'] : 'chat';
@@ -2908,32 +3144,16 @@ export class AiService {
             };
           }
 
-          // Flash 结果槽位不够丰富 → 升级到 Plus（同样用统一 prompt + 深度推断补充指令）
-          this.logger.log(`[UnifiedPipeline] Flash 槽位不充分（confidence=${confidence.toFixed(2)}），升级到 Plus`);
-          const plusPrompt = flashPrompt + PLUS_EXTRA_INSTRUCTIONS;
-          const plusResult = await this.callSemanticModel(apiKey, transcript, plusPrompt, this.QWEN_CHAT_MODEL, 8000);
-          if (plusResult) {
-            const plusIntent = validIntents.includes(plusResult.intent as any) ? plusResult.intent as VoiceIntentClassification['intent'] : 'chat';
-            const plusConfidence = typeof plusResult.confidence === 'number'
-              ? Math.max(0, Math.min(plusResult.confidence, 1))
-              : 0.5;
-            const plusParams = plusResult.params && typeof plusResult.params === 'object' ? plusResult.params : {};
-            const plusFallbackReason = typeof (plusResult.fallbackReason ?? plusParams.fallbackReason) === 'string'
-              && (plusResult.fallbackReason ?? plusParams.fallbackReason) !== 'null'
-              ? (plusResult.fallbackReason ?? plusParams.fallbackReason)
-              : undefined;
-
-            this.logger.log(`[UnifiedPipeline] Plus 结果 intent=${plusIntent} confidence=${plusConfidence.toFixed(2)}`);
-            return {
-              intent: plusIntent,
-              confidence: plusConfidence,
-              source: 'model',
-              params: { ...plusParams, fallbackReason: plusFallbackReason },
-              pipeline: 'plus',
-              wasUpgraded: true,
-              fallbackReason: plusFallbackReason,
-            };
-          }
+          this.logger.log(`[UnifiedPipeline] Flash 槽位不充分（confidence=${confidence.toFixed(2)}），按操作链路预算直接使用 Flash 结果`);
+          return {
+            intent,
+            confidence,
+            source: 'model',
+            params: { ...params, fallbackReason },
+            pipeline: 'flash',
+            wasUpgraded: false,
+            fallbackReason,
+          };
         }
       } catch (err) {
         this.logger.error(`[UnifiedPipeline] 统一管道异常，回退到传统分类：${(err as Error)?.message}`);
@@ -2985,6 +3205,7 @@ export class AiService {
 - "今天几号" -> {"intent":"chat","confidence":0.98,"params":{"reply":"今天是${today}。"}}
 - "今天天气如何" -> {"intent":"chat","confidence":0.98,"params":{"reply":"我现在还不能查询实时天气，所以没法准确回答天气情况。"}}`;
 
+    const flashStartedAt = Date.now();
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -3022,7 +3243,11 @@ export class AiService {
       }
 
       const jsonStr = content.replace(/```json\s*\n?/g, '').replace(/```\s*\n?/g, '').trim();
-      const parsed = JSON.parse(jsonStr);
+      let parsed: any = JSON.parse(jsonStr);
+      // Qwen 有时会把返回包在数组里 [{...}]，需要兼容
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed = parsed[0];
+      }
 
       const validIntents = ['navigate', 'search', 'company', 'transaction', 'recommend', 'chat'] as const;
       const intent = validIntents.includes(parsed.intent) ? parsed.intent : 'chat';
@@ -3114,6 +3339,8 @@ export class AiService {
     } catch (err) {
       this.logger.error(`Qwen 一级分类解析失败：${err.message}`);
       return null;
+    } finally {
+      this.addTiming(timing, 'flash_ms', Date.now() - flashStartedAt);
     }
   }
 
@@ -3164,7 +3391,12 @@ export class AiService {
       }
 
       const jsonStr = content.replace(/```json\s*\n?/g, '').replace(/```\s*\n?/g, '').trim();
-      return JSON.parse(jsonStr);
+      let parsed: any = JSON.parse(jsonStr);
+      // 模型有时会把返回包在数组里 [{...}]，需要兼容
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed = parsed[0];
+      }
+      return parsed;
     } catch (err) {
       clearTimeout(timeout);
       this.logger.error(`[SemanticModel] 调用异常 model=${model}: ${err.message}`);

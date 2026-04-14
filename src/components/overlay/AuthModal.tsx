@@ -13,14 +13,12 @@ import {
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../../theme';
 import { useToast } from '../feedback';
 import { AuthRepo } from '../../repos';
 import { USE_MOCK } from '../../repos/http/config';
 import { AuthSession, LoginMode } from '../../types';
-
-// 主要方式：手机号 / 邮箱（顶部切换），微信放在底部"其他方式"
-type AuthChannel = 'phone' | 'email';
 
 type AuthModalProps = {
   open: boolean;
@@ -28,17 +26,16 @@ type AuthModalProps = {
   onSuccess?: (session: AuthSession) => void | Promise<void>;
 };
 
-// 登录/注册弹窗：手机号/邮箱为主要方式，微信为底部快捷入口
+// 登录/注册弹窗：手机号为主要方式，微信为底部快捷入口
 export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   const { colors, radius, spacing, typography, shadow } = useTheme();
   const { show: showToast } = useToast();
+  const router = useRouter();
 
   // 状态
   const [tab, setTab] = useState<'login' | 'register'>('login');
-  const [channel, setChannel] = useState<AuthChannel>('phone');
   const [loginMode, setLoginMode] = useState<LoginMode>('code');
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
@@ -64,7 +61,6 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   }, []);
 
   const isLogin = tab === 'login';
-  const isPhone = channel === 'phone';
 
   // 内联错误展示（3 秒后自动消失）
   const showError = useCallback((msg: string) => {
@@ -81,9 +77,9 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   }, []);
 
   const resetFields = useCallback(() => {
-    setPhone(''); setEmail(''); setCode(''); setPassword('');
+    setPhone(''); setCode(''); setPassword('');
     setNickname(''); setAgreed(false); setShowPwd(false);
-    setLoginMode('code'); setTab('login'); setChannel('phone');
+    setLoginMode('code'); setTab('login');
     setSubmitting(false); setCodeSending(false);
     setErrorMsg(''); setSuccessMsg('');
     if (cdRef.current) clearInterval(cdRef.current);
@@ -113,25 +109,16 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
     }, 1000);
   }, []);
 
-  // 发送验证码（手机或邮箱）
+  // 发送短信验证码
   const handleSendCode = useCallback(async () => {
-    if (isPhone) {
-      if (!/^1\d{10}$/.test(phone.trim())) { showError('请输入有效的手机号'); return; }
-      setCodeSending(true);
-      const r = await AuthRepo.requestSmsCode(phone);
-      setCodeSending(false);
-      if (!r.ok) { showError(r.error.displayMessage ?? '发送失败'); return; }
-      showSuccess('验证码已发送');
-    } else {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { showError('请输入有效邮箱地址'); return; }
-      setCodeSending(true);
-      const r = await AuthRepo.requestEmailCode(email);
-      setCodeSending(false);
-      if (!r.ok) { showError(r.error.displayMessage ?? '发送失败'); return; }
-      showSuccess('验证码已发送');
-    }
+    if (!/^1\d{10}$/.test(phone.trim())) { showError('请输入有效的手机号'); return; }
+    setCodeSending(true);
+    const r = await AuthRepo.requestSmsCode(phone);
+    setCodeSending(false);
+    if (!r.ok) { showError(r.error.displayMessage ?? '发送失败'); return; }
+    showSuccess('验证码已发送');
     startCountdown();
-  }, [isPhone, phone, email, showError, showSuccess, startCountdown]);
+  }, [phone, showError, showSuccess, startCountdown]);
 
   // 微信授权（登录/注册通用，后端自动创建账号）
   // B02修复：区分 Mock 和真实微信授权流程
@@ -162,9 +149,8 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   const handleSubmit = useCallback(async () => {
     setErrorMsg('');
 
-    // 账号验证
-    if (isPhone && !/^1\d{10}$/.test(phone.trim())) { showError('请输入有效的手机号'); return; }
-    if (!isPhone && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { showError('请输入有效邮箱地址'); return; }
+    // 手机号验证
+    if (!/^1\d{10}$/.test(phone.trim())) { showError('请输入有效的手机号'); return; }
 
     // 登录
     if (isLogin) {
@@ -175,9 +161,7 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
       }
       setSubmitting(true);
       try {
-        const r = isPhone
-          ? await AuthRepo.loginWithPhone({ phone, code, password, mode: loginMode })
-          : await AuthRepo.loginWithEmail({ email, code, password, mode: loginMode });
+        const r = await AuthRepo.loginWithPhone({ phone, code, password, mode: loginMode });
         if (!r.ok) { showError(r.error.displayMessage ?? '登录失败'); return; }
         await onAuthSuccess(r.data, '登录成功');
       } finally {
@@ -194,15 +178,13 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
 
     setSubmitting(true);
     try {
-      const r = isPhone
-        ? await AuthRepo.registerWithPhone({ phone, code, name: nickname, password })
-        : await AuthRepo.registerWithEmail({ email, code, name: nickname, password });
+      const r = await AuthRepo.registerWithPhone({ phone, code, name: nickname, password });
       if (!r.ok) { showError(r.error.displayMessage ?? '注册失败'); return; }
       await onAuthSuccess(r.data, '注册成功');
     } finally {
       setSubmitting(false);
     }
-  }, [isPhone, isLogin, phone, email, code, password, nickname, agreed, loginMode, showError, onAuthSuccess]);
+  }, [isLogin, phone, code, password, nickname, agreed, loginMode, showError, onAuthSuccess]);
 
   // ---- 渲染辅助 ----
 
@@ -300,38 +282,11 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
                 })}
               </View>
 
-              {/* 手机号 / 邮箱 切换 */}
-              <View style={[styles.channelRow, { marginTop: spacing.md }]}>
-                {([
-                  { key: 'phone' as const, icon: 'cellphone' as const, label: '手机号' },
-                  { key: 'email' as const, icon: 'email-outline' as const, label: '邮箱' },
-                ]).map((opt) => {
-                  const active = channel === opt.key;
-                  return (
-                    <Pressable
-                      key={opt.key}
-                      onPress={() => { setChannel(opt.key); setCode(''); setLoginMode('code'); setCountdown(0); setErrorMsg(''); if (cdRef.current) clearInterval(cdRef.current); }}
-                      style={[
-                        styles.channelChip,
-                        {
-                          borderColor: active ? colors.brand.primary : colors.border,
-                          backgroundColor: active ? colors.brand.primarySoft : 'transparent',
-                          borderRadius: radius.pill,
-                        },
-                      ]}
-                    >
-                      <MaterialCommunityIcons name={opt.icon} size={15} color={active ? colors.brand.primary : colors.muted} style={{ marginRight: 4 }} />
-                      <Text style={[typography.captionSm, { color: active ? colors.brand.primary : colors.text.secondary }]}>{opt.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
               {/* ===== 表单区域 ===== */}
 
-              {/* 手机号登录：验证码/密码模式切换 */}
+              {/* 验证码/密码模式切换（仅登录时显示） */}
               {isLogin && (
-                <View style={[styles.loginModeRow, { marginTop: spacing.sm }]}>
+                <View style={[styles.loginModeRow, { marginTop: spacing.md }]}>
                   {(['code', 'password'] as const).map((m) => (
                     <Pressable key={m} onPress={() => setLoginMode(m)}>
                       <Text style={[typography.captionSm, {
@@ -345,16 +300,13 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
                 </View>
               )}
 
-              {/* 账号输入 */}
-              {isPhone
-                ? renderInput({ label: '手机号', value: phone, onChange: setPhone, placeholder: '请输入 11 位手机号', kbType: 'phone-pad', maxLen: 11 })
-                : renderInput({ label: '邮箱地址', value: email, onChange: setEmail, placeholder: '请输入邮箱', kbType: 'email-address' })
-              }
+              {/* 手机号输入 */}
+              {renderInput({ label: '手机号', value: phone, onChange: setPhone, placeholder: '请输入 11 位手机号', kbType: 'phone-pad', maxLen: 11 })}
 
               {/* 验证码 / 密码 */}
               {isLogin && loginMode === 'password'
                 ? renderInput({ label: '密码', value: password, onChange: setPassword, placeholder: '请输入密码', secure: !showPwd, right: eyeButton })
-                : renderInput({ label: '验证码', value: code, onChange: setCode, placeholder: isPhone ? '请输入短信验证码' : '请输入邮箱验证码', kbType: 'number-pad', maxLen: 6, right: codeButton })
+                : renderInput({ label: '验证码', value: code, onChange: setCode, placeholder: '请输入短信验证码', kbType: 'number-pad', maxLen: 6, right: codeButton })
               }
 
               {/* 注册额外字段：昵称 + 密码 + 协议 */}
@@ -362,12 +314,42 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
                 <>
                   {renderInput({ label: '昵称', value: nickname, onChange: setNickname, placeholder: '2-12 个字', maxLen: 12 })}
                   {renderInput({ label: '设置密码', value: password, onChange: setPassword, placeholder: '至少 6 位', secure: !showPwd, right: eyeButton })}
-                  <Pressable onPress={() => setAgreed(!agreed)} style={[styles.agreementRow, { marginTop: spacing.sm }]}>
-                    <MaterialCommunityIcons name={agreed ? 'checkbox-marked' : 'checkbox-blank-outline'} size={16} color={agreed ? colors.brand.primary : colors.muted} />
-                    <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 5, flex: 1, lineHeight: 18 }]}>
-                      我已阅读并同意<Text style={{ color: colors.brand.primary }}>《用户协议》</Text>和<Text style={{ color: colors.brand.primary }}>《隐私政策》</Text>
+                  <View style={[styles.agreementRow, { marginTop: spacing.sm }]}>
+                    <Pressable onPress={() => setAgreed(!agreed)} hitSlop={6}>
+                      <MaterialCommunityIcons
+                        name={agreed ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                        size={16}
+                        color={agreed ? colors.brand.primary : colors.muted}
+                      />
+                    </Pressable>
+                    <Text
+                      style={[
+                        typography.captionSm,
+                        { color: colors.text.secondary, marginLeft: 5, flex: 1, lineHeight: 18 },
+                      ]}
+                    >
+                      <Text onPress={() => setAgreed(!agreed)}>我已阅读并同意</Text>
+                      <Text
+                        style={{ color: colors.brand.primary }}
+                        onPress={() => {
+                          handleClose();
+                          router.push('/terms');
+                        }}
+                      >
+                        《用户协议》
+                      </Text>
+                      <Text onPress={() => setAgreed(!agreed)}>和</Text>
+                      <Text
+                        style={{ color: colors.brand.primary }}
+                        onPress={() => {
+                          handleClose();
+                          router.push('/privacy');
+                        }}
+                      >
+                        《隐私政策》
+                      </Text>
                     </Text>
-                  </Pressable>
+                  </View>
                 </>
               )}
 
@@ -469,17 +451,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 7,
     alignItems: 'center',
-  },
-  channelRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  channelChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderWidth: 1,
   },
   loginModeRow: {
     flexDirection: 'row',

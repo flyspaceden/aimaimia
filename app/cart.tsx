@@ -17,7 +17,7 @@ import { AiCardGlow } from '../src/components/ui/AiCardGlow';
 import { AiOrb } from '../src/components/effects/AiOrb';
 import { ProductCard } from '../src/components/cards/ProductCard';
 import { RecommendRepo } from '../src/repos';
-import { useAuthStore, useCartStore } from '../src/store';
+import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { AuthModal } from '../src/components/overlay';
 import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
 import { useTheme } from '../src/theme';
@@ -66,6 +66,7 @@ export default function CartScreen() {
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
+  const clearVipPackageSelection = useCheckoutStore((s) => s.clearVipPackageSelection);
   const insets = useSafeAreaInsets();
   const items = useCartStore((s) => s.items);
   const selectedIds = useCartStore((s) => s.selectedIds);
@@ -480,6 +481,8 @@ export default function CartScreen() {
                   setAuthModalOpen(true);
                   return;
                 }
+                // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
+                clearVipPackageSelection();
                 router.push('/checkout');
               }}
               style={styles.checkoutButton}
@@ -522,6 +525,8 @@ export default function CartScreen() {
                   setAuthModalOpen(true);
                   return;
                 }
+                // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
+                clearVipPackageSelection();
                 router.push('/checkout');
               }}
               style={styles.checkoutButton}

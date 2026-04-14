@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Button, message, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
-  Breadcrumb, Select, Collapse, Switch, Row, Col, Divider,
+  Breadcrumb, Select, Collapse, Switch, Row, Col,
 } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
@@ -109,9 +109,24 @@ function SemanticTagFields() {
           style={{ width: '100%' }}
         />
       </Form.Item>
-      <Form.Item name="originRegion" label="产地区域">
-        <Input placeholder="如：山东青岛、云南" />
+    </>
+  );
+}
+
+function AiSearchOptimizationContent() {
+  return (
+    <>
+      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+        只填写买家真实会说出来的搜索表达。标题写正式商品名，这里补充别名、俗称、常见说法和适用场景即可。
+      </Text>
+      <Form.Item
+        label="别名 / 俗称 / 常见搜索词"
+        name="aiKeywords"
+        tooltip="用于补充买家常说的叫法、地方叫法、同义词。不要重复填写标题原词。"
+      >
+        <Input placeholder="逗号分隔，如：毛尖,绿茶,春茶" />
       </Form.Item>
+      <SemanticTagFields />
     </>
   );
 }
@@ -278,21 +293,18 @@ function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { v
       <Form.Item label="副标题" name="subtitle">
         <Input placeholder="可选，补充商品卖点" maxLength={200} />
       </Form.Item>
-      <Form.Item label="标签" name="tagIds">
+      <Form.Item
+        label="运营标签（选填）"
+        name="tagIds"
+        tooltip="用于后台运营和展示管理，不是 AI 搜索主字段。"
+      >
         <Select
           mode="multiple"
-          placeholder="请选择商品标签"
+          placeholder="请选择运营标签"
           options={productTagOptions}
           showSearch
           optionFilterProp="label"
         />
-      </Form.Item>
-      <Form.Item
-        label="AI 搜索关键词"
-        name="aiKeywords"
-        tooltip="买家用语音搜索时，AI 会匹配这些关键词帮助找到您的商品"
-      >
-        <Input placeholder="逗号分隔，如：五常大米,稻花香,东北粳米" />
       </Form.Item>
 
       {/* 自定义属性 */}
@@ -318,12 +330,9 @@ function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { v
           )}
         </Form.List>
       </Form.Item>
-
-      <Divider />
-
-      {/* 语义标签 */}
-      <Text strong style={{ display: 'block', marginBottom: 12 }}>语义标签（AI 搜索优化）</Text>
-      <SemanticTagFields />
+      <Text type="secondary">
+        高级设置主要用于后台管理和补充展示信息，AI 搜索主字段请在上方“AI 搜索优化”里填写。
+      </Text>
     </>
   );
 }
@@ -378,6 +387,7 @@ function buildPayload(
     description: values.description,
     basePrice,
     categoryId: values.categoryId,
+    returnPolicy: values.returnPolicy || 'INHERIT',
     origin: values.originText ? { text: values.originText } : undefined,
     tagIds,
     aiKeywords,
@@ -387,7 +397,7 @@ function buildPayload(
     seasonalMonths: (values.seasonalMonths as number[] | undefined) || undefined,
     usageScenarios: (values.usageScenarios as string[] | undefined) || undefined,
     dietaryTags: (values.dietaryTags as string[] | undefined) || undefined,
-    originRegion: (values.originRegion as string | undefined) || undefined,
+    originRegion: (values.originText as string | undefined) || undefined,
     skus,
   };
 }
@@ -458,10 +468,12 @@ function ProductEditForm({ id }: { id: string }) {
 
     const originText = typeof product.origin === 'object' && product.origin
       ? (product.origin as Record<string, string>).text || ''
-      : '';
+      : ((product as unknown as Record<string, unknown>).originRegion as string | undefined) || '';
 
     const attrPairs = product.attributes && typeof product.attributes === 'object'
-      ? Object.entries(product.attributes as Record<string, string>).map(([key, value]) => ({ key, value }))
+      ? Object.entries(product.attributes as Record<string, string>)
+          .filter(([key]) => key !== 'semanticMeta')
+          .map(([key, value]) => ({ key, value }))
       : [];
 
     // 单规格时，将第一个 SKU 的数据直接放到主表单
@@ -472,6 +484,7 @@ function ProductEditForm({ id }: { id: string }) {
       subtitle: product.subtitle,
       description: product.description,
       categoryId: product.categoryId,
+      returnPolicy: (product as any).returnPolicy || 'INHERIT',
       originText,
       tagIds: product.tags?.map((t: any) => t.tag?.id || t.tagId) || [],
       aiKeywords: (product.aiKeywords || []).join(','),
@@ -481,6 +494,7 @@ function ProductEditForm({ id }: { id: string }) {
         singleCost: firstSku.cost,
         singleStock: firstSku.stock,
         singleWeightGram: firstSku.weightGram,
+        singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
       } : {}),
       // 多规格字段
       ...(isMulti ? {
@@ -498,7 +512,6 @@ function ProductEditForm({ id }: { id: string }) {
       seasonalMonths: (product as unknown as Record<string, unknown>).seasonalMonths as number[] | undefined,
       usageScenarios: (product as unknown as Record<string, unknown>).usageScenarios as string[] | undefined,
       dietaryTags: (product as unknown as Record<string, unknown>).dietaryTags as string[] | undefined,
-      originRegion: (product as unknown as Record<string, unknown>).originRegion as string | undefined,
     });
 
     if (product.media?.length > 0) {
@@ -531,6 +544,7 @@ function ProductEditForm({ id }: { id: string }) {
           cost: values.singleCost,
           stock: values.singleStock,
           weightGram: values.singleWeightGram,
+          maxPerOrder: values.singleMaxPerOrder,
         }];
       }
 
@@ -569,32 +583,29 @@ function ProductEditForm({ id }: { id: string }) {
       <div
         style={{
           position: 'sticky',
-          top: 0,
+          top: 56,
           zIndex: 10,
           background: '#f5f5f5',
           padding: '12px 0',
           marginBottom: 4,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
         }}
       >
-        <div>
-          <Breadcrumb
-            style={{ marginBottom: 8 }}
-            items={[
-              { title: <a onClick={() => navigate('/')}>首页</a> },
-              { title: <a onClick={() => navigate('/products')}>商品管理</a> },
-              { title: '编辑商品' },
-            ]}
-          />
+        <Breadcrumb
+          style={{ marginBottom: 8 }}
+          items={[
+            { title: <a onClick={() => navigate('/')}>首页</a> },
+            { title: <a onClick={() => navigate('/products')}>商品管理</a> },
+            { title: '编辑商品' },
+          ]}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')}>
             返回列表
           </Button>
+          <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} size="large">
+            保存
+          </Button>
         </div>
-        <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} size="large">
-          保存
-        </Button>
       </div>
 
       <Form form={form} layout="vertical">
@@ -652,6 +663,13 @@ function ProductEditForm({ id }: { id: string }) {
               style={{ width: 300 }}
             />
           </Form.Item>
+          <Form.Item label="退货政策" name="returnPolicy" initialValue="INHERIT">
+            <Select style={{ width: 300 }} options={[
+              { label: '默认（跟随分类设置）', value: 'INHERIT' },
+              { label: '7天无理由退换', value: 'RETURNABLE' },
+              { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
+            ]} />
+          </Form.Item>
           <Form.Item
             label="商品描述"
             name="description"
@@ -662,7 +680,7 @@ function ProductEditForm({ id }: { id: string }) {
           >
             <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
           </Form.Item>
-          <Form.Item label="产地（选填）" name="originText">
+          <Form.Item label="产地 / 产区（选填）" name="originText">
             <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
           </Form.Item>
         </Card>
@@ -688,9 +706,10 @@ function ProductEditForm({ id }: { id: string }) {
                     const cost = form.getFieldValue('singleCost');
                     const stock = form.getFieldValue('singleStock');
                     const weightGram = form.getFieldValue('singleWeightGram');
+                    const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
                     if (cost || stock) {
                       form.setFieldsValue({
-                        skus: [{ specName: '默认规格', cost, stock, weightGram }],
+                        skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
                       });
                     }
                   } else {
@@ -702,6 +721,7 @@ function ProductEditForm({ id }: { id: string }) {
                         singleCost: first.cost,
                         singleStock: first.stock,
                         singleWeightGram: first.weightGram,
+                        singleMaxPerOrder: first.maxPerOrder,
                       });
                     }
                   }
@@ -758,11 +778,20 @@ function ProductEditForm({ id }: { id: string }) {
                   <InputNumber placeholder="克" min={0} style={{ width: '100%' }} addonAfter="g" />
                 </Form.Item>
               </Col>
+              <Col span={5}>
+                <Form.Item label="单笔限购" name="singleMaxPerOrder" rules={[{ type: 'number', min: 1, message: '最少为1' }]}>
+                  <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
             </Row>
           ) : (
             /* 多规格模式 */
             <MultiSpecRows markupRate={markupRate} />
           )}
+        </Card>
+
+        <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>
+          <AiSearchOptimizationContent />
         </Card>
 
         {/* 5. 更多设置 */}
@@ -773,7 +802,7 @@ function ProductEditForm({ id }: { id: string }) {
             items={[
               {
                 key: 'advanced',
-                label: <Text strong>更多设置</Text>,
+                label: <Text strong>高级设置</Text>,
                 children: <AdvancedSettingsContent productTagOptions={productTagOptions} />,
               },
             ]}
@@ -836,6 +865,7 @@ function ProductCreateForm() {
           cost: values.singleCost,
           stock: values.singleStock,
           weightGram: values.singleWeightGram,
+          maxPerOrder: values.singleMaxPerOrder,
         }];
       }
 
@@ -858,32 +888,29 @@ function ProductCreateForm() {
       <div
         style={{
           position: 'sticky',
-          top: 0,
+          top: 56,
           zIndex: 10,
           background: '#f5f5f5',
           padding: '12px 0',
           marginBottom: 4,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
         }}
       >
-        <div>
-          <Breadcrumb
-            style={{ marginBottom: 8 }}
-            items={[
-              { title: <a onClick={() => navigate('/')}>首页</a> },
-              { title: <a onClick={() => navigate('/products')}>商品管理</a> },
-              { title: '创建商品' },
-            ]}
-          />
+        <Breadcrumb
+          style={{ marginBottom: 8 }}
+          items={[
+            { title: <a onClick={() => navigate('/')}>首页</a> },
+            { title: <a onClick={() => navigate('/products')}>商品管理</a> },
+            { title: '创建商品' },
+          ]}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')}>
             返回列表
           </Button>
+          <Button type="primary" icon={<SaveOutlined />} onClick={handleSubmit} loading={loading} size="large">
+            提交审核
+          </Button>
         </div>
-        <Button type="primary" icon={<SaveOutlined />} onClick={handleSubmit} loading={loading} size="large">
-          提交审核
-        </Button>
       </div>
 
       <Form form={form} layout="vertical">
@@ -912,6 +939,13 @@ function ProductCreateForm() {
               style={{ width: 300 }}
             />
           </Form.Item>
+          <Form.Item label="退货政策" name="returnPolicy" initialValue="INHERIT">
+            <Select style={{ width: 300 }} options={[
+              { label: '默认（跟随分类设置）', value: 'INHERIT' },
+              { label: '7天无理由退换', value: 'RETURNABLE' },
+              { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
+            ]} />
+          </Form.Item>
           <Form.Item
             label="商品描述"
             name="description"
@@ -922,7 +956,7 @@ function ProductCreateForm() {
           >
             <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
           </Form.Item>
-          <Form.Item label="产地（选填）" name="originText">
+          <Form.Item label="产地 / 产区（选填）" name="originText">
             <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
           </Form.Item>
         </Card>
@@ -948,8 +982,9 @@ function ProductCreateForm() {
                     const cost = form.getFieldValue('singleCost');
                     const stock = form.getFieldValue('singleStock');
                     const weightGram = form.getFieldValue('singleWeightGram');
+                    const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
                     form.setFieldsValue({
-                      skus: [{ specName: '默认规格', cost, stock, weightGram }],
+                      skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
                     });
                   } else {
                     // 切换到单规格：从第一行多规格数据恢复
@@ -960,6 +995,7 @@ function ProductCreateForm() {
                         singleCost: first.cost,
                         singleStock: first.stock,
                         singleWeightGram: first.weightGram,
+                        singleMaxPerOrder: first.maxPerOrder,
                       });
                     }
                   }
@@ -1016,11 +1052,20 @@ function ProductCreateForm() {
                   <InputNumber placeholder="克" min={0} style={{ width: '100%' }} addonAfter="g" />
                 </Form.Item>
               </Col>
+              <Col span={5}>
+                <Form.Item label="单笔限购" name="singleMaxPerOrder" rules={[{ type: 'number', min: 1, message: '最少为1' }]}>
+                  <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
             </Row>
           ) : (
             /* 多规格模式 */
             <MultiSpecRows markupRate={markupRate} />
           )}
+        </Card>
+
+        <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>
+          <AiSearchOptimizationContent />
         </Card>
 
         {/* 4. 更多设置 */}
@@ -1031,7 +1076,7 @@ function ProductCreateForm() {
             items={[
               {
                 key: 'advanced',
-                label: <Text strong>更多设置</Text>,
+                label: <Text strong>高级设置</Text>,
                 children: <AdvancedSettingsContent productTagOptions={productTagOptions} />,
               },
             ]}

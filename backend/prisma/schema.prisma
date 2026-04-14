@@ -337,6 +337,7 @@ enum AllocationRuleType {
   NORMAL_BROADCAST  // @deprecated 废弃：滑动窗口分配，保留用于历史数据
   NORMAL_TREE       // 普通用户树分配（替代 NORMAL_BROADCAST）
   VIP_UPSTREAM
+  VIP_PLATFORM_SPLIT // VIP 平台分成（百分比与普通 PLATFORM_SPLIT 不同）
   PLATFORM_SPLIT
   ZERO_PROFIT       // M03: 零利润订单幂等标记
 }
@@ -761,6 +762,7 @@ model RuleVersion {
 model AdminUser {
   id             String          @id @default(cuid())
   username       String          @unique
+  phone          String?         @unique // 新增：管理员手机号（用于短信验证码登录，C18）
   passwordHash   String
   realName       String?
   status         AdminUserStatus @default(ACTIVE)
@@ -1021,6 +1023,7 @@ model CompanyStaff {
   companyId String
   role      CompanyStaffRole   @default(OPERATOR)
   status    CompanyStaffStatus @default(ACTIVE)
+  passwordHash String?         // 新增：卖家员工密码登录（OWNER 创建员工时设定），C17；nullable 兼容历史仅短信登录员工
   invitedBy String?            // 邀请人 userId（OWNER/MANAGER）
   joinedAt  DateTime           @default(now())
   createdAt DateTime           @default(now())

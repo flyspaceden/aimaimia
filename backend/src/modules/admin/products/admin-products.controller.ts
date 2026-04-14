@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { AdminProductsService } from './admin-products.service';
 import { AdminUpdateProductDto, ToggleProductStatusDto, AuditProductDto } from './dto/update-product.dto';
+import { UpdateProductSkusDto } from './dto/update-sku.dto';
 import { SemanticFillService } from '../../product/semantic-fill.service';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
@@ -108,6 +109,20 @@ export class AdminProductsController {
     @Body() dto: AuditProductDto,
   ) {
     return this.productsService.audit(id, dto.auditStatus, dto.auditNote);
+  }
+
+  /** C21: 批量编辑商品 SKU（UPSERT） */
+  @Put(':id/skus')
+  @RequirePermission('products:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'products',
+    targetType: 'Product',
+    targetIdParam: 'params.id',
+    isReversible: true,
+  })
+  updateSkus(@Param('id') id: string, @Body() dto: UpdateProductSkusDto) {
+    return this.productsService.updateSkus(id, dto);
   }
 
   /** 清除 AI 语义字段来源标记，并触发 AI 重新填充 */

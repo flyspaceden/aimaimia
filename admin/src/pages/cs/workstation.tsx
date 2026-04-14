@@ -4,13 +4,9 @@ import {
   Button,
   Tag,
   Badge,
-  Avatar,
   Tooltip,
-  Empty,
   Spin,
   message,
-  Card,
-  Divider,
   Typography,
   Popover,
 } from 'antd';
@@ -23,10 +19,7 @@ import {
   RobotOutlined,
   UserOutlined,
   MessageOutlined,
-  ClockCircleOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  TeamOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -37,7 +30,6 @@ import {
   getCsQuickReplies,
   type CsSession,
   type CsMessage,
-  type CsQuickReply,
 } from '@/api/cs';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -46,7 +38,7 @@ import 'dayjs/locale/zh-cn';
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
 // 品牌色
@@ -313,7 +305,7 @@ function SessionItem({
 }
 
 /** 消息气泡 */
-function MessageBubble({ msg, isAiPhase }: { msg: CsMessage; isAiPhase?: boolean }) {
+function MessageBubble({ msg }: { msg: CsMessage; isAiPhase?: boolean }) {
   const isUser = msg.senderType === 'USER';
   const isAI = msg.senderType === 'AI';
   const isAgent = msg.senderType === 'AGENT';

@@ -25,7 +25,6 @@ const RolesPage = lazy(() => import('@/pages/admin/roles'));
 const VipTreePage = lazy(() => import('@/pages/bonus/vip-tree'));
 const BroadcastWindowPage = lazy(() => import('@/pages/bonus/broadcast-window'));
 const MemberDetailPage = lazy(() => import('@/pages/bonus/member-detail'));
-const ReplacementListPage = lazy(() => import('@/pages/replacements/index'));
 const LotteryPage = lazy(() => import('@/pages/lottery/index'));
 const RewardProductsPage = lazy(() => import('@/pages/reward-products/index'));
 const RewardProductEditPage = lazy(() => import('@/pages/reward-products/edit'));
@@ -36,7 +35,6 @@ const CouponCampaignsPage = lazy(() => import('@/pages/coupons/campaigns'));
 const CouponInstancesPage = lazy(() => import('@/pages/coupons/instances'));
 const CouponUsagePage = lazy(() => import('@/pages/coupons/usage'));
 const CouponStatsPage = lazy(() => import('@/pages/coupons/stats'));
-const RefundListPage = lazy(() => import('@/pages/refunds/index'));
 const AfterSaleListPage = lazy(() => import('@/pages/after-sale/index'));
 const VipConfigPage = lazy(() => import('@/pages/bonus/vip-config'));
 const CouponManagementPage = lazy(() => import('@/pages/coupons/index'));
@@ -106,7 +104,6 @@ export default function App() {
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
-            <Route path="replacements" element={<ReplacementListPage />} />
             <Route path="companies" element={<CompanyListPage />} />
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="users" element={<UserListPage />} />
@@ -127,7 +124,6 @@ export default function App() {
             <Route path="coupons/stats" element={<CouponStatsPage />} />
             <Route path="invoices" element={<InvoiceListPage />} />
             <Route path="invoices/:id" element={<InvoiceDetailPage />} />
-            <Route path="refunds" element={<RefundListPage />} />
             <Route path="after-sale" element={<AfterSaleListPage />} />
             <Route path="lottery" element={<LotteryPage />} />
             <Route path="reward-products" element={<RewardProductsPage />} />

@@ -86,6 +86,8 @@ export interface Product {
   aiKeywords?: string[];
   categoryId?: string;
   category?: { id: string; name: string; path?: string };
+  returnPolicy?: string;
+  effectiveReturnPolicy?: string;
   skus: ProductSKU[];
   media: ProductMedia[];
   tags: Array<{ tag: { id: string; name: string } }>;
@@ -99,6 +101,7 @@ export interface ProductSKU {
   price: number;
   cost?: number;
   stock: number;
+  maxPerOrder?: number;
   weightGram?: number;
   status: string;
 }
@@ -188,12 +191,6 @@ export interface Refund {
 }
 
 // ============================================================
-// 换货理由类型
-// ============================================================
-
-export type ReplacementReasonType = 'QUALITY_ISSUE' | 'WRONG_ITEM' | 'DAMAGED' | 'NOT_AS_DESCRIBED' | 'SIZE_ISSUE' | 'EXPIRED' | 'OTHER';
-
-// ============================================================
 // 面单 & 虚拟号
 // ============================================================
 
@@ -281,12 +278,12 @@ export interface SellerOverview {
     orderCount: number;
     revenue: number;
     pendingShipCount: number;
-    pendingReplacementCount: number;
+    pendingAfterSaleCount: number;
   };
   month: {
     orderCount: number;
     revenue: number;
-    replacementRate: number;
+    afterSaleRate: number;
   };
   total: {
     productCount: number;

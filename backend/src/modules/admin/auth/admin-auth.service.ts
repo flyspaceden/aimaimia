@@ -2,18 +2,27 @@ import {
   Injectable,
   UnauthorizedException,
   ForbiddenException,
+  BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AdminLoginDto } from './dto/admin-login.dto';
+import {
+  AdminLoginDto,
+  AdminLoginByPhoneCodeDto,
+  AdminSendCodeDto,
+} from './dto/admin-login.dto';
 import { AdminRefreshDto } from './dto/admin-refresh.dto';
 import { maskIp } from '../../../common/security/privacy-mask';
+import { CaptchaService } from '../../captcha/captcha.service';
+import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 
 @Injectable()
 export class AdminAuthService {
+  private readonly logger = new Logger(AdminAuthService.name);
   private readonly jwtSecret: string;
   private readonly jwtExpiresIn: string;
 
@@ -21,6 +30,8 @@ export class AdminAuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
+    private captchaService: CaptchaService,
+    private aliyunSms: AliyunSmsService,
   ) {
     this.jwtSecret = this.config.getOrThrow<string>('ADMIN_JWT_SECRET');
     this.jwtExpiresIn = this.config.get<string>(
@@ -29,8 +40,17 @@ export class AdminAuthService {
     );
   }
 
-  /** 管理员登录 */
+  /** 管理员登录（账号密码 + 图形验证码） */
   async login(dto: AdminLoginDto, ip?: string, userAgent?: string) {
+    // C18：先校验图形验证码（原子 getdel，防止重放）
+    const captchaOk = await this.captchaService.verify(
+      dto.captchaId,
+      dto.captchaCode,
+    );
+    if (!captchaOk) {
+      throw new UnauthorizedException('验证码错误或已过期');
+    }
+
     const admin = await this.prisma.adminUser.findUnique({
       where: { username: dto.username },
       include: {
@@ -97,6 +117,169 @@ export class AdminAuthService {
         action: 'LOGIN',
         module: 'auth',
         summary: `管理员 ${admin.username} 登录`,
+        ip,
+        userAgent,
+        isReversible: false,
+      },
+    });
+
+    return this.issueTokens(admin, ip, userAgent);
+  }
+
+  /** C18：发送短信验证码（管理员手机登录，需先通过图形验证码） */
+  async sendSmsCode(dto: AdminSendCodeDto) {
+    // 先校验图形验证码（原子 getdel，防止重放 + 拦截脚本刷短信）
+    const captchaOk = await this.captchaService.verify(
+      dto.captchaId,
+      dto.captchaCode,
+    );
+    if (!captchaOk) {
+      throw new UnauthorizedException('验证码错误或已过期');
+    }
+
+    const { phone } = dto;
+
+    // 防时序枚举：不论手机号是否存在，都先做随机延迟（1000-3000ms）
+    // 在 SMS_MOCK 模式下真实路径本身很快，统一延迟保证两种情况耗时一致
+    // 在生产模式下真实 SMS 发送本就 1-3s，此延迟与实际耗时叠加影响极小
+    const jitterDelay = 1000 + Math.floor(Math.random() * 2000);
+    const jitter = new Promise((resolve) => setTimeout(resolve, jitterDelay));
+
+    // 查找手机号对应的管理员（仅当存在且激活状态才真实发送，避免手机号枚举）
+    const admin = await this.prisma.adminUser.findUnique({
+      where: { phone },
+    });
+
+    // 即使管理员不存在/禁用也返回通用成功，但只在合法时发送短信
+    if (admin && admin.status === 'ACTIVE') {
+      const smsMock = this.config.get('SMS_MOCK', 'true');
+      const code =
+        smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+      const codeHash = await bcrypt.hash(code, 10);
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+      await this.prisma.smsOtp.create({
+        data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
+      });
+
+      const nodeEnv = this.config.get('NODE_ENV', 'development');
+      if (smsMock === 'true') {
+        if (nodeEnv === 'production') {
+          this.logger.warn(
+            '[Admin SMS] 生产环境仍使用 Mock 短信，请设置 SMS_MOCK=false 并配置真实短信服务',
+          );
+        }
+        this.logger.log(
+          `[Admin SMS Mock] 固定验证码=${code}（管理员手机登录）`,
+        );
+      } else {
+        try {
+          await this.aliyunSms.sendVerificationCode(phone, code);
+        } catch (err) {
+          this.logger.error(
+            `[Admin SMS] 验证码发送失败: ${(err as Error)?.message}`,
+            (err as Error)?.stack,
+          );
+        }
+      }
+    } else {
+      // 不存在或禁用：记录日志但返回通用成功（不做真实发送）
+      this.logger.warn(
+        `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送`,
+      );
+    }
+
+    // 等待 jitter 完成再返回，使真假手机号的响应时间一致
+    await jitter;
+    return { ok: true, message: '验证码已发送' };
+  }
+
+  /** C18：手机号 + 短信验证码登录 */
+  async loginByPhoneCode(
+    dto: AdminLoginByPhoneCodeDto,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    // 1. 查找并消费验证码（CAS 原子消费）
+    const records = await this.prisma.smsOtp.findMany({
+      where: {
+        phone: dto.phone,
+        purpose: 'LOGIN',
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    if (records.length === 0) {
+      throw new BadRequestException('验证码无效或已过期');
+    }
+
+    let matchedRecord: (typeof records)[number] | null = null;
+    for (const record of records) {
+      const valid = await bcrypt.compare(dto.code, record.codeHash);
+      if (valid) {
+        matchedRecord = record;
+        break;
+      }
+    }
+
+    if (!matchedRecord) {
+      throw new BadRequestException('验证码错误');
+    }
+
+    const cas = await this.prisma.smsOtp.updateMany({
+      where: { id: matchedRecord.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (cas.count === 0) {
+      throw new BadRequestException('验证码已被使用，请重新获取');
+    }
+
+    // 2. 查找管理员
+    const admin = await this.prisma.adminUser.findUnique({
+      where: { phone: dto.phone },
+      include: {
+        userRoles: {
+          include: { role: true },
+        },
+      },
+    });
+
+    if (!admin) {
+      throw new UnauthorizedException('手机号未绑定管理员账号');
+    }
+
+    // 3. 账号锁定/禁用检查
+    if (admin.lockedUntil && admin.lockedUntil > new Date()) {
+      const minutes = Math.ceil(
+        (admin.lockedUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new ForbiddenException(`账号已锁定，请${minutes}分钟后重试`);
+    }
+    if (admin.status === 'DISABLED') {
+      throw new ForbiddenException('账号已被禁用');
+    }
+
+    // 4. 更新登录信息
+    await this.prisma.adminUser.update({
+      where: { id: admin.id },
+      data: {
+        loginFailCount: 0,
+        lockedUntil: null,
+        lastLoginAt: new Date(),
+        lastLoginIp: ip,
+      },
+    });
+
+    // 5. 审计日志
+    await this.prisma.adminAuditLog.create({
+      data: {
+        adminUserId: admin.id,
+        action: 'LOGIN',
+        module: 'auth',
+        summary: `管理员 ${admin.username} 通过手机验证码登录`,
         ip,
         userAgent,
         isReversible: false,

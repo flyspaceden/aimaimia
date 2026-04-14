@@ -183,15 +183,15 @@ export class NormalBroadcastService {
     });
   }
 
-  /** 确保用户有 VIP_REWARD 类型的 RewardAccount */
+  /** 确保用户有 NORMAL_REWARD 类型的 RewardAccount */
   private async ensureRewardAccount(tx: any, userId: string) {
     let account = await tx.rewardAccount.findUnique({
-      where: { userId_type: { userId, type: 'VIP_REWARD' } },
+      where: { userId_type: { userId, type: 'NORMAL_REWARD' } },
     });
 
     if (!account) {
       account = await tx.rewardAccount.create({
-        data: { userId, type: 'VIP_REWARD' },
+        data: { userId, type: 'NORMAL_REWARD' },
       });
     }
 
@@ -239,8 +239,8 @@ export class NormalBroadcastService {
     });
   }
 
-  /** 四舍五入到分 */
+  /** 截断到分（2 位小数，舍弃后续位数） */
   private round2(val: number): number {
-    return Math.round(val * 100) / 100;
+    return Math.floor(val * 100) / 100;
   }
 }

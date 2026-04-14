@@ -1,29 +1,19 @@
 import {
   IsString,
-  IsIn,
-  IsEmail,
   IsMobilePhone,
   Length,
   MaxLength,
   MinLength,
+  IsIn,
   ValidateIf,
 } from 'class-validator';
 
 export class LoginDto {
-  @IsIn(['phone', 'email'])
-  channel: 'phone' | 'email';
-
   @IsIn(['code', 'password'])
   mode: 'code' | 'password';
 
-  @ValidateIf((o) => o.channel === 'phone')
   @IsMobilePhone('zh-CN')
-  phone?: string;
-
-  @ValidateIf((o) => o.channel === 'email')
-  @IsEmail()
-  @MaxLength(254)
-  email?: string;
+  phone: string;
 
   @ValidateIf((o) => o.mode === 'code')
   @IsString()

@@ -25,30 +25,11 @@ import { Tag } from '../../src/components/ui/Tag';
 import { Price } from '../../src/components/ui/Price';
 import { AiBadge } from '../../src/components/ui/AiBadge';
 import { AiDivider } from '../../src/components/ui/AiDivider';
-import { AiCardGlow } from '../../src/components/ui/AiCardGlow';
 import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-
-// I04修复：基于商品ID动态生成AI品质评分（真实场景应从后端获取）
-const getAiScore = (productId: string): { score: number; comment: string } => {
-  // 基于ID生成稳定的伪随机分数（85-98区间）
-  let hash = 0;
-  for (let i = 0; i < productId.length; i++) {
-    hash = ((hash << 5) - hash) + productId.charCodeAt(i);
-    hash |= 0;
-  }
-  const score = 85 + Math.abs(hash % 14); // 85-98
-  const comments = [
-    '优质产地直供，检测合规，适合注重健康的家庭',
-    '多项指标达标，溯源信息完整，品质可信赖',
-    '产地认证齐全，农残检测通过，推荐购买',
-    '供应链透明，质量管控严格，综合评价优秀',
-  ];
-  return { score, comment: comments[Math.abs(hash) % comments.length] };
-};
 
 import type { ProductDetail } from '../../src/types';
 
@@ -152,7 +133,6 @@ export default function ProductDetailScreen() {
   }
 
   const images = detail?.images?.length ? detail.images.map((m) => m.url) : (product?.image ? [product.image] : []);
-  const aiScore = getAiScore(product?.id ?? 'default');
   const trace = traceData?.ok ? traceData.data : null;
   const company = companyData?.ok ? companyData.data : null;
   const traceOrigin = trace?.batches?.[0]?.meta?.origin as string | undefined;
@@ -219,40 +199,6 @@ export default function ProductDetailScreen() {
         </View>
 
         <View style={{ padding: spacing.xl }}>
-          {/* AI 品质评分区 */}
-          <Animated.View entering={FadeInDown.duration(300).delay(100)}>
-            <AiCardGlow style={{ ...shadow.sm, marginBottom: spacing.xl }}>
-              <View style={[styles.aiScoreCard, { backgroundColor: colors.ai.soft, borderRadius: radius.lg }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <AiBadge variant="score" />
-                    <Text style={[typography.caption, { color: colors.text.secondary, marginLeft: spacing.sm }]}>
-                      AI 品质评分
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                    <Text style={[typography.title2, { color: colors.ai.start, fontWeight: '700' }]}>
-                      {aiScore.score}
-                    </Text>
-                    <Text style={[typography.caption, { color: colors.text.tertiary }]}>/100</Text>
-                  </View>
-                </View>
-                {/* 渐变进度条 */}
-                <View style={[styles.progressBg, { backgroundColor: colors.bgSecondary, borderRadius: radius.pill, marginTop: spacing.md }]}>
-                  <LinearGradient
-                    colors={[colors.brand.primary, colors.ai.start, colors.ai.end]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.progressFill, { width: `${aiScore.score}%`, borderRadius: radius.pill }]}
-                  />
-                </View>
-                <Text style={[typography.bodySm, { color: colors.ai.start, marginTop: spacing.md, lineHeight: 20 }]}>
-                  "{aiScore.comment}"
-                </Text>
-              </View>
-            </AiCardGlow>
-          </Animated.View>
-
           {/* 价格区域 */}
           <Animated.View entering={FadeInDown.duration(300).delay(150)}>
             <View style={[styles.priceSection, { backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.sm }]}>
@@ -271,9 +217,10 @@ export default function ProductDetailScreen() {
                 </View>
               )}
               </View>
-              {/* 退换货政策提示（TODO: 待后端 product API 返回 returnPolicy 字段后按实际值判断） */}
               <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: spacing.sm, fontSize: 11 }]}>
-                支持7天无理由退换 · 质量问题可申请售后
+                {product!.effectiveReturnPolicy === 'NON_RETURNABLE'
+                  ? '签收后24小时内如有质量问题可申请售后'
+                  : '支持7天无理由退换 · 质量问题可申请售后'}
               </Text>
             </View>
           </Animated.View>
@@ -447,17 +394,6 @@ export default function ProductDetailScreen() {
                     </View>
                   </View>
                   <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.tertiary} />
-                </View>
-                {/* AI 信赖评分条 */}
-                <View style={[styles.trustBar, { backgroundColor: colors.ai.soft, borderRadius: radius.md, marginTop: spacing.md }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                    <AiBadge variant="analysis" />
-                    <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: spacing.xs }]}>
-                      AI 信赖分
-                    </Text>
-                  </View>
-                  <Text style={[typography.bodyStrong, { color: colors.ai.start }]}>96</Text>
-                  <Text style={[typography.captionSm, { color: colors.text.tertiary }]}>/100</Text>
                 </View>
               </Pressable>
             </Animated.View>
@@ -652,16 +588,6 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
     marginHorizontal: 3,
   },
-  aiScoreCard: {
-    padding: 16,
-  },
-  progressBg: {
-    height: 6,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 6,
-  },
   priceSection: {
     padding: 16,
     marginTop: 16,
@@ -722,12 +648,6 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 1.5,
     marginHorizontal: 6,
-  },
-  trustBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
   },
   sectionLine: {
     width: 3,

@@ -319,7 +319,23 @@ export class ProductService {
       throw new NotFoundException('商品已下架');
     }
 
-    return this.mapToDetail(product);
+    const detail = this.mapToDetail(product);
+
+    // 解析最终生效退货政策
+    let policy = product.returnPolicy || 'INHERIT';
+    if (policy === 'INHERIT') {
+      let cat = product.category;
+      while (cat && cat.returnPolicy === 'INHERIT' && cat.parentId) {
+        cat = await this.prisma.category.findUnique({
+          where: { id: cat.parentId },
+          select: { returnPolicy: true, parentId: true },
+        }) as any;
+      }
+      policy = cat?.returnPolicy === 'INHERIT' || !cat?.returnPolicy ? 'RETURNABLE' : cat.returnPolicy;
+    }
+    detail.effectiveReturnPolicy = policy;
+
+    return detail;
   }
 
   /** 分类树（5 分钟内存缓存） */
@@ -912,6 +928,7 @@ export class ProductService {
       // 兼容前端旧 Product 类型
       price: product.skus?.[0]?.price ?? product.basePrice,
       image: product.media?.find((m: any) => m.type === 'IMAGE')?.url || '',
+      effectiveReturnPolicy: null as string | null, // 由 getById 填充
     };
   }
 }

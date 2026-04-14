@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { maskPhone } from '../../../common/security/privacy-mask';
 import { VirtualCallProvider } from './virtual-call-provider.interface';
 
 /**
@@ -82,7 +83,7 @@ export class MockVirtualCallProvider implements VirtualCallProvider {
     expireAt.setMinutes(expireAt.getMinutes() + params.expireMinutes);
 
     this.logger.log(
-      `[Mock] 绑定虚拟号: ${virtualNo}, 卖家=${params.sellerPhone}, 买家=${params.buyerPhone}, ` +
+      `[Mock] 绑定虚拟号: ${virtualNo}, 卖家=${maskPhone(params.sellerPhone)}, 买家=${maskPhone(params.buyerPhone)}, ` +
       `有效期=${params.expireMinutes}分钟, 过期时间=${expireAt.toISOString()}`,
     );
 

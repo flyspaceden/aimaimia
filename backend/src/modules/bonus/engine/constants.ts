@@ -8,9 +8,16 @@ export const MIN_WITHDRAW_AMOUNT = 1;
 export const MAX_DAILY_WITHDRAWALS = 3;
 
 /** L8: BFS 遍历最大迭代次数（防止无限循环） */
-export const MAX_BFS_ITERATIONS = 10000;
+export const MAX_BFS_ITERATIONS = 100000000;
 
-/** L8: BFS 树最大深度（三叉树 20 层可容纳 3^20 ≈ 35 亿节点） */
+/**
+ * L8: 树最大深度（用于祖辈分配等场景）
+ *
+ * 注意：此常量不应用于限制 VIP/Normal 三叉树的 BFS 插入 —
+ * 按业务设计树没有底，每位用户必须永远插入在推荐人子树内，
+ * 不允许以"超过深度"为由降级到系统节点或拒绝插入。
+ * 仅在分配层数、祖辈遍历等纯读取场景下作为上限保护使用。
+ */
 export const MAX_TREE_DEPTH = 20;
 
 /** L8: 系统根节点搜索上限 */

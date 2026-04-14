@@ -29,6 +29,7 @@ export interface AdminUser {
   id: string;
   username: string;
   realName: string | null;
+  phone: string | null;
   status: AdminUserStatus;
   lastLoginAt: string | null;
   lastLoginIp: string | null;
@@ -61,6 +62,18 @@ export interface AdminPermission {
 export interface LoginRequest {
   username: string;
   password: string;
+  captchaId: string;
+  captchaCode: string;
+}
+
+export interface LoginByPhoneCodeRequest {
+  phone: string;
+  code: string;
+}
+
+export interface CaptchaResponse {
+  captchaId: string;
+  svg: string;
 }
 
 export interface LoginResponse {

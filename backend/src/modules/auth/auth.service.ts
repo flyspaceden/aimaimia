@@ -18,6 +18,7 @@ import { randomBytes, createHash, randomInt } from 'crypto';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
+import { AliyunSmsService } from '../../common/sms/aliyun-sms.service';
 
 @Injectable()
 export class AuthService {
@@ -34,6 +35,7 @@ export class AuthService {
     private config: ConfigService,
     private redisCoord: RedisCoordinatorService,
     private couponEngine: CouponEngineService,
+    private aliyunSms: AliyunSmsService,
   ) {}
 
   /** 发送短信验证码 */
@@ -56,37 +58,17 @@ export class AuthService {
       }
       this.logger.log(`[SMS Mock] 固定验证码=${code}（目标=${this.maskContact(phone)}）`);
     } else {
-      // TODO: 接入阿里云/腾讯云 SMS SDK
-      // await this.smsProvider.send(phone, code);
-      this.logger.log(`[SMS] 发送验证码（真实通道占位，目标=${this.maskContact(phone)}）`);
-    }
-
-    return { ok: true };
-  }
-
-  /** 发送邮箱验证码（复用 SmsOtp 表，phone 字段存 email） */
-  async sendEmailCode(email: string) {
-    const smsMock = this.config.get('SMS_MOCK', 'true');
-    // 开发模式使用固定验证码 123456
-    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
-    const codeHash = await bcrypt.hash(code, 10);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-    await this.createOtpWithRateLimit(email, codeHash, expiresAt);
-
-    // B02修复：SMS_MOCK 同时控制邮件验证码的 Mock 模式
-    const nodeEnv = this.config.get('NODE_ENV', 'development');
-    if (smsMock === 'true') {
-      if (nodeEnv === 'production') {
-        this.logger.warn(
-          '[Email] 生产环境仍使用 Mock 邮件，请设置 SMS_MOCK=false 并配置真实邮件服务',
+      // 真实短信通道：调用阿里云 SMS API
+      try {
+        await this.aliyunSms.sendVerificationCode(phone, code);
+        this.logger.log(`[SMS] 验证码已发送（目标=${this.maskContact(phone)}）`);
+      } catch (err) {
+        // 发送失败仅记录日志，不阻塞流程（OTP 已写入数据库，用户可重试）
+        this.logger.error(
+          `[SMS] 验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
         );
       }
-      this.logger.log(`[Email Mock] 已生成验证码（目标=${this.maskContact(email)}）`);
-    } else {
-      // TODO: 接入邮件服务（SendGrid/阿里邮件推送等）
-      // await this.emailProvider.send(email, code);
-      this.logger.log(`[Email] 发送验证码（真实通道占位，目标=${this.maskContact(email)}）`);
     }
 
     return { ok: true };
@@ -94,106 +76,49 @@ export class AuthService {
 
   /** 登录 */
   async login(dto: LoginDto) {
-    const { channel, mode } = dto;
-
-    let result;
-    if (channel === 'phone') {
-      if (!dto.phone) throw new BadRequestException('请提供手机号');
-      await this.enforceLoginAttemptRateLimit('PHONE', dto.phone);
-      result = await this.loginByPhone(dto.phone, mode, dto.code, dto.password);
-    } else {
-      if (!dto.email) throw new BadRequestException('请提供邮箱');
-      await this.enforceLoginAttemptRateLimit('EMAIL', dto.email);
-      result = await this.loginByEmail(dto.email, mode, dto.code, dto.password);
-    }
-
-    return result;
+    await this.enforceLoginAttemptRateLimit('PHONE', dto.phone);
+    return this.loginByPhone(dto.phone, dto.mode, dto.code, dto.password);
   }
 
   /** 注册 */
   async register(dto: RegisterDto) {
-    const { channel, mode } = dto;
+    // 检查是否已注册（通过 AuthIdentity 查询）
+    const existing = await this.prisma.authIdentity.findFirst({
+      where: { provider: 'PHONE', identifier: dto.phone },
+    });
+    if (existing) throw new BadRequestException('该手机号已注册');
 
-    let result;
-    if (channel === 'phone') {
-      if (!dto.phone) throw new BadRequestException('请提供手机号');
+    // 注册必须验证手机号（防止冒领）
+    await this.verifyCode(dto.phone, dto.code);
 
-      // 检查是否已注册（通过 AuthIdentity 查询）
-      const existing = await this.prisma.authIdentity.findFirst({
-        where: { provider: 'PHONE', identifier: dto.phone },
-      });
-      if (existing) throw new BadRequestException('该手机号已注册');
-
-      // 注册必须验证手机号（防止冒领）
-      await this.verifyCode(dto.phone, dto.code);
-
-      // 创建 User + UserProfile + AuthIdentity + MemberProfile（事务）
-      const user = await this.prisma.user.create({
-        data: {
-          profile: {
-            create: { nickname: dto.name || '新用户' },
-          },
-          memberProfile: {
-            create: {},
-          },
-          authIdentities: {
-            create: {
-              provider: 'PHONE',
-              identifier: dto.phone,
-              verified: true,
-              meta: dto.password
-                ? { passwordHash: await bcrypt.hash(dto.password, 10) }
-                : undefined,
-            },
+    // 创建 User + UserProfile + AuthIdentity + MemberProfile（事务）
+    const user = await this.prisma.user.create({
+      data: {
+        profile: {
+          create: { nickname: dto.name || '新用户' },
+        },
+        memberProfile: {
+          create: {},
+        },
+        authIdentities: {
+          create: {
+            provider: 'PHONE',
+            identifier: dto.phone,
+            verified: true,
+            meta: dto.password
+              ? { passwordHash: await bcrypt.hash(dto.password, 10) }
+              : undefined,
           },
         },
-      });
+      },
+    });
 
-      result = await this.issueTokens(user.id, 'phone');
+    const result = await this.issueTokens(user.id, 'phone');
 
-      // Phase F: 注册触发红包发放（fire-and-forget，不阻塞注册流程）
-      this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
-        this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
-      });
-    } else {
-      if (!dto.email) throw new BadRequestException('请提供邮箱');
-
-      const existing = await this.prisma.authIdentity.findFirst({
-        where: { provider: 'EMAIL', identifier: dto.email },
-      });
-      if (existing) throw new BadRequestException('该邮箱已注册');
-
-      // 注册必须验证邮箱（防止冒领）
-      await this.verifyCode(dto.email, dto.code);
-
-      const user = await this.prisma.user.create({
-        data: {
-          profile: {
-            create: { nickname: dto.name || '新用户' },
-          },
-          memberProfile: {
-            create: {},
-          },
-          authIdentities: {
-            create: {
-              provider: 'EMAIL',
-              identifier: dto.email,
-              verified: true,
-              meta: dto.password
-                ? { passwordHash: await bcrypt.hash(dto.password, 10) }
-                : undefined,
-            },
-          },
-        },
-      });
-
-      result = await this.issueTokens(user.id, 'email');
-
-      // Phase F: 注册触发红包发放（fire-and-forget）
-      this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
-        this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
-      });
-    }
+    // Phase F: 注册触发红包发放（fire-and-forget，不阻塞注册流程）
+    this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
+      this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
+    });
 
     return result;
   }
@@ -241,7 +166,7 @@ export class AuthService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const loginMethod = identity?.provider === 'EMAIL' ? 'email' : identity?.provider === 'WECHAT' ? 'wechat' : 'phone';
+    const loginMethod = identity?.provider === 'WECHAT' ? 'wechat' : 'phone';
     // L1修复：继承旧 session 的 absoluteExpiresAt，防止无限续期
     return this.issueTokens(session.userId, loginMethod, session.absoluteExpiresAt);
   }
@@ -285,12 +210,31 @@ export class AuthService {
         `[WeChat Mock] 已生成测试身份（openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
       );
     } else {
-      // TODO: 接入微信开放平台 SDK
-      // const tokenResult = await this.wechatService.exchangeCodeForToken(code);
-      // openId = tokenResult.openid;
-      // unionId = tokenResult.unionid;
-      // const userInfo = await this.wechatService.getUserInfo(tokenResult.access_token, openId);
-      throw new BadRequestException('微信登录真实通道尚未接入，请配置微信开放平台 SDK');
+      // 真实微信登录：用 code 换 access_token + openId
+      const appId = this.config.getOrThrow<string>('WECHAT_APP_ID');
+      const appSecret = this.config.getOrThrow<string>('WECHAT_APP_SECRET');
+      const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${appId}&secret=${appSecret}&code=${code}&grant_type=authorization_code`;
+
+      const tokenRes = await fetch(tokenUrl);
+      const tokenData = await tokenRes.json() as {
+        access_token?: string;
+        openid?: string;
+        unionid?: string;
+        errcode?: number;
+        errmsg?: string;
+      };
+
+      if (tokenData.errcode || !tokenData.openid) {
+        this.logger.error(`[WeChat] token 换取失败: errcode=${tokenData.errcode}, errmsg=${tokenData.errmsg}`);
+        throw new BadRequestException(`微信授权失败：${tokenData.errmsg || '未知错误'}`);
+      }
+
+      openId = tokenData.openid;
+      unionId = tokenData.unionid || '';
+
+      this.logger.log(
+        `[WeChat] 授权成功（openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
+      );
     }
 
     // 查找是否已有微信绑定的身份
@@ -386,55 +330,6 @@ export class AuthService {
       }
       await this.recordLoginAttempt('PHONE', phone, 'password', true, identity.userId);
       return this.issueTokens(identity.userId, 'phone');
-    }
-  }
-
-  private async loginByEmail(email: string, mode: string, code?: string, password?: string) {
-    const identity = await this.prisma.authIdentity.findFirst({
-      where: { provider: 'EMAIL', identifier: email },
-    });
-
-    if (mode === 'code') {
-      try {
-        await this.verifyCode(email, code);
-      } catch (err) {
-        await this.recordLoginAttempt('EMAIL', email, 'code', false, identity?.userId);
-        throw err;
-      }
-      if (!identity) {
-        const newUser = await this.prisma.user.create({
-          data: {
-            profile: { create: { nickname: '新用户' } },
-            memberProfile: { create: {} },
-            authIdentities: {
-              create: { provider: 'EMAIL', identifier: email, verified: true },
-            },
-          },
-        });
-        await this.recordLoginAttempt('EMAIL', email, 'code', true, newUser.id);
-        // Phase F: 验证码登录自动注册也触发 REGISTER 红包
-        this.couponEngine.handleTrigger(newUser.id, 'REGISTER').catch((err: any) => {
-          this.logger.warn(`REGISTER 红包触发失败: userId=${newUser.id}, error=${err?.message}`);
-        });
-        return this.issueTokens(newUser.id, 'email');
-      }
-      await this.recordLoginAttempt('EMAIL', email, 'code', true, identity.userId);
-      return this.issueTokens(identity.userId, 'email');
-    } else {
-      await this.enforcePasswordLoginLock('EMAIL', email);
-      if (!identity) {
-        await this.recordLoginAttempt('EMAIL', email, 'password', false);
-        throw new UnauthorizedException('邮箱未注册');
-      }
-      const meta = identity.meta as any;
-      if (!meta?.passwordHash) throw new BadRequestException('该账号未设置密码，请使用验证码登录');
-      const valid = await bcrypt.compare(password || '', meta.passwordHash);
-      if (!valid) {
-        await this.recordLoginAttempt('EMAIL', email, 'password', false, identity.userId);
-        throw new UnauthorizedException('密码错误');
-      }
-      await this.recordLoginAttempt('EMAIL', email, 'password', true, identity.userId);
-      return this.issueTokens(identity.userId, 'email');
     }
   }
 
@@ -648,11 +543,11 @@ export class AuthService {
   }
 
   /**
-   * M5终态（登录频控）：买家登录按账号标识限流（手机号/邮箱）
+   * M5终态（登录频控）：买家登录按手机号限流
    * - 优先 Redis 分布式限流（多实例一致）
    * - 无 Redis 时回退到 LoginEvent 近窗统计
    */
-  private async enforceLoginAttemptRateLimit(provider: 'PHONE' | 'EMAIL', identifier: string) {
+  private async enforceLoginAttemptRateLimit(provider: 'PHONE', identifier: string) {
     const normalized = this.normalizeIdentifier(identifier);
     const idKey = this.hashKey(`${provider}:${normalized}`);
     const redis = await this.redisCoord.consumeFixedWindow(
@@ -686,7 +581,7 @@ export class AuthService {
    * - 优先 Redis 锁定（多实例即时生效）
    * - 无 Redis 时回退到 LoginEvent 时间窗统计
    */
-  private async enforcePasswordLoginLock(provider: 'PHONE' | 'EMAIL', identifier: string) {
+  private async enforcePasswordLoginLock(provider: 'PHONE', identifier: string) {
     const lockPttl = await this.redisCoord.getPttl(
       this.passwordLockKey(provider, identifier),
     );
@@ -701,7 +596,7 @@ export class AuthService {
     const lastSuccess = await this.prisma.loginEvent.findFirst({
       where: {
         provider,
-        phone: identifier, // LoginEvent.phone 字段复用存手机号/邮箱标识
+        phone: identifier,
         success: true,
         createdAt: { gte: windowStart },
       },
@@ -739,7 +634,7 @@ export class AuthService {
   }
 
   private async recordLoginAttempt(
-    provider: 'PHONE' | 'EMAIL',
+    provider: 'PHONE',
     identifier: string,
     mode: 'password' | 'code',
     success: boolean,
@@ -749,7 +644,7 @@ export class AuthService {
       data: {
         userId,
         provider,
-        phone: identifier, // 复用字段：PHONE 存手机号，EMAIL 存邮箱
+        phone: identifier,
         success,
         meta: { mode },
       },
@@ -761,7 +656,7 @@ export class AuthService {
   }
 
   private async syncPasswordLockState(
-    provider: 'PHONE' | 'EMAIL',
+    provider: 'PHONE',
     identifier: string,
     success: boolean,
   ) {
@@ -789,11 +684,11 @@ export class AuthService {
     }
   }
 
-  private passwordLockKey(provider: 'PHONE' | 'EMAIL', identifier: string) {
+  private passwordLockKey(provider: 'PHONE', identifier: string) {
     return `auth:pwd-lock:${this.hashKey(`${provider}:${this.normalizeIdentifier(identifier)}`)}`;
   }
 
-  private passwordFailKey(provider: 'PHONE' | 'EMAIL', identifier: string) {
+  private passwordFailKey(provider: 'PHONE', identifier: string) {
     return `auth:pwd-fail:${this.hashKey(`${provider}:${this.normalizeIdentifier(identifier)}`)}`;
   }
 

@@ -82,21 +82,28 @@ export class AdminCategoriesService {
       const newPath = parentPath ? `${parentPath}/${dto.name}` : `/${dto.name}`;
       data.path = newPath;
 
-      // 事务内原子更新：父分类 + 所有子分类 path
+      // 事务内原子更新：父分类 + 所有子分类 path（Serializable 隔离防止竞态）
       try {
-        const children = await this.prisma.category.findMany({
-          where: { path: { startsWith: oldPath + '/' } },
-        });
+        await this.prisma.$transaction(
+          async (tx) => {
+            // 查询子分类必须在事务内，防止读-写之间其他事务修改 path
+            const children = await tx.category.findMany({
+              where: { path: { startsWith: oldPath + '/' } },
+            });
 
-        await this.prisma.$transaction([
-          this.prisma.category.update({ where: { id }, data }),
-          ...children.map((child) =>
-            this.prisma.category.update({
-              where: { id: child.id },
-              data: { path: child.path.replace(oldPath, newPath) },
-            }),
-          ),
-        ]);
+            // 更新父分类
+            await tx.category.update({ where: { id }, data });
+
+            // 更新所有子分类 path
+            for (const child of children) {
+              await tx.category.update({
+                where: { id: child.id },
+                data: { path: child.path.replace(oldPath, newPath) },
+              });
+            }
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
       } catch (err) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
           throw new BadRequestException('同名分类已存在');
@@ -148,7 +155,7 @@ export class AdminCategoriesService {
           data: { isActive: false },
         }),
         this.prisma.category.updateMany({
-          where: { parentId: id },
+          where: { path: { startsWith: category.path + '/' } },
           data: { isActive: false },
         }),
       ]);

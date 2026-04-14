@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { InboxService } from '../../inbox/inbox.service';
 import { maskPhone } from '../../../common/security/privacy-mask';
 
 type VipNodeStatus = 'active' | 'silent' | 'frozen' | 'exited';
@@ -9,7 +10,12 @@ const NORMAL_TREE_ROOT_VIEW_ID = '__NORMAL_TREE_ROOT__';
 
 @Injectable()
 export class AdminBonusService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(AdminBonusService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private inboxService: InboxService,
+  ) {}
 
   /** VIP 会员列表 */
   async findMembers(page = 1, pageSize = 20, tier?: string) {
@@ -75,7 +81,7 @@ export class AdminBonusService {
       throw new BadRequestException('仅待审核的提现可审批');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 状态 CAS：仅允许 REQUESTED -> APPROVED
       const cas = await tx.withdrawRequest.updateMany({
         where: { id, status: 'REQUESTED' },
@@ -119,6 +125,18 @@ export class AdminBonusService {
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
+
+    // C12: 提现通过通知
+    this.inboxService.send({
+      userId: withdraw.userId,
+      category: 'transaction',
+      type: 'withdraw_approved',
+      title: '提现审核通过',
+      content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请已通过，款项将在 1-3 个工作日到账。`,
+      target: { route: '/wallet' },
+    }).catch((err) => this.logger.warn(`提现通过通知发送失败: ${err?.message}`));
+
+    return result;
   }
 
   /** 会员详情 — 聚合钱包、树位置、收支流水、提现记录 */
@@ -1408,7 +1426,7 @@ export class AdminBonusService {
       throw new BadRequestException('仅待审核的提现可拒绝');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 状态 CAS：仅允许 REQUESTED -> REJECTED
       const cas = await tx.withdrawRequest.updateMany({
         where: { id, status: 'REQUESTED' },
@@ -1462,5 +1480,17 @@ export class AdminBonusService {
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
+
+    // C12: 提现拒绝通知
+    this.inboxService.send({
+      userId: withdraw.userId,
+      category: 'transaction',
+      type: 'withdraw_rejected',
+      title: '提现申请被驳回',
+      content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请被驳回${reason ? `，原因：${reason}` : ''}。金额已退回可用余额。`,
+      target: { route: '/wallet' },
+    }).catch((err) => this.logger.warn(`提现拒绝通知发送失败: ${err?.message}`));
+
+    return result;
   }
 }

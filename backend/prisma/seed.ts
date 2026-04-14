@@ -456,15 +456,18 @@ async function main() {
     });
 
     // 创建企业员工关联（OWNER 角色）
+    // C17: OWNER 卖家员工默认密码（dev 占位），生产环境由 OWNER 创建员工时设定
+    const ownerStaffPasswordHash = await bcrypt.hash('123456', 10);
     await prisma.companyStaff.upsert({
       where: { userId_companyId: { userId: owner.userId, companyId: owner.companyId } },
-      update: {},
+      update: { passwordHash: ownerStaffPasswordHash },
       create: {
         id: owner.staffId,
         userId: owner.userId,
         companyId: owner.companyId,
         role: 'OWNER',
         status: 'ACTIVE',
+        passwordHash: ownerStaffPasswordHash,
       },
     });
   }
@@ -1463,12 +1466,13 @@ async function main() {
   console.log('✅ 3 个默认角色已创建（超级管理员/经理/员工）');
 
   // --- 超级管理员账号 ---
-  const superAdminPassword = await bcrypt.hash('admin123456', 10);
+  const superAdminPassword = await bcrypt.hash('123456', 10);
   const superAdmin = await prisma.adminUser.upsert({
     where: { username: 'admin' },
-    update: {},
+    update: { phone: '13900000000', passwordHash: superAdminPassword },
     create: {
       username: 'admin',
+      phone: '13900000000', // C18: 管理员手机号短信登录
       passwordHash: superAdminPassword,
       realName: '系统管理员',
       status: 'ACTIVE',
@@ -1480,7 +1484,7 @@ async function main() {
     update: {},
     create: { adminUserId: superAdmin.id, roleId: superAdminRole.id },
   });
-  console.log('✅ 超级管理员账号已创建（admin / admin123456）');
+  console.log('✅ 超级管理员账号已创建（admin / 123456）');
 
   // ============================================================
   // 平台系统用户（用于平台分润账户的外键关联）
@@ -2236,6 +2240,16 @@ async function main() {
   await prisma.normalQueueMember.deleteMany({
     where: { id: { startsWith: 'nqm-' } },
   });
+  // 先删除关联记录（FK 约束），再删订单项和订单
+  await prisma.afterSaleRequest.deleteMany({
+    where: { orderId: { startsWith: 'bo-' } },
+  });
+  await prisma.refund.deleteMany({
+    where: { orderId: { startsWith: 'bo-' } },
+  });
+  await prisma.orderStatusHistory.deleteMany({
+    where: { orderId: { startsWith: 'bo-' } },
+  });
   await prisma.orderItem.deleteMany({
     where: { orderId: { startsWith: 'bo-' } },
   });
@@ -2523,16 +2537,19 @@ async function main() {
     { staffId: 'cs-009', userId: 'u-009', companyId: 'c-003', role: 'OPERATOR' as const, phone: '13800138009', nickname: '孙雅婷' },
     { staffId: 'cs-010', userId: 'u-010', companyId: 'c-004', role: 'OPERATOR' as const, phone: '13800138010', nickname: '周建国' },
   ];
+  // C17: MANAGER/OPERATOR 员工默认密码（dev 占位）
+  const extraStaffPasswordHash = await bcrypt.hash('123456', 10);
   for (const s of extraStaff) {
     await prisma.companyStaff.upsert({
       where: { userId_companyId: { userId: s.userId, companyId: s.companyId } },
-      update: {},
+      update: { passwordHash: extraStaffPasswordHash },
       create: {
         id: s.staffId,
         userId: s.userId,
         companyId: s.companyId,
         role: s.role,
         status: 'ACTIVE',
+        passwordHash: extraStaffPasswordHash,
       },
     });
   }
@@ -4733,6 +4750,23 @@ async function main() {
   await seedCustomerService();
 
   console.log('🌾 种子数据填充完成！');
+
+  console.log(`
+========== 测试账号 ==========
+管理后台（http://localhost/admin）:
+  用户名: admin / 密码: 123456
+  手机号: 13900000000 / 短信验证码: 123456 (SMS_MOCK)
+
+卖家中心（http://localhost/seller）:
+  手机号: 13800001001 / 密码: 123456 (cs-001 OWNER @ 澄源生态农业)
+  短信验证码: 123456 (SMS_MOCK)
+
+其他卖家测试账号（密码均为 123456，验证码均为 123456）:
+  cs-002 OWNER @ c-002: 13800001002
+  cs-005 MANAGER @ c-001: 13800138003
+  cs-006 OPERATOR @ c-001: 13800138004
+==============================
+`);
 }
 
 main()

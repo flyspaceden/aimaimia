@@ -23,7 +23,7 @@ export class CsService {
   ) {}
 
   /** 会话空闲超时（毫秒）：超过此时间无活动，下次进入自动开新会话 */
-  private readonly SESSION_IDLE_TIMEOUT_MS = 5 * 1000; // TODO: 测试用 5 秒，上线前改回 2 * 60 * 60 * 1000
+  private readonly SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
   /**
    * 创建客服会话（超过 2 小时无活动的旧会话自动关闭）

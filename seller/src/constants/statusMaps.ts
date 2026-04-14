@@ -93,6 +93,13 @@ export const afterSaleReasonMap: Record<string, { text: string; color: string }>
   OTHER: { text: '其他', color: 'default' },
 };
 
+// 退货政策
+export const returnPolicyMap: Record<string, { text: string; color: string }> = {
+  RETURNABLE: { text: '7天无理由退换', color: 'green' },
+  NON_RETURNABLE: { text: '仅质量问题可退', color: 'orange' },
+  INHERIT: { text: '默认', color: 'default' },
+};
+
 // 快递公司代码
 export const carrierMap: Record<string, string> = {
   SF: '顺丰速运',

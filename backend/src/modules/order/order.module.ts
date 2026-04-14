@@ -1,8 +1,9 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module, OnModuleInit, forwardRef } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { BonusModule } from '../bonus/bonus.module';
 import { ShippingRuleModule } from '../admin/shipping-rule/shipping-rule.module';
 import { CouponModule } from '../coupon/coupon.module';
+import { PaymentModule } from '../payment/payment.module';
 import { OrderController } from './order.controller';
 import { OrderService } from './order.service';
 import { CheckoutService } from './checkout.service';
@@ -14,12 +15,13 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
 import { CouponService } from '../coupon/coupon.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { BonusService } from '../bonus/bonus.service';
+import { AlipayService } from '../payment/alipay.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { InboxService } from '../inbox/inbox.service';
 
 @Module({
-  imports: [BonusModule, ShippingRuleModule, AfterSaleModule, CouponModule, InboxModule],
+  imports: [BonusModule, ShippingRuleModule, AfterSaleModule, CouponModule, InboxModule, forwardRef(() => PaymentModule)],
   controllers: [OrderController],
   providers: [
     OrderService,
@@ -73,10 +75,17 @@ export class OrderModule implements OnModuleInit {
       console.warn('[OrderModule] BonusService 未注入，VIP 支付后激活功能不可用');
     }
 
-    // 注入站内消息服务（VIP 开通通知用）
+    // C13修复：InboxService 改硬依赖，确保通知功能可用
     const inboxService = this.moduleRef.get(InboxService, { strict: false });
-    if (inboxService) {
-      this.checkoutService.setInboxService(inboxService);
+    if (!inboxService) {
+      throw new Error('[OrderModule] InboxService 未注入，站内消息功能不可用，启动中止');
+    }
+    this.checkoutService.setInboxService(inboxService);
+
+    // 注入支付宝服务
+    const alipayService = this.moduleRef.get(AlipayService, { strict: false });
+    if (alipayService) {
+      this.checkoutService.setAlipayService(alipayService);
     }
   }
 }

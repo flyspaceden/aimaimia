@@ -44,6 +44,22 @@ export const updateProduct = (id: string, data: {
 }): Promise<Product> =>
   client.put(`/admin/products/${id}`, data);
 
+/** C21: SKU 编辑项 */
+export interface SkuUpdateItem {
+  id?: string;
+  specText?: string;
+  price: number;
+  cost?: number;
+  stock: number;
+}
+
+/** C21: 批量编辑商品 SKU（UPSERT） */
+export const updateProductSkus = (
+  id: string,
+  skus: SkuUpdateItem[],
+): Promise<any[]> =>
+  client.put(`/admin/products/${id}/skus`, { skus });
+
 /** 触发 AI 重新生成语义标签 */
 export const refillSemanticTags = (id: string): Promise<void> =>
   client.post(`/admin/products/${id}/refill-semantic`);

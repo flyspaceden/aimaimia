@@ -37,7 +37,7 @@ type EntryType = 'QUICK_ACTION' | 'HOT_QUESTION';
 // 可拖拽行
 function DraggableRow(props: React.HTMLAttributes<HTMLTableRowElement> & { 'data-row-key'?: string }) {
   const id = props['data-row-key'] || '';
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <tr
       {...props}

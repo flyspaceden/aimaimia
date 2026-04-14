@@ -28,6 +28,11 @@ export class SellerJwtStrategy extends PassportStrategy(Strategy, 'seller-jwt') 
   }
 
   async validate(payload: SellerJwtPayload) {
+    // C07: 令牌类型校验，防止买家/管理员 token 误用
+    if (payload.type !== 'seller') {
+      throw new UnauthorizedException('无效的令牌类型');
+    }
+
     const now = new Date();
 
     // 新版 token：带 sessionId，精确校验会话是否仍有效
@@ -56,12 +61,16 @@ export class SellerJwtStrategy extends PassportStrategy(Strategy, 'seller-jwt') 
     }
 
     // 同步校验员工状态，避免离职/禁用后旧 Access Token 继续使用
+    // C08: 同时校验 companyId 是否与令牌一致，防止员工转移企业后旧 token 越权
     const staff = await this.prisma.companyStaff.findUnique({
       where: { id: payload.sub },
-      select: { status: true },
+      select: { status: true, companyId: true },
     });
     if (!staff || staff.status !== 'ACTIVE') {
       throw new ForbiddenException('员工账号已被禁用');
+    }
+    if (staff.companyId !== payload.companyId) {
+      throw new UnauthorizedException('企业信息已变更，请重新登录');
     }
 
     return {

@@ -1,4 +1,7 @@
 export const PERMISSIONS = {
+  // 工作台
+  DASHBOARD_READ: 'dashboard:read',
+
   // 商品
   PRODUCTS_READ: 'products:read',
   PRODUCTS_CREATE: 'products:create',
@@ -9,7 +12,6 @@ export const PERMISSIONS = {
   // 订单
   ORDERS_READ: 'orders:read',
   ORDERS_SHIP: 'orders:ship',
-  ORDERS_REFUND: 'orders:refund',
   ORDERS_CANCEL: 'orders:cancel',
 
   // 企业
@@ -71,10 +73,6 @@ export const PERMISSIONS = {
   SHIPPING_CREATE: 'shipping:create',
   SHIPPING_UPDATE: 'shipping:update',
   SHIPPING_DELETE: 'shipping:delete',
-
-  // 换货仲裁（旧，兼容保留）
-  REPLACEMENTS_READ: 'replacements:read',
-  REPLACEMENTS_ARBITRATE: 'replacements:arbitrate',
 
   // 统一售后仲裁
   AFTER_SALE_READ: 'after-sale:read',

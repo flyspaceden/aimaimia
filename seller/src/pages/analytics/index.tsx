@@ -36,7 +36,7 @@ export default function AnalyticsPage() {
           <Card><Statistic title="本月销售额" value={overview?.month.revenue || 0} precision={2} suffix="元" /></Card>
         </Col>
         <Col span={6}>
-          <Card><Statistic title="换货率" value={(overview?.month.replacementRate || 0) * 100} precision={1} suffix="%" /></Card>
+          <Card><Statistic title="售后率" value={(overview?.month.afterSaleRate || 0) * 100} precision={1} suffix="%" /></Card>
         </Col>
         <Col span={6}>
           <Card><Statistic title="总销售额" value={overview?.total.totalRevenue || 0} precision={2} suffix="元" /></Card>

@@ -1,14 +1,8 @@
-import { IsEmail, IsMobilePhone, IsString, Length, MaxLength } from 'class-validator';
+import { IsMobilePhone, IsString, Length } from 'class-validator';
 
 export class SendSmsCodeDto {
   @IsMobilePhone('zh-CN')
   phone: string;
-}
-
-export class SendEmailCodeDto {
-  @IsEmail()
-  @MaxLength(254)
-  email: string;
 }
 
 export class WeChatOAuthDto {

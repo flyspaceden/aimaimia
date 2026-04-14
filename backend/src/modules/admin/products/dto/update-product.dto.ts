@@ -23,6 +23,10 @@ export class AdminUpdateProductDto {
   categoryId?: string;
 
   @IsOptional()
+  @IsString()
+  returnPolicy?: string; // RETURNABLE / NON_RETURNABLE / INHERIT
+
+  @IsOptional()
   origin?: any; // Json: 产地信息
 
   @IsOptional()

@@ -5,23 +5,36 @@ import { SellerAuthService } from './seller-auth.service';
 import {
   SellerSmsCodeDto,
   SellerLoginDto,
+  SellerPasswordLoginDto,
   SellerSelectCompanyDto,
   SellerRefreshDto,
 } from './seller-auth.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
 import { CurrentSeller } from '../common/decorators/current-seller.decorator';
+import { CaptchaService } from '../../captcha/captcha.service';
 
 @Controller('seller/auth')
 export class SellerAuthController {
-  constructor(private authService: SellerAuthService) {}
+  constructor(
+    private authService: SellerAuthService,
+    private captchaService: CaptchaService,
+  ) {}
+
+  /** 获取图形验证码 */
+  @Public()
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  @Get('captcha')
+  async getCaptcha() {
+    return this.captchaService.generate();
+  }
 
   /** 发送验证码 */
   @Public()
   @Throttle({ default: { ttl: 60000, limit: 3 } })
   @Post('sms/code')
   sendSmsCode(@Body() dto: SellerSmsCodeDto) {
-    return this.authService.sendSmsCode(dto.phone);
+    return this.authService.sendSmsCode(dto);
   }
 
   /** 手机号 + 验证码登录 */
@@ -30,6 +43,14 @@ export class SellerAuthController {
   @Post('login')
   login(@Body() dto: SellerLoginDto, @Req() req: Request) {
     return this.authService.login(dto, req.ip, req.headers['user-agent']);
+  }
+
+  /** 手机号 + 密码登录 */
+  @Public()
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Post('login-by-password')
+  loginByPassword(@Body() dto: SellerPasswordLoginDto, @Req() req: Request) {
+    return this.authService.loginByPassword(dto, req.ip, req.headers['user-agent']);
   }
 
   /** 多企业用户选择企业 */

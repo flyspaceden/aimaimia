@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getOverview, getSalesTrend } from '@/api/analytics';
 import { getOrders } from '@/api/orders';
-import { getReplacements } from '@/api/replacements';
+import { getAfterSales } from '@/api/after-sale';
 import { Line } from '@ant-design/charts';
 
 const { Title } = Typography;
@@ -33,10 +33,10 @@ export default function DashboardPage() {
     queryFn: () => getOrders({ status: 'PAID', page: 1, pageSize: 5 }),
   });
 
-  // 待处理换货
-  const { data: pendingReplacements } = useQuery({
-    queryKey: ['seller-pending-replacements'],
-    queryFn: () => getReplacements({ status: 'REQUESTED,UNDER_REVIEW', page: 1, pageSize: 5 }),
+  // 待处理售后
+  const { data: pendingAfterSales } = useQuery({
+    queryKey: ['seller-pending-after-sales'],
+    queryFn: () => getAfterSales({ status: 'REQUESTED', page: 1, pageSize: 5 }),
   });
 
   if (loadingOverview) {
@@ -54,10 +54,10 @@ export default function DashboardPage() {
       action: () => navigate(`/orders/${o.id}`),
       label: '去发货',
     })),
-    ...(pendingReplacements?.items || []).map((r) => ({
-      key: `replacement-${r.id}`,
-      title: `换货 ${r.id.slice(0, 12)}... 待处理`,
-      action: () => navigate(`/replacements/${r.id}`),
+    ...(pendingAfterSales?.items || []).map((r) => ({
+      key: `after-sale-${r.id}`,
+      title: `售后 ${r.id.slice(0, 12)}... 待处理`,
+      action: () => navigate(`/after-sale/${r.id}`),
       label: '去处理',
     })),
   ];
@@ -100,9 +100,9 @@ export default function DashboardPage() {
           <Card>
             <Statistic
               title="待处理售后"
-              value={overview?.today.pendingReplacementCount || 0}
+              value={overview?.today.pendingAfterSaleCount || 0}
               prefix={<SwapOutlined />}
-              valueStyle={overview?.today.pendingReplacementCount ? { color: '#DC2626' } : undefined}
+              valueStyle={overview?.today.pendingAfterSaleCount ? { color: '#DC2626' } : undefined}
             />
           </Card>
         </Col>

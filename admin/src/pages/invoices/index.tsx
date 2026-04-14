@@ -128,17 +128,17 @@ export default function InvoiceListPage() {
     },
     {
       title: '买家',
-      dataIndex: ['user', 'phone'],
+      dataIndex: ['order', 'user', 'nickname'],
       width: 120,
       search: false,
       render: (_: unknown, r: Invoice) => (
         <span>
-          {r.user?.nickname && (
+          {r.order?.user?.nickname && (
             <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-              {r.user.nickname}
+              {r.order.user.nickname}
             </Text>
           )}
-          <Text>{r.user?.phone || '-'}</Text>
+          <Text>{r.profileSnapshot?.phone || '-'}</Text>
         </span>
       ),
     },

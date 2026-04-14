@@ -14,7 +14,6 @@ import type { ProFormInstance } from '@ant-design/pro-components';
 import { Drawer, message, Card, Typography, Space, Button } from 'antd';
 import {
   GiftOutlined,
-  ThunderboltOutlined,
   DollarOutlined,
   SettingOutlined,
   CalendarOutlined,
@@ -66,7 +65,7 @@ export default function CampaignFormDrawer({
   onSuccess,
 }: CampaignFormDrawerProps) {
   const isEdit = !!campaign;
-  const formRef = useRef<ProFormInstance>();
+  const formRef = useRef<ProFormInstance | undefined>(undefined);
 
   // 构建初始值
   const getInitialValues = () =>

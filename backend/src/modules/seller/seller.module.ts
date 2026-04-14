@@ -8,7 +8,6 @@ import { SellerShipmentsModule } from './shipments/seller-shipments.module';
 import { SellerTraceModule } from './trace/seller-trace.module';
 
 import { SellerConfigModule } from './config/seller-config.module';
-import { SellerRefundsModule } from './refunds/seller-refunds.module';
 import { VirtualCallModule } from './virtual-call/virtual-call.module';
 import { SellerShippingModule } from './shipping/seller-shipping.module';
 import { SellerAuditAlertModule } from './audit/seller-audit-alert.module';
@@ -28,7 +27,6 @@ import { SellerAfterSaleModule } from './after-sale/seller-after-sale.module';
     SellerShippingModule,
     SellerTraceModule,
 
-    SellerRefundsModule,
     SellerConfigModule,
     VirtualCallModule,
     SellerAuditAlertModule,

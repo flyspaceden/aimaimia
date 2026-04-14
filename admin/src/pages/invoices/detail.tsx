@@ -17,7 +17,7 @@ import {
 } from 'antd';
 import { ArrowLeftOutlined, FileTextOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { getInvoiceDetail, issueInvoice, failInvoice } from '@/api/invoices';
-import type { Invoice, InvoiceOrderItem } from '@/api/invoices';
+import type { InvoiceOrderItem } from '@/api/invoices';
 import dayjs from 'dayjs';
 
 // 发票状态映射

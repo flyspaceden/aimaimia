@@ -17,7 +17,6 @@ import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags'
 import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
 import { COMPANY_TYPE_OPTIONS } from '@/types';
-import type { AiSearchProfile } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 

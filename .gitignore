@@ -15,10 +15,21 @@ expo-env.d.ts
 # Native
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+
+# Claude Code tooling
+.claude/
+.superpowers/
+
+# 敏感凭证与交付包（含支付宝私钥、合同原件等）
+支付宝证书*/
+交付包/
+*.csr
+*_RSA*.txt
 
 # Metro
 .metro-health-check*

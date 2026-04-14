@@ -4,9 +4,10 @@ import { AfterSaleService } from './after-sale.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleTimeoutService } from './after-sale-timeout.service';
 import { PaymentModule } from '../payment/payment.module';
+import { InboxModule } from '../inbox/inbox.module';
 
 @Module({
-  imports: [forwardRef(() => PaymentModule)],
+  imports: [forwardRef(() => PaymentModule), InboxModule],
   controllers: [AfterSaleController],
   providers: [AfterSaleService, AfterSaleRewardService, AfterSaleTimeoutService],
   exports: [AfterSaleService, AfterSaleRewardService],

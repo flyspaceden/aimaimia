@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, AI_SEARCH_KEYS } from './seller-company.dto';
 import { maskName, maskPhone } from '../../../common/security/privacy-mask';
@@ -274,12 +275,15 @@ export class SellerCompanyService {
       throw new BadRequestException('该用户已是本企业员工');
     }
 
+    const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : null;
+
     return this.prisma.companyStaff.create({
       data: {
         userId: identity.userId,
         companyId,
         role: dto.role,
         invitedBy: inviterUserId,
+        passwordHash,
       },
       include: {
         user: { include: { profile: { select: { nickname: true, avatarUrl: true } } } },

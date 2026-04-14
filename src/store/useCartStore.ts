@@ -10,7 +10,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import Toast from 'react-native-toast-message';
+import { showToast } from '../components/feedback';
 import { CartMergeResultItem, Product, ServerCartItem } from '../types';
 import { CartRepo } from '../repos/CartRepo';
 import { useAuthStore } from './useAuthStore';
@@ -192,10 +192,11 @@ export const useCartStore = create<CartState>()(
           const existing = get().items.find((item) => itemKey(item) === key);
           const currentQty = existing?.quantity ?? 0;
           if (currentQty + Math.max(1, quantity) > maxPerOrder) {
-            Toast.show({
+            showToast({
               type: 'info',
-              text1: `该商品每单限购 ${maxPerOrder} 件`,
-              text2: currentQty > 0 ? `购物车已有 ${currentQty} 件` : undefined,
+              message: currentQty > 0
+                ? `该商品每单限购 ${maxPerOrder} 件，购物车已有 ${currentQty} 件`
+                : `该商品每单限购 ${maxPerOrder} 件`,
             });
             return false;
           }
@@ -364,9 +365,9 @@ export const useCartStore = create<CartState>()(
         let clampedQty = quantity;
         if (item?.maxPerOrder != null && clampedQty > item.maxPerOrder) {
           clampedQty = item.maxPerOrder;
-          Toast.show({
+          showToast({
             type: 'info',
-            text1: `该商品每单限购 ${item.maxPerOrder} 件`,
+            message: `该商品每单限购 ${item.maxPerOrder} 件`,
           });
         }
 

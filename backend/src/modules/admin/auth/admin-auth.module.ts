@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminJwtStrategy } from '../common/strategies/admin-jwt.strategy';
+import { CaptchaModule } from '../../captcha/captcha.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AdminJwtStrategy } from '../common/strategies/admin-jwt.strategy';
         },
       }),
     }),
+    CaptchaModule,
   ],
   controllers: [AdminAuthController],
   providers: [AdminAuthService, AdminJwtStrategy],

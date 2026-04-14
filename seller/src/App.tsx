@@ -15,9 +15,6 @@ const AnalyticsPage = lazy(() => import('@/pages/analytics/index'));
 const CompanySettingsPage = lazy(() => import('@/pages/company/index'));
 const StaffManagementPage = lazy(() => import('@/pages/company/staff'));
 const TracePage = lazy(() => import('@/pages/trace/index'));
-const RefundListPage = lazy(() => import('@/pages/refunds/index'));
-const ReplacementListPage = lazy(() => import('@/pages/replacements/index'));
-const ReplacementDetailPage = lazy(() => import('@/pages/replacements/detail'));
 const AfterSaleListPage = lazy(() => import('@/pages/after-sale/index'));
 const AfterSaleDetailPage = lazy(() => import('@/pages/after-sale/detail'));
 
@@ -84,9 +81,6 @@ export default function App() {
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
-            <Route path="refunds" element={<RefundListPage />} />
-            <Route path="replacements" element={<ReplacementListPage />} />
-            <Route path="replacements/:id" element={<ReplacementDetailPage />} />
             <Route path="after-sale" element={<AfterSaleListPage />} />
             <Route path="after-sale/:id" element={<AfterSaleDetailPage />} />
             <Route path="analytics" element={<RequireRole roles={['OWNER', 'MANAGER']}><AnalyticsPage /></RequireRole>} />

@@ -20,6 +20,10 @@ type ToastContextValue = {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
+// 命令式 toast（供 Zustand Store 等非 React 环境调用）
+let _imperativeShow: ((options: ToastOptions) => void) | null = null;
+export const showToast = (options: ToastOptions) => _imperativeShow?.(options);
+
 // 全局 Toast：统一轻提示入口
 export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -51,6 +55,12 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
       setToast(null);
     }, nextToast.duration);
   }, []);
+
+  // 注册命令式入口，供 Zustand Store 调用
+  useEffect(() => {
+    _imperativeShow = show;
+    return () => { _imperativeShow = null; };
+  }, [show]);
 
   return (
     <ToastContext.Provider value={{ show, hide }}>

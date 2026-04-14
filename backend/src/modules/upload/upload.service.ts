@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID, createHmac, timingSafeEqual } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
-import sharp from 'sharp';
+import sharp = require('sharp');
+import OSS = require('ali-oss');
 import {
   UPLOAD_ALLOWED_MIME_TYPES,
   UPLOAD_MAX_FILE_SIZE,
@@ -14,16 +15,17 @@ import { ImageContentScannerService } from './image-content-scanner.service';
 /**
  * 文件上传服务
  *
- * 当前为占位实现（本地存储），生产环境替换为阿里云 OSS：
- * 1. 安装 ali-oss：npm install ali-oss
- * 2. 配置 .env：OSS_REGION / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET / OSS_BUCKET
- * 3. 替换 uploadFile 方法中的本地存储逻辑为 OSS SDK 调用
+ * 支持双模式存储：
+ * - UPLOAD_LOCAL=true（默认）：本地文件系统存储，适用于开发环境
+ * - UPLOAD_LOCAL=false：阿里云 OSS 存储，需配置 OSS_REGION / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET / OSS_BUCKET
  */
 @Injectable()
 export class UploadService {
   private readonly logger = new Logger(UploadService.name);
   private readonly uploadDir: string;
   private readonly baseUrl: string;
+
+  private ossClient: OSS | null = null;
 
   constructor(
     private config: ConfigService,
@@ -37,6 +39,22 @@ export class UploadService {
     if (!fs.existsSync(this.uploadDir)) {
       fs.mkdirSync(this.uploadDir, { recursive: true });
     }
+  }
+
+  /** 懒加载 OSS 客户端 */
+  private getOssClient(): OSS {
+    if (this.ossClient) return this.ossClient;
+    const region = this.config.get<string>('OSS_REGION');
+    const accessKeyId = this.config.get<string>('OSS_ACCESS_KEY_ID');
+    const accessKeySecret = this.config.get<string>('OSS_ACCESS_KEY_SECRET');
+    const bucket = this.config.get<string>('OSS_BUCKET');
+    if (!region || !accessKeyId || !accessKeySecret || !bucket) {
+      throw new BadRequestException(
+        'OSS 配置不完整，请设置 OSS_REGION / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET / OSS_BUCKET',
+      );
+    }
+    this.ossClient = new OSS({ region, accessKeyId, accessKeySecret, bucket });
+    return this.ossClient;
   }
 
   /**
@@ -115,7 +133,7 @@ export class UploadService {
         );
       }
 
-      // 占位实现：保存到本地文件系统
+      // 本地文件系统存储（UPLOAD_LOCAL=true 时使用）
       const folderPath = path.join(this.uploadDir, safeFolder);
       if (!fs.existsSync(folderPath)) {
         fs.mkdirSync(folderPath, { recursive: true });
@@ -135,18 +153,18 @@ export class UploadService {
         expiresAt: access.expiresAt,
       };
     } else {
-      // TODO: 接入阿里云 OSS / AWS S3
-      // const ossClient = new OSS({
-      //   region: this.config.get('OSS_REGION'),
-      //   accessKeyId: this.config.get('OSS_ACCESS_KEY_ID'),
-      //   accessKeySecret: this.config.get('OSS_ACCESS_KEY_SECRET'),
-      //   bucket: this.config.get('OSS_BUCKET'),
-      // });
-      // const result = await ossClient.put(key, file.buffer);
-      // return { url: result.url, key, size: file.size, mimeType: file.mimetype };
-      throw new BadRequestException(
-        'OSS 存储尚未接入，请设置 UPLOAD_LOCAL=true 或完成 OSS 配置',
-      );
+      // 阿里云 OSS 存储
+      const oss = this.getOssClient();
+      const result = await oss.put(key, Buffer.from(finalBuffer));
+      this.logger.log(`文件上传至 OSS：${key}（${(finalBuffer.length / 1024).toFixed(1)}KB）`);
+
+      return {
+        url: result.url,
+        key,
+        size: finalBuffer.length,
+        mimeType: finalMimeType,
+        expiresAt: null,
+      };
     }
   }
 
@@ -179,20 +197,30 @@ export class UploadService {
         this.logger.log(`文件删除成功：${normalizedKey}`);
       }
     } else {
-      // TODO: 接入阿里云 OSS 删除
-      // await ossClient.delete(key);
-      this.logger.warn(`OSS 删除尚未接入，跳过删除：${key}`);
+      // 阿里云 OSS 删除
+      const oss = this.getOssClient();
+      try {
+        await oss.delete(normalizedKey);
+        this.logger.log(`OSS 文件删除成功：${normalizedKey}`);
+      } catch (err) {
+        this.logger.error(`OSS 文件删除失败：${normalizedKey}`, (err as Error)?.stack);
+      }
     }
   }
 
-  /** 生成文件访问 URL（本地私有模式下返回签名 URL） */
+  /** 生成文件访问 URL（本地模式返回签名/公开 URL，OSS 模式返回签名 URL） */
   async createAccessUrl(key: string, expiresSec?: number): Promise<{ url: string; expiresAt: string | null }> {
     const normalizedKey = this.normalizeKey(key);
     const useLocalStorage = this.config.get('UPLOAD_LOCAL', 'true');
-    if (useLocalStorage !== 'true') {
-      throw new BadRequestException('OSS 签名 URL 尚未接入');
+    if (useLocalStorage === 'true') {
+      return this.buildLocalAccessUrl(normalizedKey, expiresSec);
     }
-    return this.buildLocalAccessUrl(normalizedKey, expiresSec);
+    // OSS 签名 URL
+    const oss = this.getOssClient();
+    const ttlSec = this.clampAccessTtl(expiresSec ?? this.getPositiveIntEnv('UPLOAD_SIGN_TTL_SEC', 3600));
+    const url = oss.signatureUrl(normalizedKey, { expires: ttlSec });
+    const expiresAt = new Date(Date.now() + ttlSec * 1000).toISOString();
+    return { url, expiresAt };
   }
 
   /** 校验签名并返回本地私有文件读取信息 */

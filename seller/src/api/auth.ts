@@ -1,13 +1,30 @@
 import client from './client';
 import type { LoginResponse, SelectCompanyResponse, SellerProfile } from '@/types';
 
-/** 发送验证码 */
-export const sendSmsCode = (phone: string): Promise<{ ok: boolean }> =>
-  client.post('/seller/auth/sms/code', { phone });
+/** 获取图形验证码 */
+export const getCaptcha = (): Promise<{ captchaId: string; svg: string }> =>
+  client.get('/seller/auth/captcha');
+
+/** 发送验证码（需通过图形验证码校验） */
+export const sendSmsCode = (
+  phone: string,
+  captchaId: string,
+  captchaCode: string,
+): Promise<{ ok: boolean }> =>
+  client.post('/seller/auth/sms/code', { phone, captchaId, captchaCode });
 
 /** 手机号 + 验证码登录 */
 export const login = (phone: string, code: string): Promise<LoginResponse | SelectCompanyResponse> =>
   client.post('/seller/auth/login', { phone, code });
+
+/** 手机号 + 密码登录（需通过图形验证码校验） */
+export const loginByPassword = (
+  phone: string,
+  password: string,
+  captchaId: string,
+  captchaCode: string,
+): Promise<LoginResponse | SelectCompanyResponse> =>
+  client.post('/seller/auth/login-by-password', { phone, password, captchaId, captchaCode });
 
 /** 多企业用户选择企业 */
 export const selectCompany = (tempToken: string, companyId: string): Promise<LoginResponse> =>

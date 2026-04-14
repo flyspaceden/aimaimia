@@ -14,6 +14,7 @@ export const createAdminUser = (data: {
   username: string;
   password: string;
   realName?: string;
+  phone?: string;
   roleIds?: string[];
 }): Promise<AdminUser> =>
   client.post('/admin/users', data);
@@ -21,6 +22,7 @@ export const createAdminUser = (data: {
 /** 更新管理员 */
 export const updateAdminUser = (id: string, data: {
   realName?: string;
+  phone?: string;
   status?: 'ACTIVE' | 'DISABLED';
   roleIds?: string[];
 }): Promise<AdminUser> =>

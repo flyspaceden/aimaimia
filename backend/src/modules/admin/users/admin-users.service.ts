@@ -5,6 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 import { UpdateAdminUserDto, ResetPasswordDto } from './dto/update-admin-user.dto';
@@ -67,6 +68,7 @@ export class AdminUsersService {
         id: admin.id,
         username: admin.username,
         realName: admin.realName,
+        phone: admin.phone,
         status: admin.status,
         roles: admin.userRoles.map((ur) => ({
           id: ur.role.id,
@@ -104,27 +106,47 @@ export class AdminUsersService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
-    const admin = await this.prisma.adminUser.create({
-      data: {
-        username: dto.username,
-        passwordHash,
-        realName: dto.realName,
-        createdByAdminId,
-        userRoles: dto.roleIds?.length
-          ? {
-              create: dto.roleIds.map((roleId) => ({ roleId })),
-            }
-          : undefined,
-      },
-      include: {
-        userRoles: { include: { role: true } },
-      },
-    });
+    let admin;
+    try {
+      admin = await this.prisma.adminUser.create({
+        data: {
+          username: dto.username,
+          passwordHash,
+          realName: dto.realName,
+          phone: dto.phone,
+          createdByAdminId,
+          userRoles: dto.roleIds?.length
+            ? {
+                create: dto.roleIds.map((roleId) => ({ roleId })),
+              }
+            : undefined,
+        },
+        include: {
+          userRoles: { include: { role: true } },
+        },
+      });
+    } catch (err) {
+      // P2002: 唯一约束冲突（phone 是 @unique）
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const target = (err.meta?.target as string[] | undefined) ?? [];
+        if (target.includes('phone')) {
+          throw new BadRequestException('手机号已被占用');
+        }
+        if (target.includes('username')) {
+          throw new BadRequestException('用户名已存在');
+        }
+      }
+      throw err;
+    }
 
     return {
       id: admin.id,
       username: admin.username,
       realName: admin.realName,
+      phone: admin.phone,
       status: admin.status,
       roles: admin.userRoles.map((ur) => ({
         id: ur.role.id,
@@ -161,13 +183,28 @@ export class AdminUsersService {
     }
 
     // 更新基本信息
-    await this.prisma.adminUser.update({
-      where: { id },
-      data: {
-        realName: dto.realName,
-        status: dto.status,
-      },
-    });
+    try {
+      await this.prisma.adminUser.update({
+        where: { id },
+        data: {
+          realName: dto.realName,
+          phone: dto.phone,
+          status: dto.status,
+        },
+      });
+    } catch (err) {
+      // P2002: 唯一约束冲突（phone 是 @unique）
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const target = (err.meta?.target as string[] | undefined) ?? [];
+        if (target.includes('phone')) {
+          throw new BadRequestException('手机号已被占用');
+        }
+      }
+      throw err;
+    }
 
     // 更新角色关联
     if (dto.roleIds !== undefined) {
@@ -253,6 +290,7 @@ export class AdminUsersService {
       id: admin.id,
       username: admin.username,
       realName: admin.realName,
+      phone: admin.phone,
       status: admin.status,
       roles: admin.userRoles.map((ur) => ({
         id: ur.role.id,

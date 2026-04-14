@@ -31,6 +31,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/',
       name: '工作台',
       icon: <DashboardOutlined />,
+      permission: PERMISSIONS.DASHBOARD_READ,
     },
     {
       path: '/user-bonus',
@@ -71,8 +72,6 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/orders', name: '订单管理' },
         { path: '/invoices', name: '发票管理', permission: PERMISSIONS.INVOICES_READ },
         { path: '/after-sale', name: '售后仲裁', permission: PERMISSIONS.AFTER_SALE_READ },
-        { path: '/replacements', name: '换货仲裁(旧)', permission: PERMISSIONS.REPLACEMENTS_READ },
-        { path: '/refunds', name: '退款仲裁(旧)', permission: PERMISSIONS.ORDERS_REFUND },
         { path: '/shipping-rules', name: '运费规则', permission: PERMISSIONS.SHIPPING_READ },
       ],
     },

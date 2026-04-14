@@ -16,6 +16,7 @@ import { GiftCoverImage } from '../src/components/cards';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
 import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
+import { payWithAlipay } from '../src/utils/alipay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { useTheme } from '../src/theme';
@@ -294,15 +295,36 @@ export default function CheckoutScreen() {
         return;
       }
 
-      const { sessionId, merchantOrderNo } = sessionResult.data;
+      const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // 开发环境：模拟支付回调触发后端完成支付
-      const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
-      if (!payResult.ok) {
-        show({ message: '支付触发失败，请稍后重试', type: 'error' });
-        // 取消会话释放红包
-        await OrderRepo.cancelCheckoutSession(sessionId);
-        return;
+      // 支付宝渠道：调用原生 SDK 支付
+      if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
+        const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
+        if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
+          // 原生模块不可用（Expo Go），回退到模拟支付
+          const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+          if (!payResult.ok) {
+            show({ message: '支付触发失败，请稍后重试', type: 'error' });
+            await OrderRepo.cancelCheckoutSession(sessionId);
+            return;
+          }
+        } else if (!alipayResult.success) {
+          const msg = alipayResult.resultStatus === '6001' ? '已取消支付' : '支付失败，请重试';
+          show({ message: msg, type: alipayResult.resultStatus === '6001' ? 'warning' : 'error' });
+          if (alipayResult.resultStatus === '6001') {
+            await OrderRepo.cancelCheckoutSession(sessionId);
+          }
+          return;
+        }
+        // 支付成功或处理中：继续轮询
+      } else {
+        // 非支付宝渠道 / 开发环境：模拟支付回调
+        const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+        if (!payResult.ok) {
+          show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          await OrderRepo.cancelCheckoutSession(sessionId);
+          return;
+        }
       }
 
       // 轮询会话状态，等待后端处理完成
@@ -376,14 +398,33 @@ export default function CheckoutScreen() {
         return;
       }
 
-      const { sessionId, merchantOrderNo } = sessionResult.data;
+      const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // 模拟支付
-      const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
-      if (!payResult.ok) {
-        show({ message: '支付触发失败，请稍后重试', type: 'error' });
-        await OrderRepo.cancelCheckoutSession(sessionId);
-        return;
+      // 支付宝渠道：调用原生 SDK 支付
+      if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
+        const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
+        if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
+          const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+          if (!payResult.ok) {
+            show({ message: '支付触发失败，请稍后重试', type: 'error' });
+            await OrderRepo.cancelCheckoutSession(sessionId);
+            return;
+          }
+        } else if (!alipayResult.success) {
+          const msg = alipayResult.resultStatus === '6001' ? '已取消支付' : '支付失败，请重试';
+          show({ message: msg, type: alipayResult.resultStatus === '6001' ? 'warning' : 'error' });
+          if (alipayResult.resultStatus === '6001') {
+            await OrderRepo.cancelCheckoutSession(sessionId);
+          }
+          return;
+        }
+      } else {
+        const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+        if (!payResult.ok) {
+          show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          await OrderRepo.cancelCheckoutSession(sessionId);
+          return;
+        }
       }
 
       // 轮询会话状态

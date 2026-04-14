@@ -216,11 +216,11 @@ export default function ProductListPage() {
     },
     {
       title: '退货政策',
-      width: 100,
+      width: 120,
       search: false,
       render: (_: unknown, r: Product) => {
-        const policy = r.category?.returnPolicy;
-        if (!policy) return <Text type="secondary">-</Text>;
+        const policy = (r as any).effectiveReturnPolicy || r.category?.returnPolicy;
+        if (!policy || policy === 'INHERIT') return <Text type="secondary">-</Text>;
         const entry = returnPolicyMap[policy];
         return <Tag color={entry?.color || 'default'}>{entry?.text || policy}</Tag>;
       },

@@ -1,16 +1,46 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Button, message, Typography, Tag } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import {
+  Card,
+  Form,
+  Input,
+  Button,
+  message,
+  Typography,
+  Tag,
+  Tabs,
+  Space,
+} from 'antd';
+import {
+  UserOutlined,
+  LockOutlined,
+  SafetyOutlined,
+  MobileOutlined,
+  MessageOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import axios from 'axios';
-import { login, getProfile } from '@/api/auth';
+import {
+  login,
+  loginByPhoneCode,
+  getProfile,
+  getCaptcha,
+  sendSmsCode,
+} from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
 
 const { Title, Text } = Typography;
 
-interface LoginForm {
+interface PasswordLoginForm {
   username: string;
   password: string;
+  captchaCode: string;
+}
+
+interface PhoneLoginForm {
+  phone: string;
+  code: string;
+  captchaCode: string;
 }
 
 // 环境标识：根据 VITE_APP_ENV 或 Vite 内置 MODE 判断
@@ -19,22 +49,18 @@ const isProduction = appEnv === 'production';
 
 /**
  * 将登录/获取权限过程中的异常转为用户友好的错误提示
- * - 401: 用户名或密码错误
- * - 403: 账号被禁用/权限不足
- * - 429: 请求过于频繁
- * - 网络异常: 提示检查网络
  */
 const getLoginErrorMessage = (err: unknown): string => {
-  // 先检查是否 axios 错误，可以拿到 HTTP 状态码
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
-    // 优先取后端返回的业务错误信息
     const serverMsg =
       err.response?.data?.error ||
       err.response?.data?.message ||
       (typeof err.response?.data === 'string' ? err.response.data : '');
 
     switch (status) {
+      case 400:
+        return serverMsg || '请求参数错误';
       case 401:
         return serverMsg || '用户名或密码错误，请检查后重试';
       case 403:
@@ -53,7 +79,6 @@ const getLoginErrorMessage = (err: unknown): string => {
     }
   }
 
-  // 已经被拦截器包装成 Error 的场景
   if (err instanceof Error && err.message) {
     return err.message;
   }
@@ -61,26 +86,154 @@ const getLoginErrorMessage = (err: unknown): string => {
   return '登录失败，请稍后重试';
 };
 
+/** 将 SVG 字符串转为可直接用于 <img> 的 data URL（base64 编码，规避中文等 Unicode 字符） */
+const svgToDataUrl = (svg: string): string => {
+  try {
+    // unescape(encodeURIComponent) 处理 UTF-8 后再 btoa
+    const base64 = btoa(unescape(encodeURIComponent(svg)));
+    return `data:image/svg+xml;base64,${base64}`;
+  } catch {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
+};
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'password' | 'phone'>('password');
 
-  const handleLogin = async (values: LoginForm) => {
+  // 图形验证码状态
+  const [captchaId, setCaptchaId] = useState('');
+  const [captchaSvg, setCaptchaSvg] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+
+  // 短信验证码倒计时
+  const [smsCountdown, setSmsCountdown] = useState(0);
+  const [smsSending, setSmsSending] = useState(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [passwordForm] = Form.useForm<PasswordLoginForm>();
+  const [phoneForm] = Form.useForm<PhoneLoginForm>();
+
+  /** 刷新图形验证码 */
+  const refreshCaptcha = useCallback(async () => {
+    setCaptchaLoading(true);
+    try {
+      const res = await getCaptcha();
+      setCaptchaId(res.captchaId);
+      setCaptchaSvg(res.svg);
+    } catch (err) {
+      message.error('验证码加载失败，请刷新重试');
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }, []);
+
+  // 初始化/切换 tab 时拉取验证码（账号登录 + 手机登录都需要）
+  useEffect(() => {
+    if (!captchaSvg) {
+      void refreshCaptcha();
+    }
+  }, [activeTab, captchaSvg, refreshCaptcha]);
+
+  // 清理倒计时
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
+
+  const startCountdown = () => {
+    setSmsCountdown(60);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    countdownRef.current = setInterval(() => {
+      setSmsCountdown((prev) => {
+        if (prev <= 1) {
+          if (countdownRef.current) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  /** 处理账号密码 + 验证码登录 */
+  const handlePasswordLogin = async (values: PasswordLoginForm) => {
+    if (!captchaId) {
+      message.error('请先获取图形验证码');
+      return;
+    }
     setLoading(true);
     try {
-      // 1. 登录获取 token
-      const result = await login(values);
-      // 2. 临时存储 token 以便 getProfile 请求使用
+      const result = await login({
+        username: values.username,
+        password: values.password,
+        captchaId,
+        captchaCode: values.captchaCode,
+      });
       localStorage.setItem('admin_token', result.accessToken);
-      // 3. 获取完整权限信息
       const profile = await getProfile();
-      // 4. 写入 store
       setAuth(result.accessToken, result.refreshToken, profile);
       message.success('登录成功');
       navigate('/', { replace: true });
     } catch (err) {
-      // getProfile 失败时清除残留 token，避免后续请求循环 401
+      localStorage.removeItem('admin_token');
+      message.error(getLoginErrorMessage(err));
+      // 登录失败时刷新验证码（每个 captcha 只能使用一次）
+      void refreshCaptcha();
+      passwordForm.setFieldValue('captchaCode', '');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 发送短信验证码（需先通过图形验证码） */
+  const handleSendSms = async () => {
+    try {
+      const values = await phoneForm.validateFields(['phone', 'captchaCode']);
+      if (!captchaId) {
+        message.error('请先获取图形验证码');
+        return;
+      }
+      setSmsSending(true);
+      await sendSmsCode(values.phone, captchaId, values.captchaCode);
+      message.success('验证码已发送');
+      startCountdown();
+      // 图形验证码单次有效，发送后立即刷新并清空输入
+      void refreshCaptcha();
+      phoneForm.setFieldValue('captchaCode', '');
+    } catch (err: any) {
+      if (err?.errorFields) {
+        // 表单校验错误，由 antd 显示
+        return;
+      }
+      message.error(getLoginErrorMessage(err));
+      // 图形验证码校验失败时刷新验证码
+      void refreshCaptcha();
+      phoneForm.setFieldValue('captchaCode', '');
+    } finally {
+      setSmsSending(false);
+    }
+  };
+
+  /** 处理手机号 + 短信验证码登录 */
+  const handlePhoneLogin = async (values: PhoneLoginForm) => {
+    setLoading(true);
+    try {
+      const result = await loginByPhoneCode({
+        phone: values.phone,
+        code: values.code,
+      });
+      localStorage.setItem('admin_token', result.accessToken);
+      const profile = await getProfile();
+      setAuth(result.accessToken, result.refreshToken, profile);
+      message.success('登录成功');
+      navigate('/', { replace: true });
+    } catch (err) {
       localStorage.removeItem('admin_token');
       message.error(getLoginErrorMessage(err));
     } finally {
@@ -95,18 +248,19 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #e8eaf6 0%, #c5cae9 50%, #9fa8da 100%)',
+        background:
+          'linear-gradient(135deg, #e8eaf6 0%, #c5cae9 50%, #9fa8da 100%)',
       }}
     >
       <Card
         style={{
-          width: 400,
+          width: 420,
           boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
           borderRadius: 12,
         }}
         styles={{ body: { padding: 32 } }}
       >
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ marginBottom: 8 }}>
             <Tag color={isProduction ? 'green' : 'orange'}>
               {isProduction ? '正式环境' : '测试环境'}
@@ -118,46 +272,224 @@ export default function LoginPage() {
           <Text type="secondary">AI 赋能农业电商平台</Text>
         </div>
 
-        <Form<LoginForm>
-          onFinish={handleLogin}
-          size="large"
-          autoComplete="off"
-        >
-          <Form.Item
-            name="username"
-            rules={[{ required: true, message: '请输入用户名' }]}
-          >
-            <Input
-              prefix={<UserOutlined />}
-              placeholder="用户名"
-            />
-          </Form.Item>
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as 'password' | 'phone')}
+          centered
+          items={[
+            {
+              key: 'password',
+              label: '账号登录',
+              children: (
+                <Form<PasswordLoginForm>
+                  form={passwordForm}
+                  onFinish={handlePasswordLogin}
+                  size="large"
+                  autoComplete="off"
+                >
+                  <Form.Item
+                    name="username"
+                    rules={[{ required: true, message: '请输入用户名' }]}
+                  >
+                    <Input prefix={<UserOutlined />} placeholder="用户名" />
+                  </Form.Item>
 
-          <Form.Item
-            name="password"
-            rules={[
-              { required: true, message: '请输入密码' },
-              { min: 6, message: '密码至少 6 位' },
-            ]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
-              placeholder="密码"
-            />
-          </Form.Item>
+                  <Form.Item
+                    name="password"
+                    rules={[
+                      { required: true, message: '请输入密码' },
+                      { min: 6, message: '密码至少 6 位' },
+                    ]}
+                  >
+                    <Input.Password
+                      prefix={<LockOutlined />}
+                      placeholder="密码"
+                    />
+                  </Form.Item>
 
-          <Form.Item style={{ marginBottom: 0 }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-              style={{ height: 44, borderRadius: 8 }}
-            >
-              登录
-            </Button>
-          </Form.Item>
-        </Form>
+                  <Form.Item>
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Form.Item
+                        name="captchaCode"
+                        noStyle
+                        rules={[
+                          { required: true, message: '请输入图形验证码' },
+                          { min: 4, max: 6, message: '验证码长度 4-6 位' },
+                        ]}
+                      >
+                        <Input
+                          prefix={<SafetyOutlined />}
+                          placeholder="图形验证码"
+                          autoComplete="off"
+                        />
+                      </Form.Item>
+                      <div
+                        onClick={() => !captchaLoading && refreshCaptcha()}
+                        title="点击刷新验证码"
+                        style={{
+                          height: 40,
+                          minWidth: 120,
+                          border: '1px solid #d9d9d9',
+                          borderLeft: 'none',
+                          borderRadius: '0 6px 6px 0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: '#fafafa',
+                          cursor: captchaLoading ? 'wait' : 'pointer',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {captchaSvg ? (
+                          <img
+                            src={svgToDataUrl(captchaSvg)}
+                            alt="captcha"
+                            style={{
+                              height: '100%',
+                              width: '100%',
+                              objectFit: 'contain',
+                            }}
+                          />
+                        ) : (
+                          <ReloadOutlined spin={captchaLoading} />
+                        )}
+                      </div>
+                    </Space.Compact>
+                  </Form.Item>
+
+                  <Form.Item style={{ marginBottom: 0 }}>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      loading={loading}
+                      block
+                      style={{ height: 44, borderRadius: 8 }}
+                    >
+                      登录
+                    </Button>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+            {
+              key: 'phone',
+              label: '手机登录',
+              children: (
+                <Form<PhoneLoginForm>
+                  form={phoneForm}
+                  onFinish={handlePhoneLogin}
+                  size="large"
+                  autoComplete="off"
+                >
+                  <Form.Item
+                    name="phone"
+                    rules={[
+                      { required: true, message: '请输入手机号' },
+                      {
+                        pattern: /^1\d{10}$/,
+                        message: '请输入正确的 11 位手机号',
+                      },
+                    ]}
+                  >
+                    <Input
+                      prefix={<MobileOutlined />}
+                      placeholder="手机号"
+                      maxLength={11}
+                    />
+                  </Form.Item>
+
+                  <Form.Item>
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Form.Item
+                        name="captchaCode"
+                        noStyle
+                        rules={[
+                          { required: true, message: '请输入图形验证码' },
+                          { min: 4, max: 6, message: '验证码长度 4-6 位' },
+                        ]}
+                      >
+                        <Input
+                          prefix={<SafetyOutlined />}
+                          placeholder="图形验证码"
+                          autoComplete="off"
+                        />
+                      </Form.Item>
+                      <div
+                        onClick={() => !captchaLoading && refreshCaptcha()}
+                        title="点击刷新验证码"
+                        style={{
+                          height: 40,
+                          minWidth: 120,
+                          border: '1px solid #d9d9d9',
+                          borderLeft: 'none',
+                          borderRadius: '0 6px 6px 0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: '#fafafa',
+                          cursor: captchaLoading ? 'wait' : 'pointer',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {captchaSvg ? (
+                          <img
+                            src={svgToDataUrl(captchaSvg)}
+                            alt="captcha"
+                            style={{
+                              height: '100%',
+                              width: '100%',
+                              objectFit: 'contain',
+                            }}
+                          />
+                        ) : (
+                          <ReloadOutlined spin={captchaLoading} />
+                        )}
+                      </div>
+                    </Space.Compact>
+                  </Form.Item>
+
+                  <Form.Item
+                    name="code"
+                    rules={[
+                      { required: true, message: '请输入验证码' },
+                      { min: 4, max: 6, message: '验证码长度 4-6 位' },
+                    ]}
+                  >
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Input
+                        prefix={<MessageOutlined />}
+                        placeholder="短信验证码"
+                        autoComplete="off"
+                      />
+                      <Button
+                        style={{ minWidth: 120 }}
+                        onClick={handleSendSms}
+                        loading={smsSending}
+                        disabled={smsCountdown > 0}
+                      >
+                        {smsCountdown > 0
+                          ? `${smsCountdown}s 后重试`
+                          : '获取验证码'}
+                      </Button>
+                    </Space.Compact>
+                  </Form.Item>
+
+                  <Form.Item style={{ marginBottom: 0 }}>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      loading={loading}
+                      block
+                      style={{ height: 44, borderRadius: 8 }}
+                    >
+                      登录
+                    </Button>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+          ]}
+        />
       </Card>
     </div>
   );

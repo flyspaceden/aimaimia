@@ -52,30 +52,10 @@ export const withdrawalStatusMap: Record<string, StatusEntry> = {
   FAILED: { text: '打款失败', color: 'volcano' },
 };
 
-// 退款状态
-export const refundStatusMap: Record<string, StatusEntry> = {
-  REQUESTED: { text: '待处理', color: 'orange' },
-  APPROVED: { text: '已同意', color: 'green' },
-  REJECTED: { text: '已拒绝', color: 'red' },
-  REFUNDING: { text: '退款中', color: 'blue' },
-  REFUNDED: { text: '已退款', color: 'cyan' },
-  FAILED: { text: '退款失败', color: 'volcano' },
-};
-
 // 会员等级颜色
 export const memberTierColors: Record<string, string> = {
   NORMAL: 'default',
   VIP: 'gold',
-};
-
-// 换货状态
-export const replacementStatusMap: Record<string, StatusEntry> = {
-  REQUESTED: { text: '待处理', color: 'orange' },
-  UNDER_REVIEW: { text: '审核中', color: 'purple' },
-  APPROVED: { text: '已同意', color: 'blue' },
-  REJECTED: { text: '已拒绝', color: 'red' },
-  SHIPPED: { text: '换货中', color: 'cyan' },
-  COMPLETED: { text: '已完成', color: 'green' },
 };
 
 // 红包活动状态
@@ -174,8 +154,8 @@ export const afterSaleTypeMap: Record<string, StatusEntry> = {
 
 // 退货政策（ReturnPolicy 枚举）
 export const returnPolicyMap: Record<string, StatusEntry> = {
-  RETURNABLE: { text: '支持退货', color: 'green' },
-  NON_RETURNABLE: { text: '不支持退货', color: 'red' },
+  RETURNABLE: { text: '7天无理由退换', color: 'green' },
+  NON_RETURNABLE: { text: '仅质量问题可退', color: 'orange' },
   INHERIT: { text: '继承父分类', color: 'default' },
 };
 

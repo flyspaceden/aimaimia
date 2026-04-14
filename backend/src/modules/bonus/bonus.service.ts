@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
 import { MIN_WITHDRAW_AMOUNT, MAX_DAILY_WITHDRAWALS, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
+import { InboxService } from '../inbox/inbox.service';
 
 @Injectable()
 export class BonusService {
@@ -13,6 +14,7 @@ export class BonusService {
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
     private couponEngine: CouponEngineService,
+    private inboxService: InboxService,
   ) {}
 
   // ========== 会员信息 ==========
@@ -119,99 +121,6 @@ export class BonusService {
     }
 
     return { success: true, inviterUserId: result.inviterUserId };
-  }
-
-  /**
-   * 购买 VIP（C09 修复：防止并发重复购买）
-   *
-   * 将会员等级检查移入事务内部，并在事务中重新查询 MemberProfile，
-   * 防止两个并发请求同时通过事务外的检查导致双重扣费和重复树节点。
-   * 额外检查 VipPurchase 表中是否已有 PAID 记录作为二次保障，
-   * 并捕获 P2002 唯一约束违反作为最终兜底。
-   */
-  async purchaseVip(userId: string) {
-    try {
-      // S05修复：Serializable 隔离级别，防止 VIP 树并发插入位置冲突
-      await this.prisma.$transaction(async (tx) => {
-        // 事务内重新查询会员信息，确保读取最新状态（防止并发竞态）
-        const member = await tx.memberProfile.findUnique({ where: { userId } });
-        if (member?.tier === 'VIP') {
-          throw new BadRequestException('已是 VIP 会员');
-        }
-
-        // 二次保障：检查是否已存在 PAID 状态的 VipPurchase 记录
-        const existingPurchase = await tx.vipPurchase.findFirst({
-          where: { userId, status: 'PAID' },
-        });
-        if (existingPurchase) {
-          this.logger.warn(`用户 ${userId} 已有 PAID 状态的 VipPurchase 记录，拒绝重复购买`);
-          throw new BadRequestException('已是 VIP 会员');
-        }
-
-        // 创建 VIP 购买记录（遗留路径：价格由 VipPackage 管理，此处 amount=0 仅供兼容）
-        const vipPurchase = await tx.vipPurchase.create({
-          data: { userId, amount: 0, status: 'PAID', packageId: undefined, referralBonusRate: 0 },
-        });
-
-        // 更新会员等级
-        const updatedMember = await tx.memberProfile.upsert({
-          where: { userId },
-          create: {
-            userId,
-            tier: 'VIP',
-            vipPurchasedAt: new Date(),
-            referralCode: this.generateReferralCode(),
-          },
-          update: {
-            tier: 'VIP',
-            vipPurchasedAt: new Date(),
-          },
-        });
-
-        // 创建 VIP 进度
-        await tx.vipProgress.upsert({
-          where: { userId },
-          create: { userId },
-          update: {},
-        });
-
-        // 分配三叉树节点（BFS 插入）
-        await this.assignVipTreeNode(tx, userId);
-
-        // ===== 推荐人 VIP 推荐奖励 =====
-        const inviterUserId = updatedMember.inviterUserId || member?.inviterUserId;
-        const referralBonusRate = vipPurchase.referralBonusRate ?? 0;
-        const referralBonus = Math.round(vipPurchase.amount * referralBonusRate * 100) / 100;
-
-        if (inviterUserId && referralBonus > 0) {
-          await this.grantVipReferralBonus(tx, inviterUserId, userId, referralBonus, vipPurchase.id);
-        }
-
-        // ===== 冻结普通树进度（VIP/Normal 隔离） =====
-        const normalProgress = await tx.normalProgress.findUnique({
-          where: { userId },
-        });
-        if (normalProgress && !normalProgress.frozenAt) {
-          await tx.normalProgress.update({
-            where: { userId },
-            data: { frozenAt: new Date() },
-          });
-          this.logger.log(`用户 ${userId} 成为 VIP，普通树进度已冻结`);
-        }
-      }, {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      });
-    } catch (err: any) {
-      // 兜底：捕获 P2002 唯一约束违反（并发双提交场景）
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        this.logger.warn(`用户 ${userId} VIP 购买被唯一约束拦截（并发重复提交）`);
-        throw new ConflictException('VIP 购买正在处理中，请勿重复提交');
-      }
-      // BadRequestException 等业务异常直接抛出
-      throw err;
-    }
-
-    return this.getMemberProfile(userId);
   }
 
   /**
@@ -371,7 +280,7 @@ export class BonusService {
         // 推荐人 VIP 推荐奖励（按购买金额 × 推荐奖励比例计算）
         const inviterUserId = updatedMember.inviterUserId || member?.inviterUserId;
         const referralBonusRateSnapshot = vipPurchase.referralBonusRate ?? 0;
-        const referralBonus = Math.round(vipPurchase.amount * referralBonusRateSnapshot * 100) / 100;
+        const referralBonus = Math.floor(vipPurchase.amount * referralBonusRateSnapshot * 100) / 100;
         if (inviterUserId && referralBonus > 0) {
           await this.grantVipReferralBonus(tx, inviterUserId, userId, referralBonus, vipPurchase.id);
         }
@@ -1111,15 +1020,29 @@ export class BonusService {
     this.logger.log(
       `VIP 推荐奖励：推荐人 ${inviterUserId} 获得 ${amount} 元（被推荐人 ${inviteeUserId} 购买 VIP）`,
     );
+
+    // C12: VIP 邀请奖励通知
+    setImmediate(() => {
+      this.inboxService.send({
+        userId: inviterUserId,
+        category: 'transaction',
+        type: 'vip_referral_bonus',
+        title: 'VIP 推荐奖励到账',
+        content: `您推荐的好友购买了 VIP，您获得 ${amount.toFixed(2)} 元推荐奖励。`,
+        target: { route: '/wallet' },
+      }).catch(() => {});
+    });
   }
 
   // ========== 私有方法 ==========
 
   /**
-   * 三叉树 BFS 插入（修复版）
+   * 三叉树 BFS 插入（C31a 修复版）
    *
-   * 有推荐人：在推荐人节点下 BFS 滑落插入
-   * 无推荐人：遍历 A1→A2→...→A10 找第一个有空位的系统节点
+   * 有推荐人：在推荐人节点下 BFS 滑落插入，永远停留在推荐人子树内；
+   *           若 BFS 返回 null 视为系统异常直接抛出，严禁降级到系统节点。
+   * 无推荐人：遍历 A1→A2→...→A10 找第一个有空位的系统节点，
+   *           A1-A10 全满则创建 A11, A12, ... 直到 MAX_ROOT_NODES 上限。
    */
   private async assignVipTreeNode(tx: any, userId: string) {
     const member = await tx.memberProfile.findUnique({ where: { userId } });
@@ -1128,36 +1051,46 @@ export class BonusService {
     let rootId: string = '';
 
     if (member?.inviterUserId) {
-      // ===== 有推荐人：在推荐人子树内 BFS 滑落 =====
+      // ===== 有推荐人：必须落在推荐人子树内，不允许降级到系统节点 =====
       const inviterMember = await tx.memberProfile.findUnique({
         where: { userId: member.inviterUserId },
       });
 
-      if (inviterMember?.vipNodeId) {
-        const inviterNode = await tx.vipTreeNode.findUnique({
-          where: { id: inviterMember.vipNodeId },
-        });
-
-        if (inviterNode) {
-          if (inviterNode.childrenCount < 3) {
-            // 推荐人有空位，直接插入
-            parentNode = inviterNode;
-            rootId = inviterNode.rootId;
-          } else {
-            // 推荐人已满，BFS 在推荐人子树内滑落
-            const found = await this.bfsInSubtree(tx, inviterNode.id);
-            if (found) {
-              parentNode = found;
-              rootId = inviterNode.rootId;
-            }
-            // 若 found 为 null（子树全满），parentNode 仍为 null，降级到系统节点
-          }
-        }
+      if (!inviterMember?.vipNodeId) {
+        // 推荐人自己没有 VIP 树节点，属于数据异常
+        throw new InternalServerErrorException(
+          '推荐人尚未分配 VIP 树节点，无法在其子树中插入，请联系技术支持',
+        );
       }
-    }
 
-    if (!parentNode) {
-      // ===== 无推荐人 / 推荐人无节点：遍历系统节点 A1-A10 =====
+      const inviterNode = await tx.vipTreeNode.findUnique({
+        where: { id: inviterMember.vipNodeId },
+      });
+
+      if (!inviterNode) {
+        throw new InternalServerErrorException(
+          '推荐人 VIP 树节点不存在，请联系技术支持',
+        );
+      }
+
+      if (inviterNode.childrenCount < 3) {
+        // 推荐人有空位，直接插入
+        parentNode = inviterNode;
+        rootId = inviterNode.rootId;
+      } else {
+        // 推荐人已满，BFS 在推荐人子树内滑落
+        const found = await this.bfsInSubtree(tx, inviterNode.id);
+        if (!found) {
+          // 子树找不到空位 —— 按业务树无底设计，这是异常而非"降级"的理由
+          throw new InternalServerErrorException(
+            '无法在推荐人子树中找到 VIP 空位，请联系技术支持',
+          );
+        }
+        parentNode = found;
+        rootId = inviterNode.rootId;
+      }
+    } else {
+      // ===== 无推荐人：遍历系统节点 A1-A10 =====
       for (let i = 1; i <= 10; i++) {
         const sysRootId = `A${i}`;
         const sysNode = await tx.vipTreeNode.findFirst({
@@ -1226,12 +1159,13 @@ export class BonusService {
 
   /**
    * 在指定节点的子树内 BFS，找到第一个 childrenCount < 3 的节点
-   * 若子树已满，返回 null
+   * 若子树已满，返回 null（C31a：调用方应视为系统异常抛出，不再降级到系统节点）
+   *
+   * 注：按业务设计三叉树无底，不对深度做限制；仅保留迭代次数上限作为保险丝，
+   * 防止数据循环引用等异常造成死循环。
    */
   private async bfsInSubtree(tx: any, startNodeId: string): Promise<any | null> {
-    // L8修复：BFS 同时限制迭代次数和树深度
-    // queue 元素为 [nodeId, depth] 对
-    const queue: Array<{ id: string; depth: number }> = [{ id: startNodeId, depth: 0 }];
+    const queue: string[] = [startNodeId];
     let iterations = 0;
 
     while (queue.length > 0) {
@@ -1239,15 +1173,10 @@ export class BonusService {
         this.logger.warn(`BFS 遍历超过 ${MAX_BFS_ITERATIONS} 次迭代，中止搜索（startNodeId=${startNodeId}）`);
         break;
       }
-      const current = queue.shift()!;
-
-      // 超过最大深度则不再向下展开子节点
-      if (current.depth >= MAX_TREE_DEPTH) {
-        continue;
-      }
+      const currentId = queue.shift()!;
 
       const children = await tx.vipTreeNode.findMany({
-        where: { parentId: current.id },
+        where: { parentId: currentId },
         orderBy: { position: 'asc' },
       });
 
@@ -1255,11 +1184,10 @@ export class BonusService {
         if (child.childrenCount < 3) {
           return child;
         }
-        queue.push({ id: child.id, depth: current.depth + 1 });
+        queue.push(child.id);
       }
     }
 
-    // 子树已满或超限，返回 null 让调用方降级到系统节点
     return null;
   }
 

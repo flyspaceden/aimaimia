@@ -19,9 +19,14 @@ export default function StaffManagementPage() {
     queryFn: getStaff,
   });
 
-  const handleInvite = async (values: { phone: string; role: string }) => {
+  const handleInvite = async (values: { phone: string; role: string; password?: string }) => {
     try {
-      await inviteStaff(values.phone, values.role);
+      const trimmed = values.password?.trim();
+      await inviteStaff(
+        values.phone,
+        values.role as 'MANAGER' | 'OPERATOR',
+        trimmed ? trimmed : undefined,
+      );
       message.success('邀请成功');
       setInviteModal(false);
       inviteForm.resetFields();
@@ -136,6 +141,18 @@ export default function StaffManagementPage() {
               ]}
             />
           </Form.Item>
+          <Form.Item
+            name="password"
+            label="初始登录密码（可选）"
+            extra="设置后员工可用手机+密码登录；留空则只能用手机+验证码登录"
+            rules={[
+              { min: 6, message: '密码至少 6 位' },
+              { max: 128, message: '密码不能超过 128 位' },
+            ]}
+          >
+            <Input.Password placeholder="留空则员工仅支持验证码登录" autoComplete="new-password" />
+          </Form.Item>
+          {/* TODO: 后端补充「重置员工密码」接口后，在员工行操作列新增重置密码入口 */}
         </Form>
       </Modal>
     </Card>

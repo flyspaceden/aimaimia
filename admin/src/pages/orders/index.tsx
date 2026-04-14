@@ -20,7 +20,6 @@ import type { Order, OrderStatsMap } from '@/types';
 import {
   orderStatusMap as statusMap,
   paymentChannelMap,
-  orderAfterSaleStatusMap as afterSaleStatusMap,
 } from '@/constants/statusMaps';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';

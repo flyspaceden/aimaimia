@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Card, Button, Input, message, Tag, Typography, Empty, Spin } from 'antd';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Button, Card, Input, message, Tag, Typography, Empty, Spin } from 'antd';
 import { DeleteOutlined, HolderOutlined } from '@ant-design/icons';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
   closestCenter,
@@ -90,7 +90,8 @@ function SortableFilterItem({
 export default function DiscoveryFiltersPage() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<FilterItem[]>([]);
-  const [dirty, setDirty] = useState(false);
+  const initialized = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // 加载当前配置
   const { data: configData, isLoading: configLoading } = useQuery({
@@ -129,25 +130,34 @@ export default function DiscoveryFiltersPage() {
   useEffect(() => {
     if (configData?.value && Array.isArray(configData.value)) {
       setFilters(configData.value as FilterItem[]);
+      // 标记初始化完成，延迟一帧避免触发自动保存
+      requestAnimationFrame(() => { initialized.current = true; });
     }
   }, [configData]);
 
-  // 保存
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      updateConfig('DISCOVERY_COMPANY_FILTERS', {
-        value: filters,
-        changeNote: '更新发现页企业筛选配置',
-      }),
-    onSuccess: () => {
-      message.success('保存成功');
-      setDirty(false);
-      queryClient.invalidateQueries({ queryKey: ['admin', 'config'] });
-    },
-    onError: (err: any) => {
-      message.error(err?.message || '保存失败');
-    },
-  });
+  // 自动保存（防抖 600ms）
+  const autoSave = useCallback((newFilters: FilterItem[]) => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await updateConfig('DISCOVERY_COMPANY_FILTERS', {
+          value: newFilters,
+          changeNote: '更新发现页企业筛选配置',
+        });
+        message.success('已自动保存');
+        queryClient.invalidateQueries({ queryKey: ['admin', 'config'] });
+      } catch (err: any) {
+        message.error(err?.message || '保存失败');
+      }
+    }, 600);
+  }, [queryClient]);
+
+  // filters 变化时自动保存
+  useEffect(() => {
+    if (!initialized.current) return;
+    autoSave(filters);
+    return () => clearTimeout(saveTimer.current);
+  }, [filters, autoSave]);
 
   // 拖拽
   const sensors = useSensors(
@@ -163,24 +173,20 @@ export default function DiscoveryFiltersPage() {
         const newIndex = prev.findIndex((f) => f.tagId === over.id);
         return arrayMove(prev, oldIndex, newIndex);
       });
-      setDirty(true);
     }
   };
 
   const handleAdd = (tag: TagOption) => {
     if (selectedIds.has(tag.id)) return;
     setFilters((prev) => [...prev, { tagId: tag.id, icon: '🏷️' }]);
-    setDirty(true);
   };
 
   const handleRemove = (tagId: string) => {
     setFilters((prev) => prev.filter((f) => f.tagId !== tagId));
-    setDirty(true);
   };
 
   const handleIconChange = (tagId: string, icon: string) => {
     setFilters((prev) => prev.map((f) => (f.tagId === tagId ? { ...f, icon } : f)));
-    setDirty(true);
   };
 
   if (configLoading || tagsLoading) {
@@ -193,11 +199,8 @@ export default function DiscoveryFiltersPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>发现页企业筛选配置</Title>
-        <Button type="primary" onClick={() => saveMutation.mutate()} loading={saveMutation.isPending} disabled={!dirty}>
-          保存配置
-        </Button>
       </div>
 
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>

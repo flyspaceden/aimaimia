@@ -18,7 +18,7 @@ import {
 } from './seller-products.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
-import { SellerRoleGuard } from '../common/guards/seller-role.guard';
+import { SellerRoleGuard, SellerRoles } from '../common/guards/seller-role.guard';
 import { CurrentSeller } from '../common/decorators/current-seller.decorator';
 import { SellerAudit } from '../common/decorators/seller-audit.decorator';
 import { SellerAuditInterceptor } from '../common/interceptors/seller-audit.interceptor';
@@ -60,6 +60,7 @@ export class SellerProductsController {
   }
 
   /** 创建商品 */
+  @SellerRoles('OWNER', 'MANAGER')
   @SellerAudit({ action: 'CREATE_PRODUCT', module: 'products', targetType: 'Product' })
   @Post()
   create(
@@ -70,6 +71,7 @@ export class SellerProductsController {
   }
 
   /** 编辑商品 */
+  @SellerRoles('OWNER', 'MANAGER')
   @SellerAudit({ action: 'UPDATE_PRODUCT', module: 'products', targetType: 'Product', targetIdParam: 'params.id' })
   @Put(':id')
   update(
@@ -81,6 +83,7 @@ export class SellerProductsController {
   }
 
   /** 上架/下架 */
+  @SellerRoles('OWNER', 'MANAGER')
   @SellerAudit({ action: 'TOGGLE_PRODUCT_STATUS', module: 'products', targetType: 'Product', targetIdParam: 'params.id' })
   @Post(':id/status')
   toggleStatus(
@@ -92,6 +95,7 @@ export class SellerProductsController {
   }
 
   /** 管理 SKU */
+  @SellerRoles('OWNER', 'MANAGER')
   @SellerAudit({ action: 'UPDATE_SKUS', module: 'products', targetType: 'Product', targetIdParam: 'params.id' })
   @Put(':id/skus')
   updateSkus(

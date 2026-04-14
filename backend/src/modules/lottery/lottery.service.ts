@@ -313,6 +313,8 @@ export class LotteryService {
   /** 公开抽奖 — 设备指纹 + IP 三重限流，中奖返回 claimToken */
   async publicDraw(fingerprint: string, clientIp: string) {
     const drawDate = this.getTodayDate();
+    const prizeDailyTtlSec = 24 * 60 * 60;
+    let prizeDailyKey: string | null = null;
 
     // 1. HC-5: 三重限流（Redis 不可用时拒绝服务，不允许回退）
     await this.enforcePublicDrawRateLimits(fingerprint, clientIp, drawDate);
@@ -363,16 +365,19 @@ export class LotteryService {
       return { result: 'NO_PRIZE' as const };
     }
 
-    // 6. dailyLimit 检查（事务外查询，公开抽奖无 userId）
+    // 6. dailyLimit 检查（Redis 原子计数器，因 LotteryRecord 需要 userId，公开抽奖无法写入）
     if (selectedPrize.dailyLimit !== null) {
-      const todayWonCount = await this.prisma.lotteryRecord.count({
-        where: {
-          prizeId: selectedPrize.id,
-          drawDate,
-          result: 'WON',
-        },
-      });
-      if (todayWonCount >= selectedPrize.dailyLimit) {
+      const dailyKey = `lottery:prize:${selectedPrize.id}:daily:${drawDate}`;
+      const dailyResult = await this.redisCoord.consumeFixedWindow(
+        dailyKey,
+        selectedPrize.dailyLimit,
+        prizeDailyTtlSec,
+      );
+      if (dailyResult === null) {
+        // Redis 不可用时拒绝服务（与 HC-5 限流策略一致，不允许回退）
+        throw new BadRequestException('抽奖服务暂不可用');
+      }
+      if (!dailyResult.allowed) {
         this.logger.log(JSON.stringify({
           action: 'public_draw',
           fp: fingerprint.slice(0, 8) + '...',
@@ -380,13 +385,16 @@ export class LotteryService {
           result: 'NO_PRIZE',
           prizeId: selectedPrize.id,
           reason: 'dailyLimit_exceeded',
+          dailyCount: dailyResult.count,
         }));
         return { result: 'NO_PRIZE' as const };
       }
+      prizeDailyKey = dailyKey;
     }
 
-    // 7. totalLimit 检查
+    // 7. totalLimit 快速预检查（事务外，racy 但可快速短路；事务内会原子重检）
     if (selectedPrize.totalLimit !== null && selectedPrize.wonCount >= selectedPrize.totalLimit) {
+      await this.rollbackPrizeDailyLimit(prizeDailyKey, prizeDailyTtlSec);
       this.logger.log(JSON.stringify({
         action: 'public_draw',
         fp: fingerprint.slice(0, 8) + '...',
@@ -398,9 +406,20 @@ export class LotteryService {
       return { result: 'NO_PRIZE' as const };
     }
 
-    // 8. CAS 递增 wonCount（Serializable 事务防并发超发）
+    // 8. CAS 递增 wonCount（Serializable 事务防并发超发，含 totalLimit 原子重检）
     const casResult = await this.prisma.$transaction(
       async (tx) => {
+        // totalLimit 原子重检：在 Serializable 隔离级别下读取最新 wonCount
+        if (selectedPrize!.totalLimit !== null) {
+          const freshPrize = await tx.lotteryPrize.findUnique({
+            where: { id: selectedPrize!.id },
+            select: { wonCount: true },
+          });
+          if (freshPrize && freshPrize.wonCount >= selectedPrize!.totalLimit!) {
+            return -1; // totalLimit 已达上限
+          }
+        }
+
         const cas = await tx.lotteryPrize.updateMany({
           where: {
             id: selectedPrize!.id,
@@ -415,7 +434,21 @@ export class LotteryService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
+    if (casResult === -1) {
+      await this.rollbackPrizeDailyLimit(prizeDailyKey, prizeDailyTtlSec);
+      this.logger.log(JSON.stringify({
+        action: 'public_draw',
+        fp: fingerprint.slice(0, 8) + '...',
+        ip: clientIp,
+        result: 'NO_PRIZE',
+        prizeId: selectedPrize.id,
+        reason: 'totalLimit_exceeded_in_tx',
+      }));
+      return { result: 'NO_PRIZE' as const };
+    }
+
     if (casResult === 0) {
+      await this.rollbackPrizeDailyLimit(prizeDailyKey, prizeDailyTtlSec);
       // CAS 失败，说明有并发中奖，降级为 NO_PRIZE
       this.logger.warn(JSON.stringify({
         action: 'public_draw',
@@ -472,6 +505,7 @@ export class LotteryService {
         where: { id: selectedPrize.id },
         data: { wonCount: { decrement: 1 } },
       });
+      await this.rollbackPrizeDailyLimit(prizeDailyKey, prizeDailyTtlSec);
       return { result: 'NO_PRIZE' as const };
     }
 
@@ -509,6 +543,14 @@ export class LotteryService {
       },
       claimToken: token,
     };
+  }
+
+  private async rollbackPrizeDailyLimit(rawKey: string | null, ttlSec: number): Promise<void> {
+    if (!rawKey) return;
+    const result = await this.redisCoord.rollbackFixedWindow(rawKey, ttlSec);
+    if (result === null) {
+      this.logger.warn(`公开抽奖奖品日额度回滚失败: key=${rawKey}`);
+    }
   }
 
   /** HC-5: 公开抽奖三重限流

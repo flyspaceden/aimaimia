@@ -2,6 +2,7 @@
 import type { AiVoiceIntent } from '../types/domain/Ai';
 import { OrderRepo } from '../repos/OrderRepo';
 import { CompanyRepo } from '../repos/CompanyRepo';
+import { buildVoiceCartConfirmation } from './voiceCartConfirmation';
 
 // ── 导出类型 ──────────────────────────────────────────
 export type IntentResult = {
@@ -21,6 +22,11 @@ export type IntentResult = {
   clarifyIntent?: AiVoiceIntent;
   // 登录保护
   needsAuth?: boolean;
+  // 已命中唯一商品时，允许执行层直接完成加购
+  cartExecution?: {
+    productId: string;
+    productName?: string;
+  };
 };
 
 export type ResolveIntentOptions = {
@@ -94,13 +100,19 @@ function resolveSearchIntent(intent: AiVoiceIntent): IntentResult {
     ...(resolvedCategoryHint ? { categoryHint: resolvedCategoryHint } : {}),
   };
 
-  // 加购意图 + 匹配到商品 → 跳搜索页执行加购（搜索页有加购逻辑）
+  // 加购意图 + 匹配到唯一商品 → 直接执行加购，不再跳搜索页
   if (intent.search?.action === 'add-to-cart' && resolvedProductId) {
+    const confirmation = buildVoiceCartConfirmation({
+      productName: resolvedProductName,
+      query: resolvedQuery,
+    });
     return {
-      action: 'navigate',
-      route: '/search',
-      params: searchParams,
-      toastText: intent.feedback,
+      action: 'feedback',
+      feedbackText: confirmation.message,
+      cartExecution: {
+        productId: resolvedProductId,
+        ...(resolvedProductName ? { productName: resolvedProductName } : {}),
+      },
     };
   }
 
@@ -132,10 +144,12 @@ async function resolveCompanyIntent(intent: AiVoiceIntent): Promise<IntentResult
   const companyType = intent.resolved?.companyType ?? intent.company?.companyType ?? intent.slots?.companyType;
   const featureTags = intent.resolved?.companyFeatureTags ?? intent.company?.featureTags ?? intent.slots?.companyFeatureTags;
   const rawName = (resolvedCompanyName || intent.company?.name || intent.slots?.companyName || '').trim();
+  const hasStructuredListFilters = Boolean(industryHint || location || companyType || featureTags?.length);
+  const listQuery = mode === 'list' && hasStructuredListFilters ? '' : rawName;
 
   const searchParams: Record<string, string> = {
     source: 'voice',
-    ...(rawName ? { q: rawName } : {}),
+    ...(listQuery ? { q: listQuery } : {}),
     ...(industryHint ? { industryHint } : {}),
     ...(location ? { location } : {}),
     ...(companyType ? { companyType } : {}),

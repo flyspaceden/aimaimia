@@ -8,7 +8,9 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCartStore } from '../store/useCartStore';
 import { useToast } from '../components/feedback/Toast';
 import { AiAssistantRepo } from '../repos/AiAssistantRepo';
+import { ProductRepo } from '../repos/ProductRepo';
 import { resolveIntent, IntentResult } from '../utils/navigateByIntent';
+import { buildVoiceCartConfirmation } from '../utils/voiceCartConfirmation';
 import type { AiVoiceIntent } from '../types/domain/Ai';
 import { USE_MOCK } from '../repos/http/config';
 
@@ -50,6 +52,7 @@ export function useVoiceRecording(
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const cartCount = useCartStore((s) => s.items.length);
   const selectedCartCount = useCartStore((s) => s.selectedCount());
+  const addCartItem = useCartStore((s) => s.addItem);
 
   // ── 状态 ──
   const [isRecording, setIsRecording] = useState(false);
@@ -184,6 +187,65 @@ export function useVoiceRecording(
     // 持久化语音历史（仅非 auth 场景，避免 retry 时双写）
     saveVoiceToStore(intent.transcript, result.feedbackText || intent.feedback || '');
 
+    // 已唯一命中商品的加购语音：直接执行加购，不再跳搜索页。
+    if (result.cartExecution?.productId) {
+      const productId = result.cartExecution.productId;
+      const preferredName = result.cartExecution.productName;
+      void ProductRepo.getById(productId).then((productResult) => {
+        if (!mountedRef.current) return;
+        if (!productResult.ok) {
+          showToast({
+            message: preferredName
+              ? `已识别到${preferredName}，但加入购物车失败，请重试`
+              : '加入购物车失败，请重试',
+            type: 'error',
+            duration: 3200,
+          });
+          return;
+        }
+
+        const product = productResult.data;
+        const sku = product.skus.find((item) => item.id === product.defaultSkuId) ?? product.skus[0];
+        const added = addCartItem(
+          {
+            ...product,
+            maxPerOrder: sku?.maxPerOrder ?? null,
+          },
+          1,
+          sku?.id ?? product.defaultSkuId,
+          sku?.price ?? product.price,
+        );
+
+        if (added) {
+          const confirmation = buildVoiceCartConfirmation({
+            productName: preferredName || product.title,
+          });
+          setFeedbackText(confirmation.message);
+          setFeedbackVisible(true);
+          feedbackTimerRef.current = setTimeout(
+            () => dismissFeedbackInternal(),
+            confirmation.overlayDurationMs,
+          );
+          showToast({
+            message: confirmation.message,
+            type: 'success',
+            duration: confirmation.toastDurationMs,
+          });
+        }
+      }).catch((error: any) => {
+        console.error('语音加购失败:', error?.message || error);
+        if (!mountedRef.current) return;
+        showToast({
+          message: preferredName
+            ? `已识别到${preferredName}，但加入购物车失败，请重试`
+            : '加入购物车失败，请重试',
+          type: 'error',
+          duration: 3200,
+        });
+      });
+      return;
+    }
+
     switch (result.action) {
       case 'navigate':
         // 不显示 toast — 导航立即发生，toast 会残留在结果页上方造成"搜到了但还显示正在搜索"的错觉
@@ -209,7 +271,7 @@ export function useVoiceRecording(
         setClarifyIntent(result.clarifyIntent || null);
         break;
     }
-  }, [saveVoiceToStore, showToast]);
+  }, [addCartItem, saveVoiceToStore, showToast]);
 
   // ── 开始录音 ──
   const startRecording = useCallback(async () => {

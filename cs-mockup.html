@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>爱买买 - 智能客服系统 Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand: { 50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 300: '#86efac', 400: '#4ade80', 500: '#2E7D32', 600: '#25632a', 700: '#1b4a1f', 800: '#114015', 900: '#0a2e0d' },
+        slate: { 50: '#f8fafc', 100: '#f1f5f9', 150: '#eaeff5', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a' }
+      }
+    }
+  }
+}
+</script>
+<style>
+  * { font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif; }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  .tab-active { border-bottom: 2px solid #2E7D32; color: #2E7D32; font-weight: 600; }
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+  @keyframes typing { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+  .typing-dot { animation: typing 1.2s ease-in-out infinite; }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  .mobile-frame { width: 375px; height: 780px; border-radius: 40px; border: 8px solid #1e293b; position: relative; overflow: hidden; background: #fff; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+  .mobile-frame::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 120px; height: 28px; background: #1e293b; border-radius: 0 0 16px 16px; z-index: 50; }
+  .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+
+<!-- Top Navigation -->
+<div class="bg-white border-b border-slate-200 sticky top-0 z-40">
+  <div class="max-w-[1800px] mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+      </div>
+      <h1 class="text-lg font-semibold text-slate-900">爱买买客服中心</h1>
+    </div>
+    <div class="flex items-center gap-6">
+      <!-- View Toggle -->
+      <div class="flex bg-slate-100 rounded-lg p-1">
+        <button onclick="showView('admin')" id="btn-admin" class="px-4 py-1.5 rounded-md text-sm font-medium transition-all bg-white shadow text-slate-900">管理后台工作台</button>
+        <button onclick="showView('mobile')" id="btn-mobile" class="px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-500 hover:text-slate-700">买家 App 预览</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-green-500"></span>
+        <span class="text-sm text-slate-600">客服小美 · 在线</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== ADMIN VIEW ==================== -->
+<div id="view-admin" class="max-w-[1800px] mx-auto">
+  <!-- Stats Bar -->
+  <div class="px-6 py-4 flex gap-4">
+    <div class="flex-1 bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+      </div>
+      <div>
+        <div class="text-2xl font-bold text-slate-900">28</div>
+        <div class="text-xs text-slate-500">今日会话</div>
+      </div>
+    </div>
+    <div class="flex-1 bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+      <div>
+        <div class="text-2xl font-bold text-green-600">82%</div>
+        <div class="text-xs text-slate-500">AI 解决率</div>
+      </div>
+    </div>
+    <div class="flex-1 bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
+        <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+      <div>
+        <div class="text-2xl font-bold text-slate-900">45s</div>
+        <div class="text-xs text-slate-500">平均响应</div>
+      </div>
+    </div>
+    <div class="flex-1 bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
+        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+      </div>
+      <div>
+        <div class="text-2xl font-bold text-slate-900">4.6</div>
+        <div class="text-xs text-slate-500">满意度评分</div>
+      </div>
+    </div>
+    <div class="flex-1 bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
+        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      </div>
+      <div>
+        <div class="text-2xl font-bold text-red-500">3</div>
+        <div class="text-xs text-slate-500">排队等待</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main 3-Column Layout -->
+  <div class="px-6 pb-6 flex gap-4" style="height: calc(100vh - 170px);">
+
+    <!-- LEFT: Session List -->
+    <div class="w-[300px] flex-shrink-0 bg-white rounded-xl border border-slate-200 flex flex-col overflow-hidden">
+      <!-- Search -->
+      <div class="p-3 border-b border-slate-100">
+        <div class="relative">
+          <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input type="text" placeholder="搜索用户..." class="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto scrollbar-thin">
+        <!-- Queuing Section -->
+        <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">排队中</span>
+          <span class="badge bg-red-100 text-red-700">3</span>
+        </div>
+
+        <!-- Queue Item 1 -->
+        <div class="px-3 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+              <span class="text-sm font-medium text-orange-700">李</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-slate-900">李四</span>
+                <span class="text-xs text-red-500 font-medium">2分钟</span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700">物流</span>
+                <span class="text-xs text-slate-500 truncate">快递一直没更新</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 ml-12">
+            <button class="px-3 py-1 text-xs font-medium text-white bg-brand-500 rounded-md hover:bg-brand-600 transition-colors cursor-pointer">接入</button>
+          </div>
+        </div>
+
+        <!-- Queue Item 2 -->
+        <div class="px-3 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+              <span class="text-sm font-medium text-purple-700">王</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-slate-900">王五</span>
+                <span class="text-xs text-red-500 font-medium">5分钟</span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700">退款</span>
+                <span class="text-xs text-slate-500 truncate">退款多久能到</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 ml-12">
+            <button class="px-3 py-1 text-xs font-medium text-white bg-brand-500 rounded-md hover:bg-brand-600 transition-colors cursor-pointer">接入</button>
+          </div>
+        </div>
+
+        <!-- Queue Item 3 -->
+        <div class="px-3 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0">
+              <span class="text-sm font-medium text-teal-700">陈</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-slate-900">陈小花</span>
+                <span class="text-xs text-red-500 font-medium">8分钟</span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-700">投诉</span>
+                <span class="text-xs text-slate-500 truncate">商品跟图片完全不一样</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 ml-12">
+            <button class="px-3 py-1 text-xs font-medium text-white bg-brand-500 rounded-md hover:bg-brand-600 transition-colors cursor-pointer">接入</button>
+          </div>
+        </div>
+
+        <!-- Processing Section -->
+        <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">处理中</span>
+          <span class="badge bg-brand-100 text-brand-700">2</span>
+        </div>
+
+        <!-- Active Item 1 (Selected) -->
+        <div class="px-3 py-3 border-b border-slate-50 bg-brand-50 border-l-2 border-l-brand-500 cursor-pointer">
+          <div class="flex items-start gap-3">
+            <div class="relative">
+              <div class="w-9 h-9 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                <span class="text-sm font-medium text-rose-700">张</span>
+              </div>
+              <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-semibold text-brand-700">张三</span>
+                <span class="w-2 h-2 rounded-full bg-brand-500 pulse-dot"></span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700">退换货</span>
+                <span class="text-xs text-slate-600 truncate">收到的苹果都烂了</span>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5">对话中 · 3分钟前</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Item 2 -->
+        <div class="px-3 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors">
+          <div class="flex items-start gap-3">
+            <div class="relative">
+              <div class="w-9 h-9 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0">
+                <span class="text-sm font-medium text-sky-700">赵</span>
+              </div>
+              <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-slate-900">赵六</span>
+                <span class="text-[11px] text-slate-400">1分钟前</span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700">会员</span>
+                <span class="text-xs text-slate-500 truncate">VIP 权益怎么用</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Closed Section -->
+        <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">今日已结束</span>
+          <span class="badge bg-slate-200 text-slate-600">23</span>
+        </div>
+        <div class="px-3 py-3 opacity-50 hover:opacity-80 cursor-pointer transition-opacity">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+              <span class="text-sm font-medium text-slate-500">孙</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-500">孙七</span>
+                <span class="text-[11px] text-slate-400">14:23</span>
+              </div>
+              <div class="text-xs text-slate-400 truncate">AI已解决 · 查物流</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: Chat Area -->
+    <div class="flex-1 bg-white rounded-xl border border-slate-200 flex flex-col overflow-hidden">
+      <!-- Chat Header -->
+      <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center">
+            <span class="text-sm font-medium text-rose-700">张</span>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-slate-900">张三</span>
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700">退换货咨询</span>
+            </div>
+            <div class="text-xs text-slate-400">来源：订单详情页 · #ORD20260408001</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer">转接</button>
+          <button class="px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors cursor-pointer">结束会话</button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="flex-1 overflow-y-auto scrollbar-thin px-5 py-4 space-y-4 bg-slate-50/50">
+        <!-- System: Session Start -->
+        <div class="flex justify-center">
+          <span class="px-3 py-1 rounded-full bg-slate-100 text-[11px] text-slate-500">2026-04-08 15:32 会话开始</span>
+        </div>
+
+        <!-- AI Phase Background -->
+        <div class="bg-slate-100/60 rounded-xl p-4 space-y-3 border border-slate-200/60">
+          <div class="flex items-center gap-1.5 mb-1">
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            <span class="text-[11px] text-slate-400 font-medium">AI 接待阶段</span>
+          </div>
+
+          <!-- AI Welcome -->
+          <div class="flex gap-2.5">
+            <div class="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="bg-white rounded-xl rounded-tl-sm px-3.5 py-2.5 shadow-sm max-w-[75%]">
+              <p class="text-sm text-slate-700">您好！我是爱买买智能客服。我看到您是从订单 <span class="font-medium text-brand-600">#ORD20260408001</span> 进来的，请问有什么可以帮您？</p>
+            </div>
+          </div>
+
+          <!-- User Message 1 -->
+          <div class="flex gap-2.5 justify-end">
+            <div class="bg-brand-500 rounded-xl rounded-tr-sm px-3.5 py-2.5 shadow-sm max-w-[75%]">
+              <p class="text-sm text-white">收到的苹果都烂了，怎么退货</p>
+            </div>
+          </div>
+
+          <!-- AI Response with action card -->
+          <div class="flex gap-2.5">
+            <div class="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="space-y-2 max-w-[75%]">
+              <div class="bg-white rounded-xl rounded-tl-sm px-3.5 py-2.5 shadow-sm">
+                <p class="text-sm text-slate-700">很抱歉给您带来不好的体验！您的订单 <span class="font-medium">"烟台红富士 x5"</span> 支持质量问题退货。</p>
+                <p class="text-sm text-slate-700 mt-1">我可以帮您发起退货退款申请，您需要拍几张照片作为凭证。要我帮您操作吗？</p>
+              </div>
+              <!-- Action Card -->
+              <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  建议操作
+                </div>
+                <div class="flex gap-2">
+                  <button class="flex-1 px-3 py-2 text-xs font-medium text-white bg-brand-500 rounded-lg cursor-pointer">申请退货退款</button>
+                  <button class="flex-1 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-100 rounded-lg cursor-pointer">先看看退货政策</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- User Message 2 -->
+          <div class="flex gap-2.5 justify-end">
+            <div class="bg-brand-500 rounded-xl rounded-tr-sm px-3.5 py-2.5 shadow-sm max-w-[75%]">
+              <p class="text-sm text-white">帮我退吧，但是我想先跟人工说一下</p>
+            </div>
+          </div>
+
+          <!-- AI Transfer -->
+          <div class="flex gap-2.5">
+            <div class="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="bg-white rounded-xl rounded-tl-sm px-3.5 py-2.5 shadow-sm max-w-[75%]">
+              <p class="text-sm text-slate-700">好的，正在为您转接人工客服，请稍候...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- System: Agent Joined -->
+        <div class="flex justify-center">
+          <span class="px-3 py-1 rounded-full bg-green-50 text-[11px] text-green-600 border border-green-100">客服小美 已接入会话 · 15:34</span>
+        </div>
+
+        <!-- Agent Message -->
+        <div class="flex gap-2.5">
+          <div class="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-medium text-indigo-700">美</span>
+          </div>
+          <div class="bg-white rounded-xl rounded-tl-sm px-3.5 py-2.5 shadow-sm max-w-[75%] border border-slate-100">
+            <p class="text-sm text-slate-700">您好张三，我是客服小美。我已经看到了您和 AI 助手的对话记录，很抱歉您收到了有质量问题的商品。</p>
+            <p class="text-sm text-slate-700 mt-1">我现在就帮您处理退货退款，您方便拍几张苹果的照片发给我吗？这样我们可以更快审核通过。</p>
+          </div>
+        </div>
+
+        <!-- User Message -->
+        <div class="flex gap-2.5 justify-end">
+          <div class="bg-brand-500 rounded-xl rounded-tr-sm px-3.5 py-2.5 shadow-sm max-w-[75%]">
+            <p class="text-sm text-white">好的，拍了三张，你看看</p>
+          </div>
+        </div>
+
+        <!-- User sends images -->
+        <div class="flex gap-2.5 justify-end">
+          <div class="flex gap-1.5 max-w-[75%]">
+            <div class="w-20 h-20 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center">
+              <svg class="w-8 h-8 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="w-20 h-20 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center">
+              <svg class="w-8 h-8 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="w-20 h-20 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center">
+              <svg class="w-8 h-8 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent Response -->
+        <div class="flex gap-2.5">
+          <div class="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-medium text-indigo-700">美</span>
+          </div>
+          <div class="bg-white rounded-xl rounded-tl-sm px-3.5 py-2.5 shadow-sm max-w-[75%] border border-slate-100">
+            <p class="text-sm text-slate-700">照片收到了，确实有明显质量问题。我已经帮您提交了退货退款申请，审核会在 <span class="font-medium text-brand-600">24 小时内</span>完成。</p>
+            <p class="text-sm text-slate-700 mt-1">退款金额 <span class="font-semibold text-brand-600">¥89.50</span> 将在审核通过后 1-3 个工作日内原路退回。</p>
+            <!-- Inline result card -->
+            <div class="mt-2.5 bg-green-50 rounded-lg p-2.5 border border-green-100">
+              <div class="flex items-center gap-1.5">
+                <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span class="text-xs font-medium text-green-700">退货退款申请已提交</span>
+              </div>
+              <div class="mt-1 text-xs text-green-600">售后单号：#AS20260408003 · 退款金额：¥89.50</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div class="flex gap-2.5 justify-end">
+          <div class="bg-slate-200 rounded-xl px-4 py-2.5">
+            <div class="flex gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-slate-500 typing-dot"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-slate-500 typing-dot"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-slate-500 typing-dot"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="border-t border-slate-200 p-4">
+        <!-- Quick Reply Toggle -->
+        <div class="mb-3 flex gap-2 flex-wrap">
+          <button class="px-2.5 py-1 text-xs font-medium text-slate-500 bg-slate-100 rounded-md hover:bg-slate-200 transition-colors cursor-pointer flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            快捷回复
+          </button>
+          <button class="px-2.5 py-1 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">退款已受理</button>
+          <button class="px-2.5 py-1 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">物流查询中</button>
+          <button class="px-2.5 py-1 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">感谢耐心等待</button>
+          <button class="px-2.5 py-1 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">问题已记录</button>
+        </div>
+        <div class="flex gap-3 items-end">
+          <button class="p-2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </button>
+          <div class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus-within:ring-2 focus-within:ring-brand-500/20 focus-within:border-brand-500 transition-all">
+            <textarea rows="1" placeholder="输入回复内容..." class="w-full bg-transparent text-sm resize-none focus:outline-none text-slate-700 placeholder:text-slate-400"></textarea>
+          </div>
+          <button class="px-5 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl hover:bg-brand-600 transition-colors cursor-pointer flex-shrink-0">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Info Panel -->
+    <div class="w-[300px] flex-shrink-0 space-y-4 overflow-y-auto scrollbar-thin">
+      <!-- User Info Card -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">用户信息</h3>
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-11 h-11 rounded-full bg-rose-100 flex items-center justify-center">
+            <span class="text-lg font-medium text-rose-700">张</span>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-slate-900">张三</div>
+            <div class="flex items-center gap-1.5 mt-0.5">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">VIP 会员</span>
+              <span class="text-xs text-slate-400">注册 186 天</span>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div class="flex justify-between"><span class="text-slate-400">累计订单</span><span class="text-slate-700 font-medium">23 笔</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">累计消费</span><span class="text-slate-700 font-medium">¥3,280.00</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">客服咨询</span><span class="text-slate-700 font-medium">第 3 次</span></div>
+        </div>
+      </div>
+
+      <!-- Related Order -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">关联订单</h3>
+        <div class="bg-slate-50 rounded-lg p-3 border border-slate-100">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-mono text-slate-500">#ORD20260408001</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700">已发货</span>
+          </div>
+          <div class="text-sm font-medium text-slate-900 mb-1">烟台红富士 x5</div>
+          <div class="text-xs text-slate-500 mb-2">¥89.50 · 2026-04-05 下单</div>
+          <div class="flex gap-2">
+            <button class="flex-1 px-2 py-1.5 text-[11px] font-medium text-brand-600 bg-brand-50 rounded-md hover:bg-brand-100 transition-colors cursor-pointer">查看订单</button>
+            <button class="flex-1 px-2 py-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200 transition-colors cursor-pointer">查物流</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Summary -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          AI 摘要
+        </h3>
+        <div class="text-xs text-slate-600 leading-relaxed bg-brand-50/50 rounded-lg p-3 border border-brand-100/50">
+          用户张三反馈订单 #ORD20260408001（烟台红富士 x5，¥89.50）收到的苹果存在腐烂质量问题，要求退货退款。AI 已建议申请质量问题退货，用户同意并要求转接人工处理。
+        </div>
+      </div>
+
+      <!-- Ticket Info -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">工单信息</h3>
+        <div class="space-y-2 text-xs">
+          <div class="flex justify-between"><span class="text-slate-400">工单号</span><span class="text-slate-700 font-mono">#TK20260408005</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">类别</span><span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700">退换货</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">优先级</span><span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-700">高</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">状态</span><span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700">处理中</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">创建时间</span><span class="text-slate-700">15:32</span></div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">历史工单</h3>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
+            <div>
+              <div class="text-xs font-medium text-slate-700">#TK20260322001</div>
+              <div class="text-[11px] text-slate-400">物流查询 · 3月22日</div>
+            </div>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700">已解决</span>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
+            <div>
+              <div class="text-xs font-medium text-slate-700">#TK20260210003</div>
+              <div class="text-[11px] text-slate-400">优惠券使用 · 2月10日</div>
+            </div>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700">已解决</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MOBILE VIEW ==================== -->
+<div id="view-mobile" class="hidden py-10 flex justify-center gap-12 items-start">
+
+  <!-- Phone 1: Initial State -->
+  <div>
+    <div class="text-center mb-4 text-sm font-medium text-slate-500">初始界面</div>
+    <div class="mobile-frame">
+      <div class="h-full flex flex-col pt-8">
+        <!-- Status Bar -->
+        <div class="px-5 pt-3 pb-1 flex justify-between text-[11px] text-slate-500">
+          <span>15:30</span>
+          <div class="flex gap-1 items-center">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <!-- Nav -->
+        <div class="px-4 py-3 flex items-center gap-3 border-b border-slate-100">
+          <svg class="w-5 h-5 text-slate-600 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          <span class="text-base font-semibold text-slate-900 flex-1">智能客服</span>
+          <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/></svg>
+        </div>
+
+        <!-- Chat Content -->
+        <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-slate-50/50">
+          <!-- AI Greeting -->
+          <div class="flex gap-2">
+            <div class="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="space-y-3 flex-1">
+              <div class="bg-white rounded-2xl rounded-tl-md px-3.5 py-3 shadow-sm">
+                <p class="text-[13px] text-slate-700 leading-relaxed">你好！我是爱买买智能助手，有什么可以帮你的？</p>
+              </div>
+
+              <!-- Quick Actions -->
+              <div class="bg-white rounded-2xl px-3.5 py-3 shadow-sm">
+                <p class="text-[11px] font-semibold text-slate-500 mb-2.5">猜你想问：</p>
+                <div class="grid grid-cols-2 gap-2">
+                  <button class="px-3 py-2.5 text-[12px] font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-center">查物流</button>
+                  <button class="px-3 py-2.5 text-[12px] font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-center">退换货</button>
+                  <button class="px-3 py-2.5 text-[12px] font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-center">改地址</button>
+                  <button class="px-3 py-2.5 text-[12px] font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-center">查退款</button>
+                </div>
+              </div>
+
+              <!-- Hot Questions -->
+              <div class="bg-white rounded-2xl px-3.5 py-3 shadow-sm">
+                <p class="text-[11px] font-semibold text-slate-500 mb-2">大家都在问：</p>
+                <div class="space-y-0">
+                  <button class="w-full text-left px-2 py-2 text-[12px] text-brand-600 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer border-b border-slate-50">我的快递到哪了？</button>
+                  <button class="w-full text-left px-2 py-2 text-[12px] text-brand-600 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer border-b border-slate-50">怎么申请退货退款？</button>
+                  <button class="w-full text-left px-2 py-2 text-[12px] text-brand-600 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer border-b border-slate-50">退款多久到账？</button>
+                  <button class="w-full text-left px-2 py-2 text-[12px] text-brand-600 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer border-b border-slate-50">怎么修改收货地址？</button>
+                  <button class="w-full text-left px-2 py-2 text-[12px] text-brand-600 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer">VIP会员有什么权益？</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Bar -->
+        <div class="px-4 py-3 border-t border-slate-100 bg-white flex items-center gap-2">
+          <button class="p-1.5 text-slate-400 cursor-pointer">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+          </button>
+          <div class="flex-1 bg-slate-100 rounded-full px-4 py-2">
+            <span class="text-[13px] text-slate-400">输入你的问题...</span>
+          </div>
+          <button class="p-1.5 text-slate-400 cursor-pointer">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phone 2: Conversation State -->
+  <div>
+    <div class="text-center mb-4 text-sm font-medium text-slate-500">对话中 (AI + 人工)</div>
+    <div class="mobile-frame">
+      <div class="h-full flex flex-col pt-8">
+        <!-- Status Bar -->
+        <div class="px-5 pt-3 pb-1 flex justify-between text-[11px] text-slate-500">
+          <span>15:35</span>
+          <div class="flex gap-1 items-center">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <!-- Nav -->
+        <div class="px-4 py-3 flex items-center gap-3 border-b border-slate-100">
+          <svg class="w-5 h-5 text-slate-600 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          <div class="flex-1">
+            <span class="text-base font-semibold text-slate-900">客服小美</span>
+            <span class="text-[11px] text-green-500 ml-1.5">在线</span>
+          </div>
+          <button class="text-xs text-slate-400 cursor-pointer">结束</button>
+        </div>
+
+        <!-- Chat -->
+        <div class="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-slate-50/50">
+          <!-- AI phase indicator -->
+          <div class="flex justify-center">
+            <span class="px-2.5 py-0.5 rounded-full bg-slate-100 text-[10px] text-slate-400">AI 助手接待中</span>
+          </div>
+
+          <!-- AI Message -->
+          <div class="flex gap-2">
+            <div class="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="bg-white rounded-2xl rounded-tl-md px-3 py-2 shadow-sm max-w-[80%]">
+              <p class="text-[13px] text-slate-700">您好！检测到您的订单 #ORD20260408001，请问遇到了什么问题？</p>
+            </div>
+          </div>
+
+          <!-- User -->
+          <div class="flex justify-end">
+            <div class="bg-brand-500 rounded-2xl rounded-tr-md px-3 py-2 shadow-sm max-w-[80%]">
+              <p class="text-[13px] text-white">苹果都烂了想退货</p>
+            </div>
+          </div>
+
+          <!-- AI with buttons -->
+          <div class="flex gap-2">
+            <div class="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="space-y-1.5 max-w-[80%]">
+              <div class="bg-white rounded-2xl rounded-tl-md px-3 py-2 shadow-sm">
+                <p class="text-[13px] text-slate-700">很抱歉！支持质量问题退货，需要拍照上传凭证。</p>
+              </div>
+              <div class="flex gap-1.5">
+                <button class="px-3 py-1.5 text-[11px] font-medium text-white bg-brand-500 rounded-full cursor-pointer">申请退货</button>
+                <button class="px-3 py-1.5 text-[11px] font-medium text-slate-600 bg-white border border-slate-200 rounded-full cursor-pointer">转人工</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- User -->
+          <div class="flex justify-end">
+            <div class="bg-brand-500 rounded-2xl rounded-tr-md px-3 py-2 shadow-sm max-w-[80%]">
+              <p class="text-[13px] text-white">转人工吧</p>
+            </div>
+          </div>
+
+          <!-- Transfer notice -->
+          <div class="flex justify-center">
+            <span class="px-2.5 py-0.5 rounded-full bg-green-50 text-[10px] text-green-600 border border-green-100">客服小美 已接入</span>
+          </div>
+
+          <!-- Agent message -->
+          <div class="flex gap-2">
+            <div class="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+              <span class="text-[10px] font-semibold text-indigo-700">美</span>
+            </div>
+            <div class="bg-white rounded-2xl rounded-tl-md px-3 py-2 shadow-sm max-w-[80%] border border-slate-100">
+              <p class="text-[13px] text-slate-700">您好张三！我看到了之前的对话，帮您处理退货。请拍几张苹果照片发给我。</p>
+            </div>
+          </div>
+
+          <!-- User sends "photos" -->
+          <div class="flex justify-end">
+            <div class="flex gap-1 max-w-[80%]">
+              <div class="w-16 h-16 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center">
+                <svg class="w-6 h-6 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              </div>
+              <div class="w-16 h-16 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center">
+                <svg class="w-6 h-6 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Agent result -->
+          <div class="flex gap-2">
+            <div class="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+              <span class="text-[10px] font-semibold text-indigo-700">美</span>
+            </div>
+            <div class="space-y-1.5 max-w-[80%]">
+              <div class="bg-white rounded-2xl rounded-tl-md px-3 py-2 shadow-sm border border-slate-100">
+                <p class="text-[13px] text-slate-700">已帮您提交退货退款，24小时内审核。</p>
+              </div>
+              <!-- Success card -->
+              <div class="bg-green-50 rounded-xl px-3 py-2 border border-green-100">
+                <div class="flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span class="text-[11px] font-medium text-green-700">退货申请已提交</span>
+                </div>
+                <div class="text-[11px] text-green-600 mt-0.5">退款 ¥89.50 · 1-3个工作日到账</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div class="px-4 py-3 border-t border-slate-100 bg-white flex items-center gap-2">
+          <button class="p-1.5 text-slate-400 cursor-pointer">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+          </button>
+          <div class="flex-1 bg-slate-100 rounded-full px-4 py-2">
+            <span class="text-[13px] text-slate-400">输入消息...</span>
+          </div>
+          <button class="px-4 py-2 text-[13px] font-medium text-white bg-brand-500 rounded-full cursor-pointer">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phone 3: Rating -->
+  <div>
+    <div class="text-center mb-4 text-sm font-medium text-slate-500">满意度评价</div>
+    <div class="mobile-frame">
+      <div class="h-full flex flex-col pt-8">
+        <!-- Status Bar -->
+        <div class="px-5 pt-3 pb-1 flex justify-between text-[11px] text-slate-500">
+          <span>15:42</span>
+          <div class="flex gap-1 items-center">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <!-- Nav -->
+        <div class="px-4 py-3 flex items-center gap-3 border-b border-slate-100">
+          <svg class="w-5 h-5 text-slate-600 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          <span class="text-base font-semibold text-slate-900 flex-1">智能客服</span>
+        </div>
+
+        <!-- Content -->
+        <div class="flex-1 flex items-center justify-center px-8 bg-slate-50/50">
+          <div class="w-full bg-white rounded-2xl p-6 shadow-lg border border-slate-100 text-center">
+            <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-green-50 flex items-center justify-center">
+              <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold text-slate-900 mb-1">服务已结束</h3>
+            <p class="text-xs text-slate-500 mb-5">您的退货退款申请已提交处理</p>
+
+            <p class="text-sm text-slate-700 mb-3">请为本次服务评分</p>
+            <!-- Stars -->
+            <div class="flex justify-center gap-2 mb-4">
+              <svg class="w-9 h-9 text-amber-400 cursor-pointer" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+              <svg class="w-9 h-9 text-amber-400 cursor-pointer" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+              <svg class="w-9 h-9 text-amber-400 cursor-pointer" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+              <svg class="w-9 h-9 text-amber-400 cursor-pointer" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+              <svg class="w-9 h-9 text-slate-200 cursor-pointer" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+            </div>
+
+            <!-- Tags -->
+            <div class="flex flex-wrap gap-2 justify-center mb-4">
+              <span class="px-3 py-1.5 text-[11px] font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-full cursor-pointer">回复快速</span>
+              <span class="px-3 py-1.5 text-[11px] font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-full cursor-pointer">解决了问题</span>
+              <span class="px-3 py-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-full cursor-pointer">态度友好</span>
+              <span class="px-3 py-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-full cursor-pointer">专业解答</span>
+            </div>
+
+            <!-- Comment -->
+            <textarea placeholder="还有什么想说的...（选填）" rows="2" class="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/20 mb-4"></textarea>
+
+            <button class="w-full py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl cursor-pointer">提交评价</button>
+          </div>
+        </div>
+
+        <!-- Bottom space -->
+        <div class="h-8 bg-white"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showView(view) {
+  document.getElementById('view-admin').classList.toggle('hidden', view !== 'admin');
+  document.getElementById('view-mobile').classList.toggle('hidden', view !== 'mobile');
+  document.getElementById('btn-admin').classList.toggle('bg-white', view === 'admin');
+  document.getElementById('btn-admin').classList.toggle('shadow', view === 'admin');
+  document.getElementById('btn-admin').classList.toggle('text-slate-900', view === 'admin');
+  document.getElementById('btn-admin').classList.toggle('text-slate-500', view !== 'admin');
+  document.getElementById('btn-mobile').classList.toggle('bg-white', view === 'mobile');
+  document.getElementById('btn-mobile').classList.toggle('shadow', view === 'mobile');
+  document.getElementById('btn-mobile').classList.toggle('text-slate-900', view === 'mobile');
+  document.getElementById('btn-mobile').classList.toggle('text-slate-500', view !== 'mobile');
+}
+</script>
+
+</body>
+</html>

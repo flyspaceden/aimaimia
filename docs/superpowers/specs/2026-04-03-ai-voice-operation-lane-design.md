@@ -57,6 +57,12 @@ Stage 1 success criteria:
 - operation requests should not route into heavy conversational chains
 - default behavior should be predictable enough to explain as product rules
 
+Latency measurement note:
+
+- the `<= 2s` target refers to **operation-lane processing time after final ASR transcript is available**
+- it does **not** include user speaking time, audio upload time, or ASR recognition time itself
+- this keeps the budget aligned with the part of the system this design is changing: routing, normalization, resolution, and execution
+
 ## Non-Goals
 
 The following are explicitly out of scope for this stage:
@@ -260,6 +266,13 @@ Responsibilities:
 - decide whether normalization is needed
 - reject non-operation requests from the operation lane
 
+Migration strategy:
+
+- Stage 1 should use `OperationRouter` as a **pre-classification short-circuit**
+- fast-rule hits should return early from the operation lane
+- misses should fall back to the existing classification pipeline first, rather than replacing it wholesale
+- this keeps migration incremental and limits regression risk while the old `AiService` branches still exist
+
 ### IntentNormalizer
 
 Responsibilities:
@@ -282,6 +295,12 @@ Primary question:
 
 - can this request be safely handled as a list/result?
 - if not, is there enough evidence for a single-target detail/action?
+
+Stage 1 implementation constraint:
+
+- `EntityResolver` should be a **thin orchestration layer**, not a rewrite of existing product/company/order lookup logic
+- prefer delegation into existing resolver helpers and current service methods where possible
+- do not duplicate large search/company matching trees into a new abstraction during the first pass
 
 ### ExecutionPolicy
 
@@ -320,6 +339,12 @@ These goals apply to:
 - obvious company list requests
 
 They do not apply to open-ended chat or rich recommendation reasoning.
+
+Measurement boundary:
+
+- start timer: final ASR transcript ready for routing
+- end timer: frontend receives the structured execution action
+- exclude: recording duration, upload duration, and ASR recognition latency
 
 ### Practical Performance Rules
 
@@ -367,6 +392,7 @@ The system also needs a replayable evaluation set built from real `AiUtterance` 
 - expand rule hits for order lookup
 - expand rule hits for company list/search
 - expand rule hits for obvious product search
+- keep router misses on the existing pipeline until parity is verified
 
 ### Phase 3: Observability
 
@@ -380,6 +406,16 @@ The system also needs a replayable evaluation set built from real `AiUtterance` 
 - improve company normalization
 - improve detail eligibility logic
 - improve direct add-to-cart precision
+
+### Regression Gate After Initial Wiring
+
+Before frontend contract migration starts, there should be an explicit regression checkpoint:
+
+- run existing backend AI regression tests
+- run the new operation-lane orchestration tests
+- manually smoke-test representative utterances for page navigation, product search, company list, company detail, add-to-cart, and out-of-scope chat
+
+Only continue once the old behavior is shown to be non-regressing under the new backend wiring.
 
 ## Changes Recommended For ai.md
 

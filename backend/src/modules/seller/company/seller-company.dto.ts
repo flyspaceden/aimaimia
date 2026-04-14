@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsMobilePhone, IsObject, IsDateString, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsMobilePhone, IsObject, IsDateString, IsIn, MinLength, MaxLength } from 'class-validator';
 import { CompanyStaffRole, DocumentType } from '@prisma/client';
 
 /** 更新企业信息 */
@@ -45,6 +45,13 @@ export class InviteStaffDto {
 
   @IsEnum(CompanyStaffRole)
   role: CompanyStaffRole;
+
+  /** 可选：初始密码（企业主为员工设置，员工可用手机号+密码登录） */
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(128)
+  password?: string;
 }
 
 /** 修改员工角色/状态 */

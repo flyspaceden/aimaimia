@@ -13,12 +13,14 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SellerLoginDto, SellerSelectCompanyDto, SellerRefreshDto } from './seller-auth.dto';
+import { SellerLoginDto, SellerPasswordLoginDto, SellerSelectCompanyDto, SellerRefreshDto, SellerSmsCodeDto } from './seller-auth.dto';
+import { CaptchaService } from '../../captcha/captcha.service';
 import { SellerJwtPayload } from './seller-jwt.strategy';
 import { sanitizeStringForLog } from '../../../common/logging/log-sanitizer';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { RedisCoordinatorService } from '../../../common/infra/redis-coordinator.service';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
+import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 
 @Injectable()
 export class SellerAuthService {
@@ -34,13 +36,22 @@ export class SellerAuthService {
     private config: ConfigService,
     private redisCoord: RedisCoordinatorService,
     private sellerRiskControl: SellerRiskControlService,
+    private aliyunSms: AliyunSmsService,
+    private captchaService: CaptchaService,
   ) {
     this.jwtSecret = this.config.getOrThrow<string>('SELLER_JWT_SECRET');
     this.jwtExpiresIn = this.config.get<string>('SELLER_JWT_EXPIRES_IN', '8h');
   }
 
   /** 发送验证码（复用 SmsOtp 表） */
-  async sendSmsCode(phone: string) {
+  async sendSmsCode(dto: SellerSmsCodeDto) {
+    // 先校验图形验证码（原子 getdel，防止重放）
+    const captchaOk = await this.captchaService.verify(dto.captchaId, dto.captchaCode);
+    if (!captchaOk) {
+      throw new UnauthorizedException('验证码错误或已过期');
+    }
+
+    const phone = dto.phone;
     const smsMock = this.config.get('SMS_MOCK', 'true');
     // 开发模式使用固定验证码 123456
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
@@ -51,6 +62,18 @@ export class SellerAuthService {
 
     if (smsMock === 'true') {
       this.logger.log(`[SMS Mock][Seller] 固定验证码=${code}（目标=${this.maskContact(phone)}）`);
+    } else {
+      // 真实短信通道：调用阿里云 SMS API
+      try {
+        await this.aliyunSms.sendVerificationCode(phone, code);
+        this.logger.log(`[SMS][Seller] 验证码已发送（目标=${this.maskContact(phone)}）`);
+      } catch (err) {
+        // 发送失败仅记录日志，不阻塞流程（OTP 已写入数据库，用户可重试）
+        this.logger.error(
+          `[SMS][Seller] 验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
+        );
+      }
     }
 
     return { ok: true };
@@ -77,10 +100,72 @@ export class SellerAuthService {
       },
     });
 
-    if (staffRecords.length === 0) {
-      throw new ForbiddenException('您不是任何企业的员工，无法登录卖家后台');
+    return this.finalizeLogin(identity.userId, staffRecords, ip, userAgent);
+  }
+
+  /** 手机号 + 密码登录 */
+  async loginByPassword(dto: SellerPasswordLoginDto, ip?: string, userAgent?: string) {
+    // 0. 先校验图形验证码（原子 getdel，防止重放）
+    const captchaOk = await this.captchaService.verify(dto.captchaId, dto.captchaCode);
+    if (!captchaOk) {
+      throw new UnauthorizedException('验证码错误或已过期');
     }
 
+    // 1. 查找用户（通过 AuthIdentity 的 PHONE provider，与 SMS 登录保持一致）
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: { provider: 'PHONE', identifier: dto.phone },
+    });
+    if (!identity) {
+      throw new UnauthorizedException('账号或密码错误');
+    }
+
+    // 2. 查找该用户所有 ACTIVE 的企业员工记录
+    const staffRecords = await this.prisma.companyStaff.findMany({
+      where: { userId: identity.userId, status: 'ACTIVE' },
+      include: {
+        company: { select: { id: true, name: true, shortName: true, status: true } },
+      },
+    });
+
+    // 3. 挑选所有已设置 passwordHash 的员工记录
+    //    注意：下方所有认证失败路径（无 staff / 无密码 / bcrypt 均不匹配）统一返回
+    //    "账号或密码错误"，避免手机号枚举攻击；但仍需完整执行 bcrypt.compare 以避免时序侧信道
+    const staffsWithPassword = staffRecords.filter((s) => !!s.passwordHash);
+
+    // 4. 对每个已设置密码的员工记录尝试 bcrypt.compare（即使没有 staff 也走一次 dummy compare，统一耗时）
+    //    记录命中的具体 staff 记录，避免跨企业越权：
+    //    用户 X 若在公司 A 设了密码、在公司 B 未设密码，不能用 A 的密码登进 B
+    let matchedStaff: (typeof staffRecords)[number] | null = null;
+    if (staffsWithPassword.length === 0) {
+      // 使用 dummy hash 做一次 compare，保持与真实路径一致的 CPU 耗时
+      const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8.N1uVeS6vN9B1sT2mX1qW3eF4gH5i';
+      await bcrypt.compare(dto.password, DUMMY_HASH).catch(() => false);
+    } else {
+      for (const staff of staffsWithPassword) {
+        const ok = await bcrypt.compare(dto.password, staff.passwordHash!);
+        if (ok) {
+          matchedStaff = staff;
+          break;
+        }
+      }
+    }
+    if (!matchedStaff) {
+      throw new UnauthorizedException('账号或密码错误');
+    }
+
+    // 5. 仅将命中的单条员工记录传入 finalizeLogin
+    //    这保证密码登录只能进入密码所在的那个企业，不会误入其他未设密码的企业
+    //    （SMS 登录不受影响，仍然走全部 staffRecords 的多企业选择流程）
+    return this.finalizeLogin(identity.userId, [matchedStaff], ip, userAgent);
+  }
+
+  /** 认证通过后的统一收尾：过滤企业状态、单/多企业分支签发 Token */
+  private async finalizeLogin(
+    userId: string,
+    staffRecords: Array<any>,
+    ip?: string,
+    userAgent?: string,
+  ) {
     const normalizedCompanyState = await this.normalizeCompanyStates(
       staffRecords.map((staff) => staff.company.id),
     );
@@ -93,14 +178,14 @@ export class SellerAuthService {
       throw new ForbiddenException('您所属的企业均已停用');
     }
 
-    // 4. 单企业直接签发 Token；多企业返回选择列表
+    // 单企业直接签发 Token；多企业返回选择列表
     if (activeStaffs.length === 1) {
       const staff = activeStaffs[0];
       return this.issueTokens(staff, ip, userAgent);
     }
 
     // 多企业：签发临时 Token，前端用来选择企业
-    const tempPayload = { sub: identity.userId, type: 'seller-temp' as const };
+    const tempPayload = { sub: userId, type: 'seller-temp' as const };
     const tempToken = this.jwt.sign(tempPayload as any, {
       secret: this.jwtSecret,
       expiresIn: '5m',

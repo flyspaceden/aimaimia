@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CaptchaService } from '../captcha/captcha.service';
+import { UploadService } from '../upload/upload.service';
 import { CreateMerchantApplicationDto } from './dto/create-merchant-application.dto';
 
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'application/pdf'];
@@ -20,6 +20,7 @@ export class MerchantApplicationService {
   constructor(
     private prisma: PrismaService,
     private captchaService: CaptchaService,
+    private uploadService: UploadService,
   ) {}
 
   async create(dto: CreateMerchantApplicationDto, file: Express.Multer.File) {
@@ -32,8 +33,9 @@ export class MerchantApplicationService {
     // 2. 文件校验
     this.validateFile(file);
 
-    // 3. 保存文件
-    const fileUrl = await this.saveFile(file);
+    // 3. 通过统一上传服务保存文件（自动适配本地/OSS）
+    const uploadResult = await this.uploadService.uploadFile(file, 'merchant-applications');
+    const fileUrl = uploadResult.url;
 
     // 4. 检查是否已有 PENDING 申请（静默返回，不暴露状态）
     const existing = await this.prisma.merchantApplication.findFirst({
@@ -80,21 +82,4 @@ export class MerchantApplicationService {
     }
   }
 
-  private async saveFile(file: Express.Multer.File): Promise<string> {
-    const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'pdf'];
-    const rawExt = (file.originalname.split('.').pop() || '').toLowerCase();
-    const ext = ALLOWED_EXTS.includes(rawExt) ? rawExt : 'bin';
-    const filename = `${createId()}.${ext}`;
-    const dir = 'uploads/merchant-applications';
-
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const fullDir = path.join(process.cwd(), dir);
-    await fs.mkdir(fullDir, { recursive: true });
-
-    const fullPath = path.join(fullDir, filename);
-    await fs.writeFile(fullPath, file.buffer);
-
-    return `/${dir}/${filename}`;
-  }
 }

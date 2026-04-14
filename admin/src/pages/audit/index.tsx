@@ -31,8 +31,6 @@ function getTargetUrl(targetType: string | null, targetId: string | null): strin
     trace: `/trace`,
     bonus_member: `/bonus/members/${targetId}`,
     withdrawal: `/bonus/withdrawals`,
-    refund: `/refunds`,
-    replacement: `/replacements`,
     coupon_campaign: `/coupons`,
     lottery: `/lottery`,
   };

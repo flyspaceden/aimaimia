@@ -42,7 +42,7 @@ import {
 } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
-import type { CompanyStaff, CompanyDocument, AiSearchProfile } from '@/types';
+import type { CompanyStaff, CompanyDocument } from '@/types';
 import { COMPANY_TYPE_OPTIONS } from '@/types';
 import { getPublicTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import dayjs from 'dayjs';

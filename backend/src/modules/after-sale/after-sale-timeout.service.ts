@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
+import { InboxService } from '../inbox/inbox.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 
@@ -30,6 +31,7 @@ export class AfterSaleTimeoutService {
     private prisma: PrismaService,
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
+    private inboxService: InboxService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -157,7 +159,12 @@ export class AfterSaleTimeoutService {
           request.afterSaleType === 'NO_REASON_RETURN' ||
           request.afterSaleType === 'QUALITY_RETURN';
         if (!request.requiresReturn && isReturnType && request.refundAmount && request.refundAmount > 0) {
-          this.asyncRefund(request);
+          // 读取事务中写入的 refundId
+          const updated = await this.prisma.afterSaleRequest.findUnique({
+            where: { id: request.id },
+            select: { refundId: true },
+          });
+          this.asyncRefund({ ...request, refundId: updated?.refundId ?? null });
         }
 
         return; // 成功退出重试
@@ -360,7 +367,11 @@ export class AfterSaleTimeoutService {
           request.afterSaleType === 'NO_REASON_RETURN' ||
           request.afterSaleType === 'QUALITY_RETURN';
         if (isReturnType && request.refundAmount && request.refundAmount > 0) {
-          this.asyncRefund(request);
+          const updated = await this.prisma.afterSaleRequest.findUnique({
+            where: { id: request.id },
+            select: { refundId: true },
+          });
+          this.asyncRefund({ ...request, refundId: updated?.refundId ?? null });
         }
 
         return;
@@ -553,31 +564,70 @@ export class AfterSaleTimeoutService {
     id: string;
     orderId: string;
     refundAmount: number | null;
+    refundId: string | null;
     reason: string;
   }): void {
     const capturedOrderId = request.orderId;
-    const merchantRefundNo = `AS-TIMEOUT-${request.id}-${Date.now()}`;
 
     setImmediate(async () => {
       try {
+        // 从 DB 读取事务中创建的 refund 记录，复用同一个 merchantRefundNo（防止重复退款）
+        let refundRecord: { id: string; merchantRefundNo: string } | null = null;
+        if (request.refundId) {
+          refundRecord = await this.prisma.refund.findUnique({
+            where: { id: request.refundId },
+            select: { id: true, merchantRefundNo: true },
+          });
+        }
+        if (!refundRecord) {
+          this.logger.error(`asyncRefund: 售后 ${request.id} 无关联退款记录，跳过`);
+          return;
+        }
+
         const result = await this.paymentService.initiateRefund(
           request.orderId,
           request.refundAmount!,
-          merchantRefundNo,
+          refundRecord.merchantRefundNo,
         );
         if (result.success) {
-          await this.prisma.afterSaleRequest.updateMany({
+          // CAS：仅当仍为 REFUNDING 时才更新，防止与其他补偿路径重复执行后续逻辑
+          const cas = await this.prisma.afterSaleRequest.updateMany({
             where: { id: request.id, status: 'REFUNDING' },
             data: { status: 'REFUNDED' },
           });
-          // 退款成功后触发奖励归平台
-          await this.afterSaleRewardService
-            .voidRewardsForOrder(capturedOrderId)
-            .catch((voidErr: any) => {
-              this.logger.error(
-                `退款成功后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
-              );
-            });
+          // 同步更新 Refund 记录
+          await this.prisma.refund.updateMany({
+            where: { id: refundRecord.id, status: 'REFUNDING' },
+            data: { status: 'REFUNDED', providerRefundId: result.providerRefundId },
+          });
+          // cas.count === 0 说明已被其他路径处理，跳过后续（防重复通知）
+          if (cas.count > 0) {
+            await this.afterSaleRewardService
+              .voidRewardsForOrder(capturedOrderId)
+              .catch((voidErr: any) => {
+                this.logger.error(
+                  `退款成功后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
+                );
+              });
+            await this.afterSaleRewardService
+              .checkAndMarkOrderRefunded(capturedOrderId)
+              .catch((err: any) => {
+                this.logger.error(
+                  `检查订单全退状态失败: orderId=${capturedOrderId}, error=${err?.message}`,
+                );
+              });
+            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
+            if (order) {
+              this.inboxService.send({
+                userId: order.userId,
+                category: 'transaction',
+                type: 'refund_credited',
+                title: '退款已到账',
+                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
+                target: { route: '/orders' },
+              }).catch(() => {});
+            }
+          }
         }
         // 退款失败则保持 REFUNDING 状态，由补偿任务重试
       } catch (err) {
@@ -586,5 +636,123 @@ export class AfterSaleTimeoutService {
         );
       }
     });
+  }
+
+  // ========== C06修复：REFUNDING 状态售后申请补偿重试 ==========
+
+  /**
+   * 每 10 分钟扫描卡在 REFUNDING 状态超过 10 分钟的售后申请，重新触发退款
+   * 防止 setImmediate 退款调用因进程重启而丢失
+   */
+  @Cron('0 */10 * * * *')
+  async retryStaleRefundingRequests(): Promise<void> {
+    const cutoff = new Date(Date.now() - 10 * 60_000); // 10 分钟前
+    const staleRequests = await this.prisma.afterSaleRequest.findMany({
+      where: {
+        status: 'REFUNDING',
+        updatedAt: { lte: cutoff },
+        refundAmount: { gt: 0 },
+      },
+      select: { id: true, orderId: true, refundAmount: true, refundId: true },
+      take: 20,
+      orderBy: { updatedAt: 'asc' },
+    });
+
+    if (staleRequests.length === 0) return;
+    this.logger.warn(`售后退款补偿任务：发现 ${staleRequests.length} 条卡在 REFUNDING 的售后申请`);
+
+    for (const request of staleRequests) {
+      try {
+        // 用售后单自己的 refundId 精确查找退款记录（修复审查发现2：orderId 查询会串单）
+        const refund = request.refundId
+          ? await this.prisma.refund.findUnique({
+              where: { id: request.refundId },
+              select: { id: true, merchantRefundNo: true, status: true },
+            })
+          : null;
+
+        if (!refund) {
+          this.logger.warn(`售后 ${request.id} 无关联退款记录（refundId=${request.refundId}），跳过`);
+          continue;
+        }
+
+        // 如果 C04 Cron 已经把 refund 改成 REFUNDED，说明退款已到账，只需补闭环 afterSaleRequest 状态
+        if (refund.status === 'REFUNDED') {
+          await this.prisma.afterSaleRequest.updateMany({
+            where: { id: request.id, status: 'REFUNDING' },
+            data: { status: 'REFUNDED' },
+          });
+          // 补触发奖励归平台 + 全退检查 + 通知（C04 不做这些）
+          await this.afterSaleRewardService.voidRewardsForOrder(request.orderId).catch((err: any) => {
+            this.logger.error(`补偿闭环奖励归平台失败: orderId=${request.orderId}, error=${err?.message}`);
+          });
+          await this.afterSaleRewardService.checkAndMarkOrderRefunded(request.orderId).catch((err: any) => {
+            this.logger.error(`补偿闭环检查全退失败: orderId=${request.orderId}, error=${err?.message}`);
+          });
+          const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
+          if (order) {
+            this.inboxService.send({
+              userId: order.userId,
+              category: 'transaction',
+              type: 'refund_credited',
+              title: '退款已到账',
+              content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
+              target: { route: '/orders' },
+            }).catch(() => {});
+          }
+          this.logger.log(`售后 ${request.id} 退款已由 C04 完成，补闭环 afterSaleRequest 状态`);
+          continue;
+        }
+
+        if (!['REFUNDING', 'FAILED'].includes(refund.status)) {
+          this.logger.warn(`售后 ${request.id} 退款状态异常（${refund.status}），跳过`);
+          continue;
+        }
+
+        const merchantRefundNo = refund.merchantRefundNo;
+
+        const result = await this.paymentService.initiateRefund(
+          request.orderId,
+          request.refundAmount!,
+          merchantRefundNo,
+        );
+
+        if (result.success) {
+          // CAS：仅当仍为 REFUNDING 时才更新，防止与其他补偿路径重复执行后续逻辑
+          const cas = await this.prisma.afterSaleRequest.updateMany({
+            where: { id: request.id, status: 'REFUNDING' },
+            data: { status: 'REFUNDED' },
+          });
+          await this.prisma.refund.updateMany({
+            where: { id: refund.id, status: { in: ['REFUNDING', 'FAILED'] } },
+            data: { status: 'REFUNDED', providerRefundId: result.providerRefundId },
+          });
+          if (cas.count > 0) {
+            await this.afterSaleRewardService.voidRewardsForOrder(request.orderId).catch((err: any) => {
+              this.logger.error(`补偿退款后奖励归平台失败: orderId=${request.orderId}, error=${err?.message}`);
+            });
+            await this.afterSaleRewardService.checkAndMarkOrderRefunded(request.orderId).catch((err: any) => {
+              this.logger.error(`补偿退款后检查全退失败: orderId=${request.orderId}, error=${err?.message}`);
+            });
+            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
+            if (order) {
+              this.inboxService.send({
+                userId: order.userId,
+                category: 'transaction',
+                type: 'refund_credited',
+                title: '退款已到账',
+                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
+                target: { route: '/orders' },
+              }).catch(() => {});
+            }
+          }
+          this.logger.log(`售后退款补偿成功: afterSaleId=${request.id}`);
+        } else {
+          this.logger.warn(`售后退款补偿失败: afterSaleId=${request.id}, message=${result.message}`);
+        }
+      } catch (err: any) {
+        this.logger.error(`售后退款补偿异常: afterSaleId=${request.id}, error=${err?.message}`);
+      }
+    }
   }
 }

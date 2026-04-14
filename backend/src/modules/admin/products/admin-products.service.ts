@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
+import { UpdateProductSkusDto } from './dto/update-sku.dto';
 
 @Injectable()
 export class AdminProductsService {
@@ -39,7 +41,7 @@ export class AdminProductsService {
         orderBy: { createdAt: 'desc' },
         include: {
           company: { select: { id: true, name: true, status: true } },
-          category: { select: { id: true, name: true, returnPolicy: true } },
+          category: { select: { id: true, name: true, returnPolicy: true, parentId: true } },
           skus: { select: { id: true, price: true, cost: true, stock: true, maxPerOrder: true } },
           media: { select: { url: true }, take: 1 },
         },
@@ -47,7 +49,40 @@ export class AdminProductsService {
       this.prisma.product.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    // 解析每个商品的最终生效退货政策
+    // 批量加载所有分类（避免 N+1），分类数量有限可全量缓存
+    const needResolve = items.filter(
+      (item) => ((item as any).returnPolicy || 'INHERIT') === 'INHERIT',
+    );
+    let categoryMap: Map<string, { returnPolicy: ReturnPolicy; parentId: string | null }> | undefined;
+    if (needResolve.length > 0) {
+      const allCategories = await this.prisma.category.findMany({
+        select: { id: true, returnPolicy: true, parentId: true },
+      });
+      categoryMap = new Map(allCategories.map((c) => [c.id, { returnPolicy: c.returnPolicy, parentId: c.parentId }]));
+    }
+
+    const enriched = items.map((item) => {
+      const policy = (item as any).returnPolicy || 'INHERIT';
+      if (policy !== 'INHERIT') {
+        return { ...item, effectiveReturnPolicy: policy };
+      }
+      // 沿分类链内存查找
+      let catPolicy: ReturnPolicy | undefined = item.category?.returnPolicy as ReturnPolicy | undefined;
+      let parentId = (item.category as any)?.parentId as string | null;
+      while (catPolicy === 'INHERIT' && parentId && categoryMap) {
+        const parent = categoryMap.get(parentId);
+        if (!parent) break;
+        catPolicy = parent.returnPolicy;
+        parentId = parent.parentId;
+      }
+      return {
+        ...item,
+        effectiveReturnPolicy: catPolicy === 'INHERIT' ? 'RETURNABLE' : catPolicy,
+      };
+    });
+
+    return { items: enriched, total, page, pageSize };
   }
 
   /** 商品统计 */
@@ -91,7 +126,11 @@ export class AdminProductsService {
     if (!product) throw new NotFoundException('商品不存在');
 
     // 提取 tagIds，不传给 Prisma product.update
-    const { tagIds, ...productData } = dto;
+    const { tagIds, returnPolicy, ...rest } = dto;
+    const productData: Prisma.ProductUncheckedUpdateInput = {
+      ...rest,
+      ...(returnPolicy !== undefined ? { returnPolicy: returnPolicy as ReturnPolicy } : {}),
+    };
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.product.update({
@@ -186,10 +225,73 @@ export class AdminProductsService {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('商品不存在');
 
+    // C20: 审核通过自动上架（status -> ACTIVE）；拒绝保持原状态
+    const updateData: Prisma.ProductUncheckedUpdateInput = { auditStatus, auditNote };
+    if (auditStatus === 'APPROVED') {
+      updateData.status = 'ACTIVE';
+    }
+
     return this.prisma.product.update({
       where: { id },
-      data: { auditStatus, auditNote },
+      data: updateData,
     });
+  }
+
+  /**
+   * C21: 管理端 SKU 批量编辑（UPSERT-only，不删除未列出的 SKU）
+   * 使用 Serializable 隔离级别（涉及价格与库存）
+   * - 含 id → 更新对应 SKU
+   * - 无 id → 新建 SKU
+   */
+  async updateSkus(productId: string, dto: UpdateProductSkusDto) {
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('商品不存在');
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        // 校验传入带 id 的 SKU 必须属于该商品
+        const incomingIds = dto.skus.map((s) => s.id).filter((v): v is string => !!v);
+        if (incomingIds.length > 0) {
+          const existing = await tx.productSKU.findMany({
+            where: { id: { in: incomingIds }, productId },
+            select: { id: true },
+          });
+          if (existing.length !== incomingIds.length) {
+            throw new NotFoundException('存在不属于该商品的 SKU');
+          }
+        }
+
+        for (const sku of dto.skus) {
+          if (sku.id) {
+            // 更新已存在 SKU
+            const data: Prisma.ProductSKUUncheckedUpdateInput = {
+              price: sku.price,
+              stock: sku.stock,
+            };
+            if (sku.cost !== undefined) data.cost = sku.cost;
+            if (sku.specText !== undefined) data.title = sku.specText;
+            await tx.productSKU.update({ where: { id: sku.id }, data });
+          } else {
+            // 新建 SKU
+            await tx.productSKU.create({
+              data: {
+                productId,
+                title: sku.specText ?? '默认规格',
+                price: sku.price,
+                cost: sku.cost ?? 0,
+                stock: sku.stock,
+              },
+            });
+          }
+        }
+
+        return tx.productSKU.findMany({
+          where: { productId },
+          orderBy: { createdAt: 'asc' },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   /** 清除语义字段来源标记，使 SemanticFillService 可以重新填充 */

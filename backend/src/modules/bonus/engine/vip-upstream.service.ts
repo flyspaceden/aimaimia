@@ -3,12 +3,16 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID } from './constants';
+import { InboxService } from '../../inbox/inbox.service';
 
 @Injectable()
 export class VipUpstreamService {
   private readonly logger = new Logger(VipUpstreamService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private inboxService: InboxService,
+  ) {}
 
   /**
    * VIP 上溯分配
@@ -154,6 +158,18 @@ export class VipUpstreamService {
         where: { id: account.id },
         data: { balance: { increment: rewardPool } },
       });
+
+      // C12: 分润到账通知
+      setImmediate(() => {
+        this.inboxService.send({
+          userId: ancestorUserId,
+          category: 'transaction',
+          type: 'reward_credited',
+          title: '分润奖励到账',
+          content: `您收到 ${rewardPool.toFixed(2)} 元消费奖励，已到账可提现。`,
+          target: { route: '/wallet' },
+        }).catch(() => {});
+      });
     }
     // RETURN_FROZEN: 不更新 RewardAccount（对用户完全不可见）
 
@@ -269,6 +285,18 @@ export class VipUpstreamService {
           balance: { increment: totalReleased },
           frozen: { decrement: totalReleased },
         },
+      });
+
+      // C12: 奖励解冻通知
+      setImmediate(() => {
+        this.inboxService.send({
+          userId: ancestorUserId,
+          category: 'transaction',
+          type: 'reward_unfrozen',
+          title: '奖励已解锁',
+          content: `您有 ${totalReleased.toFixed(2)} 元奖励已解锁，可提现。`,
+          target: { route: '/wallet' },
+        }).catch(() => {});
       });
 
       // P1-6: 更新 VipProgress.unlockedLevel

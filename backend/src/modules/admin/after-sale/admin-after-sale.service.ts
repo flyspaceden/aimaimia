@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
+import { InboxService } from '../../inbox/inbox.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import {
@@ -35,6 +36,7 @@ export class AdminAfterSaleService {
     private prisma: PrismaService,
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
+    private inboxService: InboxService,
   ) {}
 
   // ========== 列表查询 ==========
@@ -467,7 +469,7 @@ export class AdminAfterSaleService {
           merchantRefundNo,
         );
         if (result.success) {
-          await this.prisma.afterSaleRequest.updateMany({
+          const cas = await this.prisma.afterSaleRequest.updateMany({
             where: { id: request.id, status: 'REFUNDING' },
             data: { status: 'REFUNDED' },
           });
@@ -478,14 +480,34 @@ export class AdminAfterSaleService {
               providerRefundId: result.providerRefundId,
             },
           });
-          // 退款成功后触发奖励归平台
-          await this.afterSaleRewardService
-            .voidRewardsForOrder(capturedOrderId)
-            .catch((voidErr: any) => {
-              this.logger.error(
-                `管理员仲裁退款后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
-              );
-            });
+          // cas.count === 0 说明已被其他路径处理，跳过后续（防重复通知）
+          if (cas.count > 0) {
+            await this.afterSaleRewardService
+              .voidRewardsForOrder(capturedOrderId)
+              .catch((voidErr: any) => {
+                this.logger.error(
+                  `管理员仲裁退款后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
+                );
+              });
+            await this.afterSaleRewardService
+              .checkAndMarkOrderRefunded(capturedOrderId)
+              .catch((err: any) => {
+                this.logger.error(
+                  `检查订单全退状态失败: orderId=${capturedOrderId}, error=${err?.message}`,
+                );
+              });
+            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
+            if (order) {
+              this.inboxService.send({
+                userId: order.userId,
+                category: 'transaction',
+                type: 'refund_credited',
+                title: '退款已到账',
+                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
+                target: { route: '/orders' },
+              }).catch(() => {});
+            }
+          }
         }
         // 退款失败则保持 REFUNDING 状态，由补偿任务重试
       } catch (err) {

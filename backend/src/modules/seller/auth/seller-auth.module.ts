@@ -6,11 +6,13 @@ import { SellerAuthController } from './seller-auth.controller';
 import { SellerAuthService } from './seller-auth.service';
 import { SellerJwtStrategy } from './seller-jwt.strategy';
 import { SellerRiskControlModule } from '../risk-control/seller-risk-control.module';
+import { CaptchaModule } from '../../captcha/captcha.module';
 
 @Module({
   imports: [
     PassportModule,
     SellerRiskControlModule,
+    CaptchaModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

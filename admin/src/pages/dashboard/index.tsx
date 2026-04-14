@@ -11,7 +11,6 @@ import {
   FileSearchOutlined,
   BankOutlined,
   ExceptionOutlined,
-  SwapOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -20,8 +19,7 @@ import { getDashboardStats, getSalesTrend, getBonusStats } from '@/api/stats';
 import { getProducts } from '@/api/products';
 import { getCompanies } from '@/api/companies';
 import { getWithdrawals } from '@/api/bonus';
-import { getRefunds } from '@/api/refunds';
-import { getReplacements } from '@/api/replacements';
+import { getAfterSales } from '@/api/after-sale';
 import type { Order, PaginatedData } from '@/types';
 import dayjs from 'dayjs';
 
@@ -59,18 +57,11 @@ const pendingItems = [
     path: '/bonus/withdrawals',
   },
   {
-    title: '待处理退款',
-    queryKey: ['admin', 'pending-refunds'],
-    queryFn: () => getRefunds({ page: 1, pageSize: 1, status: 'REQUESTED' }),
+    title: '待处理售后',
+    queryKey: ['admin', 'pending-after-sales'],
+    queryFn: () => getAfterSales({ page: 1, pageSize: 1, status: 'REQUESTED' }),
     icon: <ExceptionOutlined style={{ fontSize: 20 }} />,
-    path: '/refunds',
-  },
-  {
-    title: '待处理换货',
-    queryKey: ['admin', 'pending-replacements'],
-    queryFn: () => getReplacements({ page: 1, pageSize: 1, status: 'REQUESTED' }),
-    icon: <SwapOutlined style={{ fontSize: 20 }} />,
-    path: '/replacements',
+    path: '/after-sale',
   },
 ];
 

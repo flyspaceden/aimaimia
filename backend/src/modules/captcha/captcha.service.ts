@@ -17,9 +17,13 @@ export class CaptchaService {
   async generate(): Promise<{ captchaId: string; svg: string }> {
     const captcha = svgCaptcha.create({
       size: 4,
-      noise: 2,
+      noise: 1, // 降低干扰线（原 2 太乱）
       color: true,
       background: '#f0f0f0',
+      ignoreChars: '0o1ilI', // 去掉易混淆的字符
+      width: 120,
+      height: 40,
+      fontSize: 50,
     });
 
     const captchaId = createId();
@@ -42,10 +46,9 @@ export class CaptchaService {
   async verify(captchaId: string, input: string): Promise<boolean> {
     const key = `${CaptchaService.KEY_PREFIX}${captchaId}`;
 
-    // 先尝试 Redis
-    const stored = await this.redis.get(key);
+    // 先尝试 Redis（原子性读取并删除，防止并发重放）
+    const stored = await this.redis.getdel(key);
     if (stored) {
-      await this.redis.del(key);
       return stored === input.toLowerCase();
     }
 
