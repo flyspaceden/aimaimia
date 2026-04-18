@@ -1,18 +1,20 @@
-name: Deploy All Sites
+name: Deploy Sites & Backend
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - 'website/**'
       - 'admin/**'
       - 'seller/**'
+      - 'backend/**'
+      - '.github/workflows/deploy-website.yml'
 
   # 手动触发
   workflow_dispatch:
     inputs:
       deploy_target:
-        description: '部署目标 (all/website/admin/seller)'
+        description: '部署目标 (all/website/admin/seller/backend)'
         required: true
         default: 'all'
 
@@ -23,6 +25,16 @@ jobs:
       website: ${{ steps.changes.outputs.website }}
       admin: ${{ steps.changes.outputs.admin }}
       seller: ${{ steps.changes.outputs.seller }}
+      backend: ${{ steps.changes.outputs.backend }}
+      env_name: ${{ steps.env.outputs.env_name }}
+      api_base: ${{ steps.env.outputs.api_base }}
+      ws_base: ${{ steps.env.outputs.ws_base }}
+      admin_target: ${{ steps.env.outputs.admin_target }}
+      seller_target: ${{ steps.env.outputs.seller_target }}
+      website_target: ${{ steps.env.outputs.website_target }}
+      backend_src_dir: ${{ steps.env.outputs.backend_src_dir }}
+      backend_pm2_name: ${{ steps.env.outputs.backend_pm2_name }}
+      backend_branch: ${{ steps.env.outputs.backend_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,13 +45,41 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TARGET="${{ github.event.inputs.deploy_target }}"
-            if [ "$TARGET" = "all" ] || [ "$TARGET" = "website" ]; then echo "website=true" >> $GITHUB_OUTPUT; else echo "website=false" >> $GITHUB_OUTPUT; fi
-            if [ "$TARGET" = "all" ] || [ "$TARGET" = "admin" ]; then echo "admin=true" >> $GITHUB_OUTPUT; else echo "admin=false" >> $GITHUB_OUTPUT; fi
-            if [ "$TARGET" = "all" ] || [ "$TARGET" = "seller" ]; then echo "seller=true" >> $GITHUB_OUTPUT; else echo "seller=false" >> $GITHUB_OUTPUT; fi
+            [ "$TARGET" = "all" ] || [ "$TARGET" = "website" ] && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
+            [ "$TARGET" = "all" ] || [ "$TARGET" = "admin" ]   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
+            [ "$TARGET" = "all" ] || [ "$TARGET" = "seller" ]  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
+            [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ] && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
           else
-            echo "website=$(git diff --name-only HEAD~1 HEAD | grep -q '^website/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "admin=$(git diff --name-only HEAD~1 HEAD | grep -q '^admin/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "seller=$(git diff --name-only HEAD~1 HEAD | grep -q '^seller/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            echo "$CHANGED" | grep -q '^website/' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -q '^admin/'   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -q '^seller/'  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -q '^backend/' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine environment (main → 生产 / staging → 测试)
+        id: env
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "env_name=production" >> $GITHUB_OUTPUT
+            echo "api_base=https://api.ai-maimai.com/api/v1" >> $GITHUB_OUTPUT
+            echo "ws_base=https://api.ai-maimai.com" >> $GITHUB_OUTPUT
+            echo "admin_target=/www/wwwroot/admin/" >> $GITHUB_OUTPUT
+            echo "seller_target=/www/wwwroot/seller/" >> $GITHUB_OUTPUT
+            echo "website_target=/www/wwwroot/website/" >> $GITHUB_OUTPUT
+            echo "backend_src_dir=/www/wwwroot/aimaimai-prod-src" >> $GITHUB_OUTPUT
+            echo "backend_pm2_name=aimaimai-api-prod" >> $GITHUB_OUTPUT
+            echo "backend_branch=main" >> $GITHUB_OUTPUT
+          else
+            echo "env_name=staging" >> $GITHUB_OUTPUT
+            echo "api_base=https://test-api.ai-maimai.com/api/v1" >> $GITHUB_OUTPUT
+            echo "ws_base=https://test-api.ai-maimai.com" >> $GITHUB_OUTPUT
+            echo "admin_target=/www/wwwroot/test-admin/" >> $GITHUB_OUTPUT
+            echo "seller_target=/www/wwwroot/test-seller/" >> $GITHUB_OUTPUT
+            echo "website_target=/www/wwwroot/website/" >> $GITHUB_OUTPUT
+            echo "backend_src_dir=/www/wwwroot/aimaimai-staging-src" >> $GITHUB_OUTPUT
+            echo "backend_pm2_name=aimaimai-api-test" >> $GITHUB_OUTPUT
+            echo "backend_branch=staging" >> $GITHUB_OUTPUT
           fi
 
   deploy-website:
@@ -56,6 +96,9 @@ jobs:
           cache-dependency-path: website/package-lock.json
 
       - name: Build website
+        env:
+          VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
+          VITE_APP_ENV: ${{ needs.detect-changes.outputs.env_name }}
         run: |
           cd website
           npm ci
@@ -68,7 +111,7 @@ jobs:
           REMOTE_HOST: ${{ secrets.SERVER_HOST }}
           REMOTE_USER: ${{ secrets.SERVER_USER }}
           SOURCE: website/dist/
-          TARGET: /www/wwwroot/website/
+          TARGET: ${{ needs.detect-changes.outputs.website_target }}
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
 
   deploy-admin:
@@ -85,6 +128,10 @@ jobs:
           cache-dependency-path: admin/package-lock.json
 
       - name: Build admin
+        env:
+          VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
+          VITE_WS_BASE_URL: ${{ needs.detect-changes.outputs.ws_base }}
+          VITE_APP_ENV: ${{ needs.detect-changes.outputs.env_name }}
         run: |
           cd admin
           npm ci
@@ -97,7 +144,7 @@ jobs:
           REMOTE_HOST: ${{ secrets.SERVER_HOST }}
           REMOTE_USER: ${{ secrets.SERVER_USER }}
           SOURCE: admin/dist/
-          TARGET: /www/wwwroot/admin/
+          TARGET: ${{ needs.detect-changes.outputs.admin_target }}
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
 
   deploy-seller:
@@ -114,6 +161,10 @@ jobs:
           cache-dependency-path: seller/package-lock.json
 
       - name: Build seller
+        env:
+          VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
+          VITE_WS_BASE_URL: ${{ needs.detect-changes.outputs.ws_base }}
+          VITE_APP_ENV: ${{ needs.detect-changes.outputs.env_name }}
         run: |
           cd seller
           npm ci
@@ -126,5 +177,56 @@ jobs:
           REMOTE_HOST: ${{ secrets.SERVER_HOST }}
           REMOTE_USER: ${{ secrets.SERVER_USER }}
           SOURCE: seller/dist/
-          TARGET: /www/wwwroot/seller/
+          TARGET: ${{ needs.detect-changes.outputs.seller_target }}
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
+
+  deploy-backend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy backend on server
+        env:
+          SRC_DIR: ${{ needs.detect-changes.outputs.backend_src_dir }}
+          PM2_NAME: ${{ needs.detect-changes.outputs.backend_pm2_name }}
+          BRANCH: ${{ needs.detect-changes.outputs.backend_branch }}
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash <<EOF
+            set -e
+            echo "═══ 1. 切换到源码目录 ═══"
+            cd $SRC_DIR
+
+            echo "═══ 2. 拉取最新代码（branch: $BRANCH）═══"
+            git fetch origin $BRANCH
+            git reset --hard origin/$BRANCH
+
+            echo "═══ 3. 装依赖 ═══"
+            cd backend
+            npm ci
+
+            echo "═══ 4. Prisma generate + migrate deploy ═══"
+            npx prisma generate
+            npx prisma migrate deploy
+
+            echo "═══ 5. 构建 ═══"
+            npm run build
+
+            echo "═══ 6. PM2 reload ═══"
+            pm2 reload $PM2_NAME --update-env
+
+            echo "═══ 7. 验证健康检查 ═══"
+            sleep 3
+            pm2 list | grep $PM2_NAME
+
+            echo "✅ 后端部署完成"
+          EOF
