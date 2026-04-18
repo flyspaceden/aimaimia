@@ -7,7 +7,7 @@
  * 运行：npx prisma db seed
  */
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -3176,6 +3176,37 @@ async function main() {
     });
   }
   console.log(`✅ ${moreOrders.length} 个新订单已创建（覆盖所有状态）`);
+
+  // ============================================================
+  // 回填 OrderItem.companyId（种子旧写法未显式设置 companyId，
+  // 卖家端按 items.companyId 过滤，若为空则卖家看不到任何订单）
+  // ============================================================
+  const itemsMissingCompany = await prisma.orderItem.findMany({
+    where: { companyId: null },
+    select: { id: true, skuId: true },
+  });
+  if (itemsMissingCompany.length > 0) {
+    const skuIds = [...new Set(itemsMissingCompany.map((i) => i.skuId))];
+    const skus = await prisma.productSKU.findMany({
+      where: { id: { in: skuIds } },
+      select: { id: true, product: { select: { companyId: true } } },
+    });
+    const skuToCompany = new Map<string, string | null>(
+      skus.map((s: { id: string; product: { companyId: string | null } | null }) => [s.id, s.product?.companyId ?? null]),
+    );
+    let patched = 0;
+    for (const item of itemsMissingCompany) {
+      const companyId = skuToCompany.get(item.skuId);
+      if (companyId) {
+        await prisma.orderItem.update({
+          where: { id: item.id },
+          data: { companyId },
+        });
+        patched++;
+      }
+    }
+    console.log(`✅ 回填 ${patched}/${itemsMissingCompany.length} 条 OrderItem.companyId`);
+  }
 
   // ============================================================
   // 更多支付记录
