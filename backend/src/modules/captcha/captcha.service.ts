@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { v4 as createId } from 'uuid';
+import { createId } from '@paralleldrive/cuid2';
 import * as svgCaptcha from 'svg-captcha';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 
@@ -44,16 +44,6 @@ export class CaptchaService {
   }
 
   async verify(captchaId: string, input: string): Promise<boolean> {
-    // E2E 测试绕过：仅在 NODE_ENV==='test' 且 CAPTCHA_BYPASS_TOKEN 已设置时生效
-    // 生产环境 NODE_ENV 不会是 'test'，此分支物理上不可达
-    if (
-      process.env.NODE_ENV === 'test' &&
-      process.env.CAPTCHA_BYPASS_TOKEN &&
-      input === process.env.CAPTCHA_BYPASS_TOKEN
-    ) {
-      return true;
-    }
-
     const key = `${CaptchaService.KEY_PREFIX}${captchaId}`;
 
     // 先尝试 Redis（原子性读取并删除，防止并发重放）

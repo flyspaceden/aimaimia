@@ -21,7 +21,7 @@
  *   cd backend && npx ts-node test/return-policy-consistency.ts
  */
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 
 const BASE = process.env.API_URL || 'http://localhost:3000/api/v1';
 const prisma = new PrismaClient();
