@@ -2,4 +2,4 @@
 ALTER TABLE "Shipment" RENAME COLUMN "kuaidi100TaskId" TO "sfOrderId";
 
 -- RenameColumn
-ALTER TABLE "AfterSaleRequest" RENAME COLUMN "replacementKuaidi100TaskId" TO "replacementSfOrderId";
+ALTER TABLE "after_sale_request" RENAME COLUMN "replacementKuaidi100TaskId" TO "replacementSfOrderId";
