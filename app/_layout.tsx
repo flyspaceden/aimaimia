@@ -128,7 +128,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (consentState !== 'granted') return;
-    performDeferredLinkCheck();
+    // 加 .catch 防 WebBrowser / fetch / setDDLChecked 异步失败炸到 React 顶层
+    performDeferredLinkCheck().catch((err) => {
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn('[DDL] performDeferredLinkCheck failed:', err);
+      }
+    });
   }, [consentState]);
 
   // 支付宝沙箱环境（测试时设为 true，上线前改为 false）
