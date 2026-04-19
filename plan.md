@@ -458,10 +458,34 @@
     - 改 `app/_layout.tsx`：隐私同意后调 `initWechat()` 注册 AppID
     - 改 `src/components/overlay/AuthModal.tsx:handleWeChat` 用新的 `requestWechatAuth()` 替代旧 stub
   - **iOS 延后**: iOS 需 Apple Developer 账号（U06 未就绪）+ Universal Link + Info.plist + AppDelegate；待 U06 完成后补
-  - **下一步（用户操作）**:
-    - [ ] `eas build --profile preview --platform android` 打新 .apk（runtimeVersion=0.2.0，与旧版不兼容）
-    - [ ] 测试人员真机**卸载旧版**（签名变了不能覆盖）→ 装新 .apk
-    - [ ] 点"微信登录" → 跳转微信 → 同意 → 自动登回 App
+  - **下一步测试清单（用户操作）**:
+    - [ ] **① 打新 .apk**: `eas build --profile preview --platform android`（~15-25 分钟）
+      - 构建用 EAS 上已传的本地 keystore 签名（MD5 `76:6B:AF:B6:...`，与微信平台注册一致）
+      - Gradle 阶段日志应见 `WXEntryActivity.java` 编译 + `react-native-wechat-lib` 链接
+      - 失败贴日志给 Claude
+    - [ ] **② 真机安装**（必须装了**微信 App** + 登过微信号的 Android 真机）:
+      - 🔴 **先卸载旧版 AI爱买买**（签名从 EAS 默认 keystore 换成本地 keystore，Android 拒绝覆盖）
+      - 从 EAS 给的 URL 或蒲公英下载新 .apk 安装
+    - [ ] **③ 端到端验证**:
+      - 启动 App → 同意隐私政策
+      - "我的" Tab → 点登录 → 唤出 AuthModal
+      - 点"微信登录" → **应跳转微信 App**
+      - 微信点"同意" → 自动跳回 App → 应已登录（可看"我的"页用户名）
+    - [ ] **④ 后端日志验证**:
+      ```bash
+      ssh root@8.163.16.32
+      pm2 logs aimaimai-api-test --lines 100 --nostream | grep -iE "wechat|oauth|openId"
+      ```
+      应看到后端收到 `/auth/oauth/wechat` + 用 code 换 openId 成功
+    - [ ] **⑤ 新人红包**: 首次微信登录触发新人红包（后端逻辑）；再次登录不重复
+    - [ ] **⑥ 补绑手机号**: 微信登录后进账号安全页（C40c7），能绑定手机号
+  - **常见故障排查**:
+    | 症状 | 原因 | 解法 |
+    |---|---|---|
+    | 点微信登录无反应 | SDK 注册失败 / 微信未装 | `__DEV__` console 日志看 `[WeChat] registerApp` |
+    | 跳微信无"同意"按钮 | 签名 MD5 与微信平台不匹配 | EAS keystore MD5 核对 `76:6B:AF:B6:...` |
+    | 同意后未登录 | 后端 wechat API 报错 | PM2 日志找 `[WeChat]` 错误 |
+    | Build 报 @expo/config-plugins 缺失 | peer dep | `npm install @expo/config-plugins --save-dev` |
   - **后端已就绪**: staging `WECHAT_MOCK=false`，生产环境上线前核对
   - **验收**:
     - [ ] App 点"微信登录" → 跳转微信 → 同意 → 自动登录
@@ -473,20 +497,20 @@
 
 ~~C40c5 Apple 登录~~ — 🗑️ 用户决策（2026-04-19）: 不需要，已删除。仅在真正有 iOS 第三方登录需求且 Apple 审核强制时再加回
 
-- [ ] **C40c6** — 🟢 P2 卖家邀请员工 SMS 通知（2026-04-19 新增）
-  - **背景**: `seller-company.service.ts:inviteStaff()` 当前只写 CompanyStaff 表，**不发任何通知**。员工不知道自己被加入了某公司。需要发短信告诉员工"您被邀请加入【XXX 公司】"
-  - **修改文件**:
-    - 改 `backend/src/modules/seller/company/seller-company.service.ts:inviteStaff()` 在写库成功后调用 `aliyunSmsService.sendInvitation(phone, companyName, app下载链接)`
-    - 阿里云短信控制台：申请新模板 "INVITE_STAFF"（"您被邀请加入【\${companyName}】，请用本手机号登录爱买买卖家中心"）
-    - 申请通过后填模板 ID 到 .env：`SMS_TEMPLATE_INVITE=SMS_xxxx`
-    - 改 `aliyun-sms.service.ts` 加 `sendInvitation()` 方法
+- [x] **C40c6** — 🟢 P2 卖家邀请员工 SMS 通知（2026-04-19 新增，2026-04-19 完成）
+  - **用户决策（2026-04-19）**: 不申请新模板，复用现有 `SMS_501860621` 验证码模板。员工看到签名「深圳华海农业科技集团」知道是哪家邀请；发送的 code 同时写入 SmsOtp(LOGIN) 可直接用于登录（5 分钟有效），省去员工再发一次验证码步骤
+  - **实际做了**:
+    - 改 `seller-company.service.ts:inviteStaff()`：写库成功后 fire-and-forget 调用新增的 `sendInviteSms(phone)` 私有方法
+    - 新增 `sendInviteSms()`：生成 6 位 code（mock 固定 `123456`）→ bcrypt hash + 写 SmsOtp(LOGIN, 5min) → 调 `aliyunSms.sendVerificationCode(phone, code)`
+    - constructor 注入 `ConfigService` + `AliyunSmsService`（@Global，无需改模块）
+    - 失败只 logger.warn 不抛异常，保证 inviteStaff 事务不被阻塞
   - **验收**:
-    - [x] OWNER 邀请员工后，员工 5 秒内收到短信
-    - [x] 短信内容含公司名 + App 下载链接（蒲公英短链或正式商店链接）
-    - [x] 短信发送失败不阻塞邀请操作（fire-and-forget + 日志）
-    - [x] PM2 日志记录发送结果
-  - **预估**: 0.5 天 + 阿里云模板审核 1-3 天
-  - 状态: ⬜
+    - [ ] OWNER 邀请员工后，员工 5 秒内收到 "【深圳华海农业科技集团】您的验证码是 XXXXXX" 短信
+    - [ ] 员工用此 code 在 seller 登录页「手机登录」Tab 可直接登入（无需再次获取验证码）
+    - [ ] 短信发送失败时 PM2 日志记录 `[InviteStaff] SMS 发送失败不影响邀请`，staff 记录仍创建成功
+    - [ ] 员工手机号不存在时（新用户）也正常发送
+  - **预估**: 0.5 天 → 实际 0.25 天（复用现有模板免审核等待）
+  - 状态: ⏳ 代码完成待部署测试
 
 - [x] **C40c7** — 🟡 P1 两端"账号安全"页：自助改密码 + 改手机号（2026-04-19 新增，当日代码完成）
   - **背景**: 两端已有密码 + SMS 双模式登录（C17/C18），但用户登入后无法自助改密码/改手机号。Admin 本人、Seller OWNER/员工都需要这个能力。否则忘密码或换手机即失联

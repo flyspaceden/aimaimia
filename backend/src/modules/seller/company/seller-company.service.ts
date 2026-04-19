@@ -3,19 +3,27 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, AI_SEARCH_KEYS } from './seller-company.dto';
 import { maskName, maskPhone } from '../../../common/security/privacy-mask';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import { CompanyService } from '../../company/company.service';
+import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 
 @Injectable()
 export class SellerCompanyService {
+  private readonly logger = new Logger(SellerCompanyService.name);
+
   constructor(
     private prisma: PrismaService,
     private companyService: CompanyService,
+    private config: ConfigService,
+    private aliyunSms: AliyunSmsService,
   ) {}
 
   // ===================== 企业信息 =====================
@@ -277,7 +285,7 @@ export class SellerCompanyService {
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : null;
 
-    return this.prisma.companyStaff.create({
+    const created = await this.prisma.companyStaff.create({
       data: {
         userId: identity.userId,
         companyId,
@@ -289,6 +297,40 @@ export class SellerCompanyService {
         user: { include: { profile: { select: { nickname: true, avatarUrl: true } } } },
       },
     });
+
+    // C40c6：邀请员工时 fire-and-forget 发通知短信（复用现有验证码模板 SMS_501860621）
+    // - 员工看到签名「深圳华海农业科技集团」知道是哪家企业邀请
+    // - 发送的 code 同时写入 SmsOtp(purpose=LOGIN)，员工可直接用它登录（5 分钟有效）
+    // - 失败不阻塞邀请流程
+    void this.sendInviteSms(dto.phone).catch((err) => {
+      this.logger.warn(`[InviteStaff] SMS 发送失败不影响邀请: ${(err as Error)?.message}`);
+    });
+
+    return created;
+  }
+
+  /** 发送邀请短信（内部方法，fire-and-forget） */
+  private async sendInviteSms(phone: string) {
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // 写入 SmsOtp 使该 code 可用于登录
+    await this.prisma.smsOtp.create({
+      data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
+    });
+
+    if (smsMock === 'true') {
+      this.logger.log(
+        `[InviteStaff SMS Mock] 固定 code=${code}（目标 ${maskPhone(phone)}），员工可用此 code 登录`,
+      );
+    } else {
+      await this.aliyunSms.sendVerificationCode(phone, code);
+      this.logger.log(
+        `[InviteStaff SMS] 已发送（目标 ${maskPhone(phone)}），签名【深圳华海农业科技集团】+ code 5 分钟内可登录`,
+      );
+    }
   }
 
   /** 修改员工角色/状态 */
