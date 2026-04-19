@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Button, Tag, message, Modal, Input, Space, Badge, Tabs, Form } from 'antd';
@@ -15,18 +15,34 @@ import dayjs from 'dayjs';
 
 type TabKey = 'all' | 'pending' | 'applications';
 
+const VALID_TABS: TabKey[] = ['all', 'pending', 'applications'];
+
 export default function CompanyListPage() {
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
   const [auditNote, setAuditNote] = useState('');
-  const [activeTab, setActiveTab] = useState<TabKey>('all');
+  // 从 URL query 初始化 activeTab（支持侧边栏菜单"入驻审核"快捷入口跳转）
+  const initialTab = (searchParams.get('tab') as TabKey) ?? 'all';
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    VALID_TABS.includes(initialTab) ? initialTab : 'all',
+  );
   const [pendingCount, setPendingCount] = useState(0);
   const [applicationCount, setApplicationCount] = useState(0);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createForm] = Form.useForm();
+
+  // URL query 变更时同步 activeTab（处理从其他页面再次点击菜单的情况，组件不卸载仅参数变）
+  // 依赖稳定字符串 tabParam 而不是 searchParams 对象，避免 URL 任意变更都触发 effect
+  const tabParam = searchParams.get('tab');
+  useEffect(() => {
+    const tab = (tabParam as TabKey) ?? 'all';
+    const next = VALID_TABS.includes(tab) ? tab : 'all';
+    setActiveTab((prev) => (prev === next ? prev : next));
+  }, [tabParam]);
 
   // 获取入驻申请待审核计数
   useEffect(() => {
@@ -155,8 +171,12 @@ export default function CompanyListPage() {
         activeKey={activeTab}
         items={tabItems}
         onChange={(key) => {
-          setActiveTab(key as TabKey);
-          if (key !== 'applications') {
+          const nextTab = key as TabKey;
+          setActiveTab(nextTab);
+          // 同步 URL query，便于分享链接与浏览器前进后退
+          // 用对象字面量而非 mutate searchParams，避免 react-router 内部比较失败
+          setSearchParams(nextTab === 'all' ? {} : { tab: nextTab }, { replace: true });
+          if (nextTab !== 'applications') {
             actionRef.current?.reload();
           }
         }}

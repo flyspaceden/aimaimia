@@ -15,13 +15,11 @@ export const login = (data: LoginRequest): Promise<LoginResponse> =>
 export const getCaptcha = (): Promise<CaptchaResponse> =>
   client.get('/admin/auth/captcha');
 
-/** 发送手机短信验证码（管理员手机登录，需先通过图形验证码） */
+/** 发送手机短信验证码（管理员手机登录，方案 A：无图形码，靠后端速率限制保护） */
 export const sendSmsCode = (
   phone: string,
-  captchaId: string,
-  captchaCode: string,
 ): Promise<{ ok: boolean; message?: string }> =>
-  client.post('/admin/auth/sms/code', { phone, captchaId, captchaCode });
+  client.post('/admin/auth/sms/code', { phone });
 
 /** 管理员手机号 + 短信验证码登录 */
 export const loginByPhoneCode = (

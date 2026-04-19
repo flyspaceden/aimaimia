@@ -1,19 +1,9 @@
 import { IsNotEmpty, IsString, IsMobilePhone, Length, MaxLength, MinLength, Matches } from 'class-validator';
 
-/** 发送验证码 */
+/** 发送验证码（方案 A：无图形码，靠后端速率限制保护） */
 export class SellerSmsCodeDto {
   @IsMobilePhone('zh-CN')
   phone: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(64)
-  captchaId: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @Length(4, 6)
-  captchaCode: string;
 }
 
 /** 手机号 + 验证码登录 */

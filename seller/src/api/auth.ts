@@ -5,13 +5,11 @@ import type { LoginResponse, SelectCompanyResponse, SellerProfile } from '@/type
 export const getCaptcha = (): Promise<{ captchaId: string; svg: string }> =>
   client.get('/seller/auth/captcha');
 
-/** 发送验证码（需通过图形验证码校验） */
+/** 发送验证码（方案 A：无图形码，靠后端速率限制保护） */
 export const sendSmsCode = (
   phone: string,
-  captchaId: string,
-  captchaCode: string,
 ): Promise<{ ok: boolean }> =>
-  client.post('/seller/auth/sms/code', { phone, captchaId, captchaCode });
+  client.post('/seller/auth/sms/code', { phone });
 
 /** 手机号 + 验证码登录 */
 export const login = (phone: string, code: string): Promise<LoginResponse | SelectCompanyResponse> =>

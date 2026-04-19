@@ -40,7 +40,6 @@ interface PasswordLoginForm {
 interface PhoneLoginForm {
   phone: string;
   code: string;
-  captchaCode: string;
 }
 
 // 环境标识：根据 VITE_APP_ENV 或 Vite 内置 MODE 判断
@@ -191,30 +190,22 @@ export default function LoginPage() {
     }
   };
 
-  /** 发送短信验证码（需先通过图形验证码） */
+  /** 发送短信验证码（方案 A：只需手机号，后端速率限制保护） */
   const handleSendSms = async () => {
     try {
-      const values = await phoneForm.validateFields(['phone', 'captchaCode']);
-      if (!captchaId) {
-        message.error('请先获取图形验证码');
-        return;
-      }
+      const values = await phoneForm.validateFields(['phone']);
       setSmsSending(true);
-      await sendSmsCode(values.phone, captchaId, values.captchaCode);
+      await sendSmsCode(values.phone);
       message.success('验证码已发送');
       startCountdown();
-      // 图形验证码单次有效，发送后立即刷新并清空输入
-      void refreshCaptcha();
-      phoneForm.setFieldValue('captchaCode', '');
     } catch (err: any) {
       if (err?.errorFields) {
-        // 表单校验错误，由 antd 显示
+        // 表单校验错误：显式 toast 提示（仅靠字段下方小红字容易被忽略）
+        const firstMsg = err.errorFields?.[0]?.errors?.[0] || '请填写完整信息';
+        message.warning(firstMsg);
         return;
       }
       message.error(getLoginErrorMessage(err));
-      // 图形验证码校验失败时刷新验证码
-      void refreshCaptcha();
-      phoneForm.setFieldValue('captchaCode', '');
     } finally {
       setSmsSending(false);
     }
@@ -396,56 +387,6 @@ export default function LoginPage() {
                       placeholder="手机号"
                       maxLength={11}
                     />
-                  </Form.Item>
-
-                  <Form.Item>
-                    <Space.Compact style={{ width: '100%' }}>
-                      <Form.Item
-                        name="captchaCode"
-                        noStyle
-                        rules={[
-                          { required: true, message: '请输入图形验证码' },
-                          { min: 4, max: 6, message: '验证码长度 4-6 位' },
-                        ]}
-                      >
-                        <Input
-                          prefix={<SafetyOutlined />}
-                          placeholder="图形验证码"
-                          autoComplete="off"
-                        />
-                      </Form.Item>
-                      <div
-                        onClick={() => !captchaLoading && refreshCaptcha()}
-                        title="点击刷新验证码"
-                        style={{
-                          height: 40,
-                          minWidth: 120,
-                          border: '1px solid #d9d9d9',
-                          borderLeft: 'none',
-                          borderRadius: '0 6px 6px 0',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: '#fafafa',
-                          cursor: captchaLoading ? 'wait' : 'pointer',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {captchaSvg ? (
-                          <img
-                            src={svgToDataUrl(captchaSvg)}
-                            alt="captcha"
-                            style={{
-                              height: '100%',
-                              width: '100%',
-                              objectFit: 'contain',
-                            }}
-                          />
-                        ) : (
-                          <ReloadOutlined spin={captchaLoading} />
-                        )}
-                      </div>
-                    </Space.Compact>
                   </Form.Item>
 
                   <Form.Item

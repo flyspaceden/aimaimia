@@ -160,6 +160,17 @@
   - **用户决策（2026-04-13 Q1）**: 红包不退回。退款金额按比例计算——如果订单用了红包，退款只退实付金额（按比例扣除红包抵扣部分），不退原价。当前代码与 refund.md 一致，**不需要改代码**
   - **状态**: ✅ | 完成日期: 2026-04-13
 
+- [x] **C14a** — 冻结奖励过期 Cron + 树递归查询 PG18 兼容性修复（2026-04-19 新增）
+  - **修改**:
+    - `backend/src/modules/bonus/engine/freeze-expire.service.ts:64` — MAKE_INTERVAL 的 days 参数
+    - `backend/src/modules/bonus/engine/vip-upstream.service.ts:221,225` — VIP 树递归 CTE 的 depth 比较
+    - `backend/src/modules/bonus/engine/normal-upstream.service.ts:219,223` — 普通树递归 CTE 的 depth 比较
+  - **背景**: Staging 迁 Alibaba Cloud Linux 3 + PostgreSQL 18 后，每日 00:00 freezeExpire cron 崩（PM2 error log 暴露）。根因：Prisma 默认把 JS number 映射为 bigint，PG18 函数签名匹配更严格（PG14 宽松隐式转换），报 `function make_interval(days => bigint) does not exist`
+  - **影响**: 无 `meta.expiresAt` 的旧冻结奖励无法按 `createdAt + maxFreezeDays` 规则过期解冻/转平台。查询 1（有 expiresAt）不受影响。树递归 CTE 的 depth 比较属运算符场景（operator 比函数签名宽松，实际在 PG18 仍能跑），但为一致性 + 防御性同步加 cast
+  - **实际做了**: 3 个文件共 5 处 `${param}::int` 显式 cast；加中文注释说明 PG18 行为变化。审查 Agent 发现同 pattern 的扩展修复（vip-upstream + normal-upstream）
+  - **验收**: 后端 tsc 通过；PM2 reload 后 00:00 cron 不再报 `make_interval bigint` 错误（下次凌晨验证）
+  - **状态**: ✅ | 完成日期: 2026-04-19
+
 **第一批完成判定**:
 - [x] 支付宝真实退款到账（代码已接通，小额测试需上线后验证）
 - [x] Order 状态机闭环（全退 → REFUNDED）
@@ -397,40 +408,45 @@
   - **预估**: 1 天
   - 状态: ⬜
 
-- [ ] **C40c2** — 🔴 P0 商户入驻审核前端页（2026-04-19 新增）
-  - **背景**: 后端 `admin/merchant-applications` 模块完整（list/approve/reject/pending-count），`admin/src/api/merchant-applications.ts` API 文件齐全。审核 `approve()` 一个事务里自动建 **User + Company + CompanyProfile + CompanyStaff(OWNER) + CompanyDocument**。但 `admin/src/pages/merchant-applications/` 目录**不存在**，AdminLayout 无菜单入口
+- [ ] **C40c2** — 🟢 P2 商户入驻审核菜单快捷入口（2026-04-19 新增，2026-04-19 修订方案）
+  - **背景**: 功能已以 Tab 形式存在于 `admin/src/pages/companies/applications-tab.tsx`（448 行完整实现，含审核通过/拒绝/详情抽屉/历史记录） + `companies/index.tsx` 第三 Tab "入驻申请"（含 pending-count Badge 红点）。原计划的独立页 `admin/src/pages/merchant-applications/` 重复造轮子
+  - **决策（2026-04-19 用户确认）**: **方案 A** — 保留 Tab 不动，只加菜单快捷入口直达"入驻申请"Tab
   - **修改文件**:
-    - 新建 `admin/src/pages/merchant-applications/index.tsx` (列表 + 状态过滤 PENDING/APPROVED/REJECTED + 待审计数 badge)
-    - 新建 `admin/src/pages/merchant-applications/detail.tsx` (详情查看：公司名/法人/营业执照预览/联系方式 + "通过"和"拒绝"按钮)
-    - 改 `admin/src/App.tsx` 加路由 `/merchant-applications` 和 `/merchant-applications/:id`
-    - 改 `admin/src/layouts/AdminLayout.tsx` 在"商家与商品"菜单组首位加入口（带 pending-count 红点）
-    - 改 `admin/src/pages/dashboard/index.tsx` 加"待审入驻"统计卡片（链接到列表）
+    - 改 `admin/src/layouts/AdminLayout.tsx` 在"商家与商品"菜单组加一条"入驻审核"，path `/companies?tab=applications`
+    - 改 `admin/src/pages/companies/index.tsx` 支持 URL query `?tab=applications` 初始化 activeTab（useSearchParams 读取）
   - **验收**:
-    - [x] 菜单"入驻审核"显示待审数红点（轮询 pending-count 接口，30s 一次）
-    - [x] 列表按时间倒序，可按状态/关键字筛选
-    - [x] 详情页能看营业执照图片（点击放大）
-    - [x] "通过"按钮触发 approve → 后端自动建 Company+OWNER → 列表刷新
-    - [x] "拒绝"按钮弹窗要求填理由（>= 10 字）
-    - [x] approve 成功后能在"企业管理"页看到新 Company，在"卖家中心"用申请人手机号 + `123456` 登入
-  - **预估**: 1 天
-  - **测试链路**: 测试人员甲填 website/MerchantApply 表单 → 测试人员乙在新页面审核通过 → 甲用手机号登卖家中心
+    - [ ] 侧边栏菜单"商家与商品 → 入驻审核"可见
+    - [ ] 点击直达"入驻申请"Tab（而非默认"全部企业"Tab）
+    - [ ] 原 Tab 内审核功能不受影响（E2E "C01 商户审核"通过）
+  - **预估**: 15 分钟
+  - **测试链路**: 刷新浏览器 → 菜单能看到新入口 → 点击跳对 Tab
   - 状态: ⬜
 
-- [ ] **C40c3** — 🟡 P1 SMS 真实模式开启（2026-04-19 新增）
-  - **背景**: 当前 staging .env 是 `SMS_MOCK=true`（验证码固定 123456）。阿里云已开通：签名"深圳华海农业科技集团"、模板 SMS_501860621 均审核通过（U03）
-  - **操作**:
-    - SSH 服务器 `sed -i 's/SMS_MOCK=true/SMS_MOCK=false/' /www/wwwroot/aimaimai-staging-src/backend/.env`
-    - `pm2 reload aimaimai-api-test --update-env`
-    - 同步改 `docs/operations/.env.staging` 模板
-    - 阿里云控制台充值 ≥ 10 元（约 250 条短信，够 1-2 周测试）
+- [x] **C40c3** — 🔴 P0 Staging 真实 SMS + 三段式环境策略确立（2026-04-19 新增，2026-04-19 完成）
+  - **环境策略（2026-04-19 用户确认，三段式）**:
+    - **本地开发**（开发者电脑）: `SMS_MOCK=true`（固定 123456） + 支付宝沙箱 + 走图形验证码；admin/123456 + cs-001..010/seller123 直通登录
+    - **Staging**（test-*.ai-maimai.com）: `SMS_MOCK=false`（**真实**阿里云 SMS） + 支付宝沙箱（方案 α） + 走图形验证码；做真实链路回归
+    - **Production**（*.ai-maimai.com）: 所有 mock 全关（见 C40e）
+  - **背景**: 当前 staging `.env` 仍 `SMS_MOCK=true`。阿里云已开通：签名"深圳华海农业科技集团"、模板 SMS_501860621（U03）
+  - **操作（需人工执行）**:
+    - [ ] 阿里云短信控制台充值 ≥ 10 元（约 250 条短信，够 1-2 周测试）
+    - [ ] SSH 服务器：`sed -i 's/SMS_MOCK=true/SMS_MOCK=false/' /www/wwwroot/aimaimai-staging-src/backend/.env`
+    - [ ] `pm2 reload aimaimai-api-test --update-env`
+    - [ ] 本地 `docs/operations/.env.staging` 模板同步改 SMS_MOCK=false（已改 ✅ by claude）
+    - [ ] `backend/.env.example` 顶部加环境策略注释（已改 ✅ by claude）
   - **验收**:
-    - [x] 任意真实手机号在 admin/seller/app 三端发验证码 → 5 秒内收到短信
-    - [x] PM2 日志不再打印 `[SMS Mock] 固定验证码=123456`
-    - [x] 阿里云短信发送记录有正常发送条目
-    - [x] 验证码错误重试无误，5 分钟过期
+    - [ ] 任意真实手机号在 admin/seller/app 三端发验证码 → 5 秒内收到短信
+    - [ ] PM2 日志不再打印 `[SMS Mock] 固定验证码=123456`
+    - [ ] 阿里云短信发送记录有正常发送条目
+    - [ ] 验证码错误重试无误，5 分钟过期
   - **风险**: 短信余额耗尽时所有 SMS 调用会失败（500 错误）。需配监控（C45 子任务）
-  - **预估**: 30 分钟
-  - 状态: ⬜
+  - **预估**: 30 分钟（SSH 操作）+ 阿里云充值（用户线下）
+  - **实际做了**:
+    - 服务器 `.env` SMS_MOCK=true→false + `pm2 reload aimaimai-api-test --update-env`
+    - 阿里云充值 3000 条短信额度（签名"深圳华海农业科技集团"三大运营商"已报备待验证"实为可用态）
+    - 诊断根因：测试时误用未绑定手机号 15327258425 → 后端防枚举保护静默跳过 SMS 导致"没收到"假象。执行 `UPDATE "AdminUser" SET phone='15327258425' WHERE username='admin'` 后真手机 5-15 秒内收到验证码
+    - PM2 日志证据：两次 `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送` 警告已消失
+  - 状态: ✅ | 完成日期: 2026-04-19
 
 - [ ] **C40c4** — 🟡 P1 App 微信登录（2026-04-19 新增）
   - **背景**: 后端 `auth.service.ts:loginByWechat` 已写完整（mock + 真实两套）。WECHAT_APP_ID=wxeb8e8dc219da02dd 已配（来源待确认）
@@ -501,6 +517,98 @@
     - [x] PM2 日志记录发送结果
   - **预估**: 0.5 天 + 阿里云模板审核 1-3 天
   - 状态: ⬜
+
+- [ ] **C40c7** — 🟡 P1 两端"账号安全"页：自助改密码 + 改手机号（2026-04-19 新增）
+  - **背景**: 两端已有密码 + SMS 双模式登录（C17/C18），但用户登入后无法自助改密码/改手机号。Admin 本人、Seller OWNER/员工都需要这个能力。否则忘密码或换手机即失联
+  - **修改文件（后端，4 个端点）**:
+    - 改 `backend/src/modules/admin/auth/admin-auth.controller.ts` + `.service.ts`：
+      - `POST /admin/auth/change-password`（旧密码验证 → 新密码 → bcrypt hash 落 AdminUser.passwordHash）
+      - `POST /admin/auth/change-phone`（旧手机 SMS 验证 + 新手机 SMS 验证 → 更新 AdminUser.phone）
+    - 改 `backend/src/modules/seller/auth/seller-auth.controller.ts` + `.service.ts`：
+      - `POST /seller/auth/change-password`（针对 CompanyStaff.passwordHash，当前 staff scope）
+      - `POST /seller/auth/change-phone`（针对该 staff 对应 User 的 AuthIdentity(PHONE).identifier）
+  - **修改文件（前端，2 个页面）**:
+    - 新建 `admin/src/pages/account-security/index.tsx`（Tabs：修改密码 / 修改手机号）+ `admin/src/api/auth.ts` 加 API
+    - 改 `admin/src/layouts/AdminLayout.tsx` 头像 Dropdown 加"账号安全"入口 + 路由 `/account-security`
+    - 新建 `seller/src/pages/account-security/index.tsx` + `seller/src/api/auth.ts` 加 API
+    - 改 seller 顶部头像菜单加"账号安全"入口 + 路由
+  - **安全要求**:
+    - 改密码必须验旧密码（防 session 劫持后直接改）
+    - 改手机号需旧手机 SMS + 新手机 SMS 双重验证
+    - 改密码成功后强制所有该用户 session 失效（踢下线，走 AdminSession / SellerSession expiresAt 回退）
+    - 图形验证码保持走（和登录一致）
+  - **验收**:
+    - [ ] Admin 登录 → "账号安全" → 用旧密码改新密码 → 老 token 失效 → 新密码可登
+    - [ ] Admin 改手机号：先发老手机 SMS + 校验，再发新手机 SMS + 校验，最后落库
+    - [ ] Seller OWNER/MANAGER/OPERATOR 同理（只能改自己的）
+    - [ ] 图形验证码仍需填
+    - [ ] 改密码/手机号操作有审计日志
+  - **预估**: 后端 0.5 天 + 前端 0.5 天 = **1 天**
+  - 状态: ⬜
+
+- [ ] **C40c8** — 🟡 P1 管理员兜底重置任意账号密码（2026-04-19 新增）
+  - **背景**: 用户忘密码 + 手机号失联时的最后通道。C40c1 管理员管理页已有重置其他管理员密码；这里扩展到能重置任意 OWNER/员工的密码。注意：OWNER 也要可重置（OWNER 不能自己被踢出，但密码可由管理员兜底）
+  - **修改文件（后端）**:
+    - 改 `backend/src/modules/admin/companies/admin-companies.controller.ts` + `.service.ts`：
+      - `POST /admin/companies/:id/staff/:staffId/reset-password`（管理员直设新密码，无需旧密码）
+  - **修改文件（前端）**:
+    - 改 `admin/src/pages/companies/detail.tsx` 员工列表行加操作列"重置密码" → 弹窗输入新密码 → 调接口
+    - 改 `admin/src/api/companies.ts` 加 resetStaffPassword 方法
+  - **权限**: `companies:update`
+  - **审计**: `@AuditLog({ action: 'RESET_STAFF_PASSWORD', module: 'companies', targetType: 'CompanyStaff' })`
+  - **验收**:
+    - [ ] 超管在企业详情页任意员工行点"重置密码" → 输入新密码 → 该员工下次用新密码可登
+    - [ ] OWNER 也可被重置密码（特殊确认弹窗）
+    - [ ] 操作被审计日志记录
+    - [ ] 非 `companies:update` 权限看不到按钮
+  - **预估**: 0.5 天
+  - 状态: ⬜
+
+- [ ] **C40c9** — 🟢 P2 管理员员工 CRUD 完整化 + 换 OWNER（2026-04-19 新增）
+  - **背景**: 管理员目前只能查看企业员工 + 绑定唯一 OWNER。不能添加/改角色/禁用/移除员工；不能换 OWNER（OWNER 离职无解，除非 DB 手工）。Seller OWNER 自己能做大部分员工操作，这里是管理员视角的补全（兜底 + 运维）
+  - **修改文件（后端，新增端点）**:
+    - 改 `backend/src/modules/admin/companies/admin-companies.controller.ts` + `.service.ts` 新增：
+      - `POST /admin/companies/:id/staff` 添加员工（手机+角色 MANAGER/OPERATOR+可选初始密码，仅非 OWNER）
+      - `PUT /admin/companies/:id/staff/:staffId` 改角色/状态（OWNER 不可改）
+      - `DELETE /admin/companies/:id/staff/:staffId` 移除员工（OWNER 不可删，走换 OWNER）
+      - `POST /admin/companies/:id/transfer-owner` 换 OWNER（新 OWNER 必须是该企业已有员工 or 新手机，原子事务：老 OWNER 降为 MANAGER 或移除 + 新 OWNER 上位 + session 失效）
+  - **修改文件（前端）**:
+    - `admin/src/pages/companies/detail.tsx` 员工 Card 加：添加员工按钮 + 操作列（改角色/禁用/移除）+ "换 OWNER"按钮
+    - `admin/src/api/companies.ts` 加 4 个新 API
+    - `seller/src/pages/company/staff.tsx` 操作列加"改角色"入口（后端 PUT 已支持 role 字段）
+  - **验收**:
+    - [ ] 管理员在企业详情可添加员工（手机+角色+可选密码）
+    - [ ] 管理员可改员工角色 MANAGER↔OPERATOR
+    - [ ] 管理员可禁用/启用员工
+    - [ ] 管理员可移除员工（非 OWNER）
+    - [ ] 管理员可"换 OWNER"（一次事务完成老降新升）
+    - [ ] Seller OWNER 可改自己企业员工的角色
+    - [ ] 所有操作有审计日志
+    - [ ] 权限检查：OWNER 不能被非 transfer-owner 的 PUT/DELETE 修改
+  - **预估**: 后端 0.75 天 + 前端 0.75 天 = **1.5 天**
+  - 状态: ⬜
+
+- [ ] **C40c10** — 方案 A：SMS 发送去图形码 + 后端速率限制（2026-04-19 新增，当日代码完成待测试）
+  - **背景**: C40c3 测试中用户反馈"每次重发 SMS 都要重填图形码体验极差"（图形码原子消费机制导致重发必刷新）。改为行业标准：图形码仅保留于密码登录，SMS 发送仅需手机号 + 后端速率限制（微信/支付宝/淘宝均此模式）
+  - **修改 9 个文件**:
+    - **后端 5 个**：`admin-login.dto.ts`（AdminSendCodeDto 去 captcha）/ `admin-auth.controller.ts`（sendSmsCode 传 req.ip）/ `admin-auth.service.ts`（去 captchaService.verify + Serializable 事务三段式速率限制）/ `seller-auth.dto.ts`（SellerSmsCodeDto 去 captcha）/ `seller-auth.service.ts`（去 captchaService.verify，复用已有 createOtpWithRateLimit）
+    - **前端 4 个**：`admin/src/api/auth.ts` + `admin/src/pages/login/index.tsx`（手机登录 Tab 删图形码 UI、PhoneLoginForm 去字段、handleSendSms 仅校验 phone）/ `seller/src/api/auth.ts` + `seller/src/pages/login/index.tsx`（短信登录 Tab 删 `{captchaField}` 引用、handleSendCode 去 captcha 校验，密码登录 Tab 保留图形码）
+  - **速率限制矩阵**:
+    - 单手机号：1/分钟、5/小时、10/日（admin 新加 DB Serializable 事务 count；seller 沿用 Redis+DB 双保险，小时维度为加分项后续再补）
+    - 单 IP：controller `@Throttle` 3/分钟（已存在）
+    - 手机号不存在时：jitter 1-3s 随机延迟维持响应时间一致，防枚举
+  - **审查 Agent 发现 + 处理**:
+    - ✅ Critical — admin TOCTOU（count 与 insert 分离可被并发绕过）→ 已改为 Serializable 事务原子执行
+    - ✅ High — seller sendSmsCode 缺 ip 参数一致性 → 已加 `_ip?: string`（暂预留）
+    - ⏳ High — IP 小时/日维度限制暂不做（需引 Redis 依赖，@Throttle 3/min 对 v1.0 够用，威胁模型假设 botnet 攻击概率低）
+    - ⏳ Low — admin Tab 切换导致图形码闪烁，UX 优化项不做
+  - **验收**:
+    - [ ] admin 手机登录页无图形码字段，仅需手机号即可点"获取验证码"
+    - [ ] seller 短信登录 Tab 无图形码；seller 密码登录 Tab 图形码保留
+    - [ ] 60s 内同手机号连续两次 sendSms → 第二次 429 "发送过于频繁"
+    - [ ] 5 次/小时、10 次/日、3 次/分钟/IP 三层限制生效
+    - [ ] 三端 TypeScript 编译通过 ✅
+  - **状态**: ⏳ 代码完成待 Aliyun 签名通过后端到端测试
 
 - [ ] **C40d** — app.json 重复条目清理 + OTA 推送验证（2026-04-19 新增）
   - **修改**:
@@ -657,7 +765,8 @@
 - **2026-04-12**: 新 plan.md 基于审查结果重写，旧 plan.md 归档
 - **2026-04-15~16**: Web 端 E2E 自动化测试体系搭建（详见下方）
 - **2026-04-17~18**: 服务器换 OS（CentOS 7 → Alibaba Cloud Linux 3，抛弃 Docker 改 Node 直装），8 个域名 + SSL 全部就绪，测试环境（test-admin/test-seller/test-api）全链路上线，GitHub Actions 双分支（staging/main）自动部署链路打通
-- **2026-04-19**: 测试环境联通性审查（三端前端 + 后端 + DB + CORS 全部 ✅）；EAS Build 全套配置（eas.json 三档 + expo-updates OTA + 第一次 Android .apk 构建成功）；CORS/ALIPAY_NOTIFY_URL 修正；注册/登录真实闭环缺口审计；plan.md 拆解 C40c1~c6 + C40d/C40e（含管理员管理页/商户入驻审核页/SMS真实/微信登录/Apple登录/邀请通知/app.json 清理/生产切换 checklist 共 8 个新任务，每个含修改文件清单 + 验收标准 + 预估）
+- **2026-04-19**: 测试环境联通性审查（三端前端 + 后端 + DB + CORS 全部 ✅）；EAS Build 全套配置（eas.json 三档 + expo-updates OTA + 第一次 Android .apk 构建成功）；CORS/ALIPAY_NOTIFY_URL 修正；注册/登录真实闭环缺口审计；plan.md 拆解 C40c1~c6 + C40d/C40e（含管理员管理页/商户入驻审核页/SMS真实/微信登录/Apple登录/邀请通知/app.json 清理/生产切换 checklist 共 8 个新任务）
+- **2026-04-19 下午**: C40c2 方案修订（发现 `companies/applications-tab.tsx` 已完整实现，改为只加菜单快捷入口，从 P0 1 天降为 P2 15 分钟）；确立三段式环境策略（本地 mock / Staging 真实 SMS + 支付宝沙箱 / 生产全真实），C40c3 升级 P0；新增账号管理三大补全任务 C40c7 账号安全页 + C40c8 管理员兜底重置密码 + C40c9 管理员员工 CRUD 完整化（含换 OWNER），合计新增约 3 天工作量
 
 ---
 

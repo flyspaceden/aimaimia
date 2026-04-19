@@ -43,14 +43,14 @@ export class SellerAuthService {
     this.jwtExpiresIn = this.config.get<string>('SELLER_JWT_EXPIRES_IN', '8h');
   }
 
-  /** 发送验证码（复用 SmsOtp 表） */
-  async sendSmsCode(dto: SellerSmsCodeDto) {
-    // 先校验图形验证码（原子 getdel，防止重放）
-    const captchaOk = await this.captchaService.verify(dto.captchaId, dto.captchaCode);
-    if (!captchaOk) {
-      throw new UnauthorizedException('验证码错误或已过期');
-    }
-
+  /** 发送验证码（复用 SmsOtp 表）
+   *
+   * 方案 A（2026-04-19）：去除图形验证码依赖，仅靠后端速率限制保护：
+   * - 单手机号：1/分钟、10/日（createOtpWithRateLimit 已实现，Redis+DB 双保险）
+   * - 单 IP：controller 层 @Throttle 3/分钟
+   * - ip 参数保留扩展空间，暂未用于内部限制（与 admin 端签名保持一致）
+   */
+  async sendSmsCode(dto: SellerSmsCodeDto, _ip?: string) {
     const phone = dto.phone;
     const smsMock = this.config.get('SMS_MOCK', 'true');
     // 开发模式使用固定验证码 123456

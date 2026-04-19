@@ -41,8 +41,8 @@ export class AdminAuthController {
   @Public()
   @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 3 } })
   @Post('sms/code')
-  sendSmsCode(@Body() dto: AdminSendCodeDto) {
-    return this.authService.sendSmsCode(dto);
+  sendSmsCode(@Body() dto: AdminSendCodeDto, @Req() req: Request) {
+    return this.authService.sendSmsCode(dto, req.ip);
   }
 
   @Public()

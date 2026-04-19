@@ -55,13 +55,15 @@ export class FreezeExpireService {
     `;
 
     // 查询2: 无 expiresAt 的旧冻结奖励，基于 createdAt + maxFreezeDays 判断过期
+    // 注：Prisma 将 JS number 映射为 PostgreSQL bigint，而 make_interval(days => int) 只接受 int 重载
+    // PostgreSQL 18 对函数签名匹配更严格，必须显式 ::int 强制转换（PG 14 宽松会隐式转换）
     const expiredWithoutDate: any[] = await this.prisma.$queryRaw`
       SELECT id, "userId", "accountId", amount, meta
       FROM "RewardLedger"
       WHERE status = 'FROZEN'
         AND "entryType" = 'FREEZE'
         AND (meta IS NULL OR (meta->>'expiresAt') IS NULL)
-        AND "createdAt" <= NOW() - MAKE_INTERVAL(days => ${maxFreezeDays})
+        AND "createdAt" <= NOW() - MAKE_INTERVAL(days => ${maxFreezeDays}::int)
       LIMIT ${BATCH_SIZE}
     `;
 

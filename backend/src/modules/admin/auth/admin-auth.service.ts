@@ -3,10 +3,13 @@ import {
   UnauthorizedException,
   ForbiddenException,
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -126,17 +129,14 @@ export class AdminAuthService {
     return this.issueTokens(admin, ip, userAgent);
   }
 
-  /** C18：发送短信验证码（管理员手机登录，需先通过图形验证码） */
-  async sendSmsCode(dto: AdminSendCodeDto) {
-    // 先校验图形验证码（原子 getdel，防止重放 + 拦截脚本刷短信）
-    const captchaOk = await this.captchaService.verify(
-      dto.captchaId,
-      dto.captchaCode,
-    );
-    if (!captchaOk) {
-      throw new UnauthorizedException('验证码错误或已过期');
-    }
-
+  /** 发送短信验证码（管理员手机登录）
+   *
+   * 方案 A（2026-04-19）：去除图形验证码依赖，改用后端严格速率限制保护：
+   * - 单手机号：1 条/分钟、5 条/小时、10 条/日（Serializable 事务防 TOCTOU）
+   * - 单 IP：controller 层 @Throttle 3 条/分钟
+   * - 时序防枚举 1-3s 随机延迟
+   */
+  async sendSmsCode(dto: AdminSendCodeDto, ip?: string) {
     const { phone } = dto;
 
     // 防时序枚举：不论手机号是否存在，都先做随机延迟（1000-3000ms）
@@ -150,6 +150,8 @@ export class AdminAuthService {
       where: { phone },
     });
 
+    let pendingSms: { code: string } | null = null;
+
     // 即使管理员不存在/禁用也返回通用成功，但只在合法时发送短信
     if (admin && admin.status === 'ACTIVE') {
       const smsMock = this.config.get('SMS_MOCK', 'true');
@@ -158,10 +160,65 @@ export class AdminAuthService {
       const codeHash = await bcrypt.hash(code, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-      await this.prisma.smsOtp.create({
-        data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
-      });
+      // Serializable 事务：速率限制 count + OTP 插入原子执行
+      // 防 TOCTOU：两个并发请求同手机号时，后者 count 会包含前者写入，被拒
+      await this.prisma.$transaction(
+        async (tx) => {
+          const now = new Date();
+          const oneMinuteAgo = new Date(now.getTime() - 60_000);
+          const oneHourAgo = new Date(now.getTime() - 3_600_000);
+          const dayStart = new Date(now);
+          dayStart.setHours(0, 0, 0, 0);
 
+          const [perMinute, perHour, perDay] = await Promise.all([
+            tx.smsOtp.count({
+              where: { phone, purpose: 'LOGIN', createdAt: { gte: oneMinuteAgo } },
+            }),
+            tx.smsOtp.count({
+              where: { phone, purpose: 'LOGIN', createdAt: { gte: oneHourAgo } },
+            }),
+            tx.smsOtp.count({
+              where: { phone, purpose: 'LOGIN', createdAt: { gte: dayStart } },
+            }),
+          ]);
+
+          if (perMinute >= 1) {
+            throw new HttpException(
+              '发送过于频繁，请 1 分钟后再试',
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+          if (perHour >= 5) {
+            throw new HttpException(
+              '该手机号 1 小时内发送次数过多，请稍后再试',
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+          if (perDay >= 10) {
+            throw new HttpException(
+              '该手机号今日验证码发送次数已达上限',
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+
+          await tx.smsOtp.create({
+            data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+
+      pendingSms = { code };
+    } else {
+      // 不存在或禁用：记录日志但返回通用成功（不做真实发送）
+      this.logger.warn(
+        `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送`,
+      );
+    }
+
+    // 事务提交后再发实际短信（网络调用不能放事务内）
+    if (pendingSms) {
+      const smsMock = this.config.get('SMS_MOCK', 'true');
       const nodeEnv = this.config.get('NODE_ENV', 'development');
       if (smsMock === 'true') {
         if (nodeEnv === 'production') {
@@ -170,11 +227,11 @@ export class AdminAuthService {
           );
         }
         this.logger.log(
-          `[Admin SMS Mock] 固定验证码=${code}（管理员手机登录）`,
+          `[Admin SMS Mock] 固定验证码=${pendingSms.code}（管理员手机登录）`,
         );
       } else {
         try {
-          await this.aliyunSms.sendVerificationCode(phone, code);
+          await this.aliyunSms.sendVerificationCode(phone, pendingSms.code);
         } catch (err) {
           this.logger.error(
             `[Admin SMS] 验证码发送失败: ${(err as Error)?.message}`,
@@ -182,11 +239,6 @@ export class AdminAuthService {
           );
         }
       }
-    } else {
-      // 不存在或禁用：记录日志但返回通用成功（不做真实发送）
-      this.logger.warn(
-        `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送`,
-      );
     }
 
     // 等待 jitter 完成再返回，使真假手机号的响应时间一致

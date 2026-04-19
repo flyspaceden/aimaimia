@@ -218,11 +218,11 @@ export class VipUpstreamService {
                a.path || vtn.id
         FROM "VipTreeNode" vtn
         JOIN ancestors a ON vtn.id = a."parentId"
-        WHERE a.depth < ${k}
+        WHERE a.depth < ${k}::int
           AND NOT (vtn.id = ANY(a.path))
       )
       SELECT id, "rootId", "userId", "parentId", level, position, "childrenCount", "createdAt"
-      FROM ancestors WHERE depth = ${k} LIMIT 1
+      FROM ancestors WHERE depth = ${k}::int LIMIT 1
     `;
 
     const result = (ancestors as any[])?.[0];

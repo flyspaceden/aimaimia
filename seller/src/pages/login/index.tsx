@@ -92,26 +92,16 @@ export default function LoginPage() {
     return () => clearTempTokenTimer();
   }, [clearTempTokenTimer]);
 
-  // 发送验证码
+  // 发送验证码（方案 A：只需手机号，后端速率限制保护）
   const handleSendCode = async () => {
     const phone = form.getFieldValue('phone');
-    const captchaCode = form.getFieldValue('captchaCode');
     if (!phone || !/^1\d{10}$/.test(phone)) {
       message.warning('请输入正确的手机号');
       return;
     }
-    if (!captchaId) {
-      message.warning('请先获取图形验证码');
-      void refreshCaptcha();
-      return;
-    }
-    if (!captchaCode || captchaCode.length < 4) {
-      message.warning('请输入图形验证码');
-      return;
-    }
     setCodeSending(true);
     try {
-      await sendSmsCode(phone, captchaId, captchaCode);
+      await sendSmsCode(phone);
       message.success('验证码已发送（开发模式请查看后端控制台）');
       setCountdown(60);
       const timer = setInterval(() => {
@@ -120,14 +110,8 @@ export default function LoginPage() {
           return prev - 1;
         });
       }, 1000);
-      // 图形验证码已被后端原子消费，刷新并清空，便于 60s 后再次重发
-      void refreshCaptcha();
-      form.setFieldValue('captchaCode', '');
     } catch (err) {
       message.error(err instanceof Error ? err.message : '发送失败');
-      // 图形验证码只能用一次，失败后刷新
-      void refreshCaptcha();
-      form.setFieldValue('captchaCode', '');
     } finally {
       setCodeSending(false);
     }
@@ -412,8 +396,6 @@ export default function LoginPage() {
                   >
                     <Input prefix={<MobileOutlined />} placeholder="手机号" />
                   </Form.Item>
-
-                  {captchaField}
 
                   <Form.Item>
                     <Space.Compact style={{ width: '100%' }}>
