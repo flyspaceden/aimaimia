@@ -37,6 +37,11 @@ function RequireAuth({ children }: { children: ReactNode }) {
 type StaffRole = 'OWNER' | 'MANAGER' | 'OPERATOR';
 function RequireRole({ roles, children }: { roles: StaffRole[]; children: ReactNode }) {
   const seller = useAuthStore((s) => s.seller);
+  const token = useAuthStore((s) => s.token);
+  // token 存在但 seller profile 未加载完成时显示 loading，避免误 redirect
+  if (token && !seller) {
+    return <Spin style={{ display: 'flex', justifyContent: 'center', marginTop: 120 }} />;
+  }
   if (!seller || !roles.includes(seller.role as StaffRole)) {
     return <Navigate to="/" replace />;
   }

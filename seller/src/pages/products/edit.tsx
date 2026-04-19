@@ -680,7 +680,11 @@ function ProductEditForm({ id }: { id: string }) {
           >
             <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
           </Form.Item>
-          <Form.Item label="产地 / 产区（选填）" name="originText">
+          <Form.Item
+            label="产地 / 产区"
+            name="originText"
+            rules={[{ required: true, message: '请输入产地 / 产区' }]}
+          >
             <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
           </Form.Item>
         </Card>
@@ -956,7 +960,11 @@ function ProductCreateForm() {
           >
             <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
           </Form.Item>
-          <Form.Item label="产地 / 产区（选填）" name="originText">
+          <Form.Item
+            label="产地 / 产区"
+            name="originText"
+            rules={[{ required: true, message: '请输入产地 / 产区' }]}
+          >
             <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
           </Form.Item>
         </Card>
