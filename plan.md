@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-04-12
+> **最后更新**: 2026-04-19
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -48,12 +48,12 @@
 
 > 这些是用户线下操作，和代码修复完全并行。**ICP 备案 20 个工作日是整个项目的最长阻塞路径**。
 
-- [ ] **U01** — 启动域名 ICP 备案
-  - **做什么**: ai-maimai.com 的 ICP 备案申请（阿里云备案系统），正在备案中
-  - **现状**: 爱买买.com 已备案完成，网站已挂在此域名上运行；但中文域名在配置支付宝应用网关、顺丰丰桥网关等第三方服务时不兼容，因此主域名迁移至英文 ai-maimai.com（中文域名保留可访问）
-  - **周期**: 20 个工作日（**最长路径阻塞**）
+- [x] **U01** — 启动域名 ICP 备案
+  - **做什么**: ai-maimai.com 的 ICP 备案申请（阿里云备案系统）
+  - **现状**: 爱买买.com 已备案完成；ai-maimai.com 备案已通过，主域名正式迁移至英文 ai-maimai.com（中文域名保留做 301 跳转）
+  - **周期**: 20 个工作日
   - **交付物**: ai-maimai.com 备案号
-  - **状态**: 🔄 备案中 | 完成日期: —
+  - **状态**: ✅ | 完成日期: 2026-04-17
 
 - [x] **U02** — 申请顺丰月结账号 + 丰桥 API 权限
   - **做什么**: 联系顺丰销售 → 签月结协议 → 拿到 12 位月结号 → 注册丰桥企业认证 → 创建应用 → 审批 5 个 API（下单/查询/推送/取消/面单）
@@ -327,22 +327,237 @@
 
 > 依赖: 第一批/第二批代码修复完成 + U01 ICP 备案通过 + U05 服务器到位。
 > 详细 11 步见 [L13 draft](docs/superpowers/reports/2026-04-11-drafts/L13-deployment.md)。
+> **2026-04-18 重大变更**: 服务器 OS 由 CentOS 7 换为 Alibaba Cloud Linux 3（glibc 2.32+），抛弃 Docker 方案改用 Node 直装 + PM2，详见 `docs/operations/阿里云部署.md` §7。
 
-- [ ] **C37** — 云服务器环境安装（Node/PG/Redis/Nginx/PM2/Certbot）
-- [ ] **C38** — 域名 DNS 配置（爱买买.com + app/seller/admin 子域）
-- [ ] **C39** — SSL 证书签发（certbot 自动续期）
+- [x] **C37** — 云服务器环境安装（Node/PG/Redis/Nginx/PM2/Certbot）
+  - 实际做了: Alibaba Cloud Linux 3 + 宝塔面板 + Nginx 1.26 + PostgreSQL 18 + Redis 7 + Node 20.20.2 + PM2 6.0.14（NodeSource 直装，无 Docker）
+  - 状态: ✅ | 完成日期: 2026-04-18
+
+- [x] **C38** — 域名 DNS 配置（ai-maimai.com + www/api/admin/seller/app 子域，爱买买.com 保留做 301 跳转）
+  - 实际做了: 8 个站点全部配置完成（生产 4 个 + 测试 4 个：test-website/test-admin/test-seller/test-api.ai-maimai.com）
+  - 状态: ✅ | 完成日期: 2026-04-18
+
+- [x] **C39** — SSL 证书签发（certbot 自动续期）
+  - 实际做了: 8 个 Let's Encrypt 证书全部签发完成（宝塔文件验证），强制 HTTPS 已开启
+  - 状态: ✅ | 完成日期: 2026-04-18
+
 - [ ] **C40** — 部署后端（生产 .env + 支付宝证书 + prisma migrate + seed + PM2 + 日志轮转）
+  - 测试环境 ✅: `aimaimai-api-test` PM2 进程在线（端口 3001），数据库 `testaimaimai`，env 配置完成，prisma migrate deploy 完成
+  - 生产环境 ❌: `aimaimai-api-prod` 未启动（api.ai-maimai.com 当前 502），生产数据库 `aimaimai` 已建库但未初始化，待 staging 测试通过后部署
+  - 状态: 🟡 部分完成 | 测试日期: 2026-04-18
+
 - [ ] **C41** — 部署管理后台（npm run build + Nginx 静态）
+  - 测试环境 ✅: test-admin.ai-maimai.com 在线，bundle 正确连 test-api
+  - 生产环境 🟡: 静态文件 200 OK，但 API 后端未起，登录无法工作
+  - 状态: 🟡 部分完成 | 测试日期: 2026-04-18
+
 - [ ] **C42** — 部署卖家后台（同上）
+  - 测试环境 ✅: test-seller.ai-maimai.com 在线，bundle 正确连 test-api
+  - 生产环境 🟡: 同 C41
+  - 状态: 🟡 部分完成 | 测试日期: 2026-04-18
+
 - [ ] **C43** — 部署官网 + App 落地页（含 .well-known Universal Link）
 - [ ] **C44** — App 客户端发布（EAS build + TestFlight + App Store + 国内商店）
+  - 子任务 ✅ EAS CLI 安装 + Expo 账号登录 + 项目初始化（projectId d76ba8ac-06f3-45d2-b674-afec17737029）— 2026-04-19
+  - 子任务 ✅ eas.json 三档配置（development/preview/production）+ OTA channel — 2026-04-19
+  - 子任务 ✅ expo-updates 装包 + runtimeVersion=appVersion + updates.url 配置 — 2026-04-19
+  - 子任务 ✅ 第一次 Android preview 构建 (.apk) 成功，下载链接已就绪 — 2026-04-19
+  - 子任务 ⬜ 上传蒲公英分发给国内测试人员
+  - 子任务 ⬜ iOS TestFlight（依赖 U06 Apple Developer 账号）
+  - 子任务 ⬜ 国内安卓商店上架（华为/小米/OPPO/vivo/应用宝，依赖 U06）
 - [ ] **C45** — 基础监控（PM2 monit + health cron + 慢查询 + 告警）
 - [ ] **C46** — 数据备份（pg_dump 定时 + Redis RDB + OSS 归档 + 恢复演练）
 
+- [x] **C40a** — GitHub Actions 双分支自动部署（2026-04-18 新增）
+  - 实际做了: `.github/workflows/deploy-website.yml` 改造为 `Deploy Sites & Backend`：staging 分支推送 → 自动部署测试环境（test-admin/test-seller/test-api + PM2 reload aimaimai-api-test）；main 分支推送 → 自动部署生产环境；前端构建时按分支注入 VITE_API_BASE_URL/VITE_WS_BASE_URL；后端 SSH 到服务器跑 git pull + npm ci + prisma migrate deploy + pm2 reload
+  - 配套文档: `docs/operations/github操作.md` 已更新双分支发布流程
+  - 状态: ✅ | 完成日期: 2026-04-18 — Actions 双分支均验证通过（admin/seller/backend 全链路构建+部署成功）
+
+- [x] **C40b** — 测试环境 CORS + 支付宝 notify URL 修正（2026-04-19 新增）
+  - 实际做了: 服务器 .env 加 CORS_ORIGINS（含 test-admin/test-seller/test-api/ai-maimai.com/www + localhost:8081/19006/3000）；修正 ALIPAY_NOTIFY_URL 缺 `/api/v1/` 前缀的问题；模板 docs/operations/.env.staging 同步
+  - 状态: ✅ | 完成日期: 2026-04-19
+
+- [ ] **C40c1** — 🔴 P0 管理员管理前端页（2026-04-19 新增）
+  - **背景**: `admin/src/pages/users/` 实为 App 买家用户管理（AppUser），不是管理员。后端 `backend/src/modules/admin/users/admin-users.controller.ts` 已有完整 5 个端点（GET list / GET :id / POST create / PUT update / POST :id/reset-password / DELETE）
+  - **修改文件**:
+    - 新建 `admin/src/api/admin-users.ts` (5 个 API 调用)
+    - 新建 `admin/src/pages/admin-users/index.tsx` (ProTable 列表)
+    - 新建 `admin/src/pages/admin-users/edit.tsx` (创建/编辑 ProForm 弹窗)
+    - 改 `admin/src/App.tsx` 加路由 `/admin-users`
+    - 改 `admin/src/layouts/AdminLayout.tsx` 在"系统设置"菜单组下加入口
+    - 改 `admin/src/constants/permissions.ts` 确认 `ADMIN_USERS_READ/WRITE` 权限码已定义
+  - **验收**:
+    - [x] 超管登录能看到 /admin-users 列表（含 username/phone/role/status/lastLogin）
+    - [x] 创建新管理员（必填 username/password/role；可选 phone）
+    - [x] 编辑管理员（改 phone/role/status，不改密码）
+    - [x] 重置密码按钮 → 弹窗输入新密码 → 调 reset-password 端点
+    - [x] 禁用/启用切换
+    - [x] 删除（带二次确认）
+    - [x] 非超管角色看不到此菜单
+  - **预估**: 1 天
+  - 状态: ⬜
+
+- [ ] **C40c2** — 🔴 P0 商户入驻审核前端页（2026-04-19 新增）
+  - **背景**: 后端 `admin/merchant-applications` 模块完整（list/approve/reject/pending-count），`admin/src/api/merchant-applications.ts` API 文件齐全。审核 `approve()` 一个事务里自动建 **User + Company + CompanyProfile + CompanyStaff(OWNER) + CompanyDocument**。但 `admin/src/pages/merchant-applications/` 目录**不存在**，AdminLayout 无菜单入口
+  - **修改文件**:
+    - 新建 `admin/src/pages/merchant-applications/index.tsx` (列表 + 状态过滤 PENDING/APPROVED/REJECTED + 待审计数 badge)
+    - 新建 `admin/src/pages/merchant-applications/detail.tsx` (详情查看：公司名/法人/营业执照预览/联系方式 + "通过"和"拒绝"按钮)
+    - 改 `admin/src/App.tsx` 加路由 `/merchant-applications` 和 `/merchant-applications/:id`
+    - 改 `admin/src/layouts/AdminLayout.tsx` 在"商家与商品"菜单组首位加入口（带 pending-count 红点）
+    - 改 `admin/src/pages/dashboard/index.tsx` 加"待审入驻"统计卡片（链接到列表）
+  - **验收**:
+    - [x] 菜单"入驻审核"显示待审数红点（轮询 pending-count 接口，30s 一次）
+    - [x] 列表按时间倒序，可按状态/关键字筛选
+    - [x] 详情页能看营业执照图片（点击放大）
+    - [x] "通过"按钮触发 approve → 后端自动建 Company+OWNER → 列表刷新
+    - [x] "拒绝"按钮弹窗要求填理由（>= 10 字）
+    - [x] approve 成功后能在"企业管理"页看到新 Company，在"卖家中心"用申请人手机号 + `123456` 登入
+  - **预估**: 1 天
+  - **测试链路**: 测试人员甲填 website/MerchantApply 表单 → 测试人员乙在新页面审核通过 → 甲用手机号登卖家中心
+  - 状态: ⬜
+
+- [ ] **C40c3** — 🟡 P1 SMS 真实模式开启（2026-04-19 新增）
+  - **背景**: 当前 staging .env 是 `SMS_MOCK=true`（验证码固定 123456）。阿里云已开通：签名"深圳华海农业科技集团"、模板 SMS_501860621 均审核通过（U03）
+  - **操作**:
+    - SSH 服务器 `sed -i 's/SMS_MOCK=true/SMS_MOCK=false/' /www/wwwroot/aimaimai-staging-src/backend/.env`
+    - `pm2 reload aimaimai-api-test --update-env`
+    - 同步改 `docs/operations/.env.staging` 模板
+    - 阿里云控制台充值 ≥ 10 元（约 250 条短信，够 1-2 周测试）
+  - **验收**:
+    - [x] 任意真实手机号在 admin/seller/app 三端发验证码 → 5 秒内收到短信
+    - [x] PM2 日志不再打印 `[SMS Mock] 固定验证码=123456`
+    - [x] 阿里云短信发送记录有正常发送条目
+    - [x] 验证码错误重试无误，5 分钟过期
+  - **风险**: 短信余额耗尽时所有 SMS 调用会失败（500 错误）。需配监控（C45 子任务）
+  - **预估**: 30 分钟
+  - 状态: ⬜
+
+- [ ] **C40c4** — 🟡 P1 App 微信登录（2026-04-19 新增）
+  - **背景**: 后端 `auth.service.ts:loginByWechat` 已写完整（mock + 真实两套）。WECHAT_APP_ID=wxeb8e8dc219da02dd 已配（来源待确认）
+  - **前置（线下，2-3 周）**:
+    - [ ] 微信开放平台 https://open.weixin.qq.com 注册账号
+    - [ ] 提交移动应用（iOS + Android 两个分别申请）：上传营业执照、App 截图、ICP 备案号
+    - [ ] iOS 提交 BundleID=com.aimaimai.shop；Android 提交 package=com.aimaimai.shop + keystore SHA1（从 EAS 控制台导出 `eas credentials -p android`）
+    - [ ] 等审核 7-15 天
+    - [ ] 拿到正式 AppID + AppSecret（如果 wxeb8e8dc219da02dd 是占位则替换）
+  - **App 端代码**:
+    - 装包：`npx expo install expo-auth-session expo-crypto`（或考虑 `react-native-wechat-lib` 第三方包，但需要 dev client）
+    - 改 `app.json` 加 wechat plugin + URL Scheme
+    - 新建 `src/repos/AuthRepo.ts:loginByWechat()` 调 `/api/v1/auth/wechat/login`
+    - App 登录页（如有）+ "我的"页未登录态加"微信登录"按钮（绿色 + 微信图标）
+    - 处理微信回调拿到 code → 传给后端
+  - **后端切换**:
+    - .env 改 `WECHAT_MOCK=false`
+    - 重启 PM2
+  - **打新 .apk 后**:
+    - 重新跑 `eas build --profile preview --platform android`（runtimeVersion 升到 0.2.0，因为加了原生包）
+    - 测试人员重新装新 .apk
+  - **验收**:
+    - [x] App 点"微信登录" → 跳转微信 → 同意 → 自动登录
+    - [x] 首次登录自动建 User + AuthIdentity(provider=WECHAT, identifier=openId)
+    - [x] 已绑定的微信下次登录直接进，触发新人红包仅一次
+    - [x] 微信用户能补绑手机号（在"账号安全"页）
+  - **预估**: 微信审核 2-3 周（线下）+ 集成开发 3 天 + 测试 1 天
+  - 状态: ⬜
+
+- [ ] **C40c5** — 🟢 P3 Apple 登录（iOS 强制要求，2026-04-19 新增）
+  - **背景**: `auth.service.ts:loginWithApple()` 当前是 stub（throw NotImplemented）。Apple 强制规定：iOS App 只要有第三方登录（如微信），必须同时提供 Sign in with Apple
+  - **前置**:
+    - [ ] U06 Apple Developer 账号开通
+    - [ ] App ID 启用 "Sign In with Apple" capability（开发者中心配置）
+    - [ ] EAS 重新生成 provisioning profile
+  - **App 端代码**:
+    - 装包：`npx expo install expo-apple-authentication`
+    - "我的"页 / 登录弹窗加"用 Apple 登录"按钮（iOS only，Android 不显示）
+    - 调 expo-apple-authentication 拿 identityToken
+    - 传给后端 `/api/v1/auth/apple/login`
+  - **后端实现**:
+    - 实现 `loginWithApple(identityToken, nonce)` 真实逻辑：
+      - 调 Apple JWKS 验签 identityToken
+      - 解析出 sub (Apple user ID)
+      - 查 AuthIdentity(provider=APPLE, identifier=sub)
+      - 不存在则建 User + AuthIdentity
+    - 装包：`npm install jose` 用于 JWT 验签
+  - **验收**:
+    - [x] iOS App 显示"用 Apple 登录"，Android 隐藏
+    - [x] 点按 → Face ID/Touch ID → 自动登录
+    - [x] 用户首次拿 email（Apple 只在第一次给）+ name → 存到 UserProfile
+    - [x] 第二次以后只能拿 sub，不能再拿 email
+    - [x] 通过 App Store 审核（必测项）
+  - **预估**: 3 天（依赖 U06 完成）
+  - 状态: ⬜
+
+- [ ] **C40c6** — 🟢 P2 卖家邀请员工 SMS 通知（2026-04-19 新增）
+  - **背景**: `seller-company.service.ts:inviteStaff()` 当前只写 CompanyStaff 表，**不发任何通知**。员工不知道自己被加入了某公司。需要发短信告诉员工"您被邀请加入【XXX 公司】"
+  - **修改文件**:
+    - 改 `backend/src/modules/seller/company/seller-company.service.ts:inviteStaff()` 在写库成功后调用 `aliyunSmsService.sendInvitation(phone, companyName, app下载链接)`
+    - 阿里云短信控制台：申请新模板 "INVITE_STAFF"（"您被邀请加入【\${companyName}】，请用本手机号登录爱买买卖家中心"）
+    - 申请通过后填模板 ID 到 .env：`SMS_TEMPLATE_INVITE=SMS_xxxx`
+    - 改 `aliyun-sms.service.ts` 加 `sendInvitation()` 方法
+  - **验收**:
+    - [x] OWNER 邀请员工后，员工 5 秒内收到短信
+    - [x] 短信内容含公司名 + App 下载链接（蒲公英短链或正式商店链接）
+    - [x] 短信发送失败不阻塞邀请操作（fire-and-forget + 日志）
+    - [x] PM2 日志记录发送结果
+  - **预估**: 0.5 天 + 阿里云模板审核 1-3 天
+  - 状态: ⬜
+
+- [ ] **C40d** — app.json 重复条目清理 + OTA 推送验证（2026-04-19 新增）
+  - **修改**:
+    - `app.json` 删除 intentFilters 数组里重复的第二个对象（line 30-44）
+    - `app.json` 删除 associatedDomains 数组里重复的 `"applinks:app.xn--ckqa175y.com"`（line 51）
+  - **OTA 验证**（首次 .apk 装上后做一次）:
+    - 改一行明显的 JS（比如首页标题）
+    - `eas update --branch preview -m "test OTA"`
+    - 重启 App 看是否拉到新版本（可能需要冷启动 1-2 次）
+  - **验收**:
+    - [x] app.json 数组无重复
+    - [x] OTA 推送 30 秒内拉到，前端可见改动
+    - [x] 控制台能看到 `[Updates] update applied` 日志
+  - **预估**: 30 分钟
+  - 状态: ⬜
+
+- [ ] **C40e** — 生产上线 mock/sandbox → 真实切换 checklist（2026-04-19 新增）
+  - **背景**: 测试环境很多走 mock 或第三方沙箱，生产前必须全部切真。汇总成单一清单避免遗漏
+  - **服务器 `/www/wwwroot/aimaimai-prod-src/backend/.env` 修改项**:
+    - [ ] `NODE_ENV=production`
+    - [ ] `SMS_MOCK=false`
+    - [ ] `WECHAT_MOCK=false`
+    - [ ] `SF_ENV=PROD` + `SF_API_URL` 改生产域名 + 凭证换生产 clientCode/checkWord
+    - [ ] `ALIPAY_GATEWAY=https://openapi.alipay.com/gateway.do`（去掉 -sandbox）
+    - [ ] `ALIPAY_ENDPOINT=https://openapi.alipay.com`
+    - [ ] `ALIPAY_NOTIFY_URL=https://api.ai-maimai.com/api/v1/payments/alipay/notify`
+    - [ ] `SF_CALLBACK_URL=https://api.ai-maimai.com/api/v1/shipments/sf/callback`
+    - [ ] 支付宝四件套证书替换为生产证书（appCertPublicKey / alipayCertPublicKey / alipayRootCert）
+    - [ ] `CORS_ORIGINS=https://admin.ai-maimai.com,https://seller.ai-maimai.com,https://ai-maimai.com,https://www.ai-maimai.com`（去掉 test-* 和 localhost）
+    - [ ] 数据库 URL 改 `aimaimai` 库 + 生产密码
+  - **代码层切换**:
+    - [ ] App `app/about.tsx` 删除版本信息里的 "(Mock)" 字样
+    - [ ] `backend/src/modules/captcha/captcha.service.ts` NODE_ENV=test bypass 不影响生产
+    - [ ] `backend/src/modules/shipment/sf-express.service.ts` NODE_ENV=test mock 不影响生产
+  - **第三方平台后台改地址**:
+    - [ ] 支付宝沙箱后台 → 生产应用：应用网关填 `https://api.ai-maimai.com/api/v1/payments/alipay/notify`
+    - [ ] 顺丰丰桥生产环境推送地址：`https://api.ai-maimai.com/api/v1/shipments/sf/callback`
+    - [ ] 微信开放平台回调地址（如启用微信登录）
+  - **EAS Build 切换**:
+    - [ ] App 用 `eas build --profile production --platform android`（连生产 API）
+    - [ ] iOS 同上 + TestFlight 提交
+  - **验收**:
+    - [x] 生产 PM2 进程 `aimaimai-api-prod` online
+    - [x] 浏览器/真实手机端连生产域名能完整跑全链路
+    - [x] 真实支付宝小额转账 1 元成功 + 退款成功
+    - [x] 真实顺丰下单成功 + 物流推送回调成功
+    - [x] 微信登录（如启用）成功
+  - **预估**: 0.5 天（不含上面 C40c4 等子项依赖）
+  - 状态: ⬜
+
 **第四批完成判定**:
-- [ ] 四个子域名 HTTPS 可访问
-- [ ] 后端 health check 200
-- [ ] 管理后台可登录
+- [x] 测试环境四个子域名 HTTPS 可访问（test-*.ai-maimai.com 全部 200）— 2026-04-18
+- [ ] 生产环境四个子域名 HTTPS 可访问（admin/seller 200，api 502 待启 PM2）
+- [x] 测试后端 API 200（`/api/v1/captcha` 验证）— 2026-04-18
+- [ ] 生产后端 health check 200
+- [x] 测试管理后台可登录（admin/123456，bundle 内嵌 test-api 正确）— 2026-04-18
+- [ ] 生产管理后台可登录
 - [ ] App TestFlight 可下载
 
 ---
@@ -440,3 +655,45 @@
 - **2026-02 至 2026-03**: Phase 1-10 全栈开发，见 `docs/reference/plan-history-2026Q1.md`
 - **2026-04-11**: 17 条链路 + 6 项横切关注点上线就绪审查，见 `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md`
 - **2026-04-12**: 新 plan.md 基于审查结果重写，旧 plan.md 归档
+- **2026-04-15~16**: Web 端 E2E 自动化测试体系搭建（详见下方）
+- **2026-04-17~18**: 服务器换 OS（CentOS 7 → Alibaba Cloud Linux 3，抛弃 Docker 改 Node 直装），8 个域名 + SSL 全部就绪，测试环境（test-admin/test-seller/test-api）全链路上线，GitHub Actions 双分支（staging/main）自动部署链路打通
+- **2026-04-19**: 测试环境联通性审查（三端前端 + 后端 + DB + CORS 全部 ✅）；EAS Build 全套配置（eas.json 三档 + expo-updates OTA + 第一次 Android .apk 构建成功）；CORS/ALIPAY_NOTIFY_URL 修正；注册/登录真实闭环缺口审计；plan.md 拆解 C40c1~c6 + C40d/C40e（含管理员管理页/商户入驻审核页/SMS真实/微信登录/Apple登录/邀请通知/app.json 清理/生产切换 checklist 共 8 个新任务，每个含修改文件清单 + 验收标准 + 预估）
+
+---
+
+## 🧪 E2E 测试体系（2026-04-15~16 搭建）
+
+**测试计划**: `docs/testing/2026-04-15-webapp-test-plan.md`
+**技术栈**: `@playwright/test` + TypeScript，工作区在 `tests/`
+**CI**: `.github/workflows/e2e.yml`（PR 时自动跑）
+
+### 测试结果：54 passed / 0 failed / 24 skipped
+
+| 类别 | passed | 内容 |
+|------|--------|------|
+| 登录 Setup | 2 | admin + seller 登录态自动获取 |
+| Smoke | 3 | admin 登录、seller landing、admin 导航 |
+| 核心链路 | 5 | C01 商户审核、C02 商品上架、C03 订单流转、C05 红包、seller 商品 |
+| 安全/隔离 | 14 | 登录负面×4、跨商户隔离×3、seller 权限矩阵×4、admin 401/403×3 |
+| 表单边界 | 5 | 空提交、负成本、超长、XSS、零库存 |
+| CRUD 页面 | 21 | 商户/分类/运费/管理员/商品/抽奖/标签/VIP/FAQ/快捷回复/角色 列表加载+基础操作 |
+| 跨端/并发 | 4 | 订单发货端到端、登录限流、新建标签/快捷回复 |
+
+### 修复的 bug（测试过程中发现并修复）
+- ✅ Migration AfterSaleRequest 大小写不一致（2 个 migration 文件）
+- ✅ CompanyTag.sortOrder 字段 migration 缺失（新增补丁 migration）
+- ✅ CS 模型 migration 完全缺失（新增 `20260416010000_add_customer_service_models`）
+- ✅ 种子 OrderItem 缺 companyId（44 条回填，解锁卖家订单测试）
+- ✅ 前端产地"选填"但后端必填（seller 商品编辑页 + 后端 DTO 对齐）
+- ✅ 商品 DTO 缺长度限制（title @MaxLength(100)、description @MaxLength(5000)、origin 结构化）
+- ✅ antd message 静默（admin/seller 两端加 `<AntdApp>` 包裹）
+- ✅ Expo Web 隐私弹窗不显示（Modal 在 web 端改用绝对定位 View）
+
+### 发现的前端 bug（未修，记录）
+- ⚠ seller `RequireRole` 竞态：profile 未加载完成时直接 redirect，刷新 `/company/settings` 会弹回首页
+  - 位置：`seller/src/App.tsx:40` — `if (!seller) return <Navigate to="/" />`
+  - 修法：加 loading 状态判断，`seller === undefined` 时渲染 Spin 而非 redirect
+
+### 测试基础设施改动（仅 tests/ 目录 + 少量后端 bypass）
+- `backend/src/modules/captcha/captcha.service.ts` — NODE_ENV=test captcha bypass
+- `backend/src/modules/shipment/sf-express.service.ts` — NODE_ENV=test SF 面单 mock

@@ -2,6 +2,7 @@
   "expo": {
     "name": "AI爱买买",
     "slug": "ai-aimaimai",
+    "version": "0.1.0",
     "scheme": "aimaimai",
     "plugins": [
       "expo-router",
@@ -26,14 +27,43 @@
             "BROWSABLE",
             "DEFAULT"
           ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.xn--ckqa175y.com",
+              "pathPrefix": "/r/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
     "ios": {
       "bundleIdentifier": "com.aimaimai.shop",
       "associatedDomains": [
+        "applinks:app.xn--ckqa175y.com",
         "applinks:app.xn--ckqa175y.com"
       ]
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d76ba8ac-06f3-45d2-b674-afec17737029"
+      }
+    },
+    "owner": "flyspaceden",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d76ba8ac-06f3-45d2-b674-afec17737029"
     }
   }
 }

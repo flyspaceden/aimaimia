@@ -31,6 +31,13 @@ expo-env.d.ts
 *.csr
 *_RSA*.txt
 
+# 部署实施记录 + 密码本（含真实凭据，仅本地保留）
+docs/operations/阿里云部署.md
+docs/operations/密码本.md
+
+# 后端用户上传文件（运行时生成，不入库）
+backend/uploads/
+
 # Metro
 .metro-health-check*
 

@@ -44,10 +44,15 @@
 - `docs/security/security-audit.md` — 全面安全审计文档（认证/资金/API/隐私/基础设施/AI/多商户/监控，12 大维度）
 - `docs/security/电商法.md` — 电商法规参考
 
+### 测试 (`docs/testing/`)
+- `docs/testing/2026-04-15-webapp-test-plan.md` — Web 端自动化测试计划 v0.1（管理后台+卖家后台，Playwright，L0-L3 分层，7 条 critical path，5 阶段实施，**Web 端 E2E 测试权威来源**）
+
 ### 部署运维 (`docs/operations/`)
 - `docs/operations/deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
+- `docs/operations/阿里云部署.md` — 阿里云部署实施记录（服务器/域名/SSL/宝塔站点/PostgreSQL 实际配置 + 数据库凭据 + 变更日志 + 常见问题，**实际部署状态权威来源，每次部署动作必须更新**）
 - `docs/operations/版本管理.md` — 版本管理指南（Git 分支策略 dev/staging/main、阿里云双环境规划、GitHub Actions 自动部署规则、App 三阶段发布流程、版本号规范，**版本管理权威来源**）
-- `docs/operations/github操作.md` — GitHub 日常操作指南（monorepo 推送命令、手动触发部署，**Git 操作快速参考**）
+- `docs/operations/github操作.md` — GitHub 日常操作指南（双分支 staging/main 发布流程、自动部署规则、手动触发、紧急场景速查，**测试→生产发布权威来源**）
+- `docs/operations/新手指南-部署机制详解.md` — 部署/CI/CD 系统全套概念解释（32 个 Q&A，从 workflow 路由到 App 测试，含 PM2/Nginx/Prisma migration/SSH 密钥/回滚/灰度等基础概念，**新手学习部署体系权威入门**）
 - `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
 
 ### 参考资料 (`docs/reference/`)
@@ -163,6 +168,8 @@ admin/                  # 管理后台前端
    - 每次新建文档（`.md` 或其他说明文件）时，必须同步在 `CLAUDE.md` 的「相关文档」列表中添加该文档的路径、用途和权威范围
    - 项目发生版本迭代、架构变更、技术栈升级、关键决策变动时，必须及时更新 `CLAUDE.md` 中对应的段落（技术栈、架构决策、项目结构等）
    - `CLAUDE.md` 是所有新会话的唯一上下文入口——任何不在此文件中登记的文档等于不存在
+   - **凭据集中管理**：任何涉及密码、密钥、API Key、Token、证书路径、账号等敏感凭据的新增 / 变更（数据库密码、JWT Secret、第三方服务 Key、管理员账号修改等），**必须立即更新 `docs/operations/密码本.md`**（已 gitignore，仅本地保留）。其他文档只能用占位符引用（如 `<TEST_DB_PASSWORD>` / `<ALIPAY_APP_PRIVATE_KEY>`），严禁明文写入任何会被 commit 的文件
+   - **部署动作记录**：任何在阿里云 / 宝塔 / 服务器上的实际部署动作（新建站点、申请证书、改 Nginx、装服务、数据库变更、PM2 进程变化、第三方回调地址改动等）必须立即更新 `docs/operations/阿里云部署.md`（已 gitignore）
 8. **并行 Agent 执行**：
    - 执行任务时应积极使用多个 Agent 并行工作，提高效率
    - **前提条件**：并行的任务之间不能有文件冲突（不同 Agent 不能同时修改同一个文件）
@@ -228,4 +235,17 @@ admin/                  # 管理后台前端
 
 ### 注意事项
 - 地图 SDK / 支付 / AI 语音均为占位实现，不要删除，在其基础上迭代
-- 管理后台超级管理员账号：`admin` / `admin123456`
+- 管理后台超级管理员账号：`admin` / `123456`
+
+### 服务器部署架构（Node 直装 + PM2）
+生产 + 测试服务器宿主机：**Alibaba Cloud Linux 3**（2026-04-18 由 CentOS 7 替换，原因：CentOS 7 EOL + glibc 2.17 太老导致现代 npm 包反复踩坑）。
+
+宿主机直接运行：
+- Nginx（反向代理 + SSL，宝塔管理）
+- PostgreSQL 18（数据库，宝塔安装）
+- Redis 7.x（队列/缓存，宝塔安装）
+- Node 20 + PM2（NestJS 后端进程，NodeSource 官方源直装，glibc 无障碍）
+
+**所有 npm 包用最新版本**，无需任何降级或兼容补丁。不再使用 Docker（业务 v1.0 未上线，无必要引入容器化复杂度）。
+
+详细部署流程 + 换 OS 重建清单见 `docs/operations/阿里云部署.md`。
