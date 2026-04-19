@@ -458,14 +458,33 @@
     - 改 `app/_layout.tsx`：隐私同意后调 `initWechat()` 注册 AppID
     - 改 `src/components/overlay/AuthModal.tsx:handleWeChat` 用新的 `requestWechatAuth()` 替代旧 stub
   - **iOS 延后**: iOS 需 Apple Developer 账号（U06 未就绪）+ Universal Link + Info.plist + AppDelegate；待 U06 完成后补
+  - **首次 APK 测试发现的问题 + 修复（2026-04-19 下午）**:
+    - 🔴 **闪退 + 老域名 502**：用户装第一版 APK 一点开闪退，第二次点开弹出 `app.爱买买.com` 的 502 页面
+    - **根因 1（502）**：App 代码里深链 URL 硬编码仍是老域名 `app.xn--ckqa175y.com`（爱买买.com 的 punycode），该域名服务器已下线。`ai-maimai.com` 备案已通过且 `/resolve` endpoint 返回 200
+    - **根因 2（闪退）**：`src/services/wechat.ts` 用 `require('react-native-wechat-lib').default`，但该包只有 named exports 没 default，导致 `.registerApp` 调用时 TypeError
+    - **根因 3（潜在）**：`react-native-wechat-lib` 1.1.27 无 autolinking 元信息（无 `react-native.config.js`、无 `androidPackage` 字段），Expo SDK 54 autolinking 可能漏注册 WeChatPackage
+    - **根因 4（潜在）**：`performDeferredLinkCheck()` 在 `_layout.tsx` 未 `.catch()`，`WebBrowser`/`isDDLChecked` 异步失败会炸到 React 顶层
+    - **修复（3 次提交）**:
+      - `8de9f86` 域名迁移 8 文件（app.json intentFilters / associatedDomains、`_layout.tsx` APP_DOMAIN、4 处深链 URL、`deferredLink.ts` regex 兼容新旧域名）+ `wechat.ts` 改 named import + `isWechatNativeAvailable()` 前置 guard
+      - `f137a1b` 新建 `react-native.config.js` 显式声明 WeChatPackage autolinking + `performDeferredLinkCheck().catch()` 包裹
+    - **审查 Agent 建议但未采纳**（都是 Agent 误判）:
+      - `sendAuthRequest` scope 改数组 → Android native 是 `String scope`，改数组反而会 break
+      - `registerApp` 改单参数 → Android native 是 `(String appid, String universalLink, Callback)`，2 个参数才对
+      - Metro 打包 crash 担忧 → Metro 只静态 bundle 不执行 top-level 代码，运行时 guard 已挡住
+  - **蒲公英测试分发链接**（2026-04-19 建立）:
+    - 🔗 **https://www.pgyer.com/aiaimaimai**
+    - 二维码可扫，国内访问快；测试人员先卸载旧版再装
+    - APK 文件：`~/Downloads/ai-aimaimai-v0.2.0-preview.apk`（116 MB，本地备份）
+    - EAS 直链（美国 CDN 慢/不稳定）：https://expo.dev/artifacts/eas/8k19cqcrtyKispdM1g9f49.apk
+    - 签名 MD5 `76:6B:AF:B6:A3:B3:4A:67:87:61:E4:B0:7E:36:65:C4` 已验证与微信平台一致
   - **下一步测试清单（用户操作）**:
-    - [ ] **① 打新 .apk**: `eas build --profile preview --platform android`（~15-25 分钟）
+    - [x] **① 打新 .apk**: `eas build --profile preview --platform android`（~15-25 分钟）— 2026-04-19 完成，build id `3b573078-e208-4c1d-84d0-b4a0912d7c1e`
       - 构建用 EAS 上已传的本地 keystore 签名（MD5 `76:6B:AF:B6:...`，与微信平台注册一致）
       - Gradle 阶段日志应见 `WXEntryActivity.java` 编译 + `react-native-wechat-lib` 链接
       - 失败贴日志给 Claude
     - [ ] **② 真机安装**（必须装了**微信 App** + 登过微信号的 Android 真机）:
       - 🔴 **先卸载旧版 AI爱买买**（签名从 EAS 默认 keystore 换成本地 keystore，Android 拒绝覆盖）
-      - 从 EAS 给的 URL 或蒲公英下载新 .apk 安装
+      - 扫码 https://www.pgyer.com/aiaimaimai 或用手机浏览器打开，点"安装"
     - [ ] **③ 端到端验证**:
       - 启动 App → 同意隐私政策
       - "我的" Tab → 点登录 → 唤出 AuthModal
