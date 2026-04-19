@@ -104,7 +104,7 @@ export class AlipayService implements OnModuleInit {
 
     const notifyUrl = this.configService.get<string>(
       'ALIPAY_NOTIFY_URL',
-      'https://api.爱买买.com/payments/alipay/notify',
+      'https://api.ai-maimai.com/payments/alipay/notify',
     );
 
     // sdkExecute 是同步方法，返回完整的 orderStr，可直接传给客户端调起支付宝
