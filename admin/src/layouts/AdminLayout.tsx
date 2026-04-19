@@ -170,9 +170,10 @@ export default function AdminLayout() {
       collapsed={collapsed}
       onCollapse={setCollapsed}
       route={filteredRoute}
-      // 传完整 pathname+search，让 ProLayout 能区分同 pathname 不同 query 的菜单项
-      // （如 "/companies" 与 "/companies?tab=applications" 的 "入驻审核"）
-      location={{ pathname: location.pathname, search: location.search }}
+      // ProLayout location prop 仅接受 pathname，不支持 search
+      // 副作用：两菜单项同 pathname /companies（"企业管理" + "入驻审核"）会同时高亮
+      // 属轻微 UX 瑕疵，不影响功能，v1.0 可接受
+      location={{ pathname: location.pathname }}
       token={{
         sider: {
           colorMenuBackground: '#001529',
