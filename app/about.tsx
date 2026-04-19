@@ -64,6 +64,15 @@ export default function AboutScreen() {
             </View>
           </View>
         </Animated.View>
+
+        <Animated.View entering={FadeInDown.duration(300).delay(240)} style={{ marginTop: spacing.lg, alignItems: 'center' }}>
+          <Text style={[typography.caption, { color: colors.text.secondary, textAlign: 'center' }]}>
+            © 2026 深圳华海农业科技集团有限公司
+          </Text>
+          <Text style={[typography.caption, { color: colors.text.secondary, textAlign: 'center', marginTop: 4 }]}>
+            粤ICP备2023047684号-5
+          </Text>
+        </Animated.View>
       </ScrollView>
     </Screen>
   );

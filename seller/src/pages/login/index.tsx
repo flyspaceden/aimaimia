@@ -310,6 +310,19 @@ export default function LoginPage() {
             {tempTokenExpired ? '重新登录' : '返回登录'}
           </Button>
         </Card>
+        <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
+          <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
+          <div>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#666' }}
+            >
+              粤ICP备2023047684号-5
+            </a>
+          </div>
+        </div>
       </div>
     );
   }
@@ -490,6 +503,19 @@ export default function LoginPage() {
           </Text>
         </div>
       </Card>
+      <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
+        <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
+        <div>
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#666' }}
+          >
+            粤ICP备2023047684号-5
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

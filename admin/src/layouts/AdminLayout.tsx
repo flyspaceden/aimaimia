@@ -223,8 +223,18 @@ export default function AdminLayout() {
       }}
       // 底部
       footerRender={() => (
-        <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12 }}>
-          爱买买管理后台 &copy; 2026
+        <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12, lineHeight: 1.8 }}>
+          <div>爱买买管理后台 &copy; 2026 深圳华海农业科技集团有限公司</div>
+          <div>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#999' }}
+            >
+              粤ICP备2023047684号-5
+            </a>
+          </div>
         </div>
       )}
     >
