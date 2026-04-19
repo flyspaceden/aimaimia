@@ -8,6 +8,9 @@ import {
   SellerPasswordLoginDto,
   SellerSelectCompanyDto,
   SellerRefreshDto,
+  SellerChangePasswordDto,
+  SellerBindPhoneSmsCodeDto,
+  SellerChangePhoneDto,
 } from './seller-auth.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
@@ -81,5 +84,44 @@ export class SellerAuthController {
   @Get('me')
   getMe(@CurrentSeller('sub') staffId: string) {
     return this.authService.getMe(staffId);
+  }
+
+  // ===================== C40c7 账号安全 =====================
+
+  /** 修改密码（已登录态，旧密码 + 新密码，仅当前 staff） */
+  @Public()
+  @UseGuards(SellerAuthGuard)
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @Post('change-password')
+  changePassword(
+    @CurrentSeller('sub') staffId: string,
+    @Body() dto: SellerChangePasswordDto,
+  ) {
+    return this.authService.changePassword(staffId, dto);
+  }
+
+  /** 给新手机号发绑定验证码 */
+  @Public()
+  @UseGuards(SellerAuthGuard)
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 3 } })
+  @Post('bind-phone/sms/code')
+  sendBindPhoneSmsCode(
+    @CurrentSeller('userId') userId: string,
+    @Body() dto: SellerBindPhoneSmsCodeDto,
+  ) {
+    return this.authService.sendBindPhoneSmsCode(dto, userId);
+  }
+
+  /** 修改手机号（已登录态，双重 SMS 验证，影响 User 名下所有企业 staff） */
+  @Public()
+  @UseGuards(SellerAuthGuard)
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @Post('change-phone')
+  changePhone(
+    @CurrentSeller('sub') staffId: string,
+    @CurrentSeller('userId') userId: string,
+    @Body() dto: SellerChangePhoneDto,
+  ) {
+    return this.authService.changePhone(staffId, userId, dto);
   }
 }

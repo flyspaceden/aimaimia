@@ -518,7 +518,7 @@
   - **预估**: 0.5 天 + 阿里云模板审核 1-3 天
   - 状态: ⬜
 
-- [ ] **C40c7** — 🟡 P1 两端"账号安全"页：自助改密码 + 改手机号（2026-04-19 新增）
+- [x] **C40c7** — 🟡 P1 两端"账号安全"页：自助改密码 + 改手机号（2026-04-19 新增，当日代码完成）
   - **背景**: 两端已有密码 + SMS 双模式登录（C17/C18），但用户登入后无法自助改密码/改手机号。Admin 本人、Seller OWNER/员工都需要这个能力。否则忘密码或换手机即失联
   - **修改文件（后端，4 个端点）**:
     - 改 `backend/src/modules/admin/auth/admin-auth.controller.ts` + `.service.ts`：
@@ -544,7 +544,22 @@
     - [ ] 图形验证码仍需填
     - [ ] 改密码/手机号操作有审计日志
   - **预估**: 后端 0.5 天 + 前端 0.5 天 = **1 天**
-  - 状态: ⬜
+  - **实际做了**:
+    - **后端 admin (4 文件)**: 新建 `dto/admin-account-security.dto.ts`；admin-auth.service 新增 `changePassword` / `sendBindPhoneSmsCode` / `changePhone` 3 方法（Serializable 事务 + 速率限制 + CAS 原子消费 OTP）；admin-auth.controller 新增 3 个 `@UseGuards(AdminAuthGuard)` 端点；getProfile 返回补 phone 字段
+    - **后端 seller (3 文件)**: seller-auth.dto 追加 3 DTOs；seller-auth.service 新增同名 3 方法（phone 更新走 AuthIdentity，影响该 User 名下所有 staff 的 session）；seller-auth.controller 新增 3 端点
+    - **前端 admin (5 文件)**: 新建 `pages/account-security/index.tsx`（Tabs 修改密码 / 修改手机号）；App.tsx 加路由；AdminLayout 头像 Dropdown 加"账号安全"入口 + divider + 退出登录；api/auth.ts 加 3 方法；types/index.ts 加 phone 字段
+    - **前端 seller (4 文件)**: 新建同结构 `pages/account-security/index.tsx`；App.tsx 加路由；SellerLayout Dropdown 加入口；api/auth.ts 加 3 方法；types 加 phone/phoneMasked
+  - **安全要求达成**:
+    - 改密码必须验旧密码（bcrypt.compare）+ 新密码长度 ≥ 6
+    - 改手机号双重 SMS（原手机 purpose=LOGIN + 新手机 purpose=BIND），新手机号重复校验（已被其他用户/管理员绑定则 409）
+    - 改密码/手机号成功后强制所有 session 失效，前端自动跳登录页
+    - 新手机号发 SMS 走 Serializable 事务 + 三段式速率限制（1/分、5/时、10/日）
+  - **验收**:
+    - [ ] Admin 登录 → 头像 → "账号安全" → 修改密码成功 → 跳转登录页 → 新密码能登入
+    - [ ] Admin 修改手机号：原手机收码 + 新手机收码 + 提交 → 跳转登录页 → 新手机号可用
+    - [ ] Seller OWNER 同理；MANAGER/OPERATOR 亦能改（只改自己的）
+    - [ ] 三端 TypeScript 编译通过 ✅（tsc -b 验证）
+  - 状态: ⏳ 代码完成待部署测试
 
 - [ ] **C40c8** — 🟡 P1 管理员兜底重置任意账号密码（2026-04-19 新增）
   - **背景**: 用户忘密码 + 手机号失联时的最后通道。C40c1 管理员管理页已有重置其他管理员密码；这里扩展到能重置任意 OWNER/员工的密码。注意：OWNER 也要可重置（OWNER 不能自己被踢出，但密码可由管理员兜底）

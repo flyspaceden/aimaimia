@@ -34,6 +34,8 @@ export interface SellerProfile {
   user: {
     nickname?: string;
     avatarUrl?: string;
+    phone?: string;
+    phoneMasked?: string;
   };
   company: {
     id: string;

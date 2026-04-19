@@ -92,6 +92,7 @@ export interface AdminProfile {
   id: string;
   username: string;
   realName: string | null;
+  phone?: string | null;
   /** 后端返回角色名字符串数组，如 ["超级管理员"] */
   roles: string[];
   permissions: string[];

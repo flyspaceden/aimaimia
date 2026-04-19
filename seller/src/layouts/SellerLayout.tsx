@@ -14,6 +14,7 @@ import {
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
+  SafetyOutlined,
   BranchesOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
@@ -154,6 +155,13 @@ export default function SellerLayout() {
           <Dropdown
             menu={{
               items: [
+                {
+                  key: 'account-security',
+                  icon: <SafetyOutlined />,
+                  label: '账号安全',
+                  onClick: () => navigate('/account-security'),
+                },
+                { type: 'divider' },
                 {
                   key: 'logout',
                   icon: <LogoutOutlined />,

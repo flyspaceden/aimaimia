@@ -38,3 +38,26 @@ export const logout = (): Promise<void> =>
 /** 获取当前管理员信息 */
 export const getProfile = (): Promise<AdminProfile> =>
   client.get('/admin/auth/profile');
+
+// ===================== C40c7 账号安全 =====================
+
+/** 修改密码 */
+export const changePassword = (data: {
+  oldPassword: string;
+  newPassword: string;
+}): Promise<{ ok: boolean }> =>
+  client.post('/admin/auth/change-password', data);
+
+/** 给新手机号发绑定验证码（已登录态） */
+export const sendBindPhoneSmsCode = (
+  phone: string,
+): Promise<{ ok: boolean; message?: string }> =>
+  client.post('/admin/auth/bind-phone/sms/code', { phone });
+
+/** 修改手机号（双重 SMS 验证） */
+export const changePhone = (data: {
+  oldPhoneCode: string;
+  newPhone: string;
+  newPhoneCode: string;
+}): Promise<{ ok: boolean }> =>
+  client.post('/admin/auth/change-phone', data);

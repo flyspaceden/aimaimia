@@ -60,3 +60,39 @@ export class SellerRefreshDto {
   @MaxLength(512)
   refreshToken: string;
 }
+
+// ===================== C40c7 账号安全 =====================
+
+/** 修改密码（旧密码 + 新密码） */
+export class SellerChangePasswordDto {
+  @IsString()
+  @MaxLength(128)
+  oldPassword: string;
+
+  @IsString()
+  @MinLength(6)
+  @MaxLength(128)
+  newPassword: string;
+}
+
+/** 给新手机号发绑定验证码（已登录态调用） */
+export class SellerBindPhoneSmsCodeDto {
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '手机号格式不正确' })
+  phone: string;
+}
+
+/** 修改手机号（旧手机验证码 + 新手机号 + 新手机验证码） */
+export class SellerChangePhoneDto {
+  @IsString()
+  @Length(4, 8)
+  oldPhoneCode: string;
+
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '新手机号格式不正确' })
+  newPhone: string;
+
+  @IsString()
+  @Length(4, 8)
+  newPhoneCode: string;
+}

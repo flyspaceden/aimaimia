@@ -50,6 +50,7 @@ const CsFaqPage = lazy(() => import('@/pages/cs/faq'));
 const CsQuickEntriesPage = lazy(() => import('@/pages/cs/quick-entries'));
 const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
 const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
+const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -142,6 +143,7 @@ export default function App() {
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/roles" element={<RolesPage />} />
+            <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 
           {/* 兜底 */}

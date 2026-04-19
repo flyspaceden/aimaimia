@@ -15,6 +15,7 @@ import {
   TeamOutlined,
   SafetyCertificateOutlined,
   LogoutOutlined,
+  SafetyOutlined,
   ApartmentOutlined,
   TagsOutlined,
   MessageOutlined,
@@ -212,6 +213,13 @@ export default function AdminLayout() {
           <Dropdown
             menu={{
               items: [
+                {
+                  key: 'account-security',
+                  icon: <SafetyOutlined />,
+                  label: '账号安全',
+                  onClick: () => navigate('/account-security'),
+                },
+                { type: 'divider' },
                 {
                   key: 'logout',
                   icon: <LogoutOutlined />,
