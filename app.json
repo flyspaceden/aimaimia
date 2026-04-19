@@ -2,13 +2,14 @@
   "expo": {
     "name": "AI爱买买",
     "slug": "ai-aimaimai",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "scheme": "aimaimai",
     "plugins": [
       "expo-router",
       "expo-web-browser",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "./plugins/withWechat.js"
     ],
     "android": {
       "package": "com.aimaimai.shop",

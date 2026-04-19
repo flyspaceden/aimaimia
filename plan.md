@@ -388,25 +388,19 @@
   - 实际做了: 服务器 .env 加 CORS_ORIGINS（含 test-admin/test-seller/test-api/ai-maimai.com/www + localhost:8081/19006/3000）；修正 ALIPAY_NOTIFY_URL 缺 `/api/v1/` 前缀的问题；模板 docs/operations/.env.staging 同步
   - 状态: ✅ | 完成日期: 2026-04-19
 
-- [ ] **C40c1** — 🔴 P0 管理员管理前端页（2026-04-19 新增）
-  - **背景**: `admin/src/pages/users/` 实为 App 买家用户管理（AppUser），不是管理员。后端 `backend/src/modules/admin/users/admin-users.controller.ts` 已有完整 5 个端点（GET list / GET :id / POST create / PUT update / POST :id/reset-password / DELETE）
-  - **修改文件**:
-    - 新建 `admin/src/api/admin-users.ts` (5 个 API 调用)
-    - 新建 `admin/src/pages/admin-users/index.tsx` (ProTable 列表)
-    - 新建 `admin/src/pages/admin-users/edit.tsx` (创建/编辑 ProForm 弹窗)
-    - 改 `admin/src/App.tsx` 加路由 `/admin-users`
-    - 改 `admin/src/layouts/AdminLayout.tsx` 在"系统设置"菜单组下加入口
-    - 改 `admin/src/constants/permissions.ts` 确认 `ADMIN_USERS_READ/WRITE` 权限码已定义
-  - **验收**:
-    - [x] 超管登录能看到 /admin-users 列表（含 username/phone/role/status/lastLogin）
+- [x] **C40c1** — 🔴 P0 管理员管理前端页（2026-04-19 新增，2026-04-19 核实已完成）
+  - **核实结果（2026-04-19 下午）**: 功能**已存在**于 `admin/src/pages/admin/users.tsx`（299 行，ProTable 列表 + 新增/编辑/重置密码/启用禁用/删除全齐） + `admin/src/api/users.ts`（37 行）。路由为 `/admin/users`（非 plan.md 原设计的 `/admin-users`）；菜单入口在"系统管理 → 管理员账号"（AdminLayout 已有）
+  - **背景（历史描述）**: `admin/src/pages/users/` 是 App 买家用户管理（对应 `admin/src/api/app-users.ts`），与管理员管理（`admin/src/pages/admin/users.tsx` + `admin/src/api/users.ts`）完全独立。plan.md 原撰写时背景调查欠缺细致，误判为未实现
+  - **验收（均已通过，用户 1:41 截图佐证）**:
+    - [x] 超管登录能看到 /admin/users 列表（含 username/phone/role/status/lastLogin/登录IP/创建时间）
     - [x] 创建新管理员（必填 username/password/role；可选 phone）
     - [x] 编辑管理员（改 phone/role/status，不改密码）
     - [x] 重置密码按钮 → 弹窗输入新密码 → 调 reset-password 端点
     - [x] 禁用/启用切换
     - [x] 删除（带二次确认）
-    - [x] 非超管角色看不到此菜单
-  - **预估**: 1 天
-  - 状态: ⬜
+    - [x] 非超管角色看不到此菜单（PermissionGate 守卫）
+  - **预估**: 1 天（实际 0 天，已存在）
+  - 状态: ✅ | 完成日期: 2026-04-19（历史已完成，本日核实确认）
 
 - [ ] **C40c2** — 🟢 P2 商户入驻审核菜单快捷入口（2026-04-19 新增，2026-04-19 修订方案）
   - **背景**: 功能已以 Tab 形式存在于 `admin/src/pages/companies/applications-tab.tsx`（448 行完整实现，含审核通过/拒绝/详情抽屉/历史记录） + `companies/index.tsx` 第三 Tab "入驻申请"（含 pending-count Badge 红点）。原计划的独立页 `admin/src/pages/merchant-applications/` 重复造轮子
@@ -448,60 +442,36 @@
     - PM2 日志证据：两次 `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送` 警告已消失
   - 状态: ✅ | 完成日期: 2026-04-19
 
-- [ ] **C40c4** — 🟡 P1 App 微信登录（2026-04-19 新增）
-  - **背景**: 后端 `auth.service.ts:loginByWechat` 已写完整（mock + 真实两套）。WECHAT_APP_ID=wxeb8e8dc219da02dd 已配（来源待确认）
-  - **前置（线下，2-3 周）**:
-    - [ ] 微信开放平台 https://open.weixin.qq.com 注册账号
-    - [ ] 提交移动应用（iOS + Android 两个分别申请）：上传营业执照、App 截图、ICP 备案号
-    - [ ] iOS 提交 BundleID=com.aimaimai.shop；Android 提交 package=com.aimaimai.shop + keystore SHA1（从 EAS 控制台导出 `eas credentials -p android`）
-    - [ ] 等审核 7-15 天
-    - [ ] 拿到正式 AppID + AppSecret（如果 wxeb8e8dc219da02dd 是占位则替换）
-  - **App 端代码**:
-    - 装包：`npx expo install expo-auth-session expo-crypto`（或考虑 `react-native-wechat-lib` 第三方包，但需要 dev client）
-    - 改 `app.json` 加 wechat plugin + URL Scheme
-    - 新建 `src/repos/AuthRepo.ts:loginByWechat()` 调 `/api/v1/auth/wechat/login`
-    - App 登录页（如有）+ "我的"页未登录态加"微信登录"按钮（绿色 + 微信图标）
-    - 处理微信回调拿到 code → 传给后端
-  - **后端切换**:
-    - .env 改 `WECHAT_MOCK=false`
-    - 重启 PM2
-  - **打新 .apk 后**:
-    - 重新跑 `eas build --profile preview --platform android`（runtimeVersion 升到 0.2.0，因为加了原生包）
-    - 测试人员重新装新 .apk
+- [x] **C40c4** — 🟡 P1 App 微信登录 Android（2026-04-19 新增，当日代码完成）
+  - **前置（用户已完成）**:
+    - [x] 微信开放平台 App 审核通过，AppID = `wxeb8e8dc219da02dd`（密码本 §5.1）
+    - [x] 签名 MD5 = `766bafb6a3b34a678761e4b07e3665c4` 已注册微信平台（密码本 §11.1）
+    - [x] 本地 `aimaimai-release.keystore` 上传 EAS（production/preview/development 三个 profile 共享，MD5 已验证一致）
+  - **已完成（2026-04-19 下午）**:
+    - 装包：`npm install react-native-wechat-lib` (v1.1.27)
+    - 新建 `plugins/withWechat.js` Expo Config Plugin：
+      - 生成 `android/app/src/main/java/com/aimaimai/shop/wxapi/WXEntryActivity.java`
+      - AndroidManifest 注册 WXEntryActivity（含 `launchMode=singleTask` + `taskAffinity`）
+      - 添加 `<queries><package name="com.tencent.mm"/></queries>`（Android 11+ 必需）
+    - 改 `app.json`：挂 `./plugins/withWechat.js` + version 0.1.0 → 0.2.0（runtimeVersion policy=appVersion 自动升）
+    - 新建 `src/services/wechat.ts`：`initWechat()` + `requestWechatAuth()` + `isWechatInstalled()`，含 Mock 回退
+    - 改 `app/_layout.tsx`：隐私同意后调 `initWechat()` 注册 AppID
+    - 改 `src/components/overlay/AuthModal.tsx:handleWeChat` 用新的 `requestWechatAuth()` 替代旧 stub
+  - **iOS 延后**: iOS 需 Apple Developer 账号（U06 未就绪）+ Universal Link + Info.plist + AppDelegate；待 U06 完成后补
+  - **下一步（用户操作）**:
+    - [ ] `eas build --profile preview --platform android` 打新 .apk（runtimeVersion=0.2.0，与旧版不兼容）
+    - [ ] 测试人员真机**卸载旧版**（签名变了不能覆盖）→ 装新 .apk
+    - [ ] 点"微信登录" → 跳转微信 → 同意 → 自动登回 App
+  - **后端已就绪**: staging `WECHAT_MOCK=false`，生产环境上线前核对
   - **验收**:
-    - [x] App 点"微信登录" → 跳转微信 → 同意 → 自动登录
-    - [x] 首次登录自动建 User + AuthIdentity(provider=WECHAT, identifier=openId)
-    - [x] 已绑定的微信下次登录直接进，触发新人红包仅一次
-    - [x] 微信用户能补绑手机号（在"账号安全"页）
-  - **预估**: 微信审核 2-3 周（线下）+ 集成开发 3 天 + 测试 1 天
-  - 状态: ⬜
+    - [ ] App 点"微信登录" → 跳转微信 → 同意 → 自动登录
+    - [ ] 首次登录自动建 User + AuthIdentity(provider=WECHAT, identifier=openId)
+    - [ ] 已绑定的微信下次登录直接进，触发新人红包仅一次
+    - [ ] 微信用户能补绑手机号（C40c7 账号安全页）
+  - **预估**: 原 2-3 周（线下审核）+ 3 天开发 → 实际 1 天代码完成（线下审核已提前做好）
+  - 状态: ⏳ 代码完成待 EAS 重打 .apk 真机测试
 
-- [ ] **C40c5** — 🟢 P3 Apple 登录（iOS 强制要求，2026-04-19 新增）
-  - **背景**: `auth.service.ts:loginWithApple()` 当前是 stub（throw NotImplemented）。Apple 强制规定：iOS App 只要有第三方登录（如微信），必须同时提供 Sign in with Apple
-  - **前置**:
-    - [ ] U06 Apple Developer 账号开通
-    - [ ] App ID 启用 "Sign In with Apple" capability（开发者中心配置）
-    - [ ] EAS 重新生成 provisioning profile
-  - **App 端代码**:
-    - 装包：`npx expo install expo-apple-authentication`
-    - "我的"页 / 登录弹窗加"用 Apple 登录"按钮（iOS only，Android 不显示）
-    - 调 expo-apple-authentication 拿 identityToken
-    - 传给后端 `/api/v1/auth/apple/login`
-  - **后端实现**:
-    - 实现 `loginWithApple(identityToken, nonce)` 真实逻辑：
-      - 调 Apple JWKS 验签 identityToken
-      - 解析出 sub (Apple user ID)
-      - 查 AuthIdentity(provider=APPLE, identifier=sub)
-      - 不存在则建 User + AuthIdentity
-    - 装包：`npm install jose` 用于 JWT 验签
-  - **验收**:
-    - [x] iOS App 显示"用 Apple 登录"，Android 隐藏
-    - [x] 点按 → Face ID/Touch ID → 自动登录
-    - [x] 用户首次拿 email（Apple 只在第一次给）+ name → 存到 UserProfile
-    - [x] 第二次以后只能拿 sub，不能再拿 email
-    - [x] 通过 App Store 审核（必测项）
-  - **预估**: 3 天（依赖 U06 完成）
-  - 状态: ⬜
+~~C40c5 Apple 登录~~ — 🗑️ 用户决策（2026-04-19）: 不需要，已删除。仅在真正有 iOS 第三方登录需求且 Apple 审核强制时再加回
 
 - [ ] **C40c6** — 🟢 P2 卖家邀请员工 SMS 通知（2026-04-19 新增）
   - **背景**: `seller-company.service.ts:inviteStaff()` 当前只写 CompanyStaff 表，**不发任何通知**。员工不知道自己被加入了某公司。需要发短信告诉员工"您被邀请加入【XXX 公司】"

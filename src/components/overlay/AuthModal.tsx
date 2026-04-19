@@ -17,7 +17,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../theme';
 import { useToast } from '../feedback';
 import { AuthRepo } from '../../repos';
-import { USE_MOCK } from '../../repos/http/config';
+import { requestWechatAuth } from '../../services/wechat';
 import { AuthSession, LoginMode } from '../../types';
 
 type AuthModalProps = {
@@ -121,20 +121,16 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   }, [phone, showError, showSuccess, startCountdown]);
 
   // 微信授权（登录/注册通用，后端自动创建账号）
-  // B02修复：区分 Mock 和真实微信授权流程
+  // C40c4: react-native-wechat-lib 真实 SDK 集成 + Mock 回退（USE_MOCK / Expo Go 返回假 code）
   const handleWeChat = useCallback(async () => {
     setSubmitting(true);
     try {
       let wxCode: string;
-      if (USE_MOCK) {
-        // Mock 模式：生成模拟授权码
-        wxCode = `wx_auth_${Date.now()}`;
-      } else {
-        // 真实模式：调用微信 SDK 获取授权码
-        // TODO: 接入 expo-auth-session 或 react-native-wechat-lib
-        // const result = await WechatLib.sendAuthRequest('snsapi_userinfo');
-        // wxCode = result.code;
-        showError('微信授权 SDK 尚未集成，请使用手机号登录');
+      try {
+        wxCode = await requestWechatAuth();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '微信授权失败';
+        showError(msg);
         return;
       }
       const r = await AuthRepo.loginWithWeChat(wxCode);

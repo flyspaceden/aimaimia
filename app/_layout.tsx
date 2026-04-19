@@ -12,6 +12,7 @@ import { ToastProvider } from '../src/components/feedback';
 import { AiFloatingCompanion } from '../src/components/effects';
 import { PrivacyConsentModal } from '../src/components/overlay';
 import { initAlipayEnv } from '../src/utils/alipay';
+import { initWechat } from '../src/services/wechat';
 import { appQueryClient } from '../src/queryClient';
 import { useAuthStore } from '../src/store';
 import { BonusRepo } from '../src/repos';
@@ -134,6 +135,14 @@ export default function RootLayout() {
   useEffect(() => {
     if (consentState !== 'granted') return;
     initAlipayEnv(__DEV__);
+  }, [consentState]);
+
+  // 微信 SDK 注册（Mock 模式会跳过真实注册；Expo Go 无原生模块也会静默失败）
+  useEffect(() => {
+    if (consentState !== 'granted') return;
+    initWechat().catch(() => {
+      // 静默失败，不影响 App 启动
+    });
   }, [consentState]);
 
   return (
