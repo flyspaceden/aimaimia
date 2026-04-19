@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsObject, IsIn, IsNotEmpty, Matches } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsObject, IsIn, IsNotEmpty, Matches, MinLength, MaxLength } from 'class-validator';
 import { CompanyStatus, VerifyStatus } from '@prisma/client';
 
 export class AdminUpdateCompanyDto {
@@ -88,4 +88,12 @@ export class AdminCreateCompanyDto {
   @IsOptional()
   @IsString()
   description?: string;
+}
+
+// ============ C40c8 管理员兜底重置员工密码 ============
+export class AdminResetStaffPasswordDto {
+  @IsString()
+  @MinLength(6)
+  @MaxLength(128)
+  newPassword: string;
 }

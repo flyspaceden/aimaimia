@@ -10,7 +10,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminCompaniesService } from './admin-companies.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto } from './dto/admin-company.dto';
 import { SetCompanyTagsDto } from '../tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
@@ -103,6 +103,24 @@ export class AdminCompaniesController {
   })
   bindOwner(@Param('id') id: string, @Body() dto: BindOwnerDto) {
     return this.companiesService.bindOwner(id, dto);
+  }
+
+  /** C40c8 管理员兜底重置员工密码 */
+  @Post(':id/staff/:staffId/reset-password')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    targetIdParam: 'params.staffId',
+    isReversible: false,
+  })
+  resetStaffPassword(
+    @Param('id') id: string,
+    @Param('staffId') staffId: string,
+    @Body() dto: AdminResetStaffPasswordDto,
+  ) {
+    return this.companiesService.resetStaffPassword(id, staffId, dto);
   }
 
   // ===================== AI 搜索资料 =====================

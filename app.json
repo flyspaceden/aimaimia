@@ -27,28 +27,12 @@
             "BROWSABLE",
             "DEFAULT"
           ]
-        },
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "app.xn--ckqa175y.com",
-              "pathPrefix": "/r/"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
         }
       ]
     },
     "ios": {
       "bundleIdentifier": "com.aimaimai.shop",
       "associatedDomains": [
-        "applinks:app.xn--ckqa175y.com",
         "applinks:app.xn--ckqa175y.com"
       ]
     },

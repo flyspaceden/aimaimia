@@ -561,7 +561,7 @@
     - [ ] 三端 TypeScript 编译通过 ✅（tsc -b 验证）
   - 状态: ⏳ 代码完成待部署测试
 
-- [ ] **C40c8** — 🟡 P1 管理员兜底重置任意账号密码（2026-04-19 新增）
+- [x] **C40c8** — 🟡 P1 管理员兜底重置任意账号密码（2026-04-19 新增，当日完成）
   - **背景**: 用户忘密码 + 手机号失联时的最后通道。C40c1 管理员管理页已有重置其他管理员密码；这里扩展到能重置任意 OWNER/员工的密码。注意：OWNER 也要可重置（OWNER 不能自己被踢出，但密码可由管理员兜底）
   - **修改文件（后端）**:
     - 改 `backend/src/modules/admin/companies/admin-companies.controller.ts` + `.service.ts`：
@@ -577,7 +577,15 @@
     - [ ] 操作被审计日志记录
     - [ ] 非 `companies:update` 权限看不到按钮
   - **预估**: 0.5 天
-  - 状态: ⬜
+  - **实际做了**:
+    - 后端：`dto/admin-company.dto.ts` 加 `AdminResetStaffPasswordDto`；`admin-companies.service.ts` 加 `resetStaffPassword` 方法（bcrypt hash 新密码 + Prisma 事务内同步 update passwordHash + 失效所有 SellerSession）；`admin-companies.controller.ts` 加 `POST /admin/companies/:id/staff/:staffId/reset-password` 端点（`companies:update` 权限 + 审计日志）
+    - 前端：`admin/src/api/companies.ts` 加 `resetStaffPassword` 方法；`admin/src/pages/companies/detail.tsx` 员工列表加"操作"列（PermissionGate 守卫） + 重置密码 Modal（Alert 警告 + 密码字段 + 确认字段）
+  - **安全要求达成**:
+    - OWNER / MANAGER / OPERATOR 均可被重置（管理员兜底通道，覆盖忘密码+失手机号场景）
+    - 事务保证密码更新与 session 失效原子化
+    - 操作被审计日志记录（action=UPDATE, targetType=CompanyStaff）
+    - 非 `companies:update` 权限按钮不可见
+  - 状态: ⏳ 代码完成待部署测试
 
 - [ ] **C40c9** — 🟢 P2 管理员员工 CRUD 完整化 + 换 OWNER（2026-04-19 新增）
   - **背景**: 管理员目前只能查看企业员工 + 绑定唯一 OWNER。不能添加/改角色/禁用/移除员工；不能换 OWNER（OWNER 离职无解，除非 DB 手工）。Seller OWNER 自己能做大部分员工操作，这里是管理员视角的补全（兜底 + 运维）
@@ -625,20 +633,20 @@
     - [ ] 三端 TypeScript 编译通过 ✅
   - **状态**: ⏳ 代码完成待 Aliyun 签名通过后端到端测试
 
-- [ ] **C40d** — app.json 重复条目清理 + OTA 推送验证（2026-04-19 新增）
+- [x] **C40d** — app.json 重复条目清理 + OTA 推送验证（2026-04-19 新增，清理部分已完成）
   - **修改**:
     - `app.json` 删除 intentFilters 数组里重复的第二个对象（line 30-44）
     - `app.json` 删除 associatedDomains 数组里重复的 `"applinks:app.xn--ckqa175y.com"`（line 51）
-  - **OTA 验证**（首次 .apk 装上后做一次）:
+  - **OTA 验证**（首次 .apk 装上后做一次，待用户手动测试）:
     - 改一行明显的 JS（比如首页标题）
     - `eas update --branch preview -m "test OTA"`
     - 重启 App 看是否拉到新版本（可能需要冷启动 1-2 次）
   - **验收**:
-    - [x] app.json 数组无重复
-    - [x] OTA 推送 30 秒内拉到，前端可见改动
-    - [x] 控制台能看到 `[Updates] update applied` 日志
+    - [x] app.json 数组无重复（intentFilters 去重 + associatedDomains 去重）— 2026-04-19
+    - [ ] OTA 推送 30 秒内拉到，前端可见改动 — 待 .apk 装机测试
+    - [ ] 控制台能看到 `[Updates] update applied` 日志 — 待 .apk 装机测试
   - **预估**: 30 分钟
-  - 状态: ⬜
+  - 状态: ✅ 清理完成 | ⏳ OTA 验证待 .apk 装机
 
 - [ ] **C40e** — 生产上线 mock/sandbox → 真实切换 checklist（2026-04-19 新增）
   - **背景**: 测试环境很多走 mock 或第三方沙箱，生产前必须全部切真。汇总成单一清单避免遗漏

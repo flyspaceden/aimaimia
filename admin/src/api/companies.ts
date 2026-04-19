@@ -56,6 +56,16 @@ export const getCompanyStaff = (companyId: string): Promise<CompanyStaff[]> =>
 export const bindCompanyOwner = (companyId: string, phone: string): Promise<CompanyStaff> =>
   client.post(`/admin/companies/${companyId}/bind-owner`, { phone });
 
+/** C40c8 管理员兜底重置员工密码 */
+export const resetStaffPassword = (
+  companyId: string,
+  staffId: string,
+  newPassword: string,
+): Promise<{ ok: boolean }> =>
+  client.post(`/admin/companies/${companyId}/staff/${staffId}/reset-password`, {
+    newPassword,
+  });
+
 /** 获取企业 AI 搜索资料 */
 export const getCompanyAiSearchProfile = (companyId: string): Promise<AiSearchProfile> =>
   client.get(`/admin/companies/${companyId}/ai-search-profile`);

@@ -28,6 +28,7 @@ import {
   CloseCircleOutlined,
   UserAddOutlined,
   EditOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import {
@@ -36,6 +37,7 @@ import {
   auditCompany,
   getCompanyStaff,
   bindCompanyOwner,
+  resetStaffPassword,
   verifyDocument,
   getCompanyAiSearchProfile,
   updateCompanyAiSearchProfile,
@@ -81,6 +83,11 @@ export default function CompanyDetailPage() {
   const [verifyNote, setVerifyNote] = useState('');
   const [docFilter, setDocFilter] = useState<string>('all');
   const aiFormRef = useRef<any>(null);
+  // C40c8 重置员工密码
+  const [resetPwdModalOpen, setResetPwdModalOpen] = useState(false);
+  const [resetPwdTarget, setResetPwdTarget] = useState<CompanyStaff | null>(null);
+  const [resetPwdForm] = Form.useForm();
+  const [resetPwdLoading, setResetPwdLoading] = useState(false);
 
   const {
     data: company,
@@ -192,6 +199,27 @@ export default function CompanyDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['company-tags', id] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '更新失败');
+    }
+  };
+
+  // C40c8 管理员兜底重置员工密码
+  const handleResetPassword = async (values: { newPassword: string; confirmPassword: string }) => {
+    if (!resetPwdTarget) return;
+    if (values.newPassword !== values.confirmPassword) {
+      message.warning('两次新密码输入不一致');
+      return;
+    }
+    setResetPwdLoading(true);
+    try {
+      await resetStaffPassword(id!, resetPwdTarget.id, values.newPassword);
+      message.success('密码已重置，该员工需用新密码重新登录');
+      setResetPwdModalOpen(false);
+      setResetPwdTarget(null);
+      resetPwdForm.resetFields();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '重置失败');
+    } finally {
+      setResetPwdLoading(false);
     }
   };
 
@@ -343,6 +371,27 @@ export default function CompanyDetailPage() {
       dataIndex: 'joinedAt',
       width: 140,
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      render: (_: unknown, record: CompanyStaff) => (
+        <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
+          <Button
+            type="link"
+            size="small"
+            icon={<KeyOutlined />}
+            onClick={() => {
+              setResetPwdTarget(record);
+              setResetPwdModalOpen(true);
+              resetPwdForm.resetFields();
+            }}
+          >
+            重置密码
+          </Button>
+        </PermissionGate>
+      ),
     },
   ];
 
@@ -676,6 +725,54 @@ export default function CompanyDetailPage() {
             ]}
           >
             <Input placeholder="输入已注册用户的手机号" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* C40c8 重置员工密码弹窗 */}
+      <Modal
+        title={`重置密码: ${resetPwdTarget?.user?.profile?.nickname || resetPwdTarget?.user?.authIdentities?.[0]?.identifier || '员工'}`}
+        open={resetPwdModalOpen}
+        onCancel={() => { setResetPwdModalOpen(false); setResetPwdTarget(null); resetPwdForm.resetFields(); }}
+        onOk={() => resetPwdForm.submit()}
+        confirmLoading={resetPwdLoading}
+        okText="确认重置"
+        okButtonProps={{ danger: true }}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="重置后该员工所有设备会被强制登出，需用新密码重新登录"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={resetPwdForm} onFinish={handleResetPassword} layout="vertical">
+          <Form.Item
+            name="newPassword"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, max: 128, message: '密码长度 6-128 位' },
+            ]}
+          >
+            <Input.Password placeholder="至少 6 位" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirmPassword"
+            label="确认新密码"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('newPassword') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('两次输入的密码不一致'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="再次输入新密码" autoComplete="new-password" />
           </Form.Item>
         </Form>
       </Modal>

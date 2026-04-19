@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto } from './dto/admin-company.dto';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { CompanyService } from '../../company/company.service';
 
@@ -413,6 +414,44 @@ export class AdminCompaniesService {
     this.companyService.invalidateListCache();
 
     return this.getCompanyTags(companyId);
+  }
+
+  /** C40c8 管理员兜底重置企业员工密码
+   *
+   * 场景：员工忘记密码 + 手机号失联的最后通道。
+   * - 不验旧密码，管理员直接设新密码
+   * - 成功后失效该员工所有 session
+   * - OWNER / MANAGER / OPERATOR 均可被重置
+   */
+  async resetStaffPassword(
+    companyId: string,
+    staffId: string,
+    dto: AdminResetStaffPasswordDto,
+  ) {
+    const staff = await this.prisma.companyStaff.findUnique({
+      where: { id: staffId },
+    });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) {
+      throw new BadRequestException('员工不属于该企业');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+
+    // 事务：同时更新密码 + 失效 session（保证安全一致性）
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyStaff.update({
+        where: { id: staffId },
+        data: { passwordHash },
+      });
+
+      await tx.sellerSession.updateMany({
+        where: { staffId, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
+    });
+
+    return { ok: true };
   }
 
   /** 审核资质文件 */
