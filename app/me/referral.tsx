@@ -32,7 +32,7 @@ export default function ReferralScreen() {
   const member = data?.ok ? data.data : null;
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const deepLink = `https://app.xn--ckqa175y.com/r/${referralCode}`;
+  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
 
   // 复制推荐码
   const handleCopy = async () => {

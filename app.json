@@ -20,7 +20,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "app.xn--ckqa175y.com",
+              "host": "app.ai-maimai.com",
               "pathPrefix": "/r/"
             }
           ],
@@ -34,7 +34,7 @@
     "ios": {
       "bundleIdentifier": "com.aimaimai.shop",
       "associatedDomains": [
-        "applinks:app.xn--ckqa175y.com"
+        "applinks:app.ai-maimai.com"
       ]
     },
     "extra": {

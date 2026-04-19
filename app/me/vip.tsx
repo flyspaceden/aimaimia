@@ -115,7 +115,7 @@ export default function VipScreen() {
 
   // 推荐码 & 深度链接
   const referralCode = member?.referralCode ?? '';
-  const deepLink = `https://app.xn--ckqa175y.com/r/${referralCode}`;
+  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
 
   const handleCopyReferral = async () => {
     await Clipboard.setStringAsync(referralCode);

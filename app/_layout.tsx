@@ -26,7 +26,7 @@ import {
 } from '../src/services/deferredLink';
 import { needsPrivacyConsent } from '../src/services/privacyConsent';
 
-const APP_DOMAIN = 'app.xn--ckqa175y.com';
+const APP_DOMAIN = 'app.ai-maimai.com';
 
 async function handleReferralCode(code: string) {
   const { isLoggedIn } = useAuthStore.getState();

@@ -8,12 +8,18 @@
  * Mock 模式（USE_MOCK=true 或 SDK 未初始化）会返回假 code，便于本地开发不依赖真微信
  */
 
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 import { USE_MOCK } from '../repos/http/config';
 
 // Lazy import so that running in Expo Go (without the native module) doesn't crash
-let WeChat: any = null;
+// 注意：react-native-wechat-lib 只有 named exports，没有 default export
+let WeChatLib: typeof import('react-native-wechat-lib') | null = null;
 let _initialized = false;
+
+/** 检查原生模块是否已链接（autolinking 成功）*/
+function isWechatNativeAvailable(): boolean {
+  return !!(NativeModules as any)?.WeChat;
+}
 
 /** WeChat AppID：与微信开放平台注册一致（密码本 §5.1） */
 const WECHAT_APP_ID = 'wxeb8e8dc219da02dd';
@@ -33,9 +39,17 @@ export async function initWechat(): Promise<boolean> {
     _initialized = true;
     return true;
   }
+  // 先检查原生模块是否被 autolinking 注册到 NativeModules（Expo Go 或打包失败时缺失）
+  // 若缺失则直接返回 false，避免 require index.js 时顶层 WeChat.registerApp 炸栈
+  if (!isWechatNativeAvailable()) {
+    // eslint-disable-next-line no-console
+    console.warn('[WeChat] NativeModules.WeChat 未注册，SDK 不可用。检查 autolinking / rebuild 是否包含原生模块');
+    return false;
+  }
   try {
-    WeChat = require('react-native-wechat-lib').default;
-    const ok = await WeChat.registerApp(WECHAT_APP_ID, WECHAT_UNIVERSAL_LINK);
+    // react-native-wechat-lib 用 named exports，不是 default
+    WeChatLib = require('react-native-wechat-lib');
+    const ok = await WeChatLib!.registerApp(WECHAT_APP_ID, WECHAT_UNIVERSAL_LINK);
     _initialized = !!ok;
     if (__DEV__) {
       // eslint-disable-next-line no-console
@@ -43,10 +57,8 @@ export async function initWechat(): Promise<boolean> {
     }
     return _initialized;
   } catch (err) {
-    if (__DEV__) {
-      // eslint-disable-next-line no-console
-      console.warn('[WeChat] SDK 不可用（可能是 Expo Go 或未打包原生模块）:', err);
-    }
+    // eslint-disable-next-line no-console
+    console.warn('[WeChat] SDK 初始化失败:', err);
     return false;
   }
 }
@@ -55,9 +67,9 @@ export async function initWechat(): Promise<boolean> {
 export async function isWechatInstalled(): Promise<boolean> {
   if (USE_MOCK) return true;
   if (!_initialized) await initWechat();
-  if (!WeChat) return false;
+  if (!WeChatLib) return false;
   try {
-    return !!(await WeChat.isWXAppInstalled());
+    return !!(await WeChatLib.isWXAppInstalled());
   } catch {
     return false;
   }
@@ -76,25 +88,25 @@ export async function requestWechatAuth(): Promise<string> {
   if (!_initialized) {
     const ok = await initWechat();
     if (!ok) {
-      throw new Error('微信 SDK 初始化失败');
+      throw new Error('微信 SDK 初始化失败（请在打包的 APK / IPA 中使用，或检查微信开放平台配置）');
     }
   }
-  if (!WeChat) {
-    throw new Error('微信 SDK 未加载（请在打包的 APK / IPA 中使用）');
+  if (!WeChatLib) {
+    throw new Error('微信 SDK 未加载');
   }
 
   // Android 需要先确认微信已安装，否则 sendAuthRequest 会静默失败
   if (Platform.OS === 'android') {
-    const installed = await WeChat.isWXAppInstalled();
+    const installed = await WeChatLib.isWXAppInstalled();
     if (!installed) {
       throw new Error('请先安装微信 App');
     }
   }
 
-  const result = await WeChat.sendAuthRequest('snsapi_userinfo', 'aimaimai_login');
-  if (!result || !result.code) {
-    const msg = (result && (result.errStr || result.errMsg)) || '微信授权失败';
+  const result = await WeChatLib.sendAuthRequest('snsapi_userinfo', 'aimaimai_login');
+  if (!result || !(result as any).code) {
+    const msg = (result && ((result as any).errStr || (result as any).errMsg)) || '微信授权失败';
     throw new Error(msg);
   }
-  return result.code;
+  return (result as any).code;
 }

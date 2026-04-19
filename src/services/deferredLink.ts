@@ -65,11 +65,12 @@ export async function matchByFingerprint(): Promise<string | null> {
 
 /**
  * 从 URL 中提取推荐码
- * 支持格式：https://app.xn--ckqa175y.com/r/{CODE} 和 aimaimai://referral?code={CODE}
+ * 支持格式：https://app.ai-maimai.com/r/{CODE} 和 aimaimai://referral?code={CODE}
+ * 兼容旧域名 app.xn--ckqa175y.com（爱买买.com 迁移前的链接）
  */
 export function extractReferralCodeFromURL(url: string): string | null {
-  const match = url.match(/app\.xn--ckqa175y\.com\/r\/([A-Za-z0-9]{8})/);
-  if (match) return match[1].toUpperCase();
+  const match = url.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/r\/([A-Za-z0-9]{8})/);
+  if (match) return match[2].toUpperCase();
 
   const schemeMatch = url.match(/aimaimai:\/\/referral\?code=([A-Za-z0-9]{8})/);
   if (schemeMatch) return schemeMatch[1].toUpperCase();

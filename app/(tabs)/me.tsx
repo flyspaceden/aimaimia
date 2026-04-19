@@ -104,7 +104,7 @@ export default function MeScreen() {
   const member = memberData?.ok ? memberData.data : null;
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const deepLink = `https://app.xn--ckqa175y.com/r/${referralCode}`;
+  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
 
   // 复制推荐码
   const handleCopyReferral = async () => {

@@ -70,9 +70,9 @@ export default function ScannerScreen() {
 
   // 从扫描结果中解析推荐码
   const parseReferralCode = (data: string): string | null => {
-    // 支持 URL 格式: https://app.xn--ckqa175y.com/r/CODE
-    const urlMatch = data.match(/app\.xn--ckqa175y\.com\/r\/([A-Za-z0-9]{8})/);
-    if (urlMatch) return urlMatch[1].toUpperCase();
+    // 支持 URL 格式: https://app.ai-maimai.com/r/CODE（兼容旧域名 app.xn--ckqa175y.com）
+    const urlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/r\/([A-Za-z0-9]{8})/);
+    if (urlMatch) return urlMatch[2].toUpperCase();
     // 纯文本 8 位码
     const codeMatch = data.match(/^[A-Za-z0-9]{8}$/);
     if (codeMatch) return data.toUpperCase();
