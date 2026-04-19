@@ -3,16 +3,16 @@
 ## 一、系统架构总览
 
 ```
-                    爱买买.com (一个域名，4条子域名)
+                    ai-maimai.com (一个域名，4条子域名)
                               │
         ┌─────────┬───────────┼───────────┬──────────┐
         ▼         ▼           ▼           ▼          │
-     爱买买.com  seller.    admin.      api.         │
-     官网       爱买买.com  爱买买.com   爱买买.com     │
+     ai-maimai.com  seller.    admin.      api.         │
+     官网       ai-maimai.com  ai-maimai.com   ai-maimai.com     │
      (静态)     (静态)     (静态)      (反向代理)     │
         │         │           │           │          │
         │         └───────────┼───────────┘          │
-        │              全部调用 api.爱买买.com          │
+        │              全部调用 api.ai-maimai.com          │
         │                     │                      │
         │              ┌──────▼──────┐               │
         │              │  NestJS     │               │
@@ -25,7 +25,7 @@
         │              └─────────────┘               │
         │                                            │
    (可留在                                     买家App（备案后）
-    GitHub Pages)                              也调用 api.爱买买.com
+    GitHub Pages)                              也调用 api.ai-maimai.com
 ```
 
 ### 核心原则
@@ -37,17 +37,17 @@
 
 | 子域名 | 用途 | 部署方式 |
 |--------|------|---------|
-| `爱买买.com` | 官网（营销页面 + 商户入驻申请） | GitHub Pages 或 Nginx 静态托管 |
-| `seller.爱买买.com` | 企业（卖家）系统 | Nginx 静态托管 |
-| `admin.爱买买.com` | 管理后台 | Nginx 静态托管 |
-| `api.爱买买.com` | 后端 API | Nginx 反向代理 → localhost:3000 |
+| `ai-maimai.com` | 官网（营销页面 + 商户入驻申请） | GitHub Pages 或 Nginx 静态托管 |
+| `seller.ai-maimai.com` | 企业（卖家）系统 | Nginx 静态托管 |
+| `admin.ai-maimai.com` | 管理后台 | Nginx 静态托管 |
+| `api.ai-maimai.com` | 后端 API | Nginx 反向代理 → localhost:3000 |
 
 ### 为什么用子域名而非路径
 
 | 方案 | 安全性 | 问题 |
 |------|--------|------|
-| 路径 `爱买买.com/admin` | 差 | Cookie/localStorage 共享，XSS 一端沦陷全部暴露 |
-| 子域名 `admin.爱买买.com` | 好 | 浏览器天然隔离，三套 JWT 各存各的 |
+| 路径 `ai-maimai.com/admin` | 差 | Cookie/localStorage 共享，XSS 一端沦陷全部暴露 |
+| 子域名 `admin.ai-maimai.com` | 好 | 浏览器天然隔离，三套 JWT 各存各的 |
 | 独立域名 | 最强但没必要 | 多花钱且管理麻烦，子域名已足够 |
 
 ## 三、服务器环境要求
@@ -82,11 +82,11 @@ A          api        <服务器IP>        后端 API
 
 ## 五、Nginx 配置
 
-### api.爱买买.com（后端 API 反向代理）
+### api.ai-maimai.com（后端 API 反向代理）
 ```nginx
 server {
     listen 80;
-    server_name api.爱买买.com;
+    server_name api.ai-maimai.com;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -106,11 +106,11 @@ server {
 }
 ```
 
-### seller.爱买买.com（企业系统）
+### seller.ai-maimai.com（企业系统）
 ```nginx
 server {
     listen 80;
-    server_name seller.爱买买.com;
+    server_name seller.ai-maimai.com;
     root /var/www/seller/dist;
     index index.html;
 
@@ -126,11 +126,11 @@ server {
 }
 ```
 
-### admin.爱买买.com（管理后台）
+### admin.ai-maimai.com（管理后台）
 ```nginx
 server {
     listen 80;
-    server_name admin.爱买买.com;
+    server_name admin.ai-maimai.com;
     root /var/www/admin/dist;
     index index.html;
 
@@ -145,11 +145,11 @@ server {
 }
 ```
 
-### 爱买买.com（官网，如果不用 GitHub Pages）
+### ai-maimai.com（官网，如果不用 GitHub Pages）
 ```nginx
 server {
     listen 80;
-    server_name 爱买买.com www.爱买买.com;
+    server_name ai-maimai.com www.ai-maimai.com;
     root /var/www/website/dist;
     index index.html;
 
@@ -166,7 +166,7 @@ server {
 
 ### SSL 证书（所有子域名一次性申请）
 ```bash
-certbot --nginx -d 爱买买.com -d www.爱买买.com -d seller.爱买买.com -d admin.爱买买.com -d api.爱买买.com
+certbot --nginx -d ai-maimai.com -d www.ai-maimai.com -d seller.ai-maimai.com -d admin.ai-maimai.com -d api.ai-maimai.com
 ```
 
 ## 六、后端部署步骤
@@ -190,7 +190,7 @@ ADMIN_JWT_SECRET=<管理端随机密钥>
 SELLER_JWT_SECRET=<卖家端随机密钥>
 
 # CORS（允许的前端域名）
-CORS_ORIGINS=https://爱买买.com,https://seller.爱买买.com,https://admin.爱买买.com
+CORS_ORIGINS=https://ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com
 
 # 文件上传
 UPLOAD_LOCAL_PRIVATE=false
@@ -213,7 +213,7 @@ pm2 startup    # 开机自启
 
 ### 4. 验证
 ```bash
-curl https://api.爱买买.com/api/v1/health    # 健康检查（如有）
+curl https://api.ai-maimai.com/api/v1/health    # 健康检查（如有）
 pm2 logs aimaimai-api                         # 查看日志
 ```
 
@@ -223,7 +223,7 @@ pm2 logs aimaimai-api                         # 查看日志
 ```bash
 cd seller
 # 修改 API 地址（src/api/client.ts 或 .env）
-# VITE_API_BASE_URL=https://api.爱买买.com/api/v1
+# VITE_API_BASE_URL=https://api.ai-maimai.com/api/v1
 npm run build
 # 上传 dist/ 到服务器 /var/www/seller/dist/
 ```
@@ -232,7 +232,7 @@ npm run build
 ```bash
 cd admin
 # 修改 API 地址
-# VITE_API_BASE_URL=https://api.爱买买.com/api/v1
+# VITE_API_BASE_URL=https://api.ai-maimai.com/api/v1
 npm run build
 # 上传 dist/ 到服务器 /var/www/admin/dist/
 ```
@@ -261,7 +261,7 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
         │
         ├── 审核通过 → 自动创建 Company + CompanyStaff(OWNER)
         │              → 通知商户（短信/电话）
-        │              → 商户用手机号登录 seller.爱买买.com
+        │              → 商户用手机号登录 seller.ai-maimai.com
         │              → 开始上货（商品 auditStatus=PENDING，管理员再审核）
         │
         └── 审核拒绝 → 通知商户原因，可重新申请

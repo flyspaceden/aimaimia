@@ -259,7 +259,7 @@ KUAIDI100_KEY="your-kuaidi100-key"
 KUAIDI100_SECRET="your-kuaidi100-secret"
 KUAIDI100_PARTNER_ID="your-platform-partner-id"
 KUAIDI100_PARTNER_KEY=""
-KUAIDI100_CALLBACK_URL="https://api.爱买买.com/api/v1/shipments/kuaidi100/callback"
+KUAIDI100_CALLBACK_URL="https://api.ai-maimai.com/api/v1/shipments/kuaidi100/callback"
 KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 ```
 
@@ -295,7 +295,7 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 - **类型**: 部署配置
 - **影响**: 物流推送永远收不到，买家看到的物流轨迹永远过时
 - **操作**: 在快递100管理后台"API 接口设置"中填写：
-  - 推送 URL: `https://api.爱买买.com/api/v1/shipments/kuaidi100/callback?token=<KUAIDI100_CALLBACK_TOKEN>`
+  - 推送 URL: `https://api.ai-maimai.com/api/v1/shipments/kuaidi100/callback?token=<KUAIDI100_CALLBACK_TOKEN>`
   - 权限令牌: 同 `KUAIDI100_CALLBACK_TOKEN` 环境变量
 - **工作量**: 0.5 天（含联调测试）
 
@@ -427,7 +427,7 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 
 ### Phase 3: 部署配置（1 天）
 - [ ] Nginx 配置回调端点路由
-- [ ] HTTPS 证书就绪（api.爱买买.com）
+- [ ] HTTPS 证书就绪（api.ai-maimai.com）
 - [ ] `.env` 填写真实快递100凭证
 - [ ] 在快递100后台填写回调URL + token
 - [ ] 测试回调是否能收到（用 curl 模拟推送）
@@ -580,7 +580,7 @@ SF_API_URL_UAT="https://bsp-oisp-uat.sf-express.com/std/service"  # UAT 沙箱
 SF_CLIENT_CODE="your-sf-client-code"        # 丰桥分配的开发者编码
 SF_CHECK_WORD="your-sf-check-word"          # 丰桥分配的校验码（密钥）
 SF_MONTHLY_ACCOUNT="your-sf-monthly-account" # 顺丰月结账号（12位数字）
-SF_CALLBACK_URL="https://api.爱买买.com/api/v1/shipments/sf/push"
+SF_CALLBACK_URL="https://api.ai-maimai.com/api/v1/shipments/sf/push"
 SF_ENV="UAT"  # UAT 或 PROD，用于切换沙箱/生产
 ```
 
@@ -834,7 +834,7 @@ A: 不需要单独申请。在调用 `EXP_RECE_CREATE_ORDER` 时传入 `callback
 
 ```nginx
 server {
-    server_name api.爱买买.com;
+    server_name api.ai-maimai.com;
 
     location /api/v1/shipments/sf/push {
         proxy_pass http://127.0.0.1:3000;
