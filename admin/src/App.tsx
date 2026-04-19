@@ -133,7 +133,7 @@ export default function App() {
             <Route path="tags" element={<TagManagementPage />} />
             <Route path="trace" element={<TraceListPage />} />
             <Route path="config" element={<ConfigPage />} />
-            <Route path="config/discovery-filters" element={<DiscoveryFiltersPage />} />
+            <Route path="discovery-filters" element={<DiscoveryFiltersPage />} />
             <Route path="cs/workstation" element={<CsWorkstationPage />} />
             <Route path="cs/tickets" element={<CsTicketsPage />} />
             <Route path="cs/faq" element={<CsFaqPage />} />

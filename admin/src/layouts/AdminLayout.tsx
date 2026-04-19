@@ -105,7 +105,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       icon: <SettingOutlined />,
       routes: [
         { path: '/config', name: '平台设置', icon: <SettingOutlined />, permission: PERMISSIONS.CONFIG_READ },
-        { path: '/config/discovery-filters', name: '发现页筛选', icon: <TagsOutlined />, permission: PERMISSIONS.CONFIG_READ },
+        { path: '/discovery-filters', name: '发现页筛选', icon: <TagsOutlined />, permission: PERMISSIONS.CONFIG_READ },
         { path: '/admin/users', name: '管理员账号', icon: <TeamOutlined />, permission: PERMISSIONS.ADMIN_USERS_READ },
         { path: '/admin/roles', name: '角色权限', icon: <SafetyCertificateOutlined />, permission: PERMISSIONS.ADMIN_ROLES_READ },
         { path: '/audit', name: '审计日志', icon: <AuditOutlined />, permission: PERMISSIONS.AUDIT_READ },

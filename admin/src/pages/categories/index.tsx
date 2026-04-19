@@ -398,7 +398,8 @@ export default function CategoriesPage() {
                 options={[
                   { label: '7天无理由退换', value: 'RETURNABLE' },
                   { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
-                  { label: '同上级', value: 'INHERIT' },
+                  // 顶级分类（无父级）不展示"同上级"，无可继承对象
+                  ...(record.parentId ? [{ label: '同上级', value: 'INHERIT' }] : []),
                 ]}
               />
               {isInherit && (
@@ -535,13 +536,15 @@ export default function CategoriesPage() {
           <Form.Item
             name="returnPolicy"
             label="退货政策"
-            initialValue="INHERIT"
+            // 顶级分类默认「7天无理由退换」；子分类默认「继承上级」
+            initialValue={parentCategory ? 'INHERIT' : 'RETURNABLE'}
           >
             <Select
               options={[
-                { label: '继承上级', value: 'INHERIT' },
                 { label: '7天无理由退换', value: 'RETURNABLE' },
                 { label: '仅质量问题可退（如生鲜）', value: 'NON_RETURNABLE' },
+                // 顶级分类没有上级可继承，不展示"继承上级"选项
+                ...(parentCategory ? [{ label: '继承上级', value: 'INHERIT' }] : []),
               ]}
             />
           </Form.Item>
