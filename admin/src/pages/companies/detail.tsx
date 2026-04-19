@@ -21,6 +21,8 @@ import {
   Divider,
   Alert,
   Select,
+  Popconfirm,
+  Radio,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -29,6 +31,8 @@ import {
   UserAddOutlined,
   EditOutlined,
   KeyOutlined,
+  SwapOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import {
@@ -38,6 +42,10 @@ import {
   getCompanyStaff,
   bindCompanyOwner,
   resetStaffPassword,
+  addStaff,
+  updateStaff,
+  removeStaff,
+  transferOwner,
   verifyDocument,
   getCompanyAiSearchProfile,
   updateCompanyAiSearchProfile,
@@ -88,6 +96,17 @@ export default function CompanyDetailPage() {
   const [resetPwdTarget, setResetPwdTarget] = useState<CompanyStaff | null>(null);
   const [resetPwdForm] = Form.useForm();
   const [resetPwdLoading, setResetPwdLoading] = useState(false);
+  // C40c9 员工 CRUD + 换 OWNER
+  const [addStaffModalOpen, setAddStaffModalOpen] = useState(false);
+  const [addStaffForm] = Form.useForm();
+  const [addStaffLoading, setAddStaffLoading] = useState(false);
+  const [editStaffModalOpen, setEditStaffModalOpen] = useState(false);
+  const [editStaffTarget, setEditStaffTarget] = useState<CompanyStaff | null>(null);
+  const [editStaffForm] = Form.useForm();
+  const [editStaffLoading, setEditStaffLoading] = useState(false);
+  const [transferOwnerModalOpen, setTransferOwnerModalOpen] = useState(false);
+  const [transferOwnerForm] = Form.useForm();
+  const [transferOwnerLoading, setTransferOwnerLoading] = useState(false);
 
   const {
     data: company,
@@ -199,6 +218,80 @@ export default function CompanyDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['company-tags', id] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '更新失败');
+    }
+  };
+
+  // C40c9 添加员工
+  const handleAddStaff = async (values: { phone: string; role: 'MANAGER' | 'OPERATOR'; password?: string }) => {
+    setAddStaffLoading(true);
+    try {
+      await addStaff(id!, {
+        phone: values.phone.trim(),
+        role: values.role,
+        password: values.password?.trim() || undefined,
+      });
+      message.success('员工已添加');
+      setAddStaffModalOpen(false);
+      addStaffForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '添加失败');
+    } finally {
+      setAddStaffLoading(false);
+    }
+  };
+
+  // C40c9 编辑员工（改角色/状态）
+  const handleEditStaff = async (values: { role: 'MANAGER' | 'OPERATOR'; status: 'ACTIVE' | 'DISABLED' }) => {
+    if (!editStaffTarget) return;
+    setEditStaffLoading(true);
+    try {
+      await updateStaff(id!, editStaffTarget.id, {
+        role: values.role,
+        status: values.status,
+      });
+      message.success('员工信息已更新');
+      setEditStaffModalOpen(false);
+      setEditStaffTarget(null);
+      editStaffForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setEditStaffLoading(false);
+    }
+  };
+
+  // C40c9 移除员工
+  const handleRemoveStaff = async (staffId: string) => {
+    try {
+      await removeStaff(id!, staffId);
+      message.success('员工已移除');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '移除失败');
+    }
+  };
+
+  // C40c9 换 OWNER
+  const handleTransferOwner = async (values: {
+    newOwnerPhone: string;
+    oldOwnerAction: 'DEMOTE_TO_MANAGER' | 'REMOVE';
+  }) => {
+    setTransferOwnerLoading(true);
+    try {
+      await transferOwner(id!, {
+        newOwnerPhone: values.newOwnerPhone.trim(),
+        oldOwnerAction: values.oldOwnerAction,
+      });
+      message.success('OWNER 转让成功');
+      setTransferOwnerModalOpen(false);
+      transferOwnerForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '转让失败');
+    } finally {
+      setTransferOwnerLoading(false);
     }
   };
 
@@ -375,21 +468,52 @@ export default function CompanyDetailPage() {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 280,
       render: (_: unknown, record: CompanyStaff) => (
         <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-          <Button
-            type="link"
-            size="small"
-            icon={<KeyOutlined />}
-            onClick={() => {
-              setResetPwdTarget(record);
-              setResetPwdModalOpen(true);
-              resetPwdForm.resetFields();
-            }}
-          >
-            重置密码
-          </Button>
+          <Space size="small" wrap>
+            <Button
+              type="link"
+              size="small"
+              icon={<KeyOutlined />}
+              onClick={() => {
+                setResetPwdTarget(record);
+                setResetPwdModalOpen(true);
+                resetPwdForm.resetFields();
+              }}
+            >
+              重置密码
+            </Button>
+            {record.role !== 'OWNER' && (
+              <>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => {
+                    setEditStaffTarget(record);
+                    setEditStaffModalOpen(true);
+                    editStaffForm.setFieldsValue({
+                      role: record.role,
+                      status: record.status,
+                    });
+                  }}
+                >
+                  编辑
+                </Button>
+                <Popconfirm
+                  title={`确认移除员工 ${record.user?.profile?.nickname || '此员工'}？`}
+                  onConfirm={() => handleRemoveStaff(record.id)}
+                  okText="确认移除"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button type="link" size="small" danger>
+                    移除
+                  </Button>
+                </Popconfirm>
+              </>
+            )}
+          </Space>
         </PermissionGate>
       ),
     },
@@ -602,15 +726,38 @@ export default function CompanyDetailPage() {
         style={{ marginBottom: 16 }}
         extra={
           <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-            {!hasOwner && (
+            <Space>
+              {!hasOwner && (
+                <Button
+                  type="primary"
+                  icon={<UserAddOutlined />}
+                  onClick={() => setBindModalOpen(true)}
+                >
+                  绑定创始人
+                </Button>
+              )}
+              {hasOwner && (
+                <Button
+                  icon={<SwapOutlined />}
+                  onClick={() => {
+                    setTransferOwnerModalOpen(true);
+                    transferOwnerForm.resetFields();
+                  }}
+                >
+                  换 OWNER
+                </Button>
+              )}
               <Button
                 type="primary"
-                icon={<UserAddOutlined />}
-                onClick={() => setBindModalOpen(true)}
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setAddStaffModalOpen(true);
+                  addStaffForm.resetFields();
+                }}
               >
-                绑定创始人
+                添加员工
               </Button>
-            )}
+            </Space>
           </PermissionGate>
         }
       >
@@ -725,6 +872,136 @@ export default function CompanyDetailPage() {
             ]}
           >
             <Input placeholder="输入已注册用户的手机号" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* C40c9 添加员工弹窗 */}
+      <Modal
+        title="添加员工"
+        open={addStaffModalOpen}
+        onCancel={() => { setAddStaffModalOpen(false); addStaffForm.resetFields(); }}
+        onOk={() => addStaffForm.submit()}
+        confirmLoading={addStaffLoading}
+        okText="添加"
+        destroyOnClose
+      >
+        <Form form={addStaffForm} onFinish={handleAddStaff} layout="vertical">
+          <Form.Item
+            name="phone"
+            label="手机号"
+            rules={[
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1\d{10}$/, message: '请输入正确的 11 位手机号' },
+            ]}
+          >
+            <Input placeholder="该手机号不存在则自动创建账号" />
+          </Form.Item>
+          <Form.Item
+            name="role"
+            label="角色"
+            initialValue="OPERATOR"
+            rules={[{ required: true, message: '请选择角色' }]}
+          >
+            <Select
+              options={[
+                { value: 'MANAGER', label: '经理（可管理商品+订单+员工）' },
+                { value: 'OPERATOR', label: '运营（只能管理商品+订单）' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="初始登录密码（可选）"
+            extra="设置后员工可用手机号+密码登录；留空则员工仅支持短信验证码登录"
+            rules={[
+              { min: 6, max: 128, message: '密码长度 6-128 位' },
+            ]}
+          >
+            <Input.Password placeholder="留空则不设密码" autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* C40c9 编辑员工弹窗（改角色/状态） */}
+      <Modal
+        title={`编辑员工: ${editStaffTarget?.user?.profile?.nickname || '员工'}`}
+        open={editStaffModalOpen}
+        onCancel={() => { setEditStaffModalOpen(false); setEditStaffTarget(null); editStaffForm.resetFields(); }}
+        onOk={() => editStaffForm.submit()}
+        confirmLoading={editStaffLoading}
+        destroyOnClose
+      >
+        <Form form={editStaffForm} onFinish={handleEditStaff} layout="vertical">
+          <Form.Item
+            name="role"
+            label="角色"
+            rules={[{ required: true, message: '请选择角色' }]}
+          >
+            <Select
+              options={[
+                { value: 'MANAGER', label: '经理' },
+                { value: 'OPERATOR', label: '运营' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="status"
+            label="状态"
+            rules={[{ required: true, message: '请选择状态' }]}
+            extra="禁用后该员工会被强制登出，无法登录"
+          >
+            <Radio.Group
+              options={[
+                { value: 'ACTIVE', label: '正常' },
+                { value: 'DISABLED', label: '禁用' },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* C40c9 换 OWNER 弹窗 */}
+      <Modal
+        title="转让企业创始人"
+        open={transferOwnerModalOpen}
+        onCancel={() => { setTransferOwnerModalOpen(false); transferOwnerForm.resetFields(); }}
+        onOk={() => transferOwnerForm.submit()}
+        confirmLoading={transferOwnerLoading}
+        okText="确认转让"
+        okButtonProps={{ danger: true }}
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="OWNER 转让是不可逆操作。事务原子执行：老 OWNER 降级/移除 + 新 OWNER 上位。老 OWNER 所有 session 立即失效"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={transferOwnerForm} onFinish={handleTransferOwner} layout="vertical">
+          <Form.Item
+            name="newOwnerPhone"
+            label="新 OWNER 手机号"
+            rules={[
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1\d{10}$/, message: '请输入正确的 11 位手机号' },
+            ]}
+            extra="若该手机号已是本企业员工将被升级；若手机号无注册用户会自动创建"
+          >
+            <Input placeholder="新 OWNER 手机号" />
+          </Form.Item>
+          <Form.Item
+            name="oldOwnerAction"
+            label="老 OWNER 处理方式"
+            initialValue="DEMOTE_TO_MANAGER"
+            rules={[{ required: true, message: '请选择处理方式' }]}
+          >
+            <Radio.Group
+              options={[
+                { value: 'DEMOTE_TO_MANAGER', label: '降级为经理（保留账号）' },
+                { value: 'REMOVE', label: '移除出企业（删除员工记录）' },
+              ]}
+            />
           </Form.Item>
         </Form>
       </Modal>

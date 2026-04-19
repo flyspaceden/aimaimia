@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Post,
+  Delete,
   Param,
   Body,
   Query,
@@ -10,7 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminCompaniesService } from './admin-companies.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto } from './dto/admin-company.dto';
 import { SetCompanyTagsDto } from '../tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
@@ -121,6 +122,72 @@ export class AdminCompaniesController {
     @Body() dto: AdminResetStaffPasswordDto,
   ) {
     return this.companiesService.resetStaffPassword(id, staffId, dto);
+  }
+
+  // ===================== C40c9 管理员员工 CRUD + 换 OWNER =====================
+
+  /** 添加员工 */
+  @Post(':id/staff')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'CREATE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    isReversible: false,
+  })
+  addStaff(@Param('id') id: string, @Body() dto: AdminAddStaffDto) {
+    return this.companiesService.addStaff(id, dto);
+  }
+
+  /** 修改员工角色/状态 */
+  @Put(':id/staff/:staffId')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    targetIdParam: 'params.staffId',
+    isReversible: true,
+  })
+  updateStaff(
+    @Param('id') id: string,
+    @Param('staffId') staffId: string,
+    @Body() dto: AdminUpdateStaffDto,
+  ) {
+    return this.companiesService.updateStaff(id, staffId, dto);
+  }
+
+  /** 移除员工（OWNER 不可移除） */
+  @Delete(':id/staff/:staffId')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'DELETE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    targetIdParam: 'params.staffId',
+    isReversible: false,
+  })
+  removeStaff(
+    @Param('id') id: string,
+    @Param('staffId') staffId: string,
+  ) {
+    return this.companiesService.removeStaff(id, staffId);
+  }
+
+  /** 换 OWNER（原子事务：老 OWNER 降级/移除 + 新 OWNER 上位） */
+  @Post(':id/transfer-owner')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    isReversible: false,
+  })
+  transferOwner(
+    @Param('id') id: string,
+    @Body() dto: AdminTransferOwnerDto,
+  ) {
+    return this.companiesService.transferOwner(id, dto);
   }
 
   // ===================== AI 搜索资料 =====================

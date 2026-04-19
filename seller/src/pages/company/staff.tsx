@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, message, Popconfirm, Space } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getStaff, inviteStaff, updateStaff, removeStaff } from '@/api/company';
 import { staffRoleMap } from '@/constants/statusMaps';
@@ -13,6 +13,10 @@ export default function StaffManagementPage() {
   const isOwner = useAuthStore((s) => s.isOwner);
   const [inviteModal, setInviteModal] = useState(false);
   const [inviteForm] = Form.useForm();
+  // C40c9 改角色
+  const [editRoleModal, setEditRoleModal] = useState(false);
+  const [editRoleTarget, setEditRoleTarget] = useState<CompanyStaff | null>(null);
+  const [editRoleForm] = Form.useForm();
 
   const { data: staffList, isLoading } = useQuery({
     queryKey: ['seller-staff'],
@@ -44,6 +48,21 @@ export default function StaffManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['seller-staff'] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败');
+    }
+  };
+
+  // C40c9 改角色
+  const handleEditRole = async (values: { role: 'MANAGER' | 'OPERATOR' }) => {
+    if (!editRoleTarget) return;
+    try {
+      await updateStaff(editRoleTarget.id, { role: values.role });
+      message.success('角色已更新');
+      setEditRoleModal(false);
+      setEditRoleTarget(null);
+      editRoleForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['seller-staff'] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
     }
   };
 
@@ -90,7 +109,19 @@ export default function StaffManagementPage() {
             title: '操作',
             render: (_: unknown, r: CompanyStaff) =>
               r.role !== 'OWNER' ? (
-                <Space>
+                <Space size="small" wrap>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => {
+                      setEditRoleTarget(r);
+                      setEditRoleModal(true);
+                      editRoleForm.setFieldsValue({ role: r.role });
+                    }}
+                  >
+                    改角色
+                  </Button>
                   <Button type="link" size="small" onClick={() => handleToggleStatus(r)}>
                     {r.status === 'ACTIVE' ? '禁用' : '启用'}
                   </Button>
@@ -153,6 +184,30 @@ export default function StaffManagementPage() {
             <Input.Password placeholder="留空则员工仅支持验证码登录" autoComplete="new-password" />
           </Form.Item>
           {/* TODO: 后端补充「重置员工密码」接口后，在员工行操作列新增重置密码入口 */}
+        </Form>
+      </Modal>
+
+      {/* C40c9 改角色 Modal */}
+      <Modal
+        title={`改角色: ${editRoleTarget?.user?.profile?.nickname || '员工'}`}
+        open={editRoleModal}
+        onCancel={() => { setEditRoleModal(false); setEditRoleTarget(null); editRoleForm.resetFields(); }}
+        onOk={() => editRoleForm.submit()}
+        destroyOnClose
+      >
+        <Form form={editRoleForm} onFinish={handleEditRole} layout="vertical">
+          <Form.Item
+            name="role"
+            label="新角色"
+            rules={[{ required: true, message: '请选择角色' }]}
+          >
+            <Select
+              options={[
+                { value: 'MANAGER', label: '经理（可管理商品+订单+员工）' },
+                { value: 'OPERATOR', label: '运营（只能管理商品+订单）' },
+              ]}
+            />
+          </Form.Item>
         </Form>
       </Modal>
     </Card>

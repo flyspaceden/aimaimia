@@ -587,7 +587,7 @@
     - 非 `companies:update` 权限按钮不可见
   - 状态: ⏳ 代码完成待部署测试
 
-- [ ] **C40c9** — 🟢 P2 管理员员工 CRUD 完整化 + 换 OWNER（2026-04-19 新增）
+- [x] **C40c9** — 🟢 P2 管理员员工 CRUD 完整化 + 换 OWNER（2026-04-19 新增，当日完成）
   - **背景**: 管理员目前只能查看企业员工 + 绑定唯一 OWNER。不能添加/改角色/禁用/移除员工；不能换 OWNER（OWNER 离职无解，除非 DB 手工）。Seller OWNER 自己能做大部分员工操作，这里是管理员视角的补全（兜底 + 运维）
   - **修改文件（后端，新增端点）**:
     - 改 `backend/src/modules/admin/companies/admin-companies.controller.ts` + `.service.ts` 新增：
@@ -609,7 +609,24 @@
     - [ ] 所有操作有审计日志
     - [ ] 权限检查：OWNER 不能被非 transfer-owner 的 PUT/DELETE 修改
   - **预估**: 后端 0.75 天 + 前端 0.75 天 = **1.5 天**
-  - 状态: ⬜
+  - **实际做了**:
+    - **后端 (3 文件)**: `dto/admin-company.dto.ts` 加 3 DTOs（AdminAddStaffDto / AdminUpdateStaffDto / AdminTransferOwnerDto）；`admin-companies.service.ts` 加 4 方法（addStaff 自动建 User+staff；updateStaff 守护 OWNER 不可改；removeStaff 事务内先失效 session 再删；transferOwner Serializable 事务：老 OWNER 降级/移除 + 新 OWNER 升级/创建）；`admin-companies.controller.ts` 加 4 端点（POST `:id/staff` / PUT `:id/staff/:staffId` / DELETE `:id/staff/:staffId` / POST `:id/transfer-owner`，全部走 `companies:update` + AuditLog）
+    - **前端 admin (2 文件)**: `admin/src/api/companies.ts` 加 4 API；`admin/src/pages/companies/detail.tsx` 员工 Card extra 加 3 个按钮（绑定创始人/换 OWNER/添加员工）；操作列非 OWNER 显示"编辑"和"移除"（OWNER 仅重置密码）；新增 3 个 Modal（添加员工 / 编辑员工 改角色+状态 / 换 OWNER 含老 OWNER 降级/移除单选）
+    - **前端 seller (1 文件)**: `seller/src/pages/company/staff.tsx` 操作列加"改角色" Modal 触发（复用已有 updateStaff API）
+  - **安全要求达成**:
+    - OWNER 不可通过 addStaff/updateStaff/removeStaff 操作，必须走 transferOwner
+    - transferOwner 走 Serializable 事务，避免并发下重复 OWNER
+    - 禁用员工或移除时同步失效该 staff 所有 session
+    - 所有写操作带审计日志（CREATE/UPDATE/DELETE targetType=CompanyStaff）
+  - **验收**:
+    - [ ] 管理员企业详情页可添加员工（手机+角色+可选密码）
+    - [ ] 管理员可改员工角色 MANAGER↔OPERATOR + 禁用/启用
+    - [ ] 管理员可移除非 OWNER 员工
+    - [ ] 管理员可"换 OWNER"：老 OWNER 降级为经理 or 直接移除
+    - [ ] Seller OWNER 可改自己企业非 OWNER 员工的角色
+    - [ ] 所有操作有审计日志
+    - [ ] OWNER 不可被 PUT/DELETE 直接修改（走 transfer-owner）
+  - 状态: ⏳ 代码完成待部署测试
 
 - [ ] **C40c10** — 方案 A：SMS 发送去图形码 + 后端速率限制（2026-04-19 新增，当日代码完成待测试）
   - **背景**: C40c3 测试中用户反馈"每次重发 SMS 都要重填图形码体验极差"（图形码原子消费机制导致重发必刷新）。改为行业标准：图形码仅保留于密码登录，SMS 发送仅需手机号 + 后端速率限制（微信/支付宝/淘宝均此模式）

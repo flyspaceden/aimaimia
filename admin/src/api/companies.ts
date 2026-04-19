@@ -66,6 +66,40 @@ export const resetStaffPassword = (
     newPassword,
   });
 
+// ========== C40c9 管理员员工 CRUD + 换 OWNER ==========
+
+/** 添加员工（MANAGER/OPERATOR） */
+export const addStaff = (
+  companyId: string,
+  data: { phone: string; role: 'MANAGER' | 'OPERATOR'; password?: string },
+): Promise<CompanyStaff> =>
+  client.post(`/admin/companies/${companyId}/staff`, data);
+
+/** 修改员工角色/状态（OWNER 不可改） */
+export const updateStaff = (
+  companyId: string,
+  staffId: string,
+  data: { role?: 'MANAGER' | 'OPERATOR'; status?: 'ACTIVE' | 'DISABLED' },
+): Promise<CompanyStaff> =>
+  client.put(`/admin/companies/${companyId}/staff/${staffId}`, data);
+
+/** 移除员工（OWNER 不可移除） */
+export const removeStaff = (
+  companyId: string,
+  staffId: string,
+): Promise<{ ok: boolean }> =>
+  client.delete(`/admin/companies/${companyId}/staff/${staffId}`);
+
+/** 换 OWNER */
+export const transferOwner = (
+  companyId: string,
+  data: {
+    newOwnerPhone: string;
+    oldOwnerAction: 'DEMOTE_TO_MANAGER' | 'REMOVE';
+  },
+): Promise<{ ok: boolean; oldOwnerId: string; newOwnerId: string }> =>
+  client.post(`/admin/companies/${companyId}/transfer-owner`, data);
+
 /** 获取企业 AI 搜索资料 */
 export const getCompanyAiSearchProfile = (companyId: string): Promise<AiSearchProfile> =>
   client.get(`/admin/companies/${companyId}/ai-search-profile`);

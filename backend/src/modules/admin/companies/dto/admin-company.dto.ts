@@ -97,3 +97,38 @@ export class AdminResetStaffPasswordDto {
   @MaxLength(128)
   newPassword: string;
 }
+
+// ============ C40c9 管理员员工 CRUD + 换 OWNER ============
+export class AdminAddStaffDto {
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '手机号格式不正确' })
+  phone: string;
+
+  @IsIn(['MANAGER', 'OPERATOR'], { message: '只能添加 MANAGER 或 OPERATOR 员工，OWNER 走 transfer-owner' })
+  role: 'MANAGER' | 'OPERATOR';
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(128)
+  password?: string;
+}
+
+export class AdminUpdateStaffDto {
+  @IsOptional()
+  @IsIn(['MANAGER', 'OPERATOR'], { message: '管理员不能设为 OWNER，走 transfer-owner' })
+  role?: 'MANAGER' | 'OPERATOR';
+
+  @IsOptional()
+  @IsIn(['ACTIVE', 'DISABLED'])
+  status?: 'ACTIVE' | 'DISABLED';
+}
+
+export class AdminTransferOwnerDto {
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '新 OWNER 手机号格式不正确' })
+  newOwnerPhone: string;
+
+  @IsIn(['DEMOTE_TO_MANAGER', 'REMOVE'], { message: '老 OWNER 处理方式只支持 DEMOTE_TO_MANAGER 或 REMOVE' })
+  oldOwnerAction: 'DEMOTE_TO_MANAGER' | 'REMOVE';
+}
