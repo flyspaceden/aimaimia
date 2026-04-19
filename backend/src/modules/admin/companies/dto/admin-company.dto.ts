@@ -104,7 +104,7 @@ export class AdminAddStaffDto {
   @Matches(/^1\d{10}$/, { message: '手机号格式不正确' })
   phone: string;
 
-  @IsIn(['MANAGER', 'OPERATOR'], { message: '只能添加 MANAGER 或 OPERATOR 员工，OWNER 走 transfer-owner' })
+  @IsIn(['MANAGER', 'OPERATOR'], { message: '只能添加经理或运营员工，创始人请使用「转让创始人」功能' })
   role: 'MANAGER' | 'OPERATOR';
 
   @IsOptional()
@@ -116,7 +116,7 @@ export class AdminAddStaffDto {
 
 export class AdminUpdateStaffDto {
   @IsOptional()
-  @IsIn(['MANAGER', 'OPERATOR'], { message: '管理员不能设为 OWNER，走 transfer-owner' })
+  @IsIn(['MANAGER', 'OPERATOR'], { message: '编辑员工仅支持经理或运营，创始人请使用「转让创始人」功能' })
   role?: 'MANAGER' | 'OPERATOR';
 
   @IsOptional()
@@ -126,9 +126,9 @@ export class AdminUpdateStaffDto {
 
 export class AdminTransferOwnerDto {
   @IsString()
-  @Matches(/^1\d{10}$/, { message: '新 OWNER 手机号格式不正确' })
+  @Matches(/^1\d{10}$/, { message: '新创始人手机号格式不正确' })
   newOwnerPhone: string;
 
-  @IsIn(['DEMOTE_TO_MANAGER', 'REMOVE'], { message: '老 OWNER 处理方式只支持 DEMOTE_TO_MANAGER 或 REMOVE' })
+  @IsIn(['DEMOTE_TO_MANAGER', 'REMOVE'], { message: '原创始人处理方式只支持「降级为经理」或「移除出企业」' })
   oldOwnerAction: 'DEMOTE_TO_MANAGER' | 'REMOVE';
 }

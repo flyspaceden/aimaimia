@@ -57,7 +57,6 @@ const menuRoutes: ProLayoutProps['route'] = {
       permission: PERMISSIONS.PRODUCTS_READ,
       routes: [
         { path: '/companies', name: '企业管理', permission: PERMISSIONS.COMPANIES_READ },
-        { path: '/companies?tab=applications', name: '入驻审核', permission: PERMISSIONS.COMPANIES_READ },
         { path: '/categories', name: '分类管理', permission: PERMISSIONS.CATEGORIES_READ },
         { path: '/products', name: '商家商品' },
         { path: '/reward-products', name: '奖励商品', permission: PERMISSIONS.REWARD_PRODUCTS_READ },

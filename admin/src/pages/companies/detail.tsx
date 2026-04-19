@@ -284,7 +284,7 @@ export default function CompanyDetailPage() {
         newOwnerPhone: values.newOwnerPhone.trim(),
         oldOwnerAction: values.oldOwnerAction,
       });
-      message.success('OWNER 转让成功');
+      message.success('创始人转让成功');
       setTransferOwnerModalOpen(false);
       transferOwnerForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
@@ -744,7 +744,7 @@ export default function CompanyDetailPage() {
                     transferOwnerForm.resetFields();
                   }}
                 >
-                  换 OWNER
+                  转让创始人
                 </Button>
               )}
               <Button
@@ -961,7 +961,7 @@ export default function CompanyDetailPage() {
         </Form>
       </Modal>
 
-      {/* C40c9 换 OWNER 弹窗 */}
+      {/* C40c9 转让创始人弹窗 */}
       <Modal
         title="转让企业创始人"
         open={transferOwnerModalOpen}
@@ -975,24 +975,24 @@ export default function CompanyDetailPage() {
         <Alert
           type="warning"
           showIcon
-          message="OWNER 转让是不可逆操作。事务原子执行：老 OWNER 降级/移除 + 新 OWNER 上位。老 OWNER 所有 session 立即失效"
+          message="转让创始人是不可逆操作。事务原子执行：原创始人降级或移除 + 新创始人就位。原创始人所有登录会话立即失效"
           style={{ marginBottom: 16 }}
         />
         <Form form={transferOwnerForm} onFinish={handleTransferOwner} layout="vertical">
           <Form.Item
             name="newOwnerPhone"
-            label="新 OWNER 手机号"
+            label="新创始人手机号"
             rules={[
               { required: true, message: '请输入手机号' },
               { pattern: /^1\d{10}$/, message: '请输入正确的 11 位手机号' },
             ]}
             extra="若该手机号已是本企业员工将被升级；若手机号无注册用户会自动创建"
           >
-            <Input placeholder="新 OWNER 手机号" />
+            <Input placeholder="新创始人手机号" />
           </Form.Item>
           <Form.Item
             name="oldOwnerAction"
-            label="老 OWNER 处理方式"
+            label="原创始人处理方式"
             initialValue="DEMOTE_TO_MANAGER"
             rules={[{ required: true, message: '请选择处理方式' }]}
           >

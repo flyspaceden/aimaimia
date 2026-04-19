@@ -456,10 +456,10 @@ export class AdminCompaniesService {
 
   // ===================== C40c9 管理员员工 CRUD + 换 OWNER =====================
 
-  /** 添加员工（MANAGER/OPERATOR，不支持 OWNER） */
+  /** 添加员工（经理/运营，不支持创始人） */
   async addStaff(companyId: string, dto: AdminAddStaffDto) {
     if (dto.role === 'OWNER' as any) {
-      throw new BadRequestException('使用 transfer-owner 接口转让 OWNER，不能通过 addStaff 直接添加');
+      throw new BadRequestException('添加员工仅支持经理或运营，创始人请使用「转让创始人」功能');
     }
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
@@ -527,7 +527,7 @@ export class AdminCompaniesService {
       throw new BadRequestException('员工不属于该企业');
     }
     if (staff.role === 'OWNER') {
-      throw new BadRequestException('OWNER 不可通过此接口修改，使用 transfer-owner 转让');
+      throw new BadRequestException('创始人不可通过此功能修改，请使用「转让创始人」功能');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -561,7 +561,7 @@ export class AdminCompaniesService {
       throw new BadRequestException('员工不属于该企业');
     }
     if (staff.role === 'OWNER') {
-      throw new BadRequestException('OWNER 不可移除，使用 transfer-owner 先转让');
+      throw new BadRequestException('创始人不可直接移除，请先使用「转让创始人」功能');
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -590,7 +590,7 @@ export class AdminCompaniesService {
         where: { companyId, role: 'OWNER' },
       });
       if (!oldOwner) {
-        throw new NotFoundException('该企业尚无 OWNER，使用 bind-owner 直接绑定');
+        throw new NotFoundException('该企业尚无创始人，请使用「绑定创始人」功能直接绑定');
       }
 
       // 2. 通过手机号找 User，不存在则创建
@@ -616,7 +616,7 @@ export class AdminCompaniesService {
 
       // 不能转给自己
       if (oldOwner.userId === newOwnerUserId) {
-        throw new BadRequestException('新 OWNER 不能是当前 OWNER 本人');
+        throw new BadRequestException('新创始人不能是当前创始人本人');
       }
 
       // 3. 处理老 OWNER（session 失效 + 根据 oldOwnerAction 降级或移除）
