@@ -5,11 +5,29 @@ import {
   IsNumber,
   IsInt,
   IsArray,
+  IsObject,
   ValidateNested,
   Min,
+  MaxLength,
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+/** 产地字段结构（替代 any） */
+export class ProductOriginDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  text: string;
+
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+}
 
 /** 创建 SKU */
 export class CreateSkuDto {
@@ -39,14 +57,17 @@ export class CreateSkuDto {
 export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   title: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   subtitle?: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(5000)
   description: string; // AI 搜索依赖，必填
 
   @IsOptional()
@@ -62,8 +83,10 @@ export class CreateProductDto {
   @IsString()
   returnPolicy?: string; // RETURNABLE / NON_RETURNABLE / INHERIT（默认）
 
-  @IsNotEmpty()
-  origin: any; // JSON { text, lat, lng }，产地必填
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin: ProductOriginDto; // JSON { text, lat, lng }，产地必填
 
   @IsOptional()
   @IsArray()
@@ -114,14 +137,17 @@ export class CreateProductDto {
 export class UpdateProductDto {
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   title?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   subtitle?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
 
   @IsOptional()
@@ -138,7 +164,10 @@ export class UpdateProductDto {
   returnPolicy?: string;
 
   @IsOptional()
-  origin?: any;
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin?: ProductOriginDto;
 
   @IsOptional()
   @IsArray()

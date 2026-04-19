@@ -220,6 +220,18 @@ export class SfExpressService {
   async createOrder(
     params: SfCreateOrderParams,
   ): Promise<SfCreateOrderResult> {
+    // E2E 测试绕过：NODE_ENV==='test' 时返回伪造面单，生产环境不可达
+    if (process.env.NODE_ENV === 'test') {
+      const ts = Date.now();
+      return {
+        waybillNo: `SFE2E${ts}`,
+        sfOrderId: `SFORDE2E${ts}`,
+        originCode: 'E2E',
+        destCode: 'E2E',
+        filterResult: '2',
+      };
+    }
+
     if (!this.isConfigured()) {
       throw new BadRequestException('顺丰丰桥服务未配置');
     }

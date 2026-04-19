@@ -21,14 +21,14 @@ export class AdminAuthController {
   ) {}
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 20 } })
   @Get('captcha')
   async getCaptcha() {
     return this.captchaService.generate();
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } }) // 每 IP 每分钟最多 5 次登录尝试
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
   @Post('login')
   login(@Body() dto: AdminLoginDto, @Req() req: Request) {
     return this.authService.login(
@@ -39,14 +39,14 @@ export class AdminAuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 3 } })
   @Post('sms/code')
   sendSmsCode(@Body() dto: AdminSendCodeDto) {
     return this.authService.sendSmsCode(dto);
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
   @Post('login-by-phone-code')
   loginByPhoneCode(
     @Body() dto: AdminLoginByPhoneCodeDto,

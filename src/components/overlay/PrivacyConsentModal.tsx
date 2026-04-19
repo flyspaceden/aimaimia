@@ -62,17 +62,19 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
 
   if (!open) return null;
 
-  return (
-    <Modal transparent visible={open} animationType="fade" onRequestClose={() => {}}>
-      <View style={styles.backdrop}>
-        <Animated.View
-          entering={FadeIn.duration(250)}
-          style={[
-            styles.card,
-            shadow.lg,
-            { backgroundColor: colors.surface, borderRadius: radius['2xl'] ?? 20 },
-          ]}
-        >
+  // Web 端 React Native <Modal> 渲染异常（遮罩可见但卡片不可交互），改用绝对定位 View
+  const isWeb = Platform.OS === 'web';
+
+  const content = (
+    <View style={[styles.backdrop, isWeb && styles.backdropWeb]}>
+      <Animated.View
+        entering={FadeIn.duration(250)}
+        style={[
+          styles.card,
+          shadow.lg,
+          { backgroundColor: colors.surface, borderRadius: radius['2xl'] ?? 20 },
+        ]}
+      >
           <LinearGradient
             colors={[colors.brand.primary, colors.ai.start, colors.ai.end]}
             start={{ x: 0, y: 0 }}
@@ -212,6 +214,13 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
           )}
         </Animated.View>
       </View>
+  );
+
+  if (isWeb) return content;
+
+  return (
+    <Modal transparent visible={open} animationType="fade" onRequestClose={() => {}}>
+      {content}
     </Modal>
   );
 };
@@ -224,6 +233,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
+  backdropWeb: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+  } as any,
   card: {
     width: '100%',
     maxWidth: 360,

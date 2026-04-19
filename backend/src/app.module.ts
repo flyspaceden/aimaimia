@@ -48,9 +48,10 @@ import { EmailModule } from './common/email/email.module';
     ThrottlerModule.forRoot({
       throttlers: [
         // IP 维度全局限流（默认桶，供 @Throttle({ default: ... }) 覆盖）
-        { name: 'default', ttl: 60000, limit: 60 },
+        // E2E 测试环境放宽限制（NODE_ENV=test），生产保持原值
+        { name: 'default', ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 60 },
         // 用户维度全局限流（登录后按 user/staff/admin 的 sub 分桶）
-        { name: 'user', ttl: 60000, limit: 120 },
+        { name: 'user', ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 120 },
       ],
     }),
     ConfigModule,

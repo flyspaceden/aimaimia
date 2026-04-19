@@ -1,0 +1,18 @@
+{
+  "name": "aimaimai-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web 端 E2E 测试（管理后台 + 卖家后台）",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:smoke": "playwright test e2e/smoke",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "socket.io-client": "^4.8.3",
+    "typescript": "^5.5.0"
+  }
+}

@@ -23,7 +23,7 @@ export class SellerAuthController {
 
   /** 获取图形验证码 */
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 20 } })
   @Get('captcha')
   async getCaptcha() {
     return this.captchaService.generate();
@@ -31,7 +31,7 @@ export class SellerAuthController {
 
   /** 发送验证码 */
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 3 } })
   @Post('sms/code')
   sendSmsCode(@Body() dto: SellerSmsCodeDto) {
     return this.authService.sendSmsCode(dto);
@@ -39,7 +39,7 @@ export class SellerAuthController {
 
   /** 手机号 + 验证码登录 */
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
   @Post('login')
   login(@Body() dto: SellerLoginDto, @Req() req: Request) {
     return this.authService.login(dto, req.ip, req.headers['user-agent']);
@@ -47,7 +47,7 @@ export class SellerAuthController {
 
   /** 手机号 + 密码登录 */
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
   @Post('login-by-password')
   loginByPassword(@Body() dto: SellerPasswordLoginDto, @Req() req: Request) {
     return this.authService.loginByPassword(dto, req.ip, req.headers['user-agent']);
