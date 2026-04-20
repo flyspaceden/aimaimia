@@ -80,7 +80,10 @@ repositories {
 
 dependencies {
   implementation 'com.facebook.react:react-native:+'
-  implementation files('libs/libammsdk.jar')
+  // api（非 implementation）：libammsdk 里的 IWXAPIEventHandler 等接口是 WeChatModule/Package
+  // 的 public API 的一部分（WeChatModule implements IWXAPIEventHandler），消费者 :app 在
+  // 编译 WXEntryActivity.java 时也需要能解析到它，必须用 api 传递
+  api files('libs/libammsdk.jar')
 }
 `;
       fs.writeFileSync(path.join(libRoot, 'android/build.gradle'), gradleContent);
