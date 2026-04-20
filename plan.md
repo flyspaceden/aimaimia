@@ -663,6 +663,28 @@
     - [ ] 三端 TypeScript 编译通过 ✅
   - **状态**: ⏳ 代码完成待 Aliyun 签名通过后端到端测试
 
+- [x] **C51** — 卖家中心安全/UX 小修一批（2026-04-19 新增，当日完成）
+  - **背景**: 4 路 Agent 审查卖家系统（认证/业务/前端/数据库），核实后误报率 50%；真问题精简为 4 条一次性修完
+  - **实际做了（3 文件）**:
+    - 🔐 `seller-orders.controller.ts`：单笔发货 `POST /seller/orders/:id/ship` 加 `@SellerRoles('OWNER', 'MANAGER')`（原批量发货有保护，单笔漏了 → OPERATOR 可越权单笔发货）
+    - 🎨 `seller/src/pages/company/staff.tsx`：邀请员工 Modal 加 `destroyOnClose` + onCancel `resetFields`（原关闭留残留数据）
+    - 🎨 `staff.tsx` 改角色 Modal：去掉 `setFieldsValue`（destroyOnClose 下 onClick 阶段 Form 未挂载，setFieldsValue 失效），改用 `<Form initialValues={...} key={target.id}>` 方式
+    - 🔐 `seller-auth.service.ts:changePhone`：同时失效该 User 的买家 App `Session.updateMany`（原只失效 SellerSession，买家端 JWT 7 天内仍可用）
+  - **未做的（Agent 误报）**:
+    - autoReceiveAt 竞态 → 假阳性（`else if (!freshOrder.autoReceiveAt)` 正是防覆盖保护）
+    - updateSkus 删 SKU 未检查 OrderItem → 假阳性（代码用 status=INACTIVE 软删，无需 FK 检查）
+    - triggerRefund 无补偿 → 假阳性（C6 已实现 retryStaleRefundingRequests cron）
+    - forceRelogin 800ms 延迟 → 假阳性（与 admin 端一致的既定 UX）
+    - 并发写 Company / transferOwner + inviteStaff / 库存 vs 改价 → 假阳性（Serializable + unique 约束已覆盖，现实无 1ms 并发）
+    - CompanyProfile 多处 create → 假阳性（schema 有 unique，upsert 安全）
+    - tempToken 倒计时文案 → Medium 级别 UX 建议
+    - account-security 无 RequireRole → 设计如此（员工可改自己）
+  - **延后的（Medium 可改进项）**:
+    - seller SMS 登录补 loginFailCount（与 admin C50 同构）
+    - seller-shipping generateWaybill 加 assertFeatureAllowed 信用分检查
+    - Logger 敏感信息脱敏审查
+  - 状态: ✅ | 完成日期: 2026-04-19
+
 - [x] **C50** — 管理后台安全/UX 小修一批（2026-04-19 新增，当日完成）
   - **背景**: 4 路 Agent 审查管理后台相关代码后，亲自核实误报率约 70%；真问题精简为 5 条，一次性修完
   - **实际做了（5 文件）**:

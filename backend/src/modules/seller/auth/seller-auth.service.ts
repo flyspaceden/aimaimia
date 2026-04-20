@@ -514,6 +514,16 @@ export class SellerAuthService {
       data: { expiresAt: new Date() },
     });
 
+    // 同一 User 可能也是买家 App 用户：手机号变了后，买家端 Session 也应失效，
+    // 否则原手机持有者仍可用旧 token 以买家身份操作（买家端 JWT 通常 7 天）
+    await this.prisma.session.updateMany({
+      where: {
+        userId,
+        expiresAt: { gt: new Date() },
+      },
+      data: { expiresAt: new Date() },
+    });
+
     this.logger.log(
       `[Seller ChangePhone] staffId=${staffId} userId=${userId} ${maskPhone(oldPhone)} → ${maskPhone(dto.newPhone)}`,
     );

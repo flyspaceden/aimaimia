@@ -115,9 +115,10 @@ export default function StaffManagementPage() {
                     size="small"
                     icon={<EditOutlined />}
                     onClick={() => {
+                      // 仅设置 target + 打开 Modal，角色初值通过 Modal 内 Form 的 initialValues 传入
+                      // （destroyOnClose 下 setFieldsValue 在挂载前调用会失效）
                       setEditRoleTarget(r);
                       setEditRoleModal(true);
-                      editRoleForm.setFieldsValue({ role: r.role });
                     }}
                   >
                     改角色
@@ -157,8 +158,9 @@ export default function StaffManagementPage() {
       <Modal
         title="邀请员工"
         open={inviteModal}
-        onCancel={() => setInviteModal(false)}
+        onCancel={() => { setInviteModal(false); inviteForm.resetFields(); }}
         onOk={() => inviteForm.submit()}
+        destroyOnClose
       >
         <Form form={inviteForm} onFinish={handleInvite} layout="vertical">
           <Form.Item name="phone" label="手机号" rules={[{ required: true }, { pattern: /^1\d{10}$/, message: '请输入正确的手机号' }]}>
@@ -195,7 +197,14 @@ export default function StaffManagementPage() {
         onOk={() => editRoleForm.submit()}
         destroyOnClose
       >
-        <Form form={editRoleForm} onFinish={handleEditRole} layout="vertical">
+        {/* key={editRoleTarget?.id} 保证每次打开不同员工时 Form 重新挂载并应用新 initialValues */}
+        <Form
+          key={editRoleTarget?.id}
+          form={editRoleForm}
+          onFinish={handleEditRole}
+          layout="vertical"
+          initialValues={{ role: editRoleTarget?.role }}
+        >
           <Form.Item
             name="role"
             label="新角色"

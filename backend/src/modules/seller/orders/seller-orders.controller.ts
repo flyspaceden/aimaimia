@@ -57,6 +57,7 @@ export class SellerOrdersController {
 
   /** 发货 */
   @SellerAudit({ action: 'SHIP_ORDER', module: 'orders', targetType: 'Order', targetIdParam: 'params.id' })
+  @SellerRoles('OWNER', 'MANAGER')
   @Post(':id/ship')
   ship(
     @CurrentSeller('companyId') companyId: string,
