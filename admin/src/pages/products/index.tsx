@@ -242,12 +242,23 @@ export default function ProductListPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 80,
+      width: 90,
       hideInSearch: true, // Tab 已做筛选
-      render: (_: unknown, r: Product) => {
-        const s = statusMap[r.status];
-        return <Tag color={s?.color}>{s?.text}</Tag>;
-      },
+      render: (_: unknown, r: Product) => (
+        // 状态列直接用 Switch 做状态指示 + 切换（checked 绿色=已上架，uncheck 灰色=已下架）
+        <PermissionGate
+          permission={PERMISSIONS.PRODUCTS_UPDATE}
+          fallback={<Tag color={statusMap[r.status]?.color}>{statusMap[r.status]?.text}</Tag>}
+        >
+          <Switch
+            checked={r.status === 'ACTIVE'}
+            checkedChildren="上架"
+            unCheckedChildren="下架"
+            onChange={() => handleToggleStatus(r)}
+            size="small"
+          />
+        </PermissionGate>
+      ),
     },
     {
       title: '审核',
@@ -284,11 +295,11 @@ export default function ProductListPage() {
     {
       title: '操作',
       key: 'action',
-      width: 220,
+      width: 140,
       fixed: 'right',
       search: false,
       render: (_: unknown, record: Product) => (
-        <Space size="small" wrap>
+        <Space size="small">
           <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
             <Button
               type="link"
@@ -298,15 +309,6 @@ export default function ProductListPage() {
             >
               编辑
             </Button>
-          </PermissionGate>
-          <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
-            <Switch
-              checked={record.status === 'ACTIVE'}
-              checkedChildren="上"
-              unCheckedChildren="下"
-              onChange={() => handleToggleStatus(record)}
-              size="small"
-            />
           </PermissionGate>
           <PermissionGate permission={PERMISSIONS.PRODUCTS_AUDIT}>
             {record.auditStatus === 'PENDING' && (
