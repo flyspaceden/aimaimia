@@ -53,3 +53,7 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# 华海农科官网本地临时产物
+huahai-corporate-site.zip
+华海农科logo*.jpg
