@@ -86,12 +86,13 @@ dependencies {
       fs.writeFileSync(path.join(libRoot, 'android/build.gradle'), gradleContent);
 
       // 3. android/src/main/AndroidManifest.xml
+      // 去掉原库带的 READ_PHONE_STATE（dangerous 权限，合规审查会被标）和
+      // WRITE_EXTERNAL_STORAGE（Android 10+ 废弃）。实测 wechat-lib 1.1.27 Java 代码
+      // 未调用 TelephonyManager.getDeviceId() 等需要这两个权限的 API
       const manifestContent = `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
-    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
 </manifest>
 `;
       fs.writeFileSync(
