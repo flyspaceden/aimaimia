@@ -37,7 +37,7 @@ export default function ShopFooter() {
             <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号-3</a>
             <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号-5</a>
           </p>
-          <p>本平台所有商品均经严格质检，如有质量问题请联系客服，支持7日无理由退换货</p>
+          <p>本平台所有商品均经严格质检，如有质量问题请联系客服</p>
         </div>
       </div>
     </footer>
