@@ -284,11 +284,11 @@ export default function ProductListPage() {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 220,
       fixed: 'right',
       search: false,
       render: (_: unknown, record: Product) => (
-        <Space size={0}>
+        <Space size="small" wrap>
           <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
             <Button
               type="link"
