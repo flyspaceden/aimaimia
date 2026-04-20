@@ -663,6 +663,28 @@
     - [ ] 三端 TypeScript 编译通过 ✅
   - **状态**: ⏳ 代码完成待 Aliyun 签名通过后端到端测试
 
+- [x] **C50** — 管理后台安全/UX 小修一批（2026-04-19 新增，当日完成）
+  - **背景**: 4 路 Agent 审查管理后台相关代码后，亲自核实误报率约 70%；真问题精简为 5 条，一次性修完
+  - **实际做了（5 文件）**:
+    - 🔐 `admin-auth.service.ts:loginByPhoneCode` 加 `loginFailCount` 递增 + 5 次失败锁 30 分钟（与 login() L12 一致，原 SMS 登录缺该保护）
+    - 🔐 `admin-users.service.ts:remove` 禁止删除自己（`id === operatorId` 即抛 ForbiddenException）
+    - 🛡️ `merchant-application.service.ts:create` 加 7 天拒绝冷却期，防被拒商户刷屏重提交
+    - 🎨 `admin/src/pages/companies/detail.tsx` 重置密码 Modal 补 `destroyOnClose`
+    - 🎨 `account-security/index.tsx`（admin + seller）双 SMS Label 加手机号脱敏提示，避免填反
+  - **未做的（Agent 误报）**:
+    - admin-coupon 缺 service → 假阳性（故意复用 `../coupon/coupon.service`）
+    - 提现 Float 无幂等 → 假阳性（Serializable + status CAS + frozen CAS 齐全）
+    - arbitrate 退款不原子 → 假阳性（有 C6 补偿 cron）
+    - transferOwner 缺 retry → 低概率事件，v1.1 优化
+    - OTP 未绑定 adminUserId → 假阳性（OTP 发到 admin.phone 已物理隔离）
+    - Logout AccessToken 仍可用 → 假阳性（AdminJwtStrategy.validate 每次查 session.expiresAt）
+    - Product 缺 companyId 单列索引 → 假阳性（复合索引前缀已覆盖）
+  - **延后（Medium 可改进项）**:
+    - 密码最短 6 位偏弱 → 生产前升级到 12 位
+    - SmsOtp 复合索引 `(phone, purpose, expiresAt)` → 量大后优化
+    - Logger 部分含敏感数据（amount、phone 明文）脱敏审查
+  - 状态: ✅ | 完成日期: 2026-04-19
+
 - [x] **C40d** — app.json 重复条目清理 + OTA 推送验证（2026-04-19 新增，清理部分已完成）
   - **修改**:
     - `app.json` 删除 intentFilters 数组里重复的第二个对象（line 30-44）

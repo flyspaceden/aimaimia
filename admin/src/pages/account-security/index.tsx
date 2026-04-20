@@ -237,7 +237,7 @@ export default function AccountSecurityPage() {
                   >
                     <Form.Item
                       name="oldPhoneCode"
-                      label="原手机验证码"
+                      label={`原手机验证码${admin?.phone ? `（发送至 ${maskPhone(admin.phone)}）` : ''}`}
                       rules={[
                         { required: true, message: '请输入原手机验证码' },
                         { min: 4, max: 6, message: '验证码长度 4-6 位' },
@@ -272,7 +272,7 @@ export default function AccountSecurityPage() {
                     </Form.Item>
                     <Form.Item
                       name="newPhoneCode"
-                      label="新手机验证码"
+                      label="新手机验证码（发送至上方填写的新手机号）"
                       rules={[
                         { required: true, message: '请输入新手机验证码' },
                         { min: 4, max: 6, message: '验证码长度 4-6 位' },

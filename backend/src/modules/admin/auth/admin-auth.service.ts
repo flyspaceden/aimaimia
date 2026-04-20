@@ -285,6 +285,28 @@ export class AdminAuthService {
     }
 
     if (!matchedRecord) {
+      // C50 修复：验证码错误时对已绑定管理员的账号递增 loginFailCount
+      // 与 login() L12 修复一致，防止暴力猜测 6 位验证码
+      const adminForLock = await this.prisma.adminUser.findUnique({
+        where: { phone: dto.phone },
+      });
+      if (adminForLock) {
+        await this.prisma.adminUser.update({
+          where: { id: adminForLock.id },
+          data: { loginFailCount: { increment: 1 } },
+        });
+        // 原子判定：loginFailCount >= 5 则锁 30 分钟
+        const locked = await this.prisma.adminUser.updateMany({
+          where: { id: adminForLock.id, loginFailCount: { gte: 5 } },
+          data: {
+            lockedUntil: new Date(Date.now() + 30 * 60 * 1000),
+            loginFailCount: 0,
+          },
+        });
+        if (locked.count > 0) {
+          throw new ForbiddenException('登录失败次数过多，账号已锁定30分钟');
+        }
+      }
       throw new BadRequestException('验证码错误');
     }
 
@@ -310,7 +332,7 @@ export class AdminAuthService {
       throw new UnauthorizedException('手机号未绑定管理员账号');
     }
 
-    // 3. 账号锁定/禁用检查
+    // 3. 账号锁定/禁用检查（锁定可能在 OTP 校验阶段已触发）
     if (admin.lockedUntil && admin.lockedUntil > new Date()) {
       const minutes = Math.ceil(
         (admin.lockedUntil.getTime() - Date.now()) / 60000,

@@ -1015,6 +1015,7 @@ export default function CompanyDetailPage() {
         confirmLoading={resetPwdLoading}
         okText="确认重置"
         okButtonProps={{ danger: true }}
+        destroyOnClose
       >
         <Alert
           type="warning"
