@@ -769,6 +769,7 @@ function PrizeManagementTab() {
   const [batchData, setBatchData] = useState<BatchProbItem[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const handleOpenBatchModal = async () => {
     try {
@@ -916,13 +917,27 @@ function PrizeManagementTab() {
           checked={r.isActive}
           checkedChildren="启用"
           unCheckedChildren="停用"
+          loading={togglingId === r.id}
           onChange={async (checked) => {
             try {
+              setTogglingId(r.id);
               await updatePrize(r.id, { isActive: checked });
               message.success(checked ? '已启用' : '已停用');
               actionRef.current?.reload();
-            } catch {
-              message.error('操作失败');
+            } catch (err) {
+              modal.error({
+                title: checked ? '无法启用' : '无法停用',
+                content: (
+                  <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+                    {err instanceof Error ? err.message : '状态更新失败'}
+                  </div>
+                ),
+                width: 520,
+                centered: true,
+                okText: '知道了',
+              });
+            } finally {
+              setTogglingId(null);
             }
           }}
         />

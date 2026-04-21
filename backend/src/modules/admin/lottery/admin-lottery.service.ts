@@ -115,17 +115,26 @@ export class AdminLotteryService {
     const effectivePrizePrice = dto.prizePrice !== undefined ? dto.prizePrice : prize.prizePrice;
     const effectiveThreshold = dto.threshold !== undefined ? dto.threshold : prize.threshold;
 
-    // 业务约束：type ↔ productId / skuId 联动校验
-    this.validateTypeConstraints(
-      effectiveType,
-      effectiveProductId ?? undefined,
-      effectiveSkuId ?? undefined,
-    );
-    this.validatePricingConstraints(
-      effectiveType,
-      effectivePrizePrice ?? undefined,
-      effectiveThreshold ?? undefined,
-    );
+    // 仅当涉及业务关键字段时才跑商品/定价约束，避免纯开关 isActive 时因旧数据阻断
+    const touchesBusinessFields =
+      dto.type !== undefined ||
+      dto.productId !== undefined ||
+      dto.skuId !== undefined ||
+      dto.prizePrice !== undefined ||
+      dto.threshold !== undefined;
+
+    if (touchesBusinessFields) {
+      this.validateTypeConstraints(
+        effectiveType,
+        effectiveProductId ?? undefined,
+        effectiveSkuId ?? undefined,
+      );
+      this.validatePricingConstraints(
+        effectiveType,
+        effectivePrizePrice ?? undefined,
+        effectiveThreshold ?? undefined,
+      );
+    }
 
     // 构造类型安全的 update data（只包含 DTO 中有值的字段）
     const updateData: Record<string, unknown> = {};
@@ -156,13 +165,15 @@ export class AdminLotteryService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      await this.validateProductSkuRelation(
-        tx,
-        effectiveType,
-        effectiveProductId ?? null,
-        effectiveSkuId ?? null,
-        effectivePrizePrice ?? null,
-      );
+      if (touchesBusinessFields) {
+        await this.validateProductSkuRelation(
+          tx,
+          effectiveType,
+          effectiveProductId ?? null,
+          effectiveSkuId ?? null,
+          effectivePrizePrice ?? null,
+        );
+      }
 
       const next = await tx.lotteryPrize.update({
         where: { id },
@@ -182,26 +193,17 @@ export class AdminLotteryService {
   }
 
   /** 删除奖品（硬删除）
-   *  - 若存在用户未消费的中奖记录（WON / IN_CART），阻止删除避免用户权益丢失
-   *  - 历史已消费/已过期记录保留，prizeId 置 null（快照保留在 meta 字段）
+   *  - 历史抽奖记录（无论 WON/IN_CART/CONSUMED/EXPIRED）保留，仅将 prizeId 置 null
+   *    用户未消费记录通过 CartItem.prizeRecordId → LotteryRecord 关联，meta 字段含奖品快照，
+   *    LotteryPrize 删除后这些链路仍能工作，历史数据完整保留
    *  - 删除后按比例重分配剩余活跃奖品概率，使总和保持 100%
    */
   async deletePrize(id: string) {
     const prize = await this.prisma.lotteryPrize.findUnique({ where: { id } });
     if (!prize) throw new NotFoundException('奖品不存在');
 
-    // 阻塞性引用：用户未消费的中奖记录
-    const activeRecordCount = await this.prisma.lotteryRecord.count({
-      where: { prizeId: id, status: { in: ['WON', 'IN_CART'] } },
-    });
-    if (activeRecordCount > 0) {
-      throw new BadRequestException(
-        `无法删除：有 ${activeRecordCount} 条用户未消费的中奖记录（WON / IN_CART 状态）。请等待用户消费或过期后再删除，或先将奖品停用。`,
-      );
-    }
-
     await this.prisma.$transaction(async (tx) => {
-      // 历史记录（CONSUMED / EXPIRED）将 prizeId 置 null，meta 快照保留
+      // 所有引用此奖品的抽奖记录 prizeId 置 null，meta 快照保留
       await tx.lotteryRecord.updateMany({
         where: { prizeId: id },
         data: { prizeId: null },
