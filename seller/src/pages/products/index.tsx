@@ -12,7 +12,6 @@ import {
   Switch,
   Table,
   Tag,
-  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -281,7 +280,7 @@ export default function ProductListPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 90,
+      width: 110,
       valueEnum: Object.fromEntries(
         Object.entries(productStatusMap).map(([k, v]) => [
           k,
@@ -289,8 +288,28 @@ export default function ProductListPage() {
         ]),
       ),
       render: (_, r) => {
-        const s = productStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        // 仅审核通过的商品可切换上/下架；未审核 / 被驳回时显示只读 Tag
+        if (r.auditStatus !== 'APPROVED') {
+          const s = productStatusMap[r.status];
+          return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        }
+        return (
+          <Popconfirm
+            title={r.status === 'ACTIVE' ? '确认下架？' : '确认上架？'}
+            onConfirm={() =>
+              handleToggle(r.id, r.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')
+            }
+          >
+            <Switch
+              checked={r.status === 'ACTIVE'}
+              checkedChildren="上架"
+              unCheckedChildren="下架"
+              size="small"
+              // 阻止 switch 直接切换，由 Popconfirm 控制
+              onClick={(_, e) => e.stopPropagation()}
+            />
+          </Popconfirm>
+        );
       },
     },
     {
@@ -320,25 +339,6 @@ export default function ProductListPage() {
           >
             编辑
           </Button>
-          {r.auditStatus === 'APPROVED' && (
-            <Tooltip title={r.status === 'ACTIVE' ? '下架商品' : '上架商品'}>
-              <Popconfirm
-                title={r.status === 'ACTIVE' ? '确认下架？' : '确认上架？'}
-                onConfirm={() =>
-                  handleToggle(r.id, r.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')
-                }
-              >
-                <Switch
-                  checked={r.status === 'ACTIVE'}
-                  checkedChildren="上架"
-                  unCheckedChildren="下架"
-                  size="small"
-                  // 阻止 switch 直接切换，由 Popconfirm 控制
-                  onClick={(_, e) => e.stopPropagation()}
-                />
-              </Popconfirm>
-            </Tooltip>
-          )}
           {r.auditStatus === 'REJECTED' && (
             <Button
               type="link"
