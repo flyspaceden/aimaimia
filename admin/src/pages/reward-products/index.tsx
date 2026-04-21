@@ -56,7 +56,7 @@ interface SkuRow {
 }
 
 export default function RewardProductsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const navigate = useNavigate();
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
@@ -75,7 +75,17 @@ export default function RewardProductsPage() {
       message.success('删除成功');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     }
   };
 
@@ -86,7 +96,17 @@ export default function RewardProductsPage() {
       message.success(checked ? '已上架' : '已下架');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '状态更新失败');
+      modal.error({
+        title: checked ? '无法上架' : '无法下架',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '状态更新失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     } finally {
       setTogglingId(null);
     }
