@@ -57,8 +57,8 @@ export default function ProductListPage() {
   // 使用少量请求获取统计计数（按状态各请求 1 条只取 total）
   const { data: statusCounts } = useQuery({
     queryKey: ['seller-product-status-counts'],
-    staleTime: 15_000,
-    refetchInterval: 15_000, // 轮询感知管理端审核结果
+    staleTime: 30_000,
+    refetchInterval: 30_000, // 轮询感知管理端审核结果
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const [all, active, pending] = await Promise.all([
@@ -80,7 +80,7 @@ export default function ProductListPage() {
       if (document.visibilityState === 'visible') {
         actionRef.current?.reload();
       }
-    }, 15_000);
+    }, 30_000);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         actionRef.current?.reload();

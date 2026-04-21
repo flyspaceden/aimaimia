@@ -81,7 +81,7 @@ export default function ProductListPage() {
         loadStats();
         actionRef.current?.reload();
       }
-    }, 15000);
+    }, 30000);
 
     // 页面切回前台时立即刷新
     const onVisibility = () => {
