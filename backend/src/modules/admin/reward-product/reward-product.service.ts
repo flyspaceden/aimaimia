@@ -310,7 +310,10 @@ export class RewardProductService {
     });
   }
 
-  /** 下架奖励商品（软删除） */
+  /** 删除奖励商品（硬删除）
+   *  Product / SKU / Media / Tag 已配置 Cascade，会自动级联；
+   *  但订单、购物车、抽奖、VIP 赠品引用会违反外键约束，需先校验。
+   */
   async remove(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -321,16 +324,59 @@ export class RewardProductService {
       throw new BadRequestException('只能操作奖励商品');
     }
 
-    await this.assertProductNotReferenced(
-      id,
-      product.skus.map((sku) => sku.id),
-      '下架',
-    );
+    const skuIds = product.skus.map((sku) => sku.id);
 
-    return this.prisma.product.update({
-      where: { id },
-      data: { status: 'INACTIVE' },
-    });
+    // 硬删除前检查所有会违反外键的引用（不区分 active/inactive）
+    const [vipGiftItems, lotteryPrizes, orderItemCount, cartItemCount] = await Promise.all([
+      skuIds.length > 0
+        ? this.prisma.vipGiftItem.findMany({
+            where: { skuId: { in: skuIds } },
+            select: { giftOption: { select: { title: true } } },
+            take: 5,
+          })
+        : Promise.resolve([]),
+      this.prisma.lotteryPrize.findMany({
+        where: {
+          OR: [
+            { productId: id },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { name: true },
+        take: 5,
+      }),
+      skuIds.length > 0
+        ? this.prisma.orderItem.count({ where: { skuId: { in: skuIds } } })
+        : Promise.resolve(0),
+      skuIds.length > 0
+        ? this.prisma.cartItem.count({ where: { skuId: { in: skuIds } } })
+        : Promise.resolve(0),
+    ]);
+
+    const blockers: string[] = [];
+    if (vipGiftItems.length > 0) {
+      const summary = vipGiftItems.map((i) => i.giftOption.title).join('、');
+      blockers.push(`VIP赠品：${summary}`);
+    }
+    if (lotteryPrizes.length > 0) {
+      const summary = lotteryPrizes.map((i) => i.name).join('、');
+      blockers.push(`抽奖奖品：${summary}`);
+    }
+    if (orderItemCount > 0) {
+      blockers.push(`已有 ${orderItemCount} 条订单记录`);
+    }
+    if (cartItemCount > 0) {
+      blockers.push(`${cartItemCount} 个用户购物车中`);
+    }
+
+    if (blockers.length > 0) {
+      throw new BadRequestException(
+        `无法删除：${blockers.join('；')}。请先清理相关引用后重试。`,
+      );
+    }
+
+    await this.prisma.product.delete({ where: { id } });
+    return { ok: true };
   }
 
   /** 新增 SKU */

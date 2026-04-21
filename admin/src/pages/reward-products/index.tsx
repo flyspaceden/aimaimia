@@ -17,6 +17,7 @@ import {
   getRewardProducts,
   createRewardProduct,
   deleteRewardProduct,
+  updateRewardProduct,
 } from '@/api/reward-products';
 import type { RewardProduct, RewardProductSku } from '@/api/reward-products';
 import PermissionGate from '@/components/PermissionGate';
@@ -64,6 +65,7 @@ export default function RewardProductsPage() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [multiSku, setMultiSku] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [createForm] = Form.useForm();
 
@@ -74,6 +76,19 @@ export default function RewardProductsPage() {
       actionRef.current?.reload();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '删除失败');
+    }
+  };
+
+  const handleStatusToggle = async (id: string, checked: boolean) => {
+    try {
+      setTogglingId(id);
+      await updateRewardProduct(id, { status: checked ? 'ACTIVE' : 'INACTIVE' });
+      message.success(checked ? '已上架' : '已下架');
+      actionRef.current?.reload();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '状态更新失败');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -322,16 +337,29 @@ export default function RewardProductsPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 80,
+      width: 110,
       valueType: 'select',
       valueEnum: {
         ACTIVE: { text: '上架', status: 'Success' },
         INACTIVE: { text: '下架', status: 'Default' },
-        DRAFT: { text: '草稿', status: 'Processing' },
       },
       render: (_: unknown, r: RewardProduct) => {
         const s = rewardProductStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        return (
+          <PermissionGate
+            permission={PERMISSIONS.REWARD_PRODUCTS_UPDATE}
+            fallback={<Tag color={s?.color}>{s?.text || r.status}</Tag>}
+          >
+            <Switch
+              size="small"
+              checkedChildren="上架"
+              unCheckedChildren="下架"
+              checked={r.status === 'ACTIVE'}
+              loading={togglingId === r.id}
+              onChange={(checked) => handleStatusToggle(r.id, checked)}
+            />
+          </PermissionGate>
+        );
       },
     },
     {
