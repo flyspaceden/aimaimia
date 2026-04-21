@@ -716,6 +716,14 @@ export default function VipGiftsPage() {
   const watchedItems = Form.useWatch('items', form) || [];
   const watchedCoverMode = Form.useWatch('coverMode', form);
 
+  // VIP 档位表单：实时计算奖励绝对金额
+  const watchedPkgPrice = Form.useWatch('price', pkgForm);
+  const watchedPkgRate = Form.useWatch('referralBonusRate', pkgForm);
+  const watchedPkgBonus =
+    typeof watchedPkgPrice === 'number' && typeof watchedPkgRate === 'number'
+      ? (watchedPkgPrice * watchedPkgRate) / 100
+      : null;
+
   // 计算总价统计（使用 fieldKeysRef 将 index 映射回 field.key 以查找 rowStates）
   const calculateSummary = () => {
     let totalQty = 0;
@@ -1139,7 +1147,20 @@ export default function VipGiftsPage() {
           <Form.Item name="price" label="价格" rules={[{ required: true, message: '请输入价格' }]}>
             <InputNumber min={0.01} max={99999} precision={2} addonAfter="元" style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="referralBonusRate" label="推荐奖励比例" rules={[{ required: true, message: '请输入比例' }]}>
+          <Form.Item
+            name="referralBonusRate"
+            label="推荐奖励比例"
+            rules={[{ required: true, message: '请输入比例' }]}
+            extra={
+              watchedPkgBonus !== null ? (
+                <span style={{ color: '#C9A96E' }}>
+                  推荐人每单可得奖励：<Text strong style={{ color: '#C9A96E' }}>¥{watchedPkgBonus.toFixed(2)}</Text>
+                </span>
+              ) : (
+                '填入价格和比例后自动计算'
+              )
+            }
+          >
             <InputNumber min={0} max={100} precision={1} addonAfter="%" style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="status" label="状态">
