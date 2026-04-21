@@ -759,7 +759,7 @@ function PrizeDrawerForm(props: {
 }
 
 function PrizeManagementTab() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [editModal, setEditModal] = useState<{ visible: boolean; prize: Prize | null }>({
     visible: false,
@@ -806,10 +806,20 @@ function PrizeManagementTab() {
   const handleDelete = async (id: string) => {
     try {
       await deletePrize(id);
-      message.success('停用成功');
+      message.success('删除成功');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败');
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     }
   };
 
@@ -945,9 +955,13 @@ function PrizeManagementTab() {
             </Button>
           </PermissionGate>
           <PermissionGate permission={PERMISSIONS.LOTTERY_DELETE}>
-            <Popconfirm title="确认停用该奖品？" onConfirm={() => handleDelete(r.id)}>
+            <Popconfirm
+              title="确认删除该奖品？"
+              description="删除后将从奖池移除并重分配剩余奖品概率，此操作不可恢复。"
+              onConfirm={() => handleDelete(r.id)}
+            >
               <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                停用
+                删除
               </Button>
             </Popconfirm>
           </PermissionGate>

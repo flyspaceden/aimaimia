@@ -1,7 +1,7 @@
 import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
 import { ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Space, Popconfirm, Card, InputNumber, Descriptions, Alert, Select, Badge, Row, Col, Spin, Tooltip, Typography } from 'antd';
+import { App, Button, Tag, Space, Popconfirm, Card, InputNumber, Descriptions, Alert, Select, Badge, Row, Col, Spin, Tooltip, Typography, Switch } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, WarningOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import {
   getShippingRules,
@@ -118,8 +118,9 @@ const regionsOverlap = (a: string[], b: string[]): boolean => {
 };
 
 export default function ShippingRulesPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ visible: boolean; rule: ShippingRule | null }>({
     visible: false,
     rule: null,
@@ -227,7 +228,40 @@ export default function ShippingRulesPage() {
       message.success('删除成功');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    }
+  };
+
+  const handleStatusToggle = async (id: string, checked: boolean) => {
+    try {
+      setTogglingId(id);
+      await updateShippingRule(id, { isActive: checked });
+      message.success(checked ? '已启用' : '已停用');
+      actionRef.current?.reload();
+    } catch (err) {
+      modal.error({
+        title: checked ? '无法启用' : '无法停用',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '状态更新失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -320,11 +354,25 @@ export default function ShippingRulesPage() {
     {
       title: '状态',
       dataIndex: 'isActive',
-      width: 80,
+      width: 110,
       search: false,
       render: (_: unknown, r: ShippingRule) => {
         const s = getRuleStatusMeta(r.isActive);
-        return <Tag color={s.color}>{s.text}</Tag>;
+        return (
+          <PermissionGate
+            permission={PERMISSIONS.SHIPPING_UPDATE}
+            fallback={<Tag color={s.color}>{s.text}</Tag>}
+          >
+            <Switch
+              size="small"
+              checkedChildren="启用"
+              unCheckedChildren="停用"
+              checked={r.isActive}
+              loading={togglingId === r.id}
+              onChange={(checked) => handleStatusToggle(r.id, checked)}
+            />
+          </PermissionGate>
+        );
       },
     },
     {

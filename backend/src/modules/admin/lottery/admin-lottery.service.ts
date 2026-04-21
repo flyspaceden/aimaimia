@@ -181,26 +181,42 @@ export class AdminLotteryService {
     return updated;
   }
 
-  /** 删除奖品（软删除） */
+  /** 删除奖品（硬删除）
+   *  - 若存在用户未消费的中奖记录（WON / IN_CART），阻止删除避免用户权益丢失
+   *  - 历史已消费/已过期记录保留，prizeId 置 null（快照保留在 meta 字段）
+   *  - 删除后按比例重分配剩余活跃奖品概率，使总和保持 100%
+   */
   async deletePrize(id: string) {
     const prize = await this.prisma.lotteryPrize.findUnique({ where: { id } });
     if (!prize) throw new NotFoundException('奖品不存在');
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const next = await tx.lotteryPrize.update({
-        where: { id },
-        data: { isActive: false },
+    // 阻塞性引用：用户未消费的中奖记录
+    const activeRecordCount = await this.prisma.lotteryRecord.count({
+      where: { prizeId: id, status: { in: ['WON', 'IN_CART'] } },
+    });
+    if (activeRecordCount > 0) {
+      throw new BadRequestException(
+        `无法删除：有 ${activeRecordCount} 条用户未消费的中奖记录（WON / IN_CART 状态）。请等待用户消费或过期后再删除，或先将奖品停用。`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 历史记录（CONSUMED / EXPIRED）将 prizeId 置 null，meta 快照保留
+      await tx.lotteryRecord.updateMany({
+        where: { prizeId: id },
+        data: { prizeId: null },
       });
 
-      // 将被删除奖品的概率按比例分配给剩余活跃奖品
+      await tx.lotteryPrize.delete({ where: { id } });
+
+      // 剩余活跃奖品按比例吸收该奖品的概率，使总和保持 100%
       await this.rebalanceOtherPrizes(tx, id, 0);
       await this.syncLotteryEnabled(tx, true);
-      return next;
     });
 
     this.bonusConfig.invalidateCache();
-    this.logger.log(`奖品「${prize.name}」已停用`);
-    return updated;
+    this.logger.log(`奖品「${prize.name}」已删除`);
+    return { ok: true };
   }
 
   /** 批量调整奖品概率（一次性设置所有活跃奖品概率，事务内校验=100%） */

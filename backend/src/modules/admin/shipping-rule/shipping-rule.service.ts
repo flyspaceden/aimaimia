@@ -92,16 +92,15 @@ export class ShippingRuleService {
     return this.normalizeRuleWeightUnit(updated);
   }
 
-  /** 删除运费规则（软删除） */
+  /** 删除运费规则（硬删除）
+   *  ShippingRule 无外键引用，可直接删除。历史订单的运费已落库到 Order.shippingFee，不依赖此表。
+   */
   async remove(id: string) {
     const rule = await this.prisma.shippingRule.findUnique({ where: { id } });
     if (!rule) throw new NotFoundException('运费规则不存在');
 
-    const removed = await this.prisma.shippingRule.update({
-      where: { id },
-      data: { isActive: false },
-    });
-    return this.normalizeRuleWeightUnit(removed);
+    await this.prisma.shippingRule.delete({ where: { id } });
+    return { ok: true };
   }
 
   /** 运费预览测试：传入金额/地区/重量，返回匹配的运费 */
