@@ -146,13 +146,23 @@ export default function ProductListPage() {
       width: 200,
     },
     {
-      title: '价格',
-      dataIndex: 'basePrice',
-      width: 100,
+      title: '售价',
+      dataIndex: 'price',
+      width: 120,
       search: false,
-      render: (_: unknown, r: Product) => (
-        <Text strong style={{ color: '#059669' }}>¥{r.basePrice.toFixed(2)}</Text>
-      ),
+      render: (_: unknown, r: Product) => {
+        const prices = r.skus?.map((sku) => sku.price).filter((p): p is number => p != null && p > 0) ?? [];
+        if (prices.length === 0) {
+          return <Text strong style={{ color: '#059669' }}>¥{r.basePrice.toFixed(2)}</Text>;
+        }
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        return (
+          <Text strong style={{ color: '#059669' }}>
+            {min === max ? `¥${min.toFixed(2)}` : `¥${min.toFixed(2)}~${max.toFixed(2)}`}
+          </Text>
+        );
+      },
     },
     {
       title: '成本价',

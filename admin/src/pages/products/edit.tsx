@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Spin,
@@ -11,7 +12,6 @@ import {
   Descriptions,
   Timeline,
   Empty,
-  message,
   Space,
   TreeSelect,
   Select,
@@ -38,6 +38,7 @@ export default function ProductEditPage() {
   const [form] = Form.useForm();
   const [skuForm] = Form.useForm();
   const queryClient = useQueryClient();
+  const { message } = App.useApp();
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -113,10 +114,24 @@ export default function ProductEditPage() {
       message.success('保存成功：基本信息与规格均已更新');
       queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
       navigate('/products');
-    } catch (err) {
+    } catch (err: any) {
+      // antd 表单校验错误形如 { errorFields: [{ name, errors }] }
+      if (err && Array.isArray(err.errorFields) && err.errorFields.length > 0) {
+        const first = err.errorFields[0];
+        const fieldName = Array.isArray(first?.name) ? first.name.join('.') : String(first?.name ?? '');
+        const errMsg = first?.errors?.[0] || '请填写必填项';
+        message.error(`保存失败：${fieldName ? fieldName + ' — ' : ''}${errMsg}`);
+        // 滚动到第一个错误字段（两个表单都尝试一次，非目标表单会无操作）
+        try { form.scrollToField(first.name); } catch {}
+        try { skuForm.scrollToField(first.name); } catch {}
+        return;
+      }
+      // API / 网络错误（拦截器已包装为 Error）
       if (err instanceof Error) {
         message.error(err.message || '保存失败');
+        return;
       }
+      message.error('保存失败：未知错误');
     }
   };
 
@@ -249,6 +264,12 @@ export default function ProductEditPage() {
           <Descriptions.Item label="产地 / 产区">
             {originText || '-'}
           </Descriptions.Item>
+          <Descriptions.Item label="基础价格（起步价）">
+            <Text strong style={{ color: '#059669' }}>¥{product.basePrice?.toFixed(2) ?? '-'}</Text>
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+              自动 = 最低 SKU 售价，保存规格后自动刷新
+            </Text>
+          </Descriptions.Item>
           <Descriptions.Item label="创建时间">
             {dayjs(product.createdAt).format('YYYY-MM-DD HH:mm')}
           </Descriptions.Item>
@@ -272,7 +293,6 @@ export default function ProductEditPage() {
             title: product.title,
             subtitle: product.subtitle,
             description: product.description,
-            basePrice: product.basePrice,
             categoryId: product.categoryId,
             originText,
             aiKeywords: product.aiKeywords || [],
@@ -310,18 +330,6 @@ export default function ProductEditPage() {
           </Form.Item>
           <Form.Item label="产地 / 产区" name="originText">
             <Input placeholder="如：黑龙江省五常市" style={{ width: 300 }} />
-          </Form.Item>
-          <Form.Item
-            label="基础价格（元）"
-            name="basePrice"
-            rules={[{ required: true, message: '请输入价格' }]}
-          >
-            <InputNumber
-              min={0}
-              precision={2}
-              style={{ width: 200 }}
-              prefix="¥"
-            />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Collapse

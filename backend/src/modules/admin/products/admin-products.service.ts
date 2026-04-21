@@ -285,6 +285,19 @@ export class AdminProductsService {
           }
         }
 
+        // 同步 Product.basePrice = min(active SKU.price)，与卖家端逻辑保持一致
+        const allActiveSkus = await tx.productSKU.findMany({
+          where: { productId, status: 'ACTIVE' },
+          select: { price: true },
+        });
+        if (allActiveSkus.length > 0) {
+          const minPrice = Math.min(...allActiveSkus.map((s) => s.price));
+          await tx.product.update({
+            where: { id: productId },
+            data: { basePrice: minPrice },
+          });
+        }
+
         return tx.productSKU.findMany({
           where: { productId },
           orderBy: { createdAt: 'asc' },
