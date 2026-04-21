@@ -805,7 +805,7 @@ export default function VipGiftsPage() {
         }
       >
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {packages.map((pkg) => (
+          {[...packages].sort((a, b) => a.price - b.price).map((pkg) => (
             <Card
               key={pkg.id}
               size="small"
@@ -833,7 +833,12 @@ export default function VipGiftsPage() {
               <div style={{ textAlign: 'center' }}>
                 <Text strong style={{ fontSize: 24, color: '#C9A96E' }}>¥{pkg.price}</Text>
                 <div style={{ marginTop: 4 }}>
-                  <Tag>奖励 {(pkg.referralBonusRate * 100).toFixed(0)}%</Tag>
+                  <Tag>
+                    奖励 {(pkg.referralBonusRate * 100).toFixed(0)}%
+                    <span style={{ color: '#8c8c8c', marginLeft: 4 }}>
+                      (¥{(pkg.price * pkg.referralBonusRate).toFixed(2)})
+                    </span>
+                  </Tag>
                 </div>
                 <div style={{ marginTop: 4 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
