@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Param,
   Body,
   Query,
@@ -92,6 +93,17 @@ export class SellerProductsController {
     @Body() dto: ProductStatusDto,
   ) {
     return this.productsService.toggleStatus(companyId, id, dto.status);
+  }
+
+  /** 硬删除商品 */
+  @SellerRoles('OWNER', 'MANAGER')
+  @SellerAudit({ action: 'DELETE_PRODUCT', module: 'products', targetType: 'Product', targetIdParam: 'params.id' })
+  @Delete(':id')
+  remove(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.productsService.remove(companyId, id);
   }
 
   /** 管理 SKU */

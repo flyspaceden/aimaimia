@@ -75,6 +75,10 @@ export const auditProduct = (id: string, data: {
 }): Promise<Product> =>
   client.post(`/admin/products/${id}/audit`, data);
 
+/** 硬删除商品 */
+export const deleteProduct = (id: string): Promise<{ ok: boolean }> =>
+  client.delete(`/admin/products/${id}`);
+
 /** 获取商品分类树 — 复用买家端公开接口 */
 export const getCategories = (): Promise<CategoryNode[]> =>
   client.get('/products/categories');

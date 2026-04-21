@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
@@ -218,6 +218,66 @@ export class AdminProductsService {
       where: { id },
       data: { status },
     });
+  }
+
+  /** 硬删除商品（要求已下架 + 无订单/购物车引用） */
+  async remove(id: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { skus: { select: { id: true } } },
+    });
+    if (!product) throw new NotFoundException('商品不存在');
+    if (product.status !== 'INACTIVE') {
+      throw new BadRequestException('请先下架商品后再删除');
+    }
+
+    const skuIds = product.skus.map((s) => s.id);
+
+    const [orderItemCount, cartItemCount, lotteryPrizes, vipGiftItems] = await Promise.all([
+      skuIds.length > 0
+        ? this.prisma.orderItem.count({ where: { skuId: { in: skuIds } } })
+        : Promise.resolve(0),
+      skuIds.length > 0
+        ? this.prisma.cartItem.count({ where: { skuId: { in: skuIds } } })
+        : Promise.resolve(0),
+      this.prisma.lotteryPrize.findMany({
+        where: {
+          OR: [
+            { productId: id },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { name: true },
+        take: 5,
+      }),
+      skuIds.length > 0
+        ? this.prisma.vipGiftItem.findMany({
+            where: { skuId: { in: skuIds } },
+            select: { giftOption: { select: { title: true } } },
+            take: 5,
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const blockers: string[] = [];
+    if (orderItemCount > 0) blockers.push(`已有 ${orderItemCount} 条订单记录`);
+    if (cartItemCount > 0) blockers.push(`${cartItemCount} 个用户购物车中`);
+    if (lotteryPrizes.length > 0) {
+      blockers.push(`抽奖奖品：${lotteryPrizes.map((p) => p.name).join('、')}`);
+    }
+    if (vipGiftItems.length > 0) {
+      blockers.push(`VIP赠品：${vipGiftItems.map((i) => i.giftOption.title).join('、')}`);
+    }
+    if (blockers.length > 0) {
+      throw new BadRequestException(`无法删除：${blockers.join('；')}。请先清理相关引用后重试。`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.productTraceLink.deleteMany({ where: { productId: id } });
+      await tx.product.delete({ where: { id } });
+    });
+
+    return { ok: true };
   }
 
   /** 审核 */

@@ -28,3 +28,6 @@ export const toggleProductStatus = (id: string, status: string): Promise<Product
 
 export const updateProductSkus = (id: string, skus: Record<string, unknown>[]): Promise<unknown> =>
   client.put(`/seller/products/${id}/skus`, { skus });
+
+export const deleteProduct = (id: string): Promise<{ ok: boolean }> =>
+  client.delete(`/seller/products/${id}`);

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  App, Button, Tag, Modal, Space, Switch, Input, Badge,
+  App, Button, Tag, Modal, Space, Switch, Input, Badge, Popconfirm,
   Descriptions, Card, Row, Col, Select, Statistic, Typography, Image,
 } from 'antd';
 import {
@@ -16,7 +16,7 @@ import {
   ClockCircleOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons';
-import { getProducts, getProductStats, auditProduct } from '@/api/products';
+import { getProducts, getProductStats, auditProduct, deleteProduct } from '@/api/products';
 import { getCompanies } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
 import type { Product } from '@/types';
@@ -50,7 +50,7 @@ const STAT_CARDS = [
 ];
 
 export default function ProductListPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
@@ -113,6 +113,27 @@ export default function ProductListPage() {
     message.success(`已${newStatus === 'ACTIVE' ? '上架' : '下架'}`);
     actionRef.current?.reload();
     loadStats();
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteProduct(id);
+      message.success('删除成功');
+      actionRef.current?.reload();
+      loadStats();
+    } catch (err) {
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    }
   };
 
   const handleAudit = async (auditStatus: 'APPROVED' | 'REJECTED') => {
@@ -363,6 +384,22 @@ export default function ProductListPage() {
               >
                 审核
               </Button>
+            )}
+          </PermissionGate>
+          <PermissionGate permission={PERMISSIONS.PRODUCTS_DELETE}>
+            {record.status === 'INACTIVE' && (
+              <Popconfirm
+                title="确认删除该商品？"
+                description="删除后不可恢复，关联的 SKU、图片将一并移除。"
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => handleDelete(record.id)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
             )}
           </PermissionGate>
         </Space>
