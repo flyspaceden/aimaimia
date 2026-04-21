@@ -108,7 +108,7 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function CategoriesPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [flatList, setFlatList] = useState<AdminCategory[]>([]);
   const [displayRows, setDisplayRows] = useState<DisplayRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,7 +272,17 @@ export default function CategoriesPage() {
       message.success('分类已删除');
       loadData();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      modal.error({
+        title: '无法删除分类',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     }
   };
 

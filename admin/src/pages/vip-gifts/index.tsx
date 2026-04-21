@@ -293,9 +293,23 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function VipGiftsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const queryClient = useQueryClient();
+
+  const showDeleteError = (title: string, err: any) => {
+    modal.error({
+      title,
+      content: (
+        <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+          {err instanceof Error ? err.message : err?.message || '删除失败'}
+        </div>
+      ),
+      width: 520,
+      centered: true,
+      okText: '知道了',
+    });
+  };
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<VipGiftOption | null>(null);
   const [form] = Form.useForm();
@@ -332,7 +346,7 @@ export default function VipGiftsPage() {
   const deletePkgMutation = useMutation({
     mutationFn: deleteVipPackage,
     onSuccess: () => { message.success('档位已删除'); refetchPackages(); },
-    onError: (err: Error) => message.error(err.message),
+    onError: (err: Error) => showDeleteError('无法删除档位', err),
   });
 
   const [pkgModalOpen, setPkgModalOpen] = useState(false);
@@ -575,7 +589,7 @@ export default function VipGiftsPage() {
       actionRef.current?.reload();
       queryClient.invalidateQueries({ queryKey: ['vip-gift-options'] });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      showDeleteError('无法删除赠品方案', err);
     }
   };
 

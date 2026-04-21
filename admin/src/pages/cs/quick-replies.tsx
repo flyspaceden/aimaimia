@@ -24,7 +24,7 @@ const categoryColorMap: Record<string, string> = {
 };
 
 export default function CsQuickRepliesPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<CsQuickReply | null>(null);
@@ -86,7 +86,17 @@ export default function CsQuickRepliesPage() {
       message.success('快捷回复已删除');
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'quick-replies'] });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     }
   };
 
