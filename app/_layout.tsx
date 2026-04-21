@@ -128,13 +128,18 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (consentState !== 'granted') return;
-    // 加 .catch 防 WebBrowser / fetch / setDDLChecked 异步失败炸到 React 顶层
-    performDeferredLinkCheck().catch((err) => {
-      if (__DEV__) {
-        // eslint-disable-next-line no-console
-        console.warn('[DDL] performDeferredLinkCheck failed:', err);
-      }
-    });
+    // 延迟到 splash 动画（app/index.tsx, ~2.4s）结束后再触发 DDL，避免
+    // WebBrowser.openAuthSessionAsync 拉起 Custom Tab 打断首屏动画 + 回跳
+    // 落到 unmatched 路由（历史 bug：首启闪网页 + no router 页）。
+    const timer = setTimeout(() => {
+      performDeferredLinkCheck().catch((err) => {
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn('[DDL] performDeferredLinkCheck failed:', err);
+        }
+      });
+    }, 3000);
+    return () => clearTimeout(timer);
   }, [consentState]);
 
   // 支付宝沙箱环境（测试时设为 true，上线前改为 false）

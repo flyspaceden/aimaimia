@@ -16,9 +16,13 @@ import { USE_MOCK } from '../repos/http/config';
 let WeChatLib: typeof import('react-native-wechat-lib') | null = null;
 let _initialized = false;
 
-/** 检查原生模块是否已链接（autolinking 成功）*/
+/** 检查原生模块是否已链接（autolinking 成功）
+ *
+ * 注意：react-native-wechat-lib 的 WeChatModule.getName() 返回 "RCTWeChat"，
+ * 不是 "WeChat"。早期这里写成 `.WeChat` 导致首版 APK 永远认为模块未注册，
+ * 直接抛"微信 SDK 初始化失败"。 */
 function isWechatNativeAvailable(): boolean {
-  return !!(NativeModules as any)?.WeChat;
+  return !!(NativeModules as any)?.RCTWeChat;
 }
 
 /** WeChat AppID：与微信开放平台注册一致（密码本 §5.1） */

@@ -241,7 +241,7 @@ export default function Index() {
             },
           ]}
         >
-          农 脉
+          爱买买
         </Animated.Text>
 
         <Animated.View style={[styles.lineWrap, { transform: [{ scaleX: lineX }] }]}>
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
     fontSize: 48,
     fontWeight: '700',
     color: '#FFFFFF',
-    letterSpacing: 14,
+    letterSpacing: 6,
     textShadowColor: 'rgba(0,0,0,0.25)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,

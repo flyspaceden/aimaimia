@@ -388,6 +388,12 @@
   - 实际做了: 服务器 .env 加 CORS_ORIGINS（含 test-admin/test-seller/test-api/ai-maimai.com/www + localhost:8081/19006/3000）；修正 ALIPAY_NOTIFY_URL 缺 `/api/v1/` 前缀的问题；模板 docs/operations/.env.staging 同步
   - 状态: ✅ | 完成日期: 2026-04-19
 
+- [x] **C40b2** — 测试环境 CORS 追加中文域名 Punycode（2026-04-20 新增）
+  - 背景: 官网 `爱买买.com/merchants/apply` 验证码不显示。浏览器发跨域请求时 Origin 头会把中文域名自动编码成 Punycode `xn--ckqa175y.com`，后端 `CORS_ORIGINS` 是精确字符串匹配（`backend/src/main.ts:64-66`），原清单没列 Punycode 形式 → 中文域名被拦截，英文域名正常
+  - 实际做了: 服务器 `/www/wwwroot/aimaimai-staging-src/backend/.env` 追加 `https://xn--ckqa175y.com,https://www.xn--ckqa175y.com,https://app.xn--ckqa175y.com,https://admin.xn--ckqa175y.com,https://seller.xn--ckqa175y.com`；`pm2 reload aimaimai-api-test --update-env`；`docs/operations/.env.staging` 模板和 `docs/operations/阿里云部署.md` §6.6 同步
+  - 验证: `curl -X OPTIONS https://test-api.ai-maimai.com/api/v1/captcha -H "Origin: https://xn--ckqa175y.com"` 返回 `Access-Control-Allow-Origin: https://xn--ckqa175y.com`；英文域名 + 恶意域名回归通过
+  - 状态: ✅ | 完成日期: 2026-04-20
+
 - [x] **C40c1** — 🔴 P0 管理员管理前端页（2026-04-19 新增，2026-04-19 核实已完成）
   - **核实结果（2026-04-19 下午）**: 功能**已存在**于 `admin/src/pages/admin/users.tsx`（299 行，ProTable 列表 + 新增/编辑/重置密码/启用禁用/删除全齐） + `admin/src/api/users.ts`（37 行）。路由为 `/admin/users`（非 plan.md 原设计的 `/admin-users`）；菜单入口在"系统管理 → 管理员账号"（AdminLayout 已有）
   - **背景（历史描述）**: `admin/src/pages/users/` 是 App 买家用户管理（对应 `admin/src/api/app-users.ts`），与管理员管理（`admin/src/pages/admin/users.tsx` + `admin/src/api/users.ts`）完全独立。plan.md 原撰写时背景调查欠缺细致，误判为未实现
@@ -722,6 +728,32 @@
   - **预估**: 30 分钟
   - 状态: ✅ 清理完成 | ⏳ OTA 验证待 .apk 装机
 
+- [ ] **C40f** — DDL 首启闪网页用 mask 包装 + Custom Tab 美化（2026-04-20 新增）
+  - **背景**: 首次安装 App 首次打开时，`app/_layout.tsx` 的 `performDeferredLinkCheck` 会用 `WebBrowser.openAuthSessionAsync` 拉起 Chrome Custom Tab 去 `app.ai-maimai.com/resolve` 读 cookie，以完成 Deferred Deep Link 推荐码自动绑定。目前已做的缓解：DDL 检查延迟 3s（不再打断 splash 动画）+ 新增 `app/referral.tsx` 兜底（scheme 回跳不再落 +not-found）。但 Custom Tab 本体还是会在首页出现后闪一下，用户感知为"莫名弹出浏览器"。Cookie 通路业务上必须保留（自动绑定准确率远高于指纹兜底），所以方向是"让这段闪变得看起来像一个正常功能"
+  - **技术限制**: Custom Tab 是 Android 系统级 Activity，盖在整个 App 窗口之上。**RN 层的任何 Modal/View 都在 Custom Tab 下面**，无法真正"挡住"浏览器。mask 只在 Custom Tab 打开前 + 关闭后可见。但通过时间差和前置文案，用户会把这段流程感知为"App 在查推荐关系"而不是"Bug"
+  - **修改**（只改 `app/_layout.tsx` 一个文件）:
+    - 加一个 `ddlMasking` 状态（`'idle' | 'querying' | 'done'`）
+    - 包住 `performDeferredLinkCheck` 调用：调用前 setState `'querying'`，finally 块里先 `'done'` → 500ms 后 `'idle'`
+    - 根视图加全屏 `<View>` 覆盖层（非 Modal，用绝对定位 + `zIndex: 9999`）：`'querying'` 状态显示"正在查询推荐关系..." + ActivityIndicator，`'done'` 显示"查询完成"（淡出动画）
+    - 给 `openAuthSessionAsync` 加第三个参数 `{ toolbarColor: '#2E7D32', showTitle: false, enableBarCollapsing: true }` 让浏览器视觉更贴近 App 品牌色
+    - 保险：mask 最长存活时间 6s（5s WebBrowser 超时 + 1s buffer），防止异常情况卡住
+  - **不动的边界**:
+    - 不改 `app/referral.tsx` / `app/index.tsx` / `src/services/deferredLink.ts`
+    - 不改 Linking 订阅逻辑（Universal Link 流程）
+    - 不改 `useAuthStore:70-85` 登录后自动绑定逻辑
+    - 不改指纹兜底（`matchByFingerprint`）
+    - 不改 `markDDLChecked` 时机
+  - **验收**:
+    - [ ] 清除 App 数据首启 → 看到 "正在查询推荐关系..." mask → 浏览器闪 → mask "查询完成" 淡出 → 回到首页（核心场景）
+    - [ ] 第二次冷启 → mask 不出现（已 `markDDLChecked` 跳过 DDL）
+    - [ ] Universal Link 点击进入（`app.ai-maimai.com/r/XXXX`）→ 走 Linking 订阅直接存 pending code，不触发 mask（说明没误走 DDL 通路）
+    - [ ] 我的 → 推荐码 → 扫二维码 / 手动输入 → 正常绑定（说明未破坏手动路径）
+    - [ ] 登录/注册成功 → `pending_referral_code` 自动绑定成功（说明未破坏登录后自动绑定）
+    - [ ] WebBrowser 异常（断网/超时）→ mask 最长 6s 强制消失，不永久卡屏
+  - **推送方式**: 全 JS 改动，无原生层变化，`eas update --branch preview` OTA 推送即可，无需重打 APK
+  - **预估**: 1-2 小时
+  - 状态: ⬜
+
 - [ ] **C40e** — 生产上线 mock/sandbox → 真实切换 checklist（2026-04-19 新增）
   - **背景**: 测试环境很多走 mock 或第三方沙箱，生产前必须全部切真。汇总成单一清单避免遗漏
   - **服务器 `/www/wwwroot/aimaimai-prod-src/backend/.env` 修改项**:
@@ -734,7 +766,7 @@
     - [ ] `ALIPAY_NOTIFY_URL=https://api.ai-maimai.com/api/v1/payments/alipay/notify`
     - [ ] `SF_CALLBACK_URL=https://api.ai-maimai.com/api/v1/shipments/sf/callback`
     - [ ] 支付宝四件套证书替换为生产证书（appCertPublicKey / alipayCertPublicKey / alipayRootCert）
-    - [ ] `CORS_ORIGINS=https://admin.ai-maimai.com,https://seller.ai-maimai.com,https://ai-maimai.com,https://www.ai-maimai.com`（去掉 test-* 和 localhost）
+    - [ ] `CORS_ORIGINS=https://admin.ai-maimai.com,https://seller.ai-maimai.com,https://ai-maimai.com,https://www.ai-maimai.com,https://xn--ckqa175y.com,https://www.xn--ckqa175y.com,https://app.xn--ckqa175y.com,https://admin.xn--ckqa175y.com,https://seller.xn--ckqa175y.com`（去掉 test-* 和 localhost；必须含中文域名 Punycode `xn--ckqa175y.com`，否则中文域名被拦）
     - [ ] 数据库 URL 改 `aimaimai` 库 + 生产密码
   - **代码层切换**:
     - [ ] App `app/about.tsx` 删除版本信息里的 "(Mock)" 字样
@@ -864,6 +896,7 @@
 - **2026-04-17~18**: 服务器换 OS（CentOS 7 → Alibaba Cloud Linux 3，抛弃 Docker 改 Node 直装），8 个域名 + SSL 全部就绪，测试环境（test-admin/test-seller/test-api）全链路上线，GitHub Actions 双分支（staging/main）自动部署链路打通
 - **2026-04-19**: 测试环境联通性审查（三端前端 + 后端 + DB + CORS 全部 ✅）；EAS Build 全套配置（eas.json 三档 + expo-updates OTA + 第一次 Android .apk 构建成功）；CORS/ALIPAY_NOTIFY_URL 修正；注册/登录真实闭环缺口审计；plan.md 拆解 C40c1~c6 + C40d/C40e（含管理员管理页/商户入驻审核页/SMS真实/微信登录/Apple登录/邀请通知/app.json 清理/生产切换 checklist 共 8 个新任务）
 - **2026-04-19 下午**: C40c2 方案修订（发现 `companies/applications-tab.tsx` 已完整实现，改为只加菜单快捷入口，从 P0 1 天降为 P2 15 分钟）；确立三段式环境策略（本地 mock / Staging 真实 SMS + 支付宝沙箱 / 生产全真实），C40c3 升级 P0；新增账号管理三大补全任务 C40c7 账号安全页 + C40c8 管理员兜底重置密码 + C40c9 管理员员工 CRUD 完整化（含换 OWNER），合计新增约 3 天工作量
+- **2026-04-20**: 首次真机 APK 测试暴露两个首启 bug（splash "农脉"只显"农" + DDL 拉起 Custom Tab 打断启动 + scheme 回跳落 +not-found "no router"）；即时修复：splash 文案改 "爱买买" + letterSpacing 14→6 + 新增 `app/referral.tsx` 兜底 + DDL 延迟 3s（缓解，非根治）；追加 C40f 任务（mask 包装 + Custom Tab 美化）根治首启闪网页体验问题
 
 ---
 
