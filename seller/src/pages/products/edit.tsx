@@ -621,6 +621,11 @@ function ProductEditForm({ id }: { id: string }) {
             </Descriptions.Item>
             <Descriptions.Item label="审核状态">
               <Tag color={auditStatus?.color}>{auditStatus?.text}</Tag>
+              {(product.submissionCount ?? 1) > 1 && (
+                <Tag color="orange" style={{ marginLeft: 4 }}>
+                  第 {product.submissionCount} 次提交
+                </Tag>
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="商品分类">
               {product.category?.name || '-'}

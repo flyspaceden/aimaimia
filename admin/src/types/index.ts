@@ -245,6 +245,7 @@ export interface Product {
   status: ProductStatus;
   auditStatus: ProductAuditStatus;
   auditNote: string | null;
+  submissionCount?: number;
   companyId: string;
   company?: { id: string; name: string; status?: CompanyStatus };
   images: { url: string }[];

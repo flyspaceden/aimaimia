@@ -303,6 +303,11 @@ export default function ProductListPage() {
               onClick={() => navigate(`/products/${r.id}/edit`)}
             >
               重新提交
+              {(r.submissionCount ?? 1) > 1 && (
+                <span style={{ marginLeft: 4, color: '#8c8c8c' }}>
+                  (已提交 {r.submissionCount} 次)
+                </span>
+              )}
             </Button>
           )}
         </Space>

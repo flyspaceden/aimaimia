@@ -261,8 +261,9 @@ export class SellerProductsService {
 
     // 事务结果赋值给 updated 变量，以便事务提交后触发异步语义填充
     const updated = await this.prisma.$transaction(async (tx) => {
-      // 编辑已审核通过的商品需重新审核
-      const needReAudit = product.auditStatus === 'APPROVED';
+      // 编辑已审核通过或已驳回的商品需重新进入审核队列；PENDING 状态编辑不计次
+      const needReAudit =
+        product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
 
       const result = await tx.product.update({
         where: { id: productId },
@@ -281,7 +282,12 @@ export class SellerProductsService {
           usageScenarios: dto.usageScenarios ?? undefined,
           dietaryTags: dto.dietaryTags ?? undefined,
           originRegion: dto.originRegion,
-          auditStatus: needReAudit ? 'PENDING' : undefined,
+          // 重新进入审核：状态回 PENDING、清空上轮驳回备注、提交次数 +1
+          ...(needReAudit && {
+            auditStatus: 'PENDING',
+            auditNote: null,
+            submissionCount: { increment: 1 },
+          }),
         },
         include: { skus: true, media: true, tags: { include: { tag: true } } },
       });
@@ -415,6 +421,10 @@ export class SellerProductsService {
       }
     }
 
+    // SKU 变更同样触发重新审核（APPROVED/REJECTED 状态下）
+    const needReAudit =
+      product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
+
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
     return this.prisma.$transaction(async (tx) => {
@@ -460,16 +470,24 @@ export class SellerProductsService {
         }
       }
 
-      // 更新商品基准价为最低 SKU 售价
+      // 更新商品基准价为最低 SKU 售价 + 触发重新审核（如需）
       const allActiveSkus = await tx.productSKU.findMany({
         where: { productId, status: 'ACTIVE' },
         select: { price: true },
       });
+      const productUpdateData: Prisma.ProductUncheckedUpdateInput = {};
       if (allActiveSkus.length > 0) {
-        const minPrice = Math.min(...allActiveSkus.map((s) => s.price));
+        productUpdateData.basePrice = Math.min(...allActiveSkus.map((s) => s.price));
+      }
+      if (needReAudit) {
+        productUpdateData.auditStatus = 'PENDING';
+        productUpdateData.auditNote = null;
+        productUpdateData.submissionCount = { increment: 1 };
+      }
+      if (Object.keys(productUpdateData).length > 0) {
         await tx.product.update({
           where: { id: productId },
-          data: { basePrice: minPrice },
+          data: productUpdateData,
         });
       }
 

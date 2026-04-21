@@ -1117,6 +1117,7 @@ model Product {
   status             ProductStatus      @default(DRAFT)
   auditStatus        ProductAuditStatus @default(PENDING)
   auditNote          String?
+  submissionCount    Int                @default(1) // 当前审核提交次数（REJECTED/APPROVED 后卖家编辑重新提交时 +1）
   basePrice          Float // 基础价格（元）
   cost               Float? // 成本价（元）
   currency           String             @default("CNY")

@@ -83,6 +83,7 @@ export interface Product {
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
+  submissionCount?: number;
   origin?: { text?: string };
   attributes?: Record<string, string>;
   aiKeywords?: string[];

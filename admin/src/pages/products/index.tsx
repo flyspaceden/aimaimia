@@ -274,11 +274,18 @@ export default function ProductListPage() {
     {
       title: '审核',
       dataIndex: 'auditStatus',
-      width: 80,
+      width: 130,
       hideInSearch: true, // Tab 已做筛选
       render: (_: unknown, r: Product) => {
         const s = auditStatusMap[r.auditStatus];
-        return <Tag color={s?.color}>{s?.text}</Tag>;
+        return (
+          <Space size={4} wrap>
+            <Tag color={s?.color}>{s?.text}</Tag>
+            {(r.submissionCount ?? 1) > 1 && (
+              <Tag color="orange">第 {r.submissionCount} 次</Tag>
+            )}
+          </Space>
+        );
       },
     },
     {
@@ -455,7 +462,14 @@ export default function ProductListPage() {
 
       {/* 审核弹窗 */}
       <Modal
-        title="商品审核"
+        title={
+          <Space>
+            <span>商品审核</span>
+            {currentProduct && (currentProduct.submissionCount ?? 1) > 1 && (
+              <Tag color="orange">第 {currentProduct.submissionCount} 次提交</Tag>
+            )}
+          </Space>
+        }
         open={auditModalOpen}
         width={560}
         onCancel={() => { setAuditModalOpen(false); setAuditNote(''); }}
