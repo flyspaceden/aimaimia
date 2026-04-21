@@ -78,7 +78,18 @@ export default function ProductEditPage() {
 
   const handleSave = async () => {
     try {
-      const values = await form.validateFields();
+      // 同时校验基本信息表单和规格表单，任一失败不提交
+      const [values, skuValues] = await Promise.all([
+        form.validateFields(),
+        skuForm.validateFields(),
+      ]);
+
+      const skus = (skuValues.skus as any[]) || [];
+      if (skus.length === 0) {
+        message.warning('至少保留一条规格');
+        return;
+      }
+
       // 转换产地为 Json 格式
       const { originText: ot, attributes: attrs, ...rest } = values;
       const data: Record<string, any> = { ...rest };
@@ -94,8 +105,13 @@ export default function ProductEditPage() {
             .map((p) => [p.key, p.value]),
         );
       }
+
+      // 先保存基本信息，再保存规格
       await updateProduct(id!, data);
-      message.success('保存成功');
+      await updateProductSkus(id!, skus);
+
+      message.success('保存成功：基本信息与规格均已更新');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
       navigate('/products');
     } catch (err) {
       if (err instanceof Error) {
