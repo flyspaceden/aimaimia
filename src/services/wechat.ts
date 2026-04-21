@@ -16,13 +16,41 @@ import { USE_MOCK } from '../repos/http/config';
 let WeChatLib: typeof import('react-native-wechat-lib') | null = null;
 let _initialized = false;
 
-/** 检查原生模块是否已链接（autolinking 成功）
+/**
+ * 把 RCTWeChat 别名注入到 NativeModules.WeChat，解决 react-native-wechat-lib
+ * 顶层 `const { WeChat } = NativeModules` 在 Android 拿不到模块（实际注册名是
+ * RCTWeChat）导致 `WeChat.registerApp` undefined 的问题。
  *
- * 注意：react-native-wechat-lib 的 WeChatModule.getName() 返回 "RCTWeChat"，
- * 不是 "WeChat"。早期这里写成 `.WeChat` 导致首版 APK 永远认为模块未注册，
- * 直接抛"微信 SDK 初始化失败"。 */
-function isWechatNativeAvailable(): boolean {
-  return !!(NativeModules as any)?.RCTWeChat;
+ * 设计要点（吸取之前白屏教训）：
+ *   - 必须放在 initWechat() 内部调用（运行时），不能放模块顶层 —— 顶层异常会
+ *     让 wechat.ts 整个 import 失败，根组件挂不起来 → 白屏。
+ *   - 双层 try/catch：assignment 若失败（NativeModules 是 frozen/Proxy 等），
+ *     降级用 Object.defineProperty；再失败则返回 false 让上层静默失败。
+ *   - 只在 Android + 确实检测到 RCTWeChat + WeChat 还不存在时操作，避免污染 iOS。
+ */
+function tryAliasRCTWeChat(): boolean {
+  try {
+    const nm = NativeModules as any;
+    if (Platform.OS !== 'android') return true;
+    if (nm.WeChat) return true; // 已有别名或 iOS 原生名
+    if (!nm.RCTWeChat) return false; // autolinking 未注册
+    try {
+      nm.WeChat = nm.RCTWeChat;
+    } catch {
+      try {
+        Object.defineProperty(nm, 'WeChat', {
+          value: nm.RCTWeChat,
+          configurable: true,
+          writable: true,
+        });
+      } catch {
+        return false;
+      }
+    }
+    return !!nm.WeChat;
+  } catch {
+    return false;
+  }
 }
 
 /** WeChat AppID：与微信开放平台注册一致（密码本 §5.1） */
@@ -43,15 +71,15 @@ export async function initWechat(): Promise<boolean> {
     _initialized = true;
     return true;
   }
-  // 先检查原生模块是否被 autolinking 注册到 NativeModules（Expo Go 或打包失败时缺失）
-  // 若缺失则直接返回 false，避免 require index.js 时顶层 WeChat.registerApp 炸栈
-  if (!isWechatNativeAvailable()) {
-    // eslint-disable-next-line no-console
-    console.warn('[WeChat] NativeModules.WeChat 未注册，SDK 不可用。检查 autolinking / rebuild 是否包含原生模块');
-    return false;
-  }
   try {
-    // react-native-wechat-lib 用 named exports，不是 default
+    // 1) 先确保 NativeModules.WeChat 可用（Android 需要把 RCTWeChat 别名过来）
+    const ok0 = tryAliasRCTWeChat();
+    if (!ok0) {
+      // eslint-disable-next-line no-console
+      console.warn('[WeChat] 原生模块未注册或无法别名，SDK 不可用');
+      return false;
+    }
+    // 2) 此刻 require 库，其顶层 `const { WeChat } = NativeModules` 能正确拿到模块
     WeChatLib = require('react-native-wechat-lib');
     const ok = await WeChatLib!.registerApp(WECHAT_APP_ID, WECHAT_UNIVERSAL_LINK);
     _initialized = !!ok;
