@@ -196,6 +196,7 @@ export class AuthService {
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     let openId: string;
     let unionId: string;
+    let accessToken: string | null = null;
 
     if (wechatMock === 'true') {
       if (nodeEnv === 'production') {
@@ -231,6 +232,7 @@ export class AuthService {
 
       openId = tokenData.openid;
       unionId = tokenData.unionid || '';
+      accessToken = tokenData.access_token || null;
 
       this.logger.log(
         `[WeChat] 授权成功（openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
@@ -247,11 +249,15 @@ export class AuthService {
       return this.issueTokens(identity.userId, 'wechat');
     }
 
+    // 首次微信登录：尽量用 snsapi_userinfo 拿真实昵称/头像/性别/城市；失败
+    // 则 fallback 到 "微信" + openId 尾段（6 位），保证有辨识度
+    const profileData = await this.fetchWechatUserProfile(accessToken, openId);
+
     // 首次微信登录，自动创建用户 + UserProfile + AuthIdentity + MemberProfile
     const user = await this.prisma.user.create({
       data: {
         profile: {
-          create: { nickname: '微信用户' },
+          create: profileData,
         },
         memberProfile: {
           create: {},
@@ -278,6 +284,64 @@ export class AuthService {
   /** Apple 登录（占位） */
   async loginWithApple() {
     throw new BadRequestException('Apple 登录暂未开放');
+  }
+
+  /**
+   * 用 access_token + openId 调 /sns/userinfo 拿微信用户资料。
+   * 拿不到就用 "微信" + openId 尾段 6 位做 fallback 昵称，保证有辨识度。
+   * 任何失败都不抛异常（不阻塞登录）。
+   */
+  private async fetchWechatUserProfile(
+    accessToken: string | null,
+    openId: string,
+  ): Promise<{
+    nickname: string;
+    avatarUrl?: string;
+    gender?: 'UNKNOWN' | 'MALE' | 'FEMALE';
+    city?: string;
+  }> {
+    const fallbackNickname = `微信${openId.slice(-6)}`;
+
+    if (!accessToken) {
+      // Mock 模式或 token 缺失，直接用 fallback（至少有辨识度）
+      return { nickname: fallbackNickname };
+    }
+
+    try {
+      const url = `https://api.weixin.qq.com/sns/userinfo?access_token=${encodeURIComponent(accessToken)}&openid=${encodeURIComponent(openId)}&lang=zh_CN`;
+      const res = await fetch(url);
+      const data = (await res.json()) as {
+        nickname?: string;
+        headimgurl?: string;
+        sex?: 0 | 1 | 2;
+        city?: string;
+        errcode?: number;
+        errmsg?: string;
+      };
+
+      if (data.errcode || !data.nickname) {
+        this.logger.warn(
+          `[WeChat] userinfo 拉取失败或昵称为空: errcode=${data.errcode}, errmsg=${data.errmsg}`,
+        );
+        return { nickname: fallbackNickname };
+      }
+
+      const genderMap: Record<number, 'UNKNOWN' | 'MALE' | 'FEMALE'> = {
+        0: 'UNKNOWN',
+        1: 'MALE',
+        2: 'FEMALE',
+      };
+
+      return {
+        nickname: data.nickname,
+        avatarUrl: data.headimgurl || undefined,
+        gender: data.sex != null ? genderMap[data.sex] : undefined,
+        city: data.city || undefined,
+      };
+    } catch (err: any) {
+      this.logger.warn(`[WeChat] userinfo 拉取异常: ${err?.message}`);
+      return { nickname: fallbackNickname };
+    }
   }
 
   // ---- 内部方法 ----
