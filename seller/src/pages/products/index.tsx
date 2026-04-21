@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   App,
@@ -52,12 +52,15 @@ export default function ProductListPage() {
     queryKey: ['seller-analytics-overview'],
     queryFn: getOverview,
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   // 使用少量请求获取统计计数（按状态各请求 1 条只取 total）
   const { data: statusCounts } = useQuery({
     queryKey: ['seller-product-status-counts'],
-    staleTime: 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000, // 轮询感知管理端审核结果
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const [all, active, pending] = await Promise.all([
         getProducts({ page: 1, pageSize: 1 }),
@@ -71,6 +74,25 @@ export default function ProductListPage() {
       };
     },
   });
+
+  // 列表也做轮询 + 页面可见时刷新
+  useEffect(() => {
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        actionRef.current?.reload();
+      }
+    }, 15_000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        actionRef.current?.reload();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   // 加价率（用于展开行计算售价）
   const { data: configData } = useQuery({

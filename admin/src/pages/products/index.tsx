@@ -71,9 +71,27 @@ export default function ProductListPage() {
     }
   };
 
-  // 加载公司列表
+  // 加载公司列表 + 轮询 stats + 页面重新可见时刷新
   useEffect(() => {
     loadStats();
+
+    // 15 秒轮询一次 stats + 列表（跨用户实时感知：卖家新增 / 其他管理员审核）
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadStats();
+        actionRef.current?.reload();
+      }
+    }, 15000);
+
+    // 页面切回前台时立即刷新
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadStats();
+        actionRef.current?.reload();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     getCompanies({ pageSize: 200 })
       .then((res) => {
         setCompanyOptions(
@@ -81,6 +99,11 @@ export default function ProductListPage() {
         );
       })
       .catch(() => {});
+
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const handleToggleStatus = async (record: Product) => {
@@ -416,10 +439,12 @@ export default function ProductListPage() {
             items: tabItems,
             onChange: (key) => {
               setActiveTab(key as string);
-              actionRef.current?.reload();
+              // ProTable 会因为下方 params.tab 变化自动重新 request，无需手动 reload
+              // 手动 reload 会在 setState 尚未应用前触发旧闭包，导致"切换不生效"
             },
           },
         }}
+        params={{ tab: activeTab }}
         request={async (params) => {
           const {
             current,
