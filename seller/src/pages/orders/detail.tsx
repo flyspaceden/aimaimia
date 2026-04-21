@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
+  App,
   Avatar,
   Button,
   Card,
   Descriptions,
-  message,
-  Modal,
   Space,
   Spin,
   Steps,
@@ -59,6 +58,7 @@ function getOrderStep(order: {
 }
 
 export default function OrderDetailPage() {
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -103,7 +103,7 @@ export default function OrderDetailPage() {
   };
 
   const handleCancelWaybill = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认取消面单？',
       content: '取消后需重新生成面单',
       onOk: async () => {
@@ -122,7 +122,7 @@ export default function OrderDetailPage() {
     setCallingBuyer(true);
     try {
       const result = await bindVirtualCall(id!);
-      Modal.info({
+      modal.info({
         title: '联系买家',
         content: (
           <div>

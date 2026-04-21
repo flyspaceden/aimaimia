@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Form, Input, Space, Card, Row, Col, Select, Statistic, Badge, Typography, Tooltip } from 'antd';
+import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Select, Statistic, Badge, Typography, Tooltip } from 'antd';
 import {
   EyeOutlined,
   SendOutlined,
@@ -47,6 +47,7 @@ const STAT_CARDS = [
 ];
 
 export default function OrderListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [shipModalOpen, setShipModalOpen] = useState(false);

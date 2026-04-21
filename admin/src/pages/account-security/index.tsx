@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Tabs, Form, Input, Button, message, Typography, Space, Alert } from 'antd';
+import { App, Card, Tabs, Form, Input, Button, Typography, Space, Alert } from 'antd';
 import { LockOutlined, MobileOutlined, MessageOutlined } from '@ant-design/icons';
 import {
   changePassword,
@@ -31,6 +31,7 @@ function maskPhone(phone?: string | null): string {
 }
 
 export default function AccountSecurityPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const admin = useAuthStore((s) => s.admin);
   const clearAuth = useAuthStore((s) => s.clearAuth);

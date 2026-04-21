@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
+  App,
   Tag,
   Button,
   Space,
@@ -10,7 +11,6 @@ import {
   Descriptions,
   Image,
   Input,
-  message,
   Timeline,
 } from 'antd';
 import {
@@ -71,6 +71,7 @@ interface ApplicationsTabProps {
 }
 
 export default function ApplicationsTab({ onPendingCountChange }: ApplicationsTabProps) {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detail, setDetail] = useState<MerchantApplicationDetail | null>(null);

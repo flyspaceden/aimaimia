@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Card, Row, Col, Button, Space, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm } from 'antd';
+import { App, Card, Row, Col, Button, Space, Tag, Modal, Form, Input, Select, Switch, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
@@ -11,6 +11,7 @@ import {
 } from '@/api/tags';
 
 export default function TagManagementPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [selectedCategory, setSelectedCategory] = useState<TagCategory | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);

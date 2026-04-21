@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Spin,
@@ -11,7 +12,6 @@ import {
   Modal,
   Input,
   Form,
-  message,
   Space,
   Statistic,
   Row,
@@ -77,6 +77,7 @@ const staffRoleMap: Record<string, { text: string; color: string }> = {
 };
 
 export default function CompanyDetailPage() {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

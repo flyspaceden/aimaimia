@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Avatar, Tag, message, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton } from 'antd';
+import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton } from 'antd';
 import {
   UserOutlined,
   EyeOutlined,
@@ -28,6 +28,7 @@ const statCardConfig = [
 ];
 
 export default function UserListPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();

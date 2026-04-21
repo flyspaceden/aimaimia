@@ -11,7 +11,7 @@ import {
   ProFormGroup,
 } from '@ant-design/pro-components';
 import type { ProFormInstance } from '@ant-design/pro-components';
-import { Drawer, message, Card, Typography, Space, Button } from 'antd';
+import { App, Drawer, Card, Typography, Space, Button } from 'antd';
 import {
   GiftOutlined,
   DollarOutlined,
@@ -64,6 +64,7 @@ export default function CampaignFormDrawer({
   onClose,
   onSuccess,
 }: CampaignFormDrawerProps) {
+  const { message } = App.useApp();
   const isEdit = !!campaign;
   const formRef = useRef<ProFormInstance | undefined>(undefined);
 

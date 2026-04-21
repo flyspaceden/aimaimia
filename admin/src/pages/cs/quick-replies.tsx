@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, message, Tag, Space, Popconfirm,
+  Table, Button, Modal, Form, Input, App, Tag, Space, Popconfirm,
   Switch, InputNumber, Select,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -24,6 +24,7 @@ const categoryColorMap: Record<string, string> = {
 };
 
 export default function CsQuickRepliesPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<CsQuickReply | null>(null);

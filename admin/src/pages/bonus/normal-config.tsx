@@ -8,6 +8,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Form,
@@ -19,13 +20,11 @@ import {
   Drawer,
   Timeline,
   Tag,
-  Modal,
   Spin,
   Alert,
   Row,
   Col,
   Divider,
-  message,
   Tooltip,
 } from 'antd';
 import {
@@ -42,7 +41,7 @@ import {
   UndoOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { getConfigs, updateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
+import { getConfigs, batchUpdateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -236,6 +235,7 @@ const fmtPercent = (v: number) => `${(v * 100).toFixed(0)}%`;
 
 export default function NormalConfigPage() {
   const queryClient = useQueryClient();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
@@ -286,28 +286,34 @@ export default function NormalConfigPage() {
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
 
-  // 实际执行保存逻辑
+  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发六分比例总和 ≠ 1.0）
   const doSave = useCallback(async () => {
     const values = form.getFieldsValue(true);
 
+    // 收集有变更的项
+    const updates: Array<{ key: string; value: unknown }> = [];
+    for (const meta of CONFIG_SCHEMA) {
+      const oldVal = getVal(configs, meta.key);
+      const newVal = values[meta.key];
+      if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
+      const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+      updates.push({
+        key: meta.key,
+        value: { value: newVal, description: desc || meta.description || meta.label },
+      });
+    }
+
+    if (updates.length === 0) {
+      message.info('没有检测到配置变更');
+      return;
+    }
+
     setSaving(true);
-
     try {
-      // 逐项提交有变更的配置
-      const note = changeNote || '更新普通用户系统配置';
-      for (const meta of CONFIG_SCHEMA) {
-        const oldVal = getVal(configs, meta.key);
-        const newVal = values[meta.key];
-
-        // 简单比较
-        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
-
-        const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
-        await updateConfig(meta.key, {
-          value: { value: newVal, description: desc || meta.description || meta.label },
-          changeNote: note,
-        });
-      }
+      await batchUpdateConfig({
+        updates,
+        changeNote: changeNote || '更新普通用户系统配置',
+      });
 
       message.success('配置保存成功');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
@@ -318,7 +324,7 @@ export default function NormalConfigPage() {
     } finally {
       setSaving(false);
     }
-  }, [form, configs, changeNote, queryClient]);
+  }, [form, configs, changeNote, queryClient, message]);
 
   // 保存（带变更影响提示）
   const handleSave = useCallback(async () => {
@@ -384,7 +390,7 @@ export default function NormalConfigPage() {
       impacts.push('修改奖励设置将影响后续新产生的奖励冻结和过期时间');
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: '确认保存配置变更？',
       icon: <ExclamationCircleOutlined />,
       content: (
@@ -426,7 +432,7 @@ export default function NormalConfigPage() {
 
   // 应用推荐模板（六分比例）
   const handleApplyTemplate = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '应用推荐模板',
       icon: <ThunderboltOutlined style={{ color: '#2E7D32' }} />,
       content: (
@@ -454,7 +460,7 @@ export default function NormalConfigPage() {
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '恢复默认值',
       icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
       content: (
@@ -719,7 +725,7 @@ export default function NormalConfigPage() {
                   key={v.id}
                   version={v}
                   onRollback={() => {
-                    Modal.confirm({
+                    modal.confirm({
                       title: '确认回滚到此版本？',
                       content: '回滚将覆盖当前所有配置，此操作不可撤销',
                       okText: '确认回滚',

@@ -1,10 +1,10 @@
 import { useRef, useState, type Key } from 'react';
 import {
+  App,
   Avatar,
   Badge,
   Button,
   Card,
-  message,
   Modal,
   Space,
   Statistic,
@@ -71,6 +71,7 @@ function shortOrderId(id: string): string {
 }
 
 export default function OrderListPage() {
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
@@ -142,7 +143,7 @@ export default function OrderListPage() {
       return;
     }
 
-    Modal.info({
+    modal.info({
       title: `${title}完成`,
       width: 640,
       content: (
@@ -192,7 +193,7 @@ export default function OrderListPage() {
       return;
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: `确认批量发货 ${shippableOrders.length} 个订单？`,
       content: '批量发货会逐单执行，失败的订单会保留错误原因。',
       onOk: async () => {

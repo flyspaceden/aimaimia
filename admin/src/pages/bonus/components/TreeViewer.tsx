@@ -30,7 +30,7 @@ import {
   InputNumber,
   Result,
   Tag,
-  message,
+  App,
 } from 'antd';
 import {
   SearchOutlined,
@@ -196,6 +196,7 @@ export default function TreeViewer({
   banner,
   renderRootEntry,
 }: TreeViewerProps) {
+  const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlUserId = searchParams.get('userId');
   const urlDepth = searchParams.get('depth');

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  Button, Tag, message, Modal, Space, Switch, Input, Badge,
+  App, Button, Tag, Modal, Space, Switch, Input, Badge,
   Descriptions, Card, Row, Col, Select, Statistic, Typography, Image,
 } from 'antd';
 import {
@@ -50,6 +50,7 @@ const STAT_CARDS = [
 ];
 
 export default function ProductListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);

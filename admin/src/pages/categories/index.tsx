@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Button, message, Modal, Form, Input, Switch, Space, Tag, Popconfirm, Table, Spin, Tooltip, Select } from 'antd';
+import { App, Button, Modal, Form, Input, Switch, Space, Tag, Popconfirm, Table, Spin, Tooltip, Select } from 'antd';
 import { PlusOutlined, DeleteOutlined, ApartmentOutlined, HolderOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons';
 import { returnPolicyMap } from '@/constants/statusMaps';
 import type { ColumnsType } from 'antd/es/table';
@@ -108,6 +108,7 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function CategoriesPage() {
+  const { message } = App.useApp();
   const [flatList, setFlatList] = useState<AdminCategory[]>([]);
   const [displayRows, setDisplayRows] = useState<DisplayRow[]>([]);
   const [loading, setLoading] = useState(true);

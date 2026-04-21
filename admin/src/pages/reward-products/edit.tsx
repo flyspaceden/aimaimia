@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Spin,
@@ -13,7 +14,6 @@ import {
   Table,
   Space,
   Breadcrumb,
-  message,
   Popconfirm,
   Modal,
   Tag,
@@ -82,6 +82,7 @@ interface SkuFormValues {
 }
 
 export default function RewardProductEditPage() {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

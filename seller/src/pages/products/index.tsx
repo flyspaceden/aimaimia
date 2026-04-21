@@ -1,11 +1,11 @@
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  App,
   Avatar,
   Button,
   Card,
   Image,
-  message,
   Popconfirm,
   Space,
   Statistic,
@@ -42,6 +42,7 @@ function getTotalStock(product: Product): number {
 }
 
 export default function ProductListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);

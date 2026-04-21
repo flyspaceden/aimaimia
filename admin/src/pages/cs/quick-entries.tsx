@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, message, Tag, Space, Popconfirm,
+  Table, Button, Modal, Form, Input, App, Tag, Space, Popconfirm,
   Switch, Tabs, Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -69,6 +69,7 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function CsQuickEntriesPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<EntryType>('QUICK_ACTION');
   const [modalOpen, setModalOpen] = useState(false);

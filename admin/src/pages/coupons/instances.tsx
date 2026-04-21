@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Tag, Button, Space, Popconfirm, message } from 'antd';
+import { App, Tag, Button, Space, Popconfirm } from 'antd';
 import { RollbackOutlined } from '@ant-design/icons';
 import { getInstances, revokeInstance } from '@/api/coupon';
 import type { CouponInstance } from '@/api/coupon';
@@ -11,6 +11,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 export default function InstanceListPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
 
   // 撤回红包

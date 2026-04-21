@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, message, Popconfirm, Space } from 'antd';
+import { App, Card, Table, Tag, Button, Modal, Form, Input, Select, Popconfirm, Space } from 'antd';
 import { PlusOutlined, EditOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getStaff, inviteStaff, updateStaff, removeStaff } from '@/api/company';
@@ -9,6 +9,7 @@ import type { CompanyStaff } from '@/types';
 import dayjs from 'dayjs';
 
 export default function StaffManagementPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const isOwner = useAuthStore((s) => s.isOwner);
   const [inviteModal, setInviteModal] = useState(false);

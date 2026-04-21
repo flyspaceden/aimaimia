@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
+import { App, Card, Descriptions, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
 import { UploadOutlined, HolderOutlined } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -68,6 +68,7 @@ function SortableTagItem({ id, name, onRemove }: { id: string; name: string; onR
 }
 
 export default function CompanySettingsPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const hasRole = useAuthStore((s) => s.hasRole);
   const isOwner = useAuthStore((s) => s.isOwner);

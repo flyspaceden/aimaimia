@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  Button, Tag, message, Space, Popconfirm, Switch, Tooltip, Drawer,
+  App, Button, Tag, Space, Popconfirm, Switch, Tooltip, Drawer,
   Upload, Card, Form, Input, InputNumber, Row, Col, Typography, Result, Image,
   Avatar, Table,
 } from 'antd';
@@ -55,6 +55,7 @@ interface SkuRow {
 }
 
 export default function RewardProductsPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const navigate = useNavigate();
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  App,
   Card,
   Form,
   Input,
   Button,
-  message,
   Typography,
   Tag,
   Tabs,
@@ -97,6 +97,7 @@ const svgToDataUrl = (svg: string): string => {
 };
 
 export default function LoginPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Image, Space, message, Modal, Input, Badge, Upload } from 'antd';
+import { Tag, Image, Space, Modal, Input, Badge, Upload, App } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -28,6 +28,7 @@ const TAB_ITEMS = [
 ];
 
 export default function AfterSaleListPage() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType | null>(null);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('');
@@ -46,7 +47,7 @@ export default function AfterSaleListPage() {
   });
 
   const handleReview = async (id: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认开始审核该售后申请？',
       onOk: async () => {
         await reviewAfterSale(id);
@@ -57,7 +58,7 @@ export default function AfterSaleListPage() {
   };
 
   const handleApprove = (id: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认通过售后申请？',
       onOk: async () => {
         await approveAfterSale(id);
@@ -84,7 +85,7 @@ export default function AfterSaleListPage() {
   };
 
   const handleConfirmReceive = (id: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认已收到买家退货？',
       content: '确认收到后将进入验收环节',
       onOk: async () => {

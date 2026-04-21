@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Breadcrumb, Card, Row, Col, Statistic, Descriptions, Tabs, Tag, Avatar,
-  Button, Space, Table, Spin, Result, Empty, Modal, Input, message, Typography,
+  App, Breadcrumb, Card, Row, Col, Statistic, Descriptions, Tabs, Tag, Avatar,
+  Button, Space, Table, Spin, Result, Empty, Modal, Input, Typography,
 } from 'antd';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -37,6 +37,7 @@ const genderMap: Record<string, string> = {
 };
 
 export default function UserDetailPage() {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

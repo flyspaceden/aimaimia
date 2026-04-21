@@ -220,11 +220,13 @@ admin/                  # 管理后台前端
 - 使用 ProTable / ProForm / ProLayout 覆盖管理界面
 - `PermissionGate` 组件按权限控制 UI 显隐
 - API 客户端统一 axios 实例，自动附加 admin JWT
+- **🚫 禁止静态 `message` / `Modal.confirm` / `notification`**：`admin/src/main.tsx` 用 `<AntdApp>` 包裹整棵树，antd v5 的静态方法在此场景下会静默失效（点击无反应，toast 不弹）。**必须**在组件内通过 `const { message, modal, notification } = App.useApp();` 拿 hook 实例；`Modal.confirm(...)` → `modal.confirm(...)`；`<Modal>` JSX 组件可以正常用。反面案例：`bonus/vip-config.tsx` / `bonus/normal-config.tsx` 保存按钮无反应（2026-04-21 修复）
 
 **卖家后台：**
 - 使用 ProTable / ProForm / ProLayout 覆盖卖家管理界面（与管理后台同技术栈）
 - API 客户端统一 axios 实例，自动附加 seller JWT
 - 所有数据查询强制 `companyId` 过滤，确保多商户数据隔离
+- **🚫 同样禁止静态 `message` / `Modal.confirm` / `notification`**：`seller/src/App.tsx` 同样用了 `<AntdApp>`（cc8146e），规则同上
 
 **后端：**
 - 管理端控制器用 `@Public()` 绕过全局买家 Guard，再显式 `@UseGuards(AdminAuthGuard, PermissionGuard)`

@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Input, Space, Badge, Tabs, Form } from 'antd';
+import { App, Button, Tag, Modal, Input, Space, Badge, Tabs, Form } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { getCompanies, auditCompany, createCompany } from '@/api/companies';
 import { getMerchantApplicationPendingCount } from '@/api/merchant-applications';
@@ -18,6 +18,7 @@ type TabKey = 'all' | 'pending' | 'applications';
 const VALID_TABS: TabKey[] = ['all', 'pending', 'applications'];
 
 export default function CompanyListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [searchParams, setSearchParams] = useSearchParams();

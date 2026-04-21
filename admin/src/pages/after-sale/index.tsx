@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  Button, Tag, message, Modal, Input, Descriptions, Space, Radio,
+  App, Button, Tag, Modal, Input, Descriptions, Space, Radio,
   Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select,
 } from 'antd';
 import {
@@ -92,6 +92,7 @@ function formatReasonTag(reasonType?: string, fallbackReason?: string) {
 }
 
 export default function AfterSaleListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [arbitrateModal, setArbitrateModal] = useState<{ visible: boolean; record: AdminAfterSale | null }>({

@@ -7,9 +7,9 @@ import {
 } from '@ant-design/pro-components';
 import type { ActionType, ProColumns, ProFormInstance } from '@ant-design/pro-components';
 import {
+  App,
   Button,
   Tag,
-  message,
   Modal,
   Tabs,
   Card,
@@ -177,6 +177,7 @@ function SmartProbabilityEditor({
   items: BatchProbItem[];
   onChange: (items: BatchProbItem[]) => void;
 }) {
+  const { message } = App.useApp();
   const unlockedCount = items.filter((d) => !d.locked).length;
 
   // 切换锁定状态
@@ -532,6 +533,7 @@ function PrizeEditDrawer({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [selectedType, setSelectedType] = useState<LotteryPrizeType>(prize.type);
   const [probValue, setProbValue] = useState<number>(prize.probability);
@@ -631,6 +633,7 @@ function PrizeCreateDrawer({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { message } = App.useApp();
   const formRef = useRef<ProFormInstance>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedType, setSelectedType] = useState<LotteryPrizeType | undefined>();
@@ -756,11 +759,12 @@ function PrizeDrawerForm(props: {
 }
 
 function PrizeManagementTab() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [editModal, setEditModal] = useState<{ visible: boolean; prize: Prize | null }>({
     visible: false,
-    prize: null,
-  });
+    rize: null,
+  } as any);
   const [batchModal, setBatchModal] = useState(false);
   const [batchData, setBatchData] = useState<BatchProbItem[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);

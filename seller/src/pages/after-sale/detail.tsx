@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Tag, Image, Button, Space, message, Modal, Input, Spin, Upload } from 'antd';
+import { Card, Descriptions, Tag, Image, Button, Space, Modal, Input, Spin, Upload, App } from 'antd';
 import { ArrowLeftOutlined, PrinterOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -18,6 +18,7 @@ import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap } from '@/cons
 import dayjs from 'dayjs';
 
 export default function AfterSaleDetailPage() {
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -39,7 +40,7 @@ export default function AfterSaleDetailPage() {
   const reload = () => queryClient.invalidateQueries({ queryKey: ['after-sale', id] });
 
   const handleReview = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认开始审核该售后申请？',
       onOk: async () => {
         await reviewAfterSale(id!);
@@ -50,7 +51,7 @@ export default function AfterSaleDetailPage() {
   };
 
   const handleApprove = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认通过售后申请？',
       onOk: async () => {
         await approveAfterSale(id!);
@@ -77,7 +78,7 @@ export default function AfterSaleDetailPage() {
   };
 
   const handleConfirmReceive = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认已收到买家退货？',
       content: '确认收到后将进入验收环节',
       onOk: async () => {
@@ -145,7 +146,7 @@ export default function AfterSaleDetailPage() {
   };
 
   const handleCancelWaybill = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认取消面单？',
       content: '取消后需重新生成面单',
       onOk: async () => {

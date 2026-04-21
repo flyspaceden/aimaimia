@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Tag } from 'antd';
+import { App, Card, Table, Button, Modal, Form, Input, Space, Popconfirm, Tag } from 'antd';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -22,6 +22,7 @@ const META_KEYS = [
 ];
 
 export default function TracePage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [editModal, setEditModal] = useState(false);

@@ -2,9 +2,9 @@ import { useCallback, useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
+  App,
   Button,
   Tag,
-  message,
   Space,
   Switch,
   Image,
@@ -293,6 +293,7 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function VipGiftsPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);

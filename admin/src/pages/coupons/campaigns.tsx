@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, Progress, Space, Modal, message, Descriptions, Card, Statistic, Divider, Typography } from 'antd';
+import { App, Button, Tag, Progress, Space, Modal, Descriptions, Card, Statistic, Divider, Typography } from 'antd';
 import {
   PlusOutlined,
   EyeOutlined,
@@ -46,6 +46,7 @@ function formatDiscountRule(record: CouponCampaign): string {
 }
 
 export default function CampaignListPage() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [drawerState, setDrawerState] = useState<{
     open: boolean;
@@ -60,7 +61,7 @@ export default function CampaignListPage() {
       PAUSED: '暂停',
       ENDED: '结束',
     };
-    Modal.confirm({
+    modal.confirm({
       title: `确认${statusLabels[newStatus] || '变更'}活动？`,
       content: `活动名称：${record.name}`,
       onOk: async () => {

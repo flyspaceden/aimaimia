@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Button, message, Space, InputNumber, Input, Form,
+  App, Card, Button, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
   Breadcrumb, Select, Collapse, Switch, Row, Col,
 } from 'antd';
@@ -419,6 +419,7 @@ export default function ProductEditPage() {
 // 编辑模式：卡片式直接编辑
 // ============================================================
 function ProductEditForm({ id }: { id: string }) {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const token = useAuthStore((s) => s.token);
@@ -821,6 +822,7 @@ function ProductEditForm({ id }: { id: string }) {
 // 创建模式：单页表单（不再使用 StepsForm）
 // ============================================================
 function ProductCreateForm() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const token = useAuthStore((s) => s.token);

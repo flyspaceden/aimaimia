@@ -7,6 +7,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Form,
@@ -17,11 +18,9 @@ import {
   Drawer,
   Timeline,
   Tag,
-  Modal,
   Spin,
   Row,
   Col,
-  message,
   Tooltip,
 } from 'antd';
 import {
@@ -92,6 +91,7 @@ function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
 
 export default function ConfigPage() {
   const queryClient = useQueryClient();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
@@ -328,7 +328,7 @@ export default function ConfigPage() {
                   key={v.id}
                   version={v}
                   onRollback={() => {
-                    Modal.confirm({
+                    modal.confirm({
                       title: '确认回滚到此版本？',
                       content: '回滚将覆盖当前所有配置，此操作不可撤销',
                       okText: '确认回滚',

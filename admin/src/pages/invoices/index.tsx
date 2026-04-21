@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Form, Input, Space, Card, Row, Col, Statistic, Badge, Typography } from 'antd';
+import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Statistic, Badge, Typography } from 'antd';
 import {
   EyeOutlined,
   FileTextOutlined,
@@ -51,6 +51,7 @@ const STAT_CARDS = [
 ];
 
 export default function InvoiceListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [activeTab, setActiveTab] = useState('ALL');

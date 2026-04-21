@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { Dropdown, message } from 'antd';
+import { App, Dropdown } from 'antd';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import {
   DashboardOutlined,
@@ -70,6 +70,7 @@ const menuRoutes: ProLayoutProps['route'] = {
 };
 
 export default function SellerLayout() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const seller = useAuthStore((s) => s.seller);

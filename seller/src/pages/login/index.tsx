@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Button, message, Typography, Space, List, Tag, Alert, Tabs } from 'antd';
+import { App, Card, Form, Input, Button, Typography, Space, List, Tag, Alert, Tabs } from 'antd';
 import { MobileOutlined, SafetyCertificateOutlined, ShopOutlined, ClockCircleOutlined, LockOutlined, SafetyOutlined, ReloadOutlined } from '@ant-design/icons';
 import { sendSmsCode, login, loginByPassword, selectCompany, getMe, getCaptcha } from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
@@ -20,6 +20,7 @@ const svgToDataUrl = (svg: string): string => {
 };
 
 export default function LoginPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);

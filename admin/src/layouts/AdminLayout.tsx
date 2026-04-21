@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { Dropdown, message } from 'antd';
+import { Dropdown, App } from 'antd';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import {
   DashboardOutlined,
@@ -115,6 +115,7 @@ const menuRoutes: ProLayoutProps['route'] = {
 };
 
 export default function AdminLayout() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const admin = useAuthStore((s) => s.admin);

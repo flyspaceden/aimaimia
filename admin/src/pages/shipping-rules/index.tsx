@@ -1,7 +1,7 @@
 import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
 import { ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Space, Popconfirm, Card, InputNumber, Descriptions, Alert, Select, Badge, Row, Col, Spin, Tooltip, Typography } from 'antd';
+import { App, Button, Tag, Space, Popconfirm, Card, InputNumber, Descriptions, Alert, Select, Badge, Row, Col, Spin, Tooltip, Typography } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, WarningOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import {
   getShippingRules,
@@ -118,6 +118,7 @@ const regionsOverlap = (a: string[], b: string[]): boolean => {
 };
 
 export default function ShippingRulesPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [editModal, setEditModal] = useState<{ visible: boolean; rule: ShippingRule | null }>({
     visible: false,

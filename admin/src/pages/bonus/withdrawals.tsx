@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Popconfirm, Space, Tooltip, Typography, Modal, Input } from 'antd';
+import { Button, Tag, App, Popconfirm, Space, Tooltip, Typography, Modal, Input } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
@@ -89,6 +89,7 @@ function renderAccountInfo(record: WithdrawRequest) {
 }
 
 export default function WithdrawalListPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
 
   // 拒绝弹窗状态

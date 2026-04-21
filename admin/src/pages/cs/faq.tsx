@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import {
-  Table, Button, Modal, Form, Input, message, Tag, Space, Popconfirm,
+  Table, Button, Modal, Form, Input, App, Tag, Space, Popconfirm,
   Switch, InputNumber, Select, Card, Typography, Alert,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -17,6 +17,7 @@ const { TextArea } = Input;
 const { Text } = Typography;
 
 export default function CsFaqPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<CsFaq | null>(null);

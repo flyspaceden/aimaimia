@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Descriptions,
   Table,
@@ -13,7 +14,6 @@ import {
   Modal,
   Form,
   Input,
-  message,
 } from 'antd';
 import { ArrowLeftOutlined, FileTextOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { getInvoiceDetail, issueInvoice, failInvoice } from '@/api/invoices';
@@ -92,6 +92,7 @@ const itemColumns = [
 ];
 
 export default function InvoiceDetailPage() {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
