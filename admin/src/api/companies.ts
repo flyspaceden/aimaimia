@@ -71,7 +71,7 @@ export const resetStaffPassword = (
 /** 添加员工（MANAGER/OPERATOR） */
 export const addStaff = (
   companyId: string,
-  data: { phone: string; role: 'MANAGER' | 'OPERATOR'; password?: string },
+  data: { phone: string; role: 'MANAGER' | 'OPERATOR'; nickname?: string; password?: string },
 ): Promise<CompanyStaff> =>
   client.post(`/admin/companies/${companyId}/staff`, data);
 

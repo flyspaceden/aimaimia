@@ -465,6 +465,8 @@ export class AdminCompaniesService {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('企业不存在');
 
+    const nickname = dto.nickname?.trim() || undefined;
+
     return this.prisma.$transaction(async (tx) => {
       // 通过手机号查 User，不存在则自动创建
       let identity = await tx.authIdentity.findFirst({
@@ -474,10 +476,18 @@ export class AdminCompaniesService {
       let userId: string;
       if (identity) {
         userId = identity.userId;
+        // 仅在昵称为空或等于手机号（自动默认值）时用管理员输入的昵称覆盖，避免覆盖买家自设昵称
+        if (nickname) {
+          const profile = await tx.userProfile.findUnique({ where: { userId }, select: { nickname: true } });
+          const current = profile?.nickname?.trim();
+          if (!current || current === dto.phone) {
+            await tx.userProfile.update({ where: { userId }, data: { nickname } });
+          }
+        }
       } else {
         const newUser = await tx.user.create({
           data: {
-            profile: { create: { nickname: dto.phone } },
+            profile: { create: { nickname: nickname || dto.phone } },
             memberProfile: { create: {} },
             authIdentities: {
               create: { provider: 'PHONE', identifier: dto.phone, verified: true },

@@ -109,6 +109,12 @@ export class AdminAddStaffDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  nickname?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(6)
   @MaxLength(128)
   password?: string;

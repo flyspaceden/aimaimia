@@ -223,12 +223,13 @@ export default function CompanyDetailPage() {
   };
 
   // C40c9 添加员工
-  const handleAddStaff = async (values: { phone: string; role: 'MANAGER' | 'OPERATOR'; password?: string }) => {
+  const handleAddStaff = async (values: { phone: string; role: 'MANAGER' | 'OPERATOR'; nickname?: string; password?: string }) => {
     setAddStaffLoading(true);
     try {
       await addStaff(id!, {
         phone: values.phone.trim(),
         role: values.role,
+        nickname: values.nickname?.trim() || undefined,
         password: values.password?.trim() || undefined,
       });
       message.success('员工已添加');
@@ -910,6 +911,14 @@ export default function CompanyDetailPage() {
                 { value: 'OPERATOR', label: '运营（只能管理商品+订单）' },
               ]}
             />
+          </Form.Item>
+          <Form.Item
+            name="nickname"
+            label="昵称（可选）"
+            extra="用于员工列表显示；留空则显示手机号。若该手机号已是老用户且已设自定义昵称，将保留其原昵称"
+            rules={[{ max: 30, message: '昵称最长 30 个字符' }]}
+          >
+            <Input placeholder="如：张三 / 仓库小王" maxLength={30} />
           </Form.Item>
           <Form.Item
             name="password"
