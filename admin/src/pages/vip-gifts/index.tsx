@@ -813,7 +813,7 @@ export default function VipGiftsPage() {
         }
       >
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {[...packages].sort((a, b) => a.price - b.price).map((pkg) => (
+          {packages.map((pkg) => (
             <Card
               key={pkg.id}
               size="small"

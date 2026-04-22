@@ -343,7 +343,7 @@ export class BonusService {
   async getVipGiftOptions() {
     const packages = await this.prisma.vipPackage.findMany({
       where: { status: 'ACTIVE' },
-      orderBy: [{ sortOrder: 'asc' }, { price: 'asc' }],
+      orderBy: [{ price: 'asc' }, { sortOrder: 'asc' }],
       select: {
         id: true,
         price: true,
