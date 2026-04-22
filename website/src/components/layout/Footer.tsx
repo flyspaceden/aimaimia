@@ -15,6 +15,10 @@ export default function Footer() {
               AI赋能农业直销平台<br />
               从田间到餐桌的AI连接
             </p>
+            <p className="text-xs leading-relaxed mt-3 opacity-75">
+              地址：深圳市龙岗区平湖街道<br />
+              白坭坑社区丹农路1号5#楼5RE2070
+            </p>
           </div>
 
           {/* 产品 */}
