@@ -241,6 +241,22 @@ export class AdminCompaniesService {
     });
     if (existingStaff) throw new BadRequestException('该用户已在该企业中');
 
+    // 可选昵称：仅在昵称为空或等于手机号（自动默认值）时覆盖，保护买家已设的自定义昵称
+    const nickname = dto.nickname?.trim();
+    if (nickname) {
+      const profile = await this.prisma.userProfile.findUnique({
+        where: { userId: identity.userId },
+        select: { nickname: true },
+      });
+      const current = profile?.nickname?.trim();
+      if (!current || current === dto.phone) {
+        await this.prisma.userProfile.update({
+          where: { userId: identity.userId },
+          data: { nickname },
+        });
+      }
+    }
+
     const created = await this.prisma.companyStaff.create({
       data: {
         userId: identity.userId,
@@ -608,13 +624,26 @@ export class AdminCompaniesService {
         where: { provider: 'PHONE', identifier: dto.newOwnerPhone },
       });
 
+      const nickname = dto.nickname?.trim() || undefined;
+
       let newOwnerUserId: string;
       if (identity) {
         newOwnerUserId = identity.userId;
+        // 老用户：仅在昵称为空或等于手机号（自动默认值）时覆盖，保护买家已设的自定义昵称
+        if (nickname) {
+          const profile = await tx.userProfile.findUnique({
+            where: { userId: newOwnerUserId },
+            select: { nickname: true },
+          });
+          const current = profile?.nickname?.trim();
+          if (!current || current === dto.newOwnerPhone) {
+            await tx.userProfile.update({ where: { userId: newOwnerUserId }, data: { nickname } });
+          }
+        }
       } else {
         const newUser = await tx.user.create({
           data: {
-            profile: { create: { nickname: dto.newOwnerPhone } },
+            profile: { create: { nickname: nickname || dto.newOwnerPhone } },
             memberProfile: { create: {} },
             authIdentities: {
               create: { provider: 'PHONE', identifier: dto.newOwnerPhone, verified: true },

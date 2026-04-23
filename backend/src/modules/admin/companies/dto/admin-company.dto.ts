@@ -57,6 +57,12 @@ export class AdminVerifyDocumentDto {
 export class BindOwnerDto {
   @IsString()
   phone: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  nickname?: string;
 }
 
 // ============ AI 搜索资料（管理端） ============
@@ -137,4 +143,10 @@ export class AdminTransferOwnerDto {
 
   @IsIn(['DEMOTE_TO_MANAGER', 'REMOVE'], { message: '原创始人处理方式只支持「降级为经理」或「移除出企业」' })
   oldOwnerAction: 'DEMOTE_TO_MANAGER' | 'REMOVE';
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  nickname?: string;
 }

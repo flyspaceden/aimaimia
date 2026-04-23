@@ -53,8 +53,11 @@ export const getCompanyStaff = (companyId: string): Promise<CompanyStaff[]> =>
   client.get(`/admin/companies/${companyId}/staff`);
 
 /** 绑定企业创始人 */
-export const bindCompanyOwner = (companyId: string, phone: string): Promise<CompanyStaff> =>
-  client.post(`/admin/companies/${companyId}/bind-owner`, { phone });
+export const bindCompanyOwner = (
+  companyId: string,
+  data: { phone: string; nickname?: string },
+): Promise<CompanyStaff> =>
+  client.post(`/admin/companies/${companyId}/bind-owner`, data);
 
 /** C40c8 管理员兜底重置员工密码 */
 export const resetStaffPassword = (
@@ -96,6 +99,7 @@ export const transferOwner = (
   data: {
     newOwnerPhone: string;
     oldOwnerAction: 'DEMOTE_TO_MANAGER' | 'REMOVE';
+    nickname?: string;
   },
 ): Promise<{ ok: boolean; oldOwnerId: string; newOwnerId: string }> =>
   client.post(`/admin/companies/${companyId}/transfer-owner`, data);
