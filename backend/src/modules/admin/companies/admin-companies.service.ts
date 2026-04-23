@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto } from './dto/admin-company.dto';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { CompanyService } from '../../company/company.service';
 
@@ -719,5 +719,94 @@ export class AdminCompaniesService {
         verifyNote: dto.verifyNote,
       },
     });
+  }
+
+  // ===================== 员工昵称 / 手机号直接编辑 =====================
+
+  /** 修改员工昵称（全局生效，影响该 User 在所有企业和买家端的显示） */
+  async updateStaffNickname(companyId: string, staffId: string, dto: AdminUpdateStaffNicknameDto) {
+    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
+
+    const nickname = dto.nickname.trim();
+    if (!nickname) throw new BadRequestException('昵称不能为空');
+
+    await this.prisma.userProfile.upsert({
+      where: { userId: staff.userId },
+      create: { userId: staff.userId, nickname },
+      update: { nickname },
+    });
+
+    return this.prisma.companyStaff.findUnique({
+      where: { id: staffId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            profile: { select: { nickname: true } },
+            authIdentities: {
+              where: { provider: 'PHONE' },
+              select: { identifier: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /** 修改员工手机号（替换 AuthIdentity.identifier；用户下次用新号登录） */
+  async updateStaffPhone(companyId: string, staffId: string, dto: AdminUpdateStaffPhoneDto) {
+    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
+
+    const newPhone = dto.newPhone.trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. 获取当前 PHONE identity
+      const currentIdentity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', userId: staff.userId },
+      });
+      if (!currentIdentity) {
+        throw new BadRequestException('该员工没有手机号身份记录');
+      }
+
+      // 同号直接返回
+      if (currentIdentity.identifier === newPhone) {
+        return { ok: true, unchanged: true };
+      }
+
+      // 2. 检查新号是否已被其它用户占用
+      const conflict = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: newPhone },
+      });
+      if (conflict && conflict.userId !== staff.userId) {
+        throw new BadRequestException('该手机号已被其他用户注册');
+      }
+
+      const oldPhone = currentIdentity.identifier.trim();
+
+      // 3. 更新 AuthIdentity
+      await tx.authIdentity.update({
+        where: { id: currentIdentity.id },
+        data: { identifier: newPhone, verified: true },
+      });
+
+      // 4. 如果当前昵称 = 旧手机号（自动默认值），同步更新为新手机号避免列表错位
+      const profile = await tx.userProfile.findUnique({
+        where: { userId: staff.userId },
+        select: { nickname: true },
+      });
+      if (profile?.nickname?.trim() === oldPhone) {
+        await tx.userProfile.update({
+          where: { userId: staff.userId },
+          data: { nickname: newPhone },
+        });
+      }
+
+      return { ok: true, unchanged: false, oldPhone, newPhone };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 }

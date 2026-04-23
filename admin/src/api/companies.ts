@@ -93,6 +93,22 @@ export const removeStaff = (
 ): Promise<{ ok: boolean }> =>
   client.delete(`/admin/companies/${companyId}/staff/${staffId}`);
 
+/** 修改员工昵称（全局生效，影响该 User 在所有场景的显示） */
+export const updateStaffNickname = (
+  companyId: string,
+  staffId: string,
+  nickname: string,
+): Promise<CompanyStaff> =>
+  client.put(`/admin/companies/${companyId}/staff/${staffId}/nickname`, { nickname });
+
+/** 修改员工手机号（替换登录凭证） */
+export const updateStaffPhone = (
+  companyId: string,
+  staffId: string,
+  newPhone: string,
+): Promise<{ ok: boolean; unchanged?: boolean; oldPhone?: string; newPhone?: string }> =>
+  client.put(`/admin/companies/${companyId}/staff/${staffId}/phone`, { newPhone });
+
 /** 换 OWNER */
 export const transferOwner = (
   companyId: string,

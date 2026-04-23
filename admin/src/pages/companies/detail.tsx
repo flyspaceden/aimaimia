@@ -36,6 +36,7 @@ import {
   DownloadOutlined,
   EyeOutlined,
   FileOutlined,
+  PhoneOutlined,
 } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import {
@@ -48,6 +49,8 @@ import {
   addStaff,
   updateStaff,
   removeStaff,
+  updateStaffNickname,
+  updateStaffPhone,
   transferOwner,
   verifyDocument,
   getCompanyAiSearchProfile,
@@ -122,6 +125,13 @@ export default function CompanyDetailPage() {
   const [transferOwnerForm] = Form.useForm();
   const [transferOwnerLoading, setTransferOwnerLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ url: string; title: string } | null>(null);
+  // 修改昵称 / 修改手机号
+  const [editNicknameTarget, setEditNicknameTarget] = useState<CompanyStaff | null>(null);
+  const [editNicknameForm] = Form.useForm();
+  const [editNicknameLoading, setEditNicknameLoading] = useState(false);
+  const [editPhoneTarget, setEditPhoneTarget] = useState<CompanyStaff | null>(null);
+  const [editPhoneForm] = Form.useForm();
+  const [editPhoneLoading, setEditPhoneLoading] = useState(false);
 
   const {
     data: company,
@@ -289,6 +299,44 @@ export default function CompanyDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '移除失败');
+    }
+  };
+
+  // 直接修改员工昵称
+  const handleEditNickname = async (values: { nickname: string }) => {
+    if (!editNicknameTarget) return;
+    setEditNicknameLoading(true);
+    try {
+      await updateStaffNickname(id!, editNicknameTarget.id, values.nickname.trim());
+      message.success('昵称已更新');
+      setEditNicknameTarget(null);
+      editNicknameForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setEditNicknameLoading(false);
+    }
+  };
+
+  // 直接修改员工手机号
+  const handleEditPhone = async (values: { newPhone: string }) => {
+    if (!editPhoneTarget) return;
+    setEditPhoneLoading(true);
+    try {
+      const res = await updateStaffPhone(id!, editPhoneTarget.id, values.newPhone.trim());
+      if (res.unchanged) {
+        message.info('新手机号与当前一致，未做更改');
+      } else {
+        message.success('手机号已更新，该员工下次登录请使用新号');
+      }
+      setEditPhoneTarget(null);
+      editPhoneForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'company-staff', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setEditPhoneLoading(false);
     }
   };
 
@@ -466,7 +514,23 @@ export default function CompanyDetailPage() {
       render: (_: unknown, r: CompanyStaff) => {
         const nickname = r.user?.profile?.nickname || '-';
         const phone = r.user?.authIdentities?.[0]?.identifier || '';
-        return `${nickname}${phone ? ` (${phone})` : ''}`;
+        return (
+          <Space size={4}>
+            <span>{nickname}</span>
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              title="修改昵称"
+              onClick={() => {
+                setEditNicknameTarget(r);
+                editNicknameForm.setFieldsValue({ nickname: nickname === '-' ? '' : nickname });
+              }}
+              style={{ color: '#8c8c8c' }}
+            />
+            {phone && <span style={{ color: '#8c8c8c' }}>({phone})</span>}
+          </Space>
+        );
       },
     },
     {
@@ -497,7 +561,7 @@ export default function CompanyDetailPage() {
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 380,
       render: (_: unknown, record: CompanyStaff) => (
         <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
           <Space size="small" wrap>
@@ -512,6 +576,19 @@ export default function CompanyDetailPage() {
               }}
             >
               重置密码
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<PhoneOutlined />}
+              onClick={() => {
+                setEditPhoneTarget(record);
+                editPhoneForm.setFieldsValue({
+                  newPhone: record.user?.authIdentities?.[0]?.identifier || '',
+                });
+              }}
+            >
+              修改手机号
             </Button>
             {record.role !== 'OWNER' && (
               <>
@@ -1159,6 +1236,67 @@ export default function CompanyDetailPage() {
           value={verifyNote}
           onChange={(e) => setVerifyNote(e.target.value)}
         />
+      </Modal>
+
+      {/* 修改昵称弹窗 */}
+      <Modal
+        title="修改昵称"
+        open={!!editNicknameTarget}
+        onCancel={() => { setEditNicknameTarget(null); editNicknameForm.resetFields(); }}
+        onOk={() => editNicknameForm.submit()}
+        confirmLoading={editNicknameLoading}
+        okText="保存"
+        destroyOnClose
+      >
+        <Form form={editNicknameForm} onFinish={handleEditNickname} layout="vertical">
+          <Form.Item
+            name="nickname"
+            label="昵称"
+            extra="此昵称会影响该用户在买家 App 和其他企业的显示"
+            rules={[
+              { required: true, message: '请输入昵称' },
+              {
+                validator: (_, value) =>
+                  value && value.trim()
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('昵称不能只包含空格')),
+              },
+              { max: 30, message: '昵称最长 30 个字符' },
+            ]}
+          >
+            <Input placeholder="如：张三 / 仓库小王" maxLength={30} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 修改手机号弹窗 */}
+      <Modal
+        title="修改手机号"
+        open={!!editPhoneTarget}
+        onCancel={() => { setEditPhoneTarget(null); editPhoneForm.resetFields(); }}
+        onOk={() => editPhoneForm.submit()}
+        confirmLoading={editPhoneLoading}
+        okText="保存"
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="修改后该员工需使用新手机号登录（当前活跃会话不受影响）"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={editPhoneForm} onFinish={handleEditPhone} layout="vertical">
+          <Form.Item
+            name="newPhone"
+            label="新手机号"
+            rules={[
+              { required: true, message: '请输入新手机号' },
+              { pattern: /^1\d{10}$/, message: '请输入正确的 11 位手机号' },
+            ]}
+          >
+            <Input placeholder="新手机号" maxLength={11} />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* 文件预览 / 下载弹窗 */}

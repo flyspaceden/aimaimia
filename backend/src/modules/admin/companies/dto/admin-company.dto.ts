@@ -150,3 +150,18 @@ export class AdminTransferOwnerDto {
   @MaxLength(30)
   nickname?: string;
 }
+
+// 管理员直接修改员工昵称（对应员工列表「用户」列后的 ✏️）
+export class AdminUpdateStaffNicknameDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  nickname: string;
+}
+
+// 管理员直接修改员工手机号（对应员工列表「操作」列的「修改手机号」按钮）
+export class AdminUpdateStaffPhoneDto {
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '请输入正确的 11 位手机号' })
+  newPhone: string;
+}

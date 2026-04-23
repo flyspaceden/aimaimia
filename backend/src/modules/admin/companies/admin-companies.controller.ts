@@ -11,7 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminCompaniesService } from './admin-companies.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto } from './dto/admin-company.dto';
 import { SetCompanyTagsDto } from '../tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
@@ -188,6 +188,42 @@ export class AdminCompaniesController {
     @Body() dto: AdminTransferOwnerDto,
   ) {
     return this.companiesService.transferOwner(id, dto);
+  }
+
+  /** 直接修改员工昵称（全局生效） */
+  @Put(':id/staff/:staffId/nickname')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    targetIdParam: 'params.staffId',
+    isReversible: false,
+  })
+  updateStaffNickname(
+    @Param('id') id: string,
+    @Param('staffId') staffId: string,
+    @Body() dto: AdminUpdateStaffNicknameDto,
+  ) {
+    return this.companiesService.updateStaffNickname(id, staffId, dto);
+  }
+
+  /** 直接修改员工手机号（替换 AuthIdentity.identifier） */
+  @Put(':id/staff/:staffId/phone')
+  @RequirePermission('companies:update')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'companies',
+    targetType: 'CompanyStaff',
+    targetIdParam: 'params.staffId',
+    isReversible: false,
+  })
+  updateStaffPhone(
+    @Param('id') id: string,
+    @Param('staffId') staffId: string,
+    @Body() dto: AdminUpdateStaffPhoneDto,
+  ) {
+    return this.companiesService.updateStaffPhone(id, staffId, dto);
   }
 
   // ===================== AI 搜索资料 =====================
