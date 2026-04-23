@@ -356,6 +356,13 @@
   - 测试环境 ✅: `aimaimai-api-test` PM2 进程在线（端口 3001），数据库 `testaimaimai`，env 配置完成，prisma migrate deploy 完成
   - 生产环境 ❌: `aimaimai-api-prod` 未启动（api.ai-maimai.com 当前 502），生产数据库 `aimaimai` 已建库但未初始化，待 staging 测试通过后部署
   - 状态: 🟡 部分完成 | 测试日期: 2026-04-18
+  - ⚠️ **部署生产 backend 后必做**（2026-04-22 过渡方案收尾）:
+    - [ ] 合并 `staging` → `main`（把 1818 行 backend 改动一次性上）
+    - [ ] 服务器上首次 `pm2 start aimaimai-api-prod` + `pm2 save`（按 `docs/operations/阿里云部署.md` Step 9）
+    - [ ] 还原 `.github/workflows/deploy-website.yml` 里 `VITE_API_BASE_URL` 的硬编码，改回 `${{ needs.detect-changes.outputs.api_base }}`（文件顶部有 TODO 注释指示）
+    - [ ] Actions → Run workflow → `main` + `deploy_target: website` 手动触发一次 website 重建
+    - [ ] 改支付宝 / 顺丰回调地址到生产域名
+    - [ ] 公网网站过渡期落到测试库的商户入驻申请数据处理（人工迁移 or 清理）
 
 - [ ] **C41** — 部署管理后台（npm run build + Nginx 静态）
   - 测试环境 ✅: test-admin.ai-maimai.com 在线，bundle 正确连 test-api
