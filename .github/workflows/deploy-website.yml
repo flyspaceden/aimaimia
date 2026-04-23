@@ -40,7 +40,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # fetch-depth: 0 拉完整历史，保证 diff 能覆盖任意 push 范围
+          # （之前 fetch-depth: 2 在「一次 push 多 commit」时会漏识别中间 commit 的改动）
+          fetch-depth: 0
 
       - name: Detect changed paths
         id: changes
@@ -53,7 +55,14 @@ jobs:
             [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ] && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "huahai" ]  && echo "huahai=true"  >> $GITHUB_OUTPUT || echo "huahai=false"  >> $GITHUB_OUTPUT
           else
-            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            # diff 本次 push 的完整范围（before..after），覆盖一次推多 commit 的情况
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              # 首次 push 到新分支，before 是全零，降级为只看最新 commit
+              CHANGED=$(git show --name-only --pretty=format: HEAD)
+            else
+              CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
+            fi
             echo "$CHANGED" | grep -q '^website/' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^admin/'   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^seller/'  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
