@@ -207,6 +207,19 @@ admin/                  # 管理后台前端
    - 新增 API 端点在对应前端 Repo 中有调用方法
    - 文档（plan.md / docs/architecture/data-system.md / docs/issues/tofix-safe.md 等）与代码实际状态同步
 
+10. **推送 GitHub 前必须向用户确认 + 保持版本可回退**：
+    - **不自动推送**：代码改完可以先本地 commit，但 `git push` 必须先向用户复述改动内容 + 询问是否推送。用户明确说"推 / push / 上测试 / 上生产"才执行
+    - **App（`app/` 下）OTA 同样要先问**：push 只触发 GitHub Actions（workflow 中没有 app 部署，见 `.github/workflows/deploy-website.yml`），买家 App 上线必须走 EAS，是否发 OTA 由用户决定
+    - **版本回退友好**：
+      - 一个逻辑改动一个 commit，禁止把不相关改动塞一起（线上出事才能只 revert 一项）
+      - commit message 沿用 `type(scope): 描述` 风格（如 `fix(admin/companies): xxx`）方便日后定位
+      - 推 `main` 前主动告诉用户回滚路径（`git revert <SHA> && git push`）
+      - **破坏性改动醒目提醒**：数据库 migration（`backend/prisma/migrations/` —— 注意 workflow 里 backend 部署会自动跑 `prisma migrate deploy`，回滚需手写反向 SQL）、删字段、改枚举值、改利润公式等，推送前必须用显著提示告知用户"此改动回滚需额外步骤"，不能只说一句 push 了
+    - **具体操作规则不在此重复**，以下文件为真相源：
+      - `.github/workflows/deploy-website.yml` — 分支路由、触发路径、部署产物、migrate deploy 时机
+      - `docs/operations/github操作.md` — 双分支发布流程、紧急场景
+      - `docs/operations/版本管理.md` — App 三阶段发布 + OTA
+
 ### 代码约定
 
 **买家 App：**
