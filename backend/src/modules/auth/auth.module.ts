@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { OtpCleanupService } from './otp-cleanup.service';
 import { CouponModule } from '../coupon/coupon.module';
+import { CaptchaModule } from '../captcha/captcha.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CouponModule } from '../coupon/coupon.module';
       }),
     }),
     CouponModule,
+    CaptchaModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, OtpCleanupService],

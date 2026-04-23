@@ -1,10 +1,12 @@
 import { Controller, Post, Body, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SendSmsCodeDto, WeChatOAuthDto } from './dto/send-code.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -30,6 +32,24 @@ export class AuthController {
   @Post('sms/code')
   sendSmsCode(@Body() dto: SendSmsCodeDto) {
     return this.authService.sendSmsCode(dto.phone);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('forgot-password/send-code')
+  sendForgotPasswordCode(@Body() dto: SendForgotPasswordCodeDto) {
+    return this.authService.sendForgotPasswordCode(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('forgot-password/reset')
+  resetForgotPassword(@Body() dto: ResetForgotPasswordDto, @Req() req: Request) {
+    return this.authService.resetForgotPassword(
+      dto,
+      req.ip,
+      req.headers['user-agent'] as string | undefined,
+    );
   }
 
   @Public()

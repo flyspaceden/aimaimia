@@ -36,7 +36,9 @@ enum AuthProvider {
 enum SmsPurpose {
   LOGIN
   BIND
-  RESET
+  RESET          // 保留占位，当前代码未使用
+  BUYER_RESET    // 买家 App 忘记密码专用 scope
+  SELLER_RESET   // 卖家后台忘记密码专用 scope
 }
 
 enum SessionStatus {
