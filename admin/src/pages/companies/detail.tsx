@@ -418,20 +418,20 @@ export default function CompanyDetailPage() {
       title: '文件',
       dataIndex: 'fileUrl',
       key: 'fileUrl',
-      width: 120,
+      width: 80,
       render: (url: string, record: CompanyDocument) => {
         if (!url) return '-';
         return (
           <a
             onClick={() => setPreviewFile({ url, title: record.title })}
-            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="点击预览 / 下载"
+            style={{ cursor: 'pointer', display: 'inline-block' }}
           >
             {isImageFile(url) ? (
               <img src={url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
             ) : (
-              <FileOutlined style={{ fontSize: 20 }} />
+              <FileOutlined style={{ fontSize: 32, color: '#1677ff' }} />
             )}
-            预览 / 下载
           </a>
         );
       },
