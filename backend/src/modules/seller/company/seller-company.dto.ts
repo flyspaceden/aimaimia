@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsMobilePhone, IsObject, IsDateString, IsIn, MinLength, MaxLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsMobilePhone, IsObject, IsDateString, IsIn, MinLength, MaxLength, Matches } from 'class-validator';
 import { CompanyStaffRole, DocumentType } from '@prisma/client';
 
 /** 更新企业信息 */
@@ -63,6 +63,29 @@ export class UpdateStaffDto {
   @IsOptional()
   @IsString()
   status?: 'ACTIVE' | 'DISABLED';
+}
+
+/** OWNER 修改员工昵称 */
+export class UpdateStaffNicknameDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  nickname: string;
+}
+
+/** OWNER 修改员工手机号 */
+export class UpdateStaffPhoneDto {
+  @IsString()
+  @Matches(/^1\d{10}$/, { message: '请输入正确的 11 位手机号' })
+  newPhone: string;
+}
+
+/** OWNER 重置员工密码 */
+export class ResetStaffPasswordDto {
+  @IsString()
+  @MinLength(6)
+  @MaxLength(128)
+  newPassword: string;
 }
 
 /** 更新企业亮点 DTO（H15: 替换内联 { highlights: any }） */

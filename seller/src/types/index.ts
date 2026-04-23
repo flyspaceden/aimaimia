@@ -269,6 +269,7 @@ export interface CompanyStaff {
   joinedAt: string;
   user: {
     profile?: { nickname?: string; avatarUrl?: string };
+    authIdentities?: { identifier: string }[];
   };
 }
 

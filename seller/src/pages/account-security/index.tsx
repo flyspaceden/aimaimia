@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { App, Card, Tabs, Form, Input, Button, Typography, Space, Alert } from 'antd';
-import { LockOutlined, MobileOutlined, MessageOutlined } from '@ant-design/icons';
+import { LockOutlined, MobileOutlined, MessageOutlined, UserOutlined } from '@ant-design/icons';
 import {
   changePassword,
   sendSmsCode,
   sendBindPhoneSmsCode,
   changePhone,
+  changeNickname,
 } from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
 
@@ -34,12 +35,15 @@ export default function AccountSecurityPage() {
   const navigate = useNavigate();
   const seller = useAuthStore((s) => s.seller);
   const clearAuth = useAuthStore((s) => s.clearAuth);
+  const setSellerNickname = useAuthStore((s) => s.setSellerNickname);
 
   const [pwdForm] = Form.useForm<ChangePasswordForm>();
   const [phoneForm] = Form.useForm<ChangePhoneForm>();
+  const [nicknameForm] = Form.useForm<{ nickname: string }>();
 
   const [pwdSaving, setPwdSaving] = useState(false);
   const [phoneSaving, setPhoneSaving] = useState(false);
+  const [nicknameSaving, setNicknameSaving] = useState(false);
 
   const [oldCountdown, setOldCountdown] = useState(0);
   const [newCountdown, setNewCountdown] = useState(0);
@@ -138,6 +142,20 @@ export default function AccountSecurityPage() {
       message.error(err?.response?.data?.message || err?.message || '修改失败');
     } finally {
       setPhoneSaving(false);
+    }
+  };
+
+  const handleChangeNickname = async (values: { nickname: string }) => {
+    setNicknameSaving(true);
+    try {
+      const res = await changeNickname(values.nickname.trim());
+      setSellerNickname(res.nickname);
+      message.success('昵称已更新');
+      nicknameForm.setFieldsValue({ nickname: res.nickname });
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || err?.message || '修改失败');
+    } finally {
+      setNicknameSaving(false);
     }
   };
 
@@ -295,6 +313,54 @@ export default function AccountSecurityPage() {
                     </Form.Item>
                     <Form.Item>
                       <Button type="primary" htmlType="submit" loading={phoneSaving} block>
+                        确认修改
+                      </Button>
+                    </Form.Item>
+                  </Form>
+                </>
+              ),
+            },
+            {
+              key: 'nickname',
+              label: '修改昵称',
+              children: (
+                <>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="昵称会同步显示在您名下所有企业的员工列表和买家端"
+                    style={{ marginBottom: 16 }}
+                  />
+                  <div style={{ marginBottom: 16 }}>
+                    <Text type="secondary">当前昵称：</Text>
+                    <Text strong>{seller?.user?.nickname || '未设置'}</Text>
+                  </div>
+                  <Form<{ nickname: string }>
+                    form={nicknameForm}
+                    layout="vertical"
+                    size="large"
+                    autoComplete="off"
+                    initialValues={{ nickname: seller?.user?.nickname || '' }}
+                    onFinish={handleChangeNickname}
+                  >
+                    <Form.Item
+                      name="nickname"
+                      label="新昵称"
+                      rules={[
+                        { required: true, message: '请输入昵称' },
+                        {
+                          validator: (_, value) =>
+                            value && value.trim()
+                              ? Promise.resolve()
+                              : Promise.reject(new Error('昵称不能只包含空格')),
+                        },
+                        { max: 30, message: '昵称最长 30 个字符' },
+                      ]}
+                    >
+                      <Input prefix={<UserOutlined />} placeholder="如：张三 / 王总" maxLength={30} />
+                    </Form.Item>
+                    <Form.Item>
+                      <Button type="primary" htmlType="submit" loading={nicknameSaving} block>
                         确认修改
                       </Button>
                     </Form.Item>

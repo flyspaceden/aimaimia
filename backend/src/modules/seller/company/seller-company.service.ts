@@ -8,8 +8,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { randomInt } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, AI_SEARCH_KEYS } from './seller-company.dto';
+import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, UpdateStaffNicknameDto, UpdateStaffPhoneDto, ResetStaffPasswordDto, AI_SEARCH_KEYS } from './seller-company.dto';
 import { maskName, maskPhone } from '../../../common/security/privacy-mask';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import { CompanyService } from '../../company/company.service';
@@ -232,7 +233,16 @@ export class SellerCompanyService {
     return this.prisma.companyStaff.findMany({
       where: { companyId },
       include: {
-        user: { include: { profile: { select: { nickname: true, avatarUrl: true } } } },
+        user: {
+          include: {
+            profile: { select: { nickname: true, avatarUrl: true } },
+            authIdentities: {
+              where: { provider: 'PHONE' },
+              select: { identifier: true },
+              take: 1,
+            },
+          },
+        },
       },
       orderBy: { joinedAt: 'asc' },
     });
@@ -381,6 +391,99 @@ export class SellerCompanyService {
       });
 
       await tx.companyStaff.delete({ where: { id: staffId } });
+    });
+
+    return { ok: true };
+  }
+
+  // ===================== OWNER 管理员工的昵称 / 手机号 / 密码 =====================
+
+  /** 校验 staff 存在、属于本企业、非 OWNER（这三个操作均不适用于 OWNER） */
+  private async assertStaffEditable(companyId: string, staffId: string) {
+    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) throw new ForbiddenException('无权操作');
+    if (staff.role === 'OWNER') {
+      throw new BadRequestException('创始人请通过账号安全页面自行修改');
+    }
+    return staff;
+  }
+
+  /** OWNER 修改员工昵称（全局生效） */
+  async updateStaffNickname(companyId: string, staffId: string, dto: UpdateStaffNicknameDto) {
+    const staff = await this.assertStaffEditable(companyId, staffId);
+    const nickname = dto.nickname.trim();
+    if (!nickname) throw new BadRequestException('昵称不能为空');
+
+    await this.prisma.userProfile.upsert({
+      where: { userId: staff.userId },
+      create: { userId: staff.userId, nickname },
+      update: { nickname },
+    });
+    return { ok: true, nickname };
+  }
+
+  /** OWNER 修改员工手机号（替换 AuthIdentity.identifier，下次登录用新号） */
+  async updateStaffPhone(companyId: string, staffId: string, dto: UpdateStaffPhoneDto) {
+    const staff = await this.assertStaffEditable(companyId, staffId);
+    const newPhone = dto.newPhone.trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      const currentIdentity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', userId: staff.userId },
+      });
+      if (!currentIdentity) {
+        throw new BadRequestException('该员工没有手机号身份记录');
+      }
+
+      if (currentIdentity.identifier === newPhone) {
+        return { ok: true, unchanged: true };
+      }
+
+      const conflict = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: newPhone },
+      });
+      if (conflict && conflict.userId !== staff.userId) {
+        throw new BadRequestException('该手机号已被其他用户注册');
+      }
+
+      const oldPhone = currentIdentity.identifier.trim();
+
+      await tx.authIdentity.update({
+        where: { id: currentIdentity.id },
+        data: { identifier: newPhone, verified: true },
+      });
+
+      // 如果当前昵称 = 旧手机号（自动默认值），同步更新避免列表错位
+      const profile = await tx.userProfile.findUnique({
+        where: { userId: staff.userId },
+        select: { nickname: true },
+      });
+      if (profile?.nickname?.trim() === oldPhone) {
+        await tx.userProfile.update({
+          where: { userId: staff.userId },
+          data: { nickname: newPhone },
+        });
+      }
+
+      return { ok: true, unchanged: false, oldPhone, newPhone };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  /** OWNER 重置员工密码（bcrypt + 失效所有活跃 session） */
+  async resetStaffPassword(companyId: string, staffId: string, dto: ResetStaffPasswordDto) {
+    const staff = await this.assertStaffEditable(companyId, staffId);
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyStaff.update({
+        where: { id: staff.id },
+        data: { passwordHash },
+      });
+      await tx.sellerSession.updateMany({
+        where: { staffId: staff.id, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
     });
 
     return { ok: true };

@@ -1,8 +1,16 @@
 import { useState } from 'react';
-import { App, Card, Table, Tag, Button, Modal, Form, Input, Select, Popconfirm, Space } from 'antd';
-import { PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { App, Card, Table, Tag, Button, Modal, Form, Input, Select, Popconfirm, Space, Alert } from 'antd';
+import { PlusOutlined, EditOutlined, KeyOutlined, PhoneOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getStaff, inviteStaff, updateStaff, removeStaff } from '@/api/company';
+import {
+  getStaff,
+  inviteStaff,
+  updateStaff,
+  removeStaff,
+  updateStaffNickname,
+  updateStaffPhone,
+  resetStaffPassword,
+} from '@/api/company';
 import { staffRoleMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import type { CompanyStaff } from '@/types';
@@ -18,6 +26,16 @@ export default function StaffManagementPage() {
   const [editRoleModal, setEditRoleModal] = useState(false);
   const [editRoleTarget, setEditRoleTarget] = useState<CompanyStaff | null>(null);
   const [editRoleForm] = Form.useForm();
+  // 修改昵称 / 手机号 / 重置密码
+  const [editNicknameTarget, setEditNicknameTarget] = useState<CompanyStaff | null>(null);
+  const [editNicknameForm] = Form.useForm<{ nickname: string }>();
+  const [editNicknameLoading, setEditNicknameLoading] = useState(false);
+  const [editPhoneTarget, setEditPhoneTarget] = useState<CompanyStaff | null>(null);
+  const [editPhoneForm] = Form.useForm<{ newPhone: string }>();
+  const [editPhoneLoading, setEditPhoneLoading] = useState(false);
+  const [resetPwdTarget, setResetPwdTarget] = useState<CompanyStaff | null>(null);
+  const [resetPwdForm] = Form.useForm<{ newPassword: string; confirmPassword: string }>();
+  const [resetPwdLoading, setResetPwdLoading] = useState(false);
 
   const { data: staffList, isLoading } = useQuery({
     queryKey: ['seller-staff'],
@@ -77,10 +95,89 @@ export default function StaffManagementPage() {
     }
   };
 
+  const handleEditNickname = async (values: { nickname: string }) => {
+    if (!editNicknameTarget) return;
+    setEditNicknameLoading(true);
+    try {
+      await updateStaffNickname(editNicknameTarget.id, values.nickname.trim());
+      message.success('昵称已更新');
+      setEditNicknameTarget(null);
+      editNicknameForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['seller-staff'] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setEditNicknameLoading(false);
+    }
+  };
+
+  const handleEditPhone = async (values: { newPhone: string }) => {
+    if (!editPhoneTarget) return;
+    setEditPhoneLoading(true);
+    try {
+      const res = await updateStaffPhone(editPhoneTarget.id, values.newPhone.trim());
+      if (res.unchanged) {
+        message.info('新手机号与当前一致，未做更改');
+      } else {
+        message.success('手机号已更新，该员工下次登录请使用新号');
+      }
+      setEditPhoneTarget(null);
+      editPhoneForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['seller-staff'] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setEditPhoneLoading(false);
+    }
+  };
+
+  const handleResetPwd = async (values: { newPassword: string; confirmPassword: string }) => {
+    if (!resetPwdTarget) return;
+    if (values.newPassword !== values.confirmPassword) {
+      message.warning('两次新密码输入不一致');
+      return;
+    }
+    setResetPwdLoading(true);
+    try {
+      await resetStaffPassword(resetPwdTarget.id, values.newPassword);
+      message.success('密码已重置，该员工需用新密码重新登录');
+      setResetPwdTarget(null);
+      resetPwdForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['seller-staff'] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '重置失败');
+    } finally {
+      setResetPwdLoading(false);
+    }
+  };
+
   const columns = [
     {
       title: '员工',
-      render: (_: unknown, r: CompanyStaff) => r.user.profile?.nickname || '-',
+      render: (_: unknown, r: CompanyStaff) => {
+        const nickname = r.user.profile?.nickname || '-';
+        const phone = r.user?.authIdentities?.[0]?.identifier || '';
+        // OWNER 自己的昵称在「账号安全」页面改，这里只对非 OWNER 显示铅笔
+        return (
+          <Space size={4}>
+            <span>{nickname}</span>
+            {isOwner() && r.role !== 'OWNER' && (
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                title="修改昵称"
+                onClick={() => {
+                  setEditNicknameTarget(r);
+                  editNicknameForm.setFieldsValue({ nickname: nickname === '-' ? '' : nickname });
+                }}
+                style={{ color: '#8c8c8c' }}
+              />
+            )}
+            {phone && <span style={{ color: '#8c8c8c' }}>({phone})</span>}
+          </Space>
+        );
+      },
     },
     {
       title: '角色',
@@ -123,6 +220,30 @@ export default function StaffManagementPage() {
                     }}
                   >
                     改角色
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<PhoneOutlined />}
+                    onClick={() => {
+                      setEditPhoneTarget(r);
+                      editPhoneForm.setFieldsValue({
+                        newPhone: r.user?.authIdentities?.[0]?.identifier || '',
+                      });
+                    }}
+                  >
+                    修改手机号
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<KeyOutlined />}
+                    onClick={() => {
+                      setResetPwdTarget(r);
+                      resetPwdForm.resetFields();
+                    }}
+                  >
+                    重置密码
                   </Button>
                   <Button type="link" size="small" onClick={() => handleToggleStatus(r)}>
                     {r.status === 'ACTIVE' ? '禁用' : '启用'}
@@ -217,6 +338,115 @@ export default function StaffManagementPage() {
                 { value: 'OPERATOR', label: '运营（只能管理商品+订单）' },
               ]}
             />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 修改员工昵称 */}
+      <Modal
+        title={`修改昵称: ${editNicknameTarget?.user?.profile?.nickname || '员工'}`}
+        open={!!editNicknameTarget}
+        onCancel={() => { setEditNicknameTarget(null); editNicknameForm.resetFields(); }}
+        onOk={() => editNicknameForm.submit()}
+        confirmLoading={editNicknameLoading}
+        okText="保存"
+        destroyOnClose
+      >
+        <Form form={editNicknameForm} onFinish={handleEditNickname} layout="vertical">
+          <Form.Item
+            name="nickname"
+            label="昵称"
+            extra="此昵称会同步影响该员工在买家 App 和其他企业的显示"
+            rules={[
+              { required: true, message: '请输入昵称' },
+              {
+                validator: (_, value) =>
+                  value && value.trim()
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('昵称不能只包含空格')),
+              },
+              { max: 30, message: '昵称最长 30 个字符' },
+            ]}
+          >
+            <Input placeholder="如：张三 / 仓库小王" maxLength={30} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 修改员工手机号 */}
+      <Modal
+        title={`修改手机号: ${editPhoneTarget?.user?.profile?.nickname || '员工'}`}
+        open={!!editPhoneTarget}
+        onCancel={() => { setEditPhoneTarget(null); editPhoneForm.resetFields(); }}
+        onOk={() => editPhoneForm.submit()}
+        confirmLoading={editPhoneLoading}
+        okText="保存"
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="修改后该员工需使用新手机号登录（当前活跃会话不受影响）"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={editPhoneForm} onFinish={handleEditPhone} layout="vertical">
+          <Form.Item
+            name="newPhone"
+            label="新手机号"
+            rules={[
+              { required: true, message: '请输入新手机号' },
+              { pattern: /^1\d{10}$/, message: '请输入正确的 11 位手机号' },
+            ]}
+          >
+            <Input placeholder="新手机号" maxLength={11} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 重置员工密码 */}
+      <Modal
+        title={`重置密码: ${resetPwdTarget?.user?.profile?.nickname || '员工'}`}
+        open={!!resetPwdTarget}
+        onCancel={() => { setResetPwdTarget(null); resetPwdForm.resetFields(); }}
+        onOk={() => resetPwdForm.submit()}
+        confirmLoading={resetPwdLoading}
+        okText="重置"
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="重置后该员工所有活跃设备会被强制登出，必须用新密码重新登录"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={resetPwdForm} onFinish={handleResetPwd} layout="vertical">
+          <Form.Item
+            name="newPassword"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, max: 128, message: '密码长度 6-128 位' },
+            ]}
+          >
+            <Input.Password placeholder="至少 6 位" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirmPassword"
+            label="确认新密码"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('newPassword') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('两次输入的密码不一致'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="再次输入新密码" autoComplete="new-password" />
           </Form.Item>
         </Form>
       </Modal>

@@ -13,7 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SellerLoginDto, SellerPasswordLoginDto, SellerSelectCompanyDto, SellerRefreshDto, SellerSmsCodeDto, SellerChangePasswordDto, SellerBindPhoneSmsCodeDto, SellerChangePhoneDto } from './seller-auth.dto';
+import { SellerLoginDto, SellerPasswordLoginDto, SellerSelectCompanyDto, SellerRefreshDto, SellerSmsCodeDto, SellerChangePasswordDto, SellerBindPhoneSmsCodeDto, SellerChangePhoneDto, SellerChangeNicknameDto } from './seller-auth.dto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { CaptchaService } from '../../captcha/captcha.service';
 import { SellerJwtPayload } from './seller-jwt.strategy';
@@ -768,5 +768,19 @@ export class SellerAuthService {
 
   private hashRateKey(value: string): string {
     return createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex').slice(0, 24);
+  }
+
+  /** 自助修改昵称（影响该 User 在所有企业 staff 身份 + 买家端的显示） */
+  async changeNickname(userId: string, dto: SellerChangeNicknameDto) {
+    const nickname = dto.nickname.trim();
+    if (!nickname) {
+      throw new BadRequestException('昵称不能为空');
+    }
+    await this.prisma.userProfile.upsert({
+      where: { userId },
+      create: { userId, nickname },
+      update: { nickname },
+    });
+    return { ok: true, nickname };
   }
 }

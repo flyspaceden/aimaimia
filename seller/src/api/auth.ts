@@ -62,3 +62,7 @@ export const changePhone = (data: {
   newPhoneCode: string;
 }): Promise<{ ok: boolean }> =>
   client.post('/seller/auth/change-phone', data);
+
+/** 修改昵称（自助，无需 SMS；影响该 User 在所有企业 staff 和买家端的显示） */
+export const changeNickname = (nickname: string): Promise<{ ok: boolean; nickname: string }> =>
+  client.post('/seller/auth/change-nickname', { nickname });

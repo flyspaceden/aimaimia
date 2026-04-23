@@ -96,3 +96,11 @@ export class SellerChangePhoneDto {
   @Length(4, 8)
   newPhoneCode: string;
 }
+
+/** 账号安全：自助修改昵称 */
+export class SellerChangeNicknameDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  nickname: string;
+}

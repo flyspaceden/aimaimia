@@ -11,6 +11,7 @@ import {
   SellerChangePasswordDto,
   SellerBindPhoneSmsCodeDto,
   SellerChangePhoneDto,
+  SellerChangeNicknameDto,
 } from './seller-auth.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
@@ -123,5 +124,17 @@ export class SellerAuthController {
     @Body() dto: SellerChangePhoneDto,
   ) {
     return this.authService.changePhone(staffId, userId, dto);
+  }
+
+  /** 自助修改昵称（不需要 SMS，直接更新 UserProfile.nickname） */
+  @Public()
+  @UseGuards(SellerAuthGuard)
+  @Throttle({ default: { ttl: 60000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @Post('change-nickname')
+  changeNickname(
+    @CurrentSeller('userId') userId: string,
+    @Body() dto: SellerChangeNicknameDto,
+  ) {
+    return this.authService.changeNickname(userId, dto);
   }
 }
