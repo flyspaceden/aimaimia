@@ -33,6 +33,9 @@ import {
   KeyOutlined,
   SwapOutlined,
   PlusOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  FileOutlined,
 } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import {
@@ -76,6 +79,16 @@ const staffRoleMap: Record<string, { text: string; color: string }> = {
   OPERATOR: { text: '运营', color: 'default' },
 };
 
+// 文件类型判断（基于 URL 扩展名，忽略 query string）
+function getFileExt(url: string): string {
+  const cleanUrl = url.split('?')[0].toLowerCase();
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/);
+  return match ? match[1] : '';
+}
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'];
+const isImageFile = (url: string) => IMAGE_EXTS.includes(getFileExt(url));
+const isPdfFile = (url: string) => getFileExt(url) === 'pdf';
+
 export default function CompanyDetailPage() {
   const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
@@ -108,6 +121,7 @@ export default function CompanyDetailPage() {
   const [transferOwnerModalOpen, setTransferOwnerModalOpen] = useState(false);
   const [transferOwnerForm] = Form.useForm();
   const [transferOwnerLoading, setTransferOwnerLoading] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ url: string; title: string } | null>(null);
 
   const {
     data: company,
@@ -404,13 +418,21 @@ export default function CompanyDetailPage() {
       title: '文件',
       dataIndex: 'fileUrl',
       key: 'fileUrl',
-      width: 100,
-      render: (url: string) => {
-        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i.test(url);
-        return isImage ? (
-          <Image src={url} width={48} height={48} style={{ objectFit: 'cover', borderRadius: 4 }} />
-        ) : (
-          <a href={url} target="_blank" rel="noopener noreferrer">查看文件</a>
+      width: 120,
+      render: (url: string, record: CompanyDocument) => {
+        if (!url) return '-';
+        return (
+          <a
+            onClick={() => setPreviewFile({ url, title: record.title })}
+            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            {isImageFile(url) ? (
+              <img src={url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+            ) : (
+              <FileOutlined style={{ fontSize: 20 }} />
+            )}
+            预览 / 下载
+          </a>
         );
       },
     },
@@ -1120,7 +1142,14 @@ export default function CompanyDetailPage() {
             <Descriptions.Item label="类型">{verifyingDoc.type}</Descriptions.Item>
             <Descriptions.Item label="签发机构">{verifyingDoc.issuer || '-'}</Descriptions.Item>
             <Descriptions.Item label="文件">
-              <a href={verifyingDoc.fileUrl} target="_blank" rel="noopener noreferrer">查看文件</a>
+              <Button
+                type="link"
+                icon={<EyeOutlined />}
+                style={{ padding: 0 }}
+                onClick={() => setPreviewFile({ url: verifyingDoc.fileUrl, title: verifyingDoc.title })}
+              >
+                预览 / 下载
+              </Button>
             </Descriptions.Item>
           </Descriptions>
         )}
@@ -1130,6 +1159,55 @@ export default function CompanyDetailPage() {
           value={verifyNote}
           onChange={(e) => setVerifyNote(e.target.value)}
         />
+      </Modal>
+
+      {/* 文件预览 / 下载弹窗 */}
+      <Modal
+        title={previewFile ? `预览：${previewFile.title}` : '预览'}
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {previewFile && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={() => window.open(previewFile.url, '_blank', 'noopener')}
+              >
+                下载到本地
+              </Button>
+            </div>
+            <div style={{ textAlign: 'center', background: '#fafafa', borderRadius: 4, minHeight: 400, padding: 16 }}>
+              {isImageFile(previewFile.url) ? (
+                <Image
+                  src={previewFile.url}
+                  alt={previewFile.title}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+                />
+              ) : isPdfFile(previewFile.url) ? (
+                <>
+                  <iframe
+                    src={previewFile.url}
+                    title={previewFile.title}
+                    style={{ width: '100%', height: '70vh', border: 0, background: '#fff' }}
+                  />
+                  <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 12 }}>
+                    若 PDF 无法显示，请点击上方「下载到本地」查看
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '80px 0', color: '#8c8c8c' }}>
+                  <FileOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+                  <div>该格式不支持在线预览，请点击上方「下载到本地」查看</div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );
