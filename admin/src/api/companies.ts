@@ -22,6 +22,7 @@ export const updateCompany = (id: string, data: {
   servicePhone?: string;
   serviceWeChat?: string;
   address?: Record<string, any>;
+  contact?: { name?: string; phone?: string };
   status?: string;
 }): Promise<Company> =>
   client.put(`/admin/companies/${id}`, data);

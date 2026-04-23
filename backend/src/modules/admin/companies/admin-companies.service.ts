@@ -163,9 +163,15 @@ export class AdminCompaniesService {
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('企业不存在');
 
+    // contact 是 Json 列，merge 现有内容以保留未知字段（邮箱/备用电话等未来字段）
+    const data: any = { ...dto };
+    if (dto.contact) {
+      data.contact = { ...((company.contact as Record<string, any>) || {}), ...dto.contact };
+    }
+
     return this.prisma.company.update({
       where: { id },
-      data: dto,
+      data,
     });
   }
 

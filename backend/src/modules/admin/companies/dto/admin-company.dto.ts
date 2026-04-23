@@ -27,6 +27,10 @@ export class AdminUpdateCompanyDto {
   address?: Record<string, any>;
 
   @IsOptional()
+  @IsObject()
+  contact?: Record<string, any>;
+
+  @IsOptional()
   @IsEnum(CompanyStatus)
   status?: CompanyStatus;
 }

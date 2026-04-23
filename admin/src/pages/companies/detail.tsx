@@ -207,8 +207,13 @@ export default function CompanyDetailPage() {
 
   const handleUpdateCompany = async (values: Record<string, unknown>) => {
     try {
-      const { addressProvince, addressCity, addressDistrict, addressDetail, ...rest } = values;
+      const {
+        addressProvince, addressCity, addressDistrict, addressDetail,
+        contactName, contactPhone,
+        ...rest
+      } = values;
       const hasAddress = addressProvince || addressCity || addressDistrict || addressDetail;
+      const hasContact = contactName !== undefined || contactPhone !== undefined;
       const data = {
         ...rest,
         address: hasAddress
@@ -217,6 +222,13 @@ export default function CompanyDetailPage() {
               city: addressCity || '',
               district: addressDistrict || '',
               detail: addressDetail || '',
+            }
+          : undefined,
+        // 后端会 merge 到已有 contact Json 上，只更新这两个键，其它字段保留
+        contact: hasContact
+          ? {
+              name: (contactName as string) || '',
+              phone: (contactPhone as string) || '',
             }
           : undefined,
       } as Parameters<typeof updateCompany>[1];
@@ -709,6 +721,8 @@ export default function CompanyDetailPage() {
               addressCity: addressObj?.city || '',
               addressDistrict: addressObj?.district || '',
               addressDetail: addressObj?.detail || '',
+              contactName: contact?.name || company.contactName || '',
+              contactPhone: contact?.phone || company.contactPhone || '',
             }}
             layout="vertical"
             style={{ maxWidth: 600 }}
@@ -739,6 +753,16 @@ export default function CompanyDetailPage() {
               <ProFormText name="addressDistrict" label="区/县" width="sm" placeholder="如：红塔区" />
             </ProForm.Group>
             <ProFormText name="addressDetail" label="详细地址" placeholder="如：xxx路xxx号" />
+            <ProForm.Group title="联系方式">
+              <ProFormText name="contactName" label="联系人" width="sm" placeholder="如：张经理" />
+              <ProFormText
+                name="contactPhone"
+                label="联系电话"
+                width="sm"
+                placeholder="11 位手机号"
+                rules={[{ pattern: /^1\d{10}$/, message: '请输入正确的 11 位手机号' }]}
+              />
+            </ProForm.Group>
             <ProFormText name="servicePhone" label="客服电话" />
             <ProFormText name="serviceWeChat" label="客服微信" />
           </ProForm>
