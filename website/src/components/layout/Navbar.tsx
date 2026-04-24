@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { NAV_LINKS } from '@/lib/constants'
-import Button from '@/components/ui/Button'
-import DownloadModal from '@/components/ui/DownloadModal'
+// 「下载 App」暂时隐藏，相关 import / 状态 / JSX 一并注释
+// import Button from '@/components/ui/Button'
+// import DownloadModal from '@/components/ui/DownloadModal'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [downloadOpen, setDownloadOpen] = useState(false)
+  // const [downloadOpen, setDownloadOpen] = useState(false)
   const location = useLocation()
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export default function Navbar() {
 
           {/* CTA + 汉堡 */}
           <div className="flex items-center gap-4">
+            {/* 「下载 App」暂时隐藏
             <Button
               size="sm"
               className="hidden md:inline-flex"
@@ -83,6 +85,7 @@ export default function Navbar() {
             >
               下载 App
             </Button>
+            */}
 
             {/* 汉堡菜单按钮 */}
             <button
@@ -119,15 +122,17 @@ export default function Navbar() {
                   {link.label}
                 </Link>
               ))}
+              {/* 「下载 App」暂时隐藏
               <Button size="sm" className="mt-2" onClick={() => setDownloadOpen(true)}>
                 下载 App
               </Button>
+              */}
             </div>
           </div>
         )}
       </header>
 
-      <DownloadModal open={downloadOpen} onClose={() => setDownloadOpen(false)} />
+      {/* <DownloadModal open={downloadOpen} onClose={() => setDownloadOpen(false)} /> */}
     </>
   )
 }
