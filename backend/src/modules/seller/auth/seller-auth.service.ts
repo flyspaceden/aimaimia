@@ -11,9 +11,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomInt } from 'crypto';
-import { Prisma } from '@prisma/client';
+import { Prisma, SmsPurpose } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SellerLoginDto, SellerPasswordLoginDto, SellerSelectCompanyDto, SellerRefreshDto, SellerSmsCodeDto, SellerChangePasswordDto, SellerBindPhoneSmsCodeDto, SellerChangePhoneDto, SellerChangeNicknameDto } from './seller-auth.dto';
+import { SellerSendForgotPasswordCodeDto, SellerListCompaniesForResetDto, SellerResetForgotPasswordDto } from './dto/seller-forgot-password.dto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { CaptchaService } from '../../captcha/captcha.service';
 import { SellerJwtPayload } from './seller-jwt.strategy';
@@ -30,6 +31,24 @@ export class SellerAuthService {
   private static readonly OTP_SEND_PER_TARGET_PER_DAY = 10;
   private readonly jwtSecret: string;
   private readonly jwtExpiresIn: string;
+
+  /**
+   * 按 SMS purpose 隔离的发送限流配额（与买家端 auth.service.ts 的 OTP_RATE_LIMITS 保持一致）
+   * 登录/绑定：1/分 + 10/天；忘记密码：1/分 + 5/小时（按 spec）
+   */
+  private static readonly OTP_RATE_LIMITS: Record<
+    SmsPurpose,
+    { perMinute: number; windowCount: number; windowSec: number }
+  > = {
+    LOGIN:        { perMinute: 1, windowCount: 10, windowSec: 86_400 },
+    BIND:         { perMinute: 1, windowCount: 10, windowSec: 86_400 },
+    RESET:        { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+    BUYER_RESET:  { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+    SELLER_RESET: { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+  };
+
+  /** 密码重置事件的 LoginEvent.meta.action 标记，与买家端保持同名 */
+  private static readonly PASSWORD_RESET_EVENT_ACTION = 'PASSWORD_RESET_VIA_SMS';
 
   constructor(
     private prisma: PrismaService,
@@ -59,7 +78,7 @@ export class SellerAuthService {
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    await this.createOtpWithRateLimit(phone, codeHash, expiresAt);
+    await this.createOtpWithRateLimit(phone, codeHash, expiresAt, SmsPurpose.LOGIN);
 
     if (smsMock === 'true') {
       this.logger.log(`[SMS Mock][Seller] 固定验证码=${code}（目标=${this.maskContact(phone)}）`);
@@ -83,7 +102,7 @@ export class SellerAuthService {
   /** 手机号 + 验证码登录 */
   async login(dto: SellerLoginDto, ip?: string, userAgent?: string) {
     // 1. 验证码校验
-    await this.verifyCode(dto.phone, dto.code);
+    await this.verifyCode(dto.phone, dto.code, SmsPurpose.LOGIN);
 
     // 2. 查找用户
     const identity = await this.prisma.authIdentity.findFirst({
@@ -575,11 +594,15 @@ export class SellerAuthService {
 
   // ---- 内部方法 ----
 
-  /** 验证码校验（S07延伸修复：CAS 原子消费） */
-  private async verifyCode(phone: string, code: string) {
+  /**
+   * 验证码校验（S07延伸修复：CAS 原子消费）
+   * 2026-04-23：purpose 改为必填，强制调用方显式声明 scope，防止跨 purpose 误匹配
+   */
+  private async verifyCode(phone: string, code: string, purpose: SmsPurpose) {
     const record = await this.prisma.smsOtp.findFirst({
       where: {
         phone,
+        purpose,
         usedAt: null,
         expiresAt: { gt: new Date() },
       },
@@ -688,32 +711,344 @@ export class SellerAuthService {
     return sanitizeStringForLog(value, { maxStringLength: 128 });
   }
 
+  // ========================================================================
+  // 忘记密码 — 方案 β 三步流程（send-code → list-companies → reset）
+  // 详见 docs/superpowers/specs/2026-04-23-forgot-password-design.md
+  // ========================================================================
+
+  /**
+   * 步骤 1：发送重置验证码
+   * - 判定"可重置"：该手机号至少存在一条 status=ACTIVE 的 CompanyStaff 且所属 Company
+   *   经 normalizeCompanyAccessStatus 标准化后为 ACTIVE
+   *   （SUSPENDED 但 suspendedUntil 已过期的公司会被标准化自愈为 ACTIVE，与登录路径一致）
+   * - 判定条件必须与 listCompaniesForReset 完全一致，避免短信发出后列表为空造成死锁
+   */
+  async sendForgotPasswordCode(dto: SellerSendForgotPasswordCodeDto) {
+    // 1. 图形验证码（一次性消费，CaptchaService.verify 内部原子 getdel）
+    const captchaOk = await this.captchaService.verify(dto.captchaId, dto.captchaCode);
+    if (!captchaOk) {
+      throw new BadRequestException({ code: 'CAPTCHA_INVALID', message: '图形验证码错误或已过期' });
+    }
+
+    // 2. "可重置"判定：ACTIVE staff + 标准化后 ACTIVE company
+    //    不在 Prisma where 里过滤 company.status，否则错过 "已到期的 SUSPENDED 公司" 的自愈窗口
+    const staffs = await this.prisma.companyStaff.findMany({
+      where: {
+        status: 'ACTIVE',
+        user: { authIdentities: { some: { provider: 'PHONE', identifier: dto.phone } } },
+      },
+      select: { companyId: true },
+    });
+    if (staffs.length === 0) {
+      throw new NotFoundException({
+        code: 'NO_RESETTABLE_COMPANY',
+        message: '该手机号不存在可重置密码的企业账号',
+      });
+    }
+    const normalizedCompanyState = await this.normalizeCompanyStates(
+      staffs.map((s) => s.companyId),
+    );
+    const hasEligible = staffs.some(
+      (s) => normalizedCompanyState.get(s.companyId) === 'ACTIVE',
+    );
+    if (!hasEligible) {
+      throw new NotFoundException({
+        code: 'NO_RESETTABLE_COMPANY',
+        message: '该手机号不存在可重置密码的企业账号',
+      });
+    }
+
+    // 3. 生成 + 限流 + 写入 OTP（purpose=SELLER_RESET，与 LOGIN 完全隔离）
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.createOtpWithRateLimit(dto.phone, codeHash, expiresAt, SmsPurpose.SELLER_RESET);
+
+    if (smsMock === 'true') {
+      this.logger.log(
+        `[SMS Mock][Seller Reset] 固定验证码=${code}（目标=${this.maskContact(dto.phone)}）`,
+      );
+    } else {
+      try {
+        await this.aliyunSms.sendVerificationCode(dto.phone, code);
+        this.logger.log(
+          `[SMS][Seller Reset] 验证码已发送（目标=${this.maskContact(dto.phone)}）`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `[SMS][Seller Reset] 验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
+        );
+      }
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * 步骤 2：用短信验证码换取可重置的企业列表
+   * OTP 做"只读验证"——不 CAS 消费，允许用户在"选择企业"阶段来回切换
+   * 真实 CAS 消费延迟到步骤 3 的 resetForgotPassword
+   */
+  async listCompaniesForReset(dto: SellerListCompaniesForResetDto) {
+    await this.verifyCodeReadonly(dto.phone, dto.code, SmsPurpose.SELLER_RESET, 'seller');
+
+    // 不在 Prisma where 里过滤 company.status（会漏掉已到期的 SUSPENDED 公司）
+    // 取回后用 normalizeCompanyStates 标准化并过滤，与登录路径保持同样的可见集
+    const staffs = await this.prisma.companyStaff.findMany({
+      where: {
+        status: 'ACTIVE',
+        user: { authIdentities: { some: { provider: 'PHONE', identifier: dto.phone } } },
+      },
+      include: { company: { select: { id: true, name: true, shortName: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const normalizedCompanyState = await this.normalizeCompanyStates(
+      staffs.map((s) => s.companyId),
+    );
+
+    return {
+      success: true,
+      companies: staffs
+        .filter((s) => normalizedCompanyState.get(s.companyId) === 'ACTIVE')
+        .map((s) => ({
+          staffId: s.id,
+          companyId: s.companyId,
+          companyName: s.company.shortName || s.company.name,
+          role: s.role,
+        })),
+    };
+  }
+
+  /**
+   * 步骤 3：CAS 消费 OTP + 更新指定 staff 的 passwordHash
+   *
+   * 结构：
+   *  - 事务外：staff 查询 + 越权校验（phone 匹配）+ 公司状态标准化
+   *    - normalizeCompanyAccessStatus 内部可能发生 company.update（SUSPENDED→ACTIVE 自愈），
+   *      不能嵌在下方 Serializable 事务里（避免 Prisma 同一个 connection 串行化导致的死锁/退避抖动）
+   *  - 事务内：OTP CAS 消费 + passwordHash 更新 + LoginEvent 审计（三者原子回滚）
+   *
+   * 越权防护：staff.user.authIdentities 必须包含入参 phone，防止攻击者构造他人 staffId
+   */
+  async resetForgotPassword(
+    dto: SellerResetForgotPasswordDto,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    // 密码复杂度二次校验（防 DTO 绕过）
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/.test(dto.newPassword)) {
+      throw new BadRequestException({
+        code: 'PASSWORD_FORMAT_INVALID',
+        message: '密码至少 6 位且必须包含大写字母、小写字母和数字',
+      });
+    }
+
+    // ---- 事务外：身份 + 越权 + 公司状态标准化 ----
+    const staff = await this.prisma.companyStaff.findUnique({
+      where: { id: dto.staffId },
+      include: {
+        user: {
+          include: {
+            authIdentities: { where: { provider: 'PHONE' } },
+          },
+        },
+        company: { select: { id: true, name: true, shortName: true } },
+      },
+    });
+    if (!staff || staff.status !== 'ACTIVE') {
+      throw new BadRequestException({
+        code: 'STAFF_NOT_FOUND',
+        message: '所选企业账号不可用，请返回重新选择',
+      });
+    }
+    const phoneMatches = staff.user.authIdentities.some((i) => i.identifier === dto.phone);
+    if (!phoneMatches) {
+      // 攻击者用自己收到的 OTP 配合他人 staffId 试图越权
+      throw new ForbiddenException({ code: 'STAFF_PHONE_MISMATCH', message: '手机号与所选员工不匹配' });
+    }
+
+    // 公司状态标准化（可能触发 SUSPENDED→ACTIVE 自愈 update）
+    const normalizedCompany =
+      await this.sellerRiskControl.normalizeCompanyAccessStatus(staff.companyId);
+    if (!normalizedCompany || normalizedCompany.status !== 'ACTIVE') {
+      throw new BadRequestException({
+        code: 'STAFF_NOT_FOUND',
+        message: '所选企业账号不可用，请返回重新选择',
+      });
+    }
+
+    // ---- 事务内：OTP CAS 消费 + 密码写入 + 审计 ----
+    return this.prisma.$transaction(
+      async (tx) => {
+        // 1. CAS 消费 OTP（purpose=SELLER_RESET）
+        await this.verifyResetOtpInTx(tx, dto.phone, dto.code, SmsPurpose.SELLER_RESET, 'seller');
+
+        // 2. 只更新该 staff 的 passwordHash（方案 β：不影响该用户在其他企业的 staff 密码）
+        const newHash = await bcrypt.hash(dto.newPassword, 10);
+        await tx.companyStaff.update({
+          where: { id: staff.id },
+          data: { passwordHash: newHash },
+        });
+
+        // 3. 审计：复用 LoginEvent（meta.action 与买家端一致，readers 已按 action 排除）
+        await tx.loginEvent.create({
+          data: {
+            userId: staff.userId,
+            provider: 'PHONE',
+            phone: dto.phone,
+            success: true,
+            ip: ip ?? null,
+            userAgent: userAgent ?? null,
+            meta: {
+              action: SellerAuthService.PASSWORD_RESET_EVENT_ACTION,
+              scope: 'SELLER',
+              staffId: staff.id,
+              companyId: staff.companyId,
+            },
+          },
+        });
+
+        return {
+          success: true,
+          companyName: staff.company.shortName || staff.company.name,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  /**
+   * 只读 OTP 验证：匹配成功后不执行 CAS 消费
+   * 用于 listCompaniesForReset（步骤 2），避免在"选企业"阶段把 OTP 提前消费掉
+   * 失败仍计入 Redis reset:fail:${scope}:${phone}（3 次错作废该 scope 下所有 OTP）
+   */
+  private async verifyCodeReadonly(
+    phone: string,
+    code: string,
+    purpose: SmsPurpose,
+    scope: 'buyer' | 'seller',
+  ) {
+    const records = await this.prisma.smsOtp.findMany({
+      where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+    if (records.length === 0) {
+      throw new BadRequestException({ code: 'OTP_EXPIRED', message: '验证码无效或已过期' });
+    }
+
+    let matched = false;
+    for (const r of records) {
+      if (await bcrypt.compare(code, r.codeHash)) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      const result = await this.redisCoord.consumeFixedWindow(
+        `reset:fail:${scope}:${phone}`,
+        3,
+        300,
+      );
+      if (result && result.count >= 3) {
+        await this.prisma.smsOtp.updateMany({
+          where: { phone, purpose, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+      }
+      throw new BadRequestException({ code: 'OTP_INVALID', message: '验证码错误' });
+    }
+    // 不 CAS 消费，保留给 resetForgotPassword 使用
+  }
+
+  /**
+   * 事务内 OTP 校验 + CAS 消费（失败计数语义同买家端 verifyResetOtpInTx）
+   * consumeFixedWindow 返回的 count 包含当次调用，count>=3 即第 3 次错误触发作废
+   */
+  private async verifyResetOtpInTx(
+    tx: Prisma.TransactionClient,
+    phone: string,
+    code: string,
+    purpose: SmsPurpose,
+    scope: 'buyer' | 'seller',
+  ) {
+    const records = await tx.smsOtp.findMany({
+      where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+    if (records.length === 0) {
+      throw new BadRequestException({ code: 'OTP_EXPIRED', message: '验证码无效或已过期' });
+    }
+
+    let matched: (typeof records)[number] | null = null;
+    for (const r of records) {
+      if (await bcrypt.compare(code, r.codeHash)) {
+        matched = r;
+        break;
+      }
+    }
+    if (!matched) {
+      const result = await this.redisCoord.consumeFixedWindow(
+        `reset:fail:${scope}:${phone}`,
+        3,
+        300,
+      );
+      if (result && result.count >= 3) {
+        await tx.smsOtp.updateMany({
+          where: { phone, purpose, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+      }
+      throw new BadRequestException({ code: 'OTP_INVALID', message: '验证码错误' });
+    }
+
+    const cas = await tx.smsOtp.updateMany({
+      where: { id: matched.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (cas.count === 0) {
+      throw new BadRequestException({ code: 'OTP_USED', message: '验证码已被使用，请重新获取' });
+    }
+  }
+
   /**
    * M4终态：卖家端验证码发送增加手机号维度限频（Redis 分布式 + DB 事务回退）
+   * 2026-04-23 扩展：purpose 必填，限流按 purpose 隔离（忘记密码与登录配额独立）
    */
-  private async createOtpWithRateLimit(target: string, codeHash: string, expiresAt: Date) {
-    const targetKey = this.hashRateKey(target);
+  private async createOtpWithRateLimit(
+    target: string,
+    codeHash: string,
+    expiresAt: Date,
+    purpose: SmsPurpose,
+  ) {
+    const targetKey = this.hashRateKey(`${purpose}:${target}`);
+    const limits = SellerAuthService.OTP_RATE_LIMITS[purpose];
+
     const minute = await this.redisCoord.consumeFixedWindow(
       `rl:seller-otp:target:${targetKey}:1m`,
-      SellerAuthService.OTP_SEND_PER_TARGET_PER_MINUTE,
+      limits.perMinute,
       60,
     );
     if (minute && !minute.allowed) {
       throw new HttpException('发送过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const day = await this.redisCoord.consumeFixedWindow(
-      `rl:seller-otp:target:${targetKey}:1d`,
-      SellerAuthService.OTP_SEND_PER_TARGET_PER_DAY,
-      24 * 60 * 60,
+    const window = await this.redisCoord.consumeFixedWindow(
+      `rl:seller-otp:target:${targetKey}:${limits.windowSec}s`,
+      limits.windowCount,
+      limits.windowSec,
     );
-    if (day && !day.allowed) {
-      throw new HttpException('今日验证码发送次数已达上限', HttpStatus.TOO_MANY_REQUESTS);
+    if (window && !window.allowed) {
+      throw new HttpException('验证码发送次数已达上限，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    if (minute || day) {
+    if (minute || window) {
       await this.prisma.smsOtp.create({
-        data: { phone: target, codeHash, purpose: 'LOGIN', expiresAt },
+        data: { phone: target, codeHash, purpose, expiresAt },
       });
       return;
     }
@@ -724,35 +1059,26 @@ export class SellerAuthService {
         await this.prisma.$transaction(async (tx) => {
           const now = new Date();
           const oneMinuteAgo = new Date(now.getTime() - 60_000);
-          const dayStart = new Date(now);
-          dayStart.setHours(0, 0, 0, 0);
+          const windowStart = new Date(now.getTime() - limits.windowSec * 1000);
 
-          const [perMinute, perDay] = await Promise.all([
+          const [perMinute, perWindow] = await Promise.all([
             tx.smsOtp.count({
-              where: {
-                phone: target,
-                purpose: 'LOGIN',
-                createdAt: { gte: oneMinuteAgo },
-              },
+              where: { phone: target, purpose, createdAt: { gte: oneMinuteAgo } },
             }),
             tx.smsOtp.count({
-              where: {
-                phone: target,
-                purpose: 'LOGIN',
-                createdAt: { gte: dayStart },
-              },
+              where: { phone: target, purpose, createdAt: { gte: windowStart } },
             }),
           ]);
 
-          if (perMinute >= SellerAuthService.OTP_SEND_PER_TARGET_PER_MINUTE) {
+          if (perMinute >= limits.perMinute) {
             throw new HttpException('发送过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
           }
-          if (perDay >= SellerAuthService.OTP_SEND_PER_TARGET_PER_DAY) {
-            throw new HttpException('今日验证码发送次数已达上限', HttpStatus.TOO_MANY_REQUESTS);
+          if (perWindow >= limits.windowCount) {
+            throw new HttpException('验证码发送次数已达上限，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
           }
 
           await tx.smsOtp.create({
-            data: { phone: target, codeHash, purpose: 'LOGIN', expiresAt },
+            data: { phone: target, codeHash, purpose, expiresAt },
           });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return;

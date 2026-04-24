@@ -13,6 +13,11 @@ import {
   SellerChangePhoneDto,
   SellerChangeNicknameDto,
 } from './seller-auth.dto';
+import {
+  SellerSendForgotPasswordCodeDto,
+  SellerListCompaniesForResetDto,
+  SellerResetForgotPasswordDto,
+} from './dto/seller-forgot-password.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
 import { CurrentSeller } from '../common/decorators/current-seller.decorator';
@@ -55,6 +60,35 @@ export class SellerAuthController {
   @Post('login-by-password')
   loginByPassword(@Body() dto: SellerPasswordLoginDto, @Req() req: Request) {
     return this.authService.loginByPassword(dto, req.ip, req.headers['user-agent']);
+  }
+
+  // ------------------------------------------------------------------------
+  // 忘记密码（方案 β 三步：send-code → list-companies → reset）
+  // ------------------------------------------------------------------------
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 3 } })
+  @Post('forgot-password/send-code')
+  sendForgotPasswordCode(@Body() dto: SellerSendForgotPasswordCodeDto) {
+    return this.authService.sendForgotPasswordCode(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 10 } })
+  @Post('forgot-password/list-companies')
+  listCompaniesForReset(@Body() dto: SellerListCompaniesForResetDto) {
+    return this.authService.listCompaniesForReset(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @Post('forgot-password/reset')
+  resetForgotPassword(@Body() dto: SellerResetForgotPasswordDto, @Req() req: Request) {
+    return this.authService.resetForgotPassword(
+      dto,
+      req.ip,
+      req.headers['user-agent'] as string | undefined,
+    );
   }
 
   /** 多企业用户选择企业 */
