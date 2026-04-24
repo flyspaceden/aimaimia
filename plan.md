@@ -845,6 +845,16 @@
 
 ---
 
+## 🔑 忘记密码功能（2026-04-23 新增）
+
+- [x] **F-FP01** 买家 App + 卖家后台自助忘记密码（方案 β 按企业选择） + 管理后台"联系超管"提示
+  - 后端：Prisma `SmsPurpose` 新增 `BUYER_RESET` / `SELLER_RESET`；`verifyCode` / `createOtpWithRateLimit` 签名改为 `purpose` 必填；买家端 `POST /auth/forgot-password/{send-code,reset}` + 卖家端三步 `POST /seller/auth/forgot-password/{send-code,list-companies,reset}`；OTP 配额 1/min + 5/hour；审计复用 `LoginEvent.meta.action='PASSWORD_RESET_VIA_SMS'`（两处 readers 已排除此 action 避免污染登录行为）；Serializable 事务保护 OTP CAS + 密码写入；卖家 reset 用 `normalizeCompanyAccessStatus` 与登录路径对齐（SUSPENDED-已到期公司可重置）
+  - 前端：买家 App `AuthModal` 内嵌三步向导（方案 A，无新增路由）；卖家后台独立 `/forgot-password` 4 步向导页；管理后台登录页加灰字"忘记密码请联系超级管理员"
+  - 详见：`docs/superpowers/specs/2026-04-23-forgot-password-design.md` + `docs/superpowers/plans/2026-04-23-forgot-password.md`
+  - ⚠ 上线需运维：Prisma migration `ALTER TYPE SmsPurpose ADD VALUE` ×2（PostgreSQL 零停机、不可原地回滚）；超管 `admin` 账号应急 SQL 重置流程见 `docs/operations/密码本.md`
+
+---
+
 ## 📋 待你确认的疑点（从审查报告 §9 搬来）
 
 > 每条回答后在此处标注你的选择 + 日期

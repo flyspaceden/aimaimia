@@ -65,4 +65,32 @@ export const AuthRepo = {
     if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 600 });
     return ApiClient.post<{ ok: boolean }>('/auth/delete-account');
   },
+  // 获取图形验证码（用于忘记密码流程的 send-code 前置防刷）
+  getCaptcha: async (): Promise<Result<{ captchaId: string; svg: string }>> => {
+    if (USE_MOCK) {
+      return simulateRequest(
+        { captchaId: `mock_${Date.now()}`, svg: '<svg/>' },
+        { delay: 200 },
+      );
+    }
+    return ApiClient.get<{ captchaId: string; svg: string }>('/captcha');
+  },
+  // 忘记密码 - 发送短信验证码
+  sendForgotPasswordCode: async (payload: {
+    phone: string;
+    captchaId: string;
+    captchaCode: string;
+  }): Promise<Result<{ success: boolean }>> => {
+    if (USE_MOCK) return simulateRequest({ success: true }, { delay: 400 });
+    return ApiClient.post<{ success: boolean }>('/auth/forgot-password/send-code', payload);
+  },
+  // 忘记密码 - 提交新密码
+  resetForgotPassword: async (payload: {
+    phone: string;
+    code: string;
+    newPassword: string;
+  }): Promise<Result<{ success: boolean }>> => {
+    if (USE_MOCK) return simulateRequest({ success: true }, { delay: 500 });
+    return ApiClient.post<{ success: boolean }>('/auth/forgot-password/reset', payload);
+  },
 };

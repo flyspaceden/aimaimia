@@ -6,6 +6,7 @@ import SellerLayout from '@/layouts/SellerLayout';
 
 // N17修复：路由级代码拆分，减小首屏包体
 const LoginPage = lazy(() => import('@/pages/login/index'));
+const ForgotPasswordPage = lazy(() => import('@/pages/forgot-password/index'));
 const DashboardPage = lazy(() => import('@/pages/dashboard/index'));
 const ProductListPage = lazy(() => import('@/pages/products/index'));
 const ProductEditPage = lazy(() => import('@/pages/products/edit'));
@@ -69,6 +70,16 @@ export default function App() {
             element={
               <GuestOnly>
                 <LoginPage />
+              </GuestOnly>
+            }
+          />
+
+          {/* 忘记密码页（未登录访问） */}
+          <Route
+            path="/forgot-password"
+            element={
+              <GuestOnly>
+                <ForgotPasswordPage />
               </GuestOnly>
             }
           />

@@ -463,6 +463,17 @@ export default function LoginPage() {
                     <Input.Password prefix={<LockOutlined />} placeholder="密码" />
                   </Form.Item>
 
+                  <div style={{ textAlign: 'right', marginTop: -12, marginBottom: 12 }}>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, height: 'auto' }}
+                      onClick={() => navigate('/forgot-password')}
+                    >
+                      忘记密码？
+                    </Button>
+                  </div>
+
                   <Form.Item>
                     <Button
                       type="primary"
