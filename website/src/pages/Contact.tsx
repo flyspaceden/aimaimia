@@ -168,7 +168,7 @@ export default function Contact() {
                       {
                         icon: "📍",
                         label: "地址",
-                        value: "中国 · 深圳市南山区科技园",
+                        value: "深圳市龙岗区平湖街道白坭坑社区丹农路1号5#楼5RE2070",
                       },
                       { icon: "📞", label: "电话", value: "13923710623" },
                       {
