@@ -34,8 +34,7 @@ export default function ShopFooter() {
         <div className="border-t border-white/10 pt-4 text-xs text-center space-y-1">
           <p>© 2026 深圳华海农业科技集团有限公司 版权所有</p>
           <p className="space-x-3">
-            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号-3</a>
-            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号-5</a>
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号</a>
           </p>
           <p>本平台所有商品均经严格质检，如有质量问题请联系客服</p>
         </div>
