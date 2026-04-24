@@ -26,15 +26,17 @@ export default function ShopFooter() {
             <div className="flex flex-col gap-2 text-xs">
               <span>客服热线：400-888-8888</span>
               <span>服务时间：08:00–22:00</span>
-              <span>企业邮箱：service@aimaimai.com</span>
+              <span>企业邮箱：service@ai-maimai.com</span>
               <Link to="/" className="hover:text-white transition-colors mt-1">返回官网 →</Link>
             </div>
           </div>
         </div>
         <div className="border-t border-white/10 pt-4 text-xs text-center space-y-1">
-          <p>© 2025 爱买买生鲜平台 版权所有</p>
-          <p>粤ICP备2025XXXXXX号 · 食品经营许可证：粤食经营许可证2025XXXXXX · 增值电信业务经营许可证：粤B2-XXXXXX</p>
-          <p>本平台所有商品均经严格质检，如有质量问题请联系客服，支持7日无理由退换货</p>
+          <p>© 2026 深圳华海农业科技集团有限公司 版权所有</p>
+          <p className="space-x-3">
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号</a>
+          </p>
+          <p>本平台所有商品均经严格质检，如有质量问题请联系客服</p>
         </div>
       </div>
     </footer>
