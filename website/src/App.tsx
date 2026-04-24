@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
 import { PAGE_META } from '@/lib/constants'
@@ -14,15 +14,6 @@ const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
 const Download = lazy(() => import('@/pages/Download'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
-
-// 商城模块
-const ShopLayout = lazy(() => import('@/components/shop/ShopLayout'))
-const ShopHome = lazy(() => import('@/pages/shop/ShopHome'))
-const ShopCategory = lazy(() => import('@/pages/shop/ShopCategory'))
-const ShopProduct = lazy(() => import('@/pages/shop/ShopProduct'))
-const ShopCart = lazy(() => import('@/pages/shop/ShopCart'))
-const ShopCheckout = lazy(() => import('@/pages/shop/ShopCheckout'))
-const ShopUser = lazy(() => import('@/pages/shop/ShopUser'))
 
 /** 动态更新页面 title 和 meta description */
 function MetaUpdater() {
@@ -59,12 +50,11 @@ function PageLoader() {
 export default function App() {
   const location = useLocation()
   const isLandingPage = location.pathname.startsWith('/r/') || location.pathname === '/download' || location.pathname === '/resolve'
-  const isShopPage = location.pathname === '/shop' || location.pathname.startsWith('/shop/')
 
   return (
     <>
       <MetaUpdater />
-      {!isLandingPage && !isShopPage && <Navbar />}
+      {!isLandingPage && <Navbar />}
       <main id="main-content">
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -78,20 +68,13 @@ export default function App() {
             <Route path="/r/:code" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />
-            {/* 商城路由（嵌套在 ShopLayout 下） */}
-            <Route path="/shop" element={<ShopLayout />}>
-              <Route index element={<ShopHome />} />
-              <Route path="category/:id" element={<ShopCategory />} />
-              <Route path="product/:id" element={<ShopProduct />} />
-              <Route path="cart" element={<ShopCart />} />
-              <Route path="checkout" element={<ShopCheckout />} />
-              <Route path="user" element={<ShopUser />} />
-            </Route>
+            {/* 商城暂未开放，所有 /shop 路径重定向回首页 */}
+            <Route path="/shop/*" element={<Navigate to="/" replace />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       </main>
-      {!isLandingPage && !isShopPage && <Footer />}
+      {!isLandingPage && <Footer />}
     </>
   )
 }
