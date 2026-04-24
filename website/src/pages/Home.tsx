@@ -1,11 +1,13 @@
-import { useState } from "react";
+// useState 原本用于 downloadOpen，目前页面无其他状态，一并注释
+// import { useState } from "react";
 import ParticleCanvas from "@/components/effects/ParticleCanvas";
 import HeroOrb from "@/components/effects/HeroOrb";
 import ScrollReveal from "@/components/effects/ScrollReveal";
 import CountUp from "@/components/effects/CountUp";
 import SectionHeading from "@/components/ui/SectionHeading";
 import Button from "@/components/ui/Button";
-import DownloadModal from "@/components/ui/DownloadModal";
+// 「下载 App」相关组件暂时注释
+// import DownloadModal from "@/components/ui/DownloadModal";
 import { IMAGES, STATS } from "@/lib/constants";
 
 const CORE_VALUES = [
@@ -51,7 +53,7 @@ const PLATFORM_FEATURES = [
 ];
 
 export default function Home() {
-  const [downloadOpen, setDownloadOpen] = useState(false);
+  // const [downloadOpen, setDownloadOpen] = useState(false);
 
   return (
     <>
@@ -70,9 +72,11 @@ export default function Home() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            {/* 「下载 App」暂时隐藏
             <Button size="lg" onClick={() => setDownloadOpen(true)}>
               下载 App
             </Button>
+            */}
             <Button
               variant="ghost"
               size="lg"
@@ -240,7 +244,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ======== 下载 CTA 段 ======== */}
+      {/* ======== 下载 CTA 段（暂时隐藏，整段注释） ========
       <section className="py-20 md:py-28 bg-gradient-to-r from-brand via-ai-start to-ai-end relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <img
@@ -272,6 +276,7 @@ export default function Home() {
         open={downloadOpen}
         onClose={() => setDownloadOpen(false)}
       />
+      */}
     </>
   );
 }
