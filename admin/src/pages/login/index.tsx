@@ -360,6 +360,17 @@ export default function LoginPage() {
                       登录
                     </Button>
                   </Form.Item>
+
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      color: '#999',
+                      fontSize: 12,
+                      marginTop: 12,
+                    }}
+                  >
+                    忘记密码请联系超级管理员重置
+                  </div>
                 </Form>
               ),
             },
@@ -427,17 +438,6 @@ export default function LoginPage() {
                       登录
                     </Button>
                   </Form.Item>
-
-                  <div
-                    style={{
-                      textAlign: 'center',
-                      color: '#999',
-                      fontSize: 12,
-                      marginTop: 12,
-                    }}
-                  >
-                    忘记密码请联系超级管理员重置
-                  </div>
                 </Form>
               ),
             },
