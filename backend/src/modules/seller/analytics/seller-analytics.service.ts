@@ -212,6 +212,7 @@ export class SellerAnalyticsService {
        AND oi."companyId" = ${companyId}
       LEFT JOIN "Order" o ON o.id = oi."orderId"
       WHERE p."companyId" = ${companyId}
+        AND p.status != 'DRAFT'  -- 草稿不进数据报表
       GROUP BY p.id, p.title
       ORDER BY total_revenue DESC
       LIMIT ${limit}
