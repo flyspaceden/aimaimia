@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -18,8 +19,10 @@ import {
   Breadcrumb,
   Collapse,
   Typography,
+  Modal,
+  Image,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined, DownloadOutlined } from '@ant-design/icons';
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
 import { getPublicTagCategories } from '@/api/tags';
 
@@ -39,6 +42,44 @@ export default function ProductEditPage() {
   const [skuForm] = Form.useForm();
   const queryClient = useQueryClient();
   const { message } = App.useApp();
+
+  // 商品图片预览（与卖家端商品编辑页一致）
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const handleDownloadImage = async () => {
+    if (!previewFile) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(previewFile.url, { credentials: 'omit' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      let ext = '';
+      const ct = blob.type;
+      if (ct.startsWith('image/')) ext = '.' + ct.slice(6).split(';')[0];
+      else {
+        const m = previewFile.url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+        if (m) ext = '.' + m[1];
+      }
+      const filename = previewFile.name.includes('.')
+        ? previewFile.name
+        : previewFile.name + (ext || '.jpg');
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('图片下载失败', err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -463,12 +504,23 @@ export default function ProductEditPage() {
             {mediaList.map((img, idx) => (
               <div
                 key={img.id || idx}
+                onClick={() => setPreviewFile({ url: img.url, name: `商品图片-${idx + 1}` })}
                 style={{
                   width: 120,
                   height: 120,
                   borderRadius: 8,
                   overflow: 'hidden',
                   border: '1px solid #e8e8e8',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#1677ff';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(22,119,255,0.18)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#e8e8e8';
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               >
                 <img
@@ -603,6 +655,38 @@ export default function ProductEditPage() {
           <Empty description="暂无审核记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Card>
+
+      {/* 商品图片预览弹窗（与卖家端商品编辑页一致） */}
+      <Modal
+        title={previewFile ? `预览：${previewFile.name}` : '预览'}
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {previewFile && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                loading={downloading}
+                onClick={handleDownloadImage}
+              >
+                下载到本地
+              </Button>
+            </div>
+            <div style={{ textAlign: 'center', background: '#fafafa', borderRadius: 4, minHeight: 400, padding: 16 }}>
+              <Image
+                src={previewFile.url}
+                alt={previewFile.name}
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              />
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
