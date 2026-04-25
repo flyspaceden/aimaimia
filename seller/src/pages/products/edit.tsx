@@ -295,38 +295,65 @@ function ImageUploadSection({
     setPreviewFile({ url, name: file.name || '商品图片' });
   };
 
-  // 走后端 /api/v1/upload/download 通道（带 Content-Disposition: attachment 强制下载）。
-  // 这条路径有 enableCors 覆盖，且不依赖静态资源的 CORS / Nginx 配置。
+  // 触发 anchor 下载（浏览器看到 Content-Disposition: attachment 会原生保存）
+  const triggerAnchorDownload = (href: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const deriveFilename = (preferredName: string, keyOrUrl: string) => {
+    if (preferredName.includes('.')) return preferredName;
+    const ext = keyOrUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[0] || '.jpg';
+    return preferredName + ext;
+  };
+
   const handleDownload = () => {
     if (!previewFile) return;
     setDownloading(true);
     try {
-      // 从图片 URL 提取 key（/uploads/ 后面的路径）
-      const m = previewFile.url.match(/\/uploads\/(.+?)(?:\?|$)/);
-      if (!m) {
-        // 不是本地 uploads 资源（比如外链），回退 fetch+blob
-        throw new Error('NON_LOCAL_UPLOAD');
+      const url = previewFile.url;
+
+      // 私有签名 URL 模式：/api/v1/upload/private/<key>?expires=&sig=
+      // 直接复用原 URL，加 &download=1 让后端切换到 attachment 响应头
+      const privateMatch = url.match(/\/upload\/private\/(.+?)(?:\?|$)/);
+      if (privateMatch) {
+        const key = decodeURIComponent(privateMatch[1]);
+        const filename = deriveFilename(previewFile.name, key);
+        const sep = url.includes('?') ? '&' : '?';
+        triggerAnchorDownload(
+          `${url}${sep}download=1&filename=${encodeURIComponent(filename)}`,
+          filename,
+        );
+        return;
       }
-      const key = decodeURIComponent(m[1]);
-      const filename = previewFile.name.includes('.')
-        ? previewFile.name
-        : previewFile.name + (key.match(/\.[a-zA-Z0-9]+$/)?.[0] || '.jpg');
-      const downloadUrl = `${API_BASE}/upload/download?key=${encodeURIComponent(key)}&filename=${encodeURIComponent(filename)}`;
-      // 用 a 标签触发：服务端会发 Content-Disposition: attachment，浏览器原生保存
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+
+      // 公开 URL 模式：/uploads/<key>
+      // 走后端 /api/v1/upload/download proxy 端点，带 attachment 头
+      const publicMatch = url.match(/\/uploads\/(.+?)(?:\?|$)/);
+      if (publicMatch) {
+        const key = decodeURIComponent(publicMatch[1]);
+        const filename = deriveFilename(previewFile.name, key);
+        triggerAnchorDownload(
+          `${API_BASE}/upload/download?key=${encodeURIComponent(key)}&filename=${encodeURIComponent(filename)}`,
+          filename,
+        );
+        return;
+      }
+
+      // 非本地资源（外链 / OSS）：回退到打开 URL 让用户右键另存
+      throw new Error('NON_LOCAL_UPLOAD');
     } catch (err) {
       message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
       window.open(previewFile.url, '_blank', 'noopener');
       // eslint-disable-next-line no-console
       console.error('图片下载失败', err);
     } finally {
-      // 触发后立即恢复按钮状态（浏览器接管下载流程，无需等待回调）
+      // 浏览器接管下载流程，无需等待回调
       setTimeout(() => setDownloading(false), 500);
     }
   };

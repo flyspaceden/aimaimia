@@ -98,7 +98,11 @@ export class UploadController {
 
   /**
    * 本地私有文件访问（签名 URL）
-   * GET /api/v1/upload/private/:key?expires=...&sig=...
+   * GET /api/v1/upload/private/:key?expires=...&sig=...&download=1
+   *
+   * download=1 时附 Content-Disposition: attachment（触发浏览器原生保存）；
+   * 默认行为不变（内联渲染，<img> 标签可正常加载）。
+   * 签名验证完全不变——download 不参与签名，只控制响应头。
    */
   @Public()
   @Get('private/*key')
@@ -106,23 +110,37 @@ export class UploadController {
     @Param('key') key: string,
     @Query('expires') expires: string,
     @Query('sig') sig: string,
+    @Query('download') download: string | undefined,
+    @Query('filename') filename: string | undefined,
     @Res() res: Response,
   ) {
     const file = this.uploadService.getSignedLocalFile(key, expires, sig);
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=60');
+    // 下载模式：附 Content-Disposition 触发浏览器原生保存
+    if (download === '1' || download === 'true') {
+      const basename = key.split('/').pop() || 'download';
+      const safeName = (filename || basename).replace(/[\r\n"\\]/g, '_');
+      const encoded = encodeURIComponent(safeName);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`,
+      );
+    }
     return res.sendFile(file.filePath);
   }
 
   /**
-   * 强制下载文件（前端无法直接 fetch + blob 时的兜底通道）
+   * 强制下载文件（公开模式 /uploads/* 资源的下载通道）
    * GET /api/v1/upload/download?key=products/abc.jpg&filename=mypic.jpg
    *
-   * 走 /api/v1 路径已有 enableCors 覆盖，且显式设
-   * Content-Disposition: attachment 触发浏览器原生保存。
+   * 注意：这里不加 AnyAuthGuard。<a download> 触发的浏览器 navigation
+   * 不会带 Authorization header，加 guard 必然 401。安全模型：图片在公开
+   * 模式下本身就是 capability-based（任何拿到 URL 的人都能 <img> 加载），
+   * 知道 key = 拥有访问权，与下载无差异。私有模式有专门的签名 URL 通道
+   * （getPrivateFile + ?download=1）。
    */
   @Public()
-  @UseGuards(AnyAuthGuard)
   @Get('download')
   async downloadFile(
     @Query('key') key: string,
