@@ -220,17 +220,36 @@ export default function ProductListPage() {
       search: false,
       render: (_, r) => {
         const skus = r.skus ?? [];
-        const prices = skus.map((s) => s.price).filter((v) => v > 0);
         const costs = skus.map((s) => s.cost).filter((v): v is number => typeof v === 'number' && v > 0);
-        const minPrice = prices.length > 0 ? Math.min(...prices) : r.basePrice;
-        const maxPrice = prices.length > 0 ? Math.max(...prices) : r.basePrice;
-        const hasPriceRange = prices.length > 1 && minPrice !== maxPrice;
+        // 草稿 SKU 后端 price 占位为 0（提交审核时统一按成本×加价率重算），
+        // 这里若 sku.price 为 0 就用 cost × markupRate 实时算估价显示。
+        const effectivePrices = skus
+          .map((s) => {
+            if (s.price > 0) return s.price;
+            if (typeof s.cost === 'number' && s.cost > 0) return +(s.cost * markupRate).toFixed(2);
+            return 0;
+          })
+          .filter((v) => v > 0);
+        const fallbackBase = r.basePrice > 0
+          ? r.basePrice
+          : (costs.length > 0 ? +(Math.min(...costs) * markupRate).toFixed(2) : 0);
+        const minPrice = effectivePrices.length > 0 ? Math.min(...effectivePrices) : fallbackBase;
+        const maxPrice = effectivePrices.length > 0 ? Math.max(...effectivePrices) : fallbackBase;
+        const hasPriceRange = effectivePrices.length > 1 && minPrice !== maxPrice;
+        const isDraft = r.status === 'DRAFT';
         return (
           <div>
             <div style={{ fontWeight: 500, fontFamily: 'monospace' }}>
-              {hasPriceRange
-                ? `¥${minPrice.toFixed(2)} ~ ${maxPrice.toFixed(2)}`
-                : `¥${r.basePrice.toFixed(2)}`}
+              {minPrice > 0 ? (
+                hasPriceRange
+                  ? `¥${minPrice.toFixed(2)} ~ ${maxPrice.toFixed(2)}`
+                  : `¥${minPrice.toFixed(2)}`
+              ) : (
+                <span style={{ color: '#bbb' }}>-</span>
+              )}
+              {isDraft && minPrice > 0 && (
+                <span style={{ fontSize: 11, color: '#bbb', marginLeft: 4 }}>估价</span>
+              )}
             </div>
             {costs.length > 0 && (
               <div style={{ fontSize: 12, color: '#999', fontFamily: 'monospace' }}>
