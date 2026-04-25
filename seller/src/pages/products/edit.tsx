@@ -281,10 +281,11 @@ function ImageUploadSection({
   setFileList: (list: UploadFile[]) => void;
   token: string | null;
 }) {
+  const { message } = App.useApp();
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const handlePreview = (file: UploadFile) => {
-    // 优先 url，其次 thumbUrl，再退响应里的 url
     const response = file.response as { url?: string; data?: { url?: string } } | undefined;
     const url = file.url
       || file.thumbUrl
@@ -292,6 +293,45 @@ function ImageUploadSection({
       || response?.url;
     if (!url) return;
     setPreviewFile({ url, name: file.name || '商品图片' });
+  };
+
+  // fetch → blob → 触发隐藏 <a download> 点击：不依赖浏览器对 Content-Disposition / 同源策略的判断
+  const handleDownload = async () => {
+    if (!previewFile) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(previewFile.url, { credentials: 'omit' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      // 推断扩展名：响应 Content-Type → URL 后缀 → 默认 .jpg
+      let ext = '';
+      const ct = blob.type;
+      if (ct.startsWith('image/')) ext = '.' + ct.slice(6).split(';')[0];
+      else {
+        const m = previewFile.url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+        if (m) ext = '.' + m[1];
+      }
+      const filename = previewFile.name.includes('.')
+        ? previewFile.name
+        : previewFile.name + (ext || '.jpg');
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // 给浏览器一帧时间触发下载再回收
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      // CORS 或网络失败时回退 window.open，至少能新开标签人工右键保存
+      message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('图片下载失败', err);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -317,7 +357,6 @@ function ImageUploadSection({
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
 
-      {/* 图片预览弹窗（与管理后台资质文档预览一致） */}
       <Modal
         title={previewFile ? `预览：${previewFile.name}` : '预览'}
         open={!!previewFile}
@@ -332,7 +371,8 @@ function ImageUploadSection({
               <Button
                 type="primary"
                 icon={<DownloadOutlined />}
-                onClick={() => window.open(previewFile.url, '_blank', 'noopener')}
+                loading={downloading}
+                onClick={handleDownload}
               >
                 下载到本地
               </Button>
