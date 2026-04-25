@@ -115,6 +115,35 @@ export class UploadController {
   }
 
   /**
+   * 强制下载文件（前端无法直接 fetch + blob 时的兜底通道）
+   * GET /api/v1/upload/download?key=products/abc.jpg&filename=mypic.jpg
+   *
+   * 走 /api/v1 路径已有 enableCors 覆盖，且显式设
+   * Content-Disposition: attachment 触发浏览器原生保存。
+   */
+  @Public()
+  @UseGuards(AnyAuthGuard)
+  @Get('download')
+  async downloadFile(
+    @Query('key') key: string,
+    @Query('filename') filename: string | undefined,
+    @Res() res: Response,
+  ) {
+    if (!key) throw new BadRequestException('请提供文件 key');
+    const file = this.uploadService.getLocalFileForDownload(key);
+    // RFC 5987 兼容写法：filename* 用 UTF-8 编码支持中文文件名
+    const safeName = (filename || file.basename).replace(/[\r\n"\\]/g, '_');
+    const encoded = encodeURIComponent(safeName);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`,
+    );
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    return res.sendFile(file.filePath);
+  }
+
+  /**
    * 删除文件（H5修复：无 Upload 模型无法追踪文件归属，限制仅管理员可删除）
    * DELETE /api/v1/upload/:key
    */

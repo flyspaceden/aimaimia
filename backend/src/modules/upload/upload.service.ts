@@ -264,6 +264,23 @@ export class UploadService {
     };
   }
 
+  /**
+   * 强制下载本地文件（不依赖 CORS / Content-Disposition 服务器配置）
+   * 调用方负责鉴权，本方法只做路径安全 + 文件存在性校验。
+   */
+  getLocalFileForDownload(key: string): { filePath: string; mimeType: string; basename: string } {
+    const normalizedKey = this.normalizeKey(key);
+    const filePath = this.resolveLocalPath(normalizedKey);
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('文件不存在');
+    }
+    return {
+      filePath,
+      mimeType: this.getMimeFromKey(normalizedKey),
+      basename: path.basename(normalizedKey),
+    };
+  }
+
   private getExtFromMime(mime: string): string {
     const map: Record<string, string> = {
       'image/jpeg': '.jpg',

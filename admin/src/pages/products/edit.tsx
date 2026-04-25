@@ -46,38 +46,33 @@ export default function ProductEditPage() {
   // 商品图片预览（与卖家端商品编辑页一致）
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [downloading, setDownloading] = useState(false);
-  const handleDownloadImage = async () => {
+  // 走后端 /api/v1/upload/download 通道（带 Content-Disposition: attachment 强制下载）
+  const handleDownloadImage = () => {
     if (!previewFile) return;
     setDownloading(true);
     try {
-      const res = await fetch(previewFile.url, { credentials: 'omit' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      let ext = '';
-      const ct = blob.type;
-      if (ct.startsWith('image/')) ext = '.' + ct.slice(6).split(';')[0];
-      else {
-        const m = previewFile.url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
-        if (m) ext = '.' + m[1];
-      }
+      const m = previewFile.url.match(/\/uploads\/(.+?)(?:\?|$)/);
+      if (!m) throw new Error('NON_LOCAL_UPLOAD');
+      const key = decodeURIComponent(m[1]);
       const filename = previewFile.name.includes('.')
         ? previewFile.name
-        : previewFile.name + (ext || '.jpg');
-      const blobUrl = URL.createObjectURL(blob);
+        : previewFile.name + (key.match(/\.[a-zA-Z0-9]+$/)?.[0] || '.jpg');
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+      const downloadUrl = `${apiBase}/upload/download?key=${encodeURIComponent(key)}&filename=${encodeURIComponent(filename)}`;
       const a = document.createElement('a');
-      a.href = blobUrl;
+      a.href = downloadUrl;
       a.download = filename;
+      a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch (err) {
       message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
       window.open(previewFile.url, '_blank', 'noopener');
       // eslint-disable-next-line no-console
       console.error('图片下载失败', err);
     } finally {
-      setDownloading(false);
+      setTimeout(() => setDownloading(false), 500);
     }
   };
 
