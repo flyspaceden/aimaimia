@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   App,
@@ -46,6 +46,9 @@ export default function ProductListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
+  // 顶部统计卡作为快捷筛选 tab
+  type StatusTabKey = 'ALL' | 'ACTIVE' | 'PENDING' | 'DRAFT';
+  const [activeTab, setActiveTab] = useState<StatusTabKey>('ALL');
 
   // 复用 analytics 接口获取统计数据
   const { data: overview } = useQuery({
@@ -95,6 +98,11 @@ export default function ProductListPage() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
+
+  // 切换 tab 立即刷新表格
+  useEffect(() => {
+    actionRef.current?.reload();
+  }, [activeTab]);
 
   // 加价率（用于展开行计算售价）
   const { data: configData } = useQuery({
@@ -284,6 +292,7 @@ export default function ProductListPage() {
       title: '状态',
       dataIndex: 'status',
       width: 110,
+      search: false, // 改用顶部 tab 筛选
       valueEnum: Object.fromEntries(
         Object.entries(productStatusMap).map(([k, v]) => [
           k,
@@ -319,6 +328,7 @@ export default function ProductListPage() {
       title: '审核',
       dataIndex: 'auditStatus',
       width: 90,
+      search: false, // 改用顶部 tab 筛选
       valueEnum: Object.fromEntries(
         Object.entries(auditStatusMap).map(([k, v]) => [k, { text: v.text }]),
       ),
@@ -409,7 +419,7 @@ export default function ProductListPage() {
 
   return (
     <div>
-      {/* 统计概览卡片 */}
+      {/* 统计概览卡片（前 4 个为可点击的快捷筛选 tab，最后一个为只读营收） */}
       <div
         style={{
           display: 'grid',
@@ -418,33 +428,13 @@ export default function ProductListPage() {
           marginBottom: 16,
         }}
       >
-        <Card size="small">
-          <Statistic
-            title="全部商品"
-            value={statusCounts?.total ?? overview?.total.productCount ?? 0}
-            prefix={<ShoppingOutlined style={{ color: '#1677ff' }} />}
-            valueStyle={{ color: '#1677ff', fontSize: 28 }}
-          />
-        </Card>
-        <Card size="small">
-          <Statistic
-            title="已上架"
-            value={statusCounts?.active ?? 0}
-            prefix={<CheckCircleOutlined style={{ color: '#2E7D32' }} />}
-            valueStyle={{ color: '#2E7D32', fontSize: 28 }}
-          />
-        </Card>
-        <Card size="small">
-          <Statistic
-            title="待审核"
-            value={statusCounts?.pending ?? 0}
-            prefix={<ClockCircleOutlined style={{ color: '#fa8c16' }} />}
-            valueStyle={{ color: '#fa8c16', fontSize: 28 }}
-          />
-        </Card>
-        <Card size="small">
-          <Statistic
-            title={
+        {([
+          { key: 'ALL', title: '全部商品', value: statusCounts?.total ?? overview?.total.productCount ?? 0, icon: <ShoppingOutlined />, color: '#1677ff' },
+          { key: 'ACTIVE', title: '已上架', value: statusCounts?.active ?? 0, icon: <CheckCircleOutlined />, color: '#2E7D32' },
+          { key: 'PENDING', title: '待审核', value: statusCounts?.pending ?? 0, icon: <ClockCircleOutlined />, color: '#fa8c16' },
+          {
+            key: 'DRAFT',
+            title: (
               <span>
                 草稿
                 {(statusCounts?.draft ?? 0) >= 5 && (
@@ -453,13 +443,38 @@ export default function ProductListPage() {
                   </Tag>
                 )}
               </span>
-            }
-            value={statusCounts?.draft ?? 0}
-            prefix={<FileTextOutlined style={{ color: '#8c8c8c' }} />}
-            valueStyle={{ color: '#8c8c8c', fontSize: 28 }}
-            suffix={<span style={{ fontSize: 14, color: '#bbb' }}>/5</span>}
-          />
-        </Card>
+            ),
+            value: statusCounts?.draft ?? 0,
+            icon: <FileTextOutlined />,
+            color: '#8c8c8c',
+            suffix: <span style={{ fontSize: 14, color: '#bbb' }}>/5</span>,
+          },
+        ] as const).map((card) => {
+          const isActive = activeTab === card.key;
+          return (
+            <Card
+              key={card.key}
+              size="small"
+              hoverable
+              onClick={() => setActiveTab(card.key as StatusTabKey)}
+              style={{
+                cursor: 'pointer',
+                borderColor: isActive ? card.color : undefined,
+                borderWidth: isActive ? 2 : 1,
+                background: isActive ? `${card.color}0F` : undefined,
+                transition: 'all 0.15s',
+              }}
+            >
+              <Statistic
+                title={card.title}
+                value={card.value}
+                prefix={<span style={{ color: card.color }}>{card.icon}</span>}
+                valueStyle={{ color: card.color, fontSize: 28 }}
+                suffix={'suffix' in card ? card.suffix : undefined}
+              />
+            </Card>
+          );
+        })}
         <Card size="small">
           <Statistic
             title="累计营收"
@@ -552,12 +567,17 @@ export default function ProductListPage() {
           ),
         }}
         request={async (params) => {
+          // 顶部 tab 决定 status / auditStatus，搜索面板的 keyword 仍然生效
+          const tabFilter: { status?: string; auditStatus?: string } =
+            activeTab === 'ACTIVE' ? { status: 'ACTIVE' }
+            : activeTab === 'PENDING' ? { auditStatus: 'PENDING' }
+            : activeTab === 'DRAFT' ? { status: 'DRAFT' }
+            : {}; // ALL：不传过滤，后端默认排除 DRAFT
           const res = await getProducts({
             page: params.current || 1,
             pageSize: params.pageSize || 20,
             keyword: params.keyword || '',
-            status: params.status || '',
-            auditStatus: params.auditStatus || '',
+            ...tabFilter,
           });
           return { data: res.items, total: res.total, success: true };
         }}
