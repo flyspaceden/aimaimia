@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://aimaimai.com/sitemap.xml
+Sitemap: https://ai-maimai.com/sitemap.xml
