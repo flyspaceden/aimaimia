@@ -4,10 +4,11 @@ import {
   App, Card, Button, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
   Breadcrumb, Select, Collapse, Switch, Row, Col,
+  Modal, Image,
 } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
-  SaveOutlined, CloudUploadOutlined,
+  SaveOutlined, CloudUploadOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -267,6 +268,9 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
 
 // ============================================================
 // 共享：图片上传区块
+// 自定义 onPreview：antd Upload 默认是 window.open(file.url) 直接跳新标签，
+// 但 OSS / 上传服务的 URL 可能受 referer / 鉴权限制导致新标签瞬关；
+// 改为弹 Modal + antd <Image>（带缩放/旋转/全屏交互）。
 // ============================================================
 function ImageUploadSection({
   fileList,
@@ -277,6 +281,19 @@ function ImageUploadSection({
   setFileList: (list: UploadFile[]) => void;
   token: string | null;
 }) {
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+
+  const handlePreview = (file: UploadFile) => {
+    // 优先 url，其次 thumbUrl，再退响应里的 url
+    const response = file.response as { url?: string; data?: { url?: string } } | undefined;
+    const url = file.url
+      || file.thumbUrl
+      || response?.data?.url
+      || response?.url;
+    if (!url) return;
+    setPreviewFile({ url, name: file.name || '商品图片' });
+  };
+
   return (
     <>
       <Upload
@@ -286,6 +303,7 @@ function ImageUploadSection({
         listType="picture-card"
         fileList={fileList}
         onChange={({ fileList: newList }) => setFileList(newList)}
+        onPreview={handlePreview}
         multiple
         maxCount={9}
         accept="image/*"
@@ -298,6 +316,37 @@ function ImageUploadSection({
         )}
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
+
+      {/* 图片预览弹窗（与管理后台资质文档预览一致） */}
+      <Modal
+        title={previewFile ? `预览：${previewFile.name}` : '预览'}
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {previewFile && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={() => window.open(previewFile.url, '_blank', 'noopener')}
+              >
+                下载到本地
+              </Button>
+            </div>
+            <div style={{ textAlign: 'center', background: '#fafafa', borderRadius: 4, minHeight: 400, padding: 16 }}>
+              <Image
+                src={previewFile.url}
+                alt={previewFile.name}
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              />
+            </div>
+          </>
+        )}
+      </Modal>
     </>
   );
 }
