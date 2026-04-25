@@ -663,6 +663,7 @@ export class SellerProductsService {
           include: { skus: true, media: true },
         });
 
+        let tagsCreated = false;
         if (dto.tagIds && dto.tagIds.length > 0) {
           const tags = await tx.tag.findMany({
             where: { id: { in: dto.tagIds }, isActive: true },
@@ -676,10 +677,20 @@ export class SellerProductsService {
               data: validTagIds.map((tagId) => ({ productId: product.id, tagId })),
               skipDuplicates: true,
             });
+            tagsCreated = true;
           }
         }
 
-        return product;
+        // tags 关系是在 product.create 之后才创建的，原 product 对象不含 tags。
+        // 若有 tag 写入，重读一次返回完整对象——前端会把响应直接塞进 React Query
+        // cache 用于后续水合，缺 tags 会导致下次保存把已选标签覆盖为空数组。
+        if (tagsCreated) {
+          return tx.product.findUniqueOrThrow({
+            where: { id: product.id },
+            include: { skus: true, media: true, tags: { include: { tag: true } } },
+          });
+        }
+        return { ...product, tags: [] as Array<unknown> };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );

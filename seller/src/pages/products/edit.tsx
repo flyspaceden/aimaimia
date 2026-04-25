@@ -10,7 +10,7 @@ import {
   SaveOutlined, CloudUploadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/api/client';
 import {
   getProduct,
@@ -853,6 +853,7 @@ function ProductEditForm({ id }: { id: string }) {
 function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {}) {
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const token = useAuthStore((s) => s.token);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
@@ -1081,8 +1082,15 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       } else {
         const created = await createDraft(payload as Record<string, unknown> & { title: string });
         setDraftId(created.id);
-        // 把 URL 改成 /products/:id/edit，刷新可恢复；不产生历史记录
-        window.history.replaceState({}, '', `/products/${created.id}/edit`);
+        // 用 React Router navigate 替代 history.replaceState：直接 replaceState 只改地址栏，
+        // React Router 内部 location 不同步，SellerLayout 的 useLocation() 拿到的还是
+        // /products/create，导致菜单高亮等行为偏离。先把 product 数据预热到 React Query
+        // cache，使 navigate 触发的 unmount/mount 后，新的 ProductCreateForm（由 ProductEditForm
+        // 检测 DRAFT 状态后转发而来）能立即从 cache 命中，水合 form values（来自 createDraft 的
+        // 响应即保存时的快照），用户感知一致。仅 fileList 中 status='uploading' 的项会丢失，
+        // 边界情况，用户可重传。
+        queryClient.setQueryData(['seller-product', created.id], created);
+        navigate(`/products/${created.id}/edit`, { replace: true });
       }
       setLastSavedAt(new Date());
       // 保存成功后清 dirty，避免离开页面仍弹未保存提醒
@@ -1105,7 +1113,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     } finally {
       setDraftSaving(false);
     }
-  }, [draftId, draftLimitReached, buildDraftPayload, message]);
+  }, [draftId, draftLimitReached, buildDraftPayload, message, navigate, queryClient]);
 
   // 30 秒 debounce 自动保存（表单 dirty 才触发）
   const debouncedAutoSave = useMemo(

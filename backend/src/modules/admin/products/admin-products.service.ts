@@ -21,10 +21,12 @@ export class AdminProductsService {
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
-    if (status) {
+    // DRAFT 是卖家私有视图，管理端永远不可见。
+    // 即使 caller 显式传 status=DRAFT 也强制忽略并 fallback 到"非草稿"——
+    // 这是服务端可见性边界，不依赖前端约束。
+    if (status && status !== 'DRAFT') {
       where.status = status;
     } else {
-      // 管理端默认不展示卖家草稿（DRAFT 只对卖家本人可见）
       where.status = { not: 'DRAFT' };
     }
     if (auditStatus) where.auditStatus = auditStatus;
@@ -122,14 +124,15 @@ export class AdminProductsService {
         tags: { include: { tag: true } },
       },
     });
-    if (!product) throw new NotFoundException('商品不存在');
+    // 草稿对管理端不可见，统一返回 404（不泄露草稿存在）
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
     return product;
   }
 
   /** 更新商品 */
   async update(id: string, dto: AdminUpdateProductDto) {
     const product = await this.prisma.product.findUnique({ where: { id } });
-    if (!product) throw new NotFoundException('商品不存在');
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     // 提取 tagIds，不传给 Prisma product.update
     const { tagIds, returnPolicy, ...rest } = dto;
@@ -218,7 +221,7 @@ export class AdminProductsService {
   /** 上下架 */
   async toggleStatus(id: string, status: 'ACTIVE' | 'INACTIVE') {
     const product = await this.prisma.product.findUnique({ where: { id } });
-    if (!product) throw new NotFoundException('商品不存在');
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     return this.prisma.product.update({
       where: { id },
@@ -232,7 +235,8 @@ export class AdminProductsService {
       where: { id },
       include: { skus: { select: { id: true } } },
     });
-    if (!product) throw new NotFoundException('商品不存在');
+    // 草稿对管理端不可见，统一返回 404
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
     if (product.status !== 'INACTIVE') {
       throw new BadRequestException('请先下架商品后再删除');
     }
@@ -289,7 +293,7 @@ export class AdminProductsService {
   /** 审核 */
   async audit(id: string, auditStatus: 'APPROVED' | 'REJECTED', auditNote?: string) {
     const product = await this.prisma.product.findUnique({ where: { id } });
-    if (!product) throw new NotFoundException('商品不存在');
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     // C20: 审核通过自动上架（status -> ACTIVE）；拒绝保持原状态
     const updateData: Prisma.ProductUncheckedUpdateInput = { auditStatus, auditNote };
@@ -311,7 +315,7 @@ export class AdminProductsService {
    */
   async updateSkus(productId: string, dto: UpdateProductSkusDto) {
     const product = await this.prisma.product.findUnique({ where: { id: productId } });
-    if (!product) throw new NotFoundException('商品不存在');
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -377,9 +381,9 @@ export class AdminProductsService {
   async clearSemanticMeta(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      select: { id: true, attributes: true },
+      select: { id: true, status: true, attributes: true },
     });
-    if (!product) throw new NotFoundException('商品不存在');
+    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     const attributes = (product.attributes as Record<string, unknown>) ?? {};
     // 删除 semanticMeta，让 fillProduct 将所有字段视为可覆盖

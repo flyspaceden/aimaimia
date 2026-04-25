@@ -146,10 +146,10 @@ export class RewardProductService {
         { id: keyword },
       ];
     }
-    if (status) {
+    // 奖励商品由管理员创建，理论上不应出现 DRAFT；硬排除防御异常数据 + caller 越权
+    if (status && status !== 'DRAFT') {
       where.status = status;
     } else {
-      // 奖励商品由管理员创建，不应出现 DRAFT；防御性排除
       where.status = { not: 'DRAFT' };
     }
 
