@@ -37,9 +37,20 @@ async function bootstrap() {
   }
 
   // 静态文件服务：本地开发默认公开访问；启用私有签名模式时关闭直出
+  // 注意：app.enableCors() 只对 /api/v1/* 生效，静态资源需要在这里单独
+  // 加 CORS 响应头——否则前端用 <img> 加载没问题（图片标签不走 CORS），
+  // 但用 fetch() 下载会被浏览器拦截。这里允许任意来源 GET（图片本身已是
+  // 公开资源：URL 嵌在商品详情/订单详情/审核页里多端共享）。
   const uploadLocalPrivate = process.env.UPLOAD_LOCAL_PRIVATE === 'true';
   if (!uploadLocalPrivate) {
-    app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+    app.useStaticAssets(join(process.cwd(), 'uploads'), {
+      prefix: '/uploads/',
+      setHeaders: (res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      },
+    });
   }
 
   // HTTP 安全头（API 安全基线）
