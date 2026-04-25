@@ -148,6 +148,9 @@ export class RewardProductService {
     }
     if (status) {
       where.status = status;
+    } else {
+      // 奖励商品由管理员创建，不应出现 DRAFT；防御性排除
+      where.status = { not: 'DRAFT' };
     }
 
     const [items, total] = await Promise.all([

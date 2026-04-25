@@ -16,6 +16,8 @@ import {
   UpdateProductDto,
   UpdateSkusDto,
   ProductStatusDto,
+  CreateDraftDto,
+  UpdateDraftDto,
 } from './seller-products.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
@@ -69,6 +71,38 @@ export class SellerProductsController {
     @Body() dto: CreateProductDto,
   ) {
     return this.productsService.create(companyId, dto);
+  }
+
+  /** 创建草稿（不触发审核、不触发审计、仅校验标题） */
+  @SellerRoles('OWNER', 'MANAGER')
+  @Post('draft')
+  createDraft(
+    @CurrentSeller('companyId') companyId: string,
+    @Body() dto: CreateDraftDto,
+  ) {
+    return this.productsService.createDraft(companyId, dto);
+  }
+
+  /** 更新草稿 */
+  @SellerRoles('OWNER', 'MANAGER')
+  @Put(':id/draft')
+  updateDraft(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateDraftDto,
+  ) {
+    return this.productsService.updateDraft(companyId, id, dto);
+  }
+
+  /** 草稿提交审核：DRAFT → INACTIVE + 审核中 */
+  @SellerRoles('OWNER', 'MANAGER')
+  @SellerAudit({ action: 'SUBMIT_PRODUCT_DRAFT', module: 'products', targetType: 'Product', targetIdParam: 'params.id' })
+  @Post(':id/submit')
+  submitDraft(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.productsService.submitDraft(companyId, id);
   }
 
   /** 编辑商品 */

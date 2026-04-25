@@ -47,11 +47,21 @@ const parseErrorMessage = (payload: any, fallback = '请求失败') => {
 export class ApiError extends Error {
   readonly businessCode?: string;
   readonly status?: number;
-  constructor(message: string, opts: { businessCode?: string; status?: number } = {}) {
+  /** 字段级校验错误（来自后端表单类接口），形如 [{ field: 'description', message: '至少 10 字' }] */
+  readonly fieldErrors?: Array<{ field: string; message: string }>;
+  constructor(
+    message: string,
+    opts: {
+      businessCode?: string;
+      status?: number;
+      fieldErrors?: Array<{ field: string; message: string }>;
+    } = {},
+  ) {
     super(message);
     this.name = 'ApiError';
     this.businessCode = opts.businessCode;
     this.status = opts.status;
+    this.fieldErrors = opts.fieldErrors;
   }
 }
 
@@ -62,6 +72,19 @@ const extractBusinessCode = (payload: any): string | undefined => {
     return err.businessCode;
   }
   return undefined;
+};
+
+/** 提取字段级校验错误数组（用于 form.setFields 高亮） */
+const extractFieldErrors = (
+  payload: any,
+): Array<{ field: string; message: string }> | undefined => {
+  const err = payload?.error;
+  if (!err || typeof err !== 'object') return undefined;
+  const list = err.fieldErrors;
+  if (!Array.isArray(list) || list.length === 0) return undefined;
+  return list
+    .filter((e: any) => e && typeof e.field === 'string' && typeof e.message === 'string')
+    .map((e: any) => ({ field: e.field, message: e.message }));
 };
 
 // 请求拦截：附加 seller JWT
@@ -112,6 +135,7 @@ client.interceptors.response.use(
         return Promise.reject(
           new ApiError(parseErrorMessage(body, '请求失败'), {
             businessCode: extractBusinessCode(body),
+            fieldErrors: extractFieldErrors(body),
             status: response.status,
           }),
         );
@@ -202,6 +226,7 @@ client.interceptors.response.use(
     return Promise.reject(
       new ApiError(msg, {
         businessCode: extractBusinessCode(payload),
+        fieldErrors: extractFieldErrors(payload),
         status: error.response?.status,
       }),
     );

@@ -115,8 +115,8 @@ export class SellerAnalyticsService {
           createdAt: { gte: monthStart },
         },
       }),
-      // 总商品数
-      this.prisma.product.count({ where: { companyId } }),
+      // 总商品数（排除草稿，与商品列表"全部"卡片保持一致）
+      this.prisma.product.count({ where: { companyId, status: { not: 'DRAFT' } } }),
       this.sumRevenue(companyId),
     ]);
 

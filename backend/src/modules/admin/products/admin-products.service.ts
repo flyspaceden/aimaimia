@@ -21,7 +21,12 @@ export class AdminProductsService {
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
-    if (status) where.status = status;
+    if (status) {
+      where.status = status;
+    } else {
+      // 管理端默认不展示卖家草稿（DRAFT 只对卖家本人可见）
+      where.status = { not: 'DRAFT' };
+    }
     if (auditStatus) where.auditStatus = auditStatus;
     if (companyId) where.companyId = companyId;
     if (startDate) where.createdAt = { ...where.createdAt, gte: new Date(startDate) };
@@ -85,11 +90,12 @@ export class AdminProductsService {
     return { items: enriched, total, page, pageSize };
   }
 
-  /** 商品统计 */
+  /** 商品统计：DRAFT 不进任何聚合（草稿不应展示在管理端运营视图） */
   async getStats() {
+    const excludeDraft = { status: { not: 'DRAFT' as const } };
     const [byStatus, byAudit] = await Promise.all([
-      this.prisma.product.groupBy({ by: ['status'], _count: true }),
-      this.prisma.product.groupBy({ by: ['auditStatus'], _count: true }),
+      this.prisma.product.groupBy({ by: ['status'], _count: true, where: excludeDraft }),
+      this.prisma.product.groupBy({ by: ['auditStatus'], _count: true, where: excludeDraft }),
     ]);
     const result: Record<string, number> = {};
     let total = 0;

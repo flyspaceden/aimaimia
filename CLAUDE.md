@@ -65,6 +65,8 @@
 ### 设计方案与实施计划 (`docs/superpowers/`)
 - `docs/superpowers/specs/2026-04-23-forgot-password-design.md` — 忘记密码功能设计方案（买家 App 内嵌向导 + 卖家后台方案 β 按企业选择性重置 + 管理后台"联系超管"提示、三端密码独立、SmsPurpose 新增 BUYER_RESET/SELLER_RESET、verifyCode 必填 purpose、LoginEvent 审计 sink，**忘记密码功能权威来源**）
 - `docs/superpowers/plans/2026-04-23-forgot-password.md` — 忘记密码实施计划（15 个任务：Schema × 1 + 后端 × 6 + 买家 App × 2 + 卖家后台 × 3 + 管理后台 × 1 + 文档 × 1 + 验收 × 1）
+- `docs/superpowers/specs/2026-04-24-product-draft-design.md` — 卖家商品草稿设计方案（启用 `ProductStatus.DRAFT`、每商户 5 份上限、标题为最低门槛、30 秒 debounce 自动保存、DRAFT 在卖家默认列表/管理审核/商品总数统计中全部排除、提交时手动跑 `CreateProductDto` 校验、**商品草稿系统权威来源**）
+- `docs/superpowers/plans/2026-04-24-product-draft.md` — 卖家商品草稿实施计划（9 个任务：后端 DTO/Service/Controller × 2 + 单测 × 1 + 前端 API/创建页/编辑页/列表页 × 4 + 文档 + 代码审查）
 - `docs/superpowers/specs/2026-03-15-semantic-intent-design.md` — 语义意图升级设计方案（槽位扩展、LLM 管道、数据模型、搜索评分、实施分期，**语义意图改造权威来源**）
 - `docs/superpowers/specs/2026-03-20-vip-gift-multi-sku-design.md` — VIP 赠品多商品组合设计方案（数据模型、API、管理后台、买家App、迁移策略，**VIP赠品组合系统权威来源**）
 - `docs/superpowers/plans/2026-03-20-vip-gift-multi-sku.md` — VIP 赠品多商品组合实施计划（15个任务、全栈改造，**VIP赠品组合实施排程**）
@@ -115,6 +117,7 @@
 | 超卖容忍 | 允许库存变为负数，卖家收到补货通知，不退款 |
 | 奖品不可退 | 清空购物车删奖品为预期行为，wonCount 永不回退，过期名额不释放 |
 | VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
+| 卖家商品草稿 | 复用 `ProductStatus.DRAFT` 持久化未完成商品，每商户 **5 份**上限，最低门槛**标题必填**，30 秒 debounce 自动保存；DRAFT 在卖家默认列表/管理审核/商品总数统计/买家查询中全部排除；提交审核时手动跑 `CreateProductDto` 全量校验 |
 
 ## 技术栈
 

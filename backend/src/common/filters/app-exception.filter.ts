@@ -54,6 +54,9 @@ export class AppExceptionFilter implements ExceptionFilter {
     // 用于前端需要"根据具体场景分支"的情形，如 CAPTCHA_INVALID 触发自动刷新图形码
     // 不覆盖上方通用 code 字段，避免 5 枚举的类型约束被破坏
     let businessCode: string | undefined;
+    // 字段级错误（由 service 层抛 BadRequestException({ message, fieldErrors: [...] }) 携带）
+    // 数组每项形如 { field: 'description', message: '至少 10 字' }，前端可直接 form.setFields() 高亮
+    let fieldErrors: Array<{ field: string; message: string }> | undefined;
 
     // Multer 限制错误：统一映射为 400，避免被当成 500
     const multerErrorCode = (exception as any)?.name === 'MulterError'
@@ -96,6 +99,17 @@ export class AppExceptionFilter implements ExceptionFilter {
         : undefined;
       if (typeof rawCode === 'string' && rawCode) {
         businessCode = rawCode;
+      }
+
+      // 透传字段级错误数组（用于 400 表单校验场景，前端可基于此高亮具体字段）
+      const rawFieldErrors = typeof exceptionResponse === 'object'
+        ? (exceptionResponse as any)?.fieldErrors
+        : undefined;
+      if (Array.isArray(rawFieldErrors) && rawFieldErrors.length > 0) {
+        fieldErrors = rawFieldErrors
+          .filter((e) => e && typeof e === 'object' && typeof e.field === 'string' && typeof e.message === 'string')
+          .map((e) => ({ field: String(e.field), message: String(e.message) }));
+        if (fieldErrors.length === 0) fieldErrors = undefined;
       }
 
       // 通用策略：service 层主动抛出具体 message 时优先透传，避免被通用 fallback 覆盖
@@ -157,6 +171,7 @@ export class AppExceptionFilter implements ExceptionFilter {
         displayMessage,
         retryable,
         ...(businessCode ? { businessCode } : {}),
+        ...(fieldErrors ? { fieldErrors } : {}),
         ...(requestId ? { requestId } : {}),
       },
     });

@@ -187,23 +187,35 @@ interface SellerJwtPayload {
 |------|------|------|------|
 | `/seller/products` | GET | 我的商品列表（分页、状态筛选） | OWNER / MANAGER / OPERATOR |
 | `/seller/products/:id` | GET | 商品详情 | OWNER / MANAGER / OPERATOR |
-| `/seller/products` | POST | 创建商品（含 SKU、媒体） | OWNER / MANAGER / OPERATOR |
-| `/seller/products/:id` | PUT | 编辑商品 | OWNER / MANAGER / OPERATOR |
-| `/seller/products/:id/status` | POST | 上架/下架（已审核通过的商品） | OWNER / MANAGER / OPERATOR |
+| `/seller/products` | POST | 创建商品（含 SKU、媒体）| OWNER / MANAGER |
+| `/seller/products/draft` | POST | 创建草稿（仅标题必填，上限 5 份/商户）| OWNER / MANAGER |
+| `/seller/products/:id/draft` | PUT | 更新草稿 | OWNER / MANAGER |
+| `/seller/products/:id/submit` | POST | 草稿提交审核（DRAFT → INACTIVE+PENDING，跑全量校验）| OWNER / MANAGER |
+| `/seller/products/:id` | PUT | 编辑商品（非草稿） | OWNER / MANAGER |
+| `/seller/products/:id/status` | POST | 上架/下架（已审核通过的非草稿商品） | OWNER / MANAGER |
 | `/seller/products/:id/media` | POST | 上传商品图片/视频 | OWNER / MANAGER / OPERATOR |
-| `/seller/products/:id/skus` | PUT | 管理 SKU（规格/库存/价格） | OWNER / MANAGER / OPERATOR |
+| `/seller/products/:id/skus` | PUT | 管理 SKU（规格/库存/价格） | OWNER / MANAGER |
 
 **商品状态流转：**
 ```
-卖家创建 → INACTIVE + auditStatus=PENDING
+卖家保存草稿 → DRAFT（可反复保存，30 秒 debounce 自动存）
+    ↓ 卖家点"提交审核"（后端重跑 CreateProductDto 校验）
+INACTIVE + auditStatus=PENDING（进入管理员审核队列）
     ↓
 管理员审核通过 → auditStatus=APPROVED
     ↓
 卖家上架 → ACTIVE（买家可见）
 卖家下架 → INACTIVE（买家不可见）
     ↓
-卖家重新编辑 → auditStatus=PENDING（需重新审核）
+卖家重新编辑 → auditStatus=PENDING（需重新审核；不回退到 DRAFT）
 ```
+
+**DRAFT 状态隔离约束：**
+- 卖家默认商品列表排除 DRAFT（仅"草稿"tab 显式请求）
+- 管理端审核列表排除 DRAFT（草稿不进审核队列）
+- 买家查询天然排除（已有 `status='ACTIVE'` 过滤）
+- 每商户草稿上限 5 份，超过返回 409；保存最低门槛：标题必填
+- 管理端商品列表默认排除 DRAFT；`/admin/products/stats` 的 groupBy 仍按 status 分组（DRAFT 单独出现在统计里，便于运营观察草稿活跃度）
 
 **创建商品 DTO：**
 ```typescript

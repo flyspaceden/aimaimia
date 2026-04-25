@@ -22,6 +22,7 @@ import {
   EditOutlined,
   FileImageOutlined,
   DollarOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -61,15 +62,17 @@ export default function ProductListPage() {
     refetchInterval: 30_000, // 轮询感知管理端审核结果
     refetchOnWindowFocus: true,
     queryFn: async () => {
-      const [all, active, pending] = await Promise.all([
+      const [all, active, pending, draft] = await Promise.all([
         getProducts({ page: 1, pageSize: 1 }),
         getProducts({ page: 1, pageSize: 1, status: 'ACTIVE' }),
         getProducts({ page: 1, pageSize: 1, auditStatus: 'PENDING' }),
+        getProducts({ page: 1, pageSize: 1, status: 'DRAFT' }),
       ]);
       return {
-        total: all.total,
+        total: all.total,  // 后端 list 已默认排除 DRAFT
         active: active.total,
         pending: pending.total,
+        draft: draft.total,
       };
     },
   });
@@ -288,8 +291,8 @@ export default function ProductListPage() {
         ]),
       ),
       render: (_, r) => {
-        // 仅审核通过的商品可切换上/下架；未审核 / 被驳回时显示只读 Tag
-        if (r.auditStatus !== 'APPROVED') {
+        // 草稿 / 未审核 / 被驳回：只读 Tag，不能上下架
+        if (r.status === 'DRAFT' || r.auditStatus !== 'APPROVED') {
           const s = productStatusMap[r.status];
           return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
         }
@@ -320,6 +323,8 @@ export default function ProductListPage() {
         Object.entries(auditStatusMap).map(([k, v]) => [k, { text: v.text }]),
       ),
       render: (_, r) => {
+        // 草稿尚未提交，不显示审核状态
+        if (r.status === 'DRAFT') return <span style={{ color: '#bbb' }}>-</span>;
         const s = auditStatusMap[r.auditStatus];
         return <Tag color={s?.color}>{s?.text || r.auditStatus}</Tag>;
       },
@@ -329,47 +334,76 @@ export default function ProductListPage() {
       width: 140,
       fixed: 'right',
       search: false,
-      render: (_, r) => (
-        <Space size={4}>
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => navigate(`/products/${r.id}/edit`)}
-          >
-            编辑
-          </Button>
-          {r.auditStatus === 'REJECTED' && (
+      render: (_, r) => {
+        // 草稿行：仅展示"继续编辑"+"删除"
+        if (r.status === 'DRAFT') {
+          return (
+            <Space size={4}>
+              <Button
+                type="link"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => navigate(`/products/${r.id}/edit`)}
+              >
+                继续编辑
+              </Button>
+              <Popconfirm
+                title="删除草稿？"
+                description="删除后不可恢复。"
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => handleDelete(r.id)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            </Space>
+          );
+        }
+        return (
+          <Space size={4}>
             <Button
               type="link"
               size="small"
-              style={{ color: '#fa8c16' }}
+              icon={<EditOutlined />}
               onClick={() => navigate(`/products/${r.id}/edit`)}
             >
-              重新提交
-              {(r.submissionCount ?? 1) > 1 && (
-                <span style={{ marginLeft: 4, color: '#8c8c8c' }}>
-                  (已提交 {r.submissionCount} 次)
-                </span>
-              )}
+              编辑
             </Button>
-          )}
-          {r.status === 'INACTIVE' && (
-            <Popconfirm
-              title="确认删除该商品？"
-              description="删除后不可恢复，关联的 SKU、图片将一并移除。"
-              okText="确认删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => handleDelete(r.id)}
-            >
-              <Button type="link" size="small" danger>
-                删除
+            {r.auditStatus === 'REJECTED' && (
+              <Button
+                type="link"
+                size="small"
+                style={{ color: '#fa8c16' }}
+                onClick={() => navigate(`/products/${r.id}/edit`)}
+              >
+                重新提交
+                {(r.submissionCount ?? 1) > 1 && (
+                  <span style={{ marginLeft: 4, color: '#8c8c8c' }}>
+                    (已提交 {r.submissionCount} 次)
+                  </span>
+                )}
               </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+            )}
+            {r.status === 'INACTIVE' && (
+              <Popconfirm
+                title="确认删除该商品？"
+                description="删除后不可恢复，关联的规格、图片将一并移除。"
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => handleDelete(r.id)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -379,7 +413,7 @@ export default function ProductListPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(5, 1fr)',
           gap: 16,
           marginBottom: 16,
         }}
@@ -406,6 +440,24 @@ export default function ProductListPage() {
             value={statusCounts?.pending ?? 0}
             prefix={<ClockCircleOutlined style={{ color: '#fa8c16' }} />}
             valueStyle={{ color: '#fa8c16', fontSize: 28 }}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title={
+              <span>
+                草稿
+                {(statusCounts?.draft ?? 0) >= 5 && (
+                  <Tag color="warning" style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                    已达上限
+                  </Tag>
+                )}
+              </span>
+            }
+            value={statusCounts?.draft ?? 0}
+            prefix={<FileTextOutlined style={{ color: '#8c8c8c' }} />}
+            valueStyle={{ color: '#8c8c8c', fontSize: 28 }}
+            suffix={<span style={{ fontSize: 14, color: '#bbb' }}>/5</span>}
           />
         </Card>
         <Card size="small">

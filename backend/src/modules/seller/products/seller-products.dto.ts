@@ -250,3 +250,186 @@ export class ProductStatusDto {
   @IsNotEmpty()
   status: 'ACTIVE' | 'INACTIVE';
 }
+
+/** 草稿 SKU（所有字段可选，规格不完整也能存） */
+export class DraftSkuDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  specName?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  cost?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stock?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxPerOrder?: number;
+
+  @IsOptional()
+  @IsNumber()
+  weightGram?: number;
+}
+
+/** 创建草稿：仅标题必填 */
+export class CreateDraftDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subtitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin?: ProductOriginDto;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DraftSkuDto)
+  skus?: DraftSkuDto[];
+
+  @IsOptional()
+  attributes?: any;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  aiKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaUrls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  flavorTags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  seasonalMonths?: number[];
+
+  @IsOptional()
+  @IsArray()
+  usageScenarios?: string[];
+
+  @IsOptional()
+  @IsArray()
+  dietaryTags?: string[];
+
+  @IsOptional()
+  @IsString()
+  originRegion?: string;
+}
+
+/** 更新草稿：全部可选（title 若传需非空） */
+export class UpdateDraftDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subtitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin?: ProductOriginDto;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DraftSkuDto)
+  skus?: DraftSkuDto[];
+
+  @IsOptional()
+  attributes?: any;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  aiKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaUrls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  flavorTags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  seasonalMonths?: number[];
+
+  @IsOptional()
+  @IsArray()
+  usageScenarios?: string[];
+
+  @IsOptional()
+  @IsArray()
+  dietaryTags?: string[];
+
+  @IsOptional()
+  @IsString()
+  originRegion?: string;
+}

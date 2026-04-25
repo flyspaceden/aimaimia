@@ -855,6 +855,17 @@
 
 ---
 
+## 📝 卖家商品草稿（2026-04-24 新增）
+
+- [x] **F-PD01** 卖家创建/编辑商品支持"保存草稿"持久化（2026-04-24）
+  - 后端：启用现有 `ProductStatus.DRAFT`（零 migration）；`seller-products.service` 新增 `createDraft` / `updateDraft` / `submitDraft`；`findAll` 默认排除 DRAFT、`toggleStatus` / `update` 拒绝 DRAFT、`remove` 放宽允许 DRAFT；controller 新增 `POST /seller/products/draft` / `PUT /:id/draft` / `POST /:id/submit`；管理端 `admin-products.service.findAll` 显式排除 DRAFT
+  - 前端：创建页双按钮（保存草稿 / 提交审核）+ 30 秒 debounce 自动保存 + `history.replaceState('/products/:id/edit')` URL 持久化 draftId；编辑页遇 DRAFT 转发到 ProductCreateForm；列表页新增草稿统计卡 + 行级差异化渲染（不显示上下架 Switch、审核列显 `-`、操作栏仅继续编辑/删除）；状态 filter 自动包含 DRAFT（valueEnum 从 productStatusMap 派生）
+  - 约束：每商户最多 **5 份**草稿（事务内统计防竞态）；最低门槛**标题必填**；提交审核时手动跑 `CreateProductDto` 校验并返回字段级错误
+  - 23 条 DTO 测试全绿（backend/seller-products-dto.spec.ts）；前后端 TS 编译通过；T9 代码审查待运行
+  - 详见：`docs/superpowers/specs/2026-04-24-product-draft-design.md` + `docs/superpowers/plans/2026-04-24-product-draft.md`
+
+---
+
 ## 📋 待你确认的疑点（从审查报告 §9 搬来）
 
 > 每条回答后在此处标注你的选择 + 日期
