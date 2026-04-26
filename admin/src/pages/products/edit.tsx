@@ -289,9 +289,11 @@ export default function ProductEditPage() {
             {originText || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="基础价格（起步价）">
-            <Text strong style={{ color: '#059669' }}>¥{product.basePrice?.toFixed(2) ?? '-'}</Text>
+            <Text strong style={{ color: '#059669', whiteSpace: 'nowrap' }}>
+              ¥{product.basePrice?.toFixed(2) ?? '-'}
+            </Text>
             <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              自动 = 最低 SKU 售价，保存规格后自动刷新
+              自动 = 最低规格售价，保存规格后自动刷新
             </Text>
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
