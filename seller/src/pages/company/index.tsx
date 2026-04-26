@@ -15,6 +15,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { getCompany, updateCompany, getDocuments, addDocument, getAiSearchProfile, updateAiSearchProfile } from '@/api/company';
 import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import useAuthStore from '@/store/useAuthStore';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 import { COMPANY_TYPE_OPTIONS } from '@/types';
 
@@ -88,6 +89,7 @@ export default function CompanySettingsPage() {
   const [docLoading, setDocLoading] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<{ url: string; title: string } | null>(null);
+  const [downloadingPreview, setDownloadingPreview] = useState(false);
 
   // 企业认证标签有序列表（单独维护，支持拖拽排序）
   const [certTagOrder, setCertTagOrder] = useState<string[]>([]);
@@ -119,6 +121,22 @@ export default function CompanySettingsPage() {
     queryKey: ['seller-company-tags'],
     queryFn: getCompanyTags,
   });
+
+  const handleDownloadPreviewFile = () => {
+    if (!previewFile) return;
+    setDownloadingPreview(true);
+    try {
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.title, API_BASE);
+      triggerBrowserDownload(request.href, request.filename);
+    } catch (err) {
+      message.warning('自动下载失败，已为你打开文件地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('文件下载失败', err);
+    } finally {
+      setTimeout(() => setDownloadingPreview(false), 500);
+    }
+  };
 
   const [aiForm] = Form.useForm();
 
@@ -548,7 +566,8 @@ export default function CompanySettingsPage() {
               <Button
                 type="primary"
                 icon={<DownloadOutlined />}
-                onClick={() => window.open(previewFile.url, '_blank', 'noopener')}
+                loading={downloadingPreview}
+                onClick={handleDownloadPreviewFile}
               >
                 下载到本地
               </Button>

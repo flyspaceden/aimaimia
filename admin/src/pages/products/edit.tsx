@@ -32,6 +32,7 @@ import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import type { AuditLog } from '@/types';
 import dayjs from 'dayjs';
 
@@ -46,56 +47,13 @@ export default function ProductEditPage() {
   // 商品图片预览（与卖家端商品编辑页一致）
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [downloading, setDownloading] = useState(false);
-  // 同时识别 /uploads/* 公开模式和 /upload/private/* 私有签名模式
   const handleDownloadImage = () => {
     if (!previewFile) return;
     setDownloading(true);
     try {
-      const url = previewFile.url;
       const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-
-      const triggerAnchor = (href: string, filename: string) => {
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = filename;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      };
-
-      const deriveFilename = (preferred: string, keyOrUrl: string) => {
-        if (preferred.includes('.')) return preferred;
-        const ext = keyOrUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[0] || '.jpg';
-        return preferred + ext;
-      };
-
-      // 私有签名 URL：直接复用原 URL，加 &download=1
-      const privateMatch = url.match(/\/upload\/private\/(.+?)(?:\?|$)/);
-      if (privateMatch) {
-        const key = decodeURIComponent(privateMatch[1]);
-        const filename = deriveFilename(previewFile.name, key);
-        const sep = url.includes('?') ? '&' : '?';
-        triggerAnchor(
-          `${url}${sep}download=1&filename=${encodeURIComponent(filename)}`,
-          filename,
-        );
-        return;
-      }
-
-      // 公开 URL：走 proxy 端点
-      const publicMatch = url.match(/\/uploads\/(.+?)(?:\?|$)/);
-      if (publicMatch) {
-        const key = decodeURIComponent(publicMatch[1]);
-        const filename = deriveFilename(previewFile.name, key);
-        triggerAnchor(
-          `${apiBase}/upload/download?key=${encodeURIComponent(key)}&filename=${encodeURIComponent(filename)}`,
-          filename,
-        );
-        return;
-      }
-
-      throw new Error('NON_LOCAL_UPLOAD');
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.name, apiBase);
+      triggerBrowserDownload(request.href, request.filename);
     } catch (err) {
       message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
       window.open(previewFile.url, '_blank', 'noopener');

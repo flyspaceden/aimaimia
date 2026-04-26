@@ -36,6 +36,13 @@ const uploadMulterOptions = {
   },
 };
 
+function buildContentDisposition(filename: string): string {
+  const safeName = filename.replace(/[\r\n"\\]/g, '_') || 'download';
+  const fallbackName = safeName.replace(/[^\x20-\x7E]/g, '_') || 'download';
+  const encoded = encodeURIComponent(safeName);
+  return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encoded}`;
+}
+
 @Controller('upload')
 export class UploadController {
   constructor(private uploadService: UploadService) {}
@@ -120,12 +127,7 @@ export class UploadController {
     // 下载模式：附 Content-Disposition 触发浏览器原生保存
     if (download === '1' || download === 'true') {
       const basename = key.split('/').pop() || 'download';
-      const safeName = (filename || basename).replace(/[\r\n"\\]/g, '_');
-      const encoded = encodeURIComponent(safeName);
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`,
-      );
+      res.setHeader('Content-Disposition', buildContentDisposition(filename || basename));
     }
     return res.sendFile(file.filePath);
   }
@@ -148,17 +150,15 @@ export class UploadController {
     @Res() res: Response,
   ) {
     if (!key) throw new BadRequestException('请提供文件 key');
-    const file = this.uploadService.getLocalFileForDownload(key);
+    const file = await this.uploadService.getFileForDownload(key);
     // RFC 5987 兼容写法：filename* 用 UTF-8 编码支持中文文件名
-    const safeName = (filename || file.basename).replace(/[\r\n"\\]/g, '_');
-    const encoded = encodeURIComponent(safeName);
     res.setHeader('Content-Type', file.mimeType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`,
-    );
+    res.setHeader('Content-Disposition', buildContentDisposition(filename || file.basename));
     res.setHeader('Cache-Control', 'private, max-age=60');
-    return res.sendFile(file.filePath);
+    if ('filePath' in file) {
+      return res.sendFile(file.filePath);
+    }
+    return file.stream.pipe(res);
   }
 
   /**

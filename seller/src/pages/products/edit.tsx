@@ -29,6 +29,7 @@ import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -295,58 +296,12 @@ function ImageUploadSection({
     setPreviewFile({ url, name: file.name || '商品图片' });
   };
 
-  // 触发 anchor 下载（浏览器看到 Content-Disposition: attachment 会原生保存）
-  const triggerAnchorDownload = (href: string, filename: string) => {
-    const a = document.createElement('a');
-    a.href = href;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
-  const deriveFilename = (preferredName: string, keyOrUrl: string) => {
-    if (preferredName.includes('.')) return preferredName;
-    const ext = keyOrUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[0] || '.jpg';
-    return preferredName + ext;
-  };
-
   const handleDownload = () => {
     if (!previewFile) return;
     setDownloading(true);
     try {
-      const url = previewFile.url;
-
-      // 私有签名 URL 模式：/api/v1/upload/private/<key>?expires=&sig=
-      // 直接复用原 URL，加 &download=1 让后端切换到 attachment 响应头
-      const privateMatch = url.match(/\/upload\/private\/(.+?)(?:\?|$)/);
-      if (privateMatch) {
-        const key = decodeURIComponent(privateMatch[1]);
-        const filename = deriveFilename(previewFile.name, key);
-        const sep = url.includes('?') ? '&' : '?';
-        triggerAnchorDownload(
-          `${url}${sep}download=1&filename=${encodeURIComponent(filename)}`,
-          filename,
-        );
-        return;
-      }
-
-      // 公开 URL 模式：/uploads/<key>
-      // 走后端 /api/v1/upload/download proxy 端点，带 attachment 头
-      const publicMatch = url.match(/\/uploads\/(.+?)(?:\?|$)/);
-      if (publicMatch) {
-        const key = decodeURIComponent(publicMatch[1]);
-        const filename = deriveFilename(previewFile.name, key);
-        triggerAnchorDownload(
-          `${API_BASE}/upload/download?key=${encodeURIComponent(key)}&filename=${encodeURIComponent(filename)}`,
-          filename,
-        );
-        return;
-      }
-
-      // 非本地资源（外链 / OSS）：回退到打开 URL 让用户右键另存
-      throw new Error('NON_LOCAL_UPLOAD');
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.name, API_BASE);
+      triggerBrowserDownload(request.href, request.filename);
     } catch (err) {
       message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
       window.open(previewFile.url, '_blank', 'noopener');

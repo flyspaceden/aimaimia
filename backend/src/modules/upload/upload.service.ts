@@ -281,6 +281,30 @@ export class UploadService {
     };
   }
 
+  async getFileForDownload(
+    key: string,
+  ): Promise<
+    | { filePath: string; mimeType: string; basename: string }
+    | { stream: NodeJS.ReadableStream; mimeType: string; basename: string }
+  > {
+    const normalizedKey = this.normalizeKey(key);
+    const useLocalStorage = this.config.get('UPLOAD_LOCAL', 'true');
+
+    if (useLocalStorage === 'true') {
+      return this.getLocalFileForDownload(normalizedKey);
+    }
+
+    const oss = this.getOssClient() as unknown as {
+      getStream: (key: string) => Promise<{ stream: NodeJS.ReadableStream }>;
+    };
+    const result = await oss.getStream(normalizedKey);
+    return {
+      stream: result.stream,
+      mimeType: this.getMimeFromKey(normalizedKey),
+      basename: path.basename(normalizedKey),
+    };
+  }
+
   private getExtFromMime(mime: string): string {
     const map: Record<string, string> = {
       'image/jpeg': '.jpg',

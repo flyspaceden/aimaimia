@@ -61,6 +61,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import type { CompanyStaff, CompanyDocument } from '@/types';
 import { COMPANY_TYPE_OPTIONS } from '@/types';
 import { getPublicTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 
 const statusMap: Record<string, { text: string; color: string }> = {
@@ -125,6 +126,7 @@ export default function CompanyDetailPage() {
   const [transferOwnerForm] = Form.useForm();
   const [transferOwnerLoading, setTransferOwnerLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ url: string; title: string } | null>(null);
+  const [downloadingPreview, setDownloadingPreview] = useState(false);
   // 修改昵称 / 修改手机号
   const [editNicknameTarget, setEditNicknameTarget] = useState<CompanyStaff | null>(null);
   const [editNicknameForm] = Form.useForm();
@@ -142,6 +144,23 @@ export default function CompanyDetailPage() {
     queryFn: () => getCompany(id!),
     enabled: !!id,
   });
+
+  const handleDownloadPreviewFile = () => {
+    if (!previewFile) return;
+    setDownloadingPreview(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.title, apiBase);
+      triggerBrowserDownload(request.href, request.filename);
+    } catch (err) {
+      message.warning('自动下载失败，已为你打开文件地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('文件下载失败', err);
+    } finally {
+      setTimeout(() => setDownloadingPreview(false), 500);
+    }
+  };
 
   const { data: staffList, isLoading: staffLoading } = useQuery({
     queryKey: ['admin', 'company-staff', id],
@@ -1338,7 +1357,8 @@ export default function CompanyDetailPage() {
               <Button
                 type="primary"
                 icon={<DownloadOutlined />}
-                onClick={() => window.open(previewFile.url, '_blank', 'noopener')}
+                loading={downloadingPreview}
+                onClick={handleDownloadPreviewFile}
               >
                 下载到本地
               </Button>
