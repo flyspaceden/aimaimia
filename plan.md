@@ -455,7 +455,7 @@
     - PM2 日志证据：两次 `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送` 警告已消失
   - 状态: ✅ | 完成日期: 2026-04-19
 
-- [x] **C40c4** — 🟡 P1 App 微信登录 Android（2026-04-19 新增，当日代码完成）
+- [x] **C40c4** — 🟡 P1 App 微信登录 Android（2026-04-19 新增，2026-04-20 真机端到端验证通过 ✅）
   - **前置（用户已完成）**:
     - [x] 微信开放平台 App 审核通过，AppID = `wxeb8e8dc219da02dd`（密码本 §5.1）
     - [x] 签名 MD5 = `766bafb6a3b34a678761e4b07e3665c4` 已注册微信平台（密码本 §11.1）
@@ -495,14 +495,8 @@
       - 构建用 EAS 上已传的本地 keystore 签名（MD5 `76:6B:AF:B6:...`，与微信平台注册一致）
       - Gradle 阶段日志应见 `WXEntryActivity.java` 编译 + `react-native-wechat-lib` 链接
       - 失败贴日志给 Claude
-    - [ ] **② 真机安装**（必须装了**微信 App** + 登过微信号的 Android 真机）:
-      - 🔴 **先卸载旧版 AI爱买买**（签名从 EAS 默认 keystore 换成本地 keystore，Android 拒绝覆盖）
-      - 扫码 https://www.pgyer.com/aiaimaimai 或用手机浏览器打开，点"安装"
-    - [ ] **③ 端到端验证**:
-      - 启动 App → 同意隐私政策
-      - "我的" Tab → 点登录 → 唤出 AuthModal
-      - 点"微信登录" → **应跳转微信 App**
-      - 微信点"同意" → 自动跳回 App → 应已登录（可看"我的"页用户名）
+    - [x] **② 真机安装**（2026-04-20 完成）
+    - [x] **③ 端到端验证**（2026-04-20 完成）：拉起微信 → 同意授权 → 自动登录 → 管理后台看到新用户
     - [ ] **④ 后端日志验证**:
       ```bash
       ssh root@8.163.16.32
@@ -519,13 +513,27 @@
     | 同意后未登录 | 后端 wechat API 报错 | PM2 日志找 `[WeChat]` 错误 |
     | Build 报 @expo/config-plugins 缺失 | peer dep | `npm install @expo/config-plugins --save-dev` |
   - **后端已就绪**: staging `WECHAT_MOCK=false`，生产环境上线前核对
+  - **2026-04-20 真机测试新发现的问题 + 修复**（这一天踩了一串坑才打通）:
+    - 🔴 **首次微信登录报"SDK 初始化失败"**（看似配置问题，实际是代码 bug）
+      - 根因：`react-native-wechat-lib@1.1.27` 的 Android 原生模块 `WeChatModule.java:113` `getName()` 返回 `RCTWeChat`，但库 JS 顶层 `index.js:7` 硬编码 `const { WeChat } = NativeModules` 拿 `WeChat`，导致 `WeChat.registerApp` undefined。`src/services/wechat.ts` 检查 `NativeModules.WeChat` 也永远 false，提前 return false 抛错
+      - 修复：commit `bcece45` 在 `wechat.ts` 加 `tryAliasRCTWeChat()` 把 `NativeModules.RCTWeChat` 别名到 `NativeModules.WeChat`，注入必须放 `initWechat()` **函数体内运行时执行**（注意：放模块顶层会因 NativeModules Proxy/frozen 抛 TypeError → bundle 加载失败 → **白屏**，已被 OTA #2 实测验证。详见 memory `feedback_ota_top_level_side_effects.md`）
+    - 🟡 **新用户昵称都是"微信用户"无辨识度**
+      - 修复：commit `5bdccca` `auth.service.ts` 加 `fetchWechatUserProfile()`，调 `/sns/userinfo` 拿真实 nickname/headimgurl/sex/city，失败 fallback `微信${openId.slice(-6)}`，只影响首次登录
+    - 🟢 **首启动画 splash"农脉"残留 + DDL 闪网页打断动画**（一并修了）
+      - 修复：splash 文案改"爱买买"+ letterSpacing 14→6；DDL 检查延迟 3s + 新增 `app/referral.tsx` 兜底路由（commit `1a799bf`）
+  - **OTA 推送链路验证**（2026-04-20）:
+    - `eas update --branch preview` 全 JS 改动 OTA 已实战验证可用
+    - APK 冷启 2 次后加载新 bundle（第一次后台下载，第二次应用）
+    - 出问题用 `eas update:republish --group <id>` 回滚到任意历史 update group
+    - 当前 preview branch HEAD：update group `450d71de-8959`（含 wechat 别名修复）
   - **验收**:
-    - [ ] App 点"微信登录" → 跳转微信 → 同意 → 自动登录
-    - [ ] 首次登录自动建 User + AuthIdentity(provider=WECHAT, identifier=openId)
-    - [ ] 已绑定的微信下次登录直接进，触发新人红包仅一次
+    - [x] App 点"微信登录" → 跳转微信 → 同意 → 自动登录（2026-04-20）
+    - [x] 首次登录自动建 User + AuthIdentity(provider=WECHAT, identifier=openId)（2026-04-20）
+    - [x] 真实昵称/头像/性别/城市已写入 UserProfile（2026-04-20，commit `5bdccca`）
+    - [ ] 已绑定的微信下次登录直接进，触发新人红包仅一次（待二次登录验证）
     - [ ] 微信用户能补绑手机号（C40c7 账号安全页）
-  - **预估**: 原 2-3 周（线下审核）+ 3 天开发 → 实际 1 天代码完成（线下审核已提前做好）
-  - 状态: ⏳ 代码完成待 EAS 重打 .apk 真机测试
+  - **预估**: 原 2-3 周（线下审核）+ 3 天开发 → 实际 1 天代码完成 + 1 天真机调试打通
+  - 状态: ✅ | 完成日期: 2026-04-20
 
 ~~C40c5 Apple 登录~~ — 🗑️ 用户决策（2026-04-19）: 不需要，已删除。仅在真正有 iOS 第三方登录需求且 Apple 审核强制时再加回
 
@@ -925,6 +933,7 @@
 - **2026-04-19**: 测试环境联通性审查（三端前端 + 后端 + DB + CORS 全部 ✅）；EAS Build 全套配置（eas.json 三档 + expo-updates OTA + 第一次 Android .apk 构建成功）；CORS/ALIPAY_NOTIFY_URL 修正；注册/登录真实闭环缺口审计；plan.md 拆解 C40c1~c6 + C40d/C40e（含管理员管理页/商户入驻审核页/SMS真实/微信登录/Apple登录/邀请通知/app.json 清理/生产切换 checklist 共 8 个新任务）
 - **2026-04-19 下午**: C40c2 方案修订（发现 `companies/applications-tab.tsx` 已完整实现，改为只加菜单快捷入口，从 P0 1 天降为 P2 15 分钟）；确立三段式环境策略（本地 mock / Staging 真实 SMS + 支付宝沙箱 / 生产全真实），C40c3 升级 P0；新增账号管理三大补全任务 C40c7 账号安全页 + C40c8 管理员兜底重置密码 + C40c9 管理员员工 CRUD 完整化（含换 OWNER），合计新增约 3 天工作量
 - **2026-04-20**: 首次真机 APK 测试暴露两个首启 bug（splash "农脉"只显"农" + DDL 拉起 Custom Tab 打断启动 + scheme 回跳落 +not-found "no router"）；即时修复：splash 文案改 "爱买买" + letterSpacing 14→6 + 新增 `app/referral.tsx` 兜底 + DDL 延迟 3s（缓解，非根治）；追加 C40f 任务（mask 包装 + Custom Tab 美化）根治首启闪网页体验问题
+- **2026-04-20 晚**: 微信登录全链路打通 ✅。先排查"SDK 初始化失败"，发现根因不是签名/AppID/审核（这些都对），而是 `react-native-wechat-lib` 库 Android 原生模块名 `RCTWeChat` 与 JS 层硬编码 `NativeModules.WeChat` 不一致。commit `bcece45` 加 `tryAliasRCTWeChat()` 别名注入。OTA 推送过程踩坑 1 次（OTA #2 把别名注入放模块顶层导致白屏，立即 republish 回滚 OTA #1，然后 OTA #3 把注入搬进 `initWechat()` 函数体 + 双层 try/catch 修好）。commit `5bdccca` 改首次登录拉真实昵称/头像/性别/城市，失败 fallback `微信${openId.slice(-6)}`。C40c4 标记 ✅ 完成。沉淀 2 个 memory：`feedback_ota_top_level_side_effects.md`（OTA 推送顶层副作用陷阱）+ `project_wechat_login_status.md`（微信集成完整状态）
 
 ---
 
