@@ -55,7 +55,8 @@ export default function CheckoutAddressScreen() {
           title="暂无收货地址"
           description="请先添加收货地址"
           actionLabel="添加地址"
-          onAction={() => router.push('/me/addresses')}
+          // 直接进新增表单（带 openNew=1 参数让 /me/addresses 跳过列表态）
+          onAction={() => router.push({ pathname: '/me/addresses', params: { openNew: '1' } })}
         />
       ) : (
         <FlatList
@@ -65,7 +66,8 @@ export default function CheckoutAddressScreen() {
           contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
           ListFooterComponent={
             <Pressable
-              onPress={() => router.push('/me/addresses')}
+              // 同上：直接进新增表单
+              onPress={() => router.push({ pathname: '/me/addresses', params: { openNew: '1' } })}
               style={[styles.addButton, { borderColor: colors.border, borderRadius: radius.lg }]}
             >
               <MaterialCommunityIcons name="plus" size={20} color={colors.brand.primary} />

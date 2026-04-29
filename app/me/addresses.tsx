@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,7 +13,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AddressRepo } from '../../src/repos';
@@ -39,9 +38,20 @@ export default function AddressesScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  // 支持从其他页面（如 checkout-address）带 openNew=1 参数直达新增表单，避免多一跳列表
+  const params = useLocalSearchParams<{ openNew?: string }>();
   const [editing, setEditing] = useState<string | null>(null); // 'new' 或 address id
   const [form, setForm] = useState<FormData>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  // 进入页面时若带 openNew=1 自动进表单态（仅触发一次，不依赖 params 持续更新）
+  useEffect(() => {
+    if (params.openNew === '1') {
+      setForm(emptyForm);
+      setEditing('new');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['addresses'],
@@ -122,63 +132,63 @@ export default function AddressesScreen() {
   // 表单编辑界面
   if (editing) {
     return (
-      <Screen contentStyle={{ flex: 1 }}>
+      <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
         <AppHeader
           title={editing === 'new' ? '新增地址' : '编辑地址'}
           onBack={() => setEditing(null)}
         />
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        {/* ScrollView 让区县/详细地址等底部字段在键盘弹起时能滚到可视区上方 */}
+        <ScrollView
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: 200 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
-          <View style={{ padding: spacing.xl, flex: 1 }}>
-            {[
-              { key: 'receiverName', label: '收货人', placeholder: '请输入姓名' },
-              { key: 'phone', label: '手机号', placeholder: '请输入手机号', keyboardType: 'phone-pad' as const },
-              { key: 'province', label: '省份', placeholder: '如：浙江省' },
-              { key: 'city', label: '城市', placeholder: '如：杭州市' },
-              { key: 'district', label: '区县', placeholder: '如：西湖区' },
-              { key: 'detail', label: '详细地址', placeholder: '街道/小区/门牌号' },
-            ].map((field) => (
-              <View key={field.key} style={{ marginBottom: spacing.lg }}>
-                <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: 6 }]}>
-                  {field.label}
-                </Text>
-                <TextInput
-                  value={(form as any)[field.key]}
-                  onChangeText={(v) => setForm({ ...form, [field.key]: v })}
-                  placeholder={field.placeholder}
-                  placeholderTextColor={colors.muted}
-                  keyboardType={(field as any).keyboardType}
-                  style={[
-                    styles.input,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                      borderRadius: radius.md,
-                      color: colors.text.primary,
-                      ...typography.body,
-                    },
-                  ]}
-                />
-              </View>
-            ))}
+          {[
+            { key: 'receiverName', label: '收货人', placeholder: '请输入姓名' },
+            { key: 'phone', label: '手机号', placeholder: '请输入手机号', keyboardType: 'phone-pad' as const },
+            { key: 'province', label: '省份', placeholder: '如：浙江省' },
+            { key: 'city', label: '城市', placeholder: '如：杭州市' },
+            { key: 'district', label: '区县', placeholder: '如：西湖区' },
+            { key: 'detail', label: '详细地址', placeholder: '街道/小区/门牌号' },
+          ].map((field) => (
+            <View key={field.key} style={{ marginBottom: spacing.lg }}>
+              <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: 6 }]}>
+                {field.label}
+              </Text>
+              <TextInput
+                value={(form as any)[field.key]}
+                onChangeText={(v) => setForm({ ...form, [field.key]: v })}
+                placeholder={field.placeholder}
+                placeholderTextColor={colors.muted}
+                keyboardType={(field as any).keyboardType}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    color: colors.text.primary,
+                    ...typography.body,
+                  },
+                ]}
+              />
+            </View>
+          ))}
 
-            {/* 保存按钮 — 渐变 */}
-            <Pressable onPress={handleSave} disabled={submitting}>
-              <LinearGradient
-                colors={submitting ? [colors.border, colors.border] : [colors.brand.primary, colors.ai.start]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.saveButton, { borderRadius: radius.pill }]}
-              >
-                <Text style={[typography.bodyStrong, { color: submitting ? colors.text.secondary : colors.text.inverse }]}>
-                  {submitting ? '保存中...' : '保存地址'}
-                </Text>
-              </LinearGradient>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
+          {/* 保存按钮 — 渐变 */}
+          <Pressable onPress={handleSave} disabled={submitting}>
+            <LinearGradient
+              colors={submitting ? [colors.border, colors.border] : [colors.brand.primary, colors.ai.start]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.saveButton, { borderRadius: radius.pill }]}
+            >
+              <Text style={[typography.bodyStrong, { color: submitting ? colors.text.secondary : colors.text.inverse }]}>
+                {submitting ? '保存中...' : '保存地址'}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        </ScrollView>
       </Screen>
     );
   }
