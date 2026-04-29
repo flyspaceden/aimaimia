@@ -1293,7 +1293,8 @@ export class CheckoutService {
                         type: 'stock_shortage',
                         title: '商品超卖补货提醒',
                         content: `商品「${skuLabel}」超卖 ${oversoldQty} 件，当前库存 ${updatedSku.stock}，请尽快补货。`,
-                        target: { route: '/seller/products', params: {} },
+                        // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
+                        // 卖家应在卖家后台 web 处理库存，将来可考虑发独立卖家通知渠道
                       }).catch(() => {});
                     });
                   }

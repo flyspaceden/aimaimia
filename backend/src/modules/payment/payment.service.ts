@@ -698,7 +698,8 @@ export class PaymentService {
         type: 'new_order',
         title: '新订单待发货',
         content: '您有新的订单需要处理，请尽快安排发货。',
-        target: { route: '/seller/orders', params: { status: 'PAID' } },
+        // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
+        // 卖家应在卖家后台 web 处理订单，将来可考虑发独立卖家通知渠道
       });
     }
   }
