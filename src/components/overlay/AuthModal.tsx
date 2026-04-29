@@ -353,7 +353,7 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
     <Modal transparent visible={open} animationType="fade" onRequestClose={handleClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Animated.View
             entering={FadeIn.duration(200)}
             style={[styles.card, shadow.lg, { backgroundColor: colors.surface, borderRadius: radius['2xl'] ?? 20 }]}
