@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Post,
   Query,
@@ -25,6 +26,8 @@ import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('ai')
 export class AiController {
+  private readonly logger = new Logger(AiController.name);
+
   private static readonly AI_CONTEXT_MAX_DEPTH = 6;
   private static readonly AI_CONTEXT_MAX_KEYS = 200;
   private static readonly AI_CONTEXT_MAX_ARRAY_ITEMS = 100;
@@ -90,9 +93,23 @@ export class AiController {
       throw new BadRequestException('请上传音频文件');
     }
 
-    // 根据 MIME 类型确定音频格式
-    const format = this.getAudioFormat(audioFile.mimetype);
+    // 优先按文件头识别真实格式（mimetype 在 RN multipart 上传时可能不可信，
+    // Android 录音设了错误 outputFormat 的历史 bug 让 wav 后缀实际是 3GPP 等情况
+    // 已在 commit 8ee3fbe 修复，这里加 header 检测做防御）
+    const headerFormat = this.detectAudioFormatFromHeader(audioFile.buffer);
+    const mimeFormat = this.getAudioFormat(audioFile.mimetype);
+    const format = headerFormat || mimeFormat;
     const resolvedPrepareId = prepareId || queryPrepareId;
+
+    // Bug 9 诊断日志：bytes 长度 + 文件前 16 字节 hex + mimetype/header 双向格式
+    // 真机复现时配合前端 [VoiceUpload] 日志定位是上传层失败 (bytes=0)
+    // 还是格式错配 (header 与 mimetype 不一致) 还是 ASR 真返回空
+    this.logger.log(
+      `[VoiceASR] bytes=${audioFile.buffer.length} ` +
+      `mimetype=${audioFile.mimetype} mimeFormat=${mimeFormat} ` +
+      `header=${audioFile.buffer.subarray(0, Math.min(16, audioFile.buffer.length)).toString('hex')} ` +
+      `headerFormat=${headerFormat ?? 'unknown'} → using=${format}`,
+    );
     const result = await this.aiService.parseVoiceIntent(
       audioFile.buffer,
       format,
@@ -208,6 +225,48 @@ export class AiController {
   }
 
   // ========== 私有方法 ==========
+
+  /**
+   * 按文件头 magic bytes 识别音频真实格式（比 mimetype 更可信）
+   * 阿里云 DashScope ASR 格式映射后返回
+   * 返回 null 时调用方应 fallback 到 mimetype 或默认 wav
+   */
+  private detectAudioFormatFromHeader(buf: Buffer): string | null {
+    if (!buf || buf.length < 12) return null;
+
+    // WAV: "RIFF" 在偏移 0，"WAVE" 在偏移 8
+    if (
+      buf.toString('ascii', 0, 4) === 'RIFF' &&
+      buf.toString('ascii', 8, 12) === 'WAVE'
+    ) {
+      return 'wav';
+    }
+
+    // M4A / MP4 / 3GPP: "ftyp" 在偏移 4，brand 在偏移 8
+    if (buf.toString('ascii', 4, 8) === 'ftyp') {
+      const brand = buf.toString('ascii', 8, 12);
+      if (
+        brand.startsWith('M4A') ||
+        brand === 'mp42' ||
+        brand === 'mp41' ||
+        brand === 'isom'
+      ) {
+        return 'aac'; // 大部分 m4a 容器内是 AAC
+      }
+      if (brand.startsWith('3gp')) {
+        return 'amr'; // 3GPP 多为 AMR-NB / AMR-WB
+      }
+    }
+
+    // MP3: ID3v2 标签或 sync frame
+    if (buf.toString('ascii', 0, 3) === 'ID3') return 'mp3';
+    if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return 'mp3';
+
+    // OGG / Opus: "OggS"
+    if (buf.toString('ascii', 0, 4) === 'OggS') return 'opus';
+
+    return null;
+  }
 
   /**
    * 根据 MIME 类型映射为 ASR 支持的音频格式
