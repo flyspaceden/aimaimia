@@ -17,14 +17,6 @@ const maskPhone = (phone?: string) => {
   return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
 };
 
-// 邮箱脱敏：l****e@example.com
-const maskEmail = (email?: string) => {
-  if (!email) return undefined;
-  const [local, domain] = email.split('@');
-  if (!domain || local.length < 2) return email;
-  return `${local[0]}****${local[local.length - 1]}@${domain}`;
-};
-
 export default function AccountSecurityScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
   const { show } = useToast();
@@ -100,7 +92,6 @@ export default function AccountSecurityScreen() {
   };
 
   const phoneMasked = maskPhone(profile?.phone);
-  const emailMasked = maskEmail(profile?.email);
   const wechatName = profile?.wechatNickname;
 
   return (
@@ -123,24 +114,6 @@ export default function AccountSecurityScreen() {
               {phoneMasked ? (
                 <View style={[styles.badge, { backgroundColor: colors.brand.primary + '18' }]}>
                   <Text style={[typography.caption, { color: colors.brand.primary }]}>{phoneMasked}</Text>
-                </View>
-              ) : (
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>未绑定</Text>
-              )}
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} style={{ marginLeft: 6 }} />
-            </Pressable>
-
-            {/* 邮箱 */}
-            <Pressable
-              onPress={() => show({ message: emailMasked ? '换绑邮箱功能即将上线' : '绑定邮箱功能即将上线', type: 'info' })}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <MaterialCommunityIcons name="email-outline" size={20} color="#1976D2" />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>邮箱</Text>
-              <View style={styles.spacer} />
-              {emailMasked ? (
-                <View style={[styles.badge, { backgroundColor: '#1976D218' }]}>
-                  <Text style={[typography.caption, { color: '#1976D2' }]}>{emailMasked}</Text>
                 </View>
               ) : (
                 <Text style={[typography.caption, { color: colors.text.secondary }]}>未绑定</Text>

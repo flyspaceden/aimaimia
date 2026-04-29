@@ -12,7 +12,6 @@ export type UserProfile = {
   id: string;
   name: string;
   phone?: string;
-  email?: string;
   wechatNickname?: string;
   avatar: string;
   gender?: Gender;
