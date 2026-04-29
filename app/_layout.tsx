@@ -142,10 +142,14 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, [consentState]);
 
-  // 支付宝沙箱环境（测试时设为 true，上线前改为 false）
+  // 支付宝沙箱环境
+  // ⚠️ 不能用 __DEV__：preview/production APK 是 release build，__DEV__ === false → 沙箱被强制关掉
+  // 用 EXPO_PUBLIC_ALIPAY_SANDBOX env var 控制（在 eas update / build 命令上显式带入）
+  // 沙箱测试期间设 true，上线前改 false
   useEffect(() => {
     if (consentState !== 'granted') return;
-    initAlipayEnv(__DEV__);
+    const sandbox = process.env.EXPO_PUBLIC_ALIPAY_SANDBOX === 'true';
+    initAlipayEnv(sandbox);
   }, [consentState]);
 
   // 微信 SDK 注册（Mock 模式会跳过真实注册；Expo Go 无原生模块也会静默失败）
