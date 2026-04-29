@@ -1,6 +1,6 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme';
@@ -15,9 +15,13 @@ type ScreenProps = {
   /** 启用背景渐变（surfaceGradient），默认纯色 */
   backgroundGradient?: boolean;
   /**
-   * 启用键盘适配：包 KeyboardAvoidingView + ScrollView，自动让被键盘遮挡的输入框上移并允许滚动
+   * 启用键盘适配：包 KeyboardAvoidingView，让被键盘遮挡的输入框上移
    * 适用于含 TextInput 的页面（账号安全/地址表单/结算/AI 聊天/客服/发票/售后等）
-   * 默认 false，保持现有页面行为不变
+   *
+   * **页面必须自己提供 ScrollView/FlatList 处理滚动**（避免与 Screen 包 ScrollView 嵌套导致冲突）。
+   * 建议在自己的 ScrollView 上加 `keyboardShouldPersistTaps="handled"` + `keyboardDismissMode="on-drag"`。
+   *
+   * 默认 false，保持现有页面行为不变。
    */
   keyboardAvoiding?: boolean;
   /**
@@ -50,29 +54,22 @@ export const Screen = ({
     style,
   ];
 
-  // keyboardAvoiding=true 时，把 children 包进 KAV + ScrollView：
+  // keyboardAvoiding=true 时，把 children 包进 KAV（仅 KAV，不嵌 ScrollView）：
   // - iOS 用 'padding' 让内容上移
   // - Android 用 'height' 配合 windowSoftInputMode=adjustResize（APK Manifest 已声明）
-  // - ScrollView keyboardShouldPersistTaps="handled" 允许点击其他元素自动收起键盘
-  // - contentContainerStyle.flexGrow:1 让内容能撑满屏幕（不破坏现有 flex 布局）
+  // - 不自动包 ScrollView：项目里 12/14 含 TextInput 的页面已有自己的 ScrollView/FlatList，
+  //   嵌套 ScrollView 是反模式（会触发 RN 警告 + 滚动手势冲突）
+  // - 页面侧自行在 ScrollView 上加 keyboardShouldPersistTaps="handled" + keyboardDismissMode="on-drag"
   const renderContent = () => {
-    if (!keyboardAvoiding) {
-      return <View style={[styles.content, contentStyle]}>{children}</View>;
-    }
+    const inner = <View style={[styles.content, contentStyle]}>{children}</View>;
+    if (!keyboardAvoiding) return inner;
     return (
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={keyboardVerticalOffset}
         style={styles.content}
       >
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={[{ flexGrow: 1 }, contentStyle]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          {children}
-        </ScrollView>
+        {inner}
       </KeyboardAvoidingView>
     );
   };
