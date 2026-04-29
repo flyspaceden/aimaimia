@@ -1029,7 +1029,7 @@ export class BonusService {
         type: 'vip_referral_bonus',
         title: 'VIP 推荐奖励到账',
         content: `您推荐的好友购买了 VIP，您获得 ${amount.toFixed(2)} 元推荐奖励。`,
-        target: { route: '/wallet' },
+        target: { route: '/me/wallet' },
       }).catch(() => {});
     });
   }

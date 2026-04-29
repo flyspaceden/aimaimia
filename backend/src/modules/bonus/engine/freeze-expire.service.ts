@@ -315,7 +315,7 @@ export class FreezeExpireService {
             type: 'reward_expired',
             title: '奖励已过期',
             content: `您有 ${expiredAmount.toFixed(2)} 元奖励因超过解锁期限已过期。`,
-            target: { route: '/wallet' },
+            target: { route: '/me/wallet' },
           }).catch(() => {});
         });
       },

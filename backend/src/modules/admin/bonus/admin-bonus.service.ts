@@ -133,7 +133,7 @@ export class AdminBonusService {
       type: 'withdraw_approved',
       title: '提现审核通过',
       content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请已通过，款项将在 1-3 个工作日到账。`,
-      target: { route: '/wallet' },
+      target: { route: '/me/wallet' },
     }).catch((err) => this.logger.warn(`提现通过通知发送失败: ${err?.message}`));
 
     return result;
@@ -1488,7 +1488,7 @@ export class AdminBonusService {
       type: 'withdraw_rejected',
       title: '提现申请被驳回',
       content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请被驳回${reason ? `，原因：${reason}` : ''}。金额已退回可用余额。`,
-      target: { route: '/wallet' },
+      target: { route: '/me/wallet' },
     }).catch((err) => this.logger.warn(`提现拒绝通知发送失败: ${err?.message}`));
 
     return result;

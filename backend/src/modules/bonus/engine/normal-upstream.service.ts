@@ -168,7 +168,7 @@ export class NormalUpstreamService {
           type: 'reward_credited',
           title: '分润奖励到账',
           content: `您收到 ${rewardPool.toFixed(2)} 元消费奖励，已到账可提现。`,
-          target: { route: '/wallet' },
+          target: { route: '/me/wallet' },
         }).catch(() => {});
       });
     }
@@ -291,7 +291,7 @@ export class NormalUpstreamService {
           type: 'reward_unfrozen',
           title: '奖励已解锁',
           content: `您有 ${totalReleased.toFixed(2)} 元奖励已解锁，可提现。`,
-          target: { route: '/wallet' },
+          target: { route: '/me/wallet' },
         }).catch(() => {});
       });
 
