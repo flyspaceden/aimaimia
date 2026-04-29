@@ -63,6 +63,10 @@ export default function CheckoutScreen() {
   const [policyAgreeing, setPolicyAgreeing] = useState(false);
   // 记录本次会话内是否已同意（避免弹窗后再次弹窗）
   const [localAgreed, setLocalAgreed] = useState(false);
+  // 同意标记的 ref 镜像：解决闭包陷阱——pendingCheckoutRef 缓存的旧 handleCheckout 闭包
+  // 内部 hasAgreedReturnPolicy 是渲染时的常量值（false），导致同意后再次进入 ensurePolicyAgreed
+  // 仍判 false → 弹窗死循环。用 ref 保证旧闭包重入时能读到最新 agreed 状态
+  const agreedRef = useRef(false);
   // 待执行的结算函数（同意政策后触发）
   const pendingCheckoutRef = useRef<(() => void) | null>(null);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
@@ -241,6 +245,7 @@ export default function CheckoutScreen() {
         return;
       }
       setLocalAgreed(true);
+      agreedRef.current = true; // 同步写 ref 让旧闭包重入时能读到最新值
       setPolicyModalVisible(false);
       setPolicyChecked(false);
       await queryClient.invalidateQueries({ queryKey: ['me-profile'] });
@@ -256,8 +261,9 @@ export default function CheckoutScreen() {
   };
 
   // 政策拦截：首次结算时弹窗
+  // 必须同时检查 agreedRef.current（解决闭包陷阱：旧闭包里的 hasAgreedReturnPolicy 永远是渲染时的快照值）
   const ensurePolicyAgreed = (onProceed: () => void): boolean => {
-    if (hasAgreedReturnPolicy) return true;
+    if (hasAgreedReturnPolicy || agreedRef.current) return true;
     pendingCheckoutRef.current = onProceed;
     setPolicyModalVisible(true);
     return false;
