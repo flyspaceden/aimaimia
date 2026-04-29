@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -52,13 +52,15 @@ export default function WithdrawScreen() {
   };
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="申请提现" />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      {/* ScrollView 让"确认提现"按钮在键盘弹起时能滚到可视区上方
+          原手写 KAV Android behavior=undefined 等于禁用，实际并未生效 */}
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: 200 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
-        <View style={{ padding: spacing.xl, flex: 1 }}>
           {/* 可用余额 — 渐变背景 */}
           <Animated.View entering={FadeInDown.duration(300)}>
             <LinearGradient
@@ -160,8 +162,7 @@ export default function WithdrawScreen() {
               提现说明：提现申请提交后将在 1-3 个工作日内到账。最低提现金额 1 元。
             </Text>
           </View>
-        </View>
-      </KeyboardAvoidingView>
+      </ScrollView>
     </Screen>
   );
 }
