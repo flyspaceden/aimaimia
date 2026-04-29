@@ -11,6 +11,8 @@
  *   - `POST /api/v1/ai/assistant/chat` → `Result<AiChatMessage>`
  *     - body：`{ message }`
  */
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import { mockAiGreeting, mockAiShortcuts } from '../mocks';
 import { AiChatHistoryItem, AiChatMessage, AiShortcut, AiVoiceIntent, Result } from '../types';
 import { simulateRequest } from './helpers';
@@ -186,11 +188,31 @@ export const AiAssistantRepo = {
       return simulateRequest(intent, { delay: 800 });
     }
     // 真实实现：将录音文件以 multipart/form-data 上传到后端
+    // 平台差异：Android 录的是 m4a/AAC，iOS 录的是 wav/PCM（详见 useVoiceRecording.ts）
+    // 必须按平台匹配 mimetype，否则后端按错格式喂 ASR 会识别为空
+    const isAndroid = Platform.OS === 'android';
+    const mimeType = isAndroid ? 'audio/m4a' : 'audio/wav';
+    const fileName = isAndroid ? 'voice.m4a' : 'voice.wav';
+
+    // 上传前诊断日志：URI / 文件大小 / mimetype
+    // 用于 Bug 9 真机定位（候选 A 格式问题 vs 候选 B 上传层失败）
+    try {
+      const info = await FileSystem.getInfoAsync(localUri);
+      console.log('[VoiceUpload] uri:', localUri);
+      console.log('[VoiceUpload] mimeType:', mimeType, 'fileName:', fileName);
+      console.log(
+        '[VoiceUpload] file exists:', info.exists,
+        'size:', info.exists ? (info as any).size : 'N/A',
+      );
+    } catch (err: any) {
+      console.warn('[VoiceUpload] getInfoAsync 失败:', err?.message);
+    }
+
     const formData = new FormData();
     formData.append('audio', {
       uri: localUri,
-      type: 'audio/wav',
-      name: 'voice.wav',
+      type: mimeType,
+      name: fileName,
     } as any);
     const params = new URLSearchParams();
     if (prepareId) params.set('prepareId', prepareId);

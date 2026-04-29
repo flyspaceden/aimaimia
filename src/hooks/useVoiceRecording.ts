@@ -304,13 +304,16 @@ export function useVoiceRecording(
       const recording = new Audio.Recording();
       await recording.prepareToRecordAsync({
         isMeteringEnabled: false,
+        // Android 改用 m4a + MPEG_4 + AAC（之前用 .wav + outputFormat:0 + audioEncoder:0
+        // 即 MediaRecorder DEFAULT，实际并不产 WAV，会产出 3GPP/AMR 等格式，
+        // 后端按 wav 喂阿里云 ASR 必识别为空 → "未能识别到语音内容"）
         android: {
-          extension: '.wav',
-          outputFormat: 0,
-          audioEncoder: 0,
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
           sampleRate: 16000,
           numberOfChannels: 1,
-          bitRate: 256000,
+          bitRate: 64000,
         },
         ios: {
           extension: '.wav',
