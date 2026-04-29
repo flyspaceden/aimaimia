@@ -53,7 +53,10 @@ export class UploadService {
         'OSS 配置不完整，请设置 OSS_REGION / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET / OSS_BUCKET',
       );
     }
-    this.ossClient = new OSS({ region, accessKeyId, accessKeySecret, bucket });
+    // secure: true 让 oss.put() 返回 https:// URL
+    // 否则 Android RN/Expo APK 默认禁 cleartext HTTP，图片会静默加载失败
+    // （存量 http URL 需配套 SQL 迁移：scripts/2026-04-29-migrate-oss-https.sql）
+    this.ossClient = new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true });
     return this.ossClient;
   }
 
