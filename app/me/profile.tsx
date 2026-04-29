@@ -107,7 +107,7 @@ export default function MeProfileScreen() {
   };
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="个人资料" />
       {isLoading ? (
         <View style={{ padding: spacing.xl }}>
@@ -131,6 +131,8 @@ export default function MeProfileScreen() {
         <ScrollView
           contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* 头像区域 */}
           <Animated.View entering={FadeInDown.duration(300)}>

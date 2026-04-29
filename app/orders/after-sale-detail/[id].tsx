@@ -235,11 +235,13 @@ export default function AfterSaleDetailScreen() {
   const quantity = as.orderItem?.quantity ?? 1;
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="售后详情" />
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {/* ═══════ A. 状态横幅 ═══════ */}
         <Animated.View entering={FadeInDown.duration(300)}>

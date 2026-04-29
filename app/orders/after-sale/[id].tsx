@@ -294,11 +294,13 @@ export default function AfterSaleScreen() {
   const prizeItems = order!.items.filter((item) => item.isPrize);
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="申请售后" />
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {/* ═══════ Step 1: 选择商品（单选） ═══════ */}
         <Animated.View entering={FadeInDown.duration(300)}>

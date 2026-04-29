@@ -95,9 +95,13 @@ export default function AccountSecurityScreen() {
   const wechatName = profile?.wechatNickname;
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="账号与安全" />
-      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
 
         {/* 绑定账号 */}
         <Animated.View entering={FadeInDown.duration(300)}>

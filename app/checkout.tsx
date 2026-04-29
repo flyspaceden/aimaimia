@@ -489,7 +489,7 @@ export default function CheckoutScreen() {
   const hasContent = isVipMode || cartItems.length > 0;
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title={isVipMode ? 'VIP 礼包结算' : '确认订单'} onBack={() => {
         if (router.canGoBack()) {
           router.back();
@@ -505,6 +505,8 @@ export default function CheckoutScreen() {
         <ScrollView
           contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 100 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* 收货地址 */}
           <Animated.View entering={FadeInDown.duration(300)}>

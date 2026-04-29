@@ -186,9 +186,13 @@ export default function InvoiceProfileEditScreen() {
   }
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title={isEdit ? '编辑抬头' : '新建抬头'} />
-      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {/* 类型切换 */}
         <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
           <Text style={[typography.bodySm, { color: colors.text.primary, marginBottom: 10 }]}>发票类型</Text>
