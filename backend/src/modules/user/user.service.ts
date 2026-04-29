@@ -10,7 +10,7 @@ export class UserService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { profile: true },
+      include: { profile: true, authIdentities: true },
     });
 
     if (!user) throw new NotFoundException('用户不存在');
@@ -23,9 +23,17 @@ export class UserService {
       });
     }
 
+    // 提取手机号和微信绑定状态（账号与安全页用）
+    // 手机号存在 AuthIdentity{provider:PHONE, identifier:phone}
+    // 微信昵称沿用 UserProfile.nickname（与管理后台 admin-app-users.service.ts:137 行为一致）
+    const phoneIdentity = user.authIdentities.find((i) => i.provider === 'PHONE');
+    const hasWechat = user.authIdentities.some((i) => i.provider === 'WECHAT');
+
     return {
       id: user.id,
       name: profile.nickname || '新用户',
+      phone: phoneIdentity?.identifier,
+      wechatNickname: hasWechat ? profile.nickname : undefined,
       avatar: profile.avatarUrl || 'https://placehold.co/200x200/png',
       gender: profile.gender || 'UNKNOWN',
       birthday: profile.birthday?.toISOString().slice(0, 10) || null,
