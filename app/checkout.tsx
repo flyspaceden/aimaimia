@@ -242,6 +242,9 @@ export default function CheckoutScreen() {
       const result = await AfterSaleRepo.agreePolicy();
       if (!result.ok) {
         show({ message: '确认失败，请重试', type: 'error' });
+        // 防御性清 ref：避免下次成功时调到旧闭包（虽然旧闭包同样会被新弹窗覆盖，
+        // 但这里清掉更显式，符合"失败即清理"原则）
+        pendingCheckoutRef.current = null;
         return;
       }
       setLocalAgreed(true);
