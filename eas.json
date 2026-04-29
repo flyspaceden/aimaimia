@@ -24,7 +24,8 @@
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_USE_MOCK": "false",
-        "EXPO_PUBLIC_API_BASE_URL": "https://test-api.ai-maimai.com/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://test-api.ai-maimai.com/api/v1",
+        "EXPO_PUBLIC_ALIPAY_SANDBOX": "true"
       },
       "android": {
         "buildType": "apk"
@@ -38,7 +39,8 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_USE_MOCK": "false",
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.ai-maimai.com/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.ai-maimai.com/api/v1",
+        "EXPO_PUBLIC_ALIPAY_SANDBOX": "false"
       },
       "android": {
         "buildType": "app-bundle"

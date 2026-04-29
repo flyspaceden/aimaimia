@@ -253,9 +253,10 @@ export class AiController {
       ) {
         return 'aac'; // 大部分 m4a 容器内是 AAC
       }
-      if (brand.startsWith('3gp')) {
-        return 'amr'; // 3GPP 多为 AMR-NB / AMR-WB
-      }
+      // 3GPP 容器内可能是 AMR-NB / AMR-WB / AAC-LC，无法只看 brand 确定真实编码
+      // 返回 null 让 fallback 到 mimetype，避免误识别
+      // （我们已让 Android 录 m4a，理论不会进 3gp 分支；这里仅为防御性 fallback）
+      // brand 调试用：commit 1995901 后端日志已打印 header hex
     }
 
     // MP3: ID3v2 标签或 sync frame

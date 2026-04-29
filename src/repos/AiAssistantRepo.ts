@@ -12,7 +12,9 @@
  *     - body：`{ message }`
  */
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+// expo-file-system v19 把 getInfoAsync 等老 API 标记 deprecated 且**运行时会抛**
+// 必须从 legacy 子路径 import 才能继续使用旧 API（用 new File().info 改造太散）
+import * as FileSystem from 'expo-file-system/legacy';
 import { mockAiGreeting, mockAiShortcuts } from '../mocks';
 import { AiChatHistoryItem, AiChatMessage, AiShortcut, AiVoiceIntent, Result } from '../types';
 import { simulateRequest } from './helpers';
