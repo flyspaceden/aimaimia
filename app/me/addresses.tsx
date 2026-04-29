@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AddressRepo } from '../../src/repos';
@@ -37,18 +38,23 @@ export default function AddressesScreen() {
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   // 支持从其他页面（如 checkout-address）带 openNew=1 参数直达新增表单，避免多一跳列表
   const params = useLocalSearchParams<{ openNew?: string }>();
   const [editing, setEditing] = useState<string | null>(null); // 'new' 或 address id
   const [form, setForm] = useState<FormData>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  // 标记用户是从 checkout-address 经 openNew=1 跳来：保存成功后应 router.back() 回结算流，
+  // 而非 setEditing(null) 退到本页列表态（让用户多 back 一次）
+  const cameFromCheckoutRef = useRef(false);
 
   // 进入页面时若带 openNew=1 自动进表单态（仅触发一次，不依赖 params 持续更新）
   useEffect(() => {
     if (params.openNew === '1') {
       setForm(emptyForm);
       setEditing('new');
+      cameFromCheckoutRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -102,8 +108,15 @@ export default function AddressesScreen() {
       return;
     }
     show({ message: editing === 'new' ? '添加成功' : '修改成功', type: 'success' });
-    setEditing(null);
     queryClient.invalidateQueries({ queryKey: ['addresses'] });
+    // 用户从 checkout-address 经 openNew=1 跳来 → 直接 back 回结算流；
+    // 否则正常关掉表单回到地址列表
+    if (cameFromCheckoutRef.current) {
+      cameFromCheckoutRef.current = false;
+      router.back();
+    } else {
+      setEditing(null);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -137,9 +150,10 @@ export default function AddressesScreen() {
           title={editing === 'new' ? '新增地址' : '编辑地址'}
           onBack={() => setEditing(null)}
         />
-        {/* ScrollView 让区县/详细地址等底部字段在键盘弹起时能滚到可视区上方 */}
+        {/* ScrollView 让区县/详细地址等底部字段在键盘弹起时能滚到可视区上方
+            paddingBottom 用 insets.bottom + 200 动态适配带手势条/虚拟键的机型 */}
         <ScrollView
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: 200 }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 200 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
