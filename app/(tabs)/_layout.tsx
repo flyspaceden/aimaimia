@@ -2,12 +2,15 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AiOrb } from '../../src/components/effects';
 import { useTheme } from '../../src/theme';
 
 // 底部三个主 Tab 的导航容器
 export default function TabsLayout() {
   const { colors } = useTheme();
+  // 适配底部安全区（手势条 / 小白条 / 三大金刚键），避免 tab bar 被系统按钮遮挡
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -20,8 +23,8 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: 'rgba(255,255,255,0.92)',
           borderTopColor: colors.border,
-          height: 56,
-          paddingBottom: 4,
+          height: 56 + insets.bottom,
+          paddingBottom: insets.bottom + 4,
         },
         tabBarLabelStyle: {
           fontSize: 11,
