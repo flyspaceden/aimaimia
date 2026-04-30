@@ -14,7 +14,7 @@
 | 现象 | 截图位置 | 根因 |
 |---|---|---|
 | VIP 价格档位 ¥399/¥699/¥999/¥1299 在华为机换行 | `app/vip/gifts.tsx:419-446` | `flex: 1` 4 列 + `fontSize: 22` 写死 + 没限制系统字体放大 |
-| Tab bar 在华为三键键被遮 | `app/(tabs)/_layout.tsx` | `insets.bottom = 0` OEM bug，已用 32dp 兜底（commit ec64e3c）|
+| Tab bar 在华为三键键被遮 | `app/(tabs)/_layout.tsx` | `insets.bottom = 0` OEM bug，固定底部栏必须走统一 bottom inset helper |
 | 多页面键盘遮挡 | 11+ 含 TextInput 页面 | `Screen.tsx` 无 KAV，已加 `keyboardAvoiding` prop（commit b9ca8df）|
 
 ### 1.2 问题分类
@@ -30,7 +30,7 @@
 
 ## 二、6 条核心原则
 
-### 原则 1：横向多列必须按真实窗口宽度计算
+### 原则 1：横向多列必须按真实窗口宽度 + 字体缩放计算
 
 ❌ 反模式：
 ```tsx
@@ -41,23 +41,33 @@
 
 ✅ 推荐：
 ```tsx
-const { columns } = useResponsiveLayout();
+const { width, columns } = useResponsiveLayout();
 const cols = columns({ wide: 4, narrow: 2 });   // ← 窄屏自动降 2 列
+const contentWidth = width - paddingHorizontal * 2;
+const itemWidth = (contentWidth - gap * (cols - 1)) / cols;
 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-  {items.map(i => <Card style={{ width: `${100/cols - gapPercent}%` }} />)}
+  {items.map(i => <Card style={{ width: itemWidth }} />)}
 </View>
 ```
 
 **降级策略**：
-- 宽屏（≥ 390dp）：4 列
+- 宽屏（≥ 390dp 且字体缩放 < 1.15）：4 列
+- 宽屏但字体 / 显示大小偏大（fontScale ≥ 1.15）：按紧凑屏处理
 - 窄屏（< 360dp）：2 列
 - 特别窄（< 320dp，少见）：横向 ScrollView
 
-**判断标准**：用 dp（density-independent pixels）即 `useWindowDimensions().width`，不用绝对像素。
+**判断标准**：用 dp（density-independent pixels）即 `useWindowDimensions().width`，并同时读取 `PixelRatio.getFontScale()`。不要只看机型或物理像素。
 
-### 原则 2：金额/按钮/徽标必须防换行
+**宽度计算标准**：多列 item 宽度必须用数字计算，不用百分比猜 gap：
 
-紧凑数字位（价格、Badge、按钮文字、Tab 数字）必须加：
+```tsx
+const contentWidth = width - paddingHorizontal * 2;
+const itemWidth = (contentWidth - gap * (cols - 1)) / cols;
+```
+
+### 原则 2：金额/徽标/紧凑数字必须防换行
+
+紧凑数字位（价格、Badge、Tab 数字、版本号、订单号）必须加：
 
 ```tsx
 import { priceTextProps } from '../src/theme/responsive';
@@ -75,6 +85,8 @@ import { priceTextProps } from '../src/theme/responsive';
 | `minimumFontScale` | `0.75` | 最多缩到原 75%（再低看不清）|
 | `allowFontScaling` | `false` | 不响应系统字体放大（紧凑数字位专用）|
 
+按钮 CTA 不默认使用 `allowFontScaling: false`。按钮文字优先使用 `numberOfLines: 1` + `adjustsFontSizeToFit` + `maxFontSizeMultiplier: 1.1`，只有极窄工具按钮 / 底部固定按钮在 Code Review 确认后才允许关闭字体缩放。
+
 ### 原则 3：固定底部栏必须吃 safe area
 
 ❌ 反模式：
@@ -86,24 +98,28 @@ import { priceTextProps } from '../src/theme/responsive';
 
 ✅ 推荐：
 ```tsx
-const insets = useSafeAreaInsets();
+const bottomPadding = useBottomInset(12);
 <View style={{
   position: 'absolute',
   bottom: 0,
-  paddingBottom: insets.bottom + 12,   // ← 吃底部安全区
+  paddingBottom: bottomPadding,   // ← 吃底部安全区 + Android OEM 兜底
   paddingTop: 12,
 }}>
   <Button>提交订单</Button>
 </View>
 ```
 
-同时**正文 ScrollView 的 contentContainerStyle.paddingBottom** 必须 ≥ 底部栏高度 + insets.bottom，避免最后一项被盖住：
+同时**正文 ScrollView 的 contentContainerStyle.paddingBottom** 必须 ≥ 底部栏高度 + bottomPadding，避免最后一项被盖住：
 
 ```tsx
-<ScrollView contentContainerStyle={{ paddingBottom: 60 + insets.bottom + 12 }}>
+const bottomPadding = useBottomInset(12);
+
+<ScrollView contentContainerStyle={{ paddingBottom: 60 + bottomPadding }}>
   ...
 </ScrollView>
 ```
+
+不要在页面里直接写 `insets.bottom + 12`。Android 部分 OEM / 三键导航会返回 `insets.bottom = 0`，必须通过项目统一 helper 做兜底。
 
 ### 原则 4：避免模块顶层 Dimensions.get()
 
@@ -134,7 +150,8 @@ export default function MyScreen() {
 
 | 类别 | allowFontScaling | 例子 |
 |---|---|---|
-| ✅ 用 `false`（不响应系统字体）| 必须 | 价格、Badge 数字、按钮 CTA、Tab amount、版本号、订单号 |
+| ✅ 用 `false`（不响应系统字体）| 必须 | 价格、Badge 数字、Tab amount、版本号、订单号 |
+| ⚠️ 尽量不用 `false`，改用最大倍率限制 | 推荐 | 按钮 CTA、筛选 tab、紧凑操作入口 |
 | ✅ 用 `true`（默认）+ `maxFontSizeMultiplier: 1.2` | 推荐 | 标题、副标题、列表条目 |
 | ❌ 禁止全局禁用 | — | 正文段落、订单详情、协议条款、客服聊天、AI 对话 |
 
@@ -147,9 +164,9 @@ export default function MyScreen() {
 const ITEM_WIDTH = SCREEN_WIDTH / 4 - 10;  // ← 猜
 ```
 
-统一改用：
+统一改用，并让 Hook 同时暴露字体缩放状态：
 ```tsx
-const { columns, isNarrow } = useResponsiveLayout();
+const { columns, isNarrow, isLargeText } = useResponsiveLayout();
 const cols = columns({ wide: 4, narrow: 2 });
 ```
 
@@ -160,17 +177,25 @@ const cols = columns({ wide: 4, narrow: 2 });
 ### 3.1 `useResponsiveLayout()` Hook
 
 ```ts
-import { useWindowDimensions } from 'react-native';
+import { PixelRatio, useWindowDimensions } from 'react-native';
 
 export const useResponsiveLayout = () => {
   const { width, height } = useWindowDimensions();
+  const fontScale = PixelRatio.getFontScale();
+  const isLargeText = fontScale >= 1.15;
+  const isNarrow = width < 360;
+  const isCompact = width < 390 || isLargeText;
+
   return {
     width,
     height,
+    fontScale,
     /** 是否窄屏（<360dp，常见小屏 Android）*/
-    isNarrow: width < 360,
-    /** 是否紧凑屏（<390dp，含 iPhone SE 系列）*/
-    isCompact: width < 390,
+    isNarrow,
+    /** 是否紧凑屏（<390dp 或字体/显示大小偏大）*/
+    isCompact,
+    /** 是否大字体/大显示模式 */
+    isLargeText,
     /** 是否横屏 */
     isLandscape: width > height,
     /**
@@ -179,7 +204,7 @@ export const useResponsiveLayout = () => {
      */
     columns: (config: { wide: number; narrow: number; compact?: number }) => {
       if (width < 360) return config.narrow;
-      if (width < 390 && config.compact !== undefined) return config.compact;
+      if (isCompact) return config.compact ?? config.narrow;
       return config.wide;
     },
   };
@@ -192,7 +217,7 @@ export const useResponsiveLayout = () => {
 import { TextProps } from 'react-native';
 
 /**
- * 价格 / 徽标 / 按钮 / Tab 数字 — 紧凑数字位专用
+ * 价格 / 徽标 / Tab 数字 — 紧凑数字位专用
  * 不响应系统字体放大，自动缩字号塞一行
  */
 export const priceTextProps: Partial<TextProps> = {
@@ -212,9 +237,42 @@ export const fitTextProps: Partial<TextProps> = {
   adjustsFontSizeToFit: true,
   minimumFontScale: 0.85,
 };
+
+/**
+ * 按钮 / 筛选 Tab 文字 — 保留系统字体能力，但限制最大放大
+ */
+export const compactActionTextProps: Partial<TextProps> = {
+  numberOfLines: 1,
+  adjustsFontSizeToFit: true,
+  minimumFontScale: 0.8,
+  maxFontSizeMultiplier: 1.1,
+};
 ```
 
-### 3.3 全局兜底（app/_layout.tsx）
+### 3.3 `useBottomInset()` 固定底部栏安全区 helper
+
+```ts
+import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const ANDROID_NAV_FALLBACK = 32;
+
+/**
+ * 固定底部栏专用 paddingBottom。
+ * Android 部分 OEM / 三键导航会返回 insets.bottom = 0，需要兜底。
+ */
+export const useBottomInset = (extra = 12) => {
+  const insets = useSafeAreaInsets();
+  const safeBottom =
+    Platform.OS === 'android'
+      ? Math.max(insets.bottom, ANDROID_NAV_FALLBACK)
+      : insets.bottom;
+
+  return safeBottom + extra;
+};
+```
+
+### 3.4 全局兜底（app/_layout.tsx）
 
 ```ts
 import { Text } from 'react-native';
@@ -225,6 +283,8 @@ import { Text } from 'react-native';
 (Text as any).defaultProps.maxFontSizeMultiplier = 1.2;
 ```
 
+全局 `defaultProps` 只作为迁移期兜底，不作为长期唯一方案。新代码仍应显式使用 `priceTextProps` / `fitTextProps` / `compactActionTextProps`，后续如果项目统一封装 `AppText`，应迁移到组件层控制。
+
 ---
 
 ## 四、新页面开发 Checklist（PR / Code Review 必跑）
@@ -232,14 +292,15 @@ import { Text } from 'react-native';
 ### 编码阶段
 
 - [ ] 没用模块顶层 `Dimensions.get('window' | 'screen')`，全用 `useWindowDimensions()`
-- [ ] 横向多列容器（4 列以上）使用 `useResponsiveLayout().columns({ wide, narrow })`
-- [ ] 价格 / Badge / 按钮 / Tab 数字 等紧凑文本 spread `priceTextProps`
+- [ ] 横向多列容器（4 列以上）使用 `useResponsiveLayout().columns({ wide, narrow })`，且大字体 / 大显示模式会降级
+- [ ] 价格 / Badge / Tab 数字 等紧凑文本 spread `priceTextProps`
+- [ ] 按钮 CTA 优先使用 `compactActionTextProps`，不要默认关闭系统字体缩放
 - [ ] 标题 / 列表项等可缩文本 spread `fitTextProps`
 - [ ] 正文段落保持默认（响应系统字体放大，无障碍兼容）
-- [ ] 底部固定栏（`position: absolute` + `bottom: 0`）使用 `paddingBottom: insets.bottom + 12`
-- [ ] 包含底部固定栏的 ScrollView，contentContainerStyle.paddingBottom ≥ 栏高 + insets.bottom + 12
+- [ ] 底部固定栏（`position: absolute` + `bottom: 0`）使用 `useBottomInset()`，不直接用 `insets.bottom`
+- [ ] 包含底部固定栏的 ScrollView，contentContainerStyle.paddingBottom ≥ 栏高 + `useBottomInset()`
 
-### 真机测试矩阵（PR 必须跑过的 6 个场景）
+### 真机测试矩阵（PR 必须跑过的 8 个场景）
 
 | 场景 | 设备 / 设置 | 关注点 |
 |---|---|---|
@@ -249,34 +310,36 @@ import { Text } from 'react-native';
 | 4 | 系统字体放大 1.3x（更激进）| 全局 maxFontSizeMultiplier 是否兜住 |
 | 5 | Android 三键虚拟键 | Tab bar / 底部栏不被覆盖 |
 | 6 | 全面屏手势条 + 键盘弹出 | 底部固定栏 + 键盘适配 |
+| 7 | Android 显示大小偏大（字体默认）| 宽度足够但布局被系统显示缩放挤爆 |
+| 8 | Android 字体 1.15x + 显示大小偏大 | 华为 / 小米真实高风险组合 |
 
 ### OTA / Build 发布前
 
-- [ ] 上面 6 个场景全部跑过
-- [ ] grep 审计黑名单（见五）输出 0 命中 OR 已知豁免
+- [ ] 上面 8 个场景全部跑过
+- [ ] rg 审计黑名单（见五）输出 0 命中 OR 已知豁免
 - [ ] 文档若有更新，本文 commit message 引用
 
 ---
 
-## 五、grep 审计黑名单（项目级巡检）
+## 五、rg 审计黑名单（项目级巡检）
 
-定期跑这些 grep，发现新违反需立即修：
+定期跑这些 rg 命令，发现新违反需立即修：
 
 ```bash
-# 1. 模块顶层 Dimensions.get （绝对禁止）
-grep -rnE "^const.*Dimensions\.get|^const SCREEN_WIDTH|^const SCREEN_HEIGHT" app/ src/ --include="*.tsx" --include="*.ts"
+# 1. Dimensions.get 巡检（模块顶层绝对禁止；组件内也优先改 useWindowDimensions）
+rg -n "Dimensions\\.get\\(['\"](?:window|screen)['\"]\\)" app src
 
 # 2. 写死大宽度（>200px 一般可疑，需确认是否需要响应式）
-grep -rnE "width: [2-9][0-9]{2,}," app/ src/ --include="*.tsx"
+rg -n "width: [2-9][0-9]{2,}" app src
 
 # 3. 大字号 + 没 numberOfLines 限制（容易换行爆）
-grep -rnB2 -A2 "fontSize: [2-9][0-9]" app/ src/ --include="*.tsx" | grep -B2 -A2 "fontSize" | grep -v "numberOfLines"
+rg -n -B2 -A2 "fontSize: [2-9][0-9]" app src
 
 # 4. 底部固定栏可能没吃 safe area
-grep -rnB1 -A5 "position: 'absolute'" app/ src/ --include="*.tsx" | grep -B3 "bottom: 0" | grep -v "insets.bottom"
+rg -n -B1 -A8 "position: 'absolute'" app src | rg -B3 -A8 "bottom: 0"
 
 # 5. flex:1 row 包多个 Text（窄屏/大字体爆）
-grep -rnB3 -A10 "flexDirection: 'row'" app/ src/ --include="*.tsx" | grep -B3 -A10 "flex: 1" | grep -c "<Text"
+rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 ```
 
 每次发现新违反点：
@@ -292,11 +355,11 @@ grep -rnB3 -A10 "flexDirection: 'row'" app/ src/ --include="*.tsx" | grep -B3 -A
 
 | # | 内容 | 文件 |
 |---|---|---|
-| 1 | 工具基建 + 全局兜底 | 新建 `src/theme/responsive.ts`（useResponsiveLayout + priceTextProps + fitTextProps） + `app/_layout.tsx` 设全局 maxFontSizeMultiplier=1.2 |
-| 2 | 修 VIP 礼包页（截图复现点）| `app/vip/gifts.tsx` 改 useWindowDimensions + 价格 tab 窄屏 2 列 + 价格 spread priceTextProps + 底部栏吃 safe area |
-| 3 | 项目级 grep 审计报告 + 修高优 5 处 | grep 黑名单跑全项目，按页面访问频率排序，先修 checkout / 商品详情 / 订单卡片 / 加购栏 / 首页 |
+| 1 | 工具基建 + 全局兜底 | 新建 `src/theme/responsive.ts`（useResponsiveLayout + priceTextProps + fitTextProps + compactActionTextProps + useBottomInset） + `app/_layout.tsx` 设全局 maxFontSizeMultiplier=1.2 |
+| 2 | 修 VIP 礼包页（截图复现点）| `app/vip/gifts.tsx` 改 useWindowDimensions + fontScale 参与列数 + 价格 spread priceTextProps + 底部栏走 useBottomInset |
+| 3 | 项目级 rg 审计报告 + 修高优 5 处 | rg 黑名单跑全项目，按页面访问频率排序，先修 checkout / 商品详情 / 订单卡片 / 加购栏 / 首页 |
 
-### Sprint 2（下一批，按 grep 报告）
+### Sprint 2（下一批，按 rg 报告）
 
 剩余非高优页面分批修，每个 commit 修 3-5 个页面。预计 2-3 个 sprint 清完。
 
@@ -304,7 +367,7 @@ grep -rnB3 -A10 "flexDirection: 'row'" app/ src/ --include="*.tsx" | grep -B3 -A
 
 - PR 模板加适配 checklist
 - 每个新页面 reviewer 必查响应式 6 原则
-- OTA 发布前 6 场景测试矩阵
+- OTA 发布前 8 场景测试矩阵
 
 ---
 
@@ -336,8 +399,8 @@ const itemWidth = (width - GAP * (cols - 1) - PADDING * 2) / cols;
 <View style={{ position: 'absolute', bottom: 0, padding: 16 }}>...</View>
 
 // ✅
-const insets = useSafeAreaInsets();
-<View style={{ position: 'absolute', bottom: 0, paddingTop: 16, paddingBottom: insets.bottom + 12 }}>...</View>
+const bottomPadding = useBottomInset(12);
+<View style={{ position: 'absolute', bottom: 0, paddingTop: 16, paddingBottom: bottomPadding }}>...</View>
 ```
 
 ### 反模式 4：横向多 Text 平分宽度
@@ -376,7 +439,7 @@ const insets = useSafeAreaInsets();
 
 - 发现新的设备适配 bug → 加入"触发案例"表
 - 新工具 / Hook 加入 `responsive.ts` → 同步本文 §3
-- 检查清单 / grep 黑名单 增删 → 同步 §4 / §5
+- 检查清单 / rg 黑名单 增删 → 同步 §4 / §5
 - 真机测试矩阵增加 → §4
 - 反模式新发现 → §7
 
