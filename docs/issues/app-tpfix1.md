@@ -918,12 +918,26 @@ CheckoutSession  ← 总订单
 ### 本次改造范围（4 个 commit，本会话内完成）
 
 #### Commit A：后端主动查询接口
-- 文件：`backend/src/modules/payment/alipay.service.ts` + `backend/src/modules/order/order.controller.ts`（或新建 `payment.controller.ts` 路由）
+- 文件：`backend/src/modules/payment/alipay.service.ts` + `backend/src/modules/payment/payment.service.ts` + `backend/src/modules/order/order.controller.ts`
 - 改动：
-  - `alipay.service.ts queryAndSettle(merchantOrderNo)` 方法：调 `alipay.trade.query` 查询；如返回 `TRADE_SUCCESS` 立即调 `handlePaymentCallback({ status: 'SUCCESS', skipSignatureVerification: true })` 完成建单
-  - 新增 endpoint `POST /api/v1/checkout/:sessionId/active-query`（或 `POST /api/v1/payments/alipay/query`）
-  - 复用现有 `handlePaymentCallback`（已被 notify / simulate 调用，幂等）
+  - `AlipayService.queryOrder(merchantOrderNo)` 只负责调用 `alipay.trade.query`，返回 `tradeStatus / tradeNo / totalAmount`；**不在 AlipayService 内部建单**，避免支付 SDK 服务反向编排业务流程
+  - `PaymentService.confirmAlipayCheckout(sessionId, userId)` 负责主动确认编排：
+    - 校验 `CheckoutSession` 存在且属于当前用户
+    - 校验 `paymentChannel === ALIPAY`
+    - 如果 session 已 `COMPLETED`，直接返回现有 `orderIds`（幂等）
+    - 调 `AlipayService.queryOrder(session.merchantOrderNo)`
+    - 校验支付宝返回金额 `totalAmount === session.expectedTotal.toFixed(2)`，金额不一致拒绝建单并记录 error log
+    - `TRADE_SUCCESS / TRADE_FINISHED` → 复用现有 `handlePaymentCallback({ status:'SUCCESS', skipSignatureVerification:true })` 完成建单
+    - `WAIT_BUYER_PAY` → 返回当前 session 状态，不标失败
+    - 查询异常 / 未查到 / 其他中间态 → 返回当前 session 状态，让前端 polling fallback
+  - 新增 endpoint：`POST /api/v1/orders/checkout/:sessionId/active-query`
+  - 复用现有 `handlePaymentCallback`（已被 notify / simulate 调用，且 `CheckoutService.handlePaymentSuccess` 已做 CAS 幂等）
 - 部署：push staging 自动重启
+- 后端测试必须覆盖：
+  - `TRADE_SUCCESS` 可建单并返回 `COMPLETED + orderIds`
+  - `WAIT_BUYER_PAY` 不建单，不把 session 标失败
+  - 金额不一致拒绝建单
+  - 已 `COMPLETED` session 重复 active-query 直接返回现有订单
 
 #### Commit B：前端 active query 集成
 - 文件：`src/repos/OrderRepo.ts`
@@ -931,25 +945,42 @@ CheckoutSession  ← 总订单
 
 #### Commit C：新建支付成功页
 - 文件：`app/payment-success.tsx`（**新建**）
-- 路由参数：`{ orderId?: string, sessionId: string, totalOrderNo: string, amount: string, isVip: '0'|'1', orderCount: string }`
+- 路由参数：`{ firstOrderId?: string, sessionId: string, totalOrderNo: string, amount: string, isVip: '0'|'1', orderCount: string }`
 - 设计稿（已确认）：
   - 顶部无返回按钮（防止用户回 checkout 重复下单）
   - 大对勾动画（200x200 渐变 [brand.primary, ai.end] + 白色 ✓ + ZoomIn 动画）
   - 标题：普通 → "支付成功"；VIP → "VIP 开通成功"
   - 金额卡片：¥X.XX (title1 32sp brand.primary) + 总订单号 (captionSm) + 支付方式 + 时间
   - 多商户提示：`orderCount > 1` 时显示"已为您创建 N 笔商家订单"
-  - 主按钮"查看订单"：单商户跳 `/orders/${orderId}`，多商户跳 `/orders`，VIP 跳 `/me/vip`
+  - 主按钮"查看订单"：单商户跳 `/orders/${firstOrderId}`，多商户跳 `/orders?status=pendingShip`，VIP 跳 `/me/vip`
   - 次按钮"返回首页"：`router.replace('/(tabs)/home')`
   - 拦截系统返回键（useFocusEffect + BackHandler）
 
 #### Commit D：checkout.tsx 改造（普通 + VIP 两个分支同步）
 - 文件：`app/checkout.tsx`
 - 改动：
-  1. **alipay SDK 回来后立刻 active-query**（不依赖 SDK resultStatus，无论 9000/8000/6004 都先查后端）
-  2. **取消"非 9000 直接判失败"**：除 6001 用户取消外，进入"支付确认中"+ active-query + 轮询兜底
-  3. **MAX_POLLS 从 30 增加到 90**（180 秒，应对沙箱长尾延迟）
-  4. **成功后 router.replace('/payment-success', { params })** 而非只 toast
-  5. **VIP 分支同样处理**（line 414+ 同结构改造）
+  1. **alipay SDK 回来后立刻 active-query**：除 `6001` 用户取消外，不依赖 SDK `resultStatus`，`9000 / 8000 / 6004 / 4000` 都先查后端真实状态
+  2. **取消"非 9000 直接判失败"**：非取消场景进入"支付确认中" → active-query → 必要时轮询兜底
+  3. **active-query 成功就停止 polling**：如果返回 `COMPLETED + orderIds`，直接跳成功页；只有 `ACTIVE / PAID / UNKNOWN` 这类未完成状态才进入 polling fallback
+  4. **MAX_POLLS 从 30 增加到 90**（180 秒，应对沙箱长尾延迟）
+  5. **超时文案改成"支付处理中，请稍后在订单列表查看"**，不再轻易提示"支付失败"
+  6. **成功后 router.replace('/payment-success', { params })** 而非只 toast
+  7. **VIP 分支同样处理**（line 414+ 同结构改造）
+
+#### 前端支付确认顺序（最终口径）
+```
+Alipay.alipay(orderStr) 返回
+├── resultStatus === 6001
+│   └── 用户取消 → cancel CheckoutSession → 停止
+└── 其他状态（9000 / 8000 / 6004 / 4000 / 空）
+    └── 显示"支付确认中" → POST /orders/checkout/:sessionId/active-query
+        ├── COMPLETED → 停止 polling → router.replace('/payment-success')
+        ├── FAILED / EXPIRED → 提示明确失败/过期
+        └── ACTIVE / PAID / UNKNOWN / 请求失败
+            └── polling fallback（最多 90 次，每 2s）
+                ├── COMPLETED → router.replace('/payment-success')
+                └── 超时 → "支付处理中，请稍后在订单列表查看"
+```
 
 ### 不在本次范围（下批次）
 - 订单列表"合并视图"：按 sessionId 聚合多个 Order 显示成 1 行
@@ -958,13 +989,14 @@ CheckoutSession  ← 总订单
 - 物流 / 售后按钮维持调用单 Order id 接口（架构本来就支持）
 
 ### 部署节奏
-1. Commit A + B + C + D 一次 commit batch
+1. Commit A + B + C + D 分 4 个 commit 完成，最后作为同一批次部署（便于精准 revert）
 2. push staging → 后端 active-query 接口立即上线
 3. OTA 推前端（带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true`）
 4. 真机冷启动两次测：
    - 支付成功 → 进新成功页 ✓
    - 沙箱 notify 慢 → active-query 立即救场 ✓
    - 多商户场景 → 显示"X 笔订单" ✓
+   - 支付宝返回非 9000 但已扣款 → 不直接报失败，active-query / polling 确认 ✓
 
 ### 状态
 🔧 待开工（用户已确认设计稿 + 主动查询架构 + 总订单/子订单概念）
