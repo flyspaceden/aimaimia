@@ -64,3 +64,8 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# 本地 build 产物（APK / AAB / IPA），EAS Build 已托管不入仓
+*.apk
+*.aab
+*.ipa
