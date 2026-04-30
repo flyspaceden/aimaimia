@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Dimensions, Platform, StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,14 +11,27 @@ export default function TabsLayout() {
   const { colors } = useTheme();
   // 适配底部安全区（手势条 / 小白条 / 三大金刚键），避免 tab bar 被系统按钮遮挡
   const insets = useSafeAreaInsets();
-  // Android OEM 兜底：部分华为/小米/OPPO 机型的三键虚拟键模式下
-  // useSafeAreaInsets().bottom 仍返回 0（即使 Expo SDK 54 默认 edge-to-edge），
-  // 仅依赖 insets.bottom 会让 tab bar 退化成 56pt 被系统按钮覆盖。
-  // Android 强制至少 32dp 底部 padding（覆盖三键虚拟键约 48dp 高度的下半段，足够）。
-  // iOS 无此问题（home indicator 走 insets.bottom 正常返回 ~34dp）。
-  const safeBottomPad = Platform.OS === 'android'
-    ? Math.max(insets.bottom, 32)
-    : insets.bottom;
+
+  // Android OEM 精准兜底：仅在 edge-to-edge 模式（系统栏覆盖 app 窗口）且
+  // useSafeAreaInsets() 错误返回 0 时强制 32dp。避免在非 edge-to-edge 旧机型/
+  // 全屏沉浸 App 上引入无意义的 32dp 空白。
+  //
+  // 判定方法：window.height (app 可绘制区) === screen.height (整屏含系统栏)
+  //   - 相等 → edge-to-edge 开启，app 画到系统栏后面，必须靠 inset 自适应
+  //   - 不等 → 系统栏在 app 窗口外，inset 自然为 0 是正确行为，无需兜底
+  //
+  // 三键虚拟键 + OEM 错把 insets 报 0 时（华为/小米/OPPO）→ 32dp 救场
+  // 现代 Android 手势条（insets 正常返回 24-48）→ max 取大值不变
+  // iOS home indicator → 直接用 insets.bottom（约 34dp 或 0）
+  let safeBottomPad = insets.bottom;
+  if (Platform.OS === 'android' && insets.bottom === 0) {
+    const window = Dimensions.get('window');
+    const screen = Dimensions.get('screen');
+    const isEdgeToEdge = Math.abs(window.height - screen.height) < 2; // 容忍 1px 误差
+    if (isEdgeToEdge) {
+      safeBottomPad = 32; // OEM bug 兜底
+    }
+  }
 
   return (
     <Tabs
