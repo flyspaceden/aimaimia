@@ -53,7 +53,8 @@ export default function CheckoutScreen() {
     [allItems, selectedIds]
   );
   const [refreshing, setRefreshing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('wechat');
+  // v1.0 仅接通支付宝，默认选支付宝；wechat/bankcard 在 paymentMethods 配置里 available=false 灰掉
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('alipay');
   const [remark, setRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -699,15 +700,27 @@ export default function CheckoutScreen() {
             {paymentMethods.map((method) => {
               const active = paymentMethod === method.value;
               const iconInfo = paymentIcons[method.value];
+              const disabled = method.available === false;
               return (
                 <Pressable
                   key={method.value}
-                  onPress={() => setPaymentMethod(method.value)}
+                  onPress={() => {
+                    if (disabled) {
+                      // 未接入渠道：toast 提示并阻止选中（避免后端走 simulatePayment 失败）
+                      show({
+                        message: `${method.label}${method.comingSoon ? `（${method.comingSoon}）` : ''}暂未开通，请使用支付宝`,
+                        type: 'info',
+                      });
+                      return;
+                    }
+                    setPaymentMethod(method.value);
+                  }}
                   style={[
                     styles.payRow,
                     {
                       borderColor: active ? colors.brand.primary : colors.border,
                       borderRadius: radius.lg,
+                      opacity: disabled ? 0.45 : 1,
                     },
                   ]}
                 >
@@ -720,7 +733,14 @@ export default function CheckoutScreen() {
                     />
                   )}
                   <View style={{ flex: 1 }}>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{method.label}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{method.label}</Text>
+                      {disabled && method.comingSoon && (
+                        <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 6 }]}>
+                          · {method.comingSoon}
+                        </Text>
+                      )}
+                    </View>
                     <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
                       {method.description}
                     </Text>
