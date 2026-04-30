@@ -738,3 +738,152 @@ UPDATE "VipGiftOption"       SET "coverUrl"                = REPLACE("coverUrl",
 4. 推 GitHub 前必须问用户确认
 5. **Bug 7 / Bug 9 上一轮误判教训**：用户实测 build-4-29.apk 已含 alipay 原生类 + RECORD_AUDIO 权限，所以"缺 plugin / 缺权限"的诊断都是错的。下次类似排查时，**先让用户/agent 用 `aapt dump permissions` / `unzip -p APK classes.dex` 抽查 APK 实际内容**，再下"必须重打 APK"的结论
 6. Bug 9 改完格式后必须真机 + 后端日志双向验证（看 bytes 长度和文件头），如果 transcript 仍空，再走候选 B 排查上传层
+
+---
+
+## P5 真机验证后第一轮回归（2026-04-29，OTA group `16bde688-fde3-436c-9a2b-0fa9f797f357` 之后）
+
+### 用户真机测试现象
+1. **Bug 7 第一次提交订单**：等了很久 → 仍显示"支付触发失败"
+2. **退出页面再进确认订单页**，再次点提交订单：
+   - **Bug 6 复发**：退换货规则**再次弹出**（应该首次同意后永不再弹）
+   - **Bug 7 改善但仍失败**：这次出现"去支付宝支付"文字 → **1 秒后**显示"支付失败，请重试"
+
+### Bug 6 复发真根因（前端闭包修复 + 后端字段缺失双层 bug，P1 漏掉后端层）
+
+P1 commit 86229cf 加了 `agreedRef` 解决"同一次会话内"的闭包陷阱（弹窗死循环），但**没解决退出再进的复发问题**。
+
+真因：`backend/src/modules/user/user.service.ts:32-58` 的 `getProfile()` return 对象里**根本没把 `user.hasAgreedReturnPolicy` 字段返回前端**：
+- schema.prisma:563 `User.hasAgreedReturnPolicy Boolean @default(false)` 字段存在
+- `after-sale.service.ts:633` `agreePolicy()` 也确实把该字段更新成 true
+- **但 `getProfile()` return 的 13 个字段里没列这个**
+- 前端 `app/checkout.tsx:118` `hasAgreedReturnPolicy = localAgreed || profileData?.data?.hasAgreedReturnPolicy` → 后者永远 undefined → falsy
+- 退出 checkout → agreedRef 随组件 unmount 清零 → 重进 → profileData 也读不到 true → 弹窗再次弹出
+
+P1 修 11ed366（getProfile 加 phone/wechatNickname）时**漏了顺手补 hasAgreedReturnPolicy**。
+
+### Bug 7 1 秒失败根因（待诊断日志确认）
+
+好消息：用户看到"去支付宝支付"屏说明 default import 修复**生效**（旧代码连这屏都看不到，直接 NATIVE_UNAVAILABLE）。但 SDK 调起后 1 秒返回失败 → 当前 `src/utils/alipay.ts` 仅在 catch 里 console.log 异常，**正常返回但 success=false（如 resultStatus=4000）的路径没日志**，无法定位是凭据/签名/网关哪一层错。
+
+按概率排序的可能根因：
+1. **沙箱 flag 未真正生效**：`EXPO_PUBLIC_ALIPAY_SANDBOX=true` OTA 命令带了，但 Metro 内联结果不可控（需日志验证）
+2. **沙箱凭据 / appId 不匹配** → SDK 验签失败
+3. **后端 orderStr 签名/参数有问题**（如金额格式、商品标题特殊字符）
+
+### 修复方案（一次提交，含后端 + 前端诊断）
+
+#### Bug 6 后端补字段
+- `backend/src/modules/user/user.service.ts` getProfile return 追加：
+  ```ts
+  hasAgreedReturnPolicy: user.hasAgreedReturnPolicy,
+  ```
+- 部署：push staging → 自动重启即可，App 不需要 OTA（前端代码已经在读这个字段）
+
+#### Bug 7 前端加诊断日志
+- `src/utils/alipay.ts` `payWithAlipay`：
+  - 调 `Alipay.alipay(orderStr)` 前打印 `console.log('[Alipay] orderStr length:', orderStr.length, 'preview:', orderStr.slice(0, 80))`
+  - 拿到 result 后 console.log resultStatus + memo + result（success 和 fail 分支都打）
+  - 启动 sandbox 时打印当前的 `process.env.EXPO_PUBLIC_ALIPAY_SANDBOX` 真实值（验证 OTA 是否正确内联）
+- 部署：OTA 推一次（仍带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true`）
+
+#### 真机验证流程
+1. 后端 push 推完先验证 Bug 6（提交订单 → 同意弹窗 → 退出 → 重进 → 不再弹）
+2. OTA 推完冷启动两次，再触发支付 → USB+adb 抓日志 `adb logcat | grep -i alipay`
+3. 把日志贴回来，定位 Bug 7 真因（凭据/签名/沙箱 flag）
+
+### 状态
+✅ 已补丁完成（commit 9f98eb0 后端 + 526f4a2 + 23db438 前端，未推 staging）
+
+---
+
+## P5 真机验证后第一轮：Bug 7 第二个隐藏根因（2026-04-30 用户深查）
+
+### 用户分析（已逐行核对，全部坐实）
+
+第一次"支付触发失败"和第二次"去支付宝支付 → 1s 失败"是**两个独立 bug**，需要分别处理。
+
+#### Bug 7-A：默认 paymentMethod = 'wechat' 导致第一次必定失败
+
+| 位置 | 代码 | 后果 |
+|---|---|---|
+| `app/checkout.tsx:56` | `useState<PaymentMethod>('wechat')` | 默认选微信 |
+| `backend/src/modules/order/checkout.service.ts:19-23` | `CHANNEL_MAP = { wechat:'WECHAT_PAY', alipay:'ALIPAY', bankcard:'UNIONPAY' }` | 前端小写转后端枚举 |
+| `backend/src/modules/order/checkout.service.ts:112` | `if (session.paymentChannel === 'ALIPAY' && ...)` 才生成 orderStr | **微信/银行卡渠道 paymentParams = {} 空** |
+| `app/checkout.tsx:329` else 分支 | `OrderRepo.simulatePayment(merchantOrderNo)` | 非支付宝走模拟支付 |
+| `app/checkout.tsx:333` | `show({ message: '支付触发失败，请稍后重试' })` | simulatePayment 在 staging/prod 拒绝 → 弹这条 |
+
+**完整故障链**（用户第一次提交场景）：
+1. 进 checkout，`paymentMethod = 'wechat'`（默认）
+2. 用户没改直接点提交 → 前端发 `paymentChannel: 'wechat'`
+3. 后端 `CHANNEL_MAP['wechat'] → 'WECHAT_PAY'` 落库
+4. 后端 line 112 判 `=== 'ALIPAY'` → false → `paymentParams = {}`
+5. 前端 `paymentParams?.channel === 'alipay'` → false → 走 simulatePayment
+6. simulatePayment 在生产环境被拒 → 弹"支付触发失败"
+
+**注**：之前我把"支付触发失败"完全归到 alipay 接入问题，**漏看了 paymentMethod 默认是 wechat**。这是 P1 漏的第三个 bug。
+
+#### Bug 7-B：第二次"去支付宝支付 → 1s 失败"才是真正的 alipay SDK 调用失败
+
+用户第二次显式选了支付宝，所以走到了 `payWithAlipay()` → 看到"去支付宝支付"屏 → SDK 1s 后返回 fail。这才是 commit b6358cc 修复后剩余的真问题（沙箱凭据/orderStr/网关之一），需要诊断日志才能定位。
+
+### 修复方案（一次提交三组改动）
+
+#### Bug 6 后端补字段
+- `backend/src/modules/user/user.service.ts` getProfile return 追加 `hasAgreedReturnPolicy: user.hasAgreedReturnPolicy`
+
+#### Bug 7-A：禁用未接入渠道 + 默认改支付宝（推荐 A+B 组合）
+- `app/checkout.tsx:56` 默认值 `'wechat'` → `'alipay'`
+- `src/constants/payment.ts` 给 paymentMethods 加 `available?: boolean` 字段：
+  - alipay: `available: true`
+  - wechat: `available: false, comingSoon: 'v1.1 上线'`
+  - bankcard: `available: false, comingSoon: 'v1.2 上线'`
+- `app/checkout.tsx:699-` 渲染时：
+  - `available === false` 的 radio 灰掉（opacity: 0.5）
+  - 标签后追加"暂不支持"小字
+  - `onPress` 时 toast "暂不支持，请选支付宝"，不调 setPaymentMethod
+
+#### Bug 7-B：诊断日志（用 adb logcat 抓真因）
+- `src/utils/alipay.ts` `payWithAlipay`：
+  - 调 `Alipay.alipay()` 前打印 `console.log('[Alipay] orderStr length:', orderStr.length, 'preview:', orderStr.slice(0, 80))`
+  - 拿到 result 后 `console.log('[Alipay] result:', JSON.stringify(result))`，success/fail 分支都打
+- `src/utils/alipay.ts` `initAlipayEnv`：
+  - 打印当前 `process.env.EXPO_PUBLIC_ALIPAY_SANDBOX` 真实值（验证 OTA Metro 是否正确内联）
+
+### 部署节奏
+1. 改三组代码 + commit
+2. push staging → 后端 Bug 6 自动部署
+3. OTA 推一次（带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true`）
+4. 用户冷启动两次
+5. 验证：
+   - Bug 6：提交订单 → 同意弹窗 → 退出 → 重进 → **不应再弹**
+   - Bug 7-A：进 checkout → 看到默认选了支付宝 + wechat/bankcard 灰掉
+   - Bug 7-B：选支付宝 → 提交 → USB+adb `adb logcat | grep -i "Alipay"` 抓日志 → 贴回来
+
+### 状态
+✅ 已补丁完成（Bug 6=9f98eb0 / 7-A=526f4a2 / 7-B=23db438 / 用户审查 High+Medium=4ab674a / Low=本 commit）
+
+### 用户审查 finding 收口（4ab674a + 本 commit）
+
+P5 第一轮补丁完成后用户基于代码再次审查，发现 4 个 finding：
+
+| # | 等级 | 问题 | 处理 |
+|---|------|------|------|
+| F1 | High | 后端 SDK 失败时 paymentParams={} 仍走 simulatePayment fallback → 复现"支付触发失败"，影响主结算 + VIP 两个分支 | 4ab674a：加 `else if (paymentMethod === 'alipay')` 显式判后端 SDK 失败场景，toast "支付服务暂不可用" + cancel session |
+| F2 | Medium | NATIVE_UNAVAILABLE 在 release APK 也走 simulate fallback → 必失败装作"支付触发失败" | 4ab674a：用 __DEV__ 区分 dev 走 simulate / release 直接 toast "支付组件不可用，请更新 App" |
+| F3 | Low | alipay.ts 诊断日志含签名参数，不应长期保留 | 本 commit：加 `⚠️ TODO(沙箱诊断专用)` 注释 + 上线前必移除/加 debug flag 提醒 |
+| F4 | Low | 文档状态仍写"待补丁"+ bankcard 版本号 v1.1/v1.2 不一致 | 本 commit：状态改为"✅ 已补丁完成"+ 文档 bankcard 改 v1.2 与代码一致 |
+
+副作用：F1+F2 修复后，"支付触发失败"这个含糊文案彻底消失。每种失败场景都有具体原因：
+- 用户取消 → "已取消支付"
+- SDK 4000 失败 → "支付失败，请重试"
+- 后端无 orderStr → "支付服务暂不可用，请稍后重试或联系客服"
+- 原生模块缺失（release）→ "支付组件不可用，请更新到最新版 App 后重试"
+- Expo Go 模拟支付失败 → "模拟支付失败（Expo Go 开发环境）"
+- 非 alipay 渠道（理论不会发生，防御）→ "当前支付方式暂未开通，请使用支付宝"
+
+---
+
+## P5 真机验证后第二轮（2026-04-30，待第一轮全部 commit 部署后）
+
+待 5 个 commit (9f98eb0 / 526f4a2 / 23db438 / 4ab674a / 本 Low 补丁) push + OTA 后，继续验证 9 bug。出现的新问题在此追加。

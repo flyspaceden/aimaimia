@@ -68,16 +68,16 @@ export async function payWithAlipay(orderStr: string): Promise<{
     console.warn('[Alipay] 原生模块不可用（可能在 Expo Go 中运行）');
     return { success: false, memo: 'NATIVE_UNAVAILABLE' };
   }
-  // 诊断：调起前打印 orderStr 长度 + 前 80 字符。用于真机 logcat 定位失败原因：
-  // - 长度异常短 → 后端 createAppPayOrder 没生成成功
-  // - 缺 app_id / sign / biz_content → 后端签名/参数有问题
+  // ⚠️ TODO(沙箱诊断专用): 以下两条 console.log 仅用于 Bug 7-B 真机定位（2026-04-30 加）
+  // 调起前打印 orderStr 预览：长度异常短 → 后端没生成成功；缺 app_id/sign/biz_content → 签名错
+  // 拿到 result 后打印全文：9000=成功 / 4000=失败 / 6001=取消 / 6002=网络错误 / 8000=处理中
+  // ⚠️ 上线前必须移除或加 debug flag（含签名参数与交易返回信息，不应进生产长期日志）
   console.log(
     `[Alipay] payWithAlipay called orderStr length=${orderStr.length} ` +
     `preview="${orderStr.slice(0, 80)}..."`,
   );
   try {
     const result = await Alipay.alipay(orderStr);
-    // 诊断：success/fail 都打 result 全文。9000=成功 / 4000=失败 / 6001=取消 / 6002=网络错误 / 8000=处理中
     console.log(`[Alipay] result: ${JSON.stringify(result)}`);
     const resultStatus = String(result?.resultStatus ?? '');
     return {
