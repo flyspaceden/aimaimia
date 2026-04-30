@@ -61,7 +61,13 @@ export class PaymentController {
     // 1. 验签
     const verified = await this.alipayService.verifyNotify(body);
     if (!verified) {
-      this.logger.error('支付宝异步通知验签失败');
+      // 诊断日志：把完整 notify body 打出来，便于定位是哪个字段导致签名不一致
+      // ⚠️ 仅沙箱诊断用，含交易明细，上线前必须移除
+      this.logger.error(
+        `支付宝异步通知验签失败 | out_trade_no=${body.out_trade_no} | ` +
+        `字段数=${Object.keys(body).length} | 空字段=[${Object.entries(body).filter(([_, v]) => !v).map(([k]) => k).join(',')}] | ` +
+        `完整 body (JSON): ${JSON.stringify(body)}`,
+      );
       res.status(200).send('failure');
       return;
     }
