@@ -273,6 +273,98 @@ export default function CheckoutScreen() {
     return false;
   };
 
+  /**
+   * P5 第三轮支付确认 + 跳转的统一逻辑
+   * （普通结算 + VIP 礼包共用，避免 4 处重复代码）
+   *
+   * 流程图（详见 docs/issues/app-tpfix1.md P5 第三轮）：
+   *   1. 立刻 active-query → COMPLETED 直接跳成功页（沙箱场景秒到）
+   *   2. 未 COMPLETED → polling 兜底（90 次 × 2s = 180 秒）
+   *   3. 期间发现 EXPIRED/FAILED → 明确提示
+   *   4. 仍未完成 → 软提示"支付处理中，请稍后在订单列表查看"（不报失败）
+   *   5. 成功 → router.replace('/payment-success', params)
+   */
+  const confirmPaymentAndNavigate = async (args: {
+    sessionId: string;
+    merchantOrderNo: string;
+    amount: number;
+    isVip: boolean;
+  }) => {
+    const { sessionId, merchantOrderNo, amount, isVip } = args;
+
+    show({ message: '支付确认中...', type: 'info' });
+
+    let completed = false;
+    let orderIds: string[] = [];
+
+    // 1. 立刻主动查询（沙箱 notify 慢/丢失时直接救场）
+    const activeResult = await OrderRepo.activeQueryPayment(sessionId);
+    if (activeResult.ok) {
+      const { status, orderIds: ids } = activeResult.data;
+      if (status === 'COMPLETED') {
+        completed = true;
+        orderIds = ids ?? [];
+      } else if (status === 'EXPIRED' || status === 'FAILED') {
+        show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
+        return;
+      }
+    }
+    // active-query 返回非 COMPLETED 时，不立刻判失败，进 polling 兜底
+
+    // 2. polling 兜底（90 次 × 2 秒 = 180 秒，应对沙箱 notify 长尾）
+    if (!completed) {
+      const MAX_POLLS = 90;
+      const POLL_INTERVAL = 2000;
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+        const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
+        if (!statusResult.ok) continue;
+        const { status, orderIds: ids } = statusResult.data;
+        if (status === 'COMPLETED') {
+          completed = true;
+          orderIds = ids ?? [];
+          break;
+        }
+        if (status === 'EXPIRED' || status === 'FAILED') {
+          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
+          return;
+        }
+      }
+    }
+
+    // 3. 仍未完成 → 软提示而非"失败"（钱可能已扣，避免用户重复支付）
+    if (!completed) {
+      show({ message: '支付处理中，请稍后在订单列表查看', type: 'warning' });
+      return;
+    }
+
+    // 4. 成功：刷新缓存 + 清空购物车/VIP 选择 + 跳支付成功页
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-order-issue'] }),
+      ...(isVip ? [queryClient.invalidateQueries({ queryKey: ['bonus-member'] })] : []),
+    ]);
+    if (isVip) {
+      clearVipPackageSelection();
+    } else {
+      clearCheckedItems();
+    }
+    resetCheckoutStore();
+
+    router.replace({
+      pathname: '/payment-success',
+      params: {
+        sessionId,
+        totalOrderNo: merchantOrderNo,
+        amount: amount.toFixed(2),
+        firstOrderId: orderIds[0] ?? '',
+        orderCount: String(Math.max(1, orderIds.length)),
+        isVip: isVip ? '1' : '0',
+      },
+    });
+  };
+
   const handleCheckout = async () => {
     if (previewPending) {
       show({ message: '价格校验中，请稍候再提交', type: 'warning' });
@@ -307,12 +399,14 @@ export default function CheckoutScreen() {
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // 支付宝渠道：调用原生 SDK 支付
+      // 支付分流：先调起渠道支付，然后统一交给 confirmPaymentAndNavigate 走 active-query + polling
+      // 流程图（详见 docs/issues/app-tpfix1.md P5 第三轮）：
+      //   - 6001 用户取消 → cancel session 直接退出
+      //   - 其他 (9000/8000/6004/4000/空) → 不依赖 SDK resultStatus，进 active-query
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
-          // 原生模块不可用：仅 Expo Go 开发环境允许 fallback 到模拟支付
-          // release APK 走 fallback 等于必失败，应直接告知用户而非装作"支付触发失败"
+          // 原生模块不可用：dev 走 simulate，release 直接拒
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
             if (!payResult.ok) {
@@ -325,19 +419,15 @@ export default function CheckoutScreen() {
             await OrderRepo.cancelCheckoutSession(sessionId);
             return;
           }
-        } else if (!alipayResult.success) {
-          const msg = alipayResult.resultStatus === '6001' ? '已取消支付' : '支付失败，请重试';
-          show({ message: msg, type: alipayResult.resultStatus === '6001' ? 'warning' : 'error' });
-          if (alipayResult.resultStatus === '6001') {
-            await OrderRepo.cancelCheckoutSession(sessionId);
-          }
+        } else if (alipayResult.resultStatus === '6001') {
+          // 用户主动取消（唯一可信的"用户拒付"信号）
+          show({ message: '已取消支付', type: 'warning' });
+          await OrderRepo.cancelCheckoutSession(sessionId);
           return;
         }
-        // 支付成功或处理中：继续轮询
+        // 9000/8000/6004/4000/空字符串等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
       } else if (paymentMethod === 'alipay') {
-        // 用户选了支付宝但后端没生成 orderStr → 后端 alipay SDK 初始化失败/凭据错/参数错
-        // 不能 fallback 到 simulatePayment（staging/prod 必失败 + 误导用户）
-        // 直接显式提示让用户知道是后端问题
+        // 用户选了支付宝但后端没生成 orderStr → 后端 SDK 初始化失败/凭据错
         show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
         await OrderRepo.cancelCheckoutSession(sessionId);
         return;
@@ -351,44 +441,18 @@ export default function CheckoutScreen() {
         }
       } else {
         // release 防御：UI 已灰掉非支付宝渠道，正常用户走不到这分支
-        // 万一被绕过（如开发模式改 state），直接拒绝避免 simulatePayment 误导
         show({ message: '当前支付方式暂未开通，请使用支付宝', type: 'error' });
         await OrderRepo.cancelCheckoutSession(sessionId);
         return;
       }
 
-      // 轮询会话状态，等待后端处理完成
-      const MAX_POLLS = 30;
-      const POLL_INTERVAL = 2000;
-      let completed = false;
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-        const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
-        if (!statusResult.ok) continue;
-
-        const { status } = statusResult.data;
-        if (status === 'COMPLETED') {
-          completed = true;
-          break;
-        }
-        if (status === 'EXPIRED' || status === 'FAILED') {
-          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
-          return;
-        }
-      }
-
-      if (!completed) {
-        show({ message: '支付处理超时，请在订单列表中查看状态', type: 'warning' });
-        return;
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-issue'] });
-      // 仅清除已结算的购物车项
-      clearCheckedItems();
-      resetCheckoutStore();
-      show({ message: '支付成功，订单已生成', type: 'success' });
+      // 进入支付确认流程（active-query → polling fallback → 跳成功页）
+      await confirmPaymentAndNavigate({
+        sessionId,
+        merchantOrderNo,
+        amount: finalTotal,
+        isVip: false,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -430,8 +494,7 @@ export default function CheckoutScreen() {
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // VIP 分支与主结算分支保持完全相同的支付分流逻辑
-      // （详见上方 handleCheckout，含 release vs dev 区分 + alipay 后端失败显式 toast）
+      // VIP 分支与主结算分支保持完全相同的支付分流（流程图详见 docs/issues/app-tpfix1.md P5 第三轮）
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
@@ -447,14 +510,12 @@ export default function CheckoutScreen() {
             await OrderRepo.cancelCheckoutSession(sessionId);
             return;
           }
-        } else if (!alipayResult.success) {
-          const msg = alipayResult.resultStatus === '6001' ? '已取消支付' : '支付失败，请重试';
-          show({ message: msg, type: alipayResult.resultStatus === '6001' ? 'warning' : 'error' });
-          if (alipayResult.resultStatus === '6001') {
-            await OrderRepo.cancelCheckoutSession(sessionId);
-          }
+        } else if (alipayResult.resultStatus === '6001') {
+          show({ message: '已取消支付', type: 'warning' });
+          await OrderRepo.cancelCheckoutSession(sessionId);
           return;
         }
+        // 其他状态（9000/8000/6004/4000/空）→ 进 active-query
       } else if (paymentMethod === 'alipay') {
         show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
         await OrderRepo.cancelCheckoutSession(sessionId);
@@ -472,41 +533,13 @@ export default function CheckoutScreen() {
         return;
       }
 
-      // 轮询会话状态
-      const MAX_POLLS = 30;
-      const POLL_INTERVAL = 2000;
-      let completed = false;
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-        const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
-        if (!statusResult.ok) continue;
-        const { status } = statusResult.data;
-        if (status === 'COMPLETED') {
-          completed = true;
-          break;
-        }
-        if (status === 'EXPIRED' || status === 'FAILED') {
-          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
-          return;
-        }
-      }
-
-      if (!completed) {
-        show({ message: '支付处理超时，请在订单列表中查看状态', type: 'warning' });
-        return;
-      }
-
-      // VIP 成功：刷新会员状态和订单
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['orders'] }),
-        queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
-        queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
-      ]);
-      clearVipPackageSelection();
-      resetCheckoutStore();
-      show({ message: 'VIP 开通成功！赠品订单已生成', type: 'success' });
-      // 跳转到 VIP 成功页或 VIP 页面
-      router.replace('/me/vip');
+      // 进入支付确认流程（VIP 模式）
+      await confirmPaymentAndNavigate({
+        sessionId,
+        merchantOrderNo,
+        amount: vipPackageSelection.price,
+        isVip: true,
+      });
     } finally {
       setSubmitting(false);
     }
