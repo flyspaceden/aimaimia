@@ -297,26 +297,64 @@ export default function CheckoutScreen() {
     let completed = false;
     let orderIds: string[] = [];
 
-    // 1. 立刻主动查询（沙箱 notify 慢/丢失时直接救场）
-    const activeResult = await OrderRepo.activeQueryPayment(sessionId);
-    if (activeResult.ok) {
-      const { status, orderIds: ids } = activeResult.data;
-      if (status === 'COMPLETED') {
-        completed = true;
-        orderIds = ids ?? [];
-      } else if (status === 'EXPIRED' || status === 'FAILED') {
-        show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
-        return;
+    /**
+     * 处理 active-query 返回结果
+     * @returns 'completed' | 'terminal-failure' | 'continue-poll'
+     *
+     * F2 修复：业务错误（INVALID/FORBIDDEN/NOT_FOUND）应停止并提示，而非沉默继续轮询。
+     * - 金额不一致后端抛 BadRequestException → code='INVALID' → 直接提示停止
+     * - 网络错误 / 服务器异常 → 继续 polling 兜底
+     */
+    const handleActiveQuery = async (): Promise<'completed' | 'terminal-failure' | 'continue-poll'> => {
+      const r = await OrderRepo.activeQueryPayment(sessionId);
+      if (r.ok) {
+        const { status, orderIds: ids } = r.data;
+        if (status === 'COMPLETED') {
+          completed = true;
+          orderIds = ids ?? [];
+          return 'completed';
+        }
+        if (status === 'EXPIRED' || status === 'FAILED') {
+          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
+          return 'terminal-failure';
+        }
+        // ACTIVE/PAID/中间态 → 继续 polling
+        return 'continue-poll';
       }
-    }
-    // active-query 返回非 COMPLETED 时，不立刻判失败，进 polling 兜底
+      // F2: 业务错误立即终止（区分网络错误）
+      const code = r.error.code;
+      if (code === 'INVALID' || code === 'FORBIDDEN' || code === 'NOT_FOUND') {
+        show({
+          message: r.error.displayMessage ?? '支付确认失败，请联系客服',
+          type: 'error',
+        });
+        return 'terminal-failure';
+      }
+      // NETWORK / UNKNOWN → 继续 polling 兜底
+      return 'continue-poll';
+    };
+
+    // 1. 立刻主动查询（沙箱 notify 慢/丢失时直接救场）
+    const initialOutcome = await handleActiveQuery();
+    if (initialOutcome === 'terminal-failure') return;
 
     // 2. polling 兜底（90 次 × 2 秒 = 180 秒，应对沙箱 notify 长尾）
+    //    F1 修复：每 5 轮再调一次 active-query，避免首次 query 错过窗口期后只能等 notify
     if (!completed) {
       const MAX_POLLS = 90;
       const POLL_INTERVAL = 2000;
+      const ACTIVE_QUERY_EVERY = 5;
       for (let i = 0; i < MAX_POLLS; i++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+
+        // 每 5 轮（约 10 秒）再触发一次后端 active-query 重查支付宝真实状态
+        if (i > 0 && i % ACTIVE_QUERY_EVERY === 0) {
+          const outcome = await handleActiveQuery();
+          if (outcome === 'completed') break;
+          if (outcome === 'terminal-failure') return;
+        }
+
+        // 普通本地 session 状态轮询（看 notify 路径有没有更新 session）
         const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
         if (!statusResult.ok) continue;
         const { status, orderIds: ids } = statusResult.data;
@@ -447,10 +485,11 @@ export default function CheckoutScreen() {
       }
 
       // 进入支付确认流程（active-query → polling fallback → 跳成功页）
+      // F4: 用后端权威 expectedTotal 而非前端 finalTotal（前端计算可能与服务端有微小差异）
       await confirmPaymentAndNavigate({
         sessionId,
         merchantOrderNo,
-        amount: finalTotal,
+        amount: sessionResult.data.expectedTotal,
         isVip: false,
       });
     } finally {
@@ -534,10 +573,11 @@ export default function CheckoutScreen() {
       }
 
       // 进入支付确认流程（VIP 模式）
+      // F4: 用后端权威 expectedTotal 而非前端 vipPackageSelection.price
       await confirmPaymentAndNavigate({
         sessionId,
         merchantOrderNo,
-        amount: vipPackageSelection.price,
+        amount: sessionResult.data.expectedTotal,
         isVip: true,
       });
     } finally {

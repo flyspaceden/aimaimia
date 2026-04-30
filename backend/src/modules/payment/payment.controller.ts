@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Logger, Param, Post, Res, UseGuards } f
 import { Response } from 'express';
 import { PaymentService } from './payment.service';
 import { AlipayService } from './alipay.service';
+import { CheckoutService } from '../order/checkout.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
@@ -14,6 +15,8 @@ export class PaymentController {
   constructor(
     private paymentService: PaymentService,
     private alipayService: AlipayService,
+    // P5 第三轮 finding F3：notify 路径金额校验需要查 session
+    private checkoutService: CheckoutService,
   ) {}
 
   /** 查询订单支付记录 */
@@ -86,6 +89,31 @@ export class PaymentController {
       tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED'
         ? 'SUCCESS'
         : 'FAILED';
+
+    // 3. 金额校验（仅 SUCCESS 类才校验，FAILED 单不需要）
+    // P5 第三轮 finding F3：notify 路径之前漏了金额校验，与 active-query 不一致 → 安全漏洞
+    // 现在两个路径共用 PaymentService.assertAlipayAmountMatchesSession
+    if (status === 'SUCCESS') {
+      try {
+        const session = await this.checkoutService.findByMerchantOrderNo(body.out_trade_no);
+        if (session) {
+          this.paymentService.assertAlipayAmountMatchesSession(
+            { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+            body.total_amount,
+            'notify',
+          );
+        }
+        // session 不存在时跳过校验（可能是旧 Order 流程，由 handlePaymentCallback 自己处理）
+      } catch (amountErr: any) {
+        // 金额校验失败：不建单 + 仍返 success 给支付宝避免无限重试 + 留 error 日志等运营介入
+        this.logger.error(
+          `支付宝 notify 金额校验失败，已拒绝建单：${amountErr.message} ` +
+          `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+        );
+        res.status(200).send('success');
+        return;
+      }
+    }
 
     try {
       await this.paymentService.handlePaymentCallback({

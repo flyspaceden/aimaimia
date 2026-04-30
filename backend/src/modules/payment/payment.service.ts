@@ -28,6 +28,34 @@ export class PaymentService {
   ) {}
 
   /**
+   * P5 第三轮：金额校验 helper（active-query 和 notify 两个路径共用）
+   *
+   * 安全要求（CLAUDE.md 钱链路安全清单）：
+   * - 支付宝声称的支付金额必须 === session 创建时锁定的 expectedTotal
+   * - 不一致 → 拒绝建单 + 错误日志（防恶意构造请求/中间人篡改）
+   *
+   * 抛 BadRequestException 让上层调用方决定如何响应：
+   * - active-query：异常上抛给前端 → 前端停止轮询并提示
+   * - notify：catch 后日志 + 仍返 'success' 给支付宝（避免支付宝无限重试），
+   *   依靠运维告警人工介入
+   */
+  assertAlipayAmountMatchesSession(
+    session: { expectedTotal: number; merchantOrderNo: string | null },
+    claimedAmount: string,
+    source: 'active-query' | 'notify',
+  ): void {
+    const expectedAmountStr = session.expectedTotal.toFixed(2);
+    if (claimedAmount !== expectedAmountStr) {
+      this.logger.error(
+        `[${source}] 金额校验失败：支付宝=${claimedAmount} session=${expectedAmountStr} ` +
+        `merchantOrderNo=${session.merchantOrderNo ? this.maskBizId(session.merchantOrderNo) : 'N/A'} ` +
+        `→ 拒绝建单，请人工核查（可能为恶意篡改）`,
+      );
+      throw new BadRequestException('支付金额校验失败，请联系客服');
+    }
+  }
+
+  /**
    * P5 第三轮：App 端主动查询支付宝订单状态并落单
    *
    * 触发场景：
@@ -138,14 +166,11 @@ export class PaymentService {
     }
 
     // 7. 金额校验（防恶意篡改）— CLAUDE.md 钱链路安全清单要求
-    const expectedAmountStr = session.expectedTotal.toFixed(2);
-    if (totalAmount !== expectedAmountStr) {
-      this.logger.error(
-        `active-query 金额不一致：支付宝=${totalAmount} session=${expectedAmountStr} ` +
-        `merchantOrderNo=${this.maskBizId(session.merchantOrderNo)}`,
-      );
-      throw new BadRequestException('支付金额校验失败，请联系客服');
-    }
+    this.assertAlipayAmountMatchesSession(
+      { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+      totalAmount,
+      'active-query',
+    );
 
     // 8. 复用 handlePaymentCallback 建单（含 Serializable + CAS 幂等）
     await this.handlePaymentCallback({
