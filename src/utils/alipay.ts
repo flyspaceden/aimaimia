@@ -25,15 +25,25 @@ function loadAlipay(): AlipayClass | null {
  * - 仅 Android 支持沙箱模式
  */
 export function initAlipayEnv(sandbox: boolean) {
+  // 诊断：打印 env 内联结果，验证 OTA 命令的 EXPO_PUBLIC_ALIPAY_SANDBOX 是否被 Metro 正确内联
+  // 期望看到 raw env 'true' / 'false'，sandbox=boolean 派生
+  console.log(
+    `[Alipay] initAlipayEnv called sandbox=${sandbox} ` +
+    `(EXPO_PUBLIC_ALIPAY_SANDBOX raw=${JSON.stringify(process.env.EXPO_PUBLIC_ALIPAY_SANDBOX)}) ` +
+    `Platform=${Platform.OS}`,
+  );
   const Alipay = loadAlipay();
   if (!Alipay || typeof Alipay.setAlipaySandbox !== 'function') {
     // 原生模块不可用（如 Expo Go），忽略
+    console.warn('[Alipay] initAlipayEnv 跳过：原生模块不可用 / setAlipaySandbox 不是函数');
     return;
   }
   try {
     if (Platform.OS === 'android') {
       Alipay.setAlipaySandbox(sandbox);
-      console.log(`[Alipay] 沙箱模式: ${sandbox ? '开启' : '关闭'}`);
+      console.log(`[Alipay] 沙箱模式: ${sandbox ? '开启' : '关闭'} (Android)`);
+    } else {
+      console.log(`[Alipay] iOS 不支持 setAlipaySandbox，跳过`);
     }
   } catch (err: any) {
     console.warn('[Alipay] 设置沙箱模式失败:', err?.message);
@@ -58,9 +68,17 @@ export async function payWithAlipay(orderStr: string): Promise<{
     console.warn('[Alipay] 原生模块不可用（可能在 Expo Go 中运行）');
     return { success: false, memo: 'NATIVE_UNAVAILABLE' };
   }
+  // 诊断：调起前打印 orderStr 长度 + 前 80 字符。用于真机 logcat 定位失败原因：
+  // - 长度异常短 → 后端 createAppPayOrder 没生成成功
+  // - 缺 app_id / sign / biz_content → 后端签名/参数有问题
+  console.log(
+    `[Alipay] payWithAlipay called orderStr length=${orderStr.length} ` +
+    `preview="${orderStr.slice(0, 80)}..."`,
+  );
   try {
     const result = await Alipay.alipay(orderStr);
-    // resultStatus: 9000=成功, 8000=处理中, 6001=用户取消, 6002=网络错误, 4000=失败
+    // 诊断：success/fail 都打 result 全文。9000=成功 / 4000=失败 / 6001=取消 / 6002=网络错误 / 8000=处理中
+    console.log(`[Alipay] result: ${JSON.stringify(result)}`);
     const resultStatus = String(result?.resultStatus ?? '');
     return {
       success: resultStatus === '9000',
