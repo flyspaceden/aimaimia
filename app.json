@@ -4,6 +4,7 @@
     "slug": "ai-aimaimai",
     "version": "0.2.0",
     "scheme": "aimaimai",
+    "icon": "./logo/ios.png",
     "plugins": [
       "expo-router",
       "expo-web-browser",
@@ -13,6 +14,10 @@
     ],
     "android": {
       "package": "com.aimaimai.shop",
+      "adaptiveIcon": {
+        "foregroundImage": "./logo/android-adaptive.png",
+        "backgroundColor": "#FFFFFF"
+      },
       "intentFilters": [
         {
           "action": "VIEW",
