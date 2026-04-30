@@ -884,6 +884,34 @@ P5 第一轮补丁完成后用户基于代码再次审查，发现 4 个 finding
 
 ---
 
-## P5 真机验证后第二轮（2026-04-30，待第一轮全部 commit 部署后）
+## P5 真机验证后第二轮（2026-04-30，第一轮 5 commit 仍在本地待推）
 
-待 5 个 commit (9f98eb0 / 526f4a2 / 23db438 / 4ab674a / 本 Low 补丁) push + OTA 后，继续验证 9 bug。出现的新问题在此追加。
+### Bug 3 复发：Android 三键虚拟键 OEM bug
+
+**用户实测**：换一台手机（华为，三键虚拟键 ← / ○ / □）打开 AI 买买页，
+下面 tab bar 的"首页 / [中] / 我的"label **仍被系统按钮覆盖**（截图显示
+label 上半部分可见、下半部分被系统按钮挡住）。
+
+**根因**：commit 3ecab89 用 `height: 56 + insets.bottom`，但部分华为/小米/
+OPPO 机型的三键虚拟键模式下 `useSafeAreaInsets().bottom = 0`（OEM 没正确
+实现 WindowInsets API），即使 Expo SDK 54 默认 edge-to-edge。退化成
+height=56 没 padding → 系统按钮覆盖 label。
+
+**修复（commit fc9a493，纯 OTA）**：
+```ts
+const safeBottomPad = Platform.OS === 'android'
+  ? Math.max(insets.bottom, 32)
+  : insets.bottom;
+tabBarStyle: {
+  height: 56 + safeBottomPad,
+  paddingBottom: safeBottomPad + 4,
+}
+```
+- Android 强制 32dp 底部 padding（覆盖三键虚拟键约 48dp 高度的下半段）
+- iOS 不受影响（home indicator 走 insets.bottom 正常返回 ~34dp）
+- 老的有 insets 正确返回的 Android（gesture bar / 现代机型）走 max 取大值不变
+
+### 状态
+✅ 已补丁完成（commit fc9a493，本地未推）
+
+待第一轮 + 本轮共 6 个 commit (9f98eb0 / 526f4a2 / 23db438 / 4ab674a / 08cdb3b / fc9a493) push + OTA 后继续验证。后续新问题在此段追加。
