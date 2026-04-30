@@ -27,6 +27,150 @@ export class PaymentService {
     @Optional() private inboxService?: InboxService,
   ) {}
 
+  /**
+   * P5 第三轮：App 端主动查询支付宝订单状态并落单
+   *
+   * 触发场景：
+   * - App 调起支付宝 SDK 后，无论 resultStatus 是 9000/8000/6004/4000（除 6001 用户取消外），
+   *   立即调用此接口让后端去支付宝主动查询真实状态
+   * - 解决沙箱 notify 慢/丢失导致的"已扣款但订单未生成"问题
+   * - notify 异步路径仍然保留，本接口为主动确认 + 兜底
+   *
+   * 流程：
+   * 1. 校验 session 存在 + 属于当前用户 + 渠道是 ALIPAY
+   * 2. 已 COMPLETED → 直接返回（幂等）
+   * 3. 调 alipay.trade.query 拿支付宝真实状态
+   * 4. TRADE_SUCCESS / TRADE_FINISHED → 校验金额一致 → 复用 handlePaymentCallback 建单
+   * 5. WAIT_BUYER_PAY / 其他中间态 / 查询异常 → 返回当前 session 状态（不标失败，让前端 polling 兜底）
+   *
+   * 安全要点（CLAUDE.md 钱链路安全清单）：
+   * - 金额校验：支付宝返回的 totalAmount 必须等于 session.expectedTotal，防恶意篡改
+   * - 幂等：依赖 handlePaymentSuccess 内部的 Serializable + CAS（已实现）
+   * - 跳过签名校验：query 是后端主动调用，没有"对方签名"概念，复用 skipSignatureVerification:true
+   */
+  async confirmAlipayCheckout(sessionId: string, userId: string) {
+    if (!this.checkoutService) {
+      throw new BadRequestException('结算服务未启用');
+    }
+
+    // 1. 校验 session 存在 + 属于当前用户
+    const session = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: { orders: { select: { id: true } } },
+    });
+    if (!session || session.userId !== userId) {
+      throw new NotFoundException('结算会话不存在');
+    }
+
+    // 2. 校验支付渠道
+    if (session.paymentChannel !== 'ALIPAY') {
+      throw new BadRequestException('当前会话不是支付宝渠道，无需主动查询');
+    }
+
+    // 3. 已 COMPLETED 直接返回（幂等：active-query 可能被前端重试多次）
+    if (session.status === 'COMPLETED') {
+      return {
+        status: session.status,
+        orderIds: session.orders.map((o) => o.id),
+        expectedTotal: session.expectedTotal,
+        confirmedBy: 'already-completed' as const,
+      };
+    }
+
+    // 4. EXPIRED / FAILED → 直接返回当前状态（不重新查询）
+    if (session.status === 'EXPIRED' || session.status === 'FAILED') {
+      return {
+        status: session.status,
+        orderIds: session.orders.map((o) => o.id),
+        expectedTotal: session.expectedTotal,
+        confirmedBy: 'terminal-state' as const,
+      };
+    }
+
+    if (!session.merchantOrderNo) {
+      this.logger.warn(`active-query: session ${this.maskBizId(sessionId)} 无 merchantOrderNo，无法查询`);
+      return {
+        status: session.status,
+        orderIds: session.orders.map((o) => o.id),
+        expectedTotal: session.expectedTotal,
+        confirmedBy: 'no-merchant-order-no' as const,
+      };
+    }
+
+    // 5. 调支付宝查询接口
+    let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+    try {
+      queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
+    } catch (err: any) {
+      this.logger.error(`active-query 调用支付宝异常: ${err.message}`);
+      // 异常不抛给前端，让 polling 兜底
+      return {
+        status: session.status,
+        orderIds: session.orders.map((o) => o.id),
+        expectedTotal: session.expectedTotal,
+        confirmedBy: 'query-error' as const,
+      };
+    }
+
+    if (!queryResult) {
+      // 支付宝未查到该订单（可能用户还没付）
+      return {
+        status: session.status,
+        orderIds: session.orders.map((o) => o.id),
+        expectedTotal: session.expectedTotal,
+        confirmedBy: 'not-found' as const,
+      };
+    }
+
+    const { tradeStatus, tradeNo, totalAmount } = queryResult;
+
+    // 6. 仅 TRADE_SUCCESS / TRADE_FINISHED 视为成功，其他中间态原样返回
+    if (tradeStatus !== 'TRADE_SUCCESS' && tradeStatus !== 'TRADE_FINISHED') {
+      this.logger.log(
+        `active-query: 支付宝返回 ${tradeStatus}，session ${this.maskBizId(sessionId)} 保持当前状态 ${session.status}`,
+      );
+      return {
+        status: session.status,
+        orderIds: session.orders.map((o) => o.id),
+        expectedTotal: session.expectedTotal,
+        confirmedBy: `alipay-${tradeStatus.toLowerCase()}` as const,
+      };
+    }
+
+    // 7. 金额校验（防恶意篡改）— CLAUDE.md 钱链路安全清单要求
+    const expectedAmountStr = session.expectedTotal.toFixed(2);
+    if (totalAmount !== expectedAmountStr) {
+      this.logger.error(
+        `active-query 金额不一致：支付宝=${totalAmount} session=${expectedAmountStr} ` +
+        `merchantOrderNo=${this.maskBizId(session.merchantOrderNo)}`,
+      );
+      throw new BadRequestException('支付金额校验失败，请联系客服');
+    }
+
+    // 8. 复用 handlePaymentCallback 建单（含 Serializable + CAS 幂等）
+    await this.handlePaymentCallback({
+      merchantOrderNo: session.merchantOrderNo,
+      providerTxnId: tradeNo,
+      status: 'SUCCESS',
+      paidAt: new Date().toISOString(),
+      rawPayload: { source: 'active-query', tradeStatus, tradeNo, totalAmount },
+      skipSignatureVerification: true,
+    });
+
+    // 9. 重新读取 session 拿最新 orderIds（handlePaymentCallback 可能刚建完单）
+    const refreshed = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: { orders: { select: { id: true } } },
+    });
+
+    return {
+      status: refreshed?.status ?? 'COMPLETED',
+      orderIds: refreshed?.orders.map((o) => o.id) ?? [],
+      expectedTotal: session.expectedTotal,
+      confirmedBy: 'active-query-success' as const,
+    };
+  }
+
   /** 查询订单的支付记录 */
   async getByOrderId(orderId: string, userId: string) {
     // 验证订单归属
