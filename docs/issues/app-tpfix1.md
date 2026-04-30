@@ -51,7 +51,7 @@
 | 9 | P2 | Bug 8 卖家路径处理（删除 target 让消息变 info-only） | `checkout.service.ts:1296` + `payment.service.ts:701` | 后端部署 + PM2 重启 | ✅ | 2026-04-29 (commit 41d91c2) |
 | **P3** | **跨文件重构（中风险）** | | | | | |
 | 10 | P3 | Bug 4 Screen 加 keyboardAvoiding prop | `src/components/layout/Screen.tsx` | OTA | ✅ | 2026-04-29 (commit 293b174) |
-| 11 | P3 | Bug 4 各 input 页面切换到新 prop | account-security / checkout / invoices/profiles/edit / me/profile / orders/after-sale + after-sale-detail 共 6 页面 | OTA | ✅ | 2026-04-29 (commit cbba6e4) |
+| 11 | P3 | Bug 4 部分表单页面接入 keyboardAvoiding | account-security / checkout / invoices/profiles/edit / me/profile / orders/after-sale + after-sale-detail 共 6 页面（其余 4 个含 TextInput 页面待后续覆盖，见下方 backlog） | OTA | ✅ | 2026-04-29 (commit cbba6e4) |
 | 12 | P3 | Bug 5 地址流程 + KAV 修复 | `app/checkout-address.tsx` + `app/me/addresses.tsx` | OTA | ✅ | 2026-04-29 (commit a4050e7) |
 | 13 | P3 | Bug 8 前端路由白名单防御 + chevron 条件渲染 (含 P2 审查 M1) | `app/inbox/index.tsx` | OTA | ✅ | 2026-04-29 (commit 6673f8b) |
 | **P4** | **涉及原生层调用的改动（需要真机验证）** | | | | | |
@@ -146,6 +146,29 @@ P4 阶段审查未修的 Low：
 ⚠️ **eas.json env 仅在 eas build 时被 Metro 内联，不影响 eas update**。OTA 仍必须显式带 env 或用 `--environment preview` 触发 EAS 后台 environment 注入。本次 020baa0 仅为下次 eas build 做准备。
 
 P4 阶段总计 4 commit（3 主修 + 1 审查后置）：b6358cc / 8ee3fbe / 1995901 / 020baa0
+
+### P4 后用户审查（2026-04-29）+ 补丁
+用户基于代码再次审查 P4 完成状态，发现 4 个 finding，按等级处理：
+
+| # | 等级 | 问题 | commit |
+|---|------|------|--------|
+| F1 | High | 本地 .env localhost + WebhookIpGuard 在生产无白名单时拒绝所有支付回调 | cc778cc（文档警告，代码无需改；用户 P5 在服务器配 .env） |
+| F2 | Medium | 从 checkout 跳来新增地址，保存成功后未把新地址写入 checkout store | e89e979（cameFromCheckout 时调 setSelectedAddress） |
+| F3 | Medium | Bug 4 文档"各 input 页面"表述偏满，4 页面 (ai/chat / cs / search / company/search) 未覆盖 | 本 commit（文档表述修正 + backlog 项） |
+| F4 | Low | 微信绑定状态依赖 nickname，nickname 空时误判"未绑定" | 3913fbf（后端加 wechatBound 字段，前端用绑定布尔判定） |
+
+**Bug 4 未覆盖的 4 个 input 页面（backlog 项，下批处理）**：
+- `app/ai/chat.tsx:451` AI 聊天页（FlatList + 底部固定输入框，KAV 应包输入框单独处理）
+- `app/cs/index.tsx:314` 在线客服聊天页（同上结构，FlatList + 底部输入）
+- `app/search.tsx:632` 搜索结果页（header 搜索框，理论上不会被键盘覆盖但应验证）
+- `app/company/search.tsx:419` 商家搜索页（同 search.tsx）
+
+**P5 必做事项 finding 1 补充**：
+- 服务器 `backend/.env` 改 `ALIPAY_NOTIFY_URL` ⭐
+- 服务器 `backend/.env` 配 `WEBHOOK_IP_WHITELIST="<支付宝/微信回调 IP 段>"` ⭐
+- 否则即使 NOTIFY_URL 改对，回调仍被 WebhookIpGuard 403
+
+P4 后审查总计 4 commit：3913fbf / e89e979 / cc778cc / （Finding 3 文档与本段一并 commit）
 
 ---
 
