@@ -216,6 +216,45 @@ export const OrderRepo = {
   },
 
   /**
+   * P5 第三轮：App 端主动查询支付宝订单状态（不等 notify 异步通知）
+   * - 后端接口：`POST /api/v1/orders/checkout/{sessionId}/active-query`
+   * - App 调起支付宝 SDK 返回后立刻调用，让后端去支付宝主动查询真实状态
+   * - 如果支付宝已 TRADE_SUCCESS → 立即建单 + 返回 COMPLETED + orderIds
+   * - 如果还在 WAIT_BUYER_PAY / 中间态 → 返回当前 session 状态，让前端 polling 兜底
+   * - 解决沙箱 notify 慢/丢失导致的"已扣款但订单未生成"问题
+   *
+   * 返回 confirmedBy 字段说明状态来源：
+   * - 'already-completed' / 'terminal-state' / 'no-merchant-order-no'
+   * - 'query-error' / 'not-found' / `alipay-${tradeStatus.toLowerCase()}`
+   * - 'active-query-success'（关键：成功建单，前端可直接跳成功页停止 polling）
+   */
+  activeQueryPayment: async (
+    sessionId: string,
+  ): Promise<
+    Result<
+      CheckoutSessionStatus & {
+        confirmedBy: string;
+      }
+    >
+  > => {
+    if (USE_MOCK) {
+      return simulateRequest(
+        {
+          sessionId,
+          status: 'COMPLETED' as const,
+          orderIds: [`o-${Date.now()}`],
+          expectedTotal: 100,
+          confirmedBy: 'active-query-success',
+        },
+        { delay: 200 },
+      );
+    }
+    return ApiClient.post<CheckoutSessionStatus & { confirmedBy: string }>(
+      `/orders/checkout/${sessionId}/active-query`,
+    );
+  },
+
+  /**
    * F1: 取消结算会话（释放红包锁定）
    * - 后端接口：`POST /api/v1/orders/checkout/{sessionId}/cancel`
    */
