@@ -107,9 +107,11 @@ export class AlipayService implements OnModuleInit {
       // NestJS 全局前缀 setGlobalPrefix('api/v1')，回调路径必须带 /api/v1
       'https://api.ai-maimai.com/api/v1/payments/alipay/notify',
     );
+    const returnUrl = this.configService.get<string>('ALIPAY_RETURN_URL', 'aimaimai://alipay');
 
     // sdkExecute 是同步方法，返回完整的 orderStr，可直接传给客户端调起支付宝
     const result = this.sdk.sdkExecute('alipay.trade.app.pay', {
+      alipaySdk: (this.sdk as any).version ?? 'alipay-sdk-nodejs-4.0.0',
       bizContent: {
         out_trade_no: params.merchantOrderNo,
         total_amount: params.totalAmount.toFixed(2),
@@ -120,6 +122,7 @@ export class AlipayService implements OnModuleInit {
         timeout_express: '30m',
       },
       notify_url: notifyUrl,
+      return_url: returnUrl,
     });
 
     return result as string;
