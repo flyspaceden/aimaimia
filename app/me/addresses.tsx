@@ -46,8 +46,8 @@ export default function AddressesScreen() {
   const [editing, setEditing] = useState<string | null>(null); // 'new' 或 address id
   const [form, setForm] = useState<FormData>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
-  // 标记用户是从 checkout-address 经 openNew=1 跳来：保存成功后应 router.back() 回结算流，
-  // 而非 setEditing(null) 退到本页列表态（让用户多 back 一次）
+  // 标记用户是从 checkout-address 经 openNew=1 跳来：保存成功后应回到确认订单页，
+  // 表单返回/取消则回到选择地址页，避免落到本页列表态。
   const cameFromCheckoutRef = useRef(false);
 
   // 进入页面时若带 openNew=1 自动进表单态（仅触发一次，不依赖 params 持续更新）
@@ -110,7 +110,7 @@ export default function AddressesScreen() {
     }
     show({ message: editing === 'new' ? '添加成功' : '修改成功', type: 'success' });
     queryClient.invalidateQueries({ queryKey: ['addresses'] });
-    // 用户从 checkout-address 经 openNew=1 跳来 → 直接 back 回结算流；
+    // 用户从 checkout-address 经 openNew=1 跳来 → 直接回确认订单页；
     // 否则正常关掉表单回到地址列表
     if (cameFromCheckoutRef.current) {
       cameFromCheckoutRef.current = false;
@@ -119,10 +119,19 @@ export default function AddressesScreen() {
       if (editing === 'new' && result.ok && result.data?.id) {
         setSelectedAddress(result.data.id);
       }
-      router.back();
+      router.dismiss(2);
     } else {
       setEditing(null);
     }
+  };
+
+  const handleFormBack = () => {
+    if (cameFromCheckoutRef.current) {
+      cameFromCheckoutRef.current = false;
+      router.back();
+      return;
+    }
+    setEditing(null);
   };
 
   const handleDelete = (id: string) => {
@@ -154,7 +163,7 @@ export default function AddressesScreen() {
       <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
         <AppHeader
           title={editing === 'new' ? '新增地址' : '编辑地址'}
-          onBack={() => setEditing(null)}
+          onBack={handleFormBack}
         />
         {/* ScrollView 让区县/详细地址等底部字段在键盘弹起时能滚到可视区上方
             paddingBottom 用 insets.bottom + 200 动态适配带手势条/虚拟键的机型 */}

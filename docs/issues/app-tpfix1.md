@@ -3,8 +3,8 @@
 > **生成日期**: 2026-04-29
 > **测试包**: `build-4-29.apk`（version 0.2.0，commit 2263d18，2026-04-29 12:38 打包）
 > **测试设备**: 用户真机（Android）
-> **调查方式**: 真实代码读取 + file:line 引用，未做任何代码修改
-> **状态说明**: ⬜ 待修 | 🔧 修复中 | ✅ 已修复 | ⏭️ 待重查 | ❓ 需用户验证
+> **调查方式**: 真实代码读取 + file:line 引用；P1-P4 已按本文执行并进入待部署/真机验证阶段
+> **状态说明**: ⬜ 待修 | 🔧 修复中 | ✅ 代码已修 | ⏭️ 待部署/迁移 | ❓ 需真机验证
 
 ---
 
@@ -12,15 +12,15 @@
 
 | Bug | 严重 | 类别 | 部署方式 | 状态 |
 |-----|------|------|----------|------|
-| 1 | HIGH | 后端字段缺失 + 前端冗余 UI | 后端重启 + OTA | ⬜ |
-| 2 | CRITICAL | OSS 返回 http URL，Android APK 默认禁 cleartext | 后端配置 + SQL 迁移 + PM2 重启 | ⬜ |
-| 3 | HIGH | SafeArea 未适配 | OTA（基本）+ 下次 build（兜底） | ⬜ |
-| 4 | HIGH | 键盘适配缺失 | OTA（基本）+ 下次 build（兜底） | ⬜ |
-| 5 | MEDIUM | 路由绕弯 + 键盘遮挡 | OTA | ⬜ |
-| 6 | HIGH | 闭包陷阱导致弹窗死循环 | OTA | ⬜ |
-| 7 | CRITICAL | 支付宝 JS 错配 + sandbox flag 在 release 被关 | **OTA** + 后端配置 | ⬜ |
-| 8 | HIGH | 13+ 处后端 deeplink 路径错配 | 后端重启 + SQL 迁移 + OTA | ⬜ |
-| 9 | HIGH | Android 录音格式与上传声明不一致 | OTA + 加日志真机验证 | ⬜ |
+| 1 | HIGH | 后端字段缺失 + 前端冗余 UI | 后端重启 + OTA | ✅ 代码已修，待部署验证 |
+| 2 | CRITICAL | OSS 返回 http URL，Android APK 默认禁 cleartext | 后端配置 + SQL 迁移 + PM2 重启 | ⏭️ 代码/脚本已修，待 P5 SQL + 部署 |
+| 3 | HIGH | SafeArea 未适配 | OTA（基本）+ 下次 build（兜底） | ✅ 代码已修，待真机验证 |
+| 4 | HIGH | 键盘适配缺失 | OTA（基本）+ 下次 build（兜底） | ✅ 部分表单已修，4 个输入页进 backlog |
+| 5 | MEDIUM | 路由绕弯 + 键盘遮挡 | OTA | ✅ 代码已修，待真机验证 |
+| 6 | HIGH | 闭包陷阱导致弹窗死循环 | OTA | ✅ 代码已修，待真机验证 |
+| 7 | CRITICAL | 支付宝 JS 错配 + sandbox flag 在 release 被关 | **OTA** + 后端配置 | ⏭️ 前端代码已修，待 P5 服务器支付配置 |
+| 8 | HIGH | 13+ 处后端 deeplink 路径错配 | 后端重启 + SQL 迁移 + OTA | ⏭️ 代码/脚本已修，待 P5 SQL + 部署 |
+| 9 | HIGH | Android 录音格式与上传声明不一致 | OTA + 加日志真机验证 | ✅ 代码已修，待真机验证 |
 
 ---
 
@@ -169,6 +169,15 @@ P4 阶段总计 4 commit（3 主修 + 1 审查后置）：b6358cc / 8ee3fbe / 19
 - 否则即使 NOTIFY_URL 改对，回调仍被 WebhookIpGuard 403
 
 P4 后审查总计 4 commit：3913fbf / e89e979 / cc778cc / （Finding 3 文档与本段一并 commit）
+
+### P4 后二次补丁（2026-04-29）
+继续审查后补齐 3 个收尾问题：
+
+| # | 等级 | 问题 | 处理 |
+|---|------|------|------|
+| F5 | Medium | 从 checkout 新增地址保存后只回到选择地址页，不是确认订单页 | 保存成功后 `setSelectedAddress(newId)` + `router.dismiss(2)`，直接回 `/checkout` |
+| F6 | Medium | 从 checkout 新增地址页点顶部返回会落到地址管理列表态 | 表单返回改为 `router.back()` 回选择地址页，不再 `setEditing(null)` |
+| F7 | Medium | `app.json` 引用了未跟踪的 logo 文件，后续 EAS build 可能找不到资源 | 已把 `logo/ios.png`、`logo/android-adaptive.png` 纳入 Git 索引，需随本批改动一起提交 |
 
 ---
 
@@ -729,4 +738,3 @@ UPDATE "VipGiftOption"       SET "coverUrl"                = REPLACE("coverUrl",
 4. 推 GitHub 前必须问用户确认
 5. **Bug 7 / Bug 9 上一轮误判教训**：用户实测 build-4-29.apk 已含 alipay 原生类 + RECORD_AUDIO 权限，所以"缺 plugin / 缺权限"的诊断都是错的。下次类似排查时，**先让用户/agent 用 `aapt dump permissions` / `unzip -p APK classes.dex` 抽查 APK 实际内容**，再下"必须重打 APK"的结论
 6. Bug 9 改完格式后必须真机 + 后端日志双向验证（看 bytes 长度和文件头），如果 transcript 仍空，再走候选 B 排查上传层
-
