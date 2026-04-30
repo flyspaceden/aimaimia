@@ -2,12 +2,23 @@ import React, { useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { AppHeader, Screen } from '../src/components/layout';
 import { useTheme } from '../src/theme';
 
 export default function AboutScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
+
+  // 真实版本信息（动态读取，避免硬编码字符串误导测试）
+  // - appVersion: app.json 里的 version（=APK 版本）
+  // - runtimeVersion: OTA runtime 版本（=能拿到哪批 OTA）
+  // - updateId: 当前生效的 OTA group ID 短串（验证 OTA 是否到位）
+  const appVersion = Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '未知';
+  const runtimeVersion = (Updates.runtimeVersion as string) ?? '未知';
+  const updateId = (Updates.updateId ?? '').slice(0, 8) || 'embedded(无 OTA)';
+  const channel = (Updates.channel as string | undefined) ?? '未知';
   const handleRefresh = async () => {
     setRefreshing(true);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -45,9 +56,15 @@ export default function AboutScreen() {
           <Text style={[typography.title3, { color: colors.text.primary }]}>版本信息</Text>
           <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             <View style={{ padding: 16 }}>
-              <Text style={[typography.body, { color: colors.text.secondary }]}>App 版本：0.1.0 (Mock)</Text>
+              <Text style={[typography.body, { color: colors.text.secondary }]}>App 版本：{appVersion}</Text>
               <Text style={[typography.body, { color: colors.text.secondary, marginTop: 6 }]}>
-                构建版本：2025.01
+                Runtime：{runtimeVersion}
+              </Text>
+              <Text style={[typography.body, { color: colors.text.secondary, marginTop: 6 }]}>
+                OTA 渠道：{channel}
+              </Text>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
+                OTA 版本：{updateId}
               </Text>
             </View>
           </View>
