@@ -37,6 +37,9 @@ export class UserService {
       // 避免微信已绑但 fetchWechatUserProfile 失败导致 nickname 空时被误判"未绑定"
       wechatBound: hasWechat,
       wechatNickname: hasWechat ? profile.nickname : undefined,
+      // 退换货政策同意状态（前端 checkout.tsx 用于决定是否弹首次下单弹窗）
+      // P1 commit 11ed366 漏补此字段，导致 Bug 6 用户退出 checkout 后重进仍弹窗
+      hasAgreedReturnPolicy: user.hasAgreedReturnPolicy,
       avatar: profile.avatarUrl || 'https://placehold.co/200x200/png',
       gender: profile.gender || 'UNKNOWN',
       birthday: profile.birthday?.toISOString().slice(0, 10) || null,
