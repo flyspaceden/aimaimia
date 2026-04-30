@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AddressRepo } from '../../src/repos';
-import { useAuthStore } from '../../src/store';
+import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { Address } from '../../src/types';
 
@@ -40,6 +40,7 @@ export default function AddressesScreen() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const setSelectedAddress = useCheckoutStore((state) => state.setSelectedAddress);
   // 支持从其他页面（如 checkout-address）带 openNew=1 参数直达新增表单，避免多一跳列表
   const params = useLocalSearchParams<{ openNew?: string }>();
   const [editing, setEditing] = useState<string | null>(null); // 'new' 或 address id
@@ -113,6 +114,11 @@ export default function AddressesScreen() {
     // 否则正常关掉表单回到地址列表
     if (cameFromCheckoutRef.current) {
       cameFromCheckoutRef.current = false;
+      // 把刚创建的地址写入 checkout store 自动选中，避免用户回结算页后还要再点一次
+      // （仅新建有效；编辑场景不动 store，因为可能是其他地址被编辑而非当前选中的）
+      if (editing === 'new' && result.ok && result.data?.id) {
+        setSelectedAddress(result.data.id);
+      }
       router.back();
     } else {
       setEditing(null);
