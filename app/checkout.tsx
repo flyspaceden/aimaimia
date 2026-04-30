@@ -311,10 +311,17 @@ export default function CheckoutScreen() {
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
-          // 原生模块不可用（Expo Go），回退到模拟支付
-          const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
-          if (!payResult.ok) {
-            show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          // 原生模块不可用：仅 Expo Go 开发环境允许 fallback 到模拟支付
+          // release APK 走 fallback 等于必失败，应直接告知用户而非装作"支付触发失败"
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
             await OrderRepo.cancelCheckoutSession(sessionId);
             return;
           }
@@ -327,14 +334,27 @@ export default function CheckoutScreen() {
           return;
         }
         // 支付成功或处理中：继续轮询
-      } else {
-        // 非支付宝渠道 / 开发环境：模拟支付回调
+      } else if (paymentMethod === 'alipay') {
+        // 用户选了支付宝但后端没生成 orderStr → 后端 alipay SDK 初始化失败/凭据错/参数错
+        // 不能 fallback 到 simulatePayment（staging/prod 必失败 + 误导用户）
+        // 直接显式提示让用户知道是后端问题
+        show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (__DEV__) {
+        // 非支付宝（且 Expo Go 开发环境）：模拟支付回调
         const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
         if (!payResult.ok) {
-          show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
           await OrderRepo.cancelCheckoutSession(sessionId);
           return;
         }
+      } else {
+        // release 防御：UI 已灰掉非支付宝渠道，正常用户走不到这分支
+        // 万一被绕过（如开发模式改 state），直接拒绝避免 simulatePayment 误导
+        show({ message: '当前支付方式暂未开通，请使用支付宝', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
       }
 
       // 轮询会话状态，等待后端处理完成
@@ -410,13 +430,20 @@ export default function CheckoutScreen() {
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // 支付宝渠道：调用原生 SDK 支付
+      // VIP 分支与主结算分支保持完全相同的支付分流逻辑
+      // （详见上方 handleCheckout，含 release vs dev 区分 + alipay 后端失败显式 toast）
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
-          const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
-          if (!payResult.ok) {
-            show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
             await OrderRepo.cancelCheckoutSession(sessionId);
             return;
           }
@@ -428,13 +455,21 @@ export default function CheckoutScreen() {
           }
           return;
         }
-      } else {
+      } else if (paymentMethod === 'alipay') {
+        show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (__DEV__) {
         const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
         if (!payResult.ok) {
-          show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
           await OrderRepo.cancelCheckoutSession(sessionId);
           return;
         }
+      } else {
+        show({ message: '当前支付方式暂未开通，请使用支付宝', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
       }
 
       // 轮询会话状态
