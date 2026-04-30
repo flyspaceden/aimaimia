@@ -884,6 +884,93 @@ P5 第一轮补丁完成后用户基于代码再次审查，发现 4 个 finding
 
 ---
 
+## P5 第三轮：支付链路完整闭环改造（2026-04-30，含支付成功页 + 主动查询）
+
+### 已确诊的事实（基于 04/30 03:04 真机付款 + 后端日志）
+- ✅ 沙箱钱包必须装（之前 4000 是因为正版支付宝拒认沙箱 APPID）
+- ✅ alipay_sdk + return_url patch (commit 7220a1e) 已生效，orderStr 905→965 字符
+- ✅ ALIPAY_PUBLIC_KEY 与沙箱后台 100% 一致（MD5 比对通过，commit d76e75d 加诊断日志）
+- ✅ 第 3 次真机付款链路完整跑通：notify 验签通过 → handlePaymentCallback → session COMPLETED → App 轮询命中"支付成功" toast
+- ⚠️ 第 2 次"超时"的真因：沙箱 notify 延迟 > 60 秒，App 30 次×2s 轮询超时
+- ⚠️ 历史 04/19 / 04/27 / 04/30 凌晨的"验签失败"日志是**陈旧污染**数据，与当前修复无关
+
+### 用户实测发现的新问题（按严重排序）
+1. **🔴 没有支付成功页**：成功后只 toast 一闪 + 清空购物车，停在 checkout 空状态页，用户困惑
+2. **🟡 沙箱 notify 延迟波动大**：60s 轮询不够稳，需要主动查询作为兜底
+3. **🟡 客户端 resultStatus 被当成最终结果**：非 9000 非 6001 直接显示"支付失败"，但支付宝官方明文 resultStatus 仅供参考（8000 处理中 / 6004 网络错误等可能钱已付）
+4. **🟢 多商户场景没有"总订单"展示**：当前按商户拆 N 个 Order，前端展示成 N 行（用户期望按淘宝模式：1 个总订单 + 详情按商户分组）
+
+### 数据模型确认（无需改 schema，已支持总订单概念）
+```
+CheckoutSession  ← 总订单
+├── merchantOrderNo "CS-1777-xxx"  ← 总订单号（给支付宝的 out_trade_no，与小票一致）
+├── expectedTotal 128.50           ← 总金额
+└── Order[]  ← 子订单（一商户一单）
+    ├── Order#1 (id=ord_aaa, OrderItem.companyId=A)
+    ├── Order#2 (id=ord_bbb, OrderItem.companyId=B)
+    └── ...
+```
+- 总订单号字段：`CheckoutSession.merchantOrderNo`（已存在，@unique）
+- 子订单号字段：`Order.id`（cuid）
+- 关联：`Order.checkoutSessionId` → `CheckoutSession.id`
+- 不需要 schema migration，仅前端展示层适配 + 后端补聚合接口
+
+### 本次改造范围（4 个 commit，本会话内完成）
+
+#### Commit A：后端主动查询接口
+- 文件：`backend/src/modules/payment/alipay.service.ts` + `backend/src/modules/order/order.controller.ts`（或新建 `payment.controller.ts` 路由）
+- 改动：
+  - `alipay.service.ts queryAndSettle(merchantOrderNo)` 方法：调 `alipay.trade.query` 查询；如返回 `TRADE_SUCCESS` 立即调 `handlePaymentCallback({ status: 'SUCCESS', skipSignatureVerification: true })` 完成建单
+  - 新增 endpoint `POST /api/v1/checkout/:sessionId/active-query`（或 `POST /api/v1/payments/alipay/query`）
+  - 复用现有 `handlePaymentCallback`（已被 notify / simulate 调用，幂等）
+- 部署：push staging 自动重启
+
+#### Commit B：前端 active query 集成
+- 文件：`src/repos/OrderRepo.ts`
+- 改动：加 `activeQueryPayment(sessionId): Promise<Result<CheckoutSessionStatus>>` 方法
+
+#### Commit C：新建支付成功页
+- 文件：`app/payment-success.tsx`（**新建**）
+- 路由参数：`{ orderId?: string, sessionId: string, totalOrderNo: string, amount: string, isVip: '0'|'1', orderCount: string }`
+- 设计稿（已确认）：
+  - 顶部无返回按钮（防止用户回 checkout 重复下单）
+  - 大对勾动画（200x200 渐变 [brand.primary, ai.end] + 白色 ✓ + ZoomIn 动画）
+  - 标题：普通 → "支付成功"；VIP → "VIP 开通成功"
+  - 金额卡片：¥X.XX (title1 32sp brand.primary) + 总订单号 (captionSm) + 支付方式 + 时间
+  - 多商户提示：`orderCount > 1` 时显示"已为您创建 N 笔商家订单"
+  - 主按钮"查看订单"：单商户跳 `/orders/${orderId}`，多商户跳 `/orders`，VIP 跳 `/me/vip`
+  - 次按钮"返回首页"：`router.replace('/(tabs)/home')`
+  - 拦截系统返回键（useFocusEffect + BackHandler）
+
+#### Commit D：checkout.tsx 改造（普通 + VIP 两个分支同步）
+- 文件：`app/checkout.tsx`
+- 改动：
+  1. **alipay SDK 回来后立刻 active-query**（不依赖 SDK resultStatus，无论 9000/8000/6004 都先查后端）
+  2. **取消"非 9000 直接判失败"**：除 6001 用户取消外，进入"支付确认中"+ active-query + 轮询兜底
+  3. **MAX_POLLS 从 30 增加到 90**（180 秒，应对沙箱长尾延迟）
+  4. **成功后 router.replace('/payment-success', { params })** 而非只 toast
+  5. **VIP 分支同样处理**（line 414+ 同结构改造）
+
+### 不在本次范围（下批次）
+- 订单列表"合并视图"：按 sessionId 聚合多个 Order 显示成 1 行
+- 订单详情"按商户分组"：详情页顶部总订单号 + 按 companyId 分组 SKU 卡片，每个卡片有独立的"查看物流/申请售后"按钮
+- 后端 `GET /checkout-sessions` 聚合查询接口
+- 物流 / 售后按钮维持调用单 Order id 接口（架构本来就支持）
+
+### 部署节奏
+1. Commit A + B + C + D 一次 commit batch
+2. push staging → 后端 active-query 接口立即上线
+3. OTA 推前端（带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true`）
+4. 真机冷启动两次测：
+   - 支付成功 → 进新成功页 ✓
+   - 沙箱 notify 慢 → active-query 立即救场 ✓
+   - 多商户场景 → 显示"X 笔订单" ✓
+
+### 状态
+🔧 待开工（用户已确认设计稿 + 主动查询架构 + 总订单/子订单概念）
+
+---
+
 ## P5 真机验证后第二轮（2026-04-30，第一轮 5 commit 仍在本地待推）
 
 ### Bug 3 复发：Android 三键虚拟键 OEM bug
