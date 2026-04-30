@@ -12,6 +12,7 @@
 - `docs/architecture/sales.md` — 卖家系统设计文档（数据模型、API 设计、前端页面、业务流程，**卖家端开发权威来源**）
 - `docs/architecture/seller.md` — 卖家系统完整设计方案（隐私保护策略、页面设计、安全架构、API 改造计划，**卖家系统开发权威来源，替代 sales.md 中的前端/隐私相关内容**）
 - `docs/architecture/admin-frontend.md` — 管理后台前端
+- `docs/architecture/responsive-design.md` — 买家 App 响应式适配规范（6 条核心原则 / `useResponsiveLayout`+`priceTextProps`+`fitTextProps` 工具集 / 新页面 Checklist / grep 审计黑名单 / 6 个真机测试场景，**响应式适配权威来源，新页面/Code Review/OTA 发布前必跑**）
 
 ### AI 功能 (`docs/ai/`)
 - `docs/ai/ai.md` — AI 语音助手集成方案（ASR 接入、意图识别、大模型选型、全链路架构、费用估算、升级路线，**AI 功能开发权威来源，所有 AI 相关计划/问题/进度均在此文档更新**）
