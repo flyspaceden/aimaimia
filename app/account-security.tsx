@@ -92,7 +92,10 @@ export default function AccountSecurityScreen() {
   };
 
   const phoneMasked = maskPhone(profile?.phone);
-  const wechatName = profile?.wechatNickname;
+  // 绑定状态用 wechatBound（权威字段），昵称仅作展示
+  // 微信已绑但 fetchWechatUserProfile 失败导致 nickname 空时，仍显示"已绑定"
+  const wechatBound = profile?.wechatBound ?? !!profile?.wechatNickname; // 兼容老接口
+  const wechatLabel = profile?.wechatNickname || (wechatBound ? '已绑定' : null);
 
   return (
     <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
@@ -127,15 +130,15 @@ export default function AccountSecurityScreen() {
 
             {/* 微信 */}
             <Pressable
-              onPress={() => show({ message: wechatName ? '换绑微信功能即将上线' : '绑定微信功能即将上线', type: 'info' })}
+              onPress={() => show({ message: wechatBound ? '换绑微信功能即将上线' : '绑定微信功能即将上线', type: 'info' })}
               style={styles.row}
             >
               <MaterialCommunityIcons name="wechat" size={20} color="#07C160" />
               <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>微信</Text>
               <View style={styles.spacer} />
-              {wechatName ? (
+              {wechatBound ? (
                 <View style={[styles.badge, { backgroundColor: '#07C16018' }]}>
-                  <Text style={[typography.caption, { color: '#07C160' }]}>{wechatName}</Text>
+                  <Text style={[typography.caption, { color: '#07C160' }]}>{wechatLabel}</Text>
                 </View>
               ) : (
                 <Text style={[typography.caption, { color: colors.text.secondary }]}>未绑定</Text>

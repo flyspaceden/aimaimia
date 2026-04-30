@@ -33,6 +33,9 @@ export class UserService {
       id: user.id,
       name: profile.nickname || '新用户',
       phone: phoneIdentity?.identifier,
+      // wechatBound 是绑定状态判定字段（昵称仅作展示）
+      // 避免微信已绑但 fetchWechatUserProfile 失败导致 nickname 空时被误判"未绑定"
+      wechatBound: hasWechat,
       wechatNickname: hasWechat ? profile.nickname : undefined,
       avatar: profile.avatarUrl || 'https://placehold.co/200x200/png',
       gender: profile.gender || 'UNKNOWN',
