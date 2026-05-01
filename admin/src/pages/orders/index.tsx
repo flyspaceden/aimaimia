@@ -79,6 +79,19 @@ export default function OrderListPage() {
       .catch(() => {});
   }, []);
 
+  // 页面回到前台立即拉一次（弥补 polling 30s 的等待）
+  // app 端付款 → 后端建单后，管理员从其他 tab 切回来瞬间就能看到新单
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        actionRef.current?.reload();
+        loadStats();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
   const handleShip = async (values: { carrierCode: string; carrierName: string; trackingNo: string }) => {
     if (!currentOrder) return;
     await shipOrder(currentOrder.id, values);
@@ -338,6 +351,8 @@ export default function OrderListPage() {
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
+        // 30s 自动轮询，配合 visibilitychange 回前台立即拉，覆盖 app 端付款后管理员需要手动刷新的场景
+        polling={30_000}
         toolbar={{
           menu: {
             type: 'tab',

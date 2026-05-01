@@ -1,4 +1,4 @@
-import { useRef, useState, type Key } from 'react';
+import { useEffect, useRef, useState, type Key } from 'react';
 import {
   App,
   Avatar,
@@ -91,6 +91,20 @@ export default function OrderListPage() {
     orderStatusTabs.find((tab) => tab.key === activeOrderStatusTab)?.status || '';
   const canBatchManage = useAuthStore((s) => s.hasRole('OWNER', 'MANAGER'));
   const selectedOrders = orders.filter((order) => selectedRowKeys.includes(order.id));
+
+  // 页面回到前台立即拉一次（弥补 polling 30s 的等待）
+  // 买家 app 付款 → 后端建单后，卖家从其他 tab 切回来瞬间就能看到新单 + tab counts 同步刷新
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        actionRef.current?.reload();
+        queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
+        queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [queryClient]);
   const pendingWaybillOrders = selectedOrders.filter(isWaybillPending);
   const printableOrders = selectedOrders.filter((order) => order.shipment?.waybillPrintUrl);
   const shippableOrders = selectedOrders.filter(canBatchShip);
@@ -551,6 +565,8 @@ export default function OrderListPage() {
         tableAlertRender={false}
         rowClassName={(record) => record.status === 'PAID' ? 'row-pending-ship' : ''}
         params={{ statusScope: activeOrderStatusTab }}
+        // 30s 自动轮询，配合 visibilitychange 回前台立即拉，覆盖买家 app 付款后卖家需要手动刷新的场景
+        polling={30_000}
         request={async (params) => {
           const res = await getOrders({
             page: params.current || 1,
