@@ -968,7 +968,8 @@ function getCTAs(order: Order, router: ReturnType<typeof useRouter>) {
     case 'completed':
       return {
         primaryLabel: '再次购买',
-        primaryAction: () => { /* TODO Phase 2: addItemsToCart(order.items) */ },
+        // 用户决策：再次购买功能暂不做，按钮显示提示 toast，未来另立任务
+        primaryAction: () => { /* 在 OrderCard 父组件用 useToast 提示"功能即将上线" */ },
       };
     default:
       return {};
@@ -1193,8 +1194,11 @@ export default function OrderDetailScreen() {
     groups.get(k)!.push(it);
   }
 
-  // Phase 1 地址 fallback：addressSnapshotMasked（详情已暴露）；Phase 2 换完整字段
-  const addr = (order as any).addressSnapshotMasked || (order as any).address;
+  // Phase 1 地址 fallback：addressSnapshotMasked（详情已暴露，结构 recipientName/phone/province/city/district/detail）
+  // Phase 2 后端会直接给 order.address.fullAddress 拼好的字段
+  const addr = (order as any).address || (order as any).addressSnapshotMasked;
+  const addrFullText = addr?.fullAddress
+    || [addr?.province, addr?.city, addr?.district, addr?.detail].filter(Boolean).join(' ');
 
   return (
     <Screen>
@@ -1222,9 +1226,9 @@ export default function OrderDetailScreen() {
         {addr ? (
           <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md }]}>
             <AddressCard
-              recipientName={addr.name || addr.recipientName || '收件人'}
-              recipientPhone={addr.phone || addr.recipientPhone || ''}
-              fullAddress={addr.fullAddress || `${addr.province || ''} ${addr.city || ''} ${addr.district || ''} ${addr.detail || ''}`.trim()}
+              recipientName={addr.recipientName || '收件人'}
+              recipientPhone={addr.phone || ''}
+              fullAddress={addrFullText}
             />
           </View>
         ) : null}
@@ -1366,50 +1370,113 @@ git commit -m "refactor(app/orders/track): 删地图占位，加运单复制+快
 
 ---
 
-### Task 12: 升级售后列表卡片
+### Task 12: 售后列表卡片补 SKU 规格 + 店铺名
 
 **Files:**
 - Modify: `app/orders/after-sale/index.tsx`
 
-**目标**：复用 OrderCard 的视觉风格，状态色按 AfterSaleDetailStatus 映射。
+**目标**：现有售后列表卡片（已有商品图、状态色、左侧色条、类型标签 — 见 line 119-184）整体已经接近订单列表风格，**只缺**：
+1. 店铺名（与订单列表风格统一）
+2. SKU 规格（productSnapshot.skuTitle 当前没显示）
+3. 商品标题用 `productSnapshot.title` 已有但缺 fallback
 
-- [ ] **Step 1: 加状态色映射**
+> **后端依赖**：当前 `AfterSaleRepo.list` 返回的 `request.orderItem.productSnapshot` JSON 是否带 `skuTitle / companyId` 取决于建单时写入的内容。Task 1 已经在 OrderItem.productSnapshot 写入这些字段，老售后单可能没有 — 加 fallback。
+> **店铺名**：需要后端 AfterSale list DTO 把店铺名 join 过来（同 Task 14 思路）。Phase 1 先在前端 fallback 显示"商家"，Phase 2 后端补完后自动消费。
 
-读 `app/orders/after-sale/index.tsx` 看现有结构。在文件顶部加：
+- [ ] **Step 1: 在卡片顶部加店铺名行**
+
+定位 line:135（`<View style={styles.cardHeader}>`），在它**之前**新加一行店铺名：
 
 ```tsx
-const AFTER_SALE_STATUS_COLOR: Record<string, string> = {
-  REQUESTED: '#FF6B35', UNDER_REVIEW: '#FF6B35',
-  APPROVED: '#3B82F6', RETURN_SHIPPING: '#3B82F6',
-  REJECTED: '#DC2626', SELLER_REJECTED_RETURN: '#DC2626',
-  COMPLETED: '#2E7D32', REFUNDED: '#2E7D32',
-  CANCELED: '#9CA3AF', CLOSED: '#9CA3AF',
-};
-
-const AFTER_SALE_STATUS_LABEL: Record<string, string> = {
-  REQUESTED: '审核中', UNDER_REVIEW: '审核中',
-  APPROVED: '处理中', RETURN_SHIPPING: '处理中',
-  REJECTED: '已驳回', SELLER_REJECTED_RETURN: '已驳回',
-  COMPLETED: '已完成', REFUNDED: '已完成',
-  CANCELED: '已关闭', CLOSED: '已关闭',
-};
+{/* 店铺名（Phase 1 fallback "商家"，Phase 2 由后端 join Company 暴露） */}
+<View style={[styles.shopRow, { borderBottomColor: colors.border }]}>
+  <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+    🏪 {(snapshot as any)?.companyName || '商家'}
+  </Text>
+</View>
 ```
 
-- [ ] **Step 2: 列表项改用 OrderItemRow + 店铺名 + 状态色**
+styles 加：
 
-具体改动取决于现有 `after-sale/index.tsx` 实现，参照 OrderCard 模式：每个售后请求卡显示店铺名、商品行（用 OrderItemRow，从 `request.orderItem.productSnapshot` 取数据）、右上角状态色文字。
+```tsx
+shopRow: {
+  paddingBottom: 8,
+  marginBottom: 10,
+  borderBottomWidth: StyleSheet.hairlineWidth,
+},
+```
 
-- [ ] **Step 3: 编译 + 真机自测 + Commit**
+- [ ] **Step 2: 商品行加 SKU 规格**
+
+定位 line:163-170 productInfo View，在 productTitle 下方加 skuTitle 行：
+
+```tsx
+<View style={styles.productInfo}>
+  <Text style={[typography.bodySm, { color: colors.text.primary }]} numberOfLines={2}>
+    {productTitle}
+  </Text>
+  {snapshot?.skuTitle ? (
+    <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 2 }]} numberOfLines={1}>
+      规格：{snapshot.skuTitle}
+    </Text>
+  ) : null}
+  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+    ¥{unitPrice.toFixed(2)} x{quantity}
+  </Text>
+</View>
+```
+
+- [ ] **Step 3: 编译 + 真机自测**
 
 ```bash
 npx tsc -b
+```
+
+进入"我的→售后"，确认：
+- 卡片顶部出现店铺名行（Phase 1 显示"商家"）
+- 商品标题下面有"规格：XXX"行（如有 skuTitle）
+- 类型标签 / 状态色 / 退款金额 等原有元素不动
+
+- [ ] **Step 4: Commit**
+
+```bash
 git add app/orders/after-sale/index.tsx
-git commit -m "refactor(app/orders/after-sale): 列表卡片样式与订单列表统一"
+git commit -m "refactor(app/orders/after-sale): 卡片加店铺名行 + SKU 规格行"
 ```
 
 ---
 
-### Task 13: Phase 1 验收
+### Task 13: Phase 1 删 me 页 pendingPay 入口
+
+**Files:**
+- Modify: `app/(tabs)/me.tsx:25-32`
+
+**目标**：Phase 1 列表 chip 删了"待付款"，me 页入口（`{ id: 'pendingPay', label: '待付款' }`）点击会跳到 `/orders?status=pendingPay` 但 chip 不存在 → 体验断裂。Phase 1 直接把这个入口**移除**（Phase 2 横幅做完后再以"未完成支付"形式回归 — 见 Task 25）。
+
+- [ ] **Step 1: 删除 entries 数组里的 pendingPay**
+
+定位 `app/(tabs)/me.tsx:25` 附近的 entries 数组，删除：
+
+```tsx
+{ id: 'pendingPay', label: '待付款', icon: 'credit-card-outline' },
+```
+
+- [ ] **Step 2: 编译 + 真机自测 + Commit**
+
+```bash
+npx tsc -b
+```
+
+真机进入"我的"页面，确认订单状态入口只剩 4 个（待发货/待收货/售后/已完成 — 或当前实际剩余项）。
+
+```bash
+git add 'app/(tabs)/me.tsx'
+git commit -m "refactor(app/me): 暂时移除 pendingPay 入口（Phase 2 重构为'未完成支付'）"
+```
+
+---
+
+### Phase 1 验收（不算单独 Task，跑完 Task 1-13 后执行）
 
 - [ ] **Step 1: 全量 TypeScript 编译**
 
@@ -1561,13 +1628,22 @@ git commit -m "feat(backend/order): mapOrder 加 companyName/companyLogo/logisti
 
 - [ ] **Step 1: 修改 detail 输出加 address 块**
 
+> **真实字段名**：`addressSnapshotMasked` 字段是 `recipientName / phone / regionText / province / city / district / detail`（参考 backend/src/common/security/privacy-mask.ts:81 maskAddressSnapshot 实现）。
+
 ```ts
-// 在 mapOrderDetail 返回对象加：
-address: order.addressSnapshotMasked ? {
-  recipientName: order.addressSnapshotMasked.name,
-  recipientPhone: order.addressSnapshotMasked.phone,  // 已脱敏
-  fullAddress: [order.addressSnapshotMasked.province, order.addressSnapshotMasked.city, order.addressSnapshotMasked.district, order.addressSnapshotMasked.detail].filter(Boolean).join(' '),
-} : null,
+// 在 mapOrderDetail 返回对象加（不要写 .name —— 实际字段是 .recipientName）：
+const m = order.addressSnapshotMasked;
+const address = m ? {
+  recipientName: m.recipientName,             // 已脱敏（"张*"）
+  recipientPhone: m.phone,                    // 已脱敏（"138****8888"）
+  fullAddress: [m.province, m.city, m.district, m.detail].filter(Boolean).join(' '),
+} : null;
+
+return {
+  // ... existing fields ...
+  address,
+  // ...
+};
 ```
 
 - [ ] **Step 2: 编译 + Commit**
@@ -1743,10 +1819,11 @@ git commit -m "feat(backend/order): 新增 POST /orders/checkout/:sessionId/resu
 
 ```ts
 describe('CheckoutService.checkout active session guard', () => {
-  it('rejects when active session exists', async () => {
-    // mock prisma.checkoutSession.count 返回 1
+  it('rejects with PENDING_CHECKOUT_EXISTS when active session exists', async () => {
+    // mock prisma.checkoutSession.findFirst 返回一条 ACTIVE 未过期 session
     await expect(service.checkout('user1', { /* dto */ })).rejects.toMatchObject({
-      response: { code: 'PENDING_CHECKOUT_EXISTS', sessionId: 'existing-id' },
+      response: { code: 'PENDING_CHECKOUT_EXISTS' },
+      status: 409,
     });
   });
   it('proceeds when idempotencyKey matches existing', async () => {
@@ -1768,15 +1845,12 @@ const activeSession = await this.prisma.checkoutSession.findFirst({
   orderBy: { createdAt: 'desc' },
 });
 if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
-  // 取摘要数据用于前端 Modal 渲染
-  const summary = await this.getPendingForUser(userId);
+  // 注意：项目 AppExceptionFilter (app-exception.filter.ts:160-172) 不透传自定义字段，
+  //       所以这里只用 code 让前端识别，前端拿到 code='PENDING_CHECKOUT_EXISTS' 后
+  //       额外调一次 GET /orders/checkout/me/pending 取商品列表（见 Task 24）
   throw new ConflictException({
     code: 'PENDING_CHECKOUT_EXISTS',
-    sessionId: activeSession.id,
-    expiresAt: activeSession.expiresAt.toISOString(),
-    expectedTotal: activeSession.expectedTotal,
-    itemCount: summary?.itemCount ?? 0,
-    items: summary?.items ?? [],
+    message: '你有未完成的订单，请先完成支付或取消',
   });
 }
 ```
@@ -2207,27 +2281,29 @@ git commit -m "fix(app/checkout): 支付宝 6001 取消改为跳 /checkout-pendi
 **Files:**
 - Modify: `app/checkout.tsx`（提交订单按钮 onPress）
 
-- [ ] **Step 1: 加 Modal state + 提交订单 409 捕获**
+- [ ] **Step 1: 加 Modal state + 提交订单 409 捕获 + 二次拉取**
 
 在 checkout.tsx 顶部加 state 和 Modal 组件。提交订单按钮的 onPress 包装：
 
 ```tsx
-const [pendingModal, setPendingModal] = useState<null | { sessionId: string; expiresAt: string; expectedTotal: number; itemCount: number; items: any[] }>(null);
+import type { PendingCheckout } from '../src/types/domain/Checkout';
+
+const [pendingModal, setPendingModal] = useState<PendingCheckout | null>(null);
 
 const handleSubmit = async () => {
   // 现有 checkout 调用
-  const result = await OrderRepo.checkout({ /* dto */ });
+  const result = await OrderRepo.createCheckoutSession({ /* dto */ });
   if (!result.ok) {
-    // 检查是否 409
+    // 检查是否 409 PENDING_CHECKOUT_EXISTS
     if ((result.error as any).code === 'PENDING_CHECKOUT_EXISTS') {
-      const detail = (result.error as any).detail || result.error;
-      setPendingModal({
-        sessionId: detail.sessionId,
-        expiresAt: detail.expiresAt,
-        expectedTotal: detail.expectedTotal,
-        itemCount: detail.itemCount,
-        items: detail.items,
-      });
+      // 后端 filter 只透传 code，自定义字段会被吞 — 这里额外调一次拿商品列表
+      const pending = await OrderRepo.getPendingCheckout();
+      if (pending.ok && pending.data) {
+        setPendingModal(pending.data);
+      } else {
+        // Session 可能恰好刚过期 — 提示用户重试
+        show({ message: '订单状态异常，请重试', type: 'error' });
+      }
       return;
     }
     show({ message: result.error.displayMessage ?? '提交失败', type: 'error' });
@@ -2281,6 +2357,8 @@ const handleSubmit = async () => {
 ) : null}
 ```
 
+> **注意**：不再需要"OrderRepo 错误透传 detail"，因为我们改用 `getPendingCheckout` 二次拉取拿商品列表，绕开了 AppExceptionFilter 透传限制。
+
 样式：
 
 ```tsx
@@ -2295,15 +2373,11 @@ const modalStyles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 3: 后端 OrderRepo 错误透传 detail**
-
-确认 OrderRepo 的 http error 包装能把 status=409 的 response.body 整体放到 `error.detail`（如果不是，需调整 error 处理代码）。
-
-- [ ] **Step 4: 真机验证**
+- [ ] **Step 3: 真机验证**
 
 故意在购物车下两次单（第一次 6001 取消保留 Session → 再下一次 → 弹 Modal 显示完整商品列表）。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add app/checkout.tsx
