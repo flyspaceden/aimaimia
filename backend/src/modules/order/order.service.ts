@@ -90,6 +90,33 @@ export class OrderService {
     return times.length ? new Date(Math.min(...times)).toISOString() : null;
   }
 
+  private summarizeLatestEvent(shipments?: any[]): {
+    status: string | null;
+    latestEventMessage: string | null;
+    latestEventTime: string | null;
+  } | null {
+    if (!shipments || shipments.length === 0) return null;
+    const allEvents = shipments.flatMap((s) => s.trackingEvents || []);
+    if (allEvents.length === 0) {
+      return {
+        status: shipments[0].status ?? null,
+        latestEventMessage: null,
+        latestEventTime: null,
+      };
+    }
+    const sorted = [...allEvents].sort((a, b) =>
+      new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+    );
+    const latest = sorted[0];
+    return {
+      status: shipments[0].status ?? null,
+      latestEventMessage: latest.message ?? null,
+      latestEventTime: latest.occurredAt instanceof Date
+        ? latest.occurredAt.toISOString()
+        : (latest.occurredAt ?? null),
+    };
+  }
+
   private summarizeShipments(
     shipments?: Array<{
       id: string;
@@ -289,7 +316,21 @@ export class OrderService {
         where,
         include: {
           items: true,
-          shipments: { select: { status: true, trackingNo: true, shippedAt: true, deliveredAt: true } },
+          shipments: {
+            select: {
+              status: true,
+              trackingNo: true,
+              carrierCode: true,
+              carrierName: true,
+              shippedAt: true,
+              deliveredAt: true,
+              trackingEvents: {
+                orderBy: { occurredAt: 'desc' },
+                take: 1,
+                select: { occurredAt: true, message: true, location: true },
+              },
+            },
+          },
           afterSaleRequests: {
             orderBy: { createdAt: 'desc' },
             take: 1,
@@ -308,8 +349,21 @@ export class OrderService {
       this.prisma.order.count({ where }),
     ]);
 
+    // 批量取店铺信息（多商户场景，每订单店铺数有限，N+1 可控）
+    // 注：Company 表当前无 logo 字段，companyLogo 暂统一返回 null，待 schema 补充
+    const companyIds = [...new Set(
+      orders.flatMap((o: any) => o.items.map((i: any) => i.companyId)).filter(Boolean)
+    )] as string[];
+    const companies = companyIds.length > 0 ? await this.prisma.company.findMany({
+      where: { id: { in: companyIds } },
+      select: { id: true, name: true, shortName: true },
+    }) : [];
+    const companyMap = new Map(
+      companies.map((c) => [c.id, { id: c.id, name: c.shortName || c.name, logoUrl: null as string | null }]),
+    );
+
     return {
-      items: orders.map((o) => this.mapOrder(o)),
+      items: orders.map((o) => this.mapOrder(o, companyMap)),
       total,
       page,
       pageSize,
@@ -1026,9 +1080,10 @@ export class OrderService {
   }
 
   /** 映射为前端 Order 列表项 */
-  private mapOrder(order: any) {
+  private mapOrder(order: any, companyMap?: Map<string, { id: string; name: string; logoUrl: string | null }>) {
     const snapshot = (item: any) => {
       const ps = (item.productSnapshot as any) || {};
+      const company = companyMap?.get(item.companyId);
       return {
         id: item.id,
         productId: ps.productId || item.skuId,
@@ -1038,6 +1093,8 @@ export class OrderService {
         price: item.unitPrice,
         quantity: item.quantity,
         companyId: item.companyId,             // 新增：商户 ID（多商户跳店铺/售后）
+        companyName: company?.name,            // 新增：店铺名称（Phase 2，list() 批量 join）
+        companyLogo: company?.logoUrl ?? null, // 新增：店铺 logo（Phase 2）
         isPrize: !!item.isPrize,               // 新增：是否奖品（前端区分样式 + 禁用售后）
         // 注：isPostReplacement 在 AfterSaleRequest 上，不在 OrderItem。
         //     Phase 2 通过反查 afterSaleRequests 派生。
@@ -1120,6 +1177,8 @@ export class OrderService {
       paidAt: order.paidAt?.toISOString() ?? null,
       shippedAt: this.earliestShippedAt(order.shipments) ?? null,
       deliveredAt: order.deliveredAt?.toISOString() ?? null,
+      autoReceiveAt: order.autoReceiveAt?.toISOString() ?? null,
+      logisticsSummary: this.summarizeLatestEvent(order.shipments),
       items: (order.items || []).map(snapshot),
     };
   }
