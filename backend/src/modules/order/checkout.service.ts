@@ -150,21 +150,8 @@ export class CheckoutService {
       }
     }
 
-    // Task 18: 防重锁 — 当前用户已有 ACTIVE Session 时拒绝新建
-    {
-      const activeSession = await this.prisma.checkoutSession.findFirst({
-        where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
-        // 注意：app-exception.filter.ts:160-172 只透传 code，自定义字段会被吞
-        // 前端拿到 code='PENDING_CHECKOUT_EXISTS' 后，额外调一次 GET /orders/checkout/me/pending 拿商品列表
-        throw new ConflictException({
-          code: 'PENDING_CHECKOUT_EXISTS',
-          message: '你有未完成的订单，请先完成支付或取消',
-        });
-      }
-    }
+    // Task 18 修正：防重锁挪进 Serializable 事务内执行（见步骤 11），
+    // 避免两个并发请求都通过事务外检查再各自创建 ACTIVE session
 
     // 1. 查询所有 SKU 信息
     const skuIds = dto.items.map((i) => i.skuId);
@@ -554,6 +541,18 @@ export class CheckoutService {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const session = await this.prisma.$transaction(async (tx) => {
+          // Task 18 修正：防重锁在 Serializable 事务内执行，避免并发请求都通过外部检查
+          const activeSession = await tx.checkoutSession.findFirst({
+            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
+            throw new ConflictException({
+              code: 'PENDING_CHECKOUT_EXISTS',
+              message: '你有未完成的订单，请先完成支付或取消',
+            });
+          }
+
           // 奖励 CAS 预留（在事务内执行，回滚时自动恢复）
           let discountAmount = 0;
           let reservedRewardId: string | null = null;
@@ -730,19 +729,8 @@ export class CheckoutService {
       }
     }
 
-    // Task 18: 防重锁 — 当前用户已有 ACTIVE Session 时拒绝新建
-    {
-      const activeSession = await this.prisma.checkoutSession.findFirst({
-        where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
-        throw new ConflictException({
-          code: 'PENDING_CHECKOUT_EXISTS',
-          message: '你有未完成的订单，请先完成支付或取消',
-        });
-      }
-    }
+    // Task 18 修正：防重锁挪进 Serializable 事务内执行（见步骤 9），
+    // 避免两个并发请求都通过事务外检查再各自创建 ACTIVE session
 
     // 3. 校验赠品方案（事务外预检，减少事务持锁时间）
     const giftOption = await this.prisma.vipGiftOption.findUnique({
@@ -868,6 +856,22 @@ export class CheckoutService {
 
     // 9. Serializable 事务：VIP 状态检查 + 活跃会话检查 + 创建会话（原子操作）
     const session = await this.prisma.$transaction(async (tx) => {
+      // Task 18 修正：全局防重锁在 Serializable 事务内执行，
+      // 避免并发请求都通过外部检查再各自创建 ACTIVE session（含普通+VIP）
+      const globalActiveSession = await tx.checkoutSession.findFirst({
+        where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (
+        globalActiveSession &&
+        (!dto.idempotencyKey || globalActiveSession.idempotencyKey !== dto.idempotencyKey)
+      ) {
+        throw new ConflictException({
+          code: 'PENDING_CHECKOUT_EXISTS',
+          message: '你有未完成的订单，请先完成支付或取消',
+        });
+      }
+
       // 事务内校验用户不是 VIP（防止检查到创建之间的竞态）
       const member = await tx.memberProfile.findUnique({
         where: { userId },
