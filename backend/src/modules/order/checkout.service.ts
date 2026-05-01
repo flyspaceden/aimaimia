@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -146,6 +147,22 @@ export class CheckoutService {
       });
       if (existing) {
         return await toCheckoutResponse(existing);
+      }
+    }
+
+    // Task 18: 防重锁 — 当前用户已有 ACTIVE Session 时拒绝新建
+    {
+      const activeSession = await this.prisma.checkoutSession.findFirst({
+        where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
+        // 注意：app-exception.filter.ts:160-172 只透传 code，自定义字段会被吞
+        // 前端拿到 code='PENDING_CHECKOUT_EXISTS' 后，额外调一次 GET /orders/checkout/me/pending 拿商品列表
+        throw new ConflictException({
+          code: 'PENDING_CHECKOUT_EXISTS',
+          message: '你有未完成的订单，请先完成支付或取消',
+        });
       }
     }
 
@@ -710,6 +727,20 @@ export class CheckoutService {
           shippingFee: 0,
           discountAmount: 0,
         };
+      }
+    }
+
+    // Task 18: 防重锁 — 当前用户已有 ACTIVE Session 时拒绝新建
+    {
+      const activeSession = await this.prisma.checkoutSession.findFirst({
+        where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
+        throw new ConflictException({
+          code: 'PENDING_CHECKOUT_EXISTS',
+          message: '你有未完成的订单，请先完成支付或取消',
+        });
       }
     }
 
