@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as WebSocket from 'ws';
 import { v4 as uuidv4 } from 'uuid';
+import { spawn } from 'child_process';
 
 interface PreparedAsrSession {
   id: string;
@@ -79,11 +80,12 @@ export class AsrService {
       throw new Error('DASHSCOPE_API_KEY 环境变量未设置');
     }
 
-    const { pcmBuffer, asrFormat } = this.normalizeAudioBuffer(audioBuffer, format);
+    const { pcmBuffer, asrFormat, ffmpegMs } = await this.normalizeAudioBuffer(audioBuffer, format);
     const estimatedDurationMs = this.estimateAudioDurationMs(pcmBuffer, asrFormat);
     const maxEndSilence = this.pickMaxEndSilenceMs(estimatedDurationMs);
     this.logger.log(
-      `ASR 输入: format=${asrFormat}, 数据大小=${pcmBuffer.length} 字节, 估算时长=${estimatedDurationMs}ms, max_end_silence=${maxEndSilence}ms`,
+      `ASR 输入: format=${asrFormat}, 数据大小=${pcmBuffer.length} 字节, 估算时长=${estimatedDurationMs}ms, max_end_silence=${maxEndSilence}ms` +
+      (ffmpegMs !== undefined ? `, ffmpeg=${ffmpegMs}ms` : ''),
     );
 
     const taskId = uuidv4().replace(/-/g, '');
@@ -293,25 +295,102 @@ export class AsrService {
     });
   }
 
-  private normalizeAudioBuffer(audioBuffer: Buffer, format: string): { pcmBuffer: Buffer; asrFormat: string } {
-    let pcmBuffer = audioBuffer;
-    let asrFormat = format;
-    if (audioBuffer.length > 44) {
-      const header = audioBuffer.subarray(0, 4).toString('ascii');
-      if (header === 'RIFF') {
-        pcmBuffer = audioBuffer.subarray(44);
-        asrFormat = 'pcm';
-        this.logger.log(`WAV → PCM: 剥离 44 字节 header，PCM 数据 ${pcmBuffer.length} 字节`);
-      }
+  private async normalizeAudioBuffer(
+    audioBuffer: Buffer,
+    format: string,
+  ): Promise<{ pcmBuffer: Buffer; asrFormat: string; ffmpegMs?: number }> {
+    // WAV: 剥 44 字节 RIFF header → PCM（DashScope format=pcm 接受裸 PCM 流）
+    if (audioBuffer.length > 44 && audioBuffer.subarray(0, 4).toString('ascii') === 'RIFF') {
+      const pcmBuffer = audioBuffer.subarray(44);
+      this.logger.log(`WAV → PCM: 剥离 44 字节 header，PCM 数据 ${pcmBuffer.length} 字节`);
+      return { pcmBuffer, asrFormat: 'pcm' };
     }
 
-    const validFormats = ['pcm', 'wav', 'mp3', 'opus', 'speex', 'aac', 'amr'];
-    if (!validFormats.includes(asrFormat)) {
-      this.logger.warn(`未知音频格式 "${asrFormat}"，回退为 pcm`);
-      asrFormat = 'pcm';
+    // 已是裸 PCM：直接透传
+    if (format === 'pcm') {
+      return { pcmBuffer: audioBuffer, asrFormat: 'pcm' };
     }
 
-    return { pcmBuffer, asrFormat };
+    // 其他容器（m4a/aac/3gp/amr/mp3/opus...）→ ffmpeg 统一转 16kHz mono PCM
+    // 之前直接以 format=aac 把整个 m4a 容器喂 DashScope 不可靠（容器 vs 裸流）
+    const ffmpegStartedAt = Date.now();
+    const pcmBuffer = await this.transcodeToPcm(audioBuffer);
+    const ffmpegMs = Date.now() - ffmpegStartedAt;
+    this.logger.log(
+      `ffmpeg → PCM: 输入格式=${format}, ${audioBuffer.length}B → ${pcmBuffer.length}B, 耗时 ${ffmpegMs}ms`,
+    );
+    return { pcmBuffer, asrFormat: 'pcm', ffmpegMs };
+  }
+
+  /**
+   * 通过 ffmpeg 子进程把任意容器音频转成 16kHz mono signed-16bit-LE PCM。
+   * 走 stdin/stdout 管道，无临时文件。
+   */
+  private transcodeToPcm(audioBuffer: Buffer): Promise<Buffer> {
+    // 显式允许通过 FFMPEG_PATH env 覆盖二进制路径。
+    // 默认 'ffmpeg' 走 PATH 查找，对 PM2 在非交互 bash 下启动时存在 PATH 不全风险，
+    // 部署遇到 ENOENT 时只需在服务器 .env 加 `FFMPEG_PATH=/usr/local/bin/ffmpeg` 即可。
+    const ffmpegBin = process.env.FFMPEG_PATH || 'ffmpeg';
+    return new Promise<Buffer>((resolve, reject) => {
+      const proc = spawn(ffmpegBin, [
+        '-i', 'pipe:0',
+        '-f', 's16le',
+        '-acodec', 'pcm_s16le',
+        '-ac', '1',
+        '-ar', '16000',
+        '-loglevel', 'error',
+        'pipe:1',
+      ]);
+
+      const chunks: Buffer[] = [];
+      let stderr = '';
+      let settled = false;
+
+      // 防御：极端损坏的输入可能让 ffmpeg 卡住，5 秒超时
+      const killTimer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try { proc.kill('SIGKILL'); } catch (_) { /* 忽略 */ }
+          reject(new Error('ffmpeg 转码超时（>5s）'));
+        }
+      }, 5000);
+
+      proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+      proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
+      proc.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(killTimer);
+        reject(new Error(
+          `ffmpeg 启动失败: ${err.message}（bin=${ffmpegBin}；如 ENOENT 请在服务器 .env 设 FFMPEG_PATH=/usr/local/bin/ffmpeg）`,
+        ));
+      });
+
+      proc.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(killTimer);
+        if (code === 0) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          reject(new Error(`ffmpeg 退出码 ${code}: ${stderr.slice(0, 500)}`));
+        }
+      });
+
+      proc.stdin.on('error', (err) => {
+        if (settled) return;
+        // EPIPE 在 ffmpeg 提前关闭时常见，错误真因看 stderr
+        if ((err as NodeJS.ErrnoException).code !== 'EPIPE') {
+          settled = true;
+          clearTimeout(killTimer);
+          reject(new Error(`ffmpeg stdin 写入失败: ${err.message}`));
+        }
+      });
+
+      proc.stdin.write(audioBuffer);
+      proc.stdin.end();
+    });
   }
 
   private estimateAudioDurationMs(audioBuffer: Buffer, format: string): number {
