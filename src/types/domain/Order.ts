@@ -159,6 +159,20 @@ export type Order = {
   deliveredAt?: string;
   /** 自动确认收货时间（Phase 2 后端将暴露，前置类型保持前向兼容） */
   autoReceiveAt?: string;
+  /** 物流摘要（Phase 2 列表 DTO 暴露） */
+  logisticsSummary?: {
+    status: string | null;
+    latestEventMessage: string | null;
+    latestEventTime: string | null;
+  } | null;
+  /** 收货地址结构化字段（Phase 2 详情 DTO 暴露 - 已脱敏） */
+  address?: {
+    recipientName: string;
+    recipientPhone: string;
+    fullAddress: string;
+  } | null;
+  /** 买家留言（Phase 3 字段） */
+  buyerNote?: string;
   createdAt: string;
   items: OrderItem[];
 };
