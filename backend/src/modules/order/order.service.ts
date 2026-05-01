@@ -1024,9 +1024,14 @@ export class OrderService {
         id: item.id,
         productId: ps.productId || item.skuId,
         title: ps.title || '',
+        skuTitle: ps.skuTitle || '',           // 新增：SKU 规格名（用于淘宝展开风卡片）
         image: ps.image || '',
         price: item.unitPrice,
         quantity: item.quantity,
+        companyId: item.companyId,             // 新增：商户 ID（多商户跳店铺/售后）
+        isPrize: !!item.isPrize,               // 新增：是否奖品（前端区分样式 + 禁用售后）
+        // 注：isPostReplacement 在 AfterSaleRequest 上，不在 OrderItem。
+        //     Phase 2 通过反查 afterSaleRequests 派生。
       };
     };
 
