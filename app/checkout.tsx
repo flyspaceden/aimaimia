@@ -13,8 +13,11 @@ import { AuthModal } from '../src/components/overlay';
 import { EmptyState, useToast } from '../src/components/feedback';
 import { AiDivider } from '../src/components/ui/AiDivider';
 import { GiftCoverImage } from '../src/components/cards';
+import { OrderItemRow } from '../src/components/cards/OrderItemRow';
+import { Countdown } from '../src/components/ui/Countdown';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
+import type { PendingCheckout } from '../src/types/domain/Checkout';
 import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
 import { payWithAlipay } from '../src/utils/alipay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
@@ -70,6 +73,10 @@ export default function CheckoutScreen() {
   const agreedRef = useRef(false);
   // 待执行的结算函数（同意政策后触发）
   const pendingCheckoutRef = useRef<(() => void) | null>(null);
+  // 409 防重弹窗：展示已存在的 ACTIVE Session 摘要 + 三个操作按钮
+  const [pendingModal, setPendingModal] = useState<PendingCheckout | null>(null);
+  // 记录"取消旧订单后要重新跑哪个结算入口"（普通 vs VIP）
+  const pendingRetryRef = useRef<(() => Promise<void>) | null>(null);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
   const idempotencyKeyRef = useRef(`ik_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
 
@@ -431,6 +438,17 @@ export default function CheckoutScreen() {
         expectedTotal: preview ? preview.summary.totalPayable : undefined,
       });
       if (!sessionResult.ok) {
+        // 409 防重锁拦截：拿 Session 摘要弹 Modal，让用户决定取消旧/续付/关闭
+        if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
+          const pending = await OrderRepo.getPendingCheckout();
+          if (pending.ok && pending.data) {
+            pendingRetryRef.current = handleCheckout;
+            setPendingModal(pending.data);
+          } else {
+            show({ message: '订单状态异常，请重试', type: 'error' });
+          }
+          return;
+        }
         show({ message: sessionResult.error.displayMessage ?? '下单失败', type: 'error' });
         return;
       }
@@ -535,6 +553,17 @@ export default function CheckoutScreen() {
         expectedTotal: vipPackageSelection.price,
       });
       if (!sessionResult.ok) {
+        // 409 防重锁拦截：与普通分支同款，让用户决定取消旧/续付/关闭
+        if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
+          const pending = await OrderRepo.getPendingCheckout();
+          if (pending.ok && pending.data) {
+            pendingRetryRef.current = handleVipCheckout;
+            setPendingModal(pending.data);
+          } else {
+            show({ message: '订单状态异常，请重试', type: 'error' });
+          }
+          return;
+        }
         show({ message: sessionResult.error.displayMessage ?? 'VIP 下单失败', type: 'error' });
         return;
       }
@@ -1184,6 +1213,91 @@ export default function CheckoutScreen() {
         </View>
       </Modal>
 
+      {/* 409 防重 Modal：展示已存在 Session 摘要 + 三按钮（取消旧 / 去支付 / 关闭） */}
+      {pendingModal ? (
+        <Modal transparent animationType="fade" visible>
+          <Pressable
+            onPress={() => {
+              setPendingModal(null);
+              pendingRetryRef.current = null;
+            }}
+            style={pendingModalStyles.backdrop}
+          >
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={[pendingModalStyles.card, { backgroundColor: colors.surface, borderRadius: radius.xl }]}
+            >
+              <View style={pendingModalStyles.header}>
+                <Text style={[typography.title3, { color: colors.text.primary }]}>你有一个未完成的订单</Text>
+                <Countdown
+                  expiresAt={pendingModal.expiresAt}
+                  style={[typography.caption, { color: '#FF6B35', fontWeight: '600' }]}
+                />
+              </View>
+
+              <ScrollView style={{ maxHeight: 280 }}>
+                {pendingModal.items.map((it, i) => (
+                  <OrderItemRow
+                    key={i}
+                    image={it.image}
+                    title={it.title}
+                    skuTitle={it.skuTitle}
+                    unitPrice={it.unitPrice}
+                    quantity={it.quantity}
+                  />
+                ))}
+              </ScrollView>
+
+              <View style={[pendingModalStyles.totalRow, { borderTopColor: colors.border }]}>
+                <Text style={[typography.caption, { color: colors.text.secondary }]}>共 {pendingModal.itemCount} 件</Text>
+                <Text style={[typography.bodyStrong, { color: '#FF6B35' }]}>实付 ¥{pendingModal.expectedTotal.toFixed(2)}</Text>
+              </View>
+
+              <Pressable
+                onPress={async () => {
+                  const oldSessionId = pendingModal.sessionId;
+                  const retry = pendingRetryRef.current;
+                  const c = await OrderRepo.cancelCheckoutSession(oldSessionId);
+                  if (!c.ok) {
+                    show({ message: '取消旧订单失败', type: 'error' });
+                    return;
+                  }
+                  setPendingModal(null);
+                  pendingRetryRef.current = null;
+                  // 重试当前提交订单流程（普通走 handleCheckout，VIP 走 handleVipCheckout）
+                  if (retry) await retry();
+                }}
+                style={[pendingModalStyles.btnPrimary, { backgroundColor: colors.brand.primary }]}
+              >
+                <Text style={{ color: '#fff', fontWeight: '600' }}>取消旧订单，重新下这单</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  const sessionId = pendingModal.sessionId;
+                  setPendingModal(null);
+                  pendingRetryRef.current = null;
+                  router.push({ pathname: '/checkout-pending', params: { sessionId } });
+                }}
+                style={[pendingModalStyles.btnSecondary, { borderColor: colors.border }]}
+              >
+                <Text style={{ color: colors.text.secondary }}>先去支付这单</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setPendingModal(null);
+                  pendingRetryRef.current = null;
+                }}
+                style={pendingModalStyles.btnText}
+              >
+                <Text style={{ color: colors.text.tertiary }}>关闭</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+
       <AuthModal
         open={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -1310,4 +1424,15 @@ const policyStyles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4,
   },
+});
+
+// 409 防重弹窗样式（与退换货政策弹窗复用同款半透明遮罩）
+const pendingModalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
+  card: { width: '100%', padding: 16, gap: 8 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
+  btnPrimary: { padding: 12, borderRadius: 18, alignItems: 'center', marginTop: 12 },
+  btnSecondary: { padding: 12, borderRadius: 18, alignItems: 'center', borderWidth: 1, marginTop: 8 },
+  btnText: { padding: 8, alignItems: 'center', marginTop: 4 },
 });
