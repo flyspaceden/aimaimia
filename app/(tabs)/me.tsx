@@ -13,6 +13,7 @@ import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AuthModal } from '../../src/components/overlay';
 import { AvatarFrame } from '../../src/components/ui';
 import { AiBadge } from '../../src/components/ui/AiBadge';
+import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
@@ -79,6 +80,13 @@ export default function MeScreen() {
     queryFn: () => OrderRepo.getStatusCounts(),
     enabled: isLoggedIn,
   });
+  const { data: pendingData } = useQuery({
+    queryKey: ['pending-checkout'],
+    queryFn: () => OrderRepo.getPendingCheckout(),
+    enabled: isLoggedIn,
+    refetchInterval: 30_000,
+  });
+  const pendingSession = pendingData?.ok ? pendingData.data : null;
   const { data: inboxCountData } = useQuery({
     queryKey: ['me-inbox-unread'],
     queryFn: () => InboxRepo.getUnreadCount(),
@@ -288,6 +296,24 @@ export default function MeScreen() {
               </Pressable>
             </View>
             <View style={[styles.orderRow, { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md }, shadow.sm]}>
+              {pendingSession ? (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/checkout-pending', params: { sessionId: pendingSession.sessionId } })}
+                  style={styles.orderItem}
+                >
+                  <View style={styles.orderIconWrap}>
+                    <MaterialCommunityIcons name="credit-card-clock-outline" size={22} color="#FF6B35" />
+                  </View>
+                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                    未完成支付
+                  </Text>
+                  <Countdown
+                    expiresAt={pendingSession.expiresAt}
+                    format="mm:ss"
+                    style={{ color: '#FF6B35', fontSize: 10, marginTop: 2, fontWeight: '600' }}
+                  />
+                </Pressable>
+              ) : null}
               {orderEntries.map((entry) => {
                 const count = orderCounts
                   ? entry.id === 'shipping'
