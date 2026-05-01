@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -1133,6 +1134,7 @@ export class CheckoutService {
         paymentParams = { channel: 'alipay', orderStr };
       } catch (err: any) {
         this.logger.error(`续付生成支付宝参数失败: ${err.message}`);
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
       }
     }
 
