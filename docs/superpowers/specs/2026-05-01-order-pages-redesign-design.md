@@ -436,26 +436,52 @@ VIP 折扣                  -¥10.00（如有）
 
 **数据源**：React Query `useQuery(['pending-checkout'], () => CheckoutSessionRepo.getPending(), { refetchInterval: 30_000 })`
 
-**点击横幅"继续支付"按钮（横幅区域内的 CTA）**：
-- 直接调 `POST /orders/checkout/:sessionId/resume` → 拿到 paymentParams.orderStr → 调起支付宝 SDK
+**点击"继续支付"行为**：
+- 调 `POST /orders/checkout/:sessionId/resume` → 拿到 paymentParams.orderStr → 调起支付宝 SDK
 - 不要再调 `POST /orders/checkout`（会触发防重锁）
 
-**点击横幅其他区域（商品摘要区）**：打开 `PendingCheckoutModal`（见 6.5.1） — 不再有 `app/checkout-pending.tsx` 页面。
+**点击横幅本身**：跳到 `app/checkout-pending.tsx`（顶层路由，与 `app/checkout.tsx` / `app/checkout-address.tsx` 同级。复用结算页 UI 但只读 + 续付按钮 + 取消订单按钮）
 
-### 6.5.1 PendingCheckoutModal — 全局未完成订单弹窗
+**显示规则**：
+- 当 API 返回 `null` → 不显示
+- 用户主动取消 Session（点取消订单）→ 调 cancelSession → 横幅消失
+- Session 自然过期（30min 后 Cron 清）→ 下次 refetch 时消失
 
-**核心组件**：`src/components/overlay/PendingCheckoutModal.tsx`，全局唯一实例（通过 Zustand store 控制开关），是所有"未完成订单"交互的统一入口。
+### 6.5.1 我的页"未完成支付"入口改造
 
-**触发来源**（4 处都用同一个 Modal）：
-1. 用户点横幅商品摘要区
-2. 用户点我的页"未完成支付"入口（替换原 pendingPay 跳转）
-3. 用户在结算页点提交订单收到 409（多展示一个"取消旧订单重新下"按钮）
-4. 支付宝 6001 取消后自动弹（替换原 cancelCheckoutSession 调用）
+`app/(tabs)/me.tsx:26` 当前的 `pendingPay` 入口：
+- 重命名 label：`待付款` → `未完成支付`
+- 数据源：从 `OrderRepo.list('pendingPay')` 改为 `useQuery(['pending-checkout'], OrderRepo.getPendingCheckout)`，与横幅共享缓存
+- 显示规则：API 返回 null 时**隐藏**该入口；返回 Session 时显示徽标"剩 28:42"
+- 点击：跳 `app/checkout-pending.tsx`
 
-**Modal 内容**（普通模式）：
+### 6.5.2 支付宝 6001 取消行为改造
+
+**当前** `app/checkout.tsx:463`：6001 → 立即 `OrderRepo.cancelCheckoutSession(sessionId)` → Session EXPIRED → 横幅永远不出现。
+
+**改造**：6001 分支**移除** cancelCheckoutSession 调用，改为：
+- 直接 `router.replace('/checkout-pending?sessionId=...')`（让用户立刻看到"未完成订单"页 + 倒计时）
+- Session 仍 ACTIVE，库存仍锁，30min 后 Cron 自然过期
+- 用户在 pending 页主动点"取消订单"才走 cancel
+- 其他失败码（6002 网络异常、6004 等）保持现有 cancel 行为不变
+
+**保护**：90s 超时分支（line:466 注释"不 cancel session"）当前已是预期行为，不动。
+
+### 6.6 Checkout 防重弹窗（结算页 409 拦截，仅此一处用 Modal）
+
+修改 `app/checkout.tsx` 提交订单按钮处理：
+
+```
+点击提交订单
+  → 调 POST /orders/checkout
+  → 收到 409 + code='PENDING_CHECKOUT_EXISTS' + sessionId + summary（旧订单摘要）
+  → 弹 Modal（仅此一处，不复用页面）：
+```
+
+**Modal 内容（必须展开商品列表，方便用户判断旧订单是不是自己想要的）**：
 ```
 ┌────────────────────────────────────────┐
-│  未完成的订单          ⏱ 28:42  [×]    │
+│  你有一个未完成的订单    ⏱ 28:42       │
 ├────────────────────────────────────────┤
 │ 🏪 青禾农场旗舰店                       │
 │ [图] 云南红心猕猴桃 5斤装        ¥58   │
@@ -465,74 +491,36 @@ VIP 折扣                  -¥10.00（如有）
 ├────────────────────────────────────────┤
 │  共 3 件，实付 ¥130                    │
 ├────────────────────────────────────────┤
-│  [取消订单]              [继续支付]     │
+│   [取消旧订单，重新下这单]              │
+│   [先去支付这单]                        │
+│   [关闭]                                │
 └────────────────────────────────────────┘
 ```
-
-**Modal 内容（409 拦截模式 — 从结算页打开时）**：
-- 同上的商品列表 + 金额块（让用户清楚看到旧订单具体内容）
-- 标题改为：`你有一个未完成的订单`
-- 底部按钮换成 3 个：
-  - `取消旧订单，重新下这单`（主 CTA，绿色）
-  - `先去支付这单`（次 CTA，描边）
-  - `关闭`（文字按钮）
 
 **按钮行为**：
 
 | 按钮 | 行为 |
 |---|---|
-| 继续支付 / 先去支付这单 | 调 `POST /orders/checkout/:sessionId/resume` → 调起支付宝 SDK；Modal 关闭 |
-| 取消订单 | 弹二次确认 `Alert.confirm("确定取消？库存将释放，需要重新下单")` → 确认后调 `POST /orders/checkout/:sessionId/cancel` → Modal 关闭 + toast"已取消" |
-| 取消旧订单，重新下这单 | 调 cancel API → 等成功 → 自动 retry 当前结算页的 `POST /orders/checkout`（用同一个 idempotencyKey）→ 调起支付宝 SDK |
-| 关闭 / × | Modal 关闭，Session 不动 |
+| 取消旧订单，重新下这单 | 调 `POST /orders/checkout/:oldSessionId/cancel` → 等成功 → 自动 retry 当前 checkout（同 idempotencyKey）→ 调起支付宝 |
+| 先去支付这单 | 关闭 Modal → `router.push('/checkout-pending?sessionId=oldSessionId')`（与横幅入口保持一致） |
+| 关闭 | Modal 关闭，停留在结算页 |
 
-**竞态保护**：
-- Modal 打开时先调一次 `GET /orders/checkout/me/pending` 校验 Session 还存在
-- 返回 null（已自然过期）→ 显示空态文案"该订单已过期"，按钮替换为单个 [关闭]
-- 倒计时归零时（前端基于 expiresAt 计算）自动关闭 Modal + 横幅消失
+**实现**：用 RN 原生 `Modal` 或现有的 `<BottomSheetModal>` 组件，不引入全局 store。Modal 数据通过 409 响应体直接传入（响应体包含 `sessionId / expectedTotal / itemCount / items[]` 摘要）。
 
-**数据来源**：所有触发点共享 `useQuery(['pending-checkout'], OrderRepo.getPendingCheckout, { refetchInterval: 30_000 })` 缓存，Modal 打开时无需额外请求。
+**409 响应体扩展**：后端 `ConflictException` 的 response 加 `summary` 字段：
 
-### 6.5.2 我的页"未完成支付"入口改造
-
-`app/(tabs)/me.tsx:26` 当前的 `pendingPay` 入口：
-- 重命名 label：`待付款` → `未完成支付`
-- 数据源：从 `OrderRepo.list('pendingPay')` 改为共享 `useQuery(['pending-checkout'], OrderRepo.getPendingCheckout)` 缓存
-- 显示规则：API 返回 null 时**隐藏**该入口；返回 Session 时显示徽标"剩 28:42"
-- 点击：打开 `PendingCheckoutModal`（不再跳页面）
-
-### 6.5.3 支付宝 6001 取消行为改造
-
-**当前** `app/checkout.tsx:463`：6001 → 立即 `OrderRepo.cancelCheckoutSession(sessionId)` → Session EXPIRED → 横幅永远不出现。
-
-**改造**：6001 分支**移除** cancelCheckoutSession 调用，改为：
-- 打开 `PendingCheckoutModal`（用户立刻能看到刚才的订单 + 倒计时 + [继续支付] / [取消订单]）
-- Session 仍 ACTIVE，库存仍锁，30min 后 Cron 自然过期
-- 用户在 Modal 里主动点"取消订单"才走 cancel
-- 其他失败码（6002 网络异常、6004 等）保持现有 cancel 行为不变
-
-**保护**：90s 超时分支（line:466 注释"不 cancel session"）当前已是预期行为，不动。
-
-**显示规则**：
-- 当 API 返回 `null` → 不显示
-- 用户主动取消 Session（点取消订单）→ 调 `POST /checkout-sessions/:id/cancel` → 横幅消失
-- Session 自然过期（30min 后 Cron 清）→ 下次 refetch 时消失
-
-### 6.6 Checkout 防重弹窗（复用 PendingCheckoutModal）
-
-修改 `app/checkout.tsx` 提交订单按钮处理：
-
-```
-点击提交订单
-  → 调 POST /orders/checkout
-  → 收到 409 + code='PENDING_CHECKOUT_EXISTS' + sessionId
-  → 触发 PendingCheckoutModal（409 拦截模式，3 个按钮）
-  → 取消旧订单，重新下这单：调 cancelSession(oldId) → 等成功 → 重试当前 checkout（同 idempotencyKey）→ 调起支付宝
-  → 先去支付这单：调 resume API → 调起支付宝（旧订单的 ¥130）
-  → 关闭：返回结算页停留
+```ts
+{
+  code: 'PENDING_CHECKOUT_EXISTS',
+  sessionId: string,
+  expiresAt: string,
+  expectedTotal: number,
+  itemCount: number,
+  items: Array<{ image: string, title: string, skuTitle: string, quantity: number, unitPrice: number }>,
+}
 ```
 
-**复用关键**：不为 409 单独写一个 Modal，所有未完成订单交互都走 §6.5.1 的同一组件，只是按钮组按 props 切换显示。
+**竞态**：用户点"先去支付这单"或"取消旧订单重新下"前，前端先校验 `expiresAt > now`；若已过期，提示"该订单已过期"+ 关闭 Modal + 用户重新点提交订单（这次会成功，因为防重锁不再命中）。
 
 ---
 
@@ -583,11 +571,10 @@ VIP 折扣                  -¥10.00（如有）
 **前端改动**：
 - 列表卡片消费真实店铺名 / logo（去掉 fallback）
 - 详情页消费真实 `autoReceiveAt`
-- 新增 `src/components/overlay/PendingCheckoutBanner.tsx`（横幅）+ 在 `app/(tabs)/home.tsx` 与 `app/cart.tsx` mount
-- 新增 `src/components/overlay/PendingCheckoutModal.tsx`（统一弹窗）+ 在根布局 `app/_layout.tsx` mount 一次（全局唯一实例）
-- 新增 `src/store/usePendingCheckoutStore.ts`（Zustand：`isOpen / isFrom409 / sessionId / open() / close()`）
-- 修改 `app/checkout.tsx`：(1) 6001 取消分支不再 cancelSession 改为 `usePendingCheckoutStore.open({ from409: false })` (2) 收到 409 时 `usePendingCheckoutStore.open({ from409: true, retryPayload })`
-- 修改 `app/(tabs)/me.tsx:26`：pendingPay 入口改名"未完成支付" + 数据源改为 pending checkout session + 无 Session 时隐藏 + 点击 `usePendingCheckoutStore.open({ from409: false })`
+- 新增 `src/components/overlay/PendingCheckoutBanner.tsx` + 在 `app/(tabs)/home.tsx` 与 `app/cart.tsx` mount
+- 新增 `app/checkout-pending.tsx` 续付页（与 `app/checkout.tsx` 同级顶层路由）
+- 修改 `app/checkout.tsx`：(1) 6001 取消分支不再 cancelSession 改为跳 `/checkout-pending?sessionId=...` (2) 收到 409 时弹内联 Modal（展开商品列表 + 3 按钮）+ 处理 retry 逻辑
+- 修改 `app/(tabs)/me.tsx:26`：pendingPay 入口改名"未完成支付" + 数据源改为 pending checkout session + 无 Session 时隐藏 + 点击跳 `/checkout-pending`
 
 **Phase 2 验收**：
 - 后端单测：`GET /orders` 返回 5.2 全部字段（用真实数据库 fixtures）
@@ -645,13 +632,14 @@ VIP 折扣                  -¥10.00（如有）
 - [ ] 订单号一键复制
 - [ ] 物流页：删除地图，运单号可复制，可拨快递电话
 - [ ] 售后列表卡片样式与订单列表一致
-- [ ] 取消支付宝（6001）后**直接弹出 PendingCheckoutModal**（不再消失），且回到首页/购物车顶部能看到横幅
-- [ ] 横幅"继续支付"按钮直接续付，点摘要区打开 Modal
-- [ ] Modal 完整展示商品列表（图、规格、数量、单价）+ 倒计时 + [继续支付] [取消订单]
-- [ ] 我的页"未完成支付"入口在有 Session 时显示徽标，无 Session 时隐藏；点击打开同一 Modal
-- [ ] 重复点提交订单被 409 拦截，弹同一 Modal（按钮组切换为 3 个）
-- [ ] 在 409 模式下点"取消旧订单，重新下这单" → 旧订单 cancel + 自动重试当前结算 + 调起支付宝
-- [ ] 30 分钟后横幅+Modal 自动消失（库存释放）
+- [ ] 取消支付宝（6001）后**直接跳转到 `/checkout-pending`**（不再消失），且回到首页/购物车顶部能看到横幅
+- [ ] 横幅"继续支付"按钮直接续付（一键调起支付宝），点横幅其他区域跳 `/checkout-pending`
+- [ ] `/checkout-pending` 页：完整展示商品列表（图、规格、数量、单价）+ 倒计时 + [继续支付] [取消订单]
+- [ ] 我的页"未完成支付"入口在有 Session 时显示徽标，无 Session 时隐藏；点击跳 `/checkout-pending`
+- [ ] 重复点提交订单被 409 拦截，弹**结算页内的 Modal**（展开商品列表 + 3 按钮）
+- [ ] 在 409 Modal 点"取消旧订单，重新下这单" → 旧订单 cancel + 自动重试当前结算 + 调起支付宝
+- [ ] 在 409 Modal 点"先去支付这单" → 跳 `/checkout-pending`
+- [ ] 30 分钟后横幅自动消失（库存释放）
 - [ ] VIP 礼包订单显示金色徽章，其他布局与普通订单一致
 
 ### 数据验收
@@ -685,9 +673,8 @@ VIP 折扣                  -¥10.00（如有）
 - `src/components/orders/OrderInfoBlock.tsx`
 - `src/components/orders/StickyCTABar.tsx`
 - `src/components/overlay/PendingCheckoutBanner.tsx`（横幅）
-- `src/components/overlay/PendingCheckoutModal.tsx`（统一未完成订单弹窗 — 替代独立页面）
-- `src/store/usePendingCheckoutStore.ts`（Modal 开关状态 + 来源标记 isFrom409 用来切换按钮组）
 - `src/components/ui/Countdown.tsx`
+- `app/checkout-pending.tsx`（顶层路由，与 `app/checkout.tsx` 同级。承载横幅/我的页/支付宝6001 三个入口的未完成订单页）
 
 ### 修改
 - `app/orders/index.tsx`（ScrollView → FlatList + 卡片重写）
@@ -711,7 +698,7 @@ VIP 折扣                  -¥10.00（如有）
 ### 不会新建
 - ~~`backend/src/modules/order/checkout.controller.ts`~~（项目本来就没有这个文件，所有 checkout 路由都在 `order.controller.ts` 下，沿用此约定）
 - ~~`src/repos/CheckoutSessionRepo.ts`~~（`pending / resume` 方法直接加到现有 `OrderRepo.ts` 的 `cancelCheckoutSession` 旁，避免新建仓库带来的 import 散乱）
-- ~~`app/checkout-pending.tsx`~~（用户决策：用 Modal 取代独立页面，所有未完成订单操作都在 PendingCheckoutModal 里完成）
+- ~~`PendingCheckoutModal` 全局组件 / `usePendingCheckoutStore`~~（结算页 409 拦截 Modal 直接内联在 `app/checkout.tsx`，用 RN 原生 `<Modal>`，不抽全局组件 — 避免架构过度设计）
 
 ---
 
