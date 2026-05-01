@@ -36,7 +36,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 export function OrderCard({ order, onPress, onPrimaryAction, onSecondaryAction, primaryLabel, secondaryLabel }: Props) {
   const { colors, radius, shadow, typography } = useTheme();
   const statusColor = STATUS_COLOR[order.status];
-  const companyName = (order as any).companyName || (order.items[0] as any)?.companyName || '商家';
+  const companyName = order.items[0]?.companyName || '商家';
 
   return (
     <Pressable onPress={onPress} style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>

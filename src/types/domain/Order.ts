@@ -41,6 +41,10 @@ export type OrderItem = {
   quantity: number;
   /** 商品所属商户 ID（用于按商户聚合展示） */
   companyId?: string;
+  /** 商户名称（Phase 2 后端 join 自 Company） */
+  companyName?: string;
+  /** 商户 logo（Phase 2 后端 join 自 Company） */
+  companyLogo?: string;
   /** 是否为抽奖奖品（奖品不支持退换） */
   isPrize?: boolean;
   /** 是否来自已完成的换货（不支持无理由退货）—— Phase 2 后端将补齐派生 */

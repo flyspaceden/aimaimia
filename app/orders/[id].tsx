@@ -58,9 +58,8 @@ export default function OrderDetailScreen() {
   const order = data.data;
   const isVip = order.bizType === 'VIP_PACKAGE';
 
-  // Phase 1 fallback: 用 deliveredAt + 7 天 模拟 autoReceiveAt（Phase 2 后端会真实返回）
-  const autoReceiveAt = (order as any).autoReceiveAt
-    ?? (order.deliveredAt ? new Date(new Date(order.deliveredAt).getTime() + 7 * 86400_000).toISOString() : undefined);
+  // Phase 2: 后端真实暴露 autoReceiveAt；旧订单仍可能为 null（不显示倒计时，可接受）
+  const autoReceiveAt = order.autoReceiveAt ?? undefined;
 
   const handleConfirmReceive = async () => {
     const r = await OrderRepo.confirmReceive(order.id);
@@ -132,9 +131,10 @@ export default function OrderDetailScreen() {
     groups.get(k)!.push(it);
   }
 
-  // Phase 1 地址 fallback：addressSnapshotMasked（详情已暴露）
-  // Phase 2 后端会直接给 order.address.fullAddress 拼好的字段
+  // Phase 2 后端直接给 order.address.fullAddress 拼好的字段，保留 raw fallback 以兼容旧数据
   const addr = (order as any).address || (order as any).addressSnapshotMasked;
+  const addrRecipientName = addr?.recipientName || '收件人';
+  const addrPhone = addr?.recipientPhone || addr?.phone || '';
   const addrFullText = addr?.fullAddress
     || [addr?.province, addr?.city, addr?.district, addr?.detail].filter(Boolean).join(' ');
 
@@ -173,8 +173,8 @@ export default function OrderDetailScreen() {
         {addr ? (
           <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md }]}>
             <AddressCard
-              recipientName={addr.recipientName || '收件人'}
-              recipientPhone={addr.phone || ''}
+              recipientName={addrRecipientName}
+              recipientPhone={addrPhone}
               fullAddress={addrFullText}
             />
           </View>
@@ -184,7 +184,7 @@ export default function OrderDetailScreen() {
         {Array.from(groups.entries()).map(([cid, items]) => (
           <View key={cid} style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md }]}>
             <ShopGroup
-              companyName={(items[0] as any).companyName || '商家'}
+              companyName={items[0].companyName || '商家'}
               items={items}
               showAfterSaleAction={['delivered', 'completed'].includes(order.status) && !isVip}
               onItemAfterSale={() => router.push({ pathname: '/orders/after-sale/[id]', params: { id: order.id } })}
