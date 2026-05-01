@@ -1,0 +1,93 @@
+import React from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '../../theme';
+import { OrderItemRow } from './OrderItemRow';
+import { Order, OrderStatus } from '../../types';
+
+interface Props {
+  order: Order;
+  onPress: () => void;
+  onPrimaryAction?: () => void;
+  onSecondaryAction?: () => void;
+  primaryLabel?: string;
+  secondaryLabel?: string;
+}
+
+const STATUS_COLOR: Record<OrderStatus, string> = {
+  pendingPay: '#FF6B35',
+  pendingShip: '#3B82F6',
+  shipping: '#3B82F6',
+  delivered: '#3B82F6',
+  afterSale: '#DC2626',
+  completed: '#2E7D32',
+  canceled: '#9CA3AF',
+};
+
+const STATUS_LABEL: Record<OrderStatus, string> = {
+  pendingPay: '待付款',
+  pendingShip: '待发货',
+  shipping: '运输中',
+  delivered: '待收货',
+  afterSale: '售后中',
+  completed: '已完成',
+  canceled: '已取消',
+};
+
+export function OrderCard({ order, onPress, onPrimaryAction, onSecondaryAction, primaryLabel, secondaryLabel }: Props) {
+  const { colors, radius, shadow, typography } = useTheme();
+  const statusColor = STATUS_COLOR[order.status];
+  const companyName = (order as any).companyName || (order.items[0] as any)?.companyName || '商家';
+
+  return (
+    <Pressable onPress={onPress} style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <Text style={[typography.bodyStrong, { color: colors.text.primary, flex: 1 }]} numberOfLines={1}>
+          🏪 {companyName}
+        </Text>
+        <Text style={[typography.caption, { color: statusColor, fontWeight: '600' }]}>
+          {STATUS_LABEL[order.status]}
+        </Text>
+      </View>
+
+      {order.items.map((item) => (
+        <OrderItemRow
+          key={item.id}
+          image={item.image}
+          title={item.title}
+          skuTitle={item.skuTitle}
+          unitPrice={item.price}
+          quantity={item.quantity}
+        />
+      ))}
+
+      <View style={[styles.footer, { borderTopColor: colors.border }]}>
+        <Text style={[typography.caption, { color: colors.text.secondary }]}>
+          共 {order.items.reduce((s, i) => s + i.quantity, 0)} 件，实付 <Text style={{ fontWeight: '600', color: colors.text.primary }}>¥{order.totalPrice.toFixed(2)}</Text>
+        </Text>
+        <View style={styles.actionRow}>
+          {secondaryLabel ? (
+            <Pressable onPress={onSecondaryAction}>
+              <Text style={[typography.caption, { color: colors.text.secondary, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 4, marginRight: 8 }]}>
+                {secondaryLabel}
+              </Text>
+            </Pressable>
+          ) : null}
+          {primaryLabel ? (
+            <Pressable onPress={onPrimaryAction}>
+              <Text style={[typography.caption, { color: colors.text.inverse, backgroundColor: statusColor, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 4, fontWeight: '600' }]}>
+                {primaryLabel}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: { padding: 12, marginBottom: 10 },
+  header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingBottom: 6, marginBottom: 4 },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
+  actionRow: { flexDirection: 'row', alignItems: 'center' },
+});
