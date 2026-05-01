@@ -62,6 +62,15 @@ export class OrderController {
     return this.checkoutService.getPendingForUser(userId);
   }
 
+  /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
+  @Post('checkout/:sessionId/resume')
+  resumeCheckout(
+    @CurrentUser('sub') userId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.checkoutService.resumeSession(userId, sessionId);
+  }
+
   /**
    * P5 第三轮：App 端主动查询支付宝订单状态（不等 notify）
    *

@@ -1079,6 +1079,36 @@ export class CheckoutService {
     };
   }
 
+  /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
+  async resumeSession(userId: string, sessionId: string) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: { id: sessionId, userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+    });
+    if (!session) throw new NotFoundException('订单不存在或已过期');
+    if (!session.merchantOrderNo) throw new BadRequestException('支付参数缺失');
+
+    let paymentParams: Record<string, any> = {};
+    if (session.paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
+      try {
+        const orderStr = await this.alipayService.createAppPayOrder({
+          merchantOrderNo: session.merchantOrderNo,
+          totalAmount: session.expectedTotal,
+          subject: `爱买买订单-${session.merchantOrderNo}`,
+        });
+        paymentParams = { channel: 'alipay', orderStr };
+      } catch (err: any) {
+        this.logger.error(`续付生成支付宝参数失败: ${err.message}`);
+      }
+    }
+
+    return {
+      sessionId: session.id,
+      merchantOrderNo: session.merchantOrderNo,
+      expectedTotal: session.expectedTotal,
+      paymentParams,
+    };
+  }
+
   /** F1: 查找 CheckoutSession（payment callback 路由用） */
   async findByMerchantOrderNo(merchantOrderNo: string) {
     return this.prisma.checkoutSession.findUnique({
