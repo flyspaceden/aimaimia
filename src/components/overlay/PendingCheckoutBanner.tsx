@@ -15,20 +15,21 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { OrderRepo } from '../../repos';
 import { useAuthStore } from '../../store';
 import { useTheme } from '../../theme';
 import { useToast } from '../feedback';
 import { Countdown } from '../ui/Countdown';
 import { payWithAlipay } from '../../utils/alipay';
+import { useConfirmPayment } from '../../hooks/useConfirmPayment';
 
 export function PendingCheckoutBanner() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const { colors, radius, typography } = useTheme();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { show } = useToast();
+  const confirmPayment = useConfirmPayment();
 
   const { data, refetch } = useQuery({
     queryKey: ['pending-checkout'],
@@ -52,16 +53,11 @@ export function PendingCheckoutBanner() {
       return;
     }
     const result = await payWithAlipay(orderStr);
-    if (result.resultStatus === '9000') {
-      await queryClient.invalidateQueries({ queryKey: ['pending-checkout'] });
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      show({ message: '支付成功', type: 'success' });
-      router.push('/orders');
-    } else if (result.resultStatus === '6001') {
-      // 用户又取消，Session 仍 ACTIVE — 留在原页
-    } else {
-      show({ message: '支付失败，请重试', type: 'error' });
-    }
+    await confirmPayment({
+      sessionId: pending.sessionId,
+      sdkResultStatus: result.resultStatus ?? '',
+      onSuccess: () => router.push('/orders'),
+    });
   };
 
   return (

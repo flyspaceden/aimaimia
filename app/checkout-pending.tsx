@@ -12,12 +12,14 @@ import { Countdown } from '../src/components/ui/Countdown';
 import { OrderRepo } from '../src/repos';
 import { useTheme } from '../src/theme';
 import { payWithAlipay } from '../src/utils/alipay';
+import { useConfirmPayment } from '../src/hooks/useConfirmPayment';
 
 export default function CheckoutPendingScreen() {
   const { colors, spacing, typography } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { show } = useToast();
+  const confirmPayment = useConfirmPayment();
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['pending-checkout'],
@@ -63,17 +65,11 @@ export default function CheckoutPendingScreen() {
       return;
     }
     const result = await payWithAlipay(orderStr);
-    if (result.resultStatus === '9000') {
-      await queryClient.invalidateQueries({ queryKey: ['pending-checkout'] });
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-      show({ message: '支付成功', type: 'success' });
-      router.replace('/orders');
-    } else if (result.resultStatus === '6001') {
-      // 用户又取消，Session 仍 ACTIVE，留在本页
-    } else {
-      show({ message: '支付失败，请重试', type: 'error' });
-    }
+    await confirmPayment({
+      sessionId: pending.sessionId,
+      sdkResultStatus: result.resultStatus ?? '',
+      onSuccess: () => router.replace('/orders'),
+    });
   };
 
   const handleCancel = () => {
