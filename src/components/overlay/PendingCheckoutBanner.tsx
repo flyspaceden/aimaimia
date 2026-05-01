@@ -80,7 +80,7 @@ export function PendingCheckoutBanner() {
             <Image source={{ uri: pending.preview.firstItemImage }} style={{ width: 24, height: 24, borderRadius: 4 }} />
           ) : null}
           <Text style={[typography.caption, { color: colors.text.secondary, marginLeft: 6, flex: 1 }]} numberOfLines={1}>
-            {pending.preview.firstItemTitle}{pending.preview.extraCount > 0 ? ` 等共 ${pending.preview.extraCount + 1} 件` : ''} · ¥{pending.expectedTotal.toFixed(2)}
+            {pending.preview.firstItemTitle}{pending.itemCount > 1 ? ` 等共 ${pending.itemCount} 件` : ''} · ¥{pending.expectedTotal.toFixed(2)}
           </Text>
         </View>
       </View>
