@@ -12,15 +12,15 @@
 
 | Bug | 严重 | 类别 | 部署方式 | 状态 |
 |-----|------|------|----------|------|
-| 1 | HIGH | 后端字段缺失 + 前端冗余 UI | 后端重启 + OTA | ✅ 代码已修，待部署验证 |
-| 2 | CRITICAL | OSS 返回 http URL，Android APK 默认禁 cleartext | 后端配置 + SQL 迁移 + PM2 重启 | ⏭️ 代码/脚本已修，待 P5 SQL + 部署 |
-| 3 | HIGH | SafeArea 未适配 | OTA（基本）+ 下次 build（兜底） | ✅ 代码已修，待真机验证 |
+| 1 | HIGH | 后端字段缺失 + 前端冗余 UI | 后端重启 + OTA | ✅ 代码已修 + 部署 + OTA + 真机验证通过 |
+| 2 | CRITICAL | OSS 返回 http URL，Android APK 默认禁 cleartext | 后端配置 + SQL 迁移 + PM2 重启 | ⏭️ 代码/脚本已修 + 后端已部署，待 P5 任务 18 SQL 执行 |
+| 3 | HIGH | SafeArea 未适配 | OTA（基本）+ 下次 build（兜底） | ✅ 代码已修 + OTA + 真机验证通过（含 ec64e3c 精准判定补丁） |
 | 4 | HIGH | 键盘适配缺失 | OTA（基本）+ 下次 build（兜底） | ✅ 部分表单已修，4 个输入页进 backlog |
-| 5 | MEDIUM | 路由绕弯 + 键盘遮挡 | OTA | ✅ 代码已修，待真机验证 |
-| 6 | HIGH | 闭包陷阱导致弹窗死循环 | OTA | ✅ 代码已修，待真机验证 |
-| 7 | CRITICAL | 支付宝 JS 错配 + sandbox flag 在 release 被关 | **OTA** + 后端配置 | ⏭️ 前端代码已修，待 P5 服务器支付配置 |
-| 8 | HIGH | 13+ 处后端 deeplink 路径错配 | 后端重启 + SQL 迁移 + OTA | ⏭️ 代码/脚本已修，待 P5 SQL + 部署 |
-| 9 | HIGH | Android 录音格式与上传声明不一致 | OTA + 加日志真机验证 | ✅ 代码已修，待真机验证 |
+| 5 | MEDIUM | 路由绕弯 + 键盘遮挡 | OTA | ✅ 代码已修 + OTA + 真机验证通过 |
+| 6 | HIGH | 闭包陷阱导致弹窗死循环 | OTA | ✅ 代码已修 + 后端字段补 + OTA + 真机验证通过 |
+| 7 | CRITICAL | 支付宝 JS 错配 + sandbox flag 在 release 被关 | **OTA** + 后端配置 | ✅ 代码已修 + 服务器 .env 已配 + OTA 已发 + 真机验证通过（含 P5 第三轮支付链路闭环改造） |
+| 8 | HIGH | 13+ 处后端 deeplink 路径错配 | 后端重启 + SQL 迁移 + OTA | ⏭️ 代码已部署 + OTA 已发，待 P5 任务 18 SQL 执行 |
+| 9 | HIGH | Android 录音格式与上传声明不一致 + 后端 m4a 容器误当裸 AAC 流喂 DashScope | OTA + 后端部署 + 服务器装 ffmpeg | 🔧 第一轮已修 + 第二轮 ffmpeg 归一化代码已完成 + 服务器 ffmpeg 已装（待 push + 真机回归） |
 
 ---
 
@@ -61,10 +61,10 @@
 | **P5** | **数据/服务器侧操作（用户执行 / 协同）** | | | | | |
 | 17 | P5 | 写 SQL 迁移脚本 + dry-run COUNT | `backend/scripts/2026-04-29-migrate-oss-https.sql` + `backend/scripts/2026-04-29-migrate-inbox-routes.sql` | 仅生成脚本 | ✅ | OSS 脚本 2026-04-29 (384bce7)，inbox 脚本 2026-04-29 (a8fc7d5) |
 | 18 | P5 | 执行 SQL 迁移（Bug 2 OSS http→https + Bug 8 路由批量改）| 服务器 PostgreSQL | 用户执行 | ⬜ | — |
-| 19 | P5 | 改服务器 `.env` 的 `ALIPAY_NOTIFY_URL` | `backend/.env`（服务器上） | 用户执行 | ⬜ | — |
-| 20 | P5 | 后端代码部署 + PM2 重启 | 推 staging → 自动部署 | 用户/我（待协商） | ⬜ | — |
-| 21 | P5 | OTA 发布（含 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` env） | `EXPO_PUBLIC_ALIPAY_SANDBOX=true eas update --branch preview --message "..."` | 用户/我（待协商） | ⬜ | — |
-| 22 | P5 | 真机冷启动两次验证全部 9 个 bug | 用户真机 | 用户 | ⬜ | — |
+| 19 | P5 | 改服务器 `.env` 的 `ALIPAY_NOTIFY_URL` | `backend/.env`（服务器上） | 用户执行 | ✅ | 2026-04-30 用户在服务器完成 |
+| 20 | P5 | 后端代码部署 + PM2 重启 | 推 staging → 自动部署 | 用户/我 | ✅ | 2026-04-30 已 push + GitHub Actions 自动部署 |
+| 21 | P5 | OTA 发布（含 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` env） | `EXPO_PUBLIC_ALIPAY_SANDBOX=true eas update --branch preview --message "..."` | 用户/我 | ✅ | 2026-04-30 已发 OTA |
+| 22 | P5 | 真机冷启动两次验证全部 9 个 bug | 用户真机 | 用户 | ✅ | 2026-04-30 用户真机已验证 |
 
 ### 阶段说明
 
@@ -661,7 +661,43 @@ android: {
 **前端 OTA**（录音格式 + 上传日志） + **后端代码部署 + PM2 重启**（按文件头识别 + 接收日志）。不需要重打 APK（权限和 expo-av 模块都已经在 build-4-29.apk 里）。
 
 ### 状态
-⬜ 待修。建议在第 2 批 OTA 时一并修。如果改完格式仍报错，再用真机日志看候选 B（网络/上传层）。
+✅ 第一轮代码已修（8ee3fbe Android 录 m4a + 上传按平台 mimetype；1995901 后端按文件头识别格式）+ OTA + 真机部分验证。但 APK 仍偶发"无法识别到语音"——见下方第二轮深查。
+
+### 第二轮深查（2026-04-30）：m4a 容器 vs 裸 AAC 流根因 + ffmpeg 归一化
+
+**用户复测**：Expo Go 真实使用 DashScope 正常；APK 在不同 Android 设备时灵时不灵，依旧偶发"未能识别到语音内容"或"网络异常"。
+
+**真根因（确诊）**：
+- Android 端 expo-av 录的是 **MPEG_4 容器（`.m4a`，含 ftyp/moov/mdat boxes）**
+- `ai.controller.ts:246-254` 把 `ftyp` brand=M4A/mp42/isom 全部映射成 DashScope 的 `format='aac'`
+- 但 DashScope `format='aac'` 期望的是 **裸 AAC ADTS 流**（每帧带 0xFFF0 sync word），不是 MP4 容器
+- `asr.service.ts` 的 `normalizeAudioBuffer` **只处理 RIFF/WAV → PCM**，对 m4a 完全不动，把整个 mp4 容器当成 AAC 流喂出去 → DashScope 解码碰运气
+- Expo Go 偶尔成功是因为 expo-av native 实现版本不同，mp4 box 排布刚好让 DashScope 兜底解析能命中 mdat 内的 AAC 帧；APK 上回归正常的 mp4 布局，DashScope 解析不了 → 空 transcript
+- "网络异常，请稍后再试" 来自 `backend/ai.service.ts:3817`，意图被分类为 chat 后调 Qwen 失败时的固定 reply（独立链路问题，跟语音格式无关）
+
+**修复**：后端引入 ffmpeg 子进程，把任意容器（m4a/3gp/aac/amr/mp3/opus...）统一转 16kHz mono signed-16bit-LE PCM 后以 `format='pcm'` 喂 DashScope。
+
+| 文件 | 改动 |
+|------|------|
+| `backend/src/modules/ai/asr.service.ts` | `normalizeAudioBuffer` 改 async；非 RIFF/非 PCM 输入走 `transcodeToPcm` 调 ffmpeg（stdin/stdout 管道，5s 超时，无临时文件）；ASR 输入日志补 `ffmpeg=Xms` |
+| 服务器 | 装 ffmpeg 静态构建到 `/usr/local/bin/ffmpeg`（johnvansickle release，AL3 默认源没有），**已装** 2026-04-30，见 `docs/operations/阿里云部署.md` 第八节变更记录 |
+| 后端 .env（可选） | 如部署后日志报 `ffmpeg 启动失败 ENOENT`，加 `FFMPEG_PATH=/usr/local/bin/ffmpeg` env 兜底（PM2 在非交互 bash 下启动可能 PATH 不全） |
+
+**部署方式**：后端代码 push staging → 自动重启（ffmpeg 已装好）；前端不动，无需 OTA。
+
+**已知 backlog（不阻塞本次部署）**：
+- AsrService 转码分支无单测覆盖（mock `child_process.spawn` 价值有限，靠 `[VoicePerf] ffmpeg=Xms` 生产日志观测回归）
+- WAV 仍硬编码剥 44 字节 header（标准 PCM WAV 是 44B，但规范允许 LIST/JUNK/fact chunks 让 header 更长；iOS 经验上稳定 44B 暂不爆，未来若爆改成「WAV 也走 ffmpeg」最干净）
+
+**部署后预期 + 排查对照表**（"网络/识别异常"在不同位置文案不同，必须按字面量对照来源）：
+
+| 用户实际看到的文案 | 来源 | 跟本次 ffmpeg 修复关系 | 排查路径 |
+|------|------|------|------|
+| **"未能识别到语音内容，请重试"** | `backend/ai.service.ts:489`（ASR 返回空 transcript） | ✅ 主修目标，应大幅降低（接近 0%） | 后端 PM2 `grep "VoiceASR\|ffmpeg → PCM"` |
+| **"网络异常，请稍后再试。"**（注意句号） | `backend/ai.service.ts:3817` Qwen chat fetch 失败时的固定 reply | ❌ 无关，独立问题 | 后端 PM2 `grep "[AiChat] Qwen"`，看是 status 4XX/5XX 还是 fetch 超时；查 `DASHSCOPE_API_KEY` 是否配 + Qwen 余额/限流 |
+| **"识别失败: 网络请求失败..."** | 前端 `useVoiceRecording.ts:500` + `ApiClient.ts:240` 拼接 | ⚠️ 可能相关：上传 30s 超时（ffmpeg 卡 5s + ASR 等久了一并触发） | adb logcat `grep "VoiceUpload\|Upload"`，看 file size 和 [Upload] 响应状态 |
+| **"识别异常: ..."** | 前端 `useVoiceRecording.ts:508` 兜底 catch | ⚠️ 可能相关：fetch 在 release 偶发 abort | 同上 + 看异常 message |
+| **"上传超时，请稍后重试"** | 前端 `ApiClient.ts:237` AbortError 分支 | ⚠️ 可能相关：30s 上传 timeout | adb logcat 看是否到了 30s |
 
 ---
 
@@ -999,7 +1035,13 @@ Alipay.alipay(orderStr) 返回
    - 支付宝返回非 9000 但已扣款 → 不直接报失败，active-query / polling 确认 ✓
 
 ### 状态
-🔧 待开工（用户已确认设计稿 + 主动查询架构 + 总订单/子订单概念）
+✅ 已完成（4 commit 全部 merge + 推送 + 真机验证）
+- Commit A 后端主动查询接口：bd2ae87
+- Commit B OrderRepo.activeQueryPayment：474260e
+- Commit C 新建 `/payment-success` 页：1c484c2
+- Commit D checkout active-query + 90 轮询 + 跳成功页：e391e75
+- 加固：456062b（4 处 F1+F2+F3+F4）+ b66ff00（notify transient/deterministic 拆分 + controller 测试）
+- 部署：2026-04-30 staging push + OTA 完成 + 用户真机验证通过
 
 ---
 
@@ -1031,6 +1073,25 @@ tabBarStyle: {
 - 老的有 insets 正确返回的 Android（gesture bar / 现代机型）走 max 取大值不变
 
 ### 状态
-✅ 已补丁完成（commit fc9a493，本地未推）
+✅ 已完成（commit fc9a493 + ec64e3c 改成精准判定，已 push + OTA + 真机验证）
 
-待第一轮 + 本轮共 6 个 commit (9f98eb0 / 526f4a2 / 23db438 / 4ab674a / 08cdb3b / fc9a493) push + OTA 后继续验证。后续新问题在此段追加。
+第一轮 + 第二轮共 6 个 commit (9f98eb0 / 526f4a2 / 23db438 / 4ab674a / 08cdb3b / fc9a493) + 后续 ec64e3c 已全部 push + OTA + 真机验证通过。后续新问题在此段追加。
+
+---
+
+## P5 收尾状态（2026-04-30）
+
+| 维度 | 状态 |
+|------|------|
+| 代码（前端 OTA + 后端） | ✅ 全部 merge + push |
+| 后端部署 + PM2 | ✅ GitHub Actions 自动部署完成 |
+| 服务器 `.env`（ALIPAY_NOTIFY_URL） | ✅ 用户已配置 |
+| OTA 推送 | ✅ 已发（含 EXPO_PUBLIC_ALIPAY_SANDBOX=true） |
+| 真机冷启动两次验证 | ✅ 用户验证通过 |
+| **唯一剩余项**：P5 任务 18 — 服务器执行 SQL 迁移 | ⬜ 待执行（OSS http→https + inbox 路由批量改） |
+
+执行路径：
+1. SSH 进生产服务器 → `psql` 连数据库
+2. 执行 `backend/scripts/2026-04-29-migrate-oss-https.sql`（OSS http→https，含 4 阶段 dry-run + 审计）
+3. 执行 `backend/scripts/2026-04-29-migrate-inbox-routes.sql`（InboxMessage 旧路径修正，含 3 阶段 dry-run + 审计）
+4. 执行后真机回测 Bug 2（图片可见）+ Bug 8（消息中心点击跳转正确）
