@@ -34,12 +34,16 @@ export type OrderItem = {
   productId: string;
   skuId?: string;
   title: string;
+  /** SKU 规格名（如 "5斤装"） */
+  skuTitle?: string;
   image: string;
   price: number;
   quantity: number;
+  /** 商品所属商户 ID（用于按商户聚合展示） */
+  companyId?: string;
   /** 是否为抽奖奖品（奖品不支持退换） */
   isPrize?: boolean;
-  /** 是否来自已完成的换货（不支持无理由退货） */
+  /** 是否来自已完成的换货（不支持无理由退货）—— Phase 2 后端将补齐派生 */
   isPostReplacement?: boolean;
 };
 
@@ -143,6 +147,14 @@ export type Order = {
   vipDiscountAmount?: number;
   /** 无理由退货窗口截止时间 */
   returnWindowExpiresAt?: string;
+  /** 支付完成时间（Phase 1 列表 DTO 已暴露） */
+  paidAt?: string;
+  /** 发货时间（Phase 1 列表 DTO 已暴露） */
+  shippedAt?: string;
+  /** 物流送达时间（已签收后才有值） */
+  deliveredAt?: string;
+  /** 自动确认收货时间（Phase 2 后端将暴露，前置类型保持前向兼容） */
+  autoReceiveAt?: string;
   createdAt: string;
   items: OrderItem[];
 };
