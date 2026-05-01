@@ -21,6 +21,7 @@
 | 7 | CRITICAL | 支付宝 JS 错配 + sandbox flag 在 release 被关 | **OTA** + 后端配置 | ✅ 代码已修 + 服务器 .env 已配 + OTA 已发 + 真机验证通过（含 P5 第三轮支付链路闭环改造） |
 | 8 | HIGH | 13+ 处后端 deeplink 路径错配 | 后端重启 + SQL 迁移 + OTA | ⏭️ 代码已部署 + OTA 已发，待 P5 任务 18 SQL 执行 |
 | 9 | HIGH | Android 录音格式与上传声明不一致 + 后端 m4a 容器误当裸 AAC 流喂 DashScope | OTA + 后端部署 + 服务器装 ffmpeg | 🔧 第一轮已修 + 第二轮 ffmpeg 归一化代码已完成 + 服务器 ffmpeg 已装（待 push + 真机回归） |
+| 10 | MEDIUM | 发现页双列瀑布流左右不等宽（间歇性 80/20）| OTA | ✅ 代码已修（museum.tsx 列宽锁死，待 OTA + 真机验证） |
 
 ---
 
@@ -1095,3 +1096,51 @@ tabBarStyle: {
 2. 执行 `backend/scripts/2026-04-29-migrate-oss-https.sql`（OSS http→https，含 4 阶段 dry-run + 审计）
 3. 执行 `backend/scripts/2026-04-29-migrate-inbox-routes.sql`（InboxMessage 旧路径修正，含 3 阶段 dry-run + 审计）
 4. 执行后真机回测 Bug 2（图片可见）+ Bug 8（消息中心点击跳转正确）
+
+---
+
+## P6（2026-05-01 发现）
+
+### Bug 10：发现页双列瀑布流左右不等宽（间歇性 80/20）
+
+**用户实测**：发现页两列商品有时左右各 50%，**有时左列站 ~80%，右列被挤压到 ~20%**。
+重新进入或下拉刷新后**有时**变正常。
+
+**根因（系统化分析）**：
+museum 这页两列用 `<View style={{ flex: 1 }}>`，理论上 Yoga 应该按 `flex-basis: 0 + flex-grow: 1` 等分。
+**但** `flex: 1` 的等分需要"内容能压缩"才稳定，本页同时具备多个让 Yoga 算偏列宽的条件：
+- ProductCard 内 `<Text>` 没限宽（`product.companyName` / `product.origin` / `<Price>` 三段全没 `numberOfLines`）
+- `<Image>` 加载过程中 expo-image 会 report intrinsic 尺寸触发 measure
+- ProductCard Pressable 用 `width: '100%'` 依赖父级测量收敛
+- 两个 tab 套了 `StyleSheet.absoluteFill` 初次挂载时 0 宽 → 重排
+- 模块顶层 `Dimensions.get('window')` 抓取的是启动那一瞬间的宽度，不会跟旋转/分屏更新
+
+**真实变量**：
+- `useInfiniteQuery` 拉到的商品在 `index % 2` split，**哪些卡片落到左列哪些落右列**会跟着下拉刷新/分页/换分类变
+- 一旦左列恰好分到内容更"撑"的卡片（长公司名/长价格/划线价同时存在），列宽就被推得不等
+- 看起来"间歇性"，本质是**数据相关 + 首次图片加载 race**的组合
+
+回归来源：commit `b5b7d34` 把 ProductCard 从固定 `width={CARD_WIDTH}` 改成 `width: '100%'` + 父级 `flex: 1`，从此列宽变成内容驱动而不是几何驱动。
+
+**修复（A 阶段，museum.tsx 一个文件）**：
+1. 删除模块顶层 `Dimensions.get('window')` 和 `CARD_WIDTH`（dead code）
+2. 组件内用 `useWindowDimensions()` 拿当前窗口宽度（旋转/分屏/字体放大都能即时跟随）
+3. 计算 `itemWidth = (windowWidth - HORIZONTAL_PADDING*2 - COLUMN_GAP) / 2`
+4. 两列从 `flex: 1` 改成 `width: itemWidth`，ProductCard 显式 `width={itemWidth}`
+5. `tabWidth` 同样改用 hook 派生
+
+**为什么彻底解决**（限定在 museum 这页）：
+- 列宽是数字，Yoga 没自由度算偏
+- ProductCard 自带 `overflow: 'hidden'`，内容再长也卡在卡片边界，不会视觉溢出到隔壁列
+- 不依赖图片加载状态、不依赖 absoluteFill 测量先后
+
+**未做（B 阶段 backlog）**：
+- ProductCard / Price 内部 Text 仍未限宽，本次只锁列宽不动组件
+- 项目响应式工具集 `src/theme/responsive.ts` 仍未建（响应式规范文档已写但代码 0 命中）
+- 这两项进 backlog，等 v1 上线后统一收编
+
+### 状态
+✅ 代码已修（本地，未 push）
+- 改动文件：`app/(tabs)/museum.tsx`
+- 部署方式：纯 OTA
+- 待办：用户复述确认 → push staging → OTA → 真机回归
