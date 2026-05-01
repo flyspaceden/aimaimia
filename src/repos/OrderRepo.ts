@@ -25,7 +25,7 @@
  * - `POST /api/v1/orders/batch-pay` → 旧合并支付（改用 checkout）
  */
 import { mockOrders } from '../mocks';
-import { Order, OrderItem, OrderStatus, PaginationResult, PaymentMethod, ShipmentDetail, Result, err } from '../types';
+import { Order, OrderItem, OrderStatus, PaginationResult, PaymentMethod, ShipmentDetail, Result, err, PendingCheckout } from '../types';
 import { createAppError, simulateRequest } from './helpers';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
@@ -252,6 +252,30 @@ export const OrderRepo = {
     return ApiClient.post<CheckoutSessionStatus & { confirmedBy: string }>(
       `/orders/checkout/${sessionId}/active-query`,
     );
+  },
+
+  /**
+   * 获取当前用户最新一条 ACTIVE CheckoutSession（未完成订单）
+   * - 后端接口：GET /api/v1/orders/checkout/me/pending
+   * - 返回 null 表示没有未完成订单
+   */
+  getPendingCheckout: async (): Promise<Result<PendingCheckout | null>> => {
+    if (USE_MOCK) {
+      return simulateRequest<PendingCheckout | null>(null, { delay: 200 });
+    }
+    return ApiClient.get<PendingCheckout | null>('/orders/checkout/me/pending');
+  },
+
+  /**
+   * 续付未完成订单（重新生成支付参数）
+   * - 后端接口：POST /api/v1/orders/checkout/:sessionId/resume
+   * - 返回新的 paymentParams（含支付宝 orderStr）
+   */
+  resumeCheckout: async (sessionId: string): Promise<Result<{ sessionId: string; merchantOrderNo: string | null; expectedTotal: number; paymentParams: { channel?: string; orderStr?: string } }>> => {
+    if (USE_MOCK) {
+      return simulateRequest({ sessionId, merchantOrderNo: 'MO-mock', expectedTotal: 100, paymentParams: { channel: 'alipay', orderStr: 'mock-order-str' } }, { delay: 300 });
+    }
+    return ApiClient.post(`/orders/checkout/${sessionId}/resume`, {});
   },
 
   /**
