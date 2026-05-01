@@ -22,8 +22,8 @@ import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
 
 // 订单快捷入口（问题单复用 afterSale 状态，后端 issueFlag 已移除）
+// pendingPay 暂时移除（Phase 2 重构为"未完成支付"）
 const orderEntries: Array<{ id: OrderStatus; label: string; icon: string }> = [
-  { id: 'pendingPay', label: '待付款', icon: 'credit-card-outline' },
   { id: 'pendingShip', label: '待发货', icon: 'package-variant' },
   { id: 'shipping', label: '待收货', icon: 'truck-delivery-outline' },
   { id: 'afterSale', label: '换货/售后', icon: 'headset' },
