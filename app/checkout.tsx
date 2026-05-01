@@ -462,8 +462,16 @@ export default function CheckoutScreen() {
           show({ message: '已取消支付', type: 'warning' });
           await OrderRepo.cancelCheckoutSession(sessionId);
           return;
+        } else if (alipayResult.memo === 'TIMEOUT') {
+          // SDK 90s 无响应（通常支付宝被系统拦截没起来）：不 cancel session，
+          // 提示用户 + 走 active-query + polling 兜底（用户仍可能在支付宝里完成支付）
+          show({
+            message: '支付宝未响应，请确认是否已安装支付宝并允许应用启动它，正在为你确认支付结果…',
+            type: 'warning',
+            duration: 4000,
+          });
         }
-        // 9000/8000/6004/4000/空字符串等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
+        // 9000/8000/6004/4000/空字符串/TIMEOUT 等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
       } else if (paymentMethod === 'alipay') {
         // 用户选了支付宝但后端没生成 orderStr → 后端 SDK 初始化失败/凭据错
         show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
@@ -553,8 +561,15 @@ export default function CheckoutScreen() {
           show({ message: '已取消支付', type: 'warning' });
           await OrderRepo.cancelCheckoutSession(sessionId);
           return;
+        } else if (alipayResult.memo === 'TIMEOUT') {
+          // SDK 90s 无响应：与主结算分支一致，不 cancel session，让 active-query 兜底
+          show({
+            message: '支付宝未响应，请确认是否已安装支付宝并允许应用启动它，正在为你确认支付结果…',
+            type: 'warning',
+            duration: 4000,
+          });
         }
-        // 其他状态（9000/8000/6004/4000/空）→ 进 active-query
+        // 其他状态（9000/8000/6004/4000/空/TIMEOUT）→ 进 active-query
       } else if (paymentMethod === 'alipay') {
         show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
         await OrderRepo.cancelCheckoutSession(sessionId);

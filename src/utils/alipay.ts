@@ -51,6 +51,18 @@ export function initAlipayEnv(sandbox: boolean) {
 }
 
 /**
+ * SDK 调用最长等待时间（毫秒）。超时后返回 memo='TIMEOUT'，由 caller 走 active-query 兜底。
+ *
+ * 设计理由：
+ * - SDK 的 Promise 在「支付宝 App 启动失败被系统拦截」时永远不 resolve（如沙箱钱包被 MIUI 杀后台）
+ * - 不加超时 → 用户卡在"提交中" spinner 永远，连取消按钮都点不到
+ * - 90s 覆盖典型支付时长（用户在支付宝里 30~60s 完成支付 + 切回 App 几秒）
+ * - 超时后不 cancel session，让 confirmPaymentAndNavigate 的 active-query + 90 轮询继续兜底
+ *   （即使 SDK 没返回，只要用户在支付宝完成支付，notify / 主动查询都能确认）
+ */
+const ALIPAY_SDK_TIMEOUT_MS = 90000;
+
+/**
  * 调用支付宝 APP 支付
  * - preview/production APK：使用 @uiw/react-native-alipay 原生 SDK 调起支付宝
  * - 开发环境（Expo Go）：原生模块不可用，返回 false 走模拟支付
@@ -76,8 +88,17 @@ export async function payWithAlipay(orderStr: string): Promise<{
     `[Alipay] payWithAlipay called orderStr length=${orderStr.length} ` +
     `preview="${orderStr.slice(0, 80)}..."`,
   );
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   try {
-    const result = await Alipay.alipay(orderStr);
+    const result = await Promise.race<AlipayResult>([
+      Alipay.alipay(orderStr),
+      new Promise<AlipayResult>((_, reject) => {
+        timeoutHandle = setTimeout(
+          () => reject(new Error('ALIPAY_SDK_TIMEOUT')),
+          ALIPAY_SDK_TIMEOUT_MS,
+        );
+      }),
+    ]);
     console.log(`[Alipay] result: ${JSON.stringify(result)}`);
     const resultStatus = String(result?.resultStatus ?? '');
     return {
@@ -86,6 +107,11 @@ export async function payWithAlipay(orderStr: string): Promise<{
       memo: result?.memo || result?.result || '',
     };
   } catch (err: any) {
+    // 90s 内 SDK 没 resolve：通常是支付宝 App 启动失败被系统拦截（沙箱钱包 / 后台启动权限）
+    if (err?.message === 'ALIPAY_SDK_TIMEOUT') {
+      console.warn(`[Alipay] SDK ${ALIPAY_SDK_TIMEOUT_MS}ms 无响应，超时返回 TIMEOUT`);
+      return { success: false, memo: 'TIMEOUT' };
+    }
     // 原生模块未链接时（理论上 loadAlipay 已拦截，这里兜底）
     if (
       err?.message?.includes('Cannot find native module') ||
@@ -97,5 +123,7 @@ export async function payWithAlipay(orderStr: string): Promise<{
     }
     console.error('[Alipay] 支付异常:', err);
     return { success: false, memo: err?.message || 'UNKNOWN_ERROR' };
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
   }
 }
