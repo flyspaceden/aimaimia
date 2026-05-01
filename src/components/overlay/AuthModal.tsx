@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -350,10 +351,22 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   );
 
   return (
-    <Modal transparent visible={open} animationType="fade" onRequestClose={handleClose}>
+    <Modal transparent visible={open} animationType="fade" onRequestClose={handleClose} statusBarTranslucent>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        {/* Modal 在 Android 上创建独立 Window 不继承 Activity 的 windowSoftInputMode，
+            所以 KAV 必须 flex:1 占满 + 用 ScrollView 包卡片让键盘弹起时能滚动到 focus 输入框。
+            commit 727d960 单改 behavior 没解决问题就是因为缺这两层。 */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.kavFill}
+          pointerEvents="box-none"
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <Animated.View
             entering={FadeIn.duration(200)}
             style={[styles.card, shadow.lg, { backgroundColor: colors.surface, borderRadius: radius['2xl'] ?? 20 }]}
@@ -693,6 +706,7 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
               )}
             </View>
           </Animated.View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -705,6 +719,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // KAV 必须 flex:1 占满整屏，否则 Android Modal 内键盘弹起时不会触发布局变化
+  kavFill: {
+    flex: 1,
+    width: '100%',
+  },
+  // ScrollView 内容居中：无键盘时卡片仍居中显示，键盘弹起时可滚动到 focus 的输入框
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 24,
   },
   card: {
     width: 340,
