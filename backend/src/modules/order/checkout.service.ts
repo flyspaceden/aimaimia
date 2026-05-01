@@ -1046,6 +1046,39 @@ export class CheckoutService {
     };
   }
 
+  /** Task 16: 查询当前用户最新的 ACTIVE CheckoutSession（用于"未完成订单"入口） */
+  async getPendingForUser(userId: string) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!session) return null;
+    const items = (session.itemsSnapshot as any[]) || [];
+    const first = items[0];
+    return {
+      sessionId: session.id,
+      merchantOrderNo: session.merchantOrderNo,
+      expectedTotal: session.expectedTotal,
+      goodsAmount: session.goodsAmount,
+      shippingFee: session.shippingFee,
+      expiresAt: session.expiresAt.toISOString(),
+      itemCount: items.reduce((s, i) => s + (i.quantity || 1), 0),
+      bizType: session.bizType,
+      preview: {
+        firstItemImage: first?.productSnapshot?.image || '',
+        firstItemTitle: first?.productSnapshot?.title || '',
+        extraCount: Math.max(0, items.length - 1),
+      },
+      items: items.map((i) => ({
+        image: i.productSnapshot?.image || '',
+        title: i.productSnapshot?.title || '',
+        skuTitle: i.productSnapshot?.skuTitle || '',
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
+    };
+  }
+
   /** F1: 查找 CheckoutSession（payment callback 路由用） */
   async findByMerchantOrderNo(merchantOrderNo: string) {
     return this.prisma.checkoutSession.findUnique({

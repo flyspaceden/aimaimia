@@ -56,6 +56,12 @@ export class OrderController {
     return this.checkoutService.getSessionStatus(userId, sessionId);
   }
 
+  /** Task 16: 查询当前用户最新的 ACTIVE CheckoutSession（"未完成订单"入口） */
+  @Get('checkout/me/pending')
+  getMyPendingCheckout(@CurrentUser('sub') userId: string) {
+    return this.checkoutService.getPendingForUser(userId);
+  }
+
   /**
    * P5 第三轮：App 端主动查询支付宝订单状态（不等 notify）
    *
