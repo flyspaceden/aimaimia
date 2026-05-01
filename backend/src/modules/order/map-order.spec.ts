@@ -25,4 +25,18 @@ describe('OrderService.mapOrder snapshot', () => {
       isPrize: false,
     });
   });
+
+  it('mapOrder exposes paidAt/shippedAt/deliveredAt', () => {
+    const now = new Date();
+    const order = {
+      id: 'o1', status: 'SHIPPED', bizType: 'NORMAL_GOODS', totalAmount: 100,
+      createdAt: now, paidAt: now, deliveredAt: null,
+      items: [], afterSaleRequests: [], refunds: [],
+      shipments: [{ shippedAt: now, deliveredAt: null, trackingEvents: [] }],
+    };
+    const out = (service as any).mapOrder(order);
+    expect(out.paidAt).toBe(now.toISOString());
+    expect(out.shippedAt).toBe(now.toISOString());
+    expect(out.deliveredAt).toBeNull();
+  });
 });

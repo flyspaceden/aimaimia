@@ -81,6 +81,15 @@ export class OrderService {
     this.couponEngineService = service;
   }
 
+  private earliestShippedAt(shipments?: any[]): string | null {
+    if (!shipments || shipments.length === 0) return null;
+    const times = shipments
+      .map((s) => s.shippedAt)
+      .filter(Boolean)
+      .map((d: Date) => d.getTime());
+    return times.length ? new Date(Math.min(...times)).toISOString() : null;
+  }
+
   private summarizeShipments(
     shipments?: Array<{
       id: string;
@@ -1108,6 +1117,9 @@ export class OrderService {
         order.createdAt instanceof Date
           ? order.createdAt.toISOString().slice(0, 16).replace('T', ' ')
           : order.createdAt,
+      paidAt: order.paidAt?.toISOString() ?? null,
+      shippedAt: this.earliestShippedAt(order.shipments) ?? null,
+      deliveredAt: order.deliveredAt?.toISOString() ?? null,
       items: (order.items || []).map(snapshot),
     };
   }
