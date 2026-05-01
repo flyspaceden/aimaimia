@@ -1188,14 +1188,28 @@ export class OrderService {
     const base = this.mapOrder(order);
     const payment = order.payments?.[0];
     const addressSnapshot = decryptJsonValue(order.addressSnapshot);
+    const addressSnapshotMasked = maskAddressSnapshot(addressSnapshot);
     const logistics = this.summarizeShipments(order.shipments);
 
     // 售后相关字段已由 mapOrder() 统一处理（afterSaleStatus/afterSaleReason/afterSaleType）
 
+    // 暴露给前端的结构化 + 已拼接的脱敏地址块（避免前端手动拼 fullAddress）
+    const masked: any = addressSnapshotMasked;
+    const address = masked
+      ? {
+          recipientName: masked.recipientName || '',          // 已脱敏 ("张*")
+          recipientPhone: masked.phone || '',                 // 已脱敏 ("138****8888")
+          fullAddress: [masked.province, masked.city, masked.district, masked.detail]
+            .filter(Boolean)
+            .join(' '),
+        }
+      : null;
+
     return {
       ...base,
       addressSnapshot,
-      addressSnapshotMasked: maskAddressSnapshot(addressSnapshot),
+      addressSnapshotMasked,
+      address,
       goodsAmount: order.goodsAmount,
       shippingFee: order.shippingFee,
       discountAmount: order.discountAmount,
