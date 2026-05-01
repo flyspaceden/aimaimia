@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState } from '../src/components/feedback';
 import { AppBottomSheet } from '../src/components/overlay';
@@ -327,6 +328,7 @@ export default function LotteryScreen() {
     queryClient.invalidateQueries({ queryKey: ['lottery-today'] });
     queryClient.invalidateQueries({ queryKey: ['lottery-today-page'] });
     setPhase('idle');
+    router.replace('/(tabs)/home');
   }, [syncFromServer, refetchStatus, queryClient]);
 
   const result = drawResultRef.current;
