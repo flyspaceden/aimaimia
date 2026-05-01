@@ -25,6 +25,7 @@ import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../src/components/layout';
 import { AuthModal } from '../../src/components/overlay';
+import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
 import { FloatingParticles, AiOrb } from '../../src/components/effects';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
@@ -426,6 +427,9 @@ export default function HomeScreen() {
           />
         }
       >
+        {/* 未完成订单横幅（无未支付订单时返回 null） */}
+        <PendingCheckoutBanner />
+
         {/* 问候语区域 */}
         <View style={[styles.greetingRow, { marginTop: spacing['3xl'] }]}>
           <View style={styles.greetingArea}>

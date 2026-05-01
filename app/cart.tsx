@@ -19,6 +19,7 @@ import { ProductCard } from '../src/components/cards/ProductCard';
 import { RecommendRepo } from '../src/repos';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { AuthModal } from '../src/components/overlay';
+import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
 import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
 import { useTheme } from '../src/theme';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
@@ -152,6 +153,8 @@ export default function CartScreen() {
     return (
       <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="购物车" onBack={handleBack} />
+        {/* 未完成订单横幅（无未支付订单时返回 null） */}
+        <PendingCheckoutBanner />
         <View style={styles.emptyContainer}>
           <AiOrb size="small" onPress={() => router.push('/ai/chat')} />
           <Text style={[typography.title3, { color: colors.text.primary, marginTop: spacing.lg }]}>
@@ -211,6 +214,9 @@ export default function CartScreen() {
         }}
         ListHeaderComponent={
           <>
+            {/* 未完成订单横幅（无未支付订单时返回 null） */}
+            <PendingCheckoutBanner />
+
             {/* AI 省钱建议卡 */}
             {showSavingTip && (
               <AiCardGlow style={{ ...shadow.sm, marginBottom: spacing.md }}>
