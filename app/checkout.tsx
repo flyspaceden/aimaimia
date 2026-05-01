@@ -458,9 +458,9 @@ export default function CheckoutScreen() {
             return;
           }
         } else if (alipayResult.resultStatus === '6001') {
-          // 用户主动取消（唯一可信的"用户拒付"信号）
-          show({ message: '已取消支付', type: 'warning' });
-          await OrderRepo.cancelCheckoutSession(sessionId);
+          // 用户取消支付 — 保留 Session ACTIVE，跳到 /checkout-pending 让用户决定续付或主动取消
+          // （不再立即 cancelCheckoutSession；30 分钟后 Cron 自然过期）
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         } else if (alipayResult.memo === 'TIMEOUT') {
           // SDK 90s 无响应（通常支付宝被系统拦截没起来）：不 cancel session，
@@ -558,8 +558,9 @@ export default function CheckoutScreen() {
             return;
           }
         } else if (alipayResult.resultStatus === '6001') {
-          show({ message: '已取消支付', type: 'warning' });
-          await OrderRepo.cancelCheckoutSession(sessionId);
+          // 用户取消支付 — 保留 Session ACTIVE，跳到 /checkout-pending 让用户决定续付或主动取消
+          // （不再立即 cancelCheckoutSession；30 分钟后 Cron 自然过期）
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         } else if (alipayResult.memo === 'TIMEOUT') {
           // SDK 90s 无响应：与主结算分支一致，不 cancel session，让 active-query 兜底
