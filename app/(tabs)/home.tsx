@@ -850,7 +850,7 @@ export default function HomeScreen() {
           ) : (
             <View style={[styles.emptyState, { paddingVertical: spacing['3xl'] }]}>
               <Text style={[typography.bodySm, { color: colors.muted, textAlign: 'center' }]}>
-                和脉脉聊聊，发现更多好物
+                和爱买买聊聊，发现更多好物
               </Text>
             </View>
           )}
