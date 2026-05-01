@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { OrderCard } from '../../src/components/cards/OrderCard';
@@ -25,6 +25,7 @@ const isOrderStatus = (v?: string): v is OrderStatus =>
 function useOrderActions() {
   const router = useRouter();
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
   return (order: Order) => {
     switch (order.status) {
@@ -39,8 +40,13 @@ function useOrderActions() {
           primaryLabel: '确认收货',
           primaryAction: async () => {
             const r = await OrderRepo.confirmReceive(order.id);
-            if (!r.ok) show({ message: r.error.displayMessage ?? '失败', type: 'error' });
-            else show({ message: '已确认收货', type: 'success' });
+            if (!r.ok) {
+              show({ message: r.error.displayMessage ?? '失败', type: 'error' });
+              return;
+            }
+            await queryClient.invalidateQueries({ queryKey: ['orders'] });
+            await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
+            show({ message: '已确认收货', type: 'success' });
           },
           secondaryLabel: '查看物流',
           secondaryAction: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }),

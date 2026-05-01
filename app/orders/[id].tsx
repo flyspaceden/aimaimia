@@ -66,6 +66,7 @@ export default function OrderDetailScreen() {
     const r = await OrderRepo.confirmReceive(order.id);
     if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
+    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
     show({ message: '已确认收货', type: 'success' });
     refetch();
   };
@@ -74,6 +75,7 @@ export default function OrderDetailScreen() {
     const r = await OrderRepo.confirmReplacement(order.id);
     if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
+    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
     show({ message: '已确认收到换货', type: 'success' });
     refetch();
   };
@@ -82,6 +84,7 @@ export default function OrderDetailScreen() {
     const r = await OrderRepo.cancelOrder(order.id);
     if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
+    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
     show({ message: '已取消', type: 'success' });
     refetch();
   };
@@ -155,7 +158,7 @@ export default function OrderDetailScreen() {
         {showLogistics && latestEvent ? (
           <Pressable
             onPress={() => router.push({ pathname: '/orders/track', params: { orderId: order.id } })}
-            style={[styles.section, { backgroundColor: colors.surface }]}
+            style={[styles.sectionRow, { backgroundColor: colors.surface }]}
           >
             <MaterialCommunityIcons name="package-variant" size={18} color={colors.brand.primary} />
             <View style={{ flex: 1, marginLeft: 8 }}>
@@ -211,7 +214,7 @@ export default function OrderDetailScreen() {
             paymentMethod={(order as any).paymentMethod}
             buyerNote={(order as any).buyerNote}
             isVipPackage={isVip}
-            onApplyInvoice={!isVip ? () => router.push(`/invoice/apply?orderId=${order.id}`) : undefined}
+            onApplyInvoice={!isVip ? () => router.push({ pathname: '/invoices/request', params: { orderId: order.id } }) : undefined}
           />
         </View>
       </ScrollView>
@@ -223,5 +226,6 @@ export default function OrderDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  section: { flexDirection: 'row', alignItems: 'center', padding: 12, marginTop: 8 },
+  section: { padding: 12, marginTop: 8 },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', padding: 12, marginTop: 8 },
 });

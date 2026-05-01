@@ -289,7 +289,7 @@ export class OrderService {
         where,
         include: {
           items: true,
-          shipments: { select: { status: true, trackingNo: true } },
+          shipments: { select: { status: true, trackingNo: true, shippedAt: true, deliveredAt: true } },
           afterSaleRequests: {
             orderBy: { createdAt: 'desc' },
             take: 1,

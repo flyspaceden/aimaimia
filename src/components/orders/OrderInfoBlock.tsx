@@ -18,9 +18,17 @@ interface Props {
 
 const PAY_LABEL: Record<string, string> = { wechat: '微信支付', alipay: '支付宝', bankcard: '银行卡' };
 
-function formatTime(iso?: string) {
-  if (!iso) return '—';
-  const d = new Date(iso);
+function formatTime(value?: string) {
+  if (!value) return '—';
+  // 后端 createdAt 可能是 "YYYY-MM-DD HH:mm" 已格式化字符串（非 ISO），直接返回
+  // 后端 paidAt/shippedAt/deliveredAt 是 ISO 字符串，按 ISO 解析
+  const looksFormatted = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value);
+  if (looksFormatted && !value.includes('T')) {
+    // 已是 "YYYY-MM-DD HH:mm" 格式
+    return value;
+  }
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;  // fallback：解析失败原样返回
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
@@ -33,15 +41,22 @@ export function OrderInfoBlock({ orderId, createdAt, paidAt, shippedAt, delivere
     show({ message: '已复制', type: 'success' });
   };
 
-  const Row = ({ label, value, action }: { label: string; value: React.ReactNode; action?: React.ReactNode }) => (
-    <View style={styles.row}>
-      <Text style={[typography.caption, { color: colors.text.secondary }]}>{label}</Text>
-      <View style={styles.rowRight}>
-        <Text style={[typography.caption, { color: colors.text.primary }]}>{value}</Text>
-        {action}
+  const Row = ({ label, value, action }: { label: string; value: React.ReactNode; action?: React.ReactNode }) => {
+    const valueIsText = typeof value === 'string' || typeof value === 'number';
+    return (
+      <View style={styles.row}>
+        <Text style={[typography.caption, { color: colors.text.secondary }]}>{label}</Text>
+        <View style={styles.rowRight}>
+          {valueIsText ? (
+            <Text style={[typography.caption, { color: colors.text.primary }]}>{value}</Text>
+          ) : (
+            value
+          )}
+          {action}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View>
