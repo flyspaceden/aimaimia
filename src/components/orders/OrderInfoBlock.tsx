@@ -70,7 +70,14 @@ export function OrderInfoBlock({ orderId, createdAt, paidAt, shippedAt, delivere
       {shippedAt ? <Row label="发货时间" value={formatTime(shippedAt)} /> : null}
       {deliveredAt ? <Row label="送达时间" value={formatTime(deliveredAt)} /> : null}
       {paymentMethod ? <Row label="付款方式" value={PAY_LABEL[paymentMethod] ?? paymentMethod} /> : null}
-      {buyerNote ? <Row label="买家留言" value={buyerNote} /> : null}
+      {buyerNote ? (
+        <View style={styles.noteBlock}>
+          <Text style={[typography.caption, { color: colors.text.secondary }]}>买家留言</Text>
+          <Text style={[typography.caption, { color: colors.text.primary, marginTop: 4, lineHeight: 18 }]}>
+            {buyerNote}
+          </Text>
+        </View>
+      ) : null}
       {!isVipPackage && onApplyInvoice ? (
         <Row label="发票" value={
           <Pressable onPress={onApplyInvoice}>
@@ -86,4 +93,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   copyBtn: { paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6 },
+  noteBlock: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eee',
+  },
 });
