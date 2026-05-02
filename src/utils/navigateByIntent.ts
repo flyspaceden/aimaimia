@@ -269,13 +269,22 @@ async function resolveTransactionIntent(
       };
     }
     case 'pay': {
-      const pendingPayResult = await OrderRepo.list('pendingPay', { page: 1, pageSize: 1 });
-      const hasPendingPay = pendingPayResult.ok && pendingPayResult.data.items.length > 0;
+      // Phase 3 Review Fix 6：Phase 2 后订单付款前不再创建 Order，改用 CheckoutSession 续付路径
+      const pendingResult = await OrderRepo.getPendingCheckout();
+      const pending = pendingResult.ok ? pendingResult.data : null;
+      if (pending) {
+        return {
+          action: 'navigate',
+          route: '/checkout-pending',
+          params: { sessionId: pending.sessionId },
+          toastText: intent.feedback,
+        };
+      }
       return {
         action: 'navigate',
         route: '/orders',
-        params: hasPendingPay ? { status: 'pendingPay' } : {},
-        toastText: hasPendingPay ? intent.feedback : '暂时没有待付款订单，先带你去订单页看看...',
+        params: {},
+        toastText: '暂时没有待付款订单，先带你去订单页看看...',
       };
     }
     case 'refund':
