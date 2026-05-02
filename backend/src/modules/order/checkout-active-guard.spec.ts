@@ -1,39 +1,81 @@
 import { CheckoutService } from './checkout.service';
 import { ConflictException } from '@nestjs/common';
 
+/**
+ * Fix 4：收紧 active session guard 测试
+ *
+ * 原版本用 `if (caught instanceof ConflictException)` 软断言，前置校验失败时只 console.warn
+ * 让测试通过。这会掩盖防重锁实际未执行的问题。
+ *
+ * 这里把所有事务前的 prisma / 服务依赖 mock 全部补完整，让 service 真正进入 $transaction，
+ * 触发 active session guard，强断言必须抛 ConflictException + code=PENDING_CHECKOUT_EXISTS。
+ */
 describe('CheckoutService active session guard', () => {
-  it('throws ConflictException with PENDING_CHECKOUT_EXISTS when active session exists (in transaction)', async () => {
+  it('throws ConflictException with PENDING_CHECKOUT_EXISTS when active session exists in transaction', async () => {
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    const activeSession = { id: 'existing', idempotencyKey: 'old-key', expiresAt };
+    const activeSession = {
+      id: 'existing-session',
+      userId: 'user1',
+      status: 'ACTIVE',
+      expiresAt,
+      idempotencyKey: 'old-key',
+    };
 
-    // 防重锁现已挪进 Serializable 事务内执行（Fix 2）。
-    // tx.checkoutSession.findFirst 命中 status='ACTIVE' 时应抛 ConflictException。
-    // 但 service 在事务前还会先做幂等检查（prisma.checkoutSession.findFirst by idempotencyKey），
-    // 以及 SKU/cart 查询；在事务真正开始前，第 1 个 SKU 查询若返回空会抛 BadRequest。
-    // 为了能跑到事务体，让 SKU/cart 校验通过到事务执行。
-    const skuRow = {
+    const validSku = {
       id: 's1',
       productId: 'p1',
-      title: 'sku-title',
-      price: 10,
+      title: 'SKU 1',
+      price: 50,
+      cost: 30,
       stock: 100,
       status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 0,
       product: {
         id: 'p1',
-        title: 'p',
-        status: 'ACTIVE',
         companyId: 'c1',
+        title: 'P1',
+        status: 'ACTIVE',
+        auditStatus: 'APPROVED',
+        bizType: 'NORMAL_GOODS',
+        shippingTemplateId: null,
+        returnPolicy: 'INHERIT',
         media: [],
-        weight: 0,
-        isPrize: false,
       },
     };
 
+    const validAddress = {
+      id: 'a1',
+      userId: 'user1',
+      regionText: '北京市/北京市/朝阳区',
+      regionCode: 'CN-BJ-CY',
+      recipientName: '张三',
+      phone: '13800000000',
+      detail: '街道一号',
+    };
+
     const prisma: any = {
-      checkoutSession: {
-        // 幂等检查 (事务前) - 不命中
-        findFirst: async () => null,
-      },
+      // 幂等检查：未命中
+      checkoutSession: { findFirst: async () => null },
+      // SKU 查询：返回有效 SKU
+      productSKU: { findMany: async () => [validSku] },
+      // 用户购物车
+      cart: { findUnique: async () => null },
+      cartItem: { findMany: async () => [] },
+      // 地址校验
+      address: { findUnique: async () => validAddress },
+      // VIP 节点：null → 不走 VIP 折扣分支，不需要 bonusConfig
+      vipTreeNode: { findFirst: async () => null },
+      // 运费计算需要 bonusConfig（见下面 service 注入），不再走这里
+      shippingConfig: { findFirst: async () => null },
+      memberProfile: { findUnique: async () => null },
+      // 奖励校验（dto 没传 rewardId 不会调用，但补上以防）
+      rewardLedger: { findFirst: async () => null, findUnique: async () => null },
+      couponInstance: { findMany: async () => [] },
+      // 平台公司查询（VIP 折扣路径才需要，但补上保险）
+      company: { findMany: async () => [] },
+      lotteryRecord: { findUnique: async () => null },
+      // 事务内：guard 第一步 findFirst 返回 active session → 触发 ConflictException
       $transaction: async (cb: any) => {
         const tx = {
           checkoutSession: {
@@ -42,41 +84,38 @@ describe('CheckoutService active session guard', () => {
               return null;
             },
           },
+          rewardLedger: { updateMany: async () => ({ count: 0 }) },
         };
         return cb(tx);
       },
-      productSKU: { findMany: async () => [skuRow] },
-      cart: { findUnique: async () => null },
-      cartItem: { findMany: async () => [] },
-      address: { findUnique: async () => ({ id: 'a1', userId: 'user1', regionText: '北京市/北京市/朝阳区', regionCode: 'CN', recipientName: 'x', phone: '13800000000', detail: '街道' }) },
-      shippingConfig: { findFirst: async () => null },
-      vipPackage: { findFirst: async () => null },
-      memberProfile: { findUnique: async () => null },
-      rewardLedger: { findFirst: async () => null },
     };
 
-    const svc = new CheckoutService(prisma, {} as any);
+    // bonusConfig 用于 calculateShippingFee
+    const bonusConfig: any = {
+      getSystemConfig: async () => ({
+        vipFreeShippingThreshold: 0, // 0 = 无条件免运费 → 直接返回 0
+        normalFreeShippingThreshold: 0,
+        defaultShippingFee: 0,
+      }),
+    };
 
-    // 主要功能测试：当事务内检测到 active session 时抛 ConflictException
-    // 注意：由于事务前还有大量校验（SKU/地址/红包等），如果其它校验抛错会先于事务抛出。
-    // 这里我们只断言：如果能进入事务，那么 active session 检查会触发 ConflictException。
-    // 简化版：直接 mock $transaction 立即执行 callback 并断言 ConflictException 透出。
+    const svc = new CheckoutService(prisma, bonusConfig);
+
     let caught: any;
     try {
-      await svc.checkout('user1', { items: [{ skuId: 's1', quantity: 1 }], addressId: 'a1', idempotencyKey: 'new-key' } as any);
-    } catch (e: any) {
+      await svc.checkout('user1', {
+        items: [{ skuId: 's1', quantity: 1 }],
+        addressId: 'a1',
+        idempotencyKey: 'new-key',
+      } as any);
+    } catch (e) {
       caught = e;
     }
-    // 由于其它前置校验可能抛 BadRequest（地址/SKU 不一致等），允许 ConflictException 或 BadRequestException
-    // 但当 ConflictException 触发时，必须带 PENDING_CHECKOUT_EXISTS code
-    if (caught instanceof ConflictException) {
-      expect(caught.getResponse()).toMatchObject({ code: 'PENDING_CHECKOUT_EXISTS' });
-      expect(caught.getStatus()).toBe(409);
-    } else {
-      // 如果是其它错误（前置校验失败），跳过，保留主要路径覆盖到事务为止
-      // eslint-disable-next-line no-console
-      console.warn('[checkout-active-guard.spec] 前置校验先失败：', caught?.message);
-    }
+
+    // 强断言：必须真的抛 ConflictException + 必须是 PENDING_CHECKOUT_EXISTS code
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect((caught as ConflictException).getResponse()).toMatchObject({ code: 'PENDING_CHECKOUT_EXISTS' });
+    expect((caught as ConflictException).getStatus()).toBe(409);
   });
 
   it('does not block when no active session exists (guard passes through)', async () => {
