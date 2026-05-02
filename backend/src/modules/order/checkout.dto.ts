@@ -74,4 +74,10 @@ export class CheckoutDto {
   @IsString({ each: true })
   @ArrayMaxSize(10)
   couponInstanceIds?: string[];
+
+  /** 买家留言（非必填，<= 200 字） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  buyerNote?: string;
 }

@@ -641,6 +641,7 @@ export class CheckoutService {
               merchantOrderNo,
               paymentChannel: paymentChannel as any,
               idempotencyKey: dto.idempotencyKey || null,
+              buyerNote: dto.buyerNote || null,
               expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 分钟过期
             },
           });
@@ -934,6 +935,7 @@ export class CheckoutService {
           shippingFee: 0,
           discountAmount: 0,
           idempotencyKey: dto.idempotencyKey || null,
+          buyerNote: dto.buyerNote || null,
           expiresAt,
         },
       });
@@ -1299,6 +1301,7 @@ export class CheckoutService {
                   // 平台红包抵扣金额记录到商户订单
                   totalCouponDiscount: groupCouponDiscount > 0 ? groupCouponDiscount : null,
                   idempotencyKey,
+                  buyerNote: (session as any).buyerNote ?? null,
                   addressSnapshot: addressSnapshot as any,
                   paidAt: paidAt ? new Date(paidAt) : new Date(),
                   items: {
