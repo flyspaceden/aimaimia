@@ -1222,6 +1222,7 @@ export class OrderService {
             ? 'bankcard'
             : 'alipay'
         : undefined,
+      buyerNote: order.buyerNote ?? null,
       logisticsStatus: logistics.logisticsStatus,
       trackingNo: logistics.trackingNo,
       trackingNoMasked: logistics.trackingNoMasked,
