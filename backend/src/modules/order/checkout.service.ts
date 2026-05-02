@@ -931,8 +931,9 @@ export class CheckoutService {
 
           // 商户订单号
           const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-          // VIP 会话过期时间（30 分钟）
-          const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+          // VIP 会话过期时间（5 分钟）— VIP 不需要"未完成订单"概念，用户取消后可立即重下单；
+          // 5min 仅作为前端 cancel 调用失败时的后端兜底超时
+          const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
           const txSession = await tx.checkoutSession.create({
             data: {
