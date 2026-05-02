@@ -589,9 +589,26 @@ export default function CheckoutScreen() {
             return;
           }
         } else if (alipayResult.resultStatus === '6001') {
-          // 用户取消支付 — 保留 Session ACTIVE，跳到 /checkout-pending 让用户决定续付或主动取消
-          // （不再立即 cancelCheckoutSession；30 分钟后 Cron 自然过期）
-          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          // VIP 取消支付：先 active-query 二次确认（防 6001 误报）
+          // VIP 不需要"未完成订单"概念，未付款则立即 cancel + 释放库存 → 跳回 VIP 礼包页
+          const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (activeR.ok && activeR.data.status === 'COMPLETED') {
+            // 实际已付款（6001 误报）— 清理 VIP 选择 + 刷新缓存 + 跳订单列表
+            clearVipPackageSelection();
+            resetCheckoutStore();
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['orders'] }),
+              queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+            ]);
+            show({ message: '支付成功', type: 'success' });
+            router.replace('/orders');
+            return;
+          }
+          // 未付款 → 立即 cancel + 释放库存 → 跳回 VIP 礼包页
+          await OrderRepo.cancelCheckoutSession(sessionId);
+          show({ message: '已取消支付', type: 'info' });
+          router.replace('/vip/gifts');
           return;
         } else if (alipayResult.memo === 'TIMEOUT') {
           // SDK 90s 无响应：与主结算分支一致，不 cancel session，让 active-query 兜底
