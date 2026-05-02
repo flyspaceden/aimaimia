@@ -814,27 +814,46 @@ export class CheckoutService {
     const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);
 
     // 6. 商品快照（多商品组合）
+    //    Phase 3 Review Fix 1：嵌套 productSnapshot 结构对齐普通 checkout
+    //    下游 getPendingForUser / handlePaymentSuccess 直接将 productSnapshot 落到 OrderItem
     const itemsSnapshot: Array<{
       skuId: string;
       productId: string;
-      title: string;
-      skuTitle: string;
-      image: string | null;
       unitPrice: number;
       quantity: number;
       isPrize: boolean;
       companyId: string;
-    }> = giftOption.items.map((giftItem) => ({
-      skuId: giftItem.sku.id,
-      productId: giftItem.sku.product?.id || '',
-      title: giftItem.sku.product?.title || '',
-      skuTitle: giftItem.sku.title,
-      image: giftItem.sku.product?.media?.[0]?.url ?? null,
-      unitPrice: giftItem.sku.price,
-      quantity: giftItem.quantity,
-      isPrize: false,
-      companyId: PLATFORM_COMPANY_ID,
-    }));
+      productSnapshot: {
+        productId: string;
+        companyId: string;
+        title: string;
+        skuTitle: string;
+        image: string;
+        price: number;
+        isPrize: boolean;
+      };
+    }> = giftOption.items.map((giftItem) => {
+      const sku = giftItem.sku;
+      const product = sku.product;
+      const unitPrice = sku.price;
+      return {
+        skuId: sku.id,
+        productId: product?.id || '',
+        unitPrice,
+        quantity: giftItem.quantity,
+        isPrize: false,
+        companyId: PLATFORM_COMPANY_ID,
+        productSnapshot: {
+          productId: product?.id || '',
+          companyId: PLATFORM_COMPANY_ID,
+          title: product?.title || '',
+          skuTitle: sku.title || '',
+          image: product?.media?.[0]?.url || '',
+          price: unitPrice,
+          isPrize: false,
+        },
+      };
+    });
 
     // 7. bizMeta（VIP 礼包专用元数据）
     const bizMeta = {
