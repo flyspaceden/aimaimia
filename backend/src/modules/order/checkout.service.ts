@@ -857,118 +857,142 @@ export class CheckoutService {
       : 'WECHAT_PAY';
 
     // 9. Serializable 事务：VIP 状态检查 + 活跃会话检查 + 创建会话（原子操作）
-    const session = await this.prisma.$transaction(async (tx) => {
-      // Task 18 修正：全局防重锁在 Serializable 事务内执行，
-      // 避免并发请求都通过外部检查再各自创建 ACTIVE session（含普通+VIP）
-      const globalActiveSession = await tx.checkoutSession.findFirst({
-        where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (
-        globalActiveSession &&
-        (!dto.idempotencyKey || globalActiveSession.idempotencyKey !== dto.idempotencyKey)
-      ) {
-        throw new ConflictException({
-          code: 'PENDING_CHECKOUT_EXISTS',
-          message: '你有未完成的订单，请先完成支付或取消',
+    //    Fix 2：与普通 checkout 一致，加 P2034 序列化冲突重试（指数退避）
+    const VIP_MAX_RETRIES = 3;
+    let vipSession: any = null;
+    let vipLastErr: any = null;
+    for (let attempt = 0; attempt < VIP_MAX_RETRIES; attempt++) {
+      try {
+        vipSession = await this.prisma.$transaction(async (tx) => {
+          // Task 18 修正：全局防重锁在 Serializable 事务内执行，
+          // 避免并发请求都通过外部检查再各自创建 ACTIVE session（含普通+VIP）
+          const globalActiveSession = await tx.checkoutSession.findFirst({
+            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (
+            globalActiveSession &&
+            (!dto.idempotencyKey || globalActiveSession.idempotencyKey !== dto.idempotencyKey)
+          ) {
+            throw new ConflictException({
+              code: 'PENDING_CHECKOUT_EXISTS',
+              message: '你有未完成的订单，请先完成支付或取消',
+            });
+          }
+
+          // 事务内校验用户不是 VIP（防止检查到创建之间的竞态）
+          const member = await tx.memberProfile.findUnique({
+            where: { userId },
+          });
+          if (member?.tier === 'VIP') {
+            throw new BadRequestException('您已是 VIP 会员，无需重复购买');
+          }
+
+          // 清理并释放当前用户已过期的 VIP 会话，避免过期预留阻塞再次下单
+          const expiredVipSessions = await tx.checkoutSession.findMany({
+            where: {
+              userId,
+              bizType: 'VIP_PACKAGE',
+              status: 'ACTIVE',
+              expiresAt: { lt: new Date() },
+            },
+            select: {
+              id: true,
+              bizType: true,
+              itemsSnapshot: true,
+            },
+          });
+          for (const expiredSession of expiredVipSessions) {
+            await this.releaseVipReservation(tx, expiredSession);
+            await tx.checkoutSession.update({
+              where: { id: expiredSession.id },
+              data: { status: 'EXPIRED' },
+            });
+          }
+
+          // 校验无活跃 VIP 会话（原子保证不会并发创建）
+          const activeVipSession = await tx.checkoutSession.findFirst({
+            where: {
+              userId,
+              bizType: 'VIP_PACKAGE',
+              status: 'ACTIVE',
+            },
+          });
+          if (activeVipSession) {
+            throw new BadRequestException('您有一个进行中的 VIP 购买会话，请完成支付或等待超时');
+          }
+
+          // 商户订单号
+          const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+          // VIP 会话过期时间（30 分钟）
+          const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+          const txSession = await tx.checkoutSession.create({
+            data: {
+              userId,
+              merchantOrderNo,
+              bizType: 'VIP_PACKAGE',
+              bizMeta,
+              itemsSnapshot: itemsSnapshot as any,
+              addressSnapshot: encryptedAddressSnapshot as any,
+              paymentChannel: paymentChannel as any,
+              expectedTotal: vipPrice,
+              goodsAmount: vipPrice,
+              shippingFee: 0,
+              discountAmount: 0,
+              idempotencyKey: dto.idempotencyKey || null,
+              buyerNote: dto.buyerNote || null,
+              expiresAt,
+            },
+          });
+
+          // 逐项预留库存（CAS 模式，防止超卖）
+          for (const giftItem of giftOption.items) {
+            const reserveResult = await tx.productSKU.updateMany({
+              where: {
+                id: giftItem.sku.id,
+                status: 'ACTIVE',
+                stock: { gte: giftItem.quantity },
+              },
+              data: { stock: { decrement: giftItem.quantity } },
+            });
+            if (reserveResult.count === 0) {
+              throw new BadRequestException(`赠品「${giftItem.sku.title}」库存不足`);
+            }
+
+            await tx.inventoryLedger.create({
+              data: {
+                skuId: giftItem.sku.id,
+                type: 'RESERVE',
+                qty: -giftItem.quantity,
+                refType: 'CHECKOUT_SESSION',
+                refId: txSession.id,
+              },
+            });
+          }
+
+          return txSession;
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
-      }
-
-      // 事务内校验用户不是 VIP（防止检查到创建之间的竞态）
-      const member = await tx.memberProfile.findUnique({
-        where: { userId },
-      });
-      if (member?.tier === 'VIP') {
-        throw new BadRequestException('您已是 VIP 会员，无需重复购买');
-      }
-
-      // 清理并释放当前用户已过期的 VIP 会话，避免过期预留阻塞再次下单
-      const expiredVipSessions = await tx.checkoutSession.findMany({
-        where: {
-          userId,
-          bizType: 'VIP_PACKAGE',
-          status: 'ACTIVE',
-          expiresAt: { lt: new Date() },
-        },
-        select: {
-          id: true,
-          bizType: true,
-          itemsSnapshot: true,
-        },
-      });
-      for (const expiredSession of expiredVipSessions) {
-        await this.releaseVipReservation(tx, expiredSession);
-        await tx.checkoutSession.update({
-          where: { id: expiredSession.id },
-          data: { status: 'EXPIRED' },
-        });
-      }
-
-      // 校验无活跃 VIP 会话（原子保证不会并发创建）
-      const activeVipSession = await tx.checkoutSession.findFirst({
-        where: {
-          userId,
-          bizType: 'VIP_PACKAGE',
-          status: 'ACTIVE',
-        },
-      });
-      if (activeVipSession) {
-        throw new BadRequestException('您有一个进行中的 VIP 购买会话，请完成支付或等待超时');
-      }
-
-      // 商户订单号
-      const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-      // VIP 会话过期时间（30 分钟）
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-
-      const session = await tx.checkoutSession.create({
-        data: {
-          userId,
-          merchantOrderNo,
-          bizType: 'VIP_PACKAGE',
-          bizMeta,
-          itemsSnapshot: itemsSnapshot as any,
-          addressSnapshot: encryptedAddressSnapshot as any,
-          paymentChannel: paymentChannel as any,
-          expectedTotal: vipPrice,
-          goodsAmount: vipPrice,
-          shippingFee: 0,
-          discountAmount: 0,
-          idempotencyKey: dto.idempotencyKey || null,
-          buyerNote: dto.buyerNote || null,
-          expiresAt,
-        },
-      });
-
-      // 逐项预留库存（CAS 模式，防止超卖）
-      for (const giftItem of giftOption.items) {
-        const reserveResult = await tx.productSKU.updateMany({
-          where: {
-            id: giftItem.sku.id,
-            status: 'ACTIVE',
-            stock: { gte: giftItem.quantity },
-          },
-          data: { stock: { decrement: giftItem.quantity } },
-        });
-        if (reserveResult.count === 0) {
-          throw new BadRequestException(`赠品「${giftItem.sku.title}」库存不足`);
+        break; // 成功跳出重试循环
+      } catch (err: any) {
+        vipLastErr = err;
+        // P2034 序列化冲突 → 指数退避重试
+        if (err?.code === 'P2034' && attempt < VIP_MAX_RETRIES - 1) {
+          this.logger.warn(
+            `VIP checkout createSession 序列化冲突，第 ${attempt + 1}/${VIP_MAX_RETRIES} 次重试`,
+          );
+          await new Promise((r) => setTimeout(r, 50 * Math.pow(2, attempt)));
+          continue;
         }
-
-        await tx.inventoryLedger.create({
-          data: {
-            skuId: giftItem.sku.id,
-            type: 'RESERVE',
-            qty: -giftItem.quantity,
-            refType: 'CHECKOUT_SESSION',
-            refId: session.id,
-          },
-        });
+        throw err; // 非 P2034 或重试用尽
       }
-
-      return session;
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+    }
+    if (!vipSession) {
+      throw vipLastErr ?? new BadRequestException('VIP 结算创建失败，请重试');
+    }
+    const session = vipSession;
 
     this.logger.log(
       `VIP 礼包 CheckoutSession 已创建：sessionId=${session.id}, userId=${userId}, giftOption=${giftOption.title}`,
