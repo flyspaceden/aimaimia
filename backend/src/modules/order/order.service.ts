@@ -491,7 +491,22 @@ export class OrderService {
     if (!order) throw new NotFoundException('订单未找到');
     if (order.userId !== userId) throw new NotFoundException('订单未找到');
 
-    return this.mapOrderDetail(order);
+    // Phase 3 Review Fix 2：批量 join Company，避免店铺名 fallback 成"商家"
+    const companyIds = [...new Set((order.items as any[]).map((i) => i.companyId).filter(Boolean))] as string[];
+    const companies = companyIds.length > 0
+      ? await this.prisma.company.findMany({
+          where: { id: { in: companyIds } },
+          select: { id: true, name: true, shortName: true },
+        })
+      : [];
+    const companyMap = new Map(
+      companies.map((c) => [
+        c.id,
+        { id: c.id, name: (c as any).shortName || c.name, logoUrl: null as string | null },
+      ]),
+    );
+
+    return this.mapOrderDetail(order, companyMap);
   }
 
   /** N09修复：预结算接口 — 返回服务端计算的分组、运费、奖励、合计，不扣库存不创建订单 */
@@ -1184,8 +1199,8 @@ export class OrderService {
   }
 
   /** 映射为前端 Order 详情（含物流/售后/支付信息） */
-  private mapOrderDetail(order: any) {
-    const base = this.mapOrder(order);
+  private mapOrderDetail(order: any, companyMap?: Map<string, { id: string; name: string; logoUrl: string | null }>) {
+    const base = this.mapOrder(order, companyMap);
     const payment = order.payments?.[0];
     const addressSnapshot = decryptJsonValue(order.addressSnapshot);
     const addressSnapshotMasked = maskAddressSnapshot(addressSnapshot);
