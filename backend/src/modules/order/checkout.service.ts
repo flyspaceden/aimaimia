@@ -929,18 +929,6 @@ export class CheckoutService {
             });
           }
 
-          // 校验无活跃 VIP 会话（原子保证不会并发创建）
-          const activeVipSession = await tx.checkoutSession.findFirst({
-            where: {
-              userId,
-              bizType: 'VIP_PACKAGE',
-              status: 'ACTIVE',
-            },
-          });
-          if (activeVipSession) {
-            throw new BadRequestException('您有一个进行中的 VIP 购买会话，请完成支付或等待超时');
-          }
-
           // 商户订单号
           const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
           // VIP 会话过期时间（30 分钟）
