@@ -555,15 +555,10 @@ export default function CheckoutScreen() {
         buyerNote: buyerNote.trim() || undefined,
       });
       if (!sessionResult.ok) {
-        // 409 防重锁拦截：与普通分支同款，让用户决定取消旧/续付/关闭
+        // VIP 409 防重锁拦截：VIP 不复用 Modal — VIP 没有"续付"语义，
+        // 直接 toast 提示等 5min 后端兜底超时即可
         if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
-          const pending = await OrderRepo.getPendingCheckout();
-          if (pending.ok && pending.data) {
-            pendingRetryRef.current = handleVipCheckout;
-            setPendingModal(pending.data);
-          } else {
-            show({ message: '订单状态异常，请重试', type: 'error' });
-          }
+          show({ message: '支付未完成，请 5 分钟后重试', type: 'warning', duration: 4000 });
           return;
         }
         show({ message: sessionResult.error.displayMessage ?? 'VIP 下单失败', type: 'error' });
