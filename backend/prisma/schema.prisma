@@ -1347,6 +1347,8 @@ model CheckoutSession {
   // 幂等
   idempotencyKey  String?
 
+  buyerNote       String?  @db.VarChar(200)   // 买家留言（结算页填写，<= 200 字）
+
   expiresAt       DateTime              // ACTIVE 会话 30 分钟后过期
   paidAt          DateTime?
   createdAt       DateTime @default(now())
@@ -1377,6 +1379,7 @@ model Order {
   checkoutSessionId String?
   checkoutSession   CheckoutSession? @relation(fields: [checkoutSessionId], references: [id])
   idempotencyKey  String?     @unique // 幂等键，防止重复创建订单
+  buyerNote       String?     @db.VarChar(200)   // 由 CheckoutSession.buyerNote 在 handlePaymentSuccess 时透传
   paidAt                  DateTime?
   receivedAt              DateTime?
   autoReceiveAt           DateTime?
