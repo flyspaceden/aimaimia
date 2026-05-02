@@ -159,6 +159,7 @@ export const OrderRepo = {
     paymentChannel?: string;
     idempotencyKey?: string;
     expectedTotal?: number;
+    buyerNote?: string;
   }): Promise<Result<CheckoutSessionResult>> => {
     if (USE_MOCK) {
       return simulateRequest({
@@ -185,6 +186,7 @@ export const OrderRepo = {
     paymentChannel?: string;
     idempotencyKey?: string;
     expectedTotal?: number;
+    buyerNote?: string;
   }): Promise<Result<CheckoutSessionResult>> => {
     if (USE_MOCK) {
       return simulateRequest({

@@ -58,7 +58,7 @@ export default function CheckoutScreen() {
   const [refreshing, setRefreshing] = useState(false);
   // v1.0 仅接通支付宝，默认选支付宝；wechat/bankcard 在 paymentMethods 配置里 available=false 灰掉
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('alipay');
-  const [remark, setRemark] = useState('');
+  const [buyerNote, setBuyerNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   // 退换货政策协议弹窗状态
@@ -436,6 +436,7 @@ export default function CheckoutScreen() {
         paymentChannel: paymentMethod,
         idempotencyKey: idempotencyKeyRef.current,
         expectedTotal: preview ? preview.summary.totalPayable : undefined,
+        buyerNote: buyerNote.trim() || undefined,
       });
       if (!sessionResult.ok) {
         // 409 防重锁拦截：拿 Session 摘要弹 Modal，让用户决定取消旧/续付/关闭
@@ -551,6 +552,7 @@ export default function CheckoutScreen() {
         paymentChannel: paymentMethod,
         idempotencyKey: idempotencyKeyRef.current,
         expectedTotal: vipPackageSelection.price,
+        buyerNote: buyerNote.trim() || undefined,
       });
       if (!sessionResult.ok) {
         // 409 防重锁拦截：与普通分支同款，让用户决定取消旧/续付/关闭
@@ -912,22 +914,22 @@ export default function CheckoutScreen() {
             })}
           </Animated.View>
 
-          {/* 订单备注（VIP 模式隐藏） */}
-          {!isVipMode && (
+          {/* 买家留言（普通 + VIP 都展示） */}
           <View style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             <View style={styles.sectionTitle}>
               <AiDivider style={{ flex: 1 }} />
               <Text style={[typography.captionSm, { color: colors.text.secondary, marginHorizontal: spacing.sm }]}>
-                订单备注
+                买家留言（非必填，给商家的话）
               </Text>
               <AiDivider style={{ flex: 1 }} />
             </View>
             <TextInput
-              value={remark}
-              onChangeText={setRemark}
-              placeholder="选填：可备注特殊要求"
+              value={buyerNote}
+              onChangeText={(t) => setBuyerNote(t.slice(0, 200))}
+              placeholder="例如：尽快发货 / 不要冰品"
               placeholderTextColor={colors.muted}
               multiline
+              maxLength={200}
               style={[
                 styles.remarkInput,
                 typography.bodySm,
@@ -938,8 +940,10 @@ export default function CheckoutScreen() {
                 },
               ]}
             />
+            <Text style={[typography.caption, { color: colors.text.tertiary, textAlign: 'right', marginTop: 4 }]}>
+              {buyerNote.length}/200
+            </Text>
           </View>
-          )}
 
           {/* 红包选择（VIP 模式隐藏） */}
           {!isVipMode && (
