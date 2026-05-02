@@ -118,9 +118,12 @@ export default function OrderDetailScreen() {
 
   secondary.push({ label: '联系客服', onPress: () => router.push(`/cs?source=ORDER_DETAIL&sourceId=${orderId}`) });
 
-  // 物流摘要（Phase 1 取 shipments[0] 最新事件）
+  // 物流摘要（Phase 3 Review Fix 5：优先用 logisticsSummary 跨包裹最新事件，多包裹场景更准确）
   const shipments = (order as any).shipments as Array<any> | undefined;
-  const latestEvent = shipments?.[0]?.trackingEvents?.[0];
+  const summary = (order as any).logisticsSummary as { status?: string; latestEventMessage?: string; latestEventTime?: string } | undefined;
+  const latestEvent = summary?.latestEventMessage
+    ? { message: summary.latestEventMessage, time: summary.latestEventTime ?? '' }
+    : (shipments?.[0]?.trackingEvents?.[0] ?? null);
   const showLogistics = ['pendingShip', 'shipping', 'delivered', 'completed'].includes(order.status);
 
   // 按 companyId 分组商品
