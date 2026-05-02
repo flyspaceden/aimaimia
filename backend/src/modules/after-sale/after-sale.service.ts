@@ -585,12 +585,40 @@ export class AfterSaleService {
             select: { id: true, status: true, totalAmount: true },
           },
           orderItem: {
-            select: { id: true, productSnapshot: true, quantity: true, unitPrice: true },
+            select: { id: true, productSnapshot: true, quantity: true, unitPrice: true, companyId: true },
           },
         },
       }),
       this.prisma.afterSaleRequest.count({ where: { userId } }),
     ]);
+
+    // Phase 3 Review Fix 4：批量 join Company，给前端真实店铺名
+    const companyIds = [
+      ...new Set(
+        items.flatMap((req) => {
+          const ps = req.orderItem?.productSnapshot as any;
+          return [req.orderItem?.companyId, ps?.companyId].filter(Boolean);
+        }),
+      ),
+    ] as string[];
+
+    const companies = companyIds.length > 0
+      ? await this.prisma.company.findMany({
+          where: { id: { in: companyIds } },
+          select: { id: true, name: true, shortName: true },
+        })
+      : [];
+    const companyMap = new Map(
+      companies.map((c) => [c.id, (c as any).shortName || c.name]),
+    );
+
+    items.forEach((req) => {
+      const ps = req.orderItem?.productSnapshot as any;
+      const cid = req.orderItem?.companyId || ps?.companyId;
+      if (cid && companyMap.has(cid) && ps) {
+        ps.companyName = companyMap.get(cid);
+      }
+    });
 
     return { items, total, page, pageSize };
   }
