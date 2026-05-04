@@ -22,6 +22,7 @@ import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.se
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { AliyunSmsService } from '../../common/sms/aliyun-sms.service';
 import { CaptchaService } from '../captcha/captcha.service';
+import { generateReferralCode } from '../../common/utils/referral-code.util';
 
 @Injectable()
 export class AuthService {
@@ -124,7 +125,7 @@ export class AuthService {
           create: { nickname: dto.name || '新用户' },
         },
         memberProfile: {
-          create: {},
+          create: { referralCode: generateReferralCode() },
         },
         authIdentities: {
           create: {
@@ -461,7 +462,7 @@ export class AuthService {
           create: profileData,
         },
         memberProfile: {
-          create: {},
+          create: { referralCode: generateReferralCode() },
         },
         authIdentities: {
           create: {
@@ -564,7 +565,7 @@ export class AuthService {
         const newUser = await this.prisma.user.create({
           data: {
             profile: { create: { nickname: '新用户' } },
-            memberProfile: { create: {} },
+            memberProfile: { create: { referralCode: generateReferralCode() } },
             authIdentities: {
               create: { provider: 'PHONE', identifier: phone, verified: true },
             },
