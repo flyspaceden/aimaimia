@@ -584,25 +584,11 @@ export default function CheckoutScreen() {
             return;
           }
         } else if (alipayResult.resultStatus === '6001') {
-          // VIP 取消支付：先 active-query 二次确认（防 6001 误报）
-          // VIP 不需要"未完成订单"概念，未付款则立即 cancel + 释放库存 → 跳回 VIP 礼包页
-          const activeR = await OrderRepo.activeQueryPayment(sessionId);
-          if (activeR.ok && activeR.data.status === 'COMPLETED') {
-            // 实际已付款（6001 误报）— 清理 VIP 选择 + 刷新缓存 + 跳订单列表
-            clearVipPackageSelection();
-            resetCheckoutStore();
-            await Promise.all([
-              queryClient.invalidateQueries({ queryKey: ['orders'] }),
-              queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
-              queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
-            ]);
-            show({ message: '支付成功', type: 'success' });
-            router.replace('/orders');
-            return;
-          }
-          // 未付款 → 立即 cancel + 释放库存 → 跳回 VIP 礼包页
-          await OrderRepo.cancelCheckoutSession(sessionId);
-          show({ message: '已取消支付', type: 'info' });
+          // VIP 取消支付：前端不调用 cancel — 5min 后端 cron 自动清理 ACTIVE session 释放库存
+          // 原因：active-query 在 query-error/not-found/中间态时返回 ACTIVE，
+          //      前端无法可靠识别"已付款"vs"未付款"，主动 cancel 有误删已付 session 的资金事故风险。
+          //      让后端 active-query polling + notify + cron 共同决策更稳。
+          show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
           router.replace('/vip/gifts');
           return;
         } else if (alipayResult.memo === 'TIMEOUT') {
