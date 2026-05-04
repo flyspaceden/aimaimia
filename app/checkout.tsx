@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -558,7 +558,27 @@ export default function CheckoutScreen() {
         // VIP 409 防重锁拦截：VIP 不复用 Modal — VIP 没有"续付"语义，
         // 直接 toast 提示等 5min 后端兜底超时即可
         if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
-          show({ message: '支付未完成，请 5 分钟后重试', type: 'warning', duration: 4000 });
+          // 区分挡道的是 VIP 自己 vs 普通商品订单
+          // 注：getPendingCheckout 现在只返 NORMAL_GOODS（后端 Fix 4 过滤），
+          //    返 null 表示 VIP-vs-VIP 自撞，返 data 表示有普通商品在挡道
+          const pending = await OrderRepo.getPendingCheckout();
+          if (pending.ok && pending.data) {
+            // 普通商品 session 挡道 — 提示用户先处理
+            Alert.alert(
+              '你有未完成的购物订单',
+              '需要先完成支付或取消，才能购买 VIP',
+              [
+                { text: '稍后', style: 'cancel' },
+                {
+                  text: '去处理',
+                  onPress: () => router.push({ pathname: '/checkout-pending', params: { sessionId: pending.data!.sessionId } }),
+                },
+              ],
+            );
+          } else {
+            // VIP-vs-VIP 自撞（orphan VIP session 5min 内）— 提示等待
+            show({ message: '支付未完成，请 5 分钟后重试', type: 'warning', duration: 4000 });
+          }
           return;
         }
         show({ message: sessionResult.error.displayMessage ?? 'VIP 下单失败', type: 'error' });
