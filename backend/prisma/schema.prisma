@@ -1358,7 +1358,7 @@ model CheckoutSession {
 
   @@index([userId, status])
   @@index([status, createdAt])
-  @@unique([userId, idempotencyKey])
+  @@unique([userId, bizType, idempotencyKey])
   @@index([merchantOrderNo])
   @@index([expiresAt, status])
 }

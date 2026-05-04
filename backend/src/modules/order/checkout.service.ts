@@ -138,11 +138,12 @@ export class CheckoutService {
       };
     };
 
-    // 幂等检查
+    // 幂等检查（按 bizType 过滤，避免与 VIP 订单 idempotencyKey 冲突）
     if (dto.idempotencyKey) {
       const existing = await this.prisma.checkoutSession.findFirst({
         where: {
           userId,
+          bizType: 'NORMAL_GOODS',
           idempotencyKey: dto.idempotencyKey,
         },
       });
@@ -665,10 +666,10 @@ export class CheckoutService {
           );
           continue;
         }
-        // P2002 唯一约束冲突（幂等键重复）
+        // P2002 唯一约束冲突（幂等键重复）— 新唯一约束 (userId, bizType, idempotencyKey)
         if (err?.code === 'P2002' && dto.idempotencyKey) {
           const existing = await this.prisma.checkoutSession.findFirst({
-            where: { userId, idempotencyKey: dto.idempotencyKey },
+            where: { userId, bizType: 'NORMAL_GOODS', idempotencyKey: dto.idempotencyKey },
           });
           if (existing) {
             return await toCheckoutResponse(existing);
