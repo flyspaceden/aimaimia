@@ -604,10 +604,24 @@ export default function CheckoutScreen() {
             return;
           }
         } else if (alipayResult.resultStatus === '6001') {
-          // VIP 取消支付：前端不调用 cancel — 5min 后端 cron 自动清理 ACTIVE session 释放库存
-          // 原因：active-query 在 query-error/not-found/中间态时返回 ACTIVE，
-          //      前端无法可靠识别"已付款"vs"未付款"，主动 cancel 有误删已付 session 的资金事故风险。
-          //      让后端 active-query polling + notify + cron 共同决策更稳。
+          // VIP 6001 二次确认：识别"SDK 返 6001 但实际已付款"的误报场景
+          // 关键：active-query 仅用来识别 COMPLETED；其他状态（中间态/query-error）一律不 cancel，
+          //      让 5min 后端 cron 兜底处理。这样既识别误报又避免误删已付 session 的资金事故。
+          const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (activeR.ok && activeR.data.status === 'COMPLETED') {
+            // 实际已付款 — 走成功路径
+            clearVipPackageSelection();
+            resetCheckoutStore();
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['orders'] }),
+              queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+            ]);
+            show({ message: '支付成功', type: 'success' });
+            router.replace('/orders');
+            return;
+          }
+          // 未确认 COMPLETED — 不 cancel，让后端 cron 兜底
           show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
           router.replace('/vip/gifts');
           return;
