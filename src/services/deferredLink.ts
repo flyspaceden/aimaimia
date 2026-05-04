@@ -11,7 +11,10 @@ import Constants from 'expo-constants';
 import { ApiClient } from '../repos/http/ApiClient';
 
 const PENDING_REFERRAL_KEY = 'pending_referral_code';
-const DDL_CHECKED_KEY = 'ddl_checked';
+const DDL_FIRST_ATTEMPT_KEY = 'ddl_first_attempt_at';
+const DDL_RESOLVED_KEY = 'ddl_resolved';
+// 与后端 DeferredDeepLink.expiresAt 对齐：超过 48h 服务端记录已被 cron 清理，重试无意义
+const DDL_RETRY_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 /** 获取待绑定的推荐码 */
 export async function getPendingReferralCode(): Promise<string | null> {
@@ -28,15 +31,31 @@ export async function clearPendingReferralCode(): Promise<void> {
   await AsyncStorage.removeItem(PENDING_REFERRAL_KEY);
 }
 
-/** 是否已完成延迟匹配检查 */
-export async function isDDLChecked(): Promise<boolean> {
-  const val = await AsyncStorage.getItem(DDL_CHECKED_KEY);
-  return val === 'true';
+/** 是否还应该尝试 DDL 匹配（已成功 OR 超 48h 窗口都不再尝试） */
+export async function shouldAttemptDDL(): Promise<boolean> {
+  const resolved = await AsyncStorage.getItem(DDL_RESOLVED_KEY);
+  if (resolved === 'true') return false;
+
+  const firstAttemptStr = await AsyncStorage.getItem(DDL_FIRST_ATTEMPT_KEY);
+  if (!firstAttemptStr) return true;
+
+  const firstAttempt = parseInt(firstAttemptStr, 10);
+  if (isNaN(firstAttempt)) return true;
+
+  return Date.now() - firstAttempt < DDL_RETRY_WINDOW_MS;
 }
 
-/** 标记延迟匹配检查已完成 */
-export async function markDDLChecked(): Promise<void> {
-  await AsyncStorage.setItem(DDL_CHECKED_KEY, 'true');
+/** 记录本次尝试发生（首次写 timestamp，后续保持不变） */
+export async function recordDDLAttempt(): Promise<void> {
+  const existing = await AsyncStorage.getItem(DDL_FIRST_ATTEMPT_KEY);
+  if (!existing) {
+    await AsyncStorage.setItem(DDL_FIRST_ATTEMPT_KEY, String(Date.now()));
+  }
+}
+
+/** 标记 DDL 匹配成功（之后永远 skip） */
+export async function markDDLResolved(): Promise<void> {
+  await AsyncStorage.setItem(DDL_RESOLVED_KEY, 'true');
 }
 
 /**

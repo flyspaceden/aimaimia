@@ -21,8 +21,9 @@ import {
   setPendingReferralCode,
   clearPendingReferralCode,
   getPendingReferralCode,
-  isDDLChecked,
-  markDDLChecked,
+  shouldAttemptDDL,
+  recordDDLAttempt,
+  markDDLResolved,
   matchByFingerprint,
 } from '../src/services/deferredLink';
 import { needsPrivacyConsent } from '../src/services/privacyConsent';
@@ -52,12 +53,10 @@ function handleIncomingURL(url: string | null) {
 }
 
 async function performDeferredLinkCheck() {
-  const checked = await isDDLChecked();
-  if (checked) return;
+  if (!(await shouldAttemptDDL())) return;
 
+  let resolved = false;
   try {
-    let cookieResolved = false;
-
     const resolveUrl = `https://${APP_DOMAIN}/resolve`;
     const result = await Promise.race([
       WebBrowser.openAuthSessionAsync(resolveUrl, 'aimaimai://referral'),
@@ -75,7 +74,7 @@ async function performDeferredLinkCheck() {
       const code = extractReferralCodeFromURL(result.url);
       if (code && code !== 'none') {
         await handleReferralCode(code);
-        cookieResolved = true;
+        resolved = true;
       }
     }
 
@@ -84,16 +83,18 @@ async function performDeferredLinkCheck() {
       WebBrowser.dismissBrowser().catch(() => {});
     }
 
-    if (!cookieResolved) {
+    if (!resolved) {
       const code = await matchByFingerprint();
       if (code) {
         await handleReferralCode(code);
+        resolved = true;
       }
     }
   } catch {
     // 静默失败
   } finally {
-    await markDDLChecked();
+    await recordDDLAttempt();
+    if (resolved) await markDDLResolved();
   }
 }
 
