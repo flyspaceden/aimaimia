@@ -21,7 +21,8 @@ function isWechat(): boolean {
 function setCookie(name: string, value: string, days: number) {
   const expires = new Date(Date.now() + days * 864e5).toUTCString()
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  const domainStr = isLocalhost ? '' : 'domain=.xn--ckqa175y.com;'
+  // 必须与 App 端 /resolve 的 host 同域，跨域 cookie 桶不互通
+  const domainStr = isLocalhost ? '' : 'domain=.ai-maimai.com;'
   document.cookie = `${name}=${encodeURIComponent(value)};${domainStr}expires=${expires};path=/;SameSite=Lax`
 }
 
