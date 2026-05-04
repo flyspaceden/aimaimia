@@ -1297,7 +1297,21 @@ export default function CheckoutScreen() {
                   const retry = pendingRetryRef.current;
                   const c = await OrderRepo.cancelCheckoutSession(oldSessionId);
                   if (!c.ok) {
-                    show({ message: '取消旧订单失败', type: 'error' });
+                    // cancelSession 可能在取消时发现已支付并主动建单（返"支付已完成，订单已自动创建…"）
+                    // 透后端真实 message，并刷新订单列表 + 跳过去
+                    const errMsg = c.error.displayMessage ?? '取消旧订单失败';
+                    show({ message: errMsg, type: 'error', duration: 4000 });
+                    // 如果是"已自动建单"场景，刷新缓存并跳订单列表
+                    if (errMsg.includes('已自动创建') || errMsg.includes('支付已完成')) {
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ['orders'] }),
+                        queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+                        queryClient.invalidateQueries({ queryKey: ['pending-checkout'] }),
+                      ]);
+                      setPendingModal(null);
+                      pendingRetryRef.current = null;
+                      router.replace('/orders');
+                    }
                     return;
                   }
                   setPendingModal(null);
