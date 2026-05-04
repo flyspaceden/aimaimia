@@ -1044,6 +1044,35 @@ export class CheckoutService {
       throw new BadRequestException(`当前会话状态 ${session.status} 不允许取消`);
     }
 
+    // 资金安全：取消前先查支付宝，避免误删已付款 session
+    // （场景：支付宝侧已 TRADE_SUCCESS 但 notify 还没到，cancel 会让 notify 抵达后被拒绝）
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'ALIPAY' &&
+      this.alipayService?.isAvailable()
+    ) {
+      let queryResult: { tradeStatus: string } | null = null;
+      try {
+        queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `cancelSession 查支付宝异常，拒绝取消（让用户稍后重试）：sessionId=${sessionId}, error=${err.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+      if (
+        queryResult &&
+        (queryResult.tradeStatus === 'TRADE_SUCCESS' ||
+          queryResult.tradeStatus === 'TRADE_FINISHED')
+      ) {
+        this.logger.warn(
+          `cancelSession 拒绝：支付宝侧已 ${queryResult.tradeStatus}，sessionId=${sessionId}`,
+        );
+        throw new BadRequestException('支付已完成，无法取消，请稍后查看订单');
+      }
+      // 其他状态（TRADE_CLOSED / WAIT_BUYER_PAY / 未查到）— 允许 cancel
+    }
+
     // H8修复：Serializable 隔离级别 + P2034 重试，防止与 handlePaymentSuccess 竞态
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

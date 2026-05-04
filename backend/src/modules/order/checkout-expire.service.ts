@@ -15,12 +15,19 @@ export class CheckoutExpireService {
 
   // CouponService 通过可选注入（避免循环依赖）
   private couponService: any = null;
+  // AlipayService 通过可选注入（expire 前查支付宝用，避免误删已付款 session）
+  private alipayService: any = null;
 
   constructor(private prisma: PrismaService) {}
 
   /** 注入红包服务（由 OrderModule 在 onModuleInit 时调用） */
   setCouponService(service: any) {
     this.couponService = service;
+  }
+
+  /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
+  setAlipayService(service: any) {
+    this.alipayService = service;
   }
 
   @Cron('0 * * * * *')
@@ -39,6 +46,8 @@ export class CheckoutExpireService {
         couponInstanceIds: true,
         bizType: true,
         itemsSnapshot: true,
+        merchantOrderNo: true,
+        paymentChannel: true,
       },
       take: 200,
     });
@@ -199,7 +208,38 @@ export class CheckoutExpireService {
     couponInstanceIds: string[];
     bizType: string;
     itemsSnapshot: unknown;
+    merchantOrderNo: string | null;
+    paymentChannel: string | null;
   }) {
+    // 资金安全：查支付宝，已付款则跳过本次（让 notify / active-query 接管支付成功流程）
+    // expire cron 是被动触发，与 cancelSession 不同 — 不抛错，跳过本次让下次 cron 再试。
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'ALIPAY' &&
+      this.alipayService?.isAvailable()
+    ) {
+      let queryResult: { tradeStatus: string } | null = null;
+      try {
+        queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession 查支付宝异常，跳过本次 sessionId=${session.id}：${err.message}`,
+        );
+        return;
+      }
+      if (
+        queryResult &&
+        (queryResult.tradeStatus === 'TRADE_SUCCESS' ||
+          queryResult.tradeStatus === 'TRADE_FINISHED')
+      ) {
+        this.logger.warn(
+          `expireSession 跳过：支付宝侧已 ${queryResult.tradeStatus}，sessionId=${session.id}`,
+        );
+        return;
+      }
+      // 其他状态 — 继续 expire 流程
+    }
+
     await this.prisma.$transaction(
       async (tx) => {
         // CAS: 仅 ACTIVE → EXPIRED（防止与支付回调并发竞态）

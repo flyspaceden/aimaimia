@@ -86,6 +86,7 @@ export class OrderModule implements OnModuleInit {
     const alipayService = this.moduleRef.get(AlipayService, { strict: false });
     if (alipayService) {
       this.checkoutService.setAlipayService(alipayService);
+      this.checkoutExpireService.setAlipayService(alipayService);
     }
   }
 }
