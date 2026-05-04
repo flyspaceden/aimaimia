@@ -389,10 +389,10 @@ curl -I https://app.ai-maimai.com/r/ABCD1234                         # 期望 20
 | 9 | P3 | Bug 6 启动后已登录态主动绑 pending code | `app/_layout.tsx`（新加 effect） | OTA | ✅ | 2026-05-04 (commit `6be9f4e`) |
 | 10 | P3 | Bug 8 DDL 加 48h 重试窗口（方案 C） | `app/_layout.tsx` + `src/services/deferredLink.ts`（新增 shouldAttemptDDL/recordDDLAttempt/markDDLResolved） | OTA | ✅ | 2026-05-04 (commit `58427b9`) |
 | 11 | P3 | Bug 11 URL 监听器提前挂，未同意期间 ref 缓冲，granted 后回放 | `app/_layout.tsx:118-148` | OTA | ✅ | 2026-05-04 (commit `9439518`) |
-| **P4** | **指纹算法 + 国内分发** | | | | | |
-| 12 | P4 | Bug 7 后端 match 改为只用模糊匹配，删精确匹配 | `backend/src/modules/deferred-link/deferred-link.service.ts:82-132` | 后端部署 + PM2 重启 | ⬜ | — |
+| **P4** | **指纹算法 + 监控** | | | | | |
+| 12 | P4 | Bug 7 后端 UA 归一化加强（保留精确匹配，方案 B） | `backend/src/modules/deferred-link/deferred-link.service.ts:12-32` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `f1c764a`) |
 | 13 | P4 | ~~Bug 5 Android 下载链接改为 APK 直链~~ | `website/src/pages/Download.tsx:82` + 新增配置项 | — | ⏸️ 暂缓 | 测试期手动发 APK；正式上架前再做 |
-| 14 | P4 | Bug 12 后端模糊匹配加同 IP 碰撞监控日志 | `backend/src/modules/deferred-link/deferred-link.service.ts:111-126` | 后端部署 + PM2 重启 | ⬜ | — |
+| 14 | P4 | Bug 12 后端模糊匹配加同 IP 碰撞监控日志（≥3 候选告警） | `backend/src/modules/deferred-link/deferred-link.service.ts:122-150` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `8f97c3b`) |
 | **P5** | **服务器侧验证 / 真机验证** | | | | | |
 | 15 | P5 | Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL | 宝塔面板 | 用户执行 | ❓ | — |
 | 15b | P5 | Bug 3 服务器侧加 Nginx 301：中文 `app.` 子域名的 `/r/*` `/resolve` `/.well-known/` 强制跳英文 | 宝塔面板 / Nginx | 用户执行 | ⬜ | — |

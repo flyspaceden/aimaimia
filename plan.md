@@ -1054,9 +1054,11 @@
 - [x] **R-RC08** Bug 8 DDL 48h 重试窗口（commit `58427b9`，`ddl_first_attempt_at` + `ddl_resolved` 双 key 替代旧 `ddl_checked`，未 resolved 且窗口内允许重试）
 - [x] **R-RC09** Bug 11 URL 监听器立刻挂 + ref 缓冲 + granted 后回放（commit `9439518`，`pendingURLsRef` + `consentRef`）
 
-### Phase 4（指纹算法 + 监控）
-- [ ] **R-RC10** Bug 7 后端 UA 归一化加强（保留精确匹配，方案 B）：`deferred-link.service.ts:12-20`
-- [ ] **R-RC11** Bug 12 后端模糊匹配加同 IP 碰撞监控日志：`deferred-link.service.ts:111-126`
+### Phase 4（指纹算法 + 监控）✅ 2026-05-04
+- [x] **R-RC10** Bug 7 后端 UA 归一化加强（保留精确匹配，方案 B）：`deferred-link.service.ts:12-32`（commit `f1c764a`，剥离 Version/Chrome/Safari/Build 等浏览器引擎差异，iOS Safari ↔ WKWebView / Android Chrome ↔ WebView 归一化后一致）
+- [x] **R-RC11** Bug 12 后端模糊匹配加同 IP 碰撞监控日志：`deferred-link.service.ts:122-150`（commit `8f97c3b`，findFirst → findMany take 10，≥3 候选 logger.warn 告警）
+
+> 后续可选：审查 agent 建议进一步剥离 WeChat 内置浏览器特征字段（wv / MQQBrowser / TBS / MMWEBID / WeChat / Weixin / ABI），降低 WeChat 用户落到模糊匹配的概率。**保留 backlog**：模糊匹配 + 碰撞告警已能覆盖 WeChat 场景，待真机测试发现 WeChat 用户频繁拿错码再做。
 
 ### Phase 5（服务器侧 + 真机验证，用户主导）
 - [ ] **R-RC12** Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL（宝塔面板）
