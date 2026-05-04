@@ -1,5 +1,5 @@
 import 'react-native-reanimated';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -115,18 +115,37 @@ export default function RootLayout() {
     setConsentState('granted');
   }, []);
 
-  // 以下副作用都必须在用户同意隐私政策后才能执行（合规要求：未同意前不得收集任何信息）
+  // URL 监听器立刻挂（防止待同意期间外部唤起 URL 丢失），
+  // 但 handleIncomingURL 涉及网络调用（已登录 → 立即绑推荐码），需待 consent granted 后才处理
+  const pendingURLsRef = useRef<string[]>([]);
+  const consentRef = useRef<typeof consentState>('unknown');
   useEffect(() => {
-    if (consentState !== 'granted') return;
+    consentRef.current = consentState;
+    if (consentState === 'granted' && pendingURLsRef.current.length > 0) {
+      const buffered = pendingURLsRef.current;
+      pendingURLsRef.current = [];
+      buffered.forEach(handleIncomingURL);
+    }
+  }, [consentState]);
 
-    Linking.getInitialURL().then(handleIncomingURL);
+  useEffect(() => {
+    const enqueueOrHandle = (url: string | null) => {
+      if (!url) return;
+      if (consentRef.current === 'granted') {
+        handleIncomingURL(url);
+      } else {
+        pendingURLsRef.current.push(url);
+      }
+    };
+
+    Linking.getInitialURL().then(enqueueOrHandle);
 
     const subscription = Linking.addEventListener('url', (event) => {
-      handleIncomingURL(event.url);
+      enqueueOrHandle(event.url);
     });
 
     return () => subscription.remove();
-  }, [consentState]);
+  }, []);
 
   // 启动后已登录态主动尝试绑定 pending referral code
   // 场景：用户首启 → DDL 匹配成功写入 pending → 没立即注册 → 关 App
