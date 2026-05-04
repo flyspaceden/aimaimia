@@ -25,9 +25,12 @@ function redirectToCanonicalDomainIfNeeded(): boolean {
 }
 
 export default function Resolve() {
-  useEffect(() => {
-    if (redirectToCanonicalDomainIfNeeded()) return
+  // 中文域名落地：在所有 Hook 调用前同步重定向并阻止首屏渲染，避免一闪而过
+  if (typeof window !== 'undefined' && redirectToCanonicalDomainIfNeeded()) {
+    return null
+  }
 
+  useEffect(() => {
     const resolve = async () => {
       const cookieId = getCookie('_ddl_id')
 
