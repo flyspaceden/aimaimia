@@ -13,6 +13,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, UpdateStaffNicknameDto, UpdateStaffPhoneDto, ResetStaffPasswordDto, AI_SEARCH_KEYS } from './seller-company.dto';
 import { maskName, maskPhone } from '../../../common/security/privacy-mask';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
+import { generateReferralCode } from '../../../common/utils/referral-code.util';
 import { CompanyService } from '../../company/company.service';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 
@@ -270,7 +271,7 @@ export class SellerCompanyService {
       const newUser = await this.prisma.user.create({
         data: {
           profile: { create: { nickname: dto.phone } },
-          memberProfile: { create: {} },
+          memberProfile: { create: { referralCode: generateReferralCode() } },
           authIdentities: {
             create: {
               provider: 'PHONE',
