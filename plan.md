@@ -1060,6 +1060,12 @@
 
 > 后续可选：审查 agent 建议进一步剥离 WeChat 内置浏览器特征字段（wv / MQQBrowser / TBS / MMWEBID / WeChat / Weixin / ABI），降低 WeChat 用户落到模糊匹配的概率。**保留 backlog**：模糊匹配 + 碰撞告警已能覆盖 WeChat 场景，待真机测试发现 WeChat 用户频繁拿错码再做。
 
+### 二次审查修订（用户复审）✅ 2026-05-04
+- [x] **R-RC12** handleReferralCode + useAuthStore NETWORK 失败保留 pending（commit `cadff14`，原 try/catch 是死代码因 Result 模式不 throw，导致 /resolve consumed 后绑定网络失败推荐码丢失）
+- [x] **R-RC13** 启动主动绑 effect 订阅 isLoggedIn 解 zustand persist rehydrate 竞态（commit `9feafe9`，原 imperative `getState()` 读一次 + 仅 [consentState] 依赖，rehydrate 完成后 effect 不重跑）
+- [x] **R-RC14** 精确指纹多候选监控（commit `99db409`，UA 归一化降级到 OS+设备维度后同 WiFi 同型号会撞 fingerprint，原 findFirst 静默拿首条；改 findMany take 3，>1 候选告警）
+- [x] **R-RC15** pickUniqueReferralCode 预查找 + 13 处 create 入口替换（commit `9275557`，避免 P2002 撞码打断注册/建号；helper 在 referral-code.util.ts 内 generate + findFirst 预查 10 次）
+
 ### Phase 5（服务器侧 + 真机验证，用户主导）
 - [ ] **R-RC12** Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL（宝塔面板）
 - [ ] **R-RC13** Bug 3 Nginx 加 301：中文 `app.` 子域名的 `/r/*` `/resolve` `/.well-known/` 强制跳英文

@@ -393,6 +393,11 @@ curl -I https://app.ai-maimai.com/r/ABCD1234                         # 期望 20
 | 12 | P4 | Bug 7 后端 UA 归一化加强（保留精确匹配，方案 B） | `backend/src/modules/deferred-link/deferred-link.service.ts:12-32` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `f1c764a`) |
 | 13 | P4 | ~~Bug 5 Android 下载链接改为 APK 直链~~ | `website/src/pages/Download.tsx:82` + 新增配置项 | — | ⏸️ 暂缓 | 测试期手动发 APK；正式上架前再做 |
 | 14 | P4 | Bug 12 后端模糊匹配加同 IP 碰撞监控日志（≥3 候选告警） | `backend/src/modules/deferred-link/deferred-link.service.ts:122-150` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `8f97c3b`) |
+| **P-review** | **二次审查发现的问题修订（用户复审）** | | | | | |
+| R1 | 修订 | handleReferralCode + useAuthStore NETWORK 错误保留 pending（原本 Result 模式不 throw 导致 try/catch 失效，pending 被清掉） | `app/_layout.tsx:31-46` + `src/store/useAuthStore.ts:68-86` | OTA | ✅ | 2026-05-04 (commit `cadff14`) |
+| R2 | 修订 | 启动主动绑 effect 订阅 isLoggedIn 解 zustand persist rehydrate 竞态 | `app/_layout.tsx:108-180` | OTA | ✅ | 2026-05-04 (commit `9feafe9`) |
+| R3 | 修订 | 精确指纹多候选监控（findFirst→findMany take 3，>1 候选 logger.warn） | `backend/src/modules/deferred-link/deferred-link.service.ts:105-135` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `99db409`) |
+| R4 | 修订 | pickUniqueReferralCode 预查找 + 13 处 create 入口替换（避免 P2002 撞码打断注册/建号） | `referral-code.util.ts` 新增 helper + 7 个文件 13 处替换 | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `9275557`) |
 | **P5** | **服务器侧验证 / 真机验证** | | | | | |
 | 15 | P5 | Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL | 宝塔面板 | 用户执行 | ❓ | — |
 | 15b | P5 | Bug 3 服务器侧加 Nginx 301：中文 `app.` 子域名的 `/r/*` `/resolve` `/.well-known/` 强制跳英文 | 宝塔面板 / Nginx | 用户执行 | ⬜ | — |
