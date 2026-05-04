@@ -1158,7 +1158,7 @@ export class CheckoutService {
           );
           throw new BadRequestException('正在确认支付状态，请稍后再试');
         }
-        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭/已完成）— 继续走 CAS ACTIVE → EXPIRED
+        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭）— 继续走 CAS ACTIVE → EXPIRED
       } catch (closeErr: any) {
         if (closeErr instanceof BadRequestException) throw closeErr;
         this.logger.warn(

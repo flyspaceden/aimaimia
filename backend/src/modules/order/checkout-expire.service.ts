@@ -346,7 +346,7 @@ export class CheckoutExpireService {
           );
           return;
         }
-        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭/已完成）— 继续走 CAS ACTIVE → EXPIRED
+        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭）— 继续走 CAS ACTIVE → EXPIRED
       } catch (err: any) {
         this.logger.warn(
           `expireSession close 异常，跳过本次：sessionId=${session.id}, error=${err.message}`,
