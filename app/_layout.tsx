@@ -21,7 +21,9 @@ import {
   setPendingReferralCode,
   clearPendingReferralCode,
   getPendingReferralCode,
-  shouldAttemptDDL,
+  shouldAttemptCookiePath,
+  markCookiePathAttempted,
+  shouldAttemptFingerprintPath,
   recordDDLAttempt,
   markDDLResolved,
   matchByFingerprint,
@@ -57,37 +59,48 @@ function handleIncomingURL(url: string | null) {
 }
 
 async function performDeferredLinkCheck() {
-  if (!(await shouldAttemptDDL())) return;
+  // 两条路径独立 gate：cookie 一次性消费（浏览器状态静态，重试无意义且打扰用户），
+  // fingerprint 48h 内可重试（API 调用，网络瞬断/IP 变化等场景重试有救）
+  const wantCookie = await shouldAttemptCookiePath();
+  const wantFingerprint = await shouldAttemptFingerprintPath();
+  if (!wantCookie && !wantFingerprint) return;
 
   let resolved = false;
   try {
-    const resolveUrl = `https://${APP_DOMAIN}/resolve`;
-    const result = await Promise.race([
-      WebBrowser.openAuthSessionAsync(resolveUrl, 'aimaimai://referral'),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
-    ]);
+    if (wantCookie) {
+      try {
+        const resolveUrl = `https://${APP_DOMAIN}/resolve`;
+        const result = await Promise.race([
+          WebBrowser.openAuthSessionAsync(resolveUrl, 'aimaimai://referral'),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
 
-    if (
-      result &&
-      typeof result === 'object' &&
-      'type' in result &&
-      result.type === 'success' &&
-      'url' in result &&
-      typeof result.url === 'string'
-    ) {
-      const code = extractReferralCodeFromURL(result.url);
-      if (code && code !== 'none') {
-        await handleReferralCode(code);
-        resolved = true;
+        if (
+          result &&
+          typeof result === 'object' &&
+          'type' in result &&
+          result.type === 'success' &&
+          'url' in result &&
+          typeof result.url === 'string'
+        ) {
+          const code = extractReferralCodeFromURL(result.url);
+          if (code && code !== 'none') {
+            await handleReferralCode(code);
+            resolved = true;
+          }
+        }
+
+        // 如果超时，确保关闭浏览器会话
+        if (!result) {
+          WebBrowser.dismissBrowser().catch(() => {});
+        }
+      } finally {
+        // 一次性消费——无论成功失败，下次冷启动不再开浏览器
+        await markCookiePathAttempted();
       }
     }
 
-    // 如果超时，确保关闭浏览器会话
-    if (!result) {
-      WebBrowser.dismissBrowser().catch(() => {});
-    }
-
-    if (!resolved) {
+    if (!resolved && wantFingerprint) {
       const code = await matchByFingerprint();
       if (code) {
         await handleReferralCode(code);

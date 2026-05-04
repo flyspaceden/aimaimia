@@ -13,6 +13,7 @@ import { ApiClient } from '../repos/http/ApiClient';
 const PENDING_REFERRAL_KEY = 'pending_referral_code';
 const DDL_FIRST_ATTEMPT_KEY = 'ddl_first_attempt_at';
 const DDL_RESOLVED_KEY = 'ddl_resolved';
+const DDL_COOKIE_ATTEMPTED_KEY = 'ddl_cookie_attempted';
 // 与后端 DeferredDeepLink.expiresAt 对齐：超过 48h 服务端记录已被 cron 清理，重试无意义
 const DDL_RETRY_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -31,8 +32,36 @@ export async function clearPendingReferralCode(): Promise<void> {
   await AsyncStorage.removeItem(PENDING_REFERRAL_KEY);
 }
 
-/** 是否还应该尝试 DDL 匹配（已成功 OR 超 48h 窗口都不再尝试） */
-export async function shouldAttemptDDL(): Promise<boolean> {
+/**
+ * Cookie 路径是否还应尝试。
+ *
+ * Cookie 在系统浏览器里写一次后状态静态——用户在两次冷启动之间没回访 *.ai-maimai.com，
+ * cookie 内容不会变。所以 cookie 路径**一次性消费**：开浏览器试过就标记 attempted，
+ * 永远不再触发 WebBrowser.openAuthSessionAsync。
+ *
+ * 这避免了"每次冷启动都弹 Chrome Custom Tab → 跳网页 → 跳回 App"的 UX 灾难
+ * （绝大多数用户从应用商店装 App，从没扫过推荐 QR，永远不会 resolved=true）
+ */
+export async function shouldAttemptCookiePath(): Promise<boolean> {
+  const resolved = await AsyncStorage.getItem(DDL_RESOLVED_KEY);
+  if (resolved === 'true') return false;
+  const attempted = await AsyncStorage.getItem(DDL_COOKIE_ATTEMPTED_KEY);
+  return attempted !== 'true';
+}
+
+/** 标记 cookie 路径已消费（无论成功失败，仅触发一次） */
+export async function markCookiePathAttempted(): Promise<void> {
+  await AsyncStorage.setItem(DDL_COOKIE_ATTEMPTED_KEY, 'true');
+}
+
+/**
+ * Fingerprint 路径是否还应尝试。
+ *
+ * 与 cookie 不同，fingerprint 是 API 调用（matchByFingerprint），重试有价值——
+ * 网络瞬断 / 服务端延迟写入 / 客户端被切换网络后 IP 变化等都可能让首次失败、
+ * 后续成功。48h 内允许多次尝试，与后端 DeferredDeepLink.expiresAt 对齐。
+ */
+export async function shouldAttemptFingerprintPath(): Promise<boolean> {
   const resolved = await AsyncStorage.getItem(DDL_RESOLVED_KEY);
   if (resolved === 'true') return false;
 
@@ -53,7 +82,7 @@ export async function recordDDLAttempt(): Promise<void> {
   }
 }
 
-/** 标记 DDL 匹配成功（之后永远 skip） */
+/** 标记 DDL 匹配成功（之后永远 skip 两条路径） */
 export async function markDDLResolved(): Promise<void> {
   await AsyncStorage.setItem(DDL_RESOLVED_KEY, 'true');
 }
