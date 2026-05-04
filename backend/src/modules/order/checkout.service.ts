@@ -57,6 +57,8 @@ export class CheckoutService {
   private inboxService: any = null; // 由 OrderModule.onModuleInit 注入，启动时校验
   // AlipayService 通过可选注入（支付宝下单用）
   private alipayService: any = null;
+  // PaymentService 通过可选注入（cancel/expire 主动建单后通知商家用）
+  private paymentService: any = null;
 
   constructor(
     private prisma: PrismaService,
@@ -86,6 +88,11 @@ export class CheckoutService {
   /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
   setAlipayService(service: any) {
     this.alipayService = service;
+  }
+
+  /** 注入支付服务（cancel/expire 主动建单后通知商家用，由 OrderModule 在 onModuleInit 时调用） */
+  setPaymentService(service: any) {
+    this.paymentService = service;
   }
 
   // ---------- 公开方法 ----------
@@ -1080,11 +1087,17 @@ export class CheckoutService {
             );
             throw new BadRequestException('支付金额校验失败，请联系客服');
           }
-          await this.handlePaymentSuccess(
+          const buildResult = await this.handlePaymentSuccess(
             session.merchantOrderNo,
             (queryResult as any).tradeNo,
             new Date().toISOString(),
           );
+          // 主动建单成功后通知商家（fire-and-forget，不影响主流程）
+          if (buildResult?.orderIds?.length > 0 && this.paymentService) {
+            this.paymentService.notifyMerchantsForOrders(buildResult.orderIds).catch((err: any) => {
+              this.logger.error(`cancelSession 主动建单后商家通知失败（不影响主流程）：${err.message}`);
+            });
+          }
           throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
         } catch (e: any) {
           if (e instanceof BadRequestException) throw e;
@@ -1122,11 +1135,17 @@ export class CheckoutService {
               throw new BadRequestException('支付金额校验失败，请联系客服');
             }
             try {
-              await this.handlePaymentSuccess(
+              const closePaidResult = await this.handlePaymentSuccess(
                 session.merchantOrderNo,
                 queryAfterClose.tradeNo,
                 new Date().toISOString(),
               );
+              // 主动建单成功后通知商家（fire-and-forget）
+              if (closePaidResult?.orderIds?.length > 0 && this.paymentService) {
+                this.paymentService.notifyMerchantsForOrders(closePaidResult.orderIds).catch((err: any) => {
+                  this.logger.error(`cancelSession close-paid 建单后商家通知失败：${err.message}`);
+                });
+              }
             } catch (buildErr: any) {
               this.logger.error(
                 `cancelSession close-paid 建单失败，sessionId=${sessionId}：${buildErr.message}`,

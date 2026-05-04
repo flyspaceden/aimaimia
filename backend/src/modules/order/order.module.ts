@@ -16,6 +16,7 @@ import { CouponService } from '../coupon/coupon.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { BonusService } from '../bonus/bonus.service';
 import { AlipayService } from '../payment/alipay.service';
+import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { InboxService } from '../inbox/inbox.service';
@@ -91,5 +92,14 @@ export class OrderModule implements OnModuleInit {
 
     // 注入 CheckoutService 到 ExpireService（expire 检测到已支付时主动建单用）
     this.checkoutExpireService.setCheckoutService(this.checkoutService);
+
+    // 注入 PaymentService（cancel/expire 主动建单后通知商家用，补 notifySellersForOrders 缺口）
+    const paymentService = this.moduleRef.get(PaymentService, { strict: false });
+    if (paymentService) {
+      this.checkoutService.setPaymentService(paymentService);
+      this.checkoutExpireService.setPaymentService(paymentService);
+    } else {
+      console.warn('[OrderModule] PaymentService 未注入，cancel/expire 主动建单后无法通知商家');
+    }
   }
 }

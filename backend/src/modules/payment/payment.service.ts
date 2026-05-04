@@ -839,6 +839,16 @@ export class PaymentService {
   }
 
   /**
+   * 公开 wrapper：在 checkout 主动建单（非 notify 路径）后通知商家。
+   * 供 CheckoutService.cancelSession / CheckoutExpireService.expireSession 在
+   * 检测到已支付主动建单后调用，补 notifySellersForOrders 缺口。
+   */
+  public async notifyMerchantsForOrders(orderIds: string[]): Promise<void> {
+    if (orderIds.length === 0) return;
+    await this.notifySellersForOrders(orderIds);
+  }
+
+  /**
    * 通知相关商家有新订单待发货
    * 查询订单涉及的所有商家，向每个商家的 OWNER 发送站内消息
    */

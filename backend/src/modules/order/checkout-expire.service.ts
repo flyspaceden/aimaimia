@@ -19,6 +19,8 @@ export class CheckoutExpireService {
   private alipayService: any = null;
   // CheckoutService 通过可选注入（expire 检测到已支付时主动建单用）
   private checkoutService: any = null;
+  // PaymentService 通过可选注入（expire 主动建单后通知商家用）
+  private paymentService: any = null;
 
   constructor(private prisma: PrismaService) {}
 
@@ -35,6 +37,11 @@ export class CheckoutExpireService {
   /** 注入结算服务（由 OrderModule 在 onModuleInit 时调用） */
   setCheckoutService(service: any) {
     this.checkoutService = service;
+  }
+
+  /** 注入支付服务（expire 主动建单后通知商家用，由 OrderModule 在 onModuleInit 时调用） */
+  setPaymentService(service: any) {
+    this.paymentService = service;
   }
 
   @Cron('0 * * * * *')
@@ -262,11 +269,17 @@ export class CheckoutExpireService {
           return;
         }
         try {
-          await this.checkoutService.handlePaymentSuccess(
+          const buildResult = await this.checkoutService.handlePaymentSuccess(
             session.merchantOrderNo,
             queryResult.tradeNo,
             new Date().toISOString(),
           );
+          // 主动建单成功后通知商家（fire-and-forget）
+          if (buildResult?.orderIds?.length > 0 && this.paymentService) {
+            this.paymentService.notifyMerchantsForOrders(buildResult.orderIds).catch((err: any) => {
+              this.logger.error(`expireSession 主动建单后商家通知失败：${err.message}`);
+            });
+          }
         } catch (e: any) {
           // 建单失败（金额不一致、并发已处理等）— 跳过本次，下次 cron 再重试
           this.logger.error(
@@ -311,11 +324,17 @@ export class CheckoutExpireService {
               return;
             }
             try {
-              await this.checkoutService.handlePaymentSuccess(
+              const closePaidResult = await this.checkoutService.handlePaymentSuccess(
                 session.merchantOrderNo,
                 queryAfterClose.tradeNo,
                 new Date().toISOString(),
               );
+              // 主动建单成功后通知商家（fire-and-forget）
+              if (closePaidResult?.orderIds?.length > 0 && this.paymentService) {
+                this.paymentService.notifyMerchantsForOrders(closePaidResult.orderIds).catch((err: any) => {
+                  this.logger.error(`expireSession close-paid 建单后商家通知失败：${err.message}`);
+                });
+              }
             } catch (buildErr: any) {
               this.logger.error(
                 `expireSession close-paid 建单失败，sessionId=${session.id}：${buildErr.message}`,
