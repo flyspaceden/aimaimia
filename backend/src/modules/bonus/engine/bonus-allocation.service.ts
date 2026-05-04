@@ -11,6 +11,7 @@ import { NormalPlatformSplitService } from './normal-platform-split.service';
 import { RewardCalculatorService, OrderItemForCalc, OrderItemForPoolCalc, OrderItemForNormalCalc, PoolCalculation, NormalPoolCalculation, VipPoolCalculation } from './reward-calculator.service';
 import { sanitizeErrorForLog } from '../../../common/logging/log-sanitizer';
 import { NORMAL_ROOT_ID, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, BONUS_MIGRATION_DATE } from './constants';
+import { generateReferralCode } from '../../../common/utils/referral-code.util';
 
 /** 分流路由结果 */
 type RoutingDecision = 'NORMAL_BROADCAST' | 'NORMAL_TREE' | 'VIP_UPSTREAM' | 'VIP_EXITED';
@@ -927,12 +928,15 @@ export class BonusAllocationService {
           },
         });
         if (updateResult.count === 0) {
+          // create 分支必须带 referralCode，否则注册时漏建 MemberProfile 的兜底路径
+          // 会留下 NULL referralCode，传染到买家 App"我的专属推荐码"显示为空
           await tx.memberProfile.upsert({
             where: { userId },
             create: {
               userId,
               normalTreeNodeId: newNode.id,
               normalJoinedAt: new Date(),
+              referralCode: generateReferralCode(),
             },
             update: {
               normalTreeNodeId: newNode.id,
