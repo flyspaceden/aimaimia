@@ -386,9 +386,9 @@ curl -I https://app.ai-maimai.com/r/ABCD1234                         # 期望 20
 | 7 | P2 | Bug 1 旁路 upsert 补码 | `backend/src/modules/bonus/engine/normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `e43e046`) |
 | 8 | P2 | Bug 1 `getMemberProfile` lazy 兜底升级（NULL 也补码） | `backend/src/modules/bonus/bonus.service.ts:23-50` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `8af1c46`) |
 | **P3** | **App 端启动逻辑改造** | | | | | |
-| 9 | P3 | Bug 6 启动后已登录态主动绑 pending code | `app/_layout.tsx`（新加 effect） | OTA | ⬜ | — |
-| 10 | P3 | Bug 8 DDL 不再一次性兜死，加重试计数 | `app/_layout.tsx:95` + `src/services/deferredLink.ts` | OTA | ⬜ | — |
-| 11 | P3 | Bug 11 URL 监听器提前挂，未同意期间暂存 | `app/_layout.tsx:117-127` | OTA | ⬜ | — |
+| 9 | P3 | Bug 6 启动后已登录态主动绑 pending code | `app/_layout.tsx`（新加 effect） | OTA | ✅ | 2026-05-04 (commit `6be9f4e`) |
+| 10 | P3 | Bug 8 DDL 加 48h 重试窗口（方案 C） | `app/_layout.tsx` + `src/services/deferredLink.ts`（新增 shouldAttemptDDL/recordDDLAttempt/markDDLResolved） | OTA | ✅ | 2026-05-04 (commit `58427b9`) |
+| 11 | P3 | Bug 11 URL 监听器提前挂，未同意期间 ref 缓冲，granted 后回放 | `app/_layout.tsx:118-148` | OTA | ✅ | 2026-05-04 (commit `9439518`) |
 | **P4** | **指纹算法 + 国内分发** | | | | | |
 | 12 | P4 | Bug 7 后端 match 改为只用模糊匹配，删精确匹配 | `backend/src/modules/deferred-link/deferred-link.service.ts:82-132` | 后端部署 + PM2 重启 | ⬜ | — |
 | 13 | P4 | ~~Bug 5 Android 下载链接改为 APK 直链~~ | `website/src/pages/Download.tsx:82` + 新增配置项 | — | ⏸️ 暂缓 | 测试期手动发 APK；正式上架前再做 |

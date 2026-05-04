@@ -1049,10 +1049,10 @@
 - [x] **R-RC05** 旁路 upsert 补码：`normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930`（commit `e43e046`）
 - [x] **R-RC06** `getMemberProfile` lazy 兜底升级：member 存在但 referralCode 为 NULL → 自动补码并 update，5 次 P2002 重试兜底（commit `8af1c46`，不写一次性 SQL）
 
-### Phase 3（App 端启动逻辑改造）
-- [ ] **R-RC07** Bug 6 启动后已登录态主动绑 pending code：`app/_layout.tsx` 加 effect
-- [ ] **R-RC08** Bug 8 DDL 重试策略（方案 C：48h 内允许重试，对齐后端 `expiresAt`）：`app/_layout.tsx` + `src/services/deferredLink.ts`
-- [ ] **R-RC09** Bug 11 URL 监听器提前挂，未同意期间暂存：`app/_layout.tsx:117-127`
+### Phase 3（App 端启动逻辑改造）✅ 2026-05-04
+- [x] **R-RC07** Bug 6 启动后已登录态主动绑 pending code（commit `6be9f4e`，consentState granted + isLoggedIn → 主动调 useReferralCode；NETWORK 错误保留 pending）
+- [x] **R-RC08** Bug 8 DDL 48h 重试窗口（commit `58427b9`，`ddl_first_attempt_at` + `ddl_resolved` 双 key 替代旧 `ddl_checked`，未 resolved 且窗口内允许重试）
+- [x] **R-RC09** Bug 11 URL 监听器立刻挂 + ref 缓冲 + granted 后回放（commit `9439518`，`pendingURLsRef` + `consentRef`）
 
 ### Phase 4（指纹算法 + 监控）
 - [ ] **R-RC10** Bug 7 后端 UA 归一化加强（保留精确匹配，方案 B）：`deferred-link.service.ts:12-20`
