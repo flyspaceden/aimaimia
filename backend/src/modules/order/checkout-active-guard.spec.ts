@@ -131,4 +131,197 @@ describe('CheckoutService active session guard', () => {
       svc.checkout('user1', { items: [{ skuId: 's1', quantity: 1 }] } as any),
     ).rejects.toThrow('REACHED_SKU_QUERY');
   });
+
+  /**
+   * bizType 隔离：普通 checkout 的防重锁查询带 bizType: 'NORMAL_GOODS',
+   * 只有 VIP_PACKAGE session 存在时不应被挡。
+   *
+   * 实现校验：在 tx.checkoutSession.findFirst 收到 args.where.bizType 时断言为 NORMAL_GOODS,
+   * 并（仅当符合该过滤条件）才返回 active session；否则返回 null → guard 不抛 ConflictException。
+   */
+  it('does NOT block normal checkout when only VIP session exists (bizType isolation)', async () => {
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const vipActiveSession = {
+      id: 'existing-vip-session',
+      userId: 'user1',
+      status: 'ACTIVE',
+      bizType: 'VIP_PACKAGE',
+      expiresAt,
+      idempotencyKey: 'old-vip-key',
+    };
+
+    const validSku = {
+      id: 's1', productId: 'p1', title: 'SKU 1', price: 50, cost: 30,
+      stock: 100, status: 'ACTIVE', maxPerOrder: null, weightGram: 0,
+      product: {
+        id: 'p1', companyId: 'c1', title: 'P1', status: 'ACTIVE',
+        auditStatus: 'APPROVED', bizType: 'NORMAL_GOODS', shippingTemplateId: null,
+        returnPolicy: 'INHERIT', media: [],
+      },
+    };
+    const validAddress = {
+      id: 'a1', userId: 'user1', regionText: '北京市/北京市/朝阳区',
+      regionCode: 'CN-BJ-CY', recipientName: '张三', phone: '13800000000', detail: '街道一号',
+    };
+
+    let bizTypeFilterSeen: string | undefined;
+    const prisma: any = {
+      checkoutSession: { findFirst: async () => null },
+      productSKU: { findMany: async () => [validSku] },
+      cart: { findUnique: async () => null },
+      cartItem: { findMany: async () => [] },
+      address: { findUnique: async () => validAddress },
+      vipTreeNode: { findFirst: async () => null },
+      shippingConfig: { findFirst: async () => null },
+      memberProfile: { findUnique: async () => null },
+      rewardLedger: { findFirst: async () => null, findUnique: async () => null },
+      couponInstance: { findMany: async () => [] },
+      company: { findMany: async () => [] },
+      lotteryRecord: { findUnique: async () => null },
+      $transaction: async (cb: any) => {
+        const tx = {
+          checkoutSession: {
+            findFirst: async (args: any) => {
+              bizTypeFilterSeen = args?.where?.bizType;
+              // 普通 checkout 守卫只查 NORMAL_GOODS — 仅 VIP session 存在时返 null
+              if (args?.where?.bizType === 'VIP_PACKAGE') return vipActiveSession;
+              return null;
+            },
+          },
+          rewardLedger: { updateMany: async () => ({ count: 0 }) },
+          // 让事务在守卫之后某步抛 sentinel（确认 guard 已放行）
+          productSKU: { update: async () => { throw new Error('REACHED_AFTER_GUARD'); } },
+        };
+        return cb(tx);
+      },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: async () => ({
+        vipFreeShippingThreshold: 0, normalFreeShippingThreshold: 0, defaultShippingFee: 0,
+      }),
+    };
+    const svc = new CheckoutService(prisma, bonusConfig);
+
+    let caught: any;
+    try {
+      await svc.checkout('user1', {
+        items: [{ skuId: 's1', quantity: 1 }],
+        addressId: 'a1',
+        idempotencyKey: 'new-normal-key',
+      } as any);
+    } catch (e) {
+      caught = e;
+    }
+
+    // 关键断言：
+    // 1) 守卫查询带 bizType 过滤（NORMAL_GOODS），不会撞到 VIP active session
+    expect(bizTypeFilterSeen).toBe('NORMAL_GOODS');
+    // 2) 不抛 ConflictException（普通 checkout 不应被 VIP session 挡道）
+    expect(caught).not.toBeInstanceOf(ConflictException);
+  });
+
+  /**
+   * 反向：VIP checkout 的防重锁查询带 bizType: 'VIP_PACKAGE',
+   * 只有普通 NORMAL_GOODS session 存在时不应被挡。
+   */
+  it('does NOT block VIP checkout when only normal session exists (bizType isolation)', async () => {
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const normalActiveSession = {
+      id: 'existing-normal-session',
+      userId: 'user1',
+      status: 'ACTIVE',
+      bizType: 'NORMAL_GOODS',
+      expiresAt,
+      idempotencyKey: 'old-normal-key',
+    };
+
+    const validAddress = {
+      id: 'a1', userId: 'user1', regionText: '北京市/北京市/朝阳区',
+      regionCode: 'CN-BJ-CY', recipientName: '张三', phone: '13800000000', detail: '街道一号',
+    };
+    const vipPackage = {
+      id: 'pkg1', status: 'ACTIVE', price: 999, referralBonusRate: 0.1,
+    };
+    // VIP 礼包前置校验要求 sku.product.companyId === PLATFORM_COMPANY_ID
+    // 真值见 backend/src/modules/bonus/engine/constants.ts: 'PLATFORM_COMPANY'
+    const PLATFORM = 'PLATFORM_COMPANY';
+    const giftOption = {
+      id: 'gift1',
+      packageId: 'pkg1',
+      status: 'ACTIVE',
+      title: 'VIP 大礼包',
+      coverMode: 'GRID',
+      coverUrl: null,
+      badge: null,
+      items: [
+        {
+          quantity: 1,
+          sortOrder: 0,
+          sku: {
+            id: 's1',
+            title: 'SKU 1',
+            price: 999,
+            stock: 100,
+            status: 'ACTIVE',
+            product: {
+              id: 'p1',
+              title: 'Gift 1',
+              companyId: PLATFORM,
+              status: 'ACTIVE',
+              media: [],
+            },
+          },
+        },
+      ],
+    };
+
+    let bizTypeFilterSeen: string | undefined;
+    const prisma: any = {
+      checkoutSession: { findFirst: async () => null },
+      vipPackage: { findUnique: async () => vipPackage },
+      vipGiftOption: { findUnique: async () => giftOption },
+      address: { findUnique: async () => validAddress },
+      memberProfile: { findUnique: async () => null },
+      $transaction: async (cb: any) => {
+        const tx = {
+          checkoutSession: {
+            findFirst: async (args: any) => {
+              bizTypeFilterSeen = args?.where?.bizType;
+              // VIP checkout 守卫只查 VIP_PACKAGE — 仅普通 session 存在时返 null
+              if (args?.where?.bizType === 'NORMAL_GOODS') return normalActiveSession;
+              return null;
+            },
+          },
+          memberProfile: { findUnique: async () => null },
+          // 让事务在守卫之后某步抛 sentinel（确认 guard 已放行）
+          vipGiftOption: { findUnique: async () => { throw new Error('REACHED_AFTER_VIP_GUARD'); } },
+        };
+        return cb(tx);
+      },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: async () => ({
+        vipFreeShippingThreshold: 0, normalFreeShippingThreshold: 0, defaultShippingFee: 0,
+      }),
+    };
+    const svc = new CheckoutService(prisma, bonusConfig);
+
+    let caught: any;
+    try {
+      await svc.checkoutVipPackage('user1', {
+        packageId: 'pkg1',
+        giftOptionId: 'gift1',
+        addressId: 'a1',
+        idempotencyKey: 'new-vip-key',
+      } as any);
+    } catch (e) {
+      caught = e;
+    }
+
+    // 关键断言：
+    // 1) 守卫查询带 bizType 过滤（VIP_PACKAGE），不会撞到普通 active session
+    expect(bizTypeFilterSeen).toBe('VIP_PACKAGE');
+    // 2) 不抛 ConflictException（VIP checkout 不应被普通 session 挡道）
+    expect(caught).not.toBeInstanceOf(ConflictException);
+  });
 });
