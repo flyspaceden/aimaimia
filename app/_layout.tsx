@@ -106,6 +106,9 @@ async function performDeferredLinkCheck() {
 export default function RootLayout() {
   // 隐私合规状态：未知 / 需要弹窗 / 已同意
   const [consentState, setConsentState] = useState<'unknown' | 'needed' | 'granted'>('unknown');
+  // 订阅 isLoggedIn：zustand persist rehydrate 是 async，
+  // 冷启动时 effect 可能在恢复完成前先跑（看到 false），订阅后 rehydrate 完成会重跑
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
 
   // 首启检查：是否已同意隐私政策和用户协议
   useEffect(() => {
@@ -157,7 +160,7 @@ export default function RootLayout() {
   //   → 没有这段逻辑则 pending code 永远不会绑
   useEffect(() => {
     if (consentState !== 'granted') return;
-    if (!useAuthStore.getState().isLoggedIn) return;
+    if (!isLoggedIn) return;
 
     (async () => {
       const code = await getPendingReferralCode();
@@ -173,7 +176,7 @@ export default function RootLayout() {
         // 兜底：未知异常保留 pending
       }
     })();
-  }, [consentState]);
+  }, [consentState, isLoggedIn]);
 
   useEffect(() => {
     if (consentState !== 'granted') return;
