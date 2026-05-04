@@ -379,11 +379,12 @@ curl -I https://app.ai-maimai.com/r/ABCD1234                         # 期望 20
 | 2 | P1 | ~~Bug 4 App Store 链接占位~~ | `website/src/pages/Download.tsx:80` | — | ⏸️ 暂缓 | iOS 阶段再处理 |
 | 3 | P1 | ~~Bug 2 AASA `appID` 替换为真 Team ID~~ | `website/public/.well-known/apple-app-site-association` | — | ⏸️ 暂缓 | iOS 阶段再处理 |
 | **P2** | **后端注册路径补码（Bug 1 核心）** | | | | | |
-| 4 | P2 | Bug 1 注册三处补 referralCode | `backend/src/modules/auth/auth.service.ts:127, 464, 567` | 后端部署 + PM2 重启 | ⬜ | — |
-| 5 | P2 | Bug 1 管理端/卖家端自动建用户路径补 referralCode | `admin-companies.service.ts` + `admin-merchant-applications.service.ts` + `seller-company.service.ts` | 后端部署 + PM2 重启 | ⬜ | — |
-| 6 | P2 | Bug 1 VIP 激活 upsert update 分支补码 | `backend/src/modules/bonus/bonus.service.ts:256-268` | 后端部署 + PM2 重启 | ⬜ | — |
-| 7 | P2 | Bug 1 旁路 upsert 补码 | `backend/src/modules/bonus/engine/normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930` | 后端部署 + PM2 重启 | ⬜ | — |
-| 8 | P2 | Bug 1 `getMemberProfile` lazy 兜底升级（NULL 也补码） | `backend/src/modules/bonus/bonus.service.ts:23-50` | 后端部署 + PM2 重启 | ⬜ | — |
+| 4-prep | P2 | prep：generateReferralCode 抽到共享 util | `backend/src/common/utils/referral-code.util.ts`（新增）+ `bonus.service.ts:1195` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `b85e365`) |
+| 4 | P2 | Bug 1 注册三处补 referralCode | `backend/src/modules/auth/auth.service.ts:127, 464, 567` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `be01329`) |
+| 5 | P2 | Bug 1 管理端/卖家端自动建用户路径补 referralCode（5 处） | `admin-companies.service.ts:55,514,654` + `admin-merchant-applications.service.ts:131` + `seller-company.service.ts:273` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `2878fc3`) |
+| 6 | P2 | Bug 1 VIP 激活 upsert update 分支补码 | `backend/src/modules/bonus/bonus.service.ts:256-275` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `42fa122`) |
+| 7 | P2 | Bug 1 旁路 upsert 补码 | `backend/src/modules/bonus/engine/normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `e43e046`) |
+| 8 | P2 | Bug 1 `getMemberProfile` lazy 兜底升级（NULL 也补码） | `backend/src/modules/bonus/bonus.service.ts:23-50` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `8af1c46`) |
 | **P3** | **App 端启动逻辑改造** | | | | | |
 | 9 | P3 | Bug 6 启动后已登录态主动绑 pending code | `app/_layout.tsx`（新加 effect） | OTA | ⬜ | — |
 | 10 | P3 | Bug 8 DDL 不再一次性兜死，加重试计数 | `app/_layout.tsx:95` + `src/services/deferredLink.ts` | OTA | ⬜ | — |

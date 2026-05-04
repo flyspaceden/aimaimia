@@ -1042,12 +1042,12 @@
   - `website/src/pages/Download.tsx` + `website/src/pages/Resolve.tsx` Hook 前同步检查中文域名 → `location.replace` 到 `app.ai-maimai.com`，配 early return null 阻止首屏闪现
   - 共享逻辑抽到 `website/src/lib/canonicalDomain.ts`
 
-### Phase 2（后端 Bug 1 referralCode 补全）
-- [ ] **R-RC02** 注册三处补 referralCode：`auth.service.ts:127, 464, 567`
-- [ ] **R-RC03** 管理端/卖家端 5 处补 referralCode：`admin-companies.service.ts:55, 513, 653` + `admin-merchant-applications.service.ts:131` + `seller-company.service.ts:273`
-- [ ] **R-RC04** VIP 激活 upsert 的 update 分支补码（防覆盖已有码）：`bonus.service.ts:256-268`
-- [ ] **R-RC05** 旁路 upsert 补码：`normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930`
-- [ ] **R-RC06** `getMemberProfile` lazy 兜底升级：member 存在但 referralCode 为 NULL → 自动补码并 update（不写一次性 SQL）
+### Phase 2（后端 Bug 1 referralCode 补全）✅ 2026-05-04
+- [x] **R-RC02** 注册三处补 referralCode：`auth.service.ts:127, 464, 567`（commit `be01329`，配 prep `b85e365` 抽 generateReferralCode 到共享 util）
+- [x] **R-RC03** 管理端/卖家端 5 处补 referralCode：`admin-companies.service.ts:55, 514, 654` + `admin-merchant-applications.service.ts:131` + `seller-company.service.ts:273`（commit `2878fc3`）
+- [x] **R-RC04** VIP 激活 upsert 的 update 分支补码（防覆盖已有码）：`bonus.service.ts:256-275`（commit `42fa122`，事务内复用已 read 的 member 判 NULL）
+- [x] **R-RC05** 旁路 upsert 补码：`normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930`（commit `e43e046`）
+- [x] **R-RC06** `getMemberProfile` lazy 兜底升级：member 存在但 referralCode 为 NULL → 自动补码并 update，5 次 P2002 重试兜底（commit `8af1c46`，不写一次性 SQL）
 
 ### Phase 3（App 端启动逻辑改造）
 - [ ] **R-RC07** Bug 6 启动后已登录态主动绑 pending code：`app/_layout.tsx` 加 effect
