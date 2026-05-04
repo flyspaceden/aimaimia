@@ -542,9 +542,10 @@ export class CheckoutService {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const session = await this.prisma.$transaction(async (tx) => {
-          // Task 18 修正：防重锁在 Serializable 事务内执行，避免并发请求都通过外部检查
+          // Task 18 修正：防重锁按 bizType 隔离 — 普通商品 session 间互斥；
+          // 不影响 VIP session（用户可以同时有一个普通 + 一个 VIP ACTIVE session）
           const activeSession = await tx.checkoutSession.findFirst({
-            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() }, bizType: 'NORMAL_GOODS' },
             orderBy: { createdAt: 'desc' },
           });
           if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
@@ -883,10 +884,10 @@ export class CheckoutService {
     for (let attempt = 0; attempt < VIP_MAX_RETRIES; attempt++) {
       try {
         vipSession = await this.prisma.$transaction(async (tx) => {
-          // Task 18 修正：全局防重锁在 Serializable 事务内执行，
-          // 避免并发请求都通过外部检查再各自创建 ACTIVE session（含普通+VIP）
+          // Task 18 修正：防重锁按 bizType 隔离 — VIP session 间互斥；
+          // 不影响普通商品 session（跨类型不互斥）
           const globalActiveSession = await tx.checkoutSession.findFirst({
-            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() }, bizType: 'VIP_PACKAGE' },
             orderBy: { createdAt: 'desc' },
           });
           if (
