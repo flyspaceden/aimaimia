@@ -20,6 +20,7 @@ import {
   extractReferralCodeFromURL,
   setPendingReferralCode,
   clearPendingReferralCode,
+  getPendingReferralCode,
   isDDLChecked,
   markDDLChecked,
   matchByFingerprint,
@@ -124,6 +125,30 @@ export default function RootLayout() {
     });
 
     return () => subscription.remove();
+  }, [consentState]);
+
+  // 启动后已登录态主动尝试绑定 pending referral code
+  // 场景：用户首启 → DDL 匹配成功写入 pending → 没立即注册 → 关 App
+  //   → 下次启动直接进首页（已是登录态），useAuthStore.setLoggedIn 不会再触发
+  //   → 没有这段逻辑则 pending code 永远不会绑
+  useEffect(() => {
+    if (consentState !== 'granted') return;
+    if (!useAuthStore.getState().isLoggedIn) return;
+
+    (async () => {
+      const code = await getPendingReferralCode();
+      if (!code) return;
+      try {
+        const result = await BonusRepo.useReferralCode(code);
+        if (result.ok || result.error.code !== 'NETWORK') {
+          // 成功 / 业务错误（已是 VIP / 推荐码无效）→ 清，避免堆积
+          await clearPendingReferralCode();
+        }
+        // NETWORK 错误：保留 pending 供下次启动重试
+      } catch {
+        // 兜底：未知异常保留 pending
+      }
+    })();
   }, [consentState]);
 
   useEffect(() => {
