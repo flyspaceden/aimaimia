@@ -31,6 +31,26 @@ export class BonusService {
           referralCode: generateReferralCode(),
         },
       });
+    } else if (!member.referralCode) {
+      // 历史遗留兜底：member 存在但 referralCode 为 NULL（早期注册/管理端建号路径漏写），
+      // 借此次访问补上。@unique 冲突重试至多 5 次仍失败则降级返回空码 + 写日志
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          member = await this.prisma.memberProfile.update({
+            where: { userId },
+            data: { referralCode: generateReferralCode() },
+          });
+          break;
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!member.referralCode) {
+        this.logger.warn(`getMemberProfile lazy 补码失败：userId=${userId}，5 次均遇 @unique 冲突`);
+      }
     }
 
     const vipProgress = await this.prisma.vipProgress.findUnique({ where: { userId } });
