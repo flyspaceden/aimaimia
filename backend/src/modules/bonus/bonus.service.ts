@@ -5,7 +5,7 @@ import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
 import { MIN_WITHDRAW_AMOUNT, MAX_DAILY_WITHDRAWALS, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { InboxService } from '../inbox/inbox.service';
-import { generateReferralCode } from '../../common/utils/referral-code.util';
+import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 
 @Injectable()
 export class BonusService {
@@ -28,17 +28,17 @@ export class BonusService {
       member = await this.prisma.memberProfile.create({
         data: {
           userId,
-          referralCode: generateReferralCode(),
+          referralCode: await pickUniqueReferralCode(this.prisma),
         },
       });
     } else if (!member.referralCode) {
       // 历史遗留兜底：member 存在但 referralCode 为 NULL（早期注册/管理端建号路径漏写），
-      // 借此次访问补上。@unique 冲突重试至多 5 次仍失败则降级返回空码 + 写日志
+      // 借此次访问补上。pickUniqueReferralCode 预查找 + @unique 兜底重试至多 5 次
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
           member = await this.prisma.memberProfile.update({
             where: { userId },
-            data: { referralCode: generateReferralCode() },
+            data: { referralCode: await pickUniqueReferralCode(this.prisma) },
           });
           break;
         } catch (err) {
@@ -118,7 +118,7 @@ export class BonusService {
         create: {
           userId,
           inviterUserId: inviter.userId,
-          referralCode: generateReferralCode(),
+          referralCode: await pickUniqueReferralCode(tx),
         },
         update: { inviterUserId: inviter.userId },
       });
@@ -281,7 +281,7 @@ export class BonusService {
           vipPurchasedAt: new Date(),
         };
         if (member && !member.referralCode) {
-          updateData.referralCode = generateReferralCode();
+          updateData.referralCode = await pickUniqueReferralCode(tx);
         }
         const updatedMember = await tx.memberProfile.upsert({
           where: { userId },
@@ -289,7 +289,7 @@ export class BonusService {
             userId,
             tier: 'VIP',
             vipPurchasedAt: new Date(),
-            referralCode: generateReferralCode(),
+            referralCode: await pickUniqueReferralCode(tx),
           },
           update: updateData,
         });

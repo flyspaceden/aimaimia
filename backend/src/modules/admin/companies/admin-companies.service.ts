@@ -5,7 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto } from './dto/admin-company.dto';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { CompanyService } from '../../company/company.service';
-import { generateReferralCode } from '../../../common/utils/referral-code.util';
+import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 
 // AI 搜索字段键名（用于 highlights merge 保护，包含历史字段以防旧数据覆盖）
 const AI_SEARCH_KEYS = [
@@ -53,7 +53,7 @@ export class AdminCompaniesService {
                 nickname: dto.contactName,
               },
             },
-            memberProfile: { create: { referralCode: generateReferralCode() } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
           },
         });
         userId = newUser.id;
@@ -511,7 +511,7 @@ export class AdminCompaniesService {
         const newUser = await tx.user.create({
           data: {
             profile: { create: { nickname: nickname || dto.phone } },
-            memberProfile: { create: { referralCode: generateReferralCode() } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
             authIdentities: {
               create: { provider: 'PHONE', identifier: dto.phone, verified: true },
             },
@@ -651,7 +651,7 @@ export class AdminCompaniesService {
         const newUser = await tx.user.create({
           data: {
             profile: { create: { nickname: nickname || dto.newOwnerPhone } },
-            memberProfile: { create: { referralCode: generateReferralCode() } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
             authIdentities: {
               create: { provider: 'PHONE', identifier: dto.newOwnerPhone, verified: true },
             },

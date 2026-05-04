@@ -11,7 +11,7 @@ import { NormalPlatformSplitService } from './normal-platform-split.service';
 import { RewardCalculatorService, OrderItemForCalc, OrderItemForPoolCalc, OrderItemForNormalCalc, PoolCalculation, NormalPoolCalculation, VipPoolCalculation } from './reward-calculator.service';
 import { sanitizeErrorForLog } from '../../../common/logging/log-sanitizer';
 import { NORMAL_ROOT_ID, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, BONUS_MIGRATION_DATE } from './constants';
-import { generateReferralCode } from '../../../common/utils/referral-code.util';
+import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 
 /** 分流路由结果 */
 type RoutingDecision = 'NORMAL_BROADCAST' | 'NORMAL_TREE' | 'VIP_UPSTREAM' | 'VIP_EXITED';
@@ -936,7 +936,7 @@ export class BonusAllocationService {
               userId,
               normalTreeNodeId: newNode.id,
               normalJoinedAt: new Date(),
-              referralCode: generateReferralCode(),
+              referralCode: await pickUniqueReferralCode(tx),
             },
             update: {
               normalTreeNodeId: newNode.id,

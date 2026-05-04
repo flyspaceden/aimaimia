@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RejectMerchantApplicationDto } from '../../merchant-application/dto/reject-merchant-application.dto';
-import { generateReferralCode } from '../../../common/utils/referral-code.util';
+import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 
 @Injectable()
 export class AdminMerchantApplicationsService {
@@ -129,7 +129,7 @@ export class AdminMerchantApplicationsService {
                 nickname: application.contactName,
               },
             },
-            memberProfile: { create: { referralCode: generateReferralCode() } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
           },
         });
         userId = newUser.id;

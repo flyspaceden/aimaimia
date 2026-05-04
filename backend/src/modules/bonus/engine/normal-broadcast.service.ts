@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID } from './constants';
-import { generateReferralCode } from '../../../common/utils/referral-code.util';
+import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 
 @Injectable()
 export class NormalBroadcastService {
@@ -114,7 +114,7 @@ export class NormalBroadcastService {
     // create 分支必须带 referralCode，否则首次普通广播触发的用户会留下 NULL referralCode
     await tx.memberProfile.upsert({
       where: { userId },
-      create: { userId, normalEligible: true, referralCode: generateReferralCode() },
+      create: { userId, normalEligible: true, referralCode: await pickUniqueReferralCode(tx) },
       update: { normalEligible: true },
     });
 
