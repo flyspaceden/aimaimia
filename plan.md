@@ -1070,6 +1070,12 @@
 - [x] **R-RC16** 推荐码绑定改用 `result.error.retryable` 判断（commit `2a43bd9`，原 R12 用 `code !== 'NETWORK'` 漏掉后端 5xx/限流的 retryable=true 错误，仍会清掉 pending 丢码）
 - [x] **R-RC17** pickUniqueReferralCode docstring 诚实标注 P2002 残余 race（commit `d16bf03`，无逻辑改动，仅文档更正"避免" → "降低"）
 
+### 🚨 现网 OTA hotfix（2026-05-04）
+- [x] **R-RC18** Cookie 路径改为本机一次性消费，避免每次冷启动弹 Chrome Custom Tab（commit `179d833`）
+  - 根因：commit 58427b9 把 DDL 改 48h 重试，没区分 cookie/fingerprint。cookie 是浏览器侧静态状态，重试无意义且打扰；绝大多数从应用商店装 App 的用户没扫推荐 QR，永远不会 markDDLResolved → 旧逻辑每次启动都弹浏览器
+  - 修复：拆 `shouldAttemptCookiePath`（一次性）+ `shouldAttemptFingerprintPath`（48h 重试），cookie 路径 finally 里 markCookiePathAttempted
+  - 升级影响：已 OTA 用户最多再弹一次浏览器，之后永不弹
+
 ### Backlog（已知残余风险，监控触发后再升级）
 - [ ] **R-RC-BL1** 多候选时 pick 最新一条仍可能拿错码（exact + fuzzy 都已 logger.warn 告警）；正确性优先方案是"多候选放弃匹配"，待真机告警频率确认后决策
 - [ ] **R-RC-BL2** 13 处建号 create 没做 P2002 catch + retry，依赖 32^8 + 预查把概率压到 ≈0；如果生产观测到 P2002 报警再把"生成 + create"包进 retry helper
