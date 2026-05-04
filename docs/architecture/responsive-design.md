@@ -349,25 +349,147 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 
 ---
 
-## 六、实施路线图
+## 六、实施路线图 + 修复进度
 
-### Sprint 1（本批次，3 commit）
+### 6.1 全项目审计（2026-05-04 完成）
 
-| # | 内容 | 文件 |
-|---|---|---|
-| 1 | 工具基建 + 全局兜底 | 新建 `src/theme/responsive.ts`（useResponsiveLayout + priceTextProps + fitTextProps + compactActionTextProps + useBottomInset） + `app/_layout.tsx` 设全局 maxFontSizeMultiplier=1.2 |
-| 2 | 修 VIP 礼包页（截图复现点）| `app/vip/gifts.tsx` 改 useWindowDimensions + fontScale 参与列数 + 价格 spread priceTextProps + 底部栏走 useBottomInset |
-| 3 | 项目级 rg 审计报告 + 修高优 5 处 | rg 黑名单跑全项目，按页面访问频率排序，先修 checkout / 商品详情 / 订单卡片 / 加购栏 / 首页 |
+**触发**：
+- 2026-04-30 spec 立项时仅 VIP 礼包页 1 个截图复现点
+- 2026-05-04 用户随手测试发现 `checkout.tsx`（小米机底部空白）+ `orders/[id].tsx`（底部被手势条挡住）—— 决定全项目扫一遍，不再依赖随机发现
 
-### Sprint 2（下一批，按 rg 报告）
+**方法**：4 组并行 subagent 审查 60 个页面 + 16 个共用组件，对照 6 原则 + §5 rg 黑名单
 
-剩余非高优页面分批修，每个 commit 修 3-5 个页面。预计 2-3 个 sprint 清完。
+**结果总览**：
+- 🔴 严重：15+ 处（涉及 9 个文件）
+- 🟡 中等：26+ 处
+- ✅ 干净：约 30 个文件
 
-### 长期：每个新页面强制走 Checklist
+#### 🔴 高优问题清单（按修复 ROI 排序）
 
-- PR 模板加适配 checklist
-- 每个新页面 reviewer 必查响应式 6 原则
-- OTA 发布前 8 场景测试矩阵
+**A. 底部 safe area 系统性缺陷（影响最大，对应用户报告的 bug）**
+
+| # | 文件 | 问题 | 影响范围 |
+|---|------|------|---------|
+| A1 | `src/components/orders/StickyCTABar.tsx` | 完全没用 `useSafeAreaInsets`，`padding: 10` 直接贴系统栏 | **共用组件**——影响订单详情/售后/售后详情 3 页 |
+| A2 | `app/orders/[id].tsx` | ScrollView paddingBottom=80 写死 + StickyCTABar 没保护 | 用户已报告 |
+| A3 | `app/orders/after-sale/[id].tsx` | 同 A2，走同共用组件 | — |
+| A4 | `app/orders/after-sale-detail/[id].tsx` | 同 A2 | — |
+| A5 | `app/checkout.tsx` | bottomBar `paddingBottom: insets.bottom + 8` 无 OEM 兜底 + ScrollView paddingBottom 不对称 | 用户已报告（小米空白）|
+| A6 | `app/cart.tsx` | 同样 bottomBar OEM bug | 购物车确认栏 |
+| A7 | `app/checkout-coupon.tsx` | 同样 bottomBar OEM bug + 优惠券价格未防缩放 | 优惠券选择栏 |
+
+**B. 模块顶层 `Dimensions.get` 锁死宽度（违反原则 4）**
+
+| # | 文件 | 位置 | 影响 |
+|---|------|------|------|
+| B1 | `app/(tabs)/museum.tsx` | L18 | 瀑布流卡宽不响应分屏/旋转 |
+| B2 | `app/ai/recommend.tsx` | L18 | AI 推荐组合卡片 |
+| B3 | `app/cart.tsx` | L27 | 推荐区固定 140px |
+| B4 | `app/product/[id].tsx` | L32 | 商品详情多处依赖 |
+| B5 | `app/search.tsx` | L27 | 搜索结果列宽 |
+| B6 | `app/index.tsx` | L16 | 启动 splash |
+| B7 | `app/vip/gifts.tsx` | L45-49 | **多处依赖**（CARD/SIDE_PADDING/benefitItem/emptyGifts），spec §1.1 原始复现点 |
+
+**C. 大字号 / 价格未防字体放大（违反原则 2/5）**
+
+| # | 文件 | 位置 | 问题 |
+|---|------|------|------|
+| C1 | `app/vip/gifts.tsx` | L860-866 | 价格档位 ¥399/¥699/¥999/¥1299 在华为字体 1.15x 时换行（**spec §1.1 原始复现点**）|
+| C2 | `app/me/wallet.tsx` | L499 | 余额 `fontSize: 40` 长数字爆布局 |
+| C3 | `app/me/bonus-queue.tsx` | L184 | 排位 `fontSize: 56` 无保护 |
+| C4 | `app/me/coupons.tsx` | L99/L483 | 优惠面额 `fontSize: 26` 无防缩放 |
+| C5 | `app/ai/recommend.tsx` | L632 | 组合价格无 priceTextProps |
+| C6 | `app/checkout-coupon.tsx` | L98-102 | 金额区 fontSize:28/22 |
+
+#### 🟡 中等问题清单（局部 / 大字体下才出问题）
+
+| 类别 | 文件清单 | 数量 |
+|------|---------|------|
+| `fontSize ≥ 20` 缺 `numberOfLines` / `fitTextProps` | home / me / assistant / finance / trace / settings / notification / vip / chat / about | ~15 处 |
+| ScrollView `paddingBottom` 写死 `spacing['3xl']` 不吃 insets | company/[id] / category/[id] / group/[id] / search / orders/index / 大部分列表页 | ~10 处 |
+| 共用组件 safe area 隐患 | `Toast.tsx`（用 `insets.bottom` 但无 OEM 兜底）/ `Screen.tsx`（`safeAreaBottom` 默认 `false` 容易被忘）/ `AiFloatingCompanion.tsx` | 3 处 |
+
+#### ✅ 干净文件（无明显问题，约 30 个）
+
+```
+about.tsx / privacy.tsx / terms.tsx / payment-success.tsx / account-security.tsx
+referral.tsx / lottery.tsx / coupon-center.tsx / inbox/index.tsx
+checkout-address.tsx / checkout-pending.tsx / company/search.tsx
+ai/history.tsx / orders/index.tsx / orders/track.tsx
+invoices/index.tsx / invoices/request.tsx / invoices/profiles.tsx / invoices/profiles/edit.tsx
+me/addresses.tsx / me/appearance.tsx / me/following.tsx / me/profile.tsx
+me/recommend.tsx / me/referral.tsx / me/scanner.tsx / me/tasks.tsx
+user/[id].tsx
+src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
+```
+
+---
+
+### 6.2 Sprint 拆解
+
+| Sprint | 任务 | 涉及文件 | 预计 commit | 部署 | 状态 |
+|--------|------|---------|------------|------|------|
+| **R-RS01** | 工具集基建：新建 `src/theme/responsive.ts` + `app/_layout.tsx` 全局兜底 | 1 新增 + 1 改 | 1 | OTA | ⬜ |
+| **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen `safeAreaBottom` 默认值评估 / AiFloatingCompanion | 4 共用组件 | 3-4 | OTA | ⬜ |
+| **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 5 | OTA | ⬜ |
+| **R-RS04** | 顶层 Dimensions 批量替换（B1-B6） | 6 页 | 6 | OTA | ⬜ |
+| **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 4-5 | OTA | ⬜ |
+| **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，~15 处）| ~15 页 | 5-8 | OTA | ⬜ |
+| **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（~10 处）| ~10 页 | 3-5 | OTA | ⬜ |
+| **R-RS-LT01** | PR 模板加适配 Checklist 提示 | — | 1 | — | ⬜ |
+| **R-RS-LT02** | OTA 发布前必跑 rg 审计（加进 `app-发布与OTA手册.md`）| — | 1 | — | ⬜ |
+| **R-RS-LT03**（可选）| 封装 `AppText` 组件包 `Text`，从 defaultProps 升级到组件层显式控制 | 全项目 | — | OTA | ⬜ |
+
+**执行原则**：
+- R-RS01 必须最先做（其余 sprint 都依赖工具集）
+- R-RS02 第二（共用组件改一次修多页）
+- R-RS03 第三（用户已报告的 bug 优先于其他）
+- R-RS04~07 顺序无强依赖，可按可用时间穿插
+- 每个 sprint 完成 → 跑 §4 真机测试矩阵 8 场景 → OTA
+
+---
+
+### 6.3 修复进度表（每文件一行，commit 落实后回填）
+
+| 文件 | 严重度 | Sprint | 状态 | commit | 完成日期 |
+|------|--------|--------|------|--------|---------|
+| `src/theme/responsive.ts`（新建）| — | R-RS01 | ⬜ | — | — |
+| `app/_layout.tsx`（全局兜底）| — | R-RS01 | ⬜ | — | — |
+| `src/components/orders/StickyCTABar.tsx` | 🔴 A1 | R-RS02 | ⬜ | — | — |
+| `src/components/feedback/Toast.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
+| `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
+| `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
+| `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | ⬜ | — | — |
+| `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| ⬜ | — | — |
+| `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03（同上）| ⬜ | — | — |
+| `app/checkout.tsx` | 🔴 A5 | R-RS03 | ⬜ | — | — |
+| `app/cart.tsx` | 🔴 A6 + 🟡 B3 | R-RS03 + R-RS04 | ⬜ | — | — |
+| `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | ⬜ | — | — |
+| `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 | R-RS03（一次改 3 类问题）| ⬜ | — | — |
+| `app/(tabs)/museum.tsx` | 🔴 B1 | R-RS04 | ⬜ | — | — |
+| `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | ⬜ | — | — |
+| `app/product/[id].tsx` | 🔴 B4 | R-RS04 | ⬜ | — | — |
+| `app/search.tsx` | 🔴 B5 + 🟡 | R-RS04 + R-RS07 | ⬜ | — | — |
+| `app/index.tsx` | 🔴 B6 | R-RS04 | ⬜ | — | — |
+| `app/me/wallet.tsx` | 🔴 C2 | R-RS05 | ⬜ | — | — |
+| `app/me/bonus-queue.tsx` | 🔴 C3 | R-RS05 | ⬜ | — | — |
+| `app/me/coupons.tsx` | 🔴 C4 | R-RS05 | ⬜ | — | — |
+| `app/(tabs)/home.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/(tabs)/me.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/ai/assistant.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/ai/finance.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/ai/trace.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/ai/chat.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/me/vip.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/settings.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/notification-settings.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/company/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
+| `app/category/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
+| `app/group/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
+| `app/invoices/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
+| `app/cs/index.tsx` | 🟡 | R-RS07 | ⬜ | — | — |
+
+> 30 个干净文件不进表（无修复任务）；后续真机/审计再发现新问题追加到本表。
 
 ---
 

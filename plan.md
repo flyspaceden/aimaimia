@@ -874,49 +874,27 @@
 
 ---
 
-## 📱 响应式适配专项（2026-04-30 新增，待执行）
+## 📱 响应式适配专项（2026-04-30 立项 / 2026-05-04 全项目审计完成）
 
-> **触发**: P5 真机测试发现 VIP 价格档位在华为机（系统字体默认放大 1.15x）换行错位，类似问题在多个页面潜伏（横向多列硬塞 / 写死 px / 底部栏被系统按钮覆盖 / 字体缩放未控制）
-> **权威文档**: `docs/architecture/responsive-design.md`（已立 6 条核心原则 + 工具集 spec + Checklist + grep 黑名单 + 真机测试矩阵 6 场景）
-> **不阻塞 v1.0 上线**：可与 Tier 2 / 阶梯上线并行做；新页面强制走 Checklist
+> **触发**: 2026-04-30 立项时仅 VIP 礼包页 1 个截图复现点；2026-05-04 用户随手测试发现 checkout（小米机底部空白）+ 订单详情（底部被手势条挡）—— 决定全项目扫
+> **权威源**: `docs/architecture/responsive-design.md`（**单一文件囊括规范 + 工具集 spec + 全项目审计 + Sprint 拆解 + 修复进度表**，§6 持续更新）
+> **审计结果**: 60 页面 + 16 共用组件，🔴 15+ 高优 / 🟡 26+ 中优 / ✅ ~30 干净
+> **不阻塞 v1.0 上线**：可与 Tier 2 / 阶梯上线并行做；新页面强制走 §4 Checklist
 
-### Sprint 1（基建 + 复现点修复，3 个 commit）
+### Sprint 概览（详细拆解 + 进度表见 spec §6.2 / §6.3）
 
-- [ ] **R-RS01** 工具集基建 + 全局兜底
-  - 新建 `src/theme/responsive.ts`：
-    - `useResponsiveLayout()` Hook（含 `width / fontScale / isNarrow / isCompact / isLargeText / columns({wide, compact, narrow})`）
-    - `priceTextProps` 紧凑数字预设（价格/Badge/订单号）
-    - `fitTextProps` 一般可缩文本预设（标题/列表项）
-    - `compactActionTextProps` 按钮/筛选 Tab 预设（无障碍合规，maxFontSizeMultiplier:1.1 而非 false）
-    - `useBottomInset(extra)` Hook 封装 Android OEM bug 兜底（Math.max(insets.bottom, 32)）
-  - `app/_layout.tsx` 设全局 `Text.defaultProps.maxFontSizeMultiplier = 1.2`
-  - 部署：纯 OTA
+- [ ] **R-RS01** 工具集基建（`src/theme/responsive.ts` + 全局兜底）
+- [ ] **R-RS02** 共用组件改造（StickyCTABar / Toast / Screen / AiFloatingCompanion）—— 一次改修多页
+- [ ] **R-RS03** 高优单页修复（用户报告 + spec 复现点：orders/[id] / checkout / cart / checkout-coupon / vip-gifts）
+- [ ] **R-RS04** 顶层 Dimensions 批量替换（6 文件：museum / ai-recommend / cart / product / search / index）
+- [ ] **R-RS05** 金额字号 spread `priceTextProps`（wallet / bonus-queue / coupons / recommend / checkout-coupon）
+- [ ] **R-RS06** 中优字号批量修（fontSize≥20 缺保护，~15 处）
+- [ ] **R-RS07** 中优 ScrollView paddingBottom 批量改吃 insets（~10 处）
+- [ ] **R-RS-LT01** PR 模板加 Checklist 提示
+- [ ] **R-RS-LT02** OTA 发布前必跑 rg 审计（写入 `app-发布与OTA手册.md` 第四章）
+- [ ] **R-RS-LT03**（可选）封装 `AppText` 组件升级 defaultProps
 
-- [ ] **R-RS02** 修 VIP 礼包页（截图复现点）
-  - `app/vip/gifts.tsx`：
-    - 模块顶层 `SCREEN_WIDTH` 改为组件内 `useWindowDimensions()`
-    - 价格 tab 用 `useResponsiveLayout({ wide: 4, compact: 3, narrow: 2 })` 替代硬塞 4 列
-    - 价格 Text spread `priceTextProps`（替代 `fontSize: 22` 写死）
-    - 底部"立即开通"栏用 `useBottomInset(12)` 替代固定 padding
-  - 部署：纯 OTA + 真机 6 场景验证
-
-- [ ] **R-RS03** 全项目 grep 审计 + 修高优 5 处
-  - 跑 `docs/architecture/responsive-design.md §5` 5 个 grep 命令，输出问题清单
-  - 按页面访问频率排序，优先修：checkout 提交栏 / 商品详情加购栏 / 订单卡片 / 首页轮播 / 我的页
-  - 输出 grep 报告附 plan.md 此条下方
-  - 部署：纯 OTA
-
-### Sprint 2~N（按 grep 报告分批修剩余页面）
-
-- [ ] **R-RS04** Sprint 2（按 R-RS03 grep 报告排进度，每个 commit 修 3-5 个页面）
-- [ ] **R-RS05** Sprint 3（同上）
-- [ ] ...直至 grep 黑名单全清
-
-### 长期（持续）
-
-- [ ] **R-RS-LT01** PR 模板加适配 Checklist 提示（编码 7 项 + 真机 6 场景）
-- [ ] **R-RS-LT02** OTA 发布前必跑 grep 审计（加进 `docs/operations/app-发布与OTA手册.md` 第四章）
-- [ ] **R-RS-LT03**（可选）封装 `AppText` 组件包 `Text`，从 defaultProps 全局兜底升级到组件层显式控制
+> 详细任务、文件清单、每文件修复进度、commit SHA 全部见 spec §6.2 / §6.3，本处仅作 plan.md 索引
 
 ---
 
