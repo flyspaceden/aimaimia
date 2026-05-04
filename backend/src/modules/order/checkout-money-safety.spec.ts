@@ -379,18 +379,123 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
  * 的契约式断言。
  */
 describe('PaymentService VIP FAILED notify 契约', () => {
-  it.skip('VIP 支付失败时 PaymentService 应调 checkoutService.releaseVipReservationInTx [手动验证：参考 payment.service.ts FAILED 分支]', () => {
-    // 手动验证步骤：
-    // 1. 构造 CheckoutSession bizType=VIP_PACKAGE，itemsSnapshot 含 [{skuId, quantity}]
-    // 2. 调 paymentService.handlePaymentCallback({ status: 'FAILED', ... })
-    // 3. 断言 checkoutService.releaseVipReservationInTx 被调用一次
-    //    入参为 { id, bizType: 'VIP_PACKAGE', itemsSnapshot }
-    // 4. 断言 RESERVE 类型的 InventoryLedger 已生成对应的 RELEASE 记录
-    //
-    // 当前实现见 payment.service.ts ~line 475-481：
-    //   if (session.bizType === 'VIP_PACKAGE' && this.checkoutService) {
-    //     await this.checkoutService.releaseVipReservationInTx(tx, ...);
-    //   }
-    expect(true).toBe(true);
+  it('VIP 支付失败时 PaymentService 应调 checkoutService.releaseVipReservationInTx', async () => {
+    const { PaymentService } = await import('../payment/payment.service');
+
+    // 构造 VIP_PACKAGE session
+    const vipSession = {
+      id: 'cs-vip-1',
+      merchantOrderNo: 'MO-VIP-1',
+      bizType: 'VIP_PACKAGE',
+      itemsSnapshot: [{ skuId: 's1', quantity: 1, unitPrice: 399, productSnapshot: {} }],
+      rewardId: null,
+      couponInstanceIds: [],
+      status: 'ACTIVE',
+    };
+
+    // 事务内 mock：CAS 成功（count=1，进入释放分支）
+    const txCheckoutSessionUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const txRewardLedgerUpdateMany = jest.fn();
+    const txMock = {
+      checkoutSession: { updateMany: txCheckoutSessionUpdateMany },
+      rewardLedger: { updateMany: txRewardLedgerUpdateMany },
+    };
+
+    const txSpy = jest.fn().mockImplementation(async (cb: any) => cb(txMock));
+    const prisma: any = {
+      $transaction: txSpy,
+      // FAILED 分支不直接读 prisma，但 PaymentService 构造需 prisma 引用
+    };
+
+    // mock checkoutService：findByMerchantOrderNo + releaseVipReservationInTx
+    const releaseSpy = jest.fn().mockResolvedValue(undefined);
+    const checkoutService: any = {
+      findByMerchantOrderNo: jest.fn().mockResolvedValue(vipSession),
+      releaseVipReservationInTx: releaseSpy,
+    };
+
+    // 构造 PaymentService（依赖：prisma, configService, alipayService, checkoutService?, couponService?, inboxService?）
+    const configService: any = { get: () => undefined };
+    const alipayService: any = {};
+    const svc = new (PaymentService as any)(
+      prisma,
+      configService,
+      alipayService,
+      checkoutService,
+      undefined, // couponService（VIP FAILED 分支：couponInstanceIds 空，不会被调）
+      undefined, // inboxService
+    );
+
+    // 触发 FAILED 路径（skipSignatureVerification=true 跳过签名校验）
+    await svc.handlePaymentCallback({
+      merchantOrderNo: 'MO-VIP-1',
+      providerTxnId: 'tx-failed-1',
+      status: 'FAILED',
+      paidAt: new Date().toISOString(),
+      skipSignatureVerification: true,
+    });
+
+    // 核心断言：releaseVipReservationInTx 被调用一次，入参为 tx + session 摘要
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+    const [txArg, sessionArg] = releaseSpy.mock.calls[0];
+    expect(txArg).toBe(txMock);
+    expect(sessionArg).toMatchObject({
+      id: 'cs-vip-1',
+      bizType: 'VIP_PACKAGE',
+    });
+    expect(sessionArg.itemsSnapshot).toEqual(vipSession.itemsSnapshot);
+
+    // CAS ACTIVE → FAILED 也被执行
+    expect(txCheckoutSessionUpdateMany).toHaveBeenCalledWith({
+      where: { merchantOrderNo: 'MO-VIP-1', status: 'ACTIVE' },
+      data: { status: 'FAILED' },
+    });
+  });
+
+  it('NORMAL_GOODS 支付失败时不调 releaseVipReservationInTx（仅 VIP 才释放）', async () => {
+    const { PaymentService } = await import('../payment/payment.service');
+
+    const normalSession = {
+      id: 'cs-normal-1',
+      merchantOrderNo: 'MO-NORMAL-1',
+      bizType: 'NORMAL_GOODS',
+      itemsSnapshot: [],
+      rewardId: null,
+      couponInstanceIds: [],
+      status: 'ACTIVE',
+    };
+
+    const txMock = {
+      checkoutSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      rewardLedger: { updateMany: jest.fn() },
+    };
+    const prisma: any = {
+      $transaction: jest.fn().mockImplementation(async (cb: any) => cb(txMock)),
+    };
+
+    const releaseSpy = jest.fn();
+    const checkoutService: any = {
+      findByMerchantOrderNo: jest.fn().mockResolvedValue(normalSession),
+      releaseVipReservationInTx: releaseSpy,
+    };
+
+    const svc = new (PaymentService as any)(
+      prisma,
+      { get: () => undefined },
+      {},
+      checkoutService,
+      undefined,
+      undefined,
+    );
+
+    await svc.handlePaymentCallback({
+      merchantOrderNo: 'MO-NORMAL-1',
+      providerTxnId: 'tx-failed-2',
+      status: 'FAILED',
+      skipSignatureVerification: true,
+    });
+
+    // NORMAL_GOODS 不应触发 VIP 库存释放
+    expect(releaseSpy).not.toHaveBeenCalled();
   });
 });
