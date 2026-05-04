@@ -1119,7 +1119,12 @@ export class CheckoutService {
   /** Task 16: 查询当前用户最新的 ACTIVE CheckoutSession（用于"未完成订单"入口） */
   async getPendingForUser(userId: string) {
     const session = await this.prisma.checkoutSession.findFirst({
-      where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+      where: {
+        userId,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+        bizType: { not: 'VIP_PACKAGE' },  // VIP 没有"未完成订单"概念，pending API 不返 VIP session
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (!session) return null;
