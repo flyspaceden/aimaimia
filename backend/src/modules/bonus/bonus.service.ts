@@ -5,6 +5,7 @@ import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
 import { MIN_WITHDRAW_AMOUNT, MAX_DAILY_WITHDRAWALS, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { InboxService } from '../inbox/inbox.service';
+import { generateReferralCode } from '../../common/utils/referral-code.util';
 
 @Injectable()
 export class BonusService {
@@ -27,7 +28,7 @@ export class BonusService {
       member = await this.prisma.memberProfile.create({
         data: {
           userId,
-          referralCode: this.generateReferralCode(),
+          referralCode: generateReferralCode(),
         },
       });
     }
@@ -97,7 +98,7 @@ export class BonusService {
         create: {
           userId,
           inviterUserId: inviter.userId,
-          referralCode: this.generateReferralCode(),
+          referralCode: generateReferralCode(),
         },
         update: { inviterUserId: inviter.userId },
       });
@@ -259,7 +260,7 @@ export class BonusService {
             userId,
             tier: 'VIP',
             vipPurchasedAt: new Date(),
-            referralCode: this.generateReferralCode(),
+            referralCode: generateReferralCode(),
           },
           update: {
             tier: 'VIP',
@@ -1191,13 +1192,4 @@ export class BonusService {
     return null;
   }
 
-  /** 生成推荐码 */
-  private generateReferralCode(): string {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
-  }
 }
