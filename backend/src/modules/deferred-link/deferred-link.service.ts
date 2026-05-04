@@ -103,18 +103,30 @@ export class DeferredLinkService {
     // 事务内原子操作：查找 + 标记已消费
     const record = await this.prisma.$transaction(async (tx) => {
       // 第一优先级：精确指纹匹配
-      const exactMatch = await tx.deferredDeepLink.findFirst({
+      // findMany take 3 兼做"精确指纹多候选监控"——UA 归一化把指纹降级到
+      // OS+设备维度后，同 WiFi+同型号手机+同语言+同屏幕 的精确指纹有概率相同，
+      // 多于 1 条候选时 logger.warn 报警，便于排查"拿错码"场景
+      const exactCandidates = await tx.deferredDeepLink.findMany({
         where: {
           fingerprint,
           matched: false,
           expiresAt: { gt: now },
         },
         orderBy: { createdAt: 'desc' },
+        take: 3,
       });
 
-      if (exactMatch) {
+      if (exactCandidates.length > 1) {
+        this.logger.warn(
+          `[DDL] 精确指纹多候选：fingerprint=${fingerprint.slice(0, 16)}... ` +
+            `count=${exactCandidates.length} picked=${exactCandidates[0].referralCode} ` +
+            `（同设备型号+同 WiFi 多人扫码，归一化后指纹碰撞）`,
+        );
+      }
+
+      if (exactCandidates.length > 0) {
         return tx.deferredDeepLink.update({
-          where: { id: exactMatch.id },
+          where: { id: exactCandidates[0].id },
           data: { matched: true },
         });
       }
