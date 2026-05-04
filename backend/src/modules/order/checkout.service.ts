@@ -1843,6 +1843,19 @@ export class CheckoutService {
       .filter((item) => item.skuId && item.quantity > 0);
   }
 
+  /**
+   * 公开 wrapper：在已有事务内释放 VIP 礼包预留库存（供 PaymentService 等外部调用）
+   *
+   * 仅 bizType === 'VIP_PACKAGE' 的 session 会真正释放，其他类型直接返回。
+   */
+  async releaseVipReservationInTx(
+    tx: Prisma.TransactionClient,
+    session: { id: string; bizType?: string | null; itemsSnapshot?: unknown },
+  ) {
+    if (session.bizType !== 'VIP_PACKAGE') return;
+    await this.releaseVipReservation(tx, session);
+  }
+
   private async releaseVipReservation(
     tx: Prisma.TransactionClient,
     session: { id: string; bizType?: string | null; itemsSnapshot?: unknown },

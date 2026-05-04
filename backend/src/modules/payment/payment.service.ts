@@ -471,6 +471,14 @@ export class PaymentService {
                   // 会话已非 ACTIVE，返回标记跳过后续处理
                   return { skipped: true };
                 }
+                // VIP 礼包失败：释放预留库存（避免库存泄漏）
+                if (session.bizType === 'VIP_PACKAGE' && this.checkoutService) {
+                  await this.checkoutService.releaseVipReservationInTx(tx, {
+                    id: session.id,
+                    bizType: session.bizType,
+                    itemsSnapshot: session.itemsSnapshot,
+                  });
+                }
                 // 释放预留奖励（在同一事务内，保证原子性）
                 if (session.rewardId) {
                   await tx.rewardLedger.updateMany({
