@@ -78,7 +78,9 @@ export default function CheckoutScreen() {
   // 记录"取消旧订单后要重新跑哪个结算入口"（普通 vs VIP）
   const pendingRetryRef = useRef<(() => Promise<void>) | null>(null);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
-  const idempotencyKeyRef = useRef(`ik_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  // 按 bizType 拆分：schema 唯一约束是 (userId, idempotencyKey)，普通+VIP 共用会撞约束
+  const normalIdempotencyKeyRef = useRef(`ik_normal_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  const vipIdempotencyKeyRef = useRef(`ik_vip_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
 
   // 进入结算页时从服务端同步购物车
   React.useEffect(() => {
@@ -434,7 +436,7 @@ export default function CheckoutScreen() {
         addressId: selectedAddress.id,
         couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
         paymentChannel: paymentMethod,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: normalIdempotencyKeyRef.current,
         expectedTotal: preview ? preview.summary.totalPayable : undefined,
         buyerNote: buyerNote.trim() || undefined,
       });
@@ -550,7 +552,7 @@ export default function CheckoutScreen() {
         giftOptionId: vipPackageSelection.giftOptionId,
         addressId: selectedAddress.id,
         paymentChannel: paymentMethod,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: vipIdempotencyKeyRef.current,
         expectedTotal: vipPackageSelection.price,
         buyerNote: buyerNote.trim() || undefined,
       });
