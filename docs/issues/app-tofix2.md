@@ -397,7 +397,12 @@ curl -I https://app.ai-maimai.com/r/ABCD1234                         # 期望 20
 | R1 | 修订 | handleReferralCode + useAuthStore NETWORK 错误保留 pending（原本 Result 模式不 throw 导致 try/catch 失效，pending 被清掉） | `app/_layout.tsx:31-46` + `src/store/useAuthStore.ts:68-86` | OTA | ✅ | 2026-05-04 (commit `cadff14`) |
 | R2 | 修订 | 启动主动绑 effect 订阅 isLoggedIn 解 zustand persist rehydrate 竞态 | `app/_layout.tsx:108-180` | OTA | ✅ | 2026-05-04 (commit `9feafe9`) |
 | R3 | 修订 | 精确指纹多候选监控（findFirst→findMany take 3，>1 候选 logger.warn） | `backend/src/modules/deferred-link/deferred-link.service.ts:105-135` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `99db409`) |
-| R4 | 修订 | pickUniqueReferralCode 预查找 + 13 处 create 入口替换（避免 P2002 撞码打断注册/建号） | `referral-code.util.ts` 新增 helper + 7 个文件 13 处替换 | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `9275557`) |
+| R4 | 修订 | pickUniqueReferralCode 预查找 + 13 处 create 入口替换（**降低**而非消除 P2002 概率，残余 race 见 R6 docstring） | `referral-code.util.ts` 新增 helper + 7 个文件 13 处替换 | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `9275557`) |
+| R5 | 修订 | 推荐码绑定改用 `result.error.retryable` 判断（原 `code !== 'NETWORK'` 漏掉 5xx/限流，仍可能丢码） | `app/_layout.tsx` × 2 + `useAuthStore.ts` × 1 | OTA | ✅ | 2026-05-04 (commit `2a43bd9`) |
+| R6 | 修订 | pickUniqueReferralCode docstring 诚实标注 P2002 残余 race（无逻辑改动） | `backend/src/common/utils/referral-code.util.ts` | 后端部署 + PM2 重启 | ✅ | 2026-05-04 (commit `d16bf03`) |
+| **Backlog** | **已知残余风险（不修，仅记录）** | | | | | |
+| BL1 | 风险 | 多候选时仍 pick 最新一条（exact 与 fuzzy 路径），同 WiFi/同型号设备扫码理论上会拿错码。当前已加 logger.warn 告警，正确性优先方案是"多候选放弃匹配"——视真机表现再决策 | `deferred-link.service.ts:105-150` | — | ⬜ | 监控告警频率，必要时升级 |
+| BL2 | 风险 | 13 处建号 create 没做 P2002 catch + retry，依赖 32^8 + 预查把概率压到接近 0，但理论存在打断风险。生产观测到 P2002 报警再升级"生成 + create" retry helper | `referral-code.util.ts` + 7 个建号文件 | — | ⬜ | 监控生产 P2002，必要时升级 |
 | **P5** | **服务器侧验证 / 真机验证** | | | | | |
 | 15 | P5 | Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL | 宝塔面板 | 用户执行 | ❓ | — |
 | 15b | P5 | Bug 3 服务器侧加 Nginx 301：中文 `app.` 子域名的 `/r/*` `/resolve` `/.well-known/` 强制跳英文 | 宝塔面板 / Nginx | 用户执行 | ⬜ | — |

@@ -1064,7 +1064,15 @@
 - [x] **R-RC12** handleReferralCode + useAuthStore NETWORK 失败保留 pending（commit `cadff14`，原 try/catch 是死代码因 Result 模式不 throw，导致 /resolve consumed 后绑定网络失败推荐码丢失）
 - [x] **R-RC13** 启动主动绑 effect 订阅 isLoggedIn 解 zustand persist rehydrate 竞态（commit `9feafe9`，原 imperative `getState()` 读一次 + 仅 [consentState] 依赖，rehydrate 完成后 effect 不重跑）
 - [x] **R-RC14** 精确指纹多候选监控（commit `99db409`，UA 归一化降级到 OS+设备维度后同 WiFi 同型号会撞 fingerprint，原 findFirst 静默拿首条；改 findMany take 3，>1 候选告警）
-- [x] **R-RC15** pickUniqueReferralCode 预查找 + 13 处 create 入口替换（commit `9275557`，避免 P2002 撞码打断注册/建号；helper 在 referral-code.util.ts 内 generate + findFirst 预查 10 次）
+- [x] **R-RC15** pickUniqueReferralCode 预查找 + 13 处 create 入口替换（commit `9275557`，**降低**而非消除 P2002 概率；helper 在 referral-code.util.ts 内 generate + findFirst 预查 10 次）
+
+### 三次审查修订（用户再复审）✅ 2026-05-04
+- [x] **R-RC16** 推荐码绑定改用 `result.error.retryable` 判断（commit `2a43bd9`，原 R12 用 `code !== 'NETWORK'` 漏掉后端 5xx/限流的 retryable=true 错误，仍会清掉 pending 丢码）
+- [x] **R-RC17** pickUniqueReferralCode docstring 诚实标注 P2002 残余 race（commit `d16bf03`，无逻辑改动，仅文档更正"避免" → "降低"）
+
+### Backlog（已知残余风险，监控触发后再升级）
+- [ ] **R-RC-BL1** 多候选时 pick 最新一条仍可能拿错码（exact + fuzzy 都已 logger.warn 告警）；正确性优先方案是"多候选放弃匹配"，待真机告警频率确认后决策
+- [ ] **R-RC-BL2** 13 处建号 create 没做 P2002 catch + retry，依赖 32^8 + 预查把概率压到 ≈0；如果生产观测到 P2002 报警再把"生成 + create"包进 retry helper
 
 ### Phase 5（服务器侧 + 真机验证，用户主导）
 - [ ] **R-RC12** Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL（宝塔面板）
