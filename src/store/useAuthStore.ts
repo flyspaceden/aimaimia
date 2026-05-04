@@ -68,18 +68,18 @@ export const useAuthStore = create<AuthState>()(
       setLoggedIn: ({ accessToken, refreshToken, userId, loginMethod }) => {
         set({ isLoggedIn: true, accessToken, refreshToken, userId, loginMethod });
         // 注册/登录成功后，自动绑定暂存的推荐码
+        // BonusRepo 走 Result 模式不 throw，必须看 result.ok 而非 .catch
         import('../services/deferredLink').then(({ getPendingReferralCode, clearPendingReferralCode }) => {
           getPendingReferralCode().then((code) => {
             if (!code) return;
             import('../repos').then(({ BonusRepo }) => {
-              BonusRepo.useReferralCode(code)
-                .then(() => {
-                  // 成功或业务错误（推荐码无效等），清除 pending
+              BonusRepo.useReferralCode(code).then((result) => {
+                if (result.ok || result.error.code !== 'NETWORK') {
+                  // 成功 / 业务错误（已是 VIP / 推荐码无效）→ 清，避免堆积
                   clearPendingReferralCode();
-                })
-                .catch(() => {
-                  // 网络故障等临时错误，保留 pending code 供下次重试
-                });
+                }
+                // NETWORK 错误：保留 pending 供启动主动绑 effect 或下次登录重试
+              });
             });
           });
         }).catch(() => {});
