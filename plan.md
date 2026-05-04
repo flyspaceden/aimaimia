@@ -1026,3 +1026,45 @@
 - [x] **Phase 3 · buyerNote 字段 + 收尾（5 任务）** — Schema 加 buyerNote、CheckoutDto + Service 透传、详情 DTO 暴露、结算页留言输入框
 
 权威文档：`docs/superpowers/specs/2026-05-01-order-pages-redesign-design.md` + `docs/superpowers/plans/2026-05-01-order-pages-redesign.md`
+
+---
+
+## 推荐链路全链路修复（2026-05-04 新增）
+
+> **触发**: 用户买完 VIP，会员中心"我的专属推荐码"显示"暂无推荐码"。审查发现整条推荐链路（QR → 扫码 → 落地页 → 下载引导 → App 首启延迟匹配 → 注册自动绑定）多点断裂，仅"App 内主动扫码 / 手动输码"两条路径可用，新用户扫码 → 下载 → 注册自动绑定全线断
+> **权威文档**: `docs/issues/app-tofix2.md`（12 个 bug：4 P0 + 3 H + 5 M，进度跟踪表 + 修复前后场景对照）
+> **当前阶段**: 仅 Android 测试（v1.0 暂未上 iOS App Store / 国内应用商店）
+> **已暂缓**: Bug 2（iOS AASA TEAM_ID） / Bug 4（App Store 链接占位） / Bug 5（APK 直链/应用商店分流） / 任务 17（iOS 真机扫码验证）— 待 iOS 上架阶段
+
+### Phase 1（website 端 Bug 3 修复）✅ 2026-05-04
+- [x] **R-RC01** Bug 3 落地页 Cookie domain 改 `.ai-maimai.com` + 中文域名前端兜底重定向（4 个 commit：`2edb8eb` cookie domain / `1c07b12` redirect 函数 / `03c9ce9` 审查修订（同步化避免首屏闪）/ `c082be4` 抽到 `lib/canonicalDomain.ts`）
+  - `website/src/pages/Download.tsx:24` cookie domain 写死英文（双活域名 cookie 桶不互通的根因修复）
+  - `website/src/pages/Download.tsx` + `website/src/pages/Resolve.tsx` Hook 前同步检查中文域名 → `location.replace` 到 `app.ai-maimai.com`，配 early return null 阻止首屏闪现
+  - 共享逻辑抽到 `website/src/lib/canonicalDomain.ts`
+
+### Phase 2（后端 Bug 1 referralCode 补全）
+- [ ] **R-RC02** 注册三处补 referralCode：`auth.service.ts:127, 464, 567`
+- [ ] **R-RC03** 管理端/卖家端 5 处补 referralCode：`admin-companies.service.ts:55, 513, 653` + `admin-merchant-applications.service.ts:131` + `seller-company.service.ts:273`
+- [ ] **R-RC04** VIP 激活 upsert 的 update 分支补码（防覆盖已有码）：`bonus.service.ts:256-268`
+- [ ] **R-RC05** 旁路 upsert 补码：`normal-broadcast.service.ts:113` + `bonus-allocation.service.ts:930`
+- [ ] **R-RC06** `getMemberProfile` lazy 兜底升级：member 存在但 referralCode 为 NULL → 自动补码并 update（不写一次性 SQL）
+
+### Phase 3（App 端启动逻辑改造）
+- [ ] **R-RC07** Bug 6 启动后已登录态主动绑 pending code：`app/_layout.tsx` 加 effect
+- [ ] **R-RC08** Bug 8 DDL 重试策略（方案 C：48h 内允许重试，对齐后端 `expiresAt`）：`app/_layout.tsx` + `src/services/deferredLink.ts`
+- [ ] **R-RC09** Bug 11 URL 监听器提前挂，未同意期间暂存：`app/_layout.tsx:117-127`
+
+### Phase 4（指纹算法 + 监控）
+- [ ] **R-RC10** Bug 7 后端 UA 归一化加强（保留精确匹配，方案 B）：`deferred-link.service.ts:12-20`
+- [ ] **R-RC11** Bug 12 后端模糊匹配加同 IP 碰撞监控日志：`deferred-link.service.ts:111-126`
+
+### Phase 5（服务器侧 + 真机验证，用户主导）
+- [ ] **R-RC12** Bug 9 服务器侧确认 `app.ai-maimai.com` 子域名建站 + SSL（宝塔面板）
+- [ ] **R-RC13** Bug 3 Nginx 加 301：中文 `app.` 子域名的 `/r/*` `/resolve` `/.well-known/` 强制跳英文
+- [ ] **R-RC14** Bug 10 Android `adb shell pm get-app-links com.aimaimai.shop` 验证 sha256
+- [ ] **R-RC15** 走完整链路真机验证：未装 App + 微信扫码 → 安装 → 注册 → 检查 ReferralLink
+
+**修订记录**：
+- 2026-05-04 创建 `docs/issues/app-tofix2.md`（12 个 bug 全审）
+- 2026-05-04 用户拍板 Bug 7 走方案 B（保留精确匹配，加强 UA 归一化）；Bug 8 走方案 C（48h 重试）；Bug 1 不写一次性 SQL，改 lazy 兜底
+- 2026-05-04 暂缓 iOS 相关项（Bug 2/4 + 任务 17）和 Bug 5（APK 分流）
