@@ -217,16 +217,16 @@ export class AlipayService implements OnModuleInit {
    *
    * @returns
    *   - { success: true } close 成功（支付宝侧交易已关闭）
-   *   - { success: true, terminal: true } 支付宝侧交易已是终态（不存在/已关闭/已完成），本地可安全 EXPIRE
-   *   - { success: false, alreadyPaid: true } 支付宝返回已支付状态码（调用方必须查单建单）
+   *   - { success: true, terminal: true } 支付宝侧交易未支付且已是终态（不存在/已关闭），本地可安全 EXPIRE
+   *   - { success: false, alreadyPaid: true } 支付宝返回已支付/已完成状态码（调用方必须查单建单）
    *   - { success: false } close 失败（接口异常 / 未初始化），让 cron 重试
    *   - throws 网络异常时抛出
    */
   async closeOrder(merchantOrderNo: string): Promise<{
     success: boolean;
-    /** 支付宝侧已无需处理（不存在 / 已关闭 / 已完成）— 本地可以安全 EXPIRE */
+    /** 支付宝侧未支付且无需处理（不存在 / 已关闭）— 本地可以安全 EXPIRE */
     terminal?: boolean;
-    /** 支付宝侧已支付 — 调用方必须查单建单 */
+    /** 支付宝侧已支付 / 已完成（含退款）— 调用方必须查单建单 */
     alreadyPaid?: boolean;
   }> {
     if (!this.sdk) {
@@ -240,25 +240,26 @@ export class AlipayService implements OnModuleInit {
       if (result.code === '10000') {
         return { success: true };
       }
-      // 已支付：close 不允许 — 由调用方查单建单
+      // 已支付 / 已完成（含退款）— 调用方必须查单识别
+      // - ACQ.TRADE_STATUS_ERROR / TRADE_STATUS_ERROR：交易状态不允许 close（已支付）
+      // - ACQ.TRADE_HAS_FINISHED：交易已完成（已支付，可能伴随退款）— 不是"未支付/不存在"
       const subCode: string | undefined = result.subCode;
       if (
         subCode === 'ACQ.TRADE_STATUS_ERROR' ||
-        subCode === 'TRADE_STATUS_ERROR'
+        subCode === 'TRADE_STATUS_ERROR' ||
+        subCode === 'ACQ.TRADE_HAS_FINISHED'
       ) {
         this.logger.warn(
-          `alipay.trade.close 返回已支付：merchantOrderNo=${merchantOrderNo}, subCode=${subCode}`,
+          `alipay.trade.close 返回已支付/已完成：merchantOrderNo=${merchantOrderNo}, subCode=${subCode}`,
         );
         return { success: false, alreadyPaid: true };
       }
-      // 交易不存在 / 已关闭 / 已完成：支付宝侧无需处理 — 本地可安全 EXPIRE
+      // 真正的"无需处理"终态：交易不存在 / 已关闭（未支付）— 本地可安全 EXPIRE
       // - ACQ.TRADE_NOT_EXIST：用户 SDK 调起后未真起支付（最常见）
-      // - ACQ.TRADE_HAS_CLOSE：交易已关闭
-      // - ACQ.TRADE_HAS_FINISHED：交易已完成（已退款的特殊情况）
+      // - ACQ.TRADE_HAS_CLOSE：交易已关闭（未支付）
       if (
         subCode === 'ACQ.TRADE_NOT_EXIST' ||
-        subCode === 'ACQ.TRADE_HAS_CLOSE' ||
-        subCode === 'ACQ.TRADE_HAS_FINISHED'
+        subCode === 'ACQ.TRADE_HAS_CLOSE'
       ) {
         this.logger.log(
           `alipay.trade.close 终态返回（无需处理）：merchantOrderNo=${merchantOrderNo}, subCode=${subCode}`,
