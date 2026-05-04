@@ -88,5 +88,8 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setAlipayService(alipayService);
       this.checkoutExpireService.setAlipayService(alipayService);
     }
+
+    // 注入 CheckoutService 到 ExpireService（expire 检测到已支付时主动建单用）
+    this.checkoutExpireService.setCheckoutService(this.checkoutService);
   }
 }

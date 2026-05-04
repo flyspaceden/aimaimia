@@ -17,6 +17,8 @@ export class CheckoutExpireService {
   private couponService: any = null;
   // AlipayService 通过可选注入（expire 前查支付宝用，避免误删已付款 session）
   private alipayService: any = null;
+  // CheckoutService 通过可选注入（expire 检测到已支付时主动建单用）
+  private checkoutService: any = null;
 
   constructor(private prisma: PrismaService) {}
 
@@ -28,6 +30,11 @@ export class CheckoutExpireService {
   /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
   setAlipayService(service: any) {
     this.alipayService = service;
+  }
+
+  /** 注入结算服务（由 OrderModule 在 onModuleInit 时调用） */
+  setCheckoutService(service: any) {
+    this.checkoutService = service;
   }
 
   @Cron('0 * * * * *')
@@ -48,6 +55,7 @@ export class CheckoutExpireService {
         itemsSnapshot: true,
         merchantOrderNo: true,
         paymentChannel: true,
+        expectedTotal: true,
       },
       take: 200,
     });
@@ -210,15 +218,16 @@ export class CheckoutExpireService {
     itemsSnapshot: unknown;
     merchantOrderNo: string | null;
     paymentChannel: string | null;
+    expectedTotal: number;
   }) {
-    // 资金安全：查支付宝，已付款则跳过本次（让 notify / active-query 接管支付成功流程）
-    // expire cron 是被动触发，与 cancelSession 不同 — 不抛错，跳过本次让下次 cron 再试。
+    // 资金安全：查支付宝，已付款则主动建单（不能仅 return — 否则 session 永远 ACTIVE）
+    // expire cron 是被动触发，与 cancelSession 不同 — 异常时不抛错，跳过本次让下次 cron 再试。
     if (
       session.merchantOrderNo &&
       session.paymentChannel === 'ALIPAY' &&
       this.alipayService?.isAvailable()
     ) {
-      let queryResult: { tradeStatus: string } | null = null;
+      let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
       try {
         queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
       } catch (err: any) {
@@ -232,12 +241,103 @@ export class CheckoutExpireService {
         (queryResult.tradeStatus === 'TRADE_SUCCESS' ||
           queryResult.tradeStatus === 'TRADE_FINISHED')
       ) {
+        // 资金安全：支付宝侧已成功但 notify 丢失 — 主动建单，避免 session 永远 ACTIVE
         this.logger.warn(
-          `expireSession 跳过：支付宝侧已 ${queryResult.tradeStatus}，sessionId=${session.id}`,
+          `expireSession 检测到已支付但 session 仍 ACTIVE，主动建单：sessionId=${session.id}, tradeStatus=${queryResult.tradeStatus}`,
+        );
+        if (!this.checkoutService) {
+          this.logger.error(
+            `expireSession 无法主动建单（CheckoutService 未注入），sessionId=${session.id}`,
+          );
+          return;
+        }
+        // 金额校验：支付宝返回的 totalAmount 必须等于 session.expectedTotal（防恶意篡改）
+        if (
+          queryResult.totalAmount &&
+          queryResult.totalAmount !== session.expectedTotal.toFixed(2)
+        ) {
+          this.logger.error(
+            `expireSession 金额校验失败，跳过建单：alipay=${queryResult.totalAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${session.id}`,
+          );
+          return;
+        }
+        try {
+          await this.checkoutService.handlePaymentSuccess(
+            session.merchantOrderNo,
+            queryResult.tradeNo,
+            new Date().toISOString(),
+          );
+        } catch (e: any) {
+          // 建单失败（金额不一致、并发已处理等）— 跳过本次，下次 cron 再重试
+          this.logger.error(
+            `expireSession 主动建单失败，sessionId=${session.id}：${e.message}`,
+          );
+        }
+        return; // 不论建单成功与否，都不再走 expire 流程
+      }
+      // 其他状态 — 调 alipay.trade.close 关闭支付宝交易后才能安全 EXPIRED
+      // 防止"先 query 拿到 WAIT_BUYER_PAY → 用户立刻付款 → 我们改 EXPIRED"竞态
+      try {
+        const closeResult = await this.alipayService.closeOrder(session.merchantOrderNo);
+        if (closeResult?.alreadyPaid) {
+          // close 时支付宝告知已支付 — 重新查询并主动建单
+          let queryAfterClose: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+          try {
+            queryAfterClose = await this.alipayService.queryOrder(session.merchantOrderNo);
+          } catch {
+            this.logger.warn(
+              `expireSession close-paid 后再查支付宝失败，跳过本次 sessionId=${session.id}`,
+            );
+            return;
+          }
+          if (
+            queryAfterClose &&
+            (queryAfterClose.tradeStatus === 'TRADE_SUCCESS' ||
+              queryAfterClose.tradeStatus === 'TRADE_FINISHED')
+          ) {
+            if (!this.checkoutService) {
+              this.logger.error(
+                `expireSession close-paid 无法建单（CheckoutService 未注入），sessionId=${session.id}`,
+              );
+              return;
+            }
+            if (
+              queryAfterClose.totalAmount &&
+              queryAfterClose.totalAmount !== session.expectedTotal.toFixed(2)
+            ) {
+              this.logger.error(
+                `expireSession close-paid 金额校验失败：alipay=${queryAfterClose.totalAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${session.id}`,
+              );
+              return;
+            }
+            try {
+              await this.checkoutService.handlePaymentSuccess(
+                session.merchantOrderNo,
+                queryAfterClose.tradeNo,
+                new Date().toISOString(),
+              );
+            } catch (buildErr: any) {
+              this.logger.error(
+                `expireSession close-paid 建单失败，sessionId=${session.id}：${buildErr.message}`,
+              );
+            }
+          }
+          return; // 不走 expire 流程
+        }
+        if (closeResult && closeResult.success === false) {
+          // close 失败 — 跳过本次，下次 cron 再试（避免改 EXPIRED 后用户付款竞态）
+          this.logger.warn(
+            `expireSession close 失败，跳过本次：sessionId=${session.id}`,
+          );
+          return;
+        }
+        // close 成功（success: true）— 继续走 CAS ACTIVE → EXPIRED
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession close 异常，跳过本次：sessionId=${session.id}, error=${err.message}`,
         );
         return;
       }
-      // 其他状态 — 继续 expire 流程
     }
 
     await this.prisma.$transaction(

@@ -1065,12 +1065,91 @@ export class CheckoutService {
         (queryResult.tradeStatus === 'TRADE_SUCCESS' ||
           queryResult.tradeStatus === 'TRADE_FINISHED')
       ) {
+        // 资金安全：用户取消时检测到已支付 — 主动建单完成支付流程，不能直接拒绝
+        // （场景：notify 永久丢失或大延迟，session 永远 ACTIVE 无法变 PAID）
         this.logger.warn(
-          `cancelSession 拒绝：支付宝侧已 ${queryResult.tradeStatus}，sessionId=${sessionId}`,
+          `cancelSession 检测到已支付，主动建单：sessionId=${sessionId}, tradeStatus=${queryResult.tradeStatus}`,
         );
-        throw new BadRequestException('支付已完成，无法取消，请稍后查看订单');
+        try {
+          // 金额校验：支付宝返回 totalAmount 必须等于 session.expectedTotal（防恶意篡改）
+          const claimedAmount = (queryResult as any).totalAmount;
+          if (claimedAmount && claimedAmount !== session.expectedTotal.toFixed(2)) {
+            this.logger.error(
+              `cancelSession 主动建单金额校验失败：alipay=${claimedAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${sessionId}`,
+            );
+            throw new BadRequestException('支付金额校验失败，请联系客服');
+          }
+          await this.handlePaymentSuccess(
+            session.merchantOrderNo,
+            (queryResult as any).tradeNo,
+            new Date().toISOString(),
+          );
+          throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+        } catch (e: any) {
+          if (e instanceof BadRequestException) throw e;
+          this.logger.error(
+            `cancelSession 主动建单失败，sessionId=${sessionId}：${e.message}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
       }
-      // 其他状态（TRADE_CLOSED / WAIT_BUYER_PAY / 未查到）— 允许 cancel
+      // 其他状态（TRADE_CLOSED / WAIT_BUYER_PAY / 未查到）— 调 alipay.trade.close 关闭支付宝交易，
+      // 防止"先 query 拿到 WAIT_BUYER_PAY → 用户立刻付款 → 我们改 EXPIRED"竞态
+      try {
+        const closeResult = await this.alipayService.closeOrder(session.merchantOrderNo);
+        if (closeResult?.alreadyPaid) {
+          // close 时支付宝告知已支付 — 重新查询并主动建单
+          let queryAfterClose: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+          try {
+            queryAfterClose = await this.alipayService.queryOrder(session.merchantOrderNo);
+          } catch {
+            throw new BadRequestException('支付状态异常，请稍后再试');
+          }
+          if (
+            queryAfterClose &&
+            (queryAfterClose.tradeStatus === 'TRADE_SUCCESS' ||
+              queryAfterClose.tradeStatus === 'TRADE_FINISHED')
+          ) {
+            // 金额校验
+            if (
+              queryAfterClose.totalAmount &&
+              queryAfterClose.totalAmount !== session.expectedTotal.toFixed(2)
+            ) {
+              this.logger.error(
+                `cancelSession close 后金额校验失败：alipay=${queryAfterClose.totalAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${sessionId}`,
+              );
+              throw new BadRequestException('支付金额校验失败，请联系客服');
+            }
+            try {
+              await this.handlePaymentSuccess(
+                session.merchantOrderNo,
+                queryAfterClose.tradeNo,
+                new Date().toISOString(),
+              );
+            } catch (buildErr: any) {
+              this.logger.error(
+                `cancelSession close-paid 建单失败，sessionId=${sessionId}：${buildErr.message}`,
+              );
+            }
+            throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+          }
+          throw new BadRequestException('支付状态异常，请稍后再试');
+        }
+        if (closeResult && closeResult.success === false) {
+          // close 失败（网络/接口异常）— 不允许 cancel，让用户稍后重试
+          this.logger.warn(
+            `cancelSession close 失败，拒绝取消：sessionId=${sessionId}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+        // close 成功（success: true）— 继续走 CAS ACTIVE → EXPIRED
+      } catch (closeErr: any) {
+        if (closeErr instanceof BadRequestException) throw closeErr;
+        this.logger.warn(
+          `cancelSession close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
     }
 
     // H8修复：Serializable 隔离级别 + P2034 重试，防止与 handlePaymentSuccess 竞态

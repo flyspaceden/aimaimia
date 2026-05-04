@@ -208,4 +208,51 @@ export class AlipayService implements OnModuleInit {
       totalAmount: result.totalAmount,
     };
   }
+
+  /**
+   * 调用支付宝 alipay.trade.close 关闭未支付的交易。
+   *
+   * 资金安全：取消/过期 session 前必须先关闭支付宝交易，
+   *           否则用户在我们改 EXPIRED 之后才付款会导致状态不一致。
+   *
+   * @returns
+   *   - { success: true } close 成功（支付宝侧交易已关闭）
+   *   - { success: false, alreadyPaid: true } 支付宝返回已支付状态码
+   *   - { success: false } close 失败（接口异常 / 未初始化）
+   *   - throws 网络异常时抛出
+   */
+  async closeOrder(merchantOrderNo: string): Promise<{ success: boolean; alreadyPaid?: boolean }> {
+    if (!this.sdk) {
+      this.logger.warn(`alipay.trade.close 跳过：SDK 未初始化，merchantOrderNo=${merchantOrderNo}`);
+      return { success: false };
+    }
+    try {
+      const result = await this.sdk.exec('alipay.trade.close', {
+        bizContent: { out_trade_no: merchantOrderNo },
+      }) as any;
+      if (result.code === '10000') {
+        return { success: true };
+      }
+      // 支付宝在订单已付款时关闭会返 ACQ.TRADE_STATUS_ERROR / TRADE_STATUS_ERROR
+      const subCode: string | undefined = result.subCode;
+      if (
+        subCode === 'ACQ.TRADE_STATUS_ERROR' ||
+        subCode === 'TRADE_STATUS_ERROR'
+      ) {
+        this.logger.warn(
+          `alipay.trade.close 返回已支付：merchantOrderNo=${merchantOrderNo}, subCode=${subCode}`,
+        );
+        return { success: false, alreadyPaid: true };
+      }
+      this.logger.warn(
+        `alipay.trade.close 失败：merchantOrderNo=${merchantOrderNo}, code=${result.code}, subCode=${subCode}, msg=${result.msg || result.subMsg}`,
+      );
+      return { success: false };
+    } catch (err: any) {
+      this.logger.error(
+        `alipay.trade.close 异常：merchantOrderNo=${merchantOrderNo}, error=${err.message}`,
+      );
+      throw err;
+    }
+  }
 }
