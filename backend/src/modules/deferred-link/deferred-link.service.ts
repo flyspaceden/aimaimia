@@ -10,11 +10,23 @@ export class DeferredLinkService {
   constructor(private prisma: PrismaService) {}
 
   private normalizeUA(ua: string): string {
+    // 目标：让"扫码时浏览器 UA"和"App 启动时 RN WebView UA"在同一台设备上归一化为同一字符串，
+    // 进而 SHA256 一致命中精确匹配。剥离浏览器引擎/版本特征（Safari/WebView 差异），
+    // 保留 OS/设备特征（"iPhone OS 17_2" / "Linux Android 14 Pixel 6"）
     return ua
+      // 微信内置浏览器特征
       .replace(/\s*MicroMessenger\/[\d.]+/i, '')
       .replace(/\s*NetType\/\w+/i, '')
       .replace(/\s*Language\/[\w-]+/i, '')
       .replace(/\s*miniProgram\/[\d.]+/i, '')
+      // 浏览器引擎/版本（Safari Version vs RN WebView 缺失，Chrome 各家厂商版本不同）
+      .replace(/\s*Version\/[\d.]+/i, '')
+      .replace(/\s*Chrome\/[\d.]+/i, '')
+      .replace(/\s*Safari\/[\d.]+/i, '')
+      // Android WebView 多带 Build/UQ1A.xxx 字段，剥掉避免厂商指纹漂移
+      .replace(/\s+Build\/[\w.-]+/i, '')
+      // 折叠剥离后产生的多余空白
+      .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 500);
   }
