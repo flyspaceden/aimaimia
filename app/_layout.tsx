@@ -38,11 +38,11 @@ async function handleReferralCode(code: string) {
   }
   // BonusRepo 走 Result 模式不 throw，必须看 result.ok 而非 try/catch
   const result = await BonusRepo.useReferralCode(code);
-  if (result.ok || result.error.code !== 'NETWORK') {
-    // 成功 / 业务错误（已是 VIP / 推荐码无效）→ 清，避免堆积
+  if (result.ok || !result.error.retryable) {
+    // 成功 / 业务错误（已是 VIP / 推荐码无效，retryable=false）→ 清，避免堆积
     await clearPendingReferralCode();
   } else {
-    // NETWORK 失败：保留 pending 供启动主动绑 effect 重试
+    // 可重试错误（NETWORK / 5xx / 限流，retryable=true）：保留 pending 供启动主动绑 effect 重试
     // 否则 /resolve 已 mark consumed 但绑定失败，推荐码彻底丢失
     await setPendingReferralCode(code);
   }
@@ -167,11 +167,11 @@ export default function RootLayout() {
       if (!code) return;
       try {
         const result = await BonusRepo.useReferralCode(code);
-        if (result.ok || result.error.code !== 'NETWORK') {
-          // 成功 / 业务错误（已是 VIP / 推荐码无效）→ 清，避免堆积
+        if (result.ok || !result.error.retryable) {
+          // 成功 / 业务错误（已是 VIP / 推荐码无效，retryable=false）→ 清，避免堆积
           await clearPendingReferralCode();
         }
-        // NETWORK 错误：保留 pending 供下次启动重试
+        // 可重试错误（NETWORK / 5xx / 限流）：保留 pending 供下次启动重试
       } catch {
         // 兜底：未知异常保留 pending
       }

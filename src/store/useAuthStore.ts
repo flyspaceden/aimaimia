@@ -74,11 +74,12 @@ export const useAuthStore = create<AuthState>()(
             if (!code) return;
             import('../repos').then(({ BonusRepo }) => {
               BonusRepo.useReferralCode(code).then((result) => {
-                if (result.ok || result.error.code !== 'NETWORK') {
-                  // 成功 / 业务错误（已是 VIP / 推荐码无效）→ 清，避免堆积
+                if (result.ok || !result.error.retryable) {
+                  // 成功 / 业务错误（已是 VIP / 推荐码无效，retryable=false）→ 清，避免堆积
                   clearPendingReferralCode();
                 }
-                // NETWORK 错误：保留 pending 供启动主动绑 effect 或下次登录重试
+                // 可重试错误（NETWORK / 5xx / 限流，retryable=true）：保留 pending
+                // 供启动主动绑 effect 或下次登录重试
               });
             });
           });
