@@ -1093,10 +1093,8 @@ export class CheckoutService {
             new Date().toISOString(),
           );
           // 主动建单成功后通知商家（fire-and-forget，不影响主流程）
-          if (buildResult?.orderIds?.length > 0 && this.paymentService) {
-            this.paymentService.notifyMerchantsForOrders(buildResult.orderIds).catch((err: any) => {
-              this.logger.error(`cancelSession 主动建单后商家通知失败（不影响主流程）：${err.message}`);
-            });
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'cancel-paid');
           }
           throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
         } catch (e: any) {
@@ -1141,10 +1139,8 @@ export class CheckoutService {
                 new Date().toISOString(),
               );
               // 主动建单成功后通知商家（fire-and-forget）
-              if (closePaidResult?.orderIds?.length > 0 && this.paymentService) {
-                this.paymentService.notifyMerchantsForOrders(closePaidResult.orderIds).catch((err: any) => {
-                  this.logger.error(`cancelSession close-paid 建单后商家通知失败：${err.message}`);
-                });
+              if (closePaidResult?.orderIds?.length > 0) {
+                void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'cancel-close-paid');
               }
             } catch (buildErr: any) {
               this.logger.error(
@@ -2054,5 +2050,36 @@ export class CheckoutService {
 
     // 降级：使用配置的默认运费
     return sysConfig.defaultShippingFee ?? DEFAULT_BASE_FEE;
+  }
+
+  /**
+   * cancel/expire 主动建单成功后的统一后处理：通知商家、记日志。
+   * 不抛错（fire-and-forget），但失败必记 error 日志方便后续排查。
+   *
+   * @param orderIds 已建单的订单 ID 列表
+   * @param context  调用语境（'cancel-paid' | 'cancel-close-paid' | 'expire-paid' | 'expire-close-paid'），仅用于日志
+   */
+  private async notifyMerchantsAfterCheckoutBuild(
+    orderIds: string[],
+    context: string,
+  ): Promise<void> {
+    if (orderIds.length === 0) return;
+    if (!this.paymentService) {
+      this.logger.warn(
+        `[${context}] 商家通知跳过：paymentService 未注入，orderIds=${orderIds.join(',')}`,
+      );
+      return;
+    }
+    try {
+      await this.paymentService.notifyMerchantsForOrders(orderIds);
+      this.logger.log(
+        `[${context}] 商家通知成功：orderIds=${orderIds.join(',')}`,
+      );
+    } catch (err: any) {
+      // 主动建单已经成功，商家通知失败不影响订单状态 — 只记 error 日志
+      this.logger.error(
+        `[${context}] 商家通知失败（不影响订单）：orderIds=${orderIds.join(',')}, error=${err.message}, stack=${err.stack}`,
+      );
+    }
   }
 }

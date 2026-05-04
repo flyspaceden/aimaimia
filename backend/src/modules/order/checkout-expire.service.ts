@@ -275,10 +275,8 @@ export class CheckoutExpireService {
             new Date().toISOString(),
           );
           // 主动建单成功后通知商家（fire-and-forget）
-          if (buildResult?.orderIds?.length > 0 && this.paymentService) {
-            this.paymentService.notifyMerchantsForOrders(buildResult.orderIds).catch((err: any) => {
-              this.logger.error(`expireSession 主动建单后商家通知失败：${err.message}`);
-            });
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'expire-paid');
           }
         } catch (e: any) {
           // 建单失败（金额不一致、并发已处理等）— 跳过本次，下次 cron 再重试
@@ -330,10 +328,8 @@ export class CheckoutExpireService {
                 new Date().toISOString(),
               );
               // 主动建单成功后通知商家（fire-and-forget）
-              if (closePaidResult?.orderIds?.length > 0 && this.paymentService) {
-                this.paymentService.notifyMerchantsForOrders(closePaidResult.orderIds).catch((err: any) => {
-                  this.logger.error(`expireSession close-paid 建单后商家通知失败：${err.message}`);
-                });
+              if (closePaidResult?.orderIds?.length > 0) {
+                void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'expire-close-paid');
               }
             } catch (buildErr: any) {
               this.logger.error(
@@ -469,5 +465,35 @@ export class CheckoutExpireService {
         discountAmount: amount / 100,
       };
     });
+  }
+
+  /**
+   * cron expire 主动建单成功后的统一后处理：通知商家、记日志。
+   * 不抛错（fire-and-forget），但失败必记 error 日志方便后续排查。
+   *
+   * @param orderIds 已建单的订单 ID 列表
+   * @param context  调用语境（'expire-paid' | 'expire-close-paid'），仅用于日志
+   */
+  private async notifyMerchantsAfterCheckoutBuild(
+    orderIds: string[],
+    context: string,
+  ): Promise<void> {
+    if (orderIds.length === 0) return;
+    if (!this.paymentService) {
+      this.logger.warn(
+        `[${context}] 商家通知跳过：paymentService 未注入，orderIds=${orderIds.join(',')}`,
+      );
+      return;
+    }
+    try {
+      await this.paymentService.notifyMerchantsForOrders(orderIds);
+      this.logger.log(
+        `[${context}] 商家通知成功：orderIds=${orderIds.join(',')}`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `[${context}] 商家通知失败（不影响订单）：orderIds=${orderIds.join(',')}, error=${err.message}, stack=${err.stack}`,
+      );
+    }
   }
 }
