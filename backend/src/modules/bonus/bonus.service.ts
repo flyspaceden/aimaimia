@@ -254,6 +254,15 @@ export class BonusService {
         }
 
         // 更新会员等级
+        // 防御历史遗留：member 存在但 referralCode 为 NULL（早期注册路径漏写）
+        // 借此次 VIP 激活顺手补上，避免会员中心"我的专属推荐码"显示为空
+        const updateData: Prisma.MemberProfileUpdateInput = {
+          tier: 'VIP',
+          vipPurchasedAt: new Date(),
+        };
+        if (member && !member.referralCode) {
+          updateData.referralCode = generateReferralCode();
+        }
         const updatedMember = await tx.memberProfile.upsert({
           where: { userId },
           create: {
@@ -262,10 +271,7 @@ export class BonusService {
             vipPurchasedAt: new Date(),
             referralCode: generateReferralCode(),
           },
-          update: {
-            tier: 'VIP',
-            vipPurchasedAt: new Date(),
-          },
+          update: updateData,
         });
 
         // 创建 VIP 进度
