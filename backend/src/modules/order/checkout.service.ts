@@ -1136,14 +1136,14 @@ export class CheckoutService {
           }
           throw new BadRequestException('支付状态异常，请稍后再试');
         }
-        if (closeResult && closeResult.success === false) {
-          // close 失败（网络/接口异常）— 不允许 cancel，让用户稍后重试
+        if (closeResult && closeResult.success === false && !closeResult.terminal) {
+          // close 失败（网络/接口异常，非终态）— 不允许 cancel，让用户稍后重试
           this.logger.warn(
             `cancelSession close 失败，拒绝取消：sessionId=${sessionId}`,
           );
           throw new BadRequestException('正在确认支付状态，请稍后再试');
         }
-        // close 成功（success: true）— 继续走 CAS ACTIVE → EXPIRED
+        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭/已完成）— 继续走 CAS ACTIVE → EXPIRED
       } catch (closeErr: any) {
         if (closeErr instanceof BadRequestException) throw closeErr;
         this.logger.warn(

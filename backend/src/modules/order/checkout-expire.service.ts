@@ -324,14 +324,14 @@ export class CheckoutExpireService {
           }
           return; // 不走 expire 流程
         }
-        if (closeResult && closeResult.success === false) {
-          // close 失败 — 跳过本次，下次 cron 再试（避免改 EXPIRED 后用户付款竞态）
+        if (closeResult && closeResult.success === false && !closeResult.terminal) {
+          // close 失败（非终态）— 跳过本次，下次 cron 再试（避免改 EXPIRED 后用户付款竞态）
           this.logger.warn(
             `expireSession close 失败，跳过本次：sessionId=${session.id}`,
           );
           return;
         }
-        // close 成功（success: true）— 继续走 CAS ACTIVE → EXPIRED
+        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭/已完成）— 继续走 CAS ACTIVE → EXPIRED
       } catch (err: any) {
         this.logger.warn(
           `expireSession close 异常，跳过本次：sessionId=${session.id}, error=${err.message}`,
