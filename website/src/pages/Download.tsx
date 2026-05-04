@@ -18,6 +18,22 @@ function isWechat(): boolean {
   return /micromessenger/i.test(navigator.userAgent)
 }
 
+// 中文域名（爱买买.com / xn--ckqa175y.com）落地时强制跳到英文域名，
+// 否则 cookie 写在中文域桶 / App 端读英文域桶，跨域读不到
+function redirectToCanonicalDomainIfNeeded(): boolean {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  if (host.includes('xn--ckqa175y') || host.includes('爱买买')) {
+    const target = window.location.href.replace(
+      /\/\/([^/]*\.)?(xn--ckqa175y|爱买买)\.com/,
+      '//app.ai-maimai.com',
+    )
+    window.location.replace(target)
+    return true
+  }
+  return false
+}
+
 function setCookie(name: string, value: string, days: number) {
   const expires = new Date(Date.now() + days * 864e5).toUTCString()
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -35,6 +51,10 @@ export default function Download() {
   const [showWechatGuide, setShowWechatGuide] = useState(false)
   const platform = detectPlatform()
   const wechat = isWechat()
+
+  useEffect(() => {
+    redirectToCanonicalDomainIfNeeded()
+  }, [])
 
   useEffect(() => {
     if (!code || !isValidReferralCode(code)) return
