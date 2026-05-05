@@ -30,7 +30,7 @@ import { FloatingParticles, AiOrb } from '../../src/components/effects';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
@@ -434,6 +434,7 @@ export default function HomeScreen() {
         <View style={[styles.greetingRow, { marginTop: spacing['3xl'] }]}>
           <View style={styles.greetingArea}>
             <Text
+              {...fitTextProps}
               style={[
                 typography.displaySm,
                 { color: colors.text.primary },
@@ -552,8 +553,8 @@ export default function HomeScreen() {
                     </>
                   ) : (
                     <>
-                      <Text style={styles.pairedAiTitle}>AI</Text>
-                      <Text style={[styles.pairedAiSub, { color: colors.text.inverse }]}>买买</Text>
+                      <Text {...priceTextProps} style={styles.pairedAiTitle}>AI</Text>
+                      <Text {...priceTextProps} style={[styles.pairedAiSub, { color: colors.text.inverse }]}>买买</Text>
                     </>
                   )}
                 </Pressable>

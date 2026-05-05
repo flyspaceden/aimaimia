@@ -15,7 +15,7 @@ import { AiBadge } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useTheme, priceTextProps } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 
 // VIP 专属空间色彩（与 gifts 页一致）
@@ -234,19 +234,19 @@ export default function VipScreen() {
               </View>
               <View style={styles.earningsGrid}>
                 <View style={styles.earningsItem}>
-                  <Text style={styles.earningsAmount}>¥{wallet.balance.toFixed(2)}</Text>
+                  <Text {...priceTextProps} style={styles.earningsAmount}>¥{wallet.balance.toFixed(2)}</Text>
                   <Text style={styles.earningsLabel}>可用余额</Text>
                 </View>
                 <View style={[styles.earningsDivider]} />
                 <View style={styles.earningsItem}>
-                  <Text style={[styles.earningsAmount, { color: VIP_COLORS.subtleGray }]}>
+                  <Text {...priceTextProps} style={[styles.earningsAmount, { color: VIP_COLORS.subtleGray }]}>
                     ¥{wallet.frozen.toFixed(2)}
                   </Text>
                   <Text style={styles.earningsLabel}>冻结中</Text>
                 </View>
                 <View style={[styles.earningsDivider]} />
                 <View style={styles.earningsItem}>
-                  <Text style={[styles.earningsAmount, { color: VIP_COLORS.goldLight }]}>
+                  <Text {...priceTextProps} style={[styles.earningsAmount, { color: VIP_COLORS.goldLight }]}>
                     ¥{wallet.total.toFixed(2)}
                   </Text>
                   <Text style={styles.earningsLabel}>累计收益</Text>
@@ -416,7 +416,7 @@ export default function VipScreen() {
                 )}
               </View>
 
-              <Text style={styles.qrCodeText}>
+              <Text {...priceTextProps} style={styles.qrCodeText}>
                 {referralCode.split('').join(' ')}
               </Text>
 

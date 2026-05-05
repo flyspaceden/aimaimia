@@ -17,7 +17,7 @@ import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
@@ -362,7 +362,7 @@ export default function MeScreen() {
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: spacing.sm }]}>
                   钱包
                 </Text>
-                <Text style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
+                <Text {...priceTextProps} style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
                   ¥{walletBalance}
                 </Text>
                 <View style={[styles.dualCardCta, { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: radius.pill }]}>
@@ -615,7 +615,7 @@ export default function MeScreen() {
               </View>
 
               {/* 推荐码文字 */}
-              <Text style={styles.referralCodeText}>
+              <Text {...priceTextProps} style={styles.referralCodeText}>
                 {referralCode.split('').join(' ')}
               </Text>
 
@@ -701,7 +701,7 @@ export default function MeScreen() {
                 <View style={[styles.loginPromptIcon, { backgroundColor: 'rgba(255,215,0,0.2)' }]}>
                   <MaterialCommunityIcons name="crown" size={32} color="#FFD700" />
                 </View>
-                <Text style={[typography.title2, { color: '#FFFFFF', marginTop: 16, zIndex: 1 }]}>
+                <Text {...fitTextProps} style={[typography.title2, { color: '#FFFFFF', marginTop: 16, zIndex: 1 }]}>
                   VIP 会员权益
                 </Text>
                 <View style={[styles.vipPerkList, { zIndex: 1 }]}>
