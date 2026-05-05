@@ -884,7 +884,7 @@
 ### Sprint 概览（详细拆解 + 进度表见 spec §6.2 / §6.3）
 
 - [🟡] **R-RS01** 工具集基建（`src/theme/responsive.ts` + 全局兜底）—— 2026-05-04 代码完成（159 行 5 helper + Text.defaultProps 1.2x 封顶 + theme/index re-export），TS 验证通过；🟡 待真机视觉验证（首页 / VIP 礼包 / 购物车冷启） + commit + OTA 后转 ✅
-- [ ] **R-RS02** 共用组件改造（StickyCTABar / Toast / Screen / AiFloatingCompanion）—— 一次改修多页
+- [🟡] **R-RS02** 共用组件改造（StickyCTABar / Toast / Screen / AiFloatingCompanion）—— 2026-05-04 完成：StickyCTABar 加 useBottomInset(10) 吃底部 safe area（解决 A1，自动修订单详情/售后/售后详情 3 页）；Toast/AiFloatingCompanion 替换 useSafeAreaInsets→useBottomInset 加 OEM 兜底；Screen.tsx 文档化 safeAreaBottom 默认值意图（不改默认）。审查通过零问题，待真机验证后转 ✅
 - [ ] **R-RS03** 高优单页修复（用户报告 + spec 复现点：orders/[id] / checkout / cart / checkout-coupon / vip-gifts）
 - [ ] **R-RS04** 顶层 Dimensions 批量替换（6 文件：museum / ai-recommend / cart / product / search / index）
 - [ ] **R-RS05** 金额字号 spread `priceTextProps`（wallet / bonus-queue / coupons / recommend / checkout-coupon）

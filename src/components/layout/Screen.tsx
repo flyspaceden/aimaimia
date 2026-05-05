@@ -10,7 +10,22 @@ type ScreenProps = {
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
   statusBarStyle?: 'light' | 'dark' | 'auto';
+  /** 顶部吃 safe area inset（避免内容被状态栏/刘海/灵动岛挡住），默认 true */
   safeAreaTop?: boolean;
+  /**
+   * 底部吃 safe area inset，**默认 false**。
+   *
+   * **设计意图（不要轻易改默认值！）**：
+   * - 项目里大部分页面都有底部固定栏（购物车 / 结算 / 商品详情 / 订单详情 等），
+   *   固定栏自己用 `useBottomInset()` 吃底部 inset，Screen 此时**不能**再加
+   *   底部 padding，否则会重复——固定栏上方多 24-34dp 空白条。
+   * - 仅"纯滚动页 + 无底部固定栏"的页面可以显式传 `safeAreaBottom={true}`，
+   *   例如：协议文本 / 关于页 / 个人中心列表（如果没有 Tab bar）。
+   * - Tab 内页面（home / discover / me）由 (tabs)/_layout.tsx 处理底部 inset，
+   *   Screen 也保持 false。
+   *
+   * 如有疑问参考 docs/architecture/responsive-design.md §3.3 / 原则 3。
+   */
   safeAreaBottom?: boolean;
   /** 启用背景渐变（surfaceGradient），默认纯色 */
   backgroundGradient?: boolean;

@@ -458,7 +458,7 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | Sprint | 任务 | 涉及文件 | 预计 commit | 部署 | 状态 |
 |--------|------|---------|------------|------|------|
 | **R-RS01** | 工具集基建：新建 `src/theme/responsive.ts`（159 行，5 helper）+ `app/_layout.tsx` 全局 1.2x 封顶 + `src/theme/index.ts` re-export | 1 新增 + 2 改 | 1（待 commit）| OTA（待视觉验证） | 🟡 代码完成 |
-| **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen `safeAreaBottom` 默认值评估 / AiFloatingCompanion | 4 共用组件 | 3-4 | OTA | ⬜ |
+| **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen safeAreaBottom 文档化 / AiFloatingCompanion | 4 共用组件 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 5 | OTA | ⬜ |
 | **R-RS04** | 顶层 Dimensions 批量替换（B2/B3/B4/B5/B6 + 共用组件 B8；B1 已修、B7 在 R-RS03 一起改）| 5 页 + 1 共用组件 | 6 | OTA | ⬜ |
 | **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 4-5 | OTA | ⬜ |
@@ -484,10 +484,10 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `src/theme/responsive.ts`（新建 159 行）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
 | `app/_layout.tsx`（Text.defaultProps 1.2x 封顶）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
 | `src/theme/index.ts`（re-export responsive）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
-| `src/components/orders/StickyCTABar.tsx` | 🔴 A1 | R-RS02 | ⬜ | — | — |
-| `src/components/feedback/Toast.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
-| `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
-| `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
+| `src/components/orders/StickyCTABar.tsx` | 🔴 A1 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `src/components/feedback/Toast.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | 🟡 文档化完成（不改默认值） | （见 git log）| 2026-05-04 |
+| `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | ⬜ | — | — |
 | `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | ⬜ | — | — |
 | `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| ⬜ | — | — |
