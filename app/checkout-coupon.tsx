@@ -9,7 +9,7 @@ import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState, Skeleton } from '../src/components/feedback';
 import { CouponRepo } from '../src/repos';
 import { useAuthStore, useCheckoutStore } from '../src/store';
-import { useBottomInset, useTheme } from '../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../src/theme';
 import type { CheckoutEligibleCoupon } from '../src/types/domain/Coupon';
 
 /**
@@ -95,10 +95,10 @@ const CouponCard = React.memo(function CouponCard({
         {symbol ? (
           <>
             <Text style={styles.amountSymbol}>{symbol}</Text>
-            <Text style={styles.amountValue}>{value}</Text>
+            <Text {...priceTextProps} style={styles.amountValue}>{value}</Text>
           </>
         ) : (
-          <Text style={[styles.amountValue, { fontSize: 22 }]}>{value}</Text>
+          <Text {...priceTextProps} style={[styles.amountValue, { fontSize: 22 }]}>{value}</Text>
         )}
         {item.minOrderAmount > 0 ? (
           <Text style={styles.amountThreshold}>满¥{item.minOrderAmount}可用</Text>

@@ -12,7 +12,7 @@ import { AiBadge, AiCardGlow, AiDivider, Tag } from '../../src/components/ui';
 import { AiOrb } from '../../src/components/effects';
 import { AiFeatureRepo } from '../../src/repos';
 import { useCartStore, useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useTheme } from '../../src/theme';
 import { AiRecommendTheme, AppError, Product } from '../../src/types';
 
 // CARD_GAP / CARD_PADDING 不依赖 SCREEN_WIDTH，留在模块顶层；
@@ -632,7 +632,7 @@ export default function AiRecommendScreen() {
                         </Text>
                       </View>
                       <View style={[styles.planPricePill, { borderRadius: radius.pill, backgroundColor: colors.ai.soft }]}>
-                        <Text style={[typography.captionSm, { color: colors.ai.start }]}>¥{plan.totalPrice.toFixed(1)}</Text>
+                        <Text {...priceTextProps} style={[typography.captionSm, { color: colors.ai.start }]}>¥{plan.totalPrice.toFixed(1)}</Text>
                       </View>
                     </View>
 

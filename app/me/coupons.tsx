@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, Skeleton, useToast } from '../../src/components/feedback';
 import { CouponRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type {
   AvailableCampaignDto,
   CouponInstanceStatus,
@@ -96,7 +96,7 @@ const CouponCard = React.memo(function CouponCard({
         end={{ x: 0, y: 1 }}
         style={[styles.amountSection, { borderRadius: radius.md }]}
       >
-        <Text style={styles.amountValue}>{formatDiscount(item)}</Text>
+        <Text {...priceTextProps} style={styles.amountValue}>{formatDiscount(item)}</Text>
         <Text style={styles.amountThreshold}>
           {item.minOrderAmount > 0 ? `满¥${item.minOrderAmount}可用` : '无门槛'}
         </Text>
@@ -159,6 +159,8 @@ export default function MyCouponsScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing.xl);
 
   // 主 Tab 状态：我的红包 / 领券中心
   const [mainTab, setMainTab] = useState<MainTab>('mine');
@@ -312,7 +314,7 @@ export default function MyCouponsScreen() {
             <FlatList
               data={coupons}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xl }}
+              contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: safeBottom }}
               renderItem={({ item, index }) => (
                 <Animated.View entering={FadeInDown.duration(240).delay(index * 30)}>
                   <CouponCard
@@ -345,7 +347,7 @@ export default function MyCouponsScreen() {
             <FlatList
               data={campaigns}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xl }}
+              contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: safeBottom }}
               refreshing={centerRefetching}
               onRefresh={centerRefetch}
               renderItem={({ item, index }) => {
@@ -369,7 +371,7 @@ export default function MyCouponsScreen() {
                         end={{ x: 0, y: 1 }}
                         style={[styles.campaignAmountSection, { borderRadius: radius.md }]}
                       >
-                        <Text style={styles.amountValue}>{formatCampaignDiscount(item)}</Text>
+                        <Text {...priceTextProps} style={styles.amountValue}>{formatCampaignDiscount(item)}</Text>
                         <Text style={styles.amountThreshold}>
                           {item.minOrderAmount > 0 ? `满¥${item.minOrderAmount}` : '无门槛'}
                         </Text>

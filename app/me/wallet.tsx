@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../src/components/feedback'
 import { AiDivider } from '../../src/components/ui';
 import { BonusRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { WalletLedgerEntry } from '../../src/types';
 
 // 筛选标签
@@ -62,6 +62,8 @@ export default function WalletScreen() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   // 钱包余额
   const { data: walletData, isLoading: walletLoading, isFetching, refetch } = useQuery({
@@ -371,7 +373,7 @@ export default function WalletScreen() {
           keyExtractor={(item) => item.id}
           initialNumToRender={10}
           refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
-          contentContainerStyle={{ paddingBottom: spacing['3xl'] }}
+          contentContainerStyle={{ paddingBottom: safeBottom }}
           ListHeaderComponent={
             <View>
               {/* ===== 渐变余额卡 ===== */}
@@ -383,7 +385,7 @@ export default function WalletScreen() {
               >
                 <Animated.View entering={FadeInDown.duration(300)} style={{ paddingHorizontal: spacing.xl }}>
                   <Text style={styles.balanceLabel}>可用余额（元）</Text>
-                  <Text style={styles.balanceAmount}>
+                  <Text {...priceTextProps} style={styles.balanceAmount}>
                     <Text style={styles.balanceSymbol}>¥</Text>
                     {wallet?.balance.toFixed(2) ?? '0.00'}
                   </Text>

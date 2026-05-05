@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { BonusRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useTheme } from '../../src/theme';
 
 export default function BonusQueueScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
@@ -80,7 +80,7 @@ export default function BonusQueueScreen() {
                   </View>
 
                   <View style={styles.positionContainer}>
-                    <Text style={[styles.positionNumber, { color: colors.text.inverse }]}>
+                    <Text {...priceTextProps} style={[styles.positionNumber, { color: colors.text.inverse }]}>
                       {queue.position}
                     </Text>
                     <Text style={[typography.caption, { color: 'rgba(255,255,255,0.7)' }]}>
