@@ -15,9 +15,12 @@ function createService(overrides: Record<string, string> = {}) {
     SF_API_URL: 'https://bsp-oisp.sf-express.com/std/service',
     SF_CLIENT_CODE: 'TEST_CLIENT',
     SF_CHECK_WORD: 'test_check_word_secret',
-    SF_MONTHLY_ACCOUNT: '7551253482',
+    SF_MONTHLY_ACCOUNT_UAT: '7551234567',
+    SF_MONTHLY_ACCOUNT_PROD: '7551253482',
     SF_CALLBACK_URL: 'https://api.example.com/api/v1/shipments/sf/callback',
-    SF_TEMPLATE_CODE: 'fm_150_standard_test',
+    // templateCode 启动期校验必须以 _<clientCode> 结尾
+    SF_TEMPLATE_CODE: 'fm_150_standard_TEST_CLIENT',
+    SF_ALLOW_E2E_MOCK: 'false',
     ...overrides,
   };
   const configService = {
@@ -28,26 +31,49 @@ function createService(overrides: Record<string, string> = {}) {
   return new SfExpressService(configService as any);
 }
 
-/** 构造顺丰 API 成功响应 */
-function sfSuccess(msgData: any) {
+/** 构造顺丰 V2 协议成功响应（apiResultData 内含 success + msgData/obj） */
+function sfSuccess(inner: any) {
   return {
     ok: true,
     json: async () => ({
       apiResultCode: 'A1000',
       apiErrorMsg: '',
-      msgData: JSON.stringify(msgData),
+      apiResultData: JSON.stringify({
+        success: true,
+        errorCode: 'S0000',
+        errorMsg: null,
+        ...(inner.obj || inner.files
+          ? inner
+          : { msgData: inner }),
+      }),
     }),
   };
 }
 
-/** 构造顺丰 API 业务错误响应 */
+/** 构造协议层错误（apiResultCode != A1000） */
 function sfBusinessError(code: string, msg: string) {
   return {
     ok: true,
     json: async () => ({
       apiResultCode: code,
       apiErrorMsg: msg,
-      msgData: '',
+      apiResultData: '',
+    }),
+  };
+}
+
+/** 构造业务层错误（success: false） */
+function sfBizError(errorCode: string, errorMsg: string) {
+  return {
+    ok: true,
+    json: async () => ({
+      apiResultCode: 'A1000',
+      apiErrorMsg: '',
+      apiResultData: JSON.stringify({
+        success: false,
+        errorCode,
+        errorMsg,
+      }),
     }),
   };
 }
@@ -103,30 +129,57 @@ describe('SfExpressService', () => {
     });
 
     it('缺少 monthlyAccount 时返回 false', () => {
-      const svc = createService({ SF_MONTHLY_ACCOUNT: '' });
+      const svc = createService({
+        SF_MONTHLY_ACCOUNT_UAT: '',
+        SF_MONTHLY_ACCOUNT_PROD: '',
+      });
       expect(svc.isConfigured()).toBe(false);
     });
   });
 
-  // ─── buildVerifyCode ────────────────────────────────
+  // ─── buildVerifyCode（标准 MD5：URLEncode + MD5 + Base64） ─────
 
   describe('buildVerifyCode', () => {
-    it('对固定输入产生确定性输出（二进制MD5→Base64）', () => {
+    /** Java URLEncoder 等价：与服务端实现保持一致 */
+    function javaUrlEncode(s: string): string {
+      return encodeURIComponent(s)
+        .replace(/%20/g, '+')
+        .replace(/!/g, '%21')
+        .replace(/'/g, '%27')
+        .replace(/\(/g, '%28')
+        .replace(/\)/g, '%29')
+        .replace(/~/g, '%7E');
+    }
+
+    it('对固定输入产生确定性输出（URLEncode → MD5 → Base64）', () => {
       const svc = createService();
       const msgData = '{"orderId":"test-001"}';
       const timestamp = '1712000000000';
 
-      // 手动计算预期值：MD5(msgData + timestamp + checkWord) → binary → base64
       const raw = msgData + timestamp + 'test_check_word_secret';
+      const encoded = javaUrlEncode(raw);
       const expected = crypto
         .createHash('md5')
-        .update(raw, 'utf8')
+        .update(encoded, 'utf8')
         .digest('base64');
 
       const result = svc.buildVerifyCode(msgData, timestamp);
       expect(result).toBe(expected);
-      // 确保不是 hex → base64（hex base64 更长）
       expect(result.length).toBeLessThanOrEqual(24);
+    });
+
+    it('包含中文/特殊字符时签名经 URL 编码（与服务端 Java URLEncoder 一致）', () => {
+      const svc = createService();
+      const msgData = '{"cargoDesc":"云南普洱茶 200g (特级)"}';
+      const ts = '1712000000000';
+
+      const result = svc.buildVerifyCode(msgData, ts);
+      // 不经 URL 编码会得到不同结果（旧实现）
+      const naive = crypto
+        .createHash('md5')
+        .update(msgData + ts + 'test_check_word_secret', 'utf8')
+        .digest('base64');
+      expect(result).not.toBe(naive);
     });
 
     it('不同输入产生不同签名', () => {
@@ -135,6 +188,22 @@ describe('SfExpressService', () => {
       const sig1 = svc.buildVerifyCode('{"a":1}', ts);
       const sig2 = svc.buildVerifyCode('{"b":2}', ts);
       expect(sig1).not.toBe(sig2);
+    });
+  });
+
+  // ─── 启动期 templateCode 校验 ───────────────────────
+
+  describe('templateCode 启动期校验', () => {
+    it('templateCode 不以 _<clientCode> 结尾时启动失败', () => {
+      expect(() =>
+        createService({ SF_TEMPLATE_CODE: 'fm_150_standard_OTHER' }),
+      ).toThrow(/必须以 _TEST_CLIENT 结尾/);
+    });
+
+    it('templateCode 为空时启动通过（运行时 printWaybill 才报错）', () => {
+      expect(() =>
+        createService({ SF_TEMPLATE_CODE: '' }),
+      ).not.toThrow();
     });
   });
 
@@ -242,7 +311,10 @@ describe('SfExpressService', () => {
 
   describe('queryRoutes', () => {
     it('未配置时返回 null', async () => {
-      const svc = createService({ SF_MONTHLY_ACCOUNT: '' });
+      const svc = createService({
+        SF_MONTHLY_ACCOUNT_UAT: '',
+        SF_MONTHLY_ACCOUNT_PROD: '',
+      });
       const result = await svc.queryRoutes('SF1234567890');
       expect(result).toBeNull();
     });
@@ -383,28 +455,32 @@ describe('SfExpressService', () => {
   // ─── verifyPushSignature ────────────────────────────
 
   describe('verifyPushSignature', () => {
-    it('正确签名通过验证', () => {
+    it('正确签名（与请求签名同算法）通过验证', () => {
       const svc = createService();
-      const bodyStr = '{"waybillNo":"SF1234567890"}';
-      // 推送签名 = Base64(MD5(bodyString + checkWord))，无 timestamp
-      const expected = crypto
-        .createHash('md5')
-        .update(bodyStr + 'test_check_word_secret', 'utf8')
-        .digest('base64');
+      const msgData = '{"waybillNo":"SF1234567890"}';
+      const timestamp = '1712000000000';
+      const expected = svc.buildVerifyCode(msgData, timestamp);
 
-      expect(svc.verifyPushSignature(bodyStr, expected)).toBe(true);
+      expect(svc.verifyPushSignature(msgData, timestamp, expected)).toBe(true);
     });
 
     it('错误签名被拒绝', () => {
       const svc = createService();
-      const bodyStr = '{"waybillNo":"SF1234567890"}';
-      expect(svc.verifyPushSignature(bodyStr, 'wrong_digest')).toBe(false);
+      expect(
+        svc.verifyPushSignature('{"a":1}', '1712000000000', 'wrong_digest'),
+      ).toBe(false);
     });
 
     it('缺少签名被拒绝', () => {
       const svc = createService();
-      const bodyStr = '{"waybillNo":"SF1234567890"}';
-      expect(svc.verifyPushSignature(bodyStr, undefined)).toBe(false);
+      expect(
+        svc.verifyPushSignature('{"a":1}', '1712000000000', undefined),
+      ).toBe(false);
+    });
+
+    it('缺少 timestamp 被拒绝', () => {
+      const svc = createService();
+      expect(svc.verifyPushSignature('{"a":1}', '', 'sig')).toBe(false);
     });
   });
 
@@ -418,32 +494,29 @@ describe('SfExpressService', () => {
       );
     });
 
-    it('成功返回 pdfBase64', async () => {
+    it('成功返回 pdfUrl（沙箱实测路径 apiResultData.obj.files[0].url）', async () => {
       const service = createService();
       mockFetch.mockResolvedValueOnce(sfSuccess({
         obj: {
-          files: [{ token: 'JVBERi0xLjQK...base64data...' }],
+          files: [{ url: 'https://oss-fbg.sf-express.com/print/abc.pdf?sign=xxx' }],
         },
       }));
 
       const result = await service.printWaybill('SF1234567890');
-      expect(result.pdfBase64).toBe('JVBERi0xLjQK...base64data...');
+      expect(result.pdfUrl).toBe('https://oss-fbg.sf-express.com/print/abc.pdf?sign=xxx');
     });
 
-    it('返回缺少文件数据时抛出 BadRequestException', async () => {
+    it('返回缺少 url 时抛出 BadRequestException', async () => {
       const service = createService();
       mockFetch.mockResolvedValueOnce(sfSuccess({ obj: { files: [] } }));
       await expect(service.printWaybill('SF123')).rejects.toThrow('面单打印失败');
     });
 
-    it('兼容 files[0].fileBase64 路径', async () => {
-      const service = createService();
-      mockFetch.mockResolvedValueOnce(sfSuccess({
-        files: [{ fileBase64: 'ALTERNATE_BASE64_DATA' }],
-      }));
-
-      const result = await service.printWaybill('SF1234567890');
-      expect(result.pdfBase64).toBe('ALTERNATE_BASE64_DATA');
+    it('templateCode 未配置时抛 BadRequestException', async () => {
+      const service = createService({ SF_TEMPLATE_CODE: '' });
+      await expect(service.printWaybill('SF123')).rejects.toThrow(
+        'SF_TEMPLATE_CODE 未配置',
+      );
     });
   });
 

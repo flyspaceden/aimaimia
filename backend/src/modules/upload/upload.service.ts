@@ -172,6 +172,40 @@ export class UploadService {
   }
 
   /**
+   * 直传 Buffer（用于服务端生成的内部文件，跳过用户上传校验）
+   * 例：顺丰云打印 PDF 持久化、二维码、报表等
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    folder: string,
+    extension: string,
+    mimeType: string,
+  ): Promise<{ url: string; key: string; size: number; mimeType: string }> {
+    const safeFolder = this.normalizeFolder(folder);
+    const ext = extension.startsWith('.') ? extension : `.${extension}`;
+    const key = path.posix.join(safeFolder, `${randomUUID()}${ext}`);
+
+    const useLocalStorage = this.config.get('UPLOAD_LOCAL', 'true');
+
+    if (useLocalStorage === 'true') {
+      const folderPath = path.join(this.uploadDir, safeFolder);
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+      }
+      const filePath = path.join(this.uploadDir, key);
+      fs.writeFileSync(filePath, buffer);
+      const access = this.buildLocalAccessUrl(key);
+      this.logger.log(`Buffer 上传成功：${key}（${(buffer.length / 1024).toFixed(1)}KB）`);
+      return { url: access.url, key, size: buffer.length, mimeType };
+    }
+
+    const oss = this.getOssClient();
+    const result = await oss.put(key, buffer);
+    this.logger.log(`Buffer 上传至 OSS：${key}（${(buffer.length / 1024).toFixed(1)}KB）`);
+    return { url: result.url, key, size: buffer.length, mimeType };
+  }
+
+  /**
    * 批量上传文件
    */
   async uploadFiles(

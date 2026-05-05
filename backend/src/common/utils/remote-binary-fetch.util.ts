@@ -16,6 +16,8 @@ export async function fetchBinaryWithLimit(
   options?: {
     timeoutMs?: number;
     maxBytes?: number;
+    /** 允许的 content-type 前缀列表，默认 image/* */
+    allowedContentTypes?: string[];
   },
 ): Promise<{
   buffer: Buffer;
@@ -23,6 +25,7 @@ export async function fetchBinaryWithLimit(
 }> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES;
+  const allowedContentTypes = options?.allowedContentTypes ?? ['image/'];
 
   let parsedUrl: URL;
   try {
@@ -49,8 +52,13 @@ export async function fetchBinaryWithLimit(
     }
 
     const contentType = response.headers.get('content-type');
-    if (contentType && !contentType.toLowerCase().startsWith('image/')) {
-      throw new RemoteBinaryFetchError('面单图片格式无效');
+    if (
+      contentType &&
+      !allowedContentTypes.some((prefix) =>
+        contentType.toLowerCase().startsWith(prefix.toLowerCase()),
+      )
+    ) {
+      throw new RemoteBinaryFetchError('面单文件格式无效');
     }
 
     const contentLength = Number(response.headers.get('content-length'));

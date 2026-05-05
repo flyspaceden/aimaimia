@@ -5,7 +5,6 @@ import {
   Param,
   Body,
   Req,
-  UseGuards,
   Logger,
   UnauthorizedException,
   ForbiddenException,
@@ -16,7 +15,6 @@ import { ShipmentService } from './shipment.service';
 import { SfExpressService } from './sf-express.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
-import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
 
 @Controller('shipments')
 export class ShipmentController {
@@ -49,17 +47,22 @@ export class ShipmentController {
    * 顺丰推送回调端点
    * 顺丰在物流状态变更时主动推送到此地址
    */
+  // Bug 4: 移除 WebhookIpGuard —— 顺丰推送源 IP 不固定（多机房+CDN），
+  // IP 白名单会误杀正常推送。安全依赖 msgDigest 签名验证（标准MD5算法，无 checkWord 无法伪造）
   @Public()
-  @UseGuards(WebhookIpGuard)
   @Post('sf/callback')
   async handleSfCallback(
     @Body() body: any,
     @Req() req: any,
   ) {
     try {
-      // 获取原始 body 用于签名验证
-      const bodyStr = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(body);
-      const pushDigest = req.headers?.['x-sf-digest'] || body.msgDigest;
+      // SF 推送 body 是 form-urlencoded（msgData / timestamp / msgDigest / serviceCode 等）
+      const msgDataStr: string =
+        typeof body?.msgData === 'string' ? body.msgData : JSON.stringify(body?.msgData ?? '');
+      const timestamp: string =
+        body?.timestamp || req.headers?.['service-timestamp'] || '';
+      const pushDigest: string =
+        body?.msgDigest || req.headers?.['x-sf-digest'] || '';
 
       const parsed = this.sfExpress.parsePushPayload(body);
       if (!parsed) {
@@ -72,7 +75,8 @@ export class ShipmentController {
         parsed.status,
         parsed.events,
         body,
-        bodyStr,
+        msgDataStr,
+        timestamp,
         pushDigest,
       );
     } catch (error: any) {

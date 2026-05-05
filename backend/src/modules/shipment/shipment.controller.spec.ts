@@ -83,8 +83,10 @@ describe('ShipmentController', () => {
         PARSED_PAYLOAD.status,
         PARSED_PAYLOAD.events,
         VALID_PUSH_BODY,
+        // msgData / timestamp / pushDigest（Bug 2B：三参数签名校验）
         expect.any(String),
-        undefined,
+        '',
+        '',
       );
       expect(result).toEqual({ apiResultCode: 'A1000', apiErrorMsg: '' });
     });

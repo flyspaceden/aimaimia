@@ -86,7 +86,18 @@ function createMocks() {
   const sfExpress = {
     createOrder: jest.fn(),
     cancelOrder: jest.fn(),
-    printWaybill: jest.fn().mockResolvedValue({ pdfBase64: 'test-pdf-base64' }),
+    printWaybill: jest
+      .fn()
+      .mockResolvedValue({ pdfUrl: 'https://sf-cloud.example.com/p/abc.pdf' }),
+  };
+
+  const uploadService = {
+    uploadBuffer: jest.fn().mockResolvedValue({
+      url: 'https://oss.example.com/waybills/uuid.pdf',
+      key: 'waybills/uuid.pdf',
+      size: 12345,
+      mimeType: 'application/pdf',
+    }),
   };
 
   const service = new SellerShippingService(
@@ -94,9 +105,10 @@ function createMocks() {
     configService as any,
     sellerRiskControl as any,
     sfExpress as any,
+    uploadService as any,
   );
 
-  return { service, prisma, sfExpress, sellerRiskControl, configService };
+  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService };
 }
 
 /**

@@ -247,13 +247,14 @@ export default function OrderListPage() {
       return;
     }
 
+    // PDF 用 iframe 渲染（顺丰电子面单是 PDF，<img> 无法显示）
     const pages = printableOrders
       .map((order, index) => {
         const url = urls[index];
         return `
           <section class="page">
             <header>订单 ${escapeHtml(order.id)}</header>
-            <img src="${escapeHtml(url)}" alt="waybill-${escapeHtml(order.id)}" />
+            <iframe src="${escapeHtml(url)}" title="waybill-${escapeHtml(order.id)}"></iframe>
           </section>
         `;
       })
@@ -268,12 +269,12 @@ export default function OrderListPage() {
             .page { page-break-after: always; padding: 16px; background: #fff; }
             .page:last-child { page-break-after: auto; }
             header { margin-bottom: 12px; font-size: 14px; color: #666; }
-            img { width: 100%; height: auto; display: block; border: 1px solid #eee; }
+            iframe { width: 100%; height: 90vh; display: block; border: 1px solid #eee; background: #fff; }
             @media print {
               body { background: #fff; }
               .page { padding: 0; }
               header { display: none; }
-              img { border: 0; }
+              iframe { border: 0; height: 100vh; }
             }
           </style>
         </head>
@@ -281,9 +282,10 @@ export default function OrderListPage() {
       </html>
     `);
     printWindow.document.close();
+    // PDF iframe 加载需更长时间，延迟触发打印
     printWindow.onload = () => {
       printWindow.focus();
-      printWindow.print();
+      setTimeout(() => printWindow.print(), 800);
     };
   };
 

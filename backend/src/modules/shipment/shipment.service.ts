@@ -328,11 +328,16 @@ export class ShipmentService {
     status: string,
     events: Array<{ time: string; message: string; location?: string }> | undefined,
     rawPayload: any,
-    bodyStr?: string,
+    msgData?: string,
+    timestamp?: string,
     pushDigest?: string,
   ) {
-    // 验证顺丰推送签名
-    if (bodyStr && !this.sfExpress.verifyPushSignature(bodyStr, pushDigest)) {
+    // Bug 2B: 推送签名与请求签名同算法（标准MD5：URLEncode + MD5 + Base64）
+    // 安全加固：缺任一签名要素一律拒绝（避免攻击者用空 msgData/timestamp 绕过校验）
+    if (!msgData || !timestamp || !pushDigest) {
+      throw new UnauthorizedException('顺丰推送缺少签名要素');
+    }
+    if (!this.sfExpress.verifyPushSignature(msgData, timestamp, pushDigest)) {
       throw new UnauthorizedException('顺丰推送签名验证失败');
     }
 

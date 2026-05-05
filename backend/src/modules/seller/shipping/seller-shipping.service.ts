@@ -14,6 +14,8 @@ import { maskIp, maskTrackingNo } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
+import { UploadService } from '../../upload/upload.service';
+import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 
 @Injectable()
 export class SellerShippingService {
@@ -27,6 +29,7 @@ export class SellerShippingService {
     private configService: ConfigService,
     private sellerRiskControl: SellerRiskControlService,
     private sfExpress: SfExpressService,
+    private uploadService: UploadService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -432,11 +435,29 @@ export class SellerShippingService {
       packageCount: 1,
     });
 
-    // 获取面单 PDF
+    // 获取面单 PDF：顺丰返回临时 URL（1-2h 过期） → 下载 → 持久化到 OSS
+    // OSS 失败不能回退 SF 临时 URL（写进 DB 是"定时炸弹"），留空让卖家点"重新打印"重试
     let waybillUrl = '';
     try {
       const printResult = await this.sfExpress.printWaybill(orderResult.waybillNo);
-      waybillUrl = `data:application/pdf;base64,${printResult.pdfBase64}`;
+      try {
+        const fetched = await fetchBinaryWithLimit(printResult.pdfUrl, {
+          maxBytes: 10 * 1024 * 1024,
+          timeoutMs: 15000,
+          allowedContentTypes: ['application/pdf', 'application/octet-stream'],
+        });
+        const uploaded = await this.uploadService.uploadBuffer(
+          fetched.buffer,
+          'waybills',
+          '.pdf',
+          'application/pdf',
+        );
+        waybillUrl = uploaded.url;
+      } catch (persistErr: any) {
+        this.logger.error(
+          `面单 PDF OSS 持久化失败（waybillUrl 留空，卖家需点"重新打印"）: orderId=${orderId}, waybillNo=${orderResult.waybillNo}, err=${persistErr.message}`,
+        );
+      }
     } catch (err: any) {
       this.logger.warn(`面单打印失败（不阻塞发货）: ${err.message}`);
     }

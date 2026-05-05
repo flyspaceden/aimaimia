@@ -41,6 +41,11 @@ export interface SfCreateOrderResult {
   filterResult?: string;
 }
 
+/** 顺丰云打印面单返回 */
+export interface SfPrintWaybillResult {
+  pdfUrl: string;
+}
+
 /** 顺丰路由查询结果 */
 export interface SfRouteResult {
   status: SfMappedStatus;
@@ -86,6 +91,7 @@ export class SfExpressService {
   private readonly monthlyAccount: string;
   private readonly callbackUrl: string;
   private readonly templateCode: string;
+  private readonly allowE2eMock: boolean;
 
   /**
    * 顺丰 opCode → 系统 ShipmentStatus 映射
@@ -119,19 +125,49 @@ export class SfExpressService {
     );
     this.clientCode = this.configService.get<string>('SF_CLIENT_CODE', '');
     this.checkWord = this.configService.get<string>('SF_CHECK_WORD', '');
-    this.monthlyAccount = this.configService.get<string>(
-      'SF_MONTHLY_ACCOUNT',
+
+    // Bug 68: 月结账号按 SF_ENV 区分（沙箱用通用测试卡 7551234567，生产用真实月结）
+    const monthlyUat = this.configService.get<string>(
+      'SF_MONTHLY_ACCOUNT_UAT',
       '',
     );
+    const monthlyProd = this.configService.get<string>(
+      'SF_MONTHLY_ACCOUNT_PROD',
+      '',
+    );
+    const monthlyLegacy = this.configService.get<string>('SF_MONTHLY_ACCOUNT', '');
+    this.monthlyAccount =
+      this.sfEnv === 'PROD'
+        ? monthlyProd || monthlyLegacy
+        : monthlyUat || monthlyLegacy;
+
     this.callbackUrl = this.configService.get<string>('SF_CALLBACK_URL', '');
     this.templateCode = this.configService.get<string>(
       'SF_TEMPLATE_CODE',
-      'fm_150_standard_HNGHAfep',
+      '',
     );
+
+    // Bug 7: E2E mock 必须由独立开关启用，仅在非生产环境生效
+    this.allowE2eMock =
+      this.sfEnv !== 'PROD' &&
+      process.env.NODE_ENV !== 'production' &&
+      this.configService.get<string>('SF_ALLOW_E2E_MOCK', 'false') === 'true';
+
+    // Bug 71: 启动期校验 templateCode 必须以 clientCode 结尾（顺丰自动加 _<clientCode> 后缀）
+    if (this.clientCode && this.templateCode) {
+      if (!this.templateCode.endsWith(`_${this.clientCode}`)) {
+        this.logger.error(
+          `SF_TEMPLATE_CODE 配置错误：必须以 _${this.clientCode} 结尾（当前：${this.templateCode}）。请到丰桥控制台「电子面单 → 模板配置」查看真实模板编码。`,
+        );
+        throw new Error(
+          `SF_TEMPLATE_CODE 必须以 _${this.clientCode} 结尾，当前值：${this.templateCode}`,
+        );
+      }
+    }
 
     if (!this.isConfigured()) {
       this.logger.warn(
-        '顺丰丰桥凭证未配置（SF_CLIENT_CODE / SF_CHECK_WORD / SF_MONTHLY_ACCOUNT），物流功能不可用',
+        '顺丰丰桥凭证未配置（SF_CLIENT_CODE / SF_CHECK_WORD / SF_MONTHLY_ACCOUNT_UAT|PROD），物流功能不可用',
       );
     }
   }
@@ -142,13 +178,31 @@ export class SfExpressService {
   }
 
   /**
-   * 丰桥签名算法
-   * verifyCode = Base64(MD5(msgData + timestamp + checkWord))
-   * 注意：MD5 输出是二进制 digest → Base64，不是 hex string → Base64
+   * Java URLEncoder 等价编码
+   * Java URLEncoder.encode 与 JS encodeURIComponent 在 6 个字符上有差异：
+   * - 空格：Java 编码为 +，JS 编码为 %20
+   * - !'()~：Java 编码，JS 不编码
+   * 顺丰丰桥服务端用 Java URLEncoder，签名必须保持一致
+   */
+  private javaUrlEncode(s: string): string {
+    return encodeURIComponent(s)
+      .replace(/%20/g, '+')
+      .replace(/!/g, '%21')
+      .replace(/'/g, '%27')
+      .replace(/\(/g, '%28')
+      .replace(/\)/g, '%29')
+      .replace(/~/g, '%7E');
+  }
+
+  /**
+   * 丰桥标准 MD5 签名算法
+   * msgDigest = Base64(MD5(URLEncoder.encode(msgData + timestamp + checkWord, "UTF-8")))
+   * 关键：先 URL 编码再 MD5，缺这一步会导致中文/特殊字符签名错误
    */
   buildVerifyCode(msgData: string, timestamp: string): string {
     const raw = msgData + timestamp + this.checkWord;
-    const md5Binary = crypto.createHash('md5').update(raw, 'utf8').digest(); // Buffer
+    const encoded = this.javaUrlEncode(raw);
+    const md5Binary = crypto.createHash('md5').update(encoded, 'utf8').digest();
     return md5Binary.toString('base64');
   }
 
@@ -194,21 +248,48 @@ export class SfExpressService {
 
     const result = await response.json();
 
-    if (result.apiResultCode !== 'A1000') {
+    // Bug 70: V2 响应字段是 apiResultData（JSON 字符串），不是 msgData
+    // success/errorCode 才是业务结果判断字段，apiResultCode 仅 A1000 表示协议层 OK
+    if (result.apiResultCode && result.apiResultCode !== 'A1000') {
       this.logger.error(
-        `顺丰API业务错误: code=${result.apiResultCode}, msg=${result.apiErrorMsg}, serviceCode=${serviceCode}`,
+        `顺丰API协议错误: code=${result.apiResultCode}, msg=${result.apiErrorMsg}, serviceCode=${serviceCode}`,
       );
       throw new BadRequestException(
         `顺丰API错误: ${result.apiErrorMsg || result.apiResultCode}`,
       );
     }
 
-    // msgData 是 JSON 字符串，需要二次解析
-    try {
-      return JSON.parse(result.msgData);
-    } catch {
-      return result.msgData;
+    let parsed: any = null;
+    const rawData = result.apiResultData ?? result.msgData;
+    if (typeof rawData === 'string') {
+      try {
+        parsed = JSON.parse(rawData);
+      } catch {
+        parsed = rawData;
+      }
+    } else {
+      parsed = rawData;
     }
+
+    // success/errorCode 在解析后的 apiResultData 内（V2 响应格式）
+    // 防御纵深：success===false 或 errorCode 显式非 S0000 都算业务错误
+    // （某些边缘响应可能 success 字段缺失但 errorCode 已填非 S0000）
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      (parsed.success === false ||
+        (parsed.errorCode && parsed.errorCode !== 'S0000'))
+    ) {
+      this.logger.error(
+        `顺丰API业务错误: errorCode=${parsed.errorCode}, errorMsg=${parsed.errorMsg}, serviceCode=${serviceCode}`,
+      );
+      throw new BadRequestException(
+        `顺丰API错误: ${parsed.errorMsg || parsed.errorCode || '未知错误'}`,
+      );
+    }
+
+    // 返回完整的 apiResultData 解析对象（包含 msgData / obj 等业务字段，由调用方按 serviceCode 选择）
+    return parsed;
   }
 
   // ─── 下单取号 ─────────────────────────────────────────
@@ -220,8 +301,8 @@ export class SfExpressService {
   async createOrder(
     params: SfCreateOrderParams,
   ): Promise<SfCreateOrderResult> {
-    // E2E 测试绕过：NODE_ENV==='test' 时返回伪造面单，生产环境不可达
-    if (process.env.NODE_ENV === 'test') {
+    // Bug 7: E2E mock 仅在 SF_ALLOW_E2E_MOCK=true 且非生产环境时启用
+    if (this.allowE2eMock && process.env.NODE_ENV === 'test') {
       const ts = Date.now();
       return {
         waybillNo: `SFE2E${ts}`,
@@ -236,6 +317,8 @@ export class SfExpressService {
       throw new BadRequestException('顺丰丰桥服务未配置');
     }
 
+    // Bug 3: routeLabelForUpdate 不是 EXP_RECE_CREATE_ORDER 的合法字段，
+    // 推送通过丰桥后台「订阅服务 → 路由订阅」配置回调地址，不在下单参数里传
     const msgData = {
       language: 'zh-CN',
       orderId: params.orderId,
@@ -266,16 +349,13 @@ export class SfExpressService {
           address: params.receiver.detail,
         },
       ],
-      // 如果配置了回调URL，让顺丰主动推送物流变更
-      ...(this.callbackUrl ? { routeLabelForUpdate: this.callbackUrl } : {}),
     };
 
     const data = await this.callApi('EXP_RECE_CREATE_ORDER', msgData);
 
-    // 从返回数据中提取运单号
-    const waybillNoInfoList = data?.msgData?.waybillNoInfoList
-      ?? data?.waybillNoInfoList
-      ?? [];
+    // V2 响应：apiResultData → msgData → waybillNoInfoList
+    const inner = data?.msgData ?? data;
+    const waybillNoInfoList = inner?.waybillNoInfoList ?? [];
     const firstWaybill = waybillNoInfoList[0] || {};
     const waybillNo = firstWaybill.waybillNo || '';
 
@@ -292,10 +372,10 @@ export class SfExpressService {
 
     return {
       waybillNo,
-      sfOrderId: data?.orderId || params.orderId,
-      originCode: data?.originCode || firstWaybill.originCode,
-      destCode: data?.destCode || firstWaybill.destCode,
-      filterResult: data?.filterResult,
+      sfOrderId: inner?.orderId || params.orderId,
+      originCode: inner?.originCode || firstWaybill.originCode,
+      destCode: inner?.destCode || firstWaybill.destCode,
+      filterResult: inner?.filterResult,
     };
   }
 
@@ -369,7 +449,8 @@ export class SfExpressService {
     try {
       const data = await this.callApi('EXP_RECE_SEARCH_ROUTES', msgData);
 
-      const routeResps = data?.routeResps ?? data?.msgData?.routeResps ?? [];
+      const inner = data?.msgData ?? data;
+      const routeResps = inner?.routeResps ?? [];
       const firstResp = routeResps[0];
       if (!firstResp || !firstResp.routes || firstResp.routes.length === 0) {
         this.logger.debug(`顺丰路由查询无结果: trackingNo=${trackingNo.slice(0, 4)}****`);
@@ -457,11 +538,16 @@ export class SfExpressService {
   /**
    * 云打印面单
    * 调用 COM_RECE_CLOUD_PRINT_WAYBILLS
-   * 返回面单 PDF 的 Base64 编码
+   * Bug 1: 返回的是 PDF 文件 URL（顺丰临时签名地址），不是 base64
+   * 真实路径：apiResultData.obj.files[0].url
    */
-  async printWaybill(waybillNo: string): Promise<{ pdfBase64: string }> {
+  async printWaybill(waybillNo: string): Promise<SfPrintWaybillResult> {
     if (!this.isConfigured()) {
       throw new BadRequestException('顺丰丰桥服务未配置');
+    }
+
+    if (!this.templateCode) {
+      throw new BadRequestException('SF_TEMPLATE_CODE 未配置，无法打印面单');
     }
 
     const msgData = {
@@ -478,36 +564,46 @@ export class SfExpressService {
 
     const data = await this.callApi('COM_RECE_CLOUD_PRINT_WAYBILLS', msgData);
 
-    // 顺丰返回结构可能不同版本略有差异，做多种路径兼容
-    const fileBase64 = data?.obj?.files?.[0]?.token
-      || data?.obj?.files?.[0]?.url
-      || data?.files?.[0]?.token
-      || data?.files?.[0]?.fileBase64;
+    // 沙箱实测路径：apiResultData.obj.files[0].url
+    const pdfUrl =
+      data?.obj?.files?.[0]?.url ?? data?.files?.[0]?.url ?? '';
 
-    if (!fileBase64) {
-      this.logger.error(`顺丰面单打印返回缺少文件数据: waybillNo=${waybillNo}`);
-      throw new BadRequestException('面单打印失败: 未获取到面单文件');
+    if (!pdfUrl || typeof pdfUrl !== 'string') {
+      this.logger.error(
+        `顺丰面单打印返回缺少 url: waybillNo=${waybillNo}, data=${JSON.stringify(data).slice(0, 300)}`,
+      );
+      throw new BadRequestException('面单打印失败: 未获取到面单 URL');
     }
 
-    return { pdfBase64: fileBase64 };
+    return { pdfUrl };
   }
 
   /**
    * 验证顺丰推送签名
-   * 推送签名 = Base64(MD5(bodyString + checkWord))
-   * 注意：推送签名没有 timestamp，与请求签名不同
+   * Bug 2B: 推送签名与请求签名同算法 —— Base64(MD5(URLEncode(msgData + timestamp + checkWord)))
+   * timestamp 来自请求体或 Service-Timestamp header
    */
-  verifyPushSignature(bodyString: string, pushDigest?: string): boolean {
+  verifyPushSignature(
+    msgData: string,
+    timestamp: string,
+    pushDigest?: string,
+  ): boolean {
     if (!pushDigest) {
       this.logger.warn('顺丰推送缺少签名');
       return false;
     }
+    if (!msgData || !timestamp) {
+      this.logger.warn('顺丰推送缺少 msgData 或 timestamp');
+      return false;
+    }
 
-    const expected = crypto
-      .createHash('md5')
-      .update(bodyString + this.checkWord, 'utf8')
-      .digest('base64');
-
-    return expected === pushDigest;
+    const expected = this.buildVerifyCode(msgData, timestamp);
+    // 时序安全比较（避免理论时序泄露；MD5+Base64 实际可利用性低，但零成本加固）
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    const actualBuf = Buffer.from(pushDigest, 'utf8');
+    if (expectedBuf.length !== actualBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(expectedBuf, actualBuf);
   }
 }
