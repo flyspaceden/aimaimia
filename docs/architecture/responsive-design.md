@@ -174,6 +174,8 @@ const cols = columns({ wide: 4, narrow: 2 });
 
 ## 三、工具集（src/theme/responsive.ts）
 
+> 🟡 **R-RS01 代码已落地（2026-05-04），待真机视觉验证**：`src/theme/responsive.ts` 已创建（5 个 helper 全部到位）+ `app/_layout.tsx` 已加 Text.defaultProps 1.2x 全局封顶。新代码可以开始 `import { useResponsiveLayout, priceTextProps, ... } from 'src/theme'`。但视觉回归（首页/VIP 礼包/购物车冷启） **尚未完成**，所以本节状态标 🟡 而非 ✅；视觉验证 OK 后本警示去除。
+
 ### 3.1 `useResponsiveLayout()` Hook
 
 ```ts
@@ -252,25 +254,44 @@ export const compactActionTextProps: Partial<TextProps> = {
 ### 3.3 `useBottomInset()` 固定底部栏安全区 helper
 
 ```ts
-import { Platform } from 'react-native';
+import { Dimensions, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const ANDROID_NAV_FALLBACK = 32;
 
 /**
  * 固定底部栏专用 paddingBottom。
- * Android 部分 OEM / 三键导航会返回 insets.bottom = 0，需要兜底。
+ *
+ * Android edge-to-edge 模式（系统栏覆盖 app 窗口）下，部分 OEM / 三键导航
+ * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制 32dp 兜底。
+ *
+ * 但**只在确认 edge-to-edge 时才补**：粗暴的 `Math.max(insets.bottom, 32)`
+ * 会在非 edge-to-edge 旧机型 / 全屏沉浸 App 上多塞 32dp 空白（典型表现：
+ * 小米机底部出现莫名空白条），所以必须用 window.height vs screen.height
+ * 判定，与 `app/(tabs)/_layout.tsx` 的实现保持一致。
  */
 export const useBottomInset = (extra = 12) => {
   const insets = useSafeAreaInsets();
-  const safeBottom =
-    Platform.OS === 'android'
-      ? Math.max(insets.bottom, ANDROID_NAV_FALLBACK)
-      : insets.bottom;
+  let safeBottom = insets.bottom;
+
+  if (Platform.OS === 'android' && insets.bottom === 0) {
+    const window = Dimensions.get('window');
+    const screen = Dimensions.get('screen');
+    const isEdgeToEdge = Math.abs(window.height - screen.height) < 2; // 容忍 1px 误差
+    if (isEdgeToEdge) {
+      safeBottom = ANDROID_NAV_FALLBACK; // OEM bug 兜底
+    }
+  }
 
   return safeBottom + extra;
 };
 ```
+
+> **判定逻辑要点**：
+> - `window.height === screen.height` → edge-to-edge 已开启，app 画到系统栏后面，必须靠 inset 自适应；inset 报 0 就是 OEM bug，补 32dp
+> - `window.height < screen.height` → 系统栏在 app 窗口外，inset 自然为 0 是正确行为，不补
+>
+> 这里**只允许在函数体内**用 `Dimensions.get`（运行时一次性判定），不算违反原则 4——原则 4 禁止的是"模块顶层 `Dimensions.get`"导致旋转/分屏不更新。
 
 ### 3.4 全局兜底（app/_layout.tsx）
 
@@ -288,6 +309,8 @@ import { Text } from 'react-native';
 ---
 
 ## 四、新页面开发 Checklist（PR / Code Review 必跑）
+
+> 🟡 **R-RS01 helper 已可用（2026-05-04 落地，待真机验证）**：所有 helper 直接 `import { useResponsiveLayout, priceTextProps, fitTextProps, compactActionTextProps, useBottomInset } from 'src/theme'`。新代码 PR 按下面 Checklist 严格检查；老代码迁移走 R-RS04-07 sprint，迁移期允许暂时延用原生 API（`useWindowDimensions` / 显式 `numberOfLines+adjustsFontSizeToFit`）作为过渡，但同一文件碰一次就建议改完。
 
 ### 编码阶段
 
@@ -359,10 +382,10 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 
 **方法**：4 组并行 subagent 审查 60 个页面 + 16 个共用组件，对照 6 原则 + §5 rg 黑名单
 
-**结果总览**：
-- 🔴 严重：15+ 处（涉及 9 个文件）
+**结果总览**（2026-05-04 二次复核后修正）：
+- 🔴 严重：20 处（涉及 16 个文件）
 - 🟡 中等：26+ 处
-- ✅ 干净：约 30 个文件
+- ✅ 干净：约 29 个文件（首版误把 `orders/index.tsx` 列入，已移到🟡）
 
 #### 🔴 高优问题清单（按修复 ROI 排序）
 
@@ -382,13 +405,18 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 
 | # | 文件 | 位置 | 影响 |
 |---|------|------|------|
-| B1 | `app/(tabs)/museum.tsx` | L18 | 瀑布流卡宽不响应分屏/旋转 |
+| ~~B1~~ | ~~`app/(tabs)/museum.tsx`~~ | ~~L18~~ | ✅ **已用 `useWindowDimensions` 改造完成（2026-05-04 复核）**，从待修清单移除 |
 | B2 | `app/ai/recommend.tsx` | L18 | AI 推荐组合卡片 |
 | B3 | `app/cart.tsx` | L27 | 推荐区固定 140px |
 | B4 | `app/product/[id].tsx` | L32 | 商品详情多处依赖 |
 | B5 | `app/search.tsx` | L27 | 搜索结果列宽 |
 | B6 | `app/index.tsx` | L16 | 启动 splash |
 | B7 | `app/vip/gifts.tsx` | L45-49 | **多处依赖**（CARD/SIDE_PADDING/benefitItem/emptyGifts），spec §1.1 原始复现点 |
+| B8 | `src/components/effects/FloatingParticles.tsx` | L18 | **共用组件**——粒子背景宽高写死，分屏/旋转不重算（2026-05-04 复核新增） |
+
+> **豁免清单**（rg 命中但不计违规）：
+> - `app/(tabs)/_layout.tsx:28-29` — 在函数体内、仅用于 edge-to-edge 判定（原则 4 只禁模块顶层）
+> - `src/services/deferredLink.ts:95` — 设备指纹采集服务，需要 screen 像素信息，与 UI 无关
 
 **C. 大字号 / 价格未防字体放大（违反原则 2/5）**
 
@@ -415,7 +443,7 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 about.tsx / privacy.tsx / terms.tsx / payment-success.tsx / account-security.tsx
 referral.tsx / lottery.tsx / coupon-center.tsx / inbox/index.tsx
 checkout-address.tsx / checkout-pending.tsx / company/search.tsx
-ai/history.tsx / orders/index.tsx / orders/track.tsx
+ai/history.tsx / orders/track.tsx
 invoices/index.tsx / invoices/request.tsx / invoices/profiles.tsx / invoices/profiles/edit.tsx
 me/addresses.tsx / me/appearance.tsx / me/following.tsx / me/profile.tsx
 me/recommend.tsx / me/referral.tsx / me/scanner.tsx / me/tasks.tsx
@@ -429,10 +457,10 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 
 | Sprint | 任务 | 涉及文件 | 预计 commit | 部署 | 状态 |
 |--------|------|---------|------------|------|------|
-| **R-RS01** | 工具集基建：新建 `src/theme/responsive.ts` + `app/_layout.tsx` 全局兜底 | 1 新增 + 1 改 | 1 | OTA | ⬜ |
+| **R-RS01** | 工具集基建：新建 `src/theme/responsive.ts`（159 行，5 helper）+ `app/_layout.tsx` 全局 1.2x 封顶 + `src/theme/index.ts` re-export | 1 新增 + 2 改 | 1（待 commit）| OTA（待视觉验证） | 🟡 代码完成 |
 | **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen `safeAreaBottom` 默认值评估 / AiFloatingCompanion | 4 共用组件 | 3-4 | OTA | ⬜ |
 | **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 5 | OTA | ⬜ |
-| **R-RS04** | 顶层 Dimensions 批量替换（B1-B6） | 6 页 | 6 | OTA | ⬜ |
+| **R-RS04** | 顶层 Dimensions 批量替换（B2/B3/B4/B5/B6 + 共用组件 B8；B1 已修、B7 在 R-RS03 一起改）| 5 页 + 1 共用组件 | 6 | OTA | ⬜ |
 | **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 4-5 | OTA | ⬜ |
 | **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，~15 处）| ~15 页 | 5-8 | OTA | ⬜ |
 | **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（~10 处）| ~10 页 | 3-5 | OTA | ⬜ |
@@ -453,20 +481,22 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 
 | 文件 | 严重度 | Sprint | 状态 | commit | 完成日期 |
 |------|--------|--------|------|--------|---------|
-| `src/theme/responsive.ts`（新建）| — | R-RS01 | ⬜ | — | — |
-| `app/_layout.tsx`（全局兜底）| — | R-RS01 | ⬜ | — | — |
+| `src/theme/responsive.ts`（新建 159 行）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
+| `app/_layout.tsx`（Text.defaultProps 1.2x 封顶）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
+| `src/theme/index.ts`（re-export responsive）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
 | `src/components/orders/StickyCTABar.tsx` | 🔴 A1 | R-RS02 | ⬜ | — | — |
 | `src/components/feedback/Toast.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
 | `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
 | `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | ⬜ | — | — |
+| `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | ⬜ | — | — |
 | `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | ⬜ | — | — |
 | `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| ⬜ | — | — |
 | `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03（同上）| ⬜ | — | — |
 | `app/checkout.tsx` | 🔴 A5 | R-RS03 | ⬜ | — | — |
-| `app/cart.tsx` | 🔴 A6 + 🟡 B3 | R-RS03 + R-RS04 | ⬜ | — | — |
+| `app/cart.tsx` | 🔴 A6 + 🔴 B3 | R-RS03 + R-RS04 | ⬜ | — | — |
 | `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | ⬜ | — | — |
 | `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 | R-RS03（一次改 3 类问题）| ⬜ | — | — |
-| `app/(tabs)/museum.tsx` | 🔴 B1 | R-RS04 | ⬜ | — | — |
+| ~~`app/(tabs)/museum.tsx`~~ | ~~🔴 B1~~ | R-RS04 | ✅ 已修复（先于本规范） | — | — |
 | `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | ⬜ | — | — |
 | `app/product/[id].tsx` | 🔴 B4 | R-RS04 | ⬜ | — | — |
 | `app/search.tsx` | 🔴 B5 + 🟡 | R-RS04 + R-RS07 | ⬜ | — | — |
@@ -488,8 +518,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/group/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
 | `app/invoices/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
 | `app/cs/index.tsx` | 🟡 | R-RS07 | ⬜ | — | — |
+| `app/orders/index.tsx` | 🟡（paddingBottom: spacing['3xl'] 不吃 insets，L153）| R-RS07 | ⬜ | — | — |
 
-> 30 个干净文件不进表（无修复任务）；后续真机/审计再发现新问题追加到本表。
+> 29 个干净文件不进表（无修复任务，详见 §6.1 末尾✅清单）；后续真机/审计再发现新问题追加到本表。
 
 ---
 
@@ -565,4 +596,54 @@ const bottomPadding = useBottomInset(12);
 - 真机测试矩阵增加 → §4
 - 反模式新发现 → §7
 
-> **配套文件**：`src/theme/responsive.ts`（工具实现），`docs/operations/app-发布与OTA手册.md` 第四章（OTA 前 checklist 引用本文）。
+> **配套文件**：
+> - `src/theme/responsive.ts`（工具实现，🟡 2026-05-04 R-RS01 落地 159 行 5 helper，待真机视觉验证）
+> - `app/(tabs)/_layout.tsx:13-34`（已落地的 edge-to-edge bottom inset 判定，§3.3 `useBottomInset` 必须与之一致）
+> - `docs/operations/app-发布与OTA手册.md` 第四章（OTA 前 checklist 引用本文）
+
+---
+
+## 九、关联体验问题（相邻规范，本文仅留指针）
+
+> **范围声明**：§1-§8 处理的是"宽度 / 字体 / 多列降级 / 安全区"这类**几何适配**问题。但用户在中国手机上感受到的"App 不掉链子"远不止这些——下面 13 项是 2026-05-04 整理的相邻体验问题，**不在 6 原则覆盖范围内**，但同等重要。本节只做**问题登记 + 解法指针**，不展开规范；任何一项升级为正式规范时，应单独立档（或扩展 §3 工具集）并在此处补链接。
+
+### 9.1 🔴 用户能立刻感知（建议进 v1.0 上线 checklist）
+
+| # | 问题 | 推荐解法 | 当前状态 / 负责人 |
+|---|------|---------|------------------|
+| ③ | 顶部状态栏 / 刘海 / 灵动岛 不挡内容 | `useSafeAreaInsets().top` + 自定义 header / Modal 顶部均吃 inset | 需 audit `Screen.tsx` 默认 `safeAreaTop` 是否 true + 全部自定义 header |
+| ④ | 多输入框表单 focus 时自动滚到当前 input | `KeyboardAwareScrollView`（依赖已存在 `react-native-keyboard-aware-scroll-view`）替代 `ScrollView`；KAV 只抬根容器，不会定位到 focus | 需 audit 5+ 输入框页：地址 / 注册 / 发票申请 / 实名认证 / 商家入驻 |
+| ⑤ | Android 物理返回键 / iOS 全面屏左滑返回 | 多页面流（结账→选地址→选优惠券）规范返回行为；Modal/BottomSheet 优先关 Modal 不退页 | 需单独立档；目前各页散落 `BackHandler`，无规范 |
+| ⑥ | TextInput 长按"复制/粘贴"菜单不被键盘遮挡 | KAV `extraScrollHeight` 调整 + 关键 input 加 `selectionColor` 测试 | 真机回归 §4 矩阵需补一项 |
+| ⑦ | Modal / BottomSheet 自己吃 Safe Area | 弹层组件内部 `useSafeAreaInsets`，顶部 padding inset.top + 12，底部 padding `useBottomInset(12)` | 共用组件 audit：客服聊天 BottomSheet / 地址选择 / AI 推荐弹层 |
+| ⑧ | App 前后台切换状态保持 | Zustand 持久化 + 表单输入用 `useFormPersist`；订单/支付中态切到微信回来不丢 | 跟响应式无关但同一类，建议另立档 |
+
+### 9.2 🟡 不紧急但会拉低质感
+
+| # | 问题 | 推荐解法 | 当前状态 |
+|---|------|---------|---------|
+| ⑨ | Touch target 最小 44x44pt（iOS）/ 48x48dp（Android）| Theme 加 `minTouchSize` token，`<Pressable hitSlop={...}>` 兜底 | 农业用户群 30-60 岁居多，按钮过小高频误触；需全项目 audit |
+| ⑩ | 图片 loading / 失败 fallback | `expo-image` 的 `placeholder` + `onError` 显示占位图 | 商品列表 / 商家头像 audit |
+| ⑪ | 状态栏 `barStyle` 跟随页面背景切换 | 浅色背景 `dark-content`，深色背景 `light-content`；用 `expo-status-bar` 的 `Stack.Screen options` 切换 | 现状可能写死一种，audit |
+| ⑫ | 横屏锁定 | `app.json` `orientation: "portrait"` 全局锁；商品大图查看页另议 | 已知应锁：登录 / 支付 / AI 语音 / 客服聊天 |
+| ⑬ | 弱网 / 断网 toast | `@react-native-community/netinfo` 监听，断网/弱网横幅提醒 | 现状未实现 |
+| ⑭ | 文字超长省略 + 数字位防抖 | 商家名/商品名 `numberOfLines={1}` + `ellipsizeMode="tail"`；金额数字位加 `minWidth` 防抖（¥9 vs ¥9999.99 字符宽度差 6 倍）| §6.3 R-RS06 部分覆盖，但"数字位 minWidth"是新增点 |
+| ⑮ | App 启动 Splash 适配 | `app.json` splash + iOS LaunchScreen.storyboard 各分辨率 | 跟 RN 层无关，是 native 配置；EAS Build 出包前必须验 |
+
+### 9.3 🟢 v1.0 可不管（Backlog 登记）
+
+⑯ 暗黑模式覆盖完整性（`useTheme` 已支持，但页面 audit 未做）
+⑰ 复制粘贴自定义菜单 / iOS InputAccessoryView 完成按钮
+⑱ iOS Dynamic Type 极端档位（AX1-AX5）—— §3.4 1.2x 封顶已挡住爆布局，剩下是无障碍体验细节
+⑲ Push 通知点击 deep link 跳转准确性
+⑳ 屏幕录制 / 截图水印（合规要求）
+
+---
+
+### 9.4 与 §6 Sprint 的关系
+
+§9 列的 ③-⑮ 这 13 项**不进 R-RS01-07 sprint**（那 7 个 sprint 范围严格限定在几何适配）。需要：
+
+- 在 `docs/issues/tofix-app-frontend.md` 追加一节「**响应式之外的体验扩展**」，按 §9.1 / 9.2 / 9.3 优先级顺序登记 13 项 + 提出对应改造任务（暂定编号 R-UX01 ~ R-UX13）
+- 每项升级为正式规范时（如 ④ 多输入框表单 focus 滚动 → 完整规范），在本节对应行加文档链接
+- §4 PR Checklist 在 R-RS01 完成后扩展时，可以选择性吸收 ③⑦⑨⑪ 这几项进编码阶段勾选项

@@ -663,3 +663,102 @@
 - [ ] 边界数据测试（空数据、超长文本、特殊字符）
 - [ ] 导航流程测试（前进/后退/深链接）
 - [ ] 跨页面状态一致性测试
+
+---
+
+## 八、响应式之外的体验扩展（R-UX 任务集）
+
+> **来源**：2026-05-04 整理 `docs/architecture/responsive-design.md` 时识别出的 13 项相邻体验问题。这些**不在响应式 6 原则覆盖范围内**（响应式只管几何适配——宽度/字体/多列降级/安全区），但是用户在中国手机上感受"App 是否掉链子"的同等重要因素。
+>
+> **与 R-RS sprint 的关系**：本节 R-UX01-13 **不进** R-RS01-07 sprint，独立排期、独立验收。允许 R-UX 跟 R-RS 并行（不同文件）。
+>
+> **登记日期**：2026-05-04
+> **关联文档**：`docs/architecture/responsive-design.md` §九（指针表）
+
+### 8.1 🔴 P1 — 用户能立刻感知（建议进 v1.0 上线 checklist）
+
+#### ⬜ R-UX01: 顶部状态栏 / 刘海 / 灵动岛 不挡内容
+- **问题**：自定义 header / Modal 顶部如果不吃 `useSafeAreaInsets().top`，iPhone 14 Pro 灵动岛会盖住标题/关闭按钮
+- **解法**：所有自定义 header / 全屏 Modal 顶部 padding 加 `insets.top + 12`
+- **Audit 范围**：`Screen.tsx` 默认 `safeAreaTop` 是否 true、所有不用 Screen 包裹的页面、客服 BottomSheet、AI 推荐弹层、商品大图查看页
+
+#### ⬜ R-UX02: 多输入框表单 focus 时自动滚到当前 input
+- **问题**：KAV 只抬根容器，不会**滚动定位**到 focus 的输入框。5+ 输入框页面点最下面那个仍可能在键盘后
+- **解法**：用 `react-native-keyboard-aware-scroll-view`（依赖已存在）替代 `<ScrollView>`，加 `extraScrollHeight={20}`
+- **Audit 范围**：地址表单、注册流、发票申请、实名认证、商家入驻、AI 聊天输入框（含已有的 11 个 KAV 页面要复查）
+
+#### ⬜ R-UX03: Android 物理返回键 / iOS 全面屏左滑返回
+- **问题**：多页面流（结账→选地址→选优惠券）返回行为不统一；Modal/BottomSheet 打开时按返回键是关 Modal 还是退页面无规范
+- **解法**：单独立档（`docs/architecture/back-handler.md` 暂定）规范返回行为；散落 `BackHandler.addEventListener` 必须在 useEffect cleanup 解绑
+- **Audit 范围**：所有 Modal/BottomSheet、多步流（结账/入驻/认证/AI 对话）
+
+#### ⬜ R-UX04: TextInput 长按"复制/粘贴"菜单不被键盘遮
+- **问题**：粘贴验证码时菜单弹在键盘上方被键盘盖住
+- **解法**：KAV `extraScrollHeight` 调整 + 真机回归
+- **Audit 范围**：登录/注册验证码输入、订单号搜索、AI 聊天输入
+
+#### ⬜ R-UX05: Modal / BottomSheet 自己吃 Safe Area
+- **问题**：弹层组件不吃 inset.top → iOS 关闭按钮被灵动岛盖；不吃 inset.bottom → 抽屉底部按钮被手势条盖
+- **解法**：弹层组件内部 `useSafeAreaInsets` + `useBottomInset`（R-RS01 完成后）
+- **Audit 范围**：`PrivacyConsentModal.tsx`、客服聊天 BottomSheet、地址选择 Sheet、AI 推荐弹层、`VoiceOverlay.tsx`
+
+#### ⬜ R-UX06: App 前后台切换状态保持
+- **问题**：填到一半的订单切去微信付款，回来表单清空
+- **解法**：Zustand `persist` middleware + 表单用 `useFormPersist`（react-hook-form 配套）
+- **Audit 范围**：结账表单、地址新增、商家入驻、发票申请、AI 对话上下文
+
+### 8.2 🟡 P2 — 不紧急但拉低质感
+
+#### ⬜ R-UX07: Touch target 最小尺寸（44x44pt iOS / 48x48dp Android）
+- **问题**：农业用户群 30-60 岁居多，按钮过小高频误触
+- **解法**：Theme 加 `minTouchSize` token；小图标按钮加 `<Pressable hitSlop={{top:8,bottom:8,left:8,right:8}}>` 兜底
+- **Audit 范围**：全项目 IconButton / 表单 ✕ 关闭 / Tab 切换器 / 数量加减按钮
+
+#### ⬜ R-UX08: 图片 loading / 失败 fallback
+- **问题**：商品列表网慢时白板，加载失败显示破图
+- **解法**：`expo-image` 的 `placeholder` + `onError` 占位图
+- **Audit 范围**：商品列表/详情、商家头像、订单缩略图、商家相册、AI 推荐卡片
+
+#### ⬜ R-UX09: 状态栏 `barStyle` 跟随页面背景切换
+- **问题**：浅色背景配深色字、深色背景配浅色字；现状可能写死一种
+- **解法**：用 `expo-status-bar` 的 `<StatusBar style="dark" />` 在每个页面顶部声明
+- **Audit 范围**：全项目页面（约 60 个）
+
+#### ⬜ R-UX10: 横屏锁定
+- **问题**：电商页强制横屏会出现诡异布局
+- **解法**：`app.json` `orientation: "portrait"` 全局锁；商品大图查看页另议
+- **Audit 范围**：检查 `app.json` 全局配置 + 单页 `Stack.Screen options` 是否有 override
+
+#### ⬜ R-UX11: 弱网 / 断网 toast
+- **问题**：离线时下单/刷新失败无明确提示
+- **解法**：`@react-native-community/netinfo` 监听，断网/弱网横幅 + Toast
+- **Audit 范围**：根 layout 集成监听；关键操作（下单/支付/客服）单独检测
+
+#### ⬜ R-UX12: 文字超长省略 + 数字位防抖
+- **问题**：商家名/商品名长度差异大容器抖；¥9 vs ¥9999.99 字符宽度差 6 倍
+- **解法**：长文本统一 `numberOfLines={1}` + `ellipsizeMode="tail"`；金额数字位加 `minWidth: 60` 防抖
+- **Audit 范围**：商品卡片、订单列表、商家头部、钱包余额行、奖励排位
+- **注意**：与 R-RS06（中优字号批量修）部分重叠，但**数字位 minWidth** 是新增点，不在响应式 6 原则里
+
+#### ⬜ R-UX13: App 启动 Splash 适配各分辨率
+- **问题**：splash 图被裁剪/拉伸
+- **解法**：`app.json` splash + iOS LaunchScreen.storyboard 准备多尺寸
+- **Audit 范围**：EAS Build 出包前真机验证（不同手机分辨率）；属于 native 配置不是 RN 层
+
+### 8.3 🟢 P3 — v1.0 可不管（仅登记）
+
+| ID | 问题 | 备注 |
+|---|------|------|
+| R-UX14 | 暗黑模式覆盖完整性 | `useTheme` 已支持，但页面级 audit 未做 |
+| R-UX15 | 复制粘贴自定义菜单 / iOS InputAccessoryView 完成按钮 | iOS 数字键盘上方加"完成"按钮收起键盘 |
+| R-UX16 | iOS Dynamic Type 极端档位（AX1-AX5）| §3.4 1.2x 封顶已挡住爆布局，剩下是无障碍体验细节 |
+| R-UX17 | Push 通知点击 deep link 跳转 | 当前推送链路存在但跳转准确性未规范 |
+| R-UX18 | 屏幕录制 / 截图水印 | 合规要求（金额/订单号脱敏） |
+
+### 8.4 执行原则
+
+- R-UX 任务**不阻塞 R-RS sprint**，可并行
+- R-UX01-06（P1）建议在 v1.0 上线前完成，作为发布 checklist 一项
+- R-UX07-13（P2）等 R-RS01-07 全部推完之后再排期
+- R-UX14-18（P3）登记即可，等真有用户报告再升级
+- 任何一项升级为完整规范时（如 R-UX03 立 `back-handler.md`），在 `responsive-design.md` §九 对应行加文档链接

@@ -4,7 +4,7 @@ import { Stack } from 'expo-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider } from '../src/theme';
@@ -29,6 +29,14 @@ import {
   matchByFingerprint,
 } from '../src/services/deferredLink';
 import { needsPrivacyConsent } from '../src/services/privacyConsent';
+
+// 全局兜底：所有 <Text> 默认最大字体放大不超过 1.2x（无障碍合规 + 防爆）。
+// 写死 fontSize 的页面即使忘加 priceTextProps / fitTextProps，也不会被系统
+// 超大字体设置（华为/小米的 1.5-2x）爆掉布局。
+// 仅作为迁移期兜底，新代码仍应显式使用 src/theme/responsive.ts 的预设。
+// 详见 docs/architecture/responsive-design.md §3.4
+(Text as any).defaultProps = (Text as any).defaultProps || {};
+(Text as any).defaultProps.maxFontSizeMultiplier = 1.2;
 
 const APP_DOMAIN = 'app.ai-maimai.com';
 
