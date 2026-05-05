@@ -6,7 +6,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AppHeader, Screen } from '../src/components/layout';
 import { useToast } from '../src/components/feedback';
@@ -21,7 +20,7 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { AuthModal } from '../src/components/overlay';
 import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
 import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
-import { useTheme } from '../src/theme';
+import { useBottomInset, useTheme } from '../src/theme';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -68,7 +67,10 @@ export default function CartScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const clearVipPackageSelection = useCheckoutStore((s) => s.clearVipPackageSelection);
-  const insets = useSafeAreaInsets();
+  // R-RS03 A6: 替换 useSafeAreaInsets → useBottomInset，加 OEM 兜底
+  // 修复购物车确认栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
+  const scrollBottomPad = useBottomInset(100);
+  const barBottomPad = useBottomInset(spacing.sm);
   const items = useCartStore((s) => s.items);
   const selectedIds = useCartStore((s) => s.selectedIds);
   const clear = useCartStore((s) => s.clear);
@@ -209,7 +211,7 @@ export default function CartScreen() {
         initialNumToRender={6}
         contentContainerStyle={{
           paddingHorizontal: spacing.xl,
-          paddingBottom: insets.bottom + 100,
+          paddingBottom: scrollBottomPad,
           paddingTop: spacing.sm,
         }}
         ListHeaderComponent={
@@ -460,7 +462,7 @@ export default function CartScreen() {
           style={[
             styles.checkoutBar,
             {
-              paddingBottom: insets.bottom + spacing.sm,
+              paddingBottom: barBottomPad,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.divider,
             },
@@ -504,7 +506,7 @@ export default function CartScreen() {
           style={[
             styles.checkoutBar,
             {
-              paddingBottom: insets.bottom + spacing.sm,
+              paddingBottom: barBottomPad,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.divider,
               backgroundColor: isDark ? 'rgba(6,14,6,0.95)' : 'rgba(250,252,250,0.95)',

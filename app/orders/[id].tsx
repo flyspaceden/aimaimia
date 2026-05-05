@@ -13,13 +13,16 @@ import { OrderInfoBlock } from '../../src/components/orders/OrderInfoBlock';
 import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import type { OrderItem } from '../../src/types';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const orderId = String(id ?? '');
   const { colors, radius, spacing, typography } = useTheme();
+  // StickyCTABar 自吃 inset（高度 ~48dp + inset），ScrollView 留 80 + inset 才不会
+  // 让最后一个区块被 bar 盖住。useBottomInset(0) 仅 inset + OEM 兜底，不加 extra
+  const safeBottom = useBottomInset(0);
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -145,7 +148,7 @@ export default function OrderDetailScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="订单详情" />
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 80 }}
+        contentContainerStyle={{ paddingBottom: 80 + safeBottom }}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
       >
         {/* ① StatusHero */}

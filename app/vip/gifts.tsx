@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   ViewToken,
 } from 'react-native';
@@ -35,18 +35,13 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useToast } from '../../src/components/feedback';
 import { GiftCoverImage } from '../../src/components/cards';
+import { priceTextProps } from '../../src/theme';
 import type { VipGiftOption } from '../../src/types/domain/Bonus';
 
 // ============================================================
 // VIP 赠品选择页 — VIP 专属空间
 // 设计规范见 buy-vip.md Section 5.2
 // ============================================================
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH * 0.82;
-const CARD_SPACING = 12;
-const CARD_TOTAL_WIDTH = CARD_WIDTH + CARD_SPACING;
-const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 
 // VIP 专属空间色彩规范
 const VIP = {
@@ -78,28 +73,34 @@ const VIP_BENEFITS = [
 // ============================================================
 // 金色粒子背景组件
 // ============================================================
-function GoldParticles() {
+function GoldParticles({ screenWidth }: { screenWidth: number }) {
   const particles = useMemo(() => {
     return Array.from({ length: 25 }, (_, i) => ({
       id: i,
-      x: Math.random() * SCREEN_WIDTH,
+      x: Math.random() * screenWidth,
       size: 2 + Math.random() * 3,
       opacity: 0.15 + Math.random() * 0.3,
       speed: 0.4 + Math.random() * 0.5,
       delay: Math.random() * 5000,
     }));
-  }, []);
+  }, [screenWidth]);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {particles.map((p) => (
-        <ParticleDot key={p.id} config={p} />
+        <ParticleDot key={p.id} config={p} screenWidth={screenWidth} />
       ))}
     </View>
   );
 }
 
-function ParticleDot({ config }: { config: { x: number; size: number; opacity: number; speed: number; delay: number } }) {
+function ParticleDot({
+  config,
+  screenWidth,
+}: {
+  config: { x: number; size: number; opacity: number; speed: number; delay: number };
+  screenWidth: number;
+}) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -116,7 +117,7 @@ function ParticleDot({ config }: { config: { x: number; size: number; opacity: n
   const animatedStyle = useAnimatedStyle(() => ({
     position: 'absolute',
     left: config.x,
-    top: interpolate(progress.value, [0, 1], [-20, SCREEN_WIDTH * 2]),
+    top: interpolate(progress.value, [0, 1], [-20, screenWidth * 2]),
     width: config.size,
     height: config.size,
     borderRadius: config.size / 2,
@@ -159,17 +160,23 @@ function GiftCard({
   scrollX,
   isSelected,
   onSelect,
+  cardWidth,
+  cardSpacing,
+  cardTotalWidth,
 }: {
   item: VipGiftOption;
   index: number;
   scrollX: SharedValue<number>;
   isSelected: boolean;
   onSelect: () => void;
+  cardWidth: number;
+  cardSpacing: number;
+  cardTotalWidth: number;
 }) {
   const inputRange = [
-    (index - 1) * CARD_TOTAL_WIDTH,
-    index * CARD_TOTAL_WIDTH,
-    (index + 1) * CARD_TOTAL_WIDTH,
+    (index - 1) * cardTotalWidth,
+    index * cardTotalWidth,
+    (index + 1) * cardTotalWidth,
   ];
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -195,7 +202,7 @@ function GiftCard({
   const isSoldOut = !item.available;
 
   return (
-    <Animated.View style={[styles.cardWrapper, animatedStyle]}>
+    <Animated.View style={[styles.cardWrapper, { width: cardWidth, marginRight: cardSpacing }, animatedStyle]}>
       <Pressable
         onPress={isSoldOut ? undefined : onSelect}
         disabled={isSoldOut}
@@ -258,6 +265,13 @@ export default function VipGiftsScreen() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const setVipPackageSelection = useCheckoutStore((s) => s.setVipPackageSelection);
 
+  // 响应式尺寸（分屏/旋转/字体放大时实时更新，不可在模块顶层用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
+  const CARD_WIDTH = SCREEN_WIDTH * 0.82;
+  const CARD_SPACING = 12;
+  const CARD_TOTAL_WIDTH = CARD_WIDTH + CARD_SPACING;
+  const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
+
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<FlatList>(null);
@@ -310,7 +324,7 @@ export default function VipGiftsScreen() {
       offset: index * CARD_TOTAL_WIDTH,
       animated: true,
     });
-  }, [giftOptions.length]);
+  }, [giftOptions.length, CARD_TOTAL_WIDTH]);
 
   // 选中赠品并进入结账
   const handleCheckout = useCallback(() => {
@@ -342,7 +356,7 @@ export default function VipGiftsScreen() {
         style={[styles.container, { paddingTop: insets.top }]}
       >
         <StatusBar style="light" />
-        <GoldParticles />
+        <GoldParticles screenWidth={SCREEN_WIDTH} />
         <View style={styles.vipAlreadyContainer}>
           <MaterialCommunityIcons name="crown" size={64} color={VIP.goldPrimary} />
           <Text style={styles.vipAlreadyTitle}>您已是 VIP 会员</Text>
@@ -386,7 +400,7 @@ export default function VipGiftsScreen() {
       style={styles.container}
     >
       <StatusBar style="light" />
-      <GoldParticles />
+      <GoldParticles screenWidth={SCREEN_WIDTH} />
 
       {/* 导航栏 */}
       <View style={[styles.navbar, { paddingTop: insets.top + 8 }]}>
@@ -430,7 +444,7 @@ export default function VipGiftsScreen() {
                   selectedPackageIndex === index && styles.priceTabActive,
                 ]}
               >
-                <Text style={[
+                <Text {...priceTextProps} style={[
                   styles.priceTabAmount,
                   selectedPackageIndex === index && styles.priceTabAmountActive,
                 ]}>
@@ -495,10 +509,13 @@ export default function VipGiftsScreen() {
                   scrollX={scrollX}
                   isSelected={selectedIndex === index}
                   onSelect={() => setSelectedIndex(index)}
+                  cardWidth={CARD_WIDTH}
+                  cardSpacing={CARD_SPACING}
+                  cardTotalWidth={CARD_TOTAL_WIDTH}
                 />
               )}
               ListEmptyComponent={
-                <View style={styles.emptyGifts}>
+                <View style={[styles.emptyGifts, { width: SCREEN_WIDTH - 48 }]}>
                   <MaterialCommunityIcons name="gift-off" size={48} color={VIP.subtleGray} />
                   <Text style={styles.emptyText}>暂无赠品方案</Text>
                 </View>
@@ -521,7 +538,7 @@ export default function VipGiftsScreen() {
           {giftOptions.length > 0 ? (
             <View style={styles.indicatorRow}>
               {giftOptions.map((_, i) => (
-                <IndicatorDot key={i} index={i} scrollX={scrollX} />
+                <IndicatorDot key={i} index={i} scrollX={scrollX} cardTotalWidth={CARD_TOTAL_WIDTH} />
               ))}
               <Text style={styles.indicatorText}>
                 {' '}{currentIndex + 1} / {giftOptions.length}
@@ -533,7 +550,7 @@ export default function VipGiftsScreen() {
         {/* VIP 权益横排 */}
         <Animated.View entering={FadeInDown.delay(400).duration(500)} style={styles.benefitsRow}>
           {VIP_BENEFITS.map((b) => (
-            <View key={b.label} style={styles.benefitItem}>
+            <View key={b.label} style={[styles.benefitItem, { width: SCREEN_WIDTH / 6 - 8 }]}>
               <MaterialCommunityIcons name={b.icon} size={22} color={VIP.goldPrimary} />
               <Text style={styles.benefitLabel}>{b.label}</Text>
             </View>
@@ -582,11 +599,19 @@ export default function VipGiftsScreen() {
 // ============================================================
 // 指示器圆点
 // ============================================================
-function IndicatorDot({ index, scrollX }: { index: number; scrollX: SharedValue<number> }) {
+function IndicatorDot({
+  index,
+  scrollX,
+  cardTotalWidth,
+}: {
+  index: number;
+  scrollX: SharedValue<number>;
+  cardTotalWidth: number;
+}) {
   const inputRange = [
-    (index - 1) * CARD_TOTAL_WIDTH,
-    index * CARD_TOTAL_WIDTH,
-    (index + 1) * CARD_TOTAL_WIDTH,
+    (index - 1) * cardTotalWidth,
+    index * cardTotalWidth,
+    (index + 1) * cardTotalWidth,
   ];
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -706,11 +731,8 @@ const styles = StyleSheet.create({
   arrowRight: {
     right: 4,
   },
-  // 赠品卡片
-  cardWrapper: {
-    width: CARD_WIDTH,
-    marginRight: CARD_SPACING,
-  },
+  // 赠品卡片（width / marginRight 通过内联 style 注入，依赖响应式 SCREEN_WIDTH）
+  cardWrapper: {},
   card: {
     flex: 1,
     backgroundColor: VIP.cardBg,
@@ -785,9 +807,8 @@ const styles = StyleSheet.create({
     color: VIP.warmWhite,
     fontWeight: '600',
   },
-  // 空状态
+  // 空状态（width 通过内联 style 注入）
   emptyGifts: {
-    width: SCREEN_WIDTH - 48,
     height: 200,
     justifyContent: 'center',
     alignItems: 'center',
@@ -826,7 +847,7 @@ const styles = StyleSheet.create({
   },
   benefitItem: {
     alignItems: 'center',
-    width: SCREEN_WIDTH / 6 - 8,
+    // width 通过内联 style 注入（依赖响应式 SCREEN_WIDTH）
     marginBottom: 12,
   },
   benefitLabel: {

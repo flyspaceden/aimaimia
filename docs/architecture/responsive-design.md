@@ -459,7 +459,7 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 |--------|------|---------|------------|------|------|
 | **R-RS01** | 工具集基建：新建 `src/theme/responsive.ts`（159 行，5 helper）+ `app/_layout.tsx` 全局 1.2x 封顶 + `src/theme/index.ts` re-export | 1 新增 + 2 改 | 1（待 commit）| OTA（待视觉验证） | 🟡 代码完成 |
 | **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen safeAreaBottom 文档化 / AiFloatingCompanion | 4 共用组件 | 1（合并） | OTA（待） | 🟡 代码完成 |
-| **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 5 | OTA | ⬜ |
+| **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS04** | 顶层 Dimensions 批量替换（B2/B3/B4/B5/B6 + 共用组件 B8；B1 已修、B7 在 R-RS03 一起改）| 5 页 + 1 共用组件 | 6 | OTA | ⬜ |
 | **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 4-5 | OTA | ⬜ |
 | **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，~15 处）| ~15 页 | 5-8 | OTA | ⬜ |
@@ -489,13 +489,13 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | 🟡 文档化完成（不改默认值） | （见 git log）| 2026-05-04 |
 | `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | ⬜ | — | — |
-| `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | ⬜ | — | — |
-| `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| ⬜ | — | — |
-| `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03（同上）| ⬜ | — | — |
-| `app/checkout.tsx` | 🔴 A5 | R-RS03 | ⬜ | — | — |
-| `app/cart.tsx` | 🔴 A6 + 🔴 B3 | R-RS03 + R-RS04 | ⬜ | — | — |
-| `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | ⬜ | — | — |
-| `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 | R-RS03（一次改 3 类问题）| ⬜ | — | — |
+| `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| 🟡 R-RS02 自动修复 | （见 git log fa1cf81）| 2026-05-04 |
+| `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03（同上）| 🟡 R-RS02 自动修复 | （见 git log fa1cf81）| 2026-05-04 |
+| `app/checkout.tsx` | 🔴 A5 | R-RS03 | 🟡 代码完成 待真机验证（小米空白 bug）| （见 git log）| 2026-05-04 |
+| `app/cart.tsx` | 🔴 A6 + 🔴 B3 | R-RS03 + R-RS04 | 🟡 A6 完成；B3 留 R-RS04 | （见 git log）| 2026-05-04 |
+| `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | 🟡 A7 完成；C6 留 R-RS05 | （见 git log）| 2026-05-04 |
+| `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 | R-RS03（一次改 3 类问题）| 🟡 B7 + C1 完成（spec §1.1 复现点修复）| （见 git log）| 2026-05-04 |
 | ~~`app/(tabs)/museum.tsx`~~ | ~~🔴 B1~~ | R-RS04 | ✅ 已修复（先于本规范） | — | — |
 | `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | ⬜ | — | — |
 | `app/product/[id].tsx` | 🔴 B4 | R-RS04 | ⬜ | — | — |

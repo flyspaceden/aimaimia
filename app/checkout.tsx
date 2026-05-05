@@ -7,7 +7,6 @@ import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../src/components/layout';
 import { AuthModal } from '../src/components/overlay';
 import { EmptyState, useToast } from '../src/components/feedback';
@@ -22,7 +21,7 @@ import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
 import { payWithAlipay } from '../src/utils/alipay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
-import { useTheme } from '../src/theme';
+import { useBottomInset, useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
 import type { VipPackageSelection } from '../src/store/useCheckoutStore';
 
@@ -31,7 +30,10 @@ export default function CheckoutScreen() {
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const insets = useSafeAreaInsets();
+  // 改用 useBottomInset：自带 OEM 兜底（小米/华为三键 insets.bottom=0 时强制 32dp），
+  // 修复用户报告的"小米机底部空白"现象。详见 docs/architecture/responsive-design.md §3.3
+  const scrollBottomPad = useBottomInset(100);          // L696 ScrollView 底部留白
+  const barBottomPad = useBottomInset(spacing.sm);      // L1090/L1125 双 bottomBar paddingBottom
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
   // 从 checkout store 读取子页面选择结果（地址、红包、VIP 套餐）
@@ -693,7 +695,7 @@ export default function CheckoutScreen() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 100 }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -1087,7 +1089,7 @@ export default function CheckoutScreen() {
             style={[
               styles.bottomBar,
               {
-                paddingBottom: insets.bottom + spacing.sm,
+                paddingBottom: barBottomPad,
                 paddingHorizontal: spacing.xl,
                 borderTopColor: colors.border,
               },
@@ -1122,7 +1124,7 @@ export default function CheckoutScreen() {
             style={[
               styles.bottomBar,
               {
-                paddingBottom: insets.bottom + spacing.sm,
+                paddingBottom: barBottomPad,
                 paddingHorizontal: spacing.xl,
                 borderTopColor: colors.border,
                 backgroundColor: isDark ? 'rgba(6,14,6,0.95)' : 'rgba(250,252,250,0.95)',

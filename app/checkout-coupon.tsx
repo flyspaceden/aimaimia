@@ -5,12 +5,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState, Skeleton } from '../src/components/feedback';
 import { CouponRepo } from '../src/repos';
 import { useAuthStore, useCheckoutStore } from '../src/store';
-import { useTheme } from '../src/theme';
+import { useBottomInset, useTheme } from '../src/theme';
 import type { CheckoutEligibleCoupon } from '../src/types/domain/Coupon';
 
 /**
@@ -185,7 +184,10 @@ const CouponCard = React.memo(function CouponCard({
 export default function CheckoutCouponScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  // R-RS03 A7: 替换 useSafeAreaInsets → useBottomInset，加 OEM 兜底
+  // 修复优惠券选择栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
+  const scrollBottomPad = useBottomInset(100);
+  const barBottomPad = useBottomInset(spacing.sm);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
   // 接收参数：订单金额 + 分类ID列表 + 商家ID列表 + 已选红包（回显）
@@ -437,7 +439,7 @@ export default function CheckoutCouponScreen() {
             return (item as CheckoutEligibleCoupon).id;
           }}
           initialNumToRender={8}
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 100 }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
           renderItem={({ item, index }: { item: ListItem; index: number }) => {
             // 分组标题
             if ('type' in item && item.type === 'header') {
@@ -466,7 +468,7 @@ export default function CheckoutCouponScreen() {
         style={[
           styles.bottomBar,
           {
-            paddingBottom: insets.bottom + spacing.sm,
+            paddingBottom: barBottomPad,
             paddingHorizontal: spacing.xl,
             borderTopColor: colors.border,
             backgroundColor: colors.surface,
