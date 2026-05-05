@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -24,10 +24,10 @@ import { useRecentSearches } from '../src/hooks/useRecentSearches';
 import { useTheme } from '../src/theme';
 import { AiRecommendTheme, AppError } from '../src/types';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// CARD_GAP / CARD_PADDING 不依赖屏幕宽度，留在模块顶层；
+// CARD_WIDTH 依赖响应式 SCREEN_WIDTH，移入组件函数体内（见下方 useWindowDimensions）
 const CARD_GAP = 12;
 const CARD_PADDING = 20;
-const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
 const recommendThemeLabelMap: Record<AiRecommendTheme, string> = {
   hot: '爆款',
   discount: '折扣',
@@ -109,6 +109,9 @@ const buildSearchTokens = (value: string, fromVoice: boolean): string[] => {
 
 export default function SearchScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
+  const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
   const router = useRouter();
   const {
     q,

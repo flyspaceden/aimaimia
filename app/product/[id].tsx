@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -9,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -29,8 +29,6 @@ import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-
 import type { ProductDetail } from '../../src/types';
 
 // 溯源流程步骤
@@ -48,6 +46,8 @@ export default function ProductDetailScreen() {
   const { colors, radius, spacing, typography, shadow, gradients, isDark } = useTheme();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
   const addItem = useCartStore((state) => state.addItem);
   const cartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
   const router = useRouter();

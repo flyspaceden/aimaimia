@@ -1,11 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
-  Dimensions,
   Easing,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -13,23 +13,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SW, height: SH } = Dimensions.get('window');
-
 // ────────────────────────────────────────────
 // 种子粒子：散布在屏幕各处，象征 AI 数据流 + 种子萌发
+// 使用屏幕比例（leftRatio/topRatio）配置，运行时乘以响应式 SW/SH
 // ────────────────────────────────────────────
-const SEEDS = [
-  { left: SW * 0.12, top: SH * 0.14, r: 3, delay: 0 },
-  { left: SW * 0.85, top: SH * 0.22, r: 2.5, delay: 300 },
-  { left: SW * 0.22, top: SH * 0.73, r: 3.5, delay: 150 },
-  { left: SW * 0.78, top: SH * 0.68, r: 2, delay: 450 },
-  { left: SW * 0.55, top: SH * 0.10, r: 2.5, delay: 200 },
-  { left: SW * 0.06, top: SH * 0.48, r: 2, delay: 350 },
-  { left: SW * 0.90, top: SH * 0.83, r: 3, delay: 100 },
-  { left: SW * 0.38, top: SH * 0.90, r: 2.5, delay: 250 },
+const SEED_RATIOS = [
+  { leftRatio: 0.12, topRatio: 0.14, r: 3, delay: 0 },
+  { leftRatio: 0.85, topRatio: 0.22, r: 2.5, delay: 300 },
+  { leftRatio: 0.22, topRatio: 0.73, r: 3.5, delay: 150 },
+  { leftRatio: 0.78, topRatio: 0.68, r: 2, delay: 450 },
+  { leftRatio: 0.55, topRatio: 0.10, r: 2.5, delay: 200 },
+  { leftRatio: 0.06, topRatio: 0.48, r: 2, delay: 350 },
+  { leftRatio: 0.90, topRatio: 0.83, r: 3, delay: 100 },
+  { leftRatio: 0.38, topRatio: 0.90, r: 2.5, delay: 250 },
 ];
 
-function Seed({ left, top, r, delay }: (typeof SEEDS)[number]) {
+function Seed({ left, top, r, delay }: { left: number; top: number; r: number; delay: number }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const ty = useRef(new Animated.Value(0)).current;
 
@@ -86,6 +85,19 @@ function Seed({ left, top, r, delay }: (typeof SEEDS)[number]) {
 export default function Index() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // 响应式屏幕尺寸（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SW, height: SH } = useWindowDimensions();
+  // 种子粒子坐标随屏幕尺寸动态计算
+  const seeds = useMemo(
+    () =>
+      SEED_RATIOS.map((s) => ({
+        left: SW * s.leftRatio,
+        top: SH * s.topRatio,
+        r: s.r,
+        delay: s.delay,
+      })),
+    [SW, SH],
+  );
 
   // 动画值
   const glowOp = useRef(new Animated.Value(0)).current;
@@ -203,29 +215,39 @@ export default function Index() {
       {/* ── 装饰层 ── */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         {/* 种子粒子 */}
-        {SEEDS.map((s, i) => (
+        {seeds.map((s, i) => (
           <Seed key={i} {...s} />
         ))}
 
-        {/* 大背景光斑 — 右上方 */}
-        <View style={styles.bgOrbTopRight} />
+        {/* 大背景光斑 — 右上方（top 依赖响应式 SH，内联 style 注入） */}
+        <View style={[styles.bgOrbTopRight, { top: SH * 0.08 }]} />
 
-        {/* 大背景光斑 — 左下方 */}
-        <View style={styles.bgOrbBottomLeft} />
+        {/* 大背景光斑 — 左下方（bottom 依赖响应式 SH，内联 style 注入） */}
+        <View style={[styles.bgOrbBottomLeft, { bottom: SH * 0.05 }]} />
 
-        {/* 脉冲环 */}
+        {/* 脉冲环（top/left 依赖响应式 SW/SH，内联 style 注入） */}
         <Animated.View
           style={[
             styles.ring,
-            { opacity: pulseOp, transform: [{ scale: pulseScale }] },
+            {
+              top: (SH - RING_SIZE) / 2,
+              left: (SW - RING_SIZE) / 2,
+              opacity: pulseOp,
+              transform: [{ scale: pulseScale }],
+            },
           ]}
         />
 
-        {/* 中心 AI 光晕 */}
+        {/* 中心 AI 光晕（top/left 依赖响应式 SW/SH，内联 style 注入） */}
         <Animated.View
           style={[
             styles.glow,
-            { opacity: glowOp, transform: [{ scale: glowSc }] },
+            {
+              top: (SH - GLOW_SIZE) / 2,
+              left: (SW - GLOW_SIZE) / 2,
+              opacity: glowOp,
+              transform: [{ scale: glowSc }],
+            },
           ]}
         />
       </View>
@@ -323,14 +345,13 @@ const styles = StyleSheet.create({
   },
 
   // ── 装饰元素 ──
+  // 注意：依赖响应式 SW/SH 的 top/left/bottom 通过内联 style 注入，不能放在 StyleSheet 中
   glow: {
     position: 'absolute',
     width: GLOW_SIZE,
     height: GLOW_SIZE,
     borderRadius: GLOW_SIZE / 2,
     backgroundColor: 'rgba(0,191,165,0.10)',
-    top: (SH - GLOW_SIZE) / 2,
-    left: (SW - GLOW_SIZE) / 2,
   },
   ring: {
     position: 'absolute',
@@ -339,8 +360,6 @@ const styles = StyleSheet.create({
     borderRadius: RING_SIZE / 2,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.18)',
-    top: (SH - RING_SIZE) / 2,
-    left: (SW - RING_SIZE) / 2,
   },
   bgOrbTopRight: {
     position: 'absolute',
@@ -348,7 +367,6 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 110,
     backgroundColor: 'rgba(0,230,204,0.06)',
-    top: SH * 0.08,
     right: -40,
   },
   bgOrbBottomLeft: {
@@ -357,7 +375,6 @@ const styles = StyleSheet.create({
     height: 280,
     borderRadius: 140,
     backgroundColor: 'rgba(76,175,80,0.06)',
-    bottom: SH * 0.05,
     left: -60,
   },
 

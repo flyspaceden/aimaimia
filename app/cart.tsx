@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -23,7 +23,8 @@ import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
 import { useBottomInset, useTheme } from '../src/theme';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// RECOMMEND_CARD_WIDTH 不依赖屏幕宽度（固定 140pt），保留在模块顶层
+// SCREEN_WIDTH 已删除：原本声明但未使用，且模块顶层 Dimensions.get 违反响应式规范
 const RECOMMEND_CARD_WIDTH = 140;
 
 /** 倒计时 hook */

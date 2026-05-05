@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Dimensions, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,10 +15,10 @@ import { useCartStore, useAuthStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { AiRecommendTheme, AppError, Product } from '../../src/types';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// CARD_GAP / CARD_PADDING 不依赖 SCREEN_WIDTH，留在模块顶层；
+// CARD_WIDTH 依赖响应式 SCREEN_WIDTH，移入组件函数体内（见下方 useWindowDimensions）
 const CARD_GAP = 12;
 const CARD_PADDING = 20;
-const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
 
 const recommendThemeLabelMap: Record<AiRecommendTheme, string> = {
   hot: '爆款',
@@ -320,6 +320,9 @@ const buildRecommendPlans = (
 
 export default function AiRecommendScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
+  const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
   const router = useRouter();
   const { show } = useToast();
   const addItem = useCartStore((state) => state.addItem);
