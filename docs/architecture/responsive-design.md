@@ -461,9 +461,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen safeAreaBottom 文档化 / AiFloatingCompanion | 4 共用组件 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS04** | 顶层 Dimensions 批量替换（B2/B3/B4/B5/B6 + 共用组件 B8；B1 已修、B7 在 R-RS03 一起改）| 5 页 + 1 共用组件 | 1（合并） | OTA（待） | 🟡 代码完成 |
-| **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 4-5 | OTA | ⬜ |
+| **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 1（合并）| OTA（待） | 🟡 代码完成 |
 | **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，5 文件实际改）| 9 页（5 改 4 验证免改）| 2（族 A + 族 B） | OTA（待） | 🟡 代码完成 |
-| **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（~10 处）| ~10 页 | 3-5 | OTA | ⬜ |
+| **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（13 处） | 10 页 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS-LT01** | PR 模板加适配 Checklist 提示 | — | 1 | — | ⬜ |
 | **R-RS-LT02** | OTA 发布前必跑 rg 审计（加进 `app-发布与OTA手册.md`）| — | 1 | — | ⬜ |
 | **R-RS-LT03**（可选）| 封装 `AppText` 组件包 `Text`，从 defaultProps 升级到组件层显式控制 | 全项目 | — | OTA | ⬜ |
@@ -501,9 +501,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/product/[id].tsx` | 🔴 B4 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `app/search.tsx` | 🔴 B5 + 🟡 | R-RS04 + R-RS07 | 🟡 B5 完成；🟡 留 R-RS07 | （见 git log）| 2026-05-04 |
 | `app/index.tsx` | 🔴 B6 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
-| `app/me/wallet.tsx` | 🔴 C2 | R-RS05 | ⬜ | — | — |
-| `app/me/bonus-queue.tsx` | 🔴 C3 | R-RS05 | ⬜ | — | — |
-| `app/me/coupons.tsx` | 🔴 C4 | R-RS05 | ⬜ | — | — |
+| `app/me/wallet.tsx` | 🔴 C2 + 🟡 R-RS07 | R-RS05 + R-RS07 | 🟡 完成（balanceAmount priceTextProps + FlatList paddingBottom useBottomInset）| （见 git log）| 2026-05-04 |
+| `app/me/bonus-queue.tsx` | 🔴 C3 | R-RS05 | 🟡 完成（positionNumber fontSize 56 priceTextProps）| （见 git log）| 2026-05-04 |
+| `app/me/coupons.tsx` | 🔴 C4 + 🟡 R-RS07 | R-RS05 + R-RS07 | 🟡 完成（amountValue ×2 priceTextProps + FlatList ×2 paddingBottom）| （见 git log）| 2026-05-04 |
 | `app/(tabs)/home.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（pairedAi 标题/品牌字加 priceTextProps + 问候语 fitTextProps）| （见 git log）| 2026-05-04 |
 | `app/(tabs)/me.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（钱包余额/推荐码 priceTextProps + VIP 弹窗标题 fitTextProps）| （见 git log）| 2026-05-04 |
 | `app/ai/assistant.tsx` | 🟡 | R-RS06 族 B | 🟡 完成（hero 标题 fitTextProps）| （见 git log）| 2026-05-04 |
@@ -513,12 +513,14 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/me/vip.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（钱包余额×3 + 推荐码 priceTextProps）| （见 git log）| 2026-05-04 |
 | `app/settings.tsx` | 🟡 | R-RS06 族 A | ✅ 验证免改（最大 title3=18 < 20）| — | 2026-05-04 |
 | `app/notification-settings.tsx` | 🟡 | R-RS06 族 A | ✅ 验证免改（仅 body/caption < 20）| — | 2026-05-04 |
-| `app/company/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
-| `app/category/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
-| `app/group/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
-| `app/invoices/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
-| `app/cs/index.tsx` | 🟡 | R-RS07 | ⬜ | — | — |
-| `app/orders/index.tsx` | 🟡（paddingBottom: spacing['3xl'] 不吃 insets，L153）| R-RS07 | ⬜ | — | — |
+| `app/company/[id].tsx` | 🟡 | R-RS07 | 🟡 完成（FlatList + ScrollView 2 处）| （见 git log）| 2026-05-04 |
+| `app/category/[id].tsx` | 🟡 | R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
+| `app/group/[id].tsx` | 🟡 | R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
+| `app/invoices/[id].tsx` | 🟡 | R-RS07 | 🟡 完成（新增显式 paddingBottom）| （见 git log）| 2026-05-04 |
+| `app/cs/index.tsx` | 🟡 | R-RS07 | ⏭ 跳过（内部 spacing 非 safe area；后续 R-UX/单独 sprint 处理输入栏 inset）| — | — |
+| `app/orders/index.tsx` | 🟡（paddingBottom: spacing['3xl'] 不吃 insets，L153）| R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
+| `app/orders/track.tsx` | 🟡（R-RS07 扫描发现）| R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
+| `app/lottery.tsx` | 🟡（R-RS07 扫描发现，原 paddingBottom 写死 40）| R-RS07 | 🟡 完成（内联 override useBottomInset(40)）| （见 git log）| 2026-05-04 |
 
 > 29 个干净文件不进表（无修复任务，详见 §6.1 末尾✅清单）；后续真机/审计再发现新问题追加到本表。
 

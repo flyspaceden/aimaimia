@@ -9,7 +9,7 @@ import { OrderCard } from '../../src/components/cards/OrderCard';
 import { orderStatusLabels } from '../../src/constants/statuses';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Order, OrderStatus } from '../../src/types';
 
 const statusOptions: Array<{ id: OrderStatus | 'afterSaleList'; label: string }> = [
@@ -69,6 +69,8 @@ export default function OrdersScreen() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const selectedStatus = isOrderStatus(params.status) ? params.status : undefined;
   const getActions = useOrderActions();
+  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   // Phase 3 Review Fix 3：useInfiniteQuery 替代 useQuery，FlatList 触底加载下一页
   const PAGE_SIZE = 20;
@@ -150,7 +152,7 @@ export default function OrdersScreen() {
           keyExtractor={(item) => item.id}
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={<View style={{ padding: spacing.xl }}><EmptyState title="暂无订单" description="去首页看看新鲜好物" /></View>}
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

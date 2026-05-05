@@ -887,9 +887,9 @@
 - [🟡] **R-RS02** 共用组件改造（StickyCTABar / Toast / Screen / AiFloatingCompanion）—— 2026-05-04 完成：StickyCTABar 加 useBottomInset(10) 吃底部 safe area（解决 A1，自动修订单详情/售后/售后详情 3 页）；Toast/AiFloatingCompanion 替换 useSafeAreaInsets→useBottomInset 加 OEM 兜底；Screen.tsx 文档化 safeAreaBottom 默认值意图（不改默认）。审查通过零问题，待真机验证后转 ✅
 - [🟡] **R-RS03** 高优单页修复（用户报告 + spec 复现点：orders/[id] / checkout / cart / checkout-coupon / vip-gifts）—— 2026-05-04 完成：5 文件全部加 useBottomInset OEM 兜底；vip/gifts 删模块顶层 Dimensions（4 子组件 prop drilling）+ priceTabAmount 加 priceTextProps（spec §1.1 复现点修复）。审查通过零问题。A3/A4 售后页由 R-RS02 共用组件自动修复。待真机验证后转 ✅
 - [🟡] **R-RS04** 顶层 Dimensions 批量替换（5 文件 + 共用组件 FloatingParticles）—— 2026-05-04 完成：删除模块顶层 Dimensions.get + 派生 const，全部改组件函数体内 useWindowDimensions；index.tsx 启动闪屏装饰元素改 SEED_RATIOS 比例运行时计算；FloatingParticles.tsx 共用组件 generateParticles 函数签名扩展 prop drilling。审查通过零问题
-- [ ] **R-RS05** 金额字号 spread `priceTextProps`（wallet / bonus-queue / coupons / recommend / checkout-coupon）
+- [🟡] **R-RS05** 金额字号 spread `priceTextProps`（wallet / bonus-queue / coupons / recommend / checkout-coupon）—— 2026-05-04 完成：5 文件 6 处金额/数字位 Text 全部加 priceTextProps（防字体放大 + 自动缩字号）。审查通过零问题
 - [🟡] **R-RS06** 中优字号批量修（fontSize≥20 缺保护）—— 2026-05-04 完成：实际只有 5 文件需要保护（home/me/me-vip/ai-assistant/ai-trace），共 12 个 Text 加 priceTextProps（紧凑数字位）或 fitTextProps（标题）；其余 4 文件（settings/notification-settings/ai-finance/ai-chat）经 typography 字号验证免改（最大 title3=18 < 20）。拆 2 commit（族 A: home/me 系；族 B: ai/* 系）
-- [ ] **R-RS07** 中优 ScrollView paddingBottom 批量改吃 insets（~10 处）
+- [🟡] **R-RS07** 中优 ScrollView paddingBottom 批量改吃 insets —— 2026-05-04 完成：10 文件 13 处 paddingBottom 全部改 useBottomInset(原写死值)，加 OEM 兜底。新发现 lottery/orders-track 也加入。cs/index 跳过（内部 spacing 非 safe area，输入栏 inset 留 R-UX 单独处理）。审查通过零问题
 - [ ] **R-RS-LT01** PR 模板加 Checklist 提示
 - [ ] **R-RS-LT02** OTA 发布前必跑 rg 审计（写入 `app-发布与OTA手册.md` 第四章）
 - [ ] **R-RS-LT03**（可选）封装 `AppText` 组件升级 defaultProps

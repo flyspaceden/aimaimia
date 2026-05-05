@@ -27,7 +27,7 @@ import { Tag } from '../../src/components/ui/Tag';
 import { bookingStatusLabels, groupStatusLabels, identityOptions, paymentMethods } from '../../src/constants';
 import { BookingRepo, CompanyEventRepo, CompanyRepo, FollowRepo, GroupRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import type { AppError, CompanyEvent, CompanyProduct, CompanyProductsResponse, Group, PaymentMethod, Product } from '../../src/types';
 
 // 日期工具函数
@@ -54,6 +54,8 @@ export default function CompanyDetailScreen() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const { addItem } = useCartStore();
   const { id } = useLocalSearchParams();
+  // R-RS07: ScrollView/FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   // ---- 状态 ----
   const [activeTab, setActiveTab] = useState<TabKey>('products');
@@ -1114,7 +1116,7 @@ export default function CompanyDetailScreen() {
           maxToRenderPerBatch={8}
           windowSize={10}
           columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: spacing.xl }}
-          contentContainerStyle={{ paddingBottom: spacing['3xl'] }}
+          contentContainerStyle={{ paddingBottom: safeBottom }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           onEndReachedThreshold={0.2}
           onEndReached={() => {
@@ -1191,7 +1193,7 @@ export default function CompanyDetailScreen() {
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ paddingBottom: safeBottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {renderHeaderContent()}

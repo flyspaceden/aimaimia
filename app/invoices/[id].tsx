@@ -6,7 +6,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { InvoiceStatus } from '../../src/types';
 
 // 发票状态标签映射
@@ -34,6 +34,8 @@ export default function InvoiceDetailScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['invoice-detail', id],
@@ -96,7 +98,7 @@ export default function InvoiceDetailScreen() {
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="发票详情" showBack />
-      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: safeBottom }}>
         {/* 状态卡片 */}
         <View style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
           <View style={styles.row}>

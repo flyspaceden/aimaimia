@@ -21,7 +21,7 @@ import { ProductCard } from '../src/components/cards/ProductCard';
 import { CompanyRepo, ProductRepo } from '../src/repos';
 import { useCartStore } from '../src/store';
 import { useRecentSearches } from '../src/hooks/useRecentSearches';
-import { useTheme } from '../src/theme';
+import { useBottomInset, useTheme } from '../src/theme';
 import { AiRecommendTheme, AppError } from '../src/types';
 
 // CARD_GAP / CARD_PADDING 不依赖屏幕宽度，留在模块顶层；
@@ -112,6 +112,8 @@ export default function SearchScreen() {
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
+  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
   const router = useRouter();
   const {
     q,
@@ -561,7 +563,7 @@ export default function SearchScreen() {
               maxToRenderPerBatch={8}
               windowSize={10}
               columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: CARD_PADDING }}
-              contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing['3xl'] }}
+              contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: safeBottom }}
               renderItem={({ item }) => (
                 <ProductCard
                   product={item}
@@ -586,7 +588,7 @@ export default function SearchScreen() {
             key="company-list"
             data={filteredCompanies}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+            contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
             renderItem={({ item: company }) => (
               <Pressable
                 onPress={() => router.push({ pathname: '/company/[id]', params: { id: company.id } })}

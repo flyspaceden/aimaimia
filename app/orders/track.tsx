@@ -18,7 +18,7 @@ import { Skeleton, useToast } from '../../src/components/feedback';
 import { AiCardGlow } from '../../src/components/ui';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 
 // 保留 mock 作为无 orderId 时的 fallback
 const fallbackTimeline = [
@@ -121,6 +121,8 @@ export default function OrderTrackScreen() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
   // 多包裹时当前展开的包裹索引集合（默认全部展开）
   const [expandedPkgs, setExpandedPkgs] = useState<Set<number>>(new Set());
 
@@ -209,7 +211,7 @@ export default function OrderTrackScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="物流追踪" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* 头部卡片 */}

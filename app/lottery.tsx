@@ -19,7 +19,7 @@ import { AiTypingEffect, Confetti, SpinWheel, WheelPointer } from '../src/compon
 import { LotteryRepo, type DrawResult, type LotteryPrize } from '../src/repos/LotteryRepo';
 import { useAuthStore, useCartStore } from '../src/store';
 import type { CartItem } from '../src/store/useCartStore';
-import { useTheme } from '../src/theme';
+import { useBottomInset, useTheme } from '../src/theme';
 import type { ColorScheme } from '../src/theme/colors';
 
 // 状态机阶段
@@ -80,6 +80,8 @@ export default function LotteryScreen() {
   const syncFromServer = useCartStore((state) => state.syncFromServer);
   const addPendingPrizeItem = useCartStore((state) => state.addPendingPrizeItem);
   const queryClient = useQueryClient();
+  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底（覆盖 styles.scrollContent.paddingBottom = 40）
+  const safeBottom = useBottomInset(40);
 
   // 数据查询（未登录也可抽奖，登录态变化时重新请求）
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -351,7 +353,7 @@ export default function LotteryScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="每日抽奖" />
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: spacing.lg }]}
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: spacing.lg, paddingBottom: safeBottom }]}
         showsVerticalScrollIndicator={false}
       >
         {/* 剩余次数胶囊 */}

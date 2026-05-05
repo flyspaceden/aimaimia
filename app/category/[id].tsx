@@ -9,7 +9,7 @@ import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components
 import { ProductCard } from '../../src/components/cards';
 import { CategoryRepo, ProductRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { AppError, PaginationResult, Product } from '../../src/types';
 
 export default function CategoryScreen() {
@@ -20,6 +20,8 @@ export default function CategoryScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const categoryId = Array.isArray(id) ? id[0] : id;
   const addItem = useCartStore((state) => state.addItem);
+  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   const { data: categoriesResult, isLoading: categoriesLoading } = useQuery({
     queryKey: ['product-categories'],
@@ -80,7 +82,7 @@ export default function CategoryScreen() {
         maxToRenderPerBatch={8}
         windowSize={10}
         columnWrapperStyle={{ justifyContent: 'space-between' }}
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
         onEndReachedThreshold={0.2}
         onEndReached={() => {
