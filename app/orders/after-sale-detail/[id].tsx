@@ -31,7 +31,7 @@ import { ErrorState, Skeleton, useToast } from '../../../src/components/feedback
 import { afterSaleStatusLabels, afterSaleTypeLabels } from '../../../src/constants/statuses';
 import { AfterSaleRepo } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
-import { useTheme } from '../../../src/theme';
+import { useTheme, useBottomInset } from '../../../src/theme';
 import type { AfterSaleDetailStatus, AfterSaleType } from '../../../src/types/domain/Order';
 
 // ─── 质量问题原因标签 ───────────────────────────────────
@@ -90,6 +90,7 @@ export default function AfterSaleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const asId = String(id ?? '');
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  const scrollBottomPad = useBottomInset(spacing['3xl']);
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -238,7 +239,7 @@ export default function AfterSaleDetailScreen() {
     <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="售后详情" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"

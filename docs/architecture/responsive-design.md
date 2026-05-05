@@ -490,8 +490,8 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
-| `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| 🟡 R-RS02 自动修复 | （见 git log fa1cf81）| 2026-05-04 |
-| `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03（同上）| 🟡 R-RS02 自动修复 | （见 git log fa1cf81）| 2026-05-04 |
+| `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03 hotfix | 🟡 共用组件 + ScrollView paddingBottom 都修了（见 hotfix）| （见 git log）| 2026-05-04 |
+| `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03 hotfix | 🟡 同上 | （见 git log）| 2026-05-04 |
 | `app/checkout.tsx` | 🔴 A5 | R-RS03 | 🟡 代码完成 待真机验证（小米空白 bug）| （见 git log）| 2026-05-04 |
 | `app/cart.tsx` | 🔴 A6 + 🔴 B3 | R-RS03 + R-RS04 | 🟡 A6 完成；B3 留 R-RS04 | （见 git log）| 2026-05-04 |
 | `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | 🟡 A7 完成；C6 留 R-RS05 | （见 git log）| 2026-05-04 |

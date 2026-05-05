@@ -27,7 +27,7 @@ import { AiBadge } from '../../src/components/ui/AiBadge';
 import { AiDivider } from '../../src/components/ui/AiDivider';
 import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useTheme, useBottomInset } from '../../src/theme';
 
 import type { ProductDetail } from '../../src/types';
 
@@ -46,6 +46,7 @@ export default function ProductDetailScreen() {
   const { colors, radius, spacing, typography, shadow, gradients, isDark } = useTheme();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  const barBottomPad = useBottomInset(spacing.md);
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const addItem = useCartStore((state) => state.addItem);
@@ -458,7 +459,7 @@ export default function ProductDetailScreen() {
           style={[
             styles.ctaBar,
             {
-              paddingBottom: insets.bottom + spacing.md,
+              paddingBottom: barBottomPad,
               paddingTop: spacing.md,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.border,
@@ -510,7 +511,7 @@ export default function ProductDetailScreen() {
           style={[
             styles.ctaBar,
             {
-              paddingBottom: insets.bottom + spacing.md,
+              paddingBottom: barBottomPad,
               paddingTop: spacing.md,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.border,

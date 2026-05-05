@@ -35,7 +35,7 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useToast } from '../../src/components/feedback';
 import { GiftCoverImage } from '../../src/components/cards';
-import { priceTextProps } from '../../src/theme';
+import { priceTextProps, useBottomInset } from '../../src/theme';
 import type { VipGiftOption } from '../../src/types/domain/Bonus';
 
 // ============================================================
@@ -261,6 +261,8 @@ function GiftCard({
 export default function VipGiftsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const safeBottomBare = useBottomInset(0);  // 仅 inset + OEM 兜底
+  const barBottomPad = useBottomInset(16);  // 16dp extra + OEM 兜底
   const { show } = useToast();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const setVipPackageSelection = useCheckoutStore((s) => s.setVipPackageSelection);
@@ -412,7 +414,7 @@ export default function VipGiftsScreen() {
       {/* 可滚动内容 */}
       <Animated.ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + safeBottomBare }]}
         showsVerticalScrollIndicator={false}
         directionalLockEnabled
         nestedScrollEnabled
@@ -559,7 +561,7 @@ export default function VipGiftsScreen() {
       </Animated.ScrollView>
 
       {/* 底部固定栏 */}
-      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+      <View style={[styles.bottomBar, { paddingBottom: barBottomPad }]}>
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.bottomBarContent}>
           <View style={styles.bottomPriceSection}>

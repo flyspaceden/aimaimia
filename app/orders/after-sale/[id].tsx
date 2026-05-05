@@ -21,7 +21,7 @@ import { EmptyState, ErrorState, Skeleton, useToast } from '../../../src/compone
 import { OrderRepo } from '../../../src/repos';
 import { AfterSaleRepo, ApplyAfterSaleDto } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
-import { useTheme } from '../../../src/theme';
+import { useTheme, useBottomInset } from '../../../src/theme';
 import { API_BASE_URL } from '../../../src/repos/http/config';
 import { afterSaleTypeLabels } from '../../../src/constants/statuses';
 import type { AfterSaleType, OrderItem } from '../../../src/types/domain/Order';
@@ -44,6 +44,7 @@ export default function AfterSaleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const orderId = String(id ?? '');
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  const scrollBottomPad = useBottomInset(spacing['3xl']);
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -297,7 +298,7 @@ export default function AfterSaleScreen() {
     <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="申请售后" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
