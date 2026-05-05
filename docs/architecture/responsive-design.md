@@ -460,9 +460,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | **R-RS01** | 工具集基建：新建 `src/theme/responsive.ts`（159 行，5 helper）+ `app/_layout.tsx` 全局 1.2x 封顶 + `src/theme/index.ts` re-export | 1 新增 + 2 改 | 1（待 commit）| OTA（待视觉验证） | 🟡 代码完成 |
 | **R-RS02** | 共用组件改造：StickyCTABar / Toast / Screen safeAreaBottom 文档化 / AiFloatingCompanion | 4 共用组件 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS03** | 高优单页修复（用户已报告 + spec 复现点）：A2/A5/A6/A7 + B7+C1（gifts 三处一起修）| 5 页 | 1（合并） | OTA（待） | 🟡 代码完成 |
-| **R-RS04** | 顶层 Dimensions 批量替换（B2/B3/B4/B5/B6 + 共用组件 B8；B1 已修、B7 在 R-RS03 一起改）| 5 页 + 1 共用组件 | 6 | OTA | ⬜ |
+| **R-RS04** | 顶层 Dimensions 批量替换（B2/B3/B4/B5/B6 + 共用组件 B8；B1 已修、B7 在 R-RS03 一起改）| 5 页 + 1 共用组件 | 1（合并） | OTA（待） | 🟡 代码完成 |
 | **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 4-5 | OTA | ⬜ |
-| **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，~15 处）| ~15 页 | 5-8 | OTA | ⬜ |
+| **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，5 文件实际改）| 9 页（5 改 4 验证免改）| 2（族 A + 族 B） | OTA（待） | 🟡 代码完成 |
 | **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（~10 处）| ~10 页 | 3-5 | OTA | ⬜ |
 | **R-RS-LT01** | PR 模板加适配 Checklist 提示 | — | 1 | — | ⬜ |
 | **R-RS-LT02** | OTA 发布前必跑 rg 审计（加进 `app-发布与OTA手册.md`）| — | 1 | — | ⬜ |
@@ -488,7 +488,7 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `src/components/feedback/Toast.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | 🟡 文档化完成（不改默认值） | （见 git log）| 2026-05-04 |
 | `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
-| `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | ⬜ | — | — |
+| `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03（共用组件 R-RS02 修完即解决）| 🟡 R-RS02 自动修复 | （见 git log fa1cf81）| 2026-05-04 |
 | `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03（同上）| 🟡 R-RS02 自动修复 | （见 git log fa1cf81）| 2026-05-04 |
@@ -497,22 +497,22 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | 🟡 A7 完成；C6 留 R-RS05 | （见 git log）| 2026-05-04 |
 | `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 | R-RS03（一次改 3 类问题）| 🟡 B7 + C1 完成（spec §1.1 复现点修复）| （见 git log）| 2026-05-04 |
 | ~~`app/(tabs)/museum.tsx`~~ | ~~🔴 B1~~ | R-RS04 | ✅ 已修复（先于本规范） | — | — |
-| `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | ⬜ | — | — |
-| `app/product/[id].tsx` | 🔴 B4 | R-RS04 | ⬜ | — | — |
-| `app/search.tsx` | 🔴 B5 + 🟡 | R-RS04 + R-RS07 | ⬜ | — | — |
-| `app/index.tsx` | 🔴 B6 | R-RS04 | ⬜ | — | — |
+| `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | 🟡 B2 完成；C5 留 R-RS05 | （见 git log）| 2026-05-04 |
+| `app/product/[id].tsx` | 🔴 B4 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `app/search.tsx` | 🔴 B5 + 🟡 | R-RS04 + R-RS07 | 🟡 B5 完成；🟡 留 R-RS07 | （见 git log）| 2026-05-04 |
+| `app/index.tsx` | 🔴 B6 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `app/me/wallet.tsx` | 🔴 C2 | R-RS05 | ⬜ | — | — |
 | `app/me/bonus-queue.tsx` | 🔴 C3 | R-RS05 | ⬜ | — | — |
 | `app/me/coupons.tsx` | 🔴 C4 | R-RS05 | ⬜ | — | — |
-| `app/(tabs)/home.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/(tabs)/me.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/ai/assistant.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/ai/finance.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/ai/trace.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/ai/chat.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/me/vip.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/settings.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
-| `app/notification-settings.tsx` | 🟡 | R-RS06 | ⬜ | — | — |
+| `app/(tabs)/home.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（pairedAi 标题/品牌字加 priceTextProps + 问候语 fitTextProps）| （见 git log）| 2026-05-04 |
+| `app/(tabs)/me.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（钱包余额/推荐码 priceTextProps + VIP 弹窗标题 fitTextProps）| （见 git log）| 2026-05-04 |
+| `app/ai/assistant.tsx` | 🟡 | R-RS06 族 B | 🟡 完成（hero 标题 fitTextProps）| （见 git log）| 2026-05-04 |
+| `app/ai/finance.tsx` | 🟡 | R-RS06 族 B | ✅ 验证免改（最大 title3=18 < 20）| — | 2026-05-04 |
+| `app/ai/trace.tsx` | 🟡 | R-RS06 族 B | 🟡 完成（评分数字 priceTextProps）| （见 git log）| 2026-05-04 |
+| `app/ai/chat.tsx` | 🟡 | R-RS06 族 B | ✅ 验证免改（仅 body/caption < 20）| — | 2026-05-04 |
+| `app/me/vip.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（钱包余额×3 + 推荐码 priceTextProps）| （见 git log）| 2026-05-04 |
+| `app/settings.tsx` | 🟡 | R-RS06 族 A | ✅ 验证免改（最大 title3=18 < 20）| — | 2026-05-04 |
+| `app/notification-settings.tsx` | 🟡 | R-RS06 族 A | ✅ 验证免改（仅 body/caption < 20）| — | 2026-05-04 |
 | `app/company/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
 | `app/category/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |
 | `app/group/[id].tsx` | 🟡 | R-RS07 | ⬜ | — | — |

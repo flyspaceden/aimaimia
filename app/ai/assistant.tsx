@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AiBadge, AiCardGlow, AiDivider } from '../../src/components/ui';
 import { AiOrb } from '../../src/components/effects';
-import { useTheme } from '../../src/theme';
+import { useTheme, fitTextProps } from '../../src/theme';
 
 export default function AiAssistantScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
@@ -121,7 +121,7 @@ export default function AiAssistantScreen() {
               </View>
               <View style={styles.heroHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[typography.title2, { color: colors.text.primary }]}>你的专属 AI 农管家</Text>
+                  <Text {...fitTextProps} style={[typography.title2, { color: colors.text.primary }]}>你的专属 AI 农管家</Text>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
                     连接订单、健康、农事与内容的智能助手
                   </Text>
