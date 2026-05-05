@@ -16,7 +16,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AppHeader, Screen } from '../../src/components/layout';
@@ -45,8 +44,10 @@ export default function ProductDetailScreen() {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
   const { colors, radius, spacing, typography, shadow, gradients, isDark } = useTheme();
   const { show } = useToast();
-  const insets = useSafeAreaInsets();
   const barBottomPad = useBottomInset(spacing.md);
+  // CTA bar 高度 = paddingTop 16 + button 52 + paddingBottom (inset+12) ≈ inset+80dp。
+  // ScrollView 留 inset+120dp 才能覆盖 bar 高度 + 视觉间距 ≥ 40dp。
+  const contentBottomPad = useBottomInset(120);
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const addItem = useCartStore((state) => state.addItem);
@@ -160,7 +161,7 @@ export default function ProductDetailScreen() {
       />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: contentBottomPad }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* 图片轮播 */}
