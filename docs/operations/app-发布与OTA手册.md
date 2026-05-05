@@ -232,7 +232,8 @@ Expo CDN 部署完成
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `6d987eeb-d0d0-42ed-be0e-c774ed113a40` | 推荐链路全套修复（P1-P4 + 三轮 review）+ 🚨 cookie 路径一次性消费 hotfix | **当前生效** ✅，commit `e573f14` |
+| `5da9c55c-0e69-4eb5-af77-3d0c39a4b0ef` | R-RS01-07 响应式适配 sprint 全套（11 commits）+ 2 hotfix（产品详情/VIP 礼包/售后页 漏 OEM 兜底） | **当前生效** ✅，commit `694331a`（2026-05-04）|
+| `6d987eeb-d0d0-42ed-be0e-c774ed113a40` | 推荐链路全套修复（P1-P4 + 三轮 review）+ 🚨 cookie 路径一次性消费 hotfix | 历史，commit `e573f14` |
 | 中间历史 OTA（含引入 cookie 每启动弹浏览器 bug 的版本） | DDL 48h 重试窗口（commit `58427b9`） | ❌ 已被 hotfix 覆盖 |
 | `450d71de-8959-4957-ae18-8367bb5872af` | wechat 别名 v2 + 双层 try/catch | 历史 |
 | `14729584-7862-4b7d-a447-82f5e95d5462` | 紧急回滚 OTA#2 白屏 | 中间版本 |

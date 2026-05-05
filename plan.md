@@ -880,6 +880,8 @@
 > **权威源**: `docs/architecture/responsive-design.md`（**单一文件囊括规范 + 工具集 spec + 全项目审计 + Sprint 拆解 + 修复进度表**，§6 持续更新）
 > **审计结果**: 60 页面 + 16 共用组件，🔴 15+ 高优 / 🟡 26+ 中优 / ✅ ~30 干净
 > **不阻塞 v1.0 上线**：可与 Tier 2 / 阶梯上线并行做；新页面强制走 §4 Checklist
+>
+> **🚀 2026-05-04 OTA 已推（preview branch）**：commit `694331a`，update group `5da9c55c-0e69-4eb5-af77-3d0c39a4b0ef`，含 R-RS01-07 + 2 hotfix 共 11 commit。下一步：真机验证（华为/小米三键 + iOS 灵动岛 + 系统字体放大 1.5x 场景）后状态全部 🟡 → ✅
 
 ### Sprint 概览（详细拆解 + 进度表见 spec §6.2 / §6.3）
 
