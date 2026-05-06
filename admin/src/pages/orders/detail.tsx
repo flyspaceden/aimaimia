@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert } from 'antd';
+import { Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { getOrder } from '@/api/orders';
 import type { OrderItem } from '@/types';
@@ -241,12 +241,16 @@ export default function OrderDetailPage() {
               { title: '快递公司', dataIndex: 'carrierName', render: (value: string | undefined) => value || '-' },
               {
                 title: '运单号',
-                render: (_value, record) =>
-                  record.waybillNoMasked ||
-                  record.waybillNo ||
-                  record.trackingNoMasked ||
-                  record.trackingNo ||
-                  '-',
+                render: (_value, record) => {
+                  // admin 是信任用户，显示完整运单号 + 一键复制（不 mask）
+                  const no = record.waybillNo || record.trackingNo;
+                  if (!no) return '-';
+                  return (
+                    <Typography.Text copyable={{ text: no }} style={{ fontFamily: 'monospace' }}>
+                      {no}
+                    </Typography.Text>
+                  );
+                },
               },
               {
                 title: '状态',
