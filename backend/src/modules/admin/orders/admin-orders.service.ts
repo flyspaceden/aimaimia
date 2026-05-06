@@ -355,7 +355,8 @@ export class AdminOrdersService {
           // upsert Shipment（与 seller-shipping 兼容，避免唯一键冲突）
           // update 路径用 ?? undefined 让 Prisma 不覆盖已有非空值
           // 例：手填发货后又调自动取号 → waybillNo 写 SFxxx，trackingNo 保持原值不被清空
-          await tx.shipment.upsert({
+          const shippedAt = new Date();
+          const upsertedShipment = await tx.shipment.upsert({
             where: { orderId_companyId: { orderId, companyId } },
             create: {
               orderId,
@@ -367,7 +368,7 @@ export class AdminOrdersService {
               waybillUrl: resolvedWaybillUrl,
               sfOrderId: resolvedSfOrderId,
               status: 'SHIPPED',
-              shippedAt: new Date(),
+              shippedAt,
             },
             update: {
               carrierCode: resolvedCarrierCode,
@@ -377,9 +378,29 @@ export class AdminOrdersService {
               waybillUrl: resolvedWaybillUrl ?? undefined,
               sfOrderId: resolvedSfOrderId ?? undefined,
               status: 'SHIPPED',
-              shippedAt: new Date(),
+              shippedAt,
             },
           });
+
+          // 写入初始物流轨迹事件——确保 App 物流页第一时间有可见节点
+          // 顺丰 SF 真实揽件推送 opCode=50 晚几小时甚至几天才到，
+          // 中间这段空白由"卖家已发货，等待快递员揽件"占位
+          // 已有同 message 事件则跳过（防 admin/seller 双路径重复发货时 createMany 唯一约束失败）
+          const existingShippedEvent = await tx.shipmentTrackingEvent.findFirst({
+            where: { shipmentId: upsertedShipment.id, statusCode: 'SHIPPED' },
+            select: { id: true },
+          });
+          if (!existingShippedEvent) {
+            await tx.shipmentTrackingEvent.create({
+              data: {
+                shipmentId: upsertedShipment.id,
+                occurredAt: shippedAt,
+                message: '卖家已发货，等待快递员揽件',
+                location: null,
+                statusCode: 'SHIPPED',
+              },
+            });
+          }
 
           const autoReceiveAt = new Date();
           autoReceiveAt.setDate(autoReceiveAt.getDate() + autoConfirmDays);

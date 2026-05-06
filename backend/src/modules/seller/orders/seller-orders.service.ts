@@ -324,12 +324,26 @@ export class SellerOrdersService {
 
       const maskedWaybillNo = maskTrackingNo(freshShipment.waybillNo);
 
+      const shippedAt = new Date();
       await tx.shipment.update({
         where: { id: freshShipment.id },
         data: {
           trackingNo: freshShipment.waybillNo,
           status: 'IN_TRANSIT',
-          shippedAt: new Date(),
+          shippedAt,
+        },
+      });
+
+      // 写入初始物流轨迹事件——确保 App 物流页有可见节点
+      // 顺丰 SF 真实揽件推送会带 opCode=50，那条事件晚几小时甚至几天才到
+      // 中间这段空白由"卖家已发货，等待快递员揽件"占位
+      await tx.shipmentTrackingEvent.create({
+        data: {
+          shipmentId: freshShipment.id,
+          occurredAt: shippedAt,
+          message: '卖家已发货，等待快递员揽件',
+          location: null,
+          statusCode: 'SHIPPED',
         },
       });
 
