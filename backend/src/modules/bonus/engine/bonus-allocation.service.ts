@@ -869,39 +869,63 @@ export class BonusAllocationService {
     }
 
     // 从 level=1 开始逐层搜索
+    // 算法重写（2026-05-06）：之前用 nodeCount 推算插入位置，假设节点连续插入；
+    // 实际 staging DB 有空隙（测试删除/seed/迁移残留）→ 推算位置已被占用 → P2002。
+    // 现在扫描真实空位：
+    //   1. 取上层全部节点（按 createdAt asc 保证确定性）+ 各自已用 position 集
+    //   2. 选最小已用数的父节点（保持平衡），再选其最小未用 position
+    //   3. 全部父节点满才进入下一层
     for (let level = 1; level <= MAX_TREE_DEPTH; level++) {
-      const nodeCount = await tx.normalTreeNode.count({
-        where: { rootId: NORMAL_ROOT_ID, level },
-      });
-      const parentCount = await tx.normalTreeNode.count({
+      const parents = await tx.normalTreeNode.findMany({
         where: { rootId: NORMAL_ROOT_ID, level: level - 1 },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
       });
 
-      if (parentCount === 0) {
+      if (parents.length === 0) {
         // 上层无节点（不应该发生，根节点保证 level 0 存在）
         this.logger.error(`普通树 level=${level - 1} 无节点，无法插入`);
         return;
       }
 
-      const maxNodes = parentCount * branchFactor;
+      // 一次性查所有上层父节点的子节点 (parentId, position) 占用情况
+      const childPositions = await tx.normalTreeNode.findMany({
+        where: { parentId: { in: parents.map((p: any) => p.id) }, level },
+        select: { parentId: true, position: true },
+      });
 
-      if (nodeCount < maxNodes) {
-        // 当前层有空位，执行插入
-        const parentIndex = nodeCount % parentCount;
-        const position = Math.floor(nodeCount / parentCount);
+      // 按 parentId 聚合已用 position
+      const usedByParent = new Map<string, Set<number>>();
+      for (const p of parents) usedByParent.set(p.id, new Set<number>());
+      for (const c of childPositions) {
+        const set = usedByParent.get(c.parentId);
+        if (set) set.add(c.position);
+      }
 
-        // 获取上层第 parentIndex 个父节点（按 createdAt 排序确保确定性顺序）
-        const parentNode = await tx.normalTreeNode.findFirst({
-          where: { rootId: NORMAL_ROOT_ID, level: level - 1 },
-          orderBy: { createdAt: 'asc' },
-          skip: parentIndex,
-        });
-
-        if (!parentNode) {
-          this.logger.error(`普通树 level=${level - 1} 第 ${parentIndex} 个父节点不存在`);
-          return;
+      // 选已用数最少的父节点（保持轮询平衡），按原 createdAt 顺序找
+      let bestParent: any = null;
+      let bestUsed = Number.POSITIVE_INFINITY;
+      for (const p of parents) {
+        const used = usedByParent.get(p.id)!.size;
+        if (used < branchFactor && used < bestUsed) {
+          bestParent = p;
+          bestUsed = used;
         }
+      }
 
+      if (!bestParent) {
+        // 当前层全部父节点的子位置都满了，进入下一层
+        continue;
+      }
+
+      // 找最小未用 position
+      const usedSet = usedByParent.get(bestParent.id)!;
+      let position = 0;
+      while (usedSet.has(position)) position++;
+
+      const parentNode = bestParent;
+
+      {
         // 先创建节点，确保唯一位置占位成功后再更新 childrenCount
         const newNode = await tx.normalTreeNode.create({
           data: {
