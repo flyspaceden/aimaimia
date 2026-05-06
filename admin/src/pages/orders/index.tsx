@@ -92,6 +92,7 @@ export default function OrderListPage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
+  const [shipLoading, setShipLoading] = useState(false);
   const handleShip = async (values: {
     useCarrierAuto?: boolean;
     carrierCode: string;
@@ -99,12 +100,19 @@ export default function OrderListPage() {
     trackingNo?: string;
   }) => {
     if (!currentOrder) return;
-    await shipOrder(currentOrder.id, values);
-    message.success(values.useCarrierAuto ? '发货成功（已生成顺丰电子面单）' : '发货成功');
-    setShipModalOpen(false);
-    shipForm.resetFields();
-    actionRef.current?.reload();
-    loadStats();
+    setShipLoading(true);
+    try {
+      await shipOrder(currentOrder.id, values);
+      message.success(values.useCarrierAuto ? '发货成功（已生成顺丰电子面单）' : '发货成功');
+      setShipModalOpen(false);
+      shipForm.resetFields();
+      actionRef.current?.reload();
+      loadStats();
+    } catch (err: any) {
+      message.error(`发货失败: ${err?.response?.data?.error?.displayMessage || err?.message || '未知错误'}`);
+    } finally {
+      setShipLoading(false);
+    }
   };
 
   // 待发货行高亮
@@ -412,6 +420,10 @@ export default function OrderListPage() {
         onOk={() => shipForm.submit()}
         destroyOnClose
         width={520}
+        confirmLoading={shipLoading}
+        okText={shipLoading ? '处理中...' : '确定'}
+        maskClosable={!shipLoading}
+        closable={!shipLoading}
       >
         <Form form={shipForm} layout="vertical" onFinish={handleShip}>
           <Form.Item
