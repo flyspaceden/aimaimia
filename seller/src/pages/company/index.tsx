@@ -336,6 +336,8 @@ export default function CompanySettingsPage() {
               name="addressDetail"
               label="详细地址"
               placeholder="如：xxx路xxx号，方便快递员取件"
+              rules={[{ required: true, message: '请填写详细地址（顺丰下单必填）' }]}
+              tooltip="必填。系统调用顺丰自动取号时会作为寄件人地址传给顺丰，缺失会导致下单失败。"
             />
             <ProFormText name="servicePhone" label="客服电话" />
             <ProFormText name="serviceWeChat" label="客服微信" />

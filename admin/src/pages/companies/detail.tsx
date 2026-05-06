@@ -765,13 +765,31 @@ export default function CompanyDetailPage() {
               ]}
               fieldProps={{ rows: 4 }}
             />
-            {/* 结构化地址字段 */}
+            {/* 结构化地址字段（顺丰下单时寄件人来源，必填） */}
             <ProForm.Group title="经营地址">
-              <ProFormText name="addressProvince" label="省份" width="sm" placeholder="如：云南省" />
-              <ProFormText name="addressCity" label="城市" width="sm" placeholder="如：玉溪市" />
+              <ProFormText
+                name="addressProvince"
+                label="省份"
+                width="sm"
+                placeholder="如：云南省"
+                rules={[{ required: true, message: '请填写省份' }]}
+              />
+              <ProFormText
+                name="addressCity"
+                label="城市"
+                width="sm"
+                placeholder="如：玉溪市"
+                rules={[{ required: true, message: '请填写城市' }]}
+              />
               <ProFormText name="addressDistrict" label="区/县" width="sm" placeholder="如：红塔区" />
             </ProForm.Group>
-            <ProFormText name="addressDetail" label="详细地址" placeholder="如：xxx路xxx号" />
+            <ProFormText
+              name="addressDetail"
+              label="详细地址"
+              placeholder="如：xxx路xxx号"
+              rules={[{ required: true, message: '请填写详细地址（顺丰下单必填）' }]}
+              tooltip="必填。系统调用顺丰自动取号时会作为寄件人地址传给顺丰，缺失会导致下单失败。"
+            />
             <ProForm.Group title="联系方式">
               <ProFormText name="contactName" label="联系人" width="sm" placeholder="如：张经理" />
               <ProFormText

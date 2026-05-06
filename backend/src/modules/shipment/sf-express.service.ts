@@ -516,54 +516,101 @@ export class SfExpressService {
    */
   parsePushPayload(body: any): SfPushPayload[] {
     try {
+      // 路径 1: WaybillRoute（路由推送 — 物理事件 揽收/在途/派送/签收）
       const routes: any[] = body?.Body?.WaybillRoute ?? [];
-      if (!Array.isArray(routes) || routes.length === 0) {
-        // 临时 debug：捕获非 RoutePushService 的推送 body 结构（如 PushOrderState）
-        // 用于反推 SF 实际格式以扩展解析器
-        const bodyStr = JSON.stringify(body ?? {}).slice(0, 1000);
-        this.logger.warn(
-          `顺丰推送 Body.WaybillRoute 为空或非数组；原始 body 前 1000 字符=${bodyStr}`,
-        );
-        return [];
+      if (Array.isArray(routes) && routes.length > 0) {
+        return this.parseWaybillRoutes(routes);
       }
 
-      // 按 mailno 分组（同一运单的多条路由合并到一个 payload）
-      const grouped = new Map<string, any[]>();
-      for (const r of routes) {
-        const mailno = String(r?.mailno ?? r?.mailNo ?? '').trim();
-        if (!mailno) continue;
-        if (!grouped.has(mailno)) grouped.set(mailno, []);
-        grouped.get(mailno)!.push(r);
+      // 路径 2: OrderState（订单状态推送 — SF 内部状态 下单已接收/调度成功 等）
+      // 沙箱实证 2026-05-07: { Body: { OrderState: [{ orderNo, waybillNo, orderStateCode, orderStateDesc, ... }] } }
+      // 也有顶层 orderState 的变体（不带 Body 包裹）
+      const orderStates: any[] = body?.Body?.OrderState ?? body?.orderState ?? [];
+      if (Array.isArray(orderStates) && orderStates.length > 0) {
+        return this.parseOrderStates(orderStates);
       }
 
-      const payloads: SfPushPayload[] = [];
-      for (const [mailno, rs] of grouped) {
-        // 按 acceptTime 倒序，最新事件在前
-        rs.sort((a, b) =>
-          String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
-        );
-        const latest = rs[0];
-        const rawOpCode = String(latest?.opCode ?? '');
-        const status =
-          SfExpressService.OP_CODE_MAP[rawOpCode] || 'IN_TRANSIT';
-
-        const events = rs.map((r: any) => ({
-          time: String(r.acceptTime ?? ''),
-          message: String(r.remark ?? r.acceptAddress ?? ''),
-          location: r.acceptAddress ? String(r.acceptAddress) : undefined,
-          opCode: String(r.opCode ?? ''),
-        }));
-
-        payloads.push({ trackingNo: mailno, status, events });
-      }
-
-      return payloads;
+      // 都没匹配：debug 级别日志，不再 warn 刷屏
+      this.logger.debug(
+        `顺丰推送 body 不含 WaybillRoute / OrderState：${JSON.stringify(body ?? {}).slice(0, 500)}`,
+      );
+      return [];
     } catch (error: any) {
       this.logger.error(
         `解析顺丰推送数据异常: ${error.message || error}`,
       );
       return [];
     }
+  }
+
+  private parseWaybillRoutes(routes: any[]): SfPushPayload[] {
+    // 按 mailno 分组（同一运单的多条路由合并到一个 payload）
+    const grouped = new Map<string, any[]>();
+    for (const r of routes) {
+      const mailno = String(r?.mailno ?? r?.mailNo ?? '').trim();
+      if (!mailno) continue;
+      if (!grouped.has(mailno)) grouped.set(mailno, []);
+      grouped.get(mailno)!.push(r);
+    }
+
+    const payloads: SfPushPayload[] = [];
+    for (const [mailno, rs] of grouped) {
+      // 按 acceptTime 倒序，最新事件在前
+      rs.sort((a, b) =>
+        String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
+      );
+      const latest = rs[0];
+      const rawOpCode = String(latest?.opCode ?? '');
+      const status =
+        SfExpressService.OP_CODE_MAP[rawOpCode] || 'IN_TRANSIT';
+
+      const events = rs.map((r: any) => ({
+        time: String(r.acceptTime ?? ''),
+        message: String(r.remark ?? r.acceptAddress ?? ''),
+        location: r.acceptAddress ? String(r.acceptAddress) : undefined,
+        opCode: String(r.opCode ?? ''),
+      }));
+
+      payloads.push({ trackingNo: mailno, status, events });
+    }
+    return payloads;
+  }
+
+  /**
+   * 解析 OrderState 推送（订单状态推送）
+   * 以 waybillNo 分组；状态来自 orderStateCode（04-XXXXX 系列）
+   * orderStateCode 主要是 SF 内部调度状态，不直接映射到 OP_CODE，统一标 IN_TRANSIT
+   * App 物流时间线主要看 WaybillRoute 推送，OrderState 只是补充事件
+   */
+  private parseOrderStates(states: any[]): SfPushPayload[] {
+    const grouped = new Map<string, any[]>();
+    for (const s of states) {
+      const waybillNo = String(s?.waybillNo ?? '').trim();
+      if (!waybillNo) continue;
+      if (!grouped.has(waybillNo)) grouped.set(waybillNo, []);
+      grouped.get(waybillNo)!.push(s);
+    }
+
+    const payloads: SfPushPayload[] = [];
+    for (const [waybillNo, ss] of grouped) {
+      ss.sort((a, b) =>
+        String(b.lastTime ?? b.bookTime ?? b.createTm ?? '').localeCompare(
+          String(a.lastTime ?? a.bookTime ?? a.createTm ?? ''),
+        ),
+      );
+
+      const events = ss.map((s: any) => ({
+        time: String(s.lastTime ?? s.bookTime ?? s.createTm ?? ''),
+        message: String(s.orderStateDesc ?? s.orderStateCode ?? ''),
+        location: undefined,
+        opCode: String(s.orderStateCode ?? ''),
+      }));
+
+      // OrderState 不能精确判断"已签收/已派送"等终态，统一 IN_TRANSIT
+      // 实际状态推进由 WaybillRoute 推送负责
+      payloads.push({ trackingNo: waybillNo, status: 'IN_TRANSIT', events });
+    }
+    return payloads;
   }
 
   // ─── 云打印面单 ───────────────────────────────────────
