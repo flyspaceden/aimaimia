@@ -1141,15 +1141,15 @@ export class OrderService {
       FAILED: 'failed',
     };
 
-    // 判断是否有活跃售后
-    const activeAfterSale = !!afterSaleReq
-      && (ACTIVE_STATUSES as readonly string[]).includes(afterSaleReq.status);
+    // hasRefundRecord 仍在下文 refund 兼容分支使用
     const hasRefundRecord = order.status === 'REFUNDED';
 
-    // 虚拟态 'afterSale' 仅在派生条件下覆盖原状态展示
-    const frontStatus = activeAfterSale || hasRefundRecord
-      ? 'afterSale'
-      : order.status;
+    // Phase 2 hotfix-3: 不再覆盖 status 为 'afterSale'
+    // App 的 OrderStatus 是严格大写枚举（PAID/SHIPPED/.../REFUNDED）, 没有 'afterSale'
+    // StatusHero 用 Record<OrderStatus, ...> 索引会拿到 undefined → 渲染崩
+    // 售后状态由 afterSaleStatus 字段单独承载（App 已用 afterSaleStatus 路由 CTA）
+    // list() 仍保留 'afterSale' 虚拟聚合 tab（仅作为请求 status 入参，不作为返回值）
+    const frontStatus = order.status;
 
     let afterSaleStatus: string | undefined;
     let afterSaleReason: string | undefined;

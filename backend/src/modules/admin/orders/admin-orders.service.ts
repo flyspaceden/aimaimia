@@ -268,9 +268,12 @@ export class AdminOrdersService {
     const companyId = companyIds[0]!;
 
     // ─── 自动取号路径：调 SF API 拿 waybillNo + 上传 PDF 到 OSS（事务前完成）───
+    // Phase 2 hotfix-3: resolvedWaybillNo 必须 init 为 null
+    // 之前 init = dto.trackingNo || null 导致手填路径把 trackingNo 同时写入 waybillNo
+    // 而 waybillNo 语义专属 SF 自动取号；trackingNo 才是任意承运商运单号 — 两个字段不能交叉
     let resolvedCarrierCode = dto.carrierCode || 'SF';
     let resolvedCarrierName = dto.carrierName || '';
-    let resolvedWaybillNo: string | null = dto.trackingNo || null;
+    let resolvedWaybillNo: string | null = null;
     let resolvedTrackingNo: string | null = null;
     let resolvedSfOrderId: string | null = null;
     let resolvedWaybillUrl: string | null = null;
@@ -323,6 +326,27 @@ export class AdminOrdersService {
           if (!fresh) throw new NotFoundException('订单不存在');
           if (fresh.status !== 'PAID') {
             throw new ConflictException('订单状态已变更，请刷新后重试');
+          }
+
+          // Phase 2 hotfix-3: in-tx existing-shipment 二次校验（TOCTOU race 缓解）
+          // 自动取号场景的 race 窗口：
+          //   1) admin 在事务外查 shipment（无 waybillNo） → 调 SF API（慢）
+          //   2) 与此同时 seller 在自己后台完成发货（写入 shipment.waybillNo）
+          //   3) admin 事务内 upsert 会 update 把 waybillNo 改成 admin 这次取的号，
+          //      seller 那次的 SF 单号成孤儿
+          // 在事务内（Serializable）再查一次，发现已存在不同 waybillNo 就 abort
+          // 由 try/finally 块负责取消 admin 这次创建的 SF 单
+          // Phase 3 backlog: PG advisory lock 彻底防 race
+          if (dto.useCarrierAuto && resolvedWaybillNo) {
+            const existingInTx = await tx.shipment.findUnique({
+              where: { orderId_companyId: { orderId, companyId } },
+              select: { waybillNo: true },
+            });
+            if (existingInTx?.waybillNo && existingInTx.waybillNo !== resolvedWaybillNo) {
+              throw new ConflictException(
+                `该订单已被另一路径生成面单（${existingInTx.waybillNo.slice(0, 4)}****），本次操作已取消`,
+              );
+            }
           }
 
           const { autoConfirmDays } = await this.bonusConfig.getSystemConfig();
