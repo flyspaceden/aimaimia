@@ -518,7 +518,12 @@ export class SfExpressService {
     try {
       const routes: any[] = body?.Body?.WaybillRoute ?? [];
       if (!Array.isArray(routes) || routes.length === 0) {
-        this.logger.warn('顺丰推送 Body.WaybillRoute 为空或非数组');
+        // 临时 debug：捕获非 RoutePushService 的推送 body 结构（如 PushOrderState）
+        // 用于反推 SF 实际格式以扩展解析器
+        const bodyStr = JSON.stringify(body ?? {}).slice(0, 1000);
+        this.logger.warn(
+          `顺丰推送 Body.WaybillRoute 为空或非数组；原始 body 前 1000 字符=${bodyStr}`,
+        );
         return [];
       }
 
