@@ -14,7 +14,8 @@ import { AppError, Order, OrderStatus } from '../../src/types';
 
 const statusOptions: Array<{ id: OrderStatus | 'afterSaleList'; label: string }> = [
   { id: 'PAID', label: '待发货' },
-  { id: 'SHIPPED', label: '待收货' },
+  { id: 'SHIPPED', label: '已发货' },
+  { id: 'DELIVERED', label: '待收货' },
   { id: 'afterSaleList', label: '售后' },
   { id: 'RECEIVED', label: '已完成' },
 ];

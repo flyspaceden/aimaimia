@@ -288,8 +288,9 @@ export class OrderService {
             },
           },
         ];
-      } else if (status === 'SHIPPED' || status === 'shipping') {
-        // 买家”待收货”虚拟聚合：SHIPPED + DELIVERED（'shipping' 是兼容旧 App 写法）
+      } else if (status === 'shipping') {
+        // 旧 App 兼容：'shipping' 聚合 SHIPPED+DELIVERED
+        // 新版 App 已拆成「已发货 SHIPPED」「待收货 DELIVERED」两个 tab，分别走 exact match
         where.status = { in: ['SHIPPED', 'DELIVERED'] };
         // 排除售后进行中订单，避免与 afterSale 口径冲突
         where.AND = [
@@ -300,7 +301,7 @@ export class OrderService {
           },
         ];
       } else {
-        // App 已传大写 schema 枚举（PAID/DELIVERED/RECEIVED/...）
+        // App 已传大写 schema 枚举（PAID/SHIPPED/DELIVERED/RECEIVED/...）：exact match
         where.status = status;
       }
     }
