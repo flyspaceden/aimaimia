@@ -449,8 +449,10 @@ export class AdminOrdersService {
     if (!company) throw new NotFoundException('企业信息不存在');
     const cAddr = company.address as Record<string, any> | null;
     const cContact = company.contact as Record<string, any> | null;
-    if (!cAddr?.province || !cAddr?.city) {
-      throw new BadRequestException('企业发货地址不完整，请商家补完省市区后再发货');
+    if (!cAddr?.province || !cAddr?.city || !cAddr?.detail) {
+      throw new BadRequestException(
+        `企业发货地址不完整（省/市/详细任一为空），请该商家在卖家后台「公司信息」补完地址后再发货。Company=${company.name}`,
+      );
     }
 
     // 2. 收件人信息（解密订单地址快照；兼容明文/加密 envelope）
