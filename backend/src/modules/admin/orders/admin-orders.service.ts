@@ -284,6 +284,10 @@ export class AdminOrdersService {
       }
       // Phase 2 hotfix: 防孤儿单 — 已有 waybillNo 拒绝重复取号
       // 卖家可能已经在商家中心生成过面单；此时再取一次会留下旧 SF 单号且不取消
+      // ⚠️ TOCTOU race（事务外 check + 事务外调 SF + 事务内 upsert）：
+      //   admin 与 seller 同时操作同一订单时存在小概率窗口造成双单
+      //   缓解：admin 路径低频 + seller-shipping 已有 advisory lock
+      //   彻底修复：Phase 3 把 admin 也用同一把 advisory lock（PG_TRY_ADVISORY_XACT_LOCK）
       const existing = await this.prisma.shipment.findUnique({
         where: { orderId_companyId: { orderId, companyId } },
       });
@@ -324,6 +328,8 @@ export class AdminOrdersService {
           const { autoConfirmDays } = await this.bonusConfig.getSystemConfig();
 
           // upsert Shipment（与 seller-shipping 兼容，避免唯一键冲突）
+          // update 路径用 ?? undefined 让 Prisma 不覆盖已有非空值
+          // 例：手填发货后又调自动取号 → waybillNo 写 SFxxx，trackingNo 保持原值不被清空
           await tx.shipment.upsert({
             where: { orderId_companyId: { orderId, companyId } },
             create: {
@@ -341,10 +347,10 @@ export class AdminOrdersService {
             update: {
               carrierCode: resolvedCarrierCode,
               carrierName: resolvedCarrierName,
-              waybillNo: resolvedWaybillNo,
-              trackingNo: resolvedTrackingNo,
+              waybillNo: resolvedWaybillNo ?? undefined,
+              trackingNo: resolvedTrackingNo ?? undefined,
               waybillUrl: resolvedWaybillUrl ?? undefined,
-              sfOrderId: resolvedSfOrderId,
+              sfOrderId: resolvedSfOrderId ?? undefined,
               status: 'SHIPPED',
               shippedAt: new Date(),
             },

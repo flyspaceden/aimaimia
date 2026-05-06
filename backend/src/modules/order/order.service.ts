@@ -14,16 +14,15 @@ import { decryptJsonValue } from '../../common/security/encryption';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 
-// 后端枚举 → 前端状态映射
-const STATUS_MAP: Record<string, string> = {
-  PENDING_PAYMENT: 'pendingPay',
-  PAID: 'pendingShip',
-  SHIPPED: 'shipping',
-  DELIVERED: 'delivered',
-  RECEIVED: 'completed',
-  CANCELED: 'canceled',
-  REFUNDED: 'afterSale',
-};
+// Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
+// 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
+// Phase 2 App 已迁移到大写枚举（与 schema 一致），后端不再做转换，前后端协议统一。
+//
+// 兼容性:
+// - 'afterSale' / 'shipping' 是虚拟聚合 tab，仍由 list() 函数特判（向后兼容旧 App）
+// - 列表/详情/历史 API 返回 status 直接是 schema 大写枚举（PAID/SHIPPED/...）
+// - status counts 返回 keys 也改成大写枚举（前端 me.tsx 已期望大写）
+
 const REPLACEMENT_REASON_LABELS: Record<string, string> = {
   QUALITY_ISSUE: '质量问题',
   WRONG_ITEM: '发错商品',
@@ -32,17 +31,6 @@ const REPLACEMENT_REASON_LABELS: Record<string, string> = {
   SIZE_ISSUE: '规格不符',
   EXPIRED: '临期/过期',
   OTHER: '其他',
-};
-
-// 前端状态 → 后端枚举反向映射
-const REVERSE_STATUS_MAP: Record<string, string> = {
-  pendingPay: 'PENDING_PAYMENT',
-  pendingShip: 'PAID',
-  shipping: 'SHIPPED',
-  delivered: 'DELIVERED',
-  completed: 'RECEIVED',
-  canceled: 'CANCELED',
-  afterSale: 'REFUNDED',
 };
 
 // S20修复：默认运费规则（ShippingRule 无匹配时的 fallback，已迁移到 ShippingRuleService）
@@ -300,10 +288,10 @@ export class OrderService {
             },
           },
         ];
-      } else if (status === 'shipping') {
-        // 买家”待收货”统一口径：运输中 + 已送达未确认
+      } else if (status === 'SHIPPED' || status === 'shipping') {
+        // 买家”待收货”虚拟聚合：SHIPPED + DELIVERED（'shipping' 是兼容旧 App 写法）
         where.status = { in: ['SHIPPED', 'DELIVERED'] };
-        // 待收货列表排除售后进行中的订单，避免与 afterSale 口径冲突
+        // 排除售后进行中订单，避免与 afterSale 口径冲突
         where.AND = [
           {
             afterSaleRequests: {
@@ -312,8 +300,8 @@ export class OrderService {
           },
         ];
       } else {
-        const enumStatus = REVERSE_STATUS_MAP[status] || status;
-        where.status = enumStatus;
+        // App 已传大写 schema 枚举（PAID/DELIVERED/RECEIVED/...）
+        where.status = status;
       }
     }
 
@@ -393,22 +381,22 @@ export class OrderService {
       },
     });
 
+    // schema 大写枚举 keys + afterSale 虚拟聚合（issueFlag/活跃售后派生）
     const counts: Record<string, number> = {
-      pendingPay: 0,
-      pendingShip: 0,
-      shipping: 0,
-      delivered: 0,
+      PAID: 0,
+      SHIPPED: 0,
+      DELIVERED: 0,
+      RECEIVED: 0,
+      CANCELED: 0,
+      REFUNDED: 0,
       afterSale: 0,
-      completed: 0,
-      canceled: 0,
     };
     orders.forEach((o: any) => {
-      // 有活跃售后请求的订单计入 afterSale
+      // 有活跃售后请求的订单计入 afterSale 虚拟态
       if (o.afterSaleRequests.length > 0) {
         counts.afterSale++;
       } else {
-        const frontStatus = STATUS_MAP[o.status] || o.status;
-        counts[frontStatus] = (counts[frontStatus] ?? 0) + 1;
+        counts[o.status] = (counts[o.status] ?? 0) + 1;
       }
     });
 
@@ -1158,9 +1146,10 @@ export class OrderService {
       && (ACTIVE_STATUSES as readonly string[]).includes(afterSaleReq.status);
     const hasRefundRecord = order.status === 'REFUNDED';
 
+    // 虚拟态 'afterSale' 仅在派生条件下覆盖原状态展示
     const frontStatus = activeAfterSale || hasRefundRecord
       ? 'afterSale'
-      : (STATUS_MAP[order.status] || order.status);
+      : order.status;
 
     let afterSaleStatus: string | undefined;
     let afterSaleReason: string | undefined;
@@ -1251,8 +1240,8 @@ export class OrderService {
       trackingEvents: logistics.trackingEvents,
       shipments: logistics.shipments,
       statusHistory: (order.statusHistory || []).map((h: any) => ({
-        from: STATUS_MAP[h.fromStatus] || h.fromStatus,
-        to: STATUS_MAP[h.toStatus] || h.toStatus,
+        from: h.fromStatus,
+        to: h.toStatus,
         reason: h.reason,
         time: h.createdAt?.toISOString() || '',
       })),
