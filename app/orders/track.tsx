@@ -11,11 +11,10 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { Skeleton, useToast } from '../../src/components/feedback';
-import { AiCardGlow } from '../../src/components/ui';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
@@ -108,7 +107,6 @@ function TimelineSection({
 
 export default function OrderTrackScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { orderId } = useLocalSearchParams<{ orderId?: string }>();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
@@ -337,26 +335,6 @@ export default function OrderTrackScreen() {
             />
           )}
         </View>
-
-        {/* 产地联动卡 */}
-        <Animated.View entering={FadeInDown.duration(300).delay(300)}>
-          <View style={{ marginTop: spacing.lg }}>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>产地实景联动</Text>
-            <AiCardGlow style={[shadow.md, { marginTop: spacing.sm }]}>
-              <View style={{ padding: 16 }}>
-                <Text style={[typography.body, { color: colors.text.secondary }]}>
-                  未来将展示企业展览馆的产地实景与检验报告（占位）。
-                </Text>
-                <Pressable
-                  onPress={() => router.push('/(tabs)/museum')}
-                  style={[styles.cta, { borderColor: colors.brand.primary, borderRadius: radius.pill }]}
-                >
-                  <Text style={[typography.caption, { color: colors.brand.primary }]}>查看企业展览馆</Text>
-                </Pressable>
-              </View>
-            </AiCardGlow>
-          </View>
-        </Animated.View>
       </ScrollView>
     </Screen>
   );
@@ -394,12 +372,5 @@ const styles = StyleSheet.create({
     flex: 1,
     marginTop: 4,
     borderRadius: 1,
-  },
-  cta: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginTop: 10,
   },
 });
