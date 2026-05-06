@@ -27,7 +27,8 @@ import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
 // 售后入口为 UI 派生（'afterSaleList' 路由参数），不是真实 OrderStatus
 const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; icon: string }> = [
   { id: 'PAID', label: '待发货', icon: 'package-variant' },
-  { id: 'SHIPPED', label: '待收货', icon: 'truck-delivery-outline' },
+  { id: 'SHIPPED', label: '已发货', icon: 'truck-delivery-outline' },
+  { id: 'DELIVERED', label: '待收货', icon: 'inbox-arrow-down-outline' },
   { id: 'afterSaleList', label: '换货/售后', icon: 'headset' },
   { id: 'RECEIVED', label: '已完成', icon: 'check-circle-outline' },
 ];
@@ -317,11 +318,9 @@ export default function MeScreen() {
               ) : null}
               {orderEntries.map((entry) => {
                 const count = orderCounts
-                  ? entry.id === 'SHIPPED'
-                    ? (orderCounts.SHIPPED ?? 0) + (orderCounts.DELIVERED ?? 0)
-                    : entry.id === 'afterSaleList'
-                      ? 0 // 售后为派生态，由独立查询提供角标（暂留 0）
-                      : (orderCounts[entry.id as OrderStatus] ?? 0)
+                  ? entry.id === 'afterSaleList'
+                    ? 0 // 售后为派生态，由独立查询提供角标（暂留 0）
+                    : (orderCounts[entry.id as OrderStatus] ?? 0)
                   : 0;
                 return (
                   <Pressable
