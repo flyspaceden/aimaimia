@@ -3693,18 +3693,20 @@ async function main() {
   // ============================================================
   // 普通用户树节点 + 进度 + 有效消费记录
   // ============================================================
+  // 注意：rootId 必须与 constants.ts 的 NORMAL_ROOT_ID = 'NORMAL_ROOT' 完全一致
+  //       branchFactor=3 → 每父最多 3 子（position 0/1/2），nt-u010 之前在 position=3 违反约束已删除
+  //       NORMAL_ROOT 根节点 childrenCount=3（与实际匹配，避免 algorithm 漂移）
   const normalTreeNodes = [
-    { id: 'nt-u002', rootId: 'ROOT', userId: 'u-002', parentId: 'NORMAL_ROOT', level: 1, position: 0, childrenCount: 2 },
-    { id: 'nt-u003', rootId: 'ROOT', userId: 'u-003', parentId: 'NORMAL_ROOT', level: 1, position: 1, childrenCount: 1 },
-    { id: 'nt-u004', rootId: 'ROOT', userId: 'u-004', parentId: 'NORMAL_ROOT', level: 1, position: 2, childrenCount: 0 },
-    { id: 'nt-u007', rootId: 'ROOT', userId: 'u-007', parentId: 'nt-u002', level: 2, position: 0, childrenCount: 0 },
-    { id: 'nt-u008', rootId: 'ROOT', userId: 'u-008', parentId: 'nt-u002', level: 2, position: 1, childrenCount: 0 },
-    { id: 'nt-u009', rootId: 'ROOT', userId: 'u-009', parentId: 'nt-u003', level: 2, position: 0, childrenCount: 0 },
-    { id: 'nt-u010', rootId: 'ROOT', userId: 'u-010', parentId: 'NORMAL_ROOT', level: 1, position: 3 as number, childrenCount: 0 },
+    { id: 'nt-u002', rootId: 'NORMAL_ROOT', userId: 'u-002', parentId: 'NORMAL_ROOT', level: 1, position: 0, childrenCount: 2 },
+    { id: 'nt-u003', rootId: 'NORMAL_ROOT', userId: 'u-003', parentId: 'NORMAL_ROOT', level: 1, position: 1, childrenCount: 1 },
+    { id: 'nt-u004', rootId: 'NORMAL_ROOT', userId: 'u-004', parentId: 'NORMAL_ROOT', level: 1, position: 2, childrenCount: 0 },
+    { id: 'nt-u007', rootId: 'NORMAL_ROOT', userId: 'u-007', parentId: 'nt-u002', level: 2, position: 0, childrenCount: 0 },
+    { id: 'nt-u008', rootId: 'NORMAL_ROOT', userId: 'u-008', parentId: 'nt-u002', level: 2, position: 1, childrenCount: 0 },
+    { id: 'nt-u009', rootId: 'NORMAL_ROOT', userId: 'u-009', parentId: 'nt-u003', level: 2, position: 0, childrenCount: 0 },
   ];
 
-  // 先更新根节点 childrenCount
-  await prisma.normalTreeNode.update({ where: { id: 'NORMAL_ROOT' }, data: { childrenCount: 4 } });
+  // 先更新根节点 childrenCount（3 与子节点数量一致）
+  await prisma.normalTreeNode.update({ where: { id: 'NORMAL_ROOT' }, data: { childrenCount: 3 } });
 
   for (const nt of normalTreeNodes) {
     await prisma.normalTreeNode.upsert({
