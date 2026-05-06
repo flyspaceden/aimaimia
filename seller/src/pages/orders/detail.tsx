@@ -35,6 +35,7 @@ import {
 } from '@/api/orders';
 import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
+import { toAbsoluteApiUrl } from '@/utils/api-url';
 import dayjs from 'dayjs';
 
 // 根据订单状态和物流状态计算进度步骤
@@ -311,14 +312,10 @@ export default function OrderDetailPage() {
                 <Button
                   icon={<PrinterOutlined />}
                   size="large"
-                  onClick={() =>
-                    order.shipment?.waybillPrintUrl &&
-                    window.open(
-                      order.shipment.waybillPrintUrl,
-                      '_blank',
-                      'noopener,noreferrer',
-                    )
-                  }
+                  onClick={() => {
+                    const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
+                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
                 >
                   打印面单
                 </Button>
@@ -473,14 +470,10 @@ export default function OrderDetailPage() {
                     type="link"
                     size="small"
                     icon={<PrinterOutlined />}
-                    onClick={() =>
-                      order.shipment?.waybillPrintUrl &&
-                      window.open(
-                        order.shipment.waybillPrintUrl,
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
+                    onClick={() => {
+                      const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
+                      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                    }}
                   >
                     打印
                   </Button>

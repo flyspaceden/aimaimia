@@ -25,6 +25,7 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { toAbsoluteApiUrl } from '@/utils/api-url';
 import {
   batchGenerateWaybill,
   batchShipOrders,
@@ -238,7 +239,7 @@ export default function OrderListPage() {
     }
 
     const urls = printableOrders
-      .map((order) => order.shipment?.waybillPrintUrl)
+      .map((order) => toAbsoluteApiUrl(order.shipment?.waybillPrintUrl))
       .filter((url): url is string => Boolean(url));
 
     const printWindow = window.open('', '_blank', 'noopener,noreferrer');
