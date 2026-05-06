@@ -248,7 +248,7 @@ async function resolveTransactionIntent(
     case 'track-order': {
       const orderResult = await OrderRepo.list(undefined, { page: 1, pageSize: 20 });
       if (orderResult.ok) {
-        const preferredStatuses = ['shipping', 'delivered', 'completed'] as const;
+        const preferredStatuses = ['SHIPPED', 'DELIVERED', 'RECEIVED'] as const;
         for (const status of preferredStatuses) {
           const order = orderResult.data.items.find((item) => item.status === status);
           if (order) {
@@ -300,20 +300,12 @@ async function resolveTransactionIntent(
           toastText: intent.feedback,
         };
       }
-      const afterSaleResult = await OrderRepo.list('afterSale', { page: 1, pageSize: 1 });
-      const afterSaleOrderId = afterSaleResult.ok ? afterSaleResult.data.items[0]?.id : null;
-      if (afterSaleOrderId) {
-        return {
-          action: 'navigate',
-          route: '/orders/[id]',
-          params: { id: afterSaleOrderId },
-          toastText: '先带你去相关订单看看售后进度...',
-        };
-      }
+      // afterSale 为 UI 派生态，无对应 OrderStatus 真值；getLatestIssue 已覆盖售后订单查找
+      // 若上方未命中（无 issueFlag/afterSaleStatus 订单），回退到订单首页让用户自行查看
       return {
         action: 'navigate',
         route: '/orders',
-        params: { status: 'afterSale' },
+        params: { status: 'afterSaleList' },
         toastText: '先带你去售后订单页看看...',
       };
     }

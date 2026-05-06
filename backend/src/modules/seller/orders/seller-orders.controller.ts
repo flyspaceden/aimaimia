@@ -55,9 +55,13 @@ export class SellerOrdersController {
     return this.ordersService.findById(companyId, staffId, id);
   }
 
-  /** 发货 */
+  /**
+   * 发货
+   * Bug 75: OPERATOR 角色加入 — 否则 OPERATOR 能生面单（seller-shipping.controller 无角色限制）
+   * 但不能确认发货，造成流程卡死
+   */
   @SellerAudit({ action: 'SHIP_ORDER', module: 'orders', targetType: 'Order', targetIdParam: 'params.id' })
-  @SellerRoles('OWNER', 'MANAGER')
+  @SellerRoles('OWNER', 'MANAGER', 'OPERATOR')
   @Post(':id/ship')
   ship(
     @CurrentSeller('companyId') companyId: string,
@@ -67,9 +71,9 @@ export class SellerOrdersController {
     return this.ordersService.ship(companyId, id, dto);
   }
 
-  /** 批量发货 */
+  /** 批量发货（Bug 75 同样开放给 OPERATOR） */
   @SellerAudit({ action: 'BATCH_SHIP', module: 'orders' })
-  @SellerRoles('OWNER', 'MANAGER')
+  @SellerRoles('OWNER', 'MANAGER', 'OPERATOR')
   @Post('batch-ship')
   batchShip(
     @CurrentSeller('companyId') companyId: string,

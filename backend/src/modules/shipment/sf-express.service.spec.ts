@@ -399,88 +399,125 @@ describe('SfExpressService', () => {
     });
   });
 
-  // ─── parsePushPayload ───────────────────────────────
+  // ─── parsePushPayload（沙箱实证 {Body:{WaybillRoute}} 格式，按 mailno 分组返数组）───
 
   describe('parsePushPayload', () => {
-    it('正常解析推送负载', () => {
+    it('单运单单事件解析', () => {
       const svc = createService();
       const body = {
-        msgData: JSON.stringify({
-          waybillNo: 'SF1234567890',
-          routeList: [
+        Body: {
+          WaybillRoute: [
             {
+              mailno: 'SF1234567890',
               acceptTime: '2026-04-11 14:30:00',
               remark: '已签收',
               acceptAddress: '昆明市盘龙区',
               opCode: '50',
+              id: '1',
+              orderid: 'O1',
             },
           ],
-        }),
+        },
       };
 
       const result = svc.parsePushPayload(body);
-      expect(result).not.toBeNull();
-      expect(result!.trackingNo).toBe('SF1234567890');
-      expect(result!.status).toBe('DELIVERED');
-      expect(result!.events).toHaveLength(1);
+      expect(result).toHaveLength(1);
+      expect(result[0].trackingNo).toBe('SF1234567890');
+      expect(result[0].status).toBe('DELIVERED');
+      expect(result[0].events).toHaveLength(1);
     });
 
-    it('缺少 waybillNo 时返回 null', () => {
+    it('单运单多事件按 acceptTime 倒序，最新事件决定 status', () => {
       const svc = createService();
       const body = {
-        msgData: JSON.stringify({
-          routeList: [
-            {
-              acceptTime: '2026-04-11 14:30:00',
-              remark: '在途',
-              opCode: '21',
-            },
+        Body: {
+          WaybillRoute: [
+            { mailno: 'SF1', acceptTime: '2026-04-10 10:00:00', remark: '揽收', opCode: '10', id: '1' },
+            { mailno: 'SF1', acceptTime: '2026-04-11 14:30:00', remark: '已签收', opCode: '50', id: '2' },
           ],
-        }),
+        },
       };
       const result = svc.parsePushPayload(body);
-      expect(result).toBeNull();
+      expect(result).toHaveLength(1);
+      expect(result[0].status).toBe('DELIVERED'); // opCode 50 是最新
+      expect(result[0].events).toHaveLength(2);
+      expect(result[0].events[0].opCode).toBe('50'); // 倒序排
     });
 
-    it('格式错误时返回 null', () => {
+    it('多运单按 mailno 分组返多个 payload', () => {
       const svc = createService();
       const body = {
-        msgData: '{{not valid json',
+        Body: {
+          WaybillRoute: [
+            { mailno: 'SF1', acceptTime: '2026-04-11 10:00:00', remark: 'a', opCode: '10', id: '1' },
+            { mailno: 'SF2', acceptTime: '2026-04-11 11:00:00', remark: 'b', opCode: '50', id: '2' },
+            { mailno: 'SF1', acceptTime: '2026-04-11 12:00:00', remark: 'c', opCode: '21', id: '3' },
+          ],
+        },
       };
       const result = svc.parsePushPayload(body);
-      expect(result).toBeNull();
+      expect(result).toHaveLength(2);
+      const sf1 = result.find((p) => p.trackingNo === 'SF1');
+      const sf2 = result.find((p) => p.trackingNo === 'SF2');
+      expect(sf1?.events).toHaveLength(2);
+      expect(sf2?.events).toHaveLength(1);
+    });
+
+    it('Body.WaybillRoute 为空返空数组', () => {
+      const svc = createService();
+      expect(svc.parsePushPayload({ Body: { WaybillRoute: [] } })).toEqual([]);
+    });
+
+    it('结构完全错误返空数组', () => {
+      const svc = createService();
+      expect(svc.parsePushPayload({ unrelated: true })).toEqual([]);
+      expect(svc.parsePushPayload(null)).toEqual([]);
+    });
+
+    it('缺 mailno 的条目被过滤', () => {
+      const svc = createService();
+      const body = {
+        Body: {
+          WaybillRoute: [
+            { mailno: 'SF1', acceptTime: '2026-04-11 10:00:00', remark: 'a', opCode: '10' },
+            { mailno: '', acceptTime: '2026-04-11 11:00:00', remark: 'b', opCode: '50' },
+          ],
+        },
+      };
+      const result = svc.parsePushPayload(body);
+      expect(result).toHaveLength(1);
+      expect(result[0].trackingNo).toBe('SF1');
     });
   });
 
-  // ─── verifyPushSignature ────────────────────────────
+  // ─── verifyPushToken（Bug 87 — URL secret 路径模式） ───
 
-  describe('verifyPushSignature', () => {
-    it('正确签名（与请求签名同算法）通过验证', () => {
-      const svc = createService();
-      const msgData = '{"waybillNo":"SF1234567890"}';
-      const timestamp = '1712000000000';
-      const expected = svc.buildVerifyCode(msgData, timestamp);
+  describe('verifyPushToken', () => {
+    const PUSH_SECRET = 'a1b2c3d4e5f6789012345678abcdef00';
 
-      expect(svc.verifyPushSignature(msgData, timestamp, expected)).toBe(true);
+    it('未配置 SF_PUSH_SECRET 一律拒绝', () => {
+      const svc = createService({ SF_PUSH_SECRET: '' });
+      expect(svc.verifyPushToken(PUSH_SECRET)).toBe(false);
     });
 
-    it('错误签名被拒绝', () => {
-      const svc = createService();
-      expect(
-        svc.verifyPushSignature('{"a":1}', '1712000000000', 'wrong_digest'),
-      ).toBe(false);
+    it('正确 token 通过', () => {
+      const svc = createService({ SF_PUSH_SECRET: PUSH_SECRET });
+      expect(svc.verifyPushToken(PUSH_SECRET)).toBe(true);
     });
 
-    it('缺少签名被拒绝', () => {
-      const svc = createService();
-      expect(
-        svc.verifyPushSignature('{"a":1}', '1712000000000', undefined),
-      ).toBe(false);
+    it('错误 token 拒绝', () => {
+      const svc = createService({ SF_PUSH_SECRET: PUSH_SECRET });
+      expect(svc.verifyPushToken('wrong_token')).toBe(false);
     });
 
-    it('缺少 timestamp 被拒绝', () => {
-      const svc = createService();
-      expect(svc.verifyPushSignature('{"a":1}', '', 'sig')).toBe(false);
+    it('长度不等 token 拒绝（防 timingSafeEqual 异常）', () => {
+      const svc = createService({ SF_PUSH_SECRET: PUSH_SECRET });
+      expect(svc.verifyPushToken('short')).toBe(false);
+    });
+
+    it('空 token 拒绝', () => {
+      const svc = createService({ SF_PUSH_SECRET: PUSH_SECRET });
+      expect(svc.verifyPushToken('')).toBe(false);
     });
   });
 

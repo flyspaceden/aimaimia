@@ -13,14 +13,14 @@ import { useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Order, OrderStatus } from '../../src/types';
 
 const statusOptions: Array<{ id: OrderStatus | 'afterSaleList'; label: string }> = [
-  { id: 'pendingShip', label: '待发货' },
-  { id: 'shipping', label: '待收货' },
+  { id: 'PAID', label: '待发货' },
+  { id: 'SHIPPED', label: '待收货' },
   { id: 'afterSaleList', label: '售后' },
-  { id: 'completed', label: '已完成' },
+  { id: 'RECEIVED', label: '已完成' },
 ];
 
 const isOrderStatus = (v?: string): v is OrderStatus =>
-  v === 'pendingShip' || v === 'shipping' || v === 'delivered' || v === 'afterSale' || v === 'completed';
+  v === 'PAID' || v === 'SHIPPED' || v === 'DELIVERED' || v === 'RECEIVED' || v === 'CANCELED' || v === 'REFUNDED';
 
 function useOrderActions() {
   const router = useRouter();
@@ -29,13 +29,13 @@ function useOrderActions() {
 
   return (order: Order) => {
     switch (order.status) {
-      case 'pendingShip':
+      case 'PAID':
         return {
           primaryLabel: '联系客服',
           primaryAction: () => router.push(`/cs?source=ORDER_DETAIL&sourceId=${order.id}`),
         } as const;
-      case 'shipping':
-      case 'delivered':
+      case 'SHIPPED':
+      case 'DELIVERED':
         return {
           primaryLabel: '确认收货',
           primaryAction: async () => {
@@ -51,7 +51,7 @@ function useOrderActions() {
           secondaryLabel: '查看物流',
           secondaryAction: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }),
         } as const;
-      case 'completed':
+      case 'RECEIVED':
         return {
           primaryLabel: '再次购买',
           primaryAction: () => show({ message: '功能即将上线', type: 'info' }),

@@ -7,7 +7,13 @@
  * 后端接入建议：
  * - 订单/售后状态机应由后端推进，前端只做展示与触发（见 `说明文档/后端接口清单.md#6-订单order--aftersale--checkout`）
  */
-export type OrderStatus = 'pendingPay' | 'pendingShip' | 'shipping' | 'delivered' | 'afterSale' | 'completed' | 'canceled';
+/**
+ * 订单状态（与后端 Prisma OrderStatus 枚举严格对齐）
+ *
+ * 付款后建单架构 → 不存在 PENDING_PAYMENT 状态
+ * "afterSale" 是 UI 派生展示（issueFlag/afterSaleStatus 非空时），不在数据库枚举中
+ */
+export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
 
 import { PaymentMethod } from './Payment';
 

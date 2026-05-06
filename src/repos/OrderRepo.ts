@@ -383,13 +383,12 @@ export const OrderRepo = {
     if (USE_MOCK) {
       // 订单状态角标统计（复杂业务逻辑需中文注释）
       const counts: Record<OrderStatus, number> = {
-        pendingPay: 0,
-        pendingShip: 0,
-        shipping: 0,
-        delivered: 0,
-        afterSale: 0,
-        completed: 0,
-        canceled: 0,
+        PAID: 0,
+        SHIPPED: 0,
+        DELIVERED: 0,
+        RECEIVED: 0,
+        CANCELED: 0,
+        REFUNDED: 0,
       };
       orderStore.forEach((order) => {
         counts[order.status] = (counts[order.status] ?? 0) + 1;
@@ -407,7 +406,7 @@ export const OrderRepo = {
   getLatestIssue: async (): Promise<Result<Order | null>> => {
     if (USE_MOCK) {
       // 最近异常订单：用于售后入口直达（复杂业务逻辑需中文注释）
-      const issue = orderStore.find((order) => order.issueFlag || order.status === 'afterSale') ?? null;
+      const issue = orderStore.find((order) => order.issueFlag || order.afterSaleStatus != null) ?? null;
       return simulateRequest(issue);
     }
 
@@ -459,7 +458,7 @@ export const OrderRepo = {
       const discountAmount = payload.redPackAmount ?? 0;
       const newOrder: Order = {
         id: `o-${Date.now()}`,
-        status: 'pendingPay',
+        status: 'PAID',
         totalPrice: Math.max(0, subtotal + shippingFee - discountAmount),
         discountAmount: discountAmount > 0 ? discountAmount : undefined,
         createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
@@ -497,10 +496,8 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
       }
-      if (order.status !== 'pendingPay') {
-        return err(createAppError('INVALID', '订单状态不可支付', '当前无法支付'));
-      }
-      order.status = 'pendingShip';
+      // 付款后建单架构：订单一旦存在即为已付款，此 deprecated mock 仅用于兼容旧调用
+      order.status = 'PAID';
       order.paymentMethod = paymentMethod;
       return simulateRequest(order, { delay: 240 });
     }
@@ -517,11 +514,11 @@ export const OrderRepo = {
    */
   batchPayOrders: async (orderIds: string[], paymentMethod: PaymentMethod): Promise<Result<{ success: boolean; orderIds: string[] }>> => {
     if (USE_MOCK) {
-      // Mock 模式：逐个标记为已支付
+      // 付款后建单架构：订单存在即已付款；此 deprecated mock 保留 paymentMethod 同步
       for (const oid of orderIds) {
         const order = orderStore.find((item) => item.id === oid);
-        if (order && order.status === 'pendingPay') {
-          order.status = 'pendingShip';
+        if (order) {
+          order.status = 'PAID';
           order.paymentMethod = paymentMethod;
         }
       }
@@ -552,7 +549,7 @@ export const OrderRepo = {
       if (order.afterSaleStatus) {
         return err(createAppError('INVALID', '售后已申请', '请勿重复提交'));
       }
-      order.status = 'afterSale';
+      // afterSale 是 UI 派生态（issueFlag + afterSaleStatus），不修改 order.status 真实值
       order.issueFlag = true;
       order.afterSaleStatus = 'applying';
       order.afterSaleReason = payload.reasonType === 'OTHER'
@@ -592,10 +589,10 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
       }
-      if (order.status !== 'shipping') {
+      if (order.status !== 'SHIPPED' && order.status !== 'DELIVERED') {
         return err(createAppError('INVALID', '订单状态不可确认收货', '当前无法确认收货'));
       }
-      order.status = 'completed';
+      order.status = 'RECEIVED';
       return simulateRequest(order, { delay: 240 });
     }
 
@@ -642,8 +639,9 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
       }
-      if (order.status !== 'pendingPay') {
-        return err(createAppError('INVALID', '仅待付款订单可取消', '当前无法取消'));
+      // 付款后建单：仅"已付款待发货 (PAID)"订单允许取消（走退款流程）
+      if (order.status !== 'PAID') {
+        return err(createAppError('INVALID', '当前订单状态不可取消', '当前无法取消'));
       }
       orderStore = orderStore.filter((item) => item.id !== orderId);
       return simulateRequest(order, { delay: 240 });
@@ -672,7 +670,7 @@ export const OrderRepo = {
     if (USE_MOCK) {
       // Mock 模式返回模拟物流数据
       const order = orderStore.find((item) => item.id === orderId);
-      if (!order || (order.status !== 'shipping' && order.status !== 'delivered' && order.status !== 'completed')) {
+      if (!order || (order.status !== 'SHIPPED' && order.status !== 'DELIVERED' && order.status !== 'RECEIVED')) {
         return simulateRequest(null);
       }
       return simulateRequest({
@@ -680,9 +678,9 @@ export const OrderRepo = {
         carrierCode: 'SF',
         carrierName: '顺丰速运',
         trackingNo: `SF${Date.now().toString().slice(-10)}`,
-        status: order.status === 'shipping' ? 'IN_TRANSIT' : 'DELIVERED',
+        status: order.status === 'SHIPPED' ? 'IN_TRANSIT' : 'DELIVERED',
         shippedAt: order.createdAt,
-        deliveredAt: order.status === 'completed' ? order.createdAt : null,
+        deliveredAt: order.status === 'RECEIVED' ? order.createdAt : null,
         events: [
           { id: 'e-1', occurredAt: order.createdAt, message: '快递已揽收', location: '上海市浦东新区' },
           { id: 'e-2', occurredAt: order.createdAt, message: '运输中', location: '上海转运中心' },
@@ -726,7 +724,7 @@ export const OrderRepo = {
     order.afterSaleStatus = nextStatus;
     order.afterSaleTimeline = buildAfterSaleTimeline(nextStatus);
     if (nextStatus === 'completed') {
-      order.status = 'completed';
+      order.status = 'RECEIVED';
       order.issueFlag = false;
     }
     return simulateRequest(order, { delay: 240 });

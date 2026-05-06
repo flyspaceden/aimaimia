@@ -30,9 +30,10 @@ export const refundStatusMap: Record<string, { text: string; color: string }> = 
   REFUNDED: { text: '已退款', color: 'default' },
 };
 
-// 物流状态
+// 物流状态（与 backend Prisma ShipmentStatus 枚举严格对齐）
 export const shipmentStatusMap: Record<string, { text: string; color: string }> = {
   INIT: { text: '待发货', color: 'default' },
+  SHIPPED: { text: '已发货', color: 'processing' },
   IN_TRANSIT: { text: '运输中', color: 'processing' },
   DELIVERED: { text: '已送达', color: 'green' },
   EXCEPTION: { text: '异常', color: 'error' },

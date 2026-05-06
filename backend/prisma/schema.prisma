@@ -1568,8 +1568,12 @@ model Shipment {
   company              Company        @relation(fields: [companyId], references: [id])
   carrierCode          String // SF/JDL/ZTO/...
   carrierName          String
+  // 物流单号字段语义（Bug 14 — Phase 4 可考虑彻底合并）：
+  // - waybillNo: 主字段，自动取号链路（顺丰 SF API）返回的运单号；SF 推送 mailno 与此对齐
+  // - trackingNo: 备用字段，手填运单号场景（管理后台 ship 接口、历史数据迁移）
+  // 读取时一律 OR 兼容；写入时 SF 自动取号写 waybillNo，手填写 trackingNo
   trackingNo           String?
-  waybillNo            String? // 快递面单号（快递API返回）
+  waybillNo            String?
   waybillUrl           String? // 面单图片 URL（存 OSS）
   status               ShipmentStatus @default(INIT)
   shippedAt            DateTime?

@@ -1,57 +1,43 @@
 import {
   UnauthorizedException,
-  ForbiddenException,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { ShipmentController } from './shipment.controller';
 
-// 有效的顺丰推送负载种子数据
+const VALID_TOKEN = '84a7d77ac0ec13252cdb5fc4e244be7b';
+const SF_OK_XML = '<Response><Head>OK</Head></Response>';
+const SF_ERR_XML = '<Response><Head>ERR</Head></Response>';
+
 const VALID_PUSH_BODY = {
-  msgType: 'ROUTE',
-  msgData: JSON.stringify({
-    mailNo: 'SF1234567890',
-    routeResps: [
+  Body: {
+    WaybillRoute: [
       {
-        mailNo: 'SF1234567890',
-        routes: [
-          {
-            acceptTime: '2026-01-25 06:00:00',
-            remark: '正在派送中',
-            acceptAddress: '云南省昆明市盘龙区',
-            opCode: '50',
-          },
-          {
-            acceptTime: '2026-01-24 12:00:00',
-            remark: '已到达昆明转运中心',
-            acceptAddress: '云南省昆明市',
-            opCode: '30',
-          },
-        ],
+        mailno: 'SF1234567890',
+        acceptTime: '2026-01-25 06:00:00',
+        remark: '正在派送中',
+        acceptAddress: '云南省昆明市盘龙区',
+        opCode: '50',
+        id: '1',
+        orderid: 'O1',
       },
     ],
-  }),
+  },
 };
 
-// 解析后的标准化物流数据
 const PARSED_PAYLOAD = {
   trackingNo: 'SF1234567890',
-  status: 'IN_TRANSIT' as const,
+  status: 'DELIVERED' as const,
   events: [
     {
-      time: '2026-01-25T06:00:00',
+      time: '2026-01-25 06:00:00',
       message: '正在派送中',
       location: '云南省昆明市盘龙区',
-    },
-    {
-      time: '2026-01-24T12:00:00',
-      message: '已到达昆明转运中心',
-      location: '云南省昆明市',
+      opCode: '50',
     },
   ],
 };
 
-// 工厂函数：创建带 mock 依赖的控制器实例
 function createController() {
   const shipmentService = {
     handleSfCallback: jest.fn(),
@@ -61,138 +47,182 @@ function createController() {
   };
   const sfExpress = {
     parsePushPayload: jest.fn(),
+    verifyPushToken: jest.fn(),
   };
   const controller = new ShipmentController(shipmentService as any, sfExpress as any);
   return { controller, shipmentService, sfExpress };
 }
 
-describe('ShipmentController', () => {
-  describe('handleSfCallback — 顺丰回调异常区分', () => {
-    it('正常回调：解析成功 → 调用 handleSfCallback → 返回成功响应', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
+// Bug 36: 控制器返回 XML，需 mock express Response
+function makeRes() {
+  const res: any = {
+    setHeader: jest.fn(),
+    status: jest.fn(),
+    send: jest.fn(),
+  };
+  res.status.mockReturnValue(res);
+  res.send.mockReturnValue(res);
+  return res;
+}
 
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
+describe('ShipmentController.handleSfCallback', () => {
+  describe('Bug 87 — URL secret token 校验', () => {
+    it('token 校验失败返 401 + ERR XML', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(false);
+      const res = makeRes();
+
+      await controller.handleSfCallback('wrong_token', VALID_PUSH_BODY, res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/xml; charset=utf-8');
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.send).toHaveBeenCalledWith(SF_ERR_XML);
+      expect(sfExpress.parsePushPayload).not.toHaveBeenCalled();
+      expect(shipmentService.handleSfCallback).not.toHaveBeenCalled();
+    });
+
+    it('token 校验通过则继续解析推送', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
       shipmentService.handleSfCallback.mockResolvedValue(undefined);
+      const res = makeRes();
 
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      const result = await controller.handleSfCallback(VALID_PUSH_BODY, mockReq);
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
 
+      expect(sfExpress.verifyPushToken).toHaveBeenCalledWith(VALID_TOKEN);
       expect(sfExpress.parsePushPayload).toHaveBeenCalledWith(VALID_PUSH_BODY);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
+    });
+  });
+
+  describe('Bug 36 — 返回 SF V1 文档要求的 XML', () => {
+    it('解析为空（Body.WaybillRoute 不在）返 200 OK XML', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([]);
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, {}, res);
+
+      expect(shipmentService.handleSfCallback).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
+    });
+
+    it('单条 trackingNo 不在 DB（NotFoundException）跳过 + 返 200 OK', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
+      shipmentService.handleSfCallback.mockRejectedValue(
+        new NotFoundException('物流单号 SF1234567890 不存在'),
+      );
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
+    });
+
+    it('BadRequestException 跳过 + 返 200 OK', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
+      shipmentService.handleSfCallback.mockRejectedValue(
+        new BadRequestException('数据格式错'),
+      );
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
+    });
+
+    it('系统异常返 500 + ERR XML（让 SF 重推）', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
+      shipmentService.handleSfCallback.mockRejectedValue(new Error('DB 连接超时'));
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.send).toHaveBeenCalledWith(SF_ERR_XML);
+    });
+
+    it('返回的 Content-Type 是 text/xml', async () => {
+      const { controller, sfExpress } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([]);
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, {}, res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/xml; charset=utf-8');
+    });
+  });
+
+  describe('Bug 70-补丁 — 批量推送多 mailno 逐个处理', () => {
+    it('单条全成功', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
+      shipmentService.handleSfCallback.mockResolvedValue(undefined);
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
+
+      expect(shipmentService.handleSfCallback).toHaveBeenCalledTimes(1);
       expect(shipmentService.handleSfCallback).toHaveBeenCalledWith(
         PARSED_PAYLOAD.trackingNo,
         PARSED_PAYLOAD.status,
         PARSED_PAYLOAD.events,
         VALID_PUSH_BODY,
-        // msgData / timestamp / pushDigest（Bug 2B：三参数签名校验）
-        expect.any(String),
-        '',
-        '',
       );
-      expect(result).toEqual({ apiResultCode: 'A1000', apiErrorMsg: '' });
+      expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    it('解析失败（parsePushPayload 返回 null）→ 返回成功停止重试', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
+    it('多条逐个调用，单条 NotFound 不影响其他', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      const p1 = { ...PARSED_PAYLOAD, trackingNo: 'SF1' };
+      const p2 = { ...PARSED_PAYLOAD, trackingNo: 'SF2' };
+      const p3 = { ...PARSED_PAYLOAD, trackingNo: 'SF3' };
 
-      sfExpress.parsePushPayload.mockReturnValue(null);
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([p1, p2, p3]);
+      shipmentService.handleSfCallback
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new NotFoundException('SF2 不存在'))
+        .mockResolvedValueOnce(undefined);
+      const res = makeRes();
 
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      const result = await controller.handleSfCallback(VALID_PUSH_BODY, mockReq);
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
 
-      expect(shipmentService.handleSfCallback).not.toHaveBeenCalled();
-      expect(result).toEqual({ apiResultCode: 'A1000', apiErrorMsg: '' });
+      expect(shipmentService.handleSfCallback).toHaveBeenCalledTimes(3);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
     });
 
-    it('认证失败（UnauthorizedException）→ 抛出异常，HTTP 401', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
+    it('多条中某条系统异常立即返 500（让 SF 重推整批）', async () => {
+      const { controller, sfExpress, shipmentService } = createController();
+      const p1 = { ...PARSED_PAYLOAD, trackingNo: 'SF1' };
+      const p2 = { ...PARSED_PAYLOAD, trackingNo: 'SF2' };
 
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
-      shipmentService.handleSfCallback.mockRejectedValue(
-        new UnauthorizedException('签名验证失败'),
-      );
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([p1, p2]);
+      shipmentService.handleSfCallback
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('DB 连接断开'));
+      const res = makeRes();
 
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      await expect(
-        controller.handleSfCallback(VALID_PUSH_BODY, mockReq),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
-    });
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
 
-    it('权限拒绝（ForbiddenException）→ 抛出异常，HTTP 403', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
-
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
-      shipmentService.handleSfCallback.mockRejectedValue(
-        new ForbiddenException('回调验证失败'),
-      );
-
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      await expect(
-        controller.handleSfCallback(VALID_PUSH_BODY, mockReq),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('业务错误（NotFoundException：单号不存在）→ 返回成功停止无意义重试', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
-
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
-      shipmentService.handleSfCallback.mockRejectedValue(
-        new NotFoundException('物流单号 SF1234567890 不存在'),
-      );
-
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      const result = await controller.handleSfCallback(VALID_PUSH_BODY, mockReq);
-
-      expect(result).toEqual({ apiResultCode: 'A1000', apiErrorMsg: '' });
-    });
-
-    it('业务错误（BadRequestException）→ 返回成功停止无意义重试', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
-
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
-      shipmentService.handleSfCallback.mockRejectedValue(
-        new BadRequestException('回调数据格式不正确'),
-      );
-
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      const result = await controller.handleSfCallback(VALID_PUSH_BODY, mockReq);
-
-      expect(result).toEqual({ apiResultCode: 'A1000', apiErrorMsg: '' });
-    });
-
-    it('瞬态错误（Error：数据库超时）→ 返回重试响应', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
-
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
-      shipmentService.handleSfCallback.mockRejectedValue(
-        new Error('数据库连接超时'),
-      );
-
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      const result = await controller.handleSfCallback(VALID_PUSH_BODY, mockReq);
-
-      expect(result).toEqual({
-        apiResultCode: 'A1001',
-        apiErrorMsg: expect.any(String),
-      });
-    });
-
-    it('瞬态错误（序列化冲突 P2034）→ 返回重试响应', async () => {
-      const { controller, shipmentService, sfExpress } = createController();
-
-      sfExpress.parsePushPayload.mockReturnValue(PARSED_PAYLOAD);
-      const serializationError = new Error(
-        'Transaction failed due to a write conflict or a deadlock. Please retry your transaction',
-      );
-      (serializationError as any).code = 'P2034';
-      shipmentService.handleSfCallback.mockRejectedValue(serializationError);
-
-      const mockReq = { rawBody: Buffer.from(JSON.stringify(VALID_PUSH_BODY)), headers: {} };
-      const result = await controller.handleSfCallback(VALID_PUSH_BODY, mockReq);
-
-      expect(result).toEqual({
-        apiResultCode: 'A1001',
-        apiErrorMsg: expect.any(String),
-      });
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.send).toHaveBeenCalledWith(SF_ERR_XML);
     });
   });
 });

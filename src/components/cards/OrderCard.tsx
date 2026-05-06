@@ -14,23 +14,21 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<OrderStatus, string> = {
-  pendingPay: '#FF6B35',
-  pendingShip: '#3B82F6',
-  shipping: '#3B82F6',
-  delivered: '#3B82F6',
-  afterSale: '#DC2626',
-  completed: '#2E7D32',
-  canceled: '#9CA3AF',
+  PAID: '#3B82F6',
+  SHIPPED: '#3B82F6',
+  DELIVERED: '#3B82F6',
+  RECEIVED: '#2E7D32',
+  CANCELED: '#9CA3AF',
+  REFUNDED: '#DC2626',
 };
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  pendingPay: '待付款',
-  pendingShip: '待发货',
-  shipping: '运输中',
-  delivered: '待收货',
-  afterSale: '售后中',
-  completed: '已完成',
-  canceled: '已取消',
+  PAID: '待发货',
+  SHIPPED: '运输中',
+  DELIVERED: '待收货',
+  RECEIVED: '已完成',
+  CANCELED: '已取消',
+  REFUNDED: '已退款',
 };
 
 export function OrderCard({ order, onPress, onPrimaryAction, onSecondaryAction, primaryLabel, secondaryLabel }: Props) {

@@ -23,9 +23,9 @@ const getStatusColor = (status: InvoiceStatus, colors: any): string => {
   }
 };
 
-// 允许申请发票的订单状态（已收货 / 已完成）
+// 允许申请发票的订单状态（已送达 / 已收货）
 const canRequestInvoice = (orderStatus: OrderStatus): boolean =>
-  orderStatus === 'delivered' || orderStatus === 'completed';
+  orderStatus === 'DELIVERED' || orderStatus === 'RECEIVED';
 
 type InvoiceSectionProps = {
   orderId: string;

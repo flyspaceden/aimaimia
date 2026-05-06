@@ -6,6 +6,74 @@
 > **状态说明**: ⬜ 待修 | 🔧 修复中 | ✅ 代码已修 | ⏭️ 待部署/迁移 | ❓ 需真机/沙箱验证 | ⏸️ 暂缓
 > **真相源**: 顺丰丰桥（https://qiao.sf-express.com）+ 顺丰月结管家（https://v.sf-express.com）+ 本仓库的 `backend/src/modules/shipment/` 全部源码 + 2026-05-05 沙箱抓包
 
+## 📌 2026-05-05 21:30 Phase 2 计划（真机端到端测试阻塞项盘点）
+
+**沙箱测试已完成**（6 个 API 全成功 + 协议确认），但**真机端到端测试还有 13 项阻塞**。Phase 2 = 把这 13 项做掉，然后真机跑。
+
+### 🔴 Phase 2 阻塞项（12 项 — 2026-05-06 外审后修订）
+
+| # | Bug | 位置 | 修法 | 工作量 |
+|---|-----|------|------|--------|
+| **新-1** | Bug 86 — 管理后台 VIP_PACKAGE 调 SF 自动取号 | admin orders + admin-orders.service ship | 提取 generateWaybill 到公共 ShippingService，admin/seller 共享 | 中 |
+| **新-2** | Bug 70-补丁 — `parsePushPayload` 真实结构 `{Body:{WaybillRoute}}` | sf-express.service parsePushPayload | 重写返回数组 + 新字段路径 | 小 |
+| **新-3** | Bug 87 — **URL secret token 路径**（外审修订：弃用"无签名放行"，改 `/sf/callback/:token` + crypto.timingSafeEqual） | shipment.controller + .env + 顺丰后台 | 32 位随机 secret 写入 .env + 顺丰后台 + 密码本 | 小 |
+| 11 | Nginx 配 `/api/v1/shipments/sf/callback/:token` 路由（含 token 路径段） | 测试服 nginx | ssh 配置 + reload | 小 |
+| 12 | `handleCallback` 按 trackingNo 查 shipment（trackingNo=null 时跳过）| shipment.service | Bug 14 一起改 — 用 waybillNo 关联 | 中 |
+| 13 | `queryTracking` 跳过 `!shipment.trackingNo` | shipment.service | Bug 14 一起改 | 小 |
+| 14 | `Shipment.waybillNo` vs `trackingNo` 双字段语义混乱 | schema + shipment.service | 统一：`waybillNo` 是物流单号唯一字段，trackingNo 删除/改别名 | 中 |
+| 36 | SF 推送回调返回值格式（OK/ERR XML vs JSON）| shipment.controller | 沙箱实推确认 + 调整 return 格式 | 小 |
+| 72 | `ShipmentStatus.SHIPPED` 卖家前端 statusMap 漏 | seller statusMaps | 加映射 | 小 |
+| 74 | App OrderStatus lowerCamel vs schema 大写 | App constants | 统一为 schema 枚举值 | 小 |
+| 75 | OPERATOR 角色生面单后无法确认发货卡死 | seller-roles guard | 加 OPERATOR 到确认发货权限 | 小 |
+| 16 | 买家 App 物流页 fallback 假数据 | app/orders/track | 删 fallback 或显示真空态 | 小 |
+
+**预计总工作量**：1-1.5 天（约 12 个 commit）
+
+**已降级出 Phase 2**:
+- ~~Bug 15「付款建 Shipment 行」~~ → **降到 Phase 4**：核实 `seller-shipping.service.ts:184-241` 已经 `findUnique → if exist update / else create`，主链路不阻塞。付款建 INIT 占位是 UX 优化（让 App 立刻显示"待发货"），不阻塞真机测试。
+
+### 🟠 Phase 3 候选（拆分 A/B 子组 — 外审建议采纳）
+
+**Phase 3A — 含影响正向物流稳定性的后台监控能力**（5 项）：
+- Bug 20（cancelWaybill 分布式锁）
+- Bug 21（queryTracking 节流）
+- Bug 22（ShipmentMonitorService 静音）
+- Bug 25（买家发货 / 签收 / 异常 Push）
+- Bug 26（管理后台物流监控面板）
+- Bug 48（卖家物流轨迹卡）
+- Bug 85（取消 + 推送在途竞态）
+
+**Phase 3B — 售后 / 退货链路**（5 项）：
+- Bug 18（买家退货纯文本输入无校验）
+- Bug 19（换货面单字段冗余命名不一致）
+- Bug 78（SF 单号孤儿 — 下单成功但本地 rollback 失败）
+- Bug 80（卖家拒收回寄没接 SF）
+- Bug 24（商家新订单 webhook 通知）
+
+### 🟢 Phase 4+（30+ 项 — 优化 / LOW / 文档；2026-05-06 外审后新增 4 项）
+
+**外审采纳新增**：
+- **F4-1**: 全链路 SF 调用日志表 — 保存 `serviceCode / requestId / msgData / msgDigest / parseResult / error`，生产排错必备
+- **F4-2**: OSS 持久化失败重试 job — `WaybillUploadJob` 表 + `retried_at` + 指数退避重试，替代当前"留空让卖家手动重试"
+- **F4-3**: 沙箱 22/22 联调 checklist — 22 个 SF API 联调进度 + 自动化测试钩子
+- **F4-4**: 隐私 trackingNo 双版本暴露处理（原 Bug 73 + 81 整体改造）
+
+**原有项**：边角优化、文档、性能、UI 文案、隐私加固、运营面板：Bug 8 / 9 / 15（降级）/ 23 / 27 / 28 / 29 / 31~35 / 37 / 39~47 / 49~67 / 73 / 76 / 77 / 79 / 81~84
+
+### Phase 2 执行前需验证的 3 个假设（外审后 4→3，Bug 15 已自验消解）
+
+1. ✅ **Bug 11 nginx（2026-05-06 已验证消解）**: 测试服 `/www/server/panel/vhost/nginx/test-api.ai-maimai.com.conf` 已有 `location ^~ / { proxy_pass http://127.0.0.1:3001; ... }` catch-all 反向代理，且包含完整 X-Forwarded-* + 600s timeout，**Bug 87 加 token 路径不需要 nginx 改动**
+2. ⏸ **Bug 36 推送返回**: 真推未发生（沙箱「测试」按钮是 SF 内部模拟，access log 无 `/shipments/sf` 记录）。Phase 2 改完 parsePushPayload 后真机端到端时观察：返 JSON `{ok:true}` 200 → 不重推 = 接受；如重推则需改 XML `<Response><Head>OK</Head>`
+3. ⏸ **Bug 12 推送 mailno 命中 DB**: 真机走完整链路后 mailno 自动入 DB，bug 可能自动消解（Bug 14 重构 schema 时一并解决）
+
+### Phase 2 准备物料（2026-05-06 已就绪）
+
+- ✅ **SF_PUSH_SECRET 已生成**：32 位随机十六进制，存入 `docs/operations/密码本.md` §七
+- ✅ **顺丰沙箱联调 6/22**：核心 API 全部协议级验证通过（下订单/云打印/路由查询/订单查询/取消/筛选）
+- ✅ **测试服 .env**：SF_CLIENT_CODE / CHECK_WORD / MONTHLY_ACCOUNT_UAT/PROD / TEMPLATE_CODE / ALLOW_E2E_MOCK 全部就绪
+
+---
+
 ## 📌 2026-05-05 Phase 1 第二轮审查加固（4 项追加，已修）
 
 外审 Agent 发现 5 项 Phase 1 残留问题，逐项审查后判定 4 项为真问题（1 项重复），全部已修：
@@ -1788,27 +1856,128 @@ private async callApi(serviceCode: string, msgData: any): Promise<any> {
 
 ---
 
-### Bug 70-补丁 🟡 HIGH — `parsePushPayload` 真实路径需沙箱实推确认
+### Bug 70-补丁 ⚠️ CRITICAL（2026-05-05 沙箱实推已确认，升级阻塞级）— `parsePushPayload` 真实结构与代码假设不符
 
 **位置**: `backend/src/modules/shipment/sf-express.service.ts:410-453`
 
-当前实现：
-```ts
-parsePushPayload(body: any): SfPushPayload | null {
-  let msgData = body?.msgData;
-  if (typeof msgData === 'string') msgData = JSON.parse(msgData);
-  // ...
-  const routeList = msgData.routeList || msgData.routes || [];
+**沙箱实证 body 结构**（2026-05-05 21:00 用户从顺丰沙箱「测试」按钮抓取）:
+```json
+{
+  "Body": {
+    "WaybillRoute": [
+      {
+        "mailno": "SF7444703608745",
+        "acceptAddress": "test",
+        "reasonName": "",
+        "orderid": "OrderNum20200612223",
+        "acceptTime": "2026-05-05 12:08:57",
+        "remark": "test",
+        "opCode": "50",
+        "id": "177795413787871",
+        "reasonCode": ""
+      },
+      { "...第二条路由...", "opCode": "80" }
+    ]
+  }
 }
 ```
 
-推送结构与 API 响应不同（顺丰对推送是单独定义）。当前 `routeList || routes` 双 fallback 是猜的，**等沙箱全流程调测真推一次回调，抓 body 实际字段**：
-- `routeList` vs `routes`
-- 是否包裹在 `msgData` 字段下，还是直接是顶级
-- timestamp 是否在 Header `Service-Timestamp` 还是别的 Header
-- routes[].opCode 是字符串还是数字
+**关键差异**（当前代码全部不兼容）:
 
-**修复方案**: 等 Phase 1 代码改完部署到测试服务器，跑顺丰「沙箱全流程调测(速运)」，从 NestJS log 抓真实 body，按真实字段路径调整。
+| 项 | 代码假设 | 真实推送 | 影响 |
+|---|---|---|---|
+| 顶层包裹 | `body.msgData` | `body.Body` | 解析空 |
+| 路由数组 | `msgData.routeList` / `routes` | `Body.WaybillRoute` | 找不到 |
+| 单号字段 | `waybillNo` / `mailNo` | `mailno`（小写）| 取不到 |
+| 时间字段 | `time` | `acceptTime` | 取不到 |
+| 批量上限 | 单条 | 数组最多 10 条不同 mailno | 漏处理 |
+| 签名包裹 | `msgData` + `timestamp` + `msgDigest` | **完全没有** | 强制 401 |
+
+**修复方案**:
+1. `parsePushPayload` 重写：返回 `SfPushPayload[]`（按 mailno 分组的多个 payload）
+2. 路径改为 `body.Body.WaybillRoute` → 字段名 `mailno` / `acceptTime` / `acceptAddress` / `remark` / `opCode`
+3. 控制器迭代每个 mailno 调 `handleSfCallback`
+4. **配合 Bug 87 弱化签名校验**（SF 推送本身没签名）
+5. 沙箱沙箱推送返回值确认 — 见 Bug 36
+
+---
+
+### Bug 86 ⚠️ HIGH（2026-05-05 真机测试盘点新增）— 管理后台 VIP_PACKAGE 订单不能调 SF 自动取号发货
+
+**位置**:
+- `admin/src/pages/orders/index.tsx:270` — 前端过滤 VIP_PACKAGE 不显示发货按钮
+- `backend/src/modules/admin/orders/admin-orders.service.ts:245-303` — `ship()` 走"手填运单号"链路，不调顺丰 API
+
+**症状**:
+- VIP 礼包订单（含真实物理商品如鱼/茶/虾）只能由商家中心发货
+- 管理员代理平台公司「爱买买app」给 VIP 礼包发货时只能手填运单号，无法自动生成顺丰电子面单 + OSS PDF
+
+**用户决策（2026-05-05）**: 选项 B — 让管理后台也能调顺丰自动取号，跟商家中心同链路
+
+**修复方案**:
+1. `admin/src/pages/orders/index.tsx:270` 删除 `record.bizType !== 'VIP_PACKAGE'` 条件
+2. `admin-orders.service.ts:ship` 重构：当 `dto.useCarrierAuto === true` 时调 `SfExpressService.createOrder` + `UploadService.uploadBuffer`，跟 `seller-shipping.service.ts:generateWaybill` 同链路
+3. 管理后台发货弹窗加 toggle：「自动取号（顺丰电子面单）」/「手填运单号」
+4. 自动取号路径下：与 seller-shipping 共享 `generateWaybill` 方法（提取到 shipping 公共服务），避免重复逻辑
+
+**预计工作量**: 中（2-4 小时，含单测）
+
+**Phase 2 阻塞**: 是 — 不修则 VIP 礼包发货链路不能在管理后台真机测试
+
+---
+
+### Bug 87 ⚠️ CRITICAL（2026-05-05 沙箱实证后新增；2026-05-06 外审后修订方案）— SF 路由推送无签名机制，需用 URL secret token 替代
+
+**位置**: `backend/src/modules/shipment/shipment.controller.ts` + `shipment.service.ts:336-345` + `sf-express.service.ts:579-595` + 顺丰后台推送 URL 配置
+
+**症状**:
+Phase 1 第二轮加固后 `handleSfCallback` 改成「缺任一签名要素一律 401」。但沙箱实证 SF 推送 body 形如 `{"Body":{"WaybillRoute":[...]}}`，**没有 `msgData` / `timestamp` / `msgDigest` 字段**（HTTP header 也没看到 `Service-Timestamp` / `X-Sf-Digest`），所以**所有真实 SF 推送都会被我们 401 拒绝**。
+
+**根本原因**:
+- SF V1 文档说明请求签名（我们调 SF 时用）走 MD5 + Base64
+- SF V2 路由推送（SF 推我们时）**完全没有签名机制**
+
+**❌ 弃用方案**: "传 digest 才校验，不传一律放行" — 等于公开 webhook，任何知道 URL 的人都能伪造路由更新（外审 2026-05-06 否决）
+
+**✅ 采纳方案**: URL Secret Token（webhook 标准实践）
+
+1. 生成 32 位随机 secret 写入 `.env`：
+   ```
+   SF_PUSH_SECRET=<32位随机十六进制>
+   ```
+
+2. 顺丰后台推送 URL 改为带 token 路径：
+   ```
+   https://test-api.ai-maimai.com/api/v1/shipments/sf/callback/<SF_PUSH_SECRET>
+   ```
+
+3. 后端路由改为 `/sf/callback/:token`，用 `crypto.timingSafeEqual` 校验：
+   ```ts
+   @Post('sf/callback/:token')
+   async handleSfCallback(@Param('token') token: string, ...) {
+     const expected = Buffer.from(this.pushSecret, 'utf8');
+     const actual = Buffer.from(token, 'utf8');
+     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+       throw new UnauthorizedException();
+     }
+     // ... 处理推送
+   }
+   ```
+
+4. 推送处理弱化：不再要求 msgData/timestamp/msgDigest（SF 不发），但 trackingNo 不存在 DB 时返 200 OK + warn log（防 SF 重推风暴）
+
+**安全模型**:
+- Secret 同时存在于 SF 后台 + 测试服 .env，**双源独立泄露**才能被伪造
+- HTTPS 防中间人
+- timingSafeEqual 防时序攻击
+- DB 验证 trackingNo 存在（次级防御）
+- IP rate limit 防 DoS（Phase 3+）
+
+**Phase 2 阻塞**: 是 — 不修则 SF 推送一律失败，物流状态永远不更新
+
+**密码本同步**: 改完后 `SF_PUSH_SECRET` 写入 `docs/operations/密码本.md` §七
+
+---
 
 ---
 

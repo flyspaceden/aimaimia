@@ -120,9 +120,12 @@ export interface ProductMedia {
 // 订单
 // ============================================================
 
+/** 与后端 Prisma OrderStatus 对齐（付款后建单，无 PENDING_PAYMENT） */
+export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
+
 export interface Order {
   id: string;
-  status: string;
+  status: OrderStatus;
   bizType?: 'NORMAL_GOODS' | 'VIP_PACKAGE';
   totalAmount: number;
   goodsAmount?: number;

@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Select, Statistic, Badge, Typography, Tooltip } from 'antd';
+import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Select, Statistic, Badge, Typography, Tooltip, Switch, Alert } from 'antd';
 import {
   EyeOutlined,
   SendOutlined,
@@ -92,10 +92,15 @@ export default function OrderListPage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
-  const handleShip = async (values: { carrierCode: string; carrierName: string; trackingNo: string }) => {
+  const handleShip = async (values: {
+    useCarrierAuto?: boolean;
+    carrierCode: string;
+    carrierName?: string;
+    trackingNo?: string;
+  }) => {
     if (!currentOrder) return;
     await shipOrder(currentOrder.id, values);
-    message.success('发货成功');
+    message.success(values.useCarrierAuto ? '发货成功（已生成顺丰电子面单）' : '发货成功');
     setShipModalOpen(false);
     shipForm.resetFields();
     actionRef.current?.reload();
@@ -267,23 +272,28 @@ export default function OrderListPage() {
           >
             详情
           </Button>
-          {record.bizType !== 'VIP_PACKAGE' && (
-            <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
-              {record.status === 'PAID' && (
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<SendOutlined />}
-                  onClick={() => {
-                    setCurrentOrder(record);
-                    setShipModalOpen(true);
-                  }}
-                >
-                  发货
-                </Button>
-              )}
-            </PermissionGate>
-          )}
+          {/* Bug 86: VIP_PACKAGE 也允许在管理后台发货（默认 useCarrierAuto） */}
+          <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
+            {record.status === 'PAID' && (
+              <Button
+                type="link"
+                size="small"
+                icon={<SendOutlined />}
+                onClick={() => {
+                  setCurrentOrder(record);
+                  // VIP_PACKAGE 默认走自动取号；普通订单默认手填（兼容现有流程）
+                  shipForm.setFieldsValue({
+                    useCarrierAuto: record.bizType === 'VIP_PACKAGE',
+                    carrierCode: 'SF',
+                    carrierName: '顺丰速运',
+                  });
+                  setShipModalOpen(true);
+                }}
+              >
+                发货
+              </Button>
+            )}
+          </PermissionGate>
         </Space>
       ),
     },
@@ -394,23 +404,67 @@ export default function OrderListPage() {
         dateFormatter="string"
       />
 
-      {/* 发货弹窗 */}
+      {/* 发货弹窗 — Bug 86 支持「自动取号」与「手填运单号」两种模式 */}
       <Modal
         title="发货"
         open={shipModalOpen}
         onCancel={() => setShipModalOpen(false)}
         onOk={() => shipForm.submit()}
         destroyOnClose
+        width={520}
       >
         <Form form={shipForm} layout="vertical" onFinish={handleShip}>
-          <Form.Item name="carrierName" label="快递公司" rules={[{ required: true, message: '请输入快递公司' }]}>
-            <Input placeholder="如：顺丰速运" />
+          <Form.Item
+            name="useCarrierAuto"
+            label="发货方式"
+            valuePropName="checked"
+            extra="开启后调用顺丰丰桥自动取号 + 生成电子面单 PDF；关闭则手填运单号"
+          >
+            <Switch checkedChildren="顺丰自动取号" unCheckedChildren="手填运单号" />
           </Form.Item>
-          <Form.Item name="carrierCode" label="快递编码" rules={[{ required: true, message: '请输入快递编码' }]}>
-            <Input placeholder="如：SF" />
-          </Form.Item>
-          <Form.Item name="trackingNo" label="运单号" rules={[{ required: true, message: '请输入运单号' }]}>
-            <Input placeholder="请输入运单号" />
+
+          <Form.Item shouldUpdate noStyle>
+            {() => {
+              const isAuto = !!shipForm.getFieldValue('useCarrierAuto');
+              return isAuto ? (
+                <>
+                  <Alert
+                    style={{ marginBottom: 12 }}
+                    type="info"
+                    showIcon
+                    message="自动取号模式"
+                    description="将由系统调用顺丰 API 创建运单 + 生成电子面单 PDF 上传至 OSS。无需手填运单号。"
+                  />
+                  <Form.Item name="carrierCode" hidden initialValue="SF">
+                    <Input />
+                  </Form.Item>
+                </>
+              ) : (
+                <>
+                  <Form.Item
+                    name="carrierName"
+                    label="快递公司"
+                    rules={[{ required: true, message: '请输入快递公司' }]}
+                  >
+                    <Input placeholder="如：顺丰速运" />
+                  </Form.Item>
+                  <Form.Item
+                    name="carrierCode"
+                    label="快递编码"
+                    rules={[{ required: true, message: '请输入快递编码' }]}
+                  >
+                    <Input placeholder="如：SF" />
+                  </Form.Item>
+                  <Form.Item
+                    name="trackingNo"
+                    label="运单号"
+                    rules={[{ required: true, message: '请输入运单号' }]}
+                  >
+                    <Input placeholder="请输入运单号" />
+                  </Form.Item>
+                </>
+              );
+            }}
           </Form.Item>
         </Form>
       </Modal>

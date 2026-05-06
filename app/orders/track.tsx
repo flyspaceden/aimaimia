@@ -20,13 +20,6 @@ import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 
-// 保留 mock 作为无 orderId 时的 fallback
-const fallbackTimeline = [
-  { id: 't1', time: '今天 09:20', status: '包裹已揽收', location: '上海转运中心' },
-  { id: 't2', time: '昨天 18:40', status: '已发货', location: '青禾农场仓库' },
-  { id: 't3', time: '昨天 10:10', status: '订单已出库', location: '青禾农场' },
-];
-
 /** 遮蔽运单号：保留前4后4，中间用星号 */
 function maskTrackingNo(no: string | null | undefined): string {
   if (!no) return '';
@@ -144,7 +137,7 @@ export default function OrderTrackScreen() {
     }
   }, [isMultiPackage, packages.length]);
 
-  // 将真实物流事件转为 timeline 格式，无数据时 fallback 到 mock
+  // 真实物流事件转 timeline；无数据返回空数组（UI 自行渲染空态，不再显示假数据）
   const timeline = useMemo(() => {
     if (shipment?.events && shipment.events.length > 0) {
       return shipment.events.map((evt) => ({
@@ -154,7 +147,7 @@ export default function OrderTrackScreen() {
         location: evt.location ?? '',
       }));
     }
-    return fallbackTimeline;
+    return [];
   }, [shipment]);
 
   // 各包裹独立的 timeline

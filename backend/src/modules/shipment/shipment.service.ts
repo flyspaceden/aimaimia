@@ -171,7 +171,13 @@ export class ShipmentService {
       }
     }
 
-    const shipment = await this.prisma.shipment.findFirst({ where: { trackingNo } });
+    // Bug 12+14: SF 推送过来的 mailno 是我们生成面单时的 waybillNo（不是 trackingNo）
+    // 同时兼容 trackingNo 字段（历史数据 / 手填运单号场景）
+    // 优先匹配最新创建的（防 SF 复用旧运单号 / 历史脏数据误更新）
+    const shipment = await this.prisma.shipment.findFirst({
+      where: { OR: [{ waybillNo: trackingNo }, { trackingNo }] },
+      orderBy: { createdAt: 'desc' },
+    });
     if (!shipment) throw new NotFoundException('物流单号未找到');
 
     const shipmentStatus =
@@ -328,19 +334,8 @@ export class ShipmentService {
     status: string,
     events: Array<{ time: string; message: string; location?: string }> | undefined,
     rawPayload: any,
-    msgData?: string,
-    timestamp?: string,
-    pushDigest?: string,
   ) {
-    // Bug 2B: 推送签名与请求签名同算法（标准MD5：URLEncode + MD5 + Base64）
-    // 安全加固：缺任一签名要素一律拒绝（避免攻击者用空 msgData/timestamp 绕过校验）
-    if (!msgData || !timestamp || !pushDigest) {
-      throw new UnauthorizedException('顺丰推送缺少签名要素');
-    }
-    if (!this.sfExpress.verifyPushSignature(msgData, timestamp, pushDigest)) {
-      throw new UnauthorizedException('顺丰推送签名验证失败');
-    }
-
+    // Bug 87: 认证已在 controller 用 URL token + timingSafeEqual 完成，service 层不再做签名校验
     return this.handleCallback(
       trackingNo,
       status,
@@ -382,8 +377,11 @@ export class ShipmentService {
     }> = [];
 
     for (const shipment of shipments) {
-      // 跳过没有运单号的包裹
-      if (!shipment.trackingNo) {
+      // Bug 13+14: 优先用 waybillNo（顺丰下单返回的真实运单号），fallback 到 trackingNo（历史数据）
+      const trackingNumber = shipment.waybillNo || shipment.trackingNo;
+
+      // 跳过没有任何运单号的包裹
+      if (!trackingNumber) {
         results.push({
           shipmentId: shipment.id,
           carrierCode: shipment.carrierCode,
@@ -394,13 +392,13 @@ export class ShipmentService {
       }
 
       // 调用顺丰丰桥查询路由
-      const trackingResult = await this.sfExpress.queryRoutes(shipment.trackingNo);
+      const trackingResult = await this.sfExpress.queryRoutes(trackingNumber);
 
       if (!trackingResult) {
         results.push({
           shipmentId: shipment.id,
           carrierCode: shipment.carrierCode,
-          trackingNo: shipment.trackingNo,
+          trackingNo: trackingNumber,
           updated: false,
         });
         continue;

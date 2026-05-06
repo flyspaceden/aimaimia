@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
+import { SfExpressService } from '../../shipment/sf-express.service';
+import { UploadService } from '../../upload/upload.service';
 import { AdminShipDto, AdminOrderQueryDto } from './dto/admin-order.dto';
 import {
   maskAddressSnapshot,
@@ -9,12 +11,18 @@ import {
   maskTrackingNo,
 } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
+import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
+import { parseChineseAddress } from '../../../common/utils/parse-region';
 
 @Injectable()
 export class AdminOrdersService {
+  private readonly logger = new Logger(AdminOrdersService.name);
+
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
+    private sfExpress: SfExpressService,
+    private uploadService: UploadService,
   ) {}
 
   /** 订单列表 */
@@ -241,43 +249,97 @@ export class AdminOrdersService {
   /**
    * 发货
    * C3修复：Serializable 隔离级别 + CAS 防并发，状态检查移到事务内
+   * Bug 86: 新增 useCarrierAuto 路径 — 调顺丰 SF API 自动取号 + OSS 持久化电子面单
    */
   async ship(orderId: string, dto: AdminShipDto) {
+    // ─── 校验 + 公司归属（事务外，与事务内 CAS 互补）─────
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: { select: { companyId: true } },
+      },
+    });
+    if (!order) throw new NotFoundException('订单不存在');
+    if (order.status !== 'PAID') throw new BadRequestException('仅已支付订单可发货');
+    const companyIds = [...new Set(order.items.map((i) => i.companyId).filter(Boolean))];
+    if (companyIds.length !== 1) {
+      throw new BadRequestException('混合订单需由各卖家公司分别发货，管理员不可整单手动发货');
+    }
+    const companyId = companyIds[0]!;
+
+    // ─── 自动取号路径：调 SF API 拿 waybillNo + 上传 PDF 到 OSS（事务前完成）───
+    let resolvedCarrierCode = dto.carrierCode || 'SF';
+    let resolvedCarrierName = dto.carrierName || '';
+    let resolvedWaybillNo: string | null = dto.trackingNo || null;
+    let resolvedTrackingNo: string | null = null;
+    let resolvedSfOrderId: string | null = null;
+    let resolvedWaybillUrl: string | null = null;
+
+    if (dto.useCarrierAuto) {
+      // 自动取号只支持顺丰，避免误传 carrierCode 与实际承运商不一致
+      if (dto.carrierCode && dto.carrierCode !== 'SF') {
+        throw new BadRequestException(
+          '自动取号目前只支持顺丰（SF），其他承运商请关闭自动模式手填运单号',
+        );
+      }
+      const auto = await this.createSfWaybillForAdminShip(orderId, companyId, order);
+      resolvedCarrierCode = 'SF';
+      resolvedCarrierName = '顺丰速运';
+      resolvedWaybillNo = auto.waybillNo;
+      resolvedSfOrderId = auto.sfOrderId;
+      resolvedWaybillUrl = auto.waybillUrl;
+    } else {
+      // 手填路径必须传 trackingNo
+      if (!dto.trackingNo || !dto.carrierName) {
+        throw new BadRequestException('手填发货必须提供 carrierName 和 trackingNo');
+      }
+      resolvedTrackingNo = dto.trackingNo;
+    }
+
+    // ─── 事务内：写 Shipment + 推订单状态 ───
+    // 若事务最终失败 + 自动取号路径已拿到 SF 单号 → 补偿 cancelOrder 防孤儿运单
+    let txCommitted = false;
     const MAX_RETRIES = 3;
+    try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        return await this.prisma.$transaction(async (tx) => {
-          // 在事务内读取订单，确保 Serializable 一致性
-          const order = await tx.order.findUnique({
-            where: { id: orderId },
-            include: {
-              items: {
-                select: { companyId: true },
-              },
-            },
-          });
-          if (!order) throw new NotFoundException('订单不存在');
-          if (order.status !== 'PAID') throw new BadRequestException('仅已支付订单可发货');
-          const companyIds = [...new Set(order.items.map((item) => item.companyId).filter(Boolean))];
-          if (companyIds.length !== 1) {
-            throw new BadRequestException('混合订单需由各卖家公司分别发货，管理员不可整单手动发货');
+        const result = await this.prisma.$transaction(async (tx) => {
+          // 复查订单状态（防并发）
+          const fresh = await tx.order.findUnique({ where: { id: orderId } });
+          if (!fresh) throw new NotFoundException('订单不存在');
+          if (fresh.status !== 'PAID') {
+            throw new ConflictException('订单状态已变更，请刷新后重试');
           }
 
           const { autoConfirmDays } = await this.bonusConfig.getSystemConfig();
 
-          await tx.shipment.create({
-            data: {
+          // upsert Shipment（与 seller-shipping 兼容，避免唯一键冲突）
+          await tx.shipment.upsert({
+            where: { orderId_companyId: { orderId, companyId } },
+            create: {
               orderId,
-              companyId: companyIds[0]!,
-              carrierCode: dto.carrierCode,
-              carrierName: dto.carrierName,
-              trackingNo: dto.trackingNo,
+              companyId,
+              carrierCode: resolvedCarrierCode,
+              carrierName: resolvedCarrierName,
+              waybillNo: resolvedWaybillNo,
+              trackingNo: resolvedTrackingNo,
+              waybillUrl: resolvedWaybillUrl,
+              sfOrderId: resolvedSfOrderId,
+              status: 'SHIPPED',
+              shippedAt: new Date(),
+            },
+            update: {
+              carrierCode: resolvedCarrierCode,
+              carrierName: resolvedCarrierName,
+              waybillNo: resolvedWaybillNo,
+              trackingNo: resolvedTrackingNo,
+              waybillUrl: resolvedWaybillUrl ?? undefined,
+              sfOrderId: resolvedSfOrderId,
               status: 'SHIPPED',
               shippedAt: new Date(),
             },
           });
 
-          // 设置自动确认收货时间（读取系统配置 AUTO_CONFIRM_DAYS）
           const autoReceiveAt = new Date();
           autoReceiveAt.setDate(autoReceiveAt.getDate() + autoConfirmDays);
 
@@ -290,23 +352,147 @@ export class AdminOrdersService {
             throw new ConflictException('订单状态已变更，请刷新后重试');
           }
 
+          const reasonNo = resolvedWaybillNo || resolvedTrackingNo || 'N/A';
           await tx.orderStatusHistory.create({
             data: {
               orderId,
               fromStatus: 'PAID',
               toStatus: 'SHIPPED',
-              reason: `发货 ${dto.carrierName} ${dto.trackingNo}`,
+              reason: `发货 ${resolvedCarrierName} ${reasonNo}${dto.useCarrierAuto ? '（自动取号）' : ''}`,
             },
           });
 
-          return { ok: true };
+          return { ok: true, waybillNo: resolvedWaybillNo, waybillUrl: resolvedWaybillUrl };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+        txCommitted = true;
+        return result;
       } catch (e: any) {
-        // P2034: Serializable 事务冲突，重试
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) continue;
         throw e;
       }
     }
+    } finally {
+      // 自动取号已拿到 SF 单号但事务未 commit → 取消 SF 单防孤儿
+      if (!txCommitted && dto.useCarrierAuto && resolvedWaybillNo && resolvedSfOrderId) {
+        try {
+          await this.sfExpress.cancelOrder(resolvedSfOrderId, resolvedWaybillNo);
+          this.logger.warn(
+            `[admin] 事务失败，已补偿取消 SF 孤儿运单: orderId=${orderId}, waybillNo=${resolvedWaybillNo}`,
+          );
+        } catch (cancelErr: any) {
+          this.logger.error(
+            `[admin] SF 孤儿运单取消失败需人工处理: orderId=${orderId}, waybillNo=${resolvedWaybillNo}, err=${cancelErr.message}`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Bug 86: 管理员代理某商家调顺丰自动取号 + 生成电子面单 PDF + OSS 持久化
+   *
+   * 与 seller-shipping.service.ts:generateWaybill 业务对齐，但简化为不带 SellerStaff 审计/锁的版本
+   * （admin 操作有独立 AdminAuditLog 在 controller 层）
+   */
+  private async createSfWaybillForAdminShip(
+    orderId: string,
+    companyId: string,
+    order: { addressSnapshot: Prisma.JsonValue | null },
+  ): Promise<{ waybillNo: string; sfOrderId: string; waybillUrl: string | null }> {
+    // 1. 发件人信息（来自 Company）
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true, servicePhone: true, address: true, contact: true },
+    });
+    if (!company) throw new NotFoundException('企业信息不存在');
+    const cAddr = company.address as Record<string, any> | null;
+    const cContact = company.contact as Record<string, any> | null;
+    if (!cAddr?.province || !cAddr?.city) {
+      throw new BadRequestException('企业发货地址不完整，请商家补完省市区后再发货');
+    }
+
+    // 2. 收件人信息（解密订单地址快照；兼容明文/加密 envelope）
+    const decryptedAddress = decryptJsonValue(order.addressSnapshot);
+    if (
+      !decryptedAddress ||
+      typeof decryptedAddress !== 'object' ||
+      Array.isArray(decryptedAddress)
+    ) {
+      throw new BadRequestException('订单收件地址格式错误，请检查数据完整性');
+    }
+    const addr = decryptedAddress as Record<string, any>;
+    const addressText = String(addr.address ?? addr.text ?? '').trim();
+    if (!addressText) {
+      throw new BadRequestException('订单收件地址缺失');
+    }
+    const parsed = parseChineseAddress(addressText);
+
+    // 3. 商品描述（取首件）
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId, companyId },
+      select: { quantity: true, sku: { select: { product: { select: { title: true } } } } },
+    });
+    const cargoDesc = items
+      .map((i) => i.sku?.product?.title || '商品')
+      .slice(0, 3)
+      .join(', ');
+
+    // 4. 调 SF createOrder
+    const orderResult = await this.sfExpress.createOrder({
+      orderId: `${orderId}_${companyId}`,
+      sender: {
+        name: cContact?.name || company.name,
+        tel: cContact?.phone || company.servicePhone || '',
+        province: cAddr.province,
+        city: cAddr.city,
+        district: cAddr.district || '',
+        detail: cAddr.detail || '',
+      },
+      receiver: {
+        name: String(addr.name ?? ''),
+        tel: String(addr.phone ?? ''),
+        province: parsed.province || '',
+        city: parsed.city || '',
+        district: parsed.district || '',
+        // parseChineseAddress 不含 detail；用原始地址文本作为详细地址
+        detail: addressText,
+      },
+      cargo: cargoDesc || '商品',
+      packageCount: 1,
+    });
+
+    // 5. 云打印 → OSS 持久化（失败不阻塞发货，参考 seller-shipping）
+    let waybillUrl: string | null = null;
+    try {
+      const printResult = await this.sfExpress.printWaybill(orderResult.waybillNo);
+      try {
+        const fetched = await fetchBinaryWithLimit(printResult.pdfUrl, {
+          maxBytes: 10 * 1024 * 1024,
+          timeoutMs: 15000,
+          allowedContentTypes: ['application/pdf', 'application/octet-stream'],
+        });
+        const uploaded = await this.uploadService.uploadBuffer(
+          fetched.buffer,
+          'waybills',
+          '.pdf',
+          'application/pdf',
+        );
+        waybillUrl = uploaded.url;
+      } catch (persistErr: any) {
+        this.logger.error(
+          `[admin] 面单 PDF OSS 持久化失败（waybillUrl 留空）: orderId=${orderId}, waybillNo=${orderResult.waybillNo}, err=${persistErr.message}`,
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`[admin] 面单打印失败（不阻塞发货）: ${err.message}`);
+    }
+
+    return {
+      waybillNo: orderResult.waybillNo,
+      sfOrderId: orderResult.sfOrderId,
+      waybillUrl,
+    };
   }
 
   /**

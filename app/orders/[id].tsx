@@ -14,7 +14,7 @@ import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
-import type { OrderItem } from '../../src/types';
+import type { OrderItem, OrderStatus } from '../../src/types';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -95,18 +95,18 @@ export default function OrderDetailScreen() {
   let primary: { label: string; onPress: () => void } | undefined;
   const secondary: Array<{ label: string; onPress: () => void }> = [];
 
+  // 付款后建单架构：无 PENDING_PAYMENT；订单存在即至少为 PAID
   switch (order.status) {
-    case 'pendingPay':
-      // F1 后流程不会有新的 pendingPay 订单；此分支仅兼容老数据
-      primary = { label: '已停用', onPress: () => show({ message: '历史订单不可支付，请重新下单', type: 'error' }) };
+    case 'PAID':
+      // 已付款待发货 — 仅允许取消（走退款）
       secondary.push({ label: '取消订单', onPress: handleCancel });
       break;
-    case 'shipping':
-    case 'delivered':
+    case 'SHIPPED':
+    case 'DELIVERED':
       primary = { label: '确认收货', onPress: handleConfirmReceive };
       secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
       break;
-    case 'completed':
+    case 'RECEIVED':
       primary = { label: '再次购买', onPress: () => show({ message: '功能即将上线', type: 'info' }) };
       break;
   }
@@ -115,7 +115,8 @@ export default function OrderDetailScreen() {
     secondary.push({ label: '查看售后', onPress: () => router.push('/orders/after-sale') });
   }
 
-  if (order.status === 'afterSale' && order.afterSaleStatus === 'shipped') {
+  // 售后中且换货已发出 → 主操作改为"确认收到换货"
+  if (order.afterSaleStatus === 'shipped') {
     primary = { label: '确认收到换货', onPress: handleConfirmReplacement };
   }
 
@@ -127,7 +128,7 @@ export default function OrderDetailScreen() {
   const latestEvent = summary?.latestEventMessage
     ? { message: summary.latestEventMessage, time: summary.latestEventTime ?? '' }
     : (shipments?.[0]?.trackingEvents?.[0] ?? null);
-  const showLogistics = ['pendingShip', 'shipping', 'delivered', 'completed'].includes(order.status);
+  const showLogistics = (['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as OrderStatus[]).includes(order.status);
 
   // 按 companyId 分组商品
   const groups = new Map<string, OrderItem[]>();
@@ -155,9 +156,9 @@ export default function OrderDetailScreen() {
         <StatusHero
           status={order.status}
           isVipPackage={isVip}
-          countdownExpiresAt={order.status === 'delivered' && autoReceiveAt ? autoReceiveAt : undefined}
-          countdownPrefix={order.status === 'delivered' ? '还剩' : undefined}
-          subtitle={order.status === 'pendingShip' ? '商家正在打包，预计 24 小时内发出' : undefined}
+          countdownExpiresAt={order.status === 'DELIVERED' && autoReceiveAt ? autoReceiveAt : undefined}
+          countdownPrefix={order.status === 'DELIVERED' ? '还剩' : undefined}
+          subtitle={order.status === 'PAID' ? '商家正在打包，预计 24 小时内发出' : undefined}
         />
 
         {/* ② Logistics card */}

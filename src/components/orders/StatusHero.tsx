@@ -14,23 +14,21 @@ interface Props {
 }
 
 const STATUS_GRADIENTS: Record<OrderStatus, [string, string]> = {
-  pendingPay: ['#FF6B35', '#FF8C42'],
-  pendingShip: ['#3B82F6', '#60A5FA'],
-  shipping: ['#3B82F6', '#60A5FA'],
-  delivered: ['#3B82F6', '#60A5FA'],
-  afterSale: ['#DC2626', '#EF4444'],
-  completed: ['#2E7D32', '#4CAF50'],
-  canceled: ['#9CA3AF', '#D1D5DB'],
+  PAID: ['#3B82F6', '#60A5FA'],
+  SHIPPED: ['#3B82F6', '#60A5FA'],
+  DELIVERED: ['#3B82F6', '#60A5FA'],
+  RECEIVED: ['#2E7D32', '#4CAF50'],
+  CANCELED: ['#9CA3AF', '#D1D5DB'],
+  REFUNDED: ['#DC2626', '#EF4444'],
 };
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  pendingPay: '待付款',
-  pendingShip: '待发货',
-  shipping: '运输中',
-  delivered: '待收货',
-  afterSale: '售后中',
-  completed: '已完成',
-  canceled: '已取消',
+  PAID: '待发货',
+  SHIPPED: '运输中',
+  DELIVERED: '待收货',
+  RECEIVED: '已完成',
+  CANCELED: '已取消',
+  REFUNDED: '已退款',
 };
 
 export function StatusHero({ status, isVipPackage, subtitle, countdownExpiresAt, countdownPrefix }: Props) {
@@ -50,7 +48,7 @@ export function StatusHero({ status, isVipPackage, subtitle, countdownExpiresAt,
       {countdownExpiresAt ? (
         <Countdown
           expiresAt={countdownExpiresAt}
-          format={status === 'delivered' ? 'days' : 'mm:ss'}
+          format={status === 'DELIVERED' ? 'days' : 'mm:ss'}
           prefix={countdownPrefix}
           style={[typography.caption, { color: 'rgba(255,255,255,0.9)', marginTop: 4 }]}
         />

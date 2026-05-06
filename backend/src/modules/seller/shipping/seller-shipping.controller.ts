@@ -192,6 +192,8 @@ export class SellerShippingController {
   /**
    * 取消面单
    * DELETE /seller/orders/:orderId/waybill
+   *
+   * Bug 75 联动: OPERATOR 能生面单 / 确认发货后，也应能取消面单（防发错单卡死）
    */
   @SellerAudit({
     action: 'CANCEL_WAYBILL',
@@ -200,6 +202,7 @@ export class SellerShippingController {
     targetIdParam: 'params.orderId',
   })
   @UseGuards(SellerAuthGuard, SellerRoleGuard)
+  @SellerRoles('OWNER', 'MANAGER', 'OPERATOR')
   @Delete(':orderId/waybill')
   cancelWaybill(
     @CurrentSeller('companyId') companyId: string,

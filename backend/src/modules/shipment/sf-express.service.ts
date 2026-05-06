@@ -65,7 +65,7 @@ export type SfMappedStatus =
   | 'DELIVERED'
   | 'EXCEPTION';
 
-/** 顺丰推送解析结果 */
+/** 顺丰推送解析结果（按 mailno 分组的单个 payload） */
 export interface SfPushPayload {
   trackingNo: string;
   status: SfMappedStatus;
@@ -92,6 +92,7 @@ export class SfExpressService {
   private readonly callbackUrl: string;
   private readonly templateCode: string;
   private readonly allowE2eMock: boolean;
+  private readonly pushSecret: string;
 
   /**
    * 顺丰 opCode → 系统 ShipmentStatus 映射
@@ -152,6 +153,25 @@ export class SfExpressService {
       this.sfEnv !== 'PROD' &&
       process.env.NODE_ENV !== 'production' &&
       this.configService.get<string>('SF_ALLOW_E2E_MOCK', 'false') === 'true';
+
+    // Bug 87: 路由推送 webhook 用 URL secret token 防伪造
+    // SF 没有签名机制，靠 token 路径段双源信任（SF 后台 + .env 独立泄露才能伪造）
+    this.pushSecret = this.configService.get<string>('SF_PUSH_SECRET', '');
+
+    // 生产环境必须配置 SF_PUSH_SECRET，否则推送链路全失效
+    if (
+      process.env.NODE_ENV === 'production' &&
+      this.sfEnv === 'PROD' &&
+      !this.pushSecret?.trim()
+    ) {
+      this.logger.error(
+        'SF_PUSH_SECRET 未配置，生产路由推送将全部失败 — 请在 .env 设置后重启',
+      );
+    } else if (!this.pushSecret?.trim()) {
+      this.logger.warn(
+        'SF_PUSH_SECRET 未配置，路由推送 token 校验将一律拒绝',
+      );
+    }
 
     // Bug 71: 启动期校验 templateCode 必须以 clientCode 结尾（顺丰自动加 _<clientCode> 后缀）
     if (this.clientCode && this.templateCode) {
@@ -484,52 +504,58 @@ export class SfExpressService {
   // ─── 推送回调解析 ─────────────────────────────────────
 
   /**
-   * 解析顺丰推送回调数据
-   * 顺丰推送格式：body 中包含 msgData JSON 字符串
-   * msgData 内含 waybillNo + routeList
+   * 解析顺丰路由推送负载
+   *
+   * 真实结构（沙箱实证 2026-05-05）:
+   *   { Body: { WaybillRoute: [{ mailno, acceptTime, acceptAddress, remark, opCode, id, orderid, ...}] } }
+   *
+   * 没有签名包裹（msgData/timestamp/msgDigest 不存在），认证靠 URL token（Bug 87）。
+   * 单次推送可包含多个不同 mailno 的路由（最多 10 条），按 mailno 分组成多个 SfPushPayload。
    */
-  parsePushPayload(body: any): SfPushPayload | null {
+  parsePushPayload(body: any): SfPushPayload[] {
     try {
-      let msgData = body?.msgData;
-      if (typeof msgData === 'string') {
-        try {
-          msgData = JSON.parse(msgData);
-        } catch {
-          this.logger.warn('顺丰推送 msgData 解析失败');
-          return null;
-        }
+      const routes: any[] = body?.Body?.WaybillRoute ?? [];
+      if (!Array.isArray(routes) || routes.length === 0) {
+        this.logger.warn('顺丰推送 Body.WaybillRoute 为空或非数组');
+        return [];
       }
 
-      if (!msgData) {
-        this.logger.warn('顺丰推送缺少 msgData');
-        return null;
+      // 按 mailno 分组（同一运单的多条路由合并到一个 payload）
+      const grouped = new Map<string, any[]>();
+      for (const r of routes) {
+        const mailno = String(r?.mailno ?? r?.mailNo ?? '').trim();
+        if (!mailno) continue;
+        if (!grouped.has(mailno)) grouped.set(mailno, []);
+        grouped.get(mailno)!.push(r);
       }
 
-      const waybillNo = msgData.waybillNo || msgData.mailNo || '';
-      if (!waybillNo) {
-        this.logger.warn('顺丰推送缺少 waybillNo');
-        return null;
+      const payloads: SfPushPayload[] = [];
+      for (const [mailno, rs] of grouped) {
+        // 按 acceptTime 倒序，最新事件在前
+        rs.sort((a, b) =>
+          String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
+        );
+        const latest = rs[0];
+        const rawOpCode = String(latest?.opCode ?? '');
+        const status =
+          SfExpressService.OP_CODE_MAP[rawOpCode] || 'IN_TRANSIT';
+
+        const events = rs.map((r: any) => ({
+          time: String(r.acceptTime ?? ''),
+          message: String(r.remark ?? r.acceptAddress ?? ''),
+          location: r.acceptAddress ? String(r.acceptAddress) : undefined,
+          opCode: String(r.opCode ?? ''),
+        }));
+
+        payloads.push({ trackingNo: mailno, status, events });
       }
 
-      const routeList: any[] = msgData.routeList || msgData.routes || [];
-      const latestRoute = routeList[0];
-      const rawOpCode = String(latestRoute?.opCode ?? '');
-      const status =
-        SfExpressService.OP_CODE_MAP[rawOpCode] || 'IN_TRANSIT';
-
-      const events = routeList.map((r: any) => ({
-        time: r.acceptTime || '',
-        message: r.remark || r.acceptAddress || '',
-        location: r.acceptAddress || undefined,
-        opCode: String(r.opCode ?? ''),
-      }));
-
-      return { trackingNo: waybillNo, status, events };
+      return payloads;
     } catch (error: any) {
       this.logger.error(
         `解析顺丰推送数据异常: ${error.message || error}`,
       );
-      return null;
+      return [];
     }
   }
 
@@ -579,31 +605,27 @@ export class SfExpressService {
   }
 
   /**
-   * 验证顺丰推送签名
-   * Bug 2B: 推送签名与请求签名同算法 —— Base64(MD5(URLEncode(msgData + timestamp + checkWord)))
-   * timestamp 来自请求体或 Service-Timestamp header
+   * Bug 87: 验证顺丰推送 URL token（webhook 标准实践，timingSafeEqual 防时序攻击）
+   * 双源信任：token 同时存在于 SF 后台 + 服务器 .env，独立泄露才能伪造
    */
-  verifyPushSignature(
-    msgData: string,
-    timestamp: string,
-    pushDigest?: string,
-  ): boolean {
-    if (!pushDigest) {
-      this.logger.warn('顺丰推送缺少签名');
+  verifyPushToken(token: string): boolean {
+    if (!this.pushSecret?.trim()) {
+      this.logger.error('SF_PUSH_SECRET 未配置，无法验证推送 token');
       return false;
     }
-    if (!msgData || !timestamp) {
-      this.logger.warn('顺丰推送缺少 msgData 或 timestamp');
+    if (typeof token !== 'string' || token.length === 0) {
       return false;
     }
-
-    const expected = this.buildVerifyCode(msgData, timestamp);
-    // 时序安全比较（避免理论时序泄露；MD5+Base64 实际可利用性低，但零成本加固）
-    const expectedBuf = Buffer.from(expected, 'utf8');
-    const actualBuf = Buffer.from(pushDigest, 'utf8');
-    if (expectedBuf.length !== actualBuf.length) {
+    try {
+      const expectedBuf = Buffer.from(this.pushSecret, 'utf8');
+      const actualBuf = Buffer.from(token, 'utf8');
+      if (expectedBuf.length !== actualBuf.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(expectedBuf, actualBuf);
+    } catch (e: any) {
+      this.logger.warn(`timingSafeEqual 异常（防御性 fallback）: ${e?.message || e}`);
       return false;
     }
-    return crypto.timingSafeEqual(expectedBuf, actualBuf);
   }
 }

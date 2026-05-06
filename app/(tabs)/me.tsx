@@ -22,13 +22,14 @@ import { monoFamily } from '../../src/theme/typography';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
 
-// 订单快捷入口（问题单复用 afterSale 状态，后端 issueFlag 已移除）
-// pendingPay 暂时移除（Phase 2 重构为"未完成支付"）
-const orderEntries: Array<{ id: OrderStatus; label: string; icon: string }> = [
-  { id: 'pendingShip', label: '待发货', icon: 'package-variant' },
-  { id: 'shipping', label: '待收货', icon: 'truck-delivery-outline' },
-  { id: 'afterSale', label: '换货/售后', icon: 'headset' },
-  { id: 'completed', label: '已完成', icon: 'check-circle-outline' },
+// 订单快捷入口
+// 付款后建单架构：无 PENDING_PAYMENT 状态，未完成支付走 CheckoutSession 续付横幅
+// 售后入口为 UI 派生（'afterSaleList' 路由参数），不是真实 OrderStatus
+const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; icon: string }> = [
+  { id: 'PAID', label: '待发货', icon: 'package-variant' },
+  { id: 'SHIPPED', label: '待收货', icon: 'truck-delivery-outline' },
+  { id: 'afterSaleList', label: '换货/售后', icon: 'headset' },
+  { id: 'RECEIVED', label: '已完成', icon: 'check-circle-outline' },
 ];
 
 // 工具网格
@@ -316,9 +317,11 @@ export default function MeScreen() {
               ) : null}
               {orderEntries.map((entry) => {
                 const count = orderCounts
-                  ? entry.id === 'shipping'
-                    ? (orderCounts.shipping ?? 0) + (orderCounts.delivered ?? 0)
-                    : (orderCounts[entry.id] ?? 0)
+                  ? entry.id === 'SHIPPED'
+                    ? (orderCounts.SHIPPED ?? 0) + (orderCounts.DELIVERED ?? 0)
+                    : entry.id === 'afterSaleList'
+                      ? 0 // 售后为派生态，由独立查询提供角标（暂留 0）
+                      : (orderCounts[entry.id as OrderStatus] ?? 0)
                   : 0;
                 return (
                   <Pressable
