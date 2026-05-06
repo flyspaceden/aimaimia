@@ -4,7 +4,7 @@ import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
@@ -77,11 +77,20 @@ export default function MeScreen() {
   //   queryKey: ['me-checkin'],
   //   queryFn: () => CheckInRepo.getStatus(),
   // });
-  const { data: orderCountData } = useQuery({
+  const { data: orderCountData, refetch: refetchOrderCounts } = useQuery({
     queryKey: ['me-order-counts'],
     queryFn: () => OrderRepo.getStatusCounts(),
     enabled: isLoggedIn,
+    refetchInterval: 60_000, // 60s 轮询（仅角标，比详情页省）
+    refetchOnWindowFocus: true,
   });
+
+  // 切回「我的」tab / 从订单页 back 回来时立即刷新角标
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isLoggedIn) refetchOrderCounts();
+    }, [isLoggedIn, refetchOrderCounts]),
+  );
   const { data: pendingData } = useQuery({
     queryKey: ['pending-checkout'],
     queryFn: () => OrderRepo.getPendingCheckout(),
