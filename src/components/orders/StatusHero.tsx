@@ -24,7 +24,7 @@ const STATUS_GRADIENTS: Record<OrderStatus, [string, string]> = {
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   PAID: '待发货',
-  SHIPPED: '运输中',
+  SHIPPED: '已发货',
   DELIVERED: '待收货',
   RECEIVED: '已完成',
   CANCELED: '已取消',
