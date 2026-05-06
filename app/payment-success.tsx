@@ -67,7 +67,8 @@ export default function PaymentSuccessScreen() {
     }
     if (orderCount > 1) {
       // 多商户：跳订单列表，带"待发货"筛选直达刚下的订单
-      router.replace('/orders?status=pendingShip');
+      // Bug 74 hotfix: orders 页接受 schema 大写枚举，pendingShip → PAID
+      router.replace('/orders?status=PAID');
       return;
     }
     if (firstOrderId) {

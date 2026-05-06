@@ -12,8 +12,10 @@ export class AdminShipDto {
   @IsBoolean()
   useCarrierAuto?: boolean;
 
+  /** 承运商编码；useCarrierAuto=true 时可省略默认 'SF'，false 时必传 */
+  @IsOptional()
   @IsString()
-  carrierCode: string;
+  carrierCode?: string;
 
   @IsOptional()
   @IsString()

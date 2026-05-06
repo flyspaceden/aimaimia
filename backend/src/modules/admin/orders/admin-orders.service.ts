@@ -282,6 +282,16 @@ export class AdminOrdersService {
           '自动取号目前只支持顺丰（SF），其他承运商请关闭自动模式手填运单号',
         );
       }
+      // Phase 2 hotfix: 防孤儿单 — 已有 waybillNo 拒绝重复取号
+      // 卖家可能已经在商家中心生成过面单；此时再取一次会留下旧 SF 单号且不取消
+      const existing = await this.prisma.shipment.findUnique({
+        where: { orderId_companyId: { orderId, companyId } },
+      });
+      if (existing?.waybillNo) {
+        throw new BadRequestException(
+          `该订单已生成面单（${existing.waybillNo.slice(0, 4)}****），请先在商家中心取消旧面单再重新发货`,
+        );
+      }
       const auto = await this.createSfWaybillForAdminShip(orderId, companyId, order);
       resolvedCarrierCode = 'SF';
       resolvedCarrierName = '顺丰速运';
@@ -289,9 +299,9 @@ export class AdminOrdersService {
       resolvedSfOrderId = auto.sfOrderId;
       resolvedWaybillUrl = auto.waybillUrl;
     } else {
-      // 手填路径必须传 trackingNo
-      if (!dto.trackingNo || !dto.carrierName) {
-        throw new BadRequestException('手填发货必须提供 carrierName 和 trackingNo');
+      // 手填路径：carrierCode + carrierName + trackingNo 三者必传
+      if (!dto.carrierCode || !dto.carrierName || !dto.trackingNo) {
+        throw new BadRequestException('手填发货必须提供 carrierCode / carrierName / trackingNo');
       }
       resolvedTrackingNo = dto.trackingNo;
     }
@@ -413,6 +423,8 @@ export class AdminOrdersService {
     }
 
     // 2. 收件人信息（解密订单地址快照；兼容明文/加密 envelope）
+    // checkout.service.ts:377 写入字段：recipientName / phone / regionText / regionCode /
+    //                                    province / city / district / detail
     const decryptedAddress = decryptJsonValue(order.addressSnapshot);
     if (
       !decryptedAddress ||
@@ -422,11 +434,25 @@ export class AdminOrdersService {
       throw new BadRequestException('订单收件地址格式错误，请检查数据完整性');
     }
     const addr = decryptedAddress as Record<string, any>;
-    const addressText = String(addr.address ?? addr.text ?? '').trim();
-    if (!addressText) {
-      throw new BadRequestException('订单收件地址缺失');
+    const recipientName = String(addr.recipientName ?? addr.name ?? '').trim();
+    const recipientPhone = String(addr.phone ?? addr.tel ?? '').trim();
+    if (!recipientName || !recipientPhone) {
+      throw new BadRequestException('订单收件人姓名/电话缺失，请检查数据完整性');
     }
-    const parsed = parseChineseAddress(addressText);
+    // 优先用结构化字段；不存在则解析 regionText
+    let recvProvince = String(addr.province ?? '').trim();
+    let recvCity = String(addr.city ?? '').trim();
+    let recvDistrict = String(addr.district ?? '').trim();
+    if (!recvProvince || !recvCity) {
+      const parsed = parseChineseAddress(String(addr.regionText ?? ''));
+      recvProvince = recvProvince || parsed.province || '';
+      recvCity = recvCity || parsed.city || '';
+      recvDistrict = recvDistrict || parsed.district || '';
+    }
+    const recvDetail = String(addr.detail ?? '').trim();
+    if (!recvProvince || !recvCity || !recvDetail) {
+      throw new BadRequestException('订单收件地址不完整（省/市/详细）');
+    }
 
     // 3. 商品描述（取首件）
     const items = await this.prisma.orderItem.findMany({
@@ -450,13 +476,12 @@ export class AdminOrdersService {
         detail: cAddr.detail || '',
       },
       receiver: {
-        name: String(addr.name ?? ''),
-        tel: String(addr.phone ?? ''),
-        province: parsed.province || '',
-        city: parsed.city || '',
-        district: parsed.district || '',
-        // parseChineseAddress 不含 detail；用原始地址文本作为详细地址
-        detail: addressText,
+        name: recipientName,
+        tel: recipientPhone,
+        province: recvProvince,
+        city: recvCity,
+        district: recvDistrict,
+        detail: recvDetail,
       },
       cargo: cargoDesc || '商品',
       packageCount: 1,

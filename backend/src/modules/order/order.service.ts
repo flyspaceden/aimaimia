@@ -124,19 +124,24 @@ export class OrderService {
       carrierCode?: string | null;
       carrierName?: string | null;
       trackingNo?: string | null;
+      waybillNo?: string | null;
       status?: string | null;
       shippedAt?: Date | null;
       deliveredAt?: Date | null;
       trackingEvents?: Array<{ occurredAt?: Date | null; message?: string | null; location?: string | null }>;
     }>,
   ) {
-    const normalized = (shipments || []).map((shipment) => ({
+    const normalized = (shipments || []).map((shipment) => {
+      // Phase 2 hotfix: 自动取号路径写 waybillNo（trackingNo=null）；手填路径写 trackingNo
+      // App 显示统一用「waybillNo || trackingNo」，否则自动取号订单 App 看不到运单号
+      const effectiveTrackingNo = shipment.waybillNo || shipment.trackingNo || null;
+      return {
       id: shipment.id,
       companyId: shipment.companyId || null,
       carrierCode: shipment.carrierCode || '',
       carrierName: shipment.carrierName || '',
-      trackingNo: shipment.trackingNo || null,
-      trackingNoMasked: maskTrackingNo(shipment.trackingNo || null),
+      trackingNo: effectiveTrackingNo,
+      trackingNoMasked: maskTrackingNo(effectiveTrackingNo),
       status: shipment.status || 'INIT',
       shippedAt: shipment.shippedAt?.toISOString() || null,
       deliveredAt: shipment.deliveredAt?.toISOString() || null,
@@ -145,7 +150,8 @@ export class OrderService {
         message: event.message || '',
         location: event.location || undefined,
       })),
-    }));
+      };
+    });
 
     if (normalized.length === 0) {
       return {
@@ -320,6 +326,7 @@ export class OrderService {
             select: {
               status: true,
               trackingNo: true,
+              waybillNo: true,
               carrierCode: true,
               carrierName: true,
               shippedAt: true,

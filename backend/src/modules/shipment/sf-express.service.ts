@@ -159,17 +159,19 @@ export class SfExpressService {
     this.pushSecret = this.configService.get<string>('SF_PUSH_SECRET', '');
 
     // 生产环境必须配置 SF_PUSH_SECRET，否则推送链路全失效
+    // 改为 throw 阻止启动 — 推送静默失败 N 小时后才发现的代价远高于一次部署告警
     if (
       process.env.NODE_ENV === 'production' &&
       this.sfEnv === 'PROD' &&
       !this.pushSecret?.trim()
     ) {
-      this.logger.error(
-        'SF_PUSH_SECRET 未配置，生产路由推送将全部失败 — 请在 .env 设置后重启',
-      );
+      const msg =
+        'SF_PUSH_SECRET 未配置，生产环境路由推送将全部 401 — 拒绝启动，请在 .env 设置 32 位随机十六进制 secret 后重试';
+      this.logger.error(msg);
+      throw new Error(msg);
     } else if (!this.pushSecret?.trim()) {
       this.logger.warn(
-        'SF_PUSH_SECRET 未配置，路由推送 token 校验将一律拒绝',
+        'SF_PUSH_SECRET 未配置（非生产环境），路由推送 token 校验将一律拒绝',
       );
     }
 
