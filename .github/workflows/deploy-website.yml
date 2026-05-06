@@ -93,8 +93,11 @@ jobs:
 
   deploy-website:
     needs: detect-changes
-    # 锁死只有 main 才能部署 website，避免 staging 推送覆盖生产产物（与 deploy-huahai 同处理）
-    if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'
+    # staging 测试期：暂时允许 staging 也部署 website（覆盖到同一目录 /www/wwwroot/website/，
+    # 但 build 时 VITE_API_BASE_URL 会自动按分支切换：main→prod API，staging→test API）。
+    # 用途：让 app.ai-maimai.com 测试期跟着 staging 走，与 preview APK 同环境（test-api + test_aimaimai）。
+    # v1.0 上线前需重新加回 `&& github.ref == 'refs/heads/main'` 锁住生产部署。
+    if: needs.detect-changes.outputs.website == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
