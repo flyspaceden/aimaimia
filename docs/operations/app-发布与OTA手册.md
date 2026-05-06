@@ -201,7 +201,7 @@ Expo CDN 部署完成
 
 ---
 
-## 六、当前 App 实际状态（2026-05-04）
+## 六、当前 App 实际状态（2026-05-06）
 
 ### EAS 配置
 
@@ -232,13 +232,15 @@ Expo CDN 部署完成
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `5da9c55c-0e69-4eb5-af77-3d0c39a4b0ef` | R-RS01-07 响应式适配 sprint 全套（11 commits）+ 2 hotfix（产品详情/VIP 礼包/售后页 漏 OEM 兜底） | **当前生效** ✅，commit `694331a`（2026-05-04）|
-| `6d987eeb-d0d0-42ed-be0e-c774ed113a40` | 推荐链路全套修复（P1-P4 + 三轮 review）+ 🚨 cookie 路径一次性消费 hotfix | 历史，commit `e573f14` |
-| 中间历史 OTA（含引入 cookie 每启动弹浏览器 bug 的版本） | DDL 48h 重试窗口（commit `58427b9`） | ❌ 已被 hotfix 覆盖 |
-| `450d71de-8959-4957-ae18-8367bb5872af` | wechat 别名 v2 + 双层 try/catch | 历史 |
-| `14729584-7862-4b7d-a447-82f5e95d5462` | 紧急回滚 OTA#2 白屏 | 中间版本 |
-| `e22141eb-4d21-4509-8217-2c33a264058a` | wechat 别名注入（顶层版本） | ❌ 引发白屏，已回滚 |
-| `92035e48-aad4-4616-a16c-73ccd4a2676f` | DDL 延迟 + referral 兜底 + splash 文案 | 稳定基线 |
+| `6494573b-e0a5-489f-b5b0-12a8b01220b2` | 「我的」tab 订单快捷入口补漏「已发货」第 5 项 | **当前生效** ✅，commit `fe34eb2`（2026-05-06）|
+| `01f8a817-9810-4d39-b496-de05763d2ebc` | 订单 5 tab 拆分：待发货/已发货/待收货/售后/已完成（之前 SHIPPED+DELIVERED 合并在「待收货」），配套后端 SHIPPED→exact match | commit `9d8dcfa`（2026-05-06）|
+| `01c1a667-aed8-4fed-a5bd-f068c966b6c6` | SHIPPED 标签从"运输中"改"已发货"（OrderCard+StatusHero）+ 删物流追踪页"产地实景联动"占位 | commit `6eb6d19`（2026-05-06）|
+| `4e713e73-900f-4900-b813-b418ec663607` | Phase 2 状态枚举大写迁移（OrderStatus lowerCamel→大写）+ findById 不再返 'afterSale' | commit `8d3200f`（2026-05-06）配套后端 STATUS_MAP 删除 |
+| `75b52ea0-9b9e-41d2-92f5-6f8eaa1ba907` | 重发带回 alipay sandbox flag（修真机付款"商家订单参数异常"）| commit `39600a1`（2026-05-06）|
+| `5da9c55c-0e69-4eb5-af77-3d0c39a4b0ef` | R-RS01-07 响应式适配 sprint 全套 + 2 hotfix | commit `694331a`（2026-05-04）|
+| `6d987eeb-d0d0-42ed-be0e-c774ed113a40` | 推荐链路全套修复 + cookie 路径一次性消费 hotfix | commit `e573f14`（2026-05-04）|
+| `450d71de-8959-4957-ae18-8367bb5872af` | wechat 别名 v2 | 历史 |
+| `92035e48-aad4-4616-a16c-73ccd4a2676f` | DDL 延迟 + referral 兜底 + splash | 稳定基线 |
 
 ### Production Branch
 

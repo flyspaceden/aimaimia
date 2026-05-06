@@ -1,8 +1,57 @@
 # 快递物流链路实施文档
 
-> **状态**: 顺丰丰桥直连已完成，快递100代码已删除
-> **最后更新**: 2026-04-12
+> **状态**: 顺丰丰桥直连已完成，**2026-05-06 真机端到端 staging 验收通过**，待生产部署
+> **最后更新**: 2026-05-06
 > **权威范围**: 快递物流链路的开发进度、顺丰直连改造计划、上线前配置清单
+
+---
+
+## 📌 2026-05-06 真机端到端 staging 验收 ✅
+
+**整套链路打通**：App 真机下单 → admin 自动取号 → SF API 创建运单 → 顺丰沙箱「全流程调测」推送 → 我方 callback 解析 → DB 入库 → App 物流时间线显示 → 买家确认收货 → 分润成功。
+
+### 验证清单
+
+| 环节 | 实证 | 状态 |
+|---|---|---|
+| App 真机下单 + 支付宝沙箱付款 | 订单 cmoudefr0000vt7jxryw00cl6 等 | ✅ |
+| admin 后台「自动取号」 | waybillNo=SF7444703624576 | ✅ |
+| SF URL secret token 鉴权 | `/sf/callback/<32位hex>` + crypto.timingSafeEqual | ✅ |
+| WaybillRoute 推送解析 | `parseWaybillRoutes` opCode 50/30/44/80 | ✅ |
+| OrderState 推送解析 | `parseOrderStates` orderStateCode | ✅ |
+| 时间字段 ISO 兼容 | `safeParseTime` 替换 "YYYY-MM-DD HH:mm:ss" → "T" 分隔 | ✅ |
+| Shipment + TrackingEvent 入库 | Serializable tx + 去重 | ✅ |
+| App 订单详情物流卡片 + 时间线 | `app/orders/track.tsx` 显示「您的快件已签收」 | ✅ |
+| Order.status SHIPPED → DELIVERED | SF push 已签收触发整单 DELIVERED | ✅ |
+| 买家「确认收货」 → RECEIVED | App 详情页底部按钮 → status=RECEIVED | ✅ |
+| 分润 allocateForOrder 成功 | NORMAL_TREE 路径 + 普通树落位 + 上溯第 k 层祖辈 + 5 池入账 | ✅ |
+| Dead letter 自动恢复 | BonusCompensationService cron heal 6 笔历史失败订单 | ✅ |
+
+### 验收期间发现 + 修复的 bug（commits 全在 staging 分支）
+
+| Bug | 影响 | 修复 commit |
+|-----|------|----|
+| AllocationRuleType enum 缺 VIP_PLATFORM_SPLIT | VIP 用户买普通商品收货时分润全失败 | `8d3200f` migration 补齐 |
+| 普通树 assignNormalTreeNodeInline 用 nodeCount 推算位置不容忍空隙 | 普通用户首次入树 P2002 失败 | `243a0f3` 改成扫描真实占用 |
+| admin 详情页运单号空白（只读 trackingNo 不读 waybillNo）| 自动取号订单 admin 看不到面单号 | `7c506f7` + `10518cf` |
+| admin ship Modal 自动取号 10-30 秒无 loading | UX 用户重复点击 | `37e63cd` |
+| sender 地址 detail 缺失 SF 抛 20004 黑盒错误 | 发货失败排查难 | `66836ca` 前置校验 |
+| seller / admin 公司信息详细地址未必填 | 测试环境留下空数据 | `1870327` 表单层必填 |
+| SF 时间格式空格分隔触发 Invalid Date | 推送处理 500 ERR + 重试 | `e4e738f` safeParseTime |
+| SF OrderState 推送 body 不含 WaybillRoute → warn 刷屏 | 沙箱测试看不懂 | `1870327` 双格式分派 |
+| App OrderCard / StatusHero SHIPPED 显"运输中" | 与 admin"已发货"不一致 | `6eb6d19` 统一为"已发货" |
+| 物流追踪页"产地实景联动"占位卡 | 占位无内容 | `baee231` 删除 |
+| 「我的订单」5 tab 拆出"已发货"独立 tab | 之前 SHIPPED+DELIVERED 合并在「待收货」| `9d8dcfa` |
+| 「我的」tab 订单快捷入口同步 5 项 | 漏改 | `fe34eb2` |
+
+### 待生产部署（推 main 时同步）
+
+- [ ] `prisma migrate deploy` 自动应用 VIP_PLATFORM_SPLIT migration（破坏性低，PG `ALTER TYPE ADD VALUE IF NOT EXISTS`）
+- [ ] 生产 .env 配 `SF_PUSH_SECRET=<32 位 hex>`（与沙箱不同 secret，存密码本）
+- [ ] 顺丰生产推送 URL 改为 `https://api.ai-maimai.com/api/v1/shipments/sf/callback/<生产 token>`
+- [ ] 申请顺丰生产月结账户 + 切换 `SF_MONTHLY_ACCOUNT`
+- [ ] 切回 `SF_ENV=PROD`（之前是 SANDBOX）
+- [ ] 验证：真机下单 → admin 发货 → 实际物流跟踪到 3-5 单签收
 
 ---
 

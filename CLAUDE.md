@@ -40,6 +40,7 @@
 - `docs/issues/conflict1.md` — 后端全面审查冲突清单 v2（C/H/M/L 问题重评 + 管理端/卖家端新发现 + 需求引入新问题，**后端修复排程权威来源**）
 - `docs/issues/tofix.md` ~ `docs/issues/tofix7.md` — 各轮代码审查问题清单
 - `docs/issues/app-tpfix1.md` — 2026-04-29 build-4-29.apk 真机测试发现的 9 个 bug 修复清单（账号绑定/图片/Tab/键盘/地址/弹窗/支付宝/消息路由/AI语音，含 file:line + 修复方案 + 部署批次，**真机测试 bug 修复排程权威来源**）
+- `docs/issues/app-tofix3.md` — 2026-05-04 物流链路全链路 Bug 清单（顺丰丰桥直连签名/字段错、面单 PDF 持久化、商家通知、买家 Push、卡单监控、退货链路、运费规则、三端 UI 完整性，67 项分 6 Phase，**物流链路修复排程权威来源**）
 - `docs/issues/普通用户分润后端问题.md` — 分润后端问题
 
 ### 安全与合规 (`docs/security/`)
@@ -58,6 +59,7 @@
 - `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
 - `docs/operations/app-发布与OTA手册.md` — App 发布与 OTA 操作手册（OTA vs Build 决策表、EAS 命令速查、推送前 checklist、当前 App 状态、回滚流程、测试人员分发，**App 维度操作权威来源**，每次 eas build / update 后必须更新第六章）
 - `docs/operations/商户操作手册.md` — 商户端操作手册（企业入驻 + 登录 + 卖家中心全页面 + 商品/订单/售后/员工/账号安全全流程，**测试阶段商户操作权威来源**）
+- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（11 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 / 第三方回调切换 / 前端三端 / 买家 App 切换 / 数据库迁移 / push main 步骤 / 验证清单 / 回滚预案 / 首次切换额外动作，**测试→生产切换权威来源，每次发布必查**）
 
 ### 参考资料 (`docs/reference/`)
 - `docs/reference/apikey.md` — API 密钥说明

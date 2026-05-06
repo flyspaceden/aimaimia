@@ -1,10 +1,76 @@
-# 物流链路全链路 Bug 修复清单（2026-05-04 / 2026-05-05 更新）
+# 物流链路全链路 Bug 修复清单（2026-05-04 → 2026-05-06 真机端到端 staging 验收完成）
 
-> **生成日期**: 2026-05-04（2026-05-05 沙箱实证后大幅修订）
+> **生成日期**: 2026-05-04（2026-05-05 沙箱实证后大幅修订；2026-05-06 真机端到端打通）
 > **触发场景**: 用户付款链路打通后开始测真机物流，发现整条快递链路（从买家下单到顺丰发货到买家签收到退换货）基本没真实跑通过。文档 `docs/features/shipping.md` 写"顺丰直连 2026-04-12 已完成"，但实际审查后端代码 + 三端前端发现：签名算法错、字段对不上、业务流缺、监控空、前端 PDF 都打不出来
 > **审计方式**: 逐文件 file:line 读取 + 与 `docs/features/shipping.md` / `backend/prisma/schema.prisma` / 顺丰丰桥 API 文档交叉比对，2026-05-05 用顺丰开放平台 API 测试工具沙箱真单实证关键 P0
 > **状态说明**: ⬜ 待修 | 🔧 修复中 | ✅ 代码已修 | ⏭️ 待部署/迁移 | ❓ 需真机/沙箱验证 | ⏸️ 暂缓
 > **真相源**: 顺丰丰桥（https://qiao.sf-express.com）+ 顺丰月结管家（https://v.sf-express.com）+ 本仓库的 `backend/src/modules/shipment/` 全部源码 + 2026-05-05 沙箱抓包
+
+## 🎯 2026-05-06 真机端到端 staging 验收 ✅
+
+**Phase 1（14 项）+ Phase 2（11 主线 + 7 hotfix-1 + 7 hotfix-2 + 3 hotfix-3 + 3 hotfix-4 + 第六轮外审）真机全程跑通**。
+
+### 已验证主链路
+
+| 环节 | 命令/操作 | 结果 |
+|---|---|---|
+| App 真机下单 + 支付宝沙箱付款 | `EXPO_PUBLIC_ALIPAY_SANDBOX=true` OTA | ✅ |
+| admin 后台「自动取号」点击 | Switch 默认开 + 转圈 loading | ✅ 拿到 SF7444703624576 |
+| 顺丰沙箱 token 路径鉴权 | `/sf/callback/<32位hex>` | ✅ |
+| WaybillRoute / OrderState 双格式解析 | `parseWaybillRoutes` / `parseOrderStates` | ✅ |
+| 时间字段安全解析 | `safeParseTime` 替换非 ISO 格式 | ✅ |
+| Shipment + TrackingEvent 入库 | `handleSfCallback` 在 Serializable tx 中 | ✅ |
+| App 物流时间线显示 | `app/orders/track.tsx` | ✅ |
+| SHIPPED → DELIVERED 状态推进 | SF push opCode=80 → 整单已签收 | ✅ |
+| DELIVERED → RECEIVED 买家确认收货 | App「确认收货」按钮 | ✅ |
+| 商家地址必填校验 | seller + admin 公司信息 | ✅ |
+| 普通树插入算法（容忍位置空隙）| `assignNormalTreeNodeInline` 重写扫描真实空位 | ✅ 修了 P2002 |
+| VIP_PLATFORM_SPLIT enum 补齐 | `20260506010000_add_vip_platform_split_allocation_rule` | ✅ |
+
+### 真机验收期间发现并修复的额外 bug
+
+| Bug | 位置 | Commit |
+|-----|------|--------|
+| admin 详情页运单号显示空白（只读 trackingNo 不读 waybillNo）| `admin/src/pages/orders/detail.tsx:242` | `7c506f7` + `10518cf` |
+| admin ship Modal 自动取号 10-30 秒无反馈用户多次点击 | `admin/src/pages/orders/index.tsx` | `37e63cd` |
+| sender 地址 detail 缺失时 SF 抛 20004 黑盒错误 | `admin-orders.service.ts:452` | `66836ca` |
+| seller / admin 公司信息详细地址未必填 | seller `company/index.tsx` + admin `companies/detail.tsx` | `1870327` |
+| SF OrderState 推送 body 不含 WaybillRoute → warn 刷屏 | `parsePushPayload` 双格式分派 | `1870327` |
+| SF 时间格式 "YYYY-MM-DD HH:mm:ss" Node 解析 Invalid Date | `safeParseTime` | `e4e738f` |
+| App OrderCard / StatusHero SHIPPED 显"运输中"与 admin"已发货"不一致 | OrderCard.tsx + StatusHero.tsx | `6eb6d19` |
+| 物流追踪页"产地实景联动"占位卡需删除 | `app/orders/track.tsx` | `baee231` |
+| 「我的订单」5 tab 拆出"已发货"独立 + 后端 SHIPPED→exact match | `app/orders/index.tsx` + `order.service.ts:291` | `9d8dcfa` |
+| 「我的」tab 订单快捷入口同步 5 项 | `app/(tabs)/me.tsx:28` | `fe34eb2` |
+| 普通树节点插入算法 nodeCount 推算位置失败（P2002）| `bonus-allocation.service.ts:850` | `243a0f3` |
+| AllocationRuleType enum 缺 VIP_PLATFORM_SPLIT（历史遗漏）| Prisma migration | `8d3200f` |
+
+### 验收期间生效的 OTA（preview branch）
+
+按时间倒序，最新优先：
+
+| Group ID | Commit | 内容 |
+|---|---|---|
+| `6494573b-e0a5-489f-b5b0-12a8b01220b2` | `fe34eb2` | 「我的」tab 订单入口补漏「已发货」第 5 项 |
+| `01f8a817-9810-4d39-b496-de05763d2ebc` | `9d8dcfa` | 订单 5 tab 拆已发货/待收货 |
+| `01c1a667-aed8-4fed-a5bd-f068c966b6c6` | `6eb6d19` | SHIPPED 显已发货 + 删产地实景占位 |
+| `4e713e73-900f-4900-b813-b418ec663607` | `8d3200f` | Phase 2 状态枚举大写迁移 |
+| `75b52ea0-9b9e-41d2-92f5-6f8eaa1ba907` | `39600a1` | 重发带回 alipay sandbox flag |
+
+### 待 P1 测试
+
+- 卖家自助发货路径（seller 后台），主路径
+- 多商户订单（一个 CheckoutSession 拆多家）
+- 退货 / 退款流程
+
+### 未来生产部署 checklist（暂记）
+
+- 推 main 时 `prisma migrate deploy` 会自动应用 VIP_PLATFORM_SPLIT migration
+- 顺丰生产推送 URL 改回 `https://api.ai-maimai.com/api/v1/shipments/sf/callback/<token>`
+- 生产 .env 要配 SF_PUSH_SECRET（与沙箱不同 secret）
+- 申请顺丰生产月结账户 + 切换 SF_MONTHLY_ACCOUNT
+- 切回 SF_ENV=PROD（之前是 SANDBOX）
+
+---
 
 ## 📌 2026-05-05 21:30 Phase 2 计划（真机端到端测试阻塞项盘点）
 

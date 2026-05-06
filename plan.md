@@ -328,8 +328,15 @@
 **第三批完成判定**:
 - [x] `grep Kuaidi100` 零匹配（旧文件已删）— ✅ 2026-04-12
 - [x] TypeScript 零错误 + 371 测试全通过 — ✅ 2026-04-12
-- [ ] 沙箱全通过 — ⏳ 待域名备案
-- [ ] 生产 3-5 单真实发货 OK — ⏳ 待沙箱通过
+- [x] **沙箱全通过** — ✅ 2026-05-05（6/22 核心 API 协议级实证 + 真实 waybillNo SF7444703612423）
+- [x] **真机端到端 staging 验收** — ✅ 2026-05-06（详见 `docs/issues/app-tofix3.md` § 2026-05-06 真机端到端 staging 验收）
+  - PAID → SHIPPED → DELIVERED → RECEIVED 完整状态机
+  - WaybillRoute + OrderState 双格式推送解析
+  - URL secret token 鉴权（`/sf/callback/:token`）
+  - 普通树插入算法重写（容忍位置空隙，修 P2002）
+  - VIP_PLATFORM_SPLIT enum migration 补齐
+  - 6 笔死信订单全部自动 heal
+- [ ] 生产 3-5 单真实发货 OK — ⏳ 待推 main + 切 SF_ENV=PROD + 申请生产月结
 - [ ] 稳定 7 天无 incident — ⏳ 待生产上线
 
 ---

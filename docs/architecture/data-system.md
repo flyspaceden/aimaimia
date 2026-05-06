@@ -808,7 +808,7 @@ Invoice
 - id (uuid, PK)
 - triggerType (enum: ORDER_PAID/ORDER_RECEIVED/REFUND)
 - orderId (uuid nullable FK Order)
-- ruleType (enum: NORMAL_BROADCAST/VIP_UPSTREAM/PLATFORM_SPLIT)
+- ruleType (enum: NORMAL_BROADCAST(@deprecated)/NORMAL_TREE/VIP_UPSTREAM/PLATFORM_SPLIT/VIP_PLATFORM_SPLIT/ZERO_PROFIT) — 与 schema.prisma `AllocationRuleType` 严格对齐；2026-05-06 补 migration `20260506010000_add_vip_platform_split_allocation_rule` 修历史 init migration 漏 VIP_PLATFORM_SPLIT 的 bug
 - ruleVersion (text)
 - bucketKey (text nullable)
 - meta (jsonb) — 快照：profit/splitRatios/rewardAmount/x/vipIndex/ancestorUserId...（历史记录可能含旧字段 rebateRatio/rebatePool/rewardPool，向后兼容保留）
@@ -885,7 +885,7 @@ Invoice
 - VipActivationStatus: PENDING, ACTIVATING, SUCCESS, FAILED, RETRYING
 - RewardAccountType: RED_PACKET, NORMAL_RED_PACKET, POINTS, FUND_POOL, PLATFORM_PROFIT, INDUSTRY_FUND, CHARITY_FUND, TECH_FUND, RESERVE_FUND
 - AllocationTriggerType: ORDER_PAID, ORDER_RECEIVED, REFUND
-- AllocationRuleType: NORMAL_BROADCAST(@deprecated), NORMAL_TREE, VIP_UPSTREAM, PLATFORM_SPLIT, ZERO_PROFIT
+- AllocationRuleType: NORMAL_BROADCAST(@deprecated), NORMAL_TREE, VIP_UPSTREAM, VIP_PLATFORM_SPLIT, PLATFORM_SPLIT, ZERO_PROFIT
 - RewardEntryType: FREEZE, RELEASE, WITHDRAW, VOID, ADJUST
 - RewardStatus: FROZEN, AVAILABLE, WITHDRAWN, VOIDED
 
