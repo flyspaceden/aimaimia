@@ -204,6 +204,14 @@ export class ShipmentService {
 
           // 写入物流轨迹事件（去重）
           if (events?.length) {
+            // SF 时间格式 "2026-05-07 04:05:27"（空格分隔）在某些 Node 版本无法直接 parse
+            // 统一替换为 ISO 8601 T 分隔；空串/非法值兜底为当前时间
+            const safeParseTime = (raw: string | undefined | null): Date => {
+              if (!raw || typeof raw !== 'string') return new Date();
+              const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+              const d = new Date(normalized);
+              return isNaN(d.getTime()) ? new Date() : d;
+            };
             const existingEvents = await tx.shipmentTrackingEvent.findMany({
               where: { shipmentId: shipment.id },
               select: { occurredAt: true, message: true },
@@ -212,7 +220,7 @@ export class ShipmentService {
               existingEvents.map((e) => `${e.occurredAt.toISOString()}|${e.message}`),
             );
             const newEvents = events.filter((e) => {
-              const key = `${new Date(e.time).toISOString()}|${e.message}`;
+              const key = `${safeParseTime(e.time).toISOString()}|${e.message}`;
               return !existingKeys.has(key);
             });
 
@@ -220,7 +228,7 @@ export class ShipmentService {
               await tx.shipmentTrackingEvent.createMany({
                 data: newEvents.map((e) => ({
                   shipmentId: shipment.id,
-                  occurredAt: new Date(e.time),
+                  occurredAt: safeParseTime(e.time),
                   message: e.message,
                   location: e.location || null,
                   statusCode: status,
