@@ -301,6 +301,8 @@ export interface Order {
     companyId?: string;
     carrierCode?: string;
     carrierName?: string;
+    waybillNo?: string;
+    waybillNoMasked?: string;
     trackingNo?: string;
     trackingNoMasked?: string;
     status?: string;
@@ -311,6 +313,8 @@ export interface Order {
     companyId?: string;
     carrierCode?: string;
     carrierName?: string;
+    waybillNo?: string;
+    waybillNoMasked?: string;
     trackingNo?: string;
     trackingNoMasked?: string;
     status?: string;

@@ -206,6 +206,7 @@ export class AdminOrdersService {
     const shipments = (order.shipments || []).map((shipment) => ({
       ...shipment,
       trackingNoMasked: maskTrackingNo(shipment.trackingNo),
+      waybillNoMasked: maskTrackingNo(shipment.waybillNo),
     }));
 
     // 映射字段以匹配前端 Order 类型

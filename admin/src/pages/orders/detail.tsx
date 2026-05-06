@@ -239,7 +239,15 @@ export default function OrderDetailPage() {
             columns={[
               { title: '包裹', render: (_value, _record, index) => `包裹 ${index + 1}` },
               { title: '快递公司', dataIndex: 'carrierName', render: (value: string | undefined) => value || '-' },
-              { title: '运单号', render: (_value, record) => record.trackingNoMasked || record.trackingNo || '-' },
+              {
+                title: '运单号',
+                render: (_value, record) =>
+                  record.waybillNoMasked ||
+                  record.waybillNo ||
+                  record.trackingNoMasked ||
+                  record.trackingNo ||
+                  '-',
+              },
               {
                 title: '状态',
                 dataIndex: 'status',
