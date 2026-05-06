@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
@@ -32,7 +32,22 @@ export default function OrderDetailScreen() {
     queryKey: ['order', orderId],
     queryFn: () => OrderRepo.getById(orderId),
     enabled: isLoggedIn && Boolean(orderId),
+    // 进行中的订单 30s 轮询；终态（已完成/已取消/已退款）停止轮询省流量
+    refetchInterval: (query) => {
+      const result = query.state.data;
+      const status = result?.ok ? result.data.status : null;
+      if (!status || ['RECEIVED', 'CANCELED', 'REFUNDED'].includes(status)) return false;
+      return 30_000;
+    },
+    refetchOnWindowFocus: true,
   });
+
+  // 切回前台 / 从其他页面 back 回详情时立即刷新
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
   if (isLoading) {
     return (

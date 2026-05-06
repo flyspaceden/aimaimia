@@ -11,7 +11,7 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { Skeleton, useToast } from '../../src/components/feedback';
@@ -118,11 +118,21 @@ export default function OrderTrackScreen() {
   const [expandedPkgs, setExpandedPkgs] = useState<Set<number>>(new Set());
 
   // 从 OrderRepo 获取缓存的物流数据（初始加载）
-  const { data: shipmentData, isLoading: shipmentLoading } = useQuery({
+  // 物流页打开 = 用户主动想看最新进度，30s 轮询不停（除非整单已签收/取消/退款由调用方判断）
+  const { data: shipmentData, isLoading: shipmentLoading, refetch: refetchShipment } = useQuery({
     queryKey: ['shipment', orderId],
     queryFn: () => OrderRepo.getShipment(orderId!),
     enabled: isLoggedIn && Boolean(orderId),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
+
+  // 切回前台 / back 回物流页立即刷新
+  useFocusEffect(
+    React.useCallback(() => {
+      refetchShipment();
+    }, [refetchShipment]),
+  );
 
   const shipment = shipmentData?.ok ? shipmentData.data : null;
   const packages = shipment?.shipments || [];

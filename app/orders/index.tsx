@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
@@ -101,7 +101,15 @@ export default function OrdersScreen() {
       return loaded < total ? page + 1 : undefined;
     },
     enabled: isLoggedIn,
+    refetchOnWindowFocus: true,
   });
+
+  // 切回前台 / back 回订单列表立即刷新当前 tab
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
   const listError = isError ? (error as unknown as AppError) : null;
   const orders: Order[] = data?.pages.flatMap((p) => p.items) ?? [];
