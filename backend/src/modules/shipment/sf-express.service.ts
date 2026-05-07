@@ -598,6 +598,19 @@ export class SfExpressService {
       const rawOpCode = String(latest?.opCode ?? '');
       const status = this.mapOpCodeSafe(rawOpCode);
 
+      // Bug 93 外审 8 防御性 warn：8000（订单结束）作为最新事件且历史中未见 80（签收）/ 99（退回）
+      // → SF 行为异常（跳过终态事件直接推 8000），订单可能卡 IN_TRANSIT 永不到 DELIVERED
+      if (rawOpCode === '8000') {
+        const hasTerminalEvent = rs.some(
+          (r) => String(r.opCode ?? '') === '80' || String(r.opCode ?? '') === '99',
+        );
+        if (!hasTerminalEvent) {
+          this.logger.warn(
+            `SF 异常：mailno=${mailno} 收到 8000(订单结束) 但历史无 80(签收)/99(退回)，订单可能卡 IN_TRANSIT。请人工核查 SF 推送日志`,
+          );
+        }
+      }
+
       const events = rs.map((r: any) => ({
         time: String(r.acceptTime ?? ''),
         message: String(r.remark ?? r.acceptAddress ?? ''),

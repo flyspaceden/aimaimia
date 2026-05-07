@@ -153,6 +153,96 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
     expect(result!.events[0].opCode).toBe('80');
   });
 
+  it('opCode 8000 单独推送（无 80/99 历史）→ IN_TRANSIT + 防御性 warn 提示 SF 异常', () => {
+    const svc = createService();
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF7444703069240',
+            acceptTime: '2026-05-07 10:00:00',
+            opCode: '8000',
+            remark: '订单结束',
+            id: 'eol-1',
+          },
+        ],
+      },
+    });
+    // 状态保持 IN_TRANSIT（不强行升级 DELIVERED 避免退回订单 false positive）
+    expect(payloads[0].status).toBe('IN_TRANSIT');
+    // 警告日志暴露 SF 异常行为
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('收到 8000(订单结束) 但历史无 80(签收)/99(退回)'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('opCode 80 → 8000 完整正常签收流程：最新 8000 → IN_TRANSIT，但单调性保护下 Shipment.status 已是 DELIVERED 不会降级', () => {
+    const svc = createService();
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF1',
+            acceptTime: '2026-05-07 09:00:00',
+            opCode: '80',
+            remark: '已签收',
+            id: '1',
+          },
+          {
+            mailno: 'SF1',
+            acceptTime: '2026-05-07 10:00:00',
+            opCode: '8000',
+            remark: '订单结束',
+            id: '2',
+          },
+        ],
+      },
+    });
+    // 最新事件是 8000 → IN_TRANSIT；但 handleSfCallback 单调性会拒降级（已 DELIVERED）
+    expect(payloads[0].status).toBe('IN_TRANSIT');
+    // 历史中有 80，不触发 warn
+    const warnCalls = warnSpy.mock.calls.filter((c) =>
+      String(c[0] ?? '').includes('订单结束'),
+    );
+    expect(warnCalls).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('opCode 99 → 8000 退回流程：8000 不会强升 DELIVERED，避免退回订单 false positive', () => {
+    const svc = createService();
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF1',
+            acceptTime: '2026-05-07 09:00:00',
+            opCode: '99',
+            remark: '已退回',
+            id: '1',
+          },
+          {
+            mailno: 'SF1',
+            acceptTime: '2026-05-07 10:00:00',
+            opCode: '8000',
+            remark: '订单结束',
+            id: '2',
+          },
+        ],
+      },
+    });
+    expect(payloads[0].status).toBe('IN_TRANSIT');
+    // 历史中有 99 也不触发 warn
+    const warnCalls = warnSpy.mock.calls.filter((c) =>
+      String(c[0] ?? '').includes('订单结束'),
+    );
+    expect(warnCalls).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
   it('未知 opCode 回退到 IN_TRANSIT 并记录 warn 日志', () => {
     const svc = createService();
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
