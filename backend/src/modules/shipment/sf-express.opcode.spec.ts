@@ -54,7 +54,7 @@ describe('SfExpressService.OP_CODE_MAP', () => {
     expect(SfExpressService.OP_CODE_MAP['70']).toBe('IN_TRANSIT');
   });
 
-  it('opCode 8000（订单结束）显式映射避免 warn 刷屏，实际无害（单调性保护守住）', () => {
+  it('opCode 8000（订单结束）只作为生命周期兜底映射，不覆盖同组业务终态', () => {
     expect(SfExpressService.OP_CODE_MAP['8000']).toBe('IN_TRANSIT');
   });
 });
@@ -153,7 +153,55 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
     expect(result!.events[0].opCode).toBe('80');
   });
 
-  it('opCode 8000 单独推送（无 80/99 历史）→ IN_TRANSIT + 防御性 warn 提示 SF 异常', () => {
+  it('queryRoutes 最新 8000 但历史有 80 时，整体状态仍按签收 DELIVERED', async () => {
+    const svc = createService();
+    jest.spyOn(svc as any, 'callApi').mockResolvedValueOnce({
+      msgData: {
+        routeResps: [
+          {
+            mailNo: 'SF1234567890',
+            routes: [
+              { acceptTime: '2026-05-07 09:00:00', remark: '已签收', opCode: '80' },
+              { acceptTime: '2026-05-07 10:00:00', remark: '订单结束', opCode: '8000' },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = await svc.queryRoutes('SF1234567890');
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('DELIVERED');
+    expect(result!.rawOpCode).toBe('80');
+    expect(result!.events[0].opCode).toBe('8000');
+  });
+
+  it('queryRoutes 最新 8000 但历史有 99 时，整体状态仍按退回 EXCEPTION', async () => {
+    const svc = createService();
+    jest.spyOn(svc as any, 'callApi').mockResolvedValueOnce({
+      msgData: {
+        routeResps: [
+          {
+            mailNo: 'SF1234567890',
+            routes: [
+              { acceptTime: '2026-05-07 09:00:00', remark: '已退回', opCode: '99' },
+              { acceptTime: '2026-05-07 10:00:00', remark: '订单结束', opCode: '8000' },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = await svc.queryRoutes('SF1234567890');
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('EXCEPTION');
+    expect(result!.rawOpCode).toBe('99');
+    expect(result!.events[0].opCode).toBe('8000');
+  });
+
+  it('opCode 8000 单独推送（无业务终态历史）→ IN_TRANSIT + 防御性 warn 提示 SF 异常', () => {
     const svc = createService();
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
     const payloads = svc.parsePushPayload({
@@ -173,12 +221,12 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
     expect(payloads[0].status).toBe('IN_TRANSIT');
     // 警告日志暴露 SF 异常行为
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('收到 8000(订单结束) 但历史无 80(签收)/99(退回)'),
+      expect.stringContaining('收到 8000(订单结束) 但历史无业务终态事件'),
     );
     warnSpy.mockRestore();
   });
 
-  it('opCode 80 → 8000 完整正常签收流程：最新 8000 → IN_TRANSIT，但单调性保护下 Shipment.status 已是 DELIVERED 不会降级', () => {
+  it('opCode 80 → 8000 完整正常签收流程：8000 是生命周期标记，整体状态仍为 DELIVERED', () => {
     const svc = createService();
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
     const payloads = svc.parsePushPayload({
@@ -201,8 +249,7 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
         ],
       },
     });
-    // 最新事件是 8000 → IN_TRANSIT；但 handleSfCallback 单调性会拒降级（已 DELIVERED）
-    expect(payloads[0].status).toBe('IN_TRANSIT');
+    expect(payloads[0].status).toBe('DELIVERED');
     // 历史中有 80，不触发 warn
     const warnCalls = warnSpy.mock.calls.filter((c) =>
       String(c[0] ?? '').includes('订单结束'),
@@ -211,7 +258,7 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
     warnSpy.mockRestore();
   });
 
-  it('opCode 99 → 8000 退回流程：8000 不会强升 DELIVERED，避免退回订单 false positive', () => {
+  it('opCode 99 → 8000 退回流程：8000 不覆盖退回异常，整体状态仍为 EXCEPTION', () => {
     const svc = createService();
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
     const payloads = svc.parsePushPayload({
@@ -234,7 +281,7 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
         ],
       },
     });
-    expect(payloads[0].status).toBe('IN_TRANSIT');
+    expect(payloads[0].status).toBe('EXCEPTION');
     // 历史中有 99 也不触发 warn
     const warnCalls = warnSpy.mock.calls.filter((c) =>
       String(c[0] ?? '').includes('订单结束'),

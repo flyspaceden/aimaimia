@@ -125,11 +125,21 @@ export class SfExpressService {
     '21': 'IN_TRANSIT',
     '204': 'IN_TRANSIT',
 
-    // ─── 显式映射避免 warn 刷屏（实际状态由单调性保护守住）─────
+    // ─── 生命周期标记（不是业务终态）────────────────────
     // 8000 = 订单结束（psvmc.cn 实证），通常在 80 签收之后才推送；
-    // 单调性保护已确保 DELIVERED 不会被降级，这里 IN_TRANSIT 不会触发实际状态变化
+    // 单独出现时只能保守视为 IN_TRANSIT；同组内若存在业务终态，状态由业务终态派生。
     '8000': 'IN_TRANSIT',
   };
+
+  private static readonly LIFECYCLE_ONLY_OP_CODES = new Set(['8000']);
+
+  private static readonly BUSINESS_TERMINAL_OP_CODES = new Set([
+    '80',
+    '44',
+    '99',
+    '36',
+    '54',
+  ]);
 
   /**
    * 安全映射 opCode：未知 opCode 默认 IN_TRANSIT 并 warn
@@ -142,6 +152,35 @@ export class SfExpressService {
       `未知 SF opCode '${rawOpCode}'，回退 IN_TRANSIT。请联系顺丰商务确认其含义并补入 OP_CODE_MAP`,
     );
     return 'IN_TRANSIT';
+  }
+
+  /**
+   * 从同一运单的一组路由中派生业务状态。
+   * routes 必须已按 acceptTime 倒序排序；8000 是 SF 生命周期标记，不覆盖同组 80/99 等业务终态。
+   */
+  private deriveRouteStatus(routes: any[]): { status: SfMappedStatus; rawOpCode: string } {
+    const latestRoute = routes[0];
+    const latestRawOpCode = String(latestRoute?.opCode ?? '');
+    if (!SfExpressService.LIFECYCLE_ONLY_OP_CODES.has(latestRawOpCode)) {
+      return {
+        rawOpCode: latestRawOpCode,
+        status: this.mapOpCodeSafe(latestRawOpCode),
+      };
+    }
+
+    const businessRoutes = routes.filter(
+      (r) => !SfExpressService.LIFECYCLE_ONLY_OP_CODES.has(String(r?.opCode ?? '')),
+    );
+    const terminalRoute = businessRoutes.find((r) =>
+      SfExpressService.BUSINESS_TERMINAL_OP_CODES.has(String(r?.opCode ?? '')),
+    );
+    const statusSource = terminalRoute ?? businessRoutes[0] ?? latestRoute;
+    const rawOpCode = String(statusSource?.opCode ?? '');
+
+    return {
+      rawOpCode,
+      status: this.mapOpCodeSafe(rawOpCode),
+    };
   }
 
   constructor(private configService: ConfigService) {
@@ -515,10 +554,7 @@ export class SfExpressService {
         String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
       );
 
-      // 取最新事件的 opCode 作为整体状态
-      const latestRoute = sortedRoutes[0];
-      const rawOpCode = String(latestRoute.opCode ?? '');
-      const status = this.mapOpCodeSafe(rawOpCode);
+      const { rawOpCode, status } = this.deriveRouteStatus(sortedRoutes);
 
       const events = sortedRoutes.map(
         (r: any) => ({
@@ -595,18 +631,19 @@ export class SfExpressService {
         String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
       );
       const latest = rs[0];
-      const rawOpCode = String(latest?.opCode ?? '');
-      const status = this.mapOpCodeSafe(rawOpCode);
+      const latestRawOpCode = String(latest?.opCode ?? '');
+      const { status } = this.deriveRouteStatus(rs);
 
-      // Bug 93 外审 8 防御性 warn：8000（订单结束）作为最新事件且历史中未见 80（签收）/ 99（退回）
+      // Bug 93 外审 8 防御性 warn：8000（订单结束）作为最新事件且历史中未见业务终态事件
       // → SF 行为异常（跳过终态事件直接推 8000），订单可能卡 IN_TRANSIT 永不到 DELIVERED
-      if (rawOpCode === '8000') {
+      if (latestRawOpCode === '8000') {
         const hasTerminalEvent = rs.some(
-          (r) => String(r.opCode ?? '') === '80' || String(r.opCode ?? '') === '99',
+          (r) =>
+            SfExpressService.BUSINESS_TERMINAL_OP_CODES.has(String(r.opCode ?? '')),
         );
         if (!hasTerminalEvent) {
           this.logger.warn(
-            `SF 异常：mailno=${mailno} 收到 8000(订单结束) 但历史无 80(签收)/99(退回)，订单可能卡 IN_TRANSIT。请人工核查 SF 推送日志`,
+            `SF 异常：mailno=${mailno} 收到 8000(订单结束) 但历史无业务终态事件，订单可能卡 IN_TRANSIT。请人工核查 SF 推送日志`,
           );
         }
       }
