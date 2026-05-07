@@ -2747,6 +2747,87 @@ if (order.checkoutSessionId) {
 
 ---
 
+### Bug 93 ⚠️ CRITICAL（2026-05-06 P1-3 物流真机测试发现 → 2026-05-06 已修方案 A，待真机重测）— SF `OP_CODE_MAP` 关键映射错误，揽收事件被误判为已送达
+
+**状态**: 🔧 代码已修（最小补丁），单测覆盖；待真机沙箱重测整链路 + 等 SF 商务给完整 opCode 对照表后做完整修订
+
+**位置**: `backend/src/modules/shipment/sf-express.service.ts:101-127` `OP_CODE_MAP` 静态映射
+
+**症状**:
+
+用户在 SF 丰桥沙箱「全流程调测(速运)」中：
+1. 点完阶段一的 4 个调测事件（小哥上门揽件 / 已发货完成 等）
+2. 跳过阶段二（运输中转）
+3. 点击阶段三
+
+→ App / 卖家中心 / 管理后台 三端订单状态立即变成「已送达」。
+
+按 `docs/features/refund.md` 规则 1，**退货 7 天窗口从 DELIVERED 起算**，意味着用户揽收当天就开始倒计时，**比预期少 1-3 天**。生产 v1.0 上线后即触发，构成法律合规风险。
+
+**真因**:
+
+`OP_CODE_MAP` 两处关键映射反了（与顺丰丰桥 PDF 实证 + 第三方对接经验**完全相反**）：
+
+| opCode | 真实含义（SF 官方 PDF 实证）| 当前映射（错）| 应映射 |
+|--------|--------------------------|-------------|--------|
+| **50** | 已收件 / 揽收 | `DELIVERED` ❌ | `SHIPPED` |
+| **80** | 已签收 | `EXCEPTION` ❌ | `DELIVERED` |
+
+证据：
+- 丰桥统一接入平台对接规范 PDF (2019-05) line 2347: `"opcode": "50", "remark": "已派件"`、line 2353: `"opcode": "80", "remark": "已签收"`
+- 丰桥平台 API 接口规范 V3.8 PDF (2021-01) line 3146: `opcode="50" remark="已收件"`
+- 第三方对接经验 [psvmc.cn 2024-10](https://www.psvmc.cn/article/2024-10-04-express-inquiry-sf.html)：50=揽收, 80=签收
+- 注意：SF 不在公开 PDF 完整发布 opCode → 含义表，"可从顺丰商务人员处获取"
+
+**用户实际触发链路**:
+1. 阶段一推送 opCode 50（揽收）→ 我们错映射 DELIVERED → Order.status = DELIVERED + 写 `deliveredAt`
+2. 阶段二跳过、阶段三推送任何 opCode → CAS 检查发现 Order 已 DELIVERED，更新被 no-op
+3. 表面"跳过阶段二、阶段三导致已送达"实际是阶段一就已经触发的 bug
+
+**影响范围（生产真单）**:
+
+| 项 | 影响 |
+|----|------|
+| 退货 7 天窗口起算点 | 揽收当天起算（应为签收当天）→ **少 1-3 天**，法律合规风险 |
+| App 物流追踪页 | 用户揽收后立即显示"已送达" → 投诉 |
+| 真生产环境 opCode 80（已签收）| 被映射 EXCEPTION → 真实签收事件被当成异常 |
+| 自动确认收货 cron `autoReceiveAt` | 从 SHIPPED 起算，但实际从未到 SHIPPED 直接 DELIVERED → 时序异常 |
+| 历史 dim-F「opCode=80 → DELIVERED ✅」记录 | **bug 假性通过**，真实推送是 50 被误映射，不是 80 |
+
+**修复方案 A（最小补丁，已实施）**:
+
+```ts
+// backend/src/modules/shipment/sf-express.service.ts:101-127
+'50': 'SHIPPED',     // 已收件 / 揽收 (Bug 93，从 DELIVERED 改)
+'80': 'DELIVERED',   // 已签收 (Bug 93，从 EXCEPTION 改)
+// 其他 30/31/36/44/54/60/70/99 标"推断映射，待 SF 商务确认"
+// 留观 10/21/204（官方 PDF 未出现，疑似当年抄错，先保留避免回归）
+// 加 mapOpCodeSafe() helper：未知 opCode 警告日志 + 回退 IN_TRANSIT
+```
+
+**测试覆盖**:
+
+新增 `backend/src/modules/shipment/sf-express.opcode.spec.ts` (9 cases):
+- OP_CODE_MAP 50→SHIPPED / 80→DELIVERED / 44→DELIVERED / 36/54/99→EXCEPTION / 30/31/60/70→IN_TRANSIT
+- parsePushPayload 集成：50 单事件→SHIPPED / 80 单事件→DELIVERED / 多事件按时间倒序最新决定 / 未知 opCode 9999 警告 + IN_TRANSIT 兜底
+
+更新 `backend/src/modules/shipment/sf-express.service.spec.ts` 4 处 buggy 期望（原来期望 50→DELIVERED 是和当年错误代码同步抄写的）。
+
+**待办**:
+
+- [ ] 真机沙箱重测整链路：阶段一→阶段二→阶段三 应分别看到 SHIPPED → IN_TRANSIT → DELIVERED 三段状态
+- [ ] 找 SF 商务对接人索要完整 opCode → 含义对照表（excel/word），按表逐条核对推断映射
+- [ ] 拿到完整表后做 Bug 93 修订 v2，同步删除疑似抄错的 10 / 21 / 204
+- [ ] 监控生产环境未知 opCode warn 日志，发现新 opCode 立即补入
+
+**风险点**:
+
+1. **30/31/36/44/54/60/70/99 推断映射可能错**：未实证，靠常识 + 现有代码注释推断。错了会影响 IN_TRANSIT 显示和 EXCEPTION 告警，但不会像 50/80 那样直接跳错状态机
+2. **10/21/204 留观**：保留以防有真实推送依赖，但官方 PDF 没看到这些 opCode，可能是当年某个非标自定义路由
+3. **需重跑 dim-F 真机测试**：dim-F 记录里的「opCode=80 → DELIVERED ✅」是 bug 假通过，整条链路要重测
+
+---
+
 ### Phase 1: P0 阻断级（沙箱实证后已收敛）— 估时 1.5-2 天
 
 > 目标：让我们的代码用真凭证跑通顺丰沙箱（createOrder + printWaybill + 推送回调）。沙箱已用顺丰自带工具实证可达，剩下的是把代码改对。

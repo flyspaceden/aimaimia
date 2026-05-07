@@ -1113,6 +1113,16 @@
 
 - [✅] **R-RS16** 售后退款路径金额修正（Bug 90b）— redemption 不恢复本身保持保守策略；已修真实资金缺口：售后退款金额按商品占比分摊奖励抵扣 + 平台红包 + VIP 折扣，避免退款超过用户实付。同步 App 预估和订单 DTO，详见 `docs/issues/app-tofix3.md` Bug 90b 修正说明
 
+### Phase 1.6 — SF opCode 映射修订（Bug 93，CRITICAL，2026-05-07 P1-3 真机沙箱发现）
+
+- [🔧] **R-RS17** SF `OP_CODE_MAP` 关键映射错误修复（Bug 93）— 沙箱"揽收即送达"
+  - 真因：50/80 关键映射反着写。50=揽收（应 SHIPPED）被映射 DELIVERED；80=签收（应 DELIVERED）被映射 EXCEPTION
+  - 影响：生产单付款 → 卖家发货（揽收）→ 立即显示"已送达" → 退货 7 天窗口少 1-3 天，**法律合规风险，绝对阻塞 v1.0**
+  - 修法：最小补丁 50→SHIPPED / 80→DELIVERED + 加 `mapOpCodeSafe()` 未知 opCode 警告 + 单测覆盖（9 cases）
+  - 已更新历史 spec 4 处 buggy 期望（原期望与当年错误代码同步抄写）
+  - 待办：真机沙箱重测整链路；找 SF 商务索要完整 opCode 对照表后做 v2 修订
+  - 顺手发现：dim-F 历史「opCode=80 → DELIVERED ✅」记录是 bug 假性通过，整条链路要重测
+
 ### Phase 2 — App 端 + 文档收尾（待做）
 
 - [✅] **R-RS10** App `Alert` 二次确认弹窗 + 调用期 loading state（Bug 91）— `app/orders/[id].tsx` 已加确认提示、`cancelingRef` 防重复请求、按钮文案 `取消中...`
