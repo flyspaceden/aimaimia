@@ -1118,10 +1118,13 @@
 - [🔧] **R-RS17** SF `OP_CODE_MAP` 关键映射错误修复（Bug 93）— 沙箱"揽收即送达"
   - 真因：50/80 关键映射反着写。50=揽收（应 SHIPPED）被映射 DELIVERED；80=签收（应 DELIVERED）被映射 EXCEPTION
   - 影响：生产单付款 → 卖家发货（揽收）→ 立即显示"已送达" → 退货 7 天窗口少 1-3 天，**法律合规风险，绝对阻塞 v1.0**
-  - 修法：最小补丁 50→SHIPPED / 80→DELIVERED + 加 `mapOpCodeSafe()` 未知 opCode 警告 + 单测覆盖（9 cases）
-  - 已更新历史 spec 4 处 buggy 期望（原期望与当年错误代码同步抄写）
-  - 待办：真机沙箱重测整链路；找 SF 商务索要完整 opCode 对照表后做 v2 修订
-  - 顺手发现：dim-F 历史「opCode=80 → DELIVERED ✅」记录是 bug 假性通过，整条链路要重测
+  - 修法：最小补丁 50→SHIPPED / 80→DELIVERED + `mapOpCodeSafe()` 未知 opCode 警告
+  - 外审 5 加固：`queryRoutes` 显式按 acceptTime 倒序排序（原依赖 SF API 顺序不安全）
+  - 外审 6 加固：`Shipment.status` 单调性保护，DELIVERED 终态拒绝降级（原 OrderState 推送会把已签收单降级 IN_TRANSIT）
+  - 外审 7 加固：8000 订单结束 显式映射 IN_TRANSIT 避免 warn 刷屏（实际由单调性守住）
+  - 测试：sf-express.opcode.spec (11 cases) + shipment.service.spec 新增 2 cases + 历史 4+3 cases 修正
+  - 待办：真机沙箱重测整链路（应分段看到 SHIPPED → IN_TRANSIT → DELIVERED）；找 SF 商务索要完整 opCode 对照表后做 v2 修订
+  - 顺手发现：dim-F 历史「opCode=80 → DELIVERED ✅」是 bug 假性通过，整条链路待重测
 
 ### Phase 2 — App 端 + 文档收尾（待做）
 

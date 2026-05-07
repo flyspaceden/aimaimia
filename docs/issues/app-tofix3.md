@@ -2794,24 +2794,50 @@ if (order.checkoutSessionId) {
 | 自动确认收货 cron `autoReceiveAt` | 从 SHIPPED 起算，但实际从未到 SHIPPED 直接 DELIVERED → 时序异常 |
 | 历史 dim-F「opCode=80 → DELIVERED ✅」记录 | **bug 假性通过**，真实推送是 50 被误映射，不是 80 |
 
-**修复方案 A（最小补丁，已实施）**:
+**修复方案 A（最小补丁，已实施 + 外审 5/6/7 加固）**:
 
 ```ts
-// backend/src/modules/shipment/sf-express.service.ts:101-127
+// backend/src/modules/shipment/sf-express.service.ts OP_CODE_MAP
 '50': 'SHIPPED',     // 已收件 / 揽收 (Bug 93，从 DELIVERED 改)
 '80': 'DELIVERED',   // 已签收 (Bug 93，从 EXCEPTION 改)
+'8000': 'IN_TRANSIT', // 订单结束 — 显式映射避免 warn 刷屏（外审 7 加固）
 // 其他 30/31/36/44/54/60/70/99 标"推断映射，待 SF 商务确认"
 // 留观 10/21/204（官方 PDF 未出现，疑似当年抄错，先保留避免回归）
 // 加 mapOpCodeSafe() helper：未知 opCode 警告日志 + 回退 IN_TRANSIT
 ```
 
+**外审 5 加固 — `queryRoutes` 显式按 acceptTime 倒序**:
+
+`sf-express.service.ts:queryRoutes` 原代码注释「routes 按时间倒序」但实际无 sort，依赖 SF API 顺序是不安全假设。修订与 `parseWaybillRoutes` 一致：
+```ts
+const sortedRoutes = [...firstResp.routes].sort((a, b) =>
+  String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
+);
+const latestRoute = sortedRoutes[0];
+```
+
+**外审 6 加固 — `Shipment.status` 单调性保护**:
+
+`shipment.service.ts:handleSfCallback` 原 `tx.shipment.update` 无 CAS 守卫，导致 OrderState 推送（`parseOrderStates` 强制 IN_TRANSIT）会把已 DELIVERED 的 Shipment 降级。修订为：
+- 终态保护：`shipment.status === 'DELIVERED' && incoming !== 'DELIVERED'` → 跳过 update（仍写事件保留轨迹）
+- CAS 加固：`tx.shipment.updateMany({ where: { id, status: { not: 'DELIVERED' } }, ... })` 在事务内防竞态
+- 顺手收益：8000 订单结束 / 未知 opCode 走 IN_TRANSIT 都被终态保护拦截，无法降级 DELIVERED
+
+`Order.status` 那边本来就有 CAS 守卫（line 259 `where: { status: 'SHIPPED' }`），现在 Shipment 这边补齐，状态机两侧一致。
+
 **测试覆盖**:
 
-新增 `backend/src/modules/shipment/sf-express.opcode.spec.ts` (9 cases):
-- OP_CODE_MAP 50→SHIPPED / 80→DELIVERED / 44→DELIVERED / 36/54/99→EXCEPTION / 30/31/60/70→IN_TRANSIT
+新增 `backend/src/modules/shipment/sf-express.opcode.spec.ts` (11 cases):
+- OP_CODE_MAP 50→SHIPPED / 80→DELIVERED / 44→DELIVERED / 36/54/99→EXCEPTION / 30/31/60/70→IN_TRANSIT / 8000→IN_TRANSIT
 - parsePushPayload 集成：50 单事件→SHIPPED / 80 单事件→DELIVERED / 多事件按时间倒序最新决定 / 未知 opCode 9999 警告 + IN_TRANSIT 兜底
+- queryRoutes 显式排序：SF API 乱序返回 routes 时仍能取到最新事件 opCode
 
 更新 `backend/src/modules/shipment/sf-express.service.spec.ts` 4 处 buggy 期望（原来期望 50→DELIVERED 是和当年错误代码同步抄写的）。
+
+`backend/src/modules/shipment/shipment.service.spec.ts` 新增 2 cases + 修正 3 cases:
+- 已 DELIVERED Shipment 被 OrderState 推送 IN_TRANSIT 时 update/updateMany 都不调 + 事件仍写
+- CAS count=0（竞态期间被另路径推到 DELIVERED）→ 不抛错，正常返回
+- 修正：`prisma.shipment.update` → `prisma.shipment.updateMany` 断言匹配新 CAS 调用
 
 **待办**:
 
