@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -27,6 +27,8 @@ export default function OrderDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const [canceling, setCanceling] = React.useState(false);
+  const cancelingRef = React.useRef(false);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['order', orderId],
@@ -97,13 +99,37 @@ export default function OrderDetailScreen() {
     refetch();
   };
 
-  const handleCancel = async () => {
-    const r = await OrderRepo.cancelOrder(order.id);
-    if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
-    await queryClient.invalidateQueries({ queryKey: ['orders'] });
-    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-    show({ message: '已取消', type: 'success' });
-    refetch();
+  const executeCancel = async () => {
+    if (cancelingRef.current) return;
+    cancelingRef.current = true;
+    setCanceling(true);
+    try {
+      const r = await OrderRepo.cancelOrder(order.id);
+      if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
+      await queryClient.invalidateQueries({ queryKey: ['orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
+      show({ message: '已取消，退款将原路退回', type: 'success' });
+      refetch();
+    } finally {
+      cancelingRef.current = false;
+      setCanceling(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (canceling) return;
+    Alert.alert(
+      '确认取消订单',
+      '取消后将申请原路退款，预计 1-3 个工作日到账。多商户订单会整单取消。',
+      [
+        { text: '再想想', style: 'cancel' },
+        {
+          text: '确认取消',
+          style: 'destructive',
+          onPress: executeCancel,
+        },
+      ],
+    );
   };
 
   // CTA mapping
@@ -114,7 +140,7 @@ export default function OrderDetailScreen() {
   switch (order.status) {
     case 'PAID':
       // 已付款待发货 — 仅允许取消（走退款）
-      secondary.push({ label: '取消订单', onPress: handleCancel });
+      secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel });
       break;
     case 'SHIPPED':
     case 'DELIVERED':
@@ -221,6 +247,7 @@ export default function OrderDetailScreen() {
             shippingFee={order.shippingFee ?? 0}
             vipDiscountAmount={order.vipDiscountAmount}
             discountAmount={order.discountAmount}
+            totalCouponDiscount={order.totalCouponDiscount}
             totalPrice={order.totalPrice}
           />
         </View>

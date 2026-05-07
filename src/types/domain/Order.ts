@@ -151,10 +151,12 @@ export type Order = {
   goodsAmount?: number;
   /** 运费 */
   shippingFee?: number;
-  /** 红包抵扣金额（元） */
+  /** 奖励抵扣金额（元） */
   discountAmount?: number;
   /** VIP折扣金额（元） */
   vipDiscountAmount?: number;
+  /** 平台红包抵扣金额（元） */
+  totalCouponDiscount?: number;
   /** 无理由退货窗口截止时间 */
   returnWindowExpiresAt?: string;
   /** 支付完成时间（Phase 1 列表 DTO 已暴露） */

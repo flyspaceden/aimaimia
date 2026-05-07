@@ -117,13 +117,22 @@ export default function AfterSaleScreen() {
     if (!selectedItem || !afterSaleType) return 0;
     if (afterSaleType === 'QUALITY_EXCHANGE') return 0; // 换货无退款
     const itemTotal = selectedItem.price * selectedItem.quantity;
-    // 按比例分摊红包抵扣
-    if (order?.discountAmount && order.goodsAmount && order.goodsAmount > 0) {
+    // 按比例分摊所有买家实付抵扣，保持与后端 calculateRefundAmount 一致
+    const totalDiscount =
+      (order?.discountAmount ?? 0) +
+      (order?.totalCouponDiscount ?? 0) +
+      (order?.vipDiscountAmount ?? 0);
+    const isFullRefund = (order?.items.filter((item) => !item.isPrize).length ?? 0) === 1;
+    const shippingRefund =
+      isFullRefund && afterSaleType !== 'NO_REASON_RETURN'
+        ? (order?.shippingFee ?? 0)
+        : 0;
+    if (totalDiscount > 0 && order?.goodsAmount && order.goodsAmount > 0) {
       const ratio = itemTotal / order.goodsAmount;
-      const couponShare = order.discountAmount * ratio;
-      return Math.max(0, itemTotal - couponShare);
+      const discountShare = Math.min(order.goodsAmount, totalDiscount) * ratio;
+      return Math.max(0, itemTotal - discountShare) + shippingRefund;
     }
-    return itemTotal;
+    return itemTotal + shippingRefund;
   }, [selectedItem, afterSaleType, order]);
 
   // ─── 退货运费说明 ─────────────────────────────────────
