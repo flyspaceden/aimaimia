@@ -25,6 +25,7 @@ function createMocks(configOverrides: Record<string, any> = {}) {
       findMany: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn(),
     },
     shipmentTrackingEvent: {
@@ -114,9 +115,13 @@ describe('handleCallback — 物流回调处理', () => {
     );
 
     expect(result).toEqual({ ok: true });
-    expect(prisma.shipment.update).toHaveBeenCalledWith(
+    // Bug 93 加固后改用 updateMany + CAS（status: { not: 'DELIVERED' }）
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'shp-001' },
+        where: expect.objectContaining({
+          id: 'shp-001',
+          status: { not: 'DELIVERED' },
+        }),
         data: expect.objectContaining({ status: 'IN_TRANSIT' }),
       }),
     );
@@ -145,7 +150,7 @@ describe('handleCallback — 物流回调处理', () => {
     );
 
     expect(result).toEqual({ ok: true });
-    expect(prisma.shipment.update).toHaveBeenCalledWith(
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'DELIVERED',
@@ -172,11 +177,59 @@ describe('handleCallback — 物流回调处理', () => {
     );
 
     // 状态应保持为原来的 IN_TRANSIT（因为 status 不匹配 DELIVERED 和 IN_TRANSIT）
-    expect(prisma.shipment.update).toHaveBeenCalledWith(
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'IN_TRANSIT' }),
       }),
     );
+  });
+
+  it('Bug 93 加固: 已 DELIVERED 的 Shipment 不会被后续 OrderState 推送降级到 IN_TRANSIT', async () => {
+    const { service, prisma } = createMocks();
+    // 当前 Shipment 已 DELIVERED
+    const shipment = makeShipment({ status: 'DELIVERED' });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+    prisma.shipmentTrackingEvent.createMany.mockResolvedValue({ count: 1 });
+
+    // OrderState 推送强制 IN_TRANSIT 进来
+    const result = await service.handleCallback(
+      'SF1234567890',
+      'IN_TRANSIT',
+      [{ time: '2026-04-06T10:00:00Z', message: 'OrderState: 调度完成' }],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    expect(result).toEqual({ ok: true });
+    // 关键断言：updateMany 不应被调用（因为 shipment.status === 'DELIVERED' 走的是早退出分支）
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+    expect(prisma.shipment.update).not.toHaveBeenCalled();
+    // 但事件仍应写入（轨迹保留）
+    expect(prisma.shipmentTrackingEvent.createMany).toHaveBeenCalled();
+  });
+
+  it('Bug 93 加固: CAS 在 update 期间发生竞态时（count=0）记录 log，不报错', async () => {
+    const { service, prisma } = createMocks();
+    const shipment = makeShipment({ status: 'IN_TRANSIT' });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipment.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+    prisma.shipmentTrackingEvent.createMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.handleCallback(
+      'SF1234567890',
+      'DELIVERED',
+      [{ time: '2026-04-05T14:00:00Z', message: '已签收' }],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    // 不抛错，最终成功返回
+    expect(result).toEqual({ ok: true });
+    expect(prisma.shipment.updateMany).toHaveBeenCalled();
   });
 
   it('trackingNo 不存在时抛 NotFoundException', async () => {

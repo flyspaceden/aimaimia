@@ -193,14 +193,35 @@ export class ShipmentService {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(async (tx) => {
-          // 更新 Shipment 状态
-          await tx.shipment.update({
-            where: { id: shipment.id },
-            data: {
-              status: shipmentStatus as any,
-              deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
-            },
-          });
+          // Bug 93 加固：Shipment.status 单调性保护
+          // 真实风险：WaybillRoute 推 opCode=80 → DELIVERED 后，OrderState 推送强制 IN_TRANSIT (parseOrderStates 默认值)
+          // 旧代码无 CAS 直接 update → 已签收 Shipment 被降级为 IN_TRANSIT，与 Order.status=DELIVERED 不一致
+          //
+          // 规则：DELIVERED 是终态，不允许降级。其他状态间允许转换（派件异常 → 重新派件 → 签收 是合法序列）
+          // EXCEPTION 不视为终态（SF 实际可以 36 派件异常 → 30 重新派件 → 80 签收）
+          if (shipment.status === 'DELIVERED' && shipmentStatus !== 'DELIVERED') {
+            this.logger.warn(
+              `跳过 Shipment 降级: id=${shipment.id}, current=DELIVERED, incoming=${shipmentStatus} (rawStatus=${status})`,
+            );
+            // 仍然写事件（轨迹保留），但不动 status
+          } else {
+            // CAS：只在状态实际变化时更新，幂等回调走空更新分支不写 deliveredAt
+            const cas = await tx.shipment.updateMany({
+              where: {
+                id: shipment.id,
+                status: { not: 'DELIVERED' },
+              },
+              data: {
+                status: shipmentStatus as any,
+                deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
+              },
+            });
+            if (cas.count === 0) {
+              this.logger.log(
+                `Shipment ${shipment.id} 状态在事务期间已变为 DELIVERED，本次更新跳过`,
+              );
+            }
+          }
 
           // 写入物流轨迹事件（去重）
           if (events?.length) {
