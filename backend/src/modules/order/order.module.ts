@@ -82,6 +82,7 @@ export class OrderModule implements OnModuleInit {
       throw new Error('[OrderModule] InboxService 未注入，站内消息功能不可用，启动中止');
     }
     this.checkoutService.setInboxService(inboxService);
+    this.orderService.setInboxService(inboxService);
 
     // 注入支付宝服务
     const alipayService = this.moduleRef.get(AlipayService, { strict: false });
@@ -98,8 +99,10 @@ export class OrderModule implements OnModuleInit {
     if (paymentService) {
       this.checkoutService.setPaymentService(paymentService);
       this.checkoutExpireService.setPaymentService(paymentService);
+      // PAID 未发货取消调 initiateRefund 用
+      this.orderService.setPaymentService(paymentService);
     } else {
-      console.warn('[OrderModule] PaymentService 未注入，cancel/expire 主动建单后无法通知商家');
+      console.warn('[OrderModule] PaymentService 未注入，cancel/expire 主动建单后无法通知商家；PAID 取消退款失败');
     }
   }
 }

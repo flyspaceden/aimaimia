@@ -76,4 +76,30 @@ describe('OrderService.mapOrder snapshot', () => {
       latestEventTime: now.toISOString(),
     });
   });
+
+  it('mapOrder exposes all discount fields used by after-sale estimate', () => {
+    const order = {
+      id: 'o1',
+      status: 'DELIVERED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 65,
+      goodsAmount: 100,
+      shippingFee: 0,
+      discountAmount: 20,
+      vipDiscountAmount: 5,
+      totalCouponDiscount: 10,
+      createdAt: new Date(),
+      items: [],
+      afterSaleRequests: [],
+      refunds: [],
+      shipments: [],
+    };
+    const out = (service as any).mapOrder(order);
+
+    expect(out.goodsAmount).toBe(100);
+    expect(out.shippingFee).toBe(0);
+    expect(out.discountAmount).toBe(20);
+    expect(out.vipDiscountAmount).toBe(5);
+    expect(out.totalCouponDiscount).toBe(10);
+  });
 });

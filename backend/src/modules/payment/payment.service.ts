@@ -220,7 +220,13 @@ export class PaymentService {
 
   /**
    * 发起渠道退款
-   * 按 payment.channel 分发到对应的支付渠道退款 API
+   * 按支付渠道分发到对应的退款 API
+   *
+   * 双架构兼容（Bug 89 修复）：
+   * - 旧架构：Payment 行存在 → 用 Payment.channel + Payment.merchantOrderNo
+   * - 新架构（CheckoutSession-based）：无 Payment 行 → 通过 Order.checkoutSessionId 找到
+   *   CheckoutSession.paymentChannel + CheckoutSession.merchantOrderNo 路由
+   *
    * @param orderId 订单 ID
    * @param amount 退款金额（元）
    * @param merchantRefundNo 商户退款单号（可选，用于幂等）
@@ -235,25 +241,59 @@ export class PaymentService {
       `发起渠道退款: orderId=${this.maskBizId(orderId)}, amount=${amount}, merchantRefundNo=${merchantRefundNo ? this.maskBizId(merchantRefundNo) : 'N/A'}`,
     );
 
-    // 查询订单对应的支付记录，确定退款渠道
+    // 路径 1：旧架构 — 查 Payment 行
     const payment = await this.prisma.payment.findFirst({
       where: { orderId, status: 'PAID' },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (!payment) {
-      this.logger.warn(`订单 ${this.maskBizId(orderId)} 无已支付的支付记录，跳过渠道退款`);
-      return { success: false, message: '未找到对应的支付记录' };
+    let channel: string | null = null;
+    let providerOrderNo: string | null = null;
+
+    if (payment) {
+      channel = payment.channel;
+      providerOrderNo = payment.merchantOrderNo;
+    } else {
+      // 路径 2：新架构 — 通过 Order.checkoutSessionId 找 CheckoutSession
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { checkoutSessionId: true },
+      });
+      if (!order?.checkoutSessionId) {
+        this.logger.warn(`订单 ${this.maskBizId(orderId)} 无 Payment 行也无 checkoutSessionId，跳过渠道退款`);
+        return { success: false, message: '未找到对应的支付记录' };
+      }
+      const session = await this.prisma.checkoutSession.findUnique({
+        where: { id: order.checkoutSessionId },
+        select: { merchantOrderNo: true, paymentChannel: true, status: true },
+      });
+      if (!session?.merchantOrderNo || !session.paymentChannel) {
+        this.logger.warn(
+          `订单 ${this.maskBizId(orderId)} CheckoutSession 无支付凭据（merchantOrderNo/paymentChannel 缺失）`,
+        );
+        return { success: false, message: '结算会话支付凭据缺失，无法发起退款' };
+      }
+      if (!['PAID', 'COMPLETED'].includes(session.status)) {
+        this.logger.warn(
+          `订单 ${this.maskBizId(orderId)} CheckoutSession 状态异常（${session.status}），拒绝发起退款`,
+        );
+        return { success: false, message: `结算会话状态异常（${session.status}），无法发起退款` };
+      }
+      channel = session.paymentChannel as string;
+      providerOrderNo = session.merchantOrderNo;
+      this.logger.log(
+        `走 CheckoutSession 退款路径: orderId=${this.maskBizId(orderId)}, channel=${channel}`,
+      );
     }
 
-    if (payment.channel === 'ALIPAY') {
+    if (channel === 'ALIPAY') {
       if (!this.alipayService.isAvailable()) {
         this.logger.error(`支付宝 SDK 未初始化，无法退款: orderId=${this.maskBizId(orderId)}`);
         return { success: false, message: '支付宝 SDK 未初始化' };
       }
       const refundNo = merchantRefundNo || `REFUND-${Date.now()}`;
       const result = await this.alipayService.refund({
-        merchantOrderNo: payment.merchantOrderNo,
+        merchantOrderNo: providerOrderNo!,
         refundAmount: amount,
         merchantRefundNo: refundNo,
         refundReason: '用户退款',
@@ -266,7 +306,7 @@ export class PaymentService {
     }
 
     // 微信支付暂未接入，v1.0 仅支持支付宝
-    throw new NotImplementedException(`退款渠道 ${payment.channel} 暂未接入`);
+    throw new NotImplementedException(`退款渠道 ${channel} 暂未接入`);
   }
 
   /** 自动退款补偿任务：重试长时间停留在 FAILED/REFUNDING 的自动退款记录 */

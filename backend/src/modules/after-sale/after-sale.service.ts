@@ -224,6 +224,8 @@ export class AfterSaleService {
               orderItem.quantity,
               order.goodsAmount,
               order.totalCouponDiscount ?? 0,
+              order.discountAmount ?? 0,
+              order.vipDiscountAmount ?? 0,
               order.shippingFee,
               dto.afterSaleType,
               isFullRefund,

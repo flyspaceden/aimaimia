@@ -62,13 +62,15 @@ export async function resolveReturnPolicy(
 
 /**
  * 计算退款金额
- * - 按商品金额在订单商品总额中的占比分摊优惠券抵扣
+ * - 按商品金额在订单商品总额中的占比分摊所有买家实付抵扣
  * - 整单退时可额外退还运费（无理由退货除外）
  *
  * @param unitPrice          商品单价（元）
  * @param quantity           退货数量
  * @param orderGoodsAmount   订单商品总额（不含运费、优惠券抵扣前）
- * @param orderTotalCouponDiscount 订单优惠券总抵扣额（元）
+ * @param orderTotalCouponDiscount 订单平台红包总抵扣额（元）
+ * @param orderRewardDiscount 订单奖励抵扣额（元）
+ * @param orderVipDiscount 订单 VIP 折扣额（元）
  * @param orderShippingFee   订单运费（元）
  * @param afterSaleType      售后类型
  * @param isFullRefund       是否整单退款
@@ -79,19 +81,27 @@ export function calculateRefundAmount(
   quantity: number,
   orderGoodsAmount: number,
   orderTotalCouponDiscount: number,
+  orderRewardDiscount: number,
+  orderVipDiscount: number,
   orderShippingFee: number,
   afterSaleType: string,
   isFullRefund: boolean,
 ): number {
   const itemAmount = unitPrice * quantity;
 
-  // 按商品金额占比分摊优惠券抵扣
-  const couponShare =
-    orderGoodsAmount > 0 && orderTotalCouponDiscount
-      ? orderTotalCouponDiscount * (itemAmount / orderGoodsAmount)
+  // 退款不能超过买家实付。红包、奖励、VIP 折扣都按商品金额占比分摊。
+  const totalDiscount = Math.min(
+    orderGoodsAmount,
+    Math.max(0, orderTotalCouponDiscount || 0) +
+      Math.max(0, orderRewardDiscount || 0) +
+      Math.max(0, orderVipDiscount || 0),
+  );
+  const discountShare =
+    orderGoodsAmount > 0 && totalDiscount > 0
+      ? totalDiscount * (itemAmount / orderGoodsAmount)
       : 0;
 
-  let refundAmount = itemAmount - couponShare;
+  let refundAmount = Math.max(0, itemAmount - discountShare);
 
   // 整单退且非无理由退货时，退还运费
   if (isFullRefund && afterSaleType !== 'NO_REASON_RETURN') {

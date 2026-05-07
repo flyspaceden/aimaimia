@@ -47,6 +47,10 @@ export class OrderService {
   private couponService: any = null;
   // CouponEngineService 通过 setter 注入（由 OrderModule.onModuleInit 调用）
   private couponEngineService: any = null;
+  // PaymentService 通过 setter 注入（避免与 PaymentModule 循环依赖；PAID 取消用）
+  private paymentService: any = null;
+  // InboxService 通过 setter 注入（PAID 取消通知商户用）
+  private inboxService: any = null;
 
   constructor(
     private prisma: PrismaService,
@@ -67,6 +71,16 @@ export class OrderService {
   /** 注入红包引擎服务（由 OrderModule 在 onModuleInit 时调用） */
   setCouponEngineService(service: any) {
     this.couponEngineService = service;
+  }
+
+  /** 注入支付服务（PAID 未发货取消调 initiateRefund 用） */
+  setPaymentService(service: any) {
+    this.paymentService = service;
+  }
+
+  /** 注入站内信服务（PAID 取消通知商户 OWNER 用） */
+  setInboxService(service: any) {
+    this.inboxService = service;
   }
 
   private earliestShippedAt(shipments?: any[]): string | null {
@@ -1032,10 +1046,41 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({ where: { id }, include: { items: true } });
     if (!order) throw new NotFoundException('订单未找到');
     if (order.userId !== userId) throw new NotFoundException('订单未找到');
-    if (order.status !== 'PENDING_PAYMENT') {
-      throw new BadRequestException('当前订单状态无法取消');
+
+    // 旧架构遗留：PENDING_PAYMENT 走原逻辑（创建订单后未付款）
+    if (order.status === 'PENDING_PAYMENT') {
+      return this.cancelPendingPayment(id, order);
+    }
+    // 新架构：PAID 未发货取消（付款回调建单架构下买家撤单退款入口）
+    if (order.status === 'PAID') {
+      // Bug 90：多商户 CheckoutSession 检测
+      // 共享奖励/红包只挂在 primary order（checkout.service.ts:1485-1489, 1730），
+      // 单订单取消会导致非 primary 不恢复 / primary 恢复后其他订单仍在用折扣 → 套利。
+      // 方案：sibling 全 PAID 才允许，整 session 一起取消；任一已发货拒绝
+      if (order.checkoutSessionId) {
+        const siblings = await this.prisma.order.findMany({
+          where: { checkoutSessionId: order.checkoutSessionId, id: { not: id } },
+          select: { id: true, status: true },
+        });
+        if (siblings.length > 0) {
+          const nonPaid = siblings.filter((s) => s.status !== 'PAID');
+          if (nonPaid.length > 0) {
+            throw new BadRequestException(
+              '该订单含多家商品，部分已发货或已退，无法整单取消，请联系客服',
+            );
+          }
+          // 全部 sibling PAID — 整 session 一起取消
+          return this.cancelEntireSessionUnshipped(order.checkoutSessionId, userId);
+        }
+      }
+      return this.cancelPaidUnshipped(id, userId, order);
     }
 
+    throw new BadRequestException('当前订单状态无法取消');
+  }
+
+  /** PENDING_PAYMENT → CANCELED（旧架构遗留，保留向后兼容） */
+  private async cancelPendingPayment(id: string, order: any) {
     const updated = await this.prisma.$transaction(async (tx) => {
       // N07修复：CAS 更新订单状态，仅当 status 仍为 PENDING_PAYMENT 时才取消
       const casResult = await tx.order.updateMany({
@@ -1088,6 +1133,482 @@ export class OrderService {
     });
 
     return this.mapOrder(updated);
+  }
+
+  /**
+   * PAID → CANCELED（买家在卖家发货前取消，原路退款）
+   *
+   * 关键约束：
+   * 1. 卖家已生成 SF 面单（Shipment.waybillNo 非空）→ 拒绝（避免买家撤单/卖家发货撞车）
+   * 2. 已有进行中的退款 → 拒绝（防狂点）
+   * 3. advisory_xact_lock 与 SellerShippingService.generateWaybill 严格同 namespace + 复合 key
+   *    （namespace='seller-waybill-order' / key=`${companyId}:${orderId}`）
+   * 4. merchantRefundNo 必须 'AUTO-' 前缀，否则 retryStaleAutoRefunds cron 不兜底
+   * 5. 退款金额 = order.totalAmount（含运费，因未发货无快递费产生）
+   */
+  private async cancelPaidUnshipped(id: string, userId: string, order: any) {
+    // Step 1：事务外预检 Shipment（fast fail，避免持锁过长）
+    const existingShipments = await this.prisma.shipment.findMany({
+      where: { orderId: id, waybillNo: { not: null } },
+      select: { id: true, status: true },
+    });
+    if (existingShipments.length > 0) {
+      throw new BadRequestException(
+        '卖家已生成发货面单，无法直接取消。请联系卖家撤销面单，或等发货后申请退货',
+      );
+    }
+
+    // Step 2：Refund 幂等检查（防止狂点）
+    const inflightRefund = await this.prisma.refund.findFirst({
+      where: {
+        orderId: id,
+        status: { in: ['REQUESTED', 'APPROVED', 'REFUNDING'] },
+      },
+    });
+    if (inflightRefund) {
+      throw new BadRequestException('已有进行中的退款，请勿重复操作');
+    }
+
+    // 多商户订单 — 取所有 companyId 用于锁 + 通知（按字典序排序避死锁）
+    const companyIds = [
+      ...new Set(order.items.map((i: any) => i.companyId).filter(Boolean) as string[]),
+    ].sort();
+
+    // Step 3：原子事务（Serializable + 与 SellerShippingService.generateWaybill 严格互斥）
+    const refundData = await this.prisma.$transaction(async (tx) => {
+      // 严格匹配 seller-shipping.service.ts:25,158,576 的 namespace + 复合 key
+      for (const companyId of companyIds) {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(
+            hashtext('seller-waybill-order'),
+            hashtext(${`${companyId}:${id}`})
+          )
+        `;
+      }
+
+      // 锁内再查一次 Shipment，防止"事务外预检通过 → 取锁前卖家生成"的窄窗
+      const shipmentCount = await tx.shipment.count({
+        where: { orderId: id, waybillNo: { not: null } },
+      });
+      if (shipmentCount > 0) {
+        throw new BadRequestException('卖家已生成面单，请稍后重试或联系卖家');
+      }
+
+      // CAS 更新订单 PAID → CANCELED
+      const cas = await tx.order.updateMany({
+        where: { id, userId, status: 'PAID' },
+        data: { status: 'CANCELED' },
+      });
+      if (cas.count === 0) {
+        throw new BadRequestException('订单状态已变更，无法取消');
+      }
+
+      // 释放库存
+      for (const item of order.items) {
+        await tx.productSKU.update({
+          where: { id: item.skuId },
+          data: { stock: { increment: item.quantity } },
+        });
+        await tx.inventoryLedger.create({
+          data: {
+            skuId: item.skuId,
+            type: 'RELEASE',
+            qty: item.quantity,
+            refType: 'ORDER',
+            refId: id,
+          },
+        });
+      }
+
+      // 恢复奖励账（VOIDED → AVAILABLE）
+      await tx.rewardLedger.updateMany({
+        where: { refType: 'ORDER', refId: id, status: 'VOIDED' },
+        data: { status: 'AVAILABLE', refType: null, refId: null },
+      });
+
+      // 恢复红包（USED → AVAILABLE/EXPIRED）— 调 CouponService.restoreCouponsForOrder
+      if (this.couponService?.restoreCouponsForOrder) {
+        await this.couponService.restoreCouponsForOrder(id, tx);
+      }
+
+      // 创建 Refund 行（status=REFUNDING；merchantRefundNo 'AUTO-' 前缀让 cron 兜底重试）
+      const refund = await tx.refund.create({
+        data: {
+          orderId: id,
+          amount: order.totalAmount,
+          status: 'REFUNDING',
+          merchantRefundNo: `AUTO-CANCEL-${id}`,
+          reason: '买家未发货取消订单',
+        },
+      });
+
+      // 写 RefundStatusHistory（首次创建，fromStatus=null）
+      await tx.refundStatusHistory.create({
+        data: {
+          refundId: refund.id,
+          toStatus: 'REFUNDING',
+          remark: '买家未发货取消订单触发自动退款',
+          operatorId: userId,
+        },
+      });
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: id,
+          fromStatus: 'PAID',
+          toStatus: 'CANCELED',
+          reason: '买家未发货取消订单',
+        },
+      });
+
+      return {
+        refundId: refund.id,
+        refundAmount: order.totalAmount,
+        merchantRefundNo: refund.merchantRefundNo,
+        affectedCompanyIds: companyIds,
+      };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    // Step 4：事务外调支付宝 refund（不持长事务，失败 cron 兜底）
+    if (this.paymentService?.initiateRefund) {
+      try {
+        const result = await this.paymentService.initiateRefund(
+          id,
+          refundData.refundAmount,
+          refundData.merchantRefundNo,
+        );
+        if (result?.success) {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.refund.update({
+              where: { id: refundData.refundId },
+              data: {
+                status: 'REFUNDED',
+                providerRefundId: result.providerRefundId,
+              },
+            });
+            await tx.refundStatusHistory.create({
+              data: {
+                refundId: refundData.refundId,
+                fromStatus: 'REFUNDING',
+                toStatus: 'REFUNDED',
+                remark: '渠道退款成功',
+                operatorId: userId,
+              },
+            });
+          });
+        } else {
+          this.logger.warn(
+            `退款发起失败，cron 将重试: refundId=${refundData.refundId}, msg=${result?.message ?? 'unknown'}`,
+          );
+        }
+      } catch (e: any) {
+        this.logger.error(`退款调用异常（订单已取消，cron 将重试）: ${e?.message ?? e}`);
+      }
+    } else {
+      this.logger.warn(
+        `paymentService 未注入，订单 ${id} 已 CANCELED 但未发起退款（cron 将兜底）`,
+      );
+    }
+
+    // Step 5：通知所有受影响商户的 OWNER（多商户订单逐个通知）
+    if (this.inboxService?.send && refundData.affectedCompanyIds.length > 0) {
+      try {
+        const owners = await this.prisma.companyStaff.findMany({
+          where: {
+            companyId: { in: refundData.affectedCompanyIds },
+            role: 'OWNER',
+            status: 'ACTIVE',
+          },
+          select: { userId: true, companyId: true },
+        });
+        for (const owner of owners) {
+          await this.inboxService.send({
+            userId: owner.userId,
+            category: 'order',
+            type: 'order.canceled.by.buyer',
+            title: '买家取消订单',
+            content: `订单 ${id} 已被买家在发货前取消，库存已恢复，款项原路退回`,
+            target: { route: '/orders/[id]', params: { id } },
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`通知商户失败（不影响主流程）: ${e?.message ?? e}`);
+      }
+    }
+
+    const updated = await this.prisma.order.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    return this.mapOrder(updated);
+  }
+
+  /**
+   * 整 session 取消（多商户 CheckoutSession 拆出 N 个 Order，全部 PAID 才能整批取消）
+   * Bug 90 修复：避免单订单取消导致共享奖励/红包错乱套利
+   *
+   * 同步语义：
+   * - 全部 sibling 必须 PAID（调用方已校验，此处仅 TX 内复检）
+   * - 任一 Order 已生成 SF 面单 → 拒绝
+   * - 全部 Order 一并 CANCELED + 库存全恢复 + 奖励/红包统一恢复（基于真实 refId/orderId 关联）
+   * - 每个 Order 创建独立 Refund 行（merchantRefundNo='AUTO-CANCEL-${orderId}'），调 alipay 逐笔退款
+   */
+  private async cancelEntireSessionUnshipped(sessionId: string, userId: string) {
+    // Step 1：拿 session 所有 Order
+    const orders = await this.prisma.order.findMany({
+      where: { checkoutSessionId: sessionId, userId },
+      include: {
+        items: { select: { skuId: true, quantity: true, companyId: true } },
+      },
+    });
+    if (orders.length === 0) {
+      throw new NotFoundException('订单未找到');
+    }
+
+    // 全部必须 PAID
+    const nonPaid = orders.filter((o) => o.status !== 'PAID');
+    if (nonPaid.length > 0) {
+      throw new BadRequestException('该批订单部分已发货或已退，无法整单取消，请联系客服');
+    }
+
+    const orderIds = orders.map((o) => o.id);
+
+    // Step 2：事务外预检 Shipment（任一已生成面单 → 拒绝）
+    const shipments = await this.prisma.shipment.findMany({
+      where: { orderId: { in: orderIds }, waybillNo: { not: null } },
+      select: { id: true },
+    });
+    if (shipments.length > 0) {
+      throw new BadRequestException(
+        '该批订单部分商品卖家已生成发货面单，无法直接取消，请联系卖家或等发货后申请退货',
+      );
+    }
+
+    // Step 3：Refund 幂等检查（任一 Order 有 in-flight 退款 → 拒绝）
+    const inflightRefund = await this.prisma.refund.findFirst({
+      where: {
+        orderId: { in: orderIds },
+        status: { in: ['REQUESTED', 'APPROVED', 'REFUNDING'] },
+      },
+    });
+    if (inflightRefund) {
+      throw new BadRequestException('已有进行中的退款，请勿重复操作');
+    }
+
+    // 收集每个 Order 的真实 (companyId, orderId) 对
+    // checkout 流（checkout.service.ts:1435 companyGroups 循环）保证一个 Order 的所有 items 共享同一 companyId
+    // 所以只需 N 把锁，而非 N² —— 且 key 严格匹配卖家 generateWaybill
+    const orderCompanyPairs = orders
+      .map((o) => {
+        const companyId = o.items[0]?.companyId as string | undefined;
+        return companyId ? { companyId, orderId: o.id } : null;
+      })
+      .filter((p): p is { companyId: string; orderId: string } => p !== null)
+      .sort((a, b) =>
+        `${a.companyId}:${a.orderId}`.localeCompare(`${b.companyId}:${b.orderId}`),
+      );
+
+    // 通知用 — 去重的 companyIds
+    const allCompanyIds = [
+      ...new Set(orderCompanyPairs.map((p) => p.companyId)),
+    ].sort();
+
+    // Step 4：原子事务（Serializable + 与 generateWaybill 严格互斥）
+    const refundData = await this.prisma.$transaction(async (tx) => {
+      // 对每个 Order 实际的 (companyId, orderId) 取 advisory lock
+      // 字典序保证多并发 cancel 互相不死锁；卖家 generateWaybill 单锁本就 subset of 此集合，无死锁
+      for (const pair of orderCompanyPairs) {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(
+            hashtext('seller-waybill-order'),
+            hashtext(${`${pair.companyId}:${pair.orderId}`})
+          )
+        `;
+      }
+
+      // 锁内复检 Shipment
+      const shipmentCount = await tx.shipment.count({
+        where: { orderId: { in: orderIds }, waybillNo: { not: null } },
+      });
+      if (shipmentCount > 0) {
+        throw new BadRequestException('卖家已生成面单，请稍后重试或联系卖家');
+      }
+
+      // CAS 批量 PAID → CANCELED（必须全部更新成功）
+      const cas = await tx.order.updateMany({
+        where: { id: { in: orderIds }, userId, status: 'PAID' },
+        data: { status: 'CANCELED' },
+      });
+      if (cas.count !== orders.length) {
+        throw new BadRequestException('订单状态已变更，无法取消');
+      }
+
+      // 释放每个 Order 的库存
+      for (const o of orders) {
+        for (const item of o.items) {
+          await tx.productSKU.update({
+            where: { id: item.skuId },
+            data: { stock: { increment: item.quantity } },
+          });
+          await tx.inventoryLedger.create({
+            data: {
+              skuId: item.skuId,
+              type: 'RELEASE',
+              qty: item.quantity,
+              refType: 'ORDER',
+              refId: o.id,
+            },
+          });
+        }
+      }
+
+      // 恢复奖励账（VOIDED → AVAILABLE）— RewardLedger.refId 仅指 primary，
+      // 用 IN 包含所有 orderId 即可命中
+      await tx.rewardLedger.updateMany({
+        where: { refType: 'ORDER', refId: { in: orderIds }, status: 'VOIDED' },
+        data: { status: 'AVAILABLE', refType: null, refId: null },
+      });
+
+      // 恢复红包（CouponUsageRecord.orderId = primary，逐 Order 调即可
+      // 仅 primary 那次会真正命中，其他 no-op）
+      if (this.couponService?.restoreCouponsForOrder) {
+        for (const o of orders) {
+          await this.couponService.restoreCouponsForOrder(o.id, tx);
+        }
+      }
+
+      // 每个 Order 创建独立 Refund 行 + 状态历史
+      const refunds: Array<{
+        refundId: string;
+        refundAmount: number;
+        merchantRefundNo: string;
+        orderId: string;
+      }> = [];
+      for (const o of orders) {
+        const refund = await tx.refund.create({
+          data: {
+            orderId: o.id,
+            amount: o.totalAmount,
+            status: 'REFUNDING',
+            merchantRefundNo: `AUTO-CANCEL-${o.id}`,
+            reason: '买家整 session 未发货取消订单',
+          },
+        });
+        await tx.refundStatusHistory.create({
+          data: {
+            refundId: refund.id,
+            toStatus: 'REFUNDING',
+            remark: '买家整 session 取消触发自动退款',
+            operatorId: userId,
+          },
+        });
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId: o.id,
+            fromStatus: 'PAID',
+            toStatus: 'CANCELED',
+            reason: '买家整 session 取消未发货订单',
+          },
+        });
+        refunds.push({
+          refundId: refund.id,
+          refundAmount: o.totalAmount,
+          merchantRefundNo: refund.merchantRefundNo,
+          orderId: o.id,
+        });
+      }
+
+      return {
+        refunds,
+        affectedCompanyIds: allCompanyIds,
+      };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    // Step 5：事务外逐笔调 alipay refund（任一失败 cron 兜底，不影响主流程）
+    if (this.paymentService?.initiateRefund) {
+      for (const r of refundData.refunds) {
+        try {
+          const result = await this.paymentService.initiateRefund(
+            r.orderId,
+            r.refundAmount,
+            r.merchantRefundNo,
+          );
+          if (result?.success) {
+            await this.prisma.$transaction(async (tx) => {
+              await tx.refund.update({
+                where: { id: r.refundId },
+                data: {
+                  status: 'REFUNDED',
+                  providerRefundId: result.providerRefundId,
+                },
+              });
+              await tx.refundStatusHistory.create({
+                data: {
+                  refundId: r.refundId,
+                  fromStatus: 'REFUNDING',
+                  toStatus: 'REFUNDED',
+                  remark: '渠道退款成功',
+                  operatorId: userId,
+                },
+              });
+            });
+          } else {
+            this.logger.warn(
+              `整 session 退款发起失败，cron 将重试: refundId=${r.refundId}, msg=${result?.message ?? 'unknown'}`,
+            );
+          }
+        } catch (e: any) {
+          this.logger.error(
+            `整 session 退款调用异常（订单已取消，cron 将重试）: orderId=${r.orderId}, error=${e?.message ?? e}`,
+          );
+        }
+      }
+    } else {
+      this.logger.warn(
+        `paymentService 未注入，session ${sessionId} 已 CANCELED 但未发起退款（cron 将兜底）`,
+      );
+    }
+
+    // Step 6：通知所有受影响商户的 OWNER
+    if (this.inboxService?.send && refundData.affectedCompanyIds.length > 0) {
+      try {
+        const owners = await this.prisma.companyStaff.findMany({
+          where: {
+            companyId: { in: refundData.affectedCompanyIds },
+            role: 'OWNER',
+            status: 'ACTIVE',
+          },
+          select: { userId: true, companyId: true },
+        });
+        for (const owner of owners) {
+          // 找该商户对应的 Order
+          const ownerOrder = orders.find((o) =>
+            o.items.some((i: any) => i.companyId === owner.companyId),
+          );
+          await this.inboxService.send({
+            userId: owner.userId,
+            category: 'order',
+            type: 'order.canceled.by.buyer',
+            title: '买家取消订单',
+            content: `订单 ${ownerOrder?.id ?? '(未知)'} 已被买家在发货前取消（多商户整单），库存已恢复，款项原路退回`,
+            target: ownerOrder ? { route: '/orders/[id]', params: { id: ownerOrder.id } } : undefined,
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`通知商户失败（不影响主流程）: ${e?.message ?? e}`);
+      }
+    }
+
+    // 返回 primary order（idx === 0）作为主响应
+    const primary = await this.prisma.order.findUnique({
+      where: { id: orders[0].id },
+      include: { items: true },
+    });
+    return this.mapOrder(primary);
   }
 
   /** 映射为前端 Order 列表项 */
@@ -1182,6 +1703,11 @@ export class OrderService {
       afterSaleType,
       returnWindowExpiresAt: order.returnWindowExpiresAt?.toISOString() || null,
       totalPrice: order.totalAmount,
+      goodsAmount: order.goodsAmount,
+      shippingFee: order.shippingFee,
+      discountAmount: order.discountAmount,
+      vipDiscountAmount: order.vipDiscountAmount ?? 0,
+      totalCouponDiscount: order.totalCouponDiscount ?? 0,
       createdAt:
         order.createdAt instanceof Date
           ? order.createdAt.toISOString().slice(0, 16).replace('T', ' ')
@@ -1226,6 +1752,7 @@ export class OrderService {
       shippingFee: order.shippingFee,
       discountAmount: order.discountAmount,
       vipDiscountAmount: order.vipDiscountAmount ?? 0,
+      totalCouponDiscount: order.totalCouponDiscount ?? 0,
       paidAt: order.paidAt?.toISOString() || null,
       paymentMethod: payment
         ? payment.channel === 'WECHAT_PAY'

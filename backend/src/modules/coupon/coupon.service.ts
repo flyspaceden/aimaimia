@@ -620,6 +620,49 @@ export class CouponService {
     }
   }
 
+  /**
+   * 订单取消时恢复已使用红包（USED → AVAILABLE，已过期则 USED → EXPIRED）
+   * 同时删除对应 CouponUsageRecord
+   *
+   * 与 releaseCoupons 区别：
+   * - releaseCoupons 处理 RESERVED → AVAILABLE（CheckoutSession 阶段）
+   * - 本方法处理 USED → AVAILABLE/EXPIRED（订单付款后取消阶段）
+   */
+  async restoreCouponsForOrder(orderId: string, tx: Prisma.TransactionClient) {
+    const usageRecords = await tx.couponUsageRecord.findMany({
+      where: { orderId },
+      include: { couponInstance: true },
+    });
+    if (usageRecords.length === 0) return;
+
+    const now = new Date();
+    for (const record of usageRecords) {
+      const instance = record.couponInstance;
+      const isExpired = instance.expiresAt && instance.expiresAt < now;
+
+      const cas = await tx.couponInstance.updateMany({
+        where: { id: instance.id, status: 'USED' },
+        data: {
+          status: isExpired ? 'EXPIRED' : 'AVAILABLE',
+          usedAt: null,
+          usedOrderId: null,
+          usedAmount: null,
+        },
+      });
+      if (cas.count === 0) {
+        this.logger.warn(
+          `订单 ${orderId} 恢复红包 ${instance.id} 失败：状态非 USED`,
+        );
+      }
+    }
+
+    await tx.couponUsageRecord.deleteMany({ where: { orderId } });
+
+    this.logger.log(
+      `订单 ${orderId} 恢复 ${usageRecords.length} 张红包`,
+    );
+  }
+
   // ========== 管理端方法 ==========
 
   /** 红包活动列表（分页+筛选） */
