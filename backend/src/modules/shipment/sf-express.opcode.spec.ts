@@ -53,6 +53,10 @@ describe('SfExpressService.OP_CODE_MAP', () => {
     expect(SfExpressService.OP_CODE_MAP['60']).toBe('IN_TRANSIT');
     expect(SfExpressService.OP_CODE_MAP['70']).toBe('IN_TRANSIT');
   });
+
+  it('opCode 8000（订单结束）显式映射避免 warn 刷屏，实际无害（单调性保护守住）', () => {
+    expect(SfExpressService.OP_CODE_MAP['8000']).toBe('IN_TRANSIT');
+  });
 });
 
 describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', () => {

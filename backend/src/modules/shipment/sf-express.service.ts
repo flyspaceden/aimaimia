@@ -124,6 +124,11 @@ export class SfExpressService {
     '10': 'SHIPPED',
     '21': 'IN_TRANSIT',
     '204': 'IN_TRANSIT',
+
+    // ─── 显式映射避免 warn 刷屏（实际状态由单调性保护守住）─────
+    // 8000 = 订单结束（psvmc.cn 实证），通常在 80 签收之后才推送；
+    // 单调性保护已确保 DELIVERED 不会被降级，这里 IN_TRANSIT 不会触发实际状态变化
+    '8000': 'IN_TRANSIT',
   };
 
   /**
