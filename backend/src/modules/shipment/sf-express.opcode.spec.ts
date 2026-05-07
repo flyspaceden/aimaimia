@@ -122,6 +122,33 @@ describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', 
     expect(payloads[0].events).toHaveLength(2);
   });
 
+  it('queryRoutes 显式按 acceptTime 倒序，SF API 乱序返回时仍取最新事件 opCode（Bug 93 加固）', async () => {
+    const svc = createService();
+    // mock callApi：模拟 SF API 返回时间乱序的 routes（实际事件顺序是 50→31→80，但 API 倒着返回）
+    jest.spyOn(svc as any, 'callApi').mockResolvedValueOnce({
+      msgData: {
+        routeResps: [
+          {
+            mailNo: 'SF1234567890',
+            // 故意乱序：把 50（最早）放第一条；之前漏 sort 时会取这个事件 → 错判 SHIPPED
+            routes: [
+              { acceptTime: '2026-04-10 08:00:00', remark: '已揽收', opCode: '50' },
+              { acceptTime: '2026-04-12 18:00:00', remark: '已签收', opCode: '80' },
+              { acceptTime: '2026-04-11 10:00:00', remark: '派件中', opCode: '31' },
+            ],
+          },
+        ],
+      },
+    });
+    const result = await svc.queryRoutes('SF1234567890');
+    expect(result).not.toBeNull();
+    // 修复后：显式 sort 取 acceptTime 最大的 80（已签收）
+    expect(result!.status).toBe('DELIVERED');
+    expect(result!.rawOpCode).toBe('80');
+    // events 按倒序排列后，第一条应为最新签收事件
+    expect(result!.events[0].opCode).toBe('80');
+  });
+
   it('未知 opCode 回退到 IN_TRANSIT 并记录 warn 日志', () => {
     const svc = createService();
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});

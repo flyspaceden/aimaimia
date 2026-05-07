@@ -504,12 +504,18 @@ export class SfExpressService {
         return null;
       }
 
+      // 显式按 acceptTime 倒序（不依赖 SF API 返回顺序，与 parseWaybillRoutes 对齐）
+      // Bug 93 加固：原代码注释「按时间倒序」但实际没排序，SF API 偶发乱序时 routes[0] 会拿到非最新事件
+      const sortedRoutes = [...firstResp.routes].sort((a: any, b: any) =>
+        String(b.acceptTime ?? '').localeCompare(String(a.acceptTime ?? '')),
+      );
+
       // 取最新事件的 opCode 作为整体状态
-      const latestRoute = firstResp.routes[0]; // routes 按时间倒序
+      const latestRoute = sortedRoutes[0];
       const rawOpCode = String(latestRoute.opCode ?? '');
       const status = this.mapOpCodeSafe(rawOpCode);
 
-      const events = firstResp.routes.map(
+      const events = sortedRoutes.map(
         (r: any) => ({
           time: r.acceptTime || '',
           message: r.remark || r.acceptAddress || '',
