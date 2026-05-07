@@ -201,7 +201,7 @@ Expo CDN 部署完成
 
 ---
 
-## 六、当前 App 实际状态（2026-05-06）
+## 六、当前 App 实际状态（2026-05-07）
 
 ### EAS 配置
 
@@ -232,7 +232,9 @@ Expo CDN 部署完成
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `6494573b-e0a5-489f-b5b0-12a8b01220b2` | 「我的」tab 订单快捷入口补漏「已发货」第 5 项 | **当前生效** ✅，commit `fe34eb2`（2026-05-06）|
+| `32bb1433-40c7-407c-80ff-ec00d792e570` | Bug 91：取消订单 Alert 二次确认 + cancelingRef 双层防重 + "取消中..." 文案；售后预估 estimatedRefund 与后端 calculateRefundAmount 完全对齐（红包+奖励+VIP 三类抵扣按比例分摊）| **当前生效** ✅，commit `f5a75df`（2026-05-07）|
+| `cb8d9e03-503c-483c-acf4-18175d6bb1ed` | 「我的」tab 订单角标 60s 轮询 + 详情/物流/列表页 useFocusEffect 自动刷新 | commit `5037c20`（2026-05-06）|
+| `6494573b-e0a5-489f-b5b0-12a8b01220b2` | 「我的」tab 订单快捷入口补漏「已发货」第 5 项 | commit `fe34eb2`（2026-05-06）|
 | `01f8a817-9810-4d39-b496-de05763d2ebc` | 订单 5 tab 拆分：待发货/已发货/待收货/售后/已完成（之前 SHIPPED+DELIVERED 合并在「待收货」），配套后端 SHIPPED→exact match | commit `9d8dcfa`（2026-05-06）|
 | `01c1a667-aed8-4fed-a5bd-f068c966b6c6` | SHIPPED 标签从"运输中"改"已发货"（OrderCard+StatusHero）+ 删物流追踪页"产地实景联动"占位 | commit `6eb6d19`（2026-05-06）|
 | `4e713e73-900f-4900-b813-b418ec663607` | Phase 2 状态枚举大写迁移（OrderStatus lowerCamel→大写）+ findById 不再返 'afterSale' | commit `8d3200f`（2026-05-06）配套后端 STATUS_MAP 删除 |
