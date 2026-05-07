@@ -2081,7 +2081,671 @@ if (this.templateCode && this.clientCode && !this.templateCode.endsWith(`_${this
 
 ---
 
-## 修复执行顺序（推荐 Phase 计划）
+## 维度 G — 2026-05-06 P1-3 退货流程 staging 准备阶段新增
+
+### Bug 88 ⚠️ CRITICAL（2026-05-06 P1-3 测试准备时发现 → 2026-05-06 已实现，待真机验证）— PAID 未发货 "取消订单" 按钮调死链路，买家无法发货前撤单退款
+
+**状态**: 🔧 代码已写完，待 Bug 89 一同推 staging 真机测 case 1.1
+
+**位置**:
+- App: `app/orders/[id].tsx:117`（按钮）+ `app/orders/[id].tsx:100-107`（handleCancel）
+- Repo: `src/repos/OrderRepo.ts:636`（`cancelOrder` → `POST /orders/:id/cancel`）
+- 后端: `backend/src/modules/order/order.service.ts:1031-1091`（`cancelOrder`）
+- 售后兜底: `backend/src/modules/after-sale/after-sale.service.ts:27`（`AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED','DELIVERED','RECEIVED']`）
+
+> **2026-05-06 外审 1（方案审）修订**：原版 advisory_xact_lock key、merchantRefundNo 前缀、coupon expiresAt 字段、OrderService 注入方式、InboxService.send 签名、Repo 路径全部错误。修订后下方版本已并入。
+>
+> **2026-05-06 外审 2（实现审）修订**：发现 1 个 Critical（→ 拆为 Bug 89）+ 2 个 Medium 实现遗漏。Medium 已合入 Bug 88 实现，Critical 单独成 Bug 89 修复。两条 Medium 详情见本节末「实现修订（外审 2）」。
+
+**症状**:
+
+App 订单详情页 PAID（已付款待发货）状态右下角有 **"取消订单"** 按钮。点击 → `OrderRepo.cancelOrder(order.id)` → `POST /orders/:id/cancel` → 后端 `cancelOrder` 直接抛 `BadRequestException('当前订单状态无法取消')`。
+
+```ts
+// backend/src/modules/order/order.service.ts:1035
+if (order.status !== 'PENDING_PAYMENT') {
+  throw new BadRequestException('当前订单状态无法取消');
+}
+```
+
+按钮存在，链路全通，**后端拒绝**。这是死按钮。
+
+**真因**（架构变迁的遗留洞）:
+
+1. 旧架构有 `PENDING_PAYMENT` 状态（创建订单时下单，付款回调改为 PAID），cancelOrder 是给"创建后未付款的订单"用的
+2. **新架构**改为"付款后才创建订单"（`CheckoutSession → 支付回调原子建单（PAID）`，CLAUDE.md 关键架构决策"订单流程"），不再有 PENDING_PAYMENT 状态
+3. cancelOrder 没跟着改 → PAID 订单根本没有撤单路径
+4. 售后系统也明确排除 PAID（`AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED','DELIVERED','RECEIVED']`），AfterSaleType 枚举只有 NO_REASON_RETURN / QUALITY_RETURN / QUALITY_EXCHANGE，**全部需要"已发货已签收"前提**
+5. 结果：买家付款后、卖家发货前，**没有任何代码路径可以拿回钱**。淘宝/京东都支持的基础功能在这里是空的
+
+**审查结论（read-only audit 已确认）**:
+
+| 项 | 现状 | 行号 |
+|---|---|---|
+| `cancelOrder` 拒绝 PAID | 真 | `order.service.ts:1035` |
+| 售后系统拒绝 PAID | 真 | `after-sale.service.ts:27` |
+| App 按钮真发请求 | 真 | `app/orders/[id].tsx:117` |
+| 现有 `PaymentService.initiateRefund()` 可复用 | 真，路由支付宝 + 微信 | `payment.service.ts:229` |
+| 现有 cron 重试 `retryStaleAutoRefunds` 每 10min 跑 | 真 | `payment.service.ts:273-346` |
+| Bonus 分润仅在 RECEIVED 触发 | 真，PAID 不需要 reverse allocation | `bonus-allocation.service.ts:70` |
+| Shipment 行可在 PAID 阶段就被卖家 generateWaybill 创建（status=INIT，waybillNo 已填）| 真，**这是 race 关键** | `seller-shipping.service.ts:234` |
+| 卖家 `generateWaybill` 用 `pg_advisory_xact_lock(hashtext('seller-waybill-order'), hashtext('${companyId}:${orderId}'))` | 真 — namespace + 复合 key 必须严格匹配 | `seller-shipping.service.ts:25,158,570-578` |
+| Coupon 付款后是 `USED` 不是 `RESERVED`（`RESERVED` 是结算会话中预锁状态）| 真，**需新增 USED→AVAILABLE 恢复函数** | `coupon.service.ts:561` |
+| 现有 `releaseCoupons` 只处理 RESERVED→AVAILABLE | 真，**不能直接复用** | `coupon.service.ts:596-605` |
+| `CouponInstance` 过期字段名 = `expiresAt`（非 `endTime`）| 真，schema 唯一字段名 | `schema.prisma` model CouponInstance |
+| Refund cron `retryStaleAutoRefunds` 只重试 `AUTO-*`(order.status='CANCELED') + `AS-*` 前缀 | 真，**`merchantRefundNo` 必须用 `AUTO-` 前缀**才能被 cron 兜底 | `payment.service.ts:281-286` |
+| `OrderService` 构造函数仅注入 `prisma/bonusAllocation/bonusConfig`，CouponService 用 setter 注入避循环依赖 | 真，**新依赖 `paymentService` / `inboxService` 也得用 setter** | `order.service.ts:51-70` |
+| `InboxService.send(params)` 签名要求 **`userId`**，不是 `companyId` | 真，需先查 `CompanyStaff` OWNER userId 再 send | `inbox.service.ts:5-22` + `seller-orders.service.ts:385` |
+
+**修复方案（4h 总工时）**:
+
+#### 修复 88-1：后端 `order.service.ts:cancelOrder` 加 PAID 分支（外审修订版）
+
+放开 PAID，新增 `cancelPaidUnshipped` 方法（不破坏 PENDING_PAYMENT 旧逻辑）。
+
+**关键步骤**（必须按这个顺序）:
+
+```ts
+async cancelOrder(id: string, userId: string) {
+  const order = await this.prisma.order.findUnique({
+    where: { id },
+    include: {
+      items: { select: { skuId: true, quantity: true, companyId: true } },
+      payments: true,
+    },
+  });
+  if (!order || order.userId !== userId) throw new NotFoundException('订单未找到');
+
+  if (order.status === 'PENDING_PAYMENT') {
+    return this.cancelPendingPayment(id);  // 现有逻辑，原样保留
+  }
+  if (order.status === 'PAID') {
+    return this.cancelPaidUnshipped(id, userId, order);  // 新增
+  }
+  throw new BadRequestException('当前订单状态无法取消');
+}
+
+private async cancelPaidUnshipped(id: string, userId: string, order: any) {
+  // Step 1：事务外预检 Shipment（fast fail，避免持锁过长）
+  const existingShipments = await this.prisma.shipment.findMany({
+    where: { orderId: id, waybillNo: { not: null } },
+    select: { id: true, status: true },
+  });
+  if (existingShipments.length > 0) {
+    throw new BadRequestException(
+      '卖家已生成发货面单，无法直接取消。请联系卖家撤销面单，或等发货后申请退货',
+    );
+  }
+
+  // Step 2：Refund 幂等检查（防止狂点）
+  const inflightRefund = await this.prisma.refund.findFirst({
+    where: {
+      orderId: id,
+      status: { in: ['REQUESTED', 'APPROVED', 'REFUNDING'] },
+    },
+  });
+  if (inflightRefund) {
+    throw new BadRequestException('已有进行中的退款，请勿重复操作');
+  }
+
+  // 多商户订单 — 取所有 companyId 用于锁 + 通知
+  const companyIds = [...new Set(order.items.map((i: any) => i.companyId))] as string[];
+
+  // Step 3：原子事务（Serializable + 与卖家 generateWaybill 严格同 namespace+复合 key 互斥）
+  const refundData = await this.prisma.$transaction(async (tx) => {
+    // ⚠️ 必须严格匹配 seller-shipping.service.ts:25,158,576 的 namespace + key 才能互斥：
+    //   namespace = 'seller-waybill-order'
+    //   key = `${companyId}:${orderId}`
+    // 多商户订单逐个 companyId 取锁；按字典序排序避免与卖家任何顺序冲突死锁
+    const sortedCompanyIds = [...companyIds].sort();
+    for (const companyId of sortedCompanyIds) {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtext('seller-waybill-order'),
+          hashtext(${`${companyId}:${id}`})
+        )
+      `;
+    }
+
+    // 锁内再查一次 Shipment，防止"事务外检查通过 → 拿锁前卖家生成"的竞态
+    const shipmentCount = await tx.shipment.count({
+      where: { orderId: id, waybillNo: { not: null } },
+    });
+    if (shipmentCount > 0) {
+      throw new BadRequestException('卖家已生成面单，请稍后重试或联系卖家');
+    }
+
+    // CAS 更新订单 PAID → CANCELED
+    const cas = await tx.order.updateMany({
+      where: { id, userId, status: 'PAID' },
+      data: { status: 'CANCELED' },
+    });
+    if (cas.count === 0) {
+      throw new BadRequestException('订单状态已变更，无法取消');
+    }
+
+    // 释放库存
+    for (const item of order.items) {
+      await tx.productSKU.update({
+        where: { id: item.skuId },
+        data: { stock: { increment: item.quantity } },
+      });
+      await tx.inventoryLedger.create({
+        data: {
+          skuId: item.skuId,
+          type: 'RELEASE',
+          qty: item.quantity,
+          refType: 'ORDER',
+          refId: id,
+        },
+      });
+    }
+
+    // 恢复奖励账（VOIDED → AVAILABLE）— 复用现有 cancelPendingPayment 同款逻辑
+    await tx.rewardLedger.updateMany({
+      where: { refType: 'ORDER', refId: id, status: 'VOIDED' },
+      data: { status: 'AVAILABLE', refType: null, refId: null },
+    });
+
+    // 恢复红包（USED → AVAILABLE / EXPIRED）— 调新增的 CouponService.restoreCouponsForOrder
+    if (this.couponService?.restoreCouponsForOrder) {
+      await this.couponService.restoreCouponsForOrder(id, tx);
+    }
+
+    // 创建 Refund 行（status=REFUNDING）
+    // ⚠️ merchantRefundNo 必须用 'AUTO-' 前缀，否则 retryStaleAutoRefunds cron 不会兜底重试
+    //    （payment.service.ts:283 cron 仅匹配 startsWith 'AUTO-' + order.status='CANCELED'）
+    const refund = await tx.refund.create({
+      data: {
+        orderId: id,
+        amount: order.totalAmount,                  // PAID 未发货全额退（含运费，因为没产生快递费）
+        status: 'REFUNDING',
+        merchantRefundNo: `AUTO-CANCEL-${id}`,      // unique 约束 + 一笔订单只取消一次，安全
+        reason: '买家未发货取消订单',
+      },
+    });
+
+    // 状态历史
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId: id,
+        fromStatus: 'PAID',
+        toStatus: 'CANCELED',
+        reason: '买家未发货取消订单',
+      },
+    });
+
+    return {
+      refundId: refund.id,
+      refundAmount: order.totalAmount,
+      merchantRefundNo: refund.merchantRefundNo,
+      affectedCompanyIds: companyIds,
+    };
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  });
+
+  // Step 4：事务外调支付宝 refund（不持长事务）— 失败 cron 兜底
+  try {
+    const result = await this.paymentService.initiateRefund(
+      id,
+      refundData.refundAmount,
+      refundData.merchantRefundNo,
+    );
+    if (result.success) {
+      await this.prisma.refund.update({
+        where: { id: refundData.refundId },
+        data: {
+          status: 'REFUNDED',
+          providerRefundId: result.providerRefundId,
+        },
+      });
+    } else {
+      // 不抛异常 — order.status 已是 CANCELED，cron 会按 AUTO- 前缀重试这条 REFUNDING
+      this.logger.warn(
+        `Refund initiated but failed (cron will retry): refundId=${refundData.refundId}, msg=${result.message}`,
+      );
+    }
+  } catch (e) {
+    // 不让退款失败影响订单取消结果，cron 每 10min 重试 stale REFUNDING
+    this.logger.error(`Alipay refund threw: ${e}`);
+  }
+
+  // Step 5：通知所有受影响商户（多商户订单逐个通知）
+  // ⚠️ InboxService.send(params) 取 userId，不是 companyId — 必须先查每家公司的 OWNER staff
+  try {
+    const owners = await this.prisma.companyStaff.findMany({
+      where: {
+        companyId: { in: refundData.affectedCompanyIds },
+        role: 'OWNER',
+        status: 'ACTIVE',
+      },
+      select: { userId: true, companyId: true },
+    });
+    for (const owner of owners) {
+      await this.inboxService.send({
+        userId: owner.userId,
+        category: 'order',
+        type: 'order.canceled.by.buyer',
+        title: '买家取消订单',
+        content: `订单 ${id} 已被买家在发货前取消，库存已恢复，款项原路退回`,
+        target: { route: '/orders/[id]', params: { id } },
+      });
+    }
+  } catch (e) {
+    // 通知失败不阻塞主流程
+    this.logger.warn(`通知商户失败: ${e}`);
+  }
+
+  return { ok: true, refundId: refundData.refundId };
+}
+```
+
+**新增 setter 注入**（避免循环依赖，与现有 `setCouponService` 同款）:
+
+```ts
+// order.service.ts 顶部加字段
+private paymentService: any = null;
+private inboxService: any = null;
+
+// 加 setter
+setPaymentService(s: any) { this.paymentService = s; }
+setInboxService(s: any) { this.inboxService = s; }
+```
+
+```ts
+// order.module.ts onModuleInit 中注入（紧邻现有 setCouponService 那段）
+this.orderService.setPaymentService(this.paymentService);
+this.orderService.setInboxService(this.inboxService);
+```
+
+`OrderModule` 需要 `imports: [PaymentModule, InboxModule]`（如未导入），避免 setter 拿到 undefined。
+
+#### 修复 88-2：`coupon.service.ts` 新增 `restoreCouponsForOrder`（外审修订版）
+
+```ts
+/**
+ * 订单取消时恢复已使用红包（USED → AVAILABLE，过期则 USED → EXPIRED）
+ * 同时删除对应 CouponUsageRecord
+ *
+ * ⚠️ schema 字段名：CouponInstance.expiresAt（非 endTime）
+ */
+async restoreCouponsForOrder(orderId: string, tx: Prisma.TransactionClient) {
+  const usageRecords = await tx.couponUsageRecord.findMany({
+    where: { orderId },
+    include: { couponInstance: true },
+  });
+  if (usageRecords.length === 0) return;
+
+  const now = new Date();
+  for (const record of usageRecords) {
+    const instance = record.couponInstance;
+    const isExpired = instance.expiresAt && instance.expiresAt < now;
+
+    const cas = await tx.couponInstance.updateMany({
+      where: { id: instance.id, status: 'USED' },
+      data: {
+        status: isExpired ? 'EXPIRED' : 'AVAILABLE',
+        usedAt: null,
+      },
+    });
+    if (cas.count === 0) {
+      this.logger.warn(
+        `订单 ${orderId} 恢复红包 ${instance.id} 失败：状态非 USED`,
+      );
+    }
+  }
+
+  // 删除使用记录（保持 CouponInstance 与 OrderItem 解耦）
+  await tx.couponUsageRecord.deleteMany({ where: { orderId } });
+
+  this.logger.log(
+    `订单 ${orderId} 恢复 ${usageRecords.length} 张红包`,
+  );
+}
+```
+
+#### 修复 88-3：App 二次确认弹窗（防误操作）
+
+```tsx
+// app/orders/[id].tsx:100
+const handleCancel = async () => {
+  Alert.alert('取消订单', '确认取消？取消后将原路退款到支付账户，预计 1-3 个工作日到账', [
+    { text: '再想想', style: 'cancel' },
+    {
+      text: '确认取消',
+      style: 'destructive',
+      onPress: async () => {
+        const r = await OrderRepo.cancelOrder(order.id);
+        if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
+        await queryClient.invalidateQueries({ queryKey: ['orders'] });
+        await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
+        show({ message: '已取消，正在退款', type: 'success' });
+        refetch();
+      },
+    },
+  ]);
+};
+```
+
+#### 修复 88-4：单测覆盖
+
+`backend/src/modules/order/order.service.spec.ts` 新增 case：
+
+- [ ] PAID 订单 + 无 Shipment → 取消成功 + 库存恢复 + RewardLedger AVAILABLE + Refund REFUNDED
+- [ ] PAID 订单 + 已有 Shipment（waybillNo 非 null）→ BadRequestException「卖家已生成面单」
+- [ ] PAID 订单 + 已有 in-flight Refund → BadRequestException「已有进行中的退款」
+- [ ] CAS 冲突（并发取消）→ 一次成功一次失败「订单状态已变更」
+- [ ] 支付宝 refund 调用抛异常 → 订单仍 CANCELED + Refund 行 REFUNDING（cron 兜底）
+- [ ] 多商户订单（3 个 companyId）→ InboxService.notify 被调 3 次
+- [ ] 红包 USED → AVAILABLE 正确恢复 + endTime 已过 → EXPIRED
+- [ ] 并发：买家 cancel + 卖家 generateWaybill 同 orderId → 一方失败（advisory lock 串行化）
+
+#### 修复 88-5：文档同步
+
+- [ ] `docs/features/refund.md` 新增"规则 24：未发货取消"明确：
+  > PAID 未发货状态买家可主动取消，全额退款（含运费，因未产生快递费）。卖家已生成 SF 面单后买家无法直接取消，需联系卖家撤销面单或等发货后申请退货。规则 6"只退商品价格不退运费"仅适用于已发货后退货场景。
+- [ ] `docs/architecture/data-system.md` Order 状态机加 `PAID → CANCELED` 边
+- [ ] `plan.md` 加条目 `R-RS08 — PAID 未发货取消订单链路修复`
+
+**实施顺序**（一个 commit 一件事，便于回退）:
+
+1. **commit 1**（后端）：`coupon.service.ts` `restoreCouponsForOrder` + `order.service.ts` `cancelPaidUnshipped` + 单测 8 case → 推 staging
+2. **真机验证 Case 1.1**（仅退款）→ 真测 OK 才进下一步
+3. **commit 2**（App）：Alert 二次确认 → eas update preview
+4. **commit 3**（文档）：refund.md / data-system.md / plan.md
+
+**风险点**:
+
+1. **支付宝 refund 异步性**：订单已 CANCELED 但钱可能 1-3 工作日才到账（沙箱即时）。App 文案必须说"正在退款，预计 1-3 工作日到账"，避免用户以为没退
+2. **PROD 切换前必须实测**：staging 跑通后还要在 PROD 用 0.01 元真单测一次（推 main 后），因为支付宝沙箱与生产 refund 接口签名/回调可能有差异
+3. **多商户通知未来若改 push/钉钉/企微**：本方案只走 InboxService（站内信）。后续若引入 push 推送，要在通知封装层加，不重写 cancelPaidUnshipped
+4. **多商户多锁顺序死锁风险**：本方案对所有 companyId 排序后逐个 `pg_advisory_xact_lock`。卖家 generateWaybill 单次只持一把锁（单 companyId），故顺序不一致**不会**死锁。但若未来卖家流程出现批量取多锁，**双方必须同向排序**
+
+**修订记录（2026-05-06 外审修订）**:
+
+| 原错误 | 修订后 |
+|--------|--------|
+| `pg_advisory_xact_lock(hashtext('SHIPMENT_WAYBILL'), hashtext(orderId))` — 完全锁不上卖家 generateWaybill | namespace 改 `'seller-waybill-order'` + 复合 key `${companyId}:${orderId}`，多商户订单逐个 companyId 取锁（排序避死锁） |
+| `merchantRefundNo: RF${Date.now()}${id.slice(-6)}` — cron 不重试 | 改 `AUTO-CANCEL-${id}`，匹配 `payment.service.ts:283` cron `startsWith 'AUTO-'` + `order.status='CANCELED'` 双条件 |
+| `instance.endTime` — 字段不存在，TS 编译失败 | 改 `instance.expiresAt`（schema 真实字段名） |
+| `this.paymentService` / `this.inboxService` — OrderService 未注入 | 新增 setter `setPaymentService` + `setInboxService`，OrderModule.onModuleInit 注入 |
+| `inboxService.notify(companyId, ...)` — API 不存在 | 改 `inboxService.send({userId, category, type, title, content, target})` + 先查 `CompanyStaff role:'OWNER'` 拿 userId |
+| `src/repos/order.repo.ts` | 实际文件 PascalCase `src/repos/OrderRepo.ts` |
+
+**实现修订（2026-05-06 外审 2）**:
+
+写完后过外审 2 发现 2 个实现遗漏，已合入：
+
+| 项 | 原实现 | 修订后 |
+|----|--------|--------|
+| **CouponInstance 重置不完整**（Medium）| `restoreCouponsForOrder` 只清 `usedAt: null`，遗漏 `usedOrderId` + `usedAmount`。AVAILABLE 红包带旧订单 ID/抵扣金额噪音 | 同步清三个字段 `usedAt: null, usedOrderId: null, usedAmount: null`。位置 `coupon.service.ts:restoreCouponsForOrder` |
+| **RefundStatusHistory 漏写**（Medium）| `cancelPaidUnshipped` 创建 Refund + 更新 REFUNDED 都没写状态历史，与现有模式（`payment.service.ts:304-312, 616-623`）不一致，缺审计 | 创建时写 `null → REFUNDING` + 渠道退款成功时独立 TX 写 `REFUNDING → REFUNDED`，operatorId = 买家 userId |
+| **paymentService.initiateRefund 在新架构无 Payment 行 → 死路**（Critical）| 拆为 **Bug 89** 单独修复（共享基础设施改动，影响范围超 Bug 88）| 见下方 Bug 89 |
+
+**待用户决策**:
+
+- [x] 方案是否按这版走（已用户确认审查后再写文档）
+- [x] 外审 1 修订已并入（2026-05-06，方案级）
+- [x] 外审 2 修订已并入（2026-05-06，实现级 Medium）
+- [x] 外审 2 拆出的 Critical 已成独立 Bug 89 修完（见下）
+- [ ] 启动实施时是否先做真机 case 1.1 准备（要先在 staging 下 1 笔 PAID 订单，不让卖家发货）
+
+---
+
+### Bug 89 ⚠️ CRITICAL（2026-05-06 实现 Bug 88 时连带发现 → 同日修完）— `paymentService.initiateRefund` 在 CheckoutSession-based 新架构下无 Payment 行 → **所有渠道退款失败**
+
+**状态**: 🔧 代码已写完，待真机验证
+
+**位置**: `backend/src/modules/payment/payment.service.ts:229-270`（`initiateRefund` 方法）
+
+**症状**:
+
+`initiateRefund` 强依赖 `Payment` 行存在：
+```ts
+const payment = await this.prisma.payment.findFirst({ where: { orderId, status: 'PAID' } });
+if (!payment) return { success: false, message: '未找到对应的支付记录' };
+```
+
+但 grep 整个 `backend/src/` **找不到任何 `tx.payment.create()` 或 `prisma.payment.create()` 调用**。
+
+新架构 CheckoutSession 流（`payment.service.ts:434-530`）支付回调 → `checkoutService.handlePaymentSuccess` → 创建 PAID Order，**完全不创建 Payment 行**。结果 Payment 表从来都是空的，`initiateRefund` 永远进 line 244 的 if 拒绝退款。
+
+**影响范围**:
+
+| 调用方 | 现状 | 触发场景 |
+|--------|------|---------|
+| Bug 88 新加的 PAID 取消 | 钱永远退不出来 | 买家未发货取消 |
+| `admin-after-sale.service.ts:466` 售后退款 | 同样退不出来 | 管理员仲裁 / 卖家同意 / 超时自动 |
+| `payment.service.ts:283-285` cron `retryStaleAutoRefunds` | 永远 false 永远停在 REFUNDING | 自动退款补偿 |
+
+也就是说 **整个 v1.0 的退款链路在新架构下是死的**，不止我新加的 cancel。
+
+**真因**:
+
+旧架构（PENDING_PAYMENT-based）由前置代码创建 Payment 行（已被 CheckoutSession 替代但 `initiateRefund` 没跟着改），新架构通过 CheckoutSession 直建 PAID Order，跳过了 Payment 表。`initiateRefund` 没做架构兼容。
+
+**修复方案**:
+
+`initiateRefund` 加双架构 fallback：
+
+```ts
+// 路径 1：旧架构 — 查 Payment 行
+const payment = await this.prisma.payment.findFirst({
+  where: { orderId, status: 'PAID' },
+  orderBy: { createdAt: 'desc' },
+});
+
+let channel: string | null = null;
+let providerOrderNo: string | null = null;
+
+if (payment) {
+  channel = payment.channel;
+  providerOrderNo = payment.merchantOrderNo;
+} else {
+  // 路径 2：新架构 — 通过 Order.checkoutSessionId 找 CheckoutSession
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    select: { checkoutSessionId: true },
+  });
+  if (!order?.checkoutSessionId) {
+    return { success: false, message: '未找到对应的支付记录' };
+  }
+  const session = await this.prisma.checkoutSession.findUnique({
+    where: { id: order.checkoutSessionId },
+    select: { merchantOrderNo: true, paymentChannel: true },
+  });
+  if (!session?.merchantOrderNo || !session.paymentChannel) {
+    return { success: false, message: '结算会话支付凭据缺失，无法发起退款' };
+  }
+  channel = session.paymentChannel as string;
+  providerOrderNo = session.merchantOrderNo;
+}
+
+// 后续 if (channel === 'ALIPAY') 分支用 providerOrderNo 调 alipayService.refund
+```
+
+**附带收益**: 这一改顺手把 **after-sale 退款链路** 也修复了（之前同样卡在 Payment 行不存在）。
+
+**风险点**:
+
+1. **VIP_PACKAGE 退款语义**：CheckoutSession.bizType 可能是 `VIP_PACKAGE`，退款后 VIP 激活如何回退？目前未做特殊处理（现有 after-sale 也未做），追到后续 Bug
+2. **CheckoutSession 状态过滤**：当前 fallback 不检查 `session.status`，理论上 ACTIVE/EXPIRED 会话也会被走通。实际 PAID 订单一定来自 PAID/COMPLETED 状态的 session，但建议加 status 校验更稳
+3. **多 Order 一 Session**：一个 CheckoutSession 可拆多个 Order（多商户），但 `merchantOrderNo` 是 session 级别，所有 Order 用同一个 merchantOrderNo 调 alipay refund 不冲突（refund 是按 merchantOrderNo + merchantRefundNo 幂等的）。**但要注意**：多商户订单全部取消时，每个 Order 会调一次 refund，且每次金额是该 Order 的 totalAmount，不是 session 总额，需要确认支付宝是否允许"分笔退款总额 ≤ 原订单"——支付宝 `tradeRefund` 支持，OK
+4. **未真机实证**：本修复仅 staging 准备阶段写完，未跑 case 1.1 真机验证
+
+**待办**:
+
+- [ ] 真机 case 1.1 验证退款实际成功（沙箱后台能看到 refund 单 + Refund 行 status=REFUNDED）
+- [ ] 多商户订单退款验证（一个 session 多个 order 都能正常退）
+- [ ] 售后流程顺带回归（`admin-after-sale.service.ts:466` 退款链路应同步修好）
+- [ ] 加 CheckoutSession.status 校验（可选，提高鲁棒性）
+
+---
+
+### Bug 90 ⚠️ HIGH（2026-05-06 外审 3 发现 → 2026-05-06 已修方案 A，待真机验证）— 多商户 CheckoutSession 取消时奖励/红包恢复语义错乱，**可能套利**
+
+**状态**: 🔧 cancel 路径已修方案 A，after-sale 路径同 bug 留 Bug 90b 单独处理
+
+**位置**:
+- 共享逻辑: `backend/src/modules/order/checkout.service.ts:1437,1485-1489,1730`
+- 受影响新代码: `backend/src/modules/order/order.service.ts:cancelPaidUnshipped`（Bug 88）
+
+**真因**:
+
+CheckoutSession 拆多商户订单时（`isPrimary = idx === 0`）：
+- 奖励 `RewardLedger.refId` 只关联 `createdOrderIds[0]`（primary order）
+- 红包 `CouponUsageRecord.orderId` 也只 = `primaryOrderId`
+
+我的 `cancelPaidUnshipped` 用 `refType: 'ORDER', refId: id` 过滤恢复，单商户场景没问题。多商户场景下：
+
+| 场景 | 假设奖励 50 元 + 红包 50 元用在 3 商户单 | 我的代码行为 | 后果 |
+|------|------|------|------|
+| 取消 Order B（非 primary）| RewardLedger.refId = primaryA | `where refId = B` 0 条不恢复 | B 取消了 钱也没还回来 + 奖励/红包仍卡在 USED |
+| 取消 Order A（primary）| 同上 | 全部恢复 AVAILABLE | **B、C 仍按折扣价存在 + 奖励/红包又可用 = 套利** |
+
+**修复方案候选**:
+
+**A — 多商户单只能整 session 取消（推荐 v1.0）**
+- 检查 `Order.checkoutSessionId` 同 session 下是否还有 sibling 订单
+- 有 sibling 且任一已 SHIPPED/RECEIVED → 拒绝，提示"该订单含多家商品，部分已发货，无法整单取消"
+- 全部 sibling 仍 PAID → 把所有 sibling 一起 CANCELED + 一次性退款（或按 Order 拆退款单）+ 恢复一次奖励/红包
+
+**B — 多商户单不允许 PAID 取消**
+- 检查 sibling 数 > 1 → 拒绝，让买家走售后
+- 缺点：多商户单买家被 "锁死" 在 PAID 状态等卖家发货
+- 优点：实现最简单
+
+**C — 按比例 partial restore**
+- 计算 `proportionalDiscount = (this.totalAmount / session.totalAmount) * sessionDiscount`
+- RewardLedger / CouponInstance 状态保留 USED，但 amount 部分扣回（schema 不支持）
+- 太复杂，v1.0 不做
+
+**推荐 A**。理由：
+- B 用户体验差（买家无法取消多商户已付订单）
+- C 状态机复杂度爆炸
+- A 对买家友好（要么全退要么联系客服）+ 实现量约 +1h
+
+**A 方案实施细节**:
+
+```ts
+// cancelPaidUnshipped 开头加分支
+if (order.checkoutSessionId) {
+  const siblings = await this.prisma.order.findMany({
+    where: {
+      checkoutSessionId: order.checkoutSessionId,
+      id: { not: id },
+    },
+    select: { id: true, status: true },
+  });
+  if (siblings.length > 0) {
+    // 多商户场景
+    const nonPaid = siblings.filter((s) => s.status !== 'PAID');
+    if (nonPaid.length > 0) {
+      throw new BadRequestException(
+        '该订单含多家商品，部分已发货或已退，无法整单取消，请联系客服',
+      );
+    }
+    // 全部 PAID — 整 session 一起取消
+    return this.cancelEntireSessionUnshipped(order.checkoutSessionId, userId);
+  }
+}
+// 无 sibling — 走单订单取消（现有逻辑）
+```
+
+`cancelEntireSessionUnshipped` 关键步骤:
+1. 拿 session 所有 PAID orders + 所有 companyId（涉及商户）
+2. 对每个 companyId 取 advisory lock
+3. 锁内复检每个 Order 仍 PAID + 没 Shipment
+4. 全部 PAID → CANCELED + 库存恢复 + RewardLedger（一次）+ CouponUsageRecord（一次）+ 每个 Order 一条 OrderStatusHistory
+5. 每个 Order 创建一条 Refund 行（merchantRefundNo = `AUTO-CANCEL-${orderId}`），调 `initiateRefund`
+6. 通知所有商户 OWNER
+
+**风险点**:
+
+1. **N 笔退款 vs 1 笔退款**：每个 Order 都有自己的 totalAmount，调 alipay refund 时支付宝按 `merchantRefundNo` 幂等，多笔退款总额 ≤ 原支付额，支付宝支持。但 N 个独立 refund 单意味着用户钱包看到 N 条退款记录，UI 上需要解释
+2. **部分退款失败**：N 笔中一笔失败 → 整 session 不算全退，需要 cron 兜底 + 人工运维介入
+3. **CheckoutSession 状态推进**：N 个 Order 都 CANCELED 后，session.status 应 → `CANCELED`，否则 fallback 退款路径会拿到无效凭据
+4. **现有售后 (`after-sale`) 也有这个 bug**：买家对多商户 primary order 申请仅退款，奖励/红包恢复也错乱。**Bug 90 的修复应同时覆盖 after-sale 退款路径**
+
+**已实施（2026-05-06，方案 A）**:
+
+| 改动 | 位置 | 内容 |
+|------|------|------|
+| `cancelOrder` 加多商户检测分支 | `order.service.ts:cancelOrder` | 查 `Order.checkoutSessionId` 同 session 下 sibling；任一非 PAID → 拒绝；全 PAID → 路由到 `cancelEntireSessionUnshipped` |
+| 新增 `cancelEntireSessionUnshipped` 方法 | `order.service.ts` | 完整整 session 取消逻辑，逐 Order 创建 Refund 行 + 调 alipay 退款 + RewardLedger / CouponUsageRecord 一次性恢复 |
+| advisory_xact_lock 优化（外审 4 修订）| TX 内 N 把锁（每 Order 真实 companyId）| 利用 checkout 流保证「一 Order 一 companyId」（`checkout.service.ts:1435`），从 M×N 优化到 N；按 `companyId:orderId` 字典序遍历严格匹配卖家 generateWaybill |
+| 通知所有商户 OWNER | `inboxService.send` | 找各商户 ownerOrder + 发独立站内信 |
+
+**Bug 90b（2026-05-06 复审后修正：redemption 不恢复是非 bug，但售后退款金额漏扣奖励/VIP 折扣是资金 bug）**:
+
+> 用户：「先做 90b」→ 实施前进 `after-sale-reward.service.ts` + `admin-after-sale.service.ts` 完整代码审查后发现两条链路操作的是**不同的 RewardLedger entry**，互不冲突，不存在套利路径。
+
+**关键差异表**:
+
+| 维度 | Cancel 路径 | After-sale 路径 |
+|------|------------|----------------|
+| 语义 | 买家未发货撤单（没拿到货）| 买家收到货后退款（拿到货又退）|
+| RewardLedger 操作 | 用户 redemption 恢复 VOIDED → AVAILABLE | 祖辈 allocation 作废 FROZEN → VOIDED 归平台 |
+| 操作的 entry 类型 | `entryType=USE`/`VOIDED`，`refId=primary` | `entryType=FREEZE`，`refId=各 Order`（DELIVERED 时给祖辈分润）|
+| status filter | `status: 'VOIDED'` | `status: { in: ['FROZEN', 'RETURN_FROZEN'] }` |
+| CouponInstance 处理 | USED → AVAILABLE（恢复给买家）| **不动**（USED 保持）|
+
+**套利分析（多商户全退场景，redemption 状态层）**:
+- 买家 session 总额 $90（含红包 $10），三商户 A/B/C 各 $30
+- 退 B：`voidRewardsForOrder(B)` 作废 B 的祖辈分润奖励，**A 上的 USED 红包/奖励 redemption 保持 USED**
+- 退 A 和 C：同理
+- 套利路径：**不存在**。USED 状态全程不变，买家不能再次使用红包/奖励
+
+**2026-05-06 复审发现的真实缺口**:
+
+上面的结论只覆盖了 redemption 是否恢复，漏看了退款金额本身：
+
+- Checkout 支付金额会扣 `Order.discountAmount`（奖励抵扣）、`Order.totalCouponDiscount`（平台红包）、`Order.vipDiscountAmount`（VIP 折扣）
+- 售后 `calculateRefundAmount` 原本只按 `totalCouponDiscount` 分摊，未扣奖励/VIP 折扣
+- 结果：用户实付低于商品原价时，售后退款可能超过该商品对应实付金额；支付宝可能拒绝超额退款，或在同支付单多笔退款时造成资金错配
+
+**已修复（2026-05-06）**:
+
+| 项 | 修复 |
+|----|------|
+| 后端退款计算 | `after-sale.utils.ts:calculateRefundAmount` 新增奖励抵扣 + VIP 折扣分摊，且总抵扣 cap 到 `orderGoodsAmount`，退款金额不为负 |
+| 后端调用 | `after-sale.service.ts` 传入 `order.discountAmount` / `order.totalCouponDiscount` / `order.vipDiscountAmount` |
+| App 预估 | `app/orders/after-sale/[id].tsx` 预估退款按三类抵扣统一分摊 |
+| 订单 DTO | `order.service.ts:mapOrder/mapOrderDetail` 暴露 `goodsAmount/shippingFee/discountAmount/vipDiscountAmount/totalCouponDiscount` |
+| App 明细 | `app/orders/[id].tsx` `AmountSummary` 传入 `totalCouponDiscount`，红包/奖励分开显示 |
+| 测试 | 新增 `after-sale.utils.spec.ts`、`map-order.spec.ts` 覆盖折扣分摊和字段暴露 |
+
+**潜在 UX 议题（不属于资金安全 bug）**:
+- 全 session 全退后，红包/奖励仍 USED → 买家"白白损失"redemption
+- 这是保守策略：电商一般认为「redeemed = consumed」（淘宝/京东都是如此）
+- 若未来要做"全退恢复"功能，单独成 R-RS-BL3 优化项
+
+**结论**: Bug 90b 按“状态不恢复非 bug + 金额计算 bug 已修”关闭，仍需真机售后退款回归。
+
+---
+
+### Bug 91 🟡 MEDIUM（2026-05-06 外审 3 发现）— App 取消按钮缺二次防抖 / loading state
+
+**状态**: ✅ 已修，待真机验证
+
+**位置**: `app/orders/[id].tsx:100-107` `handleCancel`
+
+**症状**: 用户点击"取消订单"后无视觉反馈（无 loading），网络慢时可能多次点击触发并发 cancel 请求。后端虽有 CAS 兜底（仅一笔成功），但前端 UX 烂 + 多余网络请求。
+
+**修复**: 已加 `Alert.alert` 二次确认 + 调用期 `cancelingRef` 防重复请求 + 按钮文案 `取消中...` + 成功 toast 提示原路退款。
+
+---
+
+### Bug 92 🟢 LOW（2026-05-06 外审 3 发现）— `initiateRefund` fallback 未校验 CheckoutSession.status
+
+**状态**: ✅ 已修
+
+**位置**: `backend/src/modules/payment/payment.service.ts:259-270`
+
+**说明**: `PaymentService.initiateRefund` fallback 已校验 `CheckoutSession.status in ['PAID', 'COMPLETED']`，否则拒绝发起退款并返回状态异常。新增 `payment.service.refund.spec.ts` 覆盖无 Payment 行 fallback + 非已支付 session 拒绝。
+
+---
 
 ### Phase 1: P0 阻断级（沙箱实证后已收敛）— 估时 1.5-2 天
 

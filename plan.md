@@ -1077,3 +1077,52 @@
 - 2026-05-04 创建 `docs/issues/app-tofix2.md`（12 个 bug 全审）
 - 2026-05-04 用户拍板 Bug 7 走方案 B（保留精确匹配，加强 UA 归一化）；Bug 8 走方案 C（48h 重试）；Bug 1 不写一次性 SQL，改 lazy 兜底
 - 2026-05-04 暂缓 iOS 相关项（Bug 2/4 + 任务 17）和 Bug 5（APK 分流）
+
+---
+
+## 退货 / 退款链路修复（2026-05-06 新增）
+
+> P1-3 退货流程真机测试准备阶段连带挖出 2 条 v1.0 上线阻断 Critical。详细方案见 `docs/issues/app-tofix3.md` Bug 88 + Bug 89。
+
+### Phase 1 — 退款基础设施修复 ✅ 2026-05-06（代码完成，待真机验证）
+
+- [🔧] **R-RS08** PAID 未发货取消订单链路（Bug 88）— App 取消按钮调死链路修复
+  - 后端 `order.service.ts:cancelOrder` 拆 `cancelPendingPayment`（旧架构遗留）+ `cancelPaidUnshipped`（新增）
+  - 严格对齐 `seller-shipping.service.ts` advisory_xact_lock（namespace `seller-waybill-order` + 复合 key `${companyId}:${orderId}`）防止与卖家 generateWaybill 竞态
+  - merchantRefundNo 用 `AUTO-CANCEL-${id}` 前缀让 cron `retryStaleAutoRefunds` 兜底重试
+  - 全额退款（含运费，因未发货无快递费）；CouponInstance USED → AVAILABLE/EXPIRED 完整重置三字段（usedAt/usedOrderId/usedAmount）；RewardLedger VOIDED → AVAILABLE
+  - InboxService.send 通知所有受影响商户的 OWNER（多商户订单逐 companyId 通知）
+  - RefundStatusHistory 完整审计（创建 + REFUNDED 各一条）
+  - `coupon.service.ts` 新增 `restoreCouponsForOrder(orderId, tx)`
+  - `order.module.ts` 新增 setPaymentService + setInboxService 注入
+  - 走过 2 轮外审（方案审 + 实现审），共发现 7 项错误 + 2 项 Medium 实现遗漏全部并入
+
+- [🔧] **R-RS09** `paymentService.initiateRefund` 双架构兼容（Bug 89，Critical 预存在）— 实现 R-RS08 时连带发现
+  - 真因：CheckoutSession-based 新架构下不创建 Payment 行（grep 全仓库 0 处 `payment.create`），但 `initiateRefund` 强依赖 Payment 行；导致**整个 v1.0 退款链路在新架构下都死了**（不止我新加的 cancel，还包括 after-sale 全部退款）
+  - 修复：`payment.service.ts:initiateRefund` 加 fallback：找不到 Payment 行 → 通过 `Order.checkoutSessionId → CheckoutSession.merchantOrderNo + paymentChannel` 路由到 `alipayService.refund`
+  - 2026-05-06 补充：fallback 仅允许 `CheckoutSession.status` 为 `PAID` / `COMPLETED`
+  - 附带收益：自动修复 `admin-after-sale.service.ts:466` 售后退款 + `payment.service.ts:283` cron `retryStaleAutoRefunds` 自动重试链路
+
+### Phase 1.5 — 外审 3 发现的高危问题（v1.0 上线前必须修）
+
+- [🔧] **R-RS15** 多商户 CheckoutSession 取消语义修复（Bug 90，HIGH，可能套利）— 已实施方案 A
+  - `cancelOrder` 加 sibling 检测分支：任一非 PAID → 拒绝；全 PAID → 路由 `cancelEntireSessionUnshipped`
+  - `cancelEntireSessionUnshipped`：一并 CANCELED + 库存全恢复 + RewardLedger/CouponUsageRecord 一次性恢复（基于 IN [orderIds] 命中 primary）+ 每 Order 独立 Refund 行 + 逐笔调 alipay refund + 通知所有商户 OWNER
+  - advisory_xact_lock 改为每个 Order 真实 `(companyId, orderId)` 对，按字典序遍历避死锁
+  - 待真机 case 1.1 + 多商户场景测试
+
+- [✅] **R-RS16** 售后退款路径金额修正（Bug 90b）— redemption 不恢复本身保持保守策略；已修真实资金缺口：售后退款金额按商品占比分摊奖励抵扣 + 平台红包 + VIP 折扣，避免退款超过用户实付。同步 App 预估和订单 DTO，详见 `docs/issues/app-tofix3.md` Bug 90b 修正说明
+
+### Phase 2 — App 端 + 文档收尾（待做）
+
+- [✅] **R-RS10** App `Alert` 二次确认弹窗 + 调用期 loading state（Bug 91）— `app/orders/[id].tsx` 已加确认提示、`cancelingRef` 防重复请求、按钮文案 `取消中...`
+- [ ] **R-RS11** 真机 case 1.1 验证（仅退款，PAID 未发货）— 跑通后 ✅ R-RS08/R-RS09
+- [ ] **R-RS12** 多商户订单退款验证 — 一个 CheckoutSession 多 Order 都能正常退（每 Order 独立调 alipay refund）
+- [ ] **R-RS13** 售后退款回归 — 验证 `admin-after-sale.service.ts:466` 退款链路在新架构下也能成功（R-RS09 附带收益验证）
+- [ ] **R-RS14** 文档同步 — `docs/features/refund.md` 加规则 24（未发货取消全额退含运费）+ `docs/architecture/data-system.md` Order 状态机加 `PAID → CANCELED` 边
+
+### Backlog
+
+- [ ] **R-RS-BL1** CheckoutSession `bizType=VIP_PACKAGE` 退款时 VIP 激活如何回退？目前未做特殊处理（after-sale 也未做），等真机测发现再处理
+- [✅] **R-RS-BL2** `initiateRefund` fallback 不检查 `session.status`（Bug 92，LOW）— 已加 `PAID/COMPLETED` 校验并补单测
+- [ ] **R-RS-BL3** 全 session 全退时恢复红包/奖励 redemption（UX 优化非 bug）— 当前保守策略 USED 保持不变，未来若要给"全退用户" 100% 恢复 redemption 价值，可单独做
