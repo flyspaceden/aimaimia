@@ -96,23 +96,48 @@ export class SfExpressService {
 
   /**
    * 顺丰 opCode → 系统 ShipmentStatus 映射
-   * 参考丰桥文档路由节点操作码
+   *
+   * 真实来源（Bug 93 修订，2026-05-06）:
+   * - 丰桥统一接入平台对接规范 PDF 示例：opcode="50" remark="已派件" / opcode="80" remark="已签收"
+   * - 丰桥平台 API 接口规范 V3.8 PDF 示例：opcode="50" remark="已收件"
+   * - 第三方对接经验（psvmc.cn 2024-10）：50=揽收, 80=签收, 8000=订单结束
+   *
+   * 注意：SF 不在公开 PDF 完整发布 opCode → 含义表，PDF 明示"可从顺丰商务人员处获取"。
+   * 50/80 已实证；其他映射为推断值，待 SF 商务确认完整对照表后逐条核实。
    */
   static readonly OP_CODE_MAP: Record<string, SfMappedStatus> = {
-    '50': 'DELIVERED', // 签收
-    '44': 'DELIVERED', // 代签
-    '80': 'EXCEPTION', // 退签
-    '99': 'EXCEPTION', // 退回
-    '36': 'EXCEPTION', // 派件异常
-    '54': 'EXCEPTION', // 退回签收
-    '31': 'IN_TRANSIT', // 派件（派件中为运输中子状态）
-    '30': 'IN_TRANSIT', // 正在派送
-    '70': 'IN_TRANSIT', // 到达目的地城市
-    '60': 'IN_TRANSIT', // 到达中转站
-    '21': 'IN_TRANSIT', // 运输中
-    '204': 'IN_TRANSIT', // 发出
-    '10': 'SHIPPED', // 已揽收
+    // ─── 已实证（SF 官方 PDF 示例 + 第三方多源印证）─────────
+    '50': 'SHIPPED',     // 已收件 / 揽收（Bug 93 修复：原误为 DELIVERED）
+    '80': 'DELIVERED',   // 已签收（Bug 93 修复：原误为 EXCEPTION）
+
+    // ─── 推断映射（待 SF 商务确认完整对照表）─────────────
+    '44': 'DELIVERED',   // 代签
+    '99': 'EXCEPTION',   // 退回
+    '36': 'EXCEPTION',   // 派件异常
+    '54': 'EXCEPTION',   // 退回签收 / 拒收
+    '31': 'IN_TRANSIT',  // 派件
+    '30': 'IN_TRANSIT',  // 派送中
+    '70': 'IN_TRANSIT',  // 到达目的地城市
+    '60': 'IN_TRANSIT',  // 到达中转站
+
+    // ─── 留观（官方 PDF 未出现，疑似当年抄错；保留以避免回归，待 SF 商务核实后删除）
+    '10': 'SHIPPED',
+    '21': 'IN_TRANSIT',
+    '204': 'IN_TRANSIT',
   };
+
+  /**
+   * 安全映射 opCode：未知 opCode 默认 IN_TRANSIT 并 warn
+   * Bug 93 加固：避免静默把未知 opCode 当成 IN_TRANSIT，便于真实运营时发现新 opCode
+   */
+  private mapOpCodeSafe(rawOpCode: string): SfMappedStatus {
+    const mapped = SfExpressService.OP_CODE_MAP[rawOpCode];
+    if (mapped) return mapped;
+    this.logger.warn(
+      `未知 SF opCode '${rawOpCode}'，回退 IN_TRANSIT。请联系顺丰商务确认其含义并补入 OP_CODE_MAP`,
+    );
+    return 'IN_TRANSIT';
+  }
 
   constructor(private configService: ConfigService) {
     this.sfEnv = this.configService.get<string>('SF_ENV', 'UAT');
@@ -482,8 +507,7 @@ export class SfExpressService {
       // 取最新事件的 opCode 作为整体状态
       const latestRoute = firstResp.routes[0]; // routes 按时间倒序
       const rawOpCode = String(latestRoute.opCode ?? '');
-      const status =
-        SfExpressService.OP_CODE_MAP[rawOpCode] || 'IN_TRANSIT';
+      const status = this.mapOpCodeSafe(rawOpCode);
 
       const events = firstResp.routes.map(
         (r: any) => ({
@@ -561,8 +585,7 @@ export class SfExpressService {
       );
       const latest = rs[0];
       const rawOpCode = String(latest?.opCode ?? '');
-      const status =
-        SfExpressService.OP_CODE_MAP[rawOpCode] || 'IN_TRANSIT';
+      const status = this.mapOpCodeSafe(rawOpCode);
 
       const events = rs.map((r: any) => ({
         time: String(r.acceptTime ?? ''),

@@ -319,7 +319,7 @@ describe('SfExpressService', () => {
       expect(result).toBeNull();
     });
 
-    it('成功返回路由且正确映射 opCode', async () => {
+    it('成功返回路由且正确映射 opCode（Bug 93 修订: 50=已收件→SHIPPED, 80=已签收→DELIVERED）', async () => {
       const svc = createService();
       mockFetch.mockResolvedValueOnce(
         sfSuccess({
@@ -331,7 +331,7 @@ describe('SfExpressService', () => {
                   acceptTime: '2026-04-11 14:30:00',
                   remark: '已签收',
                   acceptAddress: '昆明市盘龙区',
-                  opCode: '50',
+                  opCode: '80',
                 },
                 {
                   acceptTime: '2026-04-11 10:00:00',
@@ -343,7 +343,7 @@ describe('SfExpressService', () => {
                   acceptTime: '2026-04-10 08:00:00',
                   remark: '已揽收',
                   acceptAddress: '玉溪市红塔区',
-                  opCode: '10',
+                  opCode: '50',
                 },
               ],
             },
@@ -353,8 +353,8 @@ describe('SfExpressService', () => {
 
       const result = await svc.queryRoutes('SF1234567890');
       expect(result).not.toBeNull();
-      expect(result!.status).toBe('DELIVERED'); // opCode 50 = 签收
-      expect(result!.rawOpCode).toBe('50');
+      expect(result!.status).toBe('DELIVERED'); // opCode 80 = 已签收
+      expect(result!.rawOpCode).toBe('80');
       expect(result!.events).toHaveLength(3);
       expect(result!.events[0].time).toBe('2026-04-11 14:30:00');
     });
@@ -402,7 +402,7 @@ describe('SfExpressService', () => {
   // ─── parsePushPayload（沙箱实证 {Body:{WaybillRoute}} 格式，按 mailno 分组返数组）───
 
   describe('parsePushPayload', () => {
-    it('单运单单事件解析', () => {
+    it('单运单单事件解析（Bug 93 修订: 80=已签收→DELIVERED）', () => {
       const svc = createService();
       const body = {
         Body: {
@@ -412,7 +412,7 @@ describe('SfExpressService', () => {
               acceptTime: '2026-04-11 14:30:00',
               remark: '已签收',
               acceptAddress: '昆明市盘龙区',
-              opCode: '50',
+              opCode: '80',
               id: '1',
               orderid: 'O1',
             },
@@ -427,21 +427,21 @@ describe('SfExpressService', () => {
       expect(result[0].events).toHaveLength(1);
     });
 
-    it('单运单多事件按 acceptTime 倒序，最新事件决定 status', () => {
+    it('单运单多事件按 acceptTime 倒序，最新事件决定 status（Bug 93 修订）', () => {
       const svc = createService();
       const body = {
         Body: {
           WaybillRoute: [
-            { mailno: 'SF1', acceptTime: '2026-04-10 10:00:00', remark: '揽收', opCode: '10', id: '1' },
-            { mailno: 'SF1', acceptTime: '2026-04-11 14:30:00', remark: '已签收', opCode: '50', id: '2' },
+            { mailno: 'SF1', acceptTime: '2026-04-10 10:00:00', remark: '揽收', opCode: '50', id: '1' },
+            { mailno: 'SF1', acceptTime: '2026-04-11 14:30:00', remark: '已签收', opCode: '80', id: '2' },
           ],
         },
       };
       const result = svc.parsePushPayload(body);
       expect(result).toHaveLength(1);
-      expect(result[0].status).toBe('DELIVERED'); // opCode 50 是最新
+      expect(result[0].status).toBe('DELIVERED'); // opCode 80 是最新
       expect(result[0].events).toHaveLength(2);
-      expect(result[0].events[0].opCode).toBe('50'); // 倒序排
+      expect(result[0].events[0].opCode).toBe('80'); // 倒序排
     });
 
     it('多运单按 mailno 分组返多个 payload', () => {
@@ -559,14 +559,21 @@ describe('SfExpressService', () => {
 
   // ─── OP_CODE_MAP 静态映射 ──────────────────────────
 
-  describe('OP_CODE_MAP', () => {
+  describe('OP_CODE_MAP（Bug 93 修订后）', () => {
     it('包含所有关键 opCode 映射', () => {
-      expect(SfExpressService.OP_CODE_MAP['50']).toBe('DELIVERED');
+      // 已实证（SF 官方 PDF + 第三方多源印证）
+      expect(SfExpressService.OP_CODE_MAP['50']).toBe('SHIPPED');     // 已收件/揽收
+      expect(SfExpressService.OP_CODE_MAP['80']).toBe('DELIVERED');   // 已签收
+
+      // 推断映射（待 SF 商务确认）
+      expect(SfExpressService.OP_CODE_MAP['44']).toBe('DELIVERED');   // 代签
+      expect(SfExpressService.OP_CODE_MAP['31']).toBe('IN_TRANSIT');  // 派件
+      expect(SfExpressService.OP_CODE_MAP['36']).toBe('EXCEPTION');   // 派件异常
+      expect(SfExpressService.OP_CODE_MAP['54']).toBe('EXCEPTION');   // 拒收/退回签收
+      expect(SfExpressService.OP_CODE_MAP['99']).toBe('EXCEPTION');   // 退回
+
+      // 留观（疑似当年抄错，保留以防回归）
       expect(SfExpressService.OP_CODE_MAP['10']).toBe('SHIPPED');
-      expect(SfExpressService.OP_CODE_MAP['31']).toBe('IN_TRANSIT');
-      expect(SfExpressService.OP_CODE_MAP['36']).toBe('EXCEPTION');
-      expect(SfExpressService.OP_CODE_MAP['80']).toBe('EXCEPTION');
-      expect(SfExpressService.OP_CODE_MAP['54']).toBe('EXCEPTION');
       expect(SfExpressService.OP_CODE_MAP['21']).toBe('IN_TRANSIT');
     });
   });

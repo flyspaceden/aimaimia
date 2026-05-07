@@ -1,0 +1,147 @@
+import { SfExpressService } from './sf-express.service';
+
+/**
+ * Bug 93 — SF opCode 映射回归测试
+ *
+ * 防止 OP_CODE_MAP 又把 50 → DELIVERED / 80 → EXCEPTION 类型的关键映射改回去。
+ * 真因：丰桥 PDF 实证 50=已收件/已派件（绝非签收）、80=已签收（确证 DELIVERED）。
+ */
+
+function createService(overrides: Record<string, string> = {}) {
+  const config: Record<string, string> = {
+    SF_ENV: 'UAT',
+    SF_API_URL_UAT: 'https://sfapi-sbox.sf-express.com/std/service',
+    SF_API_URL: 'https://bsp-oisp.sf-express.com/std/service',
+    SF_CLIENT_CODE: 'TEST_CLIENT',
+    SF_CHECK_WORD: 'test_check_word_secret',
+    SF_MONTHLY_ACCOUNT_UAT: '7551234567',
+    SF_MONTHLY_ACCOUNT_PROD: '7551253482',
+    SF_CALLBACK_URL: 'https://api.example.com/api/v1/shipments/sf/callback',
+    SF_TEMPLATE_CODE: 'fm_150_standard_TEST_CLIENT',
+    SF_ALLOW_E2E_MOCK: 'false',
+    ...overrides,
+  };
+  const configService: any = {
+    get: <T>(k: string, fallback?: T): T | string | undefined =>
+      (config[k] as any) ?? fallback,
+  };
+  return new SfExpressService(configService);
+}
+
+describe('SfExpressService.OP_CODE_MAP', () => {
+  it('opCode 50 必须映射 SHIPPED（已收件/揽收）— 防止又改回 DELIVERED 导致揽收即送达 bug', () => {
+    expect(SfExpressService.OP_CODE_MAP['50']).toBe('SHIPPED');
+  });
+
+  it('opCode 80 必须映射 DELIVERED（已签收）— 防止又改回 EXCEPTION 导致签收事件被当异常', () => {
+    expect(SfExpressService.OP_CODE_MAP['80']).toBe('DELIVERED');
+  });
+
+  it('opCode 44 代签 → DELIVERED（与 80 同语义）', () => {
+    expect(SfExpressService.OP_CODE_MAP['44']).toBe('DELIVERED');
+  });
+
+  it('opCode 36 派件异常 / 99 退回 / 54 拒收 → EXCEPTION', () => {
+    expect(SfExpressService.OP_CODE_MAP['36']).toBe('EXCEPTION');
+    expect(SfExpressService.OP_CODE_MAP['99']).toBe('EXCEPTION');
+    expect(SfExpressService.OP_CODE_MAP['54']).toBe('EXCEPTION');
+  });
+
+  it('opCode 30/31/60/70 在途类 → IN_TRANSIT', () => {
+    expect(SfExpressService.OP_CODE_MAP['30']).toBe('IN_TRANSIT');
+    expect(SfExpressService.OP_CODE_MAP['31']).toBe('IN_TRANSIT');
+    expect(SfExpressService.OP_CODE_MAP['60']).toBe('IN_TRANSIT');
+    expect(SfExpressService.OP_CODE_MAP['70']).toBe('IN_TRANSIT');
+  });
+});
+
+describe('SfExpressService.parseWaybillRoutes 状态推导（Bug 93 集成）', () => {
+  it('收到 opCode 50 路由推送时，整体状态为 SHIPPED（不是 DELIVERED）', () => {
+    const svc = createService();
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF7444703069240',
+            acceptTime: '2026-05-06 10:11:26',
+            acceptAddress: '深圳',
+            remark: '已收件',
+            opCode: '50',
+            id: '111',
+          },
+        ],
+      },
+    });
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].status).toBe('SHIPPED');
+  });
+
+  it('收到 opCode 80 路由推送时，整体状态为 DELIVERED', () => {
+    const svc = createService();
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF7444703069240',
+            acceptTime: '2026-05-07 18:00:00',
+            acceptAddress: '北京',
+            remark: '已签收',
+            opCode: '80',
+            id: '222',
+          },
+        ],
+      },
+    });
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].status).toBe('DELIVERED');
+  });
+
+  it('多条路由按时间倒序，最新事件 opCode 80 → DELIVERED（即使前面有 50）', () => {
+    const svc = createService();
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF7444703069240',
+            acceptTime: '2026-05-06 10:11:26',
+            opCode: '50',
+            remark: '已揽件',
+            id: '1',
+          },
+          {
+            mailno: 'SF7444703069240',
+            acceptTime: '2026-05-07 18:00:00',
+            opCode: '80',
+            remark: '已签收',
+            id: '2',
+          },
+        ],
+      },
+    });
+    expect(payloads[0].status).toBe('DELIVERED');
+    expect(payloads[0].events).toHaveLength(2);
+  });
+
+  it('未知 opCode 回退到 IN_TRANSIT 并记录 warn 日志', () => {
+    const svc = createService();
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+    const payloads = svc.parsePushPayload({
+      Body: {
+        WaybillRoute: [
+          {
+            mailno: 'SF7444703069240',
+            acceptTime: '2026-05-06 10:11:26',
+            opCode: '9999',
+            remark: '未知事件',
+            id: 'x',
+          },
+        ],
+      },
+    });
+    expect(payloads[0].status).toBe('IN_TRANSIT');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("未知 SF opCode '9999'"),
+    );
+    warnSpy.mockRestore();
+  });
+});
