@@ -1139,3 +1139,23 @@
 - [ ] **R-RS-BL1** CheckoutSession `bizType=VIP_PACKAGE` 退款时 VIP 激活如何回退？目前未做特殊处理（after-sale 也未做），等真机测发现再处理
 - [✅] **R-RS-BL2** `initiateRefund` fallback 不检查 `session.status`（Bug 92，LOW）— 已加 `PAID/COMPLETED` 校验并补单测
 - [ ] **R-RS-BL3** 全 session 全退时恢复红包/奖励 redemption（UX 优化非 bug）— 当前保守策略 USED 保持不变，未来若要给"全退用户" 100% 恢复 redemption 价值，可单独做
+
+---
+
+## 商品上下架级联修复（2026-05-07 新增）
+
+> 真机发现下架奖品会卡死在购物车。详细问题清单与状态机见 `docs/issues/app-tofix4.md`。
+
+### Phase 1 — 逃生与防新增 stuck（代码完成，待 staging 真机验证）
+
+- [✅] **R-ST01** 购物车奖品生命周期修复 — `removePrizeItem` / `clearCart` 改为动态判定，仍锁定且可用赠品保留，不可用奖品允许删除并把 `LotteryRecord` 转 `EXPIRED`
+- [✅] **R-ST02** 奖品可用性统一判断 — 抽奖、公开抽奖、奖品列表、claimToken 合并统一校验 `LotteryPrize + SKU + Product`
+- [✅] **R-ST03** 结算链路奖品软排除 — `previewOrder` / `createCheckoutSession` 先按 `cartItemId` 识别奖品；下架奖品进 `excludedItems[]`（含 `isPrize/prizeRecordId`），普通下架商品继续硬拦截
+- [✅] **R-ST04** 支付成功清理兜底 — `handlePaymentSuccess` 按 `cartItemId` + `prizeRecordId` 双路径删除已消费奖品 cartItem，并清理 `bizMeta.excludedPrizeItems` 中的软排除奖品
+- [✅] **R-ST05** 买家 App 购物车/结算页感知 — `unavailableReason` 角标、禁勾选/数量调整、仅可删除；购物车计数统一走 selectable helper，结算页提示已自动移除的下架奖品
+
+### Phase 2 — 数据与体验收尾
+
+- [🟡] **R-ST06** 一次性数据修复 SQL — SQL 已写入 `docs/issues/app-tofix4.md`，尚未在 staging/生产执行；执行前必须 dry-run + 备份
+- [ ] **R-ST07** 商品详情页深链接下架态 — `app/product/[id].tsx` 显示"已下架"并禁用加购
+- [ ] **R-ST08** 真机验证 — 购物车删除/清空、cron 清理、抽奖降级 NO_PRIZE、结算 `excludedItems[]` 提示、普通下架商品硬拦截

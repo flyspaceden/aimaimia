@@ -120,6 +120,7 @@
   2. 新增价格变更检测：比对 preview 返回的 `unitPrice` 与购物车的 `price`，差异时 toast 提示「部分商品价格已变更，请确认最新金额」
   3. 下架商品由 previewOrder 后端抛出 400 错误（后端侧已具备）
 - **补齐（2026-02-25）**: `app/checkout.tsx` 已新增 `previewOrder` 失败时的显式 toast 提示（并做去重，避免重复弹出）。
+- **补齐（2026-05-07）**: 商品/SKU 下架级联问题按 `docs/issues/app-tofix4.md` 修正：购物车项返回 `unavailableReason`，普通下架商品仍在结算 preview 硬拦截；下架奖品先识别为奖品后软排除到 `excludedItems[]`，并允许用户删除/清空时退出 stuck 状态。外审补强：软排除奖品写入 `CheckoutSession.bizMeta.excludedPrizeItems`，支付成功时一并删除 cartItem 并将对应 LotteryRecord 转 `EXPIRED`；孤立 prizeRecordId 视为不可用奖品。
 
 ### S12: 前端价格预览与实际下单不一致
 - **状态**: ✅ 已修复（2026-02-24）

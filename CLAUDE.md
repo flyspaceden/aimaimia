@@ -42,6 +42,7 @@
 - `docs/issues/app-tpfix1.md` — 2026-04-29 build-4-29.apk 真机测试发现的 9 个 bug 修复清单（账号绑定/图片/Tab/键盘/地址/弹窗/支付宝/消息路由/AI语音，含 file:line + 修复方案 + 部署批次，**真机测试 bug 修复排程权威来源**）
 - `docs/issues/app-tofix3.md` — 2026-05-04 物流链路全链路 Bug 清单（顺丰丰桥直连签名/字段错、面单 PDF 持久化、商家通知、买家 Push、卡单监控、退货链路、运费规则、三端 UI 完整性，67 项分 6 Phase，**物流链路修复排程权威来源**）
 - `docs/issues/app-test1.md` — 普通用户树 + 分润系统自动化测试计划（Phase A 算法单元 13 case + Phase B 分润集成 20 case + Phase C E2E backlog，**普通树/分润自动化测试权威来源，覆盖今天踩过的 3 个 bug 防回归**）
+- `docs/issues/app-tofix4.md` — 2026-05-07 商品上下架引发的级联 Bug 修复清单（奖品 SKU 被下架后 cartItem 删不掉/付不掉/过不掉、Bug 1 锁定赠品进确认订单页、Bug 2 isLocked stale 字段，4 Phase P0-P3 + 一次性 SQL + 决策点 D1-D5，**商品上下架级联修复权威来源**）
 - `docs/issues/普通用户分润后端问题.md` — 分润后端问题
 
 ### 安全与合规 (`docs/security/`)

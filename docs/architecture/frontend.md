@@ -1030,6 +1030,7 @@ Tab 栏设计：
 - 左滑商品行可删除（swipeable）
 - AI 省钱建议：基于当前商品计算满减/免运费差额
 - 空购物车状态：展示 AI 光球 + 「让脉脉帮你挑点好的？」+ 快捷指令按钮
+- 上下架兜底（2026-05-07）：服务端返回 `unavailableReason` 的商品/奖品显示"已下架/已停发"角标，禁勾选和数量调整，仅保留删除入口；仍锁定且可用的门槛赠品继续按锁定态保留；购物车已选/可选计数统一走 `isSelectableCartItem`
 
 ---
 
@@ -1082,6 +1083,8 @@ Tab 栏设计：
 │  └─────────────────────────┘│
 └─────────────────────────────┘
 ```
+
+- 上下架兜底（2026-05-07）：`previewOrder` 请求补传 `cartItemId`；不可用奖品由服务端返回 `excludedItems[]` 并在结算页提示"已下架奖品已自动从结算中移除"，普通下架商品仍硬错误阻断
 
 ---
 
@@ -2230,6 +2233,7 @@ src/components/ai/   → 新增目录
 | Batch 7 全局打磨 | Phase 6 完成：(1)5核心页FadeInDown入场动画(home/museum/me/checkout/search) (2)动画时长300ms统一(bonus-queue/withdraw/chat/assistant) (3)Stack slide_from_right过渡+Tab shift切换 (4)ProductCard React.memo+expo-image cachePolicy/placeholder+6处FlatList性能参数 (5)Tab/ProductCard/QuantityStepper无障碍标签+EmptyState/ErrorState accessibilityRole=alert+hitSlop触控优化 | 2026-02-20 | `home.tsx`, `museum.tsx`, `me.tsx`, `checkout.tsx`, `search.tsx`, `_layout.tsx`, `(tabs)/_layout.tsx`, `ProductCard.tsx`, `QuantityStepper.tsx`, `EmptyState.tsx`, `ErrorState.tsx`, `bonus-queue.tsx`, `withdraw.tsx`, `ai/chat.tsx`, `ai/assistant.tsx`, `category/[id].tsx`, `cart.tsx`, `me/wallet.tsx`, `me/addresses.tsx`, `checkout-address.tsx` |
 | Batch 8 功能补全 | (1)结算页银行卡支付+奖励抵扣(奖励选择页+我的奖励页+价格分解)+用户工具替换装扮为奖励 (2)首页AI光球长按语音意图解析→自动导航(search/product/company/chat) (3)发现页分类芯片→跳转分类页 (4)AuthModal三种方式登录注册(手机号验证码/密码+微信OAuth授权+邮箱验证码)+注册收集昵称密码协议+无滚动自适应高度+后端微信OAuth占位实现+移除Apple登录 | 2026-02-21 | `checkout.tsx`, `checkout-redpack.tsx`, `me/rewards.tsx`, `me.tsx`, `orders/[id].tsx`, `Payment.ts`, `Bonus.ts`, `Order.ts`, `BonusRepo.ts`, `OrderRepo.ts`, `home.tsx`, `Ai.ts`, `AiAssistantRepo.ts`, `museum.tsx`, `AuthModal.tsx`, `AuthRepo.ts`, `Auth.ts`, `auth.service.ts`, `auth.controller.ts`, `send-code.dto.ts` |
 | Batch 10 抽奖转盘 | 抽奖页全面升级：SVG转盘(SpinWheel等分扇区+奖品文字)+指针(WheelPointer摆动动画)+庆祝粒子(Confetti 25粒子爆发重力物理)+5阶段状态机(idle→spinning→decelerating→revealing→result_shown)+快速旋转2s+减速2.5s cubic bezier+中奖AiTypingEffect逐字揭晓+AppBottomSheet结果弹窗+可折叠奖品列表+剩余次数胶囊+金色脉冲按钮+API竞态处理+10s超时保护 | 2026-03-01 | `SpinWheel.tsx`, `WheelPointer.tsx`, `Confetti.tsx`, `effects/index.ts`, `lottery.tsx` |
+| 商品上下架兜底 | 购物车 `unavailableReason` 已下架/已停发角标 + 禁勾选/禁数量调整/仅可删除 + 统一 selectable 计数；结算页补传 `cartItemId`，过滤不可用奖品并提示 `excludedItems[]` | 2026-05-07 | `cart.tsx`, `checkout.tsx`, `useCartStore.ts`, `OrderRepo.ts`, `ServerCart.ts` |
 | 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
 
 ### Phase 进度对照
