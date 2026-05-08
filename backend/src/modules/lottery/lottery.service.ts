@@ -9,6 +9,9 @@ import { ConfigService } from '@nestjs/config';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { generateClaimToken, claimTokenHash } from '../../common/utils/claim-token.util';
 import { Prisma } from '@prisma/client';
+import {
+  getPrizeUnavailableReason,
+} from './prize-availability.util';
 
 @Injectable()
 export class LotteryService {
@@ -68,6 +71,10 @@ export class LotteryService {
         const prizes = await tx.lotteryPrize.findMany({
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
+          include: {
+            sku: { include: { product: true } },
+            product: true,
+          },
         });
         if (prizes.length === 0) {
           throw new BadRequestException('奖池暂未配置');
@@ -116,6 +123,29 @@ export class LotteryService {
               meta: { message: '谢谢参与' },
             },
           });
+          return { result: 'NO_PRIZE' as const, record };
+        }
+
+        const unavailableReason = getPrizeUnavailableReason(selectedPrize);
+        if (unavailableReason) {
+          const record = await tx.lotteryRecord.create({
+            data: {
+              userId,
+              drawDate,
+              result: 'NO_PRIZE',
+              meta: {
+                message: '谢谢参与',
+                degradedFrom: selectedPrize.name,
+                reason: unavailableReason,
+              },
+            },
+          });
+          this.logger.warn(JSON.stringify({
+            action: 'lottery_draw_prize_unavailable',
+            userId,
+            prizeId: selectedPrize.id,
+            reason: unavailableReason,
+          }));
           return { result: 'NO_PRIZE' as const, record };
         }
 
@@ -293,19 +323,24 @@ export class LotteryService {
     const prizes = await this.prisma.lotteryPrize.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
-      select: {
-        id: true,
-        type: true,
-        name: true,
-        prizePrice: true,
-        threshold: true,
-        prizeQuantity: true,
-        // probability 不返回给用户端，防止概率泄露（M11）
-        sortOrder: true,
+      include: {
+        sku: { include: { product: true } },
+        product: true,
       },
     });
 
-    return prizes;
+    return prizes
+      .filter((prize) => !getPrizeUnavailableReason(prize))
+      .map((prize) => ({
+        id: prize.id,
+        type: prize.type,
+        name: prize.name,
+        prizePrice: prize.prizePrice,
+        threshold: prize.threshold,
+        prizeQuantity: prize.prizeQuantity,
+        // probability 不返回给用户端，防止概率泄露（M11）
+        sortOrder: prize.sortOrder,
+      }));
   }
 
   // ==================== B1: 公开抽奖（无需登录） ====================
@@ -329,6 +364,10 @@ export class LotteryService {
     const prizes = await this.prisma.lotteryPrize.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
+      include: {
+        sku: { include: { product: true } },
+        product: true,
+      },
     });
     if (prizes.length === 0) {
       throw new BadRequestException('奖池暂未配置');
@@ -361,6 +400,19 @@ export class LotteryService {
         fp: fingerprint.slice(0, 8) + '...',
         ip: clientIp,
         result: 'NO_PRIZE',
+      }));
+      return { result: 'NO_PRIZE' as const };
+    }
+
+    const unavailableReason = getPrizeUnavailableReason(selectedPrize);
+    if (unavailableReason) {
+      this.logger.warn(JSON.stringify({
+        action: 'public_draw_prize_unavailable',
+        fp: fingerprint.slice(0, 8) + '...',
+        ip: clientIp,
+        result: 'NO_PRIZE',
+        prizeId: selectedPrize.id,
+        reason: unavailableReason,
       }));
       return { result: 'NO_PRIZE' as const };
     }
