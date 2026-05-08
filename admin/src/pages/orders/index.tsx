@@ -20,6 +20,7 @@ import type { Order, OrderStatsMap } from '@/types';
 import {
   orderStatusMap as statusMap,
   paymentChannelMap,
+  refundStatusMap,
 } from '@/constants/statusMaps';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
@@ -241,9 +242,15 @@ export default function OrderListPage() {
       hideInSearch: true,
       render: (_: unknown, r: Order) => {
         const s = statusMap[r.status];
+        const refundStatus = r.refundSummary ? refundStatusMap[r.refundSummary.status] : null;
         return (
           <span>
             <Tag color={s?.color}>{s?.text}</Tag>
+            {r.refundSummary && (
+              <Tag color={refundStatus?.color}>
+                {refundStatus?.text || r.refundSummary.status}
+              </Tag>
+            )}
             {r.bizType === 'VIP_PACKAGE' && (
               <Tag color="#C9A96E" style={{ marginTop: 2 }}>VIP礼包</Tag>
             )}

@@ -127,6 +127,16 @@ export const orderAfterSaleStatusMap: Record<string, StatusEntry> = {
   CANCELED: { text: '已取消', color: 'default' },
 };
 
+// 退款状态
+export const refundStatusMap: Record<string, StatusEntry> = {
+  REQUESTED: { text: '待处理', color: 'orange' },
+  APPROVED: { text: '已同意', color: 'green' },
+  REJECTED: { text: '已拒绝', color: 'red' },
+  REFUNDING: { text: '退款中', color: 'blue' },
+  REFUNDED: { text: '已退款', color: 'green' },
+  FAILED: { text: '退款失败', color: 'red' },
+};
+
 // 统一售后申请状态（AfterSaleStatus 枚举，14 状态）
 export const afterSaleStatusMap: Record<string, StatusEntry> = {
   REQUESTED: { text: '待处理', color: 'orange' },

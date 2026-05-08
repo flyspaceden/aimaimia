@@ -1,10 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { getOrder } from '@/api/orders';
-import type { OrderItem } from '@/types';
-import { orderStatusMap } from '@/constants/statusMaps';
+import { getOrder, retryRefund } from '@/api/orders';
+import PermissionGate from '@/components/PermissionGate';
+import type { OrderItem, Refund } from '@/types';
+import { PERMISSIONS } from '@/constants/permissions';
+import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 // 订单生命周期状态步骤
@@ -62,8 +64,10 @@ const itemColumns = [
 ];
 
 export default function OrderDetailPage() {
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['admin', 'order', id],
@@ -110,6 +114,23 @@ export default function OrderDetailPage() {
       sourceLabel: '订单详情',
     });
     return `${path}?${params.toString()}`;
+  };
+  const handleRetryRefund = (refund: Refund) => {
+    modal.confirm({
+      title: '确认重试退款？',
+      content: `将按原退款单号重试退款 ¥${refund.amount.toFixed(2)}，不会新建退款单。`,
+      okText: '重试退款',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await retryRefund(order.id, refund.id);
+          message.success('已提交退款重试');
+          queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] });
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '退款重试失败');
+        }
+      },
+    });
   };
 
   return (
@@ -215,6 +236,82 @@ export default function OrderDetailPage() {
           <Descriptions.Item label="交易号">{order.transactionId || '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {order.refunds?.length ? (
+        <Card title="退款信息" style={{ marginBottom: 16 }}>
+          <Table<Refund>
+            rowKey="id"
+            pagination={false}
+            size="small"
+            dataSource={order.refunds}
+            expandable={{
+              expandedRowRender: (refund) => (
+                refund.statusHistory?.length ? (
+                  <Table
+                    rowKey="createdAt"
+                    size="small"
+                    pagination={false}
+                    dataSource={refund.statusHistory}
+                    columns={[
+                      { title: '原状态', dataIndex: 'fromStatus', render: (value: string | null) => value || '-' },
+                      { title: '目标状态', dataIndex: 'toStatus' },
+                      { title: '备注', dataIndex: 'remark', render: (value: string | null) => value || '-' },
+                      { title: '操作人', dataIndex: 'operatorId', render: (value: string | null) => value || 'SYSTEM' },
+                      {
+                        title: '时间',
+                        dataIndex: 'createdAt',
+                        render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Typography.Text type="secondary">暂无退款状态历史</Typography.Text>
+                )
+              ),
+            }}
+            columns={[
+              {
+                title: '退款单号',
+                dataIndex: 'merchantRefundNo',
+                render: (value: string | undefined) => value ? (
+                  <Typography.Text copyable={{ text: value }} style={{ fontFamily: 'monospace' }}>
+                    {value}
+                  </Typography.Text>
+                ) : '-',
+              },
+              { title: '金额', dataIndex: 'amount', render: (value: number) => `¥${value.toFixed(2)}` },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                render: (value: string) => (
+                  <Tag color={refundStatusMap[value]?.color}>
+                    {refundStatusMap[value]?.text || value}
+                  </Tag>
+                ),
+              },
+              { title: '原因', dataIndex: 'reason' },
+              {
+                title: '更新时间',
+                dataIndex: 'updatedAt',
+                render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
+              },
+              {
+                title: '操作',
+                key: 'action',
+                render: (_: unknown, refund) => (
+                  ['FAILED', 'REFUNDING'].includes(refund.status) ? (
+                    <PermissionGate permission={PERMISSIONS.ORDERS_REFUND}>
+                      <Button size="small" danger onClick={() => handleRetryRefund(refund)}>
+                        重试退款
+                      </Button>
+                    </PermissionGate>
+                  ) : null
+                ),
+              },
+            ]}
+          />
+        </Card>
+      ) : null}
 
       {/* 商品明细 */}
       <Card title="商品明细" style={{ marginBottom: 16 }}>

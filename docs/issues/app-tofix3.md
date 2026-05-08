@@ -2085,7 +2085,7 @@ if (this.templateCode && this.clientCode && !this.templateCode.endsWith(`_${this
 
 ### Bug 88 ⚠️ CRITICAL（2026-05-06 P1-3 测试准备时发现 → 2026-05-06 已实现，待真机验证）— PAID 未发货 "取消订单" 按钮调死链路，买家无法发货前撤单退款
 
-**状态**: 🔧 代码已写完，待 Bug 89 一同推 staging 真机测 case 1.1
+**状态**: ✅ 代码收尾完成，待 staging 真机测 case 1.1
 
 **位置**:
 - App: `app/orders/[id].tsx:117`（按钮）+ `app/orders/[id].tsx:100-107`（handleCancel）
@@ -2432,21 +2432,23 @@ const handleCancel = async () => {
 
 `backend/src/modules/order/order.service.spec.ts` 新增 case：
 
-- [ ] PAID 订单 + 无 Shipment → 取消成功 + 库存恢复 + RewardLedger AVAILABLE + Refund REFUNDED
-- [ ] PAID 订单 + 已有 Shipment（waybillNo 非 null）→ BadRequestException「卖家已生成面单」
+- [x] PAID 订单 + 无 Shipment → 取消成功 + 库存恢复 + RewardLedger AVAILABLE + Refund REFUNDED
+- [x] PAID 订单 + 已有 Shipment（waybillNo 非 null）→ BadRequestException「卖家已生成面单」
 - [ ] PAID 订单 + 已有 in-flight Refund → BadRequestException「已有进行中的退款」
 - [ ] CAS 冲突（并发取消）→ 一次成功一次失败「订单状态已变更」
 - [ ] 支付宝 refund 调用抛异常 → 订单仍 CANCELED + Refund 行 REFUNDING（cron 兜底）
 - [ ] 多商户订单（3 个 companyId）→ InboxService.notify 被调 3 次
-- [ ] 红包 USED → AVAILABLE 正确恢复 + endTime 已过 → EXPIRED
+- [x] 红包 USED → AVAILABLE 正确恢复 + endTime 已过 → EXPIRED
 - [ ] 并发：买家 cancel + 卖家 generateWaybill 同 orderId → 一方失败（advisory lock 串行化）
 
 #### 修复 88-5：文档同步
 
-- [ ] `docs/features/refund.md` 新增"规则 24：未发货取消"明确：
+- [x] `docs/features/refund.md` 新增"规则 24：未发货取消"明确：
   > PAID 未发货状态买家可主动取消，全额退款（含运费，因未产生快递费）。卖家已生成 SF 面单后买家无法直接取消，需联系卖家撤销面单或等发货后申请退货。规则 6"只退商品价格不退运费"仅适用于已发货后退货场景。
-- [ ] `docs/architecture/data-system.md` Order 状态机加 `PAID → CANCELED` 边
-- [ ] `plan.md` 加条目 `R-RS08 — PAID 未发货取消订单链路修复`
+- [x] `docs/architecture/data-system.md` Order 状态机加 `PAID → CANCELED` 边
+- [x] `plan.md` 加条目 `R-RS08 — PAID 未发货取消订单链路修复`
+
+**2026-05-08 收尾**: 已补三端退款摘要展示、管理后台退款重试入口、`providerRefundId` P2002 审计兜底、Cron/manual retry 同锁节流。自动化验证覆盖 focused 后端退款测试 + 后端/卖家/管理端 TypeScript；真机、沙箱、多商户和并发实测仍保留在 R-RS11/R-RS12/R-RS13 与本节未勾选项。
 
 **实施顺序**（一个 commit 一件事，便于回退）:
 
@@ -2495,7 +2497,7 @@ const handleCancel = async () => {
 
 ### Bug 89 ⚠️ CRITICAL（2026-05-06 实现 Bug 88 时连带发现 → 同日修完）— `paymentService.initiateRefund` 在 CheckoutSession-based 新架构下无 Payment 行 → **所有渠道退款失败**
 
-**状态**: 🔧 代码已写完，待真机验证
+**状态**: ✅ 代码收尾完成，待真机验证
 
 **位置**: `backend/src/modules/payment/payment.service.ts:229-270`（`initiateRefund` 方法）
 
@@ -2579,13 +2581,15 @@ if (payment) {
 - [ ] 真机 case 1.1 验证退款实际成功（沙箱后台能看到 refund 单 + Refund 行 status=REFUNDED）
 - [ ] 多商户订单退款验证（一个 session 多个 order 都能正常退）
 - [ ] 售后流程顺带回归（`admin-after-sale.service.ts:466` 退款链路应同步修好）
-- [ ] 加 CheckoutSession.status 校验（可选，提高鲁棒性）
+- [x] 加 CheckoutSession.status 校验（可选，提高鲁棒性）
+
+**2026-05-08 收尾**: `retryStaleAutoRefunds` 在调渠道退款前先写 `自动退款补偿重试开始` 并抢 `refund-retry` advisory lock，避免与管理端手动重试并发；新增 focused spec 覆盖自动补偿重试锁。
 
 ---
 
 ### Bug 90 ⚠️ HIGH（2026-05-06 外审 3 发现 → 2026-05-06 已修方案 A，待真机验证）— 多商户 CheckoutSession 取消时奖励/红包恢复语义错乱，**可能套利**
 
-**状态**: 🔧 cancel 路径已修方案 A，after-sale 路径同 bug 留 Bug 90b 单独处理
+**状态**: ✅ 方案 A 代码收尾完成，待真机验证；after-sale 路径同 bug 留 Bug 90b 单独处理
 
 **位置**:
 - 共享逻辑: `backend/src/modules/order/checkout.service.ts:1437,1485-1489,1730`
@@ -2733,7 +2737,7 @@ if (order.checkoutSessionId) {
 
 **症状**: 用户点击"取消订单"后无视觉反馈（无 loading），网络慢时可能多次点击触发并发 cancel 请求。后端虽有 CAS 兜底（仅一笔成功），但前端 UX 烂 + 多余网络请求。
 
-**修复**: 已加 `Alert.alert` 二次确认 + 调用期 `cancelingRef` 防重复请求 + 按钮文案 `取消中...` + 成功 toast 提示原路退款。
+**修复**: 已加 `Alert.alert` 二次确认 + 调用期 `cancelingRef` 防重复请求 + 按钮文案 `取消中...` + `StickyCTABar` 真实 disabled 状态 + 成功 toast 提示原路退款。
 
 ---
 

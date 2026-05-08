@@ -33,7 +33,7 @@ import {
   cancelWaybill,
   bindVirtualCall,
 } from '@/api/orders';
-import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import { toAbsoluteApiUrl } from '@/utils/api-url';
 import dayjs from 'dayjs';
@@ -148,6 +148,7 @@ export default function OrderDetailPage() {
   }
 
   const status = orderStatusMap[order.status];
+  const refundStatus = order.refundSummary ? refundStatusMap[order.refundSummary.status] : null;
   const canCallBuyer =
     ['PAID', 'SHIPPED'].includes(order.status) && hasRole('OWNER', 'MANAGER');
   const canManageShipment =
@@ -265,6 +266,16 @@ export default function OrderDetailPage() {
           type={order.status === 'CANCELED' ? 'info' : 'error'}
           showIcon
           icon={<CloseCircleOutlined />}
+          style={{ marginBottom: 16, borderRadius: 8 }}
+        />
+      )}
+
+      {order.refundSummary && (
+        <Alert
+          message={`退款${refundStatus?.text || order.refundSummary.status}`}
+          description={`金额 ¥${order.refundSummary.amount.toFixed(2)}，原因：${order.refundSummary.reason}`}
+          type={order.refundSummary.status === 'FAILED' ? 'error' : 'info'}
+          showIcon
           style={{ marginBottom: 16, borderRadius: 8 }}
         />
       )}

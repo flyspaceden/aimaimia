@@ -14,7 +14,7 @@ import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
-import type { OrderItem, OrderStatus } from '../../src/types';
+import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -77,6 +77,16 @@ export default function OrderDetailScreen() {
 
   const order = data.data;
   const isVip = order.bizType === 'VIP_PACKAGE';
+  const refund = order.refundSummary;
+  const refundTextMap: Record<RefundStatus, (amount: number) => string> = {
+    REQUESTED: () => '退款申请已提交，等待审核',
+    APPROVED: (amount) => `退款已同意，处理中 ¥${amount.toFixed(2)}`,
+    REJECTED: () => '退款申请被拒绝，请联系客服',
+    REFUNDING: (amount) => `退款处理中 ¥${amount.toFixed(2)}，预计 1-3 个工作日到账`,
+    REFUNDED: (amount) => `已原路退回 ¥${amount.toFixed(2)}`,
+    FAILED: () => '退款失败，请联系客服处理',
+  };
+  const refundText = refund ? refundTextMap[refund.status]?.(refund.amount) ?? refund.status : null;
 
   // Phase 2: 后端真实暴露 autoReceiveAt；旧订单仍可能为 null（不显示倒计时，可接受）
   const autoReceiveAt = order.autoReceiveAt ?? undefined;
@@ -133,14 +143,17 @@ export default function OrderDetailScreen() {
   };
 
   // CTA mapping
-  let primary: { label: string; onPress: () => void } | undefined;
-  const secondary: Array<{ label: string; onPress: () => void }> = [];
+  type DetailCTAItem = { label: string; onPress: () => void; disabled?: boolean };
+  let primary: DetailCTAItem | undefined;
+  const secondary: DetailCTAItem[] = [];
 
   // 付款后建单架构：无 PENDING_PAYMENT；订单存在即至少为 PAID
   switch (order.status) {
     case 'PAID':
       // 已付款待发货 — 仅允许取消（走退款）
-      secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel });
+      if (order.bizType !== 'VIP_PACKAGE') {
+        secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel, disabled: canceling });
+      }
       break;
     case 'SHIPPED':
     case 'DELIVERED':
@@ -199,8 +212,32 @@ export default function OrderDetailScreen() {
           isVipPackage={isVip}
           countdownExpiresAt={order.status === 'DELIVERED' && autoReceiveAt ? autoReceiveAt : undefined}
           countdownPrefix={order.status === 'DELIVERED' ? '还剩' : undefined}
-          subtitle={order.status === 'PAID' ? '商家正在打包，预计 24 小时内发出' : undefined}
+          subtitle={
+            order.status === 'CANCELED' && refund?.status === 'REFUNDED'
+              ? '订单已取消，退款已原路退回'
+              : order.status === 'CANCELED'
+                ? '订单已取消，退款处理中'
+                : order.status === 'PAID'
+                  ? '商家正在打包，预计 24 小时内发出'
+                  : undefined
+          }
         />
+
+        {refund && refundText ? (
+          <View style={[styles.sectionRow, { backgroundColor: colors.surface }]}>
+            <MaterialCommunityIcons
+              name={refund.status === 'FAILED' || refund.status === 'REJECTED' ? 'alert-circle-outline' : 'cash-refund'}
+              size={18}
+              color={refund.status === 'FAILED' || refund.status === 'REJECTED' ? colors.danger : colors.brand.primary}
+            />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={[typography.body, { color: colors.text.primary }]}>{refundText}</Text>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                {refund.reason}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* ② Logistics card */}
         {showLogistics && latestEvent ? (

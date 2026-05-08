@@ -31,3 +31,10 @@ export const shipOrder = (id: string, data: {
 /** 取消订单 */
 export const cancelOrder = (id: string, reason: string): Promise<{ ok: boolean }> =>
   client.post(`/admin/orders/${id}/cancel`, { reason });
+
+/** 手动重试退款 */
+export const retryRefund = (
+  orderId: string,
+  refundId: string,
+): Promise<{ ok: boolean; message?: string }> =>
+  client.post(`/admin/orders/${orderId}/refunds/${refundId}/retry`);

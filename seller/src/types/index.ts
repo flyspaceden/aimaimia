@@ -123,6 +123,16 @@ export interface ProductMedia {
 /** 与后端 Prisma OrderStatus 对齐（付款后建单，无 PENDING_PAYMENT） */
 export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
 
+export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
+
+export interface RefundSummary {
+  id: string;
+  amount: number;
+  status: RefundStatus;
+  reason: string;
+  updatedAt?: string | null;
+}
+
 export interface Order {
   id: string;
   status: OrderStatus;
@@ -135,6 +145,7 @@ export interface Order {
   regionText: string | null; // 省市区
   items: OrderItem[];
   shipment?: Shipment | null;
+  refundSummary?: RefundSummary | null;
   /** 发票状态（只读，仅订单详情返回） */
   invoiceStatus?: 'REQUESTED' | 'ISSUED' | 'FAILED' | 'CANCELED' | null;
 }

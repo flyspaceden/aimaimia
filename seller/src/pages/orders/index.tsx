@@ -32,7 +32,7 @@ import {
   getOrders,
 } from '@/api/orders';
 import { getOverview } from '@/api/analytics';
-import { orderStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
 
@@ -435,7 +435,17 @@ export default function OrderListPage() {
       search: false,
       render: (_, r) => {
         const s = orderStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        const refundStatus = r.refundSummary ? refundStatusMap[r.refundSummary.status] : null;
+        return (
+          <Space size={4} wrap>
+            <Tag color={s?.color}>{s?.text || r.status}</Tag>
+            {r.refundSummary && (
+              <Tag color={refundStatus?.color}>
+                {refundStatus?.text || r.refundSummary.status}
+              </Tag>
+            )}
+          </Space>
+        );
       },
     },
     {

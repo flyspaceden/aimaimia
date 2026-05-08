@@ -83,6 +83,18 @@ export type ShipmentDetail = {
 
 export type OrderBizType = 'NORMAL_GOODS' | 'VIP_PACKAGE';
 
+export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
+
+export type RefundSummary = {
+  id: string;
+  amount: number;
+  status: RefundStatus;
+  reason: string;
+  merchantRefundNo?: string;
+  providerRefundId?: string | null;
+  updatedAt?: string | null;
+};
+
 // ─── 统一售后系统类型 ───────────────────────────────────
 
 export type AfterSaleType = 'NO_REASON_RETURN' | 'QUALITY_RETURN' | 'QUALITY_EXCHANGE';
@@ -129,6 +141,7 @@ export type Order = {
   afterSaleReason?: string;
   afterSaleNote?: string;
   afterSaleTimeline?: AfterSaleProgress[];
+  refundSummary?: RefundSummary | null;
   paymentMethod?: PaymentMethod;
   logisticsStatus?: string;
   trackingNo?: string;

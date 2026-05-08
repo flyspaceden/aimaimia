@@ -320,6 +320,8 @@ export interface Order {
     status?: string;
     shippedAt?: string | null;
   }>;
+  refundSummary?: Refund | null;
+  refunds?: Refund[];
   bizType?: string;
   createdAt: string;
   updatedAt: string;
@@ -428,6 +430,8 @@ export interface Refund {
   amount: number;
   status: RefundStatus;
   reason: string;
+  merchantRefundNo?: string;
+  providerRefundId?: string | null;
   createdAt: string;
   updatedAt: string;
   order?: Order;

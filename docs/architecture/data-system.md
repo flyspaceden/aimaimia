@@ -551,6 +551,7 @@ CartItem
 - id (uuid, PK)
 - userId (uuid FK User)
 - status (enum: PENDING_PAYMENT/PAID/SHIPPED/DELIVERED/RECEIVED/CANCELED/REFUNDED)
+- status transition note (2026-05-08): `PAID -> CANCELED` 仅用于买家未发货取消订单，成功后由 `Refund.status` 承载退款进度；已发货后的退货/换货仍走售后状态机，不复用未发货取消语义。
 - bizType (enum OrderBizType: NORMAL_GOODS/VIP_PACKAGE, default NORMAL_GOODS) — 业务类型
 - bizMeta (jsonb nullable) — 业务元数据
 - addressSnapshot (jsonb)

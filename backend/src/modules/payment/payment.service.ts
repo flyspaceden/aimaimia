@@ -334,34 +334,15 @@ export class PaymentService {
 
     for (const refund of candidates) {
       try {
-        if (refund.status === 'FAILED') {
-          const moved = await this.prisma.$transaction(async (tx) => {
-            const cas = await tx.refund.updateMany({
-              where: { id: refund.id, status: 'FAILED' },
-              data: { status: 'REFUNDING' },
-            });
-            if (cas.count === 0) return false;
-            await tx.refundStatusHistory.create({
-              data: {
-                refundId: refund.id,
-                fromStatus: 'FAILED',
-                toStatus: 'REFUNDING',
-                remark: '自动退款补偿重试',
-                operatorId: this.autoRefundOperator,
-              },
-            });
-            return true;
-          }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        const claim = await this.claimAutoRefundRetry(refund.id);
+        if (!claim) continue;
 
-          if (!moved) continue;
-        }
-
-        const result = await this.initiateRefund(refund.orderId, refund.amount, refund.merchantRefundNo);
+        const result = await this.initiateRefund(claim.orderId, claim.amount, claim.merchantRefundNo);
         if (result.success) {
           await this.updateAutoRefundRecord({
             refundId: refund.id,
             toStatus: 'REFUNDED',
-            fromStatuses: ['REFUNDING', 'FAILED'],
+            fromStatuses: ['REFUNDING'],
             providerRefundId: result.providerRefundId || null,
             remark: '自动退款补偿成功',
           });
@@ -383,6 +364,68 @@ export class PaymentService {
         });
       }
     }
+  }
+
+  private async claimAutoRefundRetry(refundId: string): Promise<{
+    orderId: string;
+    amount: number;
+    merchantRefundNo: string;
+  } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtext('refund-retry'),
+          hashtext(${refundId})
+        )
+      `;
+
+      const fresh = await tx.refund.findUnique({
+        where: { id: refundId },
+        select: {
+          id: true,
+          status: true,
+          orderId: true,
+          amount: true,
+          merchantRefundNo: true,
+        },
+      });
+      if (!fresh || !['FAILED', 'REFUNDING'].includes(fresh.status)) return null;
+
+      const recent = await tx.refundStatusHistory.findFirst({
+        where: {
+          refundId,
+          remark: { contains: '重试开始' },
+          createdAt: { gte: new Date(Date.now() - 30_000) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (recent) return null;
+
+      const fromStatus = fresh.status;
+      if (fresh.status === 'FAILED') {
+        const cas = await tx.refund.updateMany({
+          where: { id: refundId, status: 'FAILED' },
+          data: { status: 'REFUNDING' },
+        });
+        if (cas.count === 0) return null;
+      }
+
+      await tx.refundStatusHistory.create({
+        data: {
+          refundId,
+          fromStatus,
+          toStatus: 'REFUNDING',
+          remark: '自动退款补偿重试开始',
+          operatorId: this.autoRefundOperator,
+        },
+      });
+
+      return {
+        orderId: fresh.orderId,
+        amount: fresh.amount,
+        merchantRefundNo: fresh.merchantRefundNo,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /**

@@ -196,6 +196,19 @@ export class OrderService {
     };
   }
 
+  private mapRefundSummary(refund?: any) {
+    if (!refund) return null;
+    return {
+      id: refund.id,
+      amount: refund.amount,
+      status: refund.status,
+      reason: refund.reason,
+      merchantRefundNo: refund.merchantRefundNo,
+      providerRefundId: refund.providerRefundId ?? null,
+      updatedAt: refund.updatedAt?.toISOString?.() ?? refund.updatedAt ?? null,
+    };
+  }
+
   /**
    * 运费计算：优先使用平台统一运费规则（ShippingRule），降级为旧 ShippingTemplate 逻辑
    */
@@ -353,7 +366,15 @@ export class OrderService {
           refunds: {
             orderBy: { createdAt: 'desc' },
             take: 1,
-            select: { status: true, reason: true },
+            select: {
+              id: true,
+              amount: true,
+              status: true,
+              reason: true,
+              merchantRefundNo: true,
+              providerRefundId: true,
+              updatedAt: true,
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -443,7 +464,15 @@ export class OrderService {
             refunds: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { status: true, reason: true },
+              select: {
+                id: true,
+                amount: true,
+                status: true,
+                reason: true,
+                merchantRefundNo: true,
+                providerRefundId: true,
+                updatedAt: true,
+              },
             },
           },
         },
@@ -468,7 +497,15 @@ export class OrderService {
             refunds: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { status: true, reason: true },
+              select: {
+                id: true,
+                amount: true,
+                status: true,
+                reason: true,
+                merchantRefundNo: true,
+                providerRefundId: true,
+                updatedAt: true,
+              },
             },
           },
         },
@@ -1110,6 +1147,9 @@ export class OrderService {
     }
     // 新架构：PAID 未发货取消（付款回调建单架构下买家撤单退款入口）
     if (order.status === 'PAID') {
+      if (order.bizType === 'VIP_PACKAGE') {
+        throw new BadRequestException('VIP 开通礼包不支持取消退款，请联系客服');
+      }
       // Bug 90：多商户 CheckoutSession 检测
       // 共享奖励/红包只挂在 primary order（checkout.service.ts:1485-1489, 1730），
       // 单订单取消会导致非 primary 不恢复 / primary 恢复后其他订单仍在用折扣 → 套利。
@@ -1758,6 +1798,7 @@ export class OrderService {
       afterSaleStatus,
       afterSaleReason,
       afterSaleType,
+      refundSummary: this.mapRefundSummary(refund),
       returnWindowExpiresAt: order.returnWindowExpiresAt?.toISOString() || null,
       totalPrice: order.totalAmount,
       goodsAmount: order.goodsAmount,

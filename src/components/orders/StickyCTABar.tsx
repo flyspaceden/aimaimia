@@ -6,6 +6,7 @@ interface CTAItem {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
+  disabled?: boolean;
 }
 
 interface Props {
@@ -28,12 +29,31 @@ export function StickyCTABar({ primary, secondary }: Props) {
       ]}
     >
       {(secondary || []).map((cta, i) => (
-        <Pressable key={i} onPress={cta.onPress} style={[styles.btn, { borderColor: colors.border, borderRadius: radius.pill }]}>
+        <Pressable
+          key={i}
+          onPress={cta.onPress}
+          disabled={cta.disabled}
+          accessibilityState={{ disabled: !!cta.disabled }}
+          style={[
+            styles.btn,
+            { borderColor: colors.border, borderRadius: radius.pill },
+            cta.disabled && styles.disabled,
+          ]}
+        >
           <Text style={[typography.caption, { color: colors.text.secondary }]}>{cta.label}</Text>
         </Pressable>
       ))}
       {primary ? (
-        <Pressable onPress={primary.onPress} style={[styles.btnPrimary, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}>
+        <Pressable
+          onPress={primary.onPress}
+          disabled={primary.disabled}
+          accessibilityState={{ disabled: !!primary.disabled }}
+          style={[
+            styles.btnPrimary,
+            { backgroundColor: colors.brand.primary, borderRadius: radius.pill },
+            primary.disabled && styles.disabled,
+          ]}
+        >
           <Text style={[typography.caption, { color: colors.text.inverse, fontWeight: '600' }]}>{primary.label}</Text>
         </Pressable>
       ) : null}
@@ -53,4 +73,5 @@ const styles = StyleSheet.create({
   },
   btn: { paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1 },
   btnPrimary: { paddingHorizontal: 18, paddingVertical: 8 },
+  disabled: { opacity: 0.45 },
 });

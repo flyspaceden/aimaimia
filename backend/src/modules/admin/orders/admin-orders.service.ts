@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
+import { PaymentService } from '../../payment/payment.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
 import { UploadService } from '../../upload/upload.service';
 import { AdminShipDto, AdminOrderQueryDto } from './dto/admin-order.dto';
@@ -23,7 +24,23 @@ export class AdminOrdersService {
     private bonusConfig: BonusConfigService,
     private sfExpress: SfExpressService,
     private uploadService: UploadService,
+    private paymentService: PaymentService,
   ) {}
+
+  private mapRefundSummary(refund?: any) {
+    if (!refund) return null;
+    return {
+      id: refund.id,
+      orderId: refund.orderId,
+      amount: refund.amount,
+      status: refund.status,
+      reason: refund.reason,
+      merchantRefundNo: refund.merchantRefundNo,
+      providerRefundId: refund.providerRefundId ?? null,
+      createdAt: refund.createdAt?.toISOString?.() ?? refund.createdAt ?? null,
+      updatedAt: refund.updatedAt?.toISOString?.() ?? refund.updatedAt ?? null,
+    };
+  }
 
   /** 订单列表 */
   async findAll(query: AdminOrderQueryDto, page = 1, pageSize = 20) {
@@ -99,6 +116,21 @@ export class AdminOrdersService {
               },
             },
           },
+          refunds: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              orderId: true,
+              amount: true,
+              status: true,
+              reason: true,
+              merchantRefundNo: true,
+              providerRefundId: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
         },
       }),
       this.prisma.order.count({ where }),
@@ -128,6 +160,7 @@ export class AdminOrdersService {
           company,
           itemsSummary,
           itemCount: totalQty,
+          refundSummary: this.mapRefundSummary((o as any).refunds?.[0]),
           user: {
             ...o.user,
             authIdentities: (o.user?.authIdentities || []).map((identity) => ({
@@ -196,7 +229,10 @@ export class AdminOrdersService {
         },
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: true,
-        refunds: true,
+        refunds: {
+          orderBy: { createdAt: 'desc' },
+          include: { statusHistory: { orderBy: { createdAt: 'desc' } } },
+        },
         shipments: { include: { trackingEvents: true }, orderBy: { createdAt: 'asc' } },
       },
     });
@@ -229,6 +265,7 @@ export class AdminOrdersService {
       },
       shipments,
       shipment: shipments[0] ?? null,
+      refundSummary: this.mapRefundSummary(order.refunds?.[0]),
       items: order.items.map((item) => {
         const snapshot = item.productSnapshot as any;
         // 商品图片优先从快照取，回退到 SKU 图片或商品主图
@@ -245,6 +282,162 @@ export class AdminOrdersService {
         };
       }),
     };
+  }
+
+  async retryRefund(orderId: string, refundId: string, adminUserId: string) {
+    const refund = await this.prisma.refund.findUnique({ where: { id: refundId } });
+    if (!refund || refund.orderId !== orderId) throw new NotFoundException('退款单不存在');
+    if (!['FAILED', 'REFUNDING'].includes(refund.status)) {
+      throw new BadRequestException('当前退款状态不需要重试');
+    }
+
+    const lease = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtext('refund-retry'),
+          hashtext(${refundId})
+        )
+      `;
+
+      const fresh = await tx.refund.findUnique({ where: { id: refundId } });
+      if (!fresh || fresh.orderId !== orderId) throw new NotFoundException('退款单不存在');
+      if (!['FAILED', 'REFUNDING'].includes(fresh.status)) {
+        return { acquired: false as const, reason: '状态已变更，无需重试' };
+      }
+
+      const recent = await tx.refundStatusHistory.findFirst({
+        where: {
+          refundId,
+          remark: { contains: '重试开始' },
+          createdAt: { gte: new Date(Date.now() - 30_000) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (recent) {
+        return { acquired: false as const, reason: '请勿频繁重试，请 30 秒后再试' };
+      }
+
+      await tx.refundStatusHistory.create({
+        data: {
+          refundId,
+          fromStatus: fresh.status,
+          toStatus: fresh.status,
+          remark: '管理员手动重试开始',
+          operatorId: adminUserId,
+        },
+      });
+      return { acquired: true as const, fromStatus: fresh.status };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    if (!lease.acquired) {
+      throw new BadRequestException(lease.reason);
+    }
+
+    let result: { success: boolean; message?: string; providerRefundId?: string };
+    try {
+      result = await this.paymentService.initiateRefund(
+        refund.orderId,
+        refund.amount,
+        refund.merchantRefundNo,
+      );
+    } catch (err) {
+      await this.prisma.refundStatusHistory.create({
+        data: {
+          refundId,
+          fromStatus: lease.fromStatus,
+          toStatus: lease.fromStatus,
+          remark: `管理员手动重试异常: ${(err as Error).message}`,
+          operatorId: adminUserId,
+        },
+      });
+      throw new BadRequestException('退款通道异常，请稍后再试或查看日志');
+    }
+
+    const toStatus = result.success ? 'REFUNDED' : 'FAILED';
+    const providerRefundId = result.providerRefundId ?? refund.providerRefundId ?? null;
+
+    try {
+      const writeBack = await this.prisma.$transaction(async (tx) => {
+        if (providerRefundId) {
+          const conflict = await tx.refund.findFirst({
+            where: {
+              providerRefundId,
+              id: { not: refundId },
+            },
+            select: { id: true },
+          });
+          if (conflict) {
+            await tx.refundStatusHistory.create({
+              data: {
+                refundId,
+                fromStatus: lease.fromStatus,
+                toStatus: lease.fromStatus,
+                remark: `providerRefundId 冲突，跳过覆盖: ${providerRefundId}`,
+                operatorId: adminUserId,
+              },
+            });
+            return { status: 'providerRefundIdConflict' as const };
+          }
+        }
+
+        const updated = await tx.refund.updateMany({
+          where: { id: refundId, status: lease.fromStatus },
+          data: {
+            status: toStatus,
+            providerRefundId: providerRefundId ?? undefined,
+          },
+        });
+        if (updated.count === 0) {
+          await tx.refundStatusHistory.create({
+            data: {
+              refundId,
+              fromStatus: lease.fromStatus,
+              toStatus: lease.fromStatus,
+              remark: `管理员手动重试时状态已被并发更新，跳过覆盖（外部结果: ${result.success ? '成功' : '失败'}）`,
+              operatorId: adminUserId,
+            },
+          });
+          return { status: 'concurrentSkip' as const };
+        }
+
+        await tx.refundStatusHistory.create({
+          data: {
+            refundId,
+            fromStatus: lease.fromStatus,
+            toStatus,
+            remark: result.success ? '管理员手动重试成功' : `管理员手动重试失败: ${result.message ?? ''}`,
+            operatorId: adminUserId,
+          },
+        });
+        return { status: 'written' as const };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      if (writeBack.status === 'providerRefundIdConflict') {
+        throw new ConflictException('退款渠道流水号已被其他退款单占用，请人工核对');
+      }
+    } catch (err) {
+      const isProviderRefundIdP2002 =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002' &&
+        String(err.meta?.target ?? '').includes('providerRefundId');
+
+      if (!isProviderRefundIdP2002) throw err;
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refundStatusHistory.create({
+          data: {
+            refundId,
+            fromStatus: lease.fromStatus,
+            toStatus: lease.fromStatus,
+            remark: `providerRefundId P2002 冲突，跳过覆盖: ${providerRefundId ?? '(empty)'}`,
+            operatorId: adminUserId,
+          },
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      throw new ConflictException('退款渠道流水号已被其他退款单占用，请人工核对');
+    }
+
+    return { ok: result.success, message: result.message };
   }
 
   /**

@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   // 订单
   ORDERS_READ: 'orders:read',
   ORDERS_SHIP: 'orders:ship',
+  ORDERS_REFUND: 'orders:refund',
   ORDERS_CANCEL: 'orders:cancel',
 
   // 企业

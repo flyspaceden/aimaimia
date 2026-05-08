@@ -11,6 +11,7 @@ import {
 import { AdminOrdersService } from './admin-orders.service';
 import { AdminShipDto, AdminOrderQueryDto, CancelOrderDto } from './dto/admin-order.dto';
 import { Public } from '../../../common/decorators/public.decorator';
+import { CurrentAdmin } from '../common/decorators/current-admin';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequirePermission } from '../common/decorators/require-permission';
@@ -74,5 +75,22 @@ export class AdminOrdersController {
   })
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto) {
     return this.ordersService.cancel(id, dto.reason);
+  }
+
+  @Post(':id/refunds/:refundId/retry')
+  @RequirePermission('orders:refund')
+  @AuditLog({
+    action: 'REFUND',
+    module: 'orders',
+    targetType: 'Refund',
+    targetIdParam: 'params.refundId',
+    isReversible: false,
+  })
+  retryRefund(
+    @Param('id') id: string,
+    @Param('refundId') refundId: string,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.ordersService.retryRefund(id, refundId, adminUserId);
   }
 }

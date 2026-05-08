@@ -27,7 +27,9 @@ export const refundStatusMap: Record<string, { text: string; color: string }> = 
   REQUESTED: { text: '待处理', color: 'warning' },
   APPROVED: { text: '已同意', color: 'green' },
   REJECTED: { text: '已拒绝', color: 'error' },
-  REFUNDED: { text: '已退款', color: 'default' },
+  REFUNDING: { text: '退款中', color: 'processing' },
+  REFUNDED: { text: '已退款', color: 'success' },
+  FAILED: { text: '退款失败', color: 'error' },
 };
 
 // 物流状态（与 backend Prisma ShipmentStatus 枚举严格对齐）

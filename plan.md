@@ -1128,11 +1128,11 @@
 
 ### Phase 2 — App 端 + 文档收尾（待做）
 
-- [✅] **R-RS10** App `Alert` 二次确认弹窗 + 调用期 loading state（Bug 91）— `app/orders/[id].tsx` 已加确认提示、`cancelingRef` 防重复请求、按钮文案 `取消中...`
+- [✅] **R-RS10** App `Alert` 二次确认弹窗 + 调用期 loading state（Bug 91）— `app/orders/[id].tsx` 已加确认提示、`cancelingRef` 防重复请求、按钮文案 `取消中...`，`StickyCTABar` 已支持 disabled 视觉/点击禁用
 - [ ] **R-RS11** 真机 case 1.1 验证（仅退款，PAID 未发货）— 跑通后 ✅ R-RS08/R-RS09
 - [ ] **R-RS12** 多商户订单退款验证 — 一个 CheckoutSession 多 Order 都能正常退（每 Order 独立调 alipay refund）
 - [ ] **R-RS13** 售后退款回归 — 验证 `admin-after-sale.service.ts:466` 退款链路在新架构下也能成功（R-RS09 附带收益验证）
-- [ ] **R-RS14** 文档同步 — `docs/features/refund.md` 加规则 24（未发货取消全额退含运费）+ `docs/architecture/data-system.md` Order 状态机加 `PAID → CANCELED` 边
+- [✅] **R-RS14** 文档同步 — `docs/features/refund.md` 已加规则 24（未发货取消全额退含运费）+ `docs/architecture/data-system.md` 已补 Order 状态机 `PAID → CANCELED` 边；`docs/issues/app-tofix3.md` 同步 2026-05-08 收尾状态
 
 ### Backlog
 
