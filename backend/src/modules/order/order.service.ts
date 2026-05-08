@@ -13,6 +13,10 @@ import {
 import { decryptJsonValue } from '../../common/security/encryption';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import { getConfigValue } from '../after-sale/after-sale.utils';
+import {
+  getPrizeUnavailableReason,
+  getUnavailableReasonText,
+} from '../lottery/prize-availability.util';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -590,20 +594,30 @@ export class OrderService {
     const previewMatchedIds = new Set<string>();
 
     // 构建预览行
-    type PreviewItem = { skuId: string; title: string; image: string; unitPrice: number; quantity: number; companyId: string; companyName: string; isPrize: boolean; prizeType: string | null };
+    type PreviewItem = { skuId: string; title: string; image: string; unitPrice: number; quantity: number; companyId: string; companyName: string; isPrize: boolean; prizeType: string | null; cartItemId?: string; prizeRecordId?: string | null };
+    const excludedItems: Array<{
+      cartItemId?: string;
+      skuId: string;
+      reason: string;
+      isPrize: boolean;
+      prizeRecordId?: string | null;
+    }> = [];
     const previewItems: PreviewItem[] = [];
 
     for (const item of dto.items) {
       const sku = skuMap.get(item.skuId);
       if (!sku) throw new BadRequestException(`商品规格 ${item.skuId} 不存在`);
-      if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
-      if (sku.product.status !== 'ACTIVE') throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
 
       // 判断是否为奖品项
       let prizeCi: typeof previewPrizeItems[0] | null = null;
       if ((item as any).cartItemId && previewCartItemById.has((item as any).cartItemId)) {
         const c = previewCartItemById.get((item as any).cartItemId)!;
-        if (c.isPrize && !previewMatchedIds.has(c.id)) { prizeCi = c; previewMatchedIds.add(c.id); }
+        if (c.isPrize) {
+          if (c.skuId !== item.skuId) {
+            throw new BadRequestException('购物车项与商品规格不匹配，请刷新购物车后重试');
+          }
+          if (!previewMatchedIds.has(c.id)) { prizeCi = c; previewMatchedIds.add(c.id); }
+        }
       }
       if (!prizeCi && previewPrizeBySkuId.has(item.skuId)) {
         for (const c of previewPrizeBySkuId.get(item.skuId)!) {
@@ -611,17 +625,57 @@ export class OrderService {
         }
       }
 
+      if (sku.status !== 'ACTIVE' || sku.product.status !== 'ACTIVE') {
+        if (prizeCi) {
+          excludedItems.push({
+            cartItemId: prizeCi.id,
+            skuId: sku.id,
+            reason: sku.status !== 'ACTIVE' ? '商品规格已下架' : '商品已下架',
+            isPrize: true,
+            prizeRecordId: prizeCi.prizeRecordId ?? null,
+          });
+          continue;
+        }
+        if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
+        throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
+      }
+
       let itemPrice = sku.price;
       let isPrizeItem = false;
       let itemPrizeType: string | null = null;
+      let prizeRecordId: string | null = null;
       if (prizeCi && prizeCi.prizeRecordId) {
-        const lr = await this.prisma.lotteryRecord.findUnique({ where: { id: prizeCi.prizeRecordId } });
+        const lr = await this.prisma.lotteryRecord.findUnique({
+          where: { id: prizeCi.prizeRecordId },
+          include: {
+            prize: {
+              include: {
+                sku: { include: { product: true } },
+                product: true,
+              },
+            },
+          },
+        });
+        const unavailableReason = (lr as any)?.prize
+          ? getPrizeUnavailableReason((lr as any).prize)
+          : null;
+        if (unavailableReason) {
+          excludedItems.push({
+            cartItemId: prizeCi.id,
+            skuId: sku.id,
+            reason: getUnavailableReasonText(unavailableReason),
+            isPrize: true,
+            prizeRecordId: prizeCi.prizeRecordId ?? null,
+          });
+          continue;
+        }
         // M1: preview 也需校验状态
         const validPrizeStatuses = ['WON', 'IN_CART'];
         if (lr && validPrizeStatuses.includes(lr.status) && lr.meta) {
           const meta = lr.meta as any;
           isPrizeItem = true;
           itemPrizeType = meta.prizeType || null;
+          prizeRecordId = prizeCi.prizeRecordId;
           if (meta.prizePrice !== undefined && meta.prizePrice !== null) {
             itemPrice = meta.prizePrice;
           }
@@ -638,6 +692,8 @@ export class OrderService {
         companyName: sku.product.company?.name || '',
         isPrize: isPrizeItem,
         prizeType: itemPrizeType,
+        cartItemId: prizeCi?.id,
+        prizeRecordId,
       });
     }
 
@@ -875,6 +931,7 @@ export class OrderService {
       },
       expiredPrizes: [],       // F3: 过期的奖品（查询时已排除）
       lockedGifts: excludedGifts, // F2: 未解锁的赠品列表（未达消费门槛）
+      excludedItems,
     };
   }
 

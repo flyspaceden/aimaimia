@@ -16,6 +16,10 @@ import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 import { encryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
+import {
+  getPrizeUnavailableReason,
+  getUnavailableReasonText,
+} from '../lottery/prize-availability.util';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -41,6 +45,14 @@ interface SnapshotItem {
   /** 结算时按商户分组计算出的运费快照（用于支付回调建单） */
   groupShippingFee?: number;
   productSnapshot: any;
+}
+
+export interface ExcludedCheckoutItem {
+  cartItemId?: string;
+  skuId: string;
+  reason: string;
+  isPrize: boolean;
+  prizeRecordId?: string | null;
 }
 
 @Injectable()
@@ -102,6 +114,7 @@ export class CheckoutService {
     if (dto.items.length === 0) {
       throw new BadRequestException('购物车为空，请先添加商品');
     }
+    const excludedItems: ExcludedCheckoutItem[] = [];
 
     const toCheckoutResponse = async (session: {
       id: string;
@@ -141,6 +154,7 @@ export class CheckoutService {
         vipDiscountAmount: session.vipDiscountAmount ?? 0,
         totalCouponDiscount: session.totalCouponDiscount ?? 0,
         couponInstanceIds: session.couponInstanceIds ?? [],
+        excludedItems,
         paymentParams,
       };
     };
@@ -235,8 +249,49 @@ export class CheckoutService {
     for (const item of dto.items) {
       const sku = skuMap.get(item.skuId);
       if (!sku) throw new BadRequestException(`商品规格 ${item.skuId} 不存在`);
-      if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
-      if (sku.product.status !== 'ACTIVE') throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
+
+      const resolvedSkuId = (item as any)._resolvedSkuId || sku.id;
+
+      // 匹配奖品购物车项
+      let prizeCartItem: (typeof cartPrizeItems)[0] | null = null;
+      if (item.cartItemId && cartItemById.has(item.cartItemId)) {
+        const candidate = cartItemById.get(item.cartItemId)!;
+        if (candidate.isPrize) {
+          if (candidate.skuId !== resolvedSkuId) {
+            throw new BadRequestException('购物车项与商品规格不匹配，请刷新购物车后重试');
+          }
+          if (!matchedPrizeCartItemIds.has(candidate.id)) {
+            prizeCartItem = candidate;
+            matchedPrizeCartItemIds.add(candidate.id);
+          }
+        }
+      }
+      if (!prizeCartItem && cartPrizeBySkuId.has(resolvedSkuId)) {
+        const candidates = cartPrizeBySkuId.get(resolvedSkuId)!;
+        for (const c of candidates) {
+          if (!matchedPrizeCartItemIds.has(c.id)) {
+            prizeCartItem = c;
+            matchedPrizeCartItemIds.add(c.id);
+            break;
+          }
+        }
+      }
+
+      if (sku.status !== 'ACTIVE' || sku.product.status !== 'ACTIVE') {
+        if (prizeCartItem) {
+          excludedItems.push({
+            cartItemId: prizeCartItem.id,
+            skuId: resolvedSkuId,
+            reason: sku.status !== 'ACTIVE' ? '商品规格已下架' : '商品已下架',
+            isPrize: true,
+            prizeRecordId: prizeCartItem.prizeRecordId ?? null,
+          });
+          continue;
+        }
+        if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
+        throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
+      }
+
       // 库存读检查（不扣减），允许低库存通过（R12 超卖容忍由支付回调处理）
       if (sku.stock <= 0) {
         this.logger.warn(`R12: SKU ${sku.id} 库存已为 ${sku.stock}，允许继续结算（超卖容忍）`);
@@ -247,28 +302,6 @@ export class CheckoutService {
         throw new BadRequestException(
           `商品规格「${sku.title}」每单限购 ${sku.maxPerOrder} 件`,
         );
-      }
-
-      const resolvedSkuId = (item as any)._resolvedSkuId || sku.id;
-
-      // 匹配奖品购物车项
-      let prizeCartItem: (typeof cartPrizeItems)[0] | null = null;
-      if (item.cartItemId && cartItemById.has(item.cartItemId)) {
-        const candidate = cartItemById.get(item.cartItemId)!;
-        if (candidate.isPrize && !matchedPrizeCartItemIds.has(candidate.id)) {
-          prizeCartItem = candidate;
-          matchedPrizeCartItemIds.add(candidate.id);
-        }
-      }
-      if (!prizeCartItem && cartPrizeBySkuId.has(item.skuId)) {
-        const candidates = cartPrizeBySkuId.get(item.skuId)!;
-        for (const c of candidates) {
-          if (!matchedPrizeCartItemIds.has(c.id)) {
-            prizeCartItem = c;
-            matchedPrizeCartItemIds.add(c.id);
-            break;
-          }
-        }
       }
 
       let unitPrice = sku.price;
@@ -285,8 +318,29 @@ export class CheckoutService {
         if (prizeCartItem.prizeRecordId) {
           const lotteryRecord = await this.prisma.lotteryRecord.findUnique({
             where: { id: prizeCartItem.prizeRecordId },
+            include: {
+              prize: {
+                include: {
+                  sku: { include: { product: true } },
+                  product: true,
+                },
+              },
+            },
           });
           if (lotteryRecord) {
+            const unavailableReason = (lotteryRecord as any).prize
+              ? getPrizeUnavailableReason((lotteryRecord as any).prize)
+              : null;
+            if (unavailableReason) {
+              excludedItems.push({
+                cartItemId: prizeCartItem.id,
+                skuId: resolvedSkuId,
+                reason: getUnavailableReasonText(unavailableReason),
+                isPrize: true,
+                prizeRecordId: prizeCartItem.prizeRecordId ?? null,
+              });
+              continue;
+            }
             const validStatuses = ['WON', 'IN_CART'];
             if (!validStatuses.includes(lotteryRecord.status)) {
               throw new BadRequestException(
@@ -622,7 +676,12 @@ export class CheckoutService {
           // S12: 前端 expectedTotal 校验（在事务内，失败会自动回滚奖励预留）
           if (dto.expectedTotal !== undefined && dto.expectedTotal !== null) {
             const diff = Math.abs(expectedTotal - dto.expectedTotal);
-            if (diff > 0.01) {
+            const excludedPrizeItems = excludedItems.filter((item) => item.isPrize);
+            const onlyLowerBecausePrizeExcluded =
+              excludedPrizeItems.length > 0 &&
+              excludedPrizeItems.length === excludedItems.length &&
+              expectedTotal <= dto.expectedTotal;
+            if (diff > 0.01 && !onlyLowerBecausePrizeExcluded) {
               // 直接抛异常，事务回滚会自动释放奖励预留
               throw new BadRequestException(
                 `价格已变更：预期 ¥${dto.expectedTotal.toFixed(2)}，实际 ¥${expectedTotal.toFixed(2)}。请刷新后重新结算`,
@@ -631,10 +690,14 @@ export class CheckoutService {
           }
 
           // 创建 CheckoutSession（含平台红包信息）
+          const excludedPrizeItems = excludedItems.filter((item) => item.isPrize);
           const created = await tx.checkoutSession.create({
             data: {
               userId,
               status: 'ACTIVE',
+              bizMeta: excludedPrizeItems.length > 0
+                ? ({ excludedPrizeItems } as unknown as Prisma.InputJsonValue)
+                : undefined,
               itemsSnapshot: snapshotItems as any,
               addressSnapshot: encryptedAddressSnapshot as any,
               rewardId: reservedRewardId && discountAmount > 0 ? reservedRewardId : null,
@@ -1585,31 +1648,74 @@ export class CheckoutService {
             }
 
             // 9. C3修复：按 cartItemId 精确删除购物车项（避免误删结算后新增的同 SKU 商品）
-            const allCartItemIds = items
-              .filter((i) => i.cartItemId)
-              .map((i) => i.cartItemId as string);
-            if (allCartItemIds.length > 0) {
+            const excludedPrizeCleanupItems = this.getExcludedPrizeCleanupItems(session as any);
+            const excludedPrizeCartItemIds = excludedPrizeCleanupItems
+              .map((item) => item.cartItemId)
+              .filter((id): id is string => !!id);
+            const excludedPrizeRecordIds = excludedPrizeCleanupItems
+              .map((item) => item.prizeRecordId)
+              .filter((id): id is string => !!id);
+            const allCartItemIds = Array.from(new Set([
+              ...items
+                .filter((i) => i.cartItemId)
+                .map((i) => i.cartItemId as string),
+              ...excludedPrizeCartItemIds,
+            ]));
+            const consumedPrizeRecordIds = Array.from(new Set(
+              items
+                .filter((i) => i.isPrize && i.prizeRecordId)
+                .map((i) => i.prizeRecordId as string),
+            ));
+            const consumedPrizeRecordIdSet = new Set(consumedPrizeRecordIds);
+            const expiredPrizeRecordIds = Array.from(new Set(
+              excludedPrizeRecordIds.filter((id) => !consumedPrizeRecordIdSet.has(id)),
+            ));
+            const cleanupPrizeRecordIds = Array.from(new Set([
+              ...consumedPrizeRecordIds,
+              ...expiredPrizeRecordIds,
+            ]));
+            if (allCartItemIds.length > 0 || cleanupPrizeRecordIds.length > 0) {
               const userCart = await tx.cart.findUnique({
                 where: { userId: session.userId },
               });
               if (userCart) {
+                const deleteConditions: any[] = [];
+                if (allCartItemIds.length > 0) {
+                  deleteConditions.push({ id: { in: allCartItemIds } });
+                }
+                if (cleanupPrizeRecordIds.length > 0) {
+                  deleteConditions.push({
+                    isPrize: true,
+                    prizeRecordId: { in: cleanupPrizeRecordIds },
+                  });
+                }
                 await tx.cartItem.deleteMany({
-                  where: { id: { in: allCartItemIds }, cartId: userCart.id },
+                  where: {
+                    cartId: userCart.id,
+                    OR: deleteConditions,
+                  },
                 });
               }
             }
 
             // 10. 消费 LotteryRecord（IN_CART → CONSUMED）
-            const prizeRecordIds = items
-              .filter((i) => i.isPrize && i.prizeRecordId)
-              .map((i) => i.prizeRecordId as string);
-            if (prizeRecordIds.length > 0) {
+            if (consumedPrizeRecordIds.length > 0) {
               await tx.lotteryRecord.updateMany({
                 where: {
-                  id: { in: prizeRecordIds },
+                  id: { in: consumedPrizeRecordIds },
                   status: { in: ['WON', 'IN_CART'] },
                 },
                 data: { status: 'CONSUMED' },
+              });
+            }
+
+            if (expiredPrizeRecordIds.length > 0) {
+              await tx.lotteryRecord.updateMany({
+                where: {
+                  id: { in: expiredPrizeRecordIds },
+                  status: { in: ['WON', 'IN_CART'] },
+                },
+                data: { status: 'EXPIRED' },
               });
             }
 
@@ -1851,6 +1957,29 @@ export class CheckoutService {
   }
 
   // ---------- 私有方法 ----------
+
+  private getExcludedPrizeCleanupItems(session: {
+    bizMeta?: unknown;
+  }): Array<Pick<ExcludedCheckoutItem, 'cartItemId' | 'skuId' | 'prizeRecordId'>> {
+    const meta = session.bizMeta;
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return [];
+
+    const rawItems = (meta as any).excludedPrizeItems;
+    if (!Array.isArray(rawItems)) return [];
+
+    return rawItems
+      .filter((item) => {
+        if (!item || typeof item !== 'object') return false;
+        if ((item as any).isPrize !== true) return false;
+        return typeof (item as any).cartItemId === 'string' ||
+          typeof (item as any).prizeRecordId === 'string';
+      })
+      .map((item) => ({
+        cartItemId: typeof item.cartItemId === 'string' ? item.cartItemId : undefined,
+        skuId: typeof item.skuId === 'string' ? item.skuId : '',
+        prizeRecordId: typeof item.prizeRecordId === 'string' ? item.prizeRecordId : null,
+      }));
+  }
 
   /**
    * 按容量（通常为各商户商品金额）分摊折扣，保证：

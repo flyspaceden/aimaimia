@@ -6,6 +6,11 @@ import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.se
 import { verifyClaimToken, claimTokenHash } from '../../common/utils/claim-token.util';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { MergeCartItemDto } from './dto/cart.dto';
+import {
+  getPrizeUnavailableReason,
+  getUnavailableReasonText,
+  PrizeUnavailableReason,
+} from '../lottery/prize-availability.util';
 
 type MergeResultStatus =
   | 'MERGED'
@@ -76,7 +81,13 @@ export class CartService {
     if (message?.includes('奖品凭证已使用')) {
       return this.buildMergeResult(item, 'REJECTED_TOKEN_USED', message);
     }
-    if (message?.includes('奖品已失效')) {
+    // TODO(app-tofix4): replace message substring matching with typed prize merge error codes.
+    if (
+      message?.includes('奖品已失效') ||
+      message?.includes('奖品已停发') ||
+      message?.includes('商品规格') ||
+      message?.includes('商品已下架')
+    ) {
       return this.buildMergeResult(item, 'REJECTED_PRIZE_INACTIVE', message);
     }
     if (message?.includes('奖品凭证正在处理中')) {
@@ -238,7 +249,12 @@ export class CartService {
     });
     if (!item) throw new NotFoundException('购物车中没有该商品');
 
-    const sku = await this.prisma.productSKU.findUnique({ where: { id: skuId } });
+    const sku = await this.prisma.productSKU.findUnique({
+      where: { id: skuId },
+      include: { product: true },
+    });
+    if (sku?.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
+    if (sku?.product?.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
     if (sku && quantity > sku.stock) throw new BadRequestException('库存不足');
     if (sku && sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
       throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
@@ -273,24 +289,53 @@ export class CartService {
 
     const item = await this.prisma.cartItem.findFirst({
       where: { id: cartItemId, cartId: cart.id, isPrize: true },
+      include: {
+        sku: { include: { product: true } },
+      },
     });
     if (!item) throw new NotFoundException('购物车中没有该奖品');
 
-    // F2: 锁定的赠品禁止删除
-    if (item.isLocked) {
+    const record = item.prizeRecordId
+      ? await this.prisma.lotteryRecord.findUnique({
+          where: { id: item.prizeRecordId },
+          include: {
+            prize: {
+              include: {
+                sku: { include: { product: true } },
+                product: true,
+              },
+            },
+          },
+        })
+      : null;
+    const unavailableReason = this.getPrizeCartItemUnavailableReason(item, record);
+    const selectedNonPrizeTotal = await this.getSelectedNonPrizeTotal(cart.id);
+    const dynamicallyLocked = item.isLocked && (
+      !item.threshold || selectedNonPrizeTotal < item.threshold
+    );
+
+    // F2: 仍锁定且可用的赠品禁止删除；不可用奖品必须允许用户逃出
+    if (!unavailableReason && dynamicallyLocked) {
       throw new BadRequestException('锁定赠品不可删除，消费满 ¥' + (item.threshold || 0) + ' 后自动解锁');
     }
 
-    // 事务内同时删除购物车项并恢复 LotteryRecord 状态
+    // 事务内同时删除购物车项并推进 LotteryRecord 状态
     await this.prisma.$transaction(async (tx) => {
       await tx.cartItem.delete({ where: { id: item.id } });
 
-      // 恢复 LotteryRecord 状态为 WON（仅当前状态为 IN_CART 时才恢复，防止覆盖 EXPIRED/CONSUMED）
       if (item.prizeRecordId) {
-        await tx.lotteryRecord.updateMany({
-          where: { id: item.prizeRecordId, status: 'IN_CART' },
-          data: { status: 'WON' },
-        });
+        if (unavailableReason) {
+          await tx.lotteryRecord.updateMany({
+            where: { id: item.prizeRecordId, status: { in: ['WON', 'IN_CART'] } },
+            data: { status: 'EXPIRED' },
+          });
+        } else {
+          // 有效奖品被用户主动移出购物车：恢复为 WON，保留中奖名额
+          await tx.lotteryRecord.updateMany({
+            where: { id: item.prizeRecordId, status: 'IN_CART' },
+            data: { status: 'WON' },
+          });
+        }
       }
     });
 
@@ -303,31 +348,103 @@ export class CartService {
   async clearCart(userId: string) {
     const cart = await this.ensureCart(userId);
 
-    // F2: 查询非锁定的奖品项，用于恢复 LotteryRecord 状态
-    const prizeItems = await this.prisma.cartItem.findMany({
-      where: { cartId: cart.id, isPrize: true, isLocked: false },
-      select: { prizeRecordId: true },
+    const items = await this.prisma.cartItem.findMany({
+      where: { cartId: cart.id },
+      include: {
+        sku: { include: { product: true } },
+      },
     });
-    const prizeRecordIds = prizeItems
-      .map((item) => item.prizeRecordId)
-      .filter((id): id is string => !!id);
+
+    const prizeRecordIds = items
+      .filter((item) => item.isPrize && item.prizeRecordId)
+      .map((item) => item.prizeRecordId as string);
+    const records = prizeRecordIds.length > 0
+      ? await this.prisma.lotteryRecord.findMany({
+          where: { id: { in: prizeRecordIds } },
+          include: {
+            prize: {
+              include: {
+                sku: { include: { product: true } },
+                product: true,
+              },
+            },
+          },
+        })
+      : [];
+    const recordMap = new Map(records.map((record) => [record.id, record]));
+    const selectedNonPrizeTotal = await this.getSelectedNonPrizeTotal(cart.id);
+
+    const deleteIds: string[] = [];
+    const restoreRecordIds: string[] = [];
+    const expireRecordIds: string[] = [];
+
+    for (const item of items) {
+      if (!item.isPrize) {
+        deleteIds.push(item.id);
+        continue;
+      }
+
+      const record = item.prizeRecordId ? recordMap.get(item.prizeRecordId) : null;
+      const unavailableReason = this.getPrizeCartItemUnavailableReason(item, record);
+      const dynamicallyLocked = item.isLocked && (
+        !item.threshold || selectedNonPrizeTotal < item.threshold
+      );
+
+      if (!unavailableReason && dynamicallyLocked) continue;
+
+      deleteIds.push(item.id);
+      if (!item.prizeRecordId) continue;
+      if (unavailableReason) {
+        expireRecordIds.push(item.prizeRecordId);
+      } else {
+        restoreRecordIds.push(item.prizeRecordId);
+      }
+    }
+
+    const dedupedRestoreIds = Array.from(new Set(restoreRecordIds));
+    const dedupedExpireIds = Array.from(new Set(expireRecordIds));
 
     await this.prisma.$transaction(async (tx) => {
-      // F2: 只删除非锁定的购物车项（锁定赠品保留）
-      await tx.cartItem.deleteMany({
-        where: { cartId: cart.id, isLocked: false },
-      });
+      if (deleteIds.length > 0) {
+        await tx.cartItem.deleteMany({
+          where: { id: { in: deleteIds }, cartId: cart.id },
+        });
+      }
 
-      // 批量恢复 LotteryRecord 状态（仅 IN_CART → WON）
-      if (prizeRecordIds.length > 0) {
+      if (dedupedRestoreIds.length > 0) {
         await tx.lotteryRecord.updateMany({
-          where: { id: { in: prizeRecordIds }, status: 'IN_CART' },
+          where: { id: { in: dedupedRestoreIds }, status: 'IN_CART' },
           data: { status: 'WON' },
+        });
+      }
+
+      if (dedupedExpireIds.length > 0) {
+        await tx.lotteryRecord.updateMany({
+          where: { id: { in: dedupedExpireIds }, status: { in: ['WON', 'IN_CART'] } },
+          data: { status: 'EXPIRED' },
         });
       }
     });
 
     return this.getCart(userId);
+  }
+
+  private async getSelectedNonPrizeTotal(cartId: string): Promise<number> {
+    const selected = await this.prisma.cartItem.findMany({
+      where: { cartId, isPrize: false, isSelected: true },
+      include: { sku: true },
+    });
+    return selected.reduce((sum, item) => sum + (item.sku?.price || 0) * item.quantity, 0);
+  }
+
+  private getPrizeCartItemUnavailableReason(item: any, record?: any): PrizeUnavailableReason | null {
+    if (item.sku?.status !== 'ACTIVE') return 'SKU_INACTIVE';
+    if (item.sku?.product?.status !== 'ACTIVE') return 'PRODUCT_INACTIVE';
+    if (item.prizeRecordId && !record) return 'PRIZE_INACTIVE';
+    if (record) {
+      return getPrizeUnavailableReason(record.prize);
+    }
+    return null;
   }
 
   /** F2: 勾选/取消勾选购物车商品 */
@@ -591,20 +708,26 @@ export class CartService {
     // 验证奖品有效性
     const prize = await this.prisma.lotteryPrize.findUnique({
       where: { id: claimData.prizeId },
+      include: {
+        sku: { include: { product: true } },
+        product: true,
+      },
     });
-    if (!prize || !prize.isActive) {
-      await this.redisCoord.releaseLock(lockKey, 'merge');
+    const unavailableReason = getPrizeUnavailableReason(prize);
+    if (unavailableReason) {
+      await this.redisCoord.del(`lottery:claim:${hash}`, lockKey);
       this.logger.warn(
         JSON.stringify({
           action: 'cart_merge_rejected',
-          reason: 'prize_inactive',
+          reason: unavailableReason,
           userId,
           claimTokenHash: hash,
           prizeId: claimData.prizeId,
         }),
       );
-      throw new BadRequestException('奖品已失效');
+      throw new BadRequestException(getUnavailableReasonText(unavailableReason));
     }
+    const availablePrize = prize!;
 
     // Phase B — DB 事务（Serializable 隔离级别）
     const isThresholdGift = claimData.prizeType === 'THRESHOLD_GIFT';
@@ -668,7 +791,7 @@ export class CartService {
               result: 'WON',
               status: 'IN_CART',
               meta: {
-                prizeName: prize.name,
+                prizeName: availablePrize.name,
                 prizeType: claimData.prizeType,
                 prizePrice: claimData.prizePrice ?? claimData.originalPrice,
                 originalPrice: claimData.originalPrice ?? null,
@@ -801,9 +924,17 @@ export class CartService {
     let price = skuPrice;
     let originalPrice: number | null = null;
     let prizeType: string | null = null;
+    let unavailableReason: PrizeUnavailableReason | null = null;
+
+    if (sku?.status !== 'ACTIVE') {
+      unavailableReason = 'SKU_INACTIVE';
+    } else if (product?.status !== 'ACTIVE') {
+      unavailableReason = 'PRODUCT_INACTIVE';
+    }
 
     if (item.isPrize && item.prizeRecordId && prizeRecordMap) {
       const record = prizeRecordMap.get(item.prizeRecordId);
+      unavailableReason = unavailableReason ?? getPrizeUnavailableReason(record?.prize);
       // M1: 仅 WON/IN_CART 状态的奖品显示特价，EXPIRED/CONSUMED 回退到 SKU 原价
       const validPrizeStatuses = ['WON', 'IN_CART'];
       if (record && validPrizeStatuses.includes(record.status)) {
@@ -831,6 +962,7 @@ export class CartService {
       prizeRecordId: item.prizeRecordId || null,
       prizeType,
       isLocked: item.isLocked || false,
+      unavailableReason,
       threshold: item.threshold || null,
       isSelected: item.isSelected ?? true,
       expiresAt: item.expiresAt ? item.expiresAt.toISOString() : null,
