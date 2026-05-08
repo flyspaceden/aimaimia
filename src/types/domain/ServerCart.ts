@@ -30,6 +30,8 @@ export interface ServerCartItem {
   prizeType?: string;
   /** 服务端选中状态 */
   isSelected?: boolean;
+  /** 下架/停发原因；存在时只能删除，不能勾选或结算 */
+  unavailableReason?: 'SKU_INACTIVE' | 'PRODUCT_INACTIVE' | 'PRIZE_INACTIVE' | 'SKU_MISSING' | 'PRODUCT_MISSING' | null;
 }
 
 export type CartMergeResultStatus =

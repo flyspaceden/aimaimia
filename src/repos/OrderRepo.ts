@@ -93,6 +93,13 @@ export interface PreviewOrderResult {
     freeShippingThreshold?: number;   // 当前用户适用的免运费门槛
     amountToFreeShipping?: number;    // 还差多少免运费（0=已免运费）
   };
+  excludedItems?: Array<{
+    cartItemId?: string;
+    skuId: string;
+    reason: string;
+    isPrize?: boolean;
+    prizeRecordId?: string | null;
+  }>;
 }
 
 /** F1: CheckoutSession 响应类型 */
@@ -104,6 +111,7 @@ export interface CheckoutSessionResult {
   shippingFee: number;
   discountAmount: number;
   vipDiscountAmount?: number;
+  excludedItems?: PreviewOrderResult['excludedItems'];
   paymentParams?: Record<string, unknown>;
 }
 
@@ -313,7 +321,7 @@ export const OrderRepo = {
    * - 后端接口：`POST /api/v1/orders/preview`
    */
   previewOrder: async (payload: {
-    items: OrderItem[];
+    items: Array<OrderItem & { cartItemId?: string }>;
     addressId?: string;
     couponInstanceIds?: string[];
   }): Promise<Result<PreviewOrderResult>> => {
@@ -347,6 +355,7 @@ export const OrderRepo = {
       items: payload.items.map((item) => ({
         skuId: item.skuId || item.productId,
         quantity: item.quantity,
+        cartItemId: item.cartItemId ?? item.id,
       })),
       addressId: payload.addressId,
       couponInstanceIds: payload.couponInstanceIds,

@@ -74,6 +74,8 @@ export type CartItem = {
   claimToken?: string;
   /** 匿名中奖待登录认领 */
   pendingClaim?: boolean;
+  /** 下架/停发原因；存在时只能删除，不能勾选或结算 */
+  unavailableReason?: ServerCartItem['unavailableReason'];
 };
 
 export type LocalCartMergeOutcome = {
@@ -86,6 +88,8 @@ const cartKey = (productId: string, skuId?: string) =>
   skuId ? `${productId}:${skuId}` : productId;
 
 const itemKey = (item: CartItem) => cartKey(item.productId, item.skuId);
+
+export const isSelectableCartItem = (item: CartItem) => !item.unavailableReason && !item.isLocked;
 
 // 将服务端项转为本地 CartItem
 const serverToLocal = (si: ServerCartItem): CartItem => ({
@@ -106,6 +110,7 @@ const serverToLocal = (si: ServerCartItem): CartItem => ({
   prizeType: si.prizeType,
   originalPrice: si.product.originalPrice,
   maxPerOrder: si.product.maxPerOrder ?? null,
+  unavailableReason: si.unavailableReason ?? null,
 });
 
 type CartState = {
@@ -166,12 +171,13 @@ export const useCartStore = create<CartState>()(
               const newSelectedIds = new Set<string>();
               // 保持已有的勾选状态
               for (const id of state.selectedIds) {
-                if (validKeys.has(id)) newSelectedIds.add(id);
+                const item = serverItems.find((serverItem) => itemKey(serverItem) === id);
+                if (validKeys.has(id) && item && isSelectableCartItem(item)) newSelectedIds.add(id);
               }
               // 新增的商品自动选中（如抽奖奖品加入购物车）
               for (const item of serverItems) {
                 const key = itemKey(item);
-                if (!oldKeys.has(key)) newSelectedIds.add(key);
+                if (!oldKeys.has(key) && isSelectableCartItem(item)) newSelectedIds.add(key);
               }
               return { items: serverItems, selectedIds: newSelectedIds, loading: false };
             });
@@ -253,7 +259,8 @@ export const useCartStore = create<CartState>()(
                 const validKeys = new Set(serverItems.map(itemKey));
                 const newSelectedIds = new Set<string>();
                 for (const id of state.selectedIds) {
-                  if (validKeys.has(id)) newSelectedIds.add(id);
+	                const item = serverItems.find((serverItem) => itemKey(serverItem) === id);
+	                if (validKeys.has(id) && item && isSelectableCartItem(item)) newSelectedIds.add(id);
                 }
                 // 确保新添加的项保持选中（通过 skuId 匹配，服务端可能返回不同的 productId）
                 const addedItem = serverItems.find((si) => si.skuId === (skuId ?? product.id));
@@ -325,7 +332,8 @@ export const useCartStore = create<CartState>()(
                 const validKeys = new Set(serverItems.map(itemKey));
                 const newSelectedIds = new Set<string>();
                 for (const id of state.selectedIds) {
-                  if (validKeys.has(id)) newSelectedIds.add(id);
+                  const item = serverItems.find((serverItem) => itemKey(serverItem) === id);
+                  if (validKeys.has(id) && item && isSelectableCartItem(item)) newSelectedIds.add(id);
                 }
                 return { items: serverItems, selectedIds: newSelectedIds };
               });
@@ -400,7 +408,7 @@ export const useCartStore = create<CartState>()(
       clear: () => {
         // 乐观清空（锁定赠品保留，后端也不会删除锁定赠品）
         set((state) => {
-          const lockedItems = state.items.filter((item) => item.isLocked);
+          const lockedItems = state.items.filter((item) => item.isLocked && !item.unavailableReason);
           return { items: lockedItems, selectedIds: new Set<string>() };
         });
 
@@ -430,7 +438,10 @@ export const useCartStore = create<CartState>()(
         const result = await CartRepo.mergeItems(mergePayload);
         if (result.ok) {
           const serverItems = result.data.items.map(serverToLocal);
-          set({ items: serverItems, selectedIds: new Set(serverItems.map(itemKey)) });
+          set({
+            items: serverItems,
+            selectedIds: new Set(serverItems.filter(isSelectableCartItem).map(itemKey)),
+          });
           return {
             mergeErrors: result.data.mergeErrors,
             mergeResults: result.data.mergeResults ?? [],
@@ -448,6 +459,8 @@ export const useCartStore = create<CartState>()(
       toggleSelect: (productId, skuId) => {
         set((state) => {
           const key = cartKey(productId, skuId);
+          const item = state.items.find((candidate) => itemKey(candidate) === key);
+          if (item && !isSelectableCartItem(item)) return state;
           const newSelectedIds = new Set(state.selectedIds);
           if (newSelectedIds.has(key)) {
             newSelectedIds.delete(key);
@@ -460,7 +473,7 @@ export const useCartStore = create<CartState>()(
 
       selectAll: () => {
         set((state) => ({
-          selectedIds: new Set(state.items.map(itemKey)),
+          selectedIds: new Set(state.items.filter(isSelectableCartItem).map(itemKey)),
         }));
       },
 
@@ -470,31 +483,32 @@ export const useCartStore = create<CartState>()(
 
       isAllSelected: () => {
         const { items, selectedIds } = get();
-        return items.length > 0 && items.every((item) => selectedIds.has(itemKey(item)));
+        const selectable = items.filter(isSelectableCartItem);
+        return selectable.length > 0 && selectable.every((item) => selectedIds.has(itemKey(item)));
       },
 
       selectedTotal: () => {
         const { items, selectedIds } = get();
         return items
-          .filter((item) => selectedIds.has(itemKey(item)))
+          .filter((item) => selectedIds.has(itemKey(item)) && !item.unavailableReason)
           .reduce((sum, item) => sum + item.price * item.quantity, 0);
       },
 
       selectedNonPrizeTotal: () => {
         const { items, selectedIds } = get();
         return items
-          .filter((item) => selectedIds.has(itemKey(item)) && !item.isPrize)
+          .filter((item) => selectedIds.has(itemKey(item)) && !item.isPrize && !item.unavailableReason)
           .reduce((sum, item) => sum + item.price * item.quantity, 0);
       },
 
       selectedCount: () => {
         const { items, selectedIds } = get();
-        return items.filter((item) => selectedIds.has(itemKey(item))).length;
+        return items.filter((item) => selectedIds.has(itemKey(item)) && !item.unavailableReason).length;
       },
 
       selectedItems: () => {
         const { items, selectedIds } = get();
-        return items.filter((item) => selectedIds.has(itemKey(item)));
+        return items.filter((item) => selectedIds.has(itemKey(item)) && !item.unavailableReason);
       },
     }),
     {

@@ -51,10 +51,26 @@ export default function CheckoutScreen() {
   const syncFromServer = useCartStore((state) => state.syncFromServer);
   // N08修复：使用 cartKey 匹配选中项（支持同商品不同 SKU）
   const selectedItems = useMemo(
-    () => allItems.filter((item) => {
-      const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
-      return selectedIds.has(key);
-    }),
+    () => {
+      const selectedRaw = allItems.filter((item) => {
+        const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+        return selectedIds.has(key) && !item.unavailableReason;
+      });
+      const selectedNonPrizeTotal = selectedRaw
+        .filter((item) => !item.isPrize)
+        .reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+      return allItems.filter((item) => {
+        if (item.unavailableReason) return false;
+        const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+        const selected = selectedIds.has(key);
+        const isThresholdGift = item.isPrize === true && !!item.threshold;
+        const dynamicLocked = item.isLocked === true && (!item.threshold || selectedNonPrizeTotal < item.threshold);
+        if (dynamicLocked) return false;
+        if (isThresholdGift) return selectedNonPrizeTotal >= (item.threshold ?? 0);
+        return selected;
+      });
+    },
     [allItems, selectedIds]
   );
   const [refreshing, setRefreshing] = useState(false);
@@ -111,8 +127,9 @@ export default function CheckoutScreen() {
     return Array.from(ids);
   }, [cartItems]);
 
-  const previewSignature = cartItems.map((i) => `${i.skuId || i.productId}:${i.quantity}`).join(',');
+  const previewSignature = cartItems.map((i) => `${i.id || ''}:${i.skuId || i.productId}:${i.quantity}`).join(',');
   const previewErrorToastKeyRef = useRef<string>('');
+  const previewExcludedToastKeyRef = useRef<string>('');
 
   // 地址数据
   const { data: addressData } = useQuery({
@@ -145,6 +162,7 @@ export default function CheckoutScreen() {
         image: item.image,
         price: item.price,
         quantity: item.quantity,
+        cartItemId: item.id,
       })),
       addressId: selectedAddress?.id,
       couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
@@ -165,6 +183,14 @@ export default function CheckoutScreen() {
     show({ message, type: 'error' });
     previewErrorToastKeyRef.current = toastKey;
   }, [previewData, previewSignature, parsedCouponIds, show]);
+
+  React.useEffect(() => {
+    if (!preview?.excludedItems?.length) return;
+    const toastKey = preview.excludedItems.map((item) => `${item.cartItemId || ''}:${item.skuId}:${item.reason}`).join('|');
+    if (previewExcludedToastKeyRef.current === toastKey) return;
+    show({ message: '已下架奖品已自动从结算中移除', type: 'warning' });
+    previewExcludedToastKeyRef.current = toastKey;
+  }, [preview?.excludedItems, show]);
 
   // S11修复：比对服务端价格与购物车价格，发现差异时提示用户
   const [priceWarningShown, setPriceWarningShown] = useState(false);
@@ -207,6 +233,7 @@ export default function CheckoutScreen() {
         image: item.image,
         price: item.price,
         quantity: item.quantity,
+        cartItemId: item.id,
       })),
     [cartItems]
   );

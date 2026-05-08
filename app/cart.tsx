@@ -17,6 +17,7 @@ import { AiOrb } from '../src/components/effects/AiOrb';
 import { ProductCard } from '../src/components/cards/ProductCard';
 import { RecommendRepo } from '../src/repos';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
+import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
 import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
 import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
@@ -60,6 +61,23 @@ function ExpiryCountdown({ expiresAt, colors, typography }: { expiresAt: string;
       {isExpired ? '已过期' : `剩余 ${remaining}`}
     </Text>
   );
+}
+
+function unavailableText(reason?: string | null) {
+  switch (reason) {
+    case 'SKU_INACTIVE':
+      return '规格已下架';
+    case 'PRODUCT_INACTIVE':
+      return '商品已下架';
+    case 'PRIZE_INACTIVE':
+      return '奖品已停发';
+    case 'SKU_MISSING':
+      return '规格不存在';
+    case 'PRODUCT_MISSING':
+      return '商品不存在';
+    default:
+      return '已下架';
+  }
 }
 
 export default function CartScreen() {
@@ -252,7 +270,7 @@ export default function CartScreen() {
                 <Text style={[typography.bodySm, { color: colors.text.primary, marginLeft: spacing.xs }]}>全选</Text>
               </Pressable>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>
-                已选 {items.filter((item) => selectedIds.has(item.skuId ? `${item.productId}:${item.skuId}` : item.productId)).reduce((sum, item) => sum + item.quantity, 0)}/{items.reduce((sum, item) => sum + item.quantity, 0)}
+                已选 {items.filter((item) => isSelectableCartItem(item) && selectedIds.has(item.skuId ? `${item.productId}:${item.skuId}` : item.productId)).reduce((sum, item) => sum + item.quantity, 0)}/{items.filter(isSelectableCartItem).reduce((sum, item) => sum + item.quantity, 0)}
               </Text>
             </View>
           </>
@@ -262,9 +280,11 @@ export default function CartScreen() {
           const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
           const selected = selectedIds.has(key);
           const isPrize = item.isPrize === true;
+          const unavailableReason = item.unavailableReason;
+          const isUnavailable = !!unavailableReason;
           const nonPrizeTotal = selectedNonPrizeTotal();
           // 动态计算锁定状态：赠品在非奖品总额达到门槛时自动解锁
-          const isLocked = item.isLocked === true && (!item.threshold || nonPrizeTotal < item.threshold);
+          const isLocked = !isUnavailable && item.isLocked === true && (!item.threshold || nonPrizeTotal < item.threshold);
           const unlockGap = isLocked && item.threshold ? item.threshold - nonPrizeTotal : 0;
           return (
             <View
@@ -275,15 +295,15 @@ export default function CartScreen() {
                   backgroundColor: colors.surface,
                   borderRadius: radius.lg,
                   marginBottom: spacing.md,
-                  opacity: isLocked ? 0.5 : 1,
+                  opacity: isLocked || isUnavailable ? 0.5 : 1,
                 },
               ]}
             >
               {/* 复选框 — THRESHOLD_GIFT 和锁定赠品不可勾选，DISCOUNT_BUY 可取消 */}
               {(() => {
                 const isThresholdGift = isPrize && !!item.threshold;
-                const checkboxDisabled = isLocked || isThresholdGift;
-                const isChecked = isLocked ? false : isThresholdGift ? true : selected;
+                const checkboxDisabled = isUnavailable || isLocked || isThresholdGift;
+                const isChecked = isUnavailable || isLocked ? false : isThresholdGift ? true : selected;
                 return (
                   <Pressable
                     onPress={() => !checkboxDisabled && toggleSelect(item.productId, item.skuId)}
@@ -307,6 +327,11 @@ export default function CartScreen() {
                     <Text style={[typography.captionSm, { color: '#fff', fontSize: 10 }]}>奖品</Text>
                   </View>
                 )}
+                {isUnavailable && (
+                  <View style={[styles.unavailableBadge, { backgroundColor: colors.danger, borderRadius: radius.sm }]}>
+                    <Text style={[typography.captionSm, { color: '#fff', fontSize: 10 }]}>{unavailableText(unavailableReason)}</Text>
+                  </View>
+                )}
                 {/* 锁定遮罩 */}
                 {isLocked && (
                   <View style={[StyleSheet.absoluteFill, styles.cover, { backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' }]}>
@@ -322,6 +347,11 @@ export default function CartScreen() {
                 {item.pendingClaim && (
                   <Text style={[typography.captionSm, { color: colors.brand.primary, marginTop: 2 }]}>
                     已加入本地购物车，登录后确认领取
+                  </Text>
+                )}
+                {isUnavailable && (
+                  <Text style={[typography.captionSm, { color: colors.danger, marginTop: 2 }]}>
+                    {unavailableText(unavailableReason)}，仅可移除
                   </Text>
                 )}
                 {/* 锁定赠品提示 */}
@@ -343,7 +373,9 @@ export default function CartScreen() {
                 </View>
                 <View style={styles.metaRow}>
                   {/* 奖品不可修改数量 */}
-                  {isPrize ? (
+                  {isUnavailable ? (
+                    <Text style={[typography.caption, { color: colors.text.secondary }]}>不可结算</Text>
+                  ) : isPrize ? (
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>x{item.quantity}</Text>
                   ) : (
                     <View>
@@ -360,7 +392,7 @@ export default function CartScreen() {
                     </View>
                   )}
                   {/* 普通商品和未锁定奖品可以删除 */}
-                  {!isLocked && (
+                  {(!isLocked || isUnavailable) && (
                     <Pressable
                       onPress={() => {
                         if (isPrize && item.id) {
@@ -644,5 +676,13 @@ const styles = StyleSheet.create({
     left: 4,
     paddingHorizontal: 4,
     paddingVertical: 1,
+  },
+  unavailableBadge: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    bottom: 4,
+    alignItems: 'center',
+    paddingVertical: 2,
   },
 });
