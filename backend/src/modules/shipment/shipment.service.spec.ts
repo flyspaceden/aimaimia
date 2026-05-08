@@ -232,6 +232,198 @@ describe('handleCallback — 物流回调处理', () => {
     expect(prisma.shipment.updateMany).toHaveBeenCalled();
   });
 
+  it('沙箱旧路由事件早于当前 Shipment 创建时间时，不推进 DELIVERED 且不写入旧轨迹', async () => {
+    const { service, prisma } = createMocks();
+    const shipment = makeShipment({
+      status: 'SHIPPED',
+      createdAt: new Date('2026-05-08T01:54:05Z'),
+      shippedAt: new Date('2026-05-08T01:54:05Z'),
+    });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+
+    const result = await service.handleCallback(
+      'SF1234567890',
+      'DELIVERED',
+      [
+        {
+          time: '2025-10-02T23:55:56.000Z',
+          message: '经客户同意，快件已放在门口',
+          location: '杭州市',
+          opCode: '80',
+        } as any,
+      ],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(prisma.shipmentTrackingEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('shippedAt 优先于 createdAt：createdAt 早 / shippedAt 晚 时，按 shippedAt 判旧', async () => {
+    const { service, prisma } = createMocks();
+    // createdAt 是 2 小时前（容差内），shippedAt 是 5 分钟前（事件早于 shippedAt - 1h 才算旧）
+    const shipment = makeShipment({
+      status: 'SHIPPED',
+      createdAt: new Date('2026-05-08T00:00:00Z'),
+      shippedAt: new Date('2026-05-08T01:55:00Z'),
+    });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+
+    // 事件时间 = 2026-05-08T00:30Z（在 createdAt 之后，但早于 shippedAt - 1h = 00:55Z）
+    // 用 shippedAt 判 → 旧；用 createdAt 判 → 新
+    await service.handleCallback(
+      'SF1234567890',
+      'DELIVERED',
+      [
+        {
+          time: '2026-05-08T00:30:00.000Z',
+          message: '快件已签收',
+          opCode: '80',
+        } as any,
+      ],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    // 用 shippedAt 判：事件被滤掉，整组都是旧的 → 直接 return
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('shippedAt 为 null 时回退用 createdAt 作为参考', async () => {
+    const { service, prisma } = createMocks();
+    const shipment = makeShipment({
+      status: 'SHIPPED',
+      createdAt: new Date('2026-05-08T01:54:05Z'),
+      shippedAt: null,
+    });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+
+    await service.handleCallback(
+      'SF1234567890',
+      'DELIVERED',
+      [
+        {
+          time: '2025-10-02T23:55:56.000Z',
+          message: '快件已签收',
+          opCode: '80',
+        } as any,
+      ],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    // shippedAt null → 退化到 createdAt：事件 2025-10 远早于 2026-05 → 拦下
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('窗口期：Shipment.status=INIT 且 shippedAt=null 时，SF 推 SHIPPED 仅写轨迹不推进状态（审计 HIGH 防卡死）', async () => {
+    const { service, prisma } = createMocks();
+    const now = Date.now();
+    // 模拟"卖家已生成面单但还没点确认发货"
+    const shipment = makeShipment({
+      status: 'INIT',
+      shippedAt: null,
+      createdAt: new Date(now - 2 * 60 * 60 * 1000), // 2 小时前生成面单
+    });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+
+    await service.handleCallback(
+      'SF1234567890',
+      'SHIPPED',
+      [
+        {
+          time: new Date(now - 30 * 60 * 1000).toISOString(),
+          message: '已收件',
+          opCode: '50',
+        } as any,
+      ],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    // 关键断言：status 不被推进，Order 不被联动；但事件仍然写入
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(prisma.shipmentTrackingEvent.createMany).toHaveBeenCalled();
+  });
+
+  it('窗口期：SF 直接推 80 签收时，Shipment 仍保持 INIT，Order 不升级 DELIVERED', async () => {
+    const { service, prisma } = createMocks();
+    const now = Date.now();
+    const shipment = makeShipment({
+      status: 'INIT',
+      shippedAt: null,
+      createdAt: new Date(now - 24 * 60 * 60 * 1000),
+    });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+
+    await service.handleCallback(
+      'SF1234567890',
+      'DELIVERED',
+      [
+        {
+          time: new Date(now - 60 * 1000).toISOString(),
+          message: '已签收',
+          opCode: '80',
+        } as any,
+      ],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    // 轨迹仍然落库，等卖家确认发货后展示出来
+    expect(prisma.shipmentTrackingEvent.createMany).toHaveBeenCalled();
+  });
+
+  it('1 小时容差内的事件应被保留（45 分钟前的揽件事件，shippedAt 是 30 分钟前）', async () => {
+    const { service, prisma } = createMocks();
+    // shippedAt = 30 分钟前；earliestAllowed = shippedAt - 1h = 90 分钟前
+    // 事件 = 45 分钟前 → 在容差内，保留
+    const now = Date.now();
+    const shipment = makeShipment({
+      status: 'SHIPPED',
+      createdAt: new Date(now - 30 * 60 * 1000),
+      shippedAt: new Date(now - 30 * 60 * 1000),
+    });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.handleCallback(
+      'SF1234567890',
+      'SHIPPED',
+      [
+        {
+          time: new Date(now - 45 * 60 * 1000).toISOString(),
+          message: '已收件',
+          opCode: '50',
+        } as any,
+      ],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    // 事件保留 → 走正常 update 路径
+    expect(prisma.shipment.updateMany).toHaveBeenCalled();
+    expect(prisma.shipmentTrackingEvent.createMany).toHaveBeenCalled();
+  });
+
   it('trackingNo 不存在时抛 NotFoundException', async () => {
     const { service, prisma } = createMocks();
     prisma.shipment.findFirst.mockResolvedValue(null);
@@ -585,6 +777,44 @@ describe('queryTracking — 主动查询', () => {
     expect(prisma.shipmentTrackingEvent.createMany).not.toHaveBeenCalled();
   });
 
+  it('主动查询拿到早于当前 Shipment 创建时间的沙箱旧路由时，不推进 DELIVERED', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    const shipment = makeShipment({
+      status: 'SHIPPED',
+      createdAt: new Date('2026-05-08T01:54:05Z'),
+      shippedAt: new Date('2026-05-08T01:54:05Z'),
+      trackingEvents: [],
+    });
+
+    prisma.order.findUnique.mockResolvedValue({
+      id: ORDER_SHIPPED,
+      userId: BUYER_USER_ID,
+      status: 'SHIPPED',
+    });
+    prisma.shipment.findMany
+      .mockResolvedValueOnce([shipment])
+      .mockResolvedValueOnce([shipment]);
+
+    sfExpress.queryRoutes.mockResolvedValue({
+      status: 'DELIVERED',
+      rawOpCode: '80',
+      events: [
+        {
+          time: '2025-10-02T23:55:56.000Z',
+          message: '经客户同意，快件已放在门口',
+          location: '杭州市',
+          opCode: '80',
+        },
+      ],
+    });
+
+    await service.queryTracking(ORDER_SHIPPED, BUYER_USER_ID);
+
+    expect(prisma.shipment.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(prisma.shipmentTrackingEvent.createMany).not.toHaveBeenCalled();
+  });
+
   it('无运单号的包裹跳过', async () => {
     const { service, prisma, sfExpress } = createMocks();
     const shipmentNoTracking = makeShipment({
@@ -767,6 +997,25 @@ describe('getByOrderId — 查看物流信息', () => {
     expect(result!.status).toBe('DELIVERED');
     expect(result!.events).toHaveLength(2);
     expect(result!.shipments).toHaveLength(1);
+  });
+
+  it('单包裹仅 SHIPPED 时聚合状态保持 SHIPPED，不误报 IN_TRANSIT', async () => {
+    const { service, prisma } = createMocks();
+    prisma.order.findUnique.mockResolvedValue({
+      id: ORDER_SHIPPED,
+      userId: BUYER_USER_ID,
+    });
+    prisma.shipment.findMany.mockResolvedValue([
+      makeShipment({
+        status: 'SHIPPED',
+        trackingEvents: [],
+      }),
+    ]);
+
+    const result = await service.getByOrderId(ORDER_SHIPPED, BUYER_USER_ID);
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('SHIPPED');
   });
 
   it('多包裹返回聚合状态（carrierName 显示包裹数量）', async () => {

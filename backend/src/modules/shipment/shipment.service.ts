@@ -13,7 +13,7 @@ import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { maskTrackingNo } from '../../common/security/privacy-mask';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from '../after-sale/after-sale.constants';
-import { SfExpressService } from './sf-express.service';
+import { SfExpressService, SfTrackingEvent } from './sf-express.service';
 import { InboxService } from '../inbox/inbox.service';
 
 @Injectable()
@@ -30,11 +30,81 @@ export class ShipmentService {
   private summarizeShipmentStatus(statuses: string[]): string {
     if (statuses.length === 0) return 'INIT';
     if (statuses.every((status) => status === 'DELIVERED')) return 'DELIVERED';
-    if (statuses.some((status) => status === 'IN_TRANSIT' || status === 'SHIPPED')) {
+    if (statuses.some((status) => status === 'IN_TRANSIT')) {
       return 'IN_TRANSIT';
     }
+    if (statuses.some((status) => status === 'SHIPPED')) return 'SHIPPED';
     if (statuses.some((status) => status === 'INIT')) return 'INIT';
     return statuses[0];
+  }
+
+  private parseEventTime(raw: string | undefined | null): { date: Date; valid: boolean } {
+    if (!raw || typeof raw !== 'string') return { date: new Date(), valid: false };
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const date = new Date(normalized);
+    if (isNaN(date.getTime())) {
+      return { date: new Date(), valid: false };
+    }
+    return { date, valid: true };
+  }
+
+  private filterFreshEventsForShipment<T extends SfTrackingEvent>(
+    events: T[] | undefined,
+    shipment: { id: string; createdAt?: Date | null; shippedAt?: Date | null },
+  ): T[] {
+    if (!events?.length) return events ?? [];
+
+    // 优先以 shippedAt 为基准（语义更准：发货前的事件不可信）；
+    // shippedAt 为 null（历史脏数据 / 异常路径）时回退 createdAt
+    const reference = shipment.shippedAt ?? shipment.createdAt;
+    if (!reference) return events;
+
+    // SF 沙箱“全流程调测”会把同一沙箱运单的历史样例路由一并推送过来；
+    // 这些 acceptTime 早于当前 Shipment 发货时间，不能污染当前订单状态。
+    // 1 小时容差覆盖 SF 服务器时钟偏差 + 揽件事件可能略早于点击发货按钮的极端情况。
+    const toleranceMs = 60 * 60 * 1000;
+    const earliestAllowed = reference.getTime() - toleranceMs;
+    const freshEvents = events.filter((event) => {
+      const parsed = this.parseEventTime(event.time);
+      if (!parsed.valid) return true;
+      return parsed.date.getTime() >= earliestAllowed;
+    });
+
+    if (freshEvents.length !== events.length) {
+      this.logger.warn(
+        `过滤 SF 旧路由事件: shipmentId=${shipment.id}, dropped=${events.length - freshEvents.length}, kept=${freshEvents.length}`,
+      );
+    }
+
+    return freshEvents;
+  }
+
+  private mapIncomingStatus(
+    status: string,
+    currentStatus: string,
+    events?: SfTrackingEvent[],
+    options?: { staleEventsDropped?: boolean },
+  ): string {
+    const eventWithBusinessOpCode = events?.find((event) => {
+      const opCode = event.opCode ? String(event.opCode) : '';
+      return Boolean(opCode && opCode !== '8000' && SfExpressService.OP_CODE_MAP[opCode]);
+    });
+    if (eventWithBusinessOpCode?.opCode) {
+      return SfExpressService.OP_CODE_MAP[String(eventWithBusinessOpCode.opCode)];
+    }
+
+    if (
+      options?.staleEventsDropped &&
+      (status === 'DELIVERED' || status === 'EXCEPTION')
+    ) {
+      return currentStatus;
+    }
+
+    return status === 'DELIVERED' ? 'DELIVERED'
+      : status === 'IN_TRANSIT' ? 'IN_TRANSIT'
+      : status === 'SHIPPED' ? 'SHIPPED'
+      : status === 'EXCEPTION' ? 'EXCEPTION'
+      : currentStatus;
   }
 
   /**
@@ -159,7 +229,7 @@ export class ShipmentService {
   async handleCallback(
     trackingNo: string,
     status: string,
-    events?: Array<{ time: string; message: string; location?: string }>,
+    events?: SfTrackingEvent[],
     rawPayload?: any,
     headerSignature?: string,
     options?: { skipSignatureVerification?: boolean },
@@ -180,12 +250,27 @@ export class ShipmentService {
     });
     if (!shipment) throw new NotFoundException('物流单号未找到');
 
-    const shipmentStatus =
-      status === 'DELIVERED' ? 'DELIVERED'
-      : status === 'IN_TRANSIT' ? 'IN_TRANSIT'
-      : status === 'SHIPPED' ? 'SHIPPED'
-      : status === 'EXCEPTION' ? 'EXCEPTION'
-      : shipment.status;
+    const incomingEventCount = events?.length ?? 0;
+    const freshEvents = this.filterFreshEventsForShipment(events, shipment);
+    const onlyStaleIncomingEvents = incomingEventCount > 0 && freshEvents.length === 0;
+    const staleEventsDropped = incomingEventCount > 0 && freshEvents.length !== incomingEventCount;
+    if (onlyStaleIncomingEvents) {
+      this.logger.warn(
+        `跳过 SF 旧路由回调: shipmentId=${shipment.id}, trackingNo=${maskTrackingNo(trackingNo) ?? 'N/A'}, rawStatus=${sanitizeStringForLog(status, { maxStringLength: 64 })}`,
+      );
+      return { ok: true };
+    }
+
+    const shipmentStatus = this.mapIncomingStatus(status, shipment.status, freshEvents, {
+      staleEventsDropped,
+    });
+
+    // 面单已生成、卖家未确认发货的窗口期：SF 已下单且可能开始推真实路由（揽件中），
+    // 但商家流程上 Shipment 仍要保持 INIT 等待"确认发货"动作，否则 seller-orders.service.ts
+    // 的 CAS where status=INIT 会失败、卡住卖家发货按钮（审计 HIGH）。
+    // 处理：仅写轨迹事件，不动 Shipment.status，不联动 Order.status。
+    const isPreShipmentWindow =
+      shipment.status === 'INIT' && !shipment.shippedAt;
 
     // C7修复：Serializable 隔离 + CAS 防止与 confirmReceive 竞态导致重复状态转换
     const MAX_RETRIES = 3;
@@ -199,7 +284,12 @@ export class ShipmentService {
           //
           // 规则：DELIVERED 是终态，不允许降级。其他状态间允许转换（派件异常 → 重新派件 → 签收 是合法序列）
           // EXCEPTION 不视为终态（SF 实际可以 36 派件异常 → 30 重新派件 → 80 签收）
-          if (shipment.status === 'DELIVERED' && shipmentStatus !== 'DELIVERED') {
+          if (isPreShipmentWindow) {
+            this.logger.log(
+              `Shipment ${shipment.id} 处于"已生成面单/未确认发货"窗口期，仅记录轨迹不推进状态`,
+            );
+            // 仍然写事件（轨迹保留），但不动 status / Order
+          } else if (shipment.status === 'DELIVERED' && shipmentStatus !== 'DELIVERED') {
             this.logger.warn(
               `跳过 Shipment 降级: id=${shipment.id}, current=DELIVERED, incoming=${shipmentStatus} (rawStatus=${status})`,
             );
@@ -213,7 +303,7 @@ export class ShipmentService {
               },
               data: {
                 status: shipmentStatus as any,
-                deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
+                deliveredAt: shipmentStatus === 'DELIVERED' ? new Date() : undefined,
               },
             });
             if (cas.count === 0) {
@@ -225,14 +315,6 @@ export class ShipmentService {
 
           // 写入物流轨迹事件（去重）
           if (events?.length) {
-            // SF 时间格式 "2026-05-07 04:05:27"（空格分隔）在某些 Node 版本无法直接 parse
-            // 统一替换为 ISO 8601 T 分隔；空串/非法值兜底为当前时间
-            const safeParseTime = (raw: string | undefined | null): Date => {
-              if (!raw || typeof raw !== 'string') return new Date();
-              const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
-              const d = new Date(normalized);
-              return isNaN(d.getTime()) ? new Date() : d;
-            };
             const existingEvents = await tx.shipmentTrackingEvent.findMany({
               where: { shipmentId: shipment.id },
               select: { occurredAt: true, message: true },
@@ -240,8 +322,8 @@ export class ShipmentService {
             const existingKeys = new Set(
               existingEvents.map((e) => `${e.occurredAt.toISOString()}|${e.message}`),
             );
-            const newEvents = events.filter((e) => {
-              const key = `${safeParseTime(e.time).toISOString()}|${e.message}`;
+            const newEvents = freshEvents.filter((e) => {
+              const key = `${this.parseEventTime(e.time).date.toISOString()}|${e.message}`;
               return !existingKeys.has(key);
             });
 
@@ -249,17 +331,18 @@ export class ShipmentService {
               await tx.shipmentTrackingEvent.createMany({
                 data: newEvents.map((e) => ({
                   shipmentId: shipment.id,
-                  occurredAt: safeParseTime(e.time),
+                  occurredAt: this.parseEventTime(e.time).date,
                   message: e.message,
                   location: e.location || null,
-                  statusCode: status,
+                  statusCode: shipmentStatus,
                 })),
               });
             }
           }
 
           // 如果全部包裹均签收，CAS 更新 Order 状态为 DELIVERED
-          if (status === 'DELIVERED') {
+          // 窗口期跳过：Shipment.status 还没动，本包裹仍是 INIT，不应推动 Order.DELIVERED
+          if (!isPreShipmentWindow && shipmentStatus === 'DELIVERED') {
             const undeliveredCount = await tx.shipment.count({
               where: {
                 orderId: shipment.orderId,
@@ -361,7 +444,7 @@ export class ShipmentService {
   async handleSfCallback(
     trackingNo: string,
     status: string,
-    events: Array<{ time: string; message: string; location?: string }> | undefined,
+    events: SfTrackingEvent[] | undefined,
     rawPayload: any,
   ) {
     // Bug 87: 认证已在 controller 用 URL token + timingSafeEqual 完成，service 层不再做签名校验
@@ -434,18 +517,44 @@ export class ShipmentService {
       }
 
       // 过滤出本地尚不存在的新事件（按时间+内容去重）
+      const freshEvents = this.filterFreshEventsForShipment(trackingResult.events, shipment);
+      if (trackingResult.events.length > 0 && freshEvents.length === 0) {
+        results.push({
+          shipmentId: shipment.id,
+          carrierCode: shipment.carrierCode,
+          trackingNo: trackingNumber,
+          updated: false,
+          status: shipment.status,
+          eventsAdded: 0,
+        });
+        continue;
+      }
+
       const existingEventKeys = new Set(
         shipment.trackingEvents.map((e) => `${e.occurredAt.toISOString()}|${e.message}`),
       );
-      const newEvents = trackingResult.events.filter((e) => {
-        const eventTime = new Date(e.time);
+      const newEvents = freshEvents.filter((e) => {
+        const eventTime = this.parseEventTime(e.time).date;
         const key = `${eventTime.toISOString()}|${e.message}`;
         return !existingEventKeys.has(key);
       });
 
       // 更新物流状态和事件
-      const newStatus = trackingResult.status;
+      const newStatus = this.mapIncomingStatus(
+        trackingResult.status,
+        shipment.status,
+        freshEvents,
+        {
+          staleEventsDropped:
+            trackingResult.events.length > 0 &&
+            freshEvents.length !== trackingResult.events.length,
+        },
+      );
+      // 窗口期：面单已生成但卖家未确认发货时，主动查询同样只写轨迹不动状态（审计 HIGH）
+      const isPreShipmentWindow =
+        shipment.status === 'INIT' && !shipment.shippedAt;
       const shouldUpdateStatus =
+        !isPreShipmentWindow &&
         shipment.status !== 'DELIVERED' && // 已签收的不回退
         newStatus !== shipment.status;
 
@@ -466,7 +575,7 @@ export class ShipmentService {
           await tx.shipmentTrackingEvent.createMany({
             data: newEvents.map((e) => ({
               shipmentId: shipment.id,
-              occurredAt: new Date(e.time),
+              occurredAt: this.parseEventTime(e.time).date,
               message: e.message,
               location: e.location || null,
               statusCode: newStatus,
