@@ -30,9 +30,11 @@ function useOrderActions() {
   const queryClient = useQueryClient();
   const replaceCartFromServer = useCartStore((s) => s.replaceFromServer);
   const [repurchasingOrderId, setRepurchasingOrderId] = useState<string | null>(null);
+  const repurchasingOrderIdRef = React.useRef<string | null>(null);
 
   const handleRepurchase = async (order: Order) => {
-    if (repurchasingOrderId || order.repurchasable === false) return;
+    if (repurchasingOrderIdRef.current || order.repurchasable === false) return;
+    repurchasingOrderIdRef.current = order.id;
     setRepurchasingOrderId(order.id);
     try {
       const r = await OrderRepo.repurchase(order.id);
@@ -52,6 +54,7 @@ function useOrderActions() {
       show(formatRepurchaseToast(result));
       router.push('/cart');
     } finally {
+      repurchasingOrderIdRef.current = null;
       setRepurchasingOrderId(null);
     }
   };

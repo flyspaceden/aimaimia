@@ -1119,7 +1119,7 @@ Tab 栏设计：
 └─────────────────────────────┘
 ```
 
-实施状态（2026-05-08）：`RECEIVED` 普通商品订单的“再次购买”已接入真实接口 `POST /orders/:id/repurchase`。列表页会在复购请求期间禁用全部复购按钮，成功后直接用接口返回的最新购物车 hydrate `useCartStore` 并跳转 `/cart`；部分不可购和价格变动通过 toast 提示。
+实施状态（2026-05-08）：`RECEIVED` 普通商品订单的“再次购买”已接入真实接口 `POST /orders/:id/repurchase`。列表页会在复购请求期间禁用全部复购按钮，并用同步 ref guard 防止同帧双击重复触发；成功后直接用接口返回的最新购物车 hydrate `useCartStore` 并跳转 `/cart`；部分不可购和价格变动通过 toast 提示。
 
 ---
 
@@ -1161,7 +1161,7 @@ Tab 栏设计：
 └─────────────────────────────┘
 ```
 
-实施状态（2026-05-08）：详情页底部“再次购买”从占位 toast 改为真实复购。按钮有 `加入中...` loading/disabled 状态，`repurchasable=false` 时禁用；成功后不额外 `syncFromServer()`，直接使用复购响应里的 `cart` 更新购物车。
+实施状态（2026-05-08）：详情页底部“再次购买”从占位 toast 改为真实复购。按钮有 `加入中...` loading/disabled 状态，并用同步 ref guard 防止同帧双击重复触发，`repurchasable=false` 时禁用；成功后不额外 `syncFromServer()`，直接使用复购响应里的 `cart` 更新购物车。
 
 ---
 

@@ -31,6 +31,7 @@ export default function OrderDetailScreen() {
   const [canceling, setCanceling] = React.useState(false);
   const [repurchasing, setRepurchasing] = React.useState(false);
   const cancelingRef = React.useRef(false);
+  const repurchasingRef = React.useRef(false);
   const replaceCartFromServer = useCartStore((s) => s.replaceFromServer);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
@@ -146,7 +147,8 @@ export default function OrderDetailScreen() {
   };
 
   const handleRepurchase = async () => {
-    if (repurchasing || order.repurchasable === false) return;
+    if (repurchasingRef.current || order.repurchasable === false) return;
+    repurchasingRef.current = true;
     setRepurchasing(true);
     try {
       const r = await OrderRepo.repurchase(order.id);
@@ -166,6 +168,7 @@ export default function OrderDetailScreen() {
       show(formatRepurchaseToast(result));
       router.push('/cart');
     } finally {
+      repurchasingRef.current = false;
       setRepurchasing(false);
     }
   };
