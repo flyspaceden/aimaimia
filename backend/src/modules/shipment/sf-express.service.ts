@@ -65,16 +65,18 @@ export type SfMappedStatus =
   | 'DELIVERED'
   | 'EXCEPTION';
 
+export interface SfTrackingEvent {
+  time: string;
+  message: string;
+  location?: string;
+  opCode?: string;
+}
+
 /** 顺丰推送解析结果（按 mailno 分组的单个 payload） */
 export interface SfPushPayload {
   trackingNo: string;
   status: SfMappedStatus;
-  events: Array<{
-    time: string;
-    message: string;
-    location?: string;
-    opCode?: string;
-  }>;
+  events: SfTrackingEvent[];
 }
 
 // ─── 服务实现 ───────────────────────────────────────────────
@@ -663,7 +665,7 @@ export class SfExpressService {
   /**
    * 解析 OrderState 推送（订单状态推送）
    * 以 waybillNo 分组；状态来自 orderStateCode（04-XXXXX 系列）
-   * orderStateCode 主要是 SF 内部调度状态，不直接映射到 OP_CODE，统一标 IN_TRANSIT
+   * orderStateCode 主要是 SF 内部调度状态，不直接映射到 OP_CODE，统一标 SHIPPED
    * App 物流时间线主要看 WaybillRoute 推送，OrderState 只是补充事件
    */
   private parseOrderStates(states: any[]): SfPushPayload[] {
@@ -685,16 +687,35 @@ export class SfExpressService {
 
       const events = ss.map((s: any) => ({
         time: String(s.lastTime ?? s.bookTime ?? s.createTm ?? ''),
-        message: String(s.orderStateDesc ?? s.orderStateCode ?? ''),
+        message: this.normalizeOrderStateMessage(
+          String(s.orderStateDesc ?? s.orderStateCode ?? ''),
+        ),
         location: undefined,
         opCode: String(s.orderStateCode ?? ''),
       }));
 
-      // OrderState 不能精确判断"已签收/已派送"等终态，统一 IN_TRANSIT
+      // OrderState 不能精确判断"已签收/已派送"等终态，不能推进为运输中/已送达
       // 实际状态推进由 WaybillRoute 推送负责
-      payloads.push({ trackingNo: waybillNo, status: 'IN_TRANSIT', events });
+      payloads.push({ trackingNo: waybillNo, status: 'SHIPPED', events });
     }
     return payloads;
+  }
+
+  private normalizeOrderStateMessage(message: string): string {
+    const trimmed = message.trim();
+    if (trimmed.includes('调度失败') && trimmed.includes('等待')) {
+      return '等待调度';
+    }
+    if (trimmed.includes('调度成功') && trimmed.includes('收派员')) {
+      return '已派单（含快递员信息）';
+    }
+    if (trimmed.includes('调度成功')) {
+      return '已派单';
+    }
+    if (trimmed === '已下单' || trimmed === '订单已接收') {
+      return '订单已受理';
+    }
+    return trimmed;
   }
 
   // ─── 云打印面单 ───────────────────────────────────────

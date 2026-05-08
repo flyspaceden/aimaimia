@@ -488,6 +488,66 @@ describe('SfExpressService', () => {
       expect(result).toHaveLength(1);
       expect(result[0].trackingNo).toBe('SF1');
     });
+
+    it('OrderState 调度等待文案规范化为“等待调度”，且不推进为运输中', () => {
+      const svc = createService();
+      const result = svc.parsePushPayload({
+        Body: {
+          OrderState: [
+            {
+              waybillNo: 'SF7444703630995',
+              orderStateCode: '04-001',
+              orderStateDesc: '调度失败/等待',
+              lastTime: '2026-05-08T01:54:45.813Z',
+            },
+          ],
+        },
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].trackingNo).toBe('SF7444703630995');
+      expect(result[0].status).toBe('SHIPPED');
+      expect(result[0].events[0].message).toBe('等待调度');
+    });
+
+    it('OrderState 调度成功/收派员信息 → “已派单（含快递员信息）”', () => {
+      const svc = createService();
+      const result = svc.parsePushPayload({
+        Body: {
+          OrderState: [
+            {
+              waybillNo: 'SF1',
+              orderStateCode: '04-002',
+              orderStateDesc: '调度成功/收派员信息',
+              lastTime: '2026-05-08T01:54:55.000Z',
+            },
+          ],
+        },
+      });
+      expect(result[0].events[0].message).toBe('已派单（含快递员信息）');
+      expect(result[0].status).toBe('SHIPPED');
+    });
+
+    it('OrderState 单纯调度成功 → “已派单”；已下单/订单已接收 → “订单已受理”；其它原样', () => {
+      const svc = createService();
+      const result = svc.parsePushPayload({
+        Body: {
+          OrderState: [
+            { waybillNo: 'A', orderStateDesc: '调度成功', lastTime: '2026-05-08T01:00:00Z' },
+            { waybillNo: 'B', orderStateDesc: '已下单', lastTime: '2026-05-08T01:00:00Z' },
+            { waybillNo: 'C', orderStateDesc: '订单已接收', lastTime: '2026-05-08T01:00:00Z' },
+            { waybillNo: 'D', orderStateDesc: '其他自定义状态', lastTime: '2026-05-08T01:00:00Z' },
+          ],
+        },
+      });
+      const byTrack = Object.fromEntries(
+        result.map((p) => [p.trackingNo, p.events[0].message]),
+      );
+      expect(byTrack['A']).toBe('已派单');
+      expect(byTrack['B']).toBe('订单已受理');
+      expect(byTrack['C']).toBe('订单已受理');
+      expect(byTrack['D']).toBe('其他自定义状态');
+    });
   });
 
   // ─── verifyPushToken（Bug 87 — URL secret 路径模式） ───
