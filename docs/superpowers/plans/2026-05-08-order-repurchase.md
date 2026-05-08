@@ -464,21 +464,33 @@ describe('OrderService.repurchase', () => {
     }));
   });
 
-  it('returns cached result for duplicate requests in idempotency window', async () => {
+  it('returns cached result for duplicate requests but refreshes cart from CartService', async () => {
     const cached = JSON.stringify({
       addedItemCount: 1,
       addedQuantity: 2,
       skippedItemCount: 0,
       skippedQuantity: 0,
       priceChangedCount: 0,
-      cart: { id: 'cart-1', items: [] },
+      cart: { id: 'cart-1', items: [{ id: 'stale-item' }] },
       items: [],
     });
-    const { service, prisma } = createHarness({ redisCached: cached });
+    const { service, prisma, cartService } = createHarness({ redisCached: cached });
 
     const result = await service.repurchase('order-1', 'user-1');
 
     expect(result.addedQuantity).toBe(2);
+    expect(prisma.order.findUnique).not.toHaveBeenCalled();
+    // cart 必须来自 cartService.getCart，不是缓存里的 stale 快照
+    expect(cartService.getCart).toHaveBeenCalledWith('user-1');
+    expect(result.cart).toMatchObject({ id: 'cart-1' });
+    expect((result.cart as any).items[0].id).not.toBe('stale-item');
+  });
+
+  it('returns 409 when Redis is unavailable (acquireLock returns null)', async () => {
+    const { ConflictException } = await import('@nestjs/common');
+    const { service, prisma } = createHarness({ acquireLock: null });
+
+    await expect(service.repurchase('order-1', 'user-1')).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.order.findUnique).not.toHaveBeenCalled();
   });
 
@@ -537,6 +549,16 @@ git commit -m "test(orders): cover repurchase flow"
 - Modify: `backend/src/modules/order/map-order.spec.ts`
 - Modify: `backend/src/modules/order/order-preview-prize-exclusion.spec.ts`
 - Modify: `backend/src/modules/order/order.service.cancel.spec.ts`
+
+- [ ] **Step 0: Pre-check Cart schema invariants**
+
+Confirm `backend/prisma/schema.prisma` already has `Cart.userId @unique`; otherwise `tx.cart.findUnique({ where: { userId } })` and `tx.cart.create({ data: { userId } })` will fail at runtime. Run:
+
+```bash
+rg -n "model Cart\\b" -A 20 backend/prisma/schema.prisma
+```
+
+Expected: the `userId` field is annotated with `@unique` (or the model has a unique index on `userId`). If not, stop and surface to the user before proceeding — this plan does not migrate the schema.
 
 - [ ] **Step 1: Export CartService and import CartModule into OrderModule**
 
@@ -674,18 +696,28 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
   const lockKey = `order:repurchase:lock:${userId}:${orderId}`;
   const lockOwner = `repurchase:${userId}:${orderId}`;
 
+  // 命中幂等缓存时仅复用 items[] 结果，cart 字段重查最新，避免 60s 窗口内购物车被
+  // 其它操作（手动删项、加购等）改动导致 replaceFromServer 把过期 cart 写回去。
   const cached = await this.redisCoord.get(resultKey);
   if (cached) {
-    return JSON.parse(cached) as RepurchaseResult;
+    const cachedResult = JSON.parse(cached) as RepurchaseResult;
+    const freshCart = await this.cartService.getCart(userId);
+    return { ...cachedResult, cart: freshCart };
   }
 
+  // acquireLock 返回 null 表示 Redis 不可用：fail-closed，直接 409，避免无幂等保护下重复加购。
   const acquired = await this.redisCoord.acquireLock(lockKey, lockOwner, 60_000);
-  if (!acquired) {
-    for (let wait = 0; wait < 4; wait++) {
-      await this.sleep(500);
-      const retryCache = await this.redisCoord.get(resultKey);
-      if (retryCache) {
-        return JSON.parse(retryCache) as RepurchaseResult;
+  if (acquired !== true) {
+    // acquired === false：有别的请求正在处理；轮询 5s 内能等到结果就复用，否则 409。
+    if (acquired === false) {
+      for (let wait = 0; wait < 10; wait++) {
+        await this.sleep(500);
+        const retryCache = await this.redisCoord.get(resultKey);
+        if (retryCache) {
+          const cachedResult = JSON.parse(retryCache) as RepurchaseResult;
+          const freshCart = await this.cartService.getCart(userId);
+          return { ...cachedResult, cart: freshCart };
+        }
       }
     }
     throw new ConflictException('再次购买处理中，请稍后重试');
@@ -694,7 +726,9 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
   try {
     const cachedAfterLock = await this.redisCoord.get(resultKey);
     if (cachedAfterLock) {
-      return JSON.parse(cachedAfterLock) as RepurchaseResult;
+      const cachedResult = JSON.parse(cachedAfterLock) as RepurchaseResult;
+      const freshCart = await this.cartService.getCart(userId);
+      return { ...cachedResult, cart: freshCart };
     }
 
     const order = await this.prisma.order.findUnique({
@@ -1355,6 +1389,7 @@ case 'RECEIVED':
   return {
     primaryLabel: repurchasingOrderId === order.id ? '加入中...' : '再次购买',
     primaryAction: () => handleRepurchase(order),
+    // 与 handleRepurchase() 的函数级 guard 保持一致：任意一笔复购中，全列表复购按钮禁用。
     primaryDisabled: repurchasingOrderId !== null || order.repurchasable === false,
   } as const;
 ```
@@ -1495,7 +1530,8 @@ The feature is complete when:
 - Only `RECEIVED` + `NORMAL_GOODS` orders can be repurchased.
 - Prize items, platform-company products, inactive company products, inactive product/SKU items, missing SKU items, and max-per-order overflow items are skipped with structured reasons.
 - Existing cart rows are incremented and forced selected.
-- Duplicate requests within the 60 second result-cache window do not increment cart quantity twice when Redis is available.
-- App detail and list buttons hydrate cart from response and navigate to `/cart`.
+- Duplicate requests within the 60 second result-cache window do not increment cart quantity twice when Redis is available, and the returned `cart` is always a fresh `cartService.getCart()` snapshot rather than the cached one.
+- When Redis is unavailable (`acquireLock` returns `null`), the endpoint fails closed with a 409 instead of skipping idempotency.
+- App detail and list buttons hydrate cart from response and navigate to `/cart`. The list page disables all repurchase buttons while one repurchase request is in flight.
 - Price-change messaging is shown when `priceChangedCount > 0`.
 - Focused Jest tests, Prisma validation, and App TypeScript verification pass.

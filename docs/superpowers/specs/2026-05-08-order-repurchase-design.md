@@ -82,6 +82,7 @@ POST /api/v1/orders/:id/repurchase
   - 请求先读 result key；未命中则抢 lock key；抢锁失败时短轮询 result key，仍未产出则返回“处理中，请稍后重试”。
   - 抢锁后再次读取 result key，避免 get 与 acquire 之间的竞态。
   - 成功写入购物车并取得最新 cart 后，写入 result key。失败、404、400 等校验错误不写 result key，只释放 lock key，因此用户修正状态或 orderId 后可立即重试。
+  - Redis 不可用导致 `acquireLock()` 返回 `null` 时，接口 fail-closed 返回 `409`，不在缺少幂等保护的情况下继续写购物车。
   - 复购处理需在 lock TTL 内完成；若超过 60 秒，幂等保护可能失效，测试需覆盖超时/锁过期边界。
 
 审计不直接套管理后台 `@AuditLog()`，因为当前 `AuditLogInterceptor` 写的是 `AdminAuditLog`，上下文是管理端。复购接口先记录结构化业务日志：
@@ -185,6 +186,7 @@ repurchasable: boolean;
 - 当前价格与原订单价格不一致时仍加入购物车，并返回 `priceChanged = true`。
 - 60 秒结果缓存窗口内同用户同订单重复请求只生效一次，第二次返回首次结果。
 - 校验失败不写入幂等结果缓存，只释放处理中锁。
+- Redis 不可用时返回 `409`，不读取订单、不写购物车。
 - 处理中锁未释放/锁过期边界可控，重复请求不会在正常处理时间内二次累加。
 - Serializable 冲突按重试策略处理。
 - 并发复购不会创建重复普通商品行。
