@@ -232,7 +232,8 @@ Expo CDN 部署完成
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `32bb1433-40c7-407c-80ff-ec00d792e570` | Bug 91：取消订单 Alert 二次确认 + cancelingRef 双层防重 + "取消中..." 文案；售后预估 estimatedRefund 与后端 calculateRefundAmount 完全对齐（红包+奖励+VIP 三类抵扣按比例分摊）| **当前生效** ✅，commit `f5a75df`（2026-05-07）|
+| `5a290685-ad7b-4b68-87c6-6226b8148702` | 修复商品下架后购物车幽灵奖品（删不掉/付不掉/过不掉）+ unavailableReason 全链路透传 + 抽奖配额回归 | **当前生效** ✅，commit `05018bf`（2026-05-08），需配合后端 5 commit（280e6c1..05018bf）；详见 `docs/issues/app-tofix4.md` |
+| `32bb1433-40c7-407c-80ff-ec00d792e570` | Bug 91：取消订单 Alert 二次确认 + cancelingRef 双层防重 + "取消中..." 文案；售后预估 estimatedRefund 与后端 calculateRefundAmount 完全对齐（红包+奖励+VIP 三类抵扣按比例分摊）| commit `f5a75df`（2026-05-07）|
 | `cb8d9e03-503c-483c-acf4-18175d6bb1ed` | 「我的」tab 订单角标 60s 轮询 + 详情/物流/列表页 useFocusEffect 自动刷新 | commit `5037c20`（2026-05-06）|
 | `6494573b-e0a5-489f-b5b0-12a8b01220b2` | 「我的」tab 订单快捷入口补漏「已发货」第 5 项 | commit `fe34eb2`（2026-05-06）|
 | `01f8a817-9810-4d39-b496-de05763d2ebc` | 订单 5 tab 拆分：待发货/已发货/待收货/售后/已完成（之前 SHIPPED+DELIVERED 合并在「待收货」），配套后端 SHIPPED→exact match | commit `9d8dcfa`（2026-05-06）|

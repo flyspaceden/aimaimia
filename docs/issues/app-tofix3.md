@@ -2747,11 +2747,11 @@ if (order.checkoutSessionId) {
 
 ---
 
-### Bug 93 ⚠️ CRITICAL（2026-05-06 P1-3 物流真机测试发现 → 2026-05-06 已修方案 A，待真机重测）— SF `OP_CODE_MAP` 关键映射错误，揽收事件被误判为已送达
+### Bug 93 ⚠️ CRITICAL（2026-05-06 P1-3 物流真机测试发现 → 2026-05-08 追加加固）— SF `OP_CODE_MAP` / 沙箱旧路由污染导致揽收或调度阶段被误判为已送达
 
-**状态**: 🔧 代码已修（最小补丁），单测覆盖；待真机沙箱重测整链路 + 等 SF 商务给完整 opCode 对照表后做完整修订
+**状态**: ✅ 代码已修（最小补丁 + 2026-05-08 追加加固），单测覆盖；待真机沙箱重测整链路 + 等 SF 商务给完整 opCode 对照表后做完整修订
 
-**位置**: `backend/src/modules/shipment/sf-express.service.ts:101-127` `OP_CODE_MAP` 静态映射
+**位置**: `backend/src/modules/shipment/sf-express.service.ts` `OP_CODE_MAP` / `parseOrderStates()`；`backend/src/modules/shipment/shipment.service.ts` `handleCallback()` / `queryTracking()`
 
 **症状**:
 
@@ -2862,6 +2862,29 @@ const { rawOpCode, status } = this.deriveRouteStatus(sortedRoutes);
 1. **30/31/36/44/54/60/70/99 推断映射可能错**：未实证，靠常识 + 现有代码注释推断。错了会影响 IN_TRANSIT 显示和 EXCEPTION 告警，但不会像 50/80 那样直接跳错状态机
 2. **10/21/204 留观**：保留以防有真实推送依赖，但官方 PDF 没看到这些 opCode，可能是当年某个非标自定义路由
 3. **需重跑 dim-F 真机测试**：dim-F 记录里的「opCode=80 → DELIVERED ✅」是 bug 假通过，整条链路要重测
+
+**2026-05-08 追加实测修正（用户真机截图复盘）**:
+
+用户在顺丰沙箱「全流程调测(速运)」重新测试时发现：
+1. 点击「系统调度中，等待分配小哥」后，App 时间线显示「调度失败/等待」，应改为「等待调度」
+2. 点击「调度成功，分配小哥」后，沙箱会混入早于当前面单生成时间的历史路由样例（截图中为 `2025-10-02`），其中包含已签收/已放门口等终态文案，导致当前 2026 订单仍可能被推进到 `DELIVERED`
+3. `getByOrderId()` 聚合单包裹 `SHIPPED` 时误返回 `IN_TRANSIT`，导致物流页当前状态过早显示运输中
+
+追加修复：
+- `parseOrderStates()` 将 OrderState 视为内部调度事件，统一保持 `SHIPPED`，不推进为 `IN_TRANSIT`；`调度失败/等待` 规范化为 `等待调度`
+- `handleCallback()` 和 `queryTracking()` 按 `Shipment.shippedAt ?? Shipment.createdAt - 1h` 过滤 SF 路由事件，丢弃早于当前面单发货时间的沙箱旧路由；若本批事件全是旧路由，直接跳过状态更新和轨迹写入
+- 状态派生忽略 `8000` 生命周期码，且在丢弃旧事件后不再信任原始 `DELIVERED/EXCEPTION` 终态，防止旧终态污染当前订单
+- `summarizeShipmentStatus()` 保持单包裹 `SHIPPED`，不再折叠成 `IN_TRANSIT`
+- OrderState 文案规范化补全：`调度成功/收派员信息` → `已派单（含快递员信息）`、`调度成功` → `已派单`、`已下单/订单已接收` → `订单已受理`
+- 「面单已生成 / 卖家未确认发货」窗口期保护（审计 HIGH）：`Shipment.status='INIT' && shippedAt=null` 时，SF 路由回调和主动查询仅写轨迹，**不动 Shipment.status / Order.status**，避免抢跑卖家"确认发货"按钮 CAS 而卡死流程
+
+追加测试覆盖：
+- `sf-express.service.spec.ts`: OrderState「调度失败/等待」→「等待调度」、「调度成功/收派员信息」→「已派单（含快递员信息）」、其它分支
+- `shipment.service.spec.ts`: 沙箱旧路由回调早于 `Shipment.shippedAt` 时，不更新 Shipment/Order、不写入旧轨迹
+- `shipment.service.spec.ts`: `shippedAt` 优先于 `createdAt`、`shippedAt` 为 null 时回退 `createdAt`、1h 容差边界
+- `shipment.service.spec.ts`: 主动查询拿到旧路由时，不推进 `DELIVERED`
+- `shipment.service.spec.ts`: 单包裹 `SHIPPED` 聚合状态保持 `SHIPPED`
+- `shipment.service.spec.ts`: 窗口期 SF 推 SHIPPED / DELIVERED 时仅写轨迹不推进状态（审计 HIGH 防卡死）
 
 ---
 

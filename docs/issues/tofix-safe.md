@@ -79,7 +79,7 @@
 
 ---
 
-## 🟠 HIGH 问题（6 个）
+## 🟠 HIGH 问题（7 个）
 
 ### S07: OTP 验证码可被并发重复使用
 - **状态**: ✅ 已修复（2026-02-24）
@@ -131,6 +131,17 @@
   2. 前端提交订单时传入 `preview.summary.totalPayable` 作为 `expectedTotal`
   3. 后端 `createFromCart` 事务内先计算所有子订单实际合计，与 `expectedTotal` 比对
   4. 差异超过 ¥0.01 时拒绝下单，返回「价格已变更」错误提示新金额
+
+### S21: 顺丰沙箱旧路由事件污染当前订单状态
+- **状态**: ✅ 已修复（2026-05-08）
+- **文件**: `backend/src/modules/shipment/shipment.service.ts` + `backend/src/modules/shipment/sf-express.service.ts`
+- **问题**: 顺丰沙箱「全流程调测」会把早于当前面单生成时间的历史路由样例一并推送或查询返回；其中包含已签收/已放门口等终态文案时，当前订单可能被错误推进到 `DELIVERED`，并开始退货窗口倒计时。
+- **修复内容**:
+  1. `handleCallback()` / `queryTracking()` 按 `Shipment.shippedAt ?? Shipment.createdAt - 1h` 过滤旧路由事件，全旧事件批次直接跳过状态更新和轨迹写入；选 `shippedAt` 优先是因为它是真正的"发货时刻"，与"发货前的事件不可信"的语义对齐
+  2. 丢弃旧事件后不再信任原始 `DELIVERED/EXCEPTION` 终态，避免旧终态污染当前状态机
+  3. OrderState 仅作为调度补充事件，保持 `SHIPPED`，不推进为运输中或已送达；常见 SF 黑话文案规范化（调度失败/等待 → 等待调度、调度成功/收派员信息 → 已派单 等）
+  4. 状态更新仍在 Serializable 事务内执行，Order `SHIPPED → DELIVERED` 保持 CAS 来源状态限制
+  5. **窗口期保护**（审计 HIGH）：`Shipment.status='INIT' && shippedAt=null` 时（卖家已生成面单但未点确认发货），SF 推真实路由仅写轨迹不推进 Shipment/Order，防止抢跑 `seller-orders.service.ts:321` 的 CAS where status=INIT 卡死卖家发货
 
 ---
 
@@ -209,11 +220,11 @@
 | 级别 | 总数 | 已修复 | 未修复 |
 |------|------|--------|--------|
 | 🔴 CRITICAL | 6 | 6 | 0 |
-| 🟠 HIGH | 6 | 6 | 0 |
+| 🟠 HIGH | 7 | 7 | 0 |
 | 🟡 MEDIUM | 8 | 8 | 0 |
-| **合计** | **20** | **20** | **0** |
+| **合计** | **21** | **21** | **0** |
 
-全部 20 个安全问题已修复完成（2026-02-25 复核后更新）。
+全部 21 个安全问题已修复完成（2026-05-08 复核后更新）。
 
 ---
 
