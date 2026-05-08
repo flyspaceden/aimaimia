@@ -74,7 +74,7 @@ POST /api/v1/orders/:id/repurchase
 ### 4.3 幂等、限流与审计
 
 后端增加两层保护：
-- 控制器加轻量限流：`@Throttle({ default: { ttl: 60000, limit: 10 } })`，每用户/IP 每分钟最多 10 次。
+- 控制器加轻量限流：`@Throttle({ user: { ttl: 60000, limit: 10 } })`，登录后按用户分桶每分钟最多 10 次，未登录时由全局限流回退到匿名 IP 分桶。
 - 服务层用 Redis 做 30 秒幂等窗口：key 形如 `order:repurchase:idempotency:{userId}:{orderId}`。同一用户同一订单 30 秒内重复请求直接返回首次结果，不重复累加购物车数量。
 
 审计不直接套管理后台 `@AuditLog()`，因为当前 `AuditLogInterceptor` 写的是 `AdminAuditLog`，上下文是管理端。复购接口先记录结构化业务日志：
