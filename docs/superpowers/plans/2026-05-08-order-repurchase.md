@@ -25,7 +25,7 @@ Backend:
 
 App:
 - Modify `src/types/domain/Order.ts`: add `repurchasable`, `RepurchaseResult`, and skip reason types.
-- Modify `src/store/useCartStore.ts`: add `replaceFromServer(cart: ServerCart)` and reuse existing server-cart mapping.
+- Modify `src/store/useCartStore.ts`: add `replaceFromServer(cart: ServerCart, forceSelectedSkuIds?: string[])`, reuse existing server-cart mapping, preserve local deselection for unrelated existing items, and force-select repurchased SKUs.
 - Modify `src/repos/OrderRepo.ts`: add `repurchase(orderId)` with real API and mock support.
 - Create `src/utils/repurchaseToast.ts`: centralize repurchase success/partial-success toast formatting.
 - Modify `src/utils/index.ts`: export the repurchase toast helper.
@@ -1023,25 +1023,37 @@ Add to `CartState`:
 
 ```ts
 /** 用服务端购物车响应直接覆盖本地购物车（用于复购等接口返回 cart 的场景） */
-replaceFromServer: (cart: ServerCart) => void;
+replaceFromServer: (cart: ServerCart, forceSelectedSkuIds?: string[]) => void;
 ```
 
 Add method inside the store object before `syncFromServer`:
 
 ```ts
-replaceFromServer: (cart) => {
+replaceFromServer: (cart, forceSelectedSkuIds = []) => {
+  const forceSelected = new Set(forceSelectedSkuIds);
   const entries = cart.items.map((source) => {
     const local = serverToLocal(source);
     return { source, local };
   });
-  set({
-    items: entries.map((entry) => entry.local),
-    selectedIds: new Set(
-      entries
-        .filter(({ source, local }) => source.isSelected !== false && isSelectableCartItem(local))
-        .map(({ local }) => itemKey(local)),
-    ),
-    loading: false,
+  set((state) => {
+    const previousKeys = new Set(state.items.map(itemKey));
+    const nextSelectedIds = new Set<string>();
+    for (const { source, local } of entries) {
+      if (!isSelectableCartItem(local)) continue;
+      const key = itemKey(local);
+      if (forceSelected.has(source.skuId)) {
+        nextSelectedIds.add(key);
+      } else if (previousKeys.has(key)) {
+        if (state.selectedIds.has(key)) nextSelectedIds.add(key);
+      } else if (source.isSelected !== false) {
+        nextSelectedIds.add(key);
+      }
+    }
+    return {
+      items: entries.map((entry) => entry.local),
+      selectedIds: nextSelectedIds,
+      loading: false,
+    };
   });
 },
 ```
@@ -1309,7 +1321,7 @@ const handleRepurchase = async () => {
   setRepurchasing(true);
   try {
     const r = await OrderRepo.repurchase(order.id);
-    if (!r.ok) {
+    if (r.ok === false) {
       show({ message: r.error.displayMessage ?? '再次购买失败', type: 'error' });
       return;
     }
@@ -1318,7 +1330,10 @@ const handleRepurchase = async () => {
       show({ message: '原订单商品当前不可再次购买', type: 'info' });
       return;
     }
-    replaceCartFromServer(result.cart);
+    replaceCartFromServer(
+      result.cart,
+      result.items.filter((item) => item.status === 'ADDED').map((item) => item.skuId),
+    );
     show(formatRepurchaseToast(result));
     router.push('/cart');
   } finally {
@@ -1364,7 +1379,7 @@ const handleRepurchase = async (order: Order) => {
   setRepurchasingOrderId(order.id);
   try {
     const r = await OrderRepo.repurchase(order.id);
-    if (!r.ok) {
+    if (r.ok === false) {
       show({ message: r.error.displayMessage ?? '再次购买失败', type: 'error' });
       return;
     }
@@ -1373,7 +1388,10 @@ const handleRepurchase = async (order: Order) => {
       show({ message: '原订单商品当前不可再次购买', type: 'info' });
       return;
     }
-    replaceCartFromServer(result.cart);
+    replaceCartFromServer(
+      result.cart,
+      result.items.filter((item) => item.status === 'ADDED').map((item) => item.skuId),
+    );
     show(formatRepurchaseToast(result));
     router.push('/cart');
   } finally {
@@ -1529,9 +1547,10 @@ The feature is complete when:
 - `POST /api/v1/orders/:id/repurchase` exists and is throttled by the `user` bucket.
 - Only `RECEIVED` + `NORMAL_GOODS` orders can be repurchased.
 - Prize items, platform-company products, inactive company products, inactive product/SKU items, missing SKU items, and max-per-order overflow items are skipped with structured reasons.
-- Existing cart rows are incremented and forced selected.
+- Existing cart rows are incremented and forced selected; legacy duplicate normal rows for the same SKU are counted for max-per-order and consolidated when safe.
 - Duplicate requests within the 60 second result-cache window do not increment cart quantity twice when Redis is available, and the returned `cart` is always a fresh `cartService.getCart()` snapshot rather than the cached one.
 - When Redis is unavailable (`acquireLock` returns `null`), the endpoint fails closed with a 409 instead of skipping idempotency.
-- App detail and list buttons hydrate cart from response and navigate to `/cart`. The list page disables all repurchase buttons while one repurchase request is in flight.
+- If result-cache write fails after cart mutation, the endpoint returns 409 and leaves the lock to expire naturally.
+- App detail and list buttons hydrate cart from response and navigate to `/cart`; unrelated existing deselected cart items stay deselected, while repurchased SKUs are force-selected. The list page disables all repurchase buttons while one repurchase request is in flight.
 - Price-change messaging is shown when `priceChangedCount > 0`.
 - Focused Jest tests, Prisma validation, and App TypeScript verification pass.

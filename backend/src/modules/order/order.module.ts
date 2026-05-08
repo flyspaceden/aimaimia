@@ -20,9 +20,18 @@ import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { InboxService } from '../inbox/inbox.service';
+import { CartModule } from '../cart/cart.module';
 
 @Module({
-  imports: [BonusModule, ShippingRuleModule, AfterSaleModule, CouponModule, InboxModule, forwardRef(() => PaymentModule)],
+  imports: [
+    BonusModule,
+    ShippingRuleModule,
+    AfterSaleModule,
+    CouponModule,
+    InboxModule,
+    CartModule,
+    forwardRef(() => PaymentModule),
+  ],
   controllers: [OrderController],
   providers: [
     OrderService,

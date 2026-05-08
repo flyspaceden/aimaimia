@@ -1011,8 +1011,11 @@
 - [x] **Phase 1 · 前端重写 + 最小后端 DTO（13 任务，18 commit）** — 列表 FlatList+OrderCard、详情七区块、track 删地图+复制运单、售后列表卡片升级、me 页删 pendingPay、后端 mapOrder 暴露 skuTitle/companyId/isPrize/paidAt/shippedAt/deliveredAt
 - [x] **Phase 2 · 后端剩余 DTO + 防重锁 + 续付链路 + 横幅（14 任务）** — mapOrder 完整版（Company join + logisticsSummary）/ pending checkout 接口 / resume 接口 / 防重锁 / 横幅 / checkout-pending 页 / 6001 改造 / 409 Modal / me 页"未完成支付"入口
 - [x] **Phase 3 · buyerNote 字段 + 收尾（5 任务）** — Schema 加 buyerNote、CheckoutDto + Service 透传、详情 DTO 暴露、结算页留言输入框
+- [x] **Phase 4 · 再次购买（2026-05-08）** — `POST /orders/:id/repurchase` + Redis result/lock 幂等 + Serializable 购物车合并 + SKU/Product/Company 跳过原因 + 价格变动提示 + App 列表/详情真实按钮 + cart response hydrate 后跳 `/cart`
 
 权威文档：`docs/superpowers/specs/2026-05-01-order-pages-redesign-design.md` + `docs/superpowers/plans/2026-05-01-order-pages-redesign.md`
+
+复购补充文档：`docs/superpowers/specs/2026-05-08-order-repurchase-design.md` + `docs/superpowers/plans/2026-05-08-order-repurchase.md`
 
 ---
 

@@ -16,6 +16,7 @@
 export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
 
 import { PaymentMethod } from './Payment';
+import { ServerCart } from './ServerCart';
 
 export type AfterSaleStatus =
   | 'applying'
@@ -95,6 +96,38 @@ export type RefundSummary = {
   updatedAt?: string | null;
 };
 
+export type RepurchaseSkipReason =
+  | 'PRIZE_ITEM'
+  | 'SKU_MISSING'
+  | 'SKU_INACTIVE'
+  | 'PRODUCT_INACTIVE'
+  | 'COMPANY_INACTIVE'
+  | 'PLATFORM_PRODUCT'
+  | 'MAX_PER_ORDER_EXCEEDED';
+
+export type RepurchaseResultItem = {
+  orderItemId: string;
+  skuId: string;
+  title: string;
+  quantity: number;
+  status: 'ADDED' | 'SKIPPED';
+  reason?: RepurchaseSkipReason;
+  priceChanged?: boolean;
+  originalPrice?: number;
+  currentPrice?: number;
+  message?: string;
+};
+
+export type RepurchaseResult = {
+  addedItemCount: number;
+  addedQuantity: number;
+  skippedItemCount: number;
+  skippedQuantity: number;
+  priceChangedCount: number;
+  cart: ServerCart;
+  items: RepurchaseResultItem[];
+};
+
 // ─── 统一售后系统类型 ───────────────────────────────────
 
 export type AfterSaleType = 'NO_REASON_RETURN' | 'QUALITY_RETURN' | 'QUALITY_EXCHANGE';
@@ -136,6 +169,7 @@ export type Order = {
   id: string;
   status: OrderStatus;
   bizType?: OrderBizType;
+  repurchasable?: boolean;
   issueFlag?: boolean;
   afterSaleStatus?: AfterSaleStatus;
   afterSaleReason?: string;

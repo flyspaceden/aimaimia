@@ -15,6 +15,7 @@
  * - `GET  /api/v1/orders/status-counts` → 状态角标统计
  * - `GET  /api/v1/orders/latest-issue` → 最近异常订单
  * - `GET  /api/v1/orders/{id}` → 订单详情
+ * - `POST /api/v1/orders/{id}/repurchase` → 再次购买：可复购商品加入购物车
  * - `POST /api/v1/orders/{id}/receive` → 确认收货
  * - `POST /api/v1/orders/{id}/cancel` → 取消订单
  * - `POST /api/v1/replacements/orders/{orderId}` → 申请换货
@@ -25,8 +26,20 @@
  * - `POST /api/v1/orders/batch-pay` → 旧合并支付（改用 checkout）
  */
 import { mockOrders } from '../mocks';
-import { Order, OrderItem, OrderStatus, PaginationResult, PaymentMethod, ShipmentDetail, Result, err, PendingCheckout } from '../types';
+import {
+  Order,
+  OrderItem,
+  OrderStatus,
+  PaginationResult,
+  PaymentMethod,
+  ShipmentDetail,
+  Result,
+  err,
+  PendingCheckout,
+  RepurchaseResult,
+} from '../types';
 import { createAppError, simulateRequest } from './helpers';
+import { CartRepo } from './CartRepo';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
 import { normalizePagination } from './http/pagination';
@@ -436,6 +449,73 @@ export const OrderRepo = {
     }
 
     return ApiClient.get<Order>(`/orders/${id}`);
+  },
+  /**
+   * 再次购买
+   * - 后端接口：`POST /api/v1/orders/{id}/repurchase`
+   * - 成功时返回最新 ServerCart，调用方应直接 hydrate useCartStore
+   */
+  repurchase: async (orderId: string): Promise<Result<RepurchaseResult>> => {
+    if (USE_MOCK) {
+      const order = orderStore.find((item) => item.id === orderId);
+      if (!order) {
+        return err(createAppError('NOT_FOUND', '订单未找到', '订单未找到'));
+      }
+      if (order.status !== 'RECEIVED' || order.bizType === 'VIP_PACKAGE') {
+        return err(createAppError('INVALID', '当前订单不支持再次购买', '当前订单不支持再次购买'));
+      }
+
+      const items: RepurchaseResult['items'] = [];
+      let addedQuantity = 0;
+      let skippedQuantity = 0;
+      for (const item of order.items) {
+        if (item.isPrize) {
+          skippedQuantity += item.quantity;
+          items.push({
+            orderItemId: item.id,
+            skuId: item.skuId ?? item.productId,
+            title: item.title,
+            quantity: item.quantity,
+            status: 'SKIPPED',
+            reason: 'PRIZE_ITEM',
+            message: '奖品不支持再次购买',
+          });
+          continue;
+        }
+        const skuId = item.skuId ?? item.productId;
+        const cartResult = await CartRepo.addItem(skuId, item.quantity, {
+          id: item.productId,
+          title: item.title,
+          image: item.image,
+          price: item.price,
+        });
+        if (!cartResult.ok) return cartResult as unknown as Result<RepurchaseResult>;
+        addedQuantity += item.quantity;
+        items.push({
+          orderItemId: item.id,
+          skuId,
+          title: item.title,
+          quantity: item.quantity,
+          status: 'ADDED',
+          priceChanged: false,
+          originalPrice: item.price,
+          currentPrice: item.price,
+        });
+      }
+      const cart = await CartRepo.get();
+      if (!cart.ok) return cart as unknown as Result<RepurchaseResult>;
+      return simulateRequest({
+        addedItemCount: items.filter((item) => item.status === 'ADDED').length,
+        addedQuantity,
+        skippedItemCount: items.filter((item) => item.status === 'SKIPPED').length,
+        skippedQuantity,
+        priceChangedCount: 0,
+        cart: cart.data,
+        items,
+      }, { delay: 260, failRate: 0 });
+    }
+
+    return ApiClient.post<RepurchaseResult>(`/orders/${orderId}/repurchase`);
   },
   /**
    * @deprecated F1 已停用 — 后端 POST /orders 已返回 410 Gone

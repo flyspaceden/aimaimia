@@ -17,6 +17,9 @@ import {
   getPrizeUnavailableReason,
   getUnavailableReasonText,
 } from '../lottery/prize-availability.util';
+import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
+import { CartService } from '../cart/cart.service';
+import { RepurchaseResult, RepurchaseResultItem, RepurchaseSkipReason } from './repurchase.types';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -60,6 +63,8 @@ export class OrderService {
     private prisma: PrismaService,
     private bonusAllocation: BonusAllocationService,
     private bonusConfig: BonusConfigService,
+    private redisCoord: RedisCoordinatorService,
+    private cartService: CartService,
   ) {}
 
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -558,6 +563,268 @@ export class OrderService {
     );
 
     return this.mapOrderDetail(order, companyMap);
+  }
+
+  private repurchaseTitle(item: any): string {
+    const ps = (item.productSnapshot as any) || {};
+    return ps.title || item.sku?.product?.title || item.skuId;
+  }
+
+  private repurchaseSkipped(
+    item: any,
+    reason: RepurchaseSkipReason,
+    message: string,
+  ): RepurchaseResultItem {
+    return {
+      orderItemId: item.id,
+      skuId: item.skuId,
+      title: this.repurchaseTitle(item),
+      quantity: item.quantity,
+      status: 'SKIPPED',
+      reason,
+      message,
+    };
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private buildRepurchaseSummary(items: RepurchaseResultItem[], cart: unknown): RepurchaseResult {
+    const added = items.filter((item) => item.status === 'ADDED');
+    const skipped = items.filter((item) => item.status === 'SKIPPED');
+    return {
+      addedItemCount: added.length,
+      addedQuantity: added.reduce((sum, item) => sum + item.quantity, 0),
+      skippedItemCount: skipped.length,
+      skippedQuantity: skipped.reduce((sum, item) => sum + item.quantity, 0),
+      priceChangedCount: added.filter((item) => item.priceChanged).length,
+      cart,
+      items,
+    };
+  }
+
+  async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
+    const resultKey = `order:repurchase:result:${userId}:${orderId}`;
+    const lockKey = `order:repurchase:lock:${userId}:${orderId}`;
+    const lockOwner = `repurchase:${userId}:${orderId}`;
+
+    // 命中幂等缓存时仅复用 items[] 结果，cart 字段重查最新，避免 60s 窗口内购物车被
+    // 其它操作（手动删项、加购等）改动导致 replaceFromServer 把过期 cart 写回去。
+    const cached = await this.redisCoord.get(resultKey);
+    if (cached) {
+      const cachedResult = JSON.parse(cached) as RepurchaseResult;
+      const freshCart = await this.cartService.getCart(userId);
+      return { ...cachedResult, cart: freshCart };
+    }
+
+    // acquireLock 返回 null 表示 Redis 不可用：fail-closed，直接 409，避免无幂等保护下重复加购。
+    const acquired = await this.redisCoord.acquireLock(lockKey, lockOwner, 60_000);
+    if (acquired !== true) {
+      // acquired === false：有别的请求正在处理；轮询 5s 内能等到结果就复用，否则 409。
+      if (acquired === false) {
+        for (let wait = 0; wait < 10; wait++) {
+          await this.sleep(500);
+          const retryCache = await this.redisCoord.get(resultKey);
+          if (retryCache) {
+            const cachedResult = JSON.parse(retryCache) as RepurchaseResult;
+            const freshCart = await this.cartService.getCart(userId);
+            return { ...cachedResult, cart: freshCart };
+          }
+        }
+      }
+      throw new ConflictException('再次购买处理中，请稍后重试');
+    }
+
+    let shouldReleaseLock = true;
+    try {
+      const cachedAfterLock = await this.redisCoord.get(resultKey);
+      if (cachedAfterLock) {
+        const cachedResult = JSON.parse(cachedAfterLock) as RepurchaseResult;
+        const freshCart = await this.cartService.getCart(userId);
+        return { ...cachedResult, cart: freshCart };
+      }
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      });
+      if (!order || order.userId !== userId) {
+        throw new NotFoundException('订单未找到');
+      }
+      if (order.status !== 'RECEIVED') {
+        throw new BadRequestException('仅已完成订单支持再次购买');
+      }
+      if ((order.bizType || 'NORMAL_GOODS') !== 'NORMAL_GOODS') {
+        throw new BadRequestException('当前订单类型不支持再次购买');
+      }
+
+      const skuIds = [...new Set((order.items || []).map((item: any) => item.skuId).filter(Boolean))];
+      const MAX_RETRIES = 3;
+      let resultItems: RepurchaseResultItem[] = [];
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+          resultItems = await this.prisma.$transaction(async (tx) => {
+            let cart = await tx.cart.findUnique({ where: { userId } });
+            if (!cart) {
+              cart = await tx.cart.create({ data: { userId } });
+            }
+
+            const skus = skuIds.length > 0
+              ? await tx.productSKU.findMany({
+                  where: { id: { in: skuIds } },
+                  include: {
+                    product: {
+                      include: {
+                        company: true,
+                        media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+                      },
+                    },
+                  },
+                })
+              : [];
+            const skuMap = new Map(skus.map((sku: any) => [sku.id, sku]));
+
+            const existingItems = await tx.cartItem.findMany({
+              where: { cartId: cart.id, isPrize: false, skuId: { in: skuIds } },
+              orderBy: { createdAt: 'asc' },
+            });
+            const existingGroupsBySkuId = new Map<string, any[]>();
+            for (const item of existingItems as any[]) {
+              const group = existingGroupsBySkuId.get(item.skuId);
+              if (group) {
+                group.push(item);
+              } else {
+                existingGroupsBySkuId.set(item.skuId, [item]);
+              }
+            }
+            const output: RepurchaseResultItem[] = [];
+            const purchasableBySkuId = new Map<string, { sku: any; items: any[]; totalQuantity: number }>();
+
+            for (const item of order.items as any[]) {
+              if (item.isPrize) {
+                output.push(this.repurchaseSkipped(item, 'PRIZE_ITEM', '奖品不支持再次购买'));
+                continue;
+              }
+
+              const sku = skuMap.get(item.skuId) as any;
+              if (!sku) {
+                output.push(this.repurchaseSkipped(item, 'SKU_MISSING', '商品规格不存在'));
+                continue;
+              }
+              if (sku.status !== 'ACTIVE') {
+                output.push(this.repurchaseSkipped(item, 'SKU_INACTIVE', '商品规格已下架'));
+                continue;
+              }
+              if (sku.product?.status !== 'ACTIVE') {
+                output.push(this.repurchaseSkipped(item, 'PRODUCT_INACTIVE', '商品已下架'));
+                continue;
+              }
+              if (sku.product?.company?.status !== 'ACTIVE') {
+                output.push(this.repurchaseSkipped(item, 'COMPANY_INACTIVE', '商家当前不可售'));
+                continue;
+              }
+              if (sku.product?.company?.isPlatform) {
+                output.push(this.repurchaseSkipped(item, 'PLATFORM_PRODUCT', '平台奖品商品不支持再次购买'));
+                continue;
+              }
+
+              const group = purchasableBySkuId.get(item.skuId);
+              if (group) {
+                group.items.push(item);
+                group.totalQuantity += item.quantity;
+              } else {
+                purchasableBySkuId.set(item.skuId, { sku, items: [item], totalQuantity: item.quantity });
+              }
+            }
+
+            for (const [skuId, group] of purchasableBySkuId.entries()) {
+              const existingRows = existingGroupsBySkuId.get(skuId) ?? [];
+              const existing = existingRows[0] as any | undefined;
+              const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
+              const nextQuantity = existingQuantity + group.totalQuantity;
+              if (group.sku.maxPerOrder != null && nextQuantity > group.sku.maxPerOrder) {
+                for (const item of group.items) {
+                  output.push(this.repurchaseSkipped(
+                    item,
+                    'MAX_PER_ORDER_EXCEEDED',
+                    existing
+                      ? `该商品每单限购 ${group.sku.maxPerOrder} 件，购物车已有 ${existingQuantity} 件`
+                      : `该商品每单限购 ${group.sku.maxPerOrder} 件`,
+                  ));
+                }
+                continue;
+              }
+
+              if (existing) {
+                await tx.cartItem.update({
+                  where: { id: existing.id },
+                  data: { quantity: nextQuantity, isSelected: true },
+                });
+                const duplicateIds = existingRows.slice(1).map((item) => item.id);
+                if (duplicateIds.length > 0) {
+                  await tx.cartItem.deleteMany({
+                    where: { id: { in: duplicateIds } },
+                  });
+                }
+              } else {
+                await tx.cartItem.create({
+                  data: { cartId: cart.id, skuId, quantity: group.totalQuantity, isSelected: true },
+                });
+              }
+
+              for (const item of group.items) {
+                const originalPrice = item.unitPrice;
+                const currentPrice = group.sku.price;
+                const priceChanged = Math.abs(originalPrice - currentPrice) > 0.01;
+                output.push({
+                  orderItemId: item.id,
+                  skuId,
+                  title: this.repurchaseTitle(item),
+                  quantity: item.quantity,
+                  status: 'ADDED',
+                  priceChanged,
+                  originalPrice,
+                  currentPrice,
+                  message: priceChanged ? '商品价格已变动，请到购物车确认' : undefined,
+                });
+              }
+            }
+
+            return output;
+          }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+          break;
+        } catch (err: any) {
+          if ((err?.code === 'P2034' || err?.code === 'P2002') && attempt < MAX_RETRIES - 1) {
+            this.logger.warn(`repurchase 事务冲突(${err.code})，第 ${attempt + 1}/${MAX_RETRIES} 次重试`);
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      const cart = await this.cartService.getCart(userId);
+      const result = this.buildRepurchaseSummary(resultItems, cart);
+      const cachedResult = await this.redisCoord.set(resultKey, JSON.stringify(result), 60_000);
+      if (!cachedResult) {
+        shouldReleaseLock = false;
+        throw new ConflictException('再次购买结果缓存失败，请稍后查看购物车');
+      }
+      this.logger.log(JSON.stringify({
+        action: 'order_repurchase',
+        userId,
+        orderId,
+        addedQuantity: result.addedQuantity,
+        skippedQuantity: result.skippedQuantity,
+        priceChangedCount: result.priceChangedCount,
+      }));
+      return result;
+    } finally {
+      if (shouldReleaseLock) {
+        await this.redisCoord.releaseLock(lockKey, lockOwner);
+      }
+    }
   }
 
   /** N09修复：预结算接口 — 返回服务端计算的分组、运费、奖励、合计，不扣库存不创建订单 */
@@ -1716,6 +1983,7 @@ export class OrderService {
       return {
         id: item.id,
         productId: ps.productId || item.skuId,
+        skuId: item.skuId,
         title: ps.title || '',
         skuTitle: ps.skuTitle || '',           // 新增：SKU 规格名（用于淘宝展开风卡片）
         image: ps.image || '',
@@ -1815,6 +2083,10 @@ export class OrderService {
       deliveredAt: order.deliveredAt?.toISOString() ?? null,
       autoReceiveAt: order.autoReceiveAt?.toISOString() ?? null,
       logisticsSummary: this.summarizeLatestEvent(order.shipments),
+      repurchasable:
+        order.status === 'RECEIVED' &&
+        (order.bizType || 'NORMAL_GOODS') === 'NORMAL_GOODS' &&
+        (order.items || []).some((item: any) => !item.isPrize),
       items: (order.items || []).map(snapshot),
     };
   }

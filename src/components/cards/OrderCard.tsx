@@ -11,6 +11,8 @@ interface Props {
   onSecondaryAction?: () => void;
   primaryLabel?: string;
   secondaryLabel?: string;
+  primaryDisabled?: boolean;
+  secondaryDisabled?: boolean;
 }
 
 const STATUS_COLOR: Record<OrderStatus, string> = {
@@ -31,7 +33,16 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   REFUNDED: '已退款',
 };
 
-export function OrderCard({ order, onPress, onPrimaryAction, onSecondaryAction, primaryLabel, secondaryLabel }: Props) {
+export function OrderCard({
+  order,
+  onPress,
+  onPrimaryAction,
+  onSecondaryAction,
+  primaryLabel,
+  secondaryLabel,
+  primaryDisabled = false,
+  secondaryDisabled = false,
+}: Props) {
   const { colors, radius, shadow, typography } = useTheme();
   const statusColor = STATUS_COLOR[order.status];
   const companyName = order.items[0]?.companyName || '商家';
@@ -64,15 +75,23 @@ export function OrderCard({ order, onPress, onPrimaryAction, onSecondaryAction, 
         </Text>
         <View style={styles.actionRow}>
           {secondaryLabel ? (
-            <Pressable onPress={onSecondaryAction}>
-              <Text style={[typography.caption, { color: colors.text.secondary, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 4, marginRight: 8 }]}>
+            <Pressable
+              onPress={secondaryDisabled ? undefined : onSecondaryAction}
+              disabled={secondaryDisabled}
+              accessibilityState={{ disabled: secondaryDisabled }}
+            >
+              <Text style={[typography.caption, { color: colors.text.secondary, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 4, marginRight: 8, opacity: secondaryDisabled ? 0.5 : 1 }]}>
                 {secondaryLabel}
               </Text>
             </Pressable>
           ) : null}
           {primaryLabel ? (
-            <Pressable onPress={onPrimaryAction}>
-              <Text style={[typography.caption, { color: colors.text.inverse, backgroundColor: statusColor, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 4, fontWeight: '600' }]}>
+            <Pressable
+              onPress={primaryDisabled ? undefined : onPrimaryAction}
+              disabled={primaryDisabled}
+              accessibilityState={{ disabled: primaryDisabled }}
+            >
+              <Text style={[typography.caption, { color: colors.text.inverse, backgroundColor: statusColor, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 4, fontWeight: '600', opacity: primaryDisabled ? 0.5 : 1 }]}>
                 {primaryLabel}
               </Text>
             </Pressable>

@@ -11,7 +11,7 @@ import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { showToast } from '../components/feedback';
-import { CartMergeResultItem, Product, ServerCartItem } from '../types';
+import { CartMergeResultItem, Product, ServerCart, ServerCartItem } from '../types';
 import { CartRepo } from '../repos/CartRepo';
 import { useAuthStore } from './useAuthStore';
 
@@ -117,6 +117,8 @@ type CartState = {
   items: CartItem[];
   selectedIds: Set<string>;
   loading: boolean;
+  /** 用服务端购物车响应直接覆盖本地购物车（用于复购等接口返回 cart 的场景） */
+  replaceFromServer: (cart: ServerCart, forceSelectedSkuIds?: string[]) => void;
   /** 从服务端同步购物车 */
   syncFromServer: () => Promise<void>;
   /** 添加商品（乐观 + 服务端），返回 true 表示成功加入，false 表示被限购拦截 */
@@ -155,6 +157,34 @@ export const useCartStore = create<CartState>()(
       items: [],
       selectedIds: new Set<string>(),
       loading: false,
+
+      replaceFromServer: (cart, forceSelectedSkuIds = []) => {
+        const forceSelected = new Set(forceSelectedSkuIds);
+        const entries = cart.items.map((source) => {
+          const local = serverToLocal(source);
+          return { source, local };
+        });
+        set((state) => {
+          const previousKeys = new Set(state.items.map(itemKey));
+          const nextSelectedIds = new Set<string>();
+          for (const { source, local } of entries) {
+            if (!isSelectableCartItem(local)) continue;
+            const key = itemKey(local);
+            if (forceSelected.has(source.skuId)) {
+              nextSelectedIds.add(key);
+            } else if (previousKeys.has(key)) {
+              if (state.selectedIds.has(key)) nextSelectedIds.add(key);
+            } else if (source.isSelected !== false) {
+              nextSelectedIds.add(key);
+            }
+          }
+          return {
+            items: entries.map((entry) => entry.local),
+            selectedIds: nextSelectedIds,
+            loading: false,
+          };
+        });
+      },
 
       syncFromServer: async () => {
         // 未登录时不从服务端同步

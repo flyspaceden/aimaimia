@@ -76,7 +76,7 @@ describe('OrderService.previewOrder prize exclusion', () => {
     };
 
     return {
-      service: new OrderService(prisma, {} as any, bonusConfig),
+      service: new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any),
       prisma,
     };
   }

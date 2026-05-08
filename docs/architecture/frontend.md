@@ -1119,6 +1119,8 @@ Tab 栏设计：
 └─────────────────────────────┘
 ```
 
+实施状态（2026-05-08）：`RECEIVED` 普通商品订单的“再次购买”已接入真实接口 `POST /orders/:id/repurchase`。列表页会在复购请求期间禁用全部复购按钮，成功后直接用接口返回的最新购物车 hydrate `useCartStore` 并跳转 `/cart`；部分不可购和价格变动通过 toast 提示。
+
 ---
 
 ### 5.11 订单详情 `/orders/[id]`
@@ -1158,6 +1160,8 @@ Tab 栏设计：
 │  └────────────┴────────────┘│
 └─────────────────────────────┘
 ```
+
+实施状态（2026-05-08）：详情页底部“再次购买”从占位 toast 改为真实复购。按钮有 `加入中...` loading/disabled 状态，`repurchasable=false` 时禁用；成功后不额外 `syncFromServer()`，直接使用复购响应里的 `cart` 更新购物车。
 
 ---
 
@@ -2235,6 +2239,7 @@ src/components/ai/   → 新增目录
 | Batch 10 抽奖转盘 | 抽奖页全面升级：SVG转盘(SpinWheel等分扇区+奖品文字)+指针(WheelPointer摆动动画)+庆祝粒子(Confetti 25粒子爆发重力物理)+5阶段状态机(idle→spinning→decelerating→revealing→result_shown)+快速旋转2s+减速2.5s cubic bezier+中奖AiTypingEffect逐字揭晓+AppBottomSheet结果弹窗+可折叠奖品列表+剩余次数胶囊+金色脉冲按钮+API竞态处理+10s超时保护 | 2026-03-01 | `SpinWheel.tsx`, `WheelPointer.tsx`, `Confetti.tsx`, `effects/index.ts`, `lottery.tsx` |
 | 商品上下架兜底 | 购物车 `unavailableReason` 已下架/已停发角标 + 禁勾选/禁数量调整/仅可删除 + 统一 selectable 计数；结算页补传 `cartItemId`，过滤不可用奖品并提示 `excludedItems[]` | 2026-05-07 | `cart.tsx`, `checkout.tsx`, `useCartStore.ts`, `OrderRepo.ts`, `ServerCart.ts` |
 | 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
+| 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |
 
 ### Phase 进度对照
 

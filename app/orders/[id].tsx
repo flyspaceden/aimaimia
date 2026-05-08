@@ -12,9 +12,10 @@ import { AmountSummary } from '../../src/components/orders/AmountSummary';
 import { OrderInfoBlock } from '../../src/components/orders/OrderInfoBlock';
 import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
 import { OrderRepo } from '../../src/repos';
-import { useAuthStore } from '../../src/store';
+import { useAuthStore, useCartStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
+import { formatRepurchaseToast } from '../../src/utils';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -28,7 +29,9 @@ export default function OrderDetailScreen() {
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const [canceling, setCanceling] = React.useState(false);
+  const [repurchasing, setRepurchasing] = React.useState(false);
   const cancelingRef = React.useRef(false);
+  const replaceCartFromServer = useCartStore((s) => s.replaceFromServer);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['order', orderId],
@@ -142,6 +145,31 @@ export default function OrderDetailScreen() {
     );
   };
 
+  const handleRepurchase = async () => {
+    if (repurchasing || order.repurchasable === false) return;
+    setRepurchasing(true);
+    try {
+      const r = await OrderRepo.repurchase(order.id);
+      if (r.ok === false) {
+        show({ message: r.error.displayMessage ?? '再次购买失败', type: 'error' });
+        return;
+      }
+      const result = r.data;
+      if (result.addedQuantity <= 0) {
+        show({ message: '原订单商品当前不可再次购买', type: 'info' });
+        return;
+      }
+      replaceCartFromServer(
+        result.cart,
+        result.items.filter((item) => item.status === 'ADDED').map((item) => item.skuId),
+      );
+      show(formatRepurchaseToast(result));
+      router.push('/cart');
+    } finally {
+      setRepurchasing(false);
+    }
+  };
+
   // CTA mapping
   type DetailCTAItem = { label: string; onPress: () => void; disabled?: boolean };
   let primary: DetailCTAItem | undefined;
@@ -161,7 +189,11 @@ export default function OrderDetailScreen() {
       secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
       break;
     case 'RECEIVED':
-      primary = { label: '再次购买', onPress: () => show({ message: '功能即将上线', type: 'info' }) };
+      primary = {
+        label: repurchasing ? '加入中...' : '再次购买',
+        onPress: handleRepurchase,
+        disabled: repurchasing || order.repurchasable === false,
+      };
       break;
   }
 

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -8,9 +8,10 @@ import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components
 import { OrderCard } from '../../src/components/cards/OrderCard';
 import { orderStatusLabels } from '../../src/constants/statuses';
 import { OrderRepo } from '../../src/repos';
-import { useAuthStore } from '../../src/store';
+import { useAuthStore, useCartStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Order, OrderStatus } from '../../src/types';
+import { formatRepurchaseToast } from '../../src/utils';
 
 const statusOptions: Array<{ id: OrderStatus | 'afterSaleList'; label: string }> = [
   { id: 'PAID', label: '待发货' },
@@ -27,6 +28,33 @@ function useOrderActions() {
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
+  const replaceCartFromServer = useCartStore((s) => s.replaceFromServer);
+  const [repurchasingOrderId, setRepurchasingOrderId] = useState<string | null>(null);
+
+  const handleRepurchase = async (order: Order) => {
+    if (repurchasingOrderId || order.repurchasable === false) return;
+    setRepurchasingOrderId(order.id);
+    try {
+      const r = await OrderRepo.repurchase(order.id);
+      if (r.ok === false) {
+        show({ message: r.error.displayMessage ?? '再次购买失败', type: 'error' });
+        return;
+      }
+      const result = r.data;
+      if (result.addedQuantity <= 0) {
+        show({ message: '原订单商品当前不可再次购买', type: 'info' });
+        return;
+      }
+      replaceCartFromServer(
+        result.cart,
+        result.items.filter((item) => item.status === 'ADDED').map((item) => item.skuId),
+      );
+      show(formatRepurchaseToast(result));
+      router.push('/cart');
+    } finally {
+      setRepurchasingOrderId(null);
+    }
+  };
 
   return (order: Order) => {
     switch (order.status) {
@@ -54,8 +82,10 @@ function useOrderActions() {
         } as const;
       case 'RECEIVED':
         return {
-          primaryLabel: '再次购买',
-          primaryAction: () => show({ message: '功能即将上线', type: 'info' }),
+          primaryLabel: repurchasingOrderId === order.id ? '加入中...' : '再次购买',
+          primaryAction: () => handleRepurchase(order),
+          // 与 handleRepurchase() 的函数级 guard 保持一致：任意一笔复购中，全列表复购按钮禁用。
+          primaryDisabled: repurchasingOrderId !== null || order.repurchasable === false,
         } as const;
       default:
         return {} as const;
@@ -135,6 +165,7 @@ export default function OrdersScreen() {
         onPress={() => router.push({ pathname: '/orders/[id]', params: { id: item.id } })}
         primaryLabel={'primaryLabel' in ctas ? ctas.primaryLabel : undefined}
         onPrimaryAction={'primaryAction' in ctas ? ctas.primaryAction : undefined}
+        primaryDisabled={'primaryDisabled' in ctas ? ctas.primaryDisabled : undefined}
         secondaryLabel={'secondaryLabel' in ctas ? ctas.secondaryLabel : undefined}
         onSecondaryAction={'secondaryAction' in ctas ? ctas.secondaryAction : undefined}
       />

@@ -25,7 +25,7 @@ describe('OrderService cancel PAID orders', () => {
       },
       $transaction: jest.fn(),
     };
-    const service = new OrderService(prisma as any, bonusAllocation as any, {} as any);
+    const service = new OrderService(prisma as any, bonusAllocation as any, {} as any, {} as any, {} as any);
     return { service, prisma, bonusAllocation };
   };
 

@@ -66,6 +66,7 @@ POST /api/v1/orders/:id/repurchase
 - 用户没有购物车时创建购物车。
 - 同 SKU 普通商品已存在时累加数量。
 - 同一原订单内出现多行相同 SKU 时，先按 SKU 聚合本次复购数量，再对购物车执行一次更新或创建；返回结果仍保留原订单项行级明细，避免重复创建普通购物车行或用 stale quantity 少加数量。
+- 如果历史/竞态数据里同一购物车已存在多个同 SKU 普通商品行，复购时先按这些行的总数量计算限购；未超限时合并为一行并删除重复普通行，超限时整体跳过该 SKU。
 - 不创建奖品购物车项。
 - 不改变购物车中原有不可用项或奖品项。
 - 新加入或更新的商品强制 `isSelected = true`。即使该 SKU 原先在购物车里被用户取消勾选，用户主动点“再次购买”后也应进入可结算选中态。
@@ -82,6 +83,7 @@ POST /api/v1/orders/:id/repurchase
   - 请求先读 result key；未命中则抢 lock key；抢锁失败时短轮询 result key，仍未产出则返回“处理中，请稍后重试”。
   - 抢锁后再次读取 result key，避免 get 与 acquire 之间的竞态。
   - 成功写入购物车并取得最新 cart 后，写入 result key。失败、404、400 等校验错误不写 result key，只释放 lock key，因此用户修正状态或 orderId 后可立即重试。
+  - 如果购物车写入成功但 result key 写入失败，接口返回 `409` 且不主动释放 lock key，让锁自然过期，避免短时间内重试重复加购。
   - Redis 不可用导致 `acquireLock()` 返回 `null` 时，接口 fail-closed 返回 `409`，不在缺少幂等保护的情况下继续写购物车。
   - 复购处理需在 lock TTL 内完成；若超过 60 秒，幂等保护可能失效，测试需覆盖超时/锁过期边界。
 
@@ -150,7 +152,7 @@ repurchasable: boolean;
 
 新增 `OrderRepo.repurchase(orderId)`，调用 `POST /orders/:id/repurchase`。
 
-购物车 store 增加一个显式 hydrate 方法，例如 `replaceFromServer(cart: ServerCart)`，复用现有 `serverToLocal` 映射逻辑，并保持可选商品选中态。复购接口成功后直接用响应里的 `cart` 更新 store，不再额外调用 `syncFromServer()`，减少一次请求和竞态窗口。
+购物车 store 增加一个显式 hydrate 方法，例如 `replaceFromServer(cart: ServerCart, forceSelectedSkuIds?: string[])`，复用现有 `serverToLocal` 映射逻辑。默认保留本地已有商品的勾选/取消勾选状态；复购成功的 SKU 通过 `forceSelectedSkuIds` 强制选中。复购接口成功后直接用响应里的 `cart` 更新 store，不再额外调用 `syncFromServer()`，减少一次请求和竞态窗口。
 
 接入位置：
 - `app/orders/[id].tsx`：`RECEIVED` 状态主按钮“再次购买”改为真实请求。
@@ -181,12 +183,14 @@ repurchasable: boolean;
 - 有效普通商品加入购物车。
 - 同 SKU 已在购物车时累加数量。
 - 同 SKU 在原订单中出现多行时，购物车只创建/更新一行普通商品，总数量正确累加，返回仍保留行级结果。
+- 同 SKU 在购物车已存在多个普通商品行时，按总数量限购，并在未超限时合并重复行。
 - 同 SKU 在购物车里 `isSelected = false` 时，复购后变为 `true`。
 - 购物车已有数量 + 原订单数量超过 `maxPerOrder` 时跳过。
 - 当前价格与原订单价格不一致时仍加入购物车，并返回 `priceChanged = true`。
 - 60 秒结果缓存窗口内同用户同订单重复请求只生效一次，第二次返回首次结果。
 - 校验失败不写入幂等结果缓存，只释放处理中锁。
 - Redis 不可用时返回 `409`，不读取订单、不写购物车。
+- result key 写入失败时返回 `409`，不主动释放 lock key，避免短时间重试重复加购。
 - 处理中锁未释放/锁过期边界可控，重复请求不会在正常处理时间内二次累加。
 - Serializable 冲突按重试策略处理。
 - 并发复购不会创建重复普通商品行。

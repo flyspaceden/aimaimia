@@ -8,6 +8,7 @@ import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { AfterSaleDto } from './dto/after-sale.dto';
 import { AfterSaleService } from '../after-sale/after-sale.service';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('orders')
 export class OrderController {
@@ -134,6 +135,15 @@ export class OrderController {
   @Get('latest-issue')
   getLatestIssue(@CurrentUser('sub') userId: string) {
     return this.orderService.getLatestIssue(userId);
+  }
+
+  @Post(':id/repurchase')
+  @Throttle({ user: { ttl: 60000, limit: 10 } })
+  repurchase(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.orderService.repurchase(id, userId);
   }
 
   @Get(':id')

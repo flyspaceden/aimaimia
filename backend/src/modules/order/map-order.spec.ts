@@ -4,7 +4,7 @@ describe('OrderService.mapOrder snapshot', () => {
   let service: OrderService;
   beforeAll(() => {
     // mapOrder 是纯函数（不依赖任何注入服务），直接 new + 占位依赖即可
-    service = new OrderService({} as any, {} as any, {} as any);
+    service = new OrderService({} as any, {} as any, {} as any, {} as any, {} as any);
   });
 
   it('snapshot returns extended fields', () => {
@@ -101,5 +101,62 @@ describe('OrderService.mapOrder snapshot', () => {
     expect(out.discountAmount).toBe(20);
     expect(out.vipDiscountAmount).toBe(5);
     expect(out.totalCouponDiscount).toBe(10);
+  });
+
+  it('mapOrder exposes skuId and lightweight repurchasable for completed normal orders', () => {
+    const order = {
+      id: 'o-received',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      createdAt: new Date(),
+      items: [{
+        id: 'i-normal',
+        skuId: 'sku-normal',
+        unitPrice: 50,
+        quantity: 2,
+        companyId: 'c1',
+        isPrize: false,
+        productSnapshot: { productId: 'p1', title: '苹果', skuTitle: '5斤装', image: 'http://img/apple.jpg' },
+      }],
+      afterSaleRequests: [],
+      refunds: [],
+      shipments: [],
+    };
+
+    const out = (service as any).mapOrder(order);
+
+    expect(out.repurchasable).toBe(true);
+    expect(out.items[0]).toMatchObject({
+      skuId: 'sku-normal',
+      productId: 'p1',
+      isPrize: false,
+    });
+  });
+
+  it('mapOrder marks all-prize completed orders as not repurchasable', () => {
+    const order = {
+      id: 'o-prize-only',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 0,
+      createdAt: new Date(),
+      items: [{
+        id: 'i-prize',
+        skuId: 'sku-prize',
+        unitPrice: 0,
+        quantity: 1,
+        companyId: 'platform',
+        isPrize: true,
+        productSnapshot: { productId: 'p-prize', title: '奖品', skuTitle: '默认', image: '' },
+      }],
+      afterSaleRequests: [],
+      refunds: [],
+      shipments: [],
+    };
+
+    const out = (service as any).mapOrder(order);
+
+    expect(out.repurchasable).toBe(false);
   });
 });
