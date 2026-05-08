@@ -65,6 +65,7 @@ POST /api/v1/orders/:id/repurchase
 后端按普通购物车项合并：
 - 用户没有购物车时创建购物车。
 - 同 SKU 普通商品已存在时累加数量。
+- 同一原订单内出现多行相同 SKU 时，先按 SKU 聚合本次复购数量，再对购物车执行一次更新或创建；返回结果仍保留原订单项行级明细，避免重复创建普通购物车行或用 stale quantity 少加数量。
 - 不创建奖品购物车项。
 - 不改变购物车中原有不可用项或奖品项。
 - 新加入或更新的商品强制 `isSelected = true`。即使该 SKU 原先在购物车里被用户取消勾选，用户主动点“再次购买”后也应进入可结算选中态。
@@ -74,8 +75,14 @@ POST /api/v1/orders/:id/repurchase
 ### 4.3 幂等、限流与审计
 
 后端增加两层保护：
-- 控制器加轻量限流：`@Throttle({ user: { ttl: 60000, limit: 10 } })`，登录后按用户分桶每分钟最多 10 次，未登录时由全局限流回退到匿名 IP 分桶。
-- 服务层用 Redis 做 30 秒幂等窗口：key 形如 `order:repurchase:idempotency:{userId}:{orderId}`。同一用户同一订单 30 秒内重复请求直接返回首次结果，不重复累加购物车数量。
+- 控制器加轻量限流：`@Throttle({ user: { ttl: 60000, limit: 10 } })`，登录后按用户分桶每分钟最多 10 次，未登录时由全局限流回退到匿名 IP 分桶。实施时必须确认全局 `AppThrottlerGuard` 已注册且 `user` bucket 的 `generateKey()` 按登录主体分桶；这是本项目首个 `user` bucket 路由，应纳入测试/代码审查检查项。
+- 服务层用 Redis 做短窗口幂等，使用结果 key 与锁 key 分离：
+  - `order:repurchase:result:{userId}:{orderId}`：保存首次成功结果，TTL 60 秒。
+  - `order:repurchase:lock:{userId}:{orderId}`：处理中互斥锁，NX 语义，TTL 60 秒。
+  - 请求先读 result key；未命中则抢 lock key；抢锁失败时短轮询 result key，仍未产出则返回“处理中，请稍后重试”。
+  - 抢锁后再次读取 result key，避免 get 与 acquire 之间的竞态。
+  - 成功写入购物车并取得最新 cart 后，写入 result key。失败、404、400 等校验错误不写 result key，只释放 lock key，因此用户修正状态或 orderId 后可立即重试。
+  - 复购处理需在 lock TTL 内完成；若超过 60 秒，幂等保护可能失效，测试需覆盖超时/锁过期边界。
 
 审计不直接套管理后台 `@AuditLog()`，因为当前 `AuditLogInterceptor` 写的是 `AdminAuditLog`，上下文是管理端。复购接口先记录结构化业务日志：
 
@@ -150,6 +157,7 @@ repurchasable: boolean;
 
 交互规则：
 - 点击后按钮进入 loading/disabled，防重复点击。
+- 订单列表的 `OrderCard` 明确支持 action disabled 状态，列表页与详情页在 loading 和 `repurchasable = false` 时保持一致视觉反馈。
 - `addedQuantity > 0`：调用 `useCartStore.getState().replaceFromServer(result.cart)`，跳转 `/cart`。
 - 全部成功：toast `已加入购物车`。
 - 部分成功：toast `已加入 X 件商品，Y 件不可购买`。
@@ -171,10 +179,13 @@ repurchasable: boolean;
 - 平台公司商品 `isPlatform = true` 时跳过。
 - 有效普通商品加入购物车。
 - 同 SKU 已在购物车时累加数量。
+- 同 SKU 在原订单中出现多行时，购物车只创建/更新一行普通商品，总数量正确累加，返回仍保留行级结果。
 - 同 SKU 在购物车里 `isSelected = false` 时，复购后变为 `true`。
 - 购物车已有数量 + 原订单数量超过 `maxPerOrder` 时跳过。
 - 当前价格与原订单价格不一致时仍加入购物车，并返回 `priceChanged = true`。
-- 30 秒内同用户同订单重复请求只生效一次，第二次返回首次结果。
+- 60 秒结果缓存窗口内同用户同订单重复请求只生效一次，第二次返回首次结果。
+- 校验失败不写入幂等结果缓存，只释放处理中锁。
+- 处理中锁未释放/锁过期边界可控，重复请求不会在正常处理时间内二次累加。
 - Serializable 冲突按重试策略处理。
 - 并发复购不会创建重复普通商品行。
 

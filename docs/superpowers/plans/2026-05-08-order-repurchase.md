@@ -19,12 +19,17 @@ Backend:
 - Modify `backend/src/modules/order/order.controller.ts`: add throttled `POST :id/repurchase` endpoint before deprecated dynamic post routes.
 - Modify `backend/src/modules/order/order.module.ts`: import `CartModule` so `OrderService` can use `CartService.getCart()`.
 - Modify `backend/src/modules/cart/cart.module.ts`: export `CartService`.
-- Modify `backend/src/modules/order/map-order.spec.ts`: assert `skuId` and lightweight `repurchasable`.
+- Modify `backend/src/modules/order/map-order.spec.ts`: assert `skuId` and lightweight `repurchasable`; update direct `OrderService` construction after constructor injection changes.
+- Modify `backend/src/modules/order/order-preview-prize-exclusion.spec.ts`: update direct `OrderService` construction after constructor injection changes.
+- Modify `backend/src/modules/order/order.service.cancel.spec.ts`: update direct `OrderService` construction after constructor injection changes.
 
 App:
 - Modify `src/types/domain/Order.ts`: add `repurchasable`, `RepurchaseResult`, and skip reason types.
 - Modify `src/store/useCartStore.ts`: add `replaceFromServer(cart: ServerCart)` and reuse existing server-cart mapping.
 - Modify `src/repos/OrderRepo.ts`: add `repurchase(orderId)` with real API and mock support.
+- Create `src/utils/repurchaseToast.ts`: centralize repurchase success/partial-success toast formatting.
+- Modify `src/utils/index.ts`: export the repurchase toast helper.
+- Modify `src/components/cards/OrderCard.tsx`: add disabled support for primary/secondary action buttons.
 - Modify `app/orders/[id].tsx`: wire detail-page “再次购买” with loading, result toast, cart hydration, and navigation.
 - Modify `app/orders/index.tsx`: wire list-card “再次购买” with loading-per-order and same result handling.
 
@@ -314,9 +319,10 @@ function createHarness(options: {
   };
 
   const redis: any = {
-    get: jest.fn(async () => options.redisCached ?? null),
+    get: jest.fn(async (key: string) => key.includes(':result:') ? (options.redisCached ?? null) : null),
     acquireLock: jest.fn(async () => options.acquireLock ?? true),
     set: jest.fn(async () => true),
+    releaseLock: jest.fn(async () => true),
   };
 
   const cartService: any = {
@@ -437,6 +443,27 @@ describe('OrderService.repurchase', () => {
     });
   });
 
+  it('aggregates repeated order items with the same SKU into one cart write', async () => {
+    const { service, tx } = createHarness({
+      order: makeOrder({
+        items: [
+          { id: 'oi-1', skuId: 'sku-1', unitPrice: 25, quantity: 2, isPrize: false, productSnapshot: { title: '苹果' } },
+          { id: 'oi-2', skuId: 'sku-1', unitPrice: 25, quantity: 3, isPrize: false, productSnapshot: { title: '苹果' } },
+        ],
+      }),
+      skus: [makeSku({ id: 'sku-1', price: 25 })],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedItemCount).toBe(2);
+    expect(result.addedQuantity).toBe(5);
+    expect(tx.cartItem.create).toHaveBeenCalledTimes(1);
+    expect(tx.cartItem.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ skuId: 'sku-1', quantity: 5, isSelected: true }),
+    }));
+  });
+
   it('returns cached result for duplicate requests in idempotency window', async () => {
     const cached = JSON.stringify({
       addedItemCount: 1,
@@ -453,6 +480,18 @@ describe('OrderService.repurchase', () => {
 
     expect(result.addedQuantity).toBe(2);
     expect(prisma.order.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('does not cache validation failures and releases the processing lock', async () => {
+    const { service, redis } = createHarness({ order: makeOrder({ status: 'PAID' }) });
+
+    await expect(service.repurchase('order-1', 'user-1')).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(redis.set).not.toHaveBeenCalled();
+    expect(redis.releaseLock).toHaveBeenCalledWith(
+      'order:repurchase:lock:user-1:order-1',
+      'repurchase:user-1:order-1',
+    );
   });
 
   it('retries once after Prisma P2034 serialization conflict', async () => {
@@ -495,6 +534,9 @@ git commit -m "test(orders): cover repurchase flow"
 - Modify: `backend/src/modules/order/order.controller.ts`
 - Modify: `backend/src/modules/order/order.module.ts`
 - Modify: `backend/src/modules/cart/cart.module.ts`
+- Modify: `backend/src/modules/order/map-order.spec.ts`
+- Modify: `backend/src/modules/order/order-preview-prize-exclusion.spec.ts`
+- Modify: `backend/src/modules/order/order.service.cancel.spec.ts`
 
 - [ ] **Step 1: Export CartService and import CartModule into OrderModule**
 
@@ -552,11 +594,30 @@ constructor(
 ) {}
 ```
 
-Update existing direct `new OrderService(...)` tests in `backend/src/modules/order/map-order.spec.ts`:
+Update every existing direct `new OrderService(...)` test. Grep must return only 5-argument construction afterward:
 
 ```ts
+// backend/src/modules/order/map-order.spec.ts
 service = new OrderService({} as any, {} as any, {} as any, {} as any, {} as any);
 ```
+
+```ts
+// backend/src/modules/order/order-preview-prize-exclusion.spec.ts
+service: new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any),
+```
+
+```ts
+// backend/src/modules/order/order.service.cancel.spec.ts
+const service = new OrderService(prisma as any, bonusAllocation as any, {} as any, {} as any, {} as any);
+```
+
+Verify the direct-construction sites:
+
+```bash
+rg -n "new OrderService\\(" backend/src/modules/order -S
+```
+
+Expected: the three direct construction sites all pass five constructor arguments.
 
 - [ ] **Step 3: Add repurchase helper methods**
 
@@ -609,18 +670,21 @@ Add this public method to `OrderService`:
 
 ```ts
 async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
-  const cacheKey = `order:repurchase:idempotency:${userId}:${orderId}`;
-  const cached = await this.redisCoord.get(cacheKey);
-  if (cached && cached !== '__processing__') {
+  const resultKey = `order:repurchase:result:${userId}:${orderId}`;
+  const lockKey = `order:repurchase:lock:${userId}:${orderId}`;
+  const lockOwner = `repurchase:${userId}:${orderId}`;
+
+  const cached = await this.redisCoord.get(resultKey);
+  if (cached) {
     return JSON.parse(cached) as RepurchaseResult;
   }
 
-  const acquired = await this.redisCoord.acquireLock(cacheKey, '__processing__', 30_000);
-  if (acquired === false) {
+  const acquired = await this.redisCoord.acquireLock(lockKey, lockOwner, 60_000);
+  if (!acquired) {
     for (let wait = 0; wait < 4; wait++) {
       await this.sleep(500);
-      const retryCache = await this.redisCoord.get(cacheKey);
-      if (retryCache && retryCache !== '__processing__') {
+      const retryCache = await this.redisCoord.get(resultKey);
+      if (retryCache) {
         return JSON.parse(retryCache) as RepurchaseResult;
       }
     }
@@ -628,6 +692,11 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
   }
 
   try {
+    const cachedAfterLock = await this.redisCoord.get(resultKey);
+    if (cachedAfterLock) {
+      return JSON.parse(cachedAfterLock) as RepurchaseResult;
+    }
+
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { items: true },
@@ -674,6 +743,7 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
           });
           const existingBySkuId = new Map(existingItems.map((item: any) => [item.skuId, item]));
           const output: RepurchaseResultItem[] = [];
+          const purchasableBySkuId = new Map<string, { sku: any; items: any[]; totalQuantity: number }>();
 
           for (const item of order.items as any[]) {
             if (item.isPrize) {
@@ -703,16 +773,28 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
               continue;
             }
 
-            const existing = existingBySkuId.get(item.skuId) as any;
-            const nextQuantity = (existing?.quantity ?? 0) + item.quantity;
-            if (sku.maxPerOrder !== null && nextQuantity > sku.maxPerOrder) {
-              output.push(this.repurchaseSkipped(
-                item,
-                'MAX_PER_ORDER_EXCEEDED',
-                existing
-                  ? `该商品每单限购 ${sku.maxPerOrder} 件，购物车已有 ${existing.quantity} 件`
-                  : `该商品每单限购 ${sku.maxPerOrder} 件`,
-              ));
+            const group = purchasableBySkuId.get(item.skuId);
+            if (group) {
+              group.items.push(item);
+              group.totalQuantity += item.quantity;
+            } else {
+              purchasableBySkuId.set(item.skuId, { sku, items: [item], totalQuantity: item.quantity });
+            }
+          }
+
+          for (const [skuId, group] of purchasableBySkuId.entries()) {
+            const existing = existingBySkuId.get(skuId) as any;
+            const nextQuantity = (existing?.quantity ?? 0) + group.totalQuantity;
+            if (group.sku.maxPerOrder != null && nextQuantity > group.sku.maxPerOrder) {
+              for (const item of group.items) {
+                output.push(this.repurchaseSkipped(
+                  item,
+                  'MAX_PER_ORDER_EXCEEDED',
+                  existing
+                    ? `该商品每单限购 ${group.sku.maxPerOrder} 件，购物车已有 ${existing.quantity} 件`
+                    : `该商品每单限购 ${group.sku.maxPerOrder} 件`,
+                ));
+              }
               continue;
             }
 
@@ -723,24 +805,26 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
               });
             } else {
               await tx.cartItem.create({
-                data: { cartId: cart.id, skuId: item.skuId, quantity: item.quantity, isSelected: true },
+                data: { cartId: cart.id, skuId, quantity: group.totalQuantity, isSelected: true },
               });
             }
 
-            const originalPrice = item.unitPrice;
-            const currentPrice = sku.price;
-            const priceChanged = Math.abs(originalPrice - currentPrice) > 0.01;
-            output.push({
-              orderItemId: item.id,
-              skuId: item.skuId,
-              title: this.repurchaseTitle(item),
-              quantity: item.quantity,
-              status: 'ADDED',
-              priceChanged,
-              originalPrice,
-              currentPrice,
-              message: priceChanged ? '商品价格已变动，请到购物车确认' : undefined,
-            });
+            for (const item of group.items) {
+              const originalPrice = item.unitPrice;
+              const currentPrice = group.sku.price;
+              const priceChanged = Math.abs(originalPrice - currentPrice) > 0.01;
+              output.push({
+                orderItemId: item.id,
+                skuId,
+                title: this.repurchaseTitle(item),
+                quantity: item.quantity,
+                status: 'ADDED',
+                priceChanged,
+                originalPrice,
+                currentPrice,
+                message: priceChanged ? '商品价格已变动，请到购物车确认' : undefined,
+              });
+            }
           }
 
           return output;
@@ -757,7 +841,7 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
 
     const cart = await this.cartService.getCart(userId);
     const result = this.buildRepurchaseSummary(resultItems, cart);
-    await this.redisCoord.set(cacheKey, JSON.stringify(result), 30_000);
+    await this.redisCoord.set(resultKey, JSON.stringify(result), 60_000);
     this.logger.log(JSON.stringify({
       action: 'order_repurchase',
       userId,
@@ -767,9 +851,8 @@ async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
       priceChangedCount: result.priceChangedCount,
     }));
     return result;
-  } catch (err) {
-    await this.redisCoord.releaseLock(cacheKey, '__processing__');
-    throw err;
+  } finally {
+    await this.redisCoord.releaseLock(lockKey, lockOwner);
   }
 }
 ```
@@ -795,13 +878,22 @@ repurchase(
 }
 ```
 
+Verify the `user` throttle bucket is backed by the custom tracker:
+
+```bash
+cd backend
+rg -n "AppThrottlerGuard|generateKey|APP_GUARD|@Throttle\\(\\{ user" src -S
+```
+
+Expected: `AppThrottlerGuard` is registered as an `APP_GUARD`, `generateKey()` branches on `throttlerName === 'user'`, and this endpoint is listed as the first `@Throttle({ user: ... })` route.
+
 - [ ] **Step 6: Run backend repurchase tests**
 
 Run:
 
 ```bash
 cd backend
-npx jest src/modules/order/order-repurchase.spec.ts src/modules/order/map-order.spec.ts --runInBand
+npx jest src/modules/order/order-repurchase.spec.ts src/modules/order/map-order.spec.ts src/modules/order/order-preview-prize-exclusion.spec.ts src/modules/order/order.service.cancel.spec.ts --runInBand
 ```
 
 Expected: PASS.
@@ -822,7 +914,7 @@ Expected: `The schema at prisma/schema.prisma is valid`.
 Run:
 
 ```bash
-git add backend/src/modules/order/order.service.ts backend/src/modules/order/order.controller.ts backend/src/modules/order/order.module.ts backend/src/modules/cart/cart.module.ts backend/src/modules/order/map-order.spec.ts
+git add backend/src/modules/order/order.service.ts backend/src/modules/order/order.controller.ts backend/src/modules/order/order.module.ts backend/src/modules/cart/cart.module.ts backend/src/modules/order/map-order.spec.ts backend/src/modules/order/order-preview-prize-exclusion.spec.ts backend/src/modules/order/order.service.cancel.spec.ts
 git commit -m "feat(orders): add repurchase endpoint"
 ```
 
@@ -1042,15 +1134,130 @@ git commit -m "feat(app/orders): add repurchase client contract"
 ### Task 5: App Order Buttons
 
 **Files:**
+- Create: `src/utils/repurchaseToast.ts`
+- Modify: `src/utils/index.ts`
+- Modify: `src/components/cards/OrderCard.tsx`
 - Modify: `app/orders/[id].tsx`
 - Modify: `app/orders/index.tsx`
 
-- [ ] **Step 1: Wire detail-page button**
+- [ ] **Step 1: Add shared toast formatter**
+
+Create `src/utils/repurchaseToast.ts`:
+
+```ts
+import { RepurchaseResult } from '../types';
+
+type ToastType = 'success' | 'info';
+
+export function formatRepurchaseToast(result: RepurchaseResult): { message: string; type: ToastType } {
+  const priceSuffix = result.priceChangedCount > 0 ? '，部分商品价格已变动，请到购物车确认' : '';
+  if (result.skippedQuantity > 0) {
+    return {
+      message: `已加入 ${result.addedQuantity} 件商品，${result.skippedQuantity} 件不可购买${priceSuffix}`,
+      type: 'info',
+    };
+  }
+
+  return {
+    message: `已加入购物车${priceSuffix}`,
+    type: result.priceChangedCount > 0 ? 'info' : 'success',
+  };
+}
+```
+
+Add to `src/utils/index.ts`:
+
+```ts
+export * from './repurchaseToast';
+```
+
+- [ ] **Step 2: Add disabled support to OrderCard action buttons**
+
+In `src/components/cards/OrderCard.tsx`, extend props:
+
+```ts
+  primaryDisabled?: boolean;
+  secondaryDisabled?: boolean;
+```
+
+Change the component signature:
+
+```ts
+export function OrderCard({
+  order,
+  onPress,
+  onPrimaryAction,
+  onSecondaryAction,
+  primaryLabel,
+  secondaryLabel,
+  primaryDisabled = false,
+  secondaryDisabled = false,
+}: Props) {
+```
+
+Update the secondary action button:
+
+```tsx
+<Pressable
+  onPress={secondaryDisabled ? undefined : onSecondaryAction}
+  disabled={secondaryDisabled}
+  accessibilityState={{ disabled: secondaryDisabled }}
+>
+  <Text style={[
+    typography.caption,
+    {
+      color: colors.text.secondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      marginRight: 8,
+      opacity: secondaryDisabled ? 0.5 : 1,
+    },
+  ]}>
+    {secondaryLabel}
+  </Text>
+</Pressable>
+```
+
+Update the primary action button:
+
+```tsx
+<Pressable
+  onPress={primaryDisabled ? undefined : onPrimaryAction}
+  disabled={primaryDisabled}
+  accessibilityState={{ disabled: primaryDisabled }}
+>
+  <Text style={[
+    typography.caption,
+    {
+      color: colors.text.inverse,
+      backgroundColor: statusColor,
+      borderRadius: radius.pill,
+      paddingHorizontal: 14,
+      paddingVertical: 4,
+      fontWeight: '600',
+      opacity: primaryDisabled ? 0.5 : 1,
+    },
+  ]}>
+    {primaryLabel}
+  </Text>
+</Pressable>
+```
+
+- [ ] **Step 3: Wire detail-page button**
 
 In `app/orders/[id].tsx`, change store import:
 
 ```ts
 import { useAuthStore, useCartStore } from '../../src/store';
+```
+
+Add utility import:
+
+```ts
+import { formatRepurchaseToast } from '../../src/utils';
 ```
 
 Add state near `canceling`:
@@ -1064,7 +1271,7 @@ Add helper before CTA mapping:
 
 ```ts
 const handleRepurchase = async () => {
-  if (repurchasing) return;
+  if (repurchasing || order.repurchasable === false) return;
   setRepurchasing(true);
   try {
     const r = await OrderRepo.repurchase(order.id);
@@ -1078,14 +1285,7 @@ const handleRepurchase = async () => {
       return;
     }
     replaceCartFromServer(result.cart);
-    const priceSuffix = result.priceChangedCount > 0 ? '，部分商品价格已变动，请到购物车确认' : '';
-    const skipSuffix = result.skippedQuantity > 0 ? `，${result.skippedQuantity} 件不可购买` : '';
-    show({
-      message: result.skippedQuantity > 0
-        ? `已加入 ${result.addedQuantity} 件商品${skipSuffix}${priceSuffix}`
-        : `已加入购物车${priceSuffix}`,
-      type: result.skippedQuantity > 0 || result.priceChangedCount > 0 ? 'info' : 'success',
-    });
+    show(formatRepurchaseToast(result));
     router.push('/cart');
   } finally {
     setRepurchasing(false);
@@ -1105,13 +1305,14 @@ case 'RECEIVED':
   break;
 ```
 
-- [ ] **Step 2: Wire list-page button**
+- [ ] **Step 4: Wire list-page button**
 
 In `app/orders/index.tsx`, change imports:
 
 ```ts
 import React, { useMemo, useState } from 'react';
 import { useAuthStore, useCartStore } from '../../src/store';
+import { formatRepurchaseToast } from '../../src/utils';
 ```
 
 Inside `useOrderActions()`, add:
@@ -1125,7 +1326,7 @@ Add helper inside `useOrderActions()`:
 
 ```ts
 const handleRepurchase = async (order: Order) => {
-  if (repurchasingOrderId) return;
+  if (repurchasingOrderId || order.repurchasable === false) return;
   setRepurchasingOrderId(order.id);
   try {
     const r = await OrderRepo.repurchase(order.id);
@@ -1139,14 +1340,7 @@ const handleRepurchase = async (order: Order) => {
       return;
     }
     replaceCartFromServer(result.cart);
-    const priceSuffix = result.priceChangedCount > 0 ? '，部分商品价格已变动，请到购物车确认' : '';
-    const skipSuffix = result.skippedQuantity > 0 ? `，${result.skippedQuantity} 件不可购买` : '';
-    show({
-      message: result.skippedQuantity > 0
-        ? `已加入 ${result.addedQuantity} 件商品${skipSuffix}${priceSuffix}`
-        : `已加入购物车${priceSuffix}`,
-      type: result.skippedQuantity > 0 || result.priceChangedCount > 0 ? 'info' : 'success',
-    });
+    show(formatRepurchaseToast(result));
     router.push('/cart');
   } finally {
     setRepurchasingOrderId(null);
@@ -1161,12 +1355,25 @@ case 'RECEIVED':
   return {
     primaryLabel: repurchasingOrderId === order.id ? '加入中...' : '再次购买',
     primaryAction: () => handleRepurchase(order),
+    primaryDisabled: repurchasingOrderId !== null || order.repurchasable === false,
   } as const;
 ```
 
-If `OrderCard` supports disabled buttons, pass disabled state. If it does not, keep the loading label and let `handleRepurchase()` return early while another request is in flight.
+Pass the disabled state into `OrderCard` in `renderItem`:
 
-- [ ] **Step 3: Run App typecheck**
+```tsx
+<OrderCard
+  order={item}
+  onPress={() => router.push({ pathname: '/orders/[id]', params: { id: item.id } })}
+  primaryLabel={'primaryLabel' in ctas ? ctas.primaryLabel : undefined}
+  onPrimaryAction={'primaryAction' in ctas ? ctas.primaryAction : undefined}
+  primaryDisabled={'primaryDisabled' in ctas ? ctas.primaryDisabled : undefined}
+  secondaryLabel={'secondaryLabel' in ctas ? ctas.secondaryLabel : undefined}
+  onSecondaryAction={'secondaryAction' in ctas ? ctas.secondaryAction : undefined}
+/>
+```
+
+- [ ] **Step 5: Run App typecheck**
 
 Run:
 
@@ -1176,12 +1383,12 @@ npx tsc --noEmit
 
 Expected: no TypeScript errors.
 
-- [ ] **Step 4: Commit Task 5**
+- [ ] **Step 6: Commit Task 5**
 
 Run:
 
 ```bash
-git add app/orders/[id].tsx app/orders/index.tsx
+git add src/utils/repurchaseToast.ts src/utils/index.ts src/components/cards/OrderCard.tsx app/orders/[id].tsx app/orders/index.tsx
 git commit -m "feat(app/orders): wire repurchase buttons"
 ```
 
@@ -1232,7 +1439,7 @@ Run:
 
 ```bash
 cd backend
-npx jest src/modules/order/order-repurchase.spec.ts src/modules/order/map-order.spec.ts --runInBand
+npx jest src/modules/order/order-repurchase.spec.ts src/modules/order/map-order.spec.ts src/modules/order/order-preview-prize-exclusion.spec.ts src/modules/order/order.service.cancel.spec.ts --runInBand
 npx prisma validate
 ```
 
@@ -1288,7 +1495,7 @@ The feature is complete when:
 - Only `RECEIVED` + `NORMAL_GOODS` orders can be repurchased.
 - Prize items, platform-company products, inactive company products, inactive product/SKU items, missing SKU items, and max-per-order overflow items are skipped with structured reasons.
 - Existing cart rows are incremented and forced selected.
-- Duplicate requests within 30 seconds do not increment cart quantity twice when Redis is available.
+- Duplicate requests within the 60 second result-cache window do not increment cart quantity twice when Redis is available.
 - App detail and list buttons hydrate cart from response and navigate to `/cart`.
 - Price-change messaging is shown when `priceChangedCount > 0`.
 - Focused Jest tests, Prisma validation, and App TypeScript verification pass.
