@@ -11,7 +11,12 @@ describe('LotteryService — 公开抽奖 dailyLimit 补偿', () => {
     expirationHours: null,
     prizePrice: 9.9,
     originalPrice: 19.9,
-    skuId: null,
+    skuId: 'sku-prize-1',
+    sku: {
+      id: 'sku-prize-1',
+      status: 'ACTIVE',
+      product: { id: 'product-prize-1', status: 'ACTIVE' },
+    },
     threshold: null,
     prizeQuantity: 1,
     sortOrder: 1,
@@ -104,5 +109,29 @@ describe('LotteryService — 公开抽奖 dailyLimit 补偿', () => {
       expect.stringContaining(`lottery:prize:${prize.id}:daily:`),
       86400,
     );
+  });
+
+  it('选中底层 SKU 已下架的实物奖品时，应按未中奖处理且不生成 claimToken', async () => {
+    const { service, prisma, redisCoord } = createService();
+    redisCoord.consumeFixedWindow
+      .mockResolvedValueOnce({ allowed: true, count: 1, ttlSec: 60 })
+      .mockResolvedValueOnce({ allowed: true, count: 1, ttlSec: 86400 })
+      .mockResolvedValueOnce({ allowed: true, count: 1, ttlSec: 86400 });
+    prisma.lotteryPrize.findMany.mockResolvedValue([
+      {
+        ...prize,
+        sku: {
+          ...prize.sku,
+          status: 'INACTIVE',
+        },
+      },
+    ]);
+
+    await expect(
+      service.publicDraw('fingerprint-12345678', '127.0.0.1'),
+    ).resolves.toEqual({ result: 'NO_PRIZE' });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(redisCoord.set).not.toHaveBeenCalled();
   });
 });
