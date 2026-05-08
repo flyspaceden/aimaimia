@@ -239,13 +239,20 @@ export class BonusService {
       retrying = prepareResult.retrying;
 
       await this.prisma.$transaction(async (tx) => {
+        // CAS 期望状态必须与 prepare tx 已写入的状态对齐：
+        // - retrying=true 时 prepare tx 已把 FAILED 改成 RETRYING（L189-202），
+        //   所以 CAS 期望 RETRYING，把它推进到 ACTIVATING。
+        // - retrying=false 时 prepare tx 让状态停留在 PENDING，
+        //   所以 CAS 期望 PENDING，同样推进到 ACTIVATING。
+        // 历史 bug：retrying 分支期望 FAILED 导致 CAS 永远命中 0 行，
+        // 重试路径永远跳过授奖代码块（推荐人永远拿不到 VIP 推荐奖）。
         const casResult = await tx.vipPurchase.updateMany({
           where: {
             id: vipPurchaseId!,
-            activationStatus: { in: retrying ? ['FAILED'] : ['PENDING'] },
+            activationStatus: { in: retrying ? ['RETRYING'] : ['PENDING'] },
           },
           data: {
-            activationStatus: retrying ? 'RETRYING' : 'ACTIVATING',
+            activationStatus: 'ACTIVATING',
             activationError: null,
           },
         });
