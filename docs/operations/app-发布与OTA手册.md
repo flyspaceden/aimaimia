@@ -179,25 +179,49 @@ function risky() {
 
 ## 五、用户侧：OTA 什么时候生效
 
+### 5.1 旧默认（`fallbackToCacheTimeout: 0`，已废弃）
+
+```
+你跑 eas update → 用户第一次开 App 看的是嵌入版（旧）
+后台下 OTA → 用户必须杀进程再开 → 第二次冷启动才生效
+```
+
+> 这是 expo-updates 的默认行为，但 **新装用户体验极差**：他们没有"杀进程再开"的经验，会一直看到旧版本。
+
+### 5.2 当前配置（`fallbackToCacheTimeout: 5000`，2026-05-09 起）
+
 ```
 你跑 eas update
-    ↓ (~30 秒)
-Expo CDN 部署完成
     ↓
-用户冷启动 App（杀进程后再开）
+用户冷启动 App
     ↓
-后台静默下载新 bundle（~3-10 秒，用户用旧版）
+native splash 阻塞最多 5 秒等 OTA 拉取
     ↓
-用户再一次冷启动
-    ↓
-应用新 bundle ✅
+拉到 → 直接用新 bundle 启动 ✅（首次启动看到的就是最新版）
+超时 → 回退到嵌入版（OTA 异步下完应用到下次冷启动）
 ```
 
 **关键事实**：
-- OTA 是**双冷启动生效**，不是即时
-- 第一次冷启动只下载、不应用
-- 用户不杀进程的话永远不会更新
-- 所以测试人员第一次报"还是看到 bug" → 让他们杀进程再开一次
+- 新装用户**第一次冷启动**就能看到最新版（前提：5s 内拉到 OTA）
+- 弱网用户最多等 5s 看 splash，超时后回退（不会卡死）
+- 已下载的 OTA 应用到下次冷启动（与原默认一致）
+- **此配置烧进 AndroidManifest.xml**（`EXPO_UPDATES_LAUNCH_WAIT_MS=5000`），改回 0 必须重新 `eas build`，OTA 推不动
+
+### 5.3 冷启动 /resolve 加速（2026-05-09 配套）
+
+`app.ai-maimai.com/resolve`（推荐码 deep link 落地页）从 React SPA 改为纯静态 HTML：
+- 跳过 React bundle 加载（省 1-2 秒）
+- fetch 加 3 秒超时，后端卡死时不傻等到 App 端 5 秒 hard cap
+- 实施位置：`website/scripts/resolve.template.html` + `website/scripts/build-resolve.mjs`
+- 部署：网站改动，`npm run build` 自动产出 `dist/resolve/index.html`，无需重打 APK
+- 测试覆盖：`website/scripts/__tests__/resolveLogic.test.mjs`（14 个用例，CI 必跑）
+
+### 5.4 回滚
+
+| 想撤回 | 怎么办 |
+|---|---|
+| `fallbackToCacheTimeout: 5000` 改回 0 | 改 app.json + 必须重新 `eas build`（不能 OTA） |
+| `/resolve` 静态 HTML 还原回 React | 删 `prebuild` 钩子 + 删 `dist/resolve/`，下次部署 React 路由生效 |
 
 ---
 
