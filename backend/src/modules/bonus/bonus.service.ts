@@ -76,6 +76,12 @@ export class BonusService {
       where: { referralCode: code },
     });
     if (!inviter) throw new BadRequestException('推荐码无效');
+    // 设计原则：只有 VIP 才能作为推荐人。普通用户在 DB 里也有 referralCode（lazy 生成 + 注册时
+    // 兜底），但买家 App UI 已守门不展示给普通用户。后端这里二次拦截，防止抓包/SQL 拿到普通用户
+    // 的码后绕过 UI 强行绑定——一旦绑成功，被推荐人买 VIP 时 assignVipTreeNode 会找不到推荐人
+    // 的 vipNodeId 抛错，整个 VIP 激活回滚（撞 CRIT-1 重试逻辑后推荐人永远拿不到奖）。
+    // 文案统一返回"推荐码无效"，不暴露内部 tier 状态。
+    if (inviter.tier !== 'VIP') throw new BadRequestException('推荐码无效');
     if (inviter.userId === userId) throw new BadRequestException('不能使用自己的推荐码');
 
     const result = await this.prisma.$transaction(async (tx) => {
