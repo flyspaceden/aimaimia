@@ -60,8 +60,14 @@ export class AfterSaleService {
     if (dto.reasonType) {
       return REASON_LABELS[dto.reasonType] || dto.reasonType;
     }
+    if (dto.reason) {
+      return filterContactInfo(dto.reason.trim());
+    }
+    if (dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE) {
+      return '七天无理由换货';
+    }
     // 无理由退货场景，reasonType 为空
-    return dto.reason ? filterContactInfo(dto.reason.trim()) : '七天无理由退货';
+    return '七天无理由退货';
   }
 
   private getDeadlineAt(
@@ -227,7 +233,7 @@ export class AfterSaleService {
             ? returnShippingFee
             : 0;
 
-        let estimatedRefundAmount = 0;
+        let estimatedRefundAmount: number | null = null;
         let requiresBuyerShippingPayment = false;
 
         if (
@@ -371,10 +377,18 @@ export class AfterSaleService {
             throw new BadRequestException('指定的商品项不存在');
           }
 
+          const targetSkuId =
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+              ? (dto.targetSkuId ?? orderItem.skuId)
+              : (dto.targetSkuId ?? null);
+          const isExchange =
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE ||
+            dto.afterSaleType === AfterSaleType.QUALITY_EXCHANGE;
+          const targetQuantity = isExchange ? orderItem.quantity : null;
+
           if (
             dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE &&
-            dto.targetSkuId &&
-            dto.targetSkuId !== orderItem.skuId
+            targetSkuId !== orderItem.skuId
           ) {
             throw new BadRequestException('本期仅支持同 SKU 换货');
           }
@@ -470,6 +484,26 @@ export class AfterSaleService {
 
           // 9. 计算退款金额（仅退货类型需要，换货不退款）
           let refundAmount: number | null = null;
+          let returnShippingFee: number | null = null;
+          let returnShippingPayer: 'BUYER' | 'SELLER' | null = null;
+          let returnShippingFeeDeducted = false;
+
+          if (needsReturn) {
+            if (
+              dto.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+              dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+            ) {
+              returnShippingPayer = 'BUYER';
+              returnShippingFee = await getConfigValue(
+                tx as any,
+                AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
+                10,
+              );
+            } else {
+              returnShippingPayer = 'SELLER';
+            }
+          }
+
           if (
             dto.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
             dto.afterSaleType === AfterSaleType.QUALITY_RETURN
@@ -493,7 +527,7 @@ export class AfterSaleService {
               isFullRefund = otherRefunded === otherNonPrize.length;
             }
 
-            refundAmount = calculateRefundAmount(
+            const refundableBeforeShippingDeduction = calculateRefundAmount(
               orderItem.unitPrice,
               orderItem.quantity,
               order.goodsAmount,
@@ -504,6 +538,28 @@ export class AfterSaleService {
               dto.afterSaleType,
               isFullRefund,
             );
+            const returnShippingFeeToDeduct =
+              dto.afterSaleType === AfterSaleType.NO_REASON_RETURN &&
+              needsReturn &&
+              returnShippingFee !== null &&
+              refundableBeforeShippingDeduction >= returnShippingFee
+                ? returnShippingFee
+                : 0;
+
+            refundAmount = calculateRefundAmount(
+              orderItem.unitPrice,
+              orderItem.quantity,
+              order.goodsAmount,
+              order.totalCouponDiscount ?? 0,
+              order.discountAmount ?? 0,
+              order.vipDiscountAmount ?? 0,
+              order.shippingFee,
+              dto.afterSaleType,
+              isFullRefund,
+              returnShippingFeeToDeduct,
+            );
+
+            returnShippingFeeDeducted = returnShippingFeeToDeduct > 0;
           }
 
           // 10. 创建售后申请
@@ -525,8 +581,12 @@ export class AfterSaleService {
               photos: dto.photos,
               status: initialStatus,
               isPostReplacement,
-              targetSkuId: dto.targetSkuId ?? null,
+              targetSkuId,
+              targetQuantity,
               requiresReturn: needsReturn,
+              returnShippingFee,
+              returnShippingPayer,
+              returnShippingFeeDeducted,
               refundAmount,
               ...(isPostReplacement
                 ? { arbitrationSource: '换货后二次售后自动升级' }
