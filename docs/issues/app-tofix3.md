@@ -2890,6 +2890,23 @@ const { rawOpCode, status } = this.deriveRouteStatus(sortedRoutes);
 - `shipment.service.spec.ts`: 单包裹 `SHIPPED` 聚合状态保持 `SHIPPED`
 - `shipment.service.spec.ts`: 窗口期 SF 推 SHIPPED / DELIVERED 时仅写轨迹不推进状态（审计 HIGH 防卡死）
 
+**2026-05-08 追加实测修正（二）— Bug 96 管理后台普通订单默认手填导致未创建顺丰沙箱订单**:
+
+用户在管理后台发货普通商品订单后发现：
+1. 三端看到的是手填的 4 位短单号，不是 `SF...` 运单号
+2. 顺丰沙箱查不到该订单
+
+根因：
+- `admin/src/pages/orders/index.tsx` 只对 `VIP_PACKAGE` 默认开启 `useCarrierAuto`，普通商品订单默认走手填模式
+- 手填模式在 `admin-orders.service.ts:ship()` 只写本地 `Shipment.trackingNo`，不会调用 `SfExpressService.createOrder`
+- 后端未校验手填运单号长度，导致 `1234` 这类测试短值也能把订单推进 `SHIPPED`
+
+修复：
+- 管理后台发货弹窗默认开启「顺丰自动取号」，手填仅作为显式备用模式；打开弹窗先 reset form，避免上次手填值残留
+- 自动取号成功 toast 展示真实 `waybillNo`，减少把订单号/运单号混淆的概率
+- 后端手填路径拒绝长度小于 8 的运单号，并提示：要创建顺丰沙箱订单请开启「顺丰自动取号」
+- 新增 `admin-orders.service.ship.spec.ts` 覆盖：4 位短单号不进入事务、不调用顺丰
+
 ---
 
 ### Phase 1: P0 阻断级（沙箱实证后已收敛）— 估时 1.5-2 天

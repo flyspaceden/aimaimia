@@ -1126,6 +1126,7 @@
   - 外审 6 加固：`Shipment.status` 单调性保护，DELIVERED 终态拒绝降级（原 OrderState 推送会把已签收单降级 IN_TRANSIT）
   - 外审 7/8 加固：8000 订单结束只作为生命周期标记；`queryRoutes` / `parseWaybillRoutes` 最新 8000 时改按同组最新业务终态派生，80→8000 保持 DELIVERED，99→8000 保持 EXCEPTION，单独 8000 仍 IN_TRANSIT + warn
   - 测试：sf-express.opcode.spec (16 cases) + shipment.service.spec 新增 2 cases + 历史 4+3 cases 修正
+  - 2026-05-08 追加：管理后台普通订单发货默认改为顺丰自动取号；手填模式拒绝 4 位短单号，避免只写本地 trackingNo 却误以为已创建顺丰沙箱订单
   - 待办：真机沙箱重测整链路（应分段看到 SHIPPED → IN_TRANSIT → DELIVERED）；找 SF 商务索要完整 opCode 对照表后做 v2 修订
   - 顺手发现：dim-F 历史「opCode=80 → DELIVERED ✅」是 bug 假性通过，整条链路待重测
 

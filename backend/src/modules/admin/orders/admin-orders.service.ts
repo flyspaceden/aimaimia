@@ -27,6 +27,21 @@ export class AdminOrdersService {
     private paymentService: PaymentService,
   ) {}
 
+  private normalizeTrackingNo(value?: string | null): string {
+    return String(value ?? '').trim();
+  }
+
+  private assertManualTrackingNoValid(trackingNo: string) {
+    if (trackingNo.length < 8) {
+      throw new BadRequestException(
+        '手填运单号长度过短；如果要创建顺丰沙箱订单，请开启“顺丰自动取号”。',
+      );
+    }
+    if (!/^[A-Za-z0-9-]+$/.test(trackingNo)) {
+      throw new BadRequestException('手填运单号只能包含字母、数字或短横线');
+    }
+  }
+
   private mapRefundSummary(refund?: any) {
     if (!refund) return null;
     return {
@@ -501,10 +516,12 @@ export class AdminOrdersService {
       resolvedWaybillUrl = auto.waybillUrl;
     } else {
       // 手填路径：carrierCode + carrierName + trackingNo 三者必传
-      if (!dto.carrierCode || !dto.carrierName || !dto.trackingNo) {
+      const manualTrackingNo = this.normalizeTrackingNo(dto.trackingNo);
+      if (!dto.carrierCode || !dto.carrierName || !manualTrackingNo) {
         throw new BadRequestException('手填发货必须提供 carrierCode / carrierName / trackingNo');
       }
-      resolvedTrackingNo = dto.trackingNo;
+      this.assertManualTrackingNoValid(manualTrackingNo);
+      resolvedTrackingNo = manualTrackingNo;
     }
 
     // ─── 事务内：写 Shipment + 推订单状态 ───

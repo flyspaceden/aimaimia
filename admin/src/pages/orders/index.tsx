@@ -103,8 +103,14 @@ export default function OrderListPage() {
     if (!currentOrder) return;
     setShipLoading(true);
     try {
-      await shipOrder(currentOrder.id, values);
-      message.success(values.useCarrierAuto ? '发货成功（已生成顺丰电子面单）' : '发货成功');
+      const result = await shipOrder(currentOrder.id, values);
+      message.success(
+        values.useCarrierAuto && result.waybillNo
+          ? `发货成功（顺丰运单号：${result.waybillNo}）`
+          : values.useCarrierAuto
+            ? '发货成功（已生成顺丰电子面单）'
+            : '发货成功',
+      );
       setShipModalOpen(false);
       shipForm.resetFields();
       actionRef.current?.reload();
@@ -296,9 +302,10 @@ export default function OrderListPage() {
                 icon={<SendOutlined />}
                 onClick={() => {
                   setCurrentOrder(record);
-                  // VIP_PACKAGE 默认走自动取号；普通订单默认手填（兼容现有流程）
+                  // 默认走自动取号，手填仅作为显式备用模式；否则不会在顺丰沙箱创建订单。
+                  shipForm.resetFields();
                   shipForm.setFieldsValue({
-                    useCarrierAuto: record.bizType === 'VIP_PACKAGE',
+                    useCarrierAuto: true,
                     carrierCode: 'SF',
                     carrierName: '顺丰速运',
                   });
@@ -437,9 +444,9 @@ export default function OrderListPage() {
             name="useCarrierAuto"
             label="发货方式"
             valuePropName="checked"
-            extra="开启后调用顺丰丰桥自动取号 + 生成电子面单 PDF；关闭则手填运单号"
+            extra="默认调用顺丰丰桥自动取号；关闭后只保存手填运单号，不会创建顺丰沙箱订单"
           >
-            <Switch checkedChildren="顺丰自动取号" unCheckedChildren="手填运单号" />
+            <Switch checkedChildren="顺丰自动取号" unCheckedChildren="手填备用" />
           </Form.Item>
 
           <Form.Item shouldUpdate noStyle>
