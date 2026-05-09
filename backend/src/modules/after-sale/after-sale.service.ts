@@ -177,13 +177,17 @@ export class AfterSaleService {
 
     for (const orderItem of order.items) {
       if (orderItem.isPrize) continue;
-      if (orderItem.afterSaleRequests?.length > 0) continue;
+      const hasActiveAfterSale = orderItem.afterSaleRequests?.some(
+        (request: any) => ACTIVE_STATUSES.includes(request.status),
+      );
+      if (hasActiveAfterSale) continue;
 
       const productId = orderItem.sku?.productId;
       if (!productId) continue;
 
       const returnPolicy = await resolveReturnPolicy(this.prisma as any, productId);
       const itemAmount = orderItem.unitPrice * orderItem.quantity;
+      const productSnapshot = (orderItem.productSnapshot as any) || {};
       const otherNonPrizeItems = nonPrizeItems.filter(
         (item: any) => item.id !== orderItem.id,
       );
@@ -304,6 +308,7 @@ export class AfterSaleService {
         orderItemId: orderItem.id,
         skuId: orderItem.skuId,
         productId,
+        productTitle: productSnapshot.title || '未知商品',
         productSnapshot: orderItem.productSnapshot,
         quantity: orderItem.quantity,
         unitPrice: orderItem.unitPrice,
