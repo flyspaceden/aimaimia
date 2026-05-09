@@ -1,3 +1,6 @@
 node_modules
 dist
 .DS_Store
+
+# 由 scripts/build-resolve.mjs 在 prebuild 钩子生成，不入仓
+public/resolve/
