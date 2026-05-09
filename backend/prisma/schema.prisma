@@ -407,6 +407,7 @@ enum ReplacementStatus {
 // --- 统一售后系统枚举 ---
 enum AfterSaleType {
   NO_REASON_RETURN   // 七天无理由退货退款
+  NO_REASON_EXCHANGE // 七天无理由换货
   QUALITY_RETURN     // 质量问题退货退款
   QUALITY_EXCHANGE   // 质量问题换货
 }
@@ -426,6 +427,29 @@ enum AfterSaleStatus {
   COMPLETED            // 售后完成
   CLOSED               // 系统关闭（超时等）
   CANCELED             // 用户主动取消
+}
+
+enum ReturnShippingPayer {
+  BUYER
+  SELLER
+  PLATFORM
+}
+
+enum AfterSaleOperatorType {
+  BUYER
+  SELLER_STAFF
+  ADMIN
+  SYSTEM
+}
+
+enum AfterSaleShippingPaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  FAILED
+  REFUNDING
+  REFUNDED
+  CLOSED
 }
 
 enum ReturnPolicy {
@@ -1512,6 +1536,7 @@ model Refund {
   id               String       @id @default(cuid())
   orderId          String
   order            Order        @relation(fields: [orderId], references: [id], onDelete: Restrict) // H17/M6: 防止删除有退款记录的订单
+  afterSaleId      String?      @unique
   paymentId        String?
   amount           Float // 退款金额（元）
   status           RefundStatus @default(REQUESTED)
@@ -1527,6 +1552,8 @@ model Refund {
   statusHistory RefundStatusHistory[]
   // H02修复：商品行级退款明细
   items RefundItem[]
+  afterSaleByAfterSaleId     AfterSaleRequest?  @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
+  afterSaleRequestsByRefundId AfterSaleRequest[] @relation("AfterSaleRefundByRefundId")
 
   @@index([orderId])
 }
@@ -2162,15 +2189,30 @@ model AfterSaleRequest {
   status                AfterSaleStatus   @default(REQUESTED)
   isPostReplacement     Boolean           @default(false) // 换货后二次售后标记
   arbitrationSource     String?           // 仲裁来源（如"买家申请"/"系统自动"）
+  arbitrationSourceStatus AfterSaleStatus?
+  targetSkuId           String?           // 换货目标 SKU
+  targetQuantity        Int?              // 换货目标数量
   requiresReturn        Boolean           @default(false) // 是否需要买家退回商品
   // 买家退货物流
+  returnCarrierCode     String?           // 退货快递公司编码
   returnCarrierName     String?           // 退货快递公司
   returnWaybillNo       String?           // 退货快递单号
+  returnWaybillUrl      String?           // 退货运单查询链接
+  returnSfOrderId       String?           // 退货面单顺丰订单 ID
+  returnLabelUrl        String?           // 退货面单 URL
+  returnShippingFee     Float?            // 退货运费金额
+  returnShippingPayer   ReturnShippingPayer?
+  returnShippingPaidAt  DateTime?
+  returnShippingFeeDeducted Boolean       @default(false)
   returnShippedAt       DateTime?         // 买家寄出退货时间
   // 卖家验收退货
   sellerRejectReason    String?           // 卖家拒收退货理由
   sellerRejectPhotos    String[]          @default([]) // 卖家拒收退货照片
+  sellerReturnCarrierCode String?         // 卖家回寄快递公司编码
+  sellerReturnCarrierName String?         // 卖家回寄快递公司
   sellerReturnWaybillNo String?           // 卖家退回快递单号（拒收退货时回寄）
+  sellerReturnWaybillUrl String?          // 卖家回寄运单查询链接
+  sellerReturnSfOrderId String?           // 卖家回寄顺丰订单 ID
   // 退款信息
   refundAmount          Float?            // 退款金额（元）
   refundId              String?           // 关联退款记录 ID
@@ -2180,6 +2222,9 @@ model AfterSaleRequest {
   reviewedAt            DateTime?
   approvedAt            DateTime?         // 审批通过时间
   sellerReceivedAt      DateTime?         // 卖家签收退货时间
+  manualReviewReason    String?
+  manualReviewRequestedAt DateTime?
+  manualReviewResolvedAt  DateTime?
   // 换货发货（沿用原字段）
   replacementCarrierCode String?
   replacementCarrierName String?
@@ -2190,11 +2235,51 @@ model AfterSaleRequest {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   virtualCallBindings   VirtualCallBinding[] @relation("ReplacementVirtualCallBindings")
+  statusHistory         AfterSaleStatusHistory[]
+  shippingPayment       AfterSaleShippingPayment?
+  refundByRefundId      Refund?           @relation("AfterSaleRefundByRefundId", fields: [refundId], references: [id])
+  refundByAfterSaleId   Refund?           @relation("AfterSaleRefundByAfterSaleId")
 
   @@map("after_sale_request")
   @@index([orderId])
+  @@index([refundId])
   @@index([userId, status])
   @@index([status, createdAt])
+}
+
+model AfterSaleStatusHistory {
+  id           String                 @id @default(cuid())
+  afterSaleId  String
+  afterSale    AfterSaleRequest       @relation(fields: [afterSaleId], references: [id], onDelete: Cascade)
+  fromStatus   AfterSaleStatus?
+  toStatus     AfterSaleStatus
+  reason       String?
+  operatorType AfterSaleOperatorType?
+  operatorId   String?
+  meta         Json?
+  createdAt    DateTime               @default(now())
+
+  @@index([afterSaleId, createdAt])
+  @@map("after_sale_status_history")
+}
+
+model AfterSaleShippingPayment {
+  id                String                         @id @default(cuid())
+  afterSaleId       String                         @unique
+  afterSale         AfterSaleRequest               @relation(fields: [afterSaleId], references: [id], onDelete: Cascade)
+  amount            Float
+  status            AfterSaleShippingPaymentStatus @default(UNPAID)
+  merchantPaymentNo String                         @unique
+  providerPaymentNo String?
+  provider          String                         @default("ALIPAY")
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  failureReason     String?
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+
+  @@index([status, createdAt])
+  @@map("after_sale_shipping_payments")
 }
 
 // ============================================================
