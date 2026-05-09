@@ -98,6 +98,7 @@
 - `docs/superpowers/plans/2026-05-08-order-repurchase.md` — 已完成订单再次购买实施计划（后端复购接口 / 幂等限流 / 购物车合并 / App 按钮接入 / 验证清单，**订单复购实施排程**）
 - `docs/superpowers/plans/2026-05-08-unshipped-order-cancel-refund.md` — PAID 未发货取消退款收尾实施计划（买家 App / 后端资金链路 / 卖家中心 / 管理后台 / 分润隔离 / 真机验证 / 文档同步，**未发货取消退款上线收口排程**）
 - `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（基于现有 after-sale 主干，补齐 `NO_REASON_EXCHANGE`、顺丰退货面单、售后退款幂等、退款/售后状态历史、三端接线，**退款/退货/换货链路收口权威来源**）
+- `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（Schema/后端退款与面单服务/三端前端/验证与文档同步，**退款/退货/换货链路实施排程**）
 - `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md` — 顺丰风格平台统一运费计价设计方案（首重+续重公式、平台自定义价格、满额包邮、整单一次计费、SKU 重量补强、管理后台批量导入，**平台运费计价改造权威来源**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
