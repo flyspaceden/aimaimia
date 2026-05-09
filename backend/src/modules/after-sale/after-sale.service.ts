@@ -132,6 +132,7 @@ export class AfterSaleService {
               select: {
                 id: true,
                 status: true,
+                afterSaleType: true,
               },
             },
           },
@@ -187,6 +188,14 @@ export class AfterSaleService {
         (request: any) => ACTIVE_STATUSES.includes(request.status),
       );
       if (hasActiveAfterSale) continue;
+      const hasCompletedExchange = orderItem.afterSaleRequests?.some(
+        (request: any) =>
+          request.status === 'COMPLETED' &&
+          (
+            request.afterSaleType === AfterSaleType.QUALITY_EXCHANGE ||
+            request.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+          ),
+      );
 
       const productId = orderItem.sku?.productId;
       if (!productId) continue;
@@ -209,7 +218,7 @@ export class AfterSaleService {
         AfterSaleType.QUALITY_RETURN,
         AfterSaleType.QUALITY_EXCHANGE,
       ].map((afterSaleType) => {
-        const enabled = isWithinReturnWindow(
+        const withinWindow = isWithinReturnWindow(
           order.deliveredAt,
           order.receivedAt,
           returnPolicy,
@@ -218,6 +227,9 @@ export class AfterSaleService {
           normalReturnDays,
           freshReturnHours,
         );
+        const disabledByCompletedExchange =
+          hasCompletedExchange && afterSaleType !== AfterSaleType.QUALITY_RETURN;
+        const enabled = withinWindow && !disabledByCompletedExchange;
         const requiresReturn = requiresReturnShipping(
           afterSaleType,
           itemAmount,
@@ -253,7 +265,13 @@ export class AfterSaleService {
           );
           const shippingFeeToDeduct =
             afterSaleType === AfterSaleType.NO_REASON_RETURN
-              ? estimatedReturnShippingFee
+              ? (
+                  requiresReturn &&
+                  estimatedReturnShippingFee > 0 &&
+                  refundableBeforeShippingDeduction >= estimatedReturnShippingFee
+                    ? estimatedReturnShippingFee
+                    : 0
+                )
               : 0;
 
           estimatedRefundAmount = calculateRefundAmount(
@@ -286,13 +304,15 @@ export class AfterSaleService {
         return {
           afterSaleType,
           enabled,
-          disabledReason: this.getDisabledReason(
-            order.deliveredAt,
-            order.receivedAt,
-            returnPolicy,
-            afterSaleType,
-            enabled,
-          ),
+          disabledReason: disabledByCompletedExchange
+            ? '该商品已完成换货，仅支持质量退货'
+            : this.getDisabledReason(
+                order.deliveredAt,
+                order.receivedAt,
+                returnPolicy,
+                afterSaleType,
+                enabled,
+              ),
           deadlineAt: this.getDeadlineAt(
             order.deliveredAt,
             order.receivedAt,
@@ -453,7 +473,12 @@ export class AfterSaleService {
             where: {
               orderItemId: dto.orderItemId,
               userId,
-              afterSaleType: 'QUALITY_EXCHANGE',
+              afterSaleType: {
+                in: [
+                  AfterSaleType.QUALITY_EXCHANGE,
+                  AfterSaleType.NO_REASON_EXCHANGE,
+                ],
+              },
               status: 'COMPLETED',
             },
           });
