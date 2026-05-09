@@ -25,7 +25,7 @@ export class CreateAfterSaleDto {
 
   /**
    * 标准化理由类型
-   * 质量问题退货/换货时必填，无理由退货时可选
+   * 仅质量问题退货/换货时必填
    */
   @ValidateIf((o) =>
     o.afterSaleType === AfterSaleType.QUALITY_RETURN ||
@@ -34,6 +34,11 @@ export class CreateAfterSaleDto {
   @IsNotEmpty({ message: '质量问题售后必须选择理由类型' })
   @IsEnum(ReplacementReasonType, { message: 'reasonType 必须为有效的理由类型' })
   reasonType?: ReplacementReasonType;
+
+  /** 换货目标 SKU，本期仅允许同 SKU */
+  @IsOptional()
+  @IsString({ message: 'targetSkuId 必须为字符串' })
+  targetSkuId?: string;
 
   /** 补充说明（OTHER 类型时的自由文本） */
   @IsOptional()

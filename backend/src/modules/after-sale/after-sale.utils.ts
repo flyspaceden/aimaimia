@@ -74,6 +74,7 @@ export async function resolveReturnPolicy(
  * @param orderShippingFee   订单运费（元）
  * @param afterSaleType      售后类型
  * @param isFullRefund       是否整单退款
+ * @param returnShippingFeeToDeduct 需从退款中扣除的退货运费（仅无理由退货）
  * @returns 退款金额（元，精确到分）
  */
 export function calculateRefundAmount(
@@ -86,6 +87,7 @@ export function calculateRefundAmount(
   orderShippingFee: number,
   afterSaleType: string,
   isFullRefund: boolean,
+  returnShippingFeeToDeduct = 0,
 ): number {
   const itemAmount = unitPrice * quantity;
 
@@ -108,6 +110,10 @@ export function calculateRefundAmount(
     refundAmount += orderShippingFee;
   }
 
+  if (afterSaleType === 'NO_REASON_RETURN' && returnShippingFeeToDeduct > 0) {
+    refundAmount = Math.max(0, refundAmount - returnShippingFeeToDeduct);
+  }
+
   // 四舍五入到分
   return Math.round(refundAmount * 100) / 100;
 }
@@ -115,6 +121,7 @@ export function calculateRefundAmount(
 /**
  * 判断是否需要买家退回商品
  * - 无理由退货：一律需要退回
+ * - 无理由换货：商品金额超过门槛才需退回
  * - 质量问题退货/换货：商品金额超过门槛才需退回（低于门槛免退货退款）
  *
  * @param afterSaleType 售后类型
@@ -129,7 +136,7 @@ export function requiresReturnShipping(
   if (afterSaleType === 'NO_REASON_RETURN') {
     return true;
   }
-  // QUALITY_RETURN / QUALITY_EXCHANGE：超过门槛才需退回
+  // NO_REASON_EXCHANGE / QUALITY_RETURN / QUALITY_EXCHANGE：超过门槛才需退回
   return itemAmount > threshold;
 }
 
@@ -160,7 +167,10 @@ export function isWithinReturnWindow(
   const now = new Date();
   const baseMs = new Date(baseTime).getTime();
 
-  if (afterSaleType === 'NO_REASON_RETURN') {
+  if (
+    afterSaleType === 'NO_REASON_RETURN' ||
+    afterSaleType === 'NO_REASON_EXCHANGE'
+  ) {
     // 不支持无理由退货的商品，直接拒绝
     if (returnPolicy === 'NON_RETURNABLE') return false;
     // 可退货商品：检查无理由退货窗口

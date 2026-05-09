@@ -57,6 +57,15 @@ export class AfterSaleController {
     return this.afterSaleService.agreePolicy(userId);
   }
 
+  /** 查询订单售后资格 */
+  @Get('orders/:orderId/eligibility')
+  getEligibility(
+    @CurrentUser('sub') userId: string,
+    @Param('orderId') orderId: string,
+  ) {
+    return this.afterSaleService.getEligibility(userId, orderId);
+  }
+
   /** 售后详情 */
   @Get(':id')
   findById(
