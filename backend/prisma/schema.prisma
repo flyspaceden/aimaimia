@@ -2213,6 +2213,14 @@ model AfterSaleRequest {
   sellerReturnWaybillNo String?           // 卖家退回快递单号（拒收退货时回寄）
   sellerReturnWaybillUrl String?          // 卖家回寄运单查询链接
   sellerReturnSfOrderId String?           // 卖家回寄顺丰订单 ID
+  // 顺丰物流轨迹（推送进来时落库；售后单号不在 Shipment 表，所以单独存这里）
+  // 结构：[{ time, message, location?, opCode?, statusCode? }, ...] 按 acceptTime 升序
+  // 写入：handleSfCallback 收到推送 → 按 trackingNo 命中 returnWaybillNo/replacementWaybillNo
+  //   /sellerReturnWaybillNo 之一 → 过滤沙箱旧路由 → append 到对应字段（去重 by time+opCode）
+  // 读取：admin/seller findById 优先用这里，没有再 fallback 到主动查询 SEARCH_ROUTES
+  returnTrackingEvents       Json?
+  replacementTrackingEvents  Json?
+  sellerReturnTrackingEvents Json?
   // 退款信息
   refundAmount          Float?            // 退款金额（元）
   refundId              String?           // 关联退款记录 ID

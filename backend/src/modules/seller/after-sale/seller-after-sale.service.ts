@@ -262,19 +262,39 @@ export class SellerAfterSaleService {
       select: { alias: true },
     });
 
-    // 实时查询顺丰物流轨迹（仅 requiresReturn=true 时查；推送通道走 Shipment.waybillNo
-    // 匹配，售后单号落不到 Shipment 表，所以推送轨迹永远丢失，这里主动查询补上）
+    // 物流轨迹（仅 requiresReturn=true 时查）：优先用 DB 里推送落库的（callback
+    // fallback 写入），没有再 fallback 到主动查询 SEARCH_ROUTES
     const shouldQuery = request.requiresReturn;
+    const buildFromDb = (events: any): { status: string; rawOpCode: string; events: any[] } | null => {
+      const arr = Array.isArray(events) ? events : null;
+      if (!arr || arr.length === 0) return null;
+      const latest = arr[arr.length - 1] ?? {};
+      return {
+        status: String(latest.statusCode ?? 'IN_TRANSIT'),
+        rawOpCode: String(latest.opCode ?? ''),
+        events: arr,
+      };
+    };
+    const dbReturn = shouldQuery ? buildFromDb((request as any).returnTrackingEvents) : null;
+    const dbSellerReturn = shouldQuery ? buildFromDb((request as any).sellerReturnTrackingEvents) : null;
+    const dbReplacement = shouldQuery ? buildFromDb((request as any).replacementTrackingEvents) : null;
+
     const [returnRoute, sellerReturnRoute, replacementRoute] = await Promise.all([
-      shouldQuery && request.returnWaybillNo
-        ? this.sfExpress.queryRoutes(request.returnWaybillNo).catch(() => null)
-        : Promise.resolve(null),
-      shouldQuery && request.sellerReturnWaybillNo
-        ? this.sfExpress.queryRoutes(request.sellerReturnWaybillNo).catch(() => null)
-        : Promise.resolve(null),
-      shouldQuery && request.replacementWaybillNo
-        ? this.sfExpress.queryRoutes(request.replacementWaybillNo).catch(() => null)
-        : Promise.resolve(null),
+      dbReturn
+        ? Promise.resolve(dbReturn)
+        : shouldQuery && request.returnWaybillNo
+          ? this.sfExpress.queryRoutes(request.returnWaybillNo).catch(() => null)
+          : Promise.resolve(null),
+      dbSellerReturn
+        ? Promise.resolve(dbSellerReturn)
+        : shouldQuery && request.sellerReturnWaybillNo
+          ? this.sfExpress.queryRoutes(request.sellerReturnWaybillNo).catch(() => null)
+          : Promise.resolve(null),
+      dbReplacement
+        ? Promise.resolve(dbReplacement)
+        : shouldQuery && request.replacementWaybillNo
+          ? this.sfExpress.queryRoutes(request.replacementWaybillNo).catch(() => null)
+          : Promise.resolve(null),
     ]);
 
     // 顺丰 UAT 沙箱"全流程调测"对所有 mailNo 返回相同样例轨迹（多在 2025-10），

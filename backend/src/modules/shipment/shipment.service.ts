@@ -79,6 +79,86 @@ export class ShipmentService {
     return freshEvents;
   }
 
+  /**
+   * 顺丰推送进来后找不到 Shipment 时的兜底：尝试匹配 AfterSaleRequest 上的
+   * returnWaybillNo / replacementWaybillNo / sellerReturnWaybillNo。
+   *
+   * 命中后过滤沙箱旧路由（基准时间各取面单生成时间），追加去重后写到对应
+   * JSON 字段。返回 true 表示已处理（外层 callback 可直接 return ok）。
+   */
+  private async tryAppendAfterSaleTrackingEvents(
+    trackingNo: string,
+    events: SfTrackingEvent[] | undefined,
+  ): Promise<boolean> {
+    if (!events || events.length === 0) return false;
+
+    const afterSale = await this.prisma.afterSaleRequest.findFirst({
+      where: {
+        OR: [
+          { returnWaybillNo: trackingNo },
+          { replacementWaybillNo: trackingNo },
+          { sellerReturnWaybillNo: trackingNo },
+        ],
+      },
+    });
+    if (!afterSale) return false;
+
+    type Kind = 'return' | 'replacement' | 'sellerReturn';
+    const kind: Kind =
+      afterSale.returnWaybillNo === trackingNo
+        ? 'return'
+        : afterSale.replacementWaybillNo === trackingNo
+          ? 'replacement'
+          : 'sellerReturn';
+
+    // 基准时间：买家寄回用面单生成时刻；其他用 updatedAt 兜底
+    const referenceTime: Date =
+      kind === 'return'
+        ? (afterSale.returnShippedAt ?? afterSale.approvedAt ?? afterSale.createdAt)
+        : (afterSale.updatedAt ?? afterSale.createdAt);
+    const earliestAllowed = referenceTime.getTime() - 60 * 60 * 1000; // 1h 容差
+
+    const freshEvents = events.filter((e) => {
+      const t = new Date(e.time).getTime();
+      return Number.isFinite(t) ? t >= earliestAllowed : true;
+    });
+
+    if (freshEvents.length === 0) {
+      this.logger.warn(
+        `跳过 SF 沙箱旧路由(after-sale): afterSaleId=${afterSale.id}, kind=${kind}, dropped=${events.length}`,
+      );
+      return true; // 命中但全是旧事件，吞掉不抛错
+    }
+
+    const fieldName =
+      kind === 'return'
+        ? 'returnTrackingEvents'
+        : kind === 'replacement'
+          ? 'replacementTrackingEvents'
+          : 'sellerReturnTrackingEvents';
+
+    // 读现有 events，append + 去重 by (time + opCode)
+    const existing = ((afterSale as any)[fieldName] as any[]) ?? [];
+    const merged = [...existing];
+    for (const e of freshEvents) {
+      const dup = merged.some(
+        (x) => x.time === e.time && String(x.opCode ?? '') === String(e.opCode ?? ''),
+      );
+      if (!dup) merged.push({ ...e });
+    }
+    merged.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+    await this.prisma.afterSaleRequest.update({
+      where: { id: afterSale.id },
+      data: { [fieldName]: merged as any },
+    });
+
+    this.logger.log(
+      `SF 推送已写入售后单: afterSaleId=${afterSale.id}, kind=${kind}, appended=${freshEvents.length}, total=${merged.length}`,
+    );
+    return true;
+  }
+
   private mapIncomingStatus(
     status: string,
     currentStatus: string,
@@ -248,7 +328,18 @@ export class ShipmentService {
       where: { OR: [{ waybillNo: trackingNo }, { trackingNo }] },
       orderBy: { createdAt: 'desc' },
     });
-    if (!shipment) throw new NotFoundException('物流单号未找到');
+    if (!shipment) {
+      // Fallback：售后单（退/换货）单号不在 Shipment 表，单独存在 AfterSaleRequest，
+      // 推送进来时这里兜底匹配 + 落库，避免退货物流轨迹永久丢失。
+      const handledByAfterSale = await this.tryAppendAfterSaleTrackingEvents(
+        trackingNo,
+        events,
+      );
+      if (handledByAfterSale) {
+        return { ok: true };
+      }
+      throw new NotFoundException('物流单号未找到');
+    }
 
     const incomingEventCount = events?.length ?? 0;
     const freshEvents = this.filterFreshEventsForShipment(events, shipment);
