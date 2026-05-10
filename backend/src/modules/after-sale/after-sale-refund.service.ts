@@ -26,6 +26,7 @@ type StartRefundLease = {
   orderId: string;
   merchantRefundNo: string;
   shouldInitiate: boolean;
+  shouldCloseSuccess?: boolean;
 };
 
 @Injectable()
@@ -55,26 +56,27 @@ export class AfterSaleRefundService {
   }
 
   async startRefund(afterSaleId: string, operator: Operator): Promise<Refund> {
-    const { refund, amount, orderId, merchantRefundNo, shouldInitiate } = await this.prisma.$transaction(
+    const {
+      refund,
+      amount,
+      orderId,
+      merchantRefundNo,
+      shouldInitiate,
+      shouldCloseSuccess,
+    } = await this.prisma.$transaction(
       async (tx): Promise<StartRefundLease> => {
         const created = await this.createOrGetRefundInTx(tx, afterSaleId);
         const { request, refund } = created;
         const fromStatus = request.status;
 
         if (refund.status === 'REFUNDED') {
-          await tx.afterSaleRequest.update({
-            where: { id: afterSaleId },
-            data: {
-              status: 'REFUNDED',
-              refundId: refund.id,
-            },
-          });
           return {
             refund,
             amount: request.refundAmount || 0,
             orderId: request.orderId,
             merchantRefundNo: created.merchantRefundNo,
             shouldInitiate: false,
+            shouldCloseSuccess: true,
           };
         }
 
@@ -130,12 +132,18 @@ export class AfterSaleRefundService {
           orderId: request.orderId,
           merchantRefundNo: created.merchantRefundNo,
           shouldInitiate: true,
+          shouldCloseSuccess: false,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    if (!shouldInitiate) return refund;
+    if (!shouldInitiate) {
+      if (shouldCloseSuccess) {
+        await this.handleRefundSuccess(refund.id, refund.providerRefundId ?? null);
+      }
+      return refund;
+    }
 
     let result: { success: boolean; providerRefundId?: string; message: string };
     try {
@@ -170,9 +178,6 @@ export class AfterSaleRefundService {
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
-        if (refund.status === 'REFUNDED') {
-          return null;
-        }
         if (!refund.afterSaleId) {
           throw new BadRequestException('退款单未关联售后申请');
         }
@@ -182,22 +187,24 @@ export class AfterSaleRefundService {
         });
         if (!request) throw new NotFoundException('售后单不存在');
 
-        await tx.refund.update({
-          where: { id: refundId },
-          data: {
-            status: 'REFUNDED',
-            providerRefundId: providerRefundId ?? refund.providerRefundId ?? undefined,
-          },
-        });
-        await tx.refundStatusHistory.create({
-          data: {
-            refundId,
-            fromStatus: refund.status,
-            toStatus: 'REFUNDED',
-            remark: '售后退款成功',
-            operatorId: 'AFTER_SALE_REFUND_SERVICE',
-          },
-        });
+        if (refund.status !== 'REFUNDED') {
+          await tx.refund.update({
+            where: { id: refundId },
+            data: {
+              status: 'REFUNDED',
+              providerRefundId: providerRefundId ?? refund.providerRefundId ?? undefined,
+            },
+          });
+          await tx.refundStatusHistory.create({
+            data: {
+              refundId,
+              fromStatus: refund.status,
+              toStatus: 'REFUNDED',
+              remark: '售后退款成功',
+              operatorId: 'AFTER_SALE_REFUND_SERVICE',
+            },
+          });
+        }
 
         if (request.status !== 'REFUNDED') {
           await tx.afterSaleRequest.update({

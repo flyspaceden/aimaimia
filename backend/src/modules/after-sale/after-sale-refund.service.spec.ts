@@ -56,6 +56,7 @@ describe('AfterSaleRefundService', () => {
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
       orderId: 'order_001',
+      userId: 'user_001',
       status: 'RECEIVED_BY_SELLER',
       refundAmount: 88,
       reason: '质量问题',
@@ -80,6 +81,7 @@ describe('AfterSaleRefundService', () => {
     tx.afterSaleRequest.update.mockResolvedValue({
       id: 'as_001',
       orderId: 'order_001',
+      userId: 'user_001',
       status: 'REFUNDING',
       refundId: 'refund_001',
     });
@@ -172,6 +174,7 @@ describe('AfterSaleRefundService', () => {
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
       orderId: 'order_001',
+      userId: 'user_001',
       status: 'REFUNDING',
       refundAmount: 88,
       refundId: 'refund_001',
@@ -205,20 +208,115 @@ describe('AfterSaleRefundService', () => {
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 
-  it('handleRefundSuccess is idempotent when refund is already REFUNDED', async () => {
+  it('handleRefundSuccess closes after-sale when refund is already REFUNDED but request is still REFUNDING', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
       afterSaleId: 'as_001',
       orderId: 'order_001',
+      amount: 88,
       status: 'REFUNDED',
       providerRefundId: 'provider_existing',
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
     });
 
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
     expect(tx.refund.update).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'as_001' },
+      data: expect.objectContaining({
+        status: 'REFUNDED',
+        refundId: 'refund_001',
+      }),
+    }));
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledTimes(1);
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
+  });
+
+  it('handleRefundSuccess does nothing when refund and after-sale are already REFUNDED', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDED',
+      providerRefundId: 'provider_existing',
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDED',
+      refundAmount: 88,
+      refundId: 'refund_001',
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(tx.refund.update).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
     expect(tx.afterSaleStatusHistory.create).not.toHaveBeenCalled();
     expect(rewardService.voidRewardsForOrder).not.toHaveBeenCalled();
+  });
+
+  it('startRefund routes existing REFUNDED refund through success closure', async () => {
+    tx.refund.findUnique
+      .mockResolvedValueOnce({
+        id: 'refund_001',
+        afterSaleId: 'as_001',
+        orderId: 'order_001',
+        amount: 88,
+        status: 'REFUNDED',
+        merchantRefundNo: 'AS-as_001',
+        providerRefundId: 'provider_existing',
+      })
+      .mockResolvedValueOnce({
+        id: 'refund_001',
+        afterSaleId: 'as_001',
+        orderId: 'order_001',
+        amount: 88,
+        status: 'REFUNDED',
+        merchantRefundNo: 'AS-as_001',
+        providerRefundId: 'provider_existing',
+      });
+    tx.refund.upsert.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'REFUNDED',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: 'provider_existing',
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      reason: '质量问题',
+    });
+
+    await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        afterSaleId: 'as_001',
+        fromStatus: 'REFUNDING',
+        toStatus: 'REFUNDED',
+      }),
+    }));
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
 
   it('retryRefund uses refund-retry advisory lock and 30-second throttle through RefundStatusHistory', async () => {
