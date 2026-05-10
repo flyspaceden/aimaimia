@@ -44,6 +44,23 @@ const REPLACEMENT_REASON_LABELS: Record<string, string> = {
 const DEFAULT_FREE_THRESHOLD = 99; // 满 99 免运费（兜底值，仅 ShippingRuleService 不可用时使用）
 const DEFAULT_BASE_FEE = 8;        // 基础运费 8 元
 
+const ORDER_AFTER_SALE_SUMMARY_SELECT = {
+  id: true,
+  status: true,
+  afterSaleType: true,
+  reason: true,
+  reasonType: true,
+  requiresReturn: true,
+  refundAmount: true,
+  returnShippingPayer: true,
+  returnCarrierName: true,
+  returnWaybillNo: true,
+  returnSfOrderId: true,
+  shippingPayment: {
+    select: { status: true },
+  },
+} as const;
+
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
@@ -366,7 +383,7 @@ export class OrderService {
           afterSaleRequests: {
             orderBy: { createdAt: 'desc' },
             take: 1,
-            select: { status: true, reason: true, afterSaleType: true, reasonType: true },
+            select: ORDER_AFTER_SALE_SUMMARY_SELECT,
           },
           refunds: {
             orderBy: { createdAt: 'desc' },
@@ -464,7 +481,7 @@ export class OrderService {
             afterSaleRequests: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { status: true, reason: true, afterSaleType: true, reasonType: true },
+              select: ORDER_AFTER_SALE_SUMMARY_SELECT,
             },
             refunds: {
               orderBy: { createdAt: 'desc' },
@@ -497,7 +514,7 @@ export class OrderService {
             afterSaleRequests: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { status: true, reason: true, afterSaleType: true, reasonType: true },
+              select: ORDER_AFTER_SALE_SUMMARY_SELECT,
             },
             refunds: {
               orderBy: { createdAt: 'desc' },
@@ -539,7 +556,11 @@ export class OrderService {
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: { orderBy: { createdAt: 'desc' }, take: 1 },
         refunds: { orderBy: { createdAt: 'desc' }, take: 1 },
-        afterSaleRequests: { orderBy: { createdAt: 'desc' }, take: 1 },
+        afterSaleRequests: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: ORDER_AFTER_SALE_SUMMARY_SELECT,
+        },
         shipments: { include: { trackingEvents: { orderBy: { occurredAt: 'desc' } } }, orderBy: { createdAt: 'asc' } },
       },
     });
@@ -2046,6 +2067,7 @@ export class OrderService {
       // 统一售后系统
       const typeMap: Record<string, 'return' | 'exchange'> = {
         NO_REASON_RETURN: 'return',
+        NO_REASON_EXCHANGE: 'exchange',
         QUALITY_RETURN: 'return',
         QUALITY_EXCHANGE: 'exchange',
       };
@@ -2059,6 +2081,23 @@ export class OrderService {
       afterSaleReason = refund.reason;
     }
 
+    const activeAfterSale = afterSaleReq;
+    const returnShippingPayer = activeAfterSale
+      ? activeAfterSale.returnShippingPayer ??
+        (activeAfterSale.afterSaleType === 'NO_REASON_RETURN' ||
+        activeAfterSale.afterSaleType === 'NO_REASON_EXCHANGE'
+          ? 'BUYER'
+          : 'SELLER')
+      : undefined;
+    const isLegacyManualReturnShipping = activeAfterSale
+      ? Boolean(activeAfterSale.returnWaybillNo && !activeAfterSale.returnSfOrderId)
+      : false;
+    const returnShippingPaymentStatus = activeAfterSale
+      ? isLegacyManualReturnShipping
+        ? 'NOT_REQUIRED'
+        : activeAfterSale.shippingPayment?.status || 'NOT_REQUIRED'
+      : undefined;
+
     return {
       id: order.id,
       status: frontStatus,
@@ -2066,6 +2105,26 @@ export class OrderService {
       afterSaleStatus,
       afterSaleReason,
       afterSaleType,
+      afterSaleSummary: activeAfterSale
+        ? {
+            id: activeAfterSale.id,
+            status: activeAfterSale.status,
+            type: activeAfterSale.afterSaleType,
+            requiresReturn: activeAfterSale.requiresReturn,
+            refundAmount: activeAfterSale.refundAmount,
+            returnShippingPayer,
+            returnShippingCostNote:
+              returnShippingPayer === 'SELLER'
+                ? '质量售后退货运费由商家承担，平台生成顺丰面单，不进入本次退款金额'
+                : undefined,
+            isLegacyManualReturnShipping,
+            requiresBuyerShippingPayment:
+              activeAfterSale.requiresReturn &&
+              returnShippingPayer === 'BUYER' &&
+              returnShippingPaymentStatus !== 'PAID',
+            returnShippingPaymentStatus,
+          }
+        : null,
       refundSummary: this.mapRefundSummary(refund),
       returnWindowExpiresAt: order.returnWindowExpiresAt?.toISOString() || null,
       totalPrice: order.totalAmount,
