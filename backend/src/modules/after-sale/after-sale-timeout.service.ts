@@ -235,11 +235,21 @@ export class AfterSaleTimeoutService {
 
     for (const request of candidates) {
       try {
-        await this.autoCancelBuyerShip(request.id);
+        const outcome = await this.autoCancelBuyerShip(request.id);
         successCount++;
-        this.logger.log(
-          `买家寄回超时自动关闭：售后 ${request.id}，订单 ${request.orderId}`,
-        );
+        if (outcome === 'CLOSED') {
+          this.logger.log(
+            `买家寄回超时自动关闭：售后 ${request.id}，订单 ${request.orderId}`,
+          );
+        } else if (outcome === 'MANUAL_REVIEW') {
+          this.logger.log(
+            `买家寄回超时已标记人工复核：售后 ${request.id}，订单 ${request.orderId}`,
+          );
+        } else {
+          this.logger.log(
+            `买家寄回超时跳过处理：售后 ${request.id}，订单 ${request.orderId}`,
+          );
+        }
       } catch (err) {
         failCount++;
         this.logger.error(
@@ -253,7 +263,9 @@ export class AfterSaleTimeoutService {
     );
   }
 
-  private async autoCancelBuyerShip(id: string): Promise<void> {
+  private async autoCancelBuyerShip(
+    id: string,
+  ): Promise<'CLOSED' | 'MANUAL_REVIEW' | 'SKIPPED'> {
     const request = await this.prisma.afterSaleRequest.findUnique({
       where: { id },
       select: {
@@ -266,19 +278,25 @@ export class AfterSaleTimeoutService {
         returnShippingPaidAt: true,
       },
     });
-    if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) return;
+    if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) {
+      return 'SKIPPED';
+    }
 
     const buyerPaidShippingUnpaid =
       request.returnShippingPayer === 'BUYER' &&
       !request.returnShippingFeeDeducted &&
       request.returnShippingPaidAt == null;
+    const buyerPaidShippingPaid =
+      request.returnShippingPayer === 'BUYER' &&
+      !request.returnShippingFeeDeducted &&
+      request.returnShippingPaidAt != null;
 
     if (
       request.status === 'RETURN_SHIPPING' &&
       request.returnWaybillNo &&
       !request.returnSfOrderId
     ) {
-      return;
+      return 'SKIPPED';
     }
 
     if (request.returnWaybillNo && request.returnSfOrderId && !buyerPaidShippingUnpaid) {
@@ -288,24 +306,30 @@ export class AfterSaleTimeoutService {
           id,
           '退货面单未揽收，售后关闭退还运费',
         );
-        await this.closeBuyerShipTimeout(id);
-        return;
+        return await this.closeBuyerShipTimeout(id) ? 'CLOSED' : 'SKIPPED';
       }
 
       await this.markBuyerShipTimeoutManualReview(
         id,
         `买家寄回超时但退货面单取消失败（${cancelResult.reason}），需人工核查是否已揽收`,
       );
-      return;
+      return 'MANUAL_REVIEW';
     }
 
-    await this.closeBuyerShipTimeout(id);
+    if (!request.returnWaybillNo && buyerPaidShippingPaid) {
+      await this.afterSaleShippingPaymentService.refundShippingPayment(
+        id,
+        '买家超时未生成退货面单，售后关闭退还运费',
+      );
+    }
+
+    return await this.closeBuyerShipTimeout(id) ? 'CLOSED' : 'SKIPPED';
   }
 
-  private async closeBuyerShipTimeout(id: string): Promise<void> {
+  private async closeBuyerShipTimeout(id: string): Promise<boolean> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(
+        return await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
@@ -313,7 +337,7 @@ export class AfterSaleTimeoutService {
             });
             if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) {
               this.logger.log(`售后 ${id} 已非可关闭状态，跳过`);
-              return;
+              return false;
             }
 
             const cas = await tx.afterSaleRequest.updateMany({
@@ -322,7 +346,7 @@ export class AfterSaleTimeoutService {
             });
             if (cas.count === 0) {
               this.logger.log(`售后 ${id} 状态已变更，跳过`);
-              return;
+              return false;
             }
             await this.afterSaleStatusHistory.create(tx, {
               afterSaleId: id,
@@ -331,13 +355,13 @@ export class AfterSaleTimeoutService {
               reason: '买家寄回超时，系统自动关闭',
               operatorType: AfterSaleOperatorType.SYSTEM,
             });
+            return true;
           },
           {
             timeout: 10000,
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           },
         );
-        return;
       } catch (err: any) {
         if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -348,6 +372,7 @@ export class AfterSaleTimeoutService {
         throw err;
       }
     }
+    return false;
   }
 
   private async markBuyerShipTimeoutManualReview(

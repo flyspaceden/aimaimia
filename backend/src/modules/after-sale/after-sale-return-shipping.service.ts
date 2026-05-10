@@ -17,12 +17,13 @@ import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.s
 
 type Tx = Prisma.TransactionClient;
 
-type ReturnWaybillResult = {
-  carrierCode: string;
-  carrierName: string;
-  waybillNo: string;
-  waybillUrl: string;
-  sfOrderId?: string;
+type ReturnWaybillContext = {
+  companyId: string;
+  sender: CarrierWaybillAddress;
+  receiver: CarrierWaybillAddress;
+  items: Array<{ name: string; quantity: number; weight?: number }>;
+  returnShippingFee: number;
+  returnShippingPayer: string | null;
 };
 
 @Injectable()
@@ -41,33 +42,29 @@ export class AfterSaleReturnShippingService {
   async createReturnWaybill(userId: string, afterSaleId: string) {
     const estimatedReturnShippingFee =
       await this.afterSaleShippingPaymentService.estimateReturnShippingFee(afterSaleId);
-    let createdWaybill: ReturnWaybillResult | null = null;
+    const context = await this.prisma.$transaction(async (tx) => {
+      await this.acquireReturnWaybillLock(tx, afterSaleId);
 
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        await this.acquireReturnWaybillLock(tx, afterSaleId);
-
-        const request = await tx.afterSaleRequest.findFirst({
-          where: { id: afterSaleId, userId },
-          include: {
-            order: {
-              select: {
-                id: true,
-                addressSnapshot: true,
-                items: {
-                  include: {
-                    sku: {
-                      include: {
-                        product: {
-                          include: {
-                            company: {
-                              select: {
-                                id: true,
-                                name: true,
-                                servicePhone: true,
-                                address: true,
-                                contact: true,
-                              },
+      const request = await tx.afterSaleRequest.findFirst({
+        where: { id: afterSaleId, userId },
+        include: {
+          order: {
+            select: {
+              id: true,
+              addressSnapshot: true,
+              items: {
+                include: {
+                  sku: {
+                    include: {
+                      product: {
+                        include: {
+                          company: {
+                            select: {
+                              id: true,
+                              name: true,
+                              servicePhone: true,
+                              address: true,
+                              contact: true,
                             },
                           },
                         },
@@ -77,20 +74,20 @@ export class AfterSaleReturnShippingService {
                 },
               },
             },
-            orderItem: {
-              include: {
-                sku: {
-                  include: {
-                    product: {
-                      include: {
-                        company: {
-                          select: {
-                            id: true,
-                            name: true,
-                            servicePhone: true,
-                            address: true,
-                            contact: true,
-                          },
+          },
+          orderItem: {
+            include: {
+              sku: {
+                include: {
+                  product: {
+                    include: {
+                      company: {
+                        select: {
+                          id: true,
+                          name: true,
+                          servicePhone: true,
+                          address: true,
+                          contact: true,
                         },
                       },
                     },
@@ -99,39 +96,50 @@ export class AfterSaleReturnShippingService {
               },
             },
           },
-        });
+        },
+      });
 
-        if (!request) throw new NotFoundException('售后申请不存在');
-        this.assertCanCreateReturnWaybill(request);
+      if (!request) throw new NotFoundException('售后申请不存在');
+      this.assertCanCreateReturnWaybill(request);
 
-        const returnItems = this.resolveReturnItems(request);
-        const company = returnItems[0].sku.product.company;
-        const companyId = company.id;
-        const sender = this.parseBuyerAddress(request.order.addressSnapshot);
-        const receiver = this.buildCompanyReturnReceiver(company);
-        const items = returnItems.map((item: any) => ({
-          name: item.sku?.product?.title || '退货商品',
-          quantity: item.quantity,
-          weight:
-            item.sku?.weightGram && item.sku.weightGram > 0
-              ? (item.sku.weightGram * item.quantity) / 1000
-              : undefined,
-        }));
+      const returnItems = this.resolveReturnItems(request);
+      const company = returnItems[0].sku.product.company;
+      const sender = this.parseBuyerAddress(request.order.addressSnapshot);
+      const receiver = this.buildCompanyReturnReceiver(company);
+      const items = returnItems.map((item: any) => ({
+        name: item.sku?.product?.title || '退货商品',
+        quantity: item.quantity,
+        weight:
+          item.sku?.weightGram && item.sku.weightGram > 0
+            ? (item.sku.weightGram * item.quantity) / 1000
+            : undefined,
+      }));
 
-        const waybill = await this.sellerShippingService.createCarrierWaybillWithAddresses({
-          companyId,
-          bizNo: this.getReturnWaybillBizNo(afterSaleId),
-          carrierCode: 'SF',
-          sender,
-          receiver,
-          items,
-        });
-        createdWaybill = waybill;
-
-        const returnShippingFee = request.returnShippingFee == null
+      return {
+        companyId: company.id,
+        sender,
+        receiver,
+        items,
+        returnShippingFee: request.returnShippingFee == null
           ? estimatedReturnShippingFee
-          : request.returnShippingFee;
-        const now = new Date();
+          : request.returnShippingFee,
+        returnShippingPayer: request.returnShippingPayer,
+      } satisfies ReturnWaybillContext;
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    const waybill = await this.sellerShippingService.createCarrierWaybillWithAddresses({
+      companyId: context.companyId,
+      bizNo: this.getReturnWaybillBizNo(afterSaleId),
+      carrierCode: 'SF',
+      sender: context.sender,
+      receiver: context.receiver,
+      items: context.items,
+    });
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
         const cas = await tx.afterSaleRequest.updateMany({
           where: {
             id: afterSaleId,
@@ -147,9 +155,9 @@ export class AfterSaleReturnShippingService {
             returnWaybillUrl: waybill.waybillUrl,
             returnLabelUrl: waybill.waybillUrl,
             returnSfOrderId: waybill.sfOrderId,
-            returnShippingFee,
-            returnShippingPayer: request.returnShippingPayer,
-            returnShippedAt: now,
+            returnShippingFee: context.returnShippingFee,
+            returnShippingPayer: context.returnShippingPayer,
+            returnShippedAt: new Date(),
           },
         });
 
@@ -171,28 +179,32 @@ export class AfterSaleReturnShippingService {
             sfOrderId: waybill.sfOrderId ?? null,
           },
         });
-
-        return {
-          ok: true,
-          carrierCode: waybill.carrierCode,
-          carrierName: waybill.carrierName,
-          waybillNo: waybill.waybillNo,
-          waybillUrl: waybill.waybillUrl,
-          returnLabelUrl: waybill.waybillUrl,
-        };
       }, {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       });
     } catch (err) {
-      const waybillToCancel = createdWaybill as ReturnWaybillResult | null;
-      if (waybillToCancel) {
-        await this.sellerShippingService.cancelCarrierWaybill(
-          waybillToCancel.sfOrderId ?? '',
-          waybillToCancel.waybillNo,
+      try {
+        await this.sellerShippingService.cancelCarrierWaybillStrict(
+          waybill.sfOrderId ?? '',
+          waybill.waybillNo,
+        );
+      } catch {
+        await this.markReturnWaybillManualReview(
+          afterSaleId,
+          `退货面单已生成但本地状态更新失败，且自动取消面单失败，需人工处理：waybillNo=${waybill.waybillNo}, sfOrderId=${waybill.sfOrderId ?? ''}`,
         );
       }
       throw err;
     }
+
+    return {
+      ok: true,
+      carrierCode: waybill.carrierCode,
+      carrierName: waybill.carrierName,
+      waybillNo: waybill.waybillNo,
+      waybillUrl: waybill.waybillUrl,
+      returnLabelUrl: waybill.waybillUrl,
+    };
   }
 
   async cancelIfNotPickedUp(afterSaleId: string): Promise<
@@ -206,11 +218,34 @@ export class AfterSaleReturnShippingService {
         status: true,
         returnWaybillNo: true,
         returnSfOrderId: true,
+        manualReviewRequestedAt: true,
       },
     });
 
     if (!request?.returnWaybillNo) {
       return { cancelled: false, reason: 'NO_WAYBILL' };
+    }
+
+    const marker =
+      `退货面单自动取消中：waybillNo=${request.returnWaybillNo}, sfOrderId=${request.returnSfOrderId ?? ''}`;
+    const reserved = await this.prisma.$transaction(
+      (tx) => tx.afterSaleRequest.updateMany({
+        where: {
+          id: afterSaleId,
+          status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+          returnWaybillNo: request.returnWaybillNo,
+          returnSfOrderId: request.returnSfOrderId,
+        },
+        data: {
+          manualReviewReason: marker,
+          manualReviewRequestedAt: request.manualReviewRequestedAt ?? new Date(),
+        },
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    if (reserved.count === 0) {
+      return { cancelled: false, reason: 'STATE_CHANGED' };
     }
 
     try {
@@ -219,6 +254,10 @@ export class AfterSaleReturnShippingService {
         request.returnWaybillNo,
       );
     } catch {
+      await this.markReturnWaybillManualReview(
+        afterSaleId,
+        `退货面单自动取消失败，需人工核查是否已揽收：waybillNo=${request.returnWaybillNo}, sfOrderId=${request.returnSfOrderId ?? ''}`,
+      );
       return { cancelled: false, reason: 'CANCEL_FAILED' };
     }
 
@@ -228,6 +267,8 @@ export class AfterSaleReturnShippingService {
           id: afterSaleId,
           status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
           returnWaybillNo: request.returnWaybillNo,
+          returnSfOrderId: request.returnSfOrderId,
+          manualReviewReason: marker,
         },
         data: {
           returnCarrierCode: null,
@@ -237,12 +278,18 @@ export class AfterSaleReturnShippingService {
           returnLabelUrl: null,
           returnSfOrderId: null,
           returnShippedAt: null,
+          manualReviewReason: null,
+          manualReviewRequestedAt: null,
         },
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     if (cas.count === 0) {
+      await this.markReturnWaybillManualReview(
+        afterSaleId,
+        `远端退货面单已取消但本地状态已变更，需人工核查本地售后状态：waybillNo=${request.returnWaybillNo}, sfOrderId=${request.returnSfOrderId ?? ''}`,
+      );
       return { cancelled: false, reason: 'STATE_CHANGED' };
     }
 
@@ -297,6 +344,9 @@ export class AfterSaleReturnShippingService {
           : addressSnapshot,
       );
     } catch {
+      throw new BadRequestException('订单地址信息格式错误，无法生成退货面单');
+    }
+    if (!addr || typeof addr !== 'object' || Array.isArray(addr)) {
       throw new BadRequestException('订单地址信息格式错误，无法生成退货面单');
     }
 
@@ -356,5 +406,21 @@ export class AfterSaleReturnShippingService {
         hashtext(${afterSaleId})
       )
     `;
+  }
+
+  private async markReturnWaybillManualReview(
+    afterSaleId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(
+      (tx) => tx.afterSaleRequest.updateMany({
+        where: { id: afterSaleId },
+        data: {
+          manualReviewReason: reason,
+          manualReviewRequestedAt: new Date(),
+        },
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 }

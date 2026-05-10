@@ -126,6 +126,45 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     );
   });
 
+  it('refunds buyer-paid shipping before closing APPROVED no-waybill timeout', async () => {
+    const {
+      service,
+      prisma,
+      tx,
+      statusHistory,
+      shippingPaymentService,
+    } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      { id: AFTER_SALE_ID, orderId: ORDER_ID },
+    ]);
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      status: 'APPROVED',
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+      returnShippingPayer: 'BUYER',
+      returnShippingFeeDeducted: false,
+      returnShippingPaidAt: new Date('2026-05-09T10:30:00.000Z'),
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'APPROVED' });
+
+    await (service as any).handleBuyerShipTimeout();
+
+    expect(shippingPaymentService.refundShippingPayment).toHaveBeenCalledWith(
+      AFTER_SALE_ID,
+      '买家超时未生成退货面单，售后关闭退还运费',
+    );
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: AFTER_SALE_ID, status: 'APPROVED' },
+      data: { status: 'CLOSED' },
+    });
+    expect(statusHistory.create).toHaveBeenCalledWith(tx, expect.objectContaining({
+      afterSaleId: AFTER_SALE_ID,
+      fromStatus: 'APPROVED',
+      toStatus: 'CLOSED',
+    }));
+  });
+
   it('cancels stale RETURN_SHIPPING generated waybill, refunds shipping payment, and closes to CLOSED', async () => {
     const {
       service,
