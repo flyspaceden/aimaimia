@@ -263,7 +263,7 @@ export default function AfterSaleListPage() {
           )}
           {record.status === 'RECEIVED_BY_SELLER' && isReturnType(record.afterSaleType) && (
             <>
-              <a onClick={() => handleApprove(record.id)} style={{ color: '#52c41a' }}>验收通过</a>
+              <span style={{ color: '#1677ff' }}>退款处理中</span>
               <a
                 onClick={() => {
                   setRejectReturnModal({ open: true, id: record.id });

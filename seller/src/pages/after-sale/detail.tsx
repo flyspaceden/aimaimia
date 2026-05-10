@@ -401,7 +401,7 @@ export default function AfterSaleDetailPage() {
           )}
           {afterSale.status === 'RECEIVED_BY_SELLER' && isReturn && (
             <>
-              <Button type="primary" onClick={handleApprove}>验收通过</Button>
+              <Tag color="processing">已签收，系统将进入退款处理</Tag>
               <Button
                 danger
                 onClick={() => {
