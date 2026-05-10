@@ -5,7 +5,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -17,6 +17,7 @@ import { SellerShippingService } from '../shipping/seller-shipping.service';
 import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
 import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
+import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -38,6 +39,7 @@ export class SellerAfterSaleService {
     private afterSaleRewardService: AfterSaleRewardService,
     private inboxService: InboxService,
     private afterSaleRefundService: AfterSaleRefundService,
+    private afterSaleStatusHistory: AfterSaleStatusHistoryService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -316,7 +318,6 @@ export class SellerAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        let shouldStartRefund = false;
         const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
@@ -348,11 +349,20 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'UNDER_REVIEW',
+              reason: '卖家开始审核',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -428,6 +438,14 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'APPROVED',
+              reason: note || '卖家审核通过',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             // 无需退回商品 + 退货退款类型 → 自动触发退款
             if (
@@ -477,7 +495,6 @@ export class SellerAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        let shouldStartRefund = false;
         const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
@@ -516,11 +533,20 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'REJECTED',
+              reason,
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -584,6 +610,14 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'RECEIVED_BY_SELLER',
+              reason: '卖家确认收到退货',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             // 退货退款类型 → 自动触发退款
             if (
@@ -668,6 +702,14 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'SELLER_REJECTED_RETURN',
+              reason,
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
@@ -743,6 +785,15 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'REPLACEMENT_SHIPPED',
+              reason: '卖家发出换货商品',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+              meta: { replacementWaybillNo: request.replacementWaybillNo },
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },

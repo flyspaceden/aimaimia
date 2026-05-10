@@ -4,21 +4,25 @@ import { AfterSaleRefundService } from './after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 
 const hasRealDatabaseUrl =
-  !!process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('user:pass');
+  process.env.RUN_DB_CONCURRENCY_TESTS === '1' &&
+  !!process.env.DATABASE_URL &&
+  !process.env.DATABASE_URL.includes('user:pass') &&
+  /(?:test|nongmai_test)/i.test(process.env.DATABASE_URL);
 
-// DB-backed concurrency coverage. Skipped only when no real test database is configured.
+// DB-backed concurrency coverage. Skipped unless explicitly enabled against a test database.
 const describeDb = hasRealDatabaseUrl ? describe : describe.skip;
 
 describeDb('AfterSaleRefundService DB concurrency', () => {
   let prisma: PrismaService;
   let service: AfterSaleRefundService;
+  let paymentService: { initiateRefund: jest.Mock };
   const createdPrefixes: string[] = [];
 
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.onModuleInit();
 
-    const paymentService = {
+    paymentService = {
       initiateRefund: jest.fn().mockResolvedValue({
         success: true,
         providerRefundId: 'provider_as_concurrent',
@@ -59,7 +63,7 @@ describeDb('AfterSaleRefundService DB concurrency', () => {
 
     await Promise.all(
       Array.from({ length: 5 }, () =>
-        service.startRefund(afterSale.id, { type: AfterSaleOperatorType.SYSTEM }).catch((err) => err),
+        service.startRefund(afterSale.id, { type: AfterSaleOperatorType.SYSTEM }),
       ),
     );
 
@@ -67,6 +71,7 @@ describeDb('AfterSaleRefundService DB concurrency', () => {
       where: { merchantRefundNo: `AS-${afterSale.id}` },
     });
     expect(refunds).toHaveLength(1);
+    expect(paymentService.initiateRefund).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -68,6 +68,7 @@ export class AfterSaleRefundService {
         const created = await this.createOrGetRefundInTx(tx, afterSaleId);
         const { request, refund } = created;
         const fromStatus = request.status;
+        let acquiredProviderLease = false;
 
         if (refund.status === 'REFUNDED') {
           return {
@@ -81,6 +82,7 @@ export class AfterSaleRefundService {
         }
 
         if (created.wasCreated) {
+          acquiredProviderLease = true;
           await tx.refundStatusHistory.create({
             data: {
               refundId: refund.id,
@@ -91,19 +93,22 @@ export class AfterSaleRefundService {
             },
           });
         } else if (refund.status === 'FAILED') {
-          await tx.refund.update({
-            where: { id: refund.id },
+          const retryLease = await tx.refund.updateMany({
+            where: { id: refund.id, status: 'FAILED' },
             data: { status: 'REFUNDING' },
           });
-          await tx.refundStatusHistory.create({
-            data: {
-              refundId: refund.id,
-              fromStatus: 'FAILED',
-              toStatus: 'REFUNDING',
-              remark: '售后退款重新发起',
-              operatorId: operator.id ?? operator.type,
-            },
-          });
+          if (retryLease.count > 0) {
+            acquiredProviderLease = true;
+            await tx.refundStatusHistory.create({
+              data: {
+                refundId: refund.id,
+                fromStatus: 'FAILED',
+                toStatus: 'REFUNDING',
+                remark: '售后退款重新发起',
+                operatorId: operator.id ?? operator.type,
+              },
+            });
+          }
         }
 
         await tx.afterSaleRequest.update({
@@ -131,7 +136,7 @@ export class AfterSaleRefundService {
           amount: request.refundAmount || 0,
           orderId: request.orderId,
           merchantRefundNo: created.merchantRefundNo,
-          shouldInitiate: true,
+          shouldInitiate: acquiredProviderLease,
           shouldCloseSuccess: false,
         };
       },
@@ -253,12 +258,13 @@ export class AfterSaleRefundService {
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
-        if (refund.status === 'FAILED') return;
+        if (refund.status === 'FAILED' || refund.status === 'REFUNDED') return;
 
-        await tx.refund.update({
-          where: { id: refundId },
+        const updated = await tx.refund.updateMany({
+          where: { id: refundId, status: 'REFUNDING' },
           data: { status: 'FAILED' },
         });
+        if (updated.count === 0) return;
         await tx.refundStatusHistory.create({
           data: {
             refundId,
@@ -352,6 +358,13 @@ export class AfterSaleRefundService {
     merchantRefundNo: string;
     wasCreated: boolean;
   }> {
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtext('after-sale-refund-start'),
+        hashtext(${afterSaleId})
+      )
+    `;
+
     const request = await tx.afterSaleRequest.findUnique({
       where: { id: afterSaleId },
       select: {

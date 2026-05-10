@@ -4,11 +4,12 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
 import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
+import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
@@ -39,6 +40,7 @@ export class AdminAfterSaleService {
     private afterSaleRewardService: AfterSaleRewardService,
     private inboxService: InboxService,
     private afterSaleRefundService: AfterSaleRefundService,
+    private afterSaleStatusHistory: AfterSaleStatusHistoryService,
   ) {}
 
   // ========== 列表查询 ==========
@@ -317,6 +319,14 @@ export class AdminAfterSaleService {
               if (cas.count === 0) {
                 throw new BadRequestException('该申请状态已变更，请刷新后重试');
               }
+              await this.afterSaleStatusHistory.create(tx, {
+                afterSaleId: id,
+                fromStatus: currentStatus,
+                toStatus: 'REJECTED',
+                reason: dto.reason,
+                operatorType: AfterSaleOperatorType.ADMIN,
+                operatorId: adminUserId,
+              });
               return tx.afterSaleRequest.findUnique({ where: { id } });
             }
 
@@ -350,6 +360,14 @@ export class AdminAfterSaleService {
                 if (cas.count === 0) {
                   throw new BadRequestException('该申请状态已变更，请刷新后重试');
                 }
+                await this.afterSaleStatusHistory.create(tx, {
+                  afterSaleId: id,
+                  fromStatus: currentStatus,
+                  toStatus: 'REFUNDING',
+                  reason: dto.reason,
+                  operatorType: AfterSaleOperatorType.ADMIN,
+                  operatorId: adminUserId,
+                });
                 shouldStartRefund = true;
               } else {
                 // 换货：APPROVED，等卖家发换货
@@ -367,6 +385,14 @@ export class AdminAfterSaleService {
                 if (cas.count === 0) {
                   throw new BadRequestException('该申请状态已变更，请刷新后重试');
                 }
+                await this.afterSaleStatusHistory.create(tx, {
+                  afterSaleId: id,
+                  fromStatus: currentStatus,
+                  toStatus: 'APPROVED',
+                  reason: dto.reason,
+                  operatorType: AfterSaleOperatorType.ADMIN,
+                  operatorId: adminUserId,
+                });
               }
             } else {
               // 场景1 & 场景3: 正常审批流程
@@ -384,6 +410,14 @@ export class AdminAfterSaleService {
               if (cas.count === 0) {
                 throw new BadRequestException('该申请状态已变更，请刷新后重试');
               }
+              await this.afterSaleStatusHistory.create(tx, {
+                afterSaleId: id,
+                fromStatus: currentStatus,
+                toStatus: 'APPROVED',
+                reason: dto.reason,
+                operatorType: AfterSaleOperatorType.ADMIN,
+                operatorId: adminUserId,
+              });
 
               // 无需退回 + 退货退款类型 → 自动触发退款
               const isReturnType =

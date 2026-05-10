@@ -352,10 +352,17 @@ export class PaymentService {
         const isAfterSaleRefund = claim.merchantRefundNo.startsWith('AS-');
         if (result.success) {
           if (isAfterSaleRefund && this.afterSaleRefundService) {
-            await this.afterSaleRefundService.handleRefundSuccess(
-              refund.id,
-              result.providerRefundId || null,
-            );
+            try {
+              await this.afterSaleRefundService.handleRefundSuccess(
+                refund.id,
+                result.providerRefundId || null,
+              );
+            } catch (closureErr: any) {
+              const closureMsg = sanitizeStringForLog(closureErr?.message || 'UNKNOWN', { maxStringLength: 256 });
+              this.logger.error(
+                `AS 退款渠道已成功但售后闭环失败: refundId=${this.maskBizId(refund.id)}, error=${closureMsg}`,
+              );
+            }
             continue;
           }
           await this.updateAutoRefundRecord({

@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleRefundService } from './after-sale-refund.service';
+import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { InboxService } from '../inbox/inbox.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
@@ -34,6 +35,7 @@ export class AfterSaleTimeoutService {
     private afterSaleRewardService: AfterSaleRewardService,
     private inboxService: InboxService,
     private afterSaleRefundService: AfterSaleRefundService,
+    private afterSaleStatusHistory: AfterSaleStatusHistoryService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -140,6 +142,13 @@ export class AfterSaleTimeoutService {
               this.logger.log(`售后 ${request.id} 已非待审核状态，跳过`);
               return;
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: request.id,
+              fromStatus: request.status as any,
+              toStatus: 'APPROVED',
+              reason: '卖家审核超时，系统自动同意',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
 
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
@@ -235,7 +244,15 @@ export class AfterSaleTimeoutService {
             });
             if (cas.count === 0) {
               this.logger.log(`售后 ${id} 已非 APPROVED 状态，跳过`);
+              return;
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: 'APPROVED',
+              toStatus: 'CANCELED',
+              reason: '买家寄回超时，系统自动关闭',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
           },
           {
             timeout: 10000,
@@ -338,6 +355,13 @@ export class AfterSaleTimeoutService {
               this.logger.log(`售后 ${request.id} 已非 RETURN_SHIPPING 状态，跳过`);
               return;
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: request.id,
+              fromStatus: 'RETURN_SHIPPING',
+              toStatus: 'RECEIVED_BY_SELLER',
+              reason: '卖家签收超时，系统自动签收',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
 
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
@@ -442,6 +466,13 @@ export class AfterSaleTimeoutService {
               this.logger.log(`售后 ${request.id} 已非 REPLACEMENT_SHIPPED 状态，跳过`);
               return;
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: request.id,
+              fromStatus: 'REPLACEMENT_SHIPPED',
+              toStatus: 'COMPLETED',
+              reason: '买家确认收货超时，系统自动完成售后',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
 
             // 记录售后完成事件
             const order = await tx.order.findUnique({

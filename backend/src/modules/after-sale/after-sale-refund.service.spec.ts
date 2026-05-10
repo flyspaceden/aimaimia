@@ -111,6 +111,18 @@ describe('AfterSaleRefundService', () => {
   });
 
   it('startRefund/createOrGetRefund uses stable AS-afterSaleId merchantRefundNo and upserts by merchantRefundNo', async () => {
+    tx.refund.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'refund_001',
+        orderId: 'order_001',
+        afterSaleId: 'as_001',
+        amount: 88,
+        status: 'REFUNDING',
+        merchantRefundNo: 'AS-as_001',
+        providerRefundId: null,
+      });
+
     await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
 
     expect(tx.refund.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -135,6 +147,47 @@ describe('AfterSaleRefundService', () => {
     );
   });
 
+  it('startRefund does not call provider again for an existing REFUNDING refund', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: null,
+    });
+    tx.refund.upsert.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      reason: '质量问题',
+    });
+
+    await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+    expect(tx.afterSaleRequest.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'as_001' },
+      data: expect.objectContaining({
+        status: 'REFUNDING',
+        refundId: 'refund_001',
+      }),
+    }));
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
+  });
+
   it('handleRefundFailure sets Refund FAILED and keeps AfterSaleRequest out of FAILED', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
@@ -145,8 +198,8 @@ describe('AfterSaleRefundService', () => {
 
     await service.handleRefundFailure('refund_001', '支付宝失败');
 
-    expect(tx.refund.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'refund_001' },
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'REFUNDING' },
       data: expect.objectContaining({ status: 'FAILED' }),
     }));
     expect(tx.refundStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -160,6 +213,21 @@ describe('AfterSaleRefundService', () => {
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'FAILED' }),
     }));
+  });
+
+  it('handleRefundFailure does not downgrade a REFUNDED refund', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      status: 'REFUNDED',
+    });
+
+    await service.handleRefundFailure('refund_001', '迟到的失败回调');
+
+    expect(tx.refund.update).not.toHaveBeenCalled();
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(tx.refundStatusHistory.create).not.toHaveBeenCalled();
   });
 
   it('handleRefundSuccess sets REFUNDED statuses and creates AfterSaleStatusHistory once', async () => {

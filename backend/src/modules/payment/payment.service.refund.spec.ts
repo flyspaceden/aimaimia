@@ -120,4 +120,51 @@ describe('PaymentService.initiateRefund', () => {
     }));
     expect(service.initiateRefund).toHaveBeenCalledWith('o1', 65, 'AUTO-CANCEL-o1');
   });
+
+  it('AS 退款渠道成功后闭环异常不会把退款改回 FAILED', async () => {
+    const { service, prisma } = makeService();
+    const afterSaleRefundService = {
+      handleRefundSuccess: jest.fn().mockRejectedValue(new Error('closure failed')),
+      handleRefundFailure: jest.fn(),
+    };
+    service.setAfterSaleRefundService(afterSaleRefundService as any);
+    jest.spyOn(service, 'initiateRefund').mockResolvedValue({
+      success: true,
+      providerRefundId: 'provider_as_001',
+      message: 'OK',
+    });
+    prisma.refund.findMany.mockResolvedValue([{
+      id: 'r_as_1',
+      orderId: 'o1',
+      amount: 65,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      updatedAt: new Date(Date.now() - 600_000),
+    }]);
+    const claimTx = {
+      $executeRaw: jest.fn(),
+      refund: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'r_as_1',
+          status: 'REFUNDING',
+          orderId: 'o1',
+          amount: 65,
+          merchantRefundNo: 'AS-as_001',
+        }),
+      },
+      refundStatusHistory: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(claimTx));
+
+    await service.retryStaleAutoRefunds();
+
+    expect(afterSaleRefundService.handleRefundSuccess).toHaveBeenCalledWith(
+      'r_as_1',
+      'provider_as_001',
+    );
+    expect(afterSaleRefundService.handleRefundFailure).not.toHaveBeenCalled();
+  });
 });
