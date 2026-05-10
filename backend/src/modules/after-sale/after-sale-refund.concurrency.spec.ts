@@ -1,6 +1,7 @@
 import { AfterSaleOperatorType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AfterSaleRefundService } from './after-sale-refund.service';
+import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 
 const hasRealDatabaseUrl =
@@ -72,6 +73,29 @@ describeDb('AfterSaleRefundService DB concurrency', () => {
     });
     expect(refunds).toHaveLength(1);
     expect(paymentService.initiateRefund).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates one buyer return shipping payment when called concurrently for the same afterSaleId', async () => {
+    const prefix = `as_ship_pay_concurrent_${Date.now()}`;
+    createdPrefixes.push(prefix);
+    const afterSale = await seedBuyerPaidReturnShippingAfterSale(prisma, { id: prefix });
+    const shippingPaymentService = new AfterSaleShippingPaymentService(prisma);
+
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        shippingPaymentService.createOrGetPayment(afterSale.id),
+      ),
+    );
+
+    const payments = await prisma.afterSaleShippingPayment.findMany({
+      where: { merchantPaymentNo: `AS_SHIP_PAY_${afterSale.id}` },
+    });
+    expect(payments).toHaveLength(1);
+    expect(payments[0]).toEqual(expect.objectContaining({
+      afterSaleId: afterSale.id,
+      amount: 12.34,
+      status: 'UNPAID',
+    }));
   });
 });
 
@@ -155,6 +179,90 @@ async function seedRefundableAfterSale(
   });
 }
 
+async function seedBuyerPaidReturnShippingAfterSale(
+  prisma: PrismaService,
+  input: { id: string },
+) {
+  const userId = `${input.id}_user`;
+  const companyId = `${input.id}_company`;
+  const productId = `${input.id}_product`;
+  const skuId = `${input.id}_sku`;
+  const orderId = `${input.id}_order`;
+  const orderItemId = `${input.id}_item`;
+
+  await prisma.user.create({ data: { id: userId } });
+  await prisma.company.create({
+    data: {
+      id: companyId,
+      name: '并发测试企业',
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.product.create({
+    data: {
+      id: productId,
+      companyId,
+      title: '并发测试商品',
+      status: 'ACTIVE',
+      auditStatus: 'APPROVED',
+      basePrice: 88,
+    },
+  });
+  await prisma.productSKU.create({
+    data: {
+      id: skuId,
+      productId,
+      skuCode: `${input.id}_sku_code`,
+      title: '默认规格',
+      price: 88,
+      cost: 60,
+      stock: 10,
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.order.create({
+    data: {
+      id: orderId,
+      userId,
+      status: 'DELIVERED',
+      goodsAmount: 88,
+      totalAmount: 88,
+      shippingFee: 0,
+      deliveredAt: new Date(),
+    },
+  });
+  await prisma.orderItem.create({
+    data: {
+      id: orderItemId,
+      orderId,
+      skuId,
+      unitPrice: 88,
+      quantity: 1,
+      companyId,
+      productSnapshot: { title: '并发测试商品' },
+    },
+  });
+
+  return prisma.afterSaleRequest.create({
+    data: {
+      id: input.id,
+      orderId,
+      userId,
+      orderItemId,
+      afterSaleType: 'NO_REASON_EXCHANGE',
+      reason: '七天无理由换货',
+      photos: ['https://example.test/p.jpg'],
+      status: 'APPROVED',
+      requiresReturn: true,
+      refundAmount: 88,
+      approvedAt: new Date(),
+      returnShippingPayer: 'BUYER',
+      returnShippingFee: 12.34,
+      returnShippingFeeDeducted: false,
+    },
+  });
+}
+
 async function cleanupSeedData(prisma: PrismaService, prefix: string) {
   const refunds = await prisma.refund.findMany({
     where: { merchantRefundNo: { startsWith: `AS-${prefix}` } },
@@ -169,6 +277,9 @@ async function cleanupSeedData(prisma: PrismaService, prefix: string) {
   }
   await prisma.refund.deleteMany({
     where: { merchantRefundNo: { startsWith: `AS-${prefix}` } },
+  });
+  await prisma.afterSaleShippingPayment.deleteMany({
+    where: { afterSaleId: { startsWith: prefix } },
   });
   await prisma.afterSaleStatusHistory.deleteMany({
     where: { afterSaleId: { startsWith: prefix } },
