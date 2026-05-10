@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Timeline } from 'antd';
+import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { getOrder, retryRefund } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
@@ -122,6 +122,73 @@ export default function OrderDetailPage() {
   const hasDiscount = totalDiscount > 0;
   // 取首个 shipment 的发货时间作为订单维度的 shippedAt（1 Order = 1 Company）
   const shippedAt = order.shippedAt || shipments[0]?.shippedAt || null;
+  // 终态时间：从 statusHistory 找 CANCELED / REFUNDED 跃迁；没有就 fallback 到 updatedAt
+  const terminalTime = (() => {
+    if (isCanceled) {
+      const entry = order.statusHistory?.find((h) => h.toStatus === 'CANCELED');
+      return entry?.createdAt || order.updatedAt;
+    }
+    if (isRefunded) {
+      const entry = order.statusHistory?.find((h) => h.toStatus === 'REFUNDED');
+      return entry?.createdAt || order.refunds?.[0]?.createdAt || order.updatedAt;
+    }
+    return null;
+  })();
+  // 退款进行中（订单未 REFUNDED 但有 REFUNDING 退款单）—— 主线末尾追加橙色提示
+  const refundInProgress =
+    !isRefunded && (order.refunds?.some((r) => r.status === 'REFUNDING') ?? false);
+
+  // 主线节点：根据状态裁剪 + 终态节点
+  type TimelineNode = {
+    label: string;
+    time?: string | null;
+    status: 'finish' | 'wait' | 'error' | 'process';
+  };
+  const timelineNodes: TimelineNode[] = (() => {
+    const reached = (t?: string | null) => (t ? 'finish' : 'wait') as 'finish' | 'wait';
+    if (isCanceled) {
+      // 取消：保留下单 + 支付（支付前取消支付节点也用 wait）+ 已取消
+      return [
+        { label: '下单', time: order.createdAt, status: 'finish' },
+        { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+        { label: '已取消', time: terminalTime, status: 'error' },
+      ];
+    }
+    const main: TimelineNode[] = [
+      { label: '下单', time: order.createdAt, status: 'finish' },
+      { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+      { label: '发货', time: shippedAt, status: reached(shippedAt) },
+      { label: '送达', time: order.deliveredAt, status: reached(order.deliveredAt) },
+      { label: '收货', time: order.receivedAt, status: reached(order.receivedAt) },
+    ];
+    if (isRefunded) {
+      main.push({ label: '已退款', time: terminalTime, status: 'error' });
+    } else if (refundInProgress) {
+      main.push({ label: '退款处理中', time: undefined, status: 'process' });
+    }
+    return main;
+  })();
+
+  // 退货窗口剩余天数（用于提示标签）
+  const returnWindowInfo = (() => {
+    if (!order.returnWindowExpiresAt) return null;
+    if (order.bizType === 'VIP_PACKAGE') return null; // VIP 礼包不退
+    const expiresAt = dayjs(order.returnWindowExpiresAt);
+    const now = dayjs();
+    const expired = expiresAt.isBefore(now);
+    const daysLeft = expiresAt.diff(now, 'day');
+    return { expiresAt: order.returnWindowExpiresAt, expired, daysLeft };
+  })();
+
+  // 预计自动收货（仅未收货 + 未到期时提示，已收货后不再有意义）
+  const autoReceiveInfo = (() => {
+    if (!order.autoReceiveAt) return null;
+    if (order.receivedAt) return null;
+    if (isCanceled || isRefunded) return null;
+    const at = dayjs(order.autoReceiveAt);
+    if (at.isBefore(dayjs())) return null; // 已过期（按理已自动确认）
+    return order.autoReceiveAt;
+  })();
   const buildTreeLink = (path: '/bonus/vip-tree' | '/bonus/normal-tree') => {
     const params = new URLSearchParams({
       userId: order.userId,
@@ -263,39 +330,56 @@ export default function OrderDetailPage() {
 
       {/* 时间线（关键时间节点，售后争议时一目了然） */}
       <Card title="时间线" style={{ marginBottom: 16 }}>
-        <Timeline
-          mode="left"
-          items={[
-            { label: '下单', time: order.createdAt },
-            { label: '支付', time: order.paidAt },
-            { label: '发货', time: shippedAt },
-            { label: '送达', time: order.deliveredAt },
-            { label: '收货', time: order.receivedAt },
-            { label: '自动收货', time: order.autoReceiveAt },
-            { label: '退货窗口截止', time: order.returnWindowExpiresAt, deadline: true },
-          ].map((node) => {
-            const reached = !!node.time;
-            const labelColor = reached ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.35)';
-            const dotColor = node.deadline
-              ? '#fa8c16'                         // 退货窗口截止 = 橙色（deadline 高亮）
-              : reached
-                ? (isCanceled || isRefunded ? '#ff4d4f' : '#52c41a')
-                : '#d9d9d9';
-            return {
-              color: dotColor,
-              label: (
-                <span style={{ color: labelColor, fontFamily: 'monospace', fontSize: 13 }}>
-                  {reached ? formatDateTime(node.time) : '—'}
-                </span>
-              ),
-              children: (
-                <span style={{ color: labelColor, fontWeight: reached ? 500 : 400 }}>
-                  {node.label}
-                </span>
-              ),
-            };
-          })}
+        <Steps
+          size="small"
+          labelPlacement="vertical"
+          items={timelineNodes.map((node) => ({
+            title: node.label,
+            description: (
+              <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#888' }}>
+                {node.time ? formatDateTime(node.time) : '—'}
+              </span>
+            ),
+            status: node.status,
+          }))}
         />
+
+        {/* Deadline 区：退货窗口 + 预计自动收货（不混在主线节点里） */}
+        {(returnWindowInfo || autoReceiveInfo) && (
+          <div
+            style={{
+              marginTop: 24,
+              paddingTop: 16,
+              borderTop: '1px dashed #f0f0f0',
+              display: 'flex',
+              gap: 32,
+              flexWrap: 'wrap',
+              fontSize: 13,
+            }}
+          >
+            {returnWindowInfo && (
+              <div>
+                <span style={{ color: '#888', marginRight: 8 }}>退货窗口截止：</span>
+                <span style={{ fontFamily: 'monospace', marginRight: 8 }}>
+                  {formatDateTime(returnWindowInfo.expiresAt)}
+                </span>
+                {returnWindowInfo.expired ? (
+                  <Tag color="default">已过期</Tag>
+                ) : (
+                  <Tag color="orange">还剩 {returnWindowInfo.daysLeft} 天</Tag>
+                )}
+              </div>
+            )}
+            {autoReceiveInfo && (
+              <div>
+                <span style={{ color: '#888', marginRight: 8 }}>预计自动收货：</span>
+                <span style={{ fontFamily: 'monospace' }}>
+                  {formatDateTime(autoReceiveInfo)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* 支付信息 */}
