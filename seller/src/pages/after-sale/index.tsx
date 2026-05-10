@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   getAfterSales,
   getAfterSaleStats,
-  reviewAfterSale,
   approveAfterSale,
   rejectAfterSale,
   confirmReceiveReturn,
@@ -55,17 +54,6 @@ export default function AfterSaleListPage() {
     queryFn: getAfterSaleStats,
     staleTime: 30_000,
   });
-
-  const handleReview = async (id: string) => {
-    modal.confirm({
-      title: '确认开始审核该售后申请？',
-      onOk: async () => {
-        await reviewAfterSale(id);
-        message.success('已进入审核中');
-        actionRef.current?.reload();
-      },
-    });
-  };
 
   const handleApprove = (id: string) => {
     modal.confirm({
@@ -143,11 +131,12 @@ export default function AfterSaleListPage() {
 
   const columns: ProColumns<AfterSale>[] = [
     {
-      title: 'ID',
+      title: '售后单号',
       dataIndex: 'id',
       width: 80,
       ellipsis: true,
-      search: false,
+      copyable: true,
+      fieldProps: { placeholder: '输入完整或末几位售后单号' },
     },
     {
       title: '售后类型',
@@ -244,10 +233,7 @@ export default function AfterSaleListPage() {
       render: (_, record) => (
         <Space>
           <a onClick={() => navigate(`/after-sale/${record.id}`)}>详情</a>
-          {record.status === 'REQUESTED' && (
-            <a onClick={() => handleReview(record.id)}>开始审核</a>
-          )}
-          {record.status === 'UNDER_REVIEW' && (
+          {(record.status === 'REQUESTED' || record.status === 'UNDER_REVIEW') && (
             <>
               <a onClick={() => handleApprove(record.id)} style={{ color: '#52c41a' }}>通过</a>
               <a
@@ -327,6 +313,7 @@ export default function AfterSaleListPage() {
             pageSize: params.pageSize,
             status: activeTab || params.status || undefined,
             afterSaleType: params.afterSaleType || undefined,
+            id: params.id ? String(params.id).trim() : undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}
