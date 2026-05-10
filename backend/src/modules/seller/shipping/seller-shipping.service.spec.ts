@@ -973,6 +973,58 @@ describe('recordWaybillPrintAccess — 打印审计日志', () => {
 /* ================================================================== */
 
 describe('createCarrierWaybill — 快递面单创建', () => {
+  it('explicit-address helper sends buyer as sender and company as receiver for returns', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFRETURN001',
+      sfOrderId: 'sf-return-order-001',
+    });
+
+    const buyerSender = {
+      name: '李买家',
+      tel: '13900000001',
+      province: '浙江省',
+      city: '杭州市',
+      district: '西湖区',
+      detail: '文三路 100 号',
+    };
+    const companyReceiver = {
+      name: '王售后',
+      tel: '13800000002',
+      province: '云南省',
+      city: '昆明市',
+      district: '盘龙区',
+      detail: '退货仓 1 号',
+    };
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'AS_RETURN_as_001',
+      carrierCode: 'ZTO',
+      sender: buyerSender,
+      receiver: companyReceiver,
+      items: [{ name: '有机苹果', quantity: 2, weight: 1 }],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: `AS_RETURN_as_001_${COMPANY_ID}`,
+      sender: buyerSender,
+      receiver: companyReceiver,
+      cargo: '有机苹果',
+      totalWeight: 1,
+      packageCount: 1,
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      carrierCode: 'SF',
+      carrierName: '顺丰速运',
+      waybillNo: 'SFRETURN001',
+      sfOrderId: 'sf-return-order-001',
+      senderInfoSnapshot: buyerSender,
+      receiverInfoSnapshot: companyReceiver,
+    }));
+  });
+
   it('正确组装发件人和收件人信息传给顺丰', async () => {
     const { service, prisma, sfExpress } = createMocks();
 

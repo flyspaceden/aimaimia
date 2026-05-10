@@ -8,12 +8,14 @@ import { AfterSaleRefundService } from './after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { AfterSaleRefundConsistencyService } from './after-sale-refund-consistency.service';
 import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
+import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
 import { PaymentModule } from '../payment/payment.module';
 import { PaymentService } from '../payment/payment.service';
 import { InboxModule } from '../inbox/inbox.module';
+import { SellerShippingModule } from '../seller/shipping/seller-shipping.module';
 
 @Module({
-  imports: [forwardRef(() => PaymentModule), InboxModule],
+  imports: [forwardRef(() => PaymentModule), InboxModule, SellerShippingModule],
   controllers: [AfterSaleController],
   providers: [
     AfterSaleService,
@@ -23,6 +25,7 @@ import { InboxModule } from '../inbox/inbox.module';
     AfterSaleStatusHistoryService,
     AfterSaleRefundConsistencyService,
     AfterSaleShippingPaymentService,
+    AfterSaleReturnShippingService,
   ],
   exports: [
     AfterSaleService,
@@ -30,6 +33,7 @@ import { InboxModule } from '../inbox/inbox.module';
     AfterSaleRefundService,
     AfterSaleStatusHistoryService,
     AfterSaleShippingPaymentService,
+    AfterSaleReturnShippingService,
   ],
 })
 export class AfterSaleModule implements OnModuleInit {

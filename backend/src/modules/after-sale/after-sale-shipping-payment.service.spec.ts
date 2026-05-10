@@ -432,6 +432,7 @@ describe('AfterSaleController return shipping payment route', () => {
     const controller = new AfterSaleController(
       afterSaleService,
       shippingPaymentService as any,
+      {} as any,
     );
 
     await expect(controller.createReturnShippingPayment('user_001', 'as_001'))

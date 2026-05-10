@@ -4,12 +4,16 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateAfterSaleDto } from './dto/create-after-sale.dto';
 import { ReturnShippingDto } from './dto/return-shipping.dto';
 import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
+import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
+import { CreateReturnWaybillDto } from './dto/create-return-waybill.dto';
+import { CreateShippingPaymentDto } from './dto/create-shipping-payment.dto';
 
 @Controller('after-sale')
 export class AfterSaleController {
   constructor(
     private afterSaleService: AfterSaleService,
     private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
+    private afterSaleReturnShippingService: AfterSaleReturnShippingService,
   ) {}
 
   /** 申请售后（退货退款 / 质量退货 / 质量换货） */
@@ -98,11 +102,22 @@ export class AfterSaleController {
     return this.afterSaleService.fillReturnShipping(userId, id, dto);
   }
 
+  /** 生成买家退货电子面单 */
+  @Post(':id/return-waybill')
+  createReturnWaybill(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() _dto: CreateReturnWaybillDto,
+  ) {
+    return this.afterSaleReturnShippingService.createReturnWaybill(userId, id);
+  }
+
   /** 发起买家退货运费支付 */
   @Post(':id/return-shipping-payment')
   createReturnShippingPayment(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Body() _dto?: CreateShippingPaymentDto,
   ) {
     return this.afterSaleShippingPaymentService.createOrGetPaymentForBuyer(userId, id);
   }

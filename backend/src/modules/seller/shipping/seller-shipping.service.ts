@@ -17,6 +17,15 @@ import { SellerRiskControlService } from '../risk-control/seller-risk-control.se
 import { UploadService } from '../../upload/upload.service';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 
+export type CarrierWaybillAddress = {
+  name: string;
+  tel: string;
+  province: string;
+  city: string;
+  district: string;
+  detail: string;
+};
+
 @Injectable()
 export class SellerShippingService {
   private readonly logger = new Logger(SellerShippingService.name);
@@ -408,12 +417,10 @@ export class SellerShippingService {
     }
 
     const recipientInfo = this.parseAddressSnapshot(addressSnapshot);
-    const cargo = items.map((i) => i.name).join(', ');
-    const totalWeight = items.reduce((sum, i) => sum + (i.weight || 0), 0);
-
-    // 使用 orderId_companyId 作为顺丰 orderId，确保幂等性
-    const orderResult = await this.sfExpress.createOrder({
-      orderId: `${orderId}_${companyId}`,
+    const result = await this.createCarrierWaybillWithAddresses({
+      companyId,
+      bizNo: orderId,
+      carrierCode,
       sender: {
         name: senderInfo.senderName,
         tel: senderInfo.senderPhone,
@@ -430,6 +437,39 @@ export class SellerShippingService {
         district: recipientInfo.district,
         detail: recipientInfo.detail,
       },
+      items,
+    });
+
+    return {
+      ...result,
+      senderInfoSnapshot: senderInfo,
+      receiverInfoSnapshot: recipientInfo,
+    };
+  }
+
+  async createCarrierWaybillWithAddresses(input: {
+    companyId: string;
+    bizNo: string;
+    orderId?: string;
+    carrierCode: string;
+    sender: CarrierWaybillAddress;
+    receiver: CarrierWaybillAddress;
+    items: Array<{ name: string; quantity: number; weight?: number }>;
+  }) {
+    const companyId = input.companyId;
+    const bizNo = input.bizNo || input.orderId;
+    if (!bizNo) {
+      throw new BadRequestException('面单业务单号缺失');
+    }
+
+    const cargo = input.items.map((i) => i.name).join(', ');
+    const totalWeight = input.items.reduce((sum, i) => sum + (i.weight || 0), 0);
+
+    // 使用 bizNo_companyId 作为顺丰 orderId，确保幂等性
+    const orderResult = await this.sfExpress.createOrder({
+      orderId: `${bizNo}_${companyId}`,
+      sender: input.sender,
+      receiver: input.receiver,
       cargo,
       totalWeight: totalWeight > 0 ? totalWeight : undefined,
       packageCount: 1,
@@ -455,7 +495,7 @@ export class SellerShippingService {
         waybillUrl = uploaded.url;
       } catch (persistErr: any) {
         this.logger.error(
-          `面单 PDF OSS 持久化失败（waybillUrl 留空，卖家需点"重新打印"）: orderId=${orderId}, waybillNo=${orderResult.waybillNo}, err=${persistErr.message}`,
+          `面单 PDF OSS 持久化失败（waybillUrl 留空，卖家需点"重新打印"）: bizNo=${bizNo}, waybillNo=${orderResult.waybillNo}, err=${persistErr.message}`,
         );
       }
     } catch (err: any) {
@@ -468,8 +508,8 @@ export class SellerShippingService {
       waybillNo: orderResult.waybillNo,
       waybillUrl,
       sfOrderId: orderResult.sfOrderId,
-      senderInfoSnapshot: senderInfo,
-      receiverInfoSnapshot: recipientInfo,
+      senderInfoSnapshot: input.sender,
+      receiverInfoSnapshot: input.receiver,
     };
   }
 

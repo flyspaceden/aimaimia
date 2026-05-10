@@ -6,6 +6,8 @@ import { PaymentService } from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleRefundService } from './after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
+import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
+import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
 import { InboxService } from '../inbox/inbox.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
@@ -36,6 +38,8 @@ export class AfterSaleTimeoutService {
     private inboxService: InboxService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleStatusHistory: AfterSaleStatusHistoryService,
+    private afterSaleReturnShippingService: AfterSaleReturnShippingService,
+    private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -239,21 +243,70 @@ export class AfterSaleTimeoutService {
   }
 
   private async autoCancelBuyerShip(id: string): Promise<void> {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        returnWaybillNo: true,
+        returnShippingPayer: true,
+        returnShippingFeeDeducted: true,
+        returnShippingPaidAt: true,
+      },
+    });
+    if (!request || request.status !== 'APPROVED') return;
+
+    const buyerPaidShippingUnpaid =
+      request.returnShippingPayer === 'BUYER' &&
+      !request.returnShippingFeeDeducted &&
+      request.returnShippingPaidAt == null;
+
+    if (request.returnWaybillNo && !buyerPaidShippingUnpaid) {
+      const cancelResult = await this.afterSaleReturnShippingService.cancelIfNotPickedUp(id);
+      if (cancelResult.cancelled) {
+        await this.afterSaleShippingPaymentService.refundShippingPayment(
+          id,
+          '退货面单未揽收，售后关闭退还运费',
+        );
+        await this.closeBuyerShipTimeout(id);
+        return;
+      }
+
+      await this.markBuyerShipTimeoutManualReview(
+        id,
+        `买家寄回超时但退货面单取消失败（${cancelResult.reason}），需人工核查是否已揽收`,
+      );
+      return;
+    }
+
+    await this.closeBuyerShipTimeout(id);
+  }
+
+  private async closeBuyerShipTimeout(id: string): Promise<void> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(
           async (tx) => {
+            const request = await tx.afterSaleRequest.findUnique({
+              where: { id },
+              select: { status: true },
+            });
+            if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) {
+              this.logger.log(`售后 ${id} 已非可关闭状态，跳过`);
+              return;
+            }
+
             const cas = await tx.afterSaleRequest.updateMany({
-              where: { id, status: 'APPROVED' },
+              where: { id, status: request.status },
               data: { status: 'CANCELED' },
             });
             if (cas.count === 0) {
-              this.logger.log(`售后 ${id} 已非 APPROVED 状态，跳过`);
+              this.logger.log(`售后 ${id} 状态已变更，跳过`);
               return;
             }
             await this.afterSaleStatusHistory.create(tx, {
               afterSaleId: id,
-              fromStatus: 'APPROVED',
+              fromStatus: request.status as any,
               toStatus: 'CANCELED',
               reason: '买家寄回超时，系统自动关闭',
               operatorType: AfterSaleOperatorType.SYSTEM,
@@ -269,6 +322,43 @@ export class AfterSaleTimeoutService {
         if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
             `autoCancelBuyerShip 序列化冲突，重试 ${attempt + 1}/${MAX_RETRIES}: id=${id}`,
+          );
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  private async markBuyerShipTimeoutManualReview(
+    id: string,
+    reason: string,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(
+          async (tx) => {
+            const cas = await tx.afterSaleRequest.updateMany({
+              where: { id, status: 'APPROVED' },
+              data: {
+                manualReviewReason: reason,
+                manualReviewRequestedAt: new Date(),
+              },
+            });
+            if (cas.count === 0) {
+              this.logger.log(`售后 ${id} 已非 APPROVED 状态，跳过人工复核标记`);
+            }
+          },
+          {
+            timeout: 10000,
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+        return;
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
+          this.logger.warn(
+            `markBuyerShipTimeoutManualReview 序列化冲突，重试 ${attempt + 1}/${MAX_RETRIES}: id=${id}`,
           );
           continue;
         }
