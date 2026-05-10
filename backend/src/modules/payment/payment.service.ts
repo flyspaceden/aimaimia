@@ -9,6 +9,7 @@ import { AlipayService } from './alipay.service';
 import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
 import { InboxService } from '../inbox/inbox.service';
+import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
 
 @Injectable()
 export class PaymentService {
@@ -17,6 +18,7 @@ export class PaymentService {
   private readonly autoRefundOperator = 'SYSTEM_AUTO';
   private readonly autoRefundRetryBatchSize = 20;
   private readonly autoRefundRetryCooldownMs = 5 * 60_000;
+  private afterSaleRefundService: AfterSaleRefundService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -26,6 +28,10 @@ export class PaymentService {
     @Optional() private couponService?: CouponService,
     @Optional() private inboxService?: InboxService,
   ) {}
+
+  setAfterSaleRefundService(service: AfterSaleRefundService) {
+    this.afterSaleRefundService = service;
+  }
 
   /**
    * P5 第三轮：金额校验 helper（active-query 和 notify 两个路径共用）
@@ -333,12 +339,25 @@ export class PaymentService {
     this.logger.warn(`自动退款补偿任务启动：待重试 ${candidates.length} 条`);
 
     for (const refund of candidates) {
+      let claim: {
+        orderId: string;
+        amount: number;
+        merchantRefundNo: string;
+      } | null = null;
       try {
-        const claim = await this.claimAutoRefundRetry(refund.id);
+        claim = await this.claimAutoRefundRetry(refund.id);
         if (!claim) continue;
 
         const result = await this.initiateRefund(claim.orderId, claim.amount, claim.merchantRefundNo);
+        const isAfterSaleRefund = claim.merchantRefundNo.startsWith('AS-');
         if (result.success) {
+          if (isAfterSaleRefund && this.afterSaleRefundService) {
+            await this.afterSaleRefundService.handleRefundSuccess(
+              refund.id,
+              result.providerRefundId || null,
+            );
+            continue;
+          }
           await this.updateAutoRefundRecord({
             refundId: refund.id,
             toStatus: 'REFUNDED',
@@ -347,6 +366,13 @@ export class PaymentService {
             remark: '自动退款补偿成功',
           });
         } else {
+          if (isAfterSaleRefund && this.afterSaleRefundService) {
+            await this.afterSaleRefundService.handleRefundFailure(
+              refund.id,
+              result.message,
+            );
+            continue;
+          }
           await this.updateAutoRefundRecord({
             refundId: refund.id,
             toStatus: 'FAILED',
@@ -356,6 +382,13 @@ export class PaymentService {
         }
       } catch (err: any) {
         const msg = sanitizeStringForLog(err?.message || 'UNKNOWN', { maxStringLength: 256 });
+        if (claim?.merchantRefundNo.startsWith('AS-') && this.afterSaleRefundService) {
+          await this.afterSaleRefundService.handleRefundFailure(
+            refund.id,
+            `自动退款补偿异常: ${msg}`,
+          );
+          continue;
+        }
         await this.updateAutoRefundRecord({
           refundId: refund.id,
           toStatus: 'FAILED',
