@@ -231,6 +231,7 @@ export class AdminOrdersService {
               include: {
                 product: {
                   include: {
+                    company: { select: { id: true, name: true } },
                     media: {
                       where: { type: 'IMAGE' },
                       orderBy: { sortOrder: 'asc' },
@@ -242,6 +243,9 @@ export class AdminOrdersService {
               },
             },
           },
+        },
+        checkoutSession: {
+          select: { paymentChannel: true, providerTxnId: true },
         },
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: true,
@@ -261,6 +265,16 @@ export class AdminOrdersService {
       waybillNoMasked: maskTrackingNo(shipment.waybillNo),
     }));
 
+    // 1 Order = 1 Company（订单按商家拆单），首条 item 即可代表订单商家
+    const company = order.items[0]?.sku?.product?.company || null;
+
+    // 支付方式 + 交易号：优先 CheckoutSession（订单源头），兜底 Payment SUCCESS 记录
+    const successPayment = order.payments?.find((p) => p.status === 'PAID') || null;
+    const paymentMethod =
+      order.checkoutSession?.paymentChannel || successPayment?.channel || null;
+    const transactionId =
+      order.checkoutSession?.providerTxnId || successPayment?.providerTxnId || null;
+
     // 映射字段以匹配前端 Order 类型
     return {
       ...order,
@@ -269,6 +283,9 @@ export class AdminOrdersService {
       address: addressSnapshot,
       addressSnapshot,
       addressMasked: maskAddressSnapshot(addressSnapshot),
+      company,
+      paymentMethod,
+      transactionId,
       user: {
         ...order.user,
         authIdentities: (order.user?.authIdentities || []).map((identity) => ({
