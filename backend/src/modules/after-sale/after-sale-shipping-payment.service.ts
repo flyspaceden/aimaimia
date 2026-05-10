@@ -108,7 +108,13 @@ export class AfterSaleShippingPaymentService {
           };
         }
         if (payment.status === 'FAILED' && payment.paidAt) return null;
-        if (['REFUNDING', 'REFUNDED'].includes(payment.status)) return null;
+        if (payment.status === 'REFUNDING') {
+          return {
+            afterSaleId: payment.afterSaleId,
+            reason: this.normalizeRefundRetryReason(payment.failureReason),
+          };
+        }
+        if (payment.status === 'REFUNDED') return null;
         if (!['UNPAID', 'PENDING', 'FAILED', 'CLOSED'].includes(payment.status)) {
           return null;
         }
@@ -197,8 +203,18 @@ export class AfterSaleShippingPaymentService {
         const payment = await tx.afterSaleShippingPayment.findUnique({
           where: { afterSaleId },
         });
-        if (!payment || payment.status === 'REFUNDED' || payment.status === 'REFUNDING') {
+        if (!payment || payment.status === 'REFUNDED') {
           return null;
+        }
+
+        if (payment.status === 'REFUNDING') {
+          await tx.afterSaleShippingPayment.updateMany({
+            where: { afterSaleId, status: 'REFUNDING' },
+            data: {
+              failureReason: `退货运费退款中: ${reason}`,
+            },
+          });
+          return payment;
         }
 
         if (payment.status === 'PAID' || (payment.status === 'FAILED' && payment.paidAt)) {
@@ -246,8 +262,8 @@ export class AfterSaleShippingPaymentService {
 
     await this.withSerializableRetry(
       async (tx) => {
-        await tx.afterSaleShippingPayment.update({
-          where: { afterSaleId },
+        await tx.afterSaleShippingPayment.updateMany({
+          where: { afterSaleId, status: 'REFUNDING' },
           data: result.success
             ? {
                 status: 'REFUNDED',
@@ -261,6 +277,10 @@ export class AfterSaleShippingPaymentService {
         });
       },
     );
+  }
+
+  private normalizeRefundRetryReason(reason?: string | null): string {
+    return reason?.replace(/^退货运费退款中:\s*/, '') || '退货运费退款重试';
   }
 
   private async upsertPaymentInTx(

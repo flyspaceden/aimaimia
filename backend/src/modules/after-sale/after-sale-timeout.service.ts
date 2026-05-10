@@ -22,6 +22,8 @@ type BuyerShipTimeoutCloseExpectation = {
   status: 'APPROVED' | 'RETURN_SHIPPING';
   returnWaybillNo: string | null;
   returnSfOrderId: string | null;
+  approvedAt?: Date | null;
+  returnShippedAt?: Date | null;
 };
 
 /**
@@ -244,7 +246,7 @@ export class AfterSaleTimeoutService {
 
     for (const request of candidates) {
       try {
-        const outcome = await this.autoCancelBuyerShip(request.id);
+        const outcome = await this.autoCancelBuyerShip(request.id, cutoff);
         if (outcome === 'CLOSED') {
           closedCount++;
           this.logger.log(
@@ -276,12 +278,16 @@ export class AfterSaleTimeoutService {
 
   private async autoCancelBuyerShip(
     id: string,
+    cutoff: Date,
   ): Promise<'CLOSED' | 'MANUAL_REVIEW' | 'SKIPPED'> {
     const request = await this.prisma.afterSaleRequest.findUnique({
       where: { id },
       select: {
         id: true,
         status: true,
+        requiresReturn: true,
+        approvedAt: true,
+        returnShippedAt: true,
         returnWaybillNo: true,
         returnSfOrderId: true,
         returnShippingPayer: true,
@@ -294,6 +300,9 @@ export class AfterSaleTimeoutService {
       return 'SKIPPED';
     }
     if (request.manualReviewRequestedAt) {
+      return 'SKIPPED';
+    }
+    if (!this.isBuyerShipTimeoutCandidate(request, cutoff)) {
       return 'SKIPPED';
     }
 
@@ -316,6 +325,7 @@ export class AfterSaleTimeoutService {
           status: request.status as BuyerShipTimeoutCloseExpectation['status'],
           returnWaybillNo: null,
           returnSfOrderId: null,
+          returnShippedAt: null,
         });
         if (!closed) return 'SKIPPED';
         await this.afterSaleShippingPaymentService.refundShippingPayment(
@@ -336,6 +346,8 @@ export class AfterSaleTimeoutService {
       status: request.status as BuyerShipTimeoutCloseExpectation['status'],
       returnWaybillNo: request.returnWaybillNo ?? null,
       returnSfOrderId: request.returnSfOrderId ?? null,
+      approvedAt: request.approvedAt ?? null,
+      returnShippedAt: request.returnShippedAt ?? null,
     });
     if (!closed) return 'SKIPPED';
 
@@ -362,6 +374,8 @@ export class AfterSaleTimeoutService {
               select: {
                 status: true,
                 manualReviewRequestedAt: true,
+                approvedAt: true,
+                returnShippedAt: true,
                 returnWaybillNo: true,
                 returnSfOrderId: true,
               },
@@ -371,7 +385,11 @@ export class AfterSaleTimeoutService {
               request.manualReviewRequestedAt ||
               request.status !== expected.status ||
               (request.returnWaybillNo ?? null) !== expected.returnWaybillNo ||
-              (request.returnSfOrderId ?? null) !== expected.returnSfOrderId
+              (request.returnSfOrderId ?? null) !== expected.returnSfOrderId ||
+              (expected.approvedAt !== undefined &&
+                (request.approvedAt?.getTime() ?? null) !== (expected.approvedAt?.getTime() ?? null)) ||
+              (expected.returnShippedAt !== undefined &&
+                (request.returnShippedAt?.getTime() ?? null) !== (expected.returnShippedAt?.getTime() ?? null))
             ) {
               this.logger.log(`售后 ${id} 已非可关闭状态，跳过`);
               return false;
@@ -384,6 +402,10 @@ export class AfterSaleTimeoutService {
                 manualReviewRequestedAt: null,
                 returnWaybillNo: expected.returnWaybillNo,
                 returnSfOrderId: expected.returnSfOrderId,
+                ...(expected.approvedAt !== undefined ? { approvedAt: expected.approvedAt } : {}),
+                ...(expected.returnShippedAt !== undefined
+                  ? { returnShippedAt: expected.returnShippedAt }
+                  : {}),
               },
               data: { status: 'CLOSED' },
             });
@@ -414,6 +436,30 @@ export class AfterSaleTimeoutService {
         }
         throw err;
       }
+    }
+    return false;
+  }
+
+  private isBuyerShipTimeoutCandidate(
+    request: {
+      status: string;
+      requiresReturn?: boolean | null;
+      approvedAt?: Date | null;
+      returnShippedAt?: Date | null;
+      returnWaybillNo?: string | null;
+      returnSfOrderId?: string | null;
+    },
+    cutoff: Date,
+  ): boolean {
+    if (!request.requiresReturn) return false;
+    if (request.status === 'APPROVED') {
+      return !!request.approvedAt && request.approvedAt < cutoff;
+    }
+    if (request.status === 'RETURN_SHIPPING') {
+      return !!request.returnWaybillNo &&
+        !!request.returnSfOrderId &&
+        !!request.returnShippedAt &&
+        request.returnShippedAt < cutoff;
     }
     return false;
   }

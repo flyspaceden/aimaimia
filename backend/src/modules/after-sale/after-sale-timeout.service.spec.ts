@@ -4,6 +4,8 @@ import { AfterSaleTimeoutService } from './after-sale-timeout.service';
 const AFTER_SALE_ID = 'as_timeout_001';
 const ORDER_ID = 'order_timeout_001';
 const NOW = new Date('2026-05-09T12:00:00.000Z');
+const STALE_AT = new Date('2026-05-01T12:00:00.000Z');
+const FRESH_AT = new Date('2026-05-09T11:30:00.000Z');
 
 function createMocks() {
   const tx = {
@@ -80,12 +82,22 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'APPROVED',
+      requiresReturn: true,
+      approvedAt: STALE_AT,
       returnWaybillNo: null,
+      returnSfOrderId: null,
       returnShippingPayer: 'BUYER',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
     });
-    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'APPROVED' });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      manualReviewRequestedAt: null,
+      approvedAt: STALE_AT,
+      returnShippedAt: null,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+    });
 
     await (service as any).handleBuyerShipTimeout();
 
@@ -115,6 +127,8 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
         manualReviewRequestedAt: null,
         returnWaybillNo: null,
         returnSfOrderId: null,
+        approvedAt: STALE_AT,
+        returnShippedAt: null,
       },
       data: { status: 'CLOSED' },
     });
@@ -147,13 +161,22 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'APPROVED',
+      requiresReturn: true,
+      approvedAt: STALE_AT,
       returnWaybillNo: null,
       returnSfOrderId: null,
       returnShippingPayer: 'BUYER',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: new Date('2026-05-09T10:30:00.000Z'),
     });
-    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'APPROVED' });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      manualReviewRequestedAt: null,
+      approvedAt: STALE_AT,
+      returnShippedAt: null,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+    });
 
     await (service as any).handleBuyerShipTimeout();
 
@@ -168,6 +191,8 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
         manualReviewRequestedAt: null,
         returnWaybillNo: null,
         returnSfOrderId: null,
+        approvedAt: STALE_AT,
+        returnShippedAt: null,
       },
       data: { status: 'CLOSED' },
     });
@@ -193,33 +218,8 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'APPROVED',
-      returnWaybillNo: null,
-      returnSfOrderId: null,
-      returnShippingPayer: 'BUYER',
-      returnShippingFeeDeducted: false,
-      returnShippingPaidAt: new Date('2026-05-09T10:30:00.000Z'),
-    });
-    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'APPROVED' });
-    tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 0 });
-
-    await (service as any).handleBuyerShipTimeout();
-
-    expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
-  });
-
-  it('does not close or refund no-waybill timeout when buyer generated a waybill after snapshot', async () => {
-    const {
-      service,
-      prisma,
-      tx,
-      shippingPaymentService,
-    } = createMocks();
-    prisma.afterSaleRequest.findMany.mockResolvedValue([
-      { id: AFTER_SALE_ID, orderId: ORDER_ID },
-    ]);
-    prisma.afterSaleRequest.findUnique.mockResolvedValue({
-      id: AFTER_SALE_ID,
-      status: 'APPROVED',
+      requiresReturn: true,
+      approvedAt: STALE_AT,
       returnWaybillNo: null,
       returnSfOrderId: null,
       returnShippingPayer: 'BUYER',
@@ -227,14 +227,53 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       returnShippingPaidAt: new Date('2026-05-09T10:30:00.000Z'),
     });
     tx.afterSaleRequest.findUnique.mockResolvedValue({
+      status: 'APPROVED',
+      manualReviewRequestedAt: null,
+      approvedAt: STALE_AT,
+      returnShippedAt: null,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+    });
+    tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 0 });
+
+    await (service as any).handleBuyerShipTimeout();
+
+    expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel, close, or refund when a stale APPROVED candidate now has a fresh generated waybill', async () => {
+    const {
+      service,
+      prisma,
+      tx,
+      returnShippingService,
+      shippingPaymentService,
+    } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      { id: AFTER_SALE_ID, orderId: ORDER_ID },
+    ]);
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
+      requiresReturn: true,
       returnWaybillNo: 'SF_NEW_001',
       returnSfOrderId: 'sf-new-001',
+      returnShippedAt: FRESH_AT,
+      returnShippingPayer: 'BUYER',
+      returnShippingFeeDeducted: false,
+      returnShippingPaidAt: new Date('2026-05-09T10:30:00.000Z'),
+    });
+    returnShippingService.cancelIfNotPickedUp.mockResolvedValue({ cancelled: true });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      status: 'RETURN_SHIPPING',
+      returnWaybillNo: null,
+      returnSfOrderId: null,
       manualReviewRequestedAt: null,
     });
 
     await (service as any).handleBuyerShipTimeout();
 
+    expect(returnShippingService.cancelIfNotPickedUp).not.toHaveBeenCalled();
     expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
     expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
   });
@@ -254,14 +293,23 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
+      requiresReturn: true,
       returnWaybillNo: 'SF1234567890',
       returnSfOrderId: 'sf-order-return-001',
+      returnShippedAt: STALE_AT,
       returnShippingPayer: 'PLATFORM',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
     });
     returnShippingService.cancelIfNotPickedUp.mockResolvedValue({ cancelled: true });
-    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'RETURN_SHIPPING' });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      status: 'RETURN_SHIPPING',
+      manualReviewRequestedAt: null,
+      approvedAt: null,
+      returnShippedAt: null,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+    });
 
     await (service as any).handleBuyerShipTimeout();
 
@@ -273,6 +321,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
         manualReviewRequestedAt: null,
         returnWaybillNo: null,
         returnSfOrderId: null,
+        returnShippedAt: null,
       },
       data: { status: 'CLOSED' },
     });
@@ -302,14 +351,23 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
+      requiresReturn: true,
       returnWaybillNo: 'SF1234567890',
       returnSfOrderId: 'sf-order-return-001',
+      returnShippedAt: STALE_AT,
       returnShippingPayer: 'PLATFORM',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
     });
     returnShippingService.cancelIfNotPickedUp.mockResolvedValue({ cancelled: true });
-    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'RETURN_SHIPPING' });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      status: 'RETURN_SHIPPING',
+      manualReviewRequestedAt: null,
+      approvedAt: null,
+      returnShippedAt: null,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+    });
     tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 0 });
 
     await (service as any).handleBuyerShipTimeout();
@@ -333,8 +391,10 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
+      requiresReturn: true,
       returnWaybillNo: 'SF1234567890',
       returnSfOrderId: 'sf-order-return-001',
+      returnShippedAt: STALE_AT,
       returnShippingPayer: 'PLATFORM',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
@@ -380,8 +440,10 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     prisma.afterSaleRequest.findUnique.mockResolvedValue({
       id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
+      requiresReturn: true,
       returnWaybillNo: 'SF1234567890',
       returnSfOrderId: 'sf-order-return-001',
+      returnShippedAt: STALE_AT,
       returnShippingPayer: 'PLATFORM',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
