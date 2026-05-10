@@ -4,7 +4,7 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
   App, Button, Tag, Modal, Input, Descriptions, Space, Radio,
-  Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select,
+  Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select, Spin,
 } from 'antd';
 import {
   CheckCircleOutlined, CloseCircleOutlined,
@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons';
 import {
   getAfterSales,
+  getAfterSale,
   getAfterSaleStats,
   arbitrateAfterSale,
   retryAfterSaleRefund,
@@ -118,10 +119,50 @@ function renderReturnShippingPayer(value?: string | null) {
   return <Tag color={entry?.color || 'default'}>{entry?.text || value}</Tag>;
 }
 
+function formatDateTime(value?: string | null) {
+  return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
+}
+
+function renderRefundHistory(items?: AdminAfterSale['refundHistory']) {
+  if (!items?.length) return <Text type="secondary">-</Text>;
+  return (
+    <Space direction="vertical" size={4}>
+      {items.map((item) => (
+        <Space key={item.id} wrap size={6}>
+          {item.fromStatus ? renderStatusTag(refundStatusMap, item.fromStatus) : <Text type="secondary">创建</Text>}
+          <Text type="secondary">→</Text>
+          {renderStatusTag(refundStatusMap, item.toStatus)}
+          {item.remark ? <Text type="secondary">{item.remark}</Text> : null}
+          <Text type="secondary">{formatDateTime(item.createdAt)}</Text>
+        </Space>
+      ))}
+    </Space>
+  );
+}
+
+function renderAfterSaleHistory(items?: AdminAfterSale['statusHistory']) {
+  if (!items?.length) return <Text type="secondary">-</Text>;
+  return (
+    <Space direction="vertical" size={4}>
+      {items.map((item) => (
+        <Space key={item.id} wrap size={6}>
+          {item.fromStatus ? renderStatusTag(afterSaleStatusMap, item.fromStatus) : <Text type="secondary">创建</Text>}
+          <Text type="secondary">→</Text>
+          {renderStatusTag(afterSaleStatusMap, item.toStatus)}
+          {item.operatorType ? <Tag>{item.operatorType}</Tag> : null}
+          {item.reason ? <Text type="secondary">{item.reason}</Text> : null}
+          <Text type="secondary">{formatDateTime(item.createdAt)}</Text>
+        </Space>
+      ))}
+    </Space>
+  );
+}
+
 export default function AfterSaleListPage() {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
+  const detailRequestRef = useRef(0);
   const [arbitrateModal, setArbitrateModal] = useState<{ visible: boolean; record: AdminAfterSale | null }>({
     visible: false,
     record: null,
@@ -129,6 +170,7 @@ export default function AfterSaleListPage() {
   const [arbitrateAction, setArbitrateAction] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
   const [arbitrateReason, setArbitrateReason] = useState('');
   const [arbitrateLoading, setArbitrateLoading] = useState(false);
+  const [arbitrateDetailLoading, setArbitrateDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('ALL');
   const [stats, setStats] = useState<AfterSaleStatsResponse>({ byStatus: {}, byType: {} });
   const [companyOptions, setCompanyOptions] = useState<{ label: string; value: string }[]>([]);
@@ -163,6 +205,7 @@ export default function AfterSaleListPage() {
           : '仲裁拒绝 — 维持当前决定',
       );
       setArbitrateModal({ visible: false, record: null });
+      detailRequestRef.current += 1;
       setArbitrateAction('APPROVED');
       setArbitrateReason('');
       actionRef.current?.reload();
@@ -193,6 +236,27 @@ export default function AfterSaleListPage() {
         }
       },
     });
+  };
+
+  const openArbitrateModal = async (record: AdminAfterSale) => {
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setArbitrateModal({ visible: true, record });
+    setArbitrateDetailLoading(true);
+    try {
+      const detail = await getAfterSale(record.id);
+      if (detailRequestRef.current === requestId) {
+        setArbitrateModal({ visible: true, record: detail });
+      }
+    } catch (err) {
+      if (detailRequestRef.current === requestId) {
+        message.error(err instanceof Error ? err.message : '售后详情加载失败，已展示列表数据');
+      }
+    } finally {
+      if (detailRequestRef.current === requestId) {
+        setArbitrateDetailLoading(false);
+      }
+    }
   };
 
   const applyTemplate = (text: string) => setArbitrateReason(text);
@@ -427,7 +491,7 @@ export default function AfterSaleListPage() {
                 <Button
                   type="link"
                   size="small"
-                  onClick={() => setArbitrateModal({ visible: true, record: r })}
+                  onClick={() => openArbitrateModal(r)}
                 >
                   仲裁
                 </Button>
@@ -557,6 +621,8 @@ export default function AfterSaleListPage() {
         width={680}
         onCancel={() => {
           setArbitrateModal({ visible: false, record: null });
+          detailRequestRef.current += 1;
+          setArbitrateDetailLoading(false);
           setArbitrateAction('APPROVED');
           setArbitrateReason('');
         }}
@@ -565,8 +631,9 @@ export default function AfterSaleListPage() {
         okText="确认提交"
         destroyOnClose
       >
-        {modalRecord && (
-          <>
+        <Spin spinning={arbitrateDetailLoading}>
+          {modalRecord && (
+            <>
             {/* 基本信息 */}
             <Descriptions column={2} size="small" style={{ marginBottom: 12 }} title="申请信息">
               <Descriptions.Item label="售后单号">{modalRecord.id}</Descriptions.Item>
@@ -710,6 +777,16 @@ export default function AfterSaleListPage() {
               )}
             </Descriptions>
 
+            {/* 退款与售后历史 */}
+            <Descriptions column={1} size="small" style={{ marginBottom: 12 }} title="退款与状态历史">
+              <Descriptions.Item label="退款历史">
+                {renderRefundHistory(modalRecord.refundHistory)}
+              </Descriptions.Item>
+              <Descriptions.Item label="售后状态历史">
+                {renderAfterSaleHistory(modalRecord.statusHistory)}
+              </Descriptions.Item>
+            </Descriptions>
+
             {/* 凭证图片预览 */}
             {modalRecord.photos && modalRecord.photos.length > 0 && (
               <div style={{ marginBottom: 16 }}>
@@ -766,8 +843,9 @@ export default function AfterSaleListPage() {
               value={arbitrateReason}
               onChange={(e) => setArbitrateReason(e.target.value)}
             />
-          </>
-        )}
+            </>
+          )}
+        </Spin>
       </Modal>
 
       {/* 行高亮样式 */}

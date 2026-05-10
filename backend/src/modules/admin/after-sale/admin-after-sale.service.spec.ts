@@ -304,6 +304,224 @@ describe('AdminAfterSaleService.findAll', () => {
       },
     });
   });
+
+  it('returns linked refund summary so admin rows can expose retry action', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'after-sale-1',
+            order: null,
+            orderItem: null,
+            user: null,
+            refundByRefundId: null,
+            refundByAfterSaleId: {
+              id: 'refund-1',
+              amount: 88,
+              status: 'FAILED',
+              merchantRefundNo: 'AS-after-sale-1',
+              providerRefundId: null,
+            },
+          },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+    const { service } = makeService(tx);
+
+    const result = await service.findAll();
+
+    expect(tx.afterSaleRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          refundByAfterSaleId: {
+            select: {
+              id: true,
+              amount: true,
+              status: true,
+              merchantRefundNo: true,
+              providerRefundId: true,
+            },
+          },
+          refundByRefundId: {
+            select: {
+              id: true,
+              amount: true,
+              status: true,
+              merchantRefundNo: true,
+              providerRefundId: true,
+            },
+          },
+        }),
+      }),
+    );
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        refund: {
+          id: 'refund-1',
+          amount: 88,
+          status: 'FAILED',
+          merchantRefundNo: 'AS-after-sale-1',
+          providerRefundId: null,
+        },
+      }),
+    );
+    expect((result.items[0] as any).refundByAfterSaleId).toBeUndefined();
+    expect((result.items[0] as any).refundByRefundId).toBeUndefined();
+  });
+
+  it('prefers afterSaleId-linked refund when dual refund relations disagree', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'after-sale-1',
+            order: null,
+            orderItem: null,
+            user: null,
+            refundByRefundId: {
+              id: 'refund-legacy',
+              amount: 66,
+              status: 'REFUNDING',
+              merchantRefundNo: 'LEGACY-after-sale-1',
+              providerRefundId: null,
+            },
+            refundByAfterSaleId: {
+              id: 'refund-canonical',
+              amount: 88,
+              status: 'FAILED',
+              merchantRefundNo: 'AS-after-sale-1',
+              providerRefundId: 'provider-1',
+            },
+          },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+    const { service } = makeService(tx);
+
+    const result = await service.findAll();
+
+    expect(result.items[0].refund).toEqual({
+      id: 'refund-canonical',
+      amount: 88,
+      status: 'FAILED',
+      merchantRefundNo: 'AS-after-sale-1',
+      providerRefundId: 'provider-1',
+    });
+  });
+});
+
+describe('AdminAfterSaleService.findById', () => {
+  it('returns refund and status histories for admin detail', async () => {
+    const refundCreatedAt = new Date('2026-05-10T01:00:00.000Z');
+    const statusCreatedAt = new Date('2026-05-10T00:30:00.000Z');
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'after-sale-1',
+          order: { id: 'order-1', addressSnapshot: null },
+          orderItem: null,
+          user: null,
+          returnWaybillNo: 'SF123456789',
+          replacementWaybillNo: null,
+          refundByRefundId: null,
+          refundByAfterSaleId: {
+            id: 'refund-1',
+            amount: 88,
+            status: 'FAILED',
+            merchantRefundNo: 'AS-after-sale-1',
+            providerRefundId: null,
+            statusHistory: [
+              {
+                id: 'refund-history-1',
+                fromStatus: 'REFUNDING',
+                toStatus: 'FAILED',
+                remark: '渠道返回失败',
+                createdAt: refundCreatedAt,
+              },
+            ],
+          },
+          statusHistory: [
+            {
+              id: 'status-history-1',
+              fromStatus: 'APPROVED',
+              toStatus: 'REFUNDING',
+              reason: '卖家确认退款',
+              operatorType: 'SELLER',
+              createdAt: statusCreatedAt,
+            },
+          ],
+        }),
+      },
+    };
+    const { service } = makeService(tx);
+
+    const result = await service.findById('after-sale-1');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith({
+      where: { id: 'after-sale-1' },
+      include: expect.objectContaining({
+        refundByAfterSaleId: {
+          select: expect.objectContaining({
+            id: true,
+            statusHistory: expect.objectContaining({
+              orderBy: { createdAt: 'asc' },
+            }),
+          }),
+        },
+        refundByRefundId: {
+          select: expect.objectContaining({
+            id: true,
+            statusHistory: expect.objectContaining({
+              orderBy: { createdAt: 'asc' },
+            }),
+          }),
+        },
+        statusHistory: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            fromStatus: true,
+            toStatus: true,
+            reason: true,
+            operatorType: true,
+            createdAt: true,
+          },
+        },
+      }),
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        refund: expect.objectContaining({
+          id: 'refund-1',
+          status: 'FAILED',
+          merchantRefundNo: 'AS-after-sale-1',
+        }),
+        refundHistory: [
+          {
+            id: 'refund-history-1',
+            fromStatus: 'REFUNDING',
+            toStatus: 'FAILED',
+            remark: '渠道返回失败',
+            createdAt: refundCreatedAt,
+          },
+        ],
+        statusHistory: [
+          {
+            id: 'status-history-1',
+            fromStatus: 'APPROVED',
+            toStatus: 'REFUNDING',
+            reason: '卖家确认退款',
+            operatorType: 'SELLER',
+            createdAt: statusCreatedAt,
+          },
+        ],
+      }),
+    );
+    expect((result as any).refundByAfterSaleId).toBeUndefined();
+    expect((result as any).refundByRefundId).toBeUndefined();
+  });
 });
 
 describe('AdminAfterSaleService.retryRefund', () => {
@@ -316,10 +534,19 @@ describe('AdminAfterSaleService.retryRefund', () => {
           refundByAfterSaleId: null,
         }),
       },
+      refund: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'refund-1',
+          amount: 88,
+          status: 'REFUNDING',
+          merchantRefundNo: 'AS-after-sale-1',
+          providerRefundId: null,
+        }),
+      },
     };
     const { service, afterSaleRefundService } = makeService(tx);
 
-    await service.retryRefund('after-sale-1', 'refund-1', 'admin-1');
+    const result = await service.retryRefund('after-sale-1', 'refund-1', 'admin-1');
 
     expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith({
       where: { id: 'after-sale-1' },
@@ -333,6 +560,24 @@ describe('AdminAfterSaleService.retryRefund', () => {
       'refund-1',
       { type: 'ADMIN', id: 'admin-1' },
     );
+    expect(tx.refund.findUnique).toHaveBeenCalledWith({
+      where: { id: 'refund-1' },
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        merchantRefundNo: true,
+        providerRefundId: true,
+      },
+    });
+    expect(result).toEqual({
+      id: 'refund-1',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-after-sale-1',
+      providerRefundId: null,
+    });
+    expect((result as any).rawNotifyPayload).toBeUndefined();
   });
 
   it('rejects refund retry when refund does not belong to the after-sale request', async () => {

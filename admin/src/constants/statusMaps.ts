@@ -158,6 +158,7 @@ export const afterSaleStatusMap: Record<string, StatusEntry> = {
 // 统一售后类型（AfterSaleType 枚举）
 export const afterSaleTypeMap: Record<string, StatusEntry> = {
   NO_REASON_RETURN: { text: '七天无理由退货', color: 'blue' },
+  NO_REASON_EXCHANGE: { text: '七天无理由换货', color: 'cyan' },
   QUALITY_RETURN: { text: '质量问题退货', color: 'orange' },
   QUALITY_EXCHANGE: { text: '质量问题换货', color: 'purple' },
 };

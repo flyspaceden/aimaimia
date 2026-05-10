@@ -40,6 +40,28 @@ function isExchangeAfterSaleType(type: string) {
   return type === 'NO_REASON_EXCHANGE' || type === 'QUALITY_EXCHANGE';
 }
 
+const ADMIN_REFUND_SUMMARY_SELECT = {
+  id: true,
+  amount: true,
+  status: true,
+  merchantRefundNo: true,
+  providerRefundId: true,
+} as const;
+
+const ADMIN_REFUND_DETAIL_SELECT = {
+  ...ADMIN_REFUND_SUMMARY_SELECT,
+  statusHistory: {
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      fromStatus: true,
+      toStatus: true,
+      remark: true,
+      createdAt: true,
+    },
+  },
+} as const;
+
 @Injectable()
 export class AdminAfterSaleService {
   private readonly logger = new Logger(AdminAfterSaleService.name);
@@ -139,6 +161,8 @@ export class AdminAfterSaleService {
               },
             },
           },
+          refundByAfterSaleId: { select: ADMIN_REFUND_SUMMARY_SELECT },
+          refundByRefundId: { select: ADMIN_REFUND_SUMMARY_SELECT },
         },
       }),
       this.prisma.afterSaleRequest.count({ where }),
@@ -206,14 +230,36 @@ export class AdminAfterSaleService {
             },
           },
         },
+        refundByAfterSaleId: { select: ADMIN_REFUND_DETAIL_SELECT },
+        refundByRefundId: { select: ADMIN_REFUND_DETAIL_SELECT },
+        statusHistory: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            fromStatus: true,
+            toStatus: true,
+            reason: true,
+            operatorType: true,
+            createdAt: true,
+          },
+        },
       },
     });
     if (!request) throw new NotFoundException('售后申请不存在');
 
     // 解密地址快照（管理员可查看完整信息）
     const phone = request.user?.authIdentities?.[0]?.identifier ?? null;
+    const refund = request.refundByAfterSaleId ?? request.refundByRefundId;
+    const {
+      refundByAfterSaleId,
+      refundByRefundId,
+      statusHistory,
+      ...requestData
+    } = request as any;
+    void refundByAfterSaleId;
+    void refundByRefundId;
     return {
-      ...request,
+      ...requestData,
       order: request.order
         ? {
             ...request.order,
@@ -229,6 +275,9 @@ export class AdminAfterSaleService {
       // 退货物流（管理员可看完整单号辅助仲裁）
       returnWaybillNo: request.returnWaybillNo,
       replacementWaybillNo: request.replacementWaybillNo,
+      refund: this.mapRefund(refund),
+      refundHistory: this.mapRefundHistory(refund),
+      statusHistory: this.mapStatusHistory(statusHistory),
     };
   }
 
@@ -523,17 +572,31 @@ export class AdminAfterSaleService {
       throw new BadRequestException('退款单不属于该售后申请');
     }
 
-    return this.afterSaleRefundService.retryRefund(refundId, {
+    await this.afterSaleRefundService.retryRefund(refundId, {
       type: 'ADMIN',
       id: adminUserId,
     });
+
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      select: ADMIN_REFUND_SUMMARY_SELECT,
+    });
+    if (!refund) throw new NotFoundException('退款单不存在');
+    return this.mapRefund(refund);
   }
 
   /** 列表项隐私脱敏 */
   private maskListItem(r: any) {
     const phone = r.user?.authIdentities?.[0]?.identifier ?? null;
+    const {
+      refundByAfterSaleId,
+      refundByRefundId,
+      statusHistory,
+      ...row
+    } = r;
+    void statusHistory;
     return {
-      ...r,
+      ...row,
       order: r.order
         ? {
             ...r.order,
@@ -555,6 +618,39 @@ export class AdminAfterSaleService {
       replacementWaybillNo: r.replacementWaybillNo
         ? maskTrackingNo(r.replacementWaybillNo)
         : undefined,
+      refund: this.mapRefund(refundByAfterSaleId ?? refundByRefundId),
     };
+  }
+
+  private mapRefund(refund: any) {
+    if (!refund) return null;
+    return {
+      id: refund.id,
+      amount: refund.amount,
+      status: refund.status,
+      merchantRefundNo: refund.merchantRefundNo,
+      providerRefundId: refund.providerRefundId ?? null,
+    };
+  }
+
+  private mapRefundHistory(refund: any) {
+    return (refund?.statusHistory ?? []).map((row: any) => ({
+      id: row.id,
+      fromStatus: row.fromStatus ?? null,
+      toStatus: row.toStatus,
+      remark: row.remark ?? null,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  private mapStatusHistory(rows: any[] | undefined) {
+    return (rows ?? []).map((row) => ({
+      id: row.id,
+      fromStatus: row.fromStatus ?? null,
+      toStatus: row.toStatus,
+      reason: row.reason ?? null,
+      operatorType: row.operatorType ?? null,
+      createdAt: row.createdAt,
+    }));
   }
 }
