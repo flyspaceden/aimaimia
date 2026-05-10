@@ -188,6 +188,9 @@ export default function AfterSaleListPage() {
     getCompanies({ pageSize: 200 })
       .then((res) => setCompanyOptions(res.items.map((c) => ({ label: c.name, value: c.id }))))
       .catch(() => {});
+    // 每 15s 轮询统计角标，跟列表 polling 节奏一致
+    const timer = setInterval(loadStats, 15_000);
+    return () => clearInterval(timer);
   }, []);
 
   const handleArbitrate = async () => {
@@ -593,6 +596,8 @@ export default function AfterSaleListPage() {
         actionRef={actionRef}
         columns={columns}
         rowKey="id"
+        // 每 15s 自动刷新列表，让管理员感知顺丰物流推送/卖家审核/仲裁等远端状态变化
+        polling={15_000}
         toolbar={{
           menu: {
             type: 'tab',

@@ -47,6 +47,9 @@ export default function AfterSaleDetailPage() {
     queryKey: ['after-sale', id],
     queryFn: () => getAfterSale(id!),
     enabled: !!id,
+    // 详情页是焦点页：每 10s 拉一次拿到顺丰推送进来的新轨迹/状态变化
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 
   const reload = () => queryClient.invalidateQueries({ queryKey: ['after-sale', id] });

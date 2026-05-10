@@ -48,11 +48,12 @@ export default function AfterSaleListPage() {
   const [returnRejectReason, setReturnRejectReason] = useState('');
   const [returnRejectPhotos, setReturnRejectPhotos] = useState<string[]>([]);
 
-  // 按状态统计
+  // 按状态统计（tab 角标用；跟列表一起 15s 轮询保持一致）
   const { data: stats } = useQuery({
     queryKey: ['after-sale-stats'],
     queryFn: getAfterSaleStats,
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
   });
 
   const handleApprove = (id: string) => {
@@ -293,6 +294,8 @@ export default function AfterSaleListPage() {
         rowKey="id"
         scroll={{ x: 'max-content' }}
         search={{ labelWidth: 'auto' }}
+        // 每 15s 自动刷新列表，让卖家感知顺丰物流推送/管理员仲裁等远端状态变化
+        polling={15_000}
         toolbar={{
           menu: {
             type: 'tab',
