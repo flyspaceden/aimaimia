@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AfterSaleOperatorType, Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, AfterSaleStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { decryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
@@ -27,6 +27,15 @@ type ReturnWaybillContext = {
   returnShippingPayer: string | null;
   generationMarkerReason: string;
   generationMarkerRequestedAt: Date;
+};
+
+type MarkReturnWaybillManualReviewOptions = {
+  expectedStatuses?: AfterSaleStatus[];
+  expectedReturnWaybillNo?: string | null;
+  expectedReturnSfOrderId?: string | null;
+  expectedManualReviewReason?: string | null;
+  expectedManualReviewRequestedAt?: Date | null;
+  overwriteRequestedAt?: boolean;
 };
 
 const RETURN_WAYBILL_GENERATION_REASON = '退货面单生成中';
@@ -286,6 +295,13 @@ export class AfterSaleReturnShippingService {
       await this.markReturnWaybillManualReview(
         afterSaleId,
         `退货面单自动取消失败，需人工核查是否已揽收：waybillNo=${request.returnWaybillNo}, sfOrderId=${request.returnSfOrderId ?? ''}`,
+        {
+          expectedStatuses: ['APPROVED', 'RETURN_SHIPPING'],
+          expectedReturnWaybillNo: request.returnWaybillNo,
+          expectedReturnSfOrderId: request.returnSfOrderId,
+          expectedManualReviewReason: marker,
+          expectedManualReviewRequestedAt: markerRequestedAt,
+        },
       );
       return { cancelled: false, reason: 'CANCEL_FAILED' };
     }
@@ -319,6 +335,13 @@ export class AfterSaleReturnShippingService {
       await this.markReturnWaybillManualReview(
         afterSaleId,
         `远端退货面单已取消但本地状态已变更，需人工核查本地售后状态：waybillNo=${request.returnWaybillNo}, sfOrderId=${request.returnSfOrderId ?? ''}`,
+        {
+          expectedStatuses: ['APPROVED', 'RETURN_SHIPPING'],
+          expectedReturnWaybillNo: request.returnWaybillNo,
+          expectedReturnSfOrderId: request.returnSfOrderId,
+          expectedManualReviewReason: marker,
+          expectedManualReviewRequestedAt: markerRequestedAt,
+        },
       );
       return { cancelled: false, reason: 'STATE_CHANGED' };
     }
@@ -441,14 +464,39 @@ export class AfterSaleReturnShippingService {
   private async markReturnWaybillManualReview(
     afterSaleId: string,
     reason: string,
+    options: MarkReturnWaybillManualReviewOptions = {},
   ): Promise<void> {
+    const where: Prisma.AfterSaleRequestWhereInput = {
+      id: afterSaleId,
+      status: { in: options.expectedStatuses ?? ['APPROVED', 'RETURN_SHIPPING'] },
+    };
+
+    if ('expectedReturnWaybillNo' in options) {
+      where.returnWaybillNo = options.expectedReturnWaybillNo;
+    }
+    if ('expectedReturnSfOrderId' in options) {
+      where.returnSfOrderId = options.expectedReturnSfOrderId;
+    }
+    if ('expectedManualReviewReason' in options) {
+      where.manualReviewReason = options.expectedManualReviewReason;
+    }
+    if ('expectedManualReviewRequestedAt' in options) {
+      where.manualReviewRequestedAt = options.expectedManualReviewRequestedAt;
+    } else if (!options.overwriteRequestedAt) {
+      where.manualReviewRequestedAt = null;
+    }
+
+    const data: Prisma.AfterSaleRequestUpdateManyMutationInput = {
+      manualReviewReason: reason,
+    };
+    if (options.overwriteRequestedAt) {
+      data.manualReviewRequestedAt = new Date();
+    }
+
     await this.prisma.$transaction(
       (tx) => tx.afterSaleRequest.updateMany({
-        where: { id: afterSaleId },
-        data: {
-          manualReviewReason: reason,
-          manualReviewRequestedAt: new Date(),
-        },
+        where,
+        data,
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -500,6 +548,12 @@ export class AfterSaleReturnShippingService {
       await this.markReturnWaybillManualReview(
         afterSaleId,
         `退货面单已生成但本地状态更新失败，且自动取消面单失败，需人工处理：waybillNo=${waybill.waybillNo}, sfOrderId=${waybill.sfOrderId ?? ''}`,
+        {
+          expectedStatuses: ['APPROVED', 'RETURN_SHIPPING'],
+          expectedReturnWaybillNo: null,
+          expectedManualReviewReason: context.generationMarkerReason,
+          expectedManualReviewRequestedAt: context.generationMarkerRequestedAt,
+        },
       );
     }
   }

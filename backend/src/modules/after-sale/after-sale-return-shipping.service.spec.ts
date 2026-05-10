@@ -364,12 +364,17 @@ describe('AfterSaleReturnShippingService', () => {
     expect(sellerShippingService.cancelCarrierWaybillStrict)
       .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
     expect(tx.afterSaleRequest.updateMany).toHaveBeenLastCalledWith({
-      where: { id: AFTER_SALE_ID },
+      where: {
+        id: AFTER_SALE_ID,
+        status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+        returnWaybillNo: null,
+        manualReviewReason: '退货面单生成中',
+        manualReviewRequestedAt: expect.any(Date),
+      },
       data: {
         manualReviewReason: expect.stringContaining(
           '退货面单已生成但本地状态更新失败，且自动取消面单失败',
         ),
-        manualReviewRequestedAt: expect.any(Date),
       },
     });
     expect(tx.afterSaleRequest.updateMany.mock.calls[2][0].data.manualReviewReason)
@@ -431,10 +436,16 @@ describe('AfterSaleReturnShippingService', () => {
     expect(sellerShippingService.cancelCarrierWaybillStrict)
       .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
     expect(tx.afterSaleRequest.updateMany).toHaveBeenLastCalledWith({
-      where: { id: AFTER_SALE_ID },
+      where: {
+        id: AFTER_SALE_ID,
+        status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+        returnWaybillNo: 'SF1234567890',
+        returnSfOrderId: 'sf-order-return-001',
+        manualReviewReason: expect.stringContaining('退货面单自动取消中'),
+        manualReviewRequestedAt: expect.any(Date),
+      },
       data: {
         manualReviewReason: expect.stringContaining('退货面单自动取消失败'),
-        manualReviewRequestedAt: expect.any(Date),
       },
     });
   });
@@ -490,10 +501,16 @@ describe('AfterSaleReturnShippingService', () => {
     expect(sellerShippingService.cancelCarrierWaybillStrict)
       .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
     expect(tx.afterSaleRequest.updateMany).toHaveBeenNthCalledWith(3, {
-      where: { id: AFTER_SALE_ID },
+      where: {
+        id: AFTER_SALE_ID,
+        status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+        returnWaybillNo: 'SF1234567890',
+        returnSfOrderId: 'sf-order-return-001',
+        manualReviewReason: expect.stringContaining('退货面单自动取消中'),
+        manualReviewRequestedAt: expect.any(Date),
+      },
       data: {
         manualReviewReason: expect.stringContaining('远端退货面单已取消但本地状态已变更'),
-        manualReviewRequestedAt: expect.any(Date),
       },
     });
   });

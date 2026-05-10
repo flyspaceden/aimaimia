@@ -6,6 +6,7 @@
  */
 
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { SellerShippingService } from './seller-shipping.service';
 
 // mock 加密模块：测试环境下直接透传
@@ -197,7 +198,7 @@ describe('generateWaybill — 面单生成', () => {
     expect(result.carrierCode).toBe('SF');
   });
 
-  it('Shipment 记录创建包含 sfOrderId', async () => {
+  it('Shipment 先创建本地生成标记，SF 返回后再持久化 sfOrderId', async () => {
     const { service, prisma, sfExpress } = createMocks();
     setupHappyPath(prisma, sfExpress);
 
@@ -209,11 +210,69 @@ describe('generateWaybill — 面单生成', () => {
         companyId: COMPANY_ID,
         carrierCode: 'SF',
         carrierName: '顺丰速运',
-        waybillNo: 'SF1234567890',
-        sfOrderId: 'sf-order-abc-123',
+        waybillNo: null,
         status: 'INIT',
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'IN_PROGRESS',
+            token: expect.any(String),
+            startedAt: expect.any(String),
+          }),
+        },
       }),
     });
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ship-new',
+        waybillNo: null,
+        rawCarrierPayload: {
+          equals: {
+            waybillGeneration: expect.objectContaining({
+              status: 'IN_PROGRESS',
+              token: expect.any(String),
+              startedAt: expect.any(String),
+            }),
+          },
+        },
+      },
+      data: expect.objectContaining({
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: Prisma.DbNull,
+      }),
+    });
+  });
+
+  it('顺丰 createOrder 直到首个 Serializable 事务提交后才调用', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    const events: string[] = [];
+
+    prisma.$transaction.mockImplementation(async (fn: any) => {
+      events.push('tx:start');
+      const result = await fn(prisma);
+      events.push('tx:end');
+      return result;
+    });
+    sfExpress.createOrder.mockImplementation(async () => {
+      events.push('sf:createOrder');
+      return {
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        originCode: '755',
+        destCode: '871',
+      };
+    });
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(events).toEqual([
+      'tx:start',
+      'tx:end',
+      'sf:createOrder',
+      'tx:start',
+      'tx:end',
+    ]);
   });
 
   it('已有面单的订单拒绝重复生成（幂等性）', async () => {
@@ -289,19 +348,18 @@ describe('generateWaybill — 面单生成', () => {
     ).rejects.toThrow('订单不存在');
   });
 
-  it('顺丰 API 失败时回滚（rollbackCreatedWaybill 调用 cancelWaybill）', async () => {
+  it('本地生成标记创建失败时不调用顺丰', async () => {
     const { service, prisma, sfExpress } = createMocks();
     setupHappyPath(prisma, sfExpress);
 
-    // 顺丰创建成功，但后续 shipment.create 失败
     prisma.shipment.create.mockRejectedValue(new Error('DB write error'));
 
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
     ).rejects.toThrow('DB write error');
 
-    // 应该回滚：调用 cancelOrder
-    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf-order-abc-123', 'SF1234567890');
+    expect(sfExpress.createOrder).not.toHaveBeenCalled();
+    expect(sfExpress.cancelOrder).not.toHaveBeenCalled();
   });
 
   it('existingShipment 存在但无 waybillNo 时走 updateMany 而非 create', async () => {
@@ -316,17 +374,38 @@ describe('generateWaybill — 面单生成', () => {
 
     await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
 
-    // 应走 updateMany 而非 create
-    expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
+    // 已有占位记录时，先用 updateMany 写入生成标记，而不是 create
+    expect(prisma.shipment.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: 'ship-existing-no-waybill',
         waybillNo: null,
+      },
+      data: expect.objectContaining({
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'IN_PROGRESS',
+          }),
+        },
+      }),
+    });
+    expect(prisma.shipment.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: 'ship-existing-no-waybill',
+        waybillNo: null,
+        rawCarrierPayload: {
+          equals: {
+            waybillGeneration: expect.objectContaining({
+              status: 'IN_PROGRESS',
+            }),
+          },
+        },
       },
       data: expect.objectContaining({
         waybillNo: 'SF1234567890',
         carrierCode: 'SF',
         carrierName: '顺丰速运',
         sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: Prisma.DbNull,
       }),
     });
     expect(prisma.shipment.create).not.toHaveBeenCalled();
@@ -348,6 +427,27 @@ describe('generateWaybill — 面单生成', () => {
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
     ).rejects.toThrow('该订单已生成面单，请勿重复操作');
+  });
+
+  it('final CAS 输给已持久化同一面单时不取消赢家面单', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+
+    prisma.shipment.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.shipment.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'ship-new',
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: null,
+      });
+
+    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(result.ok).toBe(true);
+    expect(result.waybillNo).toContain('***');
+    expect(sfExpress.cancelOrder).not.toHaveBeenCalled();
   });
 
   it('SHIPPED 状态订单也可生成面单', async () => {
@@ -512,7 +612,7 @@ describe('cancelWaybill — 面单取消', () => {
     ).rejects.toThrow('物流记录不存在');
   });
 
-  it('远端取消失败仍然清空本地（best-effort）', async () => {
+  it('远端取消失败时拒绝并保留本地面单字段', async () => {
     const { service, prisma, sfExpress } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
@@ -527,12 +627,30 @@ describe('cancelWaybill — 面单取消', () => {
     // 远端取消抛错
     sfExpress.cancelOrder.mockRejectedValue(new Error('远端网络错误'));
 
-    // 但本地清空不应阻塞
-    const result = await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
-    expect(result.ok).toBe(true);
+    await expect(service.cancelWaybill(COMPANY_ID, ORDER_PAID))
+      .rejects.toThrow('远端网络错误');
 
-    // 本地 updateMany 仍然被调用
-    expect(prisma.shipment.updateMany).toHaveBeenCalled();
+    // 本地字段不应在远端取消失败时被清空
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('远端返回 success=false 时拒绝并保留本地面单字段', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+
+    prisma.shipment.findUnique.mockResolvedValue({
+      id: 'ship-001',
+      carrierCode: 'SF',
+      waybillNo: 'SF1234567890',
+      sfOrderId: 'sf-order-abc-123',
+      status: 'INIT',
+    });
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+    sfExpress.cancelOrder.mockResolvedValue({ success: false });
+
+    await expect(service.cancelWaybill(COMPANY_ID, ORDER_PAID))
+      .rejects.toThrow('顺丰取消面单失败');
+
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
   });
 
   it('CAS 保护：并发取消只成功一次（updateMany count=0 → 抛错）', async () => {
@@ -817,6 +935,7 @@ describe('batchGenerateWaybill — 批量面单', () => {
     ]);
     prisma.shipment.findUnique.mockResolvedValue(null);
     prisma.shipment.create.mockResolvedValue({ id: 'ship-new' });
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
     sfExpress.createOrder.mockResolvedValue({
       waybillNo: 'ZTO5555555555',
