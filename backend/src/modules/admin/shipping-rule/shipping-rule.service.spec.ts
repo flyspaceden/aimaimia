@@ -1,4 +1,7 @@
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { ShippingRuleService } from './shipping-rule.service';
+import { CreateShippingRuleDto } from './dto/create-shipping-rule.dto';
 
 function makeRule(overrides: Record<string, any> = {}) {
   return {
@@ -230,5 +233,67 @@ describe('ShippingRuleService 运费计算引擎', () => {
     await service.update('rule-001', { name: '更新后' });
 
     expect(cache.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('create 直接调用时拒绝 additionalWeightKg 为 0 且不写 DB', async () => {
+    const { service, prisma } = createMocks([]);
+
+    await expect(
+      service.create({
+        name: '错误续重规则',
+        regionCodes: [],
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 0,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+      } as any),
+    ).rejects.toThrow('运费规则「错误续重规则」配置无效');
+
+    expect(prisma.shippingRule.create).not.toHaveBeenCalled();
+  });
+
+  it('update 直接调用时拒绝负数续重费用且不写 DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(makeRule());
+
+    await expect(
+      service.update('rule-001', { additionalFee: -1 } as any),
+    ).rejects.toThrow('运费规则「广东默认」配置无效');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('CreateShippingRuleDto 运费公式校验', () => {
+  async function validateCreateDto(payload: Record<string, unknown>) {
+    return validate(plainToInstance(CreateShippingRuleDto, payload), {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+  }
+
+  const validPayload = {
+    name: '全国默认',
+    regionCodes: [],
+    fee: 9.1,
+    firstWeightKg: 3,
+    firstFee: 9.1,
+    additionalWeightKg: 1,
+    additionalFee: 1.3,
+    minChargeWeightKg: 1,
+  };
+
+  it('拒绝 firstFee 为 0 的新建请求', async () => {
+    const errors = await validateCreateDto({ ...validPayload, firstFee: 0 });
+
+    expect(errors.some((error) => error.property === 'firstFee')).toBe(true);
+  });
+
+  it('接受完整有效的运费公式字段', async () => {
+    const errors = await validateCreateDto(validPayload);
+
+    expect(errors).toEqual([]);
   });
 });

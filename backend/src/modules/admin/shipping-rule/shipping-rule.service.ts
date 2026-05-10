@@ -23,11 +23,12 @@ export type ShippingCalculationResult = {
 };
 
 type ShippingRuleFormulaInput = {
-  firstWeightKg?: number;
-  firstFee?: number;
-  additionalWeightKg?: number;
-  additionalFee?: number;
-  minChargeWeightKg?: number;
+  name: string;
+  firstWeightKg: number;
+  firstFee: number;
+  additionalWeightKg: number;
+  additionalFee: number;
+  minChargeWeightKg: number;
 };
 
 @Injectable()
@@ -63,7 +64,7 @@ export class ShippingRuleService {
   /** 新增运费规则 */
   async create(dto: CreateShippingRuleDto) {
     this.validateRuleBounds(dto);
-    const formula = dto as CreateShippingRuleDto & ShippingRuleFormulaInput;
+    this.validateFormulaInput(dto);
 
     const created = await this.prisma.shippingRule.create({
       data: {
@@ -74,11 +75,11 @@ export class ShippingRuleService {
         minWeight: dto.minWeight === undefined ? undefined : this.kgToGram(dto.minWeight),
         maxWeight: dto.maxWeight === undefined ? undefined : this.kgToGram(dto.maxWeight),
         fee: dto.fee,
-        firstWeightKg: formula.firstWeightKg ?? 3,
-        firstFee: formula.firstFee ?? dto.fee,
-        additionalWeightKg: formula.additionalWeightKg ?? 1,
-        additionalFee: formula.additionalFee ?? 0,
-        minChargeWeightKg: formula.minChargeWeightKg ?? 1,
+        firstWeightKg: dto.firstWeightKg,
+        firstFee: dto.firstFee,
+        additionalWeightKg: dto.additionalWeightKg,
+        additionalFee: dto.additionalFee,
+        minChargeWeightKg: dto.minChargeWeightKg,
         priority: dto.priority ?? 0,
       },
     });
@@ -90,7 +91,6 @@ export class ShippingRuleService {
   async update(id: string, dto: UpdateShippingRuleDto) {
     const rule = await this.prisma.shippingRule.findUnique({ where: { id } });
     if (!rule) throw new NotFoundException('运费规则不存在');
-    const formula = dto as UpdateShippingRuleDto & ShippingRuleFormulaInput;
 
     // 部分更新时按“更新后值”做边界校验，避免写入非法区间。
     const effective = {
@@ -101,6 +101,14 @@ export class ShippingRuleService {
       maxWeight: dto.maxWeight ?? (rule.maxWeight === null ? undefined : this.gramToKg(rule.maxWeight)),
     };
     this.validateRuleBounds(effective);
+    this.validateFormulaInput({
+      name: dto.name?.trim() ?? rule.name,
+      firstWeightKg: dto.firstWeightKg ?? rule.firstWeightKg,
+      firstFee: dto.firstFee ?? rule.firstFee,
+      additionalWeightKg: dto.additionalWeightKg ?? rule.additionalWeightKg,
+      additionalFee: dto.additionalFee ?? rule.additionalFee,
+      minChargeWeightKg: dto.minChargeWeightKg ?? rule.minChargeWeightKg,
+    });
 
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
@@ -110,11 +118,11 @@ export class ShippingRuleService {
     if (dto.minWeight !== undefined) data.minWeight = this.kgToGram(dto.minWeight);
     if (dto.maxWeight !== undefined) data.maxWeight = this.kgToGram(dto.maxWeight);
     if (dto.fee !== undefined) data.fee = dto.fee;
-    if (formula.firstWeightKg !== undefined) data.firstWeightKg = formula.firstWeightKg;
-    if (formula.firstFee !== undefined) data.firstFee = formula.firstFee;
-    if (formula.additionalWeightKg !== undefined) data.additionalWeightKg = formula.additionalWeightKg;
-    if (formula.additionalFee !== undefined) data.additionalFee = formula.additionalFee;
-    if (formula.minChargeWeightKg !== undefined) data.minChargeWeightKg = formula.minChargeWeightKg;
+    if (dto.firstWeightKg !== undefined) data.firstWeightKg = dto.firstWeightKg;
+    if (dto.firstFee !== undefined) data.firstFee = dto.firstFee;
+    if (dto.additionalWeightKg !== undefined) data.additionalWeightKg = dto.additionalWeightKg;
+    if (dto.additionalFee !== undefined) data.additionalFee = dto.additionalFee;
+    if (dto.minChargeWeightKg !== undefined) data.minChargeWeightKg = dto.minChargeWeightKg;
     if (dto.priority !== undefined) data.priority = dto.priority;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
@@ -269,11 +277,15 @@ export class ShippingRuleService {
   }
 
   private validateFormulaRule(rule: ShippingRule) {
+    this.validateFormulaInput(rule);
+  }
+
+  private validateFormulaInput(rule: ShippingRuleFormulaInput) {
     const invalidFields: string[] = [];
     if (!this.isFiniteGreaterThanZero(rule.firstWeightKg)) {
       invalidFields.push('首重重量');
     }
-    if (!this.isFiniteNonNegative(rule.firstFee)) {
+    if (!this.isFiniteGreaterThanZero(rule.firstFee)) {
       invalidFields.push('首重费用');
     }
     if (!this.isFiniteGreaterThanZero(rule.additionalWeightKg)) {
@@ -288,7 +300,7 @@ export class ShippingRuleService {
 
     if (invalidFields.length > 0) {
       throw new BadRequestException(
-        `运费规则「${rule.name}」配置无效：${invalidFields.join('、')}必须为有效非负数，且首重/续重重量必须大于 0`,
+        `运费规则「${rule.name}」配置无效：${invalidFields.join('、')}必须为有效数字，且首重重量/首重费用/续重重量必须大于 0，续重费用/最低计费重量不能小于 0`,
       );
     }
   }
