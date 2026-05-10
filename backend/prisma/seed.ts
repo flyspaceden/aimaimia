@@ -3483,16 +3483,17 @@ async function main() {
   // 运费规则（ShippingRule）
   // ============================================================
   const shippingRules = [
-    { id: 'sr-001', name: '全国包邮（满99）', regionCodes: [] as string[], minAmount: 99, maxAmount: null as number | null, fee: 0, firstWeightKg: 3, firstFee: 0, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 10, isActive: true },
-    { id: 'sr-002', name: '全国标准运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: 99 as number | null, fee: 8, firstWeightKg: 3, firstFee: 8, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 5, isActive: true },
-    { id: 'sr-003', name: '偏远地区加价（新疆）', regionCodes: ['650000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 15, firstWeightKg: 3, firstFee: 15, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 20, isActive: true },
-    { id: 'sr-004', name: '偏远地区加价（西藏）', regionCodes: ['540000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 20, firstWeightKg: 3, firstFee: 20, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 20, isActive: true },
-    { id: 'sr-005', name: '重量超额运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: 5000, maxWeight: null as number | null, fee: 12, firstWeightKg: 3, firstFee: 12, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 15, isActive: true },
+    { id: 'sr-001', name: '历史规则-全国包邮（满99）', regionCodes: [] as string[], minAmount: 99, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 0, firstWeightKg: 3, firstFee: 0, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 10, isActive: false },
+    { id: 'sr-002', name: '全国标准运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 8, firstWeightKg: 3, firstFee: 8, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 5, isActive: true },
+    { id: 'sr-003', name: '偏远地区公式（新疆）', regionCodes: ['650000'], minAmount: null as number | null, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 15, firstWeightKg: 3, firstFee: 15, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 20, isActive: true },
+    { id: 'sr-004', name: '偏远地区公式（西藏）', regionCodes: ['540000'], minAmount: null as number | null, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 20, firstWeightKg: 3, firstFee: 20, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 20, isActive: true },
+    { id: 'sr-005', name: '历史规则-重量超额运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: 5000, maxWeight: null as number | null, fee: 12, firstWeightKg: 3, firstFee: 12, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 15, isActive: false },
   ];
   for (const sr of shippingRules) {
+    const { id, ...shippingRuleData } = sr;
     await prisma.shippingRule.upsert({
-      where: { id: sr.id },
-      update: {},
+      where: { id },
+      update: shippingRuleData,
       create: sr,
     });
   }

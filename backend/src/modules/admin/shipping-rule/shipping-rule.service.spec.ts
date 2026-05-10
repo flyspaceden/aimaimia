@@ -173,6 +173,54 @@ describe('ShippingRuleService 运费计算引擎', () => {
     expect(cache.setActiveRules).toHaveBeenCalledWith([makeRule()]);
   });
 
+  it('事务内计算只使用 tx 查询且不读写共享缓存', async () => {
+    const { service, prisma, cache } = createMocks([]);
+    cache.getActiveRules.mockResolvedValue([makeRule({ id: 'cached-rule' })]);
+    const tx: any = {
+      shippingRule: {
+        findMany: jest.fn().mockResolvedValue([
+          makeRule({ id: 'tx-rule', name: '事务规则' }),
+        ]),
+      },
+    };
+
+    const detail = await service.calculateShippingDetail(
+      99,
+      '440300',
+      3000,
+      tx,
+    );
+
+    expect(detail.matchedRuleId).toBe('tx-rule');
+    expect(prisma.shippingRule.findMany).not.toHaveBeenCalled();
+    expect(cache.getActiveRules).not.toHaveBeenCalled();
+    expect(cache.setActiveRules).not.toHaveBeenCalled();
+    expect(tx.shippingRule.findMany).toHaveBeenCalledWith({
+      where: { isActive: true },
+      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    });
+  });
+
+  it('匹配规则的 additionalWeightKg 为 0 时抛出配置错误', async () => {
+    const { service } = createMocks([
+      makeRule({ name: '错误续重规则', additionalWeightKg: 0 }),
+    ]);
+
+    await expect(
+      service.calculateShippingDetail(99, '440300', 4200),
+    ).rejects.toThrow('运费规则「错误续重规则」配置无效');
+  });
+
+  it('匹配规则存在负数费用时抛出配置错误', async () => {
+    const { service } = createMocks([
+      makeRule({ name: '错误费用规则', additionalFee: -1 }),
+    ]);
+
+    await expect(
+      service.calculateShippingDetail(99, '440300', 4200),
+    ).rejects.toThrow('运费规则「错误费用规则」配置无效');
+  });
+
   it('写操作后清空缓存', async () => {
     const { service, prisma, cache } = createMocks([]);
     const existing = makeRule();

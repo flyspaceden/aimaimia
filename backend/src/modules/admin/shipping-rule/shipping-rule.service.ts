@@ -210,13 +210,19 @@ export class ShippingRuleService {
   private async getActiveRules(
     tx?: Prisma.TransactionClient,
   ): Promise<ShippingRule[]> {
+    if (tx) {
+      return tx.shippingRule.findMany({
+        where: { isActive: true },
+        orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+      });
+    }
+
     const cached = await this.cache.getActiveRules();
     if (cached) {
       return cached;
     }
 
-    const prisma = tx || this.prisma;
-    const rules = await prisma.shippingRule.findMany({
+    const rules = await this.prisma.shippingRule.findMany({
       where: { isActive: true },
       orderBy: [{ priority: 'desc' }, { id: 'asc' }],
     });
@@ -228,6 +234,8 @@ export class ShippingRuleService {
     rule: ShippingRule,
     totalWeightGram: number,
   ): ShippingCalculationResult {
+    this.validateFormulaRule(rule);
+
     const billingWeightG = Math.max(
       totalWeightGram,
       Math.round(rule.minChargeWeightKg * GRAMS_PER_KG),
@@ -258,6 +266,39 @@ export class ShippingRuleService {
       formula,
       fallbackUsed: false,
     };
+  }
+
+  private validateFormulaRule(rule: ShippingRule) {
+    const invalidFields: string[] = [];
+    if (!this.isFiniteGreaterThanZero(rule.firstWeightKg)) {
+      invalidFields.push('首重重量');
+    }
+    if (!this.isFiniteNonNegative(rule.firstFee)) {
+      invalidFields.push('首重费用');
+    }
+    if (!this.isFiniteGreaterThanZero(rule.additionalWeightKg)) {
+      invalidFields.push('续重重量');
+    }
+    if (!this.isFiniteNonNegative(rule.additionalFee)) {
+      invalidFields.push('续重费用');
+    }
+    if (!this.isFiniteNonNegative(rule.minChargeWeightKg)) {
+      invalidFields.push('最低计费重量');
+    }
+
+    if (invalidFields.length > 0) {
+      throw new BadRequestException(
+        `运费规则「${rule.name}」配置无效：${invalidFields.join('、')}必须为有效非负数，且首重/续重重量必须大于 0`,
+      );
+    }
+  }
+
+  private isFiniteGreaterThanZero(value: number): boolean {
+    return Number.isFinite(value) && value > 0;
+  }
+
+  private isFiniteNonNegative(value: number): boolean {
+    return Number.isFinite(value) && value >= 0;
   }
 
   private regionMatches(regionCodes: string[], regionCode?: string): boolean {
