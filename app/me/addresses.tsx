@@ -17,6 +17,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
+import { RegionPicker, type RegionValue } from '../../src/components/forms';
 import { AddressRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
@@ -25,13 +26,12 @@ import { Address } from '../../src/types';
 type FormData = {
   receiverName: string;
   phone: string;
-  province: string;
-  city: string;
-  district: string;
+  /** 行政区划（regionCode + regionText 一一对应，由 RegionPicker 写入） */
+  region: RegionValue | null;
   detail: string;
 };
 
-const emptyForm: FormData = { receiverName: '', phone: '', province: '', city: '', district: '', detail: '' };
+const emptyForm: FormData = { receiverName: '', phone: '', region: null, detail: '' };
 
 export default function AddressesScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
@@ -75,12 +75,16 @@ export default function AddressesScreen() {
   };
 
   const openEdit = (addr: Address) => {
+    // 优先使用 regionCode+regionText（新数据），fallback 拼接老字段（兼容历史地址）
+    const region: RegionValue | null = addr.regionCode && addr.regionText
+      ? { regionCode: addr.regionCode, regionText: addr.regionText }
+      : (addr.province || addr.city || addr.district)
+        ? { regionCode: '', regionText: [addr.province, addr.city, addr.district].filter(Boolean).join('/') }
+        : null;
     setForm({
       receiverName: addr.receiverName,
       phone: addr.phone,
-      province: addr.province,
-      city: addr.city,
-      district: addr.district,
+      region,
       detail: addr.detail,
     });
     setEditing(addr.id);
@@ -89,9 +93,7 @@ export default function AddressesScreen() {
   const validate = (): string | null => {
     if (!form.receiverName.trim()) return '请输入收货人姓名';
     if (!form.phone.trim() || form.phone.trim().length < 11) return '请输入正确的手机号';
-    if (!form.province.trim()) return '请输入省份';
-    if (!form.city.trim()) return '请输入城市';
-    if (!form.district.trim()) return '请输入区县';
+    if (!form.region?.regionCode || !form.region?.regionText) return '请选择省/市/区';
     if (!form.detail.trim()) return '请输入详细地址';
     return null;
   };
@@ -100,9 +102,17 @@ export default function AddressesScreen() {
     const err = validate();
     if (err) { show({ message: err, type: 'error' }); return; }
     setSubmitting(true);
+    // 提交格式：regionCode + regionText（后端 Schema 标准字段）
+    const payload = {
+      receiverName: form.receiverName,
+      phone: form.phone,
+      regionCode: form.region!.regionCode,
+      regionText: form.region!.regionText,
+      detail: form.detail,
+    };
     const result = editing === 'new'
-      ? await AddressRepo.create(form)
-      : await AddressRepo.update(editing!, form);
+      ? await AddressRepo.create(payload as any)
+      : await AddressRepo.update(editing!, payload as any);
     setSubmitting(false);
     if (!result.ok) {
       show({ message: result.error.displayMessage ?? '保存失败', type: 'error' });
@@ -172,13 +182,10 @@ export default function AddressesScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
+          {/* 收货人 + 手机号：手打输入 */}
           {[
             { key: 'receiverName', label: '收货人', placeholder: '请输入姓名' },
             { key: 'phone', label: '手机号', placeholder: '请输入手机号', keyboardType: 'phone-pad' as const },
-            { key: 'province', label: '省份', placeholder: '如：浙江省' },
-            { key: 'city', label: '城市', placeholder: '如：杭州市' },
-            { key: 'district', label: '区县', placeholder: '如：西湖区' },
-            { key: 'detail', label: '详细地址', placeholder: '街道/小区/门牌号' },
           ].map((field) => (
             <View key={field.key} style={{ marginBottom: spacing.lg }}>
               <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: 6 }]}>
@@ -203,6 +210,40 @@ export default function AddressesScreen() {
               />
             </View>
           ))}
+
+          {/* 省/市/区：底部弹起三联动选择器，避免手打不规范 */}
+          <View style={{ marginBottom: spacing.lg }}>
+            <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: 6 }]}>
+              所在地区
+            </Text>
+            <RegionPicker
+              value={form.region}
+              onChange={(region) => setForm({ ...form, region })}
+            />
+          </View>
+
+          {/* 详细地址：街道/门牌号手打 */}
+          <View style={{ marginBottom: spacing.lg }}>
+            <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: 6 }]}>
+              详细地址
+            </Text>
+            <TextInput
+              value={form.detail}
+              onChangeText={(v) => setForm({ ...form, detail: v })}
+              placeholder="街道/小区/门牌号"
+              placeholderTextColor={colors.muted}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  color: colors.text.primary,
+                  ...typography.body,
+                },
+              ]}
+            />
+          </View>
 
           {/* 保存按钮 — 渐变 */}
           <Pressable onPress={handleSave} disabled={submitting}>
@@ -294,7 +335,9 @@ export default function AddressesScreen() {
                         style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}
                         numberOfLines={2}
                       >
-                        {item.province}{item.city}{item.district} {item.detail}
+                        {item.regionText
+                          ? `${item.regionText.replace(/\//g, ' ')} ${item.detail}`
+                          : `${item.province}${item.city}${item.district} ${item.detail}`}
                       </Text>
                     </View>
                     <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
