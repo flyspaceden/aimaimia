@@ -1,5 +1,6 @@
+import { NotFoundException } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
-import { AfterSaleType } from '@prisma/client';
+import { AfterSaleOperatorType, AfterSaleType } from '@prisma/client';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 import { AfterSaleController } from './after-sale.controller';
 import { AfterSaleService } from './after-sale.service';
@@ -190,6 +191,9 @@ function makeApplyTx(overrides: Partial<any> = {}) {
         ...data,
       })),
     },
+    afterSaleStatusHistory: {
+      create: jest.fn().mockResolvedValue({ id: 'after-sale-history-1' }),
+    },
     orderStatusHistory: {
       create: jest.fn().mockResolvedValue({ id: 'history-1' }),
     },
@@ -214,6 +218,44 @@ describe('AfterSaleService.apply', () => {
           targetSkuId: 'sku-original',
           targetQuantity: 2,
           returnShippingPayer: 'BUYER',
+        }),
+      }),
+    );
+  });
+
+  it('writes an initial after-sale status history event without removing order history', async () => {
+    const tx = makeApplyTx();
+    const { service } = makeTxService(tx);
+
+    await service.apply('user-1', 'order-1', {
+      orderItemId: 'item-1',
+      afterSaleType: AfterSaleType.QUALITY_RETURN,
+      reasonType: 'QUALITY_ISSUE',
+      photos: ['https://example.com/photo.jpg'],
+    });
+
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledWith({
+      data: {
+        afterSaleId: 'after-sale-1',
+        fromStatus: null,
+        toStatus: 'REQUESTED',
+        reason: '买家申请售后: 质量问题',
+        operatorType: AfterSaleOperatorType.BUYER,
+        operatorId: 'user-1',
+        meta: {
+          type: 'AFTER_SALE_REQUESTED',
+          afterSaleType: AfterSaleType.QUALITY_RETURN,
+        },
+      },
+    });
+    expect(tx.orderStatusHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          orderId: 'order-1',
+          meta: expect.objectContaining({
+            type: 'AFTER_SALE_REQUESTED',
+            afterSaleId: 'after-sale-1',
+          }),
         }),
       }),
     );
@@ -266,6 +308,56 @@ describe('AfterSaleService.escalate', () => {
         fromStatus: 'REJECTED',
         toStatus: 'PENDING_ARBITRATION',
         operatorType: 'BUYER',
+        operatorId: 'user-1',
+      }),
+    });
+  });
+
+  it('preserves seller rejected return as the source status when buyer escalates', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-1',
+            userId: 'user-1',
+            status: 'SELLER_REJECTED_RETURN',
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-1',
+            userId: 'user-1',
+            status: 'PENDING_ARBITRATION',
+            arbitrationSourceStatus: 'SELLER_REJECTED_RETURN',
+            arbitrationSource: 'BUYER',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      afterSaleStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'history-1' }),
+      },
+    };
+    const { service } = makeTxService(tx);
+
+    await service.escalate('user-1', 'after-sale-1');
+
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'after-sale-1',
+        userId: 'user-1',
+        status: 'SELLER_REJECTED_RETURN',
+      },
+      data: {
+        status: 'PENDING_ARBITRATION',
+        arbitrationSourceStatus: 'SELLER_REJECTED_RETURN',
+        arbitrationSource: 'BUYER',
+      },
+    });
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        afterSaleId: 'after-sale-1',
+        fromStatus: 'SELLER_REJECTED_RETURN',
+        toStatus: 'PENDING_ARBITRATION',
+        operatorType: AfterSaleOperatorType.BUYER,
         operatorId: 'user-1',
       }),
     });
@@ -348,6 +440,26 @@ describe('AfterSaleService.getTimeline', () => {
         },
       ],
     });
+  });
+
+  it('rejects non-owner access without querying status history', async () => {
+    const prisma = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'after-sale-1',
+          userId: 'user-1',
+        }),
+      },
+      afterSaleStatusHistory: {
+        findMany: jest.fn(),
+      },
+    };
+    const service = new AfterSaleService(prisma as any, {} as any);
+
+    await expect(
+      (service as any).getTimeline('user-2', 'after-sale-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.afterSaleStatusHistory.findMany).not.toHaveBeenCalled();
   });
 });
 

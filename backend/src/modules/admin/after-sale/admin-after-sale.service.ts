@@ -257,7 +257,7 @@ export class AdminAfterSaleService {
    * - PENDING_ARBITRATION（主要场景：买家升级仲裁）
    * - REQUESTED / UNDER_REVIEW（管理员主动介入覆盖）
    *
-   * 审批通过时，根据 arbitrationSource（仲裁前状态）决定后续流程：
+   * 审批通过时，根据 arbitrationSourceStatus（仲裁前状态）决定后续流程：
    *
    * 场景1: 源 PENDING_ARBITRATION，且之前是 REJECTED（卖家审核驳回 → 买家升级）
    *   → 按正常审批流程：检查 requiresReturn + afterSaleType
@@ -335,7 +335,10 @@ export class AdminAfterSaleService {
             // 判断仲裁前来源，决定后续流程
             const fromSellerRejectedReturn =
               currentStatus === 'PENDING_ARBITRATION' &&
-              request.arbitrationSource === 'SELLER_REJECTED_RETURN';
+              (
+                request.arbitrationSourceStatus === 'SELLER_REJECTED_RETURN' ||
+                request.arbitrationSource === 'SELLER_REJECTED_RETURN'
+              );
 
             if (fromSellerRejectedReturn) {
               // 场景2: 卖家验收退货不合格后买家升级仲裁

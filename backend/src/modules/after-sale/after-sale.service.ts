@@ -628,6 +628,21 @@ export class AfterSaleService {
             },
           });
 
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId: request.id,
+              fromStatus: null,
+              toStatus: initialStatus,
+              reason: `买家申请售后: ${reasonText}`,
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+              meta: {
+                type: 'AFTER_SALE_REQUESTED',
+                afterSaleType: dto.afterSaleType,
+              },
+            },
+          });
+
           // 记录售后申请事件（不变更订单状态）
           await tx.orderStatusHistory.create({
             data: {
