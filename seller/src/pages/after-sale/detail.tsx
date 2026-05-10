@@ -202,11 +202,82 @@ export default function AfterSaleDetailPage() {
   const productName = parsedSnapshot?.title || parsedSnapshot?.name || '-';
   const productImage = parsedSnapshot?.imageUrl || parsedSnapshot?.media?.[0]?.url;
 
+  // 是否有待处理动作（决定顶部"待处理操作"Card 是否展示）
+  const hasActionableState =
+    afterSale.status === 'REQUESTED' ||
+    afterSale.status === 'UNDER_REVIEW' ||
+    afterSale.status === 'RETURN_SHIPPING' ||
+    (afterSale.status === 'RECEIVED_BY_SELLER' && isReturn) ||
+    canShipReplacement;
+
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/after-sale')}>
         返回列表
       </Button>
+
+      {/* ════ 顶部「待处理操作」快捷入口（仅在有可执行动作时显示）════ */}
+      {hasActionableState && (
+        <Card
+          title="待处理操作"
+          styles={{
+            header: { background: '#fff7e6', borderBottom: '1px solid #ffd591' },
+          }}
+          style={{ borderColor: '#ffd591' }}
+        >
+          <Space wrap>
+            {afterSale.status === 'REQUESTED' && (
+              <Button onClick={handleReview}>开始审核</Button>
+            )}
+            {afterSale.status === 'UNDER_REVIEW' && (
+              <>
+                <Button type="primary" onClick={handleApprove}>通过</Button>
+                <Button danger onClick={() => { setRejectModal(true); setRejectReason(''); }}>驳回</Button>
+              </>
+            )}
+            {afterSale.status === 'RETURN_SHIPPING' && (
+              <Button type="primary" size="large" onClick={handleConfirmReceive}>
+                确认收到退货
+              </Button>
+            )}
+            {afterSale.status === 'RECEIVED_BY_SELLER' && isReturn && (
+              <>
+                <Tag color="processing">已签收，系统将进入退款处理</Tag>
+                <Button
+                  danger
+                  onClick={() => {
+                    setRejectReturnModal(true);
+                    setReturnRejectReason('');
+                    setReturnRejectPhotos([]);
+                  }}
+                >
+                  验收不通过
+                </Button>
+              </>
+            )}
+            {canShipReplacement && !afterSale.replacementWaybillNo && (
+              <Button type="primary" loading={generatingWaybill} onClick={() => handleGenerateWaybill('SF')}>
+                生成面单
+              </Button>
+            )}
+            {canShipReplacement && afterSale.replacementWaybillNo && (
+              <>
+                <Button
+                  icon={<PrinterOutlined />}
+                  onClick={() =>
+                    afterSale.replacementWaybillPrintUrl &&
+                    window.open(afterSale.replacementWaybillPrintUrl, '_blank', 'noopener,noreferrer')
+                  }
+                >
+                  打印面单
+                </Button>
+                <Button danger onClick={handleCancelWaybill}>取消面单</Button>
+                <Button type="primary" loading={shipping} onClick={handleShip}>确认发货</Button>
+              </>
+            )}
+          </Space>
+        </Card>
+      )}
 
       {/* 基本信息 */}
       <Card title="售后详情">
@@ -463,59 +534,7 @@ export default function AfterSaleDetailPage() {
         </Card>
       )}
 
-      {/* 操作按钮 */}
-      <Card>
-        <Space>
-          {afterSale.status === 'REQUESTED' && (
-            <Button onClick={handleReview}>开始审核</Button>
-          )}
-          {afterSale.status === 'UNDER_REVIEW' && (
-            <>
-              <Button type="primary" onClick={handleApprove}>通过</Button>
-              <Button danger onClick={() => { setRejectModal(true); setRejectReason(''); }}>驳回</Button>
-            </>
-          )}
-          {afterSale.status === 'RETURN_SHIPPING' && (
-            <Button type="primary" onClick={handleConfirmReceive}>确认收到退货</Button>
-          )}
-          {afterSale.status === 'RECEIVED_BY_SELLER' && isReturn && (
-            <>
-              <Tag color="processing">已签收，系统将进入退款处理</Tag>
-              <Button
-                danger
-                onClick={() => {
-                  setRejectReturnModal(true);
-                  setReturnRejectReason('');
-                  setReturnRejectPhotos([]);
-                }}
-              >
-                验收不通过
-              </Button>
-            </>
-          )}
-          {/* 换货发货流程 */}
-          {canShipReplacement && !afterSale.replacementWaybillNo && (
-            <Button type="primary" loading={generatingWaybill} onClick={() => handleGenerateWaybill('SF')}>
-              生成面单
-            </Button>
-          )}
-          {canShipReplacement && afterSale.replacementWaybillNo && (
-            <>
-              <Button
-                icon={<PrinterOutlined />}
-                onClick={() =>
-                  afterSale.replacementWaybillPrintUrl &&
-                  window.open(afterSale.replacementWaybillPrintUrl, '_blank', 'noopener,noreferrer')
-                }
-              >
-                打印面单
-              </Button>
-              <Button danger onClick={handleCancelWaybill}>取消面单</Button>
-              <Button type="primary" loading={shipping} onClick={handleShip}>确认发货</Button>
-            </>
-          )}
-        </Space>
-      </Card>
+      {/* 操作按钮已移到页面顶部"待处理操作"Card，此处不再重复 */}
 
       {/* 驳回 Modal */}
       <Modal
