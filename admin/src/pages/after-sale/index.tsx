@@ -12,12 +12,17 @@ import {
   InboxOutlined, SyncOutlined, AuditOutlined,
   SafetyOutlined,
 } from '@ant-design/icons';
-import { getAfterSales, getAfterSaleStats, arbitrateAfterSale } from '@/api/after-sale';
+import {
+  getAfterSales,
+  getAfterSaleStats,
+  arbitrateAfterSale,
+  retryAfterSaleRefund,
+} from '@/api/after-sale';
 import type { AdminAfterSale, AfterSaleStatsResponse } from '@/api/after-sale';
 import { getCompanies } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
-import { afterSaleStatusMap, afterSaleTypeMap } from '@/constants/statusMaps';
+import { afterSaleStatusMap, afterSaleTypeMap, refundStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -52,6 +57,12 @@ const REASON_TYPE_MAP: Record<string, { text: string; color: string }> = {
   SIZE_ISSUE: { text: '规格不符', color: 'cyan' },
   EXPIRED: { text: '临期/过期', color: 'magenta' },
   OTHER: { text: '其他', color: 'default' },
+};
+
+const RETURN_SHIPPING_PAYER_MAP: Record<string, { text: string; color: string }> = {
+  BUYER: { text: '买家承担', color: 'orange' },
+  SELLER: { text: '卖家承担', color: 'blue' },
+  PLATFORM: { text: '平台承担', color: 'green' },
 };
 
 // 状态 Tab 配置
@@ -91,8 +102,24 @@ function formatReasonTag(reasonType?: string, fallbackReason?: string) {
   return fallbackReason || '-';
 }
 
+function formatCurrency(value?: number | null) {
+  return value == null ? '-' : `¥${value.toFixed(2)}`;
+}
+
+function renderStatusTag(map: Record<string, { text: string; color: string }>, value?: string | null) {
+  if (!value) return '-';
+  const entry = map[value];
+  return <Tag color={entry?.color || 'default'}>{entry?.text || value}</Tag>;
+}
+
+function renderReturnShippingPayer(value?: string | null) {
+  if (!value) return '-';
+  const entry = RETURN_SHIPPING_PAYER_MAP[value];
+  return <Tag color={entry?.color || 'default'}>{entry?.text || value}</Tag>;
+}
+
 export default function AfterSaleListPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [arbitrateModal, setArbitrateModal] = useState<{ visible: boolean; record: AdminAfterSale | null }>({
@@ -145,6 +172,27 @@ export default function AfterSaleListPage() {
     } finally {
       setArbitrateLoading(false);
     }
+  };
+
+  const handleRetryRefund = (record: AdminAfterSale) => {
+    if (!record.refund?.id) return;
+    modal.confirm({
+      title: '确认重试售后退款？',
+      content: `退款单 ${record.refund.merchantRefundNo || record.refund.id} 将重新发起渠道退款，请确认当前状态无重复出款风险。`,
+      okText: '重试退款',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await retryAfterSaleRefund(record.id, record.refund!.id);
+          message.success('退款重试已提交');
+          actionRef.current?.reload();
+          loadStats();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '退款重试失败');
+        }
+      },
+    });
   };
 
   const applyTemplate = (text: string) => setArbitrateReason(text);
@@ -321,6 +369,28 @@ export default function AfterSaleListPage() {
       },
     },
     {
+      title: '人工复核',
+      dataIndex: 'manualReviewReason',
+      width: 110,
+      valueType: 'select',
+      valueEnum: {
+        pending: { text: '待复核' },
+      },
+      search: {
+        transform: (value: string) => (value ? { manualReview: value } : {}),
+      },
+      render: (_: unknown, r: AdminAfterSale) => {
+        if (r.manualReviewReason && !r.manualReviewResolvedAt) {
+          return (
+            <Tooltip title={r.manualReviewReason}>
+              <Tag color="volcano">待复核</Tag>
+            </Tooltip>
+          );
+        }
+        return <Text type="secondary">-</Text>;
+      },
+    },
+    {
       title: '申请时间',
       dataIndex: 'createdAt',
       width: 140,
@@ -343,22 +413,40 @@ export default function AfterSaleListPage() {
     },
     {
       title: '操作',
-      width: 80,
+      width: 150,
       fixed: 'right',
       search: false,
       render: (_: unknown, r: AdminAfterSale) => {
         const canArbitrate = ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(r.status);
-        if (!canArbitrate) return null;
+        const canRetryRefund = Boolean(r.refund?.id && ['FAILED', 'REFUNDING'].includes(r.refund.status));
+        if (!canArbitrate && !canRetryRefund) return null;
         return (
-          <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => setArbitrateModal({ visible: true, record: r })}
-            >
-              仲裁
-            </Button>
-          </PermissionGate>
+          <Space size={4}>
+            {canArbitrate && (
+              <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setArbitrateModal({ visible: true, record: r })}
+                >
+                  仲裁
+                </Button>
+              </PermissionGate>
+            )}
+            {canRetryRefund && (
+              <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  icon={<SyncOutlined />}
+                  onClick={() => handleRetryRefund(r)}
+                >
+                  重试
+                </Button>
+              </PermissionGate>
+            )}
+          </Space>
         );
       },
     },
@@ -442,7 +530,7 @@ export default function AfterSaleListPage() {
           },
         }}
         request={async (params) => {
-          const { current, pageSize, id: keyword, companyId, afterSaleType } = params as any;
+          const { current, pageSize, id: keyword, companyId, afterSaleType, manualReview } = params as any;
           const statusFilter = activeTab !== 'ALL' ? activeTab : undefined;
           const res = await getAfterSales({
             page: current,
@@ -451,6 +539,7 @@ export default function AfterSaleListPage() {
             afterSaleType: afterSaleType || undefined,
             keyword: keyword || undefined,
             companyId: companyId || undefined,
+            manualReview: manualReview || undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}
@@ -500,6 +589,9 @@ export default function AfterSaleListPage() {
                   {afterSaleStatusMap[modalRecord.status]?.text}
                 </Tag>
               </Descriptions.Item>
+              <Descriptions.Item label="仲裁来源状态">
+                {renderStatusTag(afterSaleStatusMap, modalRecord.arbitrationSourceStatus)}
+              </Descriptions.Item>
               <Descriptions.Item label="售后类型">
                 <Tag color={afterSaleTypeMap[modalRecord.afterSaleType]?.color}>
                   {afterSaleTypeMap[modalRecord.afterSaleType]?.text || modalRecord.afterSaleType}
@@ -509,6 +601,15 @@ export default function AfterSaleListPage() {
                 {modalRecord.refundAmount ? (
                   <Text strong style={{ color: '#cf1322' }}>¥{modalRecord.refundAmount.toFixed(2)}</Text>
                 ) : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="退款状态">
+                {modalRecord.refund ? renderStatusTag(refundStatusMap, modalRecord.refund.status) : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="退货运费承担方">
+                {renderReturnShippingPayer(modalRecord.returnShippingPayer)}
+              </Descriptions.Item>
+              <Descriptions.Item label="退货运费">
+                {formatCurrency(modalRecord.returnShippingFee)}
               </Descriptions.Item>
               <Descriptions.Item label="申请时间">{dayjs(modalRecord.createdAt).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
               <Descriptions.Item label="需要退回">
@@ -523,6 +624,23 @@ export default function AfterSaleListPage() {
                     <Text type="secondary">{modalRecord.reason}</Text>
                   ) : null}
                 </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="人工复核原因" span={2}>
+                {modalRecord.manualReviewReason ? (
+                  <Space direction="vertical" size={2}>
+                    <Text type={modalRecord.manualReviewResolvedAt ? 'secondary' : 'danger'}>
+                      {modalRecord.manualReviewReason}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      发起：{modalRecord.manualReviewRequestedAt
+                        ? dayjs(modalRecord.manualReviewRequestedAt).format('YYYY-MM-DD HH:mm')
+                        : '-'}
+                      {modalRecord.manualReviewResolvedAt
+                        ? ` / 处理：${dayjs(modalRecord.manualReviewResolvedAt).format('YYYY-MM-DD HH:mm')}`
+                        : ''}
+                    </Text>
+                  </Space>
+                ) : '-'}
               </Descriptions.Item>
             </Descriptions>
 

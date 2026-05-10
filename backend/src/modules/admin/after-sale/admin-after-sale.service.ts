@@ -232,6 +232,39 @@ export class AdminAfterSaleService {
     };
   }
 
+  /** 售后状态时间线（管理员可查看全平台售后单） */
+  async getTimeline(id: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+
+    const rows = await this.prisma.afterSaleStatusHistory.findMany({
+      where: { afterSaleId: id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        reason: row.reason,
+        operatorType: row.operatorType,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
   // ========== 状态统计 ==========
 
   /** 售后状态统计（按状态 + 按类型） */

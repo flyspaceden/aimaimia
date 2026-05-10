@@ -1,4 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
+import { AdminAfterSaleController } from './admin-after-sale.controller';
 import { AdminAfterSaleService } from './admin-after-sale.service';
 
 function makeService(tx: any) {
@@ -363,5 +365,96 @@ describe('AdminAfterSaleService.retryRefund', () => {
       service.retryRefund('missing-after-sale', 'refund-1', 'admin-1'),
     ).rejects.toThrow(NotFoundException);
     expect(afterSaleRefundService.retryRefund).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminAfterSaleService.getTimeline', () => {
+  it('returns status history sorted ascending for admin visibility', async () => {
+    const createdAt = new Date('2026-05-10T00:00:00.000Z');
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'after-sale-1' }),
+      },
+      afterSaleStatusHistory: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'history-1',
+            fromStatus: 'REQUESTED',
+            toStatus: 'APPROVED',
+            reason: '平台仲裁通过',
+            operatorType: 'ADMIN',
+            createdAt,
+          },
+        ]),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await expect(service.getTimeline('after-sale-1')).resolves.toEqual({
+      items: [
+        {
+          id: 'history-1',
+          fromStatus: 'REQUESTED',
+          toStatus: 'APPROVED',
+          reason: '平台仲裁通过',
+          operatorType: 'ADMIN',
+          createdAt,
+        },
+      ],
+    });
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith({
+      where: { id: 'after-sale-1' },
+      select: { id: true },
+    });
+    expect(tx.afterSaleStatusHistory.findMany).toHaveBeenCalledWith({
+      where: { afterSaleId: 'after-sale-1' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+  });
+
+  it('rejects timeline requests for missing after-sale request', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      afterSaleStatusHistory: {
+        findMany: jest.fn(),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await expect(service.getTimeline('missing-after-sale')).rejects.toThrow(NotFoundException);
+    expect(tx.afterSaleStatusHistory.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminAfterSaleController timeline route', () => {
+  it('declares GET :id/timeline before GET :id and delegates to service', async () => {
+    const methodNames = Object.getOwnPropertyNames(AdminAfterSaleController.prototype);
+    const timelineIndex = methodNames.indexOf('getTimeline');
+    const detailIndex = methodNames.indexOf('findById');
+
+    expect(timelineIndex).toBeGreaterThan(-1);
+    expect(timelineIndex).toBeLessThan(detailIndex);
+    expect(Reflect.getMetadata(
+      PATH_METADATA,
+      (AdminAfterSaleController.prototype as any).getTimeline,
+    )).toBe(':id/timeline');
+
+    const service = {
+      getTimeline: jest.fn().mockResolvedValue({ items: [] }),
+    };
+    const controller = new AdminAfterSaleController(service as any);
+
+    await expect((controller as any).getTimeline('after-sale-1')).resolves.toEqual({ items: [] });
+    expect(service.getTimeline).toHaveBeenCalledWith('after-sale-1');
   });
 });

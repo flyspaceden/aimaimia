@@ -6,6 +6,7 @@ interface AfterSaleQueryParams extends PaginationParams {
   afterSaleType?: string;
   companyId?: string;
   keyword?: string;
+  manualReview?: string;
 }
 
 export interface AdminAfterSale {
@@ -20,8 +21,36 @@ export interface AdminAfterSale {
   isPostReplacement: boolean;
   requiresReturn: boolean;
   arbitrationSource?: string;
+  arbitrationSourceStatus?: string | null;
   refundAmount?: number;
   refundId?: string;
+  refund?: {
+    id: string;
+    amount: number;
+    status: 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
+    merchantRefundNo: string;
+    providerRefundId?: string | null;
+  } | null;
+  refundHistory?: Array<{
+    id: string;
+    fromStatus?: string | null;
+    toStatus: string;
+    remark?: string | null;
+    createdAt: string;
+  }>;
+  statusHistory?: Array<{
+    id: string;
+    fromStatus?: string | null;
+    toStatus: string;
+    reason?: string | null;
+    operatorType?: string | null;
+    createdAt: string;
+  }>;
+  manualReviewReason?: string | null;
+  manualReviewRequestedAt?: string | null;
+  manualReviewResolvedAt?: string | null;
+  returnShippingPayer?: string | null;
+  returnShippingFee?: number | null;
   /** 审核人（卖家staff或管理员ID） */
   reviewerId?: string;
   /** 卖家/管理员审核意见 */
@@ -69,6 +98,15 @@ export interface AdminAfterSale {
   };
 }
 
+export interface AfterSaleTimelineItem {
+  id: string;
+  fromStatus?: string | null;
+  toStatus: string;
+  reason?: string | null;
+  operatorType?: string | null;
+  createdAt: string;
+}
+
 /** 售后状态统计 */
 export interface AfterSaleStatsResponse {
   byStatus: Record<string, number>;
@@ -93,3 +131,16 @@ export const arbitrateAfterSale = (
   data: { status: 'APPROVED' | 'REJECTED'; reason?: string },
 ): Promise<AdminAfterSale> =>
   client.post(`/admin/after-sale/${id}/arbitrate`, data);
+
+/** 人工重试售后退款 */
+export const retryAfterSaleRefund = (
+  afterSaleId: string,
+  refundId: string,
+): Promise<AdminAfterSale['refund']> =>
+  client.post(`/admin/after-sale/${afterSaleId}/refunds/${refundId}/retry`);
+
+/** 售后状态时间线 */
+export const getAfterSaleTimeline = (
+  id: string,
+): Promise<{ items: AfterSaleTimelineItem[] }> =>
+  client.get(`/admin/after-sale/${id}/timeline`);

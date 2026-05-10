@@ -55,6 +55,13 @@ export class AdminAfterSaleController {
     return this.afterSaleService.getStats();
   }
 
+  /** 售后状态时间线 */
+  @Get(':id/timeline')
+  @RequirePermission('after-sale:read')
+  getTimeline(@Param('id') id: string) {
+    return this.afterSaleService.getTimeline(id);
+  }
+
   /** 售后详情 */
   @Get(':id')
   @RequirePermission('after-sale:read')
