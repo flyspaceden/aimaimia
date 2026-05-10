@@ -3,19 +3,39 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma, ShippingRule } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
 import { CreateShippingRuleDto } from './dto/create-shipping-rule.dto';
 import { UpdateShippingRuleDto } from './dto/update-shipping-rule.dto';
 import { PreviewShippingDto } from './dto/preview-shipping.dto';
+import { ShippingRuleCache } from './shipping-rule.cache';
 
 const GRAMS_PER_KG = 1000;
+
+export type ShippingCalculationResult = {
+  fee: number;
+  matchedRuleId: string | null;
+  matchedRuleName: string | null;
+  billingWeightKg: number;
+  formula: string;
+  fallbackUsed: boolean;
+};
+
+type ShippingRuleFormulaInput = {
+  firstWeightKg?: number;
+  firstFee?: number;
+  additionalWeightKg?: number;
+  additionalFee?: number;
+  minChargeWeightKg?: number;
+};
 
 @Injectable()
 export class ShippingRuleService {
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
+    private cache: ShippingRuleCache,
   ) {}
 
   /** 运费规则列表 */
@@ -43,6 +63,7 @@ export class ShippingRuleService {
   /** 新增运费规则 */
   async create(dto: CreateShippingRuleDto) {
     this.validateRuleBounds(dto);
+    const formula = dto as CreateShippingRuleDto & ShippingRuleFormulaInput;
 
     const created = await this.prisma.shippingRule.create({
       data: {
@@ -53,9 +74,15 @@ export class ShippingRuleService {
         minWeight: dto.minWeight === undefined ? undefined : this.kgToGram(dto.minWeight),
         maxWeight: dto.maxWeight === undefined ? undefined : this.kgToGram(dto.maxWeight),
         fee: dto.fee,
+        firstWeightKg: formula.firstWeightKg ?? 3,
+        firstFee: formula.firstFee ?? dto.fee,
+        additionalWeightKg: formula.additionalWeightKg ?? 1,
+        additionalFee: formula.additionalFee ?? 0,
+        minChargeWeightKg: formula.minChargeWeightKg ?? 1,
         priority: dto.priority ?? 0,
       },
     });
+    await this.cache.invalidate();
     return this.normalizeRuleWeightUnit(created);
   }
 
@@ -63,6 +90,7 @@ export class ShippingRuleService {
   async update(id: string, dto: UpdateShippingRuleDto) {
     const rule = await this.prisma.shippingRule.findUnique({ where: { id } });
     if (!rule) throw new NotFoundException('运费规则不存在');
+    const formula = dto as UpdateShippingRuleDto & ShippingRuleFormulaInput;
 
     // 部分更新时按“更新后值”做边界校验，避免写入非法区间。
     const effective = {
@@ -82,6 +110,11 @@ export class ShippingRuleService {
     if (dto.minWeight !== undefined) data.minWeight = this.kgToGram(dto.minWeight);
     if (dto.maxWeight !== undefined) data.maxWeight = this.kgToGram(dto.maxWeight);
     if (dto.fee !== undefined) data.fee = dto.fee;
+    if (formula.firstWeightKg !== undefined) data.firstWeightKg = formula.firstWeightKg;
+    if (formula.firstFee !== undefined) data.firstFee = formula.firstFee;
+    if (formula.additionalWeightKg !== undefined) data.additionalWeightKg = formula.additionalWeightKg;
+    if (formula.additionalFee !== undefined) data.additionalFee = formula.additionalFee;
+    if (formula.minChargeWeightKg !== undefined) data.minChargeWeightKg = formula.minChargeWeightKg;
     if (dto.priority !== undefined) data.priority = dto.priority;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
@@ -89,6 +122,7 @@ export class ShippingRuleService {
       where: { id },
       data,
     });
+    await this.cache.invalidate();
     return this.normalizeRuleWeightUnit(updated);
   }
 
@@ -100,6 +134,7 @@ export class ShippingRuleService {
     if (!rule) throw new NotFoundException('运费规则不存在');
 
     await this.prisma.shippingRule.delete({ where: { id } });
+    await this.cache.invalidate();
     return { ok: true };
   }
 
@@ -122,47 +157,118 @@ export class ShippingRuleService {
     goodsAmount: number,
     regionCode?: string,
     totalWeight?: number,
-    tx?: any,
+    tx?: Prisma.TransactionClient,
   ): Promise<number> {
-    const prisma = tx || this.prisma;
+    const detail = await this.calculateShippingDetail(
+      goodsAmount,
+      regionCode,
+      totalWeight,
+      tx,
+    );
+    return detail.fee;
+  }
 
-    const rules = await prisma.shippingRule.findMany({
-      where: { isActive: true },
-      orderBy: { priority: 'desc' },
-    });
+  /**
+   * 顺丰风格平台统一计价引擎。
+   * totalWeightGram 单位：g（克）；缺省按 0g 处理，只允许全国规则匹配缺省 regionCode。
+   */
+  async calculateShippingDetail(
+    _goodsAmount: number,
+    regionCode?: string,
+    totalWeightGram?: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<ShippingCalculationResult> {
+    const rules = await this.getActiveRules(tx);
+    const safeWeightGram = Math.max(0, Math.round(totalWeightGram ?? 0));
 
-    for (const rule of rules) {
-      // 地区匹配：空数组 = 全国适用
-      if (rule.regionCodes.length > 0 && regionCode) {
-        // 匹配省级前缀（前2位行政区划码）
-        const provinceCode = regionCode.slice(0, 2);
-        // regionCodes 可能存 "11"（2位省码）或 "110000"（6位区划码），统一比较前2位
-        const matches = rule.regionCodes.some(
-          (rc: string) => rc.slice(0, 2) === provinceCode,
-        );
-        if (!matches) continue;
-      } else if (rule.regionCodes.length > 0 && !regionCode) {
-        // 规则限定了地区但未提供地区码，跳过
-        continue;
-      }
+    const candidates = rules
+      .filter((rule) => rule.isActive)
+      .filter((rule) => this.regionMatches(rule.regionCodes, regionCode))
+      .sort((a, b) => {
+        if (b.priority !== a.priority) return b.priority - a.priority;
+        return a.id.localeCompare(b.id);
+      });
+    const matched = candidates[0] ?? null;
 
-      // 金额匹配
-      if (rule.minAmount !== null && goodsAmount < rule.minAmount) continue;
-      if (rule.maxAmount !== null && goodsAmount >= rule.maxAmount) continue;
-
-      // 重量匹配
-      if (totalWeight !== undefined) {
-        if (rule.minWeight !== null && totalWeight < rule.minWeight) continue;
-        if (rule.maxWeight !== null && totalWeight >= rule.maxWeight) continue;
-      }
-
-      // 全部匹配，返回运费
-      return rule.fee;
+    if (!matched) {
+      const sysConfig = await this.bonusConfig.getSystemConfig();
+      const defaultShippingFee = sysConfig.defaultShippingFee;
+      const fallbackWeightKg = Math.max(safeWeightGram, GRAMS_PER_KG) / GRAMS_PER_KG;
+      return {
+        fee: defaultShippingFee,
+        matchedRuleId: null,
+        matchedRuleName: null,
+        billingWeightKg: fallbackWeightKg,
+        formula: `fallback DEFAULT_SHIPPING_FEE = ${defaultShippingFee}`,
+        fallbackUsed: true,
+      };
     }
 
-    // 无匹配规则，使用默认运费
-    const sysConfig = await this.bonusConfig.getSystemConfig();
-    return sysConfig.defaultShippingFee;
+    return this.calculateByRule(matched, safeWeightGram);
+  }
+
+  private async getActiveRules(
+    tx?: Prisma.TransactionClient,
+  ): Promise<ShippingRule[]> {
+    const cached = await this.cache.getActiveRules();
+    if (cached) {
+      return cached;
+    }
+
+    const prisma = tx || this.prisma;
+    const rules = await prisma.shippingRule.findMany({
+      where: { isActive: true },
+      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    });
+    await this.cache.setActiveRules(rules);
+    return rules;
+  }
+
+  private calculateByRule(
+    rule: ShippingRule,
+    totalWeightGram: number,
+  ): ShippingCalculationResult {
+    const billingWeightG = Math.max(
+      totalWeightGram,
+      Math.round(rule.minChargeWeightKg * GRAMS_PER_KG),
+    );
+    const firstWeightG = Math.round(rule.firstWeightKg * GRAMS_PER_KG);
+    const additionalUnitG = Math.round(rule.additionalWeightKg * GRAMS_PER_KG);
+    const firstFeeCent = Math.round(rule.firstFee * 100);
+    const additionalFeeCent = Math.round(rule.additionalFee * 100);
+
+    let feeCent: number;
+    let formula: string;
+    if (billingWeightG <= firstWeightG) {
+      feeCent = firstFeeCent;
+      formula = `${rule.firstFee} = ${feeCent / 100}`;
+    } else {
+      const extraUnits = Math.ceil((billingWeightG - firstWeightG) / additionalUnitG);
+      feeCent = firstFeeCent + extraUnits * additionalFeeCent;
+      formula =
+        `${rule.firstFee} + ceil((${billingWeightG}g - ${firstWeightG}g) / ` +
+        `${additionalUnitG}g) * ${rule.additionalFee} = ${feeCent / 100}`;
+    }
+
+    return {
+      fee: feeCent / 100,
+      matchedRuleId: rule.id,
+      matchedRuleName: rule.name,
+      billingWeightKg: billingWeightG / GRAMS_PER_KG,
+      formula,
+      fallbackUsed: false,
+    };
+  }
+
+  private regionMatches(regionCodes: string[], regionCode?: string): boolean {
+    if (regionCodes.length === 0) {
+      return true;
+    }
+    if (!regionCode) {
+      return false;
+    }
+    const provinceCode = regionCode.slice(0, 2);
+    return regionCodes.some((code) => code.slice(0, 2) === provinceCode);
   }
 
   private validateRuleBounds(input: {

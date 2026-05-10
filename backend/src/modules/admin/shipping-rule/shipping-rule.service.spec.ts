@@ -1,0 +1,186 @@
+import { ShippingRuleService } from './shipping-rule.service';
+
+function makeRule(overrides: Record<string, any> = {}) {
+  return {
+    id: 'rule-001',
+    name: '广东默认',
+    regionCodes: ['440000'],
+    minAmount: null,
+    maxAmount: null,
+    minWeight: null,
+    maxWeight: null,
+    fee: 0,
+    firstWeightKg: 3,
+    firstFee: 9.1,
+    additionalWeightKg: 1,
+    additionalFee: 1.3,
+    minChargeWeightKg: 1,
+    priority: 100,
+    isActive: true,
+    createdAt: new Date('2026-05-01T00:00:00Z'),
+    updatedAt: new Date('2026-05-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+function createMocks(rules: any[] = []) {
+  const prisma: any = {
+    shippingRule: {
+      findMany: jest.fn().mockResolvedValue(rules),
+      count: jest.fn(),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+  };
+
+  const bonusConfig = {
+    getSystemConfig: jest.fn().mockResolvedValue({
+      defaultShippingFee: 12,
+    }),
+  };
+
+  const cache = {
+    getActiveRules: jest.fn().mockResolvedValue(null),
+    setActiveRules: jest.fn().mockResolvedValue(undefined),
+    invalidate: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const service = new ShippingRuleService(
+    prisma as any,
+    bonusConfig as any,
+    cache as any,
+  );
+
+  return { service, prisma, bonusConfig, cache };
+}
+
+describe('ShippingRuleService 运费计算引擎', () => {
+  it('广东 3kg 内命中首重价', async () => {
+    const { service } = createMocks([makeRule()]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(detail).toMatchObject({
+      fee: 9.1,
+      matchedRuleId: 'rule-001',
+      matchedRuleName: '广东默认',
+      billingWeightKg: 3,
+      fallbackUsed: false,
+    });
+    expect(detail.formula).toBe('9.1 = 9.1');
+  });
+
+  it('广东 4.2kg 按整数克计算为首重价 + 2 个续重', async () => {
+    const { service } = createMocks([makeRule()]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 4200);
+
+    expect(detail.fee).toBe(11.7);
+    expect(detail.billingWeightKg).toBe(4.2);
+    expect(detail.formula).toBe(
+      '9.1 + ceil((4200g - 3000g) / 1000g) * 1.3 = 11.7',
+    );
+  });
+
+  it('同 priority 多条规则按 id 升序稳定命中', async () => {
+    const { service } = createMocks([
+      makeRule({ id: 'rule-b', name: 'B 规则' }),
+      makeRule({ id: 'rule-a', name: 'A 规则' }),
+    ]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(detail.matchedRuleId).toBe('rule-a');
+    expect(detail.matchedRuleName).toBe('A 规则');
+  });
+
+  it('全国 priority=100 高于广东 priority=50 时全国命中', async () => {
+    const { service } = createMocks([
+      makeRule({ id: 'gd', name: '广东规则', regionCodes: ['440000'], priority: 50 }),
+      makeRule({ id: 'cn', name: '全国覆盖', regionCodes: [], priority: 100 }),
+    ]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(detail.matchedRuleId).toBe('cn');
+    expect(detail.matchedRuleName).toBe('全国覆盖');
+  });
+
+  it('广东 priority=100 高于全国 priority=50 时广东命中', async () => {
+    const { service } = createMocks([
+      makeRule({ id: 'cn', name: '全国默认', regionCodes: [], priority: 50 }),
+      makeRule({ id: 'gd', name: '广东覆盖', regionCodes: ['440000'], priority: 100 }),
+    ]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(detail.matchedRuleId).toBe('gd');
+    expect(detail.matchedRuleName).toBe('广东覆盖');
+  });
+
+  it('含赠品 SKU 时使用调用方传入的合计重量计算', async () => {
+    const { service } = createMocks([makeRule()]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 5100);
+
+    expect(detail.fee).toBe(13);
+    expect(detail.billingWeightKg).toBe(5.1);
+    expect(detail.formula).toBe(
+      '9.1 + ceil((5100g - 3000g) / 1000g) * 1.3 = 13',
+    );
+  });
+
+  it('无规则命中时返回默认运费并标记 fallbackUsed', async () => {
+    const { service, bonusConfig } = createMocks([
+      makeRule({ id: 'gd', regionCodes: ['440000'] }),
+    ]);
+
+    const detail = await service.calculateShippingDetail(99, '110000', 500);
+
+    expect(detail).toMatchObject({
+      fee: 12,
+      matchedRuleId: null,
+      matchedRuleName: null,
+      billingWeightKg: 1,
+      formula: 'fallback DEFAULT_SHIPPING_FEE = 12',
+      fallbackUsed: true,
+    });
+    expect(bonusConfig.getSystemConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('缓存命中跳过 DB 查询', async () => {
+    const { service, prisma, cache } = createMocks([]);
+    cache.getActiveRules.mockResolvedValue([makeRule()]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(detail.fee).toBe(9.1);
+    expect(prisma.shippingRule.findMany).not.toHaveBeenCalled();
+    expect(cache.setActiveRules).not.toHaveBeenCalled();
+  });
+
+  it('缓存 miss 查询 DB 并写入缓存', async () => {
+    const { service, prisma, cache } = createMocks([makeRule()]);
+
+    await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(prisma.shippingRule.findMany).toHaveBeenCalledWith({
+      where: { isActive: true },
+      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    });
+    expect(cache.setActiveRules).toHaveBeenCalledWith([makeRule()]);
+  });
+
+  it('写操作后清空缓存', async () => {
+    const { service, prisma, cache } = createMocks([]);
+    const existing = makeRule();
+    prisma.shippingRule.findUnique.mockResolvedValue(existing);
+    prisma.shippingRule.update.mockResolvedValue({ ...existing, name: '更新后' });
+
+    await service.update('rule-001', { name: '更新后' });
+
+    expect(cache.invalidate).toHaveBeenCalledTimes(1);
+  });
+});
