@@ -11,6 +11,25 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+function inferSeedWeightGram(title: string): number {
+  const kgMatch = title.match(/(\d+(?:\.\d+)?)\s*kg/i);
+  if (kgMatch) {
+    return Math.max(1, Math.round(Number(kgMatch[1]) * 1000));
+  }
+
+  const gramMatch = title.match(/(\d+(?:\.\d+)?)\s*g/i);
+  if (gramMatch) {
+    return Math.max(1, Math.round(Number(gramMatch[1])));
+  }
+
+  const jinMatch = title.match(/(\d+(?:\.\d+)?)\s*斤/);
+  if (jinMatch) {
+    return Math.max(1, Math.round(Number(jinMatch[1]) * 500));
+  }
+
+  return 1000;
+}
+
 // =================== 客服模块种子数据 ===================
 async function seedCustomerService() {
   // FAQ 规则
@@ -639,6 +658,7 @@ async function main() {
             price: p.skuPrice,
             cost: p.skuCost, // SKU 成本价（分润优先使用 SKU 级别成本）
             stock: p.stock,
+            weightGram: inferSeedWeightGram(p.skuTitle),
             status: 'ACTIVE',
           },
         },
@@ -2678,6 +2698,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -2815,6 +2836,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -3461,11 +3483,11 @@ async function main() {
   // 运费规则（ShippingRule）
   // ============================================================
   const shippingRules = [
-    { id: 'sr-001', name: '全国包邮（满99）', regionCodes: [] as string[], minAmount: 99, maxAmount: null as number | null, fee: 0, priority: 10, isActive: true },
-    { id: 'sr-002', name: '全国标准运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: 99 as number | null, fee: 8, priority: 5, isActive: true },
-    { id: 'sr-003', name: '偏远地区加价（新疆）', regionCodes: ['650000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 15, priority: 20, isActive: true },
-    { id: 'sr-004', name: '偏远地区加价（西藏）', regionCodes: ['540000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 20, priority: 20, isActive: true },
-    { id: 'sr-005', name: '重量超额运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: 5000, maxWeight: null as number | null, fee: 12, priority: 15, isActive: true },
+    { id: 'sr-001', name: '全国包邮（满99）', regionCodes: [] as string[], minAmount: 99, maxAmount: null as number | null, fee: 0, firstWeightKg: 3, firstFee: 0, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 10, isActive: true },
+    { id: 'sr-002', name: '全国标准运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: 99 as number | null, fee: 8, firstWeightKg: 3, firstFee: 8, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 5, isActive: true },
+    { id: 'sr-003', name: '偏远地区加价（新疆）', regionCodes: ['650000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 15, firstWeightKg: 3, firstFee: 15, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 20, isActive: true },
+    { id: 'sr-004', name: '偏远地区加价（西藏）', regionCodes: ['540000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 20, firstWeightKg: 3, firstFee: 20, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 20, isActive: true },
+    { id: 'sr-005', name: '重量超额运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: 5000, maxWeight: null as number | null, fee: 12, firstWeightKg: 3, firstFee: 12, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 15, isActive: true },
   ];
   for (const sr of shippingRules) {
     await prisma.shippingRule.upsert({
@@ -4261,6 +4283,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -4483,6 +4506,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -4618,6 +4642,7 @@ async function main() {
           price: sku.price,
           cost: sku.cost,
           stock: sku.stock,
+          weightGram: inferSeedWeightGram(sku.title),
           status: 'ACTIVE' as const,
         },
       });
