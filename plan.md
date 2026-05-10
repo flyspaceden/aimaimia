@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-04-19
+> **最后更新**: 2026-05-10
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -941,7 +941,7 @@
 
 ## 📦 v1.1+ 推迟项（明确不在 v1.0）
 
-- 微信支付
+- 微信支付（spec 已写：`docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md`，待商户号申请+app 上架后执行）
 - 微信登录
 - 可配置标签系统（TagCategory/CompanyTag）
 - 发现页筛选栏动态化
@@ -1193,3 +1193,78 @@
 - [🟡] **R-ST06** 一次性数据修复 SQL — SQL 已写入 `docs/issues/app-tofix4.md`，尚未在 staging/生产执行；执行前必须 dry-run + 备份
 - [ ] **R-ST07** 商品详情页深链接下架态 — `app/product/[id].tsx` 显示"已下架"并禁用加购
 - [ ] **R-ST08** 真机验证 — 购物车删除/清空、cron 清理、抽奖降级 NO_PRIZE、结算 `excludedItems[]` 提示、普通下架商品硬拦截
+
+---
+
+## 🛒 售后链路收口（2026-05-09 立项 / 2026-05-10 ✅ 完成）
+
+> **范围**: 退款 / 退货 / 换货 完整闭环 + 顺丰退货面单 + 三端接线 + 物流轨迹 + 多通道抽象
+> **设计**: `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md`
+> **实施**: `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md`
+> **总改动**: 49 commits 合入主干 + 15+ 后续 fix/feat commit；schema 加 2 张表 + 4 个 nullable 列 + 4 个枚举
+
+### Phase 1 — 后端状态机收口 ✅
+
+- [✅] **AS01** Schema 扩展：4 类售后枚举（NO_REASON_RETURN/NO_REASON_EXCHANGE/QUALITY_RETURN/QUALITY_EXCHANGE）+ AfterSaleStatusHistory + AfterSaleShippingPayment 模型 + AfterSaleOperatorType + ReturnShippingPayer + AfterSaleShippingPaymentStatus 枚举
+- [✅] **AS02** 抽 `AfterSaleRefundService`（统一退款生命周期：createOrGetRefund / startRefund / handleRefundSuccess / handleRefundFailure / retryRefund + 30s 节流 + advisory lock）
+- [✅] **AS03** seller/admin/timeout 三处退款创建逻辑全部委托 `startRefund`
+- [✅] **AS04** `PaymentService.retryStaleAutoRefunds` 识别 `AS-${id}` 前缀委托 AfterSaleRefundService 闭环
+- [✅] **AS05** `AfterSaleRefundConsistencyService` 每日 cron 扫双向关系不一致
+
+### Phase 2 — 退货顺丰面单与运费支付 ✅
+
+- [✅] **AS06** `AfterSaleReturnShippingService`：买家退回商家顺丰面单 `AS_RETURN_${id}` 幂等键 + 沿用 SellerShippingService
+- [✅] **AS07** `AfterSaleShippingPaymentService`：买家退货运费支付（无理由换货高金额/退款不够扣运费场景）`AS_SHIP_PAY_${id}` 幂等键 + 独立支付通道
+- [✅] **AS08** Payment 回调按前缀路由：`AS_SHIP_PAY_` → 运费支付通道，不创建订单
+- [✅] **AS09** 卖家拒收回寄面单 `AS_REJECT_RETURN_${id}` 独立幂等键 + advisory lock namespace
+
+### Phase 3 — 三端接线 ✅
+
+- [✅] **AS10** 买家 App 申请页 eligibility / Step 2 layout 修复（2x2 grid）/ Step 3 改用 ApiClient.upload（自带 401 刷新）/ 上传期间全屏 loading mask + 进度计数 / 串行改 Promise.all 并行（3 张 6-9s → 2-3s）/ Step 4 双模（质量类必选 + 无理由类可选 chip）/ PhotoTile 加载失败兜底
+- [✅] **AS11** 买家 App 详情页：商家展示 / 退款失败转人工处理文案 / 退货运费支付按钮 / 顺丰面单生成按钮
+- [✅] **AS12** "我的"页换货/售后角标接线 afterSale 派生计数
+- [✅] **AS13** 卖家中心列表：去掉"开始审核"中间步（REQUESTED/UNDER_REVIEW 直接显示通过/驳回）/ 加售后单号模糊搜索 / 自动轮询 15s
+- [✅] **AS14** 卖家中心详情：单号不再脱敏（卖家需完整单号查物流）/ 待处理操作 Card 移到页面顶部 / 顺丰物流轨迹（实时查询 + 沙箱旧路由过滤）/ 自动轮询 10s
+- [✅] **AS15** 管理后台：售后详情入口对所有状态开放（非仲裁状态走查看模式）/ 仲裁来源状态展示 / 退款重试入口 / 物流轨迹 / 手动复核记录 / 自动轮询 15s
+
+### Phase 4 — 真机沙箱验证 ✅
+
+- [✅] **AS16** 沙箱端到端打通：真机申请售后 → 卖家通过 → 生顺丰退货面单 → 丰桥模拟揽收/签收 → 卖家确认收到 → 支付宝沙箱原路退款（小金额新订单 0.01 元）
+- [✅] **AS17** 支付宝退款失败错误码透出（`alipay.trade.refund` 失败时拼 sub_code + sub_msg 到 RefundStatusHistory.remark，定位 `ACQ.TRADE_NOT_EXIST` 等真实原因）
+- [✅] **AS18** 顺丰路由推送兜底落库：handleSfCallback 找不到 Shipment 时 fallback 匹配 AfterSaleRequest，append 到 returnTrackingEvents JSON 字段（推送通道首次实时落库）
+
+### 验收 ✅ 2026-05-10
+
+- [✅] plan Task 12 全套验证通过：prisma validate / 11 backend spec (133 tests) / backend build / seller build / admin build / tsc -b（错误全在 tests/e2e playwright 预存在，售后链路代码 0 错误）/ git diff --check / rg hygiene
+- [✅] 沙箱完整链路演练通过
+
+---
+
+## 💳 多通道支付扩展（2026-05-10 立项，v1.1+）
+
+> **背景**: 售后链路收口（2026-05-09）已经把支付通道抽象到位（PaymentChannel enum + provider-agnostic initiateRefund + 售后核心 channel-agnostic），下一步加微信/银联/信用卡时**售后代码 0 改动**，只需补 provider service。
+> **设计**: `docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md`
+
+### 微信支付（next）
+
+> ⚠️ **必须先做线下事项**：注册商户号 + 完成企业认证（1-4 周）+ 微信开放平台注册 App + 商户证书下载 + APIv3 密钥生成
+
+- [ ] **WP01** Phase 1 凭据申请（用户线下操作）—— mch.weixin.qq.com 商户号 + 微信开放平台 AppID + 商户证书
+- [ ] **WP02** Phase 2 后端 `WechatPayService` 实现（createAppOrder / refund / parseNotify / queryOrder）
+- [ ] **WP03** Phase 2 PaymentController `/wechat/notify` 端点 + PaymentService.handlePaymentCallback channel 分发
+- [ ] **WP04** Phase 2 PaymentService.initiateRefund 加 WECHAT_PAY 分支（10 行）
+- [ ] **WP05** Phase 2 AfterSaleShippingPaymentService 修正 provider hardcoded（3-5 行 dispatch）
+- [ ] **WP06** Phase 3 App 装 `react-native-wechat-lib` + Expo Plugin + Universal Link 配置（必须 `eas build`，不能 OTA）
+- [ ] **WP07** Phase 3 结账页加支付方式选择 UI
+- [ ] **WP08** Phase 4 真机联调（0.01 元小额测试，微信无沙箱）：支付 → notify → 售后 → 退款
+- [ ] **WP09** Phase 5 上线 checklist 收尾（商户后台开通 APP 支付权限 / Nginx / 商户余额 / production AAB）
+
+### 银联（待评估，无强烈需求）
+
+- 数据层 UNIONPAY enum 已就绪
+- 按相同模式实现 `UnionpayService`，售后链路代码 0 改动
+
+### 信用卡聚合（v1.2+，需要 Stripe / Adyen / 国内聚合方）
+
+- 数据层 AGGREGATOR enum 已就绪
+- ⚠️ **特别警告**：信用卡退款 7-30 天到账，App 文案需按 channel 区分（与支付宝/微信即时退款不同）

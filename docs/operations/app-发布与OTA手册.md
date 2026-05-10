@@ -225,7 +225,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-05-08）
+## 六、当前 App 实际状态（2026-05-10）
 
 ### EAS 配置
 
@@ -256,7 +256,14 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `f0e9a56c-e598-4554-a141-d3e19d944ada` | 订单再次购买功能：已完成订单一键加回购物车 + 详情/列表入口 + 双击防护 | **当前生效** ✅，commit `ec27a75`（2026-05-08），需配合后端同 commit（复购 API + 幂等 + 购物车写入）；详见 `docs/superpowers/plans/2026-05-08-order-repurchase.md` |
+| `65b0df76-94db-4d7c-ae3a-7af47d66868e` | 我的页换货/售后角标修复:后端 getStatusCounts 早就在返回 afterSale 字段(活跃售后订单数派生态),前端 OrderRepo 类型漏写 + me.tsx 死值 0 → 修补类型 + 改读 orderCounts.afterSale | **当前生效** ✅，commit `ae3c3ef`(2026-05-10),纯前端,后端无改动 |
+| `e288de75-0587-410e-a1bb-ce0801da0c99` | 售后链路 fix 三件套:1)买家详情页加商家展示(后端 findById 走 sku→product→company);2)卖家列表去掉"开始审核"中间步,REQUESTED 直接显示通过/驳回;3)卖家列表加售后单号模糊搜索(contains) | commit `8222fb3`(2026-05-10),含后端改动需 staging deploy |
+| `066ffc01-4686-46c8-844b-2697e9f8010c` | 售后申请页 perf:照片串行 for-await 改 Promise.all 并行,3 张从 6-9s 压到 2-3s,2-3x 提速;overlay 文案改"正在并发上传 N 张/已完成 X/Y" | commit `7abf81f`(2026-05-10),纯前端,后端无改动 |
+| `958e7449-c577-41d3-994d-747bcc72ed08` | 售后申请页 UX 跟修:照片上传期间全屏 loading mask + "正在上传 X/Y" 进度计数 + "请勿关闭页面"提示;absolute zIndex 999 阻止用户点击穿透到下层按钮 | commit `f79a281`（2026-05-10），纯前端，后端无改动 |
+| `69c6715f-5e4f-4916-b0d1-a73fddef0864` | 售后申请页 hotfix：Step 2 修飞出边界改 2x2 grid；Step 3 改 ApiClient.upload 修 401 静默失败；Step 4 双模（质量类标题改"具体问题"+必选 reasonType；无理由类新增整步 6 chip 多选）；详情页 PhotoTile 加载失败兜底 | commit `e8b6b2c`（2026-05-10），纯前端，后端无改动 |
+| `53c91268-d410-443f-a12a-96697863b64e` | 售后链路收口：四类售后类型含 `NO_REASON_EXCHANGE`、顺丰退货面单、买家付退货运费（`AS_SHIP_PAY_*` 前缀，沙箱可测）、退款失败转人工处理文案、三端接线 | commit `f05a20c`（2026-05-10），合入 49 commits；需配合后端同 commit（5 个新服务 + 4 类幂等键 + 43 处 Serializable + 双向一致性 cron）；详见 `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` |
+| `403330a2-17d0-4404-92fc-0d3bcc132eac` | 地址三级联动 Picker：替代 6 个 TextInput 手打省/市/区，引入 137KB pca-code 行政区划数据 + RegionPicker 组件 + regionCode 标准编码全链路 | commit `9d8d0c1`（2026-05-09）|
+| `f0e9a56c-e598-4554-a141-d3e19d944ada` | 订单再次购买功能：已完成订单一键加回购物车 + 详情/列表入口 + 双击防护 | commit `ec27a75`（2026-05-08），需配合后端同 commit（复购 API + 幂等 + 购物车写入）；详见 `docs/superpowers/plans/2026-05-08-order-repurchase.md` |
 | `ebf7997d-87fc-4bbf-8af5-67dcba49806e` | PAID 未发货取消退款链路收尾：取消按钮 disabled 视觉反馈 + 6 种 RefundStatus 文案 + VIP 礼包禁取消 + StatusHero 取消后副文案 | commit `db3121c`（2026-05-08），需配合后端同 commit（refundSummary DTO + advisory lock + 30s 节流 + CAS + P2002 兜底）；详见 `docs/superpowers/plans/2026-05-08-unshipped-order-cancel-refund.md` |
 | `5a290685-ad7b-4b68-87c6-6226b8148702` | 修复商品下架后购物车幽灵奖品（删不掉/付不掉/过不掉）+ unavailableReason 全链路透传 + 抽奖配额回归 | commit `05018bf`（2026-05-08），需配合后端 5 commit（280e6c1..05018bf）；详见 `docs/issues/app-tofix4.md` |
 | `32bb1433-40c7-407c-80ff-ec00d792e570` | Bug 91：取消订单 Alert 二次确认 + cancelingRef 双层防重 + "取消中..." 文案；售后预估 estimatedRefund 与后端 calculateRefundAmount 完全对齐（红包+奖励+VIP 三类抵扣按比例分摊）| commit `f5a75df`（2026-05-07）|
