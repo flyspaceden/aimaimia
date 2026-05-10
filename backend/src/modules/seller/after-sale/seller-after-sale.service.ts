@@ -22,6 +22,7 @@ import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
 import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
+import { SfExpressService } from '../../shipment/sf-express.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -48,6 +49,7 @@ export class SellerAfterSaleService {
     private inboxService: InboxService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleStatusHistory: AfterSaleStatusHistoryService,
+    private sfExpress: SfExpressService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -260,6 +262,47 @@ export class SellerAfterSaleService {
       select: { alias: true },
     });
 
+    // 实时查询顺丰物流轨迹（仅 requiresReturn=true 时查；推送通道走 Shipment.waybillNo
+    // 匹配，售后单号落不到 Shipment 表，所以推送轨迹永远丢失，这里主动查询补上）
+    const shouldQuery = request.requiresReturn;
+    const [returnRoute, sellerReturnRoute, replacementRoute] = await Promise.all([
+      shouldQuery && request.returnWaybillNo
+        ? this.sfExpress.queryRoutes(request.returnWaybillNo).catch(() => null)
+        : Promise.resolve(null),
+      shouldQuery && request.sellerReturnWaybillNo
+        ? this.sfExpress.queryRoutes(request.sellerReturnWaybillNo).catch(() => null)
+        : Promise.resolve(null),
+      shouldQuery && request.replacementWaybillNo
+        ? this.sfExpress.queryRoutes(request.replacementWaybillNo).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    // 顺丰 UAT 沙箱"全流程调测"对所有 mailNo 返回相同样例轨迹（多在 2025-10），
+    // 必须按面单生成时间过滤掉早于基准时间的事件防止污染卖家展示。
+    const filterStaleEvents = (
+      route: typeof returnRoute,
+      referenceTime: Date | null,
+    ) => {
+      if (!route || !route.events?.length || !referenceTime) return route;
+      const earliestAllowed = referenceTime.getTime() - 60 * 60 * 1000;
+      const freshEvents = route.events.filter((e: any) => {
+        const t = new Date(e.time).getTime();
+        return Number.isFinite(t) ? t >= earliestAllowed : true;
+      });
+      if (freshEvents.length !== route.events.length) {
+        this.logger.warn(
+          `过滤 SF 沙箱旧路由(seller): afterSaleId=${request.id}, dropped=${route.events.length - freshEvents.length}, kept=${freshEvents.length}`,
+        );
+      }
+      return { ...route, events: freshEvents };
+    };
+
+    const returnRefTime = request.returnShippedAt ?? request.approvedAt ?? request.createdAt;
+    const refTimeFallback = request.updatedAt ?? request.createdAt;
+    const filteredReturn = filterStaleEvents(returnRoute, returnRefTime);
+    const filteredSellerReturn = filterStaleEvents(sellerReturnRoute, refTimeFallback);
+    const filteredReplacement = filterStaleEvents(replacementRoute, refTimeFallback);
+
     return {
       id: request.id,
       orderId: request.orderId,
@@ -292,6 +335,10 @@ export class SellerAfterSaleService {
       returnCarrierName: request.returnCarrierName,
       returnWaybillNo: request.returnWaybillNo || undefined,
       returnShippedAt: request.returnShippedAt,
+      // 顺丰实时轨迹（已过滤沙箱旧路由污染；requiresReturn=false 时为 null）
+      returnTracking: filteredReturn,
+      sellerReturnTracking: filteredSellerReturn,
+      replacementTracking: filteredReplacement,
       // 换货物流（卖家自己发出的，不脱敏）
       replacementCarrierName: request.replacementCarrierName,
       replacementWaybillNo: request.replacementWaybillNo || undefined,

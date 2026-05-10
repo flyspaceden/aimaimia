@@ -8,6 +8,18 @@ export type SellerAfterSaleType =
   | 'QUALITY_RETURN'
   | 'QUALITY_EXCHANGE';
 
+/** 顺丰物流轨迹（来自 EXP_RECE_SEARCH_ROUTES，已过滤沙箱旧路由污染）*/
+export interface SfTrackingResult {
+  status: string;
+  rawOpCode: string;
+  events: Array<{
+    time: string;
+    message: string;
+    location?: string;
+    opCode?: string;
+  }>;
+}
+
 export interface AfterSale {
   id: string;
   orderId: string;
@@ -39,6 +51,10 @@ export interface AfterSale {
   replacementWaybillNo?: string;
   replacementWaybillPrintUrl?: string;
   replacementShipmentId?: string;
+  // 顺丰物流轨迹（实时查询，已过滤沙箱旧路由；requiresReturn=false 时为 null）
+  returnTracking?: SfTrackingResult | null;
+  sellerReturnTracking?: SfTrackingResult | null;
+  replacementTracking?: SfTrackingResult | null;
   createdAt: string;
   buyerAlias: string;
   order?: {

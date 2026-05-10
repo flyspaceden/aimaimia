@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Tag, Image, Button, Space, Modal, Input, Spin, Upload, App } from 'antd';
+import { Card, Descriptions, Tag, Image, Button, Space, Modal, Input, Spin, Upload, App, Timeline, Typography } from 'antd';
 import { ArrowLeftOutlined, PrinterOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -292,8 +292,8 @@ export default function AfterSaleDetailPage() {
         </Card>
       )}
 
-      {/* 退货物流信息 */}
-      {(afterSale.returnCarrierName || afterSale.returnWaybillNo) && (
+      {/* 退货物流信息（仅在需要寄回时展示——免寄回的售后单整块隐藏）*/}
+      {afterSale.requiresReturn && (afterSale.returnCarrierName || afterSale.returnWaybillNo) && (
         <Card title="退货物流">
           <Descriptions column={2} bordered>
             {afterSale.returnCarrierName && (
@@ -313,6 +313,82 @@ export default function AfterSaleDetailPage() {
               </Descriptions.Item>
             )}
           </Descriptions>
+
+          {/* 顺丰物流轨迹（实时查询，已过滤沙箱旧路由）*/}
+          {(afterSale.returnTracking?.events?.length ||
+            afterSale.replacementTracking?.events?.length ||
+            afterSale.sellerReturnTracking?.events?.length) ? (
+            <div style={{ marginTop: 16 }}>
+              <Typography.Text strong>顺丰物流轨迹（实时）</Typography.Text>
+              {afterSale.returnTracking?.events?.length ? (
+                <div style={{ marginTop: 8 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    买家寄回（{afterSale.returnWaybillNo}）
+                  </Typography.Text>
+                  <Timeline
+                    style={{ marginTop: 8 }}
+                    items={afterSale.returnTracking.events.map((e: any) => ({
+                      color: 'blue',
+                      children: (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text>{e.message}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {e.time}{e.location ? ` · ${e.location}` : ''}
+                          </Typography.Text>
+                        </Space>
+                      ),
+                    }))}
+                  />
+                </div>
+              ) : null}
+              {afterSale.replacementTracking?.events?.length ? (
+                <div style={{ marginTop: 12 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    卖家发换货（{afterSale.replacementWaybillNo}）
+                  </Typography.Text>
+                  <Timeline
+                    style={{ marginTop: 8 }}
+                    items={afterSale.replacementTracking.events.map((e: any) => ({
+                      color: 'green',
+                      children: (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text>{e.message}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {e.time}{e.location ? ` · ${e.location}` : ''}
+                          </Typography.Text>
+                        </Space>
+                      ),
+                    }))}
+                  />
+                </div>
+              ) : null}
+              {afterSale.sellerReturnTracking?.events?.length ? (
+                <div style={{ marginTop: 12 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    卖家拒收回寄
+                  </Typography.Text>
+                  <Timeline
+                    style={{ marginTop: 8 }}
+                    items={afterSale.sellerReturnTracking.events.map((e: any) => ({
+                      color: 'orange',
+                      children: (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text>{e.message}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {e.time}{e.location ? ` · ${e.location}` : ''}
+                          </Typography.Text>
+                        </Space>
+                      ),
+                    }))}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : afterSale.returnWaybillNo ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
+              顺丰物流轨迹：暂无路由信息（顺丰可能尚未揽收或推送延迟）
+            </Typography.Text>
+          ) : null}
         </Card>
       )}
 

@@ -128,6 +128,7 @@ function makeService(tx: any) {
     {} as any,
     { startRefund: jest.fn() } as any,
     { create: jest.fn().mockResolvedValue({ id: 'history-1' }) } as any,
+    { queryRoutes: jest.fn().mockResolvedValue(null) } as any,
   );
 
   return { service, prisma, shippingService };
