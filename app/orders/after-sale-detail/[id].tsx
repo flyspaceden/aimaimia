@@ -41,6 +41,44 @@ import type {
   ReturnShippingPaymentStatus,
 } from '../../../src/types/domain/Order';
 
+// ─── 照片瓦片：处理 loading / error 兜底 ───────────────────
+function PhotoTile({
+  uri,
+  size,
+  radius,
+}: {
+  uri: string;
+  size: number;
+  radius: number;
+}) {
+  const [hasError, setHasError] = useState(false);
+  if (hasError) {
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          backgroundColor: '#F3F4F6',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <MaterialCommunityIcons name="image-off-outline" size={20} color="#9CA3AF" />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={{ width: size, height: size, borderRadius: radius, backgroundColor: '#F3F4F6' }}
+      contentFit="cover"
+      transition={150}
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 // ─── 质量问题原因标签 ───────────────────────────────────
 const reasonTypeLabels: Record<string, string> = {
   QUALITY_ISSUE: '质量问题',
@@ -390,12 +428,7 @@ export default function AfterSaleDetailScreen() {
               </Text>
               <View style={styles.photoGrid}>
                 {as.photos.map((url, index) => (
-                  <Image
-                    key={index}
-                    source={{ uri: url }}
-                    style={[styles.photo, { borderRadius: radius.md }]}
-                    contentFit="cover"
-                  />
+                  <PhotoTile key={index} uri={url} size={80} radius={radius.md} />
                 ))}
               </View>
             </View>
@@ -486,12 +519,7 @@ export default function AfterSaleDetailScreen() {
                   </Text>
                   <View style={styles.photoGrid}>
                     {as.sellerRejectPhotos.map((url, index) => (
-                      <Image
-                        key={index}
-                        source={{ uri: url }}
-                        style={[styles.photo, { borderRadius: radius.md }]}
-                        contentFit="cover"
-                      />
+                      <PhotoTile key={index} uri={url} size={80} radius={radius.md} />
                     ))}
                   </View>
                 </View>
