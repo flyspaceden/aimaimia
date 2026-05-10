@@ -5,7 +5,6 @@ import { ArrowLeftOutlined, PrinterOutlined, UploadOutlined } from '@ant-design/
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getAfterSale,
-  reviewAfterSale,
   approveAfterSale,
   rejectAfterSale,
   confirmReceiveReturn,
@@ -53,17 +52,6 @@ export default function AfterSaleDetailPage() {
   });
 
   const reload = () => queryClient.invalidateQueries({ queryKey: ['after-sale', id] });
-
-  const handleReview = () => {
-    modal.confirm({
-      title: '确认开始审核该售后申请？',
-      onOk: async () => {
-        await reviewAfterSale(id!);
-        message.success('已进入审核中');
-        reload();
-      },
-    });
-  };
 
   const handleApprove = () => {
     modal.confirm({
@@ -226,10 +214,10 @@ export default function AfterSaleDetailPage() {
           style={{ borderColor: '#ffd591' }}
         >
           <Space wrap>
-            {afterSale.status === 'REQUESTED' && (
-              <Button onClick={handleReview}>开始审核</Button>
-            )}
-            {afterSale.status === 'UNDER_REVIEW' && (
+            {/* REQUESTED + UNDER_REVIEW 都直接显示通过/驳回（后端 approve/reject
+                早就接受 status: { in: ['REQUESTED', 'UNDER_REVIEW'] }，"开始审核"
+                中间步无业务意义，详情页跟列表保持一致）*/}
+            {(afterSale.status === 'REQUESTED' || afterSale.status === 'UNDER_REVIEW') && (
               <>
                 <Button type="primary" onClick={handleApprove}>通过</Button>
                 <Button danger onClick={() => { setRejectModal(true); setRejectReason(''); }}>驳回</Button>
