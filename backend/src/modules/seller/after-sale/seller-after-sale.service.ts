@@ -283,10 +283,12 @@ export class SellerAfterSaleService {
       // 卖家拒收信息
       sellerRejectReason: request.sellerRejectReason,
       sellerRejectPhotos: request.sellerRejectPhotos,
+      sellerReturnCarrierName: request.sellerReturnCarrierName,
       sellerReturnWaybillNo: request.sellerReturnWaybillNo
         ? maskTrackingNo(request.sellerReturnWaybillNo) ||
           request.sellerReturnWaybillNo
         : undefined,
+      sellerReturnWaybillUrl: request.sellerReturnWaybillUrl,
       // 退货物流
       returnCarrierName: request.returnCarrierName,
       returnWaybillNo: request.returnWaybillNo

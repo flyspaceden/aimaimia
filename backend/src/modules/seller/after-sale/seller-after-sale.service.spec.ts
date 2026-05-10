@@ -425,6 +425,40 @@ describe('SellerAfterSaleService.generateSellerReturnWaybill', () => {
   });
 });
 
+describe('SellerAfterSaleService.findById seller return waybill fields', () => {
+  it('returns seller return carrier and print url after rejected-return waybill generation', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(
+          baseRequest({
+            status: 'SELLER_REJECTED_RETURN',
+            sellerReturnCarrierName: '顺丰速运',
+            sellerReturnWaybillNo: 'SF0987654321',
+            sellerReturnWaybillUrl: 'https://example.com/reject-waybill.pdf',
+            sellerRejectReason: '商品不符合退回标准',
+            sellerRejectPhotos: ['https://example.com/proof.jpg'],
+            userId: 'buyer-1',
+            createdAt: new Date('2026-05-10T00:00:00.000Z'),
+          }),
+        ),
+      },
+      buyerAlias: {
+        findUnique: jest.fn().mockResolvedValue({ alias: '买家A' }),
+      },
+    };
+    const { service } = makeService(tx);
+
+    const result = await service.findById(companyId, afterSaleId, staffId);
+
+    expect(result).toMatchObject({
+      sellerReturnCarrierName: '顺丰速运',
+      sellerReturnWaybillUrl: 'https://example.com/reject-waybill.pdf',
+      sellerRejectReason: '商品不符合退回标准',
+    });
+    expect(result.sellerReturnWaybillNo).toBeTruthy();
+  });
+});
+
 describe('SellerAfterSaleService.getTimeline', () => {
   it('returns status history only after company ownership is verified', async () => {
     const createdAt = new Date('2026-05-10T00:00:00.000Z');
