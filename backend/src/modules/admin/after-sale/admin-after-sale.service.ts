@@ -265,6 +265,33 @@ export class AdminAfterSaleService {
         : Promise.resolve(null),
     ]);
 
+    // 顺丰沙箱"全流程调测"会把所有 mailNo 都返回相同的样例轨迹（杭州萧山转运
+    // 中心 → 上海华新 → 已签收，时间多在 2025-10），跟当前售后单的真实时间
+    // 完全无关。必须按基准时间过滤掉早于面单生成的事件，避免污染管理端展示。
+    // 1 小时容差覆盖 SF 服务器时钟偏差。
+    const filterStaleEvents = (route: typeof returnRoute, referenceTime: Date | null) => {
+      if (!route || !route.events?.length || !referenceTime) return route;
+      const earliestAllowed = referenceTime.getTime() - 60 * 60 * 1000;
+      const freshEvents = route.events.filter((e: any) => {
+        const t = new Date(e.time).getTime();
+        return Number.isFinite(t) ? t >= earliestAllowed : true;
+      });
+      if (freshEvents.length !== route.events.length) {
+        this.logger.warn(
+          `过滤 SF 沙箱旧路由: afterSaleId=${request.id}, dropped=${route.events.length - freshEvents.length}, kept=${freshEvents.length}`,
+        );
+      }
+      return { ...route, events: freshEvents };
+    };
+
+    // 基准时间：用面单生成时间最准；fallback 到售后单创建时间
+    const returnRefTime = request.returnShippedAt ?? request.approvedAt ?? request.createdAt;
+    const replacementRefTime = request.updatedAt ?? request.createdAt;
+    const sellerReturnRefTime = request.updatedAt ?? request.createdAt;
+    const filteredReturn = filterStaleEvents(returnRoute, returnRefTime);
+    const filteredSellerReturn = filterStaleEvents(sellerReturnRoute, sellerReturnRefTime);
+    const filteredReplacement = filterStaleEvents(replacementRoute, replacementRefTime);
+
     // 解密地址快照（管理员可查看完整信息）
     const phone = request.user?.authIdentities?.[0]?.identifier ?? null;
     const refund = request.refundByAfterSaleId ?? request.refundByRefundId;
@@ -293,10 +320,11 @@ export class AdminAfterSaleService {
       // 退货物流（管理员可看完整单号辅助仲裁）
       returnWaybillNo: request.returnWaybillNo,
       replacementWaybillNo: request.replacementWaybillNo,
-      // 实时查询的顺丰物流轨迹（推送通道无法路由到售后单，主动查询补充）
-      returnTracking: returnRoute,
-      sellerReturnTracking: sellerReturnRoute,
-      replacementTracking: replacementRoute,
+      // 实时查询的顺丰物流轨迹（推送通道无法路由到售后单，主动查询补充；
+      // 已按面单生成时间过滤沙箱旧路由样例污染）
+      returnTracking: filteredReturn,
+      sellerReturnTracking: filteredSellerReturn,
+      replacementTracking: filteredReplacement,
       refund: this.mapRefund(refund),
       refundHistory: this.mapRefundHistory(refund),
       statusHistory: this.mapStatusHistory(statusHistory),
