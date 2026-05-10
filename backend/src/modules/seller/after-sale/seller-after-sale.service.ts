@@ -13,7 +13,6 @@ import { parseChineseAddress } from '../../../common/utils/parse-region';
 import {
   filterContactInfo,
   maskIp,
-  maskTrackingNo,
 } from '../../../common/security/privacy-mask';
 import {
   CarrierWaybillAddress,
@@ -203,16 +202,12 @@ export class SellerAfterSaleService {
         reviewNote: r.reviewNote
           ? filterContactInfo(r.reviewNote)
           : undefined,
-        // 退货物流（遮罩）
+        // 退货物流（卖家收件需完整单号去顺丰官网查物流，不脱敏）
         returnCarrierName: r.returnCarrierName,
-        returnWaybillNo: r.returnWaybillNo
-          ? maskTrackingNo(r.returnWaybillNo) || r.returnWaybillNo
-          : undefined,
-        // 换货物流（遮罩）
+        returnWaybillNo: r.returnWaybillNo || undefined,
+        // 换货物流（卖家自己发出的运单，不脱敏）
         replacementCarrierName: r.replacementCarrierName,
-        replacementWaybillNo: r.replacementWaybillNo
-          ? maskTrackingNo(r.replacementWaybillNo) || r.replacementWaybillNo
-          : undefined,
+        replacementWaybillNo: r.replacementWaybillNo || undefined,
         replacementWaybillPrintUrl:
           r.replacementWaybillNo && staffId
             ? this.getWaybillPrintUrl(companyId, r.id, staffId)
@@ -291,23 +286,15 @@ export class SellerAfterSaleService {
       sellerRejectReason: request.sellerRejectReason,
       sellerRejectPhotos: request.sellerRejectPhotos,
       sellerReturnCarrierName: request.sellerReturnCarrierName,
-      sellerReturnWaybillNo: request.sellerReturnWaybillNo
-        ? maskTrackingNo(request.sellerReturnWaybillNo) ||
-          request.sellerReturnWaybillNo
-        : undefined,
+      sellerReturnWaybillNo: request.sellerReturnWaybillNo || undefined,
       sellerReturnWaybillUrl: request.sellerReturnWaybillUrl,
-      // 退货物流
+      // 退货物流（卖家需完整单号查物流，不脱敏）
       returnCarrierName: request.returnCarrierName,
-      returnWaybillNo: request.returnWaybillNo
-        ? maskTrackingNo(request.returnWaybillNo) || request.returnWaybillNo
-        : undefined,
+      returnWaybillNo: request.returnWaybillNo || undefined,
       returnShippedAt: request.returnShippedAt,
-      // 换货物流
+      // 换货物流（卖家自己发出的，不脱敏）
       replacementCarrierName: request.replacementCarrierName,
-      replacementWaybillNo: request.replacementWaybillNo
-        ? maskTrackingNo(request.replacementWaybillNo) ||
-          request.replacementWaybillNo
-        : undefined,
+      replacementWaybillNo: request.replacementWaybillNo || undefined,
       replacementWaybillPrintUrl:
         request.replacementWaybillNo && staffId
           ? this.getWaybillPrintUrl(companyId, id, staffId)
@@ -1011,9 +998,8 @@ export class SellerAfterSaleService {
 
       return {
         ok: true,
-        waybillNo:
-          maskTrackingNo(persisted.replacementWaybillNo) ||
-          persisted.replacementWaybillNo,
+        // 卖家自己生成的换货面单，需完整单号查物流，不脱敏
+        waybillNo: persisted.replacementWaybillNo,
         waybillPrintUrl: this.getWaybillPrintUrl(
           companyId,
           id,
@@ -1189,9 +1175,8 @@ export class SellerAfterSaleService {
 
       return {
         ok: true,
-        waybillNo:
-          maskTrackingNo(persisted.sellerReturnWaybillNo) ||
-          persisted.sellerReturnWaybillNo,
+        // 卖家拒收回寄面单，需完整单号查物流，不脱敏
+        waybillNo: persisted.sellerReturnWaybillNo,
         waybillUrl: persisted.sellerReturnWaybillUrl,
         carrierCode: persisted.sellerReturnCarrierCode,
         carrierName: persisted.sellerReturnCarrierName,
