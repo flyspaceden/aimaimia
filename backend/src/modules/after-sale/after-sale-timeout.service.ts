@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
+import { AfterSaleRefundService } from './after-sale-refund.service';
+import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
+import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
+import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
 import { InboxService } from '../inbox/inbox.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
@@ -14,12 +18,20 @@ const MAX_RETRIES = 3;
 /** 每批处理的最大数量 */
 const BATCH_SIZE = 100;
 
+type BuyerShipTimeoutCloseExpectation = {
+  status: 'APPROVED' | 'RETURN_SHIPPING';
+  returnWaybillNo: string | null;
+  returnSfOrderId: string | null;
+  approvedAt?: Date | null;
+  returnShippedAt?: Date | null;
+};
+
 /**
  * 售后超时自动处理 Cron 服务
  *
  * 每小时检查：
  * 1. 卖家审核超时 → 自动同意（REQUESTED/UNDER_REVIEW → APPROVED）
- * 2. 买家寄回超时 → 自动关闭（APPROVED → CANCELED）
+ * 2. 买家寄回超时 → 自动关闭（APPROVED/RETURN_SHIPPING → CLOSED）
  * 3. 卖家签收超时 → 自动签收（RETURN_SHIPPING → RECEIVED_BY_SELLER）
  * 4. 买家确认超时 → 自动完成（REPLACEMENT_SHIPPED → COMPLETED）
  */
@@ -32,6 +44,10 @@ export class AfterSaleTimeoutService {
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
     private inboxService: InboxService,
+    private afterSaleRefundService: AfterSaleRefundService,
+    private afterSaleStatusHistory: AfterSaleStatusHistoryService,
+    private afterSaleReturnShippingService: AfterSaleReturnShippingService,
+    private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -117,7 +133,7 @@ export class AfterSaleTimeoutService {
   }): Promise<void> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(
+        const outcome = await this.prisma.$transaction(
           async (tx) => {
             const now = new Date();
 
@@ -136,17 +152,27 @@ export class AfterSaleTimeoutService {
 
             if (cas.count === 0) {
               this.logger.log(`售后 ${request.id} 已非待审核状态，跳过`);
-              return;
+              return { updated: false, shouldStartRefund: false };
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: request.id,
+              fromStatus: request.status as any,
+              toStatus: 'APPROVED',
+              reason: '卖家审核超时，系统自动同意',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
 
-            // 如果不需要退回商品且为退货类型 → 在事务内创建退款记录
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
               request.afterSaleType === 'QUALITY_RETURN';
-
-            if (!request.requiresReturn && isReturnType) {
-              await this.createRefundInTx(tx, request);
-            }
+            return {
+              updated: true,
+              shouldStartRefund:
+                !request.requiresReturn &&
+                isReturnType &&
+                !!request.refundAmount &&
+                request.refundAmount > 0,
+            };
           },
           {
             timeout: 15000,
@@ -154,17 +180,10 @@ export class AfterSaleTimeoutService {
           },
         );
 
-        // 事务提交后，异步触发支付退款（与卖家端 triggerRefund 模式一致）
-        const isReturnType =
-          request.afterSaleType === 'NO_REASON_RETURN' ||
-          request.afterSaleType === 'QUALITY_RETURN';
-        if (!request.requiresReturn && isReturnType && request.refundAmount && request.refundAmount > 0) {
-          // 读取事务中写入的 refundId
-          const updated = await this.prisma.afterSaleRequest.findUnique({
-            where: { id: request.id },
-            select: { refundId: true },
+        if (outcome.shouldStartRefund) {
+          await this.afterSaleRefundService.startRefund(request.id, {
+            type: 'SYSTEM',
           });
-          this.asyncRefund({ ...request, refundId: updated?.refundId ?? null });
         }
 
         return; // 成功退出重试
@@ -184,7 +203,7 @@ export class AfterSaleTimeoutService {
 
   /**
    * 买家退货寄回超时 → 自动关闭
-   * APPROVED + requiresReturn=true + approvedAt 超过 BUYER_SHIP_TIMEOUT_DAYS → CANCELED
+   * APPROVED/RETURN_SHIPPING + requiresReturn=true 超过 BUYER_SHIP_TIMEOUT_DAYS → CLOSED
    */
   private async handleBuyerShipTimeout(): Promise<void> {
     const timeoutDays = await getConfigValue(
@@ -196,9 +215,21 @@ export class AfterSaleTimeoutService {
 
     const candidates = await this.prisma.afterSaleRequest.findMany({
       where: {
-        status: 'APPROVED',
-        requiresReturn: true,
-        approvedAt: { lt: cutoff },
+        manualReviewRequestedAt: null,
+        OR: [
+          {
+            status: 'APPROVED',
+            requiresReturn: true,
+            approvedAt: { lt: cutoff },
+          },
+          {
+            status: 'RETURN_SHIPPING',
+            requiresReturn: true,
+            returnSfOrderId: { not: null },
+            returnWaybillNo: { not: null },
+            returnShippedAt: { lt: cutoff },
+          },
+        ],
       },
       take: BATCH_SIZE,
       select: { id: true, orderId: true },
@@ -208,16 +239,30 @@ export class AfterSaleTimeoutService {
 
     this.logger.log(`买家寄回超时：发现 ${candidates.length} 条待处理`);
 
-    let successCount = 0;
+    let closedCount = 0;
+    let manualReviewCount = 0;
+    let skippedCount = 0;
     let failCount = 0;
 
     for (const request of candidates) {
       try {
-        await this.autoCancelBuyerShip(request.id);
-        successCount++;
-        this.logger.log(
-          `买家寄回超时自动关闭：售后 ${request.id}，订单 ${request.orderId}`,
-        );
+        const outcome = await this.autoCancelBuyerShip(request.id, cutoff);
+        if (outcome === 'CLOSED') {
+          closedCount++;
+          this.logger.log(
+            `买家寄回超时自动关闭：售后 ${request.id}，订单 ${request.orderId}`,
+          );
+        } else if (outcome === 'MANUAL_REVIEW') {
+          manualReviewCount++;
+          this.logger.log(
+            `买家寄回超时已标记人工复核：售后 ${request.id}，订单 ${request.orderId}`,
+          );
+        } else {
+          skippedCount++;
+          this.logger.log(
+            `买家寄回超时跳过处理：售后 ${request.id}，订单 ${request.orderId}`,
+          );
+        }
       } catch (err) {
         failCount++;
         this.logger.error(
@@ -227,21 +272,219 @@ export class AfterSaleTimeoutService {
     }
 
     this.logger.log(
-      `买家寄回超时处理完成：成功 ${successCount}，失败 ${failCount}`,
+      `买家寄回超时处理完成：关闭 ${closedCount}，人工复核 ${manualReviewCount}，跳过 ${skippedCount}，失败 ${failCount}`,
     );
   }
 
-  private async autoCancelBuyerShip(id: string): Promise<void> {
+  private async autoCancelBuyerShip(
+    id: string,
+    cutoff: Date,
+  ): Promise<'CLOSED' | 'MANUAL_REVIEW' | 'SKIPPED'> {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        requiresReturn: true,
+        approvedAt: true,
+        returnShippedAt: true,
+        returnWaybillNo: true,
+        returnSfOrderId: true,
+        returnShippingPayer: true,
+        returnShippingFeeDeducted: true,
+        returnShippingPaidAt: true,
+        manualReviewRequestedAt: true,
+      },
+    });
+    if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) {
+      return 'SKIPPED';
+    }
+    if (request.manualReviewRequestedAt) {
+      return 'SKIPPED';
+    }
+    if (!this.isBuyerShipTimeoutCandidate(request, cutoff)) {
+      return 'SKIPPED';
+    }
+
+    const buyerPaidShippingUnpaid =
+      request.returnShippingPayer === 'BUYER' &&
+      !request.returnShippingFeeDeducted &&
+      request.returnShippingPaidAt == null;
+    if (
+      request.status === 'RETURN_SHIPPING' &&
+      request.returnWaybillNo &&
+      !request.returnSfOrderId
+    ) {
+      return 'SKIPPED';
+    }
+
+    if (request.returnWaybillNo && request.returnSfOrderId && !buyerPaidShippingUnpaid) {
+      const cancelResult = await this.afterSaleReturnShippingService.cancelIfNotPickedUp(id);
+      if (cancelResult.cancelled) {
+        const closed = await this.closeBuyerShipTimeout(id, {
+          status: request.status as BuyerShipTimeoutCloseExpectation['status'],
+          returnWaybillNo: null,
+          returnSfOrderId: null,
+          returnShippedAt: null,
+        });
+        if (!closed) return 'SKIPPED';
+        await this.afterSaleShippingPaymentService.refundShippingPayment(
+          id,
+          '退货面单未揽收，售后关闭退还运费',
+        );
+        return 'CLOSED';
+      }
+
+      await this.markBuyerShipTimeoutManualReview(
+        id,
+        `买家寄回超时但退货面单取消失败（${cancelResult.reason}），需人工核查是否已揽收`,
+      );
+      return 'MANUAL_REVIEW';
+    }
+
+    const closed = await this.closeBuyerShipTimeout(id, {
+      status: request.status as BuyerShipTimeoutCloseExpectation['status'],
+      returnWaybillNo: request.returnWaybillNo ?? null,
+      returnSfOrderId: request.returnSfOrderId ?? null,
+      approvedAt: request.approvedAt ?? null,
+      returnShippedAt: request.returnShippedAt ?? null,
+    });
+    if (!closed) return 'SKIPPED';
+
+    if (!request.returnWaybillNo && request.returnShippingPayer === 'BUYER' && !request.returnShippingFeeDeducted) {
+      await this.afterSaleShippingPaymentService.refundShippingPayment(
+        id,
+        '买家超时未生成退货面单，售后关闭退还运费',
+      );
+    }
+
+    return 'CLOSED';
+  }
+
+  private async closeBuyerShipTimeout(
+    id: string,
+    expected: BuyerShipTimeoutCloseExpectation,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            const request = await tx.afterSaleRequest.findUnique({
+              where: { id },
+              select: {
+                status: true,
+                manualReviewRequestedAt: true,
+                approvedAt: true,
+                returnShippedAt: true,
+                returnWaybillNo: true,
+                returnSfOrderId: true,
+              },
+            });
+            if (
+              !request ||
+              request.manualReviewRequestedAt ||
+              request.status !== expected.status ||
+              (request.returnWaybillNo ?? null) !== expected.returnWaybillNo ||
+              (request.returnSfOrderId ?? null) !== expected.returnSfOrderId ||
+              (expected.approvedAt !== undefined &&
+                (request.approvedAt?.getTime() ?? null) !== (expected.approvedAt?.getTime() ?? null)) ||
+              (expected.returnShippedAt !== undefined &&
+                (request.returnShippedAt?.getTime() ?? null) !== (expected.returnShippedAt?.getTime() ?? null))
+            ) {
+              this.logger.log(`售后 ${id} 已非可关闭状态，跳过`);
+              return false;
+            }
+
+            const cas = await tx.afterSaleRequest.updateMany({
+              where: {
+                id,
+                status: expected.status,
+                manualReviewRequestedAt: null,
+                returnWaybillNo: expected.returnWaybillNo,
+                returnSfOrderId: expected.returnSfOrderId,
+                ...(expected.approvedAt !== undefined ? { approvedAt: expected.approvedAt } : {}),
+                ...(expected.returnShippedAt !== undefined
+                  ? { returnShippedAt: expected.returnShippedAt }
+                  : {}),
+              },
+              data: { status: 'CLOSED' },
+            });
+            if (cas.count === 0) {
+              this.logger.log(`售后 ${id} 状态已变更，跳过`);
+              return false;
+            }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status as any,
+              toStatus: 'CLOSED',
+              reason: '买家寄回超时，系统自动关闭',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
+            return true;
+          },
+          {
+            timeout: 10000,
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
+          this.logger.warn(
+            `autoCancelBuyerShip 序列化冲突，重试 ${attempt + 1}/${MAX_RETRIES}: id=${id}`,
+          );
+          continue;
+        }
+        throw err;
+      }
+    }
+    return false;
+  }
+
+  private isBuyerShipTimeoutCandidate(
+    request: {
+      status: string;
+      requiresReturn?: boolean | null;
+      approvedAt?: Date | null;
+      returnShippedAt?: Date | null;
+      returnWaybillNo?: string | null;
+      returnSfOrderId?: string | null;
+    },
+    cutoff: Date,
+  ): boolean {
+    if (!request.requiresReturn) return false;
+    if (request.status === 'APPROVED') {
+      return !!request.approvedAt && request.approvedAt < cutoff;
+    }
+    if (request.status === 'RETURN_SHIPPING') {
+      return !!request.returnWaybillNo &&
+        !!request.returnSfOrderId &&
+        !!request.returnShippedAt &&
+        request.returnShippedAt < cutoff;
+    }
+    return false;
+  }
+
+  private async markBuyerShipTimeoutManualReview(
+    id: string,
+    reason: string,
+  ): Promise<void> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(
           async (tx) => {
             const cas = await tx.afterSaleRequest.updateMany({
-              where: { id, status: 'APPROVED' },
-              data: { status: 'CANCELED' },
+              where: {
+                id,
+                status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+                manualReviewRequestedAt: null,
+              },
+              data: {
+                manualReviewReason: reason,
+                manualReviewRequestedAt: new Date(),
+              },
             });
             if (cas.count === 0) {
-              this.logger.log(`售后 ${id} 已非 APPROVED 状态，跳过`);
+              this.logger.log(`售后 ${id} 已非可标记人工复核状态，跳过人工复核标记`);
             }
           },
           {
@@ -253,7 +496,7 @@ export class AfterSaleTimeoutService {
       } catch (err: any) {
         if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
-            `autoCancelBuyerShip 序列化冲突，重试 ${attempt + 1}/${MAX_RETRIES}: id=${id}`,
+            `markBuyerShipTimeoutManualReview 序列化冲突，重试 ${attempt + 1}/${MAX_RETRIES}: id=${id}`,
           );
           continue;
         }
@@ -282,6 +525,8 @@ export class AfterSaleTimeoutService {
       where: {
         status: 'RETURN_SHIPPING',
         returnShippedAt: { lt: cutoff },
+        manualReviewRequestedAt: null,
+        returnSfOrderId: null,
       },
       take: BATCH_SIZE,
       select: {
@@ -290,6 +535,7 @@ export class AfterSaleTimeoutService {
         afterSaleType: true,
         refundAmount: true,
         reason: true,
+        returnSfOrderId: true,
       },
     });
 
@@ -326,10 +572,18 @@ export class AfterSaleTimeoutService {
     afterSaleType: string;
     refundAmount: number | null;
     reason: string;
+    returnSfOrderId?: string | null;
   }): Promise<void> {
+    if (request.returnSfOrderId) {
+      this.logger.log(
+        `售后 ${request.id} 为平台生成退货面单，跳过卖家签收超时自动签收`,
+      );
+      return;
+    }
+
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(
+        const outcome = await this.prisma.$transaction(
           async (tx) => {
             const now = new Date();
 
@@ -343,18 +597,27 @@ export class AfterSaleTimeoutService {
 
             if (cas.count === 0) {
               this.logger.log(`售后 ${request.id} 已非 RETURN_SHIPPING 状态，跳过`);
-              return;
+              return { updated: false, shouldStartRefund: false };
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: request.id,
+              fromStatus: 'RETURN_SHIPPING',
+              toStatus: 'RECEIVED_BY_SELLER',
+              reason: '卖家签收超时，系统自动签收',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
 
-            // 退货类型 → 自动触发退款
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
               request.afterSaleType === 'QUALITY_RETURN';
-
-            if (isReturnType) {
-              await this.createRefundInTx(tx, request);
-            }
             // 换货类型（QUALITY_EXCHANGE）→ 保持 RECEIVED_BY_SELLER，等卖家发换货
+            return {
+              updated: true,
+              shouldStartRefund:
+                isReturnType &&
+                !!request.refundAmount &&
+                request.refundAmount > 0,
+            };
           },
           {
             timeout: 15000,
@@ -362,16 +625,10 @@ export class AfterSaleTimeoutService {
           },
         );
 
-        // 事务提交后异步退款
-        const isReturnType =
-          request.afterSaleType === 'NO_REASON_RETURN' ||
-          request.afterSaleType === 'QUALITY_RETURN';
-        if (isReturnType && request.refundAmount && request.refundAmount > 0) {
-          const updated = await this.prisma.afterSaleRequest.findUnique({
-            where: { id: request.id },
-            select: { refundId: true },
+        if (outcome.shouldStartRefund) {
+          await this.afterSaleRefundService.startRefund(request.id, {
+            type: 'SYSTEM',
           });
-          this.asyncRefund({ ...request, refundId: updated?.refundId ?? null });
         }
 
         return;
@@ -457,6 +714,13 @@ export class AfterSaleTimeoutService {
               this.logger.log(`售后 ${request.id} 已非 REPLACEMENT_SHIPPED 状态，跳过`);
               return;
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: request.id,
+              fromStatus: 'REPLACEMENT_SHIPPED',
+              toStatus: 'COMPLETED',
+              reason: '买家确认收货超时，系统自动完成售后',
+              operatorType: AfterSaleOperatorType.SYSTEM,
+            });
 
             // 记录售后完成事件
             const order = await tx.order.findUnique({
@@ -511,133 +775,6 @@ export class AfterSaleTimeoutService {
     }
   }
 
-  // ========== 共用：事务内创建退款记录 ==========
-
-  /**
-   * 在事务内创建 Refund 记录并将售后状态更新为 REFUNDING
-   * 与 seller-after-sale.service.ts 的 triggerRefund 模式一致
-   */
-  private async createRefundInTx(
-    tx: Prisma.TransactionClient,
-    request: {
-      id: string;
-      orderId: string;
-      refundAmount: number | null;
-      reason: string;
-    },
-  ): Promise<void> {
-    if (!request.refundAmount || request.refundAmount <= 0) {
-      this.logger.warn(
-        `售后 ${request.id} 退款金额无效: ${request.refundAmount}`,
-      );
-      return;
-    }
-
-    const merchantRefundNo = `AS-TIMEOUT-${request.id}-${Date.now()}`;
-
-    const refund = await tx.refund.create({
-      data: {
-        orderId: request.orderId,
-        amount: request.refundAmount,
-        status: 'REFUNDING',
-        merchantRefundNo,
-        reason: `售后超时自动退款: ${request.reason}`,
-      },
-    });
-
-    await tx.afterSaleRequest.update({
-      where: { id: request.id },
-      data: {
-        status: 'REFUNDING',
-        refundId: refund.id,
-      },
-    });
-  }
-
-  // ========== 共用：异步退款（事务外） ==========
-
-  /**
-   * 事务提交后异步调用支付退款
-   * 与 seller-after-sale.service.ts 的模式一致
-   */
-  private asyncRefund(request: {
-    id: string;
-    orderId: string;
-    refundAmount: number | null;
-    refundId: string | null;
-    reason: string;
-  }): void {
-    const capturedOrderId = request.orderId;
-
-    setImmediate(async () => {
-      try {
-        // 从 DB 读取事务中创建的 refund 记录，复用同一个 merchantRefundNo（防止重复退款）
-        let refundRecord: { id: string; merchantRefundNo: string } | null = null;
-        if (request.refundId) {
-          refundRecord = await this.prisma.refund.findUnique({
-            where: { id: request.refundId },
-            select: { id: true, merchantRefundNo: true },
-          });
-        }
-        if (!refundRecord) {
-          this.logger.error(`asyncRefund: 售后 ${request.id} 无关联退款记录，跳过`);
-          return;
-        }
-
-        const result = await this.paymentService.initiateRefund(
-          request.orderId,
-          request.refundAmount!,
-          refundRecord.merchantRefundNo,
-        );
-        if (result.success) {
-          // CAS：仅当仍为 REFUNDING 时才更新，防止与其他补偿路径重复执行后续逻辑
-          const cas = await this.prisma.afterSaleRequest.updateMany({
-            where: { id: request.id, status: 'REFUNDING' },
-            data: { status: 'REFUNDED' },
-          });
-          // 同步更新 Refund 记录
-          await this.prisma.refund.updateMany({
-            where: { id: refundRecord.id, status: 'REFUNDING' },
-            data: { status: 'REFUNDED', providerRefundId: result.providerRefundId },
-          });
-          // cas.count === 0 说明已被其他路径处理，跳过后续（防重复通知）
-          if (cas.count > 0) {
-            await this.afterSaleRewardService
-              .voidRewardsForOrder(capturedOrderId)
-              .catch((voidErr: any) => {
-                this.logger.error(
-                  `退款成功后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
-                );
-              });
-            await this.afterSaleRewardService
-              .checkAndMarkOrderRefunded(capturedOrderId)
-              .catch((err: any) => {
-                this.logger.error(
-                  `检查订单全退状态失败: orderId=${capturedOrderId}, error=${err?.message}`,
-                );
-              });
-            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
-            if (order) {
-              this.inboxService.send({
-                userId: order.userId,
-                category: 'transaction',
-                type: 'refund_credited',
-                title: '退款已到账',
-                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
-                target: { route: '/orders' },
-              }).catch(() => {});
-            }
-          }
-        }
-        // 退款失败则保持 REFUNDING 状态，由补偿任务重试
-      } catch (err) {
-        this.logger.error(
-          `售后超时退款调用失败: afterSaleId=${request.id}, error=${(err as Error).message}`,
-        );
-      }
-    });
-  }
-
   // ========== C06修复：REFUNDING 状态售后申请补偿重试 ==========
 
   /**
@@ -667,7 +804,12 @@ export class AfterSaleTimeoutService {
         const refund = request.refundId
           ? await this.prisma.refund.findUnique({
               where: { id: request.refundId },
-              select: { id: true, merchantRefundNo: true, status: true },
+              select: {
+                id: true,
+                merchantRefundNo: true,
+                status: true,
+                providerRefundId: true,
+              },
             })
           : null;
 
@@ -678,28 +820,10 @@ export class AfterSaleTimeoutService {
 
         // 如果 C04 Cron 已经把 refund 改成 REFUNDED，说明退款已到账，只需补闭环 afterSaleRequest 状态
         if (refund.status === 'REFUNDED') {
-          await this.prisma.afterSaleRequest.updateMany({
-            where: { id: request.id, status: 'REFUNDING' },
-            data: { status: 'REFUNDED' },
-          });
-          // 补触发奖励归平台 + 全退检查 + 通知（C04 不做这些）
-          await this.afterSaleRewardService.voidRewardsForOrder(request.orderId).catch((err: any) => {
-            this.logger.error(`补偿闭环奖励归平台失败: orderId=${request.orderId}, error=${err?.message}`);
-          });
-          await this.afterSaleRewardService.checkAndMarkOrderRefunded(request.orderId).catch((err: any) => {
-            this.logger.error(`补偿闭环检查全退失败: orderId=${request.orderId}, error=${err?.message}`);
-          });
-          const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
-          if (order) {
-            this.inboxService.send({
-              userId: order.userId,
-              category: 'transaction',
-              type: 'refund_credited',
-              title: '退款已到账',
-              content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
-              target: { route: '/orders' },
-            }).catch(() => {});
-          }
+          await this.afterSaleRefundService.handleRefundSuccess(
+            refund.id,
+            refund.providerRefundId ?? null,
+          );
           this.logger.log(`售后 ${request.id} 退款已由 C04 完成，补闭环 afterSaleRequest 状态`);
           continue;
         }
@@ -709,47 +833,10 @@ export class AfterSaleTimeoutService {
           continue;
         }
 
-        const merchantRefundNo = refund.merchantRefundNo;
-
-        const result = await this.paymentService.initiateRefund(
-          request.orderId,
-          request.refundAmount!,
-          merchantRefundNo,
-        );
-
-        if (result.success) {
-          // CAS：仅当仍为 REFUNDING 时才更新，防止与其他补偿路径重复执行后续逻辑
-          const cas = await this.prisma.afterSaleRequest.updateMany({
-            where: { id: request.id, status: 'REFUNDING' },
-            data: { status: 'REFUNDED' },
-          });
-          await this.prisma.refund.updateMany({
-            where: { id: refund.id, status: { in: ['REFUNDING', 'FAILED'] } },
-            data: { status: 'REFUNDED', providerRefundId: result.providerRefundId },
-          });
-          if (cas.count > 0) {
-            await this.afterSaleRewardService.voidRewardsForOrder(request.orderId).catch((err: any) => {
-              this.logger.error(`补偿退款后奖励归平台失败: orderId=${request.orderId}, error=${err?.message}`);
-            });
-            await this.afterSaleRewardService.checkAndMarkOrderRefunded(request.orderId).catch((err: any) => {
-              this.logger.error(`补偿退款后检查全退失败: orderId=${request.orderId}, error=${err?.message}`);
-            });
-            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
-            if (order) {
-              this.inboxService.send({
-                userId: order.userId,
-                category: 'transaction',
-                type: 'refund_credited',
-                title: '退款已到账',
-                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
-                target: { route: '/orders' },
-              }).catch(() => {});
-            }
-          }
-          this.logger.log(`售后退款补偿成功: afterSaleId=${request.id}`);
-        } else {
-          this.logger.warn(`售后退款补偿失败: afterSaleId=${request.id}, message=${result.message}`);
-        }
+        await this.afterSaleRefundService.retryRefund(refund.id, {
+          type: 'SYSTEM',
+        });
+        this.logger.log(`售后退款补偿已委托统一服务: afterSaleId=${request.id}`);
       } catch (err: any) {
         this.logger.error(`售后退款补偿异常: afterSaleId=${request.id}, error=${err?.message}`);
       }

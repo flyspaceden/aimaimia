@@ -5,22 +5,33 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { decryptJsonValue } from '../../../common/security/encryption';
+import { parseChineseAddress } from '../../../common/utils/parse-region';
 import {
   filterContactInfo,
   maskIp,
   maskTrackingNo,
 } from '../../../common/security/privacy-mask';
-import { SellerShippingService } from '../shipping/seller-shipping.service';
+import {
+  CarrierWaybillAddress,
+  SellerShippingService,
+} from '../shipping/seller-shipping.service';
 import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
+import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
+import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
+
+function isExchangeAfterSaleType(type: string) {
+  return type === 'QUALITY_EXCHANGE' || type === 'NO_REASON_EXCHANGE';
+}
 
 @Injectable()
 export class SellerAfterSaleService {
@@ -36,6 +47,8 @@ export class SellerAfterSaleService {
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
     private inboxService: InboxService,
+    private afterSaleRefundService: AfterSaleRefundService,
+    private afterSaleStatusHistory: AfterSaleStatusHistoryService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -270,10 +283,12 @@ export class SellerAfterSaleService {
       // 卖家拒收信息
       sellerRejectReason: request.sellerRejectReason,
       sellerRejectPhotos: request.sellerRejectPhotos,
+      sellerReturnCarrierName: request.sellerReturnCarrierName,
       sellerReturnWaybillNo: request.sellerReturnWaybillNo
         ? maskTrackingNo(request.sellerReturnWaybillNo) ||
           request.sellerReturnWaybillNo
         : undefined,
+      sellerReturnWaybillUrl: request.sellerReturnWaybillUrl,
       // 退货物流
       returnCarrierName: request.returnCarrierName,
       returnWaybillNo: request.returnWaybillNo
@@ -304,6 +319,47 @@ export class SellerAfterSaleService {
     };
   }
 
+  /** 售后状态时间线（校验企业归属） */
+  async getTimeline(companyId: string, id: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      include: {
+        order: {
+          select: {
+            items: { select: { id: true, companyId: true } },
+          },
+        },
+      },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+
+    this.assertCompanyOwnsRequest(companyId, request as any);
+
+    const rows = await this.prisma.afterSaleStatusHistory.findMany({
+      where: { afterSaleId: id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        reason: row.reason,
+        operatorType: row.operatorType,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
   // ========== 开始审核 ==========
 
   /** 开始审核（REQUESTED → UNDER_REVIEW） */
@@ -314,7 +370,7 @@ export class SellerAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        return await this.prisma.$transaction(
+        const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
@@ -345,11 +401,20 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'UNDER_REVIEW',
+              reason: '卖家开始审核',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -373,7 +438,7 @@ export class SellerAfterSaleService {
    *   → 自动触发退款：创建 Refund 记录 + 调用 PaymentService.initiateRefund()
    *   → 退款成功则 status → REFUNDED，失败则 status → REFUNDING（等待补偿任务重试）
    *
-   * 如果 requiresReturn=false 且为换货类型（QUALITY_EXCHANGE）：
+   * 如果 requiresReturn=false 且为换货类型（NO_REASON_EXCHANGE / QUALITY_EXCHANGE）：
    *   → 停留在 APPROVED，等待卖家发货
    */
   async approve(
@@ -384,7 +449,8 @@ export class SellerAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        return await this.prisma.$transaction(
+        let shouldStartRefund = false;
+        const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
@@ -424,6 +490,14 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'APPROVED',
+              reason: note || '卖家审核通过',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             // 无需退回商品 + 退货退款类型 → 自动触发退款
             if (
@@ -431,7 +505,7 @@ export class SellerAfterSaleService {
               (request.afterSaleType === 'NO_REASON_RETURN' ||
                 request.afterSaleType === 'QUALITY_RETURN')
             ) {
-              await this.triggerRefund(tx, request as any);
+              shouldStartRefund = true;
             }
             // 无需退回 + 换货：停留在 APPROVED，等卖家发货
 
@@ -439,6 +513,15 @@ export class SellerAfterSaleService {
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+
+        if (shouldStartRefund) {
+          await this.afterSaleRefundService.startRefund(id, {
+            type: 'SELLER_STAFF',
+            id: staffId,
+          });
+          return this.prisma.afterSaleRequest.findUnique({ where: { id } });
+        }
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -464,7 +547,7 @@ export class SellerAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        return await this.prisma.$transaction(
+        const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
@@ -502,11 +585,20 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'REJECTED',
+              reason,
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -529,7 +621,7 @@ export class SellerAfterSaleService {
    * 如果 afterSaleType 是退货退款（NO_REASON_RETURN / QUALITY_RETURN）：
    *   → 自动触发退款流程
    *
-   * 如果 afterSaleType 是换货（QUALITY_EXCHANGE）：
+   * 如果 afterSaleType 是换货（NO_REASON_EXCHANGE / QUALITY_EXCHANGE）：
    *   → 停留在 RECEIVED_BY_SELLER，等待卖家发货
    */
   async confirmReceiveReturn(
@@ -539,7 +631,8 @@ export class SellerAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        return await this.prisma.$transaction(
+        let shouldStartRefund = false;
+        const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
@@ -569,13 +662,21 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'RECEIVED_BY_SELLER',
+              reason: '卖家确认收到退货',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             // 退货退款类型 → 自动触发退款
             if (
               request.afterSaleType === 'NO_REASON_RETURN' ||
               request.afterSaleType === 'QUALITY_RETURN'
             ) {
-              await this.triggerRefund(tx, request as any);
+              shouldStartRefund = true;
             }
             // 换货：停留在 RECEIVED_BY_SELLER，等卖家发货
 
@@ -583,6 +684,15 @@ export class SellerAfterSaleService {
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+
+        if (shouldStartRefund) {
+          await this.afterSaleRefundService.startRefund(id, {
+            type: 'SELLER_STAFF',
+            id: staffId,
+          });
+          return this.prisma.afterSaleRequest.findUnique({ where: { id } });
+        }
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -606,7 +716,6 @@ export class SellerAfterSaleService {
     id: string,
     reason: string,
     photos: string[],
-    returnWaybillNo: string,
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
@@ -638,12 +747,19 @@ export class SellerAfterSaleService {
                 status: 'SELLER_REJECTED_RETURN',
                 sellerRejectReason: reason,
                 sellerRejectPhotos: photos,
-                sellerReturnWaybillNo: returnWaybillNo,
               },
             });
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'SELLER_REJECTED_RETURN',
+              reason,
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
@@ -665,7 +781,7 @@ export class SellerAfterSaleService {
 
   // ========== 换货发货 ==========
 
-  /** 卖家发出换货商品（APPROVED/RECEIVED_BY_SELLER → REPLACEMENT_SHIPPED，仅 QUALITY_EXCHANGE） */
+  /** 卖家发出换货商品（APPROVED/RECEIVED_BY_SELLER → REPLACEMENT_SHIPPED） */
   async ship(companyId: string, staffId: string, id: string) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
@@ -685,7 +801,7 @@ export class SellerAfterSaleService {
 
             this.assertCompanyOwnsRequest(companyId, request as any);
 
-            if (request.afterSaleType !== 'QUALITY_EXCHANGE') {
+            if (!isExchangeAfterSaleType(request.afterSaleType)) {
               throw new BadRequestException('仅换货类型的售后可执行发货操作');
             }
 
@@ -709,7 +825,7 @@ export class SellerAfterSaleService {
               where: {
                 id,
                 status: { in: ['APPROVED', 'RECEIVED_BY_SELLER'] },
-                afterSaleType: 'QUALITY_EXCHANGE',
+                afterSaleType: { in: ['QUALITY_EXCHANGE', 'NO_REASON_EXCHANGE'] },
               },
               data: {
                 status: 'REPLACEMENT_SHIPPED',
@@ -719,6 +835,15 @@ export class SellerAfterSaleService {
             if (cas.count === 0) {
               throw new BadRequestException('该申请状态已变更，请刷新后重试');
             }
+            await this.afterSaleStatusHistory.create(tx, {
+              afterSaleId: id,
+              fromStatus: request.status,
+              toStatus: 'REPLACEMENT_SHIPPED',
+              reason: '卖家发出换货商品',
+              operatorType: AfterSaleOperatorType.SELLER_STAFF,
+              operatorId: staffId,
+              meta: { replacementWaybillNo: request.replacementWaybillNo },
+            });
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
@@ -750,97 +875,90 @@ export class SellerAfterSaleService {
     let createdWaybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null =
       null;
 
-    try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          await this.acquireWaybillGenerationLock(tx, `${companyId}:${id}`);
+    const context = await this.prisma.$transaction(
+      async (tx) => {
+        await this.acquireWaybillGenerationLock(tx, `${companyId}:${id}`);
 
-          const request = await tx.afterSaleRequest.findUnique({
-            where: { id },
-            include: {
-              order: {
-                include: {
-                  items: {
-                    include: {
-                      sku: {
-                        include: {
-                          product: { select: { title: true } },
-                        },
+        const request = await tx.afterSaleRequest.findUnique({
+          where: { id },
+          include: {
+            order: {
+              include: {
+                items: {
+                  include: {
+                    sku: {
+                      include: {
+                        product: { select: { title: true } },
                       },
                     },
                   },
                 },
               },
-              orderItem: {
-                include: {
-                  sku: {
-                    include: {
-                      product: { select: { title: true } },
-                    },
+            },
+            orderItem: {
+              include: {
+                sku: {
+                  include: {
+                    product: { select: { title: true } },
                   },
                 },
               },
             },
-          });
-          if (!request) throw new NotFoundException('售后申请不存在');
+          },
+        });
+        if (!request) throw new NotFoundException('售后申请不存在');
 
-          this.assertCompanyOwnsRequest(companyId, request as any);
+        this.assertCompanyOwnsRequest(companyId, request as any);
 
-          if (request.afterSaleType !== 'QUALITY_EXCHANGE') {
-            throw new BadRequestException('仅换货类型的售后可生成面单');
-          }
+        if (!isExchangeAfterSaleType(request.afterSaleType)) {
+          throw new BadRequestException('仅换货类型的售后可生成面单');
+        }
 
-          if (
-            request.status !== 'APPROVED' &&
-            request.status !== 'RECEIVED_BY_SELLER'
-          ) {
-            throw new BadRequestException(
-              '仅审核通过或已收到退货的换货可生成面单',
-            );
-          }
-
-          if (request.replacementWaybillNo) {
-            throw new BadRequestException(
-              '该售后已生成面单，请勿重复操作',
-            );
-          }
-
-          const items = request.orderItem
-            ? [
-                {
-                  name:
-                    request.orderItem.sku?.product?.title ||
-                    (request.orderItem.productSnapshot as any)?.title ||
-                    '商品',
-                  quantity: request.orderItem.quantity,
-                },
-              ]
-            : request.order.items
-                .filter((item) => item.companyId === companyId)
-                .map((item) => ({
-                  name:
-                    item.sku?.product?.title ||
-                    (item.productSnapshot as any)?.title ||
-                    '商品',
-                  quantity: item.quantity,
-                }));
-
-          if (items.length === 0) {
-            throw new BadRequestException('未找到可生成面单的商品');
-          }
-
-          const waybill = await this.shippingService.createCarrierWaybill(
-            companyId,
-            `AS_${id}`, // 售后换货面单用 after-sale request ID 作为幂等键
-            carrierCode,
-            request.order.addressSnapshot,
-            items,
+        if (
+          request.status !== 'APPROVED' &&
+          request.status !== 'RECEIVED_BY_SELLER'
+        ) {
+          throw new BadRequestException(
+            '仅审核通过或已收到退货的换货可生成面单',
           );
-          createdWaybill = {
-            carrierCode: waybill.carrierCode,
-            waybillNo: waybill.waybillNo,
-            sfOrderId: waybill.sfOrderId,
-          };
+        }
+
+        if (request.replacementWaybillNo) {
+          throw new BadRequestException(
+            '该售后已生成面单，请勿重复操作',
+          );
+        }
+
+        const items = this.resolveWaybillItems(request as any, companyId);
+        if (items.length === 0) {
+          throw new BadRequestException('未找到可生成面单的商品');
+        }
+
+        return {
+          addressSnapshot: request.order.addressSnapshot,
+          items,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    try {
+      const waybill = await this.shippingService.createCarrierWaybill(
+        companyId,
+        `AS_${id}`,
+        carrierCode,
+        context.addressSnapshot,
+        context.items,
+      );
+      createdWaybill = {
+        carrierCode: waybill.carrierCode,
+        waybillNo: waybill.waybillNo,
+        sfOrderId: waybill.sfOrderId,
+      };
+
+      const persisted = await this.prisma.$transaction(
+        async (tx) => {
+          await this.acquireWaybillGenerationLock(tx, `${companyId}:${id}`);
 
           const cas = await tx.afterSaleRequest.updateMany({
             where: {
@@ -858,26 +976,219 @@ export class SellerAfterSaleService {
           });
 
           if (cas.count === 0) {
-            throw new BadRequestException(
-              '该售后已生成面单，请勿重复操作',
-            );
+            const existing = await tx.afterSaleRequest.findUnique({
+              where: { id },
+              select: {
+                replacementCarrierCode: true,
+                replacementCarrierName: true,
+                replacementWaybillNo: true,
+                replacementWaybillUrl: true,
+              },
+            });
+            if (existing?.replacementWaybillNo === waybill.waybillNo) {
+              return existing;
+            }
+            throw new BadRequestException('该售后已生成面单，请勿重复操作');
           }
 
           return {
-            ok: true,
-            waybillNo:
-              maskTrackingNo(waybill.waybillNo) || waybill.waybillNo,
-            waybillPrintUrl: this.getWaybillPrintUrl(
-              companyId,
-              id,
-              staffId,
-            ),
-            carrierCode: waybill.carrierCode,
-            carrierName: waybill.carrierName,
+            replacementCarrierCode: waybill.carrierCode,
+            replacementCarrierName: waybill.carrierName,
+            replacementWaybillNo: waybill.waybillNo,
+            replacementWaybillUrl: waybill.waybillUrl,
           };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+      createdWaybill = null;
+
+      return {
+        ok: true,
+        waybillNo:
+          maskTrackingNo(persisted.replacementWaybillNo) ||
+          persisted.replacementWaybillNo,
+        waybillPrintUrl: this.getWaybillPrintUrl(
+          companyId,
+          id,
+          staffId,
+        ),
+        carrierCode: persisted.replacementCarrierCode,
+        carrierName: persisted.replacementCarrierName,
+      };
+    } catch (error) {
+      await this.rollbackCreatedWaybill(createdWaybill);
+      throw error;
+    }
+  }
+
+  /** 生成卖家拒收退货后的回寄电子面单（卖家 → 买家） */
+  async generateSellerReturnWaybill(
+    companyId: string,
+    staffId: string,
+    id: string,
+    carrierCode = 'SF',
+  ) {
+    let createdWaybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null =
+      null;
+
+    const context = await this.prisma.$transaction(
+      async (tx) => {
+        await this.acquireWaybillGenerationLock(tx, `seller-return:${companyId}:${id}`);
+
+        const request = await tx.afterSaleRequest.findUnique({
+          where: { id },
+          include: {
+            order: {
+              include: {
+                items: {
+                  include: {
+                    sku: {
+                      include: {
+                        product: {
+                          include: {
+                            company: {
+                              select: {
+                                id: true,
+                                name: true,
+                                servicePhone: true,
+                                address: true,
+                                contact: true,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            orderItem: {
+              include: {
+                sku: {
+                  include: {
+                    product: {
+                      include: {
+                        company: {
+                          select: {
+                            id: true,
+                            name: true,
+                            servicePhone: true,
+                            address: true,
+                            contact: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+        if (!request) throw new NotFoundException('售后申请不存在');
+
+        this.assertCompanyOwnsRequest(companyId, request as any);
+
+        if (request.status !== 'SELLER_REJECTED_RETURN') {
+          throw new BadRequestException('仅卖家验收退货不合格的申请可生成回寄面单');
+        }
+        if (request.sellerReturnWaybillNo) {
+          throw new BadRequestException('该售后已生成卖家回寄面单，请勿重复操作');
+        }
+
+        const items = this.resolveWaybillItems(request as any, companyId);
+        if (items.length === 0) {
+          throw new BadRequestException('未找到可生成面单的商品');
+        }
+
+        const company =
+          request.orderItem?.sku?.product?.company ||
+          request.order.items.find((item: any) => item.companyId === companyId)
+            ?.sku?.product?.company;
+        if (!company) {
+          throw new BadRequestException('未找到商家退货地址信息');
+        }
+
+        return {
+          sender: this.buildCompanyWaybillAddress(company),
+          receiver: this.parseBuyerAddress(request.order.addressSnapshot),
+          items,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    try {
+      const waybill = await this.shippingService.createCarrierWaybillWithAddresses({
+        companyId,
+        bizNo: `AS_REJECT_RETURN_${id}`,
+        carrierCode,
+        sender: context.sender,
+        receiver: context.receiver,
+        items: context.items,
+      });
+      createdWaybill = {
+        carrierCode: waybill.carrierCode,
+        waybillNo: waybill.waybillNo,
+        sfOrderId: waybill.sfOrderId,
+      };
+
+      const persisted = await this.prisma.$transaction(
+        async (tx) => {
+          await this.acquireWaybillGenerationLock(tx, `seller-return:${companyId}:${id}`);
+
+          const cas = await tx.afterSaleRequest.updateMany({
+            where: {
+              id,
+              status: 'SELLER_REJECTED_RETURN',
+              sellerReturnWaybillNo: null,
+            },
+            data: {
+              sellerReturnCarrierCode: waybill.carrierCode,
+              sellerReturnCarrierName: waybill.carrierName,
+              sellerReturnWaybillNo: waybill.waybillNo,
+              sellerReturnWaybillUrl: waybill.waybillUrl,
+              sellerReturnSfOrderId: waybill.sfOrderId,
+            },
+          });
+
+          if (cas.count === 0) {
+            const existing = await tx.afterSaleRequest.findUnique({
+              where: { id },
+              select: {
+                sellerReturnCarrierCode: true,
+                sellerReturnCarrierName: true,
+                sellerReturnWaybillNo: true,
+                sellerReturnWaybillUrl: true,
+              },
+            });
+            if (existing?.sellerReturnWaybillNo === waybill.waybillNo) {
+              return existing;
+            }
+            throw new BadRequestException('该售后已生成卖家回寄面单，请勿重复操作');
+          }
+
+          return {
+            sellerReturnCarrierCode: waybill.carrierCode,
+            sellerReturnCarrierName: waybill.carrierName,
+            sellerReturnWaybillNo: waybill.waybillNo,
+            sellerReturnWaybillUrl: waybill.waybillUrl,
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      createdWaybill = null;
+
+      return {
+        ok: true,
+        waybillNo:
+          maskTrackingNo(persisted.sellerReturnWaybillNo) ||
+          persisted.sellerReturnWaybillNo,
+        waybillUrl: persisted.sellerReturnWaybillUrl,
+        carrierCode: persisted.sellerReturnCarrierCode,
+        carrierName: persisted.sellerReturnCarrierName,
+      };
     } catch (error) {
       await this.rollbackCreatedWaybill(createdWaybill);
       throw error;
@@ -1077,112 +1388,6 @@ export class SellerAfterSaleService {
     }
   }
 
-  // ========== 私有辅助 ==========
-
-  /**
-   * 触发退款流程
-   * 在事务内创建 Refund 记录并更新售后状态为 REFUNDING，
-   * 事务外调用 PaymentService.initiateRefund()（占位实现）
-   */
-  private async triggerRefund(
-    tx: Prisma.TransactionClient,
-    request: {
-      id: string;
-      orderId: string;
-      refundAmount: number | null;
-      reason: string;
-    },
-  ) {
-    if (!request.refundAmount || request.refundAmount <= 0) {
-      this.logger.warn(
-        `售后 ${request.id} 退款金额无效: ${request.refundAmount}`,
-      );
-      return;
-    }
-
-    const merchantRefundNo = `AS-${request.id}-${Date.now()}`;
-
-    // 创建退款记录
-    const refund = await tx.refund.create({
-      data: {
-        orderId: request.orderId,
-        amount: request.refundAmount,
-        status: 'REFUNDING',
-        merchantRefundNo,
-        reason: `售后退款: ${request.reason}`,
-      },
-    });
-
-    // 更新售后状态为退款中，关联退款记录
-    await tx.afterSaleRequest.update({
-      where: { id: request.id },
-      data: {
-        status: 'REFUNDING',
-        refundId: refund.id,
-      },
-    });
-
-    // 事务提交后异步调用支付退款（占位实现）
-    // 注意：PaymentService.initiateRefund 是幂等的占位方法
-    // 实际生产中应使用消息队列异步触发
-    const capturedOrderId = request.orderId;
-    setImmediate(async () => {
-      try {
-        const result = await this.paymentService.initiateRefund(
-          request.orderId,
-          request.refundAmount!,
-          merchantRefundNo,
-        );
-        if (result.success) {
-          const cas = await this.prisma.afterSaleRequest.updateMany({
-            where: { id: request.id, status: 'REFUNDING' },
-            data: { status: 'REFUNDED' },
-          });
-          await this.prisma.refund.updateMany({
-            where: { id: refund.id, status: 'REFUNDING' },
-            data: {
-              status: 'REFUNDED',
-              providerRefundId: result.providerRefundId,
-            },
-          });
-          // cas.count === 0 说明已被其他路径处理，跳过后续（防重复通知）
-          if (cas.count > 0) {
-            await this.afterSaleRewardService
-              .voidRewardsForOrder(capturedOrderId)
-              .catch((voidErr: any) => {
-                this.logger.error(
-                  `退款成功后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
-                );
-              });
-            await this.afterSaleRewardService
-              .checkAndMarkOrderRefunded(capturedOrderId)
-              .catch((err: any) => {
-                this.logger.error(
-                  `检查订单全退状态失败: orderId=${capturedOrderId}, error=${err?.message}`,
-                );
-              });
-            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
-            if (order) {
-              this.inboxService.send({
-                userId: order.userId,
-                category: 'transaction',
-                type: 'refund_credited',
-                title: '退款已到账',
-                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
-                target: { route: '/orders' },
-              }).catch(() => {});
-            }
-          }
-        }
-        // 退款失败则保持 REFUNDING 状态，由补偿任务重试
-      } catch (err) {
-        this.logger.error(
-          `售后退款调用失败: afterSaleId=${request.id}, error=${(err as Error).message}`,
-        );
-      }
-    });
-  }
-
   private async acquireWaybillGenerationLock(
     tx: Prisma.TransactionClient,
     resourceKey: string,
@@ -1200,5 +1405,101 @@ export class SellerAfterSaleService {
   ) {
     if (!waybill) return;
     await this.shippingService.cancelCarrierWaybill(waybill.sfOrderId ?? '', waybill.waybillNo);
+  }
+
+  private resolveWaybillItems(
+    request: {
+      orderItem?: any;
+      order: { items: any[] };
+    },
+    companyId: string,
+  ) {
+    return request.orderItem
+      ? [
+          {
+            name:
+              request.orderItem.sku?.product?.title ||
+              request.orderItem.productSnapshot?.title ||
+              '商品',
+            quantity: request.orderItem.quantity,
+          },
+        ]
+      : request.order.items
+          .filter((item) => item.companyId === companyId)
+          .map((item) => ({
+            name:
+              item.sku?.product?.title ||
+              item.productSnapshot?.title ||
+              '商品',
+            quantity: item.quantity,
+          }));
+  }
+
+  private parseBuyerAddress(addressSnapshot: unknown): CarrierWaybillAddress {
+    if (!addressSnapshot) {
+      throw new BadRequestException('订单地址信息缺失，无法生成卖家回寄面单');
+    }
+
+    let addr: any;
+    try {
+      addr = decryptJsonValue(
+        typeof addressSnapshot === 'string'
+          ? JSON.parse(addressSnapshot)
+          : addressSnapshot,
+      );
+    } catch {
+      throw new BadRequestException('订单地址信息格式错误，无法生成卖家回寄面单');
+    }
+    if (!addr || typeof addr !== 'object' || Array.isArray(addr)) {
+      throw new BadRequestException('订单地址信息格式错误，无法生成卖家回寄面单');
+    }
+
+    const name = addr.recipientName || addr.receiverName || addr.name || '';
+    const tel = addr.phone || addr.recipientPhone || addr.receiverPhone || '';
+    let province = addr.province || '';
+    let city = addr.city || '';
+    let district = addr.district || '';
+    const detail = addr.detail || '';
+
+    if (!province && addr.regionText) {
+      const parsed = parseChineseAddress(addr.regionText);
+      province = parsed.province;
+      city = parsed.city;
+      district = parsed.district;
+    }
+
+    const receiver = { name, tel, province, city, district, detail };
+    this.assertAddressReady(receiver, '买家收货地址不完整，无法生成卖家回寄面单');
+    return receiver;
+  }
+
+  private buildCompanyWaybillAddress(company: {
+    name: string;
+    servicePhone: string | null;
+    address: Prisma.JsonValue | null;
+    contact: Prisma.JsonValue | null;
+  }): CarrierWaybillAddress {
+    const address = (company.address ?? {}) as Record<string, any>;
+    const contact = (company.contact ?? {}) as Record<string, any>;
+    const sender = {
+      name: contact?.name || company.name,
+      tel: contact?.phone || company.servicePhone || '',
+      province: address?.province || '',
+      city: address?.city || '',
+      district: address?.district || '',
+      detail: address?.detail || address?.text || '',
+    };
+
+    this.assertAddressReady(
+      sender,
+      '商家售后寄件地址不完整，请先补充省市和详细地址',
+    );
+    return sender;
+  }
+
+  private assertAddressReady(address: CarrierWaybillAddress, message: string): void {
+    if (!address.name || !address.tel || !address.province || !address.city || !address.detail) {
+      throw new BadRequestException(message);
+    }
   }
 }

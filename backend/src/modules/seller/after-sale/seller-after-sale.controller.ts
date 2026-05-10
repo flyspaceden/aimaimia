@@ -28,6 +28,7 @@ import {
   RejectAfterSaleDto,
   RejectReturnDto,
   GenerateWaybillDto,
+  GenerateSellerReturnWaybillDto,
 } from './dto/seller-after-sale.dto';
 import { applyWaybillWatermark } from '../../../common/security/waybill-watermark';
 import {
@@ -67,6 +68,16 @@ export class SellerAfterSaleController {
   @Get('stats')
   getStats(@CurrentSeller('companyId') companyId: string) {
     return this.afterSaleService.getStats(companyId);
+  }
+
+  /** 售后状态时间线 */
+  @UseGuards(SellerAuthGuard, SellerRoleGuard)
+  @Get(':id/timeline')
+  getTimeline(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.afterSaleService.getTimeline(companyId, id);
   }
 
   /** 售后详情 */
@@ -176,7 +187,6 @@ export class SellerAfterSaleController {
       id,
       dto.reason,
       dto.photos,
-      dto.returnWaybillNo,
     );
   }
 
@@ -219,6 +229,30 @@ export class SellerAfterSaleController {
       staffId,
       id,
       dto.carrierCode,
+    );
+  }
+
+  /** 生成卖家拒收退货回寄电子面单 */
+  @SellerAudit({
+    action: 'GENERATE_AFTER_SALE_SELLER_RETURN_WAYBILL',
+    module: 'after-sale',
+    targetType: 'AfterSaleRequest',
+    targetIdParam: 'params.id',
+  })
+  @UseGuards(SellerAuthGuard, SellerRoleGuard)
+  @SellerRoles('OWNER', 'MANAGER')
+  @Post(':id/seller-return-waybill')
+  generateSellerReturnWaybill(
+    @CurrentSeller('companyId') companyId: string,
+    @CurrentSeller('sub') staffId: string,
+    @Param('id') id: string,
+    @Body() dto: GenerateSellerReturnWaybillDto = {},
+  ) {
+    return this.afterSaleService.generateSellerReturnWaybill(
+      companyId,
+      staffId,
+      id,
+      dto.carrierCode ?? 'SF',
     );
   }
 

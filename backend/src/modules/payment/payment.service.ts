@@ -9,6 +9,8 @@ import { AlipayService } from './alipay.service';
 import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
 import { InboxService } from '../inbox/inbox.service';
+import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
+import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
 
 @Injectable()
 export class PaymentService {
@@ -17,6 +19,8 @@ export class PaymentService {
   private readonly autoRefundOperator = 'SYSTEM_AUTO';
   private readonly autoRefundRetryBatchSize = 20;
   private readonly autoRefundRetryCooldownMs = 5 * 60_000;
+  private afterSaleRefundService: AfterSaleRefundService | null = null;
+  private afterSaleShippingPaymentService: AfterSaleShippingPaymentService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -26,6 +30,14 @@ export class PaymentService {
     @Optional() private couponService?: CouponService,
     @Optional() private inboxService?: InboxService,
   ) {}
+
+  setAfterSaleRefundService(service: AfterSaleRefundService) {
+    this.afterSaleRefundService = service;
+  }
+
+  setAfterSaleShippingPaymentService(service: AfterSaleShippingPaymentService) {
+    this.afterSaleShippingPaymentService = service;
+  }
 
   /**
    * P5 第三轮：金额校验 helper（active-query 和 notify 两个路径共用）
@@ -38,6 +50,7 @@ export class PaymentService {
    * - active-query：异常上抛给前端 → 前端停止轮询并提示
    * - notify：catch 后日志 + 仍返 'success' 给支付宝（避免支付宝无限重试），
    *   依靠运维告警人工介入
+   * - 售后退货运费支付单缺失：抛 NotFoundException，让 notify 返回 failure 触发支付宝重试
    */
   assertAlipayAmountMatchesSession(
     session: { expectedTotal: number; merchantOrderNo: string | null },
@@ -52,6 +65,44 @@ export class PaymentService {
         `→ 拒绝建单，请人工核查（可能为恶意篡改）`,
       );
       throw new BadRequestException('支付金额校验失败，请联系客服');
+    }
+  }
+
+  async assertAfterSaleShippingPaymentAmountMatches(
+    outTradeNo: string,
+    totalAmount: string,
+  ): Promise<void> {
+    const payment = await this.prisma.afterSaleShippingPayment.findUnique({
+      where: { merchantPaymentNo: outTradeNo },
+      select: { amount: true, status: true },
+    });
+    if (!payment) {
+      throw new NotFoundException('售后退货运费支付单不存在');
+    }
+
+    this.assertAfterSaleShippingPaymentAmountValueMatches(
+      outTradeNo,
+      payment.amount,
+      totalAmount,
+    );
+  }
+
+  private assertAfterSaleShippingPaymentAmountValueMatches(
+    merchantPaymentNo: string,
+    expectedAmount: number,
+    totalAmount: string,
+  ): void {
+    const actualAmount = Number(totalAmount);
+    if (!Number.isFinite(actualAmount)) {
+      throw new BadRequestException('售后退货运费金额格式错误');
+    }
+
+    const expectedFen = Math.round(expectedAmount * 100);
+    const actualFen = Math.round(actualAmount * 100);
+    if (expectedFen !== actualFen) {
+      throw new BadRequestException(
+        `售后退货运费金额不匹配: expected=${expectedFen}, actual=${actualFen}`,
+      );
     }
   }
 
@@ -77,6 +128,10 @@ export class PaymentService {
    * - 跳过签名校验：query 是后端主动调用，没有"对方签名"概念，复用 skipSignatureVerification:true
    */
   async confirmAlipayCheckout(sessionId: string, userId: string) {
+    if (sessionId?.startsWith('AS_SHIP_PAY_')) {
+      return this.confirmAfterSaleShippingAlipayPayment(sessionId, userId);
+    }
+
     if (!this.checkoutService) {
       throw new BadRequestException('结算服务未启用');
     }
@@ -192,6 +247,76 @@ export class PaymentService {
       status: refreshed?.status ?? 'COMPLETED',
       orderIds: refreshed?.orders.map((o) => o.id) ?? [],
       expectedTotal: session.expectedTotal,
+      confirmedBy: 'active-query-success' as const,
+    };
+  }
+
+  private async confirmAfterSaleShippingAlipayPayment(
+    merchantPaymentNo: string,
+    userId: string,
+  ) {
+    const payment = await this.prisma.afterSaleShippingPayment.findUnique({
+      where: { merchantPaymentNo },
+      include: { afterSale: { select: { userId: true } } },
+    });
+    if (!payment || payment.afterSale.userId !== userId) {
+      throw new NotFoundException('售后退货运费支付单不存在');
+    }
+
+    let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+    try {
+      queryResult = await this.alipayService.queryOrder(merchantPaymentNo);
+    } catch (err: any) {
+      this.logger.error(`active-query 售后退货运费调用支付宝异常: ${err.message}`);
+      return {
+        status: payment.status,
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: 'query-error' as const,
+      };
+    }
+
+    if (!queryResult) {
+      return {
+        status: payment.status,
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: 'not-found' as const,
+      };
+    }
+
+    const { tradeStatus, tradeNo, totalAmount } = queryResult;
+    if (tradeStatus !== 'TRADE_SUCCESS' && tradeStatus !== 'TRADE_FINISHED') {
+      this.logger.log(
+        `active-query: 支付宝返回 ${tradeStatus}，售后退货运费支付单 ${this.maskBizId(merchantPaymentNo)} 保持当前状态 ${payment.status}`,
+      );
+      return {
+        status: payment.status,
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: `alipay-${tradeStatus.toLowerCase()}` as const,
+      };
+    }
+
+    this.assertAfterSaleShippingPaymentAmountValueMatches(
+      merchantPaymentNo,
+      payment.amount,
+      totalAmount,
+    );
+
+    await this.handlePaymentCallback({
+      merchantOrderNo: merchantPaymentNo,
+      providerTxnId: tradeNo,
+      status: 'SUCCESS',
+      paidAt: new Date().toISOString(),
+      rawPayload: { source: 'active-query', tradeStatus, tradeNo, totalAmount },
+      skipSignatureVerification: true,
+    });
+
+    return {
+      status: ['REFUNDING', 'REFUNDED'].includes(payment.status) ? payment.status : 'PAID',
+      orderIds: [],
+      expectedTotal: payment.amount,
       confirmedBy: 'active-query-success' as const,
     };
   }
@@ -333,12 +458,32 @@ export class PaymentService {
     this.logger.warn(`自动退款补偿任务启动：待重试 ${candidates.length} 条`);
 
     for (const refund of candidates) {
+      let claim: {
+        orderId: string;
+        amount: number;
+        merchantRefundNo: string;
+      } | null = null;
       try {
-        const claim = await this.claimAutoRefundRetry(refund.id);
+        claim = await this.claimAutoRefundRetry(refund.id);
         if (!claim) continue;
 
         const result = await this.initiateRefund(claim.orderId, claim.amount, claim.merchantRefundNo);
+        const isAfterSaleRefund = claim.merchantRefundNo.startsWith('AS-');
         if (result.success) {
+          if (isAfterSaleRefund && this.afterSaleRefundService) {
+            try {
+              await this.afterSaleRefundService.handleRefundSuccess(
+                refund.id,
+                result.providerRefundId || null,
+              );
+            } catch (closureErr: any) {
+              const closureMsg = sanitizeStringForLog(closureErr?.message || 'UNKNOWN', { maxStringLength: 256 });
+              this.logger.error(
+                `AS 退款渠道已成功但售后闭环失败: refundId=${this.maskBizId(refund.id)}, error=${closureMsg}`,
+              );
+            }
+            continue;
+          }
           await this.updateAutoRefundRecord({
             refundId: refund.id,
             toStatus: 'REFUNDED',
@@ -347,6 +492,13 @@ export class PaymentService {
             remark: '自动退款补偿成功',
           });
         } else {
+          if (isAfterSaleRefund && this.afterSaleRefundService) {
+            await this.afterSaleRefundService.handleRefundFailure(
+              refund.id,
+              result.message,
+            );
+            continue;
+          }
           await this.updateAutoRefundRecord({
             refundId: refund.id,
             toStatus: 'FAILED',
@@ -356,6 +508,13 @@ export class PaymentService {
         }
       } catch (err: any) {
         const msg = sanitizeStringForLog(err?.message || 'UNKNOWN', { maxStringLength: 256 });
+        if (claim?.merchantRefundNo.startsWith('AS-') && this.afterSaleRefundService) {
+          await this.afterSaleRefundService.handleRefundFailure(
+            refund.id,
+            `自动退款补偿异常: ${msg}`,
+          );
+          continue;
+        }
         await this.updateAutoRefundRecord({
           refundId: refund.id,
           toStatus: 'FAILED',
@@ -394,6 +553,7 @@ export class PaymentService {
       const recent = await tx.refundStatusHistory.findFirst({
         where: {
           refundId,
+          toStatus: 'REFUNDING',
           remark: { contains: '重试开始' },
           createdAt: { gte: new Date(Date.now() - 30_000) },
         },
@@ -512,6 +672,27 @@ export class PaymentService {
 
     if (!merchantOrderNo || !status) {
       throw new BadRequestException('缺少必要参数 merchantOrderNo 或 status');
+    }
+
+    if (merchantOrderNo.startsWith('AS_SHIP_PAY_')) {
+      if (!this.afterSaleShippingPaymentService) {
+        throw new BadRequestException('售后退货运费支付服务未启用');
+      }
+
+      if (status === 'SUCCESS') {
+        await this.afterSaleShippingPaymentService.handlePaymentSuccess(
+          merchantOrderNo,
+          providerTxnId,
+          paidAt ? new Date(paidAt) : new Date(),
+        );
+        return { code: 'SUCCESS', message: '售后退货运费支付成功' };
+      }
+
+      await this.afterSaleShippingPaymentService.handlePaymentFailure(
+        merchantOrderNo,
+        '支付失败',
+      );
+      return { code: 'SUCCESS', message: '售后退货运费支付失败已记录' };
     }
 
     // F1: 检测新结算流程（CheckoutSession-based）

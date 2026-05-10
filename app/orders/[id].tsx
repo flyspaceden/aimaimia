@@ -12,6 +12,7 @@ import { AmountSummary } from '../../src/components/orders/AmountSummary';
 import { OrderInfoBlock } from '../../src/components/orders/OrderInfoBlock';
 import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
 import { OrderRepo } from '../../src/repos';
+import { AfterSaleRepo } from '../../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
@@ -105,9 +106,17 @@ export default function OrderDetailScreen() {
   };
 
   const handleConfirmReplacement = async () => {
-    const r = await OrderRepo.confirmReplacement(order.id);
+    const afterSaleId = order.afterSaleSummary?.id;
+    if (!afterSaleId) {
+      show({ message: '未找到售后单，请刷新后重试', type: 'error' });
+      return;
+    }
+    const r = await AfterSaleRepo.confirmReceive(afterSaleId);
     if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
+    await queryClient.invalidateQueries({ queryKey: ['order', order.id] });
+    await queryClient.invalidateQueries({ queryKey: ['after-sale', afterSaleId] });
+    await queryClient.invalidateQueries({ queryKey: ['after-sales'] });
     await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
     show({ message: '已确认收到换货', type: 'success' });
     refetch();
@@ -201,7 +210,16 @@ export default function OrderDetailScreen() {
   }
 
   if (order.afterSaleStatus && order.afterSaleStatus !== 'rejected' && order.afterSaleStatus !== 'failed') {
-    secondary.push({ label: '查看售后', onPress: () => router.push('/orders/after-sale') });
+    secondary.push({
+      label: '查看售后',
+      onPress: () => {
+        if (order.afterSaleSummary?.id) {
+          router.push(`/orders/after-sale-detail/${order.afterSaleSummary.id}`);
+          return;
+        }
+        router.push('/orders/after-sale');
+      },
+    });
   }
 
   // 售后中且换货已发出 → 主操作改为"确认收到换货"

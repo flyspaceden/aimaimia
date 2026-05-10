@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Logger, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Logger, Param, Post, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { PaymentService } from './payment.service';
 import { AlipayService } from './alipay.service';
@@ -94,34 +94,50 @@ export class PaymentController {
     // P5 第三轮 finding F3：notify 路径之前漏了金额校验，与 active-query 不一致 → 安全漏洞
     // 现在两个路径共用 PaymentService.assertAlipayAmountMatchesSession
     if (status === 'SUCCESS') {
-      let session: Awaited<ReturnType<CheckoutService['findByMerchantOrderNo']>>;
-      try {
-        session = await this.checkoutService.findByMerchantOrderNo(body.out_trade_no);
-      } catch (lookupErr: any) {
-        this.logger.error(
-          `支付宝 notify 查询 CheckoutSession 异常，返回 failure 让支付宝重试：${lookupErr.message} ` +
-          `out_trade_no=${body.out_trade_no}`,
-        );
-        res.status(200).send('failure');
-        return;
-      }
-
-      // session 不存在时跳过校验（可能是旧 Order 流程，由 handlePaymentCallback 自己处理）
-      if (session) {
+      if (body.out_trade_no?.startsWith('AS_SHIP_PAY_')) {
         try {
-          this.paymentService.assertAlipayAmountMatchesSession(
-            { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+          await this.paymentService.assertAfterSaleShippingPaymentAmountMatches(
+            body.out_trade_no,
             body.total_amount,
-            'notify',
           );
         } catch (amountErr: any) {
-          // 金额校验失败：不建单 + 仍返 success 给支付宝避免无限重试 + 留 error 日志等运营介入
           this.logger.error(
-            `支付宝 notify 金额校验失败，已拒绝建单：${amountErr.message} ` +
+            `支付宝 notify 售后退货运费金额校验失败，已拒绝处理：${amountErr.message} ` +
             `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
           );
-          res.status(200).send('success');
+          res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
           return;
+        }
+      } else {
+        let session: Awaited<ReturnType<CheckoutService['findByMerchantOrderNo']>>;
+        try {
+          session = await this.checkoutService.findByMerchantOrderNo(body.out_trade_no);
+        } catch (lookupErr: any) {
+          this.logger.error(
+            `支付宝 notify 查询 CheckoutSession 异常，返回 failure 让支付宝重试：${lookupErr.message} ` +
+            `out_trade_no=${body.out_trade_no}`,
+          );
+          res.status(200).send('failure');
+          return;
+        }
+
+        // session 不存在时跳过校验（可能是旧 Order 流程，由 handlePaymentCallback 自己处理）
+        if (session) {
+          try {
+            this.paymentService.assertAlipayAmountMatchesSession(
+              { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+              body.total_amount,
+              'notify',
+            );
+          } catch (amountErr: any) {
+            // 金额校验失败：不建单 + 仍返 success 给支付宝避免无限重试 + 留 error 日志等运营介入
+            this.logger.error(
+              `支付宝 notify 金额校验失败，已拒绝建单：${amountErr.message} ` +
+              `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+            );
+            res.status(200).send('success');
+            return;
+          }
         }
       }
     }

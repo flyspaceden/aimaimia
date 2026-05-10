@@ -4,10 +4,12 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
+import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
+import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
@@ -26,7 +28,39 @@ const ARBITRABLE_STATUSES = [
   'PENDING_ARBITRATION',
   'REQUESTED',
   'UNDER_REVIEW',
+  'REJECTED',
+  'SELLER_REJECTED_RETURN',
 ];
+
+function isReturnAfterSaleType(type: string) {
+  return type === 'NO_REASON_RETURN' || type === 'QUALITY_RETURN';
+}
+
+function isExchangeAfterSaleType(type: string) {
+  return type === 'NO_REASON_EXCHANGE' || type === 'QUALITY_EXCHANGE';
+}
+
+const ADMIN_REFUND_SUMMARY_SELECT = {
+  id: true,
+  amount: true,
+  status: true,
+  merchantRefundNo: true,
+  providerRefundId: true,
+} as const;
+
+const ADMIN_REFUND_DETAIL_SELECT = {
+  ...ADMIN_REFUND_SUMMARY_SELECT,
+  statusHistory: {
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      fromStatus: true,
+      toStatus: true,
+      remark: true,
+      createdAt: true,
+    },
+  },
+} as const;
 
 @Injectable()
 export class AdminAfterSaleService {
@@ -37,6 +71,8 @@ export class AdminAfterSaleService {
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
     private inboxService: InboxService,
+    private afterSaleRefundService: AfterSaleRefundService,
+    private afterSaleStatusHistory: AfterSaleStatusHistoryService,
   ) {}
 
   // ========== 列表查询 ==========
@@ -49,6 +85,7 @@ export class AdminAfterSaleService {
     afterSaleType?: string,
     companyId?: string,
     keyword?: string,
+    manualReview?: string,
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
@@ -68,6 +105,10 @@ export class AdminAfterSaleService {
         { id: keyword },
         { orderId: keyword },
       ];
+    }
+    if (manualReview === 'pending') {
+      where.manualReviewReason = { not: null };
+      where.manualReviewResolvedAt = null;
     }
 
     const [items, total] = await Promise.all([
@@ -120,6 +161,8 @@ export class AdminAfterSaleService {
               },
             },
           },
+          refundByAfterSaleId: { select: ADMIN_REFUND_SUMMARY_SELECT },
+          refundByRefundId: { select: ADMIN_REFUND_SUMMARY_SELECT },
         },
       }),
       this.prisma.afterSaleRequest.count({ where }),
@@ -187,14 +230,36 @@ export class AdminAfterSaleService {
             },
           },
         },
+        refundByAfterSaleId: { select: ADMIN_REFUND_DETAIL_SELECT },
+        refundByRefundId: { select: ADMIN_REFUND_DETAIL_SELECT },
+        statusHistory: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            fromStatus: true,
+            toStatus: true,
+            reason: true,
+            operatorType: true,
+            createdAt: true,
+          },
+        },
       },
     });
     if (!request) throw new NotFoundException('售后申请不存在');
 
     // 解密地址快照（管理员可查看完整信息）
     const phone = request.user?.authIdentities?.[0]?.identifier ?? null;
+    const refund = request.refundByAfterSaleId ?? request.refundByRefundId;
+    const {
+      refundByAfterSaleId,
+      refundByRefundId,
+      statusHistory,
+      ...requestData
+    } = request as any;
+    void refundByAfterSaleId;
+    void refundByRefundId;
     return {
-      ...request,
+      ...requestData,
       order: request.order
         ? {
             ...request.order,
@@ -210,6 +275,42 @@ export class AdminAfterSaleService {
       // 退货物流（管理员可看完整单号辅助仲裁）
       returnWaybillNo: request.returnWaybillNo,
       replacementWaybillNo: request.replacementWaybillNo,
+      refund: this.mapRefund(refund),
+      refundHistory: this.mapRefundHistory(refund),
+      statusHistory: this.mapStatusHistory(statusHistory),
+    };
+  }
+
+  /** 售后状态时间线（管理员可查看全平台售后单） */
+  async getTimeline(id: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+
+    const rows = await this.prisma.afterSaleStatusHistory.findMany({
+      where: { afterSaleId: id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        reason: row.reason,
+        operatorType: row.operatorType,
+        createdAt: row.createdAt,
+      })),
     };
   }
 
@@ -253,7 +354,7 @@ export class AdminAfterSaleService {
    * - PENDING_ARBITRATION（主要场景：买家升级仲裁）
    * - REQUESTED / UNDER_REVIEW（管理员主动介入覆盖）
    *
-   * 审批通过时，根据 arbitrationSource（仲裁前状态）决定后续流程：
+   * 审批通过时，根据 arbitrationSourceStatus（仲裁前状态）决定后续流程：
    *
    * 场景1: 源 PENDING_ARBITRATION，且之前是 REJECTED（卖家审核驳回 → 买家升级）
    *   → 按正常审批流程：检查 requiresReturn + afterSaleType
@@ -264,7 +365,7 @@ export class AdminAfterSaleService {
    * 场景2: 源 PENDING_ARBITRATION，且之前是 SELLER_REJECTED_RETURN（卖家验收退货不合格）
    *   → 货物已在卖家手中
    *   → 退货退款类型 → 直接触发退款（→ REFUNDING）
-   *   → 换货类型 → APPROVED（卖家需要发货）
+   *   → 换货类型 → RECEIVED_BY_SELLER（卖家需要生成换货面单/发货）
    *
    * 场景3: 源 REQUESTED / UNDER_REVIEW（管理员主动介入）
    *   → 同场景1
@@ -276,7 +377,8 @@ export class AdminAfterSaleService {
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        return await this.prisma.$transaction(
+        let shouldStartRefund = false;
+        const result = await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
@@ -314,6 +416,14 @@ export class AdminAfterSaleService {
               if (cas.count === 0) {
                 throw new BadRequestException('该申请状态已变更，请刷新后重试');
               }
+              await this.afterSaleStatusHistory.create(tx, {
+                afterSaleId: id,
+                fromStatus: currentStatus,
+                toStatus: 'REJECTED',
+                reason: dto.reason,
+                operatorType: AfterSaleOperatorType.ADMIN,
+                operatorId: adminUserId,
+              });
               return tx.afterSaleRequest.findUnique({ where: { id } });
             }
 
@@ -321,17 +431,17 @@ export class AdminAfterSaleService {
 
             // 判断仲裁前来源，决定后续流程
             const fromSellerRejectedReturn =
-              currentStatus === 'PENDING_ARBITRATION' &&
-              request.arbitrationSource === 'SELLER_REJECTED_RETURN';
+              currentStatus === 'SELLER_REJECTED_RETURN' ||
+              (currentStatus === 'PENDING_ARBITRATION' &&
+              (
+                request.arbitrationSourceStatus === 'SELLER_REJECTED_RETURN' ||
+                request.arbitrationSource === 'SELLER_REJECTED_RETURN'
+              ));
 
             if (fromSellerRejectedReturn) {
               // 场景2: 卖家验收退货不合格后买家升级仲裁
               // 货物已在卖家手中
-              const isReturnType =
-                request.afterSaleType === 'NO_REASON_RETURN' ||
-                request.afterSaleType === 'QUALITY_RETURN';
-
-              if (isReturnType) {
+              if (isReturnAfterSaleType(request.afterSaleType)) {
                 // 退货退款：货物已在卖家，直接触发退款（跳过 APPROVED 中间态）
                 const cas = await tx.afterSaleRequest.updateMany({
                   where: { id, status: currentStatus },
@@ -347,13 +457,21 @@ export class AdminAfterSaleService {
                 if (cas.count === 0) {
                   throw new BadRequestException('该申请状态已变更，请刷新后重试');
                 }
-                await this.triggerRefund(tx, request as any);
-              } else {
-                // 换货：APPROVED，等卖家发换货
+                await this.afterSaleStatusHistory.create(tx, {
+                  afterSaleId: id,
+                  fromStatus: currentStatus,
+                  toStatus: 'REFUNDING',
+                  reason: dto.reason,
+                  operatorType: AfterSaleOperatorType.ADMIN,
+                  operatorId: adminUserId,
+                });
+                shouldStartRefund = true;
+              } else if (isExchangeAfterSaleType(request.afterSaleType)) {
+                // 换货：货物已在卖家，恢复到已收货，等卖家生成换货面单/发货
                 const cas = await tx.afterSaleRequest.updateMany({
                   where: { id, status: currentStatus },
                   data: {
-                    status: 'APPROVED',
+                    status: 'RECEIVED_BY_SELLER',
                     arbitrationSource: currentStatus,
                     reviewerId: adminUserId,
                     reviewNote: dto.reason,
@@ -364,6 +482,16 @@ export class AdminAfterSaleService {
                 if (cas.count === 0) {
                   throw new BadRequestException('该申请状态已变更，请刷新后重试');
                 }
+                await this.afterSaleStatusHistory.create(tx, {
+                  afterSaleId: id,
+                  fromStatus: currentStatus,
+                  toStatus: 'RECEIVED_BY_SELLER',
+                  reason: dto.reason,
+                  operatorType: AfterSaleOperatorType.ADMIN,
+                  operatorId: adminUserId,
+                });
+              } else {
+                throw new BadRequestException('该售后类型不支持卖家拒收退货仲裁通过');
               }
             } else {
               // 场景1 & 场景3: 正常审批流程
@@ -381,13 +509,18 @@ export class AdminAfterSaleService {
               if (cas.count === 0) {
                 throw new BadRequestException('该申请状态已变更，请刷新后重试');
               }
+              await this.afterSaleStatusHistory.create(tx, {
+                afterSaleId: id,
+                fromStatus: currentStatus,
+                toStatus: 'APPROVED',
+                reason: dto.reason,
+                operatorType: AfterSaleOperatorType.ADMIN,
+                operatorId: adminUserId,
+              });
 
               // 无需退回 + 退货退款类型 → 自动触发退款
-              const isReturnType =
-                request.afterSaleType === 'NO_REASON_RETURN' ||
-                request.afterSaleType === 'QUALITY_RETURN';
-              if (!request.requiresReturn && isReturnType) {
-                await this.triggerRefund(tx, request as any);
+              if (!request.requiresReturn && isReturnAfterSaleType(request.afterSaleType)) {
+                shouldStartRefund = true;
               }
               // 无需退回 + 换货：停留在 APPROVED，等卖家发货
               // 需要退回：停留在 APPROVED，等买家寄回退货
@@ -397,6 +530,15 @@ export class AdminAfterSaleService {
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
+
+        if (shouldStartRefund) {
+          await this.afterSaleRefundService.startRefund(id, {
+            type: 'ADMIN',
+            id: adminUserId,
+          });
+          return this.prisma.afterSaleRequest.findUnique({ where: { id } });
+        }
+        return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(
@@ -411,118 +553,50 @@ export class AdminAfterSaleService {
     throw new BadRequestException('操作失败，请稍后重试');
   }
 
-  // ========== 私有方法 ==========
+  async retryRefund(id: string, refundId: string, adminUserId: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        refundId: true,
+        refundByAfterSaleId: { select: { id: true } },
+      },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
 
-  /**
-   * 触发退款（在事务内创建退款记录，事务提交后异步调用支付退款）
-   * 与 SellerAfterSaleService.triggerRefund 保持一致
-   */
-  private async triggerRefund(
-    tx: Prisma.TransactionClient,
-    request: {
-      id: string;
-      orderId: string;
-      refundAmount: number | null;
-      reason: string;
-    },
-  ) {
-    if (!request.refundAmount || request.refundAmount <= 0) {
-      this.logger.warn(
-        `售后 ${request.id} 退款金额无效: ${request.refundAmount}`,
-      );
-      return;
+    const linkedRefundIds = [
+      request.refundId,
+      request.refundByAfterSaleId?.id,
+    ].filter(Boolean);
+    if (!linkedRefundIds.includes(refundId)) {
+      throw new BadRequestException('退款单不属于该售后申请');
     }
 
-    const merchantRefundNo = `AS-${request.id}-${Date.now()}`;
-
-    // 创建退款记录
-    const refund = await tx.refund.create({
-      data: {
-        orderId: request.orderId,
-        amount: request.refundAmount,
-        status: 'REFUNDING',
-        merchantRefundNo,
-        reason: `管理员仲裁退款: ${request.reason}`,
-      },
+    await this.afterSaleRefundService.retryRefund(refundId, {
+      type: 'ADMIN',
+      id: adminUserId,
     });
 
-    // 关联退款记录；如果调用方已将状态设为 REFUNDING 则只更新 refundId
-    const current = await tx.afterSaleRequest.findUnique({
-      where: { id: request.id },
-      select: { status: true },
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      select: ADMIN_REFUND_SUMMARY_SELECT,
     });
-    await tx.afterSaleRequest.update({
-      where: { id: request.id },
-      data: {
-        ...(current?.status !== 'REFUNDING' ? { status: 'REFUNDING' } : {}),
-        refundId: refund.id,
-      },
-    });
-
-    // 事务提交后异步调用支付退款（占位实现）
-    const capturedOrderId = request.orderId;
-    setImmediate(async () => {
-      try {
-        const result = await this.paymentService.initiateRefund(
-          request.orderId,
-          request.refundAmount!,
-          merchantRefundNo,
-        );
-        if (result.success) {
-          const cas = await this.prisma.afterSaleRequest.updateMany({
-            where: { id: request.id, status: 'REFUNDING' },
-            data: { status: 'REFUNDED' },
-          });
-          await this.prisma.refund.updateMany({
-            where: { id: refund.id, status: 'REFUNDING' },
-            data: {
-              status: 'REFUNDED',
-              providerRefundId: result.providerRefundId,
-            },
-          });
-          // cas.count === 0 说明已被其他路径处理，跳过后续（防重复通知）
-          if (cas.count > 0) {
-            await this.afterSaleRewardService
-              .voidRewardsForOrder(capturedOrderId)
-              .catch((voidErr: any) => {
-                this.logger.error(
-                  `管理员仲裁退款后奖励归平台失败: orderId=${capturedOrderId}, error=${voidErr?.message}`,
-                );
-              });
-            await this.afterSaleRewardService
-              .checkAndMarkOrderRefunded(capturedOrderId)
-              .catch((err: any) => {
-                this.logger.error(
-                  `检查订单全退状态失败: orderId=${capturedOrderId}, error=${err?.message}`,
-                );
-              });
-            const order = await this.prisma.order.findUnique({ where: { id: request.orderId }, select: { userId: true } });
-            if (order) {
-              this.inboxService.send({
-                userId: order.userId,
-                category: 'transaction',
-                type: 'refund_credited',
-                title: '退款已到账',
-                content: `您的退款 ${request.refundAmount!.toFixed(2)} 元已原路退回支付宝账户。`,
-                target: { route: '/orders' },
-              }).catch(() => {});
-            }
-          }
-        }
-        // 退款失败则保持 REFUNDING 状态，由补偿任务重试
-      } catch (err) {
-        this.logger.error(
-          `管理员仲裁退款调用失败: afterSaleId=${request.id}, error=${(err as Error).message}`,
-        );
-      }
-    });
+    if (!refund) throw new NotFoundException('退款单不存在');
+    return this.mapRefund(refund);
   }
 
   /** 列表项隐私脱敏 */
   private maskListItem(r: any) {
     const phone = r.user?.authIdentities?.[0]?.identifier ?? null;
+    const {
+      refundByAfterSaleId,
+      refundByRefundId,
+      statusHistory,
+      ...row
+    } = r;
+    void statusHistory;
     return {
-      ...r,
+      ...row,
       order: r.order
         ? {
             ...r.order,
@@ -544,6 +618,39 @@ export class AdminAfterSaleService {
       replacementWaybillNo: r.replacementWaybillNo
         ? maskTrackingNo(r.replacementWaybillNo)
         : undefined,
+      refund: this.mapRefund(refundByAfterSaleId ?? refundByRefundId),
     };
+  }
+
+  private mapRefund(refund: any) {
+    if (!refund) return null;
+    return {
+      id: refund.id,
+      amount: refund.amount,
+      status: refund.status,
+      merchantRefundNo: refund.merchantRefundNo,
+      providerRefundId: refund.providerRefundId ?? null,
+    };
+  }
+
+  private mapRefundHistory(refund: any) {
+    return (refund?.statusHistory ?? []).map((row: any) => ({
+      id: row.id,
+      fromStatus: row.fromStatus ?? null,
+      toStatus: row.toStatus,
+      remark: row.remark ?? null,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  private mapStatusHistory(rows: any[] | undefined) {
+    return (rows ?? []).map((row) => ({
+      id: row.id,
+      fromStatus: row.fromStatus ?? null,
+      toStatus: row.toStatus,
+      reason: row.reason ?? null,
+      operatorType: row.operatorType ?? null,
+      createdAt: row.createdAt,
+    }));
   }
 }

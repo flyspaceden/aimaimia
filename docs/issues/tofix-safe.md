@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-05-10 售后链路收口安全检查
+
+- **状态**: ✅ 已收口，待真机/沙箱联调验证
+- **售后退款幂等**: 退款单号统一使用 `AS-${afterSaleId}`，创建与状态推进在 Serializable 事务内执行，seller/admin/timeout 均走统一 `AfterSaleRefundService`。
+- **买家退货运费支付幂等**: 支付单号使用 `AS_SHIP_PAY_${afterSaleId}`，支付回调与主动查询复用同一校验路径，防止重复支付写回。
+- **买家退货运费退款幂等**: 已支付退货运费在面单未揽收且售后关闭时使用 `AS_SHIP_REFUND_${afterSaleId}` 原路退回，先 CAS 置 `REFUNDING`，再写回 `REFUNDED/FAILED`。
+- **退货面单幂等**: 买家退货面单使用 `AS_RETURN_${afterSaleId}`，重复生成返回既有面单，不重复向顺丰下单。
+- **拒收回寄面单幂等**: 卖家拒收回寄面单使用 `AS_REJECT_RETURN_${afterSaleId}`，拒收回寄与仲裁路径分离，避免重复回寄。
+- **退款双向一致性巡检**: 每日扫描 `Refund.afterSaleId` 与 `AfterSaleRequest.refundId` 的错链/孤儿/重复关系，发现异常写管理端告警，人工处理前不静默修正资金状态。
+
 ## 问题严重程度说明
 
 | 级别 | 含义 | 要求 |

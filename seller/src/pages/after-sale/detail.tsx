@@ -12,10 +12,22 @@ import {
   rejectReturn,
   shipAfterSale,
   generateAfterSaleWaybill,
+  generateSellerReturnWaybill,
   cancelAfterSaleWaybill,
 } from '@/api/after-sale';
 import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
+
+const sellerAfterSaleTypeMap: Record<string, { text: string; color: string }> = {
+  ...afterSaleTypeMap,
+  NO_REASON_EXCHANGE: { text: '七天无理由换货', color: 'purple' },
+};
+
+const isExchangeType = (type: string) =>
+  type === 'QUALITY_EXCHANGE' || type === 'NO_REASON_EXCHANGE';
+
+const isReturnType = (type: string) =>
+  type === 'QUALITY_RETURN' || type === 'NO_REASON_RETURN';
 
 export default function AfterSaleDetailPage() {
   const { message, modal } = App.useApp();
@@ -27,9 +39,9 @@ export default function AfterSaleDetailPage() {
   const [rejectReturnModal, setRejectReturnModal] = useState(false);
   const [returnRejectReason, setReturnRejectReason] = useState('');
   const [returnRejectPhotos, setReturnRejectPhotos] = useState<string[]>([]);
-  const [returnRejectWaybillNo, setReturnRejectWaybillNo] = useState('');
   const [shipping, setShipping] = useState(false);
   const [generatingWaybill, setGeneratingWaybill] = useState(false);
+  const [generatingSellerReturnWaybill, setGeneratingSellerReturnWaybill] = useState(false);
 
   const { data: afterSale, isLoading } = useQuery({
     queryKey: ['after-sale', id],
@@ -98,21 +110,15 @@ export default function AfterSaleDetailPage() {
       message.warning('请上传至少一张照片');
       return;
     }
-    if (!returnRejectWaybillNo.trim()) {
-      message.warning('请填写退回运单号');
-      return;
-    }
     try {
       await rejectReturn(id!, {
         reason: returnRejectReason,
         photos: returnRejectPhotos,
-        returnWaybillNo: returnRejectWaybillNo,
       });
       message.success('已拒收退货');
       setRejectReturnModal(false);
       setReturnRejectReason('');
       setReturnRejectPhotos([]);
-      setReturnRejectWaybillNo('');
       reload();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败');
@@ -145,6 +151,19 @@ export default function AfterSaleDetailPage() {
     }
   };
 
+  const handleGenerateSellerReturnWaybill = async () => {
+    setGeneratingSellerReturnWaybill(true);
+    try {
+      const result = await generateSellerReturnWaybill(id!, 'SF');
+      message.success(`回寄面单生成成功：${result.waybillNo}`);
+      reload();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '生成回寄面单失败');
+    } finally {
+      setGeneratingSellerReturnWaybill(false);
+    }
+  };
+
   const handleCancelWaybill = () => {
     modal.confirm({
       title: '确认取消面单？',
@@ -165,9 +184,12 @@ export default function AfterSaleDetailPage() {
   if (!afterSale) return <div>未找到售后记录</div>;
 
   const statusInfo = afterSaleStatusMap[afterSale.status] || { text: afterSale.status, color: 'default' };
-  const typeInfo = afterSaleTypeMap[afterSale.afterSaleType];
+  const typeInfo = sellerAfterSaleTypeMap[afterSale.afterSaleType];
   const reasonInfo = afterSale.reasonType ? afterSaleReasonMap[afterSale.reasonType] : null;
-  const isExchange = afterSale.afterSaleType === 'QUALITY_EXCHANGE';
+  const isExchange = isExchangeType(afterSale.afterSaleType);
+  const isReturn = isReturnType(afterSale.afterSaleType);
+  const canShipReplacement =
+    isExchange && ['APPROVED', 'RECEIVED_BY_SELLER'].includes(afterSale.status);
 
   // 从 productSnapshot 提取商品名和图片
   const snapshot = afterSale.orderItem?.productSnapshot;
@@ -295,14 +317,41 @@ export default function AfterSaleDetailPage() {
       )}
 
       {/* 卖家拒收信息 */}
-      {afterSale.sellerRejectReason && (
+      {(afterSale.sellerRejectReason || afterSale.status === 'SELLER_REJECTED_RETURN') && (
         <Card title="拒收退货信息">
           <Descriptions column={2} bordered>
-            <Descriptions.Item label="拒收原因" span={2}>{afterSale.sellerRejectReason}</Descriptions.Item>
+            <Descriptions.Item label="拒收原因" span={2}>{afterSale.sellerRejectReason || '-'}</Descriptions.Item>
+            {afterSale.sellerReturnCarrierName && (
+              <Descriptions.Item label="退回快递">{afterSale.sellerReturnCarrierName}</Descriptions.Item>
+            )}
             {afterSale.sellerReturnWaybillNo && (
               <Descriptions.Item label="退回运单号">{afterSale.sellerReturnWaybillNo}</Descriptions.Item>
             )}
           </Descriptions>
+          {afterSale.status === 'SELLER_REJECTED_RETURN' && (
+            <Space style={{ marginTop: 12 }}>
+              {!afterSale.sellerReturnWaybillNo && (
+                <Button
+                  type="primary"
+                  loading={generatingSellerReturnWaybill}
+                  onClick={handleGenerateSellerReturnWaybill}
+                >
+                  生成回寄面单
+                </Button>
+              )}
+              {afterSale.sellerReturnWaybillNo && afterSale.sellerReturnWaybillUrl && (
+                <Button
+                  icon={<PrinterOutlined />}
+                  onClick={() =>
+                    afterSale.sellerReturnWaybillUrl &&
+                    window.open(afterSale.sellerReturnWaybillUrl, '_blank', 'noopener,noreferrer')
+                  }
+                >
+                  打印回寄面单
+                </Button>
+              )}
+            </Space>
+          )}
           {afterSale.sellerRejectPhotos && afterSale.sellerRejectPhotos.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontWeight: 500, marginBottom: 8 }}>拒收照片：</div>
@@ -350,16 +399,15 @@ export default function AfterSaleDetailPage() {
           {afterSale.status === 'RETURN_SHIPPING' && (
             <Button type="primary" onClick={handleConfirmReceive}>确认收到退货</Button>
           )}
-          {afterSale.status === 'RECEIVED_BY_SELLER' && (
+          {afterSale.status === 'RECEIVED_BY_SELLER' && isReturn && (
             <>
-              <Button type="primary" onClick={handleApprove}>验收通过</Button>
+              <Tag color="processing">已签收，系统将进入退款处理</Tag>
               <Button
                 danger
                 onClick={() => {
                   setRejectReturnModal(true);
                   setReturnRejectReason('');
                   setReturnRejectPhotos([]);
-                  setReturnRejectWaybillNo('');
                 }}
               >
                 验收不通过
@@ -367,12 +415,12 @@ export default function AfterSaleDetailPage() {
             </>
           )}
           {/* 换货发货流程 */}
-          {isExchange && afterSale.status === 'APPROVED' && !afterSale.replacementWaybillNo && (
-            <Button type="primary" loading={generatingWaybill} onClick={() => handleGenerateWaybill('')}>
+          {canShipReplacement && !afterSale.replacementWaybillNo && (
+            <Button type="primary" loading={generatingWaybill} onClick={() => handleGenerateWaybill('SF')}>
               生成面单
             </Button>
           )}
-          {isExchange && afterSale.status === 'APPROVED' && afterSale.replacementWaybillNo && (
+          {canShipReplacement && afterSale.replacementWaybillNo && (
             <>
               <Button
                 icon={<PrinterOutlined />}
@@ -456,14 +504,6 @@ export default function AfterSaleDetailPage() {
                 </div>
               )}
             </Upload>
-          </div>
-          <div>
-            <div style={{ marginBottom: 4, fontWeight: 500 }}>退回运单号</div>
-            <Input
-              placeholder="请输入将退货寄回买家的运单号"
-              value={returnRejectWaybillNo}
-              onChange={(e) => setReturnRejectWaybillNo(e.target.value)}
-            />
           </div>
         </Space>
       </Modal>

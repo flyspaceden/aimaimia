@@ -20,7 +20,7 @@
 
 ### 功能设计 (`docs/features/`)
 - `docs/features/redpocket.md` — 平台红包（优惠券）系统完整设计方案（需求、数据模型、API、管理后台、买家App改造、实施步骤，**平台红包系统开发权威来源**）
-- `docs/features/refund.md` — 退换货系统完整规则文档（23条规则 + 2个附录、法律依据、配置参数，**退换货业务规则权威来源**）
+- `docs/features/refund.md` — 退换货系统完整规则文档（四类售后类型、退货/换货窗口、运费承担、退款口径、法律依据、配置参数，**退换货业务规则权威来源**）
 - `docs/features/invoice.md` — 发票申请功能完整设计方案（需求定义、预期结果、4 Phase 实施计划、API 设计、安全要求，**发票功能开发权威来源**）
 - `docs/features/new-features-design.md` — 五大新功能设计方案（F1 订单流程重构 / F2 赠品锁定 / F3 奖品过期 / F4 平台公司 / F5 奖励过期可配置，**新功能实现权威来源**）
 - `docs/features/buy-vip.md` — VIP 购买流程

@@ -8,7 +8,7 @@
  * - REPLACEMENT_SHIPPED → 确认收货
  * 等等，详见 spec 9.3 状态-操作映射表。
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +17,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -29,10 +28,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../../src/components/feedback';
 import { afterSaleStatusLabels, afterSaleTypeLabels } from '../../../src/constants/statuses';
+import { OrderRepo } from '../../../src/repos';
 import { AfterSaleRepo } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
-import type { AfterSaleDetailStatus, AfterSaleType } from '../../../src/types/domain/Order';
+import { payWithAlipay } from '../../../src/utils/alipay';
+import type {
+  AfterSaleDetailStatus,
+  AfterSaleRequest,
+  AfterSaleType,
+  ReturnShippingPayer,
+  ReturnShippingPaymentStatus,
+} from '../../../src/types/domain/Order';
 
 // ─── 质量问题原因标签 ───────────────────────────────────
 const reasonTypeLabels: Record<string, string> = {
@@ -77,6 +84,8 @@ const getTypeColor = (type: AfterSaleType, colors: any): { bg: string; text: str
   switch (type) {
     case 'NO_REASON_RETURN':
       return { bg: colors.accent.blueSoft, text: colors.accent.blue };
+    case 'NO_REASON_EXCHANGE':
+      return { bg: colors.brand.primarySoft, text: colors.brand.primary };
     case 'QUALITY_RETURN':
       return { bg: 'rgba(211, 47, 47, 0.08)', text: colors.danger };
     case 'QUALITY_EXCHANGE':
@@ -85,6 +94,9 @@ const getTypeColor = (type: AfterSaleType, colors: any): { bg: string; text: str
       return { bg: colors.bgSecondary, text: colors.text.secondary };
   }
 };
+
+const BLOCKING_BUYER_SHIPPING_PAYMENT_STATUSES: ReturnShippingPaymentStatus[] = ['UNPAID', 'PENDING', 'FAILED'];
+const WAYBILL_READY_SHIPPING_PAYMENT_STATUSES: ReturnShippingPaymentStatus[] = ['NOT_REQUIRED', 'PAID'];
 
 export default function AfterSaleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -98,10 +110,7 @@ export default function AfterSaleDetailScreen() {
 
   // 操作中状态
   const [actionLoading, setActionLoading] = useState(false);
-
-  // 退货物流表单
-  const [carrierName, setCarrierName] = useState('');
-  const [waybillNo, setWaybillNo] = useState('');
+  const actionInFlightRef = useRef(false);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['after-sale', asId],
@@ -124,6 +133,8 @@ export default function AfterSaleDetailScreen() {
     action: () => Promise<any>,
     successMsg: string,
   ) => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setActionLoading(true);
     try {
       const result = await action();
@@ -135,6 +146,7 @@ export default function AfterSaleDetailScreen() {
       show({ message: successMsg, type: 'success' });
       refetch();
     } finally {
+      actionInFlightRef.current = false;
       setActionLoading(false);
     }
   };
@@ -148,21 +160,6 @@ export default function AfterSaleDetailScreen() {
         onPress: () => executeAction(() => AfterSaleRepo.cancel(asId), '售后申请已撤销'),
       },
     ]);
-  };
-
-  const handleFillShipping = () => {
-    if (!carrierName.trim()) {
-      show({ message: '请输入快递公司名称', type: 'warning' });
-      return;
-    }
-    if (!waybillNo.trim()) {
-      show({ message: '请输入快递单号', type: 'warning' });
-      return;
-    }
-    executeAction(
-      () => AfterSaleRepo.fillReturnShipping(asId, { returnCarrierName: carrierName.trim(), returnWaybillNo: waybillNo.trim() }),
-      '退货物流信息已提交',
-    );
   };
 
   const handleConfirmReceive = () => {
@@ -194,6 +191,58 @@ export default function AfterSaleDetailScreen() {
         onPress: () => executeAction(() => AfterSaleRepo.acceptClose(asId), '售后申请已关闭'),
       },
     ]);
+  };
+
+  const handlePayReturnShipping = async () => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
+    setActionLoading(true);
+    try {
+      const result = await AfterSaleRepo.createReturnShippingPayment(asId);
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '退货运费支付失败', type: 'error' });
+        return;
+      }
+
+      const orderStr = result.data.paymentParams?.orderStr;
+      let shouldActiveQuery = true;
+      if (orderStr) {
+        const payResult = await payWithAlipay(orderStr);
+        if (payResult.resultStatus === '6001') {
+          shouldActiveQuery = false;
+          show({ message: '已取消支付', type: 'warning' });
+        } else if (!payResult.success) {
+          const message =
+            payResult.memo === 'NATIVE_UNAVAILABLE'
+              ? '支付单已创建，请在真机环境完成支付宝支付'
+              : payResult.memo === 'TIMEOUT'
+                ? '支付宝暂未返回结果，正在查询支付状态'
+                : '支付未完成，正在查询支付状态';
+          show({ message, type: 'warning' });
+        }
+      } else {
+        show({ message: '退货运费支付单已创建', type: 'success' });
+      }
+
+      if (shouldActiveQuery) {
+        const activeQueryResult = await OrderRepo.activeQueryPayment(result.data.merchantPaymentNo);
+        if (!activeQueryResult.ok) {
+          show({ message: activeQueryResult.error.displayMessage ?? '支付状态查询失败，请稍后刷新', type: 'warning' });
+        } else if (activeQueryResult.data.status === 'PAID') {
+          show({ message: '退货运费支付完成，可生成顺丰退货面单', type: 'success' });
+        }
+      }
+
+      await invalidateAll();
+      refetch();
+    } finally {
+      actionInFlightRef.current = false;
+      setActionLoading(false);
+    }
+  };
+
+  const handleCreateReturnWaybill = () => {
+    executeAction(() => AfterSaleRepo.createReturnWaybill(asId), '顺丰退货面单已生成');
   };
 
   // ─── 加载态 ─────────────────────────────────────────────
@@ -234,6 +283,34 @@ export default function AfterSaleDetailScreen() {
   const productTitle = snapshot?.title ?? '商品';
   const unitPrice = as.orderItem?.unitPrice ?? 0;
   const quantity = as.orderItem?.quantity ?? 1;
+  const returnShippingPayer = resolveReturnShippingPayer(as);
+  const isLegacyManualReturnShipping =
+    as.isLegacyManualReturnShipping ?? Boolean(as.returnWaybillNo && !as.returnSfOrderId);
+  const returnShippingPaymentStatus = resolveReturnShippingPaymentStatus(as, returnShippingPayer, isLegacyManualReturnShipping);
+  const requiresBuyerShippingPayment =
+    as.status === 'APPROVED' &&
+    as.requiresReturn &&
+    returnShippingPayer === 'BUYER' &&
+    !isLegacyManualReturnShipping &&
+    !as.returnShippingFeeDeducted &&
+    !as.returnShippingPaidAt &&
+    (
+      as.requiresBuyerShippingPayment === true ||
+      BLOCKING_BUYER_SHIPPING_PAYMENT_STATUSES.includes(returnShippingPaymentStatus)
+    ) &&
+    !WAYBILL_READY_SHIPPING_PAYMENT_STATUSES.includes(returnShippingPaymentStatus);
+  const canCreateReturnWaybill =
+    as.status === 'APPROVED' &&
+    as.requiresReturn &&
+    WAYBILL_READY_SHIPPING_PAYMENT_STATUSES.includes(returnShippingPaymentStatus);
+  const sellerPayerCostNote =
+    as.requiresReturn && returnShippingPayer === 'SELLER'
+      ? (
+          as.returnShippingCostNote ??
+          '质量售后退货运费由商家承担，平台顺丰面单寄回，不会作为单独退款打给你'
+        )
+      : null;
+  const refundProgressText = getRefundProgressText(as);
 
   return (
     <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
@@ -353,13 +430,27 @@ export default function AfterSaleDetailScreen() {
                 <View style={[styles.infoBlock, { backgroundColor: colors.bgSecondary, borderRadius: radius.md }]}>
                   <InfoRow label="快递公司" value={as.returnCarrierName} />
                   <InfoRow label="快递单号" value={as.returnWaybillNo ?? '-'} />
+                  {as.returnWaybillUrl || as.returnLabelUrl ? (
+                    <InfoRow label="电子面单" value="已生成" />
+                  ) : null}
                   <InfoRow label="寄出时间" value={as.returnShippedAt ?? '-'} noBorder />
                 </View>
               ) : (
                 <Text style={[typography.caption, { color: colors.text.secondary }]}>
-                  {as.status === 'APPROVED' ? '请填写退货快递信息' : '暂无物流信息'}
+                  {as.status === 'APPROVED'
+                    ? requiresBuyerShippingPayment
+                      ? '请先支付退货运费，支付后可生成平台顺丰退货面单'
+                      : '售后已通过，可生成平台顺丰退货面单'
+                    : '暂无物流信息'}
                 </Text>
               )}
+              {sellerPayerCostNote ? (
+                <View style={[styles.noteBlock, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md, marginTop: spacing.sm }]}>
+                  <Text style={[typography.caption, { color: colors.brand.primary }]}>
+                    {sellerPayerCostNote}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </Animated.View>
         )}
@@ -423,6 +514,9 @@ export default function AfterSaleDetailScreen() {
                     ¥{as.refundAmount.toFixed(2)}
                   </Text>
                 </View>
+                {refundProgressText ? (
+                  <InfoRow label="退款状态" value={refundProgressText} noBorder />
+                ) : null}
               </View>
             </View>
           </Animated.View>
@@ -470,26 +564,47 @@ export default function AfterSaleDetailScreen() {
 
       case 'APPROVED':
         if (requiresReturn) {
+          if (requiresBuyerShippingPayment) {
+            const paymentActionText =
+              returnShippingPaymentStatus === 'PENDING'
+                ? '刷新支付状态'
+                : returnShippingPaymentStatus === 'FAILED'
+                  ? '重新支付退货运费'
+                  : '支付退货运费';
+            return (
+              <View>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.md }]}>
+                  该售后需要先支付退货运费，支付完成后平台将生成顺丰退货面单
+                </Text>
+                <Pressable onPress={handlePayReturnShipping} disabled={actionLoading}>
+                  <LinearGradient
+                    colors={[colors.brand.primary, colors.ai.start]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.primaryBtn, { borderRadius: radius.pill }]}
+                  >
+                    <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{paymentActionText}</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            );
+          }
+          if (!canCreateReturnWaybill) {
+            return (
+              <View style={styles.actionCenter}>
+                <MaterialCommunityIcons name="clock-outline" size={20} color={colors.info} />
+                <Text style={[typography.bodySm, { color: colors.info, marginLeft: spacing.sm }]}>
+                  退货运费状态确认中，请稍后刷新
+                </Text>
+              </View>
+            );
+          }
           return (
             <View>
               <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.md }]}>
-                售后申请已通过，请填写退货快递信息
+                售后申请已通过，平台将为您生成顺丰退货面单
               </Text>
-              <TextInput
-                value={carrierName}
-                onChangeText={setCarrierName}
-                placeholder="快递公司（如：顺丰速运）"
-                placeholderTextColor={colors.muted}
-                style={[styles.input, { borderColor: colors.border, color: colors.text.primary, borderRadius: radius.md }]}
-              />
-              <TextInput
-                value={waybillNo}
-                onChangeText={setWaybillNo}
-                placeholder="快递单号"
-                placeholderTextColor={colors.muted}
-                style={[styles.input, { borderColor: colors.border, color: colors.text.primary, borderRadius: radius.md, marginTop: spacing.sm }]}
-              />
-              <Pressable onPress={handleFillShipping} disabled={!carrierName.trim() || !waybillNo.trim()}>
+              <Pressable onPress={handleCreateReturnWaybill} disabled={actionLoading}>
                 <LinearGradient
                   colors={[colors.brand.primary, colors.ai.start]}
                   start={{ x: 0, y: 0 }}
@@ -498,12 +613,11 @@ export default function AfterSaleDetailScreen() {
                     styles.primaryBtn,
                     {
                       borderRadius: radius.pill,
-                      opacity: carrierName.trim() && waybillNo.trim() ? 1 : 0.5,
                       marginTop: spacing.md,
                     },
                   ]}
                 >
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>提交物流信息</Text>
+                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>生成顺丰退货面单</Text>
                 </LinearGradient>
               </Pressable>
             </View>
@@ -596,6 +710,7 @@ export default function AfterSaleDetailScreen() {
         );
 
       case 'REPLACEMENT_SHIPPED':
+        const replacementTrackingNo = as.replacementWaybillNo || as.replacementShipmentId;
         return (
           <View>
             <View style={[styles.actionCenter, { marginBottom: spacing.md }]}>
@@ -604,9 +719,9 @@ export default function AfterSaleDetailScreen() {
                 换货已发出
               </Text>
             </View>
-            {as.sellerReturnWaybillNo && (
+            {replacementTrackingNo && (
               <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
-                换货单号: {as.sellerReturnWaybillNo}
+                换货单号: {replacementTrackingNo}
               </Text>
             )}
             <Pressable onPress={handleConfirmReceive}>
@@ -683,6 +798,50 @@ export default function AfterSaleDetailScreen() {
         return null;
     }
   }
+}
+
+function resolveReturnShippingPayer(as: AfterSaleRequest): ReturnShippingPayer | undefined {
+  if (as.returnShippingPayer) return as.returnShippingPayer;
+  if (as.afterSaleType === 'NO_REASON_RETURN' || as.afterSaleType === 'NO_REASON_EXCHANGE') {
+    return 'BUYER';
+  }
+  if (as.afterSaleType === 'QUALITY_RETURN' || as.afterSaleType === 'QUALITY_EXCHANGE') {
+    return 'SELLER';
+  }
+  return undefined;
+}
+
+function resolveReturnShippingPaymentStatus(
+  as: AfterSaleRequest,
+  returnShippingPayer: ReturnShippingPayer | undefined,
+  isLegacyManualReturnShipping: boolean,
+): ReturnShippingPaymentStatus {
+  if (as.returnShippingPaymentStatus) return as.returnShippingPaymentStatus;
+  if (!as.requiresReturn || returnShippingPayer !== 'BUYER') return 'NOT_REQUIRED';
+  if (as.returnShippingPaidAt) return 'PAID';
+  if (isLegacyManualReturnShipping || as.returnShippingFeeDeducted) return 'NOT_REQUIRED';
+  if (as.status === 'APPROVED') return 'UNPAID';
+  return 'NOT_REQUIRED';
+}
+
+function getRefundProgressText(as: AfterSaleRequest): string | null {
+  if (as.refundStatus === 'FAILED' && as.refundEscalatedToManual) {
+    return '退款已转人工处理';
+  }
+  if (as.refundStatus === 'REFUNDING' || as.status === 'REFUNDING') {
+    return '退款处理中';
+  }
+  if (
+    as.refundStatus === 'REFUNDED' ||
+    as.status === 'REFUNDED' ||
+    (as.status === 'COMPLETED' && as.refundAmount != null && as.afterSaleType !== 'QUALITY_EXCHANGE')
+  ) {
+    return '退款完成';
+  }
+  if (as.refundStatus === 'FAILED') {
+    return '退款失败';
+  }
+  return null;
 }
 
 // ─── 信息行子组件 ──────────────────────────────────────────
@@ -783,11 +942,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-  },
-  input: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
   },
 });

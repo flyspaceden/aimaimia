@@ -3,10 +3,18 @@ import { AfterSaleService } from './after-sale.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateAfterSaleDto } from './dto/create-after-sale.dto';
 import { ReturnShippingDto } from './dto/return-shipping.dto';
+import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
+import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
+import { CreateReturnWaybillDto } from './dto/create-return-waybill.dto';
+import { CreateShippingPaymentDto } from './dto/create-shipping-payment.dto';
 
 @Controller('after-sale')
 export class AfterSaleController {
-  constructor(private afterSaleService: AfterSaleService) {}
+  constructor(
+    private afterSaleService: AfterSaleService,
+    private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
+    private afterSaleReturnShippingService: AfterSaleReturnShippingService,
+  ) {}
 
   /** 申请售后（退货退款 / 质量退货 / 质量换货） */
   @Post('orders/:orderId')
@@ -57,6 +65,24 @@ export class AfterSaleController {
     return this.afterSaleService.agreePolicy(userId);
   }
 
+  /** 查询订单售后资格 */
+  @Get('orders/:orderId/eligibility')
+  getEligibility(
+    @CurrentUser('sub') userId: string,
+    @Param('orderId') orderId: string,
+  ) {
+    return this.afterSaleService.getEligibility(userId, orderId);
+  }
+
+  /** 售后状态时间线 */
+  @Get(':id/timeline')
+  getTimeline(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.afterSaleService.getTimeline(userId, id);
+  }
+
   /** 售后详情 */
   @Get(':id')
   findById(
@@ -83,6 +109,26 @@ export class AfterSaleController {
     @Body() dto: ReturnShippingDto,
   ) {
     return this.afterSaleService.fillReturnShipping(userId, id, dto);
+  }
+
+  /** 生成买家退货电子面单 */
+  @Post(':id/return-waybill')
+  createReturnWaybill(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() _dto: CreateReturnWaybillDto,
+  ) {
+    return this.afterSaleReturnShippingService.createReturnWaybill(userId, id);
+  }
+
+  /** 发起买家退货运费支付 */
+  @Post(':id/return-shipping-payment')
+  createReturnShippingPayment(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() _dto?: CreateShippingPaymentDto,
+  ) {
+    return this.afterSaleShippingPaymentService.createOrGetPaymentForBuyer(userId, id);
   }
 
   /** 确认收到换货商品 */

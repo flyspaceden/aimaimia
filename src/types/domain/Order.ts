@@ -22,10 +22,17 @@ export type AfterSaleStatus =
   | 'applying'
   | 'reviewing'
   | 'approved'
+  | 'arbitrating'
+  | 'returnShipping'
+  | 'sellerReceived'
+  | 'sellerRejected'
   | 'shipped'
   | 'completed'
   | 'rejected'
   | 'failed'
+  | 'refunded'
+  | 'closed'
+  | 'canceled'
   // 兼容历史退款售后状态
   | 'refunding';
 
@@ -130,7 +137,36 @@ export type RepurchaseResult = {
 
 // ─── 统一售后系统类型 ───────────────────────────────────
 
-export type AfterSaleType = 'NO_REASON_RETURN' | 'QUALITY_RETURN' | 'QUALITY_EXCHANGE';
+export type AfterSaleType =
+  | 'NO_REASON_RETURN'
+  | 'NO_REASON_EXCHANGE'
+  | 'QUALITY_RETURN'
+  | 'QUALITY_EXCHANGE';
+
+export type ReturnShippingPaymentStatus =
+  | 'NOT_REQUIRED'
+  | 'UNPAID'
+  | 'PENDING'
+  | 'PAID'
+  | 'REFUNDING'
+  | 'REFUNDED'
+  | 'FAILED'
+  | 'CLOSED';
+
+export type ReturnShippingPayer = 'BUYER' | 'SELLER' | 'PLATFORM';
+
+export type OrderAfterSaleSummary = {
+  id: string;
+  status: AfterSaleDetailStatus;
+  type: AfterSaleType;
+  requiresReturn: boolean;
+  refundAmount?: number | null;
+  returnShippingPayer?: ReturnShippingPayer;
+  returnShippingCostNote?: string;
+  isLegacyManualReturnShipping?: boolean;
+  requiresBuyerShippingPayment?: boolean;
+  returnShippingPaymentStatus?: ReturnShippingPaymentStatus;
+};
 
 export type AfterSaleDetailStatus =
   | 'REQUESTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'
@@ -150,12 +186,31 @@ export type AfterSaleRequest = {
   requiresReturn: boolean;
   isPostReplacement: boolean;
   refundAmount?: number;
+  refundStatus?: RefundStatus;
+  refundEscalatedToManual?: boolean;
   returnCarrierName?: string;
+  returnCarrierCode?: string;
   returnWaybillNo?: string;
+  returnWaybillUrl?: string;
+  returnLabelUrl?: string;
+  returnSfOrderId?: string;
   returnShippedAt?: string;
+  returnShippingFee?: number | null;
+  returnShippingPayer?: ReturnShippingPayer | null;
+  returnShippingPaidAt?: string | null;
+  returnShippingFeeDeducted?: boolean;
+  returnShippingCostNote?: string;
+  isLegacyManualReturnShipping?: boolean;
+  requiresBuyerShippingPayment?: boolean;
+  returnShippingPaymentStatus?: ReturnShippingPaymentStatus;
   sellerRejectReason?: string;
   sellerRejectPhotos?: string[];
   sellerReturnWaybillNo?: string;
+  replacementCarrierName?: string;
+  replacementCarrierCode?: string;
+  replacementWaybillNo?: string;
+  replacementWaybillUrl?: string;
+  replacementShipmentId?: string;
   reviewNote?: string;
   reviewedAt?: string;
   approvedAt?: string;
@@ -175,6 +230,7 @@ export type Order = {
   afterSaleReason?: string;
   afterSaleNote?: string;
   afterSaleTimeline?: AfterSaleProgress[];
+  afterSaleSummary?: OrderAfterSaleSummary | null;
   refundSummary?: RefundSummary | null;
   paymentMethod?: PaymentMethod;
   logisticsStatus?: string;

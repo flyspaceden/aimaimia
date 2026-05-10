@@ -1146,6 +1146,36 @@
 
 ---
 
+## 售后链路收口（2026-05-10 新增）
+
+> 对应 `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md`，在现有 after-sale 主干上收口买家/卖家/管理端退款、退货、换货闭环。
+
+- [✅] **ASC-T09** 买家 App 售后闭环接线
+  - **修改**: `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx`, `docs/architecture/frontend.md`, `plan.md`
+  - **实际做了**: 四类售后类型和订单售后摘要类型补齐；`AfterSaleRepo` 新增 eligibility / return-shipping-payment / return-waybill / timeline；申请售后页改以后端 eligibility enabled options 为准；售后详情页移除手填物流主流程，接入退货运费支付和顺丰面单生成，补质量售后商家承担运费说明与退款状态文案；订单详情“查看售后”直达售后详情，换货确认改用 `AfterSaleRepo.confirmReceive(afterSaleSummary.id)`。
+  - **验证**: 已运行 `npx tsc -b`；当前失败仅剩仓库既有 `tests/e2e` Playwright/Node 类型依赖缺失（如 `@playwright/test`, `path`, `fs`, `__dirname`, `Buffer`），未再出现本任务文件相关 TypeScript 错误。
+  - **状态**: ✅ 代码完成，待真机/联调验证 | 完成日期: 2026-05-10
+
+- [✅] **ASC-T10** 卖家后台售后闭环接线
+  - **修改**: `seller/src/api/after-sale.ts`, `seller/src/pages/after-sale/index.tsx`, `seller/src/pages/after-sale/detail.tsx`, `backend/src/modules/seller/after-sale/*`
+  - **实际做了**: 卖家端支持四类售后类型、验收退货、换货发货、拒收退货回寄面单和售后时间线；后端补 seller timeline 与回寄面单打印字段。
+  - **验证**: `cd seller && npm run build`、`cd backend && npm test -- seller-after-sale.service.spec.ts admin-after-sale.service.spec.ts after-sale-refund.service.spec.ts`、`cd backend && npm run build` 均已通过。
+  - **状态**: ✅ 代码完成，待真机/联调验证 | 完成日期: 2026-05-10
+
+- [✅] **ASC-T11** 管理后台售后退款与历史接线
+  - **修改**: `admin/src/api/after-sale.ts`, `admin/src/pages/after-sale/index.tsx`, `admin/src/constants/statusMaps.ts`, `backend/src/modules/admin/after-sale/*`
+  - **实际做了**: 管理端展示仲裁来源状态、退货运费责任、退款状态、退款历史、售后状态历史；FAILED/REFUNDING 售后退款可手动重试，重试接口复用统一 refund-retry 锁并只返回白名单退款摘要；管理端补 `NO_REASON_EXCHANGE` 标签。
+  - **验证**: `cd admin && npm run build`、`cd backend && npm test -- admin-after-sale.service.spec.ts`、`cd backend && npm run build` 均已通过；Task 11 spec/quality 复审通过。
+  - **状态**: ✅ 代码完成，待真机/联调验证 | 完成日期: 2026-05-10
+
+- [✅] **ASC-T12** 售后收口最终验证与文档同步
+  - **修改**: `docs/features/refund.md`, `docs/issues/app-tofix3.md`, `docs/issues/tofix-safe.md`, `docs/architecture/frontend.md`, `plan.md`, `AGENTS.md`
+  - **实际做了**: 同步四类售后类型、顺丰退货面单、无理由退/换运费规则、质量退/换商家承担运费、旧手填物流兼容、售后退款/面单/运费支付幂等键和退款双向一致性巡检。
+  - **验证**: 后端售后相关 12 个测试套件 140 个用例通过；backend/seller/admin build 通过；Prisma schema validate 通过；根 `npx tsc -b` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻断，过滤后无非测试目录错误。
+  - **状态**: ✅ 文档同步完成，待真机/沙箱验证 | 完成日期: 2026-05-10
+
+---
+
 ## 商品上下架级联修复（2026-05-07 新增）
 
 > 真机发现下架奖品会卡死在购物车。详细问题清单与状态机见 `docs/issues/app-tofix4.md`。

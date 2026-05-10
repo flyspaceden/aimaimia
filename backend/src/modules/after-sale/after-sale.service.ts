@@ -5,7 +5,7 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
-import { AfterSaleType, Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, AfterSaleType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAfterSaleDto } from './dto/create-after-sale.dto';
 import { ReturnShippingDto } from './dto/return-shipping.dto';
@@ -60,8 +60,300 @@ export class AfterSaleService {
     if (dto.reasonType) {
       return REASON_LABELS[dto.reasonType] || dto.reasonType;
     }
+    if (dto.reason) {
+      return filterContactInfo(dto.reason.trim());
+    }
+    if (dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE) {
+      return '七天无理由换货';
+    }
     // 无理由退货场景，reasonType 为空
-    return dto.reason ? filterContactInfo(dto.reason.trim()) : '七天无理由退货';
+    return '七天无理由退货';
+  }
+
+  private getDeadlineAt(
+    deliveredAt: Date | null | undefined,
+    receivedAt: Date | null | undefined,
+    returnPolicy: 'RETURNABLE' | 'NON_RETURNABLE',
+    afterSaleType: AfterSaleType,
+    returnWindowDays: number,
+    normalReturnDays: number,
+    freshReturnHours: number,
+  ): Date | null {
+    const baseTime = deliveredAt || receivedAt;
+    if (!baseTime) return null;
+
+    const baseMs = new Date(baseTime).getTime();
+    if (
+      afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+      afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+    ) {
+      if (returnPolicy === 'NON_RETURNABLE') return null;
+      return new Date(baseMs + returnWindowDays * 24 * 60 * 60 * 1000);
+    }
+
+    if (returnPolicy === 'NON_RETURNABLE') {
+      return new Date(baseMs + freshReturnHours * 60 * 60 * 1000);
+    }
+
+    return new Date(baseMs + normalReturnDays * 24 * 60 * 60 * 1000);
+  }
+
+  private getDisabledReason(
+    deliveredAt: Date | null | undefined,
+    receivedAt: Date | null | undefined,
+    returnPolicy: 'RETURNABLE' | 'NON_RETURNABLE',
+    afterSaleType: AfterSaleType,
+    enabled: boolean,
+  ): string | null {
+    if (enabled) return null;
+    if (!deliveredAt && !receivedAt) return '缺少签收时间，暂不支持售后申请';
+    if (
+      returnPolicy === 'NON_RETURNABLE' &&
+      (
+        afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+        afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+      )
+    ) {
+      return '该商品不支持七天无理由售后';
+    }
+    return '已超出售后申请时间窗口';
+  }
+
+  // ========== 售后资格 ==========
+
+  async getEligibility(userId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            sku: { select: { productId: true } },
+            afterSaleRequests: {
+              select: {
+                id: true,
+                status: true,
+                afterSaleType: true,
+              },
+            },
+          },
+        },
+      },
+    }) as any;
+
+    if (!order) throw new NotFoundException('订单不存在');
+    if (order.userId !== userId) throw new NotFoundException('订单不存在');
+
+    const baseResponse = {
+      orderId: order.id,
+      orderStatus: order.status,
+      eligible: false,
+      disabledReason: null as string | null,
+      items: [] as any[],
+    };
+
+    if (!AFTER_SALE_ELIGIBLE_STATUSES.includes(order.status)) {
+      return {
+        ...baseResponse,
+        disabledReason: '该订单状态不支持售后申请',
+      };
+    }
+
+    if (order.bizType === 'VIP_PACKAGE') {
+      return {
+        ...baseResponse,
+        disabledReason: 'VIP 礼包订单不支持退款和换货',
+      };
+    }
+
+    const [
+      returnWindowDays,
+      normalReturnDays,
+      freshReturnHours,
+      noShipThreshold,
+      returnShippingFee,
+    ] = await Promise.all([
+      getConfigValue(this.prisma as any, AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS),
+      getConfigValue(this.prisma as any, AFTER_SALE_CONFIG_KEYS.NORMAL_RETURN_DAYS),
+      getConfigValue(this.prisma as any, AFTER_SALE_CONFIG_KEYS.FRESH_RETURN_HOURS),
+      getConfigValue(this.prisma as any, AFTER_SALE_CONFIG_KEYS.RETURN_NO_SHIP_THRESHOLD),
+      getConfigValue(this.prisma as any, AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT, 10),
+    ]);
+
+    const nonPrizeItems = order.items.filter((item: any) => !item.isPrize);
+    const items = [];
+
+    for (const orderItem of order.items) {
+      if (orderItem.isPrize) continue;
+      const hasActiveAfterSale = orderItem.afterSaleRequests?.some(
+        (request: any) => ACTIVE_STATUSES.includes(request.status),
+      );
+      if (hasActiveAfterSale) continue;
+      const hasCompletedExchange = orderItem.afterSaleRequests?.some(
+        (request: any) =>
+          request.status === 'COMPLETED' &&
+          (
+            request.afterSaleType === AfterSaleType.QUALITY_EXCHANGE ||
+            request.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+          ),
+      );
+
+      const productId = orderItem.sku?.productId;
+      if (!productId) continue;
+
+      const returnPolicy = await resolveReturnPolicy(this.prisma as any, productId);
+      const itemAmount = orderItem.unitPrice * orderItem.quantity;
+      const productSnapshot = (orderItem.productSnapshot as any) || {};
+      const otherNonPrizeItems = nonPrizeItems.filter(
+        (item: any) => item.id !== orderItem.id,
+      );
+      const isFullRefund =
+        nonPrizeItems.length === 1 ||
+        otherNonPrizeItems.every((item: any) =>
+          item.afterSaleRequests?.some((request: any) => request.status === 'REFUNDED'),
+        );
+
+      const options = [
+        AfterSaleType.NO_REASON_RETURN,
+        AfterSaleType.NO_REASON_EXCHANGE,
+        AfterSaleType.QUALITY_RETURN,
+        AfterSaleType.QUALITY_EXCHANGE,
+      ].map((afterSaleType) => {
+        const withinWindow = isWithinReturnWindow(
+          order.deliveredAt,
+          order.receivedAt,
+          returnPolicy,
+          afterSaleType,
+          returnWindowDays,
+          normalReturnDays,
+          freshReturnHours,
+        );
+        const disabledByCompletedExchange =
+          hasCompletedExchange && afterSaleType !== AfterSaleType.QUALITY_RETURN;
+        const enabled = withinWindow && !disabledByCompletedExchange;
+        const requiresReturn = requiresReturnShipping(
+          afterSaleType,
+          itemAmount,
+          noShipThreshold,
+        );
+        const returnShippingPayer =
+          afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+          afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+            ? 'BUYER'
+            : 'SELLER';
+        const estimatedReturnShippingFee =
+          requiresReturn && returnShippingPayer === 'BUYER'
+            ? returnShippingFee
+            : 0;
+
+        let estimatedRefundAmount: number | null = null;
+        let requiresBuyerShippingPayment = false;
+
+        if (
+          afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+          afterSaleType === AfterSaleType.QUALITY_RETURN
+        ) {
+          const refundableBeforeShippingDeduction = calculateRefundAmount(
+            orderItem.unitPrice,
+            orderItem.quantity,
+            order.goodsAmount,
+            order.totalCouponDiscount ?? 0,
+            order.discountAmount ?? 0,
+            order.vipDiscountAmount ?? 0,
+            order.shippingFee,
+            afterSaleType,
+            isFullRefund,
+          );
+          const shippingFeeToDeduct =
+            afterSaleType === AfterSaleType.NO_REASON_RETURN
+              ? (
+                  requiresReturn &&
+                  estimatedReturnShippingFee > 0 &&
+                  refundableBeforeShippingDeduction >= estimatedReturnShippingFee
+                    ? estimatedReturnShippingFee
+                    : 0
+                )
+              : 0;
+
+          estimatedRefundAmount = calculateRefundAmount(
+            orderItem.unitPrice,
+            orderItem.quantity,
+            order.goodsAmount,
+            order.totalCouponDiscount ?? 0,
+            order.discountAmount ?? 0,
+            order.vipDiscountAmount ?? 0,
+            order.shippingFee,
+            afterSaleType,
+            isFullRefund,
+            shippingFeeToDeduct,
+          );
+
+          if (
+            afterSaleType === AfterSaleType.NO_REASON_RETURN &&
+            requiresReturn
+          ) {
+            requiresBuyerShippingPayment =
+              refundableBeforeShippingDeduction < estimatedReturnShippingFee;
+          }
+        } else if (
+          afterSaleType === AfterSaleType.NO_REASON_EXCHANGE &&
+          requiresReturn
+        ) {
+          requiresBuyerShippingPayment = true;
+        }
+
+        return {
+          afterSaleType,
+          enabled,
+          disabledReason: disabledByCompletedExchange
+            ? '该商品已完成换货，仅支持质量退货'
+            : this.getDisabledReason(
+                order.deliveredAt,
+                order.receivedAt,
+                returnPolicy,
+                afterSaleType,
+                enabled,
+              ),
+          deadlineAt: this.getDeadlineAt(
+            order.deliveredAt,
+            order.receivedAt,
+            returnPolicy,
+            afterSaleType,
+            returnWindowDays,
+            normalReturnDays,
+            freshReturnHours,
+          ),
+          requiresReturn,
+          returnShippingPayer,
+          estimatedRefundAmount,
+          estimatedReturnShippingFee,
+          requiresBuyerShippingPayment,
+        };
+      });
+
+      items.push({
+        orderItemId: orderItem.id,
+        skuId: orderItem.skuId,
+        productId,
+        productTitle: productSnapshot.title || '未知商品',
+        productSnapshot: orderItem.productSnapshot,
+        quantity: orderItem.quantity,
+        unitPrice: orderItem.unitPrice,
+        itemAmount,
+        returnPolicy,
+        options,
+      });
+    }
+
+    const hasEnabledOption = items.some((item: any) =>
+      item.options.some((option: any) => option.enabled),
+    );
+
+    return {
+      ...baseResponse,
+      eligible: hasEnabledOption,
+      disabledReason: hasEnabledOption ? null : '订单内暂无可申请售后的商品',
+      items,
+    };
   }
 
   // ========== 申请售后 ==========
@@ -103,6 +395,22 @@ export class AfterSaleService {
           const orderItem = order.items.find((i: any) => i.id === dto.orderItemId);
           if (!orderItem) {
             throw new BadRequestException('指定的商品项不存在');
+          }
+
+          const targetSkuId =
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+              ? (dto.targetSkuId ?? orderItem.skuId)
+              : (dto.targetSkuId ?? null);
+          const isExchange =
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE ||
+            dto.afterSaleType === AfterSaleType.QUALITY_EXCHANGE;
+          const targetQuantity = isExchange ? orderItem.quantity : null;
+
+          if (
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE &&
+            targetSkuId !== orderItem.skuId
+          ) {
+            throw new BadRequestException('本期仅支持同 SKU 换货');
           }
 
           // 3b. 奖品不可退
@@ -165,7 +473,12 @@ export class AfterSaleService {
             where: {
               orderItemId: dto.orderItemId,
               userId,
-              afterSaleType: 'QUALITY_EXCHANGE',
+              afterSaleType: {
+                in: [
+                  AfterSaleType.QUALITY_EXCHANGE,
+                  AfterSaleType.NO_REASON_EXCHANGE,
+                ],
+              },
               status: 'COMPLETED',
             },
           });
@@ -196,6 +509,22 @@ export class AfterSaleService {
 
           // 9. 计算退款金额（仅退货类型需要，换货不退款）
           let refundAmount: number | null = null;
+          let returnShippingFee: number | null = null;
+          const returnShippingPayer: 'BUYER' | 'SELLER' =
+            dto.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+              ? 'BUYER'
+              : 'SELLER';
+          let returnShippingFeeDeducted = false;
+
+          if (needsReturn && returnShippingPayer === 'BUYER') {
+            returnShippingFee = await getConfigValue(
+              tx as any,
+              AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
+              10,
+            );
+          }
+
           if (
             dto.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
             dto.afterSaleType === AfterSaleType.QUALITY_RETURN
@@ -219,7 +548,7 @@ export class AfterSaleService {
               isFullRefund = otherRefunded === otherNonPrize.length;
             }
 
-            refundAmount = calculateRefundAmount(
+            const refundableBeforeShippingDeduction = calculateRefundAmount(
               orderItem.unitPrice,
               orderItem.quantity,
               order.goodsAmount,
@@ -230,6 +559,28 @@ export class AfterSaleService {
               dto.afterSaleType,
               isFullRefund,
             );
+            const returnShippingFeeToDeduct =
+              dto.afterSaleType === AfterSaleType.NO_REASON_RETURN &&
+              needsReturn &&
+              returnShippingFee !== null &&
+              refundableBeforeShippingDeduction >= returnShippingFee
+                ? returnShippingFee
+                : 0;
+
+            refundAmount = calculateRefundAmount(
+              orderItem.unitPrice,
+              orderItem.quantity,
+              order.goodsAmount,
+              order.totalCouponDiscount ?? 0,
+              order.discountAmount ?? 0,
+              order.vipDiscountAmount ?? 0,
+              order.shippingFee,
+              dto.afterSaleType,
+              isFullRefund,
+              returnShippingFeeToDeduct,
+            );
+
+            returnShippingFeeDeducted = returnShippingFeeToDeduct > 0;
           }
 
           // 10. 创建售后申请
@@ -251,7 +602,12 @@ export class AfterSaleService {
               photos: dto.photos,
               status: initialStatus,
               isPostReplacement,
+              targetSkuId,
+              targetQuantity,
               requiresReturn: needsReturn,
+              returnShippingFee,
+              returnShippingPayer,
+              returnShippingFeeDeducted,
               refundAmount,
               ...(isPostReplacement
                 ? { arbitrationSource: '换货后二次售后自动升级' }
@@ -268,6 +624,21 @@ export class AfterSaleService {
                   quantity: true,
                   unitPrice: true,
                 },
+              },
+            },
+          });
+
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId: request.id,
+              fromStatus: null,
+              toStatus: initialStatus,
+              reason: `买家申请售后: ${reasonText}`,
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+              meta: {
+                type: 'AFTER_SALE_REQUESTED',
+                afterSaleType: dto.afterSaleType,
               },
             },
           });
@@ -371,6 +742,13 @@ export class AfterSaleService {
           if (!request.requiresReturn) {
             throw new BadRequestException('该售后申请无需退回商品');
           }
+          if (
+            request.returnShippingPayer === 'BUYER' &&
+            !request.returnShippingFeeDeducted &&
+            request.returnShippingPaidAt == null
+          ) {
+            throw new BadRequestException('请先支付退货运费');
+          }
 
           // CAS 原子更新
           const casResult = await tx.afterSaleRequest.updateMany({
@@ -444,6 +822,17 @@ export class AfterSaleService {
               },
             },
           });
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId: request.id,
+              fromStatus: 'REPLACEMENT_SHIPPED',
+              toStatus: 'COMPLETED',
+              reason: '买家确认收到换货商品',
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+              meta: { type: 'AFTER_SALE_COMPLETED' },
+            },
+          });
 
           // 换货完成后异步触发奖励归平台（不阻塞主事务）
           const capturedOrderId = request.orderId;
@@ -492,20 +881,35 @@ export class AfterSaleService {
             throw new BadRequestException('当前状态不支持申请仲裁');
           }
 
+          const currentStatus = request.status;
+
           // CAS 原子更新
           const casResult = await tx.afterSaleRequest.updateMany({
             where: {
               id: afterSaleId,
-              status: { in: ['REJECTED', 'SELLER_REJECTED_RETURN'] },
+              userId,
+              status: currentStatus,
             },
             data: {
               status: 'PENDING_ARBITRATION',
-              arbitrationSource: '买家申请',
+              arbitrationSourceStatus: currentStatus,
+              arbitrationSource: 'BUYER',
             },
           });
           if (casResult.count === 0) {
             throw new ConflictException('售后申请状态已变更，请刷新后重试');
           }
+
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId,
+              fromStatus: currentStatus,
+              toStatus: 'PENDING_ARBITRATION',
+              reason: '买家申请平台仲裁',
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+            },
+          });
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -553,6 +957,20 @@ export class AfterSaleService {
           if (casResult.count === 0) {
             throw new ConflictException('售后申请状态已变更，请刷新后重试');
           }
+
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId: request.id,
+              fromStatus: request.status,
+              toStatus: 'CLOSED',
+              reason: request.status === 'SELLER_REJECTED_RETURN'
+                ? '买家接受卖家验收不通过，关闭售后'
+                : '买家接受卖家驳回，关闭售后',
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+              meta: { type: 'AFTER_SALE_CLOSED_BY_BUYER' },
+            },
+          });
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -655,6 +1073,40 @@ export class AfterSaleService {
     if (request.userId !== userId) throw new NotFoundException('售后申请不存在');
 
     return request;
+  }
+
+  /** 售后状态时间线（校验归属） */
+  async getTimeline(userId: string, id: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+    if (request.userId !== userId) throw new NotFoundException('售后申请不存在');
+
+    const rows = await this.prisma.afterSaleStatusHistory.findMany({
+      where: { afterSaleId: id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        reason: row.reason,
+        operatorType: row.operatorType,
+        createdAt: row.createdAt,
+      })),
+    };
   }
 
   // ========== 退货政策同意 ==========

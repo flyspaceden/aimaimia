@@ -159,4 +159,179 @@ describe('OrderService.mapOrder snapshot', () => {
 
     expect(out.repurchasable).toBe(false);
   });
+
+  it('maps active afterSaleSummary with id and shipping payment status', () => {
+    const mapped = (service as any).mapOrder({
+      id: 'order_1',
+      status: 'DELIVERED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      createdAt: new Date(),
+      items: [],
+      refunds: [],
+      afterSaleRequests: [{
+        id: 'as_1',
+        status: 'APPROVED',
+        afterSaleType: 'NO_REASON_EXCHANGE',
+        reason: '尺码不合适',
+        reasonType: null,
+        requiresReturn: true,
+        refundAmount: null,
+        shippingPayment: { status: 'UNPAID' },
+      }],
+    } as any);
+
+    expect(mapped.afterSaleSummary).toMatchObject({
+      id: 'as_1',
+      status: 'APPROVED',
+      type: 'NO_REASON_EXCHANGE',
+      requiresReturn: true,
+      requiresBuyerShippingPayment: true,
+      returnShippingPaymentStatus: 'UNPAID',
+    });
+  });
+
+  it('maps legacy manual return logistics without requiring shipping payment', () => {
+    const mapped = (service as any).mapOrder({
+      id: 'order_legacy',
+      status: 'DELIVERED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      createdAt: new Date(),
+      items: [],
+      refunds: [],
+      afterSaleRequests: [{
+        id: 'as_legacy',
+        status: 'RETURN_SHIPPING',
+        afterSaleType: 'QUALITY_RETURN',
+        reason: '质量问题',
+        reasonType: null,
+        requiresReturn: true,
+        returnShippingPayer: null,
+        returnCarrierName: '顺丰速运',
+        returnWaybillNo: 'SFOLD123',
+        returnSfOrderId: null,
+        shippingPayment: null,
+      }],
+    } as any);
+
+    expect(mapped.afterSaleSummary).toMatchObject({
+      id: 'as_legacy',
+      returnShippingPaymentStatus: 'NOT_REQUIRED',
+      returnShippingPayer: 'SELLER',
+      isLegacyManualReturnShipping: true,
+    });
+  });
+
+  it('maps no-reason exchange compatibility type as exchange', () => {
+    const mapped = (service as any).mapOrder({
+      id: 'order_exchange',
+      status: 'DELIVERED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      createdAt: new Date(),
+      items: [],
+      refunds: [],
+      afterSaleRequests: [{
+        id: 'as_exchange',
+        status: 'REQUESTED',
+        afterSaleType: 'NO_REASON_EXCHANGE',
+        reason: '',
+        reasonType: null,
+        requiresReturn: false,
+        refundAmount: null,
+        shippingPayment: null,
+      }],
+    } as any);
+
+    expect(mapped.afterSaleType).toBe('exchange');
+    expect(mapped.afterSaleSummary).toMatchObject({
+      id: 'as_exchange',
+      type: 'NO_REASON_EXCHANGE',
+    });
+  });
+
+  it.each([
+    {
+      name: 'terminal closed no-reason exchange',
+      afterSale: {
+        status: 'CLOSED',
+        afterSaleType: 'NO_REASON_EXCHANGE',
+        requiresReturn: true,
+        returnShippingPayer: 'BUYER',
+        shippingPayment: { status: 'CLOSED' },
+      },
+      expectedPaymentStatus: 'CLOSED',
+    },
+    {
+      name: 'refunded no-reason return with refunded shipping payment',
+      afterSale: {
+        status: 'REFUNDED',
+        afterSaleType: 'NO_REASON_RETURN',
+        requiresReturn: true,
+        returnShippingPayer: 'BUYER',
+        shippingPayment: { status: 'REFUNDED' },
+      },
+      expectedPaymentStatus: 'REFUNDED',
+    },
+    {
+      name: 'fee deducted no-reason return',
+      afterSale: {
+        status: 'APPROVED',
+        afterSaleType: 'NO_REASON_RETURN',
+        requiresReturn: true,
+        returnShippingPayer: 'BUYER',
+        returnShippingFeeDeducted: true,
+        shippingPayment: null,
+      },
+      expectedPaymentStatus: 'NOT_REQUIRED',
+    },
+    {
+      name: 'already paid by returnShippingPaidAt',
+      afterSale: {
+        status: 'APPROVED',
+        afterSaleType: 'NO_REASON_RETURN',
+        requiresReturn: true,
+        returnShippingPayer: 'BUYER',
+        returnShippingPaidAt: new Date(),
+        shippingPayment: null,
+      },
+      expectedPaymentStatus: 'PAID',
+    },
+    {
+      name: 'legacy manual buyer return',
+      afterSale: {
+        status: 'RETURN_SHIPPING',
+        afterSaleType: 'NO_REASON_RETURN',
+        requiresReturn: true,
+        returnShippingPayer: 'BUYER',
+        returnWaybillNo: 'SFOLD456',
+        returnSfOrderId: null,
+        shippingPayment: null,
+      },
+      expectedPaymentStatus: 'NOT_REQUIRED',
+    },
+  ])('does not require buyer shipping payment for $name', ({ afterSale, expectedPaymentStatus }) => {
+    const mapped = (service as any).mapOrder({
+      id: 'order_no_pay',
+      status: 'DELIVERED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      createdAt: new Date(),
+      items: [],
+      refunds: [],
+      afterSaleRequests: [{
+        id: 'as_no_pay',
+        reason: '',
+        reasonType: null,
+        refundAmount: null,
+        ...afterSale,
+      }],
+    } as any);
+
+    expect(mapped.afterSaleSummary).toMatchObject({
+      requiresBuyerShippingPayment: false,
+      returnShippingPaymentStatus: expectedPaymentStatus,
+    });
+  });
 });
