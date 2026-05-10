@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -19,7 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AppHeader, Screen } from '../../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../../src/components/feedback';
 import { OrderRepo } from '../../../src/repos';
-import { AfterSaleRepo, ApplyAfterSaleDto } from '../../../src/repos/AfterSaleRepo';
+import { AfterSaleEligibilityOption, AfterSaleRepo, ApplyAfterSaleDto } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
 import { API_BASE_URL } from '../../../src/repos/http/config';
@@ -36,9 +36,6 @@ const qualityReasons = [
   { label: '临期/过期', value: 'EXPIRED' as const },
   { label: '其他', value: 'OTHER' as const },
 ];
-
-// ─── 无需寄回的金额阈值（元） ─────────────────────────────
-const NO_RETURN_THRESHOLD = 30;
 
 export default function AfterSaleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -71,8 +68,14 @@ export default function AfterSaleScreen() {
     queryFn: () => OrderRepo.getById(orderId),
     enabled: isLoggedIn && Boolean(orderId),
   });
-  const refreshing = isFetching;
+  const eligibilityQuery = useQuery({
+    queryKey: ['after-sale-eligibility', orderId],
+    queryFn: () => AfterSaleRepo.getEligibility(orderId),
+    enabled: isLoggedIn && Boolean(orderId),
+  });
+  const refreshing = isFetching || eligibilityQuery.isFetching;
   const order = data?.ok ? data.data : null;
+  const eligibility = eligibilityQuery.data?.ok ? eligibilityQuery.data.data : null;
 
   // ─── 选中的商品 ───────────────────────────────────────
   const selectedItem: OrderItem | null = useMemo(() => {
@@ -80,27 +83,26 @@ export default function AfterSaleScreen() {
     return order.items.find((i) => i.id === selectedItemId) ?? null;
   }, [order, selectedItemId]);
 
-  // ─── 可用的售后类型（基于选中商品动态计算） ───────────────
-  const availableTypes = useMemo((): AfterSaleType[] => {
-    if (!order || !selectedItem) return [];
-    const types: AfterSaleType[] = [];
-    const now = new Date();
+  const selectedEligibilityItem = useMemo(() => {
+    if (!eligibility || !selectedItemId) return null;
+    return eligibility.items.find((item) => item.orderItemId === selectedItemId) ?? null;
+  }, [eligibility, selectedItemId]);
 
-    // 无理由退货：需在退货窗口内且非换货后的商品
-    if (order.returnWindowExpiresAt) {
-      const expiresAt = new Date(order.returnWindowExpiresAt);
-      if (expiresAt > now && !selectedItem.isPostReplacement) {
-        types.push('NO_REASON_RETURN');
-      }
+  // ─── 可用的售后类型（以后端 eligibility 为准） ─────────────
+  const enabledOptions = useMemo(
+    () => selectedEligibilityItem?.options.filter((option) => option.enabled) ?? [],
+    [selectedEligibilityItem],
+  );
+  const selectedOption = useMemo(
+    () => enabledOptions.find((option) => option.afterSaleType === afterSaleType) ?? null,
+    [enabledOptions, afterSaleType],
+  );
+
+  useEffect(() => {
+    if (afterSaleType && !enabledOptions.some((option) => option.afterSaleType === afterSaleType)) {
+      setAfterSaleType(null);
     }
-
-    // 质量问题退货/换货：在售后时间窗口内都可选择
-    // 这里简化逻辑：已签收的订单在售后窗口期内均可申请
-    types.push('QUALITY_RETURN');
-    types.push('QUALITY_EXCHANGE');
-
-    return types;
-  }, [order, selectedItem]);
+  }, [afterSaleType, enabledOptions]);
 
   // 当选中商品变化时，重置售后类型
   const handleSelectItem = (itemId: string) => {
@@ -114,6 +116,7 @@ export default function AfterSaleScreen() {
 
   // ─── 预估退款金额（仅退货类型） ────────────────────────────
   const estimatedRefund = useMemo(() => {
+    if (selectedOption?.estimatedRefundAmount != null) return selectedOption.estimatedRefundAmount;
     if (!selectedItem || !afterSaleType) return 0;
     if (afterSaleType === 'QUALITY_EXCHANGE') return 0; // 换货无退款
     const itemTotal = selectedItem.price * selectedItem.quantity;
@@ -133,21 +136,25 @@ export default function AfterSaleScreen() {
       return Math.max(0, itemTotal - discountShare) + shippingRefund;
     }
     return itemTotal + shippingRefund;
-  }, [selectedItem, afterSaleType, order]);
+  }, [selectedItem, afterSaleType, order, selectedOption]);
 
   // ─── 退货运费说明 ─────────────────────────────────────
   const shippingInfo = useMemo(() => {
-    if (!afterSaleType || !selectedItem) return '';
-    if (afterSaleType === 'NO_REASON_RETURN') {
-      return '需要寄回，运费由您承担';
+    if (!afterSaleType || !selectedOption) return '';
+    if (!selectedOption.requiresReturn) return '无需寄回';
+    const feeText = selectedOption.estimatedReturnShippingFee
+      ? ` ¥${selectedOption.estimatedReturnShippingFee.toFixed(2)}`
+      : '';
+    if (selectedOption.returnShippingPayer === 'BUYER') {
+      return selectedOption.requiresBuyerShippingPayment
+        ? `需要寄回，退货运费需先支付${feeText}`
+        : `需要寄回，退货运费由您承担${feeText}`;
     }
-    // 质量问题退货/换货
-    const itemTotal = selectedItem.price * selectedItem.quantity;
-    if (itemTotal > NO_RETURN_THRESHOLD) {
-      return '需要寄回，运费到付（平台承担）';
+    if (selectedOption.returnShippingPayer === 'SELLER') {
+      return '需要寄回，平台生成顺丰面单，运费由商家承担';
     }
-    return '无需寄回';
-  }, [afterSaleType, selectedItem]);
+    return '需要寄回，平台生成顺丰面单';
+  }, [afterSaleType, selectedOption]);
 
   // ─── 照片上传（复用原有逻辑） ─────────────────────────────
   const handlePickPhotos = async () => {
@@ -244,6 +251,7 @@ export default function AfterSaleScreen() {
       await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
       await queryClient.invalidateQueries({ queryKey: ['me-order-issue'] });
       await queryClient.invalidateQueries({ queryKey: ['after-sales'] });
+      await queryClient.invalidateQueries({ queryKey: ['after-sale-eligibility', orderId] });
 
       const typeLabel = afterSaleTypeLabels[afterSaleType];
       show({ message: `${typeLabel}申请已提交`, type: 'success' });
@@ -260,7 +268,7 @@ export default function AfterSaleScreen() {
   };
 
   // ─── 加载态 ───────────────────────────────────────────
-  if (isLoading) {
+  if (isLoading || eligibilityQuery.isLoading) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="申请售后" />
@@ -276,14 +284,23 @@ export default function AfterSaleScreen() {
   }
 
   // ─── 错误态 ───────────────────────────────────────────
-  if (!data || !data.ok) {
+  if (!data || !data.ok || !eligibilityQuery.data || !eligibilityQuery.data.ok) {
+    const errorMessage =
+      data?.ok === false
+        ? data.error.displayMessage ?? '请稍后重试'
+        : eligibilityQuery.data?.ok === false
+          ? eligibilityQuery.data.error.displayMessage ?? '请稍后重试'
+          : '请稍后重试';
     return (
       <Screen contentStyle={{ flex: 1, paddingHorizontal: spacing.xl }}>
         <AppHeader title="申请售后" />
         <ErrorState
           title="订单加载失败"
-          description={data?.ok === false ? data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
-          onAction={refetch}
+          description={errorMessage}
+          onAction={() => {
+            refetch();
+            eligibilityQuery.refetch();
+          }}
         />
       </Screen>
     );
@@ -300,7 +317,9 @@ export default function AfterSaleScreen() {
   }
 
   // 可选择的商品（过滤掉奖品）
-  const selectableItems = order!.items.filter((item) => !item.isPrize);
+  const eligibilityItemIds = new Set(eligibility!.items.map((item) => item.orderItemId));
+  const selectableItems = order!.items.filter((item) => !item.isPrize && eligibilityItemIds.has(item.id));
+  const unavailableItems = order!.items.filter((item) => !item.isPrize && !eligibilityItemIds.has(item.id));
   const prizeItems = order!.items.filter((item) => item.isPrize);
 
   return (
@@ -308,7 +327,10 @@ export default function AfterSaleScreen() {
       <AppHeader title="申请售后" />
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
+          refetch();
+          eligibilityQuery.refetch();
+        }} />}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
@@ -327,9 +349,9 @@ export default function AfterSaleScreen() {
               每次仅可选择一件商品申请售后
             </Text>
 
-            {selectableItems.length === 0 && prizeItems.length === 0 ? (
+            {selectableItems.length === 0 && prizeItems.length === 0 && unavailableItems.length === 0 ? (
               <View style={{ marginTop: spacing.sm }}>
-                <EmptyState title="暂无商品" description="订单中没有商品记录" />
+                <EmptyState title="暂无可售后商品" description={eligibility!.disabledReason ?? '订单中没有可申请售后的商品'} />
               </View>
             ) : (
               <>
@@ -382,6 +404,38 @@ export default function AfterSaleScreen() {
                   );
                 })}
 
+                {/* 后端判定不可申请的普通商品 */}
+                {unavailableItems.map((item) => (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.itemRow,
+                      {
+                        marginTop: spacing.md,
+                        opacity: 0.45,
+                        borderRadius: radius.md,
+                        padding: spacing.sm,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.radioBtn,
+                        { borderColor: colors.border, backgroundColor: colors.bgSecondary, borderRadius: 11 },
+                      ]}
+                    />
+                    <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <Text style={[typography.bodySm, { color: colors.text.tertiary }]} numberOfLines={2}>
+                        {item.title}
+                      </Text>
+                      <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 4 }]}>
+                        已有售后或暂不支持申请
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+
                 {/* 奖品商品（禁用，附提示） */}
                 {prizeItems.map((item) => (
                   <View
@@ -431,21 +485,26 @@ export default function AfterSaleScreen() {
                 </Text>
               </View>
 
-              {availableTypes.length === 0 ? (
+              {enabledOptions.length === 0 ? (
                 <View style={{ marginTop: spacing.md, padding: spacing.md, backgroundColor: colors.bgSecondary, borderRadius: radius.md }}>
                   <Text style={[typography.bodySm, { color: colors.text.secondary, textAlign: 'center' }]}>
-                    该商品已超过售后申请期限
+                    {selectedEligibilityItem?.options.find((option) => option.disabledReason)?.disabledReason
+                      ?? eligibility!.disabledReason
+                      ?? '该商品暂无可申请的售后类型'}
                   </Text>
                 </View>
               ) : (
                 <View style={[styles.typeRow, { marginTop: spacing.md }]}>
-                  {availableTypes.map((type) => {
+                  {enabledOptions.map((option: AfterSaleEligibilityOption) => {
+                    const type = option.afterSaleType;
                     const active = afterSaleType === type;
                     const label = afterSaleTypeLabels[type];
                     // 为不同类型显示图标
                     const iconName =
                       type === 'NO_REASON_RETURN'
                         ? 'undo-variant'
+                        : type === 'NO_REASON_EXCHANGE'
+                          ? 'swap-horizontal'
                         : type === 'QUALITY_RETURN'
                           ? 'cash-refund'
                           : 'swap-horizontal';

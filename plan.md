@@ -1146,6 +1146,18 @@
 
 ---
 
+## 售后链路收口（2026-05-10 新增）
+
+> 对应 `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` Task 9，买家 App 接入后端售后资格、退货运费支付和顺丰退货面单。
+
+- [✅] **ASC-T09** 买家 App 售后闭环接线
+  - **修改**: `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx`, `docs/architecture/frontend.md`, `plan.md`
+  - **实际做了**: 四类售后类型和订单售后摘要类型补齐；`AfterSaleRepo` 新增 eligibility / return-shipping-payment / return-waybill / timeline；申请售后页改以后端 eligibility enabled options 为准；售后详情页移除手填物流主流程，接入退货运费支付和顺丰面单生成，补质量售后商家承担运费说明与退款状态文案；订单详情“查看售后”直达售后详情，换货确认改用 `AfterSaleRepo.confirmReceive(afterSaleSummary.id)`。
+  - **验证**: 已运行 `npx tsc -b`；当前失败仅剩仓库既有 `tests/e2e` Playwright/Node 类型依赖缺失（如 `@playwright/test`, `path`, `fs`, `__dirname`, `Buffer`），未再出现本任务文件相关 TypeScript 错误。
+  - **状态**: ✅ 代码完成，待真机/联调验证 | 完成日期: 2026-05-10
+
+---
+
 ## 商品上下架级联修复（2026-05-07 新增）
 
 > 真机发现下架奖品会卡死在购物车。详细问题清单与状态机见 `docs/issues/app-tofix4.md`。

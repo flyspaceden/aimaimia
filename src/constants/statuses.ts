@@ -47,6 +47,7 @@ export const afterSaleStatusLabels: Record<AfterSaleDetailStatus, string> = {
 
 export const afterSaleTypeLabels: Record<AfterSaleType, string> = {
   NO_REASON_RETURN: '七天无理由退货',
+  NO_REASON_EXCHANGE: '七天无理由换货',
   QUALITY_RETURN: '质量问题退货',
   QUALITY_EXCHANGE: '质量问题换货',
 };

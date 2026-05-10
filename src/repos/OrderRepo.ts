@@ -803,11 +803,18 @@ export const OrderRepo = {
       applying: 'reviewing',
       reviewing: 'approved',
       approved: 'shipped',
+      arbitrating: 'arbitrating',
+      returnShipping: 'sellerReceived',
+      sellerReceived: 'refunding',
+      sellerRejected: 'arbitrating',
       shipped: 'completed',
       refunding: 'completed',
+      refunded: 'completed',
       completed: 'completed',
       rejected: 'rejected',
       failed: 'failed',
+      closed: 'closed',
+      canceled: 'canceled',
     };
     const nextStatus = nextMap[order.afterSaleStatus];
     order.afterSaleStatus = nextStatus;
