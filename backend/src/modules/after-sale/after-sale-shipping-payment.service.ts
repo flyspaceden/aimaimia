@@ -113,12 +113,14 @@ export class AfterSaleShippingPaymentService {
           where: { merchantPaymentNo },
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
-        if (payment.status === 'PAID') return;
+        if (['PAID', 'CLOSED', 'REFUNDING', 'REFUNDED'].includes(payment.status)) {
+          return;
+        }
 
         await tx.afterSaleShippingPayment.updateMany({
           where: {
             merchantPaymentNo,
-            status: { not: 'PAID' },
+            status: { in: ['UNPAID', 'PENDING', 'FAILED'] },
           },
           data: {
             status: 'FAILED',

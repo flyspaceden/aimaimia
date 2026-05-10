@@ -209,6 +209,22 @@ describe('AfterSaleShippingPaymentService', () => {
   });
 
   it.each(['CLOSED', 'REFUNDING', 'REFUNDED'])(
+    'handlePaymentFailure ignores late failure when shipping payment is %s',
+    async (status) => {
+      tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        status,
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      });
+
+      await service.handlePaymentFailure('AS_SHIP_PAY_as_001', '支付失败');
+
+      expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['CLOSED', 'REFUNDING', 'REFUNDED'])(
     'handlePaymentSuccess ignores late success when shipping payment is %s',
     async (status) => {
       tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
