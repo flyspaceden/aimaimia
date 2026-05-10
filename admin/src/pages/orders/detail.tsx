@@ -17,6 +17,16 @@ const statusSteps = [
   { key: 'RECEIVED', title: '已收货' },
 ];
 
+// 支付方式枚举 → 中文显示
+const paymentChannelLabel: Record<string, string> = {
+  ALIPAY: '支付宝',
+  WECHAT: '微信',
+  WALLET: '钱包',
+};
+
+const formatDateTime = (value?: string | null) =>
+  value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
+
 const itemColumns = [
   {
     title: '图片',
@@ -102,11 +112,16 @@ export default function OrderDetailPage() {
   const isCanceled = order.status === 'CANCELED';
   const isRefunded = order.status === 'REFUNDED';
 
-  // 优惠金额计算（总金额 - 实付金额）
+  // 金额拆分：分润奖励 / 平台红包 / VIP 折扣 三笔独立优惠
   const totalAmount = order.totalAmount ?? 0;
   const paymentAmount = order.paymentAmount ?? totalAmount;
-  const discountAmount = totalAmount - paymentAmount;
-  const hasDiscount = discountAmount > 0;
+  const rewardDiscount = order.discountAmount ?? 0;          // 分润奖励抵扣
+  const couponDiscount = order.totalCouponDiscount ?? 0;     // 平台红包抵扣
+  const vipDiscount = order.vipDiscountAmount ?? 0;          // VIP 折扣（平台补贴）
+  const totalDiscount = rewardDiscount + couponDiscount + vipDiscount;
+  const hasDiscount = totalDiscount > 0;
+  // 取首个 shipment 的发货时间作为订单维度的 shippedAt（1 Order = 1 Company）
+  const shippedAt = order.shippedAt || shipments[0]?.shippedAt || null;
   const buildTreeLink = (path: '/bonus/vip-tree' | '/bonus/normal-tree') => {
     const params = new URLSearchParams({
       userId: order.userId,
@@ -210,15 +225,35 @@ export default function OrderDetailPage() {
           <Descriptions.Item label="实付金额">¥{paymentAmount.toFixed(2)}</Descriptions.Item>
           {/* 优惠金额（仅在有优惠时显示） */}
           {hasDiscount && (
-            <Descriptions.Item label="优惠金额">
-              <span style={{ color: '#f5222d' }}>-¥{discountAmount.toFixed(2)}</span>
+            <Descriptions.Item label="优惠合计">
+              <span style={{ color: '#f5222d' }}>-¥{totalDiscount.toFixed(2)}</span>
+            </Descriptions.Item>
+          )}
+          {/* 优惠拆分：分润奖励 / 平台红包 / VIP 折扣 各自独立显示，便于对账 */}
+          {rewardDiscount > 0 && (
+            <Descriptions.Item label="分润奖励抵扣">
+              <span style={{ color: '#f5222d' }}>-¥{rewardDiscount.toFixed(2)}</span>
+            </Descriptions.Item>
+          )}
+          {couponDiscount > 0 && (
+            <Descriptions.Item label="平台红包抵扣">
+              <span style={{ color: '#f5222d' }}>-¥{couponDiscount.toFixed(2)}</span>
+            </Descriptions.Item>
+          )}
+          {vipDiscount > 0 && (
+            <Descriptions.Item label="VIP 折扣">
+              <span style={{ color: '#f5222d' }}>-¥{vipDiscount.toFixed(2)}</span>
             </Descriptions.Item>
           )}
           {/* 运费（如果存在） */}
           {order.shippingFee != null && (
             <Descriptions.Item label="运费">¥{Number(order.shippingFee).toFixed(2)}</Descriptions.Item>
           )}
-          <Descriptions.Item label="下单时间">{dayjs(order.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
+          <Descriptions.Item label="下单时间">{formatDateTime(order.createdAt)}</Descriptions.Item>
+          {/* 买家留言（结算页填写，<= 200 字） */}
+          {order.buyerNote && (
+            <Descriptions.Item label="买家留言" span={3}>{order.buyerNote}</Descriptions.Item>
+          )}
           {/* 备注（如果存在） */}
           {order.remark && (
             <Descriptions.Item label="备注" span={3}>{order.remark}</Descriptions.Item>
@@ -226,14 +261,39 @@ export default function OrderDetailPage() {
         </Descriptions>
       </Card>
 
+      {/* 时间线（关键时间节点，售后争议时一目了然） */}
+      <Card title="时间线" style={{ marginBottom: 16 }}>
+        <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }}>
+          <Descriptions.Item label="下单时间">{formatDateTime(order.createdAt)}</Descriptions.Item>
+          <Descriptions.Item label="支付时间">{formatDateTime(order.paidAt)}</Descriptions.Item>
+          <Descriptions.Item label="发货时间">{formatDateTime(shippedAt)}</Descriptions.Item>
+          <Descriptions.Item label="送达时间">{formatDateTime(order.deliveredAt)}</Descriptions.Item>
+          <Descriptions.Item label="收货时间">{formatDateTime(order.receivedAt)}</Descriptions.Item>
+          <Descriptions.Item label="自动收货时间">{formatDateTime(order.autoReceiveAt)}</Descriptions.Item>
+          <Descriptions.Item label="退货窗口截止" span={3}>
+            {formatDateTime(order.returnWindowExpiresAt)}
+          </Descriptions.Item>
+        </Descriptions>
+      </Card>
+
       {/* 支付信息 */}
       <Card title="支付信息" style={{ marginBottom: 16 }}>
         <Descriptions bordered column={{ xs: 1, sm: 2 }}>
-          <Descriptions.Item label="支付方式">{order.paymentMethod || '-'}</Descriptions.Item>
-          <Descriptions.Item label="支付时间">
-            {order.paidAt ? dayjs(order.paidAt).format('YYYY-MM-DD HH:mm:ss') : '-'}
+          <Descriptions.Item label="支付方式">
+            {order.paymentMethod
+              ? (paymentChannelLabel[order.paymentMethod] || order.paymentMethod)
+              : '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="交易号">{order.transactionId || '-'}</Descriptions.Item>
+          <Descriptions.Item label="支付时间">{formatDateTime(order.paidAt)}</Descriptions.Item>
+          <Descriptions.Item label="交易号" span={2}>
+            {order.transactionId
+              ? (
+                <Typography.Text copyable={{ text: order.transactionId }} style={{ fontFamily: 'monospace' }}>
+                  {order.transactionId}
+                </Typography.Text>
+              )
+              : '-'}
+          </Descriptions.Item>
         </Descriptions>
       </Card>
 
@@ -353,6 +413,50 @@ export default function OrderDetailPage() {
                 title: '状态',
                 dataIndex: 'status',
                 render: (value: string | undefined) => value || '-',
+              },
+            ]}
+          />
+        </Card>
+      )}
+
+      {/* 状态历史（订单生命周期审计） */}
+      {order.statusHistory && order.statusHistory.length > 0 && (
+        <Card title="状态历史" style={{ marginBottom: 16 }}>
+          <Table
+            rowKey="id"
+            pagination={false}
+            size="small"
+            dataSource={order.statusHistory}
+            columns={[
+              {
+                title: '原状态',
+                dataIndex: 'fromStatus',
+                width: 120,
+                render: (value: string | null) => {
+                  if (!value) return '-';
+                  const s = orderStatusMap[value];
+                  return s ? <Tag color={s.color}>{s.text}</Tag> : value;
+                },
+              },
+              {
+                title: '目标状态',
+                dataIndex: 'toStatus',
+                width: 120,
+                render: (value: string) => {
+                  const s = orderStatusMap[value];
+                  return s ? <Tag color={s.color}>{s.text}</Tag> : value;
+                },
+              },
+              {
+                title: '原因',
+                dataIndex: 'reason',
+                render: (value: string | null) => value || '-',
+              },
+              {
+                title: '时间',
+                dataIndex: 'createdAt',
+                width: 180,
+                render: (value: string) => formatDateTime(value),
               },
             ]}
           />

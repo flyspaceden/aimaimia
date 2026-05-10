@@ -323,6 +323,23 @@ export interface Order {
   refundSummary?: Refund | null;
   refunds?: Refund[];
   bizType?: string;
+  buyerNote?: string | null;
+  totalCouponDiscount?: number | null;
+  vipDiscountAmount?: number | null;
+  goodsAmount?: number;
+  shippedAt?: string | null;
+  deliveredAt?: string | null;
+  receivedAt?: string | null;
+  autoReceiveAt?: string | null;
+  returnWindowExpiresAt?: string | null;
+  statusHistory?: Array<{
+    id: string;
+    fromStatus: string;
+    toStatus: string;
+    reason?: string | null;
+    meta?: Record<string, unknown> | null;
+    createdAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
