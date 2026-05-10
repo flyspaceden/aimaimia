@@ -264,6 +264,50 @@ describe('ShippingRuleService 运费计算引擎', () => {
 
     expect(prisma.shippingRule.update).not.toHaveBeenCalled();
   });
+
+  it('deactivate invalid active rule does not validate formula and writes update', async () => {
+    const { service, prisma, cache } = createMocks([]);
+    const invalidRule = makeRule({ firstFee: 0, isActive: true });
+    prisma.shippingRule.findUnique.mockResolvedValue(invalidRule);
+    prisma.shippingRule.update.mockResolvedValue({ ...invalidRule, isActive: false });
+
+    const result = await service.update('rule-001', { isActive: false } as any);
+
+    expect(prisma.shippingRule.update).toHaveBeenCalledWith({
+      where: { id: 'rule-001' },
+      data: { isActive: false },
+    });
+    expect(result.isActive).toBe(false);
+    expect(cache.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeping invalid rule active still rejects and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(
+      makeRule({ firstFee: 0, isActive: true }),
+    );
+
+    await expect(
+      service.update('rule-001', { name: '仍然启用' } as any),
+    ).rejects.toThrow('运费规则「仍然启用」配置无效');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
+  it('partial update with existing valid formula still works', async () => {
+    const { service, prisma } = createMocks([]);
+    const existing = makeRule({ priority: 10 });
+    prisma.shippingRule.findUnique.mockResolvedValue(existing);
+    prisma.shippingRule.update.mockResolvedValue({ ...existing, priority: 20 });
+
+    const result = await service.update('rule-001', { priority: 20 } as any);
+
+    expect(prisma.shippingRule.update).toHaveBeenCalledWith({
+      where: { id: 'rule-001' },
+      data: { priority: 20 },
+    });
+    expect(result.priority).toBe(20);
+  });
 });
 
 describe('CreateShippingRuleDto 运费公式校验', () => {

@@ -101,14 +101,17 @@ export class ShippingRuleService {
       maxWeight: dto.maxWeight ?? (rule.maxWeight === null ? undefined : this.gramToKg(rule.maxWeight)),
     };
     this.validateRuleBounds(effective);
-    this.validateFormulaInput({
-      name: dto.name?.trim() ?? rule.name,
-      firstWeightKg: dto.firstWeightKg ?? rule.firstWeightKg,
-      firstFee: dto.firstFee ?? rule.firstFee,
-      additionalWeightKg: dto.additionalWeightKg ?? rule.additionalWeightKg,
-      additionalFee: dto.additionalFee ?? rule.additionalFee,
-      minChargeWeightKg: dto.minChargeWeightKg ?? rule.minChargeWeightKg,
-    });
+    const effectiveIsActive = dto.isActive ?? rule.isActive;
+    if (effectiveIsActive) {
+      this.validateFormulaInput({
+        name: dto.name?.trim() ?? rule.name,
+        firstWeightKg: dto.firstWeightKg ?? rule.firstWeightKg,
+        firstFee: dto.firstFee ?? rule.firstFee,
+        additionalWeightKg: dto.additionalWeightKg ?? rule.additionalWeightKg,
+        additionalFee: dto.additionalFee ?? rule.additionalFee,
+        minChargeWeightKg: dto.minChargeWeightKg ?? rule.minChargeWeightKg,
+      });
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
