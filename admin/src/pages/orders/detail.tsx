@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
+import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Timeline } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { getOrder, retryRefund } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
@@ -263,17 +263,39 @@ export default function OrderDetailPage() {
 
       {/* 时间线（关键时间节点，售后争议时一目了然） */}
       <Card title="时间线" style={{ marginBottom: 16 }}>
-        <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }}>
-          <Descriptions.Item label="下单时间">{formatDateTime(order.createdAt)}</Descriptions.Item>
-          <Descriptions.Item label="支付时间">{formatDateTime(order.paidAt)}</Descriptions.Item>
-          <Descriptions.Item label="发货时间">{formatDateTime(shippedAt)}</Descriptions.Item>
-          <Descriptions.Item label="送达时间">{formatDateTime(order.deliveredAt)}</Descriptions.Item>
-          <Descriptions.Item label="收货时间">{formatDateTime(order.receivedAt)}</Descriptions.Item>
-          <Descriptions.Item label="自动收货时间">{formatDateTime(order.autoReceiveAt)}</Descriptions.Item>
-          <Descriptions.Item label="退货窗口截止" span={3}>
-            {formatDateTime(order.returnWindowExpiresAt)}
-          </Descriptions.Item>
-        </Descriptions>
+        <Timeline
+          mode="left"
+          items={[
+            { label: '下单', time: order.createdAt },
+            { label: '支付', time: order.paidAt },
+            { label: '发货', time: shippedAt },
+            { label: '送达', time: order.deliveredAt },
+            { label: '收货', time: order.receivedAt },
+            { label: '自动收货', time: order.autoReceiveAt },
+            { label: '退货窗口截止', time: order.returnWindowExpiresAt, deadline: true },
+          ].map((node) => {
+            const reached = !!node.time;
+            const labelColor = reached ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.35)';
+            const dotColor = node.deadline
+              ? '#fa8c16'                         // 退货窗口截止 = 橙色（deadline 高亮）
+              : reached
+                ? (isCanceled || isRefunded ? '#ff4d4f' : '#52c41a')
+                : '#d9d9d9';
+            return {
+              color: dotColor,
+              label: (
+                <span style={{ color: labelColor, fontFamily: 'monospace', fontSize: 13 }}>
+                  {reached ? formatDateTime(node.time) : '—'}
+                </span>
+              ),
+              children: (
+                <span style={{ color: labelColor, fontWeight: reached ? 500 : 400 }}>
+                  {node.label}
+                </span>
+              ),
+            };
+          })}
+        />
       </Card>
 
       {/* 支付信息 */}
