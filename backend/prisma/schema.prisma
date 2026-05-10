@@ -1183,7 +1183,7 @@ model ProductSKU {
   cost       Float     @default(0) // 成本价（元），卖家商品必填，平台/抽奖商品由后台设置
   stock        Int       @default(0)
   maxPerOrder  Int?      // 单笔订单限购数量，null = 不限制
-  weightGram Int?
+  weightGram Int
   barcode    String?
   status     SkuStatus @default(ACTIVE)
   createdAt  DateTime  @default(now())
@@ -1421,6 +1421,7 @@ model Order {
   shipments          Shipment[]
   invoice            Invoice?
   paymentGroupItems  PaymentGroupItem[]
+  shippingCosts      OrderShippingCost[]
 
   // I 域关系
   vipPurchase        VipPurchase?
@@ -2159,18 +2160,45 @@ model LotteryRecord {
 
 // --- J6: 平台统一运费规则（替代商户 ShippingTemplate） ---
 model ShippingRule {
-  id           String   @id @default(cuid())
-  name         String   // 规则名称
-  regionCodes  String[] // 适用地区行政区划码列表（省级，空=全国）
-  minAmount    Float?   // 订单金额下限（含）
-  maxAmount    Float?   // 订单金额上限（不含，null=无上限）
-  minWeight    Int?     // 商品总重量下限(克)
-  maxWeight    Int?     // 商品总重量上限(克)
-  fee          Float    // 运费金额
-  priority     Int      @default(0) // 优先级（高优先级先匹配）
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  name               String   // 规则名称
+  regionCodes        String[] // 适用地区行政区划码列表（省级，空=全国）
+  minAmount          Float?   // 订单金额下限（含）
+  maxAmount          Float?   // 订单金额上限（不含，null=无上限）
+  minWeight          Int?     // 商品总重量下限(克)
+  maxWeight          Int?     // 商品总重量上限(克)
+  fee                Float    @default(0) // 兼容旧字段：保留一版用于回滚兜底
+  firstWeightKg      Float    @default(3)
+  firstFee           Float
+  additionalWeightKg Float    @default(1)
+  additionalFee      Float
+  minChargeWeightKg  Float    @default(1)
+  priority           Int      @default(0) // 优先级（高优先级先匹配）
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([isActive, priority])
+}
+
+model OrderShippingCost {
+  id              String   @id @default(cuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  packageIndex    Int
+  companyId       String?
+  sfOrderId       String   @unique
+  weightGramSent  Int
+  estimatedCost   Float?
+  actualCost      Float?
+  reconciledAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([companyId, createdAt])
+  @@index([reconciledAt])
+  @@map("order_shipping_costs")
 }
 
 // --- J7: 换货请求（替代退款 Refund） ---
