@@ -472,6 +472,24 @@ export class AdminAfterSaleService {
   }
 
   async retryRefund(id: string, refundId: string, adminUserId: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        refundId: true,
+        refundByAfterSaleId: { select: { id: true } },
+      },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+
+    const linkedRefundIds = [
+      request.refundId,
+      request.refundByAfterSaleId?.id,
+    ].filter(Boolean);
+    if (!linkedRefundIds.includes(refundId)) {
+      throw new BadRequestException('退款单不属于该售后申请');
+    }
+
     return this.afterSaleRefundService.retryRefund(refundId, {
       type: 'ADMIN',
       id: adminUserId,

@@ -192,6 +192,36 @@ describe('SellerAfterSaleService exchange waybills', () => {
       }),
     );
   });
+
+  it('does not cancel an idempotent replacement waybill already stored by a concurrent winner', async () => {
+    const tx = {
+      $executeRaw: jest.fn(),
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(baseRequest())
+          .mockResolvedValueOnce(
+            baseRequest({
+              replacementWaybillNo: 'SF1234567890',
+              replacementWaybillUrl: 'https://example.com/waybill.pdf',
+              replacementCarrierCode: 'SF',
+              replacementCarrierName: '顺丰速运',
+            }),
+          ),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const { service, shippingService } = makeService(tx);
+
+    await expect(
+      service.generateWaybill(companyId, staffId, afterSaleId, 'SF'),
+    ).resolves.toEqual(expect.objectContaining({
+      ok: true,
+      waybillNo: expect.any(String),
+      carrierCode: 'SF',
+    }));
+    expect(shippingService.cancelCarrierWaybill).not.toHaveBeenCalled();
+  });
 });
 
 describe('SellerAfterSaleService.ship', () => {
@@ -356,5 +386,41 @@ describe('SellerAfterSaleService.generateSellerReturnWaybill', () => {
         }),
       }),
     );
+  });
+
+  it('does not cancel an idempotent seller return waybill already stored by a concurrent winner', async () => {
+    const tx = {
+      $executeRaw: jest.fn(),
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(
+            baseRequest({
+              status: 'SELLER_REJECTED_RETURN',
+              sellerReturnWaybillNo: null,
+            }),
+          )
+          .mockResolvedValueOnce(
+            baseRequest({
+              status: 'SELLER_REJECTED_RETURN',
+              sellerReturnCarrierCode: 'SF',
+              sellerReturnCarrierName: '顺丰速运',
+              sellerReturnWaybillNo: 'SF0987654321',
+              sellerReturnWaybillUrl: 'https://example.com/reject-waybill.pdf',
+            }),
+          ),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const { service, shippingService } = makeService(tx);
+
+    await expect(
+      service.generateSellerReturnWaybill(companyId, staffId, afterSaleId),
+    ).resolves.toEqual(expect.objectContaining({
+      ok: true,
+      waybillNo: expect.any(String),
+      carrierCode: 'SF',
+    }));
+    expect(shippingService.cancelCarrierWaybill).not.toHaveBeenCalled();
   });
 });

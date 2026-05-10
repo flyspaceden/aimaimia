@@ -1,3 +1,4 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdminAfterSaleService } from './admin-after-sale.service';
 
 function makeService(tx: any) {
@@ -305,14 +306,62 @@ describe('AdminAfterSaleService.findAll', () => {
 
 describe('AdminAfterSaleService.retryRefund', () => {
   it('delegates to AfterSaleRefundService.retryRefund with ADMIN operator', async () => {
-    const tx = {};
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'after-sale-1',
+          refundId: 'refund-1',
+          refundByAfterSaleId: null,
+        }),
+      },
+    };
     const { service, afterSaleRefundService } = makeService(tx);
 
     await service.retryRefund('after-sale-1', 'refund-1', 'admin-1');
 
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith({
+      where: { id: 'after-sale-1' },
+      select: {
+        id: true,
+        refundId: true,
+        refundByAfterSaleId: { select: { id: true } },
+      },
+    });
     expect(afterSaleRefundService.retryRefund).toHaveBeenCalledWith(
       'refund-1',
       { type: 'ADMIN', id: 'admin-1' },
     );
+  });
+
+  it('rejects refund retry when refund does not belong to the after-sale request', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'after-sale-1',
+          refundId: 'refund-owned',
+          refundByAfterSaleId: null,
+        }),
+      },
+    };
+    const { service, afterSaleRefundService } = makeService(tx);
+
+    await expect(
+      service.retryRefund('after-sale-1', 'refund-other', 'admin-1'),
+    ).rejects.toThrow(BadRequestException);
+    expect(afterSaleRefundService.retryRefund).not.toHaveBeenCalled();
+  });
+
+  it('rejects refund retry for missing after-sale request without delegating', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+    };
+    const { service, afterSaleRefundService } = makeService(tx);
+
+    await expect(
+      service.retryRefund('missing-after-sale', 'refund-1', 'admin-1'),
+    ).rejects.toThrow(NotFoundException);
+    expect(afterSaleRefundService.retryRefund).not.toHaveBeenCalled();
   });
 });

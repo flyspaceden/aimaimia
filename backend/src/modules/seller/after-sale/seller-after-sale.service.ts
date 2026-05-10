@@ -913,7 +913,7 @@ export class SellerAfterSaleService {
         sfOrderId: waybill.sfOrderId,
       };
 
-      await this.prisma.$transaction(
+      const persisted = await this.prisma.$transaction(
         async (tx) => {
           await this.acquireWaybillGenerationLock(tx, `${companyId}:${id}`);
 
@@ -933,25 +933,44 @@ export class SellerAfterSaleService {
           });
 
           if (cas.count === 0) {
-            throw new BadRequestException(
-              '该售后已生成面单，请勿重复操作',
-            );
+            const existing = await tx.afterSaleRequest.findUnique({
+              where: { id },
+              select: {
+                replacementCarrierCode: true,
+                replacementCarrierName: true,
+                replacementWaybillNo: true,
+                replacementWaybillUrl: true,
+              },
+            });
+            if (existing?.replacementWaybillNo === waybill.waybillNo) {
+              return existing;
+            }
+            throw new BadRequestException('该售后已生成面单，请勿重复操作');
           }
+
+          return {
+            replacementCarrierCode: waybill.carrierCode,
+            replacementCarrierName: waybill.carrierName,
+            replacementWaybillNo: waybill.waybillNo,
+            replacementWaybillUrl: waybill.waybillUrl,
+          };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+      createdWaybill = null;
 
       return {
         ok: true,
         waybillNo:
-          maskTrackingNo(waybill.waybillNo) || waybill.waybillNo,
+          maskTrackingNo(persisted.replacementWaybillNo) ||
+          persisted.replacementWaybillNo,
         waybillPrintUrl: this.getWaybillPrintUrl(
           companyId,
           id,
           staffId,
         ),
-        carrierCode: waybill.carrierCode,
-        carrierName: waybill.carrierName,
+        carrierCode: persisted.replacementCarrierCode,
+        carrierName: persisted.replacementCarrierName,
       };
     } catch (error) {
       await this.rollbackCreatedWaybill(createdWaybill);
@@ -1072,7 +1091,7 @@ export class SellerAfterSaleService {
         sfOrderId: waybill.sfOrderId,
       };
 
-      await this.prisma.$transaction(
+      const persisted = await this.prisma.$transaction(
         async (tx) => {
           await this.acquireWaybillGenerationLock(tx, `seller-return:${companyId}:${id}`);
 
@@ -1092,18 +1111,40 @@ export class SellerAfterSaleService {
           });
 
           if (cas.count === 0) {
+            const existing = await tx.afterSaleRequest.findUnique({
+              where: { id },
+              select: {
+                sellerReturnCarrierCode: true,
+                sellerReturnCarrierName: true,
+                sellerReturnWaybillNo: true,
+                sellerReturnWaybillUrl: true,
+              },
+            });
+            if (existing?.sellerReturnWaybillNo === waybill.waybillNo) {
+              return existing;
+            }
             throw new BadRequestException('该售后已生成卖家回寄面单，请勿重复操作');
           }
+
+          return {
+            sellerReturnCarrierCode: waybill.carrierCode,
+            sellerReturnCarrierName: waybill.carrierName,
+            sellerReturnWaybillNo: waybill.waybillNo,
+            sellerReturnWaybillUrl: waybill.waybillUrl,
+          };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+      createdWaybill = null;
 
       return {
         ok: true,
-        waybillNo: maskTrackingNo(waybill.waybillNo) || waybill.waybillNo,
-        waybillUrl: waybill.waybillUrl,
-        carrierCode: waybill.carrierCode,
-        carrierName: waybill.carrierName,
+        waybillNo:
+          maskTrackingNo(persisted.sellerReturnWaybillNo) ||
+          persisted.sellerReturnWaybillNo,
+        waybillUrl: persisted.sellerReturnWaybillUrl,
+        carrierCode: persisted.sellerReturnCarrierCode,
+        carrierName: persisted.sellerReturnCarrierName,
       };
     } catch (error) {
       await this.rollbackCreatedWaybill(createdWaybill);
