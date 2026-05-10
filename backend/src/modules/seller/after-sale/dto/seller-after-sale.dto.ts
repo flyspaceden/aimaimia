@@ -44,3 +44,10 @@ export class GenerateWaybillDto {
   @MaxLength(16, { message: 'carrierCode 不能超过 16 个字符' })
   carrierCode: string;
 }
+
+export class GenerateSellerReturnWaybillDto {
+  @IsOptional()
+  @IsString({ message: 'carrierCode 必须为字符串' })
+  @MaxLength(16, { message: 'carrierCode 不能超过 16 个字符' })
+  carrierCode?: string;
+}

@@ -28,6 +28,7 @@ import {
   RejectAfterSaleDto,
   RejectReturnDto,
   GenerateWaybillDto,
+  GenerateSellerReturnWaybillDto,
 } from './dto/seller-after-sale.dto';
 import { applyWaybillWatermark } from '../../../common/security/waybill-watermark';
 import {
@@ -219,6 +220,30 @@ export class SellerAfterSaleController {
       staffId,
       id,
       dto.carrierCode,
+    );
+  }
+
+  /** 生成卖家拒收退货回寄电子面单 */
+  @SellerAudit({
+    action: 'GENERATE_AFTER_SALE_SELLER_RETURN_WAYBILL',
+    module: 'after-sale',
+    targetType: 'AfterSaleRequest',
+    targetIdParam: 'params.id',
+  })
+  @UseGuards(SellerAuthGuard, SellerRoleGuard)
+  @SellerRoles('OWNER', 'MANAGER')
+  @Post(':id/seller-return-waybill')
+  generateSellerReturnWaybill(
+    @CurrentSeller('companyId') companyId: string,
+    @CurrentSeller('sub') staffId: string,
+    @Param('id') id: string,
+    @Body() dto: GenerateSellerReturnWaybillDto = {},
+  ) {
+    return this.afterSaleService.generateSellerReturnWaybill(
+      companyId,
+      staffId,
+      id,
+      dto.carrierCode ?? 'SF',
     );
   }
 
