@@ -420,7 +420,7 @@ describe('AfterSaleShippingPaymentService', () => {
       refundReason: '售后单状态已变更为 CLOSED，准备原路退还退货运费',
     });
     expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { afterSaleId: 'as_001', status: 'REFUNDING' },
+      where: { afterSaleId: 'as_001', status: { in: ['REFUNDING', 'FAILED'] } },
       data: expect.objectContaining({ status: 'REFUNDED' }),
     }));
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
@@ -509,7 +509,7 @@ describe('AfterSaleShippingPaymentService', () => {
       refundReason: '面单取消',
     });
     expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { afterSaleId: 'as_001', status: 'REFUNDING' },
+      where: { afterSaleId: 'as_001', status: { in: ['REFUNDING', 'FAILED'] } },
       data: expect.objectContaining({
         status: 'REFUNDED',
         refundedAt: expect.any(Date),
@@ -588,6 +588,31 @@ describe('AfterSaleShippingPaymentService', () => {
       merchantOrderNo: 'AS_SHIP_PAY_as_001',
       merchantRefundNo: 'AS_SHIP_REFUND_as_001',
       refundAmount: 18.13,
+    }));
+  });
+
+  it('refundShippingPayment lets a successful retry recover FAILED left by a concurrent retry', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'REFUNDING',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      paidAt,
+      failureReason: '退货运费退款中: 并发重试',
+    });
+
+    await service.refundShippingPayment('as_001', '并发重试');
+
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        afterSaleId: 'as_001',
+        status: { in: ['REFUNDING', 'FAILED'] },
+      },
+      data: expect.objectContaining({
+        status: 'REFUNDED',
+        failureReason: null,
+      }),
     }));
   });
 

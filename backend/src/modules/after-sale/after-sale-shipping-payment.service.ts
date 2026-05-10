@@ -263,7 +263,9 @@ export class AfterSaleShippingPaymentService {
     await this.withSerializableRetry(
       async (tx) => {
         await tx.afterSaleShippingPayment.updateMany({
-          where: { afterSaleId, status: 'REFUNDING' },
+          where: result.success
+            ? { afterSaleId, status: { in: ['REFUNDING', 'FAILED'] } }
+            : { afterSaleId, status: 'REFUNDING' },
           data: result.success
             ? {
                 status: 'REFUNDED',
