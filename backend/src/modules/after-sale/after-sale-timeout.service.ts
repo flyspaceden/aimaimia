@@ -311,11 +311,13 @@ export class AfterSaleTimeoutService {
     if (request.returnWaybillNo && request.returnSfOrderId && !buyerPaidShippingUnpaid) {
       const cancelResult = await this.afterSaleReturnShippingService.cancelIfNotPickedUp(id);
       if (cancelResult.cancelled) {
+        const closed = await this.closeBuyerShipTimeout(id);
+        if (!closed) return 'SKIPPED';
         await this.afterSaleShippingPaymentService.refundShippingPayment(
           id,
           '退货面单未揽收，售后关闭退还运费',
         );
-        return await this.closeBuyerShipTimeout(id) ? 'CLOSED' : 'SKIPPED';
+        return 'CLOSED';
       }
 
       await this.markBuyerShipTimeoutManualReview(
@@ -325,6 +327,9 @@ export class AfterSaleTimeoutService {
       return 'MANUAL_REVIEW';
     }
 
+    const closed = await this.closeBuyerShipTimeout(id);
+    if (!closed) return 'SKIPPED';
+
     if (!request.returnWaybillNo && buyerPaidShippingPaid) {
       await this.afterSaleShippingPaymentService.refundShippingPayment(
         id,
@@ -332,7 +337,7 @@ export class AfterSaleTimeoutService {
       );
     }
 
-    return await this.closeBuyerShipTimeout(id) ? 'CLOSED' : 'SKIPPED';
+    return 'CLOSED';
   }
 
   private async closeBuyerShipTimeout(id: string): Promise<boolean> {

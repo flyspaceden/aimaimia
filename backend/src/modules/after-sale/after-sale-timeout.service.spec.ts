@@ -127,7 +127,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     );
   });
 
-  it('refunds buyer-paid shipping before closing APPROVED no-waybill timeout', async () => {
+  it('refunds buyer-paid shipping only after closing APPROVED no-waybill timeout', async () => {
     const {
       service,
       prisma,
@@ -164,6 +164,35 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       fromStatus: 'APPROVED',
       toStatus: 'CLOSED',
     }));
+    expect(tx.afterSaleRequest.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(shippingPaymentService.refundShippingPayment.mock.invocationCallOrder[0]);
+  });
+
+  it('does not refund buyer-paid shipping when timeout close CAS fails', async () => {
+    const {
+      service,
+      prisma,
+      tx,
+      shippingPaymentService,
+    } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      { id: AFTER_SALE_ID, orderId: ORDER_ID },
+    ]);
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      status: 'APPROVED',
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+      returnShippingPayer: 'BUYER',
+      returnShippingFeeDeducted: false,
+      returnShippingPaidAt: new Date('2026-05-09T10:30:00.000Z'),
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'APPROVED' });
+    tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 0 });
+
+    await (service as any).handleBuyerShipTimeout();
+
+    expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
   });
 
   it('cancels stale RETURN_SHIPPING generated waybill, refunds shipping payment, and closes to CLOSED', async () => {
@@ -193,18 +222,50 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     await (service as any).handleBuyerShipTimeout();
 
     expect(returnShippingService.cancelIfNotPickedUp).toHaveBeenCalledWith(AFTER_SALE_ID);
-    expect(shippingPaymentService.refundShippingPayment).toHaveBeenCalledWith(
-      AFTER_SALE_ID,
-      '退货面单未揽收，售后关闭退还运费',
-    );
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
       where: { id: AFTER_SALE_ID, status: 'RETURN_SHIPPING', manualReviewRequestedAt: null },
       data: { status: 'CLOSED' },
     });
+    expect(shippingPaymentService.refundShippingPayment).toHaveBeenCalledWith(
+      AFTER_SALE_ID,
+      '退货面单未揽收，售后关闭退还运费',
+    );
+    expect(tx.afterSaleRequest.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(shippingPaymentService.refundShippingPayment.mock.invocationCallOrder[0]);
     expect(statusHistory.create).toHaveBeenCalledWith(tx, expect.objectContaining({
       fromStatus: 'RETURN_SHIPPING',
       toStatus: 'CLOSED',
     }));
+  });
+
+  it('does not refund cancelled generated waybill when timeout close CAS fails', async () => {
+    const {
+      service,
+      prisma,
+      tx,
+      returnShippingService,
+      shippingPaymentService,
+    } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      { id: AFTER_SALE_ID, orderId: ORDER_ID },
+    ]);
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      status: 'RETURN_SHIPPING',
+      returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
+      returnShippingPayer: 'PLATFORM',
+      returnShippingFeeDeducted: false,
+      returnShippingPaidAt: null,
+    });
+    returnShippingService.cancelIfNotPickedUp.mockResolvedValue({ cancelled: true });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({ status: 'RETURN_SHIPPING' });
+    tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 0 });
+
+    await (service as any).handleBuyerShipTimeout();
+
+    expect(returnShippingService.cancelIfNotPickedUp).toHaveBeenCalledWith(AFTER_SALE_ID);
+    expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
   });
 
   it('marks manual review when stale RETURN_SHIPPING generated waybill cancellation fails and does not close', async () => {

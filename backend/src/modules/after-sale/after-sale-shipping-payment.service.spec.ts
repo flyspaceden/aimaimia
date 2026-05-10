@@ -358,15 +358,25 @@ describe('AfterSaleShippingPaymentService', () => {
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
   });
 
-  it('handlePaymentSuccess records late CLOSED success as PAID manual refund without regressing request', async () => {
-    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
-      id: 'ship_pay_001',
-      afterSaleId: 'as_001',
-      amount: 18.13,
-      status: 'CLOSED',
-      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
-      providerPaymentNo: null,
-    });
+  it('handlePaymentSuccess refunds late CLOSED success through original Alipay trade', async () => {
+    tx.afterSaleShippingPayment.findUnique
+      .mockResolvedValueOnce({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        amount: 18.13,
+        status: 'CLOSED',
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        providerPaymentNo: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        amount: 18.13,
+        status: 'PAID',
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        providerPaymentNo: 'trade_late',
+        paidAt,
+      });
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
       status: 'CLOSED',
@@ -383,19 +393,41 @@ describe('AfterSaleShippingPaymentService', () => {
         status: 'PAID',
         providerPaymentNo: 'trade_late',
         paidAt,
-        failureReason: '售后单状态已变更为 CLOSED，需人工退还退货运费',
+        failureReason: '售后单状态已变更为 CLOSED，准备原路退还退货运费',
       }),
     }));
-    expect(tx.afterSaleRequest.update).toHaveBeenCalledWith({
-      where: { id: 'as_001' },
-      data: {
-        manualReviewReason: '售后单状态已变更为 CLOSED，需人工退还退货运费',
-        manualReviewRequestedAt: paidAt,
-      },
+    expect(alipayService.refund).toHaveBeenCalledWith({
+      merchantOrderNo: 'AS_SHIP_PAY_as_001',
+      refundAmount: 18.13,
+      merchantRefundNo: 'AS_SHIP_REFUND_as_001',
+      refundReason: '售后单状态已变更为 CLOSED，准备原路退还退货运费',
     });
+    expect(tx.afterSaleShippingPayment.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { afterSaleId: 'as_001' },
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ manualReviewRequestedAt: paidAt }),
+    }));
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ returnShippingPaidAt: paidAt }),
     }));
+  });
+
+  it('handlePaymentFailure does not overwrite a paid refund-failed shipping payment', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'FAILED',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      paidAt,
+      failureReason: '退货运费退款失败: 余额不足',
+    });
+
+    await service.handlePaymentFailure('AS_SHIP_PAY_as_001', '支付关闭');
+
+    expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
   });
 
   it('refundShippingPayment refunds PAID return shipping fee through original Alipay trade', async () => {

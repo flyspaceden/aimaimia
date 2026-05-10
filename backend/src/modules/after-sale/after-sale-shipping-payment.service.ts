@@ -88,27 +88,27 @@ export class AfterSaleShippingPaymentService {
   ): Promise<void> {
     const confirmedAt = paidAt ?? new Date();
 
-    await this.withSerializableRetry(
+    const refundAfterSuccess = await this.withSerializableRetry(
       async (tx) => {
         const payment = await tx.afterSaleShippingPayment.findUnique({
           where: { merchantPaymentNo },
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
-        if (payment.status === 'PAID') return;
-        if (payment.status === 'FAILED' && payment.paidAt) return;
-        if (['REFUNDING', 'REFUNDED'].includes(payment.status)) return;
+        if (payment.status === 'PAID') return null;
+        if (payment.status === 'FAILED' && payment.paidAt) return null;
+        if (['REFUNDING', 'REFUNDED'].includes(payment.status)) return null;
         if (!['UNPAID', 'PENDING', 'FAILED', 'CLOSED'].includes(payment.status)) {
-          return;
+          return null;
         }
 
         const request = await tx.afterSaleRequest.findUnique({
           where: { id: payment.afterSaleId },
         });
         if (!request) throw new NotFoundException('售后单不存在');
-        const manualRefundReason =
+        const nonActiveRefundReason =
           request.status === 'APPROVED'
             ? null
-            : `售后单状态已变更为 ${request.status}，需人工退还退货运费`;
+            : `售后单状态已变更为 ${request.status}，准备原路退还退货运费`;
 
         const updated = await tx.afterSaleShippingPayment.updateMany({
           where: {
@@ -119,28 +119,33 @@ export class AfterSaleShippingPaymentService {
             status: 'PAID',
             providerPaymentNo: providerPaymentNo ?? payment.providerPaymentNo,
             paidAt: confirmedAt,
-            failureReason: manualRefundReason,
+            failureReason: nonActiveRefundReason,
           },
         });
-        if (updated.count === 0) return;
+        if (updated.count === 0) return null;
 
         if (request.status !== 'APPROVED') {
-          await tx.afterSaleRequest.update({
-            where: { id: payment.afterSaleId },
-            data: {
-              manualReviewReason: manualRefundReason,
-              manualReviewRequestedAt: confirmedAt,
-            },
-          });
-          return;
+          const refundReason = `售后单状态已变更为 ${request.status}，准备原路退还退货运费`;
+          return {
+            afterSaleId: payment.afterSaleId,
+            reason: refundReason,
+          };
         }
 
         await tx.afterSaleRequest.update({
           where: { id: payment.afterSaleId },
           data: { returnShippingPaidAt: confirmedAt },
         });
+        return null;
       },
     );
+
+    if (refundAfterSuccess) {
+      await this.refundShippingPayment(
+        refundAfterSuccess.afterSaleId,
+        refundAfterSuccess.reason,
+      );
+    }
   }
 
   async handlePaymentFailure(
@@ -153,6 +158,9 @@ export class AfterSaleShippingPaymentService {
           where: { merchantPaymentNo },
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
+        if (payment.status === 'FAILED' && payment.paidAt) {
+          return;
+        }
         if (['PAID', 'CLOSED', 'REFUNDING', 'REFUNDED'].includes(payment.status)) {
           return;
         }
