@@ -59,6 +59,7 @@ export default function AfterSaleScreen() {
   // Step 3: 照片
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   // Step 4: 原因
   // 质量类：reasonType（必选，默认第一个）+ 描述
   // 无理由类：常见说明 chips（多选可选）+ 描述
@@ -181,13 +182,18 @@ export default function AfterSaleScreen() {
 
     if (result.canceled || !result.assets?.length) return;
 
+    const total = result.assets.length;
+    setUploadProgress({ current: 0, total });
     setUploading(true);
     let successCount = 0;
     let failCount = 0;
     let lastError = '';
     try {
       const newUrls: string[] = [];
-      for (const asset of result.assets) {
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        // 推进进度（让 overlay 显示 "正在上传 i+1/N"）
+        setUploadProgress({ current: i + 1, total });
         const formData = new FormData();
         const uri = asset.uri;
         const filename = uri.split('/').pop() || 'photo.jpg';
@@ -221,6 +227,7 @@ export default function AfterSaleScreen() {
       show({ message: `照片上传异常：${err?.message ?? '未知错误'}`, type: 'error' });
     } finally {
       setUploading(false);
+      setUploadProgress({ current: 0, total: 0 });
     }
   };
 
@@ -810,6 +817,26 @@ export default function AfterSaleScreen() {
           </Animated.View>
         )}
       </ScrollView>
+
+      {/* ═══════ 上传中全屏遮罩（阻止用户点其他按钮） ═══════ */}
+      {uploading && (
+        <View style={styles.uploadOverlay} pointerEvents="auto">
+          <View style={[styles.uploadModal, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+            <ActivityIndicator size="large" color={colors.brand.primary} />
+            <Text style={[typography.bodyStrong, { color: colors.text.primary, marginTop: spacing.md }]}>
+              正在上传照片
+            </Text>
+            <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+              {uploadProgress.total > 0
+                ? `${uploadProgress.current}/${uploadProgress.total}`
+                : '准备中...'}
+            </Text>
+            <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
+              请勿关闭页面
+            </Text>
+          </View>
+        </View>
+      )}
     </Screen>
   );
 }
@@ -934,5 +961,27 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 4,
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+    elevation: 10,
+  },
+  uploadModal: {
+    paddingHorizontal: 32,
+    paddingVertical: 28,
+    minWidth: 200,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
   },
 });
