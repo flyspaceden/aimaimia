@@ -414,6 +414,42 @@ describe('AfterSaleShippingPaymentService', () => {
     }));
   });
 
+  it('handlePaymentSuccess retries refund for already PAID non-active shipping payment', async () => {
+    tx.afterSaleShippingPayment.findUnique
+      .mockResolvedValueOnce({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        amount: 18.13,
+        status: 'PAID',
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        providerPaymentNo: 'trade_late',
+        paidAt,
+        failureReason: '售后单状态已变更为 CLOSED，准备原路退还退货运费',
+      })
+      .mockResolvedValueOnce({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        amount: 18.13,
+        status: 'PAID',
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        providerPaymentNo: 'trade_late',
+        paidAt,
+      });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      status: 'CLOSED',
+    });
+
+    await service.handlePaymentSuccess('AS_SHIP_PAY_as_001', 'trade_late', paidAt);
+
+    expect(alipayService.refund).toHaveBeenCalledWith({
+      merchantOrderNo: 'AS_SHIP_PAY_as_001',
+      refundAmount: 18.13,
+      merchantRefundNo: 'AS_SHIP_REFUND_as_001',
+      refundReason: '售后单状态已变更为 CLOSED，准备原路退还退货运费',
+    });
+  });
+
   it('handlePaymentFailure does not overwrite a paid refund-failed shipping payment', async () => {
     tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
       id: 'ship_pay_001',

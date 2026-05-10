@@ -94,7 +94,19 @@ export class AfterSaleShippingPaymentService {
           where: { merchantPaymentNo },
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
-        if (payment.status === 'PAID') return null;
+        if (payment.status === 'PAID') {
+          const request = await tx.afterSaleRequest.findUnique({
+            where: { id: payment.afterSaleId },
+          });
+          if (!request) throw new NotFoundException('售后单不存在');
+          if (request.status === 'APPROVED') return null;
+          return {
+            afterSaleId: payment.afterSaleId,
+            reason:
+              payment.failureReason ||
+              `售后单状态已变更为 ${request.status}，准备原路退还退货运费`,
+          };
+        }
         if (payment.status === 'FAILED' && payment.paidAt) return null;
         if (['REFUNDING', 'REFUNDED'].includes(payment.status)) return null;
         if (!['UNPAID', 'PENDING', 'FAILED', 'CLOSED'].includes(payment.status)) {

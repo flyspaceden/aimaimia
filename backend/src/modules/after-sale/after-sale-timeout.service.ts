@@ -18,6 +18,12 @@ const MAX_RETRIES = 3;
 /** 每批处理的最大数量 */
 const BATCH_SIZE = 100;
 
+type BuyerShipTimeoutCloseExpectation = {
+  status: 'APPROVED' | 'RETURN_SHIPPING';
+  returnWaybillNo: string | null;
+  returnSfOrderId: string | null;
+};
+
 /**
  * 售后超时自动处理 Cron 服务
  *
@@ -295,11 +301,6 @@ export class AfterSaleTimeoutService {
       request.returnShippingPayer === 'BUYER' &&
       !request.returnShippingFeeDeducted &&
       request.returnShippingPaidAt == null;
-    const buyerPaidShippingPaid =
-      request.returnShippingPayer === 'BUYER' &&
-      !request.returnShippingFeeDeducted &&
-      request.returnShippingPaidAt != null;
-
     if (
       request.status === 'RETURN_SHIPPING' &&
       request.returnWaybillNo &&
@@ -311,7 +312,11 @@ export class AfterSaleTimeoutService {
     if (request.returnWaybillNo && request.returnSfOrderId && !buyerPaidShippingUnpaid) {
       const cancelResult = await this.afterSaleReturnShippingService.cancelIfNotPickedUp(id);
       if (cancelResult.cancelled) {
-        const closed = await this.closeBuyerShipTimeout(id);
+        const closed = await this.closeBuyerShipTimeout(id, {
+          status: request.status as BuyerShipTimeoutCloseExpectation['status'],
+          returnWaybillNo: null,
+          returnSfOrderId: null,
+        });
         if (!closed) return 'SKIPPED';
         await this.afterSaleShippingPaymentService.refundShippingPayment(
           id,
@@ -327,10 +332,14 @@ export class AfterSaleTimeoutService {
       return 'MANUAL_REVIEW';
     }
 
-    const closed = await this.closeBuyerShipTimeout(id);
+    const closed = await this.closeBuyerShipTimeout(id, {
+      status: request.status as BuyerShipTimeoutCloseExpectation['status'],
+      returnWaybillNo: request.returnWaybillNo ?? null,
+      returnSfOrderId: request.returnSfOrderId ?? null,
+    });
     if (!closed) return 'SKIPPED';
 
-    if (!request.returnWaybillNo && buyerPaidShippingPaid) {
+    if (!request.returnWaybillNo && request.returnShippingPayer === 'BUYER' && !request.returnShippingFeeDeducted) {
       await this.afterSaleShippingPaymentService.refundShippingPayment(
         id,
         '买家超时未生成退货面单，售后关闭退还运费',
@@ -340,26 +349,42 @@ export class AfterSaleTimeoutService {
     return 'CLOSED';
   }
 
-  private async closeBuyerShipTimeout(id: string): Promise<boolean> {
+  private async closeBuyerShipTimeout(
+    id: string,
+    expected: BuyerShipTimeoutCloseExpectation,
+  ): Promise<boolean> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         return await this.prisma.$transaction(
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
-              select: { status: true, manualReviewRequestedAt: true },
+              select: {
+                status: true,
+                manualReviewRequestedAt: true,
+                returnWaybillNo: true,
+                returnSfOrderId: true,
+              },
             });
             if (
               !request ||
               request.manualReviewRequestedAt ||
-              !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)
+              request.status !== expected.status ||
+              (request.returnWaybillNo ?? null) !== expected.returnWaybillNo ||
+              (request.returnSfOrderId ?? null) !== expected.returnSfOrderId
             ) {
               this.logger.log(`售后 ${id} 已非可关闭状态，跳过`);
               return false;
             }
 
             const cas = await tx.afterSaleRequest.updateMany({
-              where: { id, status: request.status, manualReviewRequestedAt: null },
+              where: {
+                id,
+                status: expected.status,
+                manualReviewRequestedAt: null,
+                returnWaybillNo: expected.returnWaybillNo,
+                returnSfOrderId: expected.returnSfOrderId,
+              },
               data: { status: 'CLOSED' },
             });
             if (cas.count === 0) {
