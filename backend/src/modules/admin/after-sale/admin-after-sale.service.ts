@@ -28,7 +28,17 @@ const ARBITRABLE_STATUSES = [
   'PENDING_ARBITRATION',
   'REQUESTED',
   'UNDER_REVIEW',
+  'REJECTED',
+  'SELLER_REJECTED_RETURN',
 ];
+
+function isReturnAfterSaleType(type: string) {
+  return type === 'NO_REASON_RETURN' || type === 'QUALITY_RETURN';
+}
+
+function isExchangeAfterSaleType(type: string) {
+  return type === 'NO_REASON_EXCHANGE' || type === 'QUALITY_EXCHANGE';
+}
 
 @Injectable()
 export class AdminAfterSaleService {
@@ -53,6 +63,7 @@ export class AdminAfterSaleService {
     afterSaleType?: string,
     companyId?: string,
     keyword?: string,
+    manualReview?: string,
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
@@ -72,6 +83,10 @@ export class AdminAfterSaleService {
         { id: keyword },
         { orderId: keyword },
       ];
+    }
+    if (manualReview === 'pending') {
+      where.manualReviewReason = { not: null };
+      where.manualReviewResolvedAt = null;
     }
 
     const [items, total] = await Promise.all([
@@ -268,7 +283,7 @@ export class AdminAfterSaleService {
    * 场景2: 源 PENDING_ARBITRATION，且之前是 SELLER_REJECTED_RETURN（卖家验收退货不合格）
    *   → 货物已在卖家手中
    *   → 退货退款类型 → 直接触发退款（→ REFUNDING）
-   *   → 换货类型 → APPROVED（卖家需要发货）
+   *   → 换货类型 → RECEIVED_BY_SELLER（卖家需要生成换货面单/发货）
    *
    * 场景3: 源 REQUESTED / UNDER_REVIEW（管理员主动介入）
    *   → 同场景1
@@ -334,20 +349,17 @@ export class AdminAfterSaleService {
 
             // 判断仲裁前来源，决定后续流程
             const fromSellerRejectedReturn =
-              currentStatus === 'PENDING_ARBITRATION' &&
+              currentStatus === 'SELLER_REJECTED_RETURN' ||
+              (currentStatus === 'PENDING_ARBITRATION' &&
               (
                 request.arbitrationSourceStatus === 'SELLER_REJECTED_RETURN' ||
                 request.arbitrationSource === 'SELLER_REJECTED_RETURN'
-              );
+              ));
 
             if (fromSellerRejectedReturn) {
               // 场景2: 卖家验收退货不合格后买家升级仲裁
               // 货物已在卖家手中
-              const isReturnType =
-                request.afterSaleType === 'NO_REASON_RETURN' ||
-                request.afterSaleType === 'QUALITY_RETURN';
-
-              if (isReturnType) {
+              if (isReturnAfterSaleType(request.afterSaleType)) {
                 // 退货退款：货物已在卖家，直接触发退款（跳过 APPROVED 中间态）
                 const cas = await tx.afterSaleRequest.updateMany({
                   where: { id, status: currentStatus },
@@ -372,12 +384,12 @@ export class AdminAfterSaleService {
                   operatorId: adminUserId,
                 });
                 shouldStartRefund = true;
-              } else {
-                // 换货：APPROVED，等卖家发换货
+              } else if (isExchangeAfterSaleType(request.afterSaleType)) {
+                // 换货：货物已在卖家，恢复到已收货，等卖家生成换货面单/发货
                 const cas = await tx.afterSaleRequest.updateMany({
                   where: { id, status: currentStatus },
                   data: {
-                    status: 'APPROVED',
+                    status: 'RECEIVED_BY_SELLER',
                     arbitrationSource: currentStatus,
                     reviewerId: adminUserId,
                     reviewNote: dto.reason,
@@ -391,11 +403,13 @@ export class AdminAfterSaleService {
                 await this.afterSaleStatusHistory.create(tx, {
                   afterSaleId: id,
                   fromStatus: currentStatus,
-                  toStatus: 'APPROVED',
+                  toStatus: 'RECEIVED_BY_SELLER',
                   reason: dto.reason,
                   operatorType: AfterSaleOperatorType.ADMIN,
                   operatorId: adminUserId,
                 });
+              } else {
+                throw new BadRequestException('该售后类型不支持卖家拒收退货仲裁通过');
               }
             } else {
               // 场景1 & 场景3: 正常审批流程
@@ -423,10 +437,7 @@ export class AdminAfterSaleService {
               });
 
               // 无需退回 + 退货退款类型 → 自动触发退款
-              const isReturnType =
-                request.afterSaleType === 'NO_REASON_RETURN' ||
-                request.afterSaleType === 'QUALITY_RETURN';
-              if (!request.requiresReturn && isReturnType) {
+              if (!request.requiresReturn && isReturnAfterSaleType(request.afterSaleType)) {
                 shouldStartRefund = true;
               }
               // 无需退回 + 换货：停留在 APPROVED，等卖家发货
@@ -458,6 +469,13 @@ export class AdminAfterSaleService {
     }
 
     throw new BadRequestException('操作失败，请稍后重试');
+  }
+
+  async retryRefund(id: string, refundId: string, adminUserId: string) {
+    return this.afterSaleRefundService.retryRefund(refundId, {
+      type: 'ADMIN',
+      id: adminUserId,
+    });
   }
 
   /** 列表项隐私脱敏 */

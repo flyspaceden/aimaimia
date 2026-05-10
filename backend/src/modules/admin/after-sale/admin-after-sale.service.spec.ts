@@ -9,6 +9,7 @@ function makeService(tx: any) {
       }
       return Promise.resolve(undefined);
     }),
+    retryRefund: jest.fn().mockResolvedValue({ id: 'refund-1', status: 'FAILED' }),
   };
   const afterSaleStatusHistory = {
     create: jest.fn().mockResolvedValue({ id: 'history-1' }),
@@ -39,6 +40,93 @@ function makeService(tx: any) {
 }
 
 describe('AdminAfterSaleService.arbitrate', () => {
+  it('actively intervenes on current SELLER_REJECTED_RETURN return type to REFUNDING and starts refund after transaction', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-current-return',
+            status: 'SELLER_REJECTED_RETURN',
+            arbitrationSourceStatus: null,
+            arbitrationSource: null,
+            afterSaleType: 'NO_REASON_RETURN',
+            requiresReturn: true,
+            order: { items: [] },
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-current-return',
+            status: 'REFUNDING',
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-current-return',
+            status: 'REFUNDING',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, afterSaleRefundService } = makeService(tx);
+
+    await service.arbitrate(
+      'after-sale-current-return',
+      { status: 'APPROVED', reason: '平台主动支持退款' } as any,
+      'admin-1',
+    );
+
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'after-sale-current-return', status: 'SELLER_REJECTED_RETURN' },
+      data: expect.objectContaining({
+        status: 'REFUNDING',
+        reviewerId: 'admin-1',
+        reviewNote: '平台主动支持退款',
+      }),
+    });
+    expect(afterSaleRefundService.startRefund).toHaveBeenCalledWith(
+      'after-sale-current-return',
+      { type: 'ADMIN', id: 'admin-1' },
+    );
+  });
+
+  it('actively intervenes on current SELLER_REJECTED_RETURN exchange type to RECEIVED_BY_SELLER', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-current-exchange',
+            status: 'SELLER_REJECTED_RETURN',
+            arbitrationSourceStatus: null,
+            arbitrationSource: null,
+            afterSaleType: 'NO_REASON_EXCHANGE',
+            requiresReturn: true,
+            order: { items: [] },
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-current-exchange',
+            status: 'RECEIVED_BY_SELLER',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, afterSaleRefundService } = makeService(tx);
+
+    await service.arbitrate(
+      'after-sale-current-exchange',
+      { status: 'APPROVED', reason: '平台主动支持换货' } as any,
+      'admin-1',
+    );
+
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'after-sale-current-exchange', status: 'SELLER_REJECTED_RETURN' },
+      data: expect.objectContaining({
+        status: 'RECEIVED_BY_SELLER',
+        reviewerId: 'admin-1',
+        reviewNote: '平台主动支持换货',
+      }),
+    });
+    expect(afterSaleRefundService.startRefund).not.toHaveBeenCalled();
+  });
+
   it('routes buyer-escalated seller rejected return arbitration directly to refunding for return types', async () => {
     const tx = {
       afterSaleRequest: {
@@ -142,6 +230,88 @@ describe('AdminAfterSaleService.arbitrate', () => {
     });
     expect(afterSaleRefundService.startRefund).toHaveBeenCalledWith(
       'after-sale-legacy',
+      { type: 'ADMIN', id: 'admin-1' },
+    );
+  });
+
+  it('routes buyer-escalated seller rejected exchange arbitration to RECEIVED_BY_SELLER', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-escalated-exchange',
+            status: 'PENDING_ARBITRATION',
+            arbitrationSourceStatus: 'SELLER_REJECTED_RETURN',
+            arbitrationSource: 'BUYER',
+            afterSaleType: 'QUALITY_EXCHANGE',
+            requiresReturn: true,
+            order: { items: [] },
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-escalated-exchange',
+            status: 'RECEIVED_BY_SELLER',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await service.arbitrate(
+      'after-sale-escalated-exchange',
+      { status: 'APPROVED', reason: '平台仲裁支持换货' } as any,
+      'admin-1',
+    );
+
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'after-sale-escalated-exchange', status: 'PENDING_ARBITRATION' },
+      data: expect.objectContaining({
+        status: 'RECEIVED_BY_SELLER',
+        reviewerId: 'admin-1',
+        reviewNote: '平台仲裁支持换货',
+      }),
+    });
+  });
+});
+
+describe('AdminAfterSaleService.findAll', () => {
+  it('filters pending manual review requests', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await service.findAll(1, 20, undefined, undefined, undefined, undefined, 'pending');
+
+    expect(tx.afterSaleRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          manualReviewReason: { not: null },
+          manualReviewResolvedAt: null,
+        },
+      }),
+    );
+    expect(tx.afterSaleRequest.count).toHaveBeenCalledWith({
+      where: {
+        manualReviewReason: { not: null },
+        manualReviewResolvedAt: null,
+      },
+    });
+  });
+});
+
+describe('AdminAfterSaleService.retryRefund', () => {
+  it('delegates to AfterSaleRefundService.retryRefund with ADMIN operator', async () => {
+    const tx = {};
+    const { service, afterSaleRefundService } = makeService(tx);
+
+    await service.retryRefund('after-sale-1', 'refund-1', 'admin-1');
+
+    expect(afterSaleRefundService.retryRefund).toHaveBeenCalledWith(
+      'refund-1',
       { type: 'ADMIN', id: 'admin-1' },
     );
   });
