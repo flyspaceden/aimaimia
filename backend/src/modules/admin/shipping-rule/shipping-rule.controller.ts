@@ -9,11 +9,14 @@ import {
   Query,
   UseGuards,
   UseInterceptors,
+  Header,
 } from '@nestjs/common';
 import { ShippingRuleService } from './shipping-rule.service';
+import { ShippingRuleImportService } from './shipping-rule-import.service';
 import { CreateShippingRuleDto } from './dto/create-shipping-rule.dto';
 import { UpdateShippingRuleDto } from './dto/update-shipping-rule.dto';
 import { PreviewShippingDto } from './dto/preview-shipping.dto';
+import { ImportShippingRuleDto } from './dto/import-shipping-rule.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -26,7 +29,10 @@ import { AuditLogInterceptor } from '../common/interceptors/audit-log.intercepto
 @UseInterceptors(AuditLogInterceptor)
 @Controller('admin/shipping-rules')
 export class ShippingRuleController {
-  constructor(private shippingRuleService: ShippingRuleService) {}
+  constructor(
+    private shippingRuleService: ShippingRuleService,
+    private shippingRuleImportService: ShippingRuleImportService,
+  ) {}
 
   /** 运费规则列表 */
   @Get()
@@ -46,6 +52,27 @@ export class ShippingRuleController {
   @RequirePermission('shipping:read')
   preview(@Body() dto: PreviewShippingDto) {
     return this.shippingRuleService.preview(dto);
+  }
+
+  /** 运费规则导入模板 */
+  @Get('template')
+  @RequirePermission('shipping:read')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  template() {
+    return this.shippingRuleImportService.getCsvTemplate();
+  }
+
+  /** 批量导入运费规则 */
+  @Post('import')
+  @RequirePermission('shipping:update')
+  @AuditLog({
+    action: 'IMPORT',
+    module: 'shipping',
+    targetType: 'ShippingRule',
+    isReversible: false,
+  })
+  import(@Body() dto: ImportShippingRuleDto) {
+    return this.shippingRuleImportService.importRules(dto);
   }
 
   /** 新增运费规则 */
