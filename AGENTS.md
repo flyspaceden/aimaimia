@@ -100,6 +100,7 @@
 - `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（基于现有 after-sale 主干，补齐 `NO_REASON_EXCHANGE`、顺丰退货面单、售后退款幂等、退款/售后状态历史、三端接线，**退款/退货/换货链路收口权威来源**）
 - `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（Schema/后端退款与面单服务/三端前端/验证与文档同步，**退款/退货/换货链路实施排程**）
 - `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md` — 顺丰风格平台统一运费计价设计方案（首重+续重公式、平台自定义价格、满额包邮、整单一次计费、SKU 重量补强、管理后台批量导入，**平台运费计价改造权威来源**）
+- `docs/superpowers/plans/2026-05-08-sf-style-shipping-pricing.md` — 顺丰风格平台统一运费计价实施计划（Schema/运费引擎/Checkout 锁价/顺丰面单真实重量/`OrderShippingCost` 成本记录/管理后台/卖家 SKU 重量/文档同步，**平台运费计价实施排程**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
 - `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
@@ -126,7 +127,7 @@
 | 普通/VIP系统隔离 | 两套独立参数（`NORMAL_*`/`VIP_*`前缀）、独立树结构、**统一六分利润结构但各自独立配比**、独立冻结过期天数 |
 | 卖家自动定价 | 卖家设成本，售价=成本×MARKUP_RATE（默认1.3），奖励商品例外（管理员手动设价） |
 | 订单流程 | **付款后才创建订单**：引入 CheckoutSession → 支付回调原子建单（PAID），无 PENDING_PAYMENT 状态 |
-| 平台运费计价 | **平台统一对接顺丰并承担履约运费**；买家侧保持满额包邮，不满额按平台自定义顺丰风格首重+续重公式收取运费；多商户订单整单只收一次运费，支付后按子订单商品金额比例分摊；顺丰真实成本和商户协商价不进入代码 |
+| 平台运费计价 | **平台统一对接顺丰并承担履约运费**；买家侧保持满额包邮，不满额按平台自定义顺丰风格首重+续重公式收取运费；多商户订单整单只收一次运费，支付后按子订单商品金额比例分摊；顺丰承运实际成本可记录在 `OrderShippingCost` 供平台月结对账，商户协商价不进入代码 |
 | 赠品锁定 | THRESHOLD_GIFT 入购物车锁定，按勾选非奖品商品总额实时解锁，解锁后自动包含在订单中 |
 | 奖品过期 | 可配置过期时间（小时），从入购物车起算，wonCount 永不回退 |
 | 平台公司 | 命名"爱买买app"，Company.isPlatform=true，奖品商品归属平台，用户搜索排除奖励商品 |
