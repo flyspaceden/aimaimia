@@ -317,6 +317,47 @@ export class SellerAfterSaleService {
     };
   }
 
+  /** 售后状态时间线（校验企业归属） */
+  async getTimeline(companyId: string, id: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      include: {
+        order: {
+          select: {
+            items: { select: { id: true, companyId: true } },
+          },
+        },
+      },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+
+    this.assertCompanyOwnsRequest(companyId, request as any);
+
+    const rows = await this.prisma.afterSaleStatusHistory.findMany({
+      where: { afterSaleId: id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        reason: row.reason,
+        operatorType: row.operatorType,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
   // ========== 开始审核 ==========
 
   /** 开始审核（REQUESTED → UNDER_REVIEW） */

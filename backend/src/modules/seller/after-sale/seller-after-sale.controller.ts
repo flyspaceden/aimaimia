@@ -70,6 +70,16 @@ export class SellerAfterSaleController {
     return this.afterSaleService.getStats(companyId);
   }
 
+  /** 售后状态时间线 */
+  @UseGuards(SellerAuthGuard, SellerRoleGuard)
+  @Get(':id/timeline')
+  getTimeline(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.afterSaleService.getTimeline(companyId, id);
+  }
+
   /** 售后详情 */
   @UseGuards(SellerAuthGuard, SellerRoleGuard)
   @Get(':id')

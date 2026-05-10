@@ -424,3 +424,54 @@ describe('SellerAfterSaleService.generateSellerReturnWaybill', () => {
     expect(shippingService.cancelCarrierWaybill).not.toHaveBeenCalled();
   });
 });
+
+describe('SellerAfterSaleService.getTimeline', () => {
+  it('returns status history only after company ownership is verified', async () => {
+    const createdAt = new Date('2026-05-10T00:00:00.000Z');
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(baseRequest({ status: 'RETURN_SHIPPING' })),
+      },
+      afterSaleStatusHistory: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'history-1',
+            fromStatus: 'APPROVED',
+            toStatus: 'RETURN_SHIPPING',
+            reason: '买家生成退货面单',
+            operatorType: 'BUYER',
+            createdAt,
+          },
+        ]),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await expect(
+      service.getTimeline(companyId, afterSaleId),
+    ).resolves.toEqual({
+      items: [
+        {
+          id: 'history-1',
+          fromStatus: 'APPROVED',
+          toStatus: 'RETURN_SHIPPING',
+          reason: '买家生成退货面单',
+          operatorType: 'BUYER',
+          createdAt,
+        },
+      ],
+    });
+    expect(tx.afterSaleStatusHistory.findMany).toHaveBeenCalledWith({
+      where: { afterSaleId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+  });
+});
