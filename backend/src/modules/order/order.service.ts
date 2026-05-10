@@ -56,6 +56,8 @@ const ORDER_AFTER_SALE_SUMMARY_SELECT = {
   returnCarrierName: true,
   returnWaybillNo: true,
   returnSfOrderId: true,
+  returnShippingFeeDeducted: true,
+  returnShippingPaidAt: true,
   shippingPayment: {
     select: { status: true },
   },
@@ -2092,11 +2094,27 @@ export class OrderService {
     const isLegacyManualReturnShipping = activeAfterSale
       ? Boolean(activeAfterSale.returnWaybillNo && !activeAfterSale.returnSfOrderId)
       : false;
+    const actionableShippingPaymentStatuses = ['UNPAID', 'PENDING', 'FAILED'];
+    const buyerShippingPaymentApplicable = activeAfterSale
+      ? activeAfterSale.status === 'APPROVED' &&
+        activeAfterSale.requiresReturn &&
+        returnShippingPayer === 'BUYER' &&
+        !isLegacyManualReturnShipping &&
+        !activeAfterSale.returnShippingFeeDeducted &&
+        !activeAfterSale.returnShippingPaidAt
+      : false;
     const returnShippingPaymentStatus = activeAfterSale
-      ? isLegacyManualReturnShipping
+      ? activeAfterSale.returnShippingPaidAt
+        ? 'PAID'
+        : isLegacyManualReturnShipping || activeAfterSale.returnShippingFeeDeducted
         ? 'NOT_REQUIRED'
-        : activeAfterSale.shippingPayment?.status || 'NOT_REQUIRED'
+        : buyerShippingPaymentApplicable
+          ? activeAfterSale.shippingPayment?.status || 'UNPAID'
+          : activeAfterSale.shippingPayment?.status || 'NOT_REQUIRED'
       : undefined;
+    const requiresBuyerShippingPayment =
+      buyerShippingPaymentApplicable &&
+      actionableShippingPaymentStatuses.includes(returnShippingPaymentStatus);
 
     return {
       id: order.id,
@@ -2118,10 +2136,7 @@ export class OrderService {
                 ? '质量售后退货运费由商家承担，平台生成顺丰面单，不进入本次退款金额'
                 : undefined,
             isLegacyManualReturnShipping,
-            requiresBuyerShippingPayment:
-              activeAfterSale.requiresReturn &&
-              returnShippingPayer === 'BUYER' &&
-              returnShippingPaymentStatus !== 'PAID',
+            requiresBuyerShippingPayment,
             returnShippingPaymentStatus,
           }
         : null,
