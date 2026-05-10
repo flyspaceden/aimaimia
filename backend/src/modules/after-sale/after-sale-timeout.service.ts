@@ -121,7 +121,7 @@ export class AfterSaleTimeoutService {
   }): Promise<void> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(
+        const outcome = await this.prisma.$transaction(
           async (tx) => {
             const now = new Date();
 
@@ -140,7 +140,7 @@ export class AfterSaleTimeoutService {
 
             if (cas.count === 0) {
               this.logger.log(`售后 ${request.id} 已非待审核状态，跳过`);
-              return;
+              return { updated: false, shouldStartRefund: false };
             }
             await this.afterSaleStatusHistory.create(tx, {
               afterSaleId: request.id,
@@ -153,6 +153,14 @@ export class AfterSaleTimeoutService {
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
               request.afterSaleType === 'QUALITY_RETURN';
+            return {
+              updated: true,
+              shouldStartRefund:
+                !request.requiresReturn &&
+                isReturnType &&
+                !!request.refundAmount &&
+                request.refundAmount > 0,
+            };
           },
           {
             timeout: 15000,
@@ -160,10 +168,7 @@ export class AfterSaleTimeoutService {
           },
         );
 
-        const isReturnType =
-          request.afterSaleType === 'NO_REASON_RETURN' ||
-          request.afterSaleType === 'QUALITY_RETURN';
-        if (!request.requiresReturn && isReturnType && request.refundAmount && request.refundAmount > 0) {
+        if (outcome.shouldStartRefund) {
           await this.afterSaleRefundService.startRefund(request.id, {
             type: 'SYSTEM',
           });
@@ -339,7 +344,7 @@ export class AfterSaleTimeoutService {
   }): Promise<void> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(
+        const outcome = await this.prisma.$transaction(
           async (tx) => {
             const now = new Date();
 
@@ -353,7 +358,7 @@ export class AfterSaleTimeoutService {
 
             if (cas.count === 0) {
               this.logger.log(`售后 ${request.id} 已非 RETURN_SHIPPING 状态，跳过`);
-              return;
+              return { updated: false, shouldStartRefund: false };
             }
             await this.afterSaleStatusHistory.create(tx, {
               afterSaleId: request.id,
@@ -367,6 +372,13 @@ export class AfterSaleTimeoutService {
               request.afterSaleType === 'NO_REASON_RETURN' ||
               request.afterSaleType === 'QUALITY_RETURN';
             // 换货类型（QUALITY_EXCHANGE）→ 保持 RECEIVED_BY_SELLER，等卖家发换货
+            return {
+              updated: true,
+              shouldStartRefund:
+                isReturnType &&
+                !!request.refundAmount &&
+                request.refundAmount > 0,
+            };
           },
           {
             timeout: 15000,
@@ -374,10 +386,7 @@ export class AfterSaleTimeoutService {
           },
         );
 
-        const isReturnType =
-          request.afterSaleType === 'NO_REASON_RETURN' ||
-          request.afterSaleType === 'QUALITY_RETURN';
-        if (isReturnType && request.refundAmount && request.refundAmount > 0) {
+        if (outcome.shouldStartRefund) {
           await this.afterSaleRefundService.startRefund(request.id, {
             type: 'SYSTEM',
           });

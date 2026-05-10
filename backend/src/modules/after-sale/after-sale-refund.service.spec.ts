@@ -407,7 +407,7 @@ describe('AfterSaleRefundService', () => {
       where: expect.objectContaining({
         refundId: 'refund_001',
         toStatus: 'REFUNDING',
-        remark: { contains: '手动重试' },
+        remark: { contains: '重试开始' },
         createdAt: { gte: expect.any(Date) },
       }),
     }));
@@ -444,5 +444,116 @@ describe('AfterSaleRefundService', () => {
     })).rejects.toThrow(BadRequestException);
 
     expect(paymentService.initiateRefund).not.toHaveBeenCalled();
+  });
+
+  it('retryRefund is blocked by a recent auto retry marker', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      afterSaleId: 'as_001',
+    });
+    tx.refundStatusHistory.findFirst.mockResolvedValue({
+      id: 'hist_auto_recent',
+      remark: '自动退款补偿重试开始',
+    });
+
+    await expect(service.retryRefund('refund_001', {
+      type: AfterSaleOperatorType.ADMIN,
+      id: 'admin_001',
+    })).rejects.toThrow(BadRequestException);
+
+    expect(tx.refundStatusHistory.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        refundId: 'refund_001',
+        toStatus: 'REFUNDING',
+        remark: { contains: '重试开始' },
+      }),
+    }));
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
+  });
+
+  it('startRefund does not call provider for existing FAILED refund with recent retry marker', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'FAILED',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: null,
+    });
+    tx.refund.upsert.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'FAILED',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: null,
+    });
+    tx.refundStatusHistory.findFirst.mockResolvedValue({
+      id: 'hist_recent',
+      remark: '自动退款补偿重试开始',
+    });
+
+    await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+    expect(tx.refundStatusHistory.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        refundId: 'refund_001',
+        toStatus: 'REFUNDING',
+        remark: { contains: '重试开始' },
+      }),
+    }));
+    expect(tx.refund.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'FAILED' },
+    }));
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
+  });
+
+  it('startRefund writes shared retry marker and calls provider once for existing FAILED refund without recent marker', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'FAILED',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: null,
+    });
+    tx.refund.upsert.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      afterSaleId: 'as_001',
+      amount: 88,
+      status: 'FAILED',
+      merchantRefundNo: 'AS-as_001',
+      providerRefundId: null,
+    });
+    tx.refundStatusHistory.findFirst.mockResolvedValue(null);
+
+    await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'FAILED' },
+      data: { status: 'REFUNDING' },
+    }));
+    expect(tx.refundStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        refundId: 'refund_001',
+        fromStatus: 'FAILED',
+        toStatus: 'REFUNDING',
+        remark: expect.stringContaining('重试开始'),
+      }),
+    }));
+    expect(paymentService.initiateRefund).toHaveBeenCalledTimes(1);
+    expect(paymentService.initiateRefund).toHaveBeenCalledWith(
+      'order_001',
+      88,
+      'AS-as_001',
+    );
   });
 });

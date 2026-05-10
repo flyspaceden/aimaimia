@@ -434,6 +434,7 @@ export class PaymentService {
       const recent = await tx.refundStatusHistory.findFirst({
         where: {
           refundId,
+          toStatus: 'REFUNDING',
           remark: { contains: '重试开始' },
           createdAt: { gte: new Date(Date.now() - 30_000) },
         },

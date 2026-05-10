@@ -93,22 +93,13 @@ export class AfterSaleRefundService {
             },
           });
         } else if (refund.status === 'FAILED') {
-          const retryLease = await tx.refund.updateMany({
-            where: { id: refund.id, status: 'FAILED' },
-            data: { status: 'REFUNDING' },
-          });
-          if (retryLease.count > 0) {
-            acquiredProviderLease = true;
-            await tx.refundStatusHistory.create({
-              data: {
-                refundId: refund.id,
-                fromStatus: 'FAILED',
-                toStatus: 'REFUNDING',
-                remark: '售后退款重新发起',
-                operatorId: operator.id ?? operator.type,
-              },
-            });
-          }
+          const retryLease = await this.acquireProviderRetryLeaseInTx(
+            tx,
+            refund,
+            operator.id ?? operator.type,
+            '售后退款重试开始',
+          );
+          acquiredProviderLease = retryLease.acquired;
         }
 
         await tx.afterSaleRequest.update({
@@ -282,47 +273,22 @@ export class AfterSaleRefundService {
   async retryRefund(refundId: string, operator: Operator): Promise<Refund> {
     const lease = await this.prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`
-          SELECT pg_advisory_xact_lock(
-            hashtext('refund-retry'),
-            hashtext(${refundId})
-          )
-        `;
-
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
         if (!['FAILED', 'REFUNDING'].includes(refund.status)) {
           throw new BadRequestException('当前退款状态不需要重试');
         }
 
-        const recentRetry = await tx.refundStatusHistory.findFirst({
-          where: {
-            refundId,
-            toStatus: 'REFUNDING',
-            remark: { contains: '手动重试' },
-            createdAt: { gte: new Date(Date.now() - 30_000) },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-        if (recentRetry) {
+        const retryLease = await this.acquireProviderRetryLeaseInTx(
+          tx,
+          refund,
+          operator.id ?? operator.type,
+          '管理员手动重试开始',
+        );
+        if (retryLease.blockedByRecent) {
           throw new BadRequestException('请勿频繁重试，请 30 秒后再试');
         }
-
-        if (refund.status === 'FAILED') {
-          await tx.refund.updateMany({
-            where: { id: refundId, status: 'FAILED' },
-            data: { status: 'REFUNDING' },
-          });
-        }
-        await tx.refundStatusHistory.create({
-          data: {
-            refundId,
-            fromStatus: refund.status,
-            toStatus: 'REFUNDING',
-            remark: '管理员手动重试开始',
-            operatorId: operator.id ?? operator.type,
-          },
-        });
+        if (!retryLease.acquired) throw new BadRequestException('当前退款状态不需要重试');
 
         return {
           refund,
@@ -343,6 +309,53 @@ export class AfterSaleRefundService {
       await this.handleRefundFailure(lease.refund.id, result.message);
     }
     return lease.refund;
+  }
+
+  private async acquireProviderRetryLeaseInTx(
+    tx: Tx,
+    refund: Pick<Refund, 'id' | 'status'>,
+    operatorId: string,
+    remark: string,
+  ): Promise<{ acquired: boolean; blockedByRecent: boolean }> {
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtext('refund-retry'),
+        hashtext(${refund.id})
+      )
+    `;
+
+    const recentRetry = await tx.refundStatusHistory.findFirst({
+      where: {
+        refundId: refund.id,
+        toStatus: 'REFUNDING',
+        remark: { contains: '重试开始' },
+        createdAt: { gte: new Date(Date.now() - 30_000) },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentRetry) return { acquired: false, blockedByRecent: true };
+
+    if (refund.status === 'FAILED') {
+      const retryLease = await tx.refund.updateMany({
+        where: { id: refund.id, status: 'FAILED' },
+        data: { status: 'REFUNDING' },
+      });
+      if (retryLease.count === 0) return { acquired: false, blockedByRecent: false };
+    } else if (refund.status !== 'REFUNDING') {
+      return { acquired: false, blockedByRecent: false };
+    }
+
+    await tx.refundStatusHistory.create({
+      data: {
+        refundId: refund.id,
+        fromStatus: refund.status,
+        toStatus: 'REFUNDING',
+        remark,
+        operatorId,
+      },
+    });
+
+    return { acquired: true, blockedByRecent: false };
   }
 
   private async createOrGetRefundInTx(tx: Tx, afterSaleId: string): Promise<{

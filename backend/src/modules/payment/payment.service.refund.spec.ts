@@ -110,6 +110,14 @@ describe('PaymentService.initiateRefund', () => {
     await service.retryStaleAutoRefunds();
 
     expect(claimTx.$executeRaw).toHaveBeenCalled();
+    expect(claimTx.refundStatusHistory.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        refundId: 'r1',
+        toStatus: 'REFUNDING',
+        remark: { contains: '重试开始' },
+        createdAt: { gte: expect.any(Date) },
+      }),
+    }));
     expect(claimTx.refundStatusHistory.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         refundId: 'r1',
