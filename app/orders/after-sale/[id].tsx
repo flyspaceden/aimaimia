@@ -185,46 +185,69 @@ export default function AfterSaleScreen() {
     const total = result.assets.length;
     setUploadProgress({ current: 0, total });
     setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
-    let lastError = '';
-    try {
-      const newUrls: string[] = [];
-      for (let i = 0; i < result.assets.length; i++) {
-        const asset = result.assets[i];
-        // 推进进度（让 overlay 显示 "正在上传 i+1/N"）
-        setUploadProgress({ current: i + 1, total });
+
+    // 单张上传任务（结果用 discriminated union 包装，永不 reject）
+    type UploadOutcome =
+      | { ok: true; url: string; index: number }
+      | { ok: false; error: string; index: number };
+
+    const uploadOne = async (
+      asset: (typeof result.assets)[number],
+      index: number,
+    ): Promise<UploadOutcome> => {
+      try {
         const formData = new FormData();
-        const uri = asset.uri;
-        const filename = uri.split('/').pop() || 'photo.jpg';
+        const filename = asset.uri.split('/').pop() || 'photo.jpg';
         // @ts-ignore - React Native FormData 支持 { uri, name, type } 形式
-        formData.append('file', { uri, name: filename, type: 'image/jpeg' });
+        formData.append('file', { uri: asset.uri, name: filename, type: 'image/jpeg' });
 
         const res = await ApiClient.upload<{ url: string; key: string }>(
           '/upload?folder=after-sale',
           formData,
         );
         if (res.ok && res.data?.url) {
-          newUrls.push(res.data.url);
-          successCount += 1;
-        } else {
-          failCount += 1;
-          lastError = res.ok ? '上传响应缺少 url' : (res.error.displayMessage ?? res.error.message ?? '上传失败');
+          return { ok: true, url: res.data.url, index };
         }
+        const error = res.ok
+          ? '上传响应缺少 url'
+          : (res.error.displayMessage ?? res.error.message ?? '上传失败');
+        return { ok: false, error, index };
+      } catch (err: any) {
+        return { ok: false, error: err?.message ?? '网络异常', index };
+      } finally {
+        // 用 functional 更新避免并发回调互相覆盖
+        setUploadProgress((prev) => ({ ...prev, current: prev.current + 1 }));
       }
-      if (newUrls.length > 0) {
-        setPhotos((prev) => [...prev, ...newUrls].slice(0, 10));
+    };
+
+    try {
+      // 🚀 并行上传：所有照片同时发，不再等串行
+      const outcomes = await Promise.all(
+        result.assets.map((asset, i) => uploadOne(asset, i)),
+      );
+
+      // 保持用户选择顺序（按 index 排序后取 url）
+      const successUrls = outcomes
+        .filter((o): o is { ok: true; url: string; index: number } => o.ok)
+        .sort((a, b) => a.index - b.index)
+        .map((o) => o.url);
+      const failures = outcomes.filter(
+        (o): o is { ok: false; error: string; index: number } => !o.ok,
+      );
+
+      if (successUrls.length > 0) {
+        setPhotos((prev) => [...prev, ...successUrls].slice(0, 10));
       }
-      if (failCount > 0) {
+      if (failures.length > 0) {
+        const lastError = failures[failures.length - 1].error;
         show({
-          message: successCount > 0
-            ? `${successCount} 张已上传，${failCount} 张失败：${lastError}`
-            : `照片上传失败：${lastError}`,
+          message:
+            successUrls.length > 0
+              ? `${successUrls.length} 张已上传，${failures.length} 张失败：${lastError}`
+              : `照片上传失败：${lastError}`,
           type: 'error',
         });
       }
-    } catch (err: any) {
-      show({ message: `照片上传异常：${err?.message ?? '未知错误'}`, type: 'error' });
     } finally {
       setUploading(false);
       setUploadProgress({ current: 0, total: 0 });
@@ -824,11 +847,13 @@ export default function AfterSaleScreen() {
           <View style={[styles.uploadModal, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             <ActivityIndicator size="large" color={colors.brand.primary} />
             <Text style={[typography.bodyStrong, { color: colors.text.primary, marginTop: spacing.md }]}>
-              正在上传照片
+              {uploadProgress.total > 1
+                ? `正在并发上传 ${uploadProgress.total} 张照片`
+                : '正在上传照片'}
             </Text>
             <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
               {uploadProgress.total > 0
-                ? `${uploadProgress.current}/${uploadProgress.total}`
+                ? `已完成 ${uploadProgress.current}/${uploadProgress.total}`
                 : '准备中...'}
             </Text>
             <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
