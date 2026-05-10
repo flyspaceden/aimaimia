@@ -52,6 +52,7 @@ export class SellerAfterSaleController {
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
     @Query('afterSaleType') afterSaleType?: string,
+    @Query('id') id?: string,
   ) {
     return this.afterSaleService.findAll(
       companyId,
@@ -60,6 +61,7 @@ export class SellerAfterSaleController {
       status,
       afterSaleType,
       staffId,
+      id,
     );
   }
 

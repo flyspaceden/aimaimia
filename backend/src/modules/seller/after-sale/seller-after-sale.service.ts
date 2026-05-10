@@ -117,6 +117,7 @@ export class SellerAfterSaleService {
     status?: string,
     afterSaleType?: string,
     staffId?: string,
+    id?: string,
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {
@@ -136,6 +137,12 @@ export class SellerAfterSaleService {
         },
       ],
     };
+
+    // 按售后单号模糊匹配（用户从详情/通知里复制完整或末几位都能搜）
+    const idQuery = id?.trim();
+    if (idQuery) {
+      where.id = { contains: idQuery };
+    }
 
     if (status) {
       const statusList = status
