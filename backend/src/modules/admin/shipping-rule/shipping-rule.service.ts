@@ -92,7 +92,12 @@ export class ShippingRuleService {
     const rule = await this.prisma.shippingRule.findUnique({ where: { id } });
     if (!rule) throw new NotFoundException('运费规则不存在');
 
-    // 部分更新时按“更新后值”做边界校验，避免写入非法区间。
+    const effectiveIsActive = dto.isActive ?? rule.isActive;
+    if (!effectiveIsActive) {
+      this.validateInactiveUpdateInput(dto);
+    }
+
+    // 启用规则按“更新后值”完整校验，避免写入或保留非法区间。
     const effective = {
       fee: dto.fee ?? rule.fee,
       minAmount: dto.minAmount ?? (rule.minAmount ?? undefined),
@@ -100,9 +105,8 @@ export class ShippingRuleService {
       minWeight: dto.minWeight ?? (rule.minWeight === null ? undefined : this.gramToKg(rule.minWeight)),
       maxWeight: dto.maxWeight ?? (rule.maxWeight === null ? undefined : this.gramToKg(rule.maxWeight)),
     };
-    this.validateRuleBounds(effective);
-    const effectiveIsActive = dto.isActive ?? rule.isActive;
     if (effectiveIsActive) {
+      this.validateRuleBounds(effective);
       this.validateFormulaInput({
         name: dto.name?.trim() ?? rule.name,
         firstWeightKg: dto.firstWeightKg ?? rule.firstWeightKg,
@@ -335,6 +339,32 @@ export class ShippingRuleService {
     maxWeight?: number;
   }) {
     if (input.fee < 0) throw new BadRequestException('运费不能为负数');
+    if (
+      input.minAmount !== undefined &&
+      input.maxAmount !== undefined &&
+      input.minAmount >= input.maxAmount
+    ) {
+      throw new BadRequestException('金额下限必须小于上限');
+    }
+    if (
+      input.minWeight !== undefined &&
+      input.maxWeight !== undefined &&
+      input.minWeight >= input.maxWeight
+    ) {
+      throw new BadRequestException('重量下限必须小于上限');
+    }
+  }
+
+  private validateInactiveUpdateInput(input: {
+    fee?: number;
+    minAmount?: number;
+    maxAmount?: number;
+    minWeight?: number;
+    maxWeight?: number;
+  }) {
+    if (input.fee !== undefined && input.fee < 0) {
+      throw new BadRequestException('运费不能为负数');
+    }
     if (
       input.minAmount !== undefined &&
       input.maxAmount !== undefined &&

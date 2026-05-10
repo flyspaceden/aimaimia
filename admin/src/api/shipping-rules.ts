@@ -90,7 +90,7 @@ export const createShippingRule = (data: CreateShippingRuleInput): Promise<Shipp
   client.post('/admin/shipping-rules', withLegacyFormulaDefaults(data));
 
 export const updateShippingRule = (id: string, data: UpdateShippingRuleInput): Promise<ShippingRule> =>
-  client.put(`/admin/shipping-rules/${id}`, withLegacyFormulaDefaults(data));
+  client.put(`/admin/shipping-rules/${id}`, data);
 
 export const deleteShippingRule = (id: string): Promise<{ ok: boolean }> =>
   client.delete(`/admin/shipping-rules/${id}`);

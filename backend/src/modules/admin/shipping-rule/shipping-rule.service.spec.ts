@@ -281,6 +281,65 @@ describe('ShippingRuleService 运费计算引擎', () => {
     expect(cache.invalidate).toHaveBeenCalledTimes(1);
   });
 
+  it('deactivate active rule with existing invalid amount bounds writes status-only update', async () => {
+    const { service, prisma, cache } = createMocks([]);
+    const invalidRule = makeRule({
+      minAmount: 100,
+      maxAmount: 100,
+      isActive: true,
+    });
+    prisma.shippingRule.findUnique.mockResolvedValue(invalidRule);
+    prisma.shippingRule.update.mockResolvedValue({ ...invalidRule, isActive: false });
+
+    const result = await service.update('rule-001', { isActive: false } as any);
+
+    expect(prisma.shippingRule.update).toHaveBeenCalledWith({
+      where: { id: 'rule-001' },
+      data: { isActive: false },
+    });
+    expect(result.isActive).toBe(false);
+    expect(cache.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeping active rule rejects existing invalid amount bounds and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(
+      makeRule({ minAmount: 100, maxAmount: 100, isActive: true }),
+    );
+
+    await expect(
+      service.update('rule-001', { name: '仍然启用' } as any),
+    ).rejects.toThrow('金额下限必须小于上限');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
+  it('deactivate rejects explicitly provided invalid amount bounds and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(makeRule());
+
+    await expect(
+      service.update('rule-001', {
+        isActive: false,
+        minAmount: 100,
+        maxAmount: 100,
+      } as any),
+    ).rejects.toThrow('金额下限必须小于上限');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
+  it('deactivate rejects explicitly provided negative fee and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(makeRule());
+
+    await expect(
+      service.update('rule-001', { isActive: false, fee: -1 } as any),
+    ).rejects.toThrow('运费不能为负数');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
   it('keeping invalid rule active still rejects and does not write DB', async () => {
     const { service, prisma } = createMocks([]);
     prisma.shippingRule.findUnique.mockResolvedValue(
