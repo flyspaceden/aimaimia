@@ -34,6 +34,10 @@ type ImportRow = {
   dto: CreateShippingRuleDto;
 };
 
+type RawImportRow =
+  | { row: number; value: Record<string, unknown>; message?: never }
+  | { row: number; message: string; value?: never };
+
 type RuleWriteData = {
   name: string;
   regionCodes: string[];
@@ -64,21 +68,14 @@ export class ShippingRuleImportService {
 
   async importRules(dto: ImportShippingRuleDto): Promise<ImportShippingRuleResult> {
     const parsed = await this.parseAndValidate(dto);
-    if (parsed.errors.length > 0) {
-      return {
-        ...this.emptyPreview(parsed.errors),
-        created: 0,
-        updated: 0,
-      };
-    }
-
     const prepared = await this.prepare(parsed.rows);
-    if (prepared.errors.length > 0 || dto.dryRun) {
+    const errors = [...parsed.errors, ...prepared.errors];
+    if (errors.length > 0 || dto.dryRun) {
       return {
         toCreate: prepared.toCreate,
         toUpdate: prepared.toUpdate,
         unchanged: prepared.unchanged,
-        errors: prepared.errors,
+        errors,
         created: 0,
         updated: 0,
       };
@@ -151,6 +148,10 @@ export class ShippingRuleImportService {
     const seenNames = new Map<string, number>();
 
     for (const rawRow of rawRows) {
+      if (rawRow.message !== undefined) {
+        errors.push({ row: rawRow.row, message: rawRow.message });
+        continue;
+      }
       const instance = plainToInstance(CreateShippingRuleDto, rawRow.value);
       const validationErrors = await validate(instance, {
         whitelist: true,
@@ -179,7 +180,7 @@ export class ShippingRuleImportService {
     return { rows, errors };
   }
 
-  private parseCsvPayload(payload: string): Array<{ row: number; value: Record<string, unknown> }> {
+  private parseCsvPayload(payload: string): RawImportRow[] {
     const records = this.parseCsvRecords(payload);
     if (records.length === 0) {
       throw new BadRequestException('CSV 内容不能为空');
@@ -195,9 +196,10 @@ export class ShippingRuleImportService {
     return records.slice(1).map((record, index) => {
       const rowNumber = index + 2;
       if (record.length !== CSV_HEADERS.length) {
-        throw new BadRequestException(
-          `CSV 第 ${rowNumber} 行字段数量错误，应为 ${CSV_HEADERS.length} 个`,
-        );
+        return {
+          row: rowNumber,
+          message: `CSV 第 ${rowNumber} 行字段数量错误，应为 ${CSV_HEADERS.length} 个`,
+        };
       }
 
       const value: Record<string, unknown> = {};
@@ -292,7 +294,7 @@ export class ShippingRuleImportService {
     return records.filter((item) => item.some((fieldValue) => fieldValue !== ''));
   }
 
-  private parseJsonPayload(payload: string): Array<{ row: number; value: Record<string, unknown> }> {
+  private parseJsonPayload(payload: string): RawImportRow[] {
     let parsed: unknown;
     try {
       parsed = JSON.parse(payload);
@@ -305,7 +307,10 @@ export class ShippingRuleImportService {
 
     return parsed.map((value, index) => {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        throw new BadRequestException(`JSON 第 ${index + 1} 行必须为对象`);
+        return {
+          row: index + 1,
+          message: `JSON 第 ${index + 1} 行必须为对象`,
+        };
       }
       return { row: index + 1, value: value as Record<string, unknown> };
     });
@@ -429,14 +434,5 @@ export class ShippingRuleImportService {
 
   private kgToGram(weightKg: number): number {
     return Math.round(weightKg * GRAMS_PER_KG);
-  }
-
-  private emptyPreview(errors: Array<{ row: number; message: string }>): ImportPreview {
-    return {
-      toCreate: 0,
-      toUpdate: 0,
-      unchanged: 0,
-      errors,
-    };
   }
 }

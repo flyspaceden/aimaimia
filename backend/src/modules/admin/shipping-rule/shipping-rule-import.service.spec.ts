@@ -162,6 +162,49 @@ describe('ShippingRuleImportService', () => {
     expect(cache.invalidate).not.toHaveBeenCalled();
   });
 
+  it('collects CSV field count errors by row and keeps checking other rows', async () => {
+    const { service, prisma, tx, cache } = createService([]);
+    const payload = [
+      csvHeader,
+      validCsvRow({ name: '有效规则一' }),
+      '字段数量错误,9.1',
+      validCsvRow({ name: '', firstFee: 0 }),
+    ].join('\n');
+
+    const dryRunResult = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: true,
+    });
+
+    expect(dryRunResult.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          row: 3,
+          message: expect.stringContaining('字段数量错误'),
+        }),
+        expect.objectContaining({ row: 4, message: expect.any(String) }),
+      ]),
+    );
+
+    const persistResult = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(persistResult.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ row: 3 }),
+        expect.objectContaining({ row: 4 }),
+      ]),
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+    expect(tx.shippingRule.update).not.toHaveBeenCalled();
+    expect(cache.invalidate).not.toHaveBeenCalled();
+  });
+
   it('returns dry-run create, update, and unchanged counts', async () => {
     const existingSame = makeRule({ id: 'same', name: '不变规则' });
     const existingChanged = makeRule({
@@ -219,6 +262,77 @@ describe('ShippingRuleImportService', () => {
       errors: [],
     });
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('collects JSON non-object row errors and keeps valid later rows in dry-run stats', async () => {
+    const { service, prisma, tx, cache } = createService([]);
+    const payload = JSON.stringify([
+      {
+        name: '新增规则一',
+        regionCodes: [],
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        priority: 100,
+      },
+      null,
+      ['not-an-object'],
+      {
+        name: '新增规则二',
+        regionCodes: [],
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        priority: 100,
+      },
+    ]);
+
+    const dryRunResult = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: true,
+    });
+
+    expect(dryRunResult).toMatchObject({
+      toCreate: 2,
+      toUpdate: 0,
+      unchanged: 0,
+    });
+    expect(dryRunResult.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          row: 2,
+          message: expect.stringContaining('必须为对象'),
+        }),
+        expect.objectContaining({
+          row: 3,
+          message: expect.stringContaining('必须为对象'),
+        }),
+      ]),
+    );
+
+    const persistResult = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(persistResult.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ row: 2 }),
+        expect.objectContaining({ row: 3 }),
+      ]),
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+    expect(tx.shippingRule.update).not.toHaveBeenCalled();
+    expect(cache.invalidate).not.toHaveBeenCalled();
   });
 
   it('invalidates cache once after persisting changes', async () => {
