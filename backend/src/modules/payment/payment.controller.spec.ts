@@ -124,4 +124,27 @@ describe('PaymentController.handleAlipayNotify', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('success');
   });
+
+  it('returns failure for transient after-sale shipping amount validation errors so Alipay retries', async () => {
+    const shippingBody = {
+      ...notifyBody,
+      out_trade_no: 'AS_SHIP_PAY_as_001',
+      total_amount: '18.13',
+    };
+    const { controller, paymentService, res } = buildController({
+      assertAfterSaleShippingPaymentAmountMatches: jest.fn().mockRejectedValue(
+        new Error('database unavailable'),
+      ),
+    });
+
+    await controller.handleAlipayNotify(shippingBody, res as any);
+
+    expect(paymentService.assertAfterSaleShippingPaymentAmountMatches).toHaveBeenCalledWith(
+      'AS_SHIP_PAY_as_001',
+      '18.13',
+    );
+    expect(paymentService.handlePaymentCallback).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith('failure');
+  });
 });

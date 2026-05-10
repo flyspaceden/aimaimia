@@ -72,9 +72,19 @@ export class AfterSaleShippingPaymentService {
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
         if (payment.status === 'PAID') return;
+        if (!['UNPAID', 'PENDING', 'FAILED'].includes(payment.status)) return;
 
-        await tx.afterSaleShippingPayment.update({
-          where: { merchantPaymentNo },
+        const request = await tx.afterSaleRequest.findUnique({
+          where: { id: payment.afterSaleId },
+        });
+        if (!request) throw new NotFoundException('售后单不存在');
+        if (request.status !== 'APPROVED') return;
+
+        const updated = await tx.afterSaleShippingPayment.updateMany({
+          where: {
+            merchantPaymentNo,
+            status: { in: ['UNPAID', 'PENDING', 'FAILED'] },
+          },
           data: {
             status: 'PAID',
             providerPaymentNo: providerPaymentNo ?? payment.providerPaymentNo,
@@ -82,6 +92,8 @@ export class AfterSaleShippingPaymentService {
             failureReason: null,
           },
         });
+        if (updated.count === 0) return;
+
         await tx.afterSaleRequest.update({
           where: { id: payment.afterSaleId },
           data: { returnShippingPaidAt: confirmedAt },
@@ -132,8 +144,8 @@ export class AfterSaleShippingPaymentService {
           await tx.afterSaleShippingPayment.update({
             where: { afterSaleId },
             data: {
-              status: 'REFUNDING',
-              failureReason: reason,
+              status: 'PAID',
+              failureReason: `需人工退还退货运费: ${reason}`,
             },
           });
           return;
@@ -184,6 +196,9 @@ export class AfterSaleShippingPaymentService {
   }
 
   private assertBuyerShippingPaymentAllowed(request: AfterSaleRequest): void {
+    if (request.status !== 'APPROVED') {
+      throw new BadRequestException('售后单未审批通过，不能支付退货运费');
+    }
     if (!request.requiresReturn || request.returnShippingPayer !== 'BUYER') {
       throw new BadRequestException('当前售后单不需要买家支付退货运费');
     }

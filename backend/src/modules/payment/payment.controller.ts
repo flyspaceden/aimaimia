@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Logger, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Logger, Param, Post, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { PaymentService } from './payment.service';
 import { AlipayService } from './alipay.service';
@@ -105,7 +105,7 @@ export class PaymentController {
             `支付宝 notify 售后退货运费金额校验失败，已拒绝处理：${amountErr.message} ` +
             `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
           );
-          res.status(200).send('success');
+          res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
           return;
         }
       } else {

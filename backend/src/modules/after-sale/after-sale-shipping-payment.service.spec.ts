@@ -137,11 +137,32 @@ describe('AfterSaleShippingPaymentService', () => {
     expect(tx.afterSaleShippingPayment.upsert).not.toHaveBeenCalled();
   });
 
+  it.each(['REQUESTED', 'UNDER_REVIEW', 'CANCELED', 'RETURN_SHIPPING'])(
+    'rejects buyer shipping payment creation when after-sale status is %s',
+    async (status) => {
+      tx.afterSaleRequest.findFirst.mockResolvedValue({
+        id: 'as_001',
+        userId: 'user_001',
+        status,
+        requiresReturn: true,
+        returnShippingPayer: 'BUYER',
+      });
+
+      await expect(service.createOrGetPaymentForBuyer('user_001', 'as_001'))
+        .rejects.toThrow(BadRequestException);
+
+      expect(tx.afterSaleShippingPayment.upsert).not.toHaveBeenCalled();
+    },
+  );
+
   it('handlePaymentSuccess marks payment paid and does not call checkout/order build flow', async () => {
     await service.handlePaymentSuccess('AS_SHIP_PAY_as_001', 'trade_001', paidAt);
 
-    expect(tx.afterSaleShippingPayment.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { merchantPaymentNo: 'AS_SHIP_PAY_as_001' },
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        status: { in: ['UNPAID', 'PENDING', 'FAILED'] },
+      },
       data: expect.objectContaining({
         status: 'PAID',
         providerPaymentNo: 'trade_001',
@@ -186,4 +207,77 @@ describe('AfterSaleShippingPaymentService', () => {
 
     expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
   });
+
+  it.each(['CLOSED', 'REFUNDING', 'REFUNDED'])(
+    'handlePaymentSuccess ignores late success when shipping payment is %s',
+    async (status) => {
+      tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        amount: 18.13,
+        status,
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      });
+
+      await service.handlePaymentSuccess('AS_SHIP_PAY_as_001', 'trade_late', paidAt);
+
+      expect(tx.afterSaleShippingPayment.update).not.toHaveBeenCalled();
+      expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
+      expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('handlePaymentSuccess does not mark paid when linked after-sale request is no longer approved', async () => {
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      status: 'CLOSED',
+    });
+
+    await service.handlePaymentSuccess('AS_SHIP_PAY_as_001', 'trade_late', paidAt);
+
+    expect(tx.afterSaleShippingPayment.update).not.toHaveBeenCalled();
+    expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
+  });
+
+  it('refundShippingPayment keeps PAID payment paid and records manual refund note', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      status: 'PAID',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+    });
+
+    await service.refundShippingPayment('as_001', '面单取消');
+
+    expect(tx.afterSaleShippingPayment.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { afterSaleId: 'as_001' },
+      data: expect.objectContaining({
+        status: 'PAID',
+        failureReason: '需人工退还退货运费: 面单取消',
+      }),
+    }));
+  });
+
+  it.each(['UNPAID', 'FAILED'])(
+    'refundShippingPayment closes %s payment because no money was collected',
+    async (status) => {
+      tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        status,
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      });
+
+      await service.refundShippingPayment('as_001', '售后关闭');
+
+      expect(tx.afterSaleShippingPayment.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { afterSaleId: 'as_001' },
+        data: expect.objectContaining({
+          status: 'CLOSED',
+          failureReason: '售后关闭',
+        }),
+      }));
+    },
+  );
 });
