@@ -166,6 +166,24 @@ describe('AfterSaleShippingPaymentService', () => {
     expect(tx.ruleConfig.findUnique).not.toHaveBeenCalled();
   });
 
+  it('does not create a new Alipay order string when payment is already paid', async () => {
+    tx.afterSaleShippingPayment.upsert.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'PAID',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+    });
+
+    await expect(service.createOrGetPaymentForBuyer('user_001', 'as_001'))
+      .resolves.toEqual(expect.objectContaining({
+        status: 'PAID',
+        paymentParams: {},
+      }));
+
+    expect(alipayService.createAppPayOrder).not.toHaveBeenCalled();
+  });
+
   it('fillReturnShipping blocks buyer-paid return shipping until payment is recorded', async () => {
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',

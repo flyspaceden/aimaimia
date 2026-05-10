@@ -264,6 +264,9 @@ export class AfterSaleShippingPaymentService {
   private async buildAlipayPaymentParams(
     payment: AfterSaleShippingPayment,
   ): Promise<AfterSaleShippingPaymentBuyerResponse['paymentParams']> {
+    if (payment.status !== 'UNPAID' && payment.status !== 'PENDING' && payment.status !== 'FAILED') {
+      return {};
+    }
     if (!this.alipayService?.createAppPayOrder) {
       return {};
     }
