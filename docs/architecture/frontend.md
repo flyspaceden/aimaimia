@@ -1229,7 +1229,7 @@ Tab 栏设计：
 └─────────────────────────────┘
 ```
 
-实施状态（2026-05-10）：申请售后页改为以后端 `GET /after-sale/orders/:orderId/eligibility` 作为资格真相源，商品可申请项与售后类型只渲染后端 enabled options；四类售后类型（七天无理由退货/换货、质量退货/换货）已对齐类型与标签。售后详情页移除手填退货物流作为新主流程，改为退货运费支付 `POST /after-sale/:id/return-shipping-payment` + 平台顺丰退货面单 `POST /after-sale/:id/return-waybill`，并展示质量售后商家承担运费说明、退款处理中/完成/转人工状态。
+实施状态（2026-05-10）：申请售后页改为以后端 `GET /after-sale/orders/:orderId/eligibility` 作为资格真相源，商品可申请项与售后类型只渲染后端 enabled options；四类售后类型（七天无理由退货/换货、质量退货/换货）已对齐类型与标签。售后详情页移除手填退货物流作为新主流程，改为退货运费支付 `POST /after-sale/:id/return-shipping-payment` + 平台顺丰退货面单 `POST /after-sale/:id/return-waybill`，并展示质量售后商家承担运费说明、退款处理中/完成/转人工状态。最终验证时根 `npx tsc -b` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻断，过滤后无买家 App 目录新增 TypeScript 错误；买家端仍待真机验证退货运费支付、顺丰退货面单和售后退款到账。
 
 ---
 
@@ -2244,7 +2244,7 @@ src/components/ai/   → 新增目录
 | 商品上下架兜底 | 购物车 `unavailableReason` 已下架/已停发角标 + 禁勾选/禁数量调整/仅可删除 + 统一 selectable 计数；结算页补传 `cartItemId`，过滤不可用奖品并提示 `excludedItems[]` | 2026-05-07 | `cart.tsx`, `checkout.tsx`, `useCartStore.ts`, `OrderRepo.ts`, `ServerCart.ts` |
 | 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
 | 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |
-| 售后链路收口 Task 9 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
+| 售后链路收口 Task 9/12 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API；最终验证记录已同步，真机/沙箱仍需验证退货运费支付、顺丰退货面单和售后退款到账 | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
 
 ### Phase 进度对照
 

@@ -3138,3 +3138,15 @@ ecosystem.config.js (PM2)          # Bug 65
 ---
 
 > **下一步**: 看用户决定从哪个 Phase 开始。建议先做 **Phase 1**（P0 阻断级 11 项）+ 同时启动 **Phase 2**（用户去申请顺丰凭证，10-14 天外部审批）。等凭证下来直接进沙箱真调验证，验证通过才能继续 Phase 3-5。
+
+---
+
+## 2026-05-10 售后/退货链路收口补充
+
+对应 `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md`，本轮在既有 after-sale 主干上补齐退款、退货、换货闭环，不重写旧模块。
+
+- **买家端**: 申请售后以后端 eligibility 为准；支持 `NO_REASON_RETURN`、`NO_REASON_EXCHANGE`、`QUALITY_RETURN`、`QUALITY_EXCHANGE`；售后详情接入退货运费支付 `AS_SHIP_PAY_${afterSaleId}` 和平台顺丰退货面单 `AS_RETURN_${afterSaleId}`，新主流程不再手填退货物流。
+- **卖家端**: 售后列表/详情按退货退款、无理由换货、质量换货分支展示操作；验收不通过后可生成 `AS_REJECT_RETURN_${afterSaleId}` 回寄面单；换货发货与卖家收货动作对齐后端状态机。
+- **管理端**: 售后仲裁页展示原始仲裁来源状态、退货运费责任、退款状态、退款历史和售后状态历史；退款失败/退款中可通过统一 `AfterSaleRefundService.retryRefund()` 重试，接口只返回白名单退款摘要字段。
+- **后端资金链路**: 售后退款统一使用 `AS-${afterSaleId}` 幂等键；seller/admin/timeout 不再各自创建退款；`Refund.afterSaleId` 与 `AfterSaleRequest.refundId` 每日巡检错链/孤儿/重复关系并告警。
+- **仍需真机/沙箱验证**: 顺丰退货面单打印与轨迹、支付宝退货运费支付、售后退款实际到账、多商户订单售后退款分摊、拒收回寄面单。
