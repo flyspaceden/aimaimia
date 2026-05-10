@@ -26,10 +26,12 @@ export class AfterSaleRefundConsistencyService {
       FROM after_sale_request a
       FULL JOIN "Refund" r
         ON r."afterSaleId" = a.id OR a."refundId" = r.id
-      WHERE r."afterSaleId" IS NOT NULL
+      WHERE (a."refundId" IS NOT NULL OR r."afterSaleId" IS NOT NULL)
         AND (
           a.id IS NULL
+          OR r.id IS NULL
           OR a."refundId" IS NULL
+          OR r."afterSaleId" IS NULL
           OR a."refundId" <> r.id
           OR r."afterSaleId" <> a.id
         )
