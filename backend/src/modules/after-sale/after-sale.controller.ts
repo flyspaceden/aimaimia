@@ -74,6 +74,15 @@ export class AfterSaleController {
     return this.afterSaleService.getEligibility(userId, orderId);
   }
 
+  /** 售后状态时间线 */
+  @Get(':id/timeline')
+  getTimeline(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.afterSaleService.getTimeline(userId, id);
+  }
+
   /** 售后详情 */
   @Get(':id')
   findById(

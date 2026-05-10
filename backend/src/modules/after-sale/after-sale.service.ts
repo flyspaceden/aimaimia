@@ -5,7 +5,7 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
-import { AfterSaleType, Prisma } from '@prisma/client';
+import { AfterSaleOperatorType, AfterSaleType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAfterSaleDto } from './dto/create-after-sale.dto';
 import { ReturnShippingDto } from './dto/return-shipping.dto';
@@ -510,23 +510,19 @@ export class AfterSaleService {
           // 9. 计算退款金额（仅退货类型需要，换货不退款）
           let refundAmount: number | null = null;
           let returnShippingFee: number | null = null;
-          let returnShippingPayer: 'BUYER' | 'SELLER' | null = null;
+          const returnShippingPayer: 'BUYER' | 'SELLER' =
+            dto.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+            dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
+              ? 'BUYER'
+              : 'SELLER';
           let returnShippingFeeDeducted = false;
 
-          if (needsReturn) {
-            if (
-              dto.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
-              dto.afterSaleType === AfterSaleType.NO_REASON_EXCHANGE
-            ) {
-              returnShippingPayer = 'BUYER';
-              returnShippingFee = await getConfigValue(
-                tx as any,
-                AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
-                10,
-              );
-            } else {
-              returnShippingPayer = 'SELLER';
-            }
+          if (needsReturn && returnShippingPayer === 'BUYER') {
+            returnShippingFee = await getConfigValue(
+              tx as any,
+              AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
+              10,
+            );
           }
 
           if (
@@ -859,20 +855,35 @@ export class AfterSaleService {
             throw new BadRequestException('当前状态不支持申请仲裁');
           }
 
+          const currentStatus = request.status;
+
           // CAS 原子更新
           const casResult = await tx.afterSaleRequest.updateMany({
             where: {
               id: afterSaleId,
-              status: { in: ['REJECTED', 'SELLER_REJECTED_RETURN'] },
+              userId,
+              status: currentStatus,
             },
             data: {
               status: 'PENDING_ARBITRATION',
-              arbitrationSource: '买家申请',
+              arbitrationSourceStatus: currentStatus,
+              arbitrationSource: 'BUYER',
             },
           });
           if (casResult.count === 0) {
             throw new ConflictException('售后申请状态已变更，请刷新后重试');
           }
+
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId,
+              fromStatus: currentStatus,
+              toStatus: 'PENDING_ARBITRATION',
+              reason: '买家申请平台仲裁',
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+            },
+          });
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -1022,6 +1033,40 @@ export class AfterSaleService {
     if (request.userId !== userId) throw new NotFoundException('售后申请不存在');
 
     return request;
+  }
+
+  /** 售后状态时间线（校验归属） */
+  async getTimeline(userId: string, id: string) {
+    const request = await this.prisma.afterSaleRequest.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+    if (!request) throw new NotFoundException('售后申请不存在');
+    if (request.userId !== userId) throw new NotFoundException('售后申请不存在');
+
+    const rows = await this.prisma.afterSaleStatusHistory.findMany({
+      where: { afterSaleId: id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        operatorType: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        fromStatus: row.fromStatus,
+        toStatus: row.toStatus,
+        reason: row.reason,
+        operatorType: row.operatorType,
+        createdAt: row.createdAt,
+      })),
+    };
   }
 
   // ========== 退货政策同意 ==========
