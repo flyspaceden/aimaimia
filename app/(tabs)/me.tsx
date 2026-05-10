@@ -328,7 +328,7 @@ export default function MeScreen() {
               {orderEntries.map((entry) => {
                 const count = orderCounts
                   ? entry.id === 'afterSaleList'
-                    ? 0 // 售后为派生态，由独立查询提供角标（暂留 0）
+                    ? (orderCounts.afterSale ?? 0) // 后端 getStatusCounts 已计算活跃售后订单数
                     : (orderCounts[entry.id as OrderStatus] ?? 0)
                   : 0;
                 return (

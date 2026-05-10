@@ -401,17 +401,21 @@ export const OrderRepo = {
    * 订单状态角标统计
    * - 用途：我的页"待付款/待发货/待收货/退款售后"角标
    * - 后端接口：`GET /api/v1/orders/status-counts`
+   * - 返回字段含 `afterSale`（活跃售后订单数，派生态）
    */
-  getStatusCounts: async (): Promise<Result<Record<OrderStatus, number>>> => {
+  getStatusCounts: async (): Promise<
+    Result<Record<OrderStatus, number> & { afterSale: number }>
+  > => {
     if (USE_MOCK) {
       // 订单状态角标统计（复杂业务逻辑需中文注释）
-      const counts: Record<OrderStatus, number> = {
+      const counts: Record<OrderStatus, number> & { afterSale: number } = {
         PAID: 0,
         SHIPPED: 0,
         DELIVERED: 0,
         RECEIVED: 0,
         CANCELED: 0,
         REFUNDED: 0,
+        afterSale: 0,
       };
       orderStore.forEach((order) => {
         counts[order.status] = (counts[order.status] ?? 0) + 1;
@@ -419,7 +423,9 @@ export const OrderRepo = {
       return simulateRequest(counts);
     }
 
-    return ApiClient.get<Record<OrderStatus, number>>('/orders/status-counts');
+    return ApiClient.get<Record<OrderStatus, number> & { afterSale: number }>(
+      '/orders/status-counts',
+    );
   },
   /**
    * 最近异常订单
