@@ -329,6 +329,32 @@ describe('ShippingRuleService 运费计算引擎', () => {
     expect(prisma.shippingRule.update).not.toHaveBeenCalled();
   });
 
+  it('deactivate rejects partial amount update that makes effective bounds invalid and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(
+      makeRule({ minAmount: 100, maxAmount: 200 }),
+    );
+
+    await expect(
+      service.update('rule-001', { isActive: false, maxAmount: 50 } as any),
+    ).rejects.toThrow('金额下限必须小于上限');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
+  it('deactivate rejects partial weight update that makes effective bounds invalid and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(
+      makeRule({ minWeight: 1000, maxWeight: 2000 }),
+    );
+
+    await expect(
+      service.update('rule-001', { isActive: false, maxWeight: 0.5 } as any),
+    ).rejects.toThrow('重量下限必须小于上限');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
   it('deactivate rejects explicitly provided negative fee and does not write DB', async () => {
     const { service, prisma } = createMocks([]);
     prisma.shippingRule.findUnique.mockResolvedValue(makeRule());
@@ -336,6 +362,31 @@ describe('ShippingRuleService 运费计算引擎', () => {
     await expect(
       service.update('rule-001', { isActive: false, fee: -1 } as any),
     ).rejects.toThrow('运费不能为负数');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
+  it('deactivate rejects explicitly provided invalid firstFee and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(makeRule());
+
+    await expect(
+      service.update('rule-001', { isActive: false, firstFee: -1 } as any),
+    ).rejects.toThrow('运费规则「广东默认」配置无效');
+
+    expect(prisma.shippingRule.update).not.toHaveBeenCalled();
+  });
+
+  it('deactivate rejects explicitly provided invalid additionalWeightKg and does not write DB', async () => {
+    const { service, prisma } = createMocks([]);
+    prisma.shippingRule.findUnique.mockResolvedValue(makeRule());
+
+    await expect(
+      service.update('rule-001', {
+        isActive: false,
+        additionalWeightKg: 0,
+      } as any),
+    ).rejects.toThrow('运费规则「广东默认」配置无效');
 
     expect(prisma.shippingRule.update).not.toHaveBeenCalled();
   });
