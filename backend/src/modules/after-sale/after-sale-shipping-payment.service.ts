@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   AfterSaleRequest,
@@ -11,13 +12,27 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
+import { AlipayService } from '../payment/alipay.service';
 
 type Tx = Prisma.TransactionClient;
 const SERIALIZABLE_MAX_RETRIES = 3;
 
+export type AfterSaleShippingPaymentBuyerResponse = Pick<
+  AfterSaleShippingPayment,
+  'id' | 'afterSaleId' | 'merchantPaymentNo' | 'amount' | 'status'
+> & {
+  paymentParams: {
+    channel?: 'alipay';
+    orderStr?: string;
+  };
+};
+
 @Injectable()
 export class AfterSaleShippingPaymentService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private alipayService?: AlipayService,
+  ) {}
 
   async estimateReturnShippingFee(afterSaleId: string): Promise<number> {
     return this.withSerializableRetry((tx) =>
@@ -42,8 +57,8 @@ export class AfterSaleShippingPaymentService {
   async createOrGetPaymentForBuyer(
     userId: string,
     afterSaleId: string,
-  ): Promise<AfterSaleShippingPayment> {
-    return this.withSerializableRetry(
+  ): Promise<AfterSaleShippingPaymentBuyerResponse> {
+    const payment = await this.withSerializableRetry(
       async (tx) => {
         const request = await tx.afterSaleRequest.findFirst({
           where: { id: afterSaleId, userId },
@@ -54,6 +69,16 @@ export class AfterSaleShippingPaymentService {
         return this.upsertPaymentInTx(tx, request);
       },
     );
+
+    const paymentParams = await this.buildAlipayPaymentParams(payment);
+    return {
+      id: payment.id,
+      afterSaleId: payment.afterSaleId,
+      merchantPaymentNo: payment.merchantPaymentNo,
+      amount: payment.amount,
+      status: payment.status,
+      paymentParams,
+    };
   }
 
   async handlePaymentSuccess(
@@ -181,7 +206,7 @@ export class AfterSaleShippingPaymentService {
     tx: Tx,
     request: AfterSaleRequest,
   ): Promise<AfterSaleShippingPayment> {
-    const amount = await this.estimateReturnShippingFeeInTx(tx, request.id);
+    const amount = await this.resolveReturnShippingFeeInTx(tx, request);
     const merchantPaymentNo = this.getMerchantPaymentNo(request.id);
 
     return tx.afterSaleShippingPayment.upsert({
@@ -195,6 +220,17 @@ export class AfterSaleShippingPaymentService {
       },
       update: {},
     });
+  }
+
+  private async resolveReturnShippingFeeInTx(
+    tx: Tx,
+    request: AfterSaleRequest,
+  ): Promise<number> {
+    if (request.returnShippingFee != null) {
+      return Math.max(0, Math.round(request.returnShippingFee * 100) / 100);
+    }
+
+    return this.estimateReturnShippingFeeInTx(tx, request.id);
   }
 
   private async estimateReturnShippingFeeInTx(
@@ -223,6 +259,24 @@ export class AfterSaleShippingPaymentService {
 
   private getMerchantPaymentNo(afterSaleId: string): string {
     return `AS_SHIP_PAY_${afterSaleId}`;
+  }
+
+  private async buildAlipayPaymentParams(
+    payment: AfterSaleShippingPayment,
+  ): Promise<AfterSaleShippingPaymentBuyerResponse['paymentParams']> {
+    if (!this.alipayService?.createAppPayOrder) {
+      return {};
+    }
+    if (this.alipayService.isAvailable && !this.alipayService.isAvailable()) {
+      return {};
+    }
+
+    const orderStr = await this.alipayService.createAppPayOrder({
+      merchantOrderNo: payment.merchantPaymentNo,
+      totalAmount: payment.amount,
+      subject: `爱买买退货运费-${payment.afterSaleId}`,
+    });
+    return { channel: 'alipay', orderStr };
   }
 
   private async withSerializableRetry<T>(

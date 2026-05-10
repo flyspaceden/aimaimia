@@ -363,14 +363,18 @@ describe('PaymentService after-sale shipping payment callback', () => {
     )).resolves.toBeUndefined();
   });
 
-  it('assertAfterSaleShippingPaymentAmountMatches rejects missing or mismatched payments', async () => {
+  it('assertAfterSaleShippingPaymentAmountMatches rejects missing payments as NotFoundException', async () => {
     const { service, prisma } = buildService();
     prisma.afterSaleShippingPayment.findUnique.mockResolvedValue(null);
 
     await expect(service.assertAfterSaleShippingPaymentAmountMatches(
       merchantOrderNo,
       '18.13',
-    )).rejects.toThrow(BadRequestException);
+    )).rejects.toThrow(NotFoundException);
+  });
+
+  it('assertAfterSaleShippingPaymentAmountMatches rejects mismatched payments as BadRequestException', async () => {
+    const { service, prisma } = buildService();
 
     prisma.afterSaleShippingPayment.findUnique.mockResolvedValue({ amount: 18.12 });
     await expect(service.assertAfterSaleShippingPaymentAmountMatches(

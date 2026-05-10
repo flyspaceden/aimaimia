@@ -50,6 +50,7 @@ export class PaymentService {
    * - active-query：异常上抛给前端 → 前端停止轮询并提示
    * - notify：catch 后日志 + 仍返 'success' 给支付宝（避免支付宝无限重试），
    *   依靠运维告警人工介入
+   * - 售后退货运费支付单缺失：抛 NotFoundException，让 notify 返回 failure 触发支付宝重试
    */
   assertAlipayAmountMatchesSession(
     session: { expectedTotal: number; merchantOrderNo: string | null },
@@ -76,7 +77,7 @@ export class PaymentService {
       select: { amount: true, status: true },
     });
     if (!payment) {
-      throw new BadRequestException('售后退货运费支付单不存在');
+      throw new NotFoundException('售后退货运费支付单不存在');
     }
 
     this.assertAfterSaleShippingPaymentAmountValueMatches(

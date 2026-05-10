@@ -3,10 +3,14 @@ import { AfterSaleService } from './after-sale.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateAfterSaleDto } from './dto/create-after-sale.dto';
 import { ReturnShippingDto } from './dto/return-shipping.dto';
+import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
 
 @Controller('after-sale')
 export class AfterSaleController {
-  constructor(private afterSaleService: AfterSaleService) {}
+  constructor(
+    private afterSaleService: AfterSaleService,
+    private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
+  ) {}
 
   /** 申请售后（退货退款 / 质量退货 / 质量换货） */
   @Post('orders/:orderId')
@@ -92,6 +96,15 @@ export class AfterSaleController {
     @Body() dto: ReturnShippingDto,
   ) {
     return this.afterSaleService.fillReturnShipping(userId, id, dto);
+  }
+
+  /** 发起买家退货运费支付 */
+  @Post(':id/return-shipping-payment')
+  createReturnShippingPayment(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.afterSaleShippingPaymentService.createOrGetPaymentForBuyer(userId, id);
   }
 
   /** 确认收到换货商品 */

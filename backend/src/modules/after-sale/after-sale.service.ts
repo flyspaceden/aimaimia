@@ -731,6 +731,13 @@ export class AfterSaleService {
           if (!request.requiresReturn) {
             throw new BadRequestException('该售后申请无需退回商品');
           }
+          if (
+            request.returnShippingPayer === 'BUYER' &&
+            !request.returnShippingFeeDeducted &&
+            request.returnShippingPaidAt == null
+          ) {
+            throw new BadRequestException('请先支付退货运费');
+          }
 
           // CAS 原子更新
           const casResult = await tx.afterSaleRequest.updateMany({

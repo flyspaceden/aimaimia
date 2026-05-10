@@ -2,6 +2,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
+import { AfterSaleController } from './after-sale.controller';
+import { AfterSaleService } from './after-sale.service';
 
 describe('AfterSaleShippingPaymentService', () => {
   const paidAt = new Date('2026-05-09T00:00:00.000Z');
@@ -13,6 +15,7 @@ describe('AfterSaleShippingPaymentService', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     afterSaleShippingPayment: {
       upsert: jest.fn(),
@@ -30,11 +33,15 @@ describe('AfterSaleShippingPaymentService', () => {
   const prisma = {
     $transaction: jest.fn((cb: any) => cb(tx)),
   };
+  const alipayService = {
+    createAppPayOrder: jest.fn(),
+  };
 
   let service: AfterSaleShippingPaymentService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    alipayService.createAppPayOrder.mockResolvedValue('alipay-order-str');
     tx.ruleConfig.findUnique.mockResolvedValue({ value: 18.126 });
     tx.afterSaleRequest.findFirst.mockResolvedValue({
       id: 'as_001',
@@ -42,6 +49,7 @@ describe('AfterSaleShippingPaymentService', () => {
       status: 'APPROVED',
       requiresReturn: true,
       returnShippingPayer: 'BUYER',
+      returnShippingFee: null,
     });
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
@@ -49,6 +57,7 @@ describe('AfterSaleShippingPaymentService', () => {
       status: 'APPROVED',
       requiresReturn: true,
       returnShippingPayer: 'BUYER',
+      returnShippingFee: null,
     });
     tx.afterSaleShippingPayment.upsert.mockResolvedValue({
       id: 'ship_pay_001',
@@ -71,8 +80,9 @@ describe('AfterSaleShippingPaymentService', () => {
     });
     tx.afterSaleShippingPayment.updateMany.mockResolvedValue({ count: 1 });
     tx.afterSaleRequest.update.mockResolvedValue({ id: 'as_001' });
+    tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 1 });
 
-    service = new AfterSaleShippingPaymentService(prisma as any);
+    service = new AfterSaleShippingPaymentService(prisma as any, alipayService as any);
   });
 
   it('estimates buyer return shipping fee from RuleConfig rounded to cents', async () => {
@@ -89,10 +99,26 @@ describe('AfterSaleShippingPaymentService', () => {
     await expect(service.estimateReturnShippingFee('as_001')).resolves.toBe(10);
   });
 
-  it('createOrGetPaymentForBuyer creates a single payment using AS_SHIP_PAY_afterSaleId', async () => {
+  it('createOrGetPaymentForBuyer creates a single payment and returns Alipay app params', async () => {
     const result = await service.createOrGetPaymentForBuyer('user_001', 'as_001');
 
     expect(result.merchantPaymentNo).toBe('AS_SHIP_PAY_as_001');
+    expect(result).toEqual(expect.objectContaining({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      amount: 18.13,
+      status: 'UNPAID',
+      paymentParams: {
+        channel: 'alipay',
+        orderStr: 'alipay-order-str',
+      },
+    }));
+    expect(alipayService.createAppPayOrder).toHaveBeenCalledWith({
+      merchantOrderNo: 'AS_SHIP_PAY_as_001',
+      totalAmount: 18.13,
+      subject: '爱买买退货运费-as_001',
+    });
     expect(tx.afterSaleRequest.findFirst).toHaveBeenCalledWith({
       where: { id: 'as_001', userId: 'user_001' },
     });
@@ -111,6 +137,53 @@ describe('AfterSaleShippingPaymentService', () => {
       expect.any(Function),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  });
+
+  it('locks payment amount to request returnShippingFee even when RuleConfig changes', async () => {
+    tx.ruleConfig.findUnique.mockResolvedValue({ value: 99.99 });
+    tx.afterSaleRequest.findFirst.mockResolvedValue({
+      id: 'as_001',
+      userId: 'user_001',
+      status: 'APPROVED',
+      requiresReturn: true,
+      returnShippingPayer: 'BUYER',
+      returnShippingFee: 12.34,
+    });
+    tx.afterSaleShippingPayment.upsert.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 12.34,
+      status: 'UNPAID',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+    });
+
+    await expect(service.createOrGetPaymentForBuyer('user_001', 'as_001'))
+      .resolves.toEqual(expect.objectContaining({ amount: 12.34 }));
+
+    expect(tx.afterSaleShippingPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ amount: 12.34 }),
+    }));
+    expect(tx.ruleConfig.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('fillReturnShipping blocks buyer-paid return shipping until payment is recorded', async () => {
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      userId: 'user_001',
+      status: 'APPROVED',
+      requiresReturn: true,
+      returnShippingPayer: 'BUYER',
+      returnShippingFeeDeducted: false,
+      returnShippingPaidAt: null,
+    });
+    const afterSaleService = new AfterSaleService(prisma as any, {} as any);
+
+    await expect(afterSaleService.fillReturnShipping('user_001', 'as_001', {
+      returnCarrierName: '顺丰',
+      returnWaybillNo: 'SF123',
+    })).rejects.toThrow('请先支付退货运费');
+
+    expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects buyer wrapper when the after-sale request belongs to another user', async () => {
@@ -323,4 +396,33 @@ describe('AfterSaleShippingPaymentService', () => {
       }));
     },
   );
+});
+
+describe('AfterSaleController return shipping payment route', () => {
+  it('starts buyer return shipping payment through the shipping payment service', async () => {
+    const afterSaleService = {} as AfterSaleService;
+    const shippingPaymentService = {
+      createOrGetPaymentForBuyer: jest.fn().mockResolvedValue({
+        id: 'ship_pay_001',
+        afterSaleId: 'as_001',
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        amount: 18.13,
+        status: 'UNPAID',
+        paymentParams: { channel: 'alipay', orderStr: 'alipay-order-str' },
+      }),
+    };
+    const controller = new AfterSaleController(
+      afterSaleService,
+      shippingPaymentService as any,
+    );
+
+    await expect(controller.createReturnShippingPayment('user_001', 'as_001'))
+      .resolves.toEqual(expect.objectContaining({
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        paymentParams: { channel: 'alipay', orderStr: 'alipay-order-str' },
+      }));
+
+    expect(shippingPaymentService.createOrGetPaymentForBuyer)
+      .toHaveBeenCalledWith('user_001', 'as_001');
+  });
 });

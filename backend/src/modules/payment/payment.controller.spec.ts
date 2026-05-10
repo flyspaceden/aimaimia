@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PaymentController } from './payment.controller';
 
 describe('PaymentController.handleAlipayNotify', () => {
@@ -123,6 +123,52 @@ describe('PaymentController.handleAlipayNotify', () => {
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('success');
+  });
+
+  it('returns success without callback for after-sale shipping amount mismatch', async () => {
+    const shippingBody = {
+      ...notifyBody,
+      out_trade_no: 'AS_SHIP_PAY_as_001',
+      total_amount: '18.12',
+    };
+    const { controller, paymentService, res } = buildController({
+      assertAfterSaleShippingPaymentAmountMatches: jest.fn().mockRejectedValue(
+        new BadRequestException('售后退货运费金额不匹配'),
+      ),
+    });
+
+    await controller.handleAlipayNotify(shippingBody, res as any);
+
+    expect(paymentService.assertAfterSaleShippingPaymentAmountMatches).toHaveBeenCalledWith(
+      'AS_SHIP_PAY_as_001',
+      '18.12',
+    );
+    expect(paymentService.handlePaymentCallback).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith('success');
+  });
+
+  it('returns failure for missing after-sale shipping payment so Alipay retries', async () => {
+    const shippingBody = {
+      ...notifyBody,
+      out_trade_no: 'AS_SHIP_PAY_as_001',
+      total_amount: '18.13',
+    };
+    const { controller, paymentService, res } = buildController({
+      assertAfterSaleShippingPaymentAmountMatches: jest.fn().mockRejectedValue(
+        new NotFoundException('售后退货运费支付单不存在'),
+      ),
+    });
+
+    await controller.handleAlipayNotify(shippingBody, res as any);
+
+    expect(paymentService.assertAfterSaleShippingPaymentAmountMatches).toHaveBeenCalledWith(
+      'AS_SHIP_PAY_as_001',
+      '18.13',
+    );
+    expect(paymentService.handlePaymentCallback).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith('failure');
   });
 
   it('returns failure for transient after-sale shipping amount validation errors so Alipay retries', async () => {
