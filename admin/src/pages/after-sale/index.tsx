@@ -483,14 +483,22 @@ export default function AfterSaleListPage() {
       render: (_: unknown, r: AdminAfterSale) => {
         const canArbitrate = ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(r.status);
         const canRetryRefund = Boolean(r.refund?.id && ['FAILED', 'REFUNDING'].includes(r.refund.status));
-        if (!canArbitrate && !canRetryRefund) return null;
         return (
           <Space size={4}>
+            {/* 详情按钮恒显——任何状态下管理员都能进 Modal 查完整信息 */}
+            <Button
+              type="link"
+              size="small"
+              onClick={() => openArbitrateModal(r)}
+            >
+              详情
+            </Button>
             {canArbitrate && (
               <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
                 <Button
                   type="link"
                   size="small"
+                  style={{ color: '#fa8c16' }}
                   onClick={() => openArbitrateModal(r)}
                 >
                   仲裁
@@ -614,9 +622,14 @@ export default function AfterSaleListPage() {
         dateFormatter="string"
       />
 
-      {/* 仲裁弹窗 */}
+      {/* 售后详情/仲裁弹窗（详情入口恒显，仲裁操作仅对可仲裁状态启用）*/}
       <Modal
-        title="售后仲裁"
+        title={
+          arbitrateModal.record &&
+          ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(arbitrateModal.record.status)
+            ? '售后仲裁'
+            : '售后详情'
+        }
         open={arbitrateModal.visible}
         width={680}
         onCancel={() => {
@@ -629,6 +642,13 @@ export default function AfterSaleListPage() {
         onOk={handleArbitrate}
         confirmLoading={arbitrateLoading}
         okText="确认提交"
+        cancelText="关闭"
+        footer={
+          arbitrateModal.record &&
+          ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(arbitrateModal.record.status)
+            ? undefined  // 可仲裁：用 antd 默认 footer（取消 + 确认提交）
+            : null        // 非仲裁状态：纯查看，不显示 footer 按钮（用户点 X 关闭）
+        }
         destroyOnClose
       >
         <Spin spinning={arbitrateDetailLoading}>
@@ -801,48 +821,53 @@ export default function AfterSaleListPage() {
               </div>
             )}
 
-            <Divider style={{ margin: '12px 0' }} />
+            {/* 仲裁决定区块仅在可仲裁状态展示——其他状态下 Modal 是纯查看 */}
+            {['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(modalRecord.status) && (
+              <>
+                <Divider style={{ margin: '12px 0' }} />
 
-            {/* 仲裁决定 */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>仲裁决定：</div>
-              <Radio.Group
-                value={arbitrateAction}
-                onChange={(e) => { setArbitrateAction(e.target.value); setArbitrateReason(''); }}
-              >
-                <Radio value="APPROVED">
-                  <Space><CheckCircleOutlined style={{ color: '#52c41a' }} />同意售后</Space>
-                </Radio>
-                <Radio value="REJECTED">
-                  <Space><CloseCircleOutlined style={{ color: '#ff4d4f' }} />拒绝售后</Space>
-                </Radio>
-              </Radio.Group>
-            </div>
-
-            {/* 模板文案 */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ marginBottom: 6, fontSize: 13, color: '#666' }}>快捷模板：</div>
-              <Space wrap size={[8, 6]}>
-                {currentTemplates.map((tpl, idx) => (
-                  <Button
-                    key={idx}
-                    size="small"
-                    type={arbitrateReason === tpl.value ? 'primary' : 'default'}
-                    ghost={arbitrateReason === tpl.value}
-                    onClick={() => applyTemplate(tpl.value)}
+                {/* 仲裁决定 */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>仲裁决定：</div>
+                  <Radio.Group
+                    value={arbitrateAction}
+                    onChange={(e) => { setArbitrateAction(e.target.value); setArbitrateReason(''); }}
                   >
-                    {tpl.label}
-                  </Button>
-                ))}
-              </Space>
-            </div>
+                    <Radio value="APPROVED">
+                      <Space><CheckCircleOutlined style={{ color: '#52c41a' }} />同意售后</Space>
+                    </Radio>
+                    <Radio value="REJECTED">
+                      <Space><CloseCircleOutlined style={{ color: '#ff4d4f' }} />拒绝售后</Space>
+                    </Radio>
+                  </Radio.Group>
+                </div>
 
-            <Input.TextArea
-              rows={3}
-              placeholder="仲裁说明（可选，可点击上方模板快速填入）"
-              value={arbitrateReason}
-              onChange={(e) => setArbitrateReason(e.target.value)}
-            />
+                {/* 模板文案 */}
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ marginBottom: 6, fontSize: 13, color: '#666' }}>快捷模板：</div>
+                  <Space wrap size={[8, 6]}>
+                    {currentTemplates.map((tpl, idx) => (
+                      <Button
+                        key={idx}
+                        size="small"
+                        type={arbitrateReason === tpl.value ? 'primary' : 'default'}
+                        ghost={arbitrateReason === tpl.value}
+                        onClick={() => applyTemplate(tpl.value)}
+                      >
+                        {tpl.label}
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+
+                <Input.TextArea
+                  rows={3}
+                  placeholder="仲裁说明（可选，可点击上方模板快速填入）"
+                  value={arbitrateReason}
+                  onChange={(e) => setArbitrateReason(e.target.value)}
+                />
+              </>
+            )}
             </>
           )}
         </Spin>
