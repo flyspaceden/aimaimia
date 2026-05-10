@@ -183,3 +183,102 @@ describe('PaymentService.confirmAlipayCheckout', () => {
     expect(result.confirmedBy).toBe('query-error');
   });
 });
+
+describe('PaymentService after-sale shipping payment callback', () => {
+  const merchantOrderNo = 'AS_SHIP_PAY_as_001';
+
+  const buildService = () => {
+    const prisma = {
+      afterSaleShippingPayment: {
+        findUnique: jest.fn(),
+      },
+    };
+    const checkoutService = {
+      findByMerchantOrderNo: jest.fn(),
+      handlePaymentSuccess: jest.fn(),
+    };
+    const service = new PaymentService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      checkoutService as any,
+    );
+    const shippingPaymentService = {
+      handlePaymentSuccess: jest.fn().mockResolvedValue(undefined),
+      handlePaymentFailure: jest.fn().mockResolvedValue(undefined),
+    };
+    service.setAfterSaleShippingPaymentService(shippingPaymentService as any);
+    return { service, prisma, checkoutService, shippingPaymentService };
+  };
+
+  it('routes AS_SHIP_PAY success before normal CheckoutSession/order flow', async () => {
+    const { service, checkoutService, shippingPaymentService } = buildService();
+    const paidAt = '2026-05-09T00:00:00.000Z';
+
+    const result = await service.handlePaymentCallback({
+      merchantOrderNo,
+      providerTxnId: 'trade_001',
+      status: 'SUCCESS',
+      paidAt,
+      rawPayload: {},
+      skipSignatureVerification: true,
+    });
+
+    expect(result).toEqual({ code: 'SUCCESS', message: '售后退货运费支付成功' });
+    expect(shippingPaymentService.handlePaymentSuccess).toHaveBeenCalledWith(
+      merchantOrderNo,
+      'trade_001',
+      new Date(paidAt),
+    );
+    expect(checkoutService.findByMerchantOrderNo).not.toHaveBeenCalled();
+    expect(checkoutService.handlePaymentSuccess).not.toHaveBeenCalled();
+  });
+
+  it('routes AS_SHIP_PAY failure without downgrading ordinary order state', async () => {
+    const { service, checkoutService, shippingPaymentService } = buildService();
+
+    const result = await service.handlePaymentCallback({
+      merchantOrderNo,
+      providerTxnId: 'trade_001',
+      status: 'FAILED',
+      rawPayload: {},
+      skipSignatureVerification: true,
+    });
+
+    expect(result).toEqual({ code: 'SUCCESS', message: '售后退货运费支付失败已记录' });
+    expect(shippingPaymentService.handlePaymentFailure).toHaveBeenCalledWith(
+      merchantOrderNo,
+      '支付失败',
+    );
+    expect(checkoutService.findByMerchantOrderNo).not.toHaveBeenCalled();
+  });
+
+  it('assertAfterSaleShippingPaymentAmountMatches compares rounded cents', async () => {
+    const { service, prisma } = buildService();
+    prisma.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      amount: 18.126,
+      status: 'UNPAID',
+    });
+
+    await expect(service.assertAfterSaleShippingPaymentAmountMatches(
+      merchantOrderNo,
+      '18.13',
+    )).resolves.toBeUndefined();
+  });
+
+  it('assertAfterSaleShippingPaymentAmountMatches rejects missing or mismatched payments', async () => {
+    const { service, prisma } = buildService();
+    prisma.afterSaleShippingPayment.findUnique.mockResolvedValue(null);
+
+    await expect(service.assertAfterSaleShippingPaymentAmountMatches(
+      merchantOrderNo,
+      '18.13',
+    )).rejects.toThrow(BadRequestException);
+
+    prisma.afterSaleShippingPayment.findUnique.mockResolvedValue({ amount: 18.12 });
+    await expect(service.assertAfterSaleShippingPaymentAmountMatches(
+      merchantOrderNo,
+      '18.13',
+    )).rejects.toThrow(BadRequestException);
+  });
+});

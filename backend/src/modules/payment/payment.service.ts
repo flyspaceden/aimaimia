@@ -10,6 +10,7 @@ import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
 import { InboxService } from '../inbox/inbox.service';
 import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
+import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
 
 @Injectable()
 export class PaymentService {
@@ -19,6 +20,7 @@ export class PaymentService {
   private readonly autoRefundRetryBatchSize = 20;
   private readonly autoRefundRetryCooldownMs = 5 * 60_000;
   private afterSaleRefundService: AfterSaleRefundService | null = null;
+  private afterSaleShippingPaymentService: AfterSaleShippingPaymentService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -31,6 +33,10 @@ export class PaymentService {
 
   setAfterSaleRefundService(service: AfterSaleRefundService) {
     this.afterSaleRefundService = service;
+  }
+
+  setAfterSaleShippingPaymentService(service: AfterSaleShippingPaymentService) {
+    this.afterSaleShippingPaymentService = service;
   }
 
   /**
@@ -58,6 +64,32 @@ export class PaymentService {
         `→ 拒绝建单，请人工核查（可能为恶意篡改）`,
       );
       throw new BadRequestException('支付金额校验失败，请联系客服');
+    }
+  }
+
+  async assertAfterSaleShippingPaymentAmountMatches(
+    outTradeNo: string,
+    totalAmount: string,
+  ): Promise<void> {
+    const payment = await this.prisma.afterSaleShippingPayment.findUnique({
+      where: { merchantPaymentNo: outTradeNo },
+      select: { amount: true, status: true },
+    });
+    if (!payment) {
+      throw new BadRequestException('售后退货运费支付单不存在');
+    }
+
+    const actualAmount = Number(totalAmount);
+    if (!Number.isFinite(actualAmount)) {
+      throw new BadRequestException('售后退货运费金额格式错误');
+    }
+
+    const expectedFen = Math.round(payment.amount * 100);
+    const actualFen = Math.round(actualAmount * 100);
+    if (expectedFen !== actualFen) {
+      throw new BadRequestException(
+        `售后退货运费金额不匹配: expected=${expectedFen}, actual=${actualFen}`,
+      );
     }
   }
 
@@ -553,6 +585,27 @@ export class PaymentService {
 
     if (!merchantOrderNo || !status) {
       throw new BadRequestException('缺少必要参数 merchantOrderNo 或 status');
+    }
+
+    if (merchantOrderNo.startsWith('AS_SHIP_PAY_')) {
+      if (!this.afterSaleShippingPaymentService) {
+        throw new BadRequestException('售后退货运费支付服务未启用');
+      }
+
+      if (status === 'SUCCESS') {
+        await this.afterSaleShippingPaymentService.handlePaymentSuccess(
+          merchantOrderNo,
+          providerTxnId,
+          paidAt ? new Date(paidAt) : new Date(),
+        );
+        return { code: 'SUCCESS', message: '售后退货运费支付成功' };
+      }
+
+      await this.afterSaleShippingPaymentService.handlePaymentFailure(
+        merchantOrderNo,
+        '支付失败',
+      );
+      return { code: 'SUCCESS', message: '售后退货运费支付失败已记录' };
     }
 
     // F1: 检测新结算流程（CheckoutSession-based）
