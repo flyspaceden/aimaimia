@@ -94,12 +94,21 @@ export interface AfterSaleShippingPayment {
   afterSaleId: string;
   merchantPaymentNo: string;
   amount: number;
-  status: Exclude<ReturnShippingPaymentStatus, 'NOT_REQUIRED'> | 'PENDING';
+  status: Exclude<ReturnShippingPaymentStatus, 'NOT_REQUIRED'>;
   paymentParams?: {
     channel?: string;
     orderStr?: string;
     [key: string]: unknown;
   };
+}
+
+export interface AfterSaleReturnWaybillResult {
+  ok: boolean;
+  carrierCode: string;
+  carrierName: string;
+  waybillNo: string;
+  waybillUrl?: string | null;
+  returnLabelUrl?: string | null;
 }
 
 export interface AfterSaleTimelineItem {
@@ -267,20 +276,19 @@ export const AfterSaleRepo = {
   },
 
   /** 生成买家退货顺丰面单 */
-  createReturnWaybill: async (id: string): Promise<Result<AfterSaleRequest>> => {
+  createReturnWaybill: async (id: string): Promise<Result<AfterSaleReturnWaybillResult>> => {
     if (USE_MOCK) {
       return simulateRequest({
-        ...mockAfterSale,
-        id,
-        status: 'RETURN_SHIPPING' as const,
-        returnCarrierCode: 'SF',
+        ok: true,
+        carrierCode: 'SF',
         returnCarrierName: '顺丰速运',
-        returnWaybillNo: `SF${Date.now()}`,
-        returnSfOrderId: `sf-${Date.now()}`,
-        returnShippedAt: new Date().toISOString(),
+        carrierName: '顺丰速运',
+        waybillNo: `SF${Date.now()}`,
+        waybillUrl: null,
+        returnLabelUrl: null,
       });
     }
-    return ApiClient.post<AfterSaleRequest>(`/after-sale/${id}/return-waybill`);
+    return ApiClient.post<AfterSaleReturnWaybillResult>(`/after-sale/${id}/return-waybill`);
   },
 
   /** 确认收货（换货场景） */

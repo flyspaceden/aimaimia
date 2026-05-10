@@ -37,6 +37,7 @@ import {
   err,
   PendingCheckout,
   RepurchaseResult,
+  ReturnShippingPaymentStatus,
 } from '../types';
 import { createAppError, simulateRequest } from './helpers';
 import { CartRepo } from './CartRepo';
@@ -130,7 +131,7 @@ export interface CheckoutSessionResult {
 
 /** F1: CheckoutSession 状态 */
 export interface CheckoutSessionStatus {
-  status: 'ACTIVE' | 'PAID' | 'COMPLETED' | 'EXPIRED' | 'FAILED';
+  status: 'ACTIVE' | 'PAID' | 'COMPLETED' | 'EXPIRED' | 'FAILED' | Exclude<ReturnShippingPaymentStatus, 'NOT_REQUIRED'>;
   sessionId?: string;
   orderIds?: string[];
   orderId?: string;

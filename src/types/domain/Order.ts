@@ -146,6 +146,7 @@ export type AfterSaleType =
 export type ReturnShippingPaymentStatus =
   | 'NOT_REQUIRED'
   | 'UNPAID'
+  | 'PENDING'
   | 'PAID'
   | 'REFUNDING'
   | 'REFUNDED'

@@ -8,7 +8,7 @@
  * - REPLACEMENT_SHIPPED → 确认收货
  * 等等，详见 spec 9.3 状态-操作映射表。
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +28,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../../src/components/feedback';
 import { afterSaleStatusLabels, afterSaleTypeLabels } from '../../../src/constants/statuses';
+import { OrderRepo } from '../../../src/repos';
 import { AfterSaleRepo } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
@@ -94,6 +95,9 @@ const getTypeColor = (type: AfterSaleType, colors: any): { bg: string; text: str
   }
 };
 
+const BLOCKING_BUYER_SHIPPING_PAYMENT_STATUSES: ReturnShippingPaymentStatus[] = ['UNPAID', 'PENDING', 'FAILED'];
+const WAYBILL_READY_SHIPPING_PAYMENT_STATUSES: ReturnShippingPaymentStatus[] = ['NOT_REQUIRED', 'PAID'];
+
 export default function AfterSaleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const asId = String(id ?? '');
@@ -106,6 +110,7 @@ export default function AfterSaleDetailScreen() {
 
   // 操作中状态
   const [actionLoading, setActionLoading] = useState(false);
+  const actionInFlightRef = useRef(false);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['after-sale', asId],
@@ -128,6 +133,8 @@ export default function AfterSaleDetailScreen() {
     action: () => Promise<any>,
     successMsg: string,
   ) => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setActionLoading(true);
     try {
       const result = await action();
@@ -139,6 +146,7 @@ export default function AfterSaleDetailScreen() {
       show({ message: successMsg, type: 'success' });
       refetch();
     } finally {
+      actionInFlightRef.current = false;
       setActionLoading(false);
     }
   };
@@ -186,6 +194,8 @@ export default function AfterSaleDetailScreen() {
   };
 
   const handlePayReturnShipping = async () => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setActionLoading(true);
     try {
       const result = await AfterSaleRepo.createReturnShippingPayment(asId);
@@ -195,23 +205,38 @@ export default function AfterSaleDetailScreen() {
       }
 
       const orderStr = result.data.paymentParams?.orderStr;
+      let shouldActiveQuery = true;
       if (orderStr) {
         const payResult = await payWithAlipay(orderStr);
-        if (payResult.success) {
-          show({ message: '退货运费支付完成，正在刷新售后状态', type: 'success' });
-        } else {
+        if (payResult.resultStatus === '6001') {
+          shouldActiveQuery = false;
+          show({ message: '已取消支付', type: 'warning' });
+        } else if (!payResult.success) {
           const message =
             payResult.memo === 'NATIVE_UNAVAILABLE'
               ? '支付单已创建，请在真机环境完成支付宝支付'
-              : '支付未完成，请稍后重试';
+              : payResult.memo === 'TIMEOUT'
+                ? '支付宝暂未返回结果，正在查询支付状态'
+                : '支付未完成，正在查询支付状态';
           show({ message, type: 'warning' });
         }
       } else {
         show({ message: '退货运费支付单已创建', type: 'success' });
       }
+
+      if (shouldActiveQuery) {
+        const activeQueryResult = await OrderRepo.activeQueryPayment(result.data.merchantPaymentNo);
+        if (!activeQueryResult.ok) {
+          show({ message: activeQueryResult.error.displayMessage ?? '支付状态查询失败，请稍后刷新', type: 'warning' });
+        } else if (activeQueryResult.data.status === 'PAID') {
+          show({ message: '退货运费支付完成，可生成顺丰退货面单', type: 'success' });
+        }
+      }
+
       await invalidateAll();
       refetch();
     } finally {
+      actionInFlightRef.current = false;
       setActionLoading(false);
     }
   };
@@ -263,16 +288,21 @@ export default function AfterSaleDetailScreen() {
     as.isLegacyManualReturnShipping ?? Boolean(as.returnWaybillNo && !as.returnSfOrderId);
   const returnShippingPaymentStatus = resolveReturnShippingPaymentStatus(as, returnShippingPayer, isLegacyManualReturnShipping);
   const requiresBuyerShippingPayment =
-    as.requiresBuyerShippingPayment ??
+    as.status === 'APPROVED' &&
+    as.requiresReturn &&
+    returnShippingPayer === 'BUYER' &&
+    !isLegacyManualReturnShipping &&
+    !as.returnShippingFeeDeducted &&
+    !as.returnShippingPaidAt &&
     (
-      as.status === 'APPROVED' &&
-      as.requiresReturn &&
-      returnShippingPayer === 'BUYER' &&
-      !isLegacyManualReturnShipping &&
-      !as.returnShippingFeeDeducted &&
-      !as.returnShippingPaidAt &&
-      returnShippingPaymentStatus === 'UNPAID'
-    );
+      as.requiresBuyerShippingPayment === true ||
+      BLOCKING_BUYER_SHIPPING_PAYMENT_STATUSES.includes(returnShippingPaymentStatus)
+    ) &&
+    !WAYBILL_READY_SHIPPING_PAYMENT_STATUSES.includes(returnShippingPaymentStatus);
+  const canCreateReturnWaybill =
+    as.status === 'APPROVED' &&
+    as.requiresReturn &&
+    WAYBILL_READY_SHIPPING_PAYMENT_STATUSES.includes(returnShippingPaymentStatus);
   const sellerPayerCostNote =
     as.requiresReturn && returnShippingPayer === 'SELLER'
       ? (
@@ -408,7 +438,7 @@ export default function AfterSaleDetailScreen() {
               ) : (
                 <Text style={[typography.caption, { color: colors.text.secondary }]}>
                   {as.status === 'APPROVED'
-                    ? requiresBuyerShippingPayment && returnShippingPaymentStatus === 'UNPAID'
+                    ? requiresBuyerShippingPayment
                       ? '请先支付退货运费，支付后可生成平台顺丰退货面单'
                       : '售后已通过，可生成平台顺丰退货面单'
                     : '暂无物流信息'}
@@ -534,22 +564,38 @@ export default function AfterSaleDetailScreen() {
 
       case 'APPROVED':
         if (requiresReturn) {
-          if (requiresBuyerShippingPayment && returnShippingPaymentStatus === 'UNPAID') {
+          if (requiresBuyerShippingPayment) {
+            const paymentActionText =
+              returnShippingPaymentStatus === 'PENDING'
+                ? '刷新支付状态'
+                : returnShippingPaymentStatus === 'FAILED'
+                  ? '重新支付退货运费'
+                  : '支付退货运费';
             return (
               <View>
                 <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.md }]}>
                   该售后需要先支付退货运费，支付完成后平台将生成顺丰退货面单
                 </Text>
-                <Pressable onPress={handlePayReturnShipping}>
+                <Pressable onPress={handlePayReturnShipping} disabled={actionLoading}>
                   <LinearGradient
                     colors={[colors.brand.primary, colors.ai.start]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={[styles.primaryBtn, { borderRadius: radius.pill }]}
                   >
-                    <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>支付退货运费</Text>
+                    <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{paymentActionText}</Text>
                   </LinearGradient>
                 </Pressable>
+              </View>
+            );
+          }
+          if (!canCreateReturnWaybill) {
+            return (
+              <View style={styles.actionCenter}>
+                <MaterialCommunityIcons name="clock-outline" size={20} color={colors.info} />
+                <Text style={[typography.bodySm, { color: colors.info, marginLeft: spacing.sm }]}>
+                  退货运费状态确认中，请稍后刷新
+                </Text>
               </View>
             );
           }
@@ -558,7 +604,7 @@ export default function AfterSaleDetailScreen() {
               <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.md }]}>
                 售后申请已通过，平台将为您生成顺丰退货面单
               </Text>
-              <Pressable onPress={handleCreateReturnWaybill}>
+              <Pressable onPress={handleCreateReturnWaybill} disabled={actionLoading}>
                 <LinearGradient
                   colors={[colors.brand.primary, colors.ai.start]}
                   start={{ x: 0, y: 0 }}
