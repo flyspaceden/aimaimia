@@ -18,13 +18,18 @@ import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.s
 type Tx = Prisma.TransactionClient;
 
 type ReturnWaybillContext = {
+  userId: string;
   companyId: string;
   sender: CarrierWaybillAddress;
   receiver: CarrierWaybillAddress;
   items: Array<{ name: string; quantity: number; weight?: number }>;
   returnShippingFee: number;
   returnShippingPayer: string | null;
+  generationMarkerReason: string;
+  generationMarkerRequestedAt: Date;
 };
+
+const RETURN_WAYBILL_GENERATION_REASON = '退货面单生成中';
 
 @Injectable()
 export class AfterSaleReturnShippingService {
@@ -114,8 +119,27 @@ export class AfterSaleReturnShippingService {
             ? (item.sku.weightGram * item.quantity) / 1000
             : undefined,
       }));
+      const generationMarkerRequestedAt = new Date();
+      const markerCas = await tx.afterSaleRequest.updateMany({
+        where: {
+          id: afterSaleId,
+          userId,
+          status: 'APPROVED',
+          returnWaybillNo: null,
+          manualReviewRequestedAt: null,
+        },
+        data: {
+          manualReviewReason: RETURN_WAYBILL_GENERATION_REASON,
+          manualReviewRequestedAt: generationMarkerRequestedAt,
+        },
+      });
+
+      if (markerCas.count === 0) {
+        throw new ConflictException('退货面单正在生成或售后申请状态已变更，请刷新后重试');
+      }
 
       return {
+        userId,
         companyId: company.id,
         sender,
         receiver,
@@ -124,19 +148,27 @@ export class AfterSaleReturnShippingService {
           ? estimatedReturnShippingFee
           : request.returnShippingFee,
         returnShippingPayer: request.returnShippingPayer,
+        generationMarkerReason: RETURN_WAYBILL_GENERATION_REASON,
+        generationMarkerRequestedAt,
       } satisfies ReturnWaybillContext;
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
-    const waybill = await this.sellerShippingService.createCarrierWaybillWithAddresses({
-      companyId: context.companyId,
-      bizNo: this.getReturnWaybillBizNo(afterSaleId),
-      carrierCode: 'SF',
-      sender: context.sender,
-      receiver: context.receiver,
-      items: context.items,
-    });
+    let waybill: Awaited<ReturnType<SellerShippingService['createCarrierWaybillWithAddresses']>>;
+    try {
+      waybill = await this.sellerShippingService.createCarrierWaybillWithAddresses({
+        companyId: context.companyId,
+        bizNo: this.getReturnWaybillBizNo(afterSaleId),
+        carrierCode: 'SF',
+        sender: context.sender,
+        receiver: context.receiver,
+        items: context.items,
+      });
+    } catch (err) {
+      await this.clearReturnWaybillGenerationMarker(afterSaleId, context);
+      throw err;
+    }
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -146,6 +178,8 @@ export class AfterSaleReturnShippingService {
             userId,
             status: 'APPROVED',
             returnWaybillNo: null,
+            manualReviewReason: context.generationMarkerReason,
+            manualReviewRequestedAt: context.generationMarkerRequestedAt,
           },
           data: {
             status: 'RETURN_SHIPPING',
@@ -158,6 +192,8 @@ export class AfterSaleReturnShippingService {
             returnShippingFee: context.returnShippingFee,
             returnShippingPayer: context.returnShippingPayer,
             returnShippedAt: new Date(),
+            manualReviewReason: null,
+            manualReviewRequestedAt: null,
           },
         });
 
@@ -183,17 +219,7 @@ export class AfterSaleReturnShippingService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       });
     } catch (err) {
-      try {
-        await this.sellerShippingService.cancelCarrierWaybillStrict(
-          waybill.sfOrderId ?? '',
-          waybill.waybillNo,
-        );
-      } catch {
-        await this.markReturnWaybillManualReview(
-          afterSaleId,
-          `退货面单已生成但本地状态更新失败，且自动取消面单失败，需人工处理：waybillNo=${waybill.waybillNo}, sfOrderId=${waybill.sfOrderId ?? ''}`,
-        );
-      }
+      await this.compensateCreatedReturnWaybill(afterSaleId, context, waybill);
       throw err;
     }
 
@@ -219,6 +245,7 @@ export class AfterSaleReturnShippingService {
         returnWaybillNo: true,
         returnSfOrderId: true,
         manualReviewRequestedAt: true,
+        manualReviewReason: true,
       },
     });
 
@@ -228,6 +255,7 @@ export class AfterSaleReturnShippingService {
 
     const marker =
       `退货面单自动取消中：waybillNo=${request.returnWaybillNo}, sfOrderId=${request.returnSfOrderId ?? ''}`;
+    const markerRequestedAt = new Date();
     const reserved = await this.prisma.$transaction(
       (tx) => tx.afterSaleRequest.updateMany({
         where: {
@@ -235,10 +263,11 @@ export class AfterSaleReturnShippingService {
           status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
           returnWaybillNo: request.returnWaybillNo,
           returnSfOrderId: request.returnSfOrderId,
+          manualReviewRequestedAt: null,
         },
         data: {
           manualReviewReason: marker,
-          manualReviewRequestedAt: request.manualReviewRequestedAt ?? new Date(),
+          manualReviewRequestedAt: markerRequestedAt,
         },
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -269,6 +298,7 @@ export class AfterSaleReturnShippingService {
           returnWaybillNo: request.returnWaybillNo,
           returnSfOrderId: request.returnSfOrderId,
           manualReviewReason: marker,
+          manualReviewRequestedAt: markerRequestedAt,
         },
         data: {
           returnCarrierCode: null,
@@ -422,5 +452,83 @@ export class AfterSaleReturnShippingService {
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  private async clearReturnWaybillGenerationMarker(
+    afterSaleId: string,
+    context: ReturnWaybillContext,
+  ): Promise<void> {
+    await this.prisma.$transaction(
+      (tx) => tx.afterSaleRequest.updateMany({
+        where: {
+          id: afterSaleId,
+          userId: context.userId,
+          status: 'APPROVED',
+          returnWaybillNo: null,
+          manualReviewReason: context.generationMarkerReason,
+          manualReviewRequestedAt: context.generationMarkerRequestedAt,
+        },
+        data: {
+          manualReviewReason: null,
+          manualReviewRequestedAt: null,
+        },
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  private async compensateCreatedReturnWaybill(
+    afterSaleId: string,
+    context: ReturnWaybillContext,
+    waybill: Awaited<ReturnType<SellerShippingService['createCarrierWaybillWithAddresses']>>,
+  ): Promise<void> {
+    const shouldCancel = await this.shouldCancelCreatedReturnWaybill(
+      afterSaleId,
+      context,
+      waybill,
+    );
+
+    if (!shouldCancel) return;
+
+    try {
+      await this.sellerShippingService.cancelCarrierWaybillStrict(
+        waybill.sfOrderId ?? '',
+        waybill.waybillNo,
+      );
+      await this.clearReturnWaybillGenerationMarker(afterSaleId, context);
+    } catch {
+      await this.markReturnWaybillManualReview(
+        afterSaleId,
+        `退货面单已生成但本地状态更新失败，且自动取消面单失败，需人工处理：waybillNo=${waybill.waybillNo}, sfOrderId=${waybill.sfOrderId ?? ''}`,
+      );
+    }
+  }
+
+  private async shouldCancelCreatedReturnWaybill(
+    afterSaleId: string,
+    context: ReturnWaybillContext,
+    waybill: Awaited<ReturnType<SellerShippingService['createCarrierWaybillWithAddresses']>>,
+  ): Promise<boolean> {
+    const current = await this.prisma.afterSaleRequest.findUnique({
+      where: { id: afterSaleId },
+      select: {
+        returnWaybillNo: true,
+        returnSfOrderId: true,
+        manualReviewReason: true,
+        manualReviewRequestedAt: true,
+      },
+    });
+
+    if (!current) return true;
+    if (current.returnWaybillNo === waybill.waybillNo) {
+      return false;
+    }
+
+    const stillHasGenerationMarker =
+      current.manualReviewReason === context.generationMarkerReason &&
+      current.manualReviewRequestedAt?.getTime() ===
+        context.generationMarkerRequestedAt.getTime();
+
+    return stillHasGenerationMarker || current.returnWaybillNo == null;
   }
 }

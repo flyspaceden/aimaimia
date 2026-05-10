@@ -207,6 +207,7 @@ export class AfterSaleTimeoutService {
 
     const candidates = await this.prisma.afterSaleRequest.findMany({
       where: {
+        manualReviewRequestedAt: null,
         OR: [
           {
             status: 'APPROVED',
@@ -230,22 +231,26 @@ export class AfterSaleTimeoutService {
 
     this.logger.log(`买家寄回超时：发现 ${candidates.length} 条待处理`);
 
-    let successCount = 0;
+    let closedCount = 0;
+    let manualReviewCount = 0;
+    let skippedCount = 0;
     let failCount = 0;
 
     for (const request of candidates) {
       try {
         const outcome = await this.autoCancelBuyerShip(request.id);
-        successCount++;
         if (outcome === 'CLOSED') {
+          closedCount++;
           this.logger.log(
             `买家寄回超时自动关闭：售后 ${request.id}，订单 ${request.orderId}`,
           );
         } else if (outcome === 'MANUAL_REVIEW') {
+          manualReviewCount++;
           this.logger.log(
             `买家寄回超时已标记人工复核：售后 ${request.id}，订单 ${request.orderId}`,
           );
         } else {
+          skippedCount++;
           this.logger.log(
             `买家寄回超时跳过处理：售后 ${request.id}，订单 ${request.orderId}`,
           );
@@ -259,7 +264,7 @@ export class AfterSaleTimeoutService {
     }
 
     this.logger.log(
-      `买家寄回超时处理完成：成功 ${successCount}，失败 ${failCount}`,
+      `买家寄回超时处理完成：关闭 ${closedCount}，人工复核 ${manualReviewCount}，跳过 ${skippedCount}，失败 ${failCount}`,
     );
   }
 
@@ -276,9 +281,13 @@ export class AfterSaleTimeoutService {
         returnShippingPayer: true,
         returnShippingFeeDeducted: true,
         returnShippingPaidAt: true,
+        manualReviewRequestedAt: true,
       },
     });
     if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) {
+      return 'SKIPPED';
+    }
+    if (request.manualReviewRequestedAt) {
       return 'SKIPPED';
     }
 
@@ -333,15 +342,19 @@ export class AfterSaleTimeoutService {
           async (tx) => {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
-              select: { status: true },
+              select: { status: true, manualReviewRequestedAt: true },
             });
-            if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) {
+            if (
+              !request ||
+              request.manualReviewRequestedAt ||
+              !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)
+            ) {
               this.logger.log(`售后 ${id} 已非可关闭状态，跳过`);
               return false;
             }
 
             const cas = await tx.afterSaleRequest.updateMany({
-              where: { id, status: request.status },
+              where: { id, status: request.status, manualReviewRequestedAt: null },
               data: { status: 'CLOSED' },
             });
             if (cas.count === 0) {
@@ -384,7 +397,11 @@ export class AfterSaleTimeoutService {
         await this.prisma.$transaction(
           async (tx) => {
             const cas = await tx.afterSaleRequest.updateMany({
-              where: { id, status: { in: ['APPROVED', 'RETURN_SHIPPING'] } },
+              where: {
+                id,
+                status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+                manualReviewRequestedAt: null,
+              },
               data: {
                 manualReviewReason: reason,
                 manualReviewRequestedAt: new Date(),

@@ -219,12 +219,27 @@ describe('AfterSaleReturnShippingService', () => {
       items: [{ name: '有机苹果', quantity: 2, weight: 1 }],
     });
     expect(shippingPaymentService.estimateReturnShippingFee).toHaveBeenCalledWith(AFTER_SALE_ID);
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: AFTER_SALE_ID,
+        userId: USER_ID,
+        status: 'APPROVED',
+        returnWaybillNo: null,
+        manualReviewRequestedAt: null,
+      },
+      data: {
+        manualReviewReason: '退货面单生成中',
+        manualReviewRequestedAt: expect.any(Date),
+      },
+    });
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
       where: {
         id: AFTER_SALE_ID,
         userId: USER_ID,
         status: 'APPROVED',
         returnWaybillNo: null,
+        manualReviewReason: '退货面单生成中',
+        manualReviewRequestedAt: expect.any(Date),
       },
       data: expect.objectContaining({
         status: 'RETURN_SHIPPING',
@@ -236,6 +251,8 @@ describe('AfterSaleReturnShippingService', () => {
         returnSfOrderId: 'sf-order-return-001',
         returnShippingFee: 18.13,
         returnShippingPayer: 'BUYER',
+        manualReviewReason: null,
+        manualReviewRequestedAt: null,
       }),
     });
     expect(statusHistory.create).toHaveBeenCalledWith(tx, {
@@ -249,9 +266,55 @@ describe('AfterSaleReturnShippingService', () => {
     });
   });
 
-  it('cancels the SF waybill as compensation when DB CAS fails after creation', async () => {
+  it('does not call SF when return waybill generation marker cannot be acquired', async () => {
     const { service, tx, sellerShippingService } = createMocks();
-    tx.afterSaleRequest.updateMany.mockResolvedValue({ count: 0 });
+    tx.afterSaleRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.createReturnWaybill(USER_ID, AFTER_SALE_ID))
+      .rejects.toThrow(ConflictException);
+
+    expect(sellerShippingService.createCarrierWaybillWithAddresses).not.toHaveBeenCalled();
+    expect(sellerShippingService.cancelCarrierWaybillStrict).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the generation marker when SF return waybill creation fails', async () => {
+    const { service, tx, sellerShippingService } = createMocks();
+    sellerShippingService.createCarrierWaybillWithAddresses
+      .mockRejectedValue(new Error('SF create timeout'));
+
+    await expect(service.createReturnWaybill(USER_ID, AFTER_SALE_ID))
+      .rejects.toThrow('SF create timeout');
+
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: AFTER_SALE_ID,
+        userId: USER_ID,
+        status: 'APPROVED',
+        returnWaybillNo: null,
+        manualReviewReason: '退货面单生成中',
+        manualReviewRequestedAt: expect.any(Date),
+      },
+      data: {
+        manualReviewReason: null,
+        manualReviewRequestedAt: null,
+      },
+    });
+    expect(sellerShippingService.cancelCarrierWaybillStrict).not.toHaveBeenCalled();
+  });
+
+  it('cancels the SF waybill as compensation when DB CAS fails after creation', async () => {
+    const { service, prisma, tx, sellerShippingService } = createMocks();
+    tx.afterSaleRequest.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+      manualReviewReason: '退货面单生成中',
+      manualReviewRequestedAt: null,
+    });
 
     await expect(service.createReturnWaybill(USER_ID, AFTER_SALE_ID))
       .rejects.toThrow(ConflictException);
@@ -261,11 +324,37 @@ describe('AfterSaleReturnShippingService', () => {
       .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
   });
 
+  it('does not cancel SF waybill when final persist CAS loses to the same persisted waybill', async () => {
+    const { service, prisma, tx, sellerShippingService } = createMocks();
+    tx.afterSaleRequest.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
+    });
+
+    await expect(service.createReturnWaybill(USER_ID, AFTER_SALE_ID))
+      .rejects.toThrow(ConflictException);
+
+    expect(sellerShippingService.createCarrierWaybillWithAddresses).toHaveBeenCalled();
+    expect(sellerShippingService.cancelCarrierWaybillStrict).not.toHaveBeenCalled();
+  });
+
   it('marks manual review when compensation cancel fails after SF creation and DB CAS failure', async () => {
     const { service, prisma, tx, sellerShippingService } = createMocks();
     tx.afterSaleRequest.updateMany
+      .mockResolvedValueOnce({ count: 1 })
       .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({ count: 1 });
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      returnWaybillNo: null,
+      returnSfOrderId: null,
+      manualReviewReason: '退货面单生成中',
+      manualReviewRequestedAt: null,
+    });
     sellerShippingService.cancelCarrierWaybillStrict.mockRejectedValue(new Error('SF cancel timeout'));
 
     await expect(service.createReturnWaybill(USER_ID, AFTER_SALE_ID))
@@ -274,7 +363,6 @@ describe('AfterSaleReturnShippingService', () => {
     expect(sellerShippingService.createCarrierWaybillWithAddresses).toHaveBeenCalled();
     expect(sellerShippingService.cancelCarrierWaybillStrict)
       .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
-    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
     expect(tx.afterSaleRequest.updateMany).toHaveBeenLastCalledWith({
       where: { id: AFTER_SALE_ID },
       data: {
@@ -284,9 +372,9 @@ describe('AfterSaleReturnShippingService', () => {
         manualReviewRequestedAt: expect.any(Date),
       },
     });
-    expect(tx.afterSaleRequest.updateMany.mock.calls[1][0].data.manualReviewReason)
+    expect(tx.afterSaleRequest.updateMany.mock.calls[2][0].data.manualReviewReason)
       .toEqual(expect.stringContaining('SF1234567890'));
-    expect(tx.afterSaleRequest.updateMany.mock.calls[1][0].data.manualReviewReason)
+    expect(tx.afterSaleRequest.updateMany.mock.calls[2][0].data.manualReviewReason)
       .toEqual(expect.stringContaining('sf-order-return-001'));
   });
 
@@ -311,6 +399,7 @@ describe('AfterSaleReturnShippingService', () => {
         returnWaybillNo: 'SF1234567890',
         returnSfOrderId: 'sf-order-return-001',
         manualReviewReason: expect.any(String),
+        manualReviewRequestedAt: expect.any(Date),
       },
       data: {
         returnCarrierCode: null,
@@ -348,6 +437,38 @@ describe('AfterSaleReturnShippingService', () => {
         manualReviewRequestedAt: expect.any(Date),
       },
     });
+  });
+
+  it('cancelIfNotPickedUp skips remote cancel when row is already under manual review', async () => {
+    const { service, prisma, tx, sellerShippingService } = createMocks();
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      status: 'RETURN_SHIPPING',
+      returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
+      manualReviewRequestedAt: new Date('2026-05-09T11:00:00.000Z'),
+      manualReviewReason: '已进入人工复核',
+    });
+    tx.afterSaleRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.cancelIfNotPickedUp(AFTER_SALE_ID))
+      .resolves.toEqual({ cancelled: false, reason: 'STATE_CHANGED' });
+
+    expect(sellerShippingService.cancelCarrierWaybillStrict).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: AFTER_SALE_ID,
+        status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+        returnWaybillNo: 'SF1234567890',
+        returnSfOrderId: 'sf-order-return-001',
+        manualReviewRequestedAt: null,
+      },
+      data: {
+        manualReviewReason: expect.stringContaining('退货面单自动取消中'),
+        manualReviewRequestedAt: expect.any(Date),
+      },
+    });
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it('cancelIfNotPickedUp returns STATE_CHANGED and marks manual review when remote cancel succeeds but final local CAS loses race', async () => {

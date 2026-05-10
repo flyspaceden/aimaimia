@@ -91,6 +91,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
 
     expect(prisma.afterSaleRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
+        manualReviewRequestedAt: null,
         OR: [
           {
             status: 'APPROVED',
@@ -108,7 +109,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       },
     }));
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: AFTER_SALE_ID, status: 'APPROVED' },
+      where: { id: AFTER_SALE_ID, status: 'APPROVED', manualReviewRequestedAt: null },
       data: { status: 'CLOSED' },
     });
     expect(statusHistory.create).toHaveBeenCalledWith(tx, {
@@ -155,7 +156,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       '买家超时未生成退货面单，售后关闭退还运费',
     );
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: AFTER_SALE_ID, status: 'APPROVED' },
+      where: { id: AFTER_SALE_ID, status: 'APPROVED', manualReviewRequestedAt: null },
       data: { status: 'CLOSED' },
     });
     expect(statusHistory.create).toHaveBeenCalledWith(tx, expect.objectContaining({
@@ -197,7 +198,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       '退货面单未揽收，售后关闭退还运费',
     );
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: AFTER_SALE_ID, status: 'RETURN_SHIPPING' },
+      where: { id: AFTER_SALE_ID, status: 'RETURN_SHIPPING', manualReviewRequestedAt: null },
       data: { status: 'CLOSED' },
     });
     expect(statusHistory.create).toHaveBeenCalledWith(tx, expect.objectContaining({
@@ -237,7 +238,11 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     expect(returnShippingService.cancelIfNotPickedUp).toHaveBeenCalledWith(AFTER_SALE_ID);
     expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: AFTER_SALE_ID, status: { in: ['APPROVED', 'RETURN_SHIPPING'] } },
+      where: {
+        id: AFTER_SALE_ID,
+        status: { in: ['APPROVED', 'RETURN_SHIPPING'] },
+        manualReviewRequestedAt: null,
+      },
       data: {
         manualReviewReason: '买家寄回超时但退货面单取消失败（CANCEL_FAILED），需人工核查是否已揽收',
         manualReviewRequestedAt: expect.any(Date),
@@ -246,6 +251,38 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: expect.any(String) } }),
     );
+    expect(statusHistory.create).not.toHaveBeenCalled();
+  });
+
+  it('skips buyer ship timeout rows already under manual review without cancelling or clearing reason', async () => {
+    const {
+      service,
+      prisma,
+      tx,
+      statusHistory,
+      returnShippingService,
+      shippingPaymentService,
+    } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      { id: AFTER_SALE_ID, orderId: ORDER_ID },
+    ]);
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      status: 'RETURN_SHIPPING',
+      returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
+      returnShippingPayer: 'PLATFORM',
+      returnShippingFeeDeducted: false,
+      returnShippingPaidAt: null,
+      manualReviewRequestedAt: new Date('2026-05-09T11:00:00.000Z'),
+      manualReviewReason: '原人工复核原因',
+    });
+
+    await (service as any).handleBuyerShipTimeout();
+
+    expect(returnShippingService.cancelIfNotPickedUp).not.toHaveBeenCalled();
+    expect(shippingPaymentService.refundShippingPayment).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
     expect(statusHistory.create).not.toHaveBeenCalled();
   });
 });
