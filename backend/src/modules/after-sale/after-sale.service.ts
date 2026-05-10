@@ -1065,12 +1065,34 @@ export class AfterSaleService {
             productSnapshot: true,
             quantity: true,
             unitPrice: true,
+            companyId: true,
+            // OrderItem 没有 Company 直接关联，绕 sku → product → company 拿到商家名
+            sku: {
+              select: {
+                product: {
+                  select: {
+                    company: {
+                      select: { id: true, name: true },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
     });
     if (!request) throw new NotFoundException('售后申请不存在');
     if (request.userId !== userId) throw new NotFoundException('售后申请不存在');
+
+    // 把 sku.product.company 提到 orderItem.company 让前端访问更直接
+    if (request.orderItem) {
+      const company = (request.orderItem as any).sku?.product?.company;
+      if (company) {
+        (request.orderItem as any).company = company;
+      }
+      delete (request.orderItem as any).sku;
+    }
 
     return request;
   }

@@ -321,6 +321,7 @@ export default function AfterSaleDetailScreen() {
   const productTitle = snapshot?.title ?? '商品';
   const unitPrice = as.orderItem?.unitPrice ?? 0;
   const quantity = as.orderItem?.quantity ?? 1;
+  const companyName = as.orderItem?.company?.name ?? snapshot?.companyName ?? null;
   const returnShippingPayer = resolveReturnShippingPayer(as);
   const isLegacyManualReturnShipping =
     as.isLegacyManualReturnShipping ?? Boolean(as.returnWaybillNo && !as.returnSfOrderId);
@@ -411,6 +412,11 @@ export default function AfterSaleDetailScreen() {
                 <Text style={[typography.bodySm, { color: colors.text.primary }]} numberOfLines={2}>
                   {productTitle}
                 </Text>
+                {companyName && (
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]} numberOfLines={1}>
+                    商家：{companyName}
+                  </Text>
+                )}
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                   ¥{unitPrice.toFixed(2)} x{quantity}
                 </Text>

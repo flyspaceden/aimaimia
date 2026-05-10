@@ -217,7 +217,14 @@ export type AfterSaleRequest = {
   createdAt: string;
   updatedAt: string;
   order?: { id: string; status: string; totalAmount: number };
-  orderItem?: { id: string; unitPrice: number; quantity: number; productSnapshot?: any };
+  orderItem?: {
+    id: string;
+    unitPrice: number;
+    quantity: number;
+    productSnapshot?: any;
+    companyId?: string;
+    company?: { id: string; name: string };
+  };
 };
 
 export type Order = {
