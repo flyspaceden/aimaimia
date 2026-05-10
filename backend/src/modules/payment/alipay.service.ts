@@ -169,14 +169,35 @@ export class AlipayService implements OnModuleInit {
     }) as any;
 
     const success = result.code === '10000';
+
+    // 关键：失败时拼出完整诊断信息（code + sub_code + sub_msg）
+    // 之前只透出 result.msg = "Business Failed"——通用错误无法定位真实原因。
+    // 支付宝错误码:
+    //   code=40004 是通用业务失败外壳，sub_code 才是真实原因
+    //   ACQ.TRADE_NOT_EXIST     订单不存在（最常见：mock 数据没真走支付宝）
+    //   ACQ.TRADE_HAS_FINISHED  交易已完结
+    //   ACQ.SELLER_BALANCE_NOT_ENOUGH  商户账户余额不足
+    const failureMessage = (() => {
+      if (success) return '';
+      const parts: string[] = [];
+      if (result.msg) parts.push(result.msg);
+      if (result.subCode) parts.push(`[${result.subCode}]`);
+      if (result.subMsg) parts.push(result.subMsg);
+      return parts.join(' ') || '未知错误';
+    })();
+
     if (!success) {
-      this.logger.warn(`支付宝退款失败: ${result.code} - ${result.msg || result.subMsg}`);
+      this.logger.warn(
+        `支付宝退款失败: code=${result.code}, sub_code=${result.subCode || 'N/A'}, ` +
+          `msg=${result.msg || 'N/A'}, sub_msg=${result.subMsg || 'N/A'}, ` +
+          `merchantRefundNo=${params.merchantRefundNo}`,
+      );
     }
 
     return {
       success,
       fundChange: result.fundChange || 'N',
-      message: result.msg || result.subMsg || '',
+      message: failureMessage,
     };
   }
 
