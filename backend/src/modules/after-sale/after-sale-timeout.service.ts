@@ -23,7 +23,7 @@ const BATCH_SIZE = 100;
  *
  * 每小时检查：
  * 1. 卖家审核超时 → 自动同意（REQUESTED/UNDER_REVIEW → APPROVED）
- * 2. 买家寄回超时 → 自动关闭（APPROVED → CANCELED）
+ * 2. 买家寄回超时 → 自动关闭（APPROVED/RETURN_SHIPPING → CLOSED）
  * 3. 卖家签收超时 → 自动签收（RETURN_SHIPPING → RECEIVED_BY_SELLER）
  * 4. 买家确认超时 → 自动完成（REPLACEMENT_SHIPPED → COMPLETED）
  */
@@ -195,7 +195,7 @@ export class AfterSaleTimeoutService {
 
   /**
    * 买家退货寄回超时 → 自动关闭
-   * APPROVED + requiresReturn=true + approvedAt 超过 BUYER_SHIP_TIMEOUT_DAYS → CANCELED
+   * APPROVED/RETURN_SHIPPING + requiresReturn=true 超过 BUYER_SHIP_TIMEOUT_DAYS → CLOSED
    */
   private async handleBuyerShipTimeout(): Promise<void> {
     const timeoutDays = await getConfigValue(
@@ -207,9 +207,19 @@ export class AfterSaleTimeoutService {
 
     const candidates = await this.prisma.afterSaleRequest.findMany({
       where: {
-        status: 'APPROVED',
-        requiresReturn: true,
-        approvedAt: { lt: cutoff },
+        OR: [
+          {
+            status: 'APPROVED',
+            requiresReturn: true,
+            approvedAt: { lt: cutoff },
+          },
+          {
+            status: 'RETURN_SHIPPING',
+            requiresReturn: true,
+            returnWaybillNo: { not: null },
+            returnShippedAt: { lt: cutoff },
+          },
+        ],
       },
       take: BATCH_SIZE,
       select: { id: true, orderId: true },
@@ -254,7 +264,7 @@ export class AfterSaleTimeoutService {
         returnShippingPaidAt: true,
       },
     });
-    if (!request || request.status !== 'APPROVED') return;
+    if (!request || !['APPROVED', 'RETURN_SHIPPING'].includes(request.status)) return;
 
     const buyerPaidShippingUnpaid =
       request.returnShippingPayer === 'BUYER' &&
@@ -298,7 +308,7 @@ export class AfterSaleTimeoutService {
 
             const cas = await tx.afterSaleRequest.updateMany({
               where: { id, status: request.status },
-              data: { status: 'CANCELED' },
+              data: { status: 'CLOSED' },
             });
             if (cas.count === 0) {
               this.logger.log(`售后 ${id} 状态已变更，跳过`);
@@ -307,7 +317,7 @@ export class AfterSaleTimeoutService {
             await this.afterSaleStatusHistory.create(tx, {
               afterSaleId: id,
               fromStatus: request.status as any,
-              toStatus: 'CANCELED',
+              toStatus: 'CLOSED',
               reason: '买家寄回超时，系统自动关闭',
               operatorType: AfterSaleOperatorType.SYSTEM,
             });
@@ -339,14 +349,14 @@ export class AfterSaleTimeoutService {
         await this.prisma.$transaction(
           async (tx) => {
             const cas = await tx.afterSaleRequest.updateMany({
-              where: { id, status: 'APPROVED' },
+              where: { id, status: { in: ['APPROVED', 'RETURN_SHIPPING'] } },
               data: {
                 manualReviewReason: reason,
                 manualReviewRequestedAt: new Date(),
               },
             });
             if (cas.count === 0) {
-              this.logger.log(`售后 ${id} 已非 APPROVED 状态，跳过人工复核标记`);
+              this.logger.log(`售后 ${id} 已非可标记人工复核状态，跳过人工复核标记`);
             }
           },
           {
@@ -387,6 +397,7 @@ export class AfterSaleTimeoutService {
       where: {
         status: 'RETURN_SHIPPING',
         returnShippedAt: { lt: cutoff },
+        manualReviewRequestedAt: null,
       },
       take: BATCH_SIZE,
       select: {

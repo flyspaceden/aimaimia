@@ -1137,6 +1137,15 @@ describe('cancelCarrierWaybill — 远端面单取消', () => {
       service.cancelCarrierWaybill('sf-order-abc-123', 'SF1234567890'),
     ).resolves.toBeUndefined();
   });
+
+  it('strict 取消在远端失败时抛异常，供超时关闭进入人工复核', async () => {
+    const { service, sfExpress } = createMocks();
+    sfExpress.cancelOrder.mockRejectedValue(new Error('网络超时'));
+
+    await expect(
+      service.cancelCarrierWaybillStrict('sf-order-abc-123', 'SF1234567890'),
+    ).rejects.toThrow('网络超时');
+  });
 });
 
 /* ================================================================== */

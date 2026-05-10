@@ -196,7 +196,8 @@ export class AfterSaleReturnShippingService {
   }
 
   async cancelIfNotPickedUp(afterSaleId: string): Promise<
-    { cancelled: true } | { cancelled: false; reason: 'NO_WAYBILL' | 'STATE_CHANGED' }
+    | { cancelled: true }
+    | { cancelled: false; reason: 'NO_WAYBILL' | 'STATE_CHANGED' | 'CANCEL_FAILED' }
   > {
     const request = await this.prisma.afterSaleRequest.findUnique({
       where: { id: afterSaleId },
@@ -212,10 +213,14 @@ export class AfterSaleReturnShippingService {
       return { cancelled: false, reason: 'NO_WAYBILL' };
     }
 
-    await this.sellerShippingService.cancelCarrierWaybill(
-      request.returnSfOrderId ?? '',
-      request.returnWaybillNo,
-    );
+    try {
+      await this.sellerShippingService.cancelCarrierWaybillStrict(
+        request.returnSfOrderId ?? '',
+        request.returnWaybillNo,
+      );
+    } catch {
+      return { cancelled: false, reason: 'CANCEL_FAILED' };
+    }
 
     const cas = await this.prisma.$transaction(
       (tx) => tx.afterSaleRequest.updateMany({

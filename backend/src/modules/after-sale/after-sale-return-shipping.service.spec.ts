@@ -86,6 +86,7 @@ function createMocks() {
   const sellerShippingService = {
     createCarrierWaybillWithAddresses: jest.fn(),
     cancelCarrierWaybill: jest.fn(),
+    cancelCarrierWaybillStrict: jest.fn(),
   };
   const statusHistory = {
     create: jest.fn((innerTx: any, input: any) =>
@@ -139,6 +140,7 @@ function beforeEachMocks(tx: any, prisma: any, sellerShippingService: any) {
     receiverInfoSnapshot: company.address,
   });
   sellerShippingService.cancelCarrierWaybill.mockResolvedValue(undefined);
+  sellerShippingService.cancelCarrierWaybillStrict.mockResolvedValue(undefined);
 }
 
 describe('AfterSaleReturnShippingService', () => {
@@ -270,7 +272,7 @@ describe('AfterSaleReturnShippingService', () => {
     await expect(service.cancelIfNotPickedUp(AFTER_SALE_ID))
       .resolves.toEqual({ cancelled: true });
 
-    expect(sellerShippingService.cancelCarrierWaybill)
+    expect(sellerShippingService.cancelCarrierWaybillStrict)
       .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
       where: {
@@ -288,6 +290,24 @@ describe('AfterSaleReturnShippingService', () => {
         returnShippedAt: null,
       },
     });
+  });
+
+  it('cancelIfNotPickedUp reports CANCEL_FAILED and keeps local fields when remote cancel fails', async () => {
+    const { service, prisma, tx, sellerShippingService } = createMocks();
+    prisma.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      status: 'RETURN_SHIPPING',
+      returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
+    });
+    sellerShippingService.cancelCarrierWaybillStrict.mockRejectedValue(new Error('网络超时'));
+
+    await expect(service.cancelIfNotPickedUp(AFTER_SALE_ID))
+      .resolves.toEqual({ cancelled: false, reason: 'CANCEL_FAILED' });
+
+    expect(sellerShippingService.cancelCarrierWaybillStrict)
+      .toHaveBeenCalledWith('sf-order-return-001', 'SF1234567890');
+    expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
   });
 
   it('cancelIfNotPickedUp reports NO_WAYBILL when no return waybill exists', async () => {

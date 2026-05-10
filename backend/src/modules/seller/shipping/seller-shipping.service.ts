@@ -519,10 +519,18 @@ export class SellerShippingService {
       return;
     }
     try {
-      await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
+      await this.cancelCarrierWaybillStrict(sfOrderId, waybillNo);
     } catch (err: any) {
       this.logger.warn(`取消面单调用顺丰失败（不阻塞本地清除）: ${err.message}`);
     }
+  }
+
+  async cancelCarrierWaybillStrict(sfOrderId: string, waybillNo: string) {
+    if (!sfOrderId && !waybillNo) {
+      this.logger.warn('取消面单跳过: 缺少顺丰订单ID和运单号');
+      return;
+    }
+    await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
   }
 
   async recordWaybillPrintAccess(
