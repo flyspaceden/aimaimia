@@ -32,10 +32,10 @@ export class RejectReturnDto {
   @IsString({ each: true, message: 'photos 每项必须为字符串' })
   photos: string[];
 
+  @IsOptional()
   @IsString({ message: 'returnWaybillNo 必须为字符串' })
-  @IsNotEmpty({ message: 'returnWaybillNo 不能为空' })
   @MaxLength(50, { message: 'returnWaybillNo 不能超过 50 个字符' })
-  returnWaybillNo: string;
+  returnWaybillNo?: string;
 }
 
 export class GenerateWaybillDto {

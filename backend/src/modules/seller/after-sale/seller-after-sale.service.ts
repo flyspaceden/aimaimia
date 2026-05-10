@@ -673,7 +673,7 @@ export class SellerAfterSaleService {
     id: string,
     reason: string,
     photos: string[],
-    returnWaybillNo: string,
+    returnWaybillNo?: string,
   ) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
@@ -705,7 +705,9 @@ export class SellerAfterSaleService {
                 status: 'SELLER_REJECTED_RETURN',
                 sellerRejectReason: reason,
                 sellerRejectPhotos: photos,
-                sellerReturnWaybillNo: returnWaybillNo,
+                ...(returnWaybillNo
+                  ? { sellerReturnWaybillNo: returnWaybillNo }
+                  : {}),
               },
             });
             if (cas.count === 0) {
