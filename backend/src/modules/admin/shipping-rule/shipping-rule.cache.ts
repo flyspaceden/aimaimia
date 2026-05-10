@@ -17,7 +17,17 @@ export class ShippingRuleCache {
 
   async getActiveRules(): Promise<ShippingRule[] | null> {
     const raw = await this.redis.get(ShippingRuleCache.RULES_KEY);
-    return raw ? (JSON.parse(raw) as ShippingRule[]) : null;
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = this.parseJson(raw);
+    if (!Array.isArray(parsed)) {
+      await this.redis.del(ShippingRuleCache.RULES_KEY);
+      return null;
+    }
+
+    return parsed as ShippingRule[];
   }
 
   async setActiveRules(rules: ShippingRule[]): Promise<void> {
@@ -30,7 +40,17 @@ export class ShippingRuleCache {
 
   async getConfig(): Promise<ShippingConfig | null> {
     const raw = await this.redis.get(ShippingRuleCache.CONFIG_KEY);
-    return raw ? (JSON.parse(raw) as ShippingConfig) : null;
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = this.parseJson(raw);
+    if (!this.isObject(parsed)) {
+      await this.redis.del(ShippingRuleCache.CONFIG_KEY);
+      return null;
+    }
+
+    return parsed as ShippingConfig;
   }
 
   async setConfig(cfg: ShippingConfig): Promise<void> {
@@ -46,5 +66,17 @@ export class ShippingRuleCache {
       ShippingRuleCache.RULES_KEY,
       ShippingRuleCache.CONFIG_KEY,
     );
+  }
+
+  private parseJson(raw: string): unknown {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  private isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 }
