@@ -183,6 +183,7 @@ export class AdminOrdersService {
               identifierMasked: maskPhone(identity.identifier || null),
             })),
             phone: maskPhone(o.user?.authIdentities?.[0]?.identifier || null),
+            nickname: o.user?.profile?.nickname || null,
           },
         };
       }),
