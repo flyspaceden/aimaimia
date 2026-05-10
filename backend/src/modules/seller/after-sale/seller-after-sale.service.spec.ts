@@ -256,6 +256,37 @@ describe('SellerAfterSaleService.rejectReturn', () => {
       },
     });
   });
+
+  it('ignores legacy manual seller return waybill input so generated waybill can run later', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(baseRequest({ status: 'RECEIVED_BY_SELLER' }))
+          .mockResolvedValueOnce(baseRequest({ status: 'SELLER_REJECTED_RETURN' })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await (service.rejectReturn as any)(
+      companyId,
+      staffId,
+      afterSaleId,
+      '商品不符合退回标准',
+      ['https://example.com/proof.jpg'],
+      'MANUAL-SHOULD-BE-IGNORED',
+    );
+
+    expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: afterSaleId, status: 'RECEIVED_BY_SELLER' },
+      data: {
+        status: 'SELLER_REJECTED_RETURN',
+        sellerRejectReason: '商品不符合退回标准',
+        sellerRejectPhotos: ['https://example.com/proof.jpg'],
+      },
+    });
+  });
 });
 
 describe('SellerAfterSaleService.generateSellerReturnWaybill', () => {

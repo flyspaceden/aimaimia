@@ -177,7 +177,6 @@ export class SellerAfterSaleController {
       id,
       dto.reason,
       dto.photos,
-      dto.returnWaybillNo,
     );
   }
 
