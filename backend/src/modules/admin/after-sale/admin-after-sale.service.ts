@@ -10,6 +10,7 @@ import { PaymentService } from '../../payment/payment.service';
 import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.service';
 import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
+import { SfExpressService } from '../../shipment/sf-express.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
@@ -73,6 +74,7 @@ export class AdminAfterSaleService {
     private inboxService: InboxService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleStatusHistory: AfterSaleStatusHistoryService,
+    private sfExpress: SfExpressService,
   ) {}
 
   // ========== 列表查询 ==========
@@ -247,6 +249,22 @@ export class AdminAfterSaleService {
     });
     if (!request) throw new NotFoundException('售后申请不存在');
 
+    // 实时查询顺丰物流轨迹（推送通道走的是 Shipment.waybillNo 匹配，售后单号
+    // 落不到 Shipment 表，所以推送轨迹永远丢失。这里用主动查询补上。）
+    // 优先级：买家寄回（returnWaybillNo）> 卖家拒收回寄（sellerReturnWaybillNo）
+    //       > 卖家发换货（replacementWaybillNo），各自独立返回让前端分区域展示
+    const [returnRoute, sellerReturnRoute, replacementRoute] = await Promise.all([
+      request.returnWaybillNo
+        ? this.sfExpress.queryRoutes(request.returnWaybillNo).catch(() => null)
+        : Promise.resolve(null),
+      request.sellerReturnWaybillNo
+        ? this.sfExpress.queryRoutes(request.sellerReturnWaybillNo).catch(() => null)
+        : Promise.resolve(null),
+      request.replacementWaybillNo
+        ? this.sfExpress.queryRoutes(request.replacementWaybillNo).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
     // 解密地址快照（管理员可查看完整信息）
     const phone = request.user?.authIdentities?.[0]?.identifier ?? null;
     const refund = request.refundByAfterSaleId ?? request.refundByRefundId;
@@ -275,6 +293,10 @@ export class AdminAfterSaleService {
       // 退货物流（管理员可看完整单号辅助仲裁）
       returnWaybillNo: request.returnWaybillNo,
       replacementWaybillNo: request.replacementWaybillNo,
+      // 实时查询的顺丰物流轨迹（推送通道无法路由到售后单，主动查询补充）
+      returnTracking: returnRoute,
+      sellerReturnTracking: sellerReturnRoute,
+      replacementTracking: replacementRoute,
       refund: this.mapRefund(refund),
       refundHistory: this.mapRefundHistory(refund),
       statusHistory: this.mapStatusHistory(statusHistory),

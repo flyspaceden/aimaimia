@@ -38,6 +38,7 @@ function makeService(tx: any) {
       {} as any,
       afterSaleRefundService as any,
       afterSaleStatusHistory as any,
+      { queryRoutes: jest.fn().mockResolvedValue(null) } as any,
     ),
   };
 }

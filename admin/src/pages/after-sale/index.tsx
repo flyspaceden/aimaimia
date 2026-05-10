@@ -4,7 +4,7 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
   App, Button, Tag, Modal, Input, Descriptions, Space, Radio,
-  Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select, Spin,
+  Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select, Spin, Timeline,
 } from 'antd';
 import {
   CheckCircleOutlined, CloseCircleOutlined,
@@ -796,6 +796,84 @@ export default function AfterSaleListPage() {
                 </Descriptions.Item>
               )}
             </Descriptions>
+
+            {/* 顺丰物流轨迹（实时查询；推送通道无法路由到售后单，主动查询补充） */}
+            {(modalRecord.returnTracking?.events?.length ||
+              modalRecord.sellerReturnTracking?.events?.length ||
+              modalRecord.replacementTracking?.events?.length) ? (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8, fontWeight: 500 }}>顺丰物流轨迹（实时）</div>
+                {modalRecord.returnTracking?.events?.length ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      买家寄回（{modalRecord.returnWaybillNo}）
+                    </Text>
+                    <Timeline
+                      style={{ marginTop: 8 }}
+                      items={modalRecord.returnTracking.events.map((e: any) => ({
+                        color: 'blue',
+                        children: (
+                          <Space direction="vertical" size={2}>
+                            <Text>{e.message}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {e.time}{e.location ? ` · ${e.location}` : ''}
+                            </Text>
+                          </Space>
+                        ),
+                      }))}
+                    />
+                  </div>
+                ) : null}
+                {modalRecord.replacementTracking?.events?.length ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      卖家发换货（{modalRecord.replacementWaybillNo}）
+                    </Text>
+                    <Timeline
+                      style={{ marginTop: 8 }}
+                      items={modalRecord.replacementTracking.events.map((e: any) => ({
+                        color: 'green',
+                        children: (
+                          <Space direction="vertical" size={2}>
+                            <Text>{e.message}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {e.time}{e.location ? ` · ${e.location}` : ''}
+                            </Text>
+                          </Space>
+                        ),
+                      }))}
+                    />
+                  </div>
+                ) : null}
+                {modalRecord.sellerReturnTracking?.events?.length ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      卖家拒收回寄
+                    </Text>
+                    <Timeline
+                      style={{ marginTop: 8 }}
+                      items={modalRecord.sellerReturnTracking.events.map((e: any) => ({
+                        color: 'orange',
+                        children: (
+                          <Space direction="vertical" size={2}>
+                            <Text>{e.message}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {e.time}{e.location ? ` · ${e.location}` : ''}
+                            </Text>
+                          </Space>
+                        ),
+                      }))}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : (modalRecord.returnWaybillNo || modalRecord.replacementWaybillNo) ? (
+              <div style={{ marginBottom: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  顺丰物流轨迹：暂无路由信息（顺丰可能尚未揽收或推送延迟）
+                </Text>
+              </div>
+            ) : null}
 
             {/* 退款与售后历史 */}
             <Descriptions column={1} size="small" style={{ marginBottom: 12 }} title="退款与状态历史">

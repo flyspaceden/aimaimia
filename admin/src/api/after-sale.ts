@@ -9,6 +9,18 @@ interface AfterSaleQueryParams extends PaginationParams {
   manualReview?: string;
 }
 
+/** 顺丰物流轨迹（来自 EXP_RECE_SEARCH_ROUTES）*/
+export interface SfTrackingResult {
+  status: string;
+  rawOpCode: string;
+  events: Array<{
+    time: string;
+    message: string;
+    location?: string;
+    opCode?: string;
+  }>;
+}
+
 export interface AdminAfterSale {
   id: string;
   orderId: string;
@@ -63,6 +75,10 @@ export interface AdminAfterSale {
   /** 换货物流单号 */
   replacementWaybillNo?: string;
   replacementShipmentId?: string;
+  /** 顺丰物流轨迹（后端实时查询，因为推送通道无法路由到售后单）*/
+  returnTracking?: SfTrackingResult | null;
+  sellerReturnTracking?: SfTrackingResult | null;
+  replacementTracking?: SfTrackingResult | null;
   createdAt: string;
   updatedAt: string;
   /** 公司信息（后端从 orderItem → sku → product → company 提取） */
