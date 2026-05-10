@@ -13,20 +13,20 @@ import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 
 type Tx = Prisma.TransactionClient;
+const SERIALIZABLE_MAX_RETRIES = 3;
 
 @Injectable()
 export class AfterSaleShippingPaymentService {
   constructor(private prisma: PrismaService) {}
 
   async estimateReturnShippingFee(afterSaleId: string): Promise<number> {
-    return this.prisma.$transaction(
-      async (tx) => this.estimateReturnShippingFeeInTx(tx, afterSaleId),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    return this.withSerializableRetry((tx) =>
+      this.estimateReturnShippingFeeInTx(tx, afterSaleId),
     );
   }
 
   async createOrGetPayment(afterSaleId: string): Promise<AfterSaleShippingPayment> {
-    return this.prisma.$transaction(
+    return this.withSerializableRetry(
       async (tx) => {
         const request = await tx.afterSaleRequest.findUnique({
           where: { id: afterSaleId },
@@ -36,7 +36,6 @@ export class AfterSaleShippingPaymentService {
 
         return this.upsertPaymentInTx(tx, request);
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -44,7 +43,7 @@ export class AfterSaleShippingPaymentService {
     userId: string,
     afterSaleId: string,
   ): Promise<AfterSaleShippingPayment> {
-    return this.prisma.$transaction(
+    return this.withSerializableRetry(
       async (tx) => {
         const request = await tx.afterSaleRequest.findFirst({
           where: { id: afterSaleId, userId },
@@ -54,7 +53,6 @@ export class AfterSaleShippingPaymentService {
 
         return this.upsertPaymentInTx(tx, request);
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -65,41 +63,57 @@ export class AfterSaleShippingPaymentService {
   ): Promise<void> {
     const confirmedAt = paidAt ?? new Date();
 
-    await this.prisma.$transaction(
+    await this.withSerializableRetry(
       async (tx) => {
         const payment = await tx.afterSaleShippingPayment.findUnique({
           where: { merchantPaymentNo },
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
         if (payment.status === 'PAID') return;
-        if (!['UNPAID', 'PENDING', 'FAILED'].includes(payment.status)) return;
+        if (['REFUNDING', 'REFUNDED'].includes(payment.status)) return;
+        if (!['UNPAID', 'PENDING', 'FAILED', 'CLOSED'].includes(payment.status)) {
+          return;
+        }
 
         const request = await tx.afterSaleRequest.findUnique({
           where: { id: payment.afterSaleId },
         });
         if (!request) throw new NotFoundException('售后单不存在');
-        if (request.status !== 'APPROVED') return;
+        const manualRefundReason =
+          request.status === 'APPROVED'
+            ? null
+            : `售后单状态已变更为 ${request.status}，需人工退还退货运费`;
 
         const updated = await tx.afterSaleShippingPayment.updateMany({
           where: {
             merchantPaymentNo,
-            status: { in: ['UNPAID', 'PENDING', 'FAILED'] },
+            status: { in: ['UNPAID', 'PENDING', 'FAILED', 'CLOSED'] },
           },
           data: {
             status: 'PAID',
             providerPaymentNo: providerPaymentNo ?? payment.providerPaymentNo,
             paidAt: confirmedAt,
-            failureReason: null,
+            failureReason: manualRefundReason,
           },
         });
         if (updated.count === 0) return;
+
+        if (request.status !== 'APPROVED') {
+          await tx.afterSaleRequest.update({
+            where: { id: payment.afterSaleId },
+            data: {
+              manualReviewReason: manualRefundReason,
+              manualReviewRequestedAt: confirmedAt,
+            },
+          });
+          return;
+        }
 
         await tx.afterSaleRequest.update({
           where: { id: payment.afterSaleId },
           data: { returnShippingPaidAt: confirmedAt },
         });
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -107,7 +121,7 @@ export class AfterSaleShippingPaymentService {
     merchantPaymentNo: string,
     reason: string,
   ): Promise<void> {
-    await this.prisma.$transaction(
+    await this.withSerializableRetry(
       async (tx) => {
         const payment = await tx.afterSaleShippingPayment.findUnique({
           where: { merchantPaymentNo },
@@ -128,12 +142,11 @@ export class AfterSaleShippingPaymentService {
           },
         });
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
   async refundShippingPayment(afterSaleId: string, reason: string): Promise<void> {
-    await this.prisma.$transaction(
+    await this.withSerializableRetry(
       async (tx) => {
         const payment = await tx.afterSaleShippingPayment.findUnique({
           where: { afterSaleId },
@@ -161,7 +174,6 @@ export class AfterSaleShippingPaymentService {
           },
         });
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -211,5 +223,23 @@ export class AfterSaleShippingPaymentService {
 
   private getMerchantPaymentNo(afterSaleId: string): string {
     return `AS_SHIP_PAY_${afterSaleId}`;
+  }
+
+  private async withSerializableRetry<T>(
+    operation: (tx: Tx) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 0; attempt < SERIALIZABLE_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Serializable transaction retry exhausted');
   }
 }

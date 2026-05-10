@@ -79,12 +79,24 @@ export class PaymentService {
       throw new BadRequestException('售后退货运费支付单不存在');
     }
 
+    this.assertAfterSaleShippingPaymentAmountValueMatches(
+      outTradeNo,
+      payment.amount,
+      totalAmount,
+    );
+  }
+
+  private assertAfterSaleShippingPaymentAmountValueMatches(
+    merchantPaymentNo: string,
+    expectedAmount: number,
+    totalAmount: string,
+  ): void {
     const actualAmount = Number(totalAmount);
     if (!Number.isFinite(actualAmount)) {
       throw new BadRequestException('售后退货运费金额格式错误');
     }
 
-    const expectedFen = Math.round(payment.amount * 100);
+    const expectedFen = Math.round(expectedAmount * 100);
     const actualFen = Math.round(actualAmount * 100);
     if (expectedFen !== actualFen) {
       throw new BadRequestException(
@@ -115,6 +127,10 @@ export class PaymentService {
    * - 跳过签名校验：query 是后端主动调用，没有"对方签名"概念，复用 skipSignatureVerification:true
    */
   async confirmAlipayCheckout(sessionId: string, userId: string) {
+    if (sessionId?.startsWith('AS_SHIP_PAY_')) {
+      return this.confirmAfterSaleShippingAlipayPayment(sessionId, userId);
+    }
+
     if (!this.checkoutService) {
       throw new BadRequestException('结算服务未启用');
     }
@@ -230,6 +246,76 @@ export class PaymentService {
       status: refreshed?.status ?? 'COMPLETED',
       orderIds: refreshed?.orders.map((o) => o.id) ?? [],
       expectedTotal: session.expectedTotal,
+      confirmedBy: 'active-query-success' as const,
+    };
+  }
+
+  private async confirmAfterSaleShippingAlipayPayment(
+    merchantPaymentNo: string,
+    userId: string,
+  ) {
+    const payment = await this.prisma.afterSaleShippingPayment.findUnique({
+      where: { merchantPaymentNo },
+      include: { afterSale: { select: { userId: true } } },
+    });
+    if (!payment || payment.afterSale.userId !== userId) {
+      throw new NotFoundException('售后退货运费支付单不存在');
+    }
+
+    let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+    try {
+      queryResult = await this.alipayService.queryOrder(merchantPaymentNo);
+    } catch (err: any) {
+      this.logger.error(`active-query 售后退货运费调用支付宝异常: ${err.message}`);
+      return {
+        status: payment.status,
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: 'query-error' as const,
+      };
+    }
+
+    if (!queryResult) {
+      return {
+        status: payment.status,
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: 'not-found' as const,
+      };
+    }
+
+    const { tradeStatus, tradeNo, totalAmount } = queryResult;
+    if (tradeStatus !== 'TRADE_SUCCESS' && tradeStatus !== 'TRADE_FINISHED') {
+      this.logger.log(
+        `active-query: 支付宝返回 ${tradeStatus}，售后退货运费支付单 ${this.maskBizId(merchantPaymentNo)} 保持当前状态 ${payment.status}`,
+      );
+      return {
+        status: payment.status,
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: `alipay-${tradeStatus.toLowerCase()}` as const,
+      };
+    }
+
+    this.assertAfterSaleShippingPaymentAmountValueMatches(
+      merchantPaymentNo,
+      payment.amount,
+      totalAmount,
+    );
+
+    await this.handlePaymentCallback({
+      merchantOrderNo: merchantPaymentNo,
+      providerTxnId: tradeNo,
+      status: 'SUCCESS',
+      paidAt: new Date().toISOString(),
+      rawPayload: { source: 'active-query', tradeStatus, tradeNo, totalAmount },
+      skipSignatureVerification: true,
+    });
+
+    return {
+      status: ['REFUNDING', 'REFUNDED'].includes(payment.status) ? payment.status : 'PAID',
+      orderIds: [],
+      expectedTotal: payment.amount,
       confirmedBy: 'active-query-success' as const,
     };
   }

@@ -161,7 +161,7 @@ describe('AfterSaleShippingPaymentService', () => {
     expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         merchantPaymentNo: 'AS_SHIP_PAY_as_001',
-        status: { in: ['UNPAID', 'PENDING', 'FAILED'] },
+        status: { in: ['UNPAID', 'PENDING', 'FAILED', 'CLOSED'] },
       },
       data: expect.objectContaining({
         status: 'PAID',
@@ -224,7 +224,7 @@ describe('AfterSaleShippingPaymentService', () => {
     },
   );
 
-  it.each(['CLOSED', 'REFUNDING', 'REFUNDED'])(
+  it.each(['REFUNDING', 'REFUNDED'])(
     'handlePaymentSuccess ignores late success when shipping payment is %s',
     async (status) => {
       tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
@@ -243,7 +243,15 @@ describe('AfterSaleShippingPaymentService', () => {
     },
   );
 
-  it('handlePaymentSuccess does not mark paid when linked after-sale request is no longer approved', async () => {
+  it('handlePaymentSuccess records late CLOSED success as PAID manual refund without regressing request', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'CLOSED',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      providerPaymentNo: null,
+    });
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
       status: 'CLOSED',
@@ -251,9 +259,28 @@ describe('AfterSaleShippingPaymentService', () => {
 
     await service.handlePaymentSuccess('AS_SHIP_PAY_as_001', 'trade_late', paidAt);
 
-    expect(tx.afterSaleShippingPayment.update).not.toHaveBeenCalled();
-    expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
-    expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        status: { in: ['UNPAID', 'PENDING', 'FAILED', 'CLOSED'] },
+      },
+      data: expect.objectContaining({
+        status: 'PAID',
+        providerPaymentNo: 'trade_late',
+        paidAt,
+        failureReason: '售后单状态已变更为 CLOSED，需人工退还退货运费',
+      }),
+    }));
+    expect(tx.afterSaleRequest.update).toHaveBeenCalledWith({
+      where: { id: 'as_001' },
+      data: {
+        manualReviewReason: '售后单状态已变更为 CLOSED，需人工退还退货运费',
+        manualReviewRequestedAt: paidAt,
+      },
+    });
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ returnShippingPaidAt: paidAt }),
+    }));
   });
 
   it('refundShippingPayment keeps PAID payment paid and records manual refund note', async () => {

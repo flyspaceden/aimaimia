@@ -16,11 +16,13 @@ describe('PaymentService.confirmAlipayCheckout', () => {
 
   const buildService = (overrides: {
     session: any;
+    shippingPayment?: any;
     queryResult?: any;
     queryOrderShouldThrow?: boolean;
     handlePaymentCallback?: jest.Mock;
   }) => {
     const sessionFindUnique = jest.fn().mockResolvedValue(overrides.session);
+    const shippingPaymentFindUnique = jest.fn().mockResolvedValue(overrides.shippingPayment ?? null);
     const queryOrder = overrides.queryOrderShouldThrow
       ? jest.fn().mockRejectedValue(new Error('支付宝网关异常'))
       : jest.fn().mockResolvedValue(overrides.queryResult ?? null);
@@ -28,6 +30,7 @@ describe('PaymentService.confirmAlipayCheckout', () => {
 
     const prisma = {
       checkoutSession: { findUnique: sessionFindUnique },
+      afterSaleShippingPayment: { findUnique: shippingPaymentFindUnique },
     };
     const config = { get: jest.fn() };
     const alipayService = { queryOrder };
@@ -41,7 +44,7 @@ describe('PaymentService.confirmAlipayCheckout', () => {
     );
     // monkey-patch handlePaymentCallback for test isolation
     (service as any).handlePaymentCallback = handlePaymentCallback;
-    return { service, sessionFindUnique, queryOrder, handlePaymentCallback };
+    return { service, sessionFindUnique, shippingPaymentFindUnique, queryOrder, handlePaymentCallback };
   };
 
   it('Scene 1: TRADE_SUCCESS 应建单并返回 COMPLETED + orderIds', async () => {
@@ -181,6 +184,100 @@ describe('PaymentService.confirmAlipayCheckout', () => {
     expect(handlePaymentCallback).not.toHaveBeenCalled();
     expect(result.status).toBe('ACTIVE');
     expect(result.confirmedBy).toBe('query-error');
+  });
+
+  it('active-query routes AS_SHIP_PAY success before CheckoutSession lookup', async () => {
+    const shippingMerchantNo = 'AS_SHIP_PAY_as_001';
+    const shippingPayment = {
+      id: 'ship_pay_001',
+      amount: 18.13,
+      status: 'UNPAID',
+      merchantPaymentNo: shippingMerchantNo,
+      afterSale: { userId },
+    };
+    const { service, sessionFindUnique, queryOrder, handlePaymentCallback } = buildService({
+      session: null,
+      shippingPayment,
+      queryResult: {
+        tradeStatus: 'TRADE_SUCCESS',
+        tradeNo: 'alipay-ship-tx-1',
+        totalAmount: '18.13',
+      },
+    });
+
+    const result = await service.confirmAlipayCheckout(shippingMerchantNo, userId);
+
+    expect(sessionFindUnique).not.toHaveBeenCalled();
+    expect(queryOrder).toHaveBeenCalledWith(shippingMerchantNo);
+    expect(handlePaymentCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchantOrderNo: shippingMerchantNo,
+        providerTxnId: 'alipay-ship-tx-1',
+        status: 'SUCCESS',
+        skipSignatureVerification: true,
+      }),
+    );
+    expect(result).toEqual({
+      status: 'PAID',
+      orderIds: [],
+      expectedTotal: 18.13,
+      confirmedBy: 'active-query-success',
+    });
+  });
+
+  it('active-query rejects AS_SHIP_PAY amount mismatch before callback', async () => {
+    const shippingMerchantNo = 'AS_SHIP_PAY_as_001';
+    const { service, sessionFindUnique, handlePaymentCallback } = buildService({
+      session: null,
+      shippingPayment: {
+        id: 'ship_pay_001',
+        amount: 18.13,
+        status: 'UNPAID',
+        merchantPaymentNo: shippingMerchantNo,
+        afterSale: { userId },
+      },
+      queryResult: {
+        tradeStatus: 'TRADE_SUCCESS',
+        tradeNo: 'alipay-ship-tx-1',
+        totalAmount: '18.12',
+      },
+    });
+
+    await expect(service.confirmAlipayCheckout(shippingMerchantNo, userId))
+      .rejects.toThrow(BadRequestException);
+
+    expect(sessionFindUnique).not.toHaveBeenCalled();
+    expect(handlePaymentCallback).not.toHaveBeenCalled();
+  });
+
+  it('active-query returns current AS_SHIP_PAY state for WAIT_BUYER_PAY without callback', async () => {
+    const shippingMerchantNo = 'AS_SHIP_PAY_as_001';
+    const { service, sessionFindUnique, handlePaymentCallback } = buildService({
+      session: null,
+      shippingPayment: {
+        id: 'ship_pay_001',
+        amount: 18.13,
+        status: 'UNPAID',
+        merchantPaymentNo: shippingMerchantNo,
+        afterSale: { userId },
+      },
+      queryResult: {
+        tradeStatus: 'WAIT_BUYER_PAY',
+        tradeNo: '',
+        totalAmount: '18.13',
+      },
+    });
+
+    const result = await service.confirmAlipayCheckout(shippingMerchantNo, userId);
+
+    expect(sessionFindUnique).not.toHaveBeenCalled();
+    expect(handlePaymentCallback).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'UNPAID',
+      orderIds: [],
+      expectedTotal: 18.13,
+      confirmedBy: 'alipay-wait_buyer_pay',
+    });
   });
 });
 
