@@ -216,6 +216,7 @@ export class AfterSaleTimeoutService {
           {
             status: 'RETURN_SHIPPING',
             requiresReturn: true,
+            returnSfOrderId: { not: null },
             returnWaybillNo: { not: null },
             returnShippedAt: { lt: cutoff },
           },
@@ -259,6 +260,7 @@ export class AfterSaleTimeoutService {
         id: true,
         status: true,
         returnWaybillNo: true,
+        returnSfOrderId: true,
         returnShippingPayer: true,
         returnShippingFeeDeducted: true,
         returnShippingPaidAt: true,
@@ -271,7 +273,15 @@ export class AfterSaleTimeoutService {
       !request.returnShippingFeeDeducted &&
       request.returnShippingPaidAt == null;
 
-    if (request.returnWaybillNo && !buyerPaidShippingUnpaid) {
+    if (
+      request.status === 'RETURN_SHIPPING' &&
+      request.returnWaybillNo &&
+      !request.returnSfOrderId
+    ) {
+      return;
+    }
+
+    if (request.returnWaybillNo && request.returnSfOrderId && !buyerPaidShippingUnpaid) {
       const cancelResult = await this.afterSaleReturnShippingService.cancelIfNotPickedUp(id);
       if (cancelResult.cancelled) {
         await this.afterSaleShippingPaymentService.refundShippingPayment(
@@ -398,6 +408,7 @@ export class AfterSaleTimeoutService {
         status: 'RETURN_SHIPPING',
         returnShippedAt: { lt: cutoff },
         manualReviewRequestedAt: null,
+        returnSfOrderId: null,
       },
       take: BATCH_SIZE,
       select: {
@@ -406,6 +417,7 @@ export class AfterSaleTimeoutService {
         afterSaleType: true,
         refundAmount: true,
         reason: true,
+        returnSfOrderId: true,
       },
     });
 
@@ -442,7 +454,15 @@ export class AfterSaleTimeoutService {
     afterSaleType: string;
     refundAmount: number | null;
     reason: string;
+    returnSfOrderId?: string | null;
   }): Promise<void> {
+    if (request.returnSfOrderId) {
+      this.logger.log(
+        `售后 ${request.id} 为平台生成退货面单，跳过卖家签收超时自动签收`,
+      );
+      return;
+    }
+
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const outcome = await this.prisma.$transaction(

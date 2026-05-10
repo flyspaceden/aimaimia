@@ -100,6 +100,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
           {
             status: 'RETURN_SHIPPING',
             requiresReturn: true,
+            returnSfOrderId: { not: null },
             returnWaybillNo: { not: null },
             returnShippedAt: { lt: expect.any(Date) },
           },
@@ -141,6 +142,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
       returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
       returnShippingPayer: 'PLATFORM',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
@@ -181,6 +183,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       id: AFTER_SALE_ID,
       status: 'RETURN_SHIPPING',
       returnWaybillNo: 'SF1234567890',
+      returnSfOrderId: 'sf-order-return-001',
       returnShippingPayer: 'PLATFORM',
       returnShippingFeeDeducted: false,
       returnShippingPaidAt: null,
@@ -204,6 +207,52 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
     expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: expect.any(String) } }),
     );
+    expect(statusHistory.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AfterSaleTimeoutService seller receive timeout', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(Date, 'now').mockReturnValue(NOW.getTime());
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('excludes generated SF return waybills from stale seller auto-receive candidates', async () => {
+    const { service, prisma } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([]);
+
+    await (service as any).handleSellerReceiveTimeout();
+
+    expect(prisma.afterSaleRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        status: 'RETURN_SHIPPING',
+        returnShippedAt: { lt: expect.any(Date) },
+        manualReviewRequestedAt: null,
+        returnSfOrderId: null,
+      },
+    }));
+  });
+
+  it('does not auto-receive a generated SF return waybill even if a stale row reaches the handler', async () => {
+    const { service, prisma, tx, statusHistory } = createMocks();
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      {
+        id: AFTER_SALE_ID,
+        orderId: ORDER_ID,
+        afterSaleType: 'NO_REASON_RETURN',
+        refundAmount: 88,
+        reason: '七天无理由',
+        returnSfOrderId: 'sf-order-return-001',
+      },
+    ]);
+
+    await (service as any).handleSellerReceiveTimeout();
+
+    expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
     expect(statusHistory.create).not.toHaveBeenCalled();
   });
 });

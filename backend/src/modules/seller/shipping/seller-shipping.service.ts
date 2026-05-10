@@ -530,7 +530,10 @@ export class SellerShippingService {
       this.logger.warn('取消面单跳过: 缺少顺丰订单ID和运单号');
       return;
     }
-    await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
+    const result = await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
+    if (result?.success === false) {
+      throw new Error('顺丰取消面单失败');
+    }
   }
 
   async recordWaybillPrintAccess(

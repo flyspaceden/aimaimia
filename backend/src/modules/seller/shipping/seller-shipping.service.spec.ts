@@ -1146,6 +1146,15 @@ describe('cancelCarrierWaybill — 远端面单取消', () => {
       service.cancelCarrierWaybillStrict('sf-order-abc-123', 'SF1234567890'),
     ).rejects.toThrow('网络超时');
   });
+
+  it('strict 取消在顺丰返回 success=false 时抛异常，供超时关闭进入人工复核', async () => {
+    const { service, sfExpress } = createMocks();
+    sfExpress.cancelOrder.mockResolvedValue({ success: false });
+
+    await expect(
+      service.cancelCarrierWaybillStrict('sf-order-abc-123', 'SF1234567890'),
+    ).rejects.toThrow('顺丰取消面单失败');
+  });
 });
 
 /* ================================================================== */
