@@ -66,7 +66,7 @@ export class ShippingRuleController {
   @Post('import')
   @RequirePermission('shipping:update')
   @AuditLog({
-    action: 'IMPORT',
+    action: 'CONFIG_CHANGE',
     module: 'shipping',
     targetType: 'ShippingRule',
     isReversible: false,
