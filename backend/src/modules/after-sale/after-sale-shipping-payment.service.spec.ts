@@ -35,6 +35,7 @@ describe('AfterSaleShippingPaymentService', () => {
   };
   const alipayService = {
     createAppPayOrder: jest.fn(),
+    refund: jest.fn(),
   };
 
   let service: AfterSaleShippingPaymentService;
@@ -42,6 +43,11 @@ describe('AfterSaleShippingPaymentService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     alipayService.createAppPayOrder.mockResolvedValue('alipay-order-str');
+    alipayService.refund.mockResolvedValue({
+      success: true,
+      fundChange: 'Y',
+      message: 'Success',
+    });
     tx.ruleConfig.findUnique.mockResolvedValue({ value: 18.126 });
     tx.afterSaleRequest.findFirst.mockResolvedValue({
       id: 'as_001',
@@ -334,6 +340,24 @@ describe('AfterSaleShippingPaymentService', () => {
     },
   );
 
+  it('handlePaymentSuccess ignores FAILED payment that was already paid and failed during refund', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'FAILED',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      providerPaymentNo: 'trade_001',
+      paidAt,
+      failureReason: '退货运费退款失败: 余额不足',
+    });
+
+    await service.handlePaymentSuccess('AS_SHIP_PAY_as_001', 'trade_late', new Date());
+
+    expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
+  });
+
   it('handlePaymentSuccess records late CLOSED success as PAID manual refund without regressing request', async () => {
     tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
       id: 'ship_pay_001',
@@ -374,12 +398,54 @@ describe('AfterSaleShippingPaymentService', () => {
     }));
   });
 
-  it('refundShippingPayment keeps PAID payment paid and records manual refund note', async () => {
+  it('refundShippingPayment refunds PAID return shipping fee through original Alipay trade', async () => {
     tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
       id: 'ship_pay_001',
       afterSaleId: 'as_001',
+      amount: 18.13,
       status: 'PAID',
       merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+    });
+    tx.afterSaleShippingPayment.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.refundShippingPayment('as_001', '面单取消');
+
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { afterSaleId: 'as_001', status: 'PAID' },
+      data: expect.objectContaining({
+        status: 'REFUNDING',
+        failureReason: '退货运费退款中: 面单取消',
+      }),
+    }));
+    expect(alipayService.refund).toHaveBeenCalledWith({
+      merchantOrderNo: 'AS_SHIP_PAY_as_001',
+      refundAmount: 18.13,
+      merchantRefundNo: 'AS_SHIP_REFUND_as_001',
+      refundReason: '面单取消',
+    });
+    expect(tx.afterSaleShippingPayment.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { afterSaleId: 'as_001' },
+      data: expect.objectContaining({
+        status: 'REFUNDED',
+        refundedAt: expect.any(Date),
+        failureReason: null,
+      }),
+    }));
+  });
+
+  it('refundShippingPayment marks paid shipping fee refund failed when Alipay rejects', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'PAID',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+    });
+    tx.afterSaleShippingPayment.updateMany.mockResolvedValue({ count: 1 });
+    alipayService.refund.mockResolvedValue({
+      success: false,
+      fundChange: 'N',
+      message: '余额不足',
     });
 
     await service.refundShippingPayment('as_001', '面单取消');
@@ -387,9 +453,36 @@ describe('AfterSaleShippingPaymentService', () => {
     expect(tx.afterSaleShippingPayment.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { afterSaleId: 'as_001' },
       data: expect.objectContaining({
-        status: 'PAID',
-        failureReason: '需人工退还退货运费: 面单取消',
+        status: 'FAILED',
+        failureReason: '退货运费退款失败: 余额不足',
       }),
+    }));
+  });
+
+  it('refundShippingPayment retries FAILED payment when it had already been paid', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      id: 'ship_pay_001',
+      afterSaleId: 'as_001',
+      amount: 18.13,
+      status: 'FAILED',
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      paidAt,
+      failureReason: '退货运费退款失败: 余额不足',
+    });
+    tx.afterSaleShippingPayment.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.refundShippingPayment('as_001', '再次退款');
+
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { afterSaleId: 'as_001', status: 'FAILED' },
+      data: expect.objectContaining({
+        status: 'REFUNDING',
+        failureReason: '退货运费退款中: 再次退款',
+      }),
+    }));
+    expect(alipayService.refund).toHaveBeenCalledWith(expect.objectContaining({
+      merchantOrderNo: 'AS_SHIP_PAY_as_001',
+      merchantRefundNo: 'AS_SHIP_REFUND_as_001',
     }));
   });
 

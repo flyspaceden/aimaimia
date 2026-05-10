@@ -135,10 +135,14 @@ function makeTxService(tx: any) {
   const prisma = {
     $transaction: jest.fn((callback: any) => callback(tx)),
   };
+  const afterSaleRewardService = {
+    voidRewardsForOrder: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     prisma,
-    service: new AfterSaleService(prisma as any, {} as any),
+    afterSaleRewardService,
+    service: new AfterSaleService(prisma as any, afterSaleRewardService as any),
   };
 }
 
@@ -357,6 +361,85 @@ describe('AfterSaleService.escalate', () => {
         afterSaleId: 'after-sale-1',
         fromStatus: 'SELLER_REJECTED_RETURN',
         toStatus: 'PENDING_ARBITRATION',
+        operatorType: AfterSaleOperatorType.BUYER,
+        operatorId: 'user-1',
+      }),
+    });
+  });
+});
+
+describe('AfterSaleService buyer terminal actions', () => {
+  it('writes after-sale status history when buyer confirms replacement receipt', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-1',
+            orderId: 'order-1',
+            userId: 'user-1',
+            status: 'REPLACEMENT_SHIPPED',
+            order: { id: 'order-1', status: 'RECEIVED' },
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-1',
+            status: 'COMPLETED',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      orderStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'order-history-1' }),
+      },
+      afterSaleStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'after-sale-history-1' }),
+      },
+    };
+    const { service } = makeTxService(tx);
+
+    await service.confirmReceive('user-1', 'after-sale-1');
+
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        afterSaleId: 'after-sale-1',
+        fromStatus: 'REPLACEMENT_SHIPPED',
+        toStatus: 'COMPLETED',
+        reason: '买家确认收到换货商品',
+        operatorType: AfterSaleOperatorType.BUYER,
+        operatorId: 'user-1',
+      }),
+    });
+  });
+
+  it('writes after-sale status history when buyer accepts close', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-1',
+            userId: 'user-1',
+            status: 'SELLER_REJECTED_RETURN',
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-1',
+            status: 'CLOSED',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      afterSaleStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'after-sale-history-1' }),
+      },
+    };
+    const { service } = makeTxService(tx);
+
+    await service.acceptClose('user-1', 'after-sale-1');
+
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        afterSaleId: 'after-sale-1',
+        fromStatus: 'SELLER_REJECTED_RETURN',
+        toStatus: 'CLOSED',
+        reason: '买家接受卖家验收不通过，关闭售后',
         operatorType: AfterSaleOperatorType.BUYER,
         operatorId: 'user-1',
       }),

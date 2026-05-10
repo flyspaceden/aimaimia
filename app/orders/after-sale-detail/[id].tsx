@@ -710,6 +710,7 @@ export default function AfterSaleDetailScreen() {
         );
 
       case 'REPLACEMENT_SHIPPED':
+        const replacementTrackingNo = as.replacementWaybillNo || as.replacementShipmentId;
         return (
           <View>
             <View style={[styles.actionCenter, { marginBottom: spacing.md }]}>
@@ -718,9 +719,9 @@ export default function AfterSaleDetailScreen() {
                 换货已发出
               </Text>
             </View>
-            {as.sellerReturnWaybillNo && (
+            {replacementTrackingNo && (
               <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
-                换货单号: {as.sellerReturnWaybillNo}
+                换货单号: {replacementTrackingNo}
               </Text>
             )}
             <Pressable onPress={handleConfirmReceive}>

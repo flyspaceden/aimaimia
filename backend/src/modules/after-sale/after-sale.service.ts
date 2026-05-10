@@ -822,6 +822,17 @@ export class AfterSaleService {
               },
             },
           });
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId: request.id,
+              fromStatus: 'REPLACEMENT_SHIPPED',
+              toStatus: 'COMPLETED',
+              reason: '买家确认收到换货商品',
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+              meta: { type: 'AFTER_SALE_COMPLETED' },
+            },
+          });
 
           // 换货完成后异步触发奖励归平台（不阻塞主事务）
           const capturedOrderId = request.orderId;
@@ -946,6 +957,20 @@ export class AfterSaleService {
           if (casResult.count === 0) {
             throw new ConflictException('售后申请状态已变更，请刷新后重试');
           }
+
+          await tx.afterSaleStatusHistory.create({
+            data: {
+              afterSaleId: request.id,
+              fromStatus: request.status,
+              toStatus: 'CLOSED',
+              reason: request.status === 'SELLER_REJECTED_RETURN'
+                ? '买家接受卖家验收不通过，关闭售后'
+                : '买家接受卖家驳回，关闭售后',
+              operatorType: AfterSaleOperatorType.BUYER,
+              operatorId: userId,
+              meta: { type: 'AFTER_SALE_CLOSED_BY_BUYER' },
+            },
+          });
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

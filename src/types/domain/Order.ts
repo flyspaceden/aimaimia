@@ -206,6 +206,11 @@ export type AfterSaleRequest = {
   sellerRejectReason?: string;
   sellerRejectPhotos?: string[];
   sellerReturnWaybillNo?: string;
+  replacementCarrierName?: string;
+  replacementCarrierCode?: string;
+  replacementWaybillNo?: string;
+  replacementWaybillUrl?: string;
+  replacementShipmentId?: string;
   reviewNote?: string;
   reviewedAt?: string;
   approvedAt?: string;

@@ -95,6 +95,7 @@ export class AfterSaleShippingPaymentService {
         });
         if (!payment) throw new NotFoundException('售后退货运费支付单不存在');
         if (payment.status === 'PAID') return;
+        if (payment.status === 'FAILED' && payment.paidAt) return;
         if (['REFUNDING', 'REFUNDED'].includes(payment.status)) return;
         if (!['UNPAID', 'PENDING', 'FAILED', 'CLOSED'].includes(payment.status)) {
           return;
@@ -171,24 +172,24 @@ export class AfterSaleShippingPaymentService {
   }
 
   async refundShippingPayment(afterSaleId: string, reason: string): Promise<void> {
-    await this.withSerializableRetry(
+    const paymentToRefund = await this.withSerializableRetry(
       async (tx) => {
         const payment = await tx.afterSaleShippingPayment.findUnique({
           where: { afterSaleId },
         });
         if (!payment || payment.status === 'REFUNDED' || payment.status === 'REFUNDING') {
-          return;
+          return null;
         }
 
-        if (payment.status === 'PAID') {
-          await tx.afterSaleShippingPayment.update({
-            where: { afterSaleId },
+        if (payment.status === 'PAID' || (payment.status === 'FAILED' && payment.paidAt)) {
+          const updated = await tx.afterSaleShippingPayment.updateMany({
+            where: { afterSaleId, status: payment.status },
             data: {
-              status: 'PAID',
-              failureReason: `需人工退还退货运费: ${reason}`,
+              status: 'REFUNDING',
+              failureReason: `退货运费退款中: ${reason}`,
             },
           });
-          return;
+          return updated.count === 1 ? payment : null;
         }
 
         await tx.afterSaleShippingPayment.update({
@@ -197,6 +198,46 @@ export class AfterSaleShippingPaymentService {
             status: 'CLOSED',
             failureReason: reason,
           },
+        });
+        return null;
+      },
+    );
+
+    if (!paymentToRefund) return;
+
+    const merchantRefundNo = this.getMerchantRefundNo(afterSaleId);
+    let result: { success: boolean; message: string };
+    try {
+      if (!this.alipayService?.refund) {
+        throw new Error('支付宝退款服务不可用');
+      }
+      result = await this.alipayService.refund({
+        merchantOrderNo: paymentToRefund.merchantPaymentNo,
+        refundAmount: paymentToRefund.amount,
+        merchantRefundNo,
+        refundReason: reason,
+      });
+    } catch (err: any) {
+      result = {
+        success: false,
+        message: err?.message || '支付宝退款异常',
+      };
+    }
+
+    await this.withSerializableRetry(
+      async (tx) => {
+        await tx.afterSaleShippingPayment.update({
+          where: { afterSaleId },
+          data: result.success
+            ? {
+                status: 'REFUNDED',
+                refundedAt: new Date(),
+                failureReason: null,
+              }
+            : {
+                status: 'FAILED',
+                failureReason: `退货运费退款失败: ${result.message || '支付宝退款失败'}`,
+              },
         });
       },
     );
@@ -259,6 +300,10 @@ export class AfterSaleShippingPaymentService {
 
   private getMerchantPaymentNo(afterSaleId: string): string {
     return `AS_SHIP_PAY_${afterSaleId}`;
+  }
+
+  private getMerchantRefundNo(afterSaleId: string): string {
+    return `AS_SHIP_REFUND_${afterSaleId}`;
   }
 
   private async buildAlipayPaymentParams(
