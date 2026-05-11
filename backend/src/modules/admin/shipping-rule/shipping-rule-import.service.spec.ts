@@ -77,6 +77,7 @@ function makeRule(overrides: Record<string, unknown> = {}) {
 function createService(existingRules: any[] = []) {
   const tx = {
     shippingRule: {
+      findMany: jest.fn().mockResolvedValue(existingRules),
       create: jest.fn().mockImplementation(({ data }) => Promise.resolve(makeRule(data))),
       update: jest.fn().mockImplementation(({ data }) => Promise.resolve(makeRule(data))),
       delete: jest.fn(),
@@ -482,6 +483,219 @@ describe('ShippingRuleImportService', () => {
       unchanged: 0,
       errors: [],
     });
+  });
+
+  it('returns row error and skips writes when database has duplicate existing names', async () => {
+    const existingRules = [
+      makeRule({ id: 'duplicate-001', name: '重复规则' }),
+      makeRule({ id: 'duplicate-002', name: '重复规则' }),
+    ];
+    const { service, prisma, tx, cache } = createService(existingRules);
+    const payload = `${csvHeader}\n${validCsvRow({ name: '重复规则', firstFee: 10 })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        row: 2,
+        message: expect.stringContaining('数据库存在多个同名运费规则'),
+      }),
+    ]);
+    expect(prisma.shippingRule.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      }),
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+    expect(tx.shippingRule.update).not.toHaveBeenCalled();
+    expect(cache.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('does not reset omitted JSON optional fields when updating an existing rule', async () => {
+    const existing = makeRule({
+      id: 'json-patch',
+      name: 'JSON Patch',
+      regionCodes: ['31'],
+      priority: 7,
+      minAmount: 100,
+      maxAmount: 500,
+      minWeight: 1000,
+      maxWeight: 5000,
+      isActive: false,
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = JSON.stringify([
+      {
+        name: 'JSON Patch',
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 10,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'json-patch' });
+    expect(updateArgs.data).toEqual(expect.objectContaining({ firstFee: 10 }));
+    expect(updateArgs.data).not.toHaveProperty('priority');
+    expect(updateArgs.data).not.toHaveProperty('minAmount');
+    expect(updateArgs.data).not.toHaveProperty('maxAmount');
+    expect(updateArgs.data).not.toHaveProperty('minWeight');
+    expect(updateArgs.data).not.toHaveProperty('maxWeight');
+    expect(updateArgs.data).not.toHaveProperty('isActive');
+    expect(updateArgs.data).not.toHaveProperty('regionCodes');
+  });
+
+  it('does not reset blank CSV optional cells when updating an existing rule', async () => {
+    const existing = makeRule({
+      id: 'csv-patch',
+      name: 'CSV Patch',
+      priority: 9,
+      minAmount: 100,
+      maxAmount: 500,
+      minWeight: 1000,
+      maxWeight: 5000,
+      isActive: false,
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: 'CSV Patch',
+      firstFee: 10,
+      priority: '',
+      minAmount: '',
+      maxAmount: '',
+      minWeight: '',
+      maxWeight: '',
+      isActive: '',
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'csv-patch' });
+    expect(updateArgs.data).toEqual(expect.objectContaining({ firstFee: 10, regionCodes: [] }));
+    expect(updateArgs.data).not.toHaveProperty('priority');
+    expect(updateArgs.data).not.toHaveProperty('minAmount');
+    expect(updateArgs.data).not.toHaveProperty('maxAmount');
+    expect(updateArgs.data).not.toHaveProperty('minWeight');
+    expect(updateArgs.data).not.toHaveProperty('maxWeight');
+    expect(updateArgs.data).not.toHaveProperty('isActive');
+  });
+
+  it('counts existing rule as update when JSON explicitly changes only isActive', async () => {
+    const existing = makeRule({
+      id: 'explicit-active-change',
+      name: '显式停用',
+      isActive: true,
+    });
+    const { service } = createService([existing]);
+    const payload = JSON.stringify([
+      {
+        name: '显式停用',
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        isActive: false,
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      toCreate: 0,
+      toUpdate: 1,
+      unchanged: 0,
+      errors: [],
+    });
+  });
+
+  it('returns row error for decimal priority and skips writes', async () => {
+    const { service, prisma, tx, cache } = createService([]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: '小数优先级',
+      priority: 1.5,
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        row: 2,
+        message: expect.stringContaining('priority 必须为整数'),
+      }),
+    ]);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+    expect(tx.shippingRule.update).not.toHaveBeenCalled();
+    expect(cache.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('re-prepares inside Serializable transaction before persisting', async () => {
+    const { service, prisma, tx } = createService([]);
+    const payload = `${csvHeader}\n${validCsvRow({ name: '事务内新增' })}`;
+
+    await service.importRules({ format: 'csv', payload, dryRun: false });
+
+    expect(prisma.shippingRule.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.shippingRule.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.shippingRule.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns transaction prepare errors and skips writes when duplicate names appear inside transaction', async () => {
+    const { service, tx, cache } = createService([]);
+    tx.shippingRule.findMany.mockResolvedValueOnce([
+      makeRule({ id: 'tx-duplicate-001', name: '事务内重复' }),
+      makeRule({ id: 'tx-duplicate-002', name: '事务内重复' }),
+    ]);
+    const payload = `${csvHeader}\n${validCsvRow({ name: '事务内重复' })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        row: 2,
+        message: expect.stringContaining('数据库存在多个同名运费规则'),
+      }),
+    ]);
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+    expect(tx.shippingRule.update).not.toHaveBeenCalled();
+    expect(cache.invalidate).not.toHaveBeenCalled();
   });
 
   it('invalidates cache once after persisting changes', async () => {

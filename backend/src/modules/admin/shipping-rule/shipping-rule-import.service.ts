@@ -34,6 +34,7 @@ const GRAMS_PER_KG = 1000;
 type ImportRow = {
   row: number;
   dto: ImportShippingRuleRowDto;
+  presentFields: Set<keyof RuleWriteData>;
 };
 
 type RawImportRow =
@@ -59,8 +60,20 @@ type RuleWriteData = {
 
 type PreparedImport = ImportPreview & {
   creates: RuleWriteData[];
-  updates: Array<{ id: string; data: RuleWriteData }>;
+  updates: Array<{ id: string; data: Partial<RuleWriteData> }>;
 };
+
+type ShippingRuleClient = Pick<PrismaService, 'shippingRule'>;
+
+const REQUIRED_WRITE_FIELDS = [
+  'name',
+  'fee',
+  'firstWeightKg',
+  'firstFee',
+  'additionalWeightKg',
+  'additionalFee',
+  'minChargeWeightKg',
+] as const satisfies ReadonlyArray<keyof RuleWriteData>;
 
 @Injectable()
 export class ShippingRuleImportService {
@@ -84,40 +97,51 @@ export class ShippingRuleImportService {
       };
     }
 
-    if (prepared.toCreate === 0 && prepared.toUpdate === 0) {
-      return {
-        toCreate: prepared.toCreate,
-        toUpdate: prepared.toUpdate,
-        unchanged: prepared.unchanged,
-        errors: [],
-        created: 0,
-        updated: 0,
-      };
-    }
-
-    await this.prisma.$transaction(
+    const persisted = await this.prisma.$transaction(
       async (tx) => {
-        for (const data of prepared.creates) {
+        const txPrepared = await this.prepare(parsed.rows, tx);
+        if (txPrepared.errors.length > 0) {
+          return { prepared: txPrepared, wrote: false };
+        }
+        if (txPrepared.toCreate === 0 && txPrepared.toUpdate === 0) {
+          return { prepared: txPrepared, wrote: false };
+        }
+        for (const data of txPrepared.creates) {
           await tx.shippingRule.create({ data });
         }
-        for (const update of prepared.updates) {
+        for (const update of txPrepared.updates) {
           await tx.shippingRule.update({
             where: { id: update.id },
             data: update.data,
           });
         }
+        return { prepared: txPrepared, wrote: true };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-    await this.cache.invalidate();
+
+    if (persisted.prepared.errors.length > 0) {
+      return {
+        toCreate: persisted.prepared.toCreate,
+        toUpdate: persisted.prepared.toUpdate,
+        unchanged: persisted.prepared.unchanged,
+        errors: persisted.prepared.errors,
+        created: 0,
+        updated: 0,
+      };
+    }
+
+    if (persisted.wrote) {
+      await this.cache.invalidate();
+    }
 
     return {
-      toCreate: prepared.toCreate,
-      toUpdate: prepared.toUpdate,
-      unchanged: prepared.unchanged,
+      toCreate: persisted.prepared.toCreate,
+      toUpdate: persisted.prepared.toUpdate,
+      unchanged: persisted.prepared.unchanged,
       errors: [],
-      created: prepared.toCreate,
-      updated: prepared.toUpdate,
+      created: persisted.prepared.toCreate,
+      updated: persisted.prepared.toUpdate,
     };
   }
 
@@ -156,6 +180,7 @@ export class ShippingRuleImportService {
         errors.push({ row: rawRow.row, message: rawRow.message });
         continue;
       }
+      const presentFields = this.getPresentFields(rawRow.value);
       const instance = plainToInstance(ImportShippingRuleRowDto, rawRow.value);
       const validationErrors = await validate(instance, {
         whitelist: true,
@@ -177,7 +202,7 @@ export class ShippingRuleImportService {
       if (messages.length > 0) {
         errors.push({ row: rawRow.row, message: messages.join('; ') });
       } else {
-        rows.push({ row: rawRow.row, dto: instance });
+        rows.push({ row: rawRow.row, dto: instance, presentFields });
       }
     }
 
@@ -212,6 +237,10 @@ export class ShippingRuleImportService {
         if (header === 'regionCodes') {
           value[header] = raw === '' ? [] : raw.split('|');
         } else if (this.isNumberHeader(header)) {
+          if (raw !== '') {
+            value[header] = raw;
+          }
+        } else if (header === 'isActive') {
           if (raw !== '') {
             value[header] = raw;
           }
@@ -320,31 +349,44 @@ export class ShippingRuleImportService {
     });
   }
 
-  private async prepare(rows: ImportRow[]): Promise<PreparedImport> {
+  private async prepare(
+    rows: ImportRow[],
+    client: ShippingRuleClient = this.prisma,
+  ): Promise<PreparedImport> {
     const names = rows.map((row) => row.dto.name.trim());
     const existingRules = names.length === 0
       ? []
-      : await this.prisma.shippingRule.findMany({
+      : await client.shippingRule.findMany({
         where: { name: { in: names } },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
       });
-    const existingByName = new Map(
-      existingRules.map((rule) => [rule.name, rule]),
-    );
+    const existingByName = this.groupByName(existingRules);
     const creates: RuleWriteData[] = [];
-    const updates: Array<{ id: string; data: RuleWriteData }> = [];
+    const updates: Array<{ id: string; data: Partial<RuleWriteData> }> = [];
+    const errors: Array<{ row: number; message: string }> = [];
     let unchanged = 0;
 
     for (const row of rows) {
       const data = this.toWriteData(row.dto);
-      const existing = existingByName.get(data.name);
-      if (!existing) {
-        creates.push(data);
+      const existingMatches = existingByName.get(data.name) ?? [];
+      if (existingMatches.length >= 2) {
+        errors.push({
+          row: row.row,
+          message: '数据库存在多个同名运费规则，请先清理后导入',
+        });
         continue;
       }
-      if (this.isUnchanged(existing, data)) {
+      const existing = existingMatches[0];
+      if (existing === undefined) {
+        creates.push(this.toCreateData(row.dto));
+        continue;
+      }
+      const patch = this.toUpdatePatch(row.dto, row.presentFields);
+      const effective = { ...this.toComparableData(existing), ...patch };
+      if (this.isUnchanged(existing, effective)) {
         unchanged += 1;
       } else {
-        updates.push({ id: existing.id, data });
+        updates.push({ id: existing.id, data: patch });
       }
     }
 
@@ -352,10 +394,18 @@ export class ShippingRuleImportService {
       toCreate: creates.length,
       toUpdate: updates.length,
       unchanged,
-      errors: [],
+      errors,
       creates,
       updates,
     };
+  }
+
+  private groupByName(rules: ShippingRule[]): Map<string, ShippingRule[]> {
+    const grouped = new Map<string, ShippingRule[]>();
+    for (const rule of rules) {
+      grouped.set(rule.name, [...(grouped.get(rule.name) ?? []), rule]);
+    }
+    return grouped;
   }
 
   private toWriteData(dto: ImportShippingRuleRowDto): RuleWriteData {
@@ -374,6 +424,50 @@ export class ShippingRuleImportService {
       minWeight: dto.minWeight === undefined ? null : this.kgToGram(dto.minWeight),
       maxWeight: dto.maxWeight === undefined ? null : this.kgToGram(dto.maxWeight),
       isActive: dto.isActive ?? true,
+    };
+  }
+
+  private toCreateData(dto: ImportShippingRuleRowDto): RuleWriteData {
+    return this.toWriteData(dto);
+  }
+
+  private toUpdatePatch(
+    dto: ImportShippingRuleRowDto,
+    presentFields: Set<keyof RuleWriteData>,
+  ): Partial<RuleWriteData> {
+    const data = this.toWriteData(dto);
+    const patch: Partial<RuleWriteData> = {};
+
+    for (const field of REQUIRED_WRITE_FIELDS) {
+      patch[field] = data[field] as never;
+    }
+
+    for (const field of presentFields) {
+      if (REQUIRED_WRITE_FIELDS.includes(field as typeof REQUIRED_WRITE_FIELDS[number])) {
+        continue;
+      }
+      patch[field] = data[field] as never;
+    }
+
+    return patch;
+  }
+
+  private toComparableData(rule: ShippingRule): RuleWriteData {
+    return {
+      name: rule.name,
+      regionCodes: rule.regionCodes,
+      fee: rule.fee,
+      firstWeightKg: rule.firstWeightKg,
+      firstFee: rule.firstFee,
+      additionalWeightKg: rule.additionalWeightKg,
+      additionalFee: rule.additionalFee,
+      minChargeWeightKg: rule.minChargeWeightKg,
+      priority: rule.priority,
+      minAmount: rule.minAmount,
+      maxAmount: rule.maxAmount,
+      minWeight: rule.minWeight,
+      maxWeight: rule.maxWeight,
+      isActive: rule.isActive,
     };
   }
 
@@ -418,6 +512,9 @@ export class ShippingRuleImportService {
     if (this.hasFiniteNumbers(dto.minWeight, dto.maxWeight) && dto.minWeight! >= dto.maxWeight!) {
       messages.push('重量下限必须小于上限');
     }
+    if (dto.priority !== undefined && dto.priority !== null && !Number.isInteger(dto.priority)) {
+      messages.push('priority 必须为整数');
+    }
   }
 
   private hasFiniteNumbers(
@@ -436,6 +533,35 @@ export class ShippingRuleImportService {
 
   private isNumberHeader(header: string): boolean {
     return header !== 'name' && header !== 'regionCodes' && header !== 'isActive';
+  }
+
+  private getPresentFields(value: Record<string, unknown>): Set<keyof RuleWriteData> {
+    const fields = new Set<keyof RuleWriteData>();
+    for (const key of Object.keys(value)) {
+      if (this.isWriteField(key)) {
+        fields.add(key);
+      }
+    }
+    return fields;
+  }
+
+  private isWriteField(key: string): key is keyof RuleWriteData {
+    return [
+      'name',
+      'regionCodes',
+      'fee',
+      'firstWeightKg',
+      'firstFee',
+      'additionalWeightKg',
+      'additionalFee',
+      'minChargeWeightKg',
+      'priority',
+      'minAmount',
+      'maxAmount',
+      'minWeight',
+      'maxWeight',
+      'isActive',
+    ].includes(key);
   }
 
   private kgToGram(weightKg: number): number {
