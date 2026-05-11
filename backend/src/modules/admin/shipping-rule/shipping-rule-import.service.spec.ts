@@ -605,7 +605,7 @@ describe('ShippingRuleImportService', () => {
     expect(updateArgs.where).toEqual({ id: 'json-blank-null-patch' });
     expect(updateArgs.data).toEqual({
       name: 'JSON Blank Null Patch',
-      fee: 9.1,
+      fee: 10,
       firstWeightKg: 3,
       firstFee: 10,
       additionalWeightKg: 1,
@@ -688,7 +688,7 @@ describe('ShippingRuleImportService', () => {
     expect(cache.invalidate).not.toHaveBeenCalled();
   });
 
-  it('does not reset blank CSV optional cells when updating an existing rule', async () => {
+  it('clears CSV blank regionCodes to nationwide while preserving other blank optional cells', async () => {
     const existing = makeRule({
       id: 'csv-patch',
       name: 'CSV Patch',
@@ -729,7 +729,35 @@ describe('ShippingRuleImportService', () => {
     expect(updateArgs.data).not.toHaveProperty('minWeight');
     expect(updateArgs.data).not.toHaveProperty('maxWeight');
     expect(updateArgs.data).not.toHaveProperty('isActive');
-    expect(updateArgs.data).not.toHaveProperty('regionCodes');
+    expect(updateArgs.data).toEqual(expect.objectContaining({ regionCodes: [] }));
+  });
+
+  it('keeps legacy fee synchronized with firstFee during import writes', async () => {
+    const existing = makeRule({
+      id: 'csv-fee-sync',
+      name: 'CSV Fee Sync',
+      fee: 8,
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: 'CSV Fee Sync',
+      fee: 0,
+      firstFee: 9.1,
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.data).toEqual(expect.objectContaining({
+      fee: 9.1,
+      firstFee: 9.1,
+    }));
   });
 
   it('updates regionCodes when CSV regionCodes cell is non-blank', async () => {

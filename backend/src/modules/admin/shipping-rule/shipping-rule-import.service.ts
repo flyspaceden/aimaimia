@@ -249,9 +249,7 @@ export class ShippingRuleImportService {
       CSV_HEADERS.forEach((header, columnIndex) => {
         const raw = record[columnIndex];
         if (header === 'regionCodes') {
-          if (raw !== '') {
-            value[header] = raw.split('|');
-          }
+          value[header] = raw === '' ? [] : raw.split('|');
         } else if (this.isNumberHeader(header)) {
           if (raw !== '') {
             value[header] = raw;
@@ -428,7 +426,7 @@ export class ShippingRuleImportService {
     return {
       name: dto.name.trim(),
       regionCodes: dto.regionCodes ?? [],
-      fee: dto.fee,
+      fee: dto.firstFee,
       firstWeightKg: dto.firstWeightKg,
       firstFee: dto.firstFee,
       additionalWeightKg: dto.additionalWeightKg,

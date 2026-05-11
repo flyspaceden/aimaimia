@@ -60,12 +60,21 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
   const [csvPayload, setCsvPayload] = useState(DEFAULT_CSV);
   const [jsonPayload, setJsonPayload] = useState(DEFAULT_JSON);
   const [dryRunResult, setDryRunResult] = useState<ShippingRuleImportResult | null>(null);
+  const [dryRunSnapshot, setDryRunSnapshot] = useState<{
+    format: ShippingRuleImportFormat;
+    payload: string;
+  } | null>(null);
   const [dryRunLoading, setDryRunLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
 
   const payload = format === 'csv' ? csvPayload : jsonPayload;
   const hasErrors = (dryRunResult?.errors.length ?? 0) > 0;
-  const canConfirm = Boolean(dryRunResult) && !hasErrors && (dryRunResult!.toCreate > 0 || dryRunResult!.toUpdate > 0);
+  const matchesDryRunSnapshot =
+    dryRunSnapshot?.format === format && dryRunSnapshot?.payload === payload;
+  const canConfirm = Boolean(dryRunResult) &&
+    matchesDryRunSnapshot &&
+    !hasErrors &&
+    (dryRunResult!.toCreate > 0 || dryRunResult!.toUpdate > 0);
 
   const errorColumns = useMemo(() => [
     {
@@ -81,6 +90,7 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
 
   const reset = () => {
     setDryRunResult(null);
+    setDryRunSnapshot(null);
     setDryRunLoading(false);
     setImportLoading(false);
   };
@@ -90,10 +100,13 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
       message.warning('请先粘贴导入内容');
       return;
     }
+    const requestFormat = format;
+    const requestPayload = payload;
     setDryRunLoading(true);
     try {
-      const result = await importRulesDryRun({ format, payload });
+      const result = await importRulesDryRun({ format: requestFormat, payload: requestPayload });
       setDryRunResult(result);
+      setDryRunSnapshot({ format: requestFormat, payload: requestPayload });
       if (result.errors.length > 0) {
         message.warning('预检查发现错误，请修正后重新检查');
       } else {
@@ -108,10 +121,10 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
   };
 
   const handleImport = async () => {
-    if (!canConfirm) return;
+    if (!canConfirm || !dryRunSnapshot) return;
     setImportLoading(true);
     try {
-      const result = await importRules({ format, payload });
+      const result = await importRules(dryRunSnapshot);
       if (result.errors.length > 0) {
         setDryRunResult(result);
         message.error('导入前数据发生变化，请处理错误后重试');
@@ -180,6 +193,7 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
         onChange={(key) => {
           setFormat(key as ShippingRuleImportFormat);
           setDryRunResult(null);
+          setDryRunSnapshot(null);
         }}
         items={[
           {
@@ -191,6 +205,7 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
                 onChange={(event) => {
                   setCsvPayload(event.target.value);
                   setDryRunResult(null);
+                  setDryRunSnapshot(null);
                 }}
                 autoSize={{ minRows: 10, maxRows: 16 }}
                 spellCheck={false}
@@ -206,6 +221,7 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
                 onChange={(event) => {
                   setJsonPayload(event.target.value);
                   setDryRunResult(null);
+                  setDryRunSnapshot(null);
                 }}
                 autoSize={{ minRows: 10, maxRows: 16 }}
                 spellCheck={false}
@@ -248,7 +264,9 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
               pagination={{ pageSize: 5 }}
             />
           ) : (
-            <Text type="secondary">预检查通过，可确认导入。</Text>
+            <Text type="secondary">
+              {matchesDryRunSnapshot ? '预检查通过，可确认导入。' : '内容已变更，请重新预检查。'}
+            </Text>
           )}
         </Space>
       )}
