@@ -834,112 +834,111 @@ export class SellerProductsService {
    * 把草稿当前内容组装成 CreateProductDto 形状 → 手动跑完整校验 → DRAFT 转 INACTIVE + PENDING。
    */
   async submitDraft(companyId: string, productId: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      include: { skus: true, media: { orderBy: { sortOrder: 'asc' } }, tags: true },
-    });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== companyId)
-      throw new ForbiddenException('无权操作该商品');
-    if (product.status !== 'DRAFT')
-      throw new BadRequestException('该商品非草稿状态，不能提交');
-
-    const missingWeightSkuIndex = product.skus.findIndex(
-      (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
-    );
-    if (missingWeightSkuIndex >= 0) {
-      throw new BadRequestException({
-        message: '提交前请补全以下字段：规格(包装后重量（克）)',
-        fieldErrors: [{
-          field: `skus.${missingWeightSkuIndex}.weightGram`,
-          message: '包装后重量（克）必须填写且大于 0',
-        }],
-      });
-    }
-
-    // 组装 CreateProductDto 形状跑全量校验
-    const candidate = {
-      title: product.title,
-      subtitle: product.subtitle ?? undefined,
-      description: product.description ?? '',
-      categoryId: product.categoryId ?? '',
-      returnPolicy: product.returnPolicy,
-      origin: product.origin ?? undefined,
-      tagIds: product.tags.map((t) => t.tagId),
-      skus: product.skus.map((s) => ({
-        specName: s.title,
-        cost: s.cost ?? 0,
-        stock: s.stock,
-        maxPerOrder: s.maxPerOrder ?? undefined,
-        weightGram: s.weightGram,
-      })),
-      attributes: product.attributes ?? undefined,
-      aiKeywords: product.aiKeywords,
-      mediaUrls: product.media.map((m) => m.url),
-      flavorTags: product.flavorTags,
-      seasonalMonths: product.seasonalMonths,
-      usageScenarios: product.usageScenarios,
-      dietaryTags: product.dietaryTags,
-      originRegion: product.originRegion ?? undefined,
-    };
-
-    const dtoInstance = plainToInstance(CreateProductDto, candidate);
-    const errors = await validate(dtoInstance, { whitelist: false });
-    if (errors.length > 0) {
-      // 字段标签：用于 message 拼接 + 前端 fallback 显示
-      const FIELD_LABELS: Record<string, string> = {
-        title: '商品标题',
-        description: '商品描述',
-        categoryId: '商品分类',
-        origin: '产地',
-        skus: '规格',
-        basePrice: '基准价',
-        subtitle: '副标题',
-        returnPolicy: '退货政策',
-      };
-
-      // 展平 class-validator 嵌套错误为 { field, message } 列表
-      const flatten = (
-        nodes: typeof errors,
-        prefix = '',
-      ): Array<{ field: string; message: string }> => {
-        const out: Array<{ field: string; message: string }> = [];
-        for (const node of nodes) {
-          const path = prefix ? `${prefix}.${node.property}` : node.property;
-          const constraints = Object.values(node.constraints ?? {});
-          for (const msg of constraints) {
-            out.push({ field: path, message: String(msg) });
-          }
-          if (node.children && node.children.length > 0) {
-            out.push(...flatten(node.children, path));
-          }
-        }
-        return out;
-      };
-      const fieldErrors = flatten(errors);
-
-      // 拼一条人类可读 message 作为兜底（前端没处理 fieldErrors 时 toast 用）
-      const parts = errors.slice(0, 5).map((e) => {
-        const label = FIELD_LABELS[e.property] || e.property;
-        const msgs = Object.values(e.constraints ?? {});
-        if (msgs.length > 0) return `${label}(${msgs[0]})`;
-        const firstChildMsg = e.children?.[0]?.children?.[0]
-          ? Object.values(e.children[0].children[0].constraints ?? {})[0]
-          : e.children?.[0]
-            ? Object.values(e.children[0].constraints ?? {})[0]
-            : undefined;
-        return firstChildMsg ? `${label}(${firstChildMsg})` : label;
-      });
-      const suffix = errors.length > 5 ? ` 等 ${errors.length} 项` : '';
-      throw new BadRequestException({
-        message: `提交前请补全以下字段：${parts.join('、')}${suffix}`,
-        fieldErrors,
-      });
-    }
-
-    // 全量校验通过 → 按当前成本重算自动定价，切换状态触发审核
     return this.prisma.$transaction(
       async (tx) => {
+        const product = await tx.product.findUnique({
+          where: { id: productId },
+          include: { skus: true, media: { orderBy: { sortOrder: 'asc' } }, tags: true },
+        });
+        if (!product) throw new NotFoundException('商品不存在');
+        if (product.companyId !== companyId)
+          throw new ForbiddenException('无权操作该商品');
+        if (product.status !== 'DRAFT')
+          throw new BadRequestException('该商品非草稿状态，不能提交');
+
+        const missingWeightSkuIndex = product.skus.findIndex(
+          (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
+        );
+        if (missingWeightSkuIndex >= 0) {
+          throw new BadRequestException({
+            message: '提交前请补全以下字段：规格(包装后重量（克）)',
+            fieldErrors: [{
+              field: `skus.${missingWeightSkuIndex}.weightGram`,
+              message: '包装后重量（克）必须填写且大于 0',
+            }],
+          });
+        }
+
+        // 组装 CreateProductDto 形状跑全量校验
+        const candidate = {
+          title: product.title,
+          subtitle: product.subtitle ?? undefined,
+          description: product.description ?? '',
+          categoryId: product.categoryId ?? '',
+          returnPolicy: product.returnPolicy,
+          origin: product.origin ?? undefined,
+          tagIds: product.tags.map((t) => t.tagId),
+          skus: product.skus.map((s) => ({
+            specName: s.title,
+            cost: s.cost ?? 0,
+            stock: s.stock,
+            maxPerOrder: s.maxPerOrder ?? undefined,
+            weightGram: s.weightGram,
+          })),
+          attributes: product.attributes ?? undefined,
+          aiKeywords: product.aiKeywords,
+          mediaUrls: product.media.map((m) => m.url),
+          flavorTags: product.flavorTags,
+          seasonalMonths: product.seasonalMonths,
+          usageScenarios: product.usageScenarios,
+          dietaryTags: product.dietaryTags,
+          originRegion: product.originRegion ?? undefined,
+        };
+
+        const dtoInstance = plainToInstance(CreateProductDto, candidate);
+        const errors = await validate(dtoInstance, { whitelist: false });
+        if (errors.length > 0) {
+          // 字段标签：用于 message 拼接 + 前端 fallback 显示
+          const FIELD_LABELS: Record<string, string> = {
+            title: '商品标题',
+            description: '商品描述',
+            categoryId: '商品分类',
+            origin: '产地',
+            skus: '规格',
+            basePrice: '基准价',
+            subtitle: '副标题',
+            returnPolicy: '退货政策',
+          };
+
+          // 展平 class-validator 嵌套错误为 { field, message } 列表
+          const flatten = (
+            nodes: typeof errors,
+            prefix = '',
+          ): Array<{ field: string; message: string }> => {
+            const out: Array<{ field: string; message: string }> = [];
+            for (const node of nodes) {
+              const path = prefix ? `${prefix}.${node.property}` : node.property;
+              const constraints = Object.values(node.constraints ?? {});
+              for (const msg of constraints) {
+                out.push({ field: path, message: String(msg) });
+              }
+              if (node.children && node.children.length > 0) {
+                out.push(...flatten(node.children, path));
+              }
+            }
+            return out;
+          };
+          const fieldErrors = flatten(errors);
+
+          // 拼一条人类可读 message 作为兜底（前端没处理 fieldErrors 时 toast 用）
+          const parts = errors.slice(0, 5).map((e) => {
+            const label = FIELD_LABELS[e.property] || e.property;
+            const msgs = Object.values(e.constraints ?? {});
+            if (msgs.length > 0) return `${label}(${msgs[0]})`;
+            const firstChildMsg = e.children?.[0]?.children?.[0]
+              ? Object.values(e.children[0].children[0].constraints ?? {})[0]
+              : e.children?.[0]
+                ? Object.values(e.children[0].constraints ?? {})[0]
+                : undefined;
+            return firstChildMsg ? `${label}(${firstChildMsg})` : label;
+          });
+          const suffix = errors.length > 5 ? ` 等 ${errors.length} 项` : '';
+          throw new BadRequestException({
+            message: `提交前请补全以下字段：${parts.join('、')}${suffix}`,
+            fieldErrors,
+          });
+        }
+
         const sysConfig = await this.bonusConfig.getSystemConfig();
         const markupRate = sysConfig.markupRate;
 

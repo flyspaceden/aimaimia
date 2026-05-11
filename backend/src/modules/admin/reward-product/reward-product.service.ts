@@ -417,12 +417,6 @@ export class RewardProductService {
 
   /** 新增 SKU */
   async addSku(productId: string, dto: CreateRewardProductSkuForUpdateDto) {
-    // 校验成本价不超过售价
-    if (dto.cost !== undefined && dto.cost > dto.price) {
-      throw new BadRequestException('SKU 成本价不能超过售价');
-    }
-    const weightGram = this.resolveSkuWeightGram(dto.weightGram);
-
     return this.prisma.$transaction(
       async (tx) => {
         const product = await tx.product.findUnique({ where: { id: productId } });
@@ -430,6 +424,12 @@ export class RewardProductService {
         if (product.companyId !== PLATFORM_COMPANY_ID) {
           throw new BadRequestException('只能操作奖励商品');
         }
+
+        // 校验成本价不超过售价
+        if (dto.cost !== undefined && dto.cost > dto.price) {
+          throw new BadRequestException('SKU 成本价不能超过售价');
+        }
+        const weightGram = this.resolveSkuWeightGram(dto.weightGram);
 
         return tx.productSKU.create({
           data: {
@@ -449,10 +449,6 @@ export class RewardProductService {
 
   /** 更新单个 SKU */
   async updateSku(productId: string, skuId: string, dto: UpdateRewardProductSkuDto) {
-    if (dto.weightGram !== undefined) {
-      this.resolveSkuWeightGram(dto.weightGram);
-    }
-
     return this.prisma.$transaction(
       async (tx) => {
         const product = await tx.product.findUnique({ where: { id: productId } });
@@ -472,6 +468,9 @@ export class RewardProductService {
         const effectivePrice = dto.price ?? sku.price;
         if (effectiveCost !== undefined && effectiveCost !== null && effectiveCost > effectivePrice) {
           throw new BadRequestException('SKU 成本价不能超过售价');
+        }
+        if (dto.weightGram !== undefined) {
+          this.resolveSkuWeightGram(dto.weightGram);
         }
 
         return tx.productSKU.update({

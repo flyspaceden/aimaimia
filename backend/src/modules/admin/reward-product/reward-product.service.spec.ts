@@ -138,12 +138,81 @@ describe('RewardProductService transactional writes', () => {
     expect(tx.productSKU.create).not.toHaveBeenCalled();
   });
 
+  it('addSku returns NotFound for missing product even when weight is invalid', async () => {
+    const { tx, service } = buildPrisma();
+    tx.product.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.addSku('missing_product', {
+      title: '新增 SKU',
+      price: 20,
+      cost: 10,
+      stock: 3,
+      weightGram: 0,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    expect(tx.productSKU.create).not.toHaveBeenCalled();
+  });
+
+  it('addSku rejects non-platform products before invalid weight validation', async () => {
+    const { tx, service } = buildPrisma();
+    tx.product.findUnique.mockResolvedValueOnce({
+      id: 'product_1',
+      companyId: 'other-company',
+    });
+
+    await expect(service.addSku('product_1', {
+      title: '新增 SKU',
+      price: 20,
+      cost: 10,
+      stock: 3,
+      weightGram: 0,
+    })).rejects.toThrow('只能操作奖励商品');
+    expect(tx.productSKU.create).not.toHaveBeenCalled();
+  });
+
   it('updateSku still rejects missing SKU before writing', async () => {
     const { tx, service } = buildPrisma();
     tx.productSKU.findUnique.mockResolvedValueOnce(null);
 
     await expect(service.updateSku('product_1', 'sku_missing', {
       stock: 8,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+  });
+
+  it('updateSku returns NotFound for missing product even when weight is invalid', async () => {
+    const { tx, service } = buildPrisma();
+    tx.product.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.updateSku('missing_product', 'sku_1', {
+      stock: 8,
+      weightGram: 0,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    expect(tx.productSKU.findUnique).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+  });
+
+  it('updateSku rejects non-platform products before invalid weight validation', async () => {
+    const { tx, service } = buildPrisma();
+    tx.product.findUnique.mockResolvedValueOnce({
+      id: 'product_1',
+      companyId: 'other-company',
+    });
+
+    await expect(service.updateSku('product_1', 'sku_1', {
+      stock: 8,
+      weightGram: 0,
+    })).rejects.toThrow('只能操作奖励商品');
+    expect(tx.productSKU.findUnique).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+  });
+
+  it('updateSku returns NotFound for missing SKU even when weight is invalid', async () => {
+    const { tx, service } = buildPrisma();
+    tx.productSKU.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.updateSku('product_1', 'sku_missing', {
+      stock: 8,
+      weightGram: 0,
     })).rejects.toBeInstanceOf(NotFoundException);
     expect(tx.productSKU.update).not.toHaveBeenCalled();
   });

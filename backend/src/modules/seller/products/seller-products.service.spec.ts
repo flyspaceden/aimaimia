@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { SellerProductsService } from './seller-products.service';
 
 describe('SellerProductsService SKU weight validation', () => {
@@ -46,6 +47,7 @@ describe('SellerProductsService SKU weight validation', () => {
       productSKU: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         createMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({ id: 'sku_1' }),
       },
       productMedia: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -129,8 +131,8 @@ describe('SellerProductsService SKU weight validation', () => {
   });
 
   it('submitDraft rejects SKU with placeholder skuCode prefix', async () => {
-    const { service, prisma } = buildDraftService();
-    prisma.product.findUnique.mockResolvedValueOnce({
+    const { service, tx } = buildDraftService();
+    tx.product.findUnique.mockResolvedValueOnce({
       id: 'draft_1',
       companyId: 'company_1',
       status: 'DRAFT',
@@ -161,7 +163,61 @@ describe('SellerProductsService SKU weight validation', () => {
     });
 
     await expect(service.submitDraft('company_1', 'draft_1'))
+      .rejects.toMatchObject({
+        response: expect.objectContaining({
+          message: '提交前请补全以下字段：规格(包装后重量（克）)',
+        }),
+      });
+  });
+
+  it('submitDraft rejects placeholder SKU from the Serializable transaction snapshot without writing', async () => {
+    const { service, prisma, tx } = buildDraftService();
+    const cleanDraft = {
+      id: 'draft_1',
+      companyId: 'company_1',
+      status: 'DRAFT',
+      title: '草稿商品',
+      subtitle: null,
+      description: '这是一段足够长的商品描述',
+      categoryId: 'category_1',
+      returnPolicy: 'INHERIT',
+      origin: { text: '山东烟台' },
+      attributes: null,
+      aiKeywords: [],
+      flavorTags: [],
+      seasonalMonths: [],
+      usageScenarios: [],
+      dietaryTags: [],
+      originRegion: '山东烟台',
+      skus: [{
+        id: 'sku_1',
+        title: '默认规格',
+        cost: 10,
+        stock: 5,
+        maxPerOrder: null,
+        weightGram: 1000,
+        skuCode: null,
+      }],
+      media: [],
+      tags: [],
+    };
+    tx.product.findUnique.mockResolvedValueOnce({
+      ...cleanDraft,
+      skus: [{
+        ...cleanDraft.skus[0],
+        skuCode: '__DRAFT_WEIGHT_PLACEHOLDER__:raced',
+      }],
+    });
+
+    await expect(service.submitDraft('company_1', 'draft_1'))
       .rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    expect(prisma.product.findUnique).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(tx.product.update).not.toHaveBeenCalled();
   });
 
   it('updateDraft clears placeholder skuCode when user fills real weightGram', async () => {
