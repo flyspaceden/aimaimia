@@ -419,7 +419,7 @@ SellerUserRole
 - title (text)
 - price (int)
 - stock (int)
-- weightGram (int nullable)
+- weightGram (int) — SKU 发货重量，单位克；顺丰运费计价与面单下单必填
 - barcode (text nullable)
 - status (enum: ACTIVE/INACTIVE)
 - createdAt, updatedAt
@@ -635,6 +635,8 @@ ShipmentTrackingEvent
 - createdAt
 
 ## G9. ShippingTemplate（运费模板）
+> 历史商户独立运费模板，保留用于旧数据兼容和极端兜底。新订单优先使用平台统一 `ShippingRule`。
+
 - id (uuid, PK)
 - companyId (uuid FK Company)
 - name (text)
@@ -642,7 +644,47 @@ ShipmentTrackingEvent
 - rules (jsonb) — 省市区、首重续重、包邮门槛、偏远加价
 - createdAt, updatedAt
 
-## G10. Invoice（中国发票）
+## G10. ShippingRule（平台统一顺丰风格运费规则）
+- id (uuid, PK)
+- name (text)
+- regionCodes (text[]) — 适用地区行政区划码；空数组表示全国
+- minAmount (float nullable) — 历史字段，保留一版用于兼容旧固定费规则
+- maxAmount (float nullable) — 历史字段，保留一版用于兼容旧固定费规则
+- minWeight (int nullable) — 历史字段，单位克，保留一版用于兼容旧固定费规则
+- maxWeight (int nullable) — 历史字段，单位克，保留一版用于兼容旧固定费规则
+- fee (float default 0) — 历史固定运费字段；公式模式下仅作兼容展示/回滚兜底
+- firstWeightKg (float default 3) — 首重重量，单位 kg
+- firstFee (float) — 首重价格，单位元
+- additionalWeightKg (float default 1) — 续重步长，单位 kg
+- additionalFee (float) — 每个续重步长价格，单位元
+- minChargeWeightKg (float default 1) — 最低计费重量，单位 kg
+- priority (int default 0) — 高优先级先匹配，优先级相同按 id 稳定排序
+- isActive (boolean default true)
+- createdAt, updatedAt
+
+**计价口径**
+- 买家侧满额包邮；不满额时按收货地区 + 整单商品重量匹配平台规则。
+- 多商户订单整单只计算一次运费，支付后按子订单商品金额比例分摊。
+- 公式：`firstFee + ceil((chargeWeightKg - firstWeightKg) / additionalWeightKg) × additionalFee`，未超过首重时只收 `firstFee`。
+- `DEFAULT_SHIPPING_FEE` 仅作无可用规则或异常时的兜底，不能作为常规配置入口。
+
+## G11. OrderShippingCost（顺丰包裹成本记录）
+- id (uuid, PK)
+- orderId (uuid FK Order)
+- packageIndex (int) — 同一订单下第几个顺丰包裹
+- companyId (text nullable) — 冗余公司 id，无外键；便于历史包裹成本在商户删除/关系变更后仍可对账
+- sfOrderId (text unique) — 顺丰订单号/面单侧幂等标识
+- weightGramSent (int) — 发给顺丰的包裹重量，单位克
+- estimatedCost (float nullable) — 按平台运费规则估算的应收/参考成本
+- actualCost (float nullable) — 顺丰月结对账后回填的真实成本
+- reconciledAt (timestamp nullable) — 月结对账确认时间
+- createdAt, updatedAt
+
+**用途**
+- 平台统一对接顺丰并承担履约运费，买家支付给平台的运费与顺丰月结成本分开记录。
+- 商户协商价不进入代码；平台可后续用 `actualCost - estimatedCost` 做月度盈亏报表。
+
+## G12. Invoice（中国发票）
 InvoiceProfile
 - id (uuid, PK)
 - userId (uuid FK User)

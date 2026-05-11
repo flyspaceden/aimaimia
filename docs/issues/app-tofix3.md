@@ -263,8 +263,8 @@
 | 30 | `sf-express.service.ts:127-130` | `SF_TEMPLATE_CODE` 默认 `fm_150_standard_HNGHAfep` 是沙箱模板代码，生产必须换 | ⬜ |
 | 31 | `seller-shipping.service.ts:401-405` | 卖家发货地址不结构化时 `BadRequestException` 抛错，但**没有引导卖家去补地址**的前端跳转链路 | ⬜ |
 | 32 | `parse-region.ts` × `seller-shipping.service.ts:88-93` | 直辖市（北京/上海/天津/重庆）和自治区（西藏/新疆）地址解析正确性需 e2e 验证 — 顺丰对收件人区县必填 | ❓ |
-| 33 | `schema.prisma:1162` | `ProductSKU.weightGram Int?` 可空 — 卖家若没填重量，SF 下单 `totalWeight=undefined`，运费规则按重量匹配的规则**永远不命中** | ⬜ |
-| 34 | `shipping-rule.service.ts:121-166` | 平台运费规则按地区/金额/重量匹配，**没有承运商成本核算** — 平台收 8 元运费但顺丰收 12 元，亏损沉默 | ⬜ |
+| 33 | `schema.prisma:1162` | `ProductSKU.weightGram` 已改必填，历史空值回填 1000g；卖家/管理端 SKU 发布前均强制填写重量 | ✅ |
+| 34 | `order-shipping-cost.service.ts` | 已新增 `OrderShippingCost` 记录顺丰正向发货包裹重量、估算成本、月结真实成本回填字段；买家侧规则与承运成本分离 | ✅ |
 | 35 | `shipping-rule.service.ts:138-143` | 地区匹配仅用前 2 位省级前缀，**无法表达"省内 vs 省外""偏远地区加价"等**常见快递阶梯 | ⬜ |
 | 36 | `shipment.controller.ts:55,90` | SF 推送回调返回值 `{apiResultCode: 'A1000'}` — 这是**请求方**的成功码，**回调方**顺丰期望的应答格式可能不同（待沙箱验证） | ❓ |
 | 37 | `seller-shipping.service.ts:419-428` | 收件人 `tel` 直接传明文 — 顺丰丰桥推荐传 `phone` 或 `tel` 字段顺丰文档要求严格区分手机号/座机 | ❓ |
@@ -291,7 +291,7 @@
 | 53 | `app/orders/after-sale-detail/[id].tsx:478-484` | 买家退货物流单号无格式校验 / 无 OCR / 无图片上传 | ⬜ |
 | 54 | `app/orders/after-sale-detail/[id].tsx` | 买家寄回退货后无法在 App 内追踪退回包裹（卖家也追踪不到） | ⬜ |
 | 55 | `seller/src/pages/after-sale/detail.tsx` | 卖家售后页面是否能看买家退货物流轨迹 + 主动查 SF？需核实 | ❓ |
-| 56 | `admin/src/pages/shipping-rules/index.tsx` | 平台运费规则页有 preview API，但缺"按地址簿真实测算"+"批量导入规则"+"规则冲突检测" | ⬜ |
+| 56 | `admin/src/pages/shipping-rules/index.tsx` | 已补顺丰风格公式预览、CSV/JSON 批量导入、dry-run 二次确认与服务端校验；按地址簿批量回归测算留作后续增强 | ✅ |
 | 57 | `admin/src/pages/after-sale/index.tsx` | 仲裁队列没有"快递异常 → 自动升级仲裁"通道 | ⬜ |
 | 58 | `seller-shipping.controller.ts:33` | `@Public()` 装饰器加在整个 controller 上，靠各方法各自加 `@UseGuards(SellerAuthGuard)`；打印接口 `printWaybill` 没显式加 SellerAuthGuard，**仅靠 HMAC sig 防御**（设计如此但需文档说明） | ❓ |
 | 59 | `seller-shipping.service.ts:317-326` | 打印 URL HMAC 用 `SELLER_JWT_SECRET` 做 key — JWT 轮换会 invalidate 所有正在打印的 URL（轮换罕见，但要文档说明） | ⬜ |
@@ -1101,7 +1101,7 @@ if (!senderInfo.senderProvince || !senderInfo.senderCity) {
 
 ---
 
-#### Bug 33 🟡 MEDIUM — `ProductSKU.weightGram` 可空，运费规则按重量永不命中
+#### Bug 33 ✅ FIXED — `ProductSKU.weightGram` 可空，运费规则按重量永不命中
 
 **位置**: `backend/prisma/schema.prisma:1162` × `checkout.service.ts:402-407`
 
@@ -1114,26 +1114,25 @@ for (const [id, sku] of skuMap.entries()) {
 ```
 卖家如果没填 `weightGram`，`totalWeight = 0`，所有"按重量匹配"的运费规则永远不命中（因为 `minWeight > 0` 的规则被跳过）。
 
-**修复方案**:
-1. 卖家商品创建表单：`weightGram` 改必填（同时给重量段建议：500g / 1kg / 3kg）
-2. 已有商品如果 `weightGram = null`：管理后台批量补 1000g 默认值
-3. SF createOrder 时如果重量为 0，传默认 1kg 而不是 undefined（顺丰按 1 公斤计费）
-4. 文档化：`docs/architecture/sales.md` 加"商品上架重量必填"
+**修复结果（2026-05-11）**:
+1. `ProductSKU.weightGram` 已改为必填；迁移把历史空值回填为 1000g。
+2. 卖家商品 SKU、管理端普通商品 SKU、管理端奖励商品 SKU 均要求填写重量，单位克。
+3. 草稿商品仍允许未填完整 SKU，但提交审核/发布前强制校验重量。
+4. 顺丰下单按 `sku.weightGram × quantity` 汇总真实重量，低于 1kg 时按顺丰最低计费重量兜底。
 
 ---
 
-#### Bug 34 🟡 MEDIUM — 平台运费规则没有承运商成本核算
+#### Bug 34 ✅ FIXED — 平台运费规则没有承运商成本核算
 
 **位置**: `backend/src/modules/admin/shipping-rule/shipping-rule.service.ts:121-166`
 
 **症状**: 平台收买家 8 元运费，但顺丰对平台收 12 元（按月结协议价），亏损 4 元/单沉默。
 
-**修复方案**:
-1. `ShippingRule` 加字段 `actualCarrierCost Float?`（参考成本，用于核算）
-2. 管理后台运费规则表增加列"实际成本/收费/利润率"
-3. 顺丰真实运费从月结对账单解析（人工或自动）
-4. 月度盈亏报表（关联现有 `analytics`）
-5. 这是商业决策项，需先和老板确认要不要做差额管控
+**修复结果（2026-05-11）**:
+1. 不再把真实承运成本塞进 `ShippingRule`，因为规则是买家侧应收价，不等同顺丰月结成本。
+2. 新增 `OrderShippingCost`：每次顺丰正向发货面单成功后记录 `orderId/companyId/sfOrderId/weightGramSent/estimatedCost`。
+3. 顺丰月结对账后可回填 `actualCost/reconciledAt`，后续月度报表用 `actualCost - estimatedCost` 做平台盈亏核算。
+4. 商户与平台协商价不进入代码，避免把商务合同逻辑混入计价引擎。
 
 ---
 
@@ -1358,14 +1357,16 @@ const matches = rule.regionCodes.some((rc: string) => rc.slice(0, 2) === provinc
 
 ---
 
-#### Bug 56 🟡 MEDIUM — 平台运费规则缺批量导入 / 冲突检测
+#### Bug 56 ✅ FIXED — 平台运费规则缺批量导入 / 冲突检测
 
 **位置**: `admin/src/pages/shipping-rules/index.tsx`
 
-**修复方案**:
-1. 加"导入 Excel"按钮（按地区码批量配置）
-2. 保存时跑冲突检测：相同 region+amount+weight 区间是否两条规则
-3. 现有 preview API 加"批量地址测算"（用真实地址簿测）
+**修复结果（2026-05-11）**:
+1. 管理端运费规则页已升级为顺丰风格公式字段：首重、首费、续重、续费、最低计费重量、满额包邮。
+2. 支持 CSV / JSON 批量导入，覆盖完整格式与紧凑格式；导入先 dry-run 预检，再二次确认落库。
+3. 后端导入服务会逐行收集错误，支持 `active/isActive/status` 状态输入，并避免空 JSON 可选字段误清数据。
+4. 预览 API 返回命中规则、公式、重量明细、兜底状态；管理端预览面板同步展示这些字段。
+5. "按地址簿真实测算"未作为本版核心路径实现，当前使用地区码 + 商品金额 + 重量做确定性预览；如后续需要按用户地址簿批量回归，可在现有 preview/import 基础上追加。
 
 ---
 
@@ -3004,7 +3005,7 @@ Bug 10（前端 iframe 替 img）─ 独立 OTA
 
 - [ ] Bug 17 / 19 — 售后换货 schema 整理
 - [ ] Bug 18 — 买家退货顺丰单号验证
-- [ ] Bug 33 — SKU 重量必填 + 默认 1kg
+- [x] Bug 33 — SKU 重量必填 + 默认 1kg（2026-05-11 已完成）
 - [ ] Bug 48 — 卖家物流轨迹卡片
 - [ ] Bug 50 / 51 — 催发货 / 改地址
 - [ ] Bug 23 / 27 / 28 — 配置项化 + admin 运营动作
@@ -3013,7 +3014,8 @@ Bug 10（前端 iframe 替 img）─ 独立 OTA
 
 - [ ] Bug 25 — Push 通知（FCM 先 Android）
 - [ ] Bug 21 — queryTracking 节流 + BullMQ 异步
-- [ ] Bug 34 / 35 / 56 — 运费规则进阶
+- [x] Bug 34 / 56 — 顺丰风格运费计价 + 成本记录 + 批量导入（2026-05-11 已完成）
+- [ ] Bug 35 — 运费地区粒度进阶
 - [ ] Bug 49 — 卖家 dashboard 物流指标
 - [ ] Bug 60 — 打印 rate limit
 - [ ] Bug 65-67 — 文档 / CI / 部署 checklist
@@ -3071,7 +3073,7 @@ backend/src/modules/after-sale/
 └── after-sale.controller.ts       # —
 
 backend/src/modules/admin/shipping-rule/
-└── shipping-rule.service.ts       # Bug 34, 35, 56
+└── shipping-rule.service.ts       # Bug 35（Bug 34/56 已修）
 
 backend/src/common/guards/
 └── webhook-ip.guard.ts            # Bug 4
@@ -3099,7 +3101,7 @@ seller/src/pages/
 admin/src/pages/
 ├── orders/detail.tsx              # Bug 27
 ├── after-sale/index.tsx           # Bug 57
-├── shipping-rules/index.tsx       # Bug 56
+├── shipping-rules/index.tsx       # Bug 56 已修
 └── （新增）shipments/             # Bug 26, 28
 
 docs/

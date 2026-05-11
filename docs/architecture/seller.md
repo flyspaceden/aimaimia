@@ -505,7 +505,7 @@ API 接口：
   - 成本价（必填，≥0.01）
   - 售价（只读，自动计算 = 成本 × 加价率）
   - 库存（≥0）
-  - 重量/g（选填）
+  - 重量/g（必填，> 0；用于平台顺丰运费计价和面单下单）
 - 实时显示加价率（从 `/seller/config/markup-rate` 获取）
 - 卖家只设置成本，售价由系统自动计算
 
@@ -1267,7 +1267,7 @@ interface ShippingProvider {
     recipientName: string;
     recipientPhone: string;
     recipientAddress: string;
-    items: { name: string; quantity: number; weight?: number }[];
+    items: { name: string; quantity: number; weightGram: number }[];
   }): Promise<{ waybillNo: string; waybillImageUrl: string }>;
 
   cancelWaybill(waybillNo: string): Promise<void>;

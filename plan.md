@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-05-10
+> **最后更新**: 2026-05-11
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -1237,6 +1237,23 @@
 
 - [✅] plan Task 12 全套验证通过：prisma validate / 11 backend spec (133 tests) / backend build / seller build / admin build / tsc -b（错误全在 tests/e2e playwright 预存在，售后链路代码 0 错误）/ git diff --check / rg hygiene
 - [✅] 沙箱完整链路演练通过
+
+---
+
+## 🚚 顺丰风格平台统一运费计价（2026-05-08 立项 / 2026-05-11 代码完成）
+
+> **范围**: 平台统一运费规则、首重+续重公式、Checkout 运费锁价、顺丰正向包裹成本记录、SKU 重量必填、管理后台规则预览与批量导入
+> **设计**: `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md`
+> **实施**: `docs/superpowers/plans/2026-05-08-sf-style-shipping-pricing.md`
+
+- [✅] **SF01** Schema / migration：`ShippingRule` 新增首重/续重公式字段，`ProductSKU.weightGram` 改必填，新增 `OrderShippingCost`
+- [✅] **SF02** 运费引擎：按地区 + 整单重量计算，内部按克/分整数化，Redis 60s 缓存 + 写后失效，`DEFAULT_SHIPPING_FEE` 兜底
+- [✅] **SF03** Checkout：创建会话时锁定 `shippingFee`，支付回调建单不重算，多商户订单按商品金额比例分摊
+- [✅] **SF04** 顺丰发货：卖家生成面单传真实重量，写入 `OrderShippingCost`，为顺丰月结 `actualCost/reconciledAt` 回填留口
+- [✅] **SF05** SKU 重量链路：卖家商品、管理端普通商品、管理端奖励商品 SKU 发布前均强制填写重量；历史空值回填 1000g
+- [✅] **SF06** 管理后台：运费规则页升级首重/续重字段、公式预览、CSV/JSON 批量导入、dry-run 二次确认
+- [✅] **SF07** 文档同步：`data-system.md` / `shipping.md` / `plan-treeforuser.md` / `app-tofix3.md` / `sales.md` / `seller.md` / `AGENTS.md` / `CLAUDE.md` / `plan.md`
+- [ ] **SF08** staging / SF 沙箱冒烟：管理后台新增规则 → App 预结算 → 顺丰沙箱下单 → `order_shipping_costs` 入库 → 改规则后已创建 CheckoutSession 仍按锁价支付
 
 ---
 

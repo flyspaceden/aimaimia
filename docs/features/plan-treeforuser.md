@@ -19,7 +19,7 @@
 | 4 | **利润六分**：平台50% / 奖励16% / 产业基金(卖家)16% / 慈善8% / 科技8% / 备用金2% | 后端 |
 | 5 | **自动定价**：卖家设成本，售价=成本×130%（加价率后台可配） | 卖家后台、后端 |
 | 6 | **VIP排除**：VIP用户在普通树中不领奖励（归平台） | 后端 |
-| 7 | **运费三维度**：金额区间 × 地区 × 重量，后台配置 | 管理后台、后端 |
+| 7 | **平台统一运费**：地区 × 首重 × 续重，后台配置顺丰风格公式 | 管理后台、后端 |
 | 8 | **取消退款改换货**：质量问题上传照片→审核→重新发货，无退款 | 买家App、卖家后台、管理后台、后端 |
 | 9 | **普通/VIP完全独立**：所有参数独立配置 | 管理后台、后端 |
 
@@ -78,7 +78,7 @@
 | D7 | 售后流程 | 新建ReplacementRequest模型替代Refund退款流程，仅支持换货 | 业务语义不同（退款vs换货），需要新字段（照片、描述） |
 | D8 | 奖励发放时机 | 确认收货时（与现有VIP系统一致） | 无退款风险，确认收货=最终状态 |
 | D9 | 卖家自动定价 | 卖家设SKU成本，系统按 `cost × markupRate`（默认1.3）自动算售价 | 统一利润率，简化卖家操作 |
-| D10 | 运费体系 | 平台统一运费规则（替代原商户独立ShippingTemplate），按"金额区间+地区+重量"三维度计算 | 平台统一管控价格和运费 |
+| D10 | 运费体系 | 平台统一运费规则（替代原商户独立 ShippingTemplate），按顺丰风格"地区 + 首重 + 续重"公式计价；买家满额包邮，多商户订单整单一次计费；顺丰真实成本写入 `OrderShippingCost` 对账 | 平台统一管控买家侧运费价格，同时保留顺丰月结成本核算 |
 | D11 | VIP利润公式 | **与普通用户统一为六分结构**，VIP默认50/30/10/2/2/6（平台/奖励/产业基金/慈善/科技/备用金） | 100%利润显式分配，消除隐性平台收入，两套系统结构统一但配比独立 |
 | D12 | 卖家收入 | 卖家总收入 = 成本回收 + 利润×16%产业基金 ≈ 成本×1.048 | 产业基金给对应商品的具体卖家，非统一资金池 |
 | D13 | 根节点奖励处理 | 分配到系统根节点的奖励**直接归平台**，不走冻结→过期流程 | 根节点无法消费，走冻结流程无意义 |
@@ -126,7 +126,7 @@
 | 抽奖转盘 | 所有用户均可参与 |
 | 自动定价（成本×1.3） | 所有卖家商品 |
 | 奖励商品管理 | 管理后台新增 |
-| 运费三维度规则 | 所有订单 |
+| 平台统一运费规则 | 所有订单 |
 | 取消退款改换货 | 所有订单 |
 
 ---
@@ -240,19 +240,55 @@ model LotteryRecord {
 model ShippingRule {
   id           String   @id @default(cuid())
   name         String            // 规则名称
-  regionCodes  String[]          // 适用地区行政区划码列表（省级，空=全国）
-  minAmount    Float?            // 订单金额下限（含）
-  maxAmount    Float?            // 订单金额上限（不含，null=无上限）
-  minWeight    Int?              // 商品总重量下限(克)
-  maxWeight    Int?              // 商品总重量上限(克)
-  fee          Float             // 运费金额
-  priority     Int               @default(0)  // 优先级（高优先级先匹配）
+  regionCodes  String[]          // 适用地区行政区划码列表（空=全国）
+
+  // 兼容旧固定费规则，保留一版用于回滚/旧数据展示
+  minAmount    Float?
+  maxAmount    Float?
+  minWeight    Int?              // 克
+  maxWeight    Int?              // 克
+  fee          Float             @default(0)
+
+  // 顺丰风格公式字段
+  firstWeightKg      Float       @default(3)
+  firstFee           Float
+  additionalWeightKg Float       @default(1)
+  additionalFee      Float
+  minChargeWeightKg  Float       @default(1)
+
+  priority     Int               @default(0)  // 高优先级先匹配，同优先级按 id 稳定排序
   isActive     Boolean           @default(true)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+
+  @@index([isActive, priority])
 }
 ```
-> 匹配逻辑：按 priority 降序，找到第一条全部维度匹配的规则即返回其 fee。若无匹配规则，使用默认运费（RuleConfig 中配置）。
+> 匹配逻辑：按 priority 降序匹配地区，找到第一条生效规则后按 `firstFee + ceil((chargeWeightKg - firstWeightKg) / additionalWeightKg) × additionalFee` 计算。若无规则或规则异常，使用 `DEFAULT_SHIPPING_FEE` 兜底。
+
+#### 3.1.6.1 OrderShippingCost — 顺丰包裹成本记录
+
+```prisma
+model OrderShippingCost {
+  id              String   @id @default(cuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  packageIndex    Int
+  companyId       String?
+  sfOrderId       String   @unique
+  weightGramSent  Int
+  estimatedCost   Float?
+  actualCost      Float?
+  reconciledAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([companyId, createdAt])
+  @@index([reconciledAt])
+}
+```
+> 用途：平台统一承担顺丰履约运费；买家侧运费与顺丰月结真实成本分开记录，商户协商价不进入代码。
 
 #### 3.1.7 ReplacementRequest — 换货请求（替代退款）
 
@@ -677,7 +713,7 @@ enum RewardEntryStatus {
 
 | 变更 | 说明 |
 |------|------|
-| `calculateShippingFee()` | **重写**：使用 ShippingRule 平台统一规则（替代商户 ShippingTemplate） |
+| `calculateShippingFee()` / `calculateShippingDetail()` | **重写**：使用 ShippingRule 平台统一首重+续重公式（替代商户 ShippingTemplate） |
 | `createFromCart()` | 新增奖品商品校验（isPrize、门槛检查）、自动定价校验 |
 | `previewOrder()` | 同上：奖品商品展示、新运费计算 |
 | `confirmReceive()` | 新增：首次收货时触发普通树入树逻辑 |
@@ -686,14 +722,15 @@ enum RewardEntryStatus {
 **运费计算新逻辑**：
 ```
 输入：regionCode（收货地区）, totalWeight（总重量，克）, goodsAmount（商品金额）
-注：管理端配置/预览使用 kg（可小数），后端在 API 层统一换算为克存储与匹配。
-1. 查询所有 isActive 的 ShippingRule，按 priority 降序
-2. 遍历规则，找第一条匹配的：
-   - regionCodes 为空（全国）或包含 regionCode 的省级前缀
-   - minAmount <= goodsAmount < maxAmount（null = 无限制）
-   - minWeight <= totalWeight < maxWeight（null = 无限制）
-3. 返回匹配规则的 fee
-4. 无匹配 → 返回 DEFAULT_SHIPPING_FEE
+注：管理端配置/预览使用 kg（可小数）；后端内部按克/分整数化计算。
+1. 满额包邮先返回 0
+2. 查询所有 isActive 的 ShippingRule，按 priority 降序、id 升序稳定排序
+3. 遍历规则，找第一条地区匹配的：
+   - regionCodes 为空（全国）或命中收货地区省级前缀
+4. 计算计费重量：max(totalWeightKg, minChargeWeightKg)
+5. 公式：firstFee + ceil(max(0, chargeWeightKg - firstWeightKg) / additionalWeightKg) × additionalFee
+6. 多商户订单整单只算一次运费；支付后按各子订单商品金额比例分摊
+7. 无匹配 / 规则异常 → 返回 DEFAULT_SHIPPING_FEE 兜底
 ```
 
 #### 4.2.4 `modules/product/` — 商品模块（后端）
@@ -872,7 +909,7 @@ enum RewardEntryStatus {
 | `admin/src/pages/lottery/index.tsx` + `admin/src/api/lottery.ts` | 已对齐后端 DTO（奖品类型、概率 0-100、统计结构） | 奖池增改查与批量概率可用 | ✅ 已修复 |
 | `admin/src/pages/replacements/index.tsx` + `admin/src/api/replacements.ts` | 仲裁参数从 `action` 改为 `status`，状态枚举与后端一致 | 换货仲裁可落库生效 | ✅ 已修复 |
 | `admin/src/pages/platform-products/index.tsx` + `admin/src/api/platform-products.ts` | 已切换为后端真实模型（`basePrice + skus[]`），列表按 SKU 聚合展示，新增时按默认 SKU 提交 | 奖励商品增改查契约一致 | ✅ 已修复 |
-| `admin/src/pages/shipping-rules/index.tsx` + `admin/src/api/shipping-rules.ts` | 已切换为后端真实模型（`name/regionCodes/min-max/fee/priority/isActive`），预览响应改读 `{ fee, input }` | 运费规则 CRUD 与预览契约一致 | ✅ 已修复 |
+| `admin/src/pages/shipping-rules/index.tsx` + `admin/src/api/shipping-rules.ts` | 已升级为顺丰风格平台规则（`regionCodes/firstWeightKg/firstFee/additionalWeightKg/additionalFee/minChargeWeightKg/freeShippingThreshold/priority/isActive`），支持公式预览、CSV/JSON 批量导入和 dry-run 二次确认 | 运费规则 CRUD / 预览 / 导入契约一致 | ✅ 已修复 |
 | `admin/src/layouts/AdminLayout.tsx` + `admin/src/App.tsx` + `admin/src/constants/permissions.ts` | 菜单、路由、权限常量均已补齐 | 管理模块可访问且受控 | ✅ 已修复 |
 
 ### 7.4 管理后台全面审计（2026-03-01）
@@ -885,7 +922,7 @@ enum RewardEntryStatus {
 | A4 | 抽奖记录查询 | ✅ | 按用户/日期/结果筛选 |
 | A5 | 抽奖统计 | ✅ | 统计卡片 + 奖品消耗表 |
 | A6 | 奖励商品基础 CRUD | ✅ | `platform-products/index.tsx`，可独立设成本和售价（cost ≤ price 校验） |
-| A7 | 运费规则 CRUD（三维度） | ✅ | `shipping-rules/index.tsx`，金额×地区×重量 + 运费预览测试卡片。重量单位为千克（kg），与后端一致 |
+| A7 | 运费规则 CRUD（顺丰风格公式） | ✅ | `shipping-rules/index.tsx`，地区 + 首重/续重公式 + 运费预览测试卡片 + CSV/JSON 批量导入。重量单位为千克（kg），后端按克/分整数化计算 |
 | A8 | 换货仲裁（独立于退款） | ✅ | `replacements/index.tsx`，照片证据预览 + 仲裁决定（APPROVED/REJECTED） |
 | A9 | 所有权限常量 | ✅ | `permissions.ts` 包含 lottery/reward_products/shipping/replacements 全部 CRUD 权限 |
 | A10 | 菜单入口 | ✅ | 抽奖 / 奖励商品 / 运费 / 换货 / 普通树均有菜单项 |
@@ -960,7 +997,7 @@ enum RewardEntryStatus {
 | # | 严重度 | 问题 | 修复方案 | 状态 |
 |---|--------|------|---------|------|
 | 1 | **P0** | 管理端奖励商品页使用扁平 `price/stock/cost`，后端模型为 `basePrice` + `skus[]` 数组，创建/编辑/列表全部不兼容 | `admin/src/api/platform-products.ts`: 类型改为 `PlatformProduct.basePrice` + `PlatformProductSku[]`；`index.tsx`: 列表通过 helper 从 skus 聚合价格/成本/库存展示，创建提交 `{ basePrice, skus: [{ title, price, cost, stock }] }`，编辑提交 `{ basePrice, cost, status }` | ✅ |
-| 2 | **P0** | 管理端运费规则页模型完全错误（`regionCode/baseShippingFee/freeShippingThreshold/weightRate`），与后端 ShippingRule（`name/regionCodes[]/minAmount/maxAmount/minWeight/maxWeight/fee/priority`）无任何字段匹配 | `admin/src/api/shipping-rules.ts`: 类型重写为 `ShippingRule` + `ShippingPreview { fee, input }`；`index.tsx`: 列表展示 regionCodes/金额区间/重量区间/fee/priority/isActive，表单对齐全部字段，预览面板发送 `{ goodsAmount, regionCode, totalWeight }` 并展示 `{ fee, input }` | ✅ |
+| 2 | **P0** | 管理端运费规则页旧模型（`regionCode/baseShippingFee/freeShippingThreshold/weightRate`）与后端 ShippingRule 不匹配 | `admin/src/api/shipping-rules.ts` / `admin/src/pages/shipping-rules/index.tsx` 已升级为顺丰风格公式字段（地区、首重、首费、续重、续费、最低计费重量、满额包邮），预览发送 `{ goodsAmount, regionCode, totalWeight }` 并展示命中规则、公式、兜底状态 | ✅ |
 | 3 | **P2** | 买家订单详情 `handlePay` 直接调用 `OrderRepo.payOrder()`，后端已返回 410 GoneException | `app/orders/[id].tsx`: `handlePay` 增加 `if (!USE_MOCK)` 前置守卫返回错误 toast；pendingPay 状态 UI 区分 Mock（显示支付按钮）和生产（显示"历史待支付订单请重新下单"提示） | ✅ |
 | 4 | **P2** | 买家订单详情"推进售后"按钮在生产环境暴露，`advanceAfterSale` 无后端 API 对应 | `app/orders/[id].tsx`: 按钮包裹 `{USE_MOCK ? ... : null}` 仅 Mock 模式可见，文案改为"模拟推进售后"；`OrderRepo.advanceAfterSale` 增加 `!USE_MOCK` 前置返回错误（双重守卫） | ✅ |
 | 5 | **P3** | 买家换货申请后端 `replacement.controller` 使用内联 `@Body() dto: { ... }` 无 class-validator 校验，reason 可空、photos 可传任意内容 | 新建 `backend/src/modules/replacement/dto/create-replacement.dto.ts`：`reason` 非空+max500，`photos` array min1 max10 逐项 URL 校验，`orderItemId?` CUID 正则校验；controller 改用 `CreateReplacementDto` | ✅ |
@@ -984,7 +1021,7 @@ enum RewardEntryStatus {
 | 5 | **P3** | `admin/bonus` 参数缺失抛 `Error` 返回 500 | `admin-bonus.controller.ts` 改为 `BadRequestException`，返回 400 语义 | ✅ |
 
 **未修改项（经评估无需修改）**：
-- 运费计算保留 `ShippingTemplate` 降级兜底：属有意设计，当 ShippingRule 异常时避免下单链路中断，文档"强制平台规则"措辞后续优化为"优先使用平台规则，异常时降级"
+- 运费计算保留 `DEFAULT_SHIPPING_FEE` 配置兜底：属有意设计，当 ShippingRule 缺失或异常时避免下单链路中断；常规配置入口仍是平台统一 ShippingRule。
 
 ### 8.9 五轮后端一致性修复（2026-03-01）
 
@@ -1362,9 +1399,9 @@ enum RewardEntryStatus {
 
 1. ✅ 后端：商品创建/更新时自动定价逻辑（seller-products.service 注入 BonusConfigService，price = cost × markupRate）
 2. ✅ 卖家后台前端：SKU表单改造（只输入成本，售价自动计算只读展示）
-3. ✅ 后端：ShippingRule 模块（5 API：CRUD + 运费预览，3D匹配引擎）
+3. ✅ 后端：ShippingRule 模块（CRUD + 运费预览 + CSV/JSON 导入，顺丰风格首重/续重匹配引擎）
 4. ✅ 管理后台前端：运费规则配置页面 `admin/src/pages/shipping-rules/index.tsx`
-5. ✅ 后端：订单模块运费计算重写（ShippingRuleService 优先，ShippingTemplate 兜底）
+5. ✅ 后端：订单模块运费计算重写（CheckoutSession 锁定 ShippingRule 计算结果，`DEFAULT_SHIPPING_FEE` 兜底）
 
 > ~~审计补充（2026-02-28）~~：已修复。卖家商品编辑页 `seller/src/pages/products/edit.tsx` 已移除 SKU price 提交，改为 cost×markupRate 只读展示；管理端运费规则页已创建。
 

@@ -298,8 +298,17 @@ Order: DELIVERED → RECEIVED
   - 批量发货
 
 #### ✅ 管理后台运费规则
-- **文件**: `admin/src/pages/...`
-- **功能**: CRUD 运费规则（按地区/金额/重量匹配）
+- **文件**: `admin/src/pages/shipping-rules`
+- **功能**: CRUD 平台统一运费规则；按地区 + 整单重量使用顺丰风格首重/续重公式计价，支持预览、CSV/JSON 批量导入、dry-run 二次确认。
+
+#### ✅ 平台统一运费计价（2026-05-11）
+
+- **业务口径**: 平台统一对接顺丰并承担履约运费；买家侧保持满额包邮，不满额时按平台自定义顺丰风格公式收取运费。商户与平台协商价格不进入代码。
+- **计费方式**: 收货地区匹配 `ShippingRule.regionCodes`，整单商品重量按 SKU `weightGram × quantity` 汇总；公式为首重价 + 续重阶梯价，内部按克/分整数化计算，避免浮点误差。
+- **多商户订单**: 结算时整单只收一次运费；支付回调建单时使用 `CheckoutSession.shippingFee` 锁价，并按各子订单商品金额比例分摊。
+- **缓存与兜底**: 生效规则通过 Redis 缓存 60 秒，规则写操作主动失效；无可用规则或异常时才使用 `DEFAULT_SHIPPING_FEE` 兜底。
+- **顺丰成本**: 卖家生成顺丰面单时传真实包裹重量，并写入 `OrderShippingCost`；顺丰月结真实成本后续回填 `actualCost/reconciledAt` 用于平台对账。
+- **SKU 重量**: 卖家商品、管理端普通商品、管理端奖励商品 SKU 均要求填写重量；历史空值迁移为 1000g。
 
 ### 2.4 环境变量
 
@@ -510,6 +519,10 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 | 买家主动刷新物流 | `ShipmentService.queryTracking()` | shipment.service.ts |
 | 顺丰推送回调 | `ShipmentController.handleSfCallback()` | shipment.controller.ts |
 | 顺丰 API 封装 | `SfExpressService` | sf-express.service.ts |
+| 平台运费规则管理 | `ShippingRuleService` / `ShippingRuleImportService` | admin/shipping-rule/*.ts |
+| 运费规则管理 UI | `admin/src/pages/shipping-rules` | admin shipping rules page |
+| 结算锁定运费 | `CheckoutService.calculateShippingDetailForCheckout()` | checkout.service.ts |
+| 顺丰包裹成本记录 | `OrderShippingCostService.recordPackage()` | order-shipping-cost.service.ts |
 | 物流异常监控 | `ShipmentMonitorService.checkStaleShipments()` | shipment-monitor.service.ts |
 | 自动确认收货 | `OrderAutoConfirmService.handleAutoConfirm()` | order-auto-confirm.service.ts |
 

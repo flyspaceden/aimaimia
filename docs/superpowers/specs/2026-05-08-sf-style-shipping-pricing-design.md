@@ -243,7 +243,7 @@ return candidates[0] ?? null;  // 无命中时返回 DEFAULT_SHIPPING_FEE，fall
 
 1. 地区匹配沿用当前省级前缀规则：`regionCode.slice(0, 2)` 与规则地区码前两位比较，空数组表示全国。
 2. 同 priority 多条规则按 `id` 升序兜底，避免 DB 顺序漂移。
-3. 如保留金额区间字段，则继续支持金额过滤，便于未来做低客单价特殊运费。
+3. `minAmount/maxAmount/minWeight/maxWeight/fee` 仅作为旧数据兼容与回滚兜底字段保留；当前顺丰风格计价不再按金额区间或重量区间匹配，低客单价特殊运费应通过新增显式业务字段另行设计。
 4. 命中后使用公式字段计算（见第 4 节）。
 
 ### 6.1 缓存策略

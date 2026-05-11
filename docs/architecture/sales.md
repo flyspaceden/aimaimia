@@ -237,7 +237,7 @@ class CreateSkuDto {
   price: number;           // SKU 价格
   cost?: number;           // 成本价（用于利润分配）
   stock: number;           // 库存
-  weight?: number;         // 重量(kg)
+  weightGram: number;      // 重量(g)，必填；用于平台顺丰运费计价和面单下单
 }
 ```
 

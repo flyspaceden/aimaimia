@@ -96,6 +96,8 @@
 - `docs/superpowers/plans/2026-05-01-order-pages-redesign.md` — 订单页面重做实施计划（32 任务，3 Phase：UI 重写+最小后端 / 后端剩余 DTO+横幅+续付链路 / buyerNote 字段。**3 Phase 全部完成**）
 - `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（NO_REASON_EXCHANGE 四类售后 / 顺丰退货面单 / 买家付退货运费 AS_SHIP_PAY_ 通道 / 退款失败转人工处理 / 三端接线 / 双向一致性巡检，**退款/退货/换货链路收口权威来源，2026-05-10 全套验收通过**）
 - `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（12 Task / 49 commits 一篮子合入 + 15+ 后续 fix/feat，**售后链路完整闭环 + 多通道支付抽象就绪**）
+- `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md` — 顺丰风格平台统一运费计价设计方案（首重+续重公式、平台自定义价格、满额包邮、整单一次计费、SKU 重量补强、管理后台批量导入，**平台运费计价改造权威来源**）
+- `docs/superpowers/plans/2026-05-08-sf-style-shipping-pricing.md` — 顺丰风格平台统一运费计价实施计划（Schema/运费引擎/Checkout 锁价/顺丰面单真实重量/`OrderShippingCost` 成本记录/管理后台/卖家 SKU 重量/文档同步，**平台运费计价实施排程**）
 - `docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md` — 微信支付集成设计方案（v1.1+ 推迟项，复用售后链路收口已完成的 PaymentChannel 抽象 + provider-agnostic initiateRefund，售后核心代码 0 改动，仅需新增 WechatPayService + Controller 端点 + initiateRefund 分支 + AfterSaleShippingPayment.provider dispatch 修正，**多通道支付扩展权威来源**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
@@ -123,6 +125,7 @@
 | 普通/VIP系统隔离 | 两套独立参数（`NORMAL_*`/`VIP_*`前缀）、独立树结构、**统一六分利润结构但各自独立配比**、独立冻结过期天数 |
 | 卖家自动定价 | 卖家设成本，售价=成本×MARKUP_RATE（默认1.3），奖励商品例外（管理员手动设价） |
 | 订单流程 | **付款后才创建订单**：引入 CheckoutSession → 支付回调原子建单（PAID），无 PENDING_PAYMENT 状态 |
+| 平台运费计价 | **平台统一对接顺丰并承担履约运费**；买家侧保持满额包邮，不满额按平台自定义顺丰风格首重+续重公式收取运费；多商户订单整单只收一次运费，支付后按子订单商品金额比例分摊；顺丰承运实际成本可记录在 `OrderShippingCost` 供平台月结对账，商户协商价不进入代码 |
 | 赠品锁定 | THRESHOLD_GIFT 入购物车锁定，按勾选非奖品商品总额实时解锁，解锁后自动包含在订单中 |
 | 奖品过期 | 可配置过期时间（小时），从入购物车起算，wonCount 永不回退 |
 | 平台公司 | 命名"爱买买app"，Company.isPlatform=true，奖品商品归属平台，用户搜索排除奖励商品 |
