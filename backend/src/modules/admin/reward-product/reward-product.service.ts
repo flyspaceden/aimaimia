@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import {
@@ -12,9 +13,15 @@ import {
   UpdateRewardProductSkuDto,
 } from './reward-product.dto';
 
+type RewardProductReferenceClient = Pick<PrismaService, 'vipGiftItem' | 'lotteryPrize'>;
+
 @Injectable()
 export class RewardProductService {
   constructor(private prisma: PrismaService) {}
+
+  private readonly serializableTransactionOptions = {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  };
 
   private resolveSkuWeightGram(weightGram?: number) {
     if (weightGram === undefined || weightGram === null) return 1000;
@@ -100,10 +107,18 @@ export class RewardProductService {
     );
   }
 
-  private async assertProductNotReferenced(productId: string, skuIds: string[], action: string) {
-    const [vipGiftItems, lotteryPrizes] = await Promise.all([
+  private async assertProductNotReferenced(
+    productId: string,
+    skuIds: string[],
+    action: string,
+    client: RewardProductReferenceClient = this.prisma,
+  ) {
+    const [vipGiftItems, lotteryPrizes]: [
+      Array<{ id: string; giftOption: { title: string } }>,
+      Array<{ id: string; name: string }>,
+    ] = await Promise.all([
       skuIds.length > 0
-        ? this.prisma.vipGiftItem.findMany({
+        ? client.vipGiftItem.findMany({
             where: {
               skuId: { in: skuIds },
               giftOption: { status: 'ACTIVE' },
@@ -112,7 +127,7 @@ export class RewardProductService {
             take: 5,
           })
         : Promise.resolve([]),
-      this.prisma.lotteryPrize.findMany({
+      client.lotteryPrize.findMany({
         where: {
           isActive: true,
           OR: [
@@ -241,46 +256,49 @@ export class RewardProductService {
       this.resolveSkuWeightGram(sku.weightGram);
     }
 
-    return this.prisma.product.create({
-      data: {
-        companyId: PLATFORM_COMPANY_ID,
-        title: dto.title,
-        subtitle: dto.subtitle,
-        description: dto.description,
-        detailRich: dto.detailRich,
-        categoryId: dto.categoryId,
-        basePrice: dto.basePrice,
-        cost: dto.cost,
-        origin: dto.origin,
-        attributes: dto.attributes,
-        status: 'ACTIVE',       // 奖励商品免审核，直接上架
-        auditStatus: 'APPROVED', // 免审核
-        skus: {
-          create: dto.skus.map((sku) => ({
-            title: sku.title,
-            price: sku.price,
-            cost: sku.cost,
-            stock: sku.stock,
-            skuCode: sku.skuCode,
-            weightGram: this.resolveSkuWeightGram(sku.weightGram),
-          })),
+    return this.prisma.$transaction(
+      (tx) => tx.product.create({
+        data: {
+          companyId: PLATFORM_COMPANY_ID,
+          title: dto.title,
+          subtitle: dto.subtitle,
+          description: dto.description,
+          detailRich: dto.detailRich,
+          categoryId: dto.categoryId,
+          basePrice: dto.basePrice,
+          cost: dto.cost,
+          origin: dto.origin,
+          attributes: dto.attributes,
+          status: 'ACTIVE',       // 奖励商品免审核，直接上架
+          auditStatus: 'APPROVED', // 免审核
+          skus: {
+            create: dto.skus.map((sku) => ({
+              title: sku.title,
+              price: sku.price,
+              cost: sku.cost,
+              stock: sku.stock,
+              skuCode: sku.skuCode,
+              weightGram: this.resolveSkuWeightGram(sku.weightGram),
+            })),
+          },
+          media: dto.media
+            ? {
+                create: dto.media.map((m) => ({
+                  type: m.type as any,
+                  url: m.url,
+                  sortOrder: m.sortOrder ?? 0,
+                  alt: m.alt,
+                })),
+              }
+            : undefined,
         },
-        media: dto.media
-          ? {
-              create: dto.media.map((m) => ({
-                type: m.type as any,
-                url: m.url,
-                sortOrder: m.sortOrder ?? 0,
-                alt: m.alt,
-              })),
-            }
-          : undefined,
-      },
-      include: {
-        skus: true,
-        media: true,
-      },
-    });
+        include: {
+          skus: true,
+          media: true,
+        },
+      }),
+      this.serializableTransactionOptions,
+    );
   }
 
   /** 更新奖励商品 */
@@ -288,38 +306,44 @@ export class RewardProductService {
     id: string,
     dto: UpdateRewardProductDto,
   ) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
-      include: { skus: { select: { id: true } } },
-    });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== PLATFORM_COMPANY_ID) {
-      throw new BadRequestException('只能编辑奖励商品');
-    }
+    return this.prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.findUnique({
+          where: { id },
+          include: { skus: { select: { id: true } } },
+        });
+        if (!product) throw new NotFoundException('商品不存在');
+        if (product.companyId !== PLATFORM_COMPANY_ID) {
+          throw new BadRequestException('只能编辑奖励商品');
+        }
 
-    // 校验成本价不超过售价（考虑部分更新情况）
-    const effectiveCost = dto.cost ?? product.cost;
-    const effectivePrice = dto.basePrice ?? product.basePrice;
-    if (effectiveCost !== undefined && effectiveCost !== null && effectiveCost > effectivePrice) {
-      throw new BadRequestException('成本价不能超过售价');
-    }
+        // 校验成本价不超过售价（考虑部分更新情况）
+        const effectiveCost = dto.cost ?? product.cost;
+        const effectivePrice = dto.basePrice ?? product.basePrice;
+        if (effectiveCost !== undefined && effectiveCost !== null && effectiveCost > effectivePrice) {
+          throw new BadRequestException('成本价不能超过售价');
+        }
 
-    if (dto.status && dto.status !== 'ACTIVE' && dto.status !== product.status) {
-      await this.assertProductNotReferenced(
-        id,
-        product.skus.map((sku) => sku.id),
-        '下架',
-      );
-    }
+        if (dto.status && dto.status !== 'ACTIVE' && dto.status !== product.status) {
+          await this.assertProductNotReferenced(
+            id,
+            product.skus.map((sku) => sku.id),
+            '下架',
+            tx,
+          );
+        }
 
-    return this.prisma.product.update({
-      where: { id },
-      data: dto as any,
-      include: {
-        skus: true,
-        media: true,
+        return tx.product.update({
+          where: { id },
+          data: dto as any,
+          include: {
+            skus: true,
+            media: true,
+          },
+        });
       },
-    });
+      this.serializableTransactionOptions,
+    );
   }
 
   /** 删除奖励商品（硬删除）
@@ -393,66 +417,77 @@ export class RewardProductService {
 
   /** 新增 SKU */
   async addSku(productId: string, dto: CreateRewardProductSkuForUpdateDto) {
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== PLATFORM_COMPANY_ID) {
-      throw new BadRequestException('只能操作奖励商品');
-    }
-
     // 校验成本价不超过售价
     if (dto.cost !== undefined && dto.cost > dto.price) {
       throw new BadRequestException('SKU 成本价不能超过售价');
     }
     const weightGram = this.resolveSkuWeightGram(dto.weightGram);
 
-    return this.prisma.productSKU.create({
-      data: {
-        productId,
-        title: dto.title,
-        price: dto.price,
-        cost: dto.cost ?? 0,
-        stock: dto.stock,
-        skuCode: dto.skuCode,
-        weightGram,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.findUnique({ where: { id: productId } });
+        if (!product) throw new NotFoundException('商品不存在');
+        if (product.companyId !== PLATFORM_COMPANY_ID) {
+          throw new BadRequestException('只能操作奖励商品');
+        }
+
+        return tx.productSKU.create({
+          data: {
+            productId,
+            title: dto.title,
+            price: dto.price,
+            cost: dto.cost ?? 0,
+            stock: dto.stock,
+            skuCode: dto.skuCode,
+            weightGram,
+          },
+        });
       },
-    });
+      this.serializableTransactionOptions,
+    );
   }
 
   /** 更新单个 SKU */
   async updateSku(productId: string, skuId: string, dto: UpdateRewardProductSkuDto) {
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== PLATFORM_COMPANY_ID) {
-      throw new BadRequestException('只能操作奖励商品');
-    }
-
-    const sku = await this.prisma.productSKU.findUnique({ where: { id: skuId } });
-    if (!sku) throw new NotFoundException('SKU 不存在');
-    if (sku.productId !== productId) {
-      throw new BadRequestException('SKU 不属于该商品');
-    }
-
-    // 校验成本价不超过售价（考虑部分更新）
-    const effectiveCost = dto.cost ?? sku.cost;
-    const effectivePrice = dto.price ?? sku.price;
-    if (effectiveCost !== undefined && effectiveCost !== null && effectiveCost > effectivePrice) {
-      throw new BadRequestException('SKU 成本价不能超过售价');
-    }
     if (dto.weightGram !== undefined) {
       this.resolveSkuWeightGram(dto.weightGram);
     }
 
-    return this.prisma.productSKU.update({
-      where: { id: skuId },
-      data: {
-        ...(dto.title !== undefined && { title: dto.title }),
-        ...(dto.price !== undefined && { price: dto.price }),
-        ...(dto.cost !== undefined && { cost: dto.cost }),
-        ...(dto.stock !== undefined && { stock: dto.stock }),
-        ...(dto.skuCode !== undefined && { skuCode: dto.skuCode }),
-        ...(dto.weightGram !== undefined && { weightGram: dto.weightGram }),
+    return this.prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.findUnique({ where: { id: productId } });
+        if (!product) throw new NotFoundException('商品不存在');
+        if (product.companyId !== PLATFORM_COMPANY_ID) {
+          throw new BadRequestException('只能操作奖励商品');
+        }
+
+        const sku = await tx.productSKU.findUnique({ where: { id: skuId } });
+        if (!sku) throw new NotFoundException('SKU 不存在');
+        if (sku.productId !== productId) {
+          throw new BadRequestException('SKU 不属于该商品');
+        }
+
+        // 校验成本价不超过售价（考虑部分更新）
+        const effectiveCost = dto.cost ?? sku.cost;
+        const effectivePrice = dto.price ?? sku.price;
+        if (effectiveCost !== undefined && effectiveCost !== null && effectiveCost > effectivePrice) {
+          throw new BadRequestException('SKU 成本价不能超过售价');
+        }
+
+        return tx.productSKU.update({
+          where: { id: skuId },
+          data: {
+            ...(dto.title !== undefined && { title: dto.title }),
+            ...(dto.price !== undefined && { price: dto.price }),
+            ...(dto.cost !== undefined && { cost: dto.cost }),
+            ...(dto.stock !== undefined && { stock: dto.stock }),
+            ...(dto.skuCode !== undefined && { skuCode: dto.skuCode }),
+            ...(dto.weightGram !== undefined && { weightGram: dto.weightGram }),
+          },
+        });
       },
-    });
+      this.serializableTransactionOptions,
+    );
   }
 
   /** 删除 SKU */

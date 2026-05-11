@@ -45,6 +45,14 @@ WHERE "minAmount" IS NOT NULL
    OR "minWeight" IS NOT NULL
    OR "maxWeight" IS NOT NULL;
 
+-- DRAFT 商品允许暂存未填重量；在统一回填前写入唯一 skuCode marker，避免 1000g 被误认为真实重量。
+UPDATE "ProductSKU" AS s
+SET "skuCode" = '__DRAFT_WEIGHT_PLACEHOLDER__:' || s."id"
+FROM "Product" AS p
+WHERE s."productId" = p."id"
+  AND p."status" = 'DRAFT'
+  AND s."weightGram" IS NULL;
+
 -- 历史 SKU 无重量 → 默认 1000g
 UPDATE "ProductSKU" SET "weightGram" = 1000 WHERE "weightGram" IS NULL;
 
