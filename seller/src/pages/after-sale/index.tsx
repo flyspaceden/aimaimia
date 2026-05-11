@@ -14,7 +14,7 @@ import {
   rejectReturn,
   type AfterSale,
 } from '@/api/after-sale';
-import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap } from '@/constants/statusMaps';
+import { afterSaleTypeMap, afterSaleReasonMap, getAfterSaleDisplayStatus } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 // 标签页配置
@@ -215,7 +215,7 @@ export default function AfterSaleListPage() {
       width: 120,
       hideInSearch: true,
       render: (_, record) => {
-        const s = afterSaleStatusMap[record.status] || { text: record.status, color: 'default' };
+        const s = getAfterSaleDisplayStatus(record);
         return <Tag color={s.color}>{s.text}</Tag>;
       },
     },
@@ -263,11 +263,18 @@ export default function AfterSaleListPage() {
               </a>
             </>
           )}
+          {/* 换货发货逻辑：
+              - RECEIVED_BY_SELLER：旧货已到 → 直接去发货
+              - APPROVED + 免寄回：可直接发货
+              - APPROVED + 需寄回：必须等买家寄回，显示灰字提示 */}
           {record.status === 'RECEIVED_BY_SELLER' && isExchangeType(record.afterSaleType) && (
             <a onClick={() => navigate(`/after-sale/${record.id}`)}>去发货</a>
           )}
-          {record.status === 'APPROVED' && isExchangeType(record.afterSaleType) && (
+          {record.status === 'APPROVED' && isExchangeType(record.afterSaleType) && !record.requiresReturn && (
             <a onClick={() => navigate(`/after-sale/${record.id}`)}>去发货</a>
+          )}
+          {record.status === 'APPROVED' && isExchangeType(record.afterSaleType) && record.requiresReturn && (
+            <span style={{ color: '#999' }}>等待买家寄回</span>
           )}
           {record.status === 'SELLER_REJECTED_RETURN' && (
             <a onClick={() => navigate(`/after-sale/${record.id}`)}>回寄面单</a>

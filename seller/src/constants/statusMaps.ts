@@ -77,6 +77,24 @@ export const afterSaleStatusMap: Record<string, { text: string; color: string }>
   CANCELED: { text: '已取消', color: 'default' },
 };
 
+/**
+ * 售后状态显示 helper
+ * APPROVED + requiresReturn=true 时单独区分"等待买家寄回"——
+ * 否则卖家容易误以为可以发货/操作。
+ */
+export function getAfterSaleDisplayStatus(record: {
+  status: string;
+  requiresReturn?: boolean;
+}): { text: string; color: string } {
+  if (
+    record.status === 'APPROVED' &&
+    record.requiresReturn === true
+  ) {
+    return { text: '等待买家寄回', color: 'gold' };
+  }
+  return afterSaleStatusMap[record.status] || { text: record.status, color: 'default' };
+}
+
 // 售后类型
 export const afterSaleTypeMap: Record<string, { text: string; color: string }> = {
   NO_REASON_RETURN: { text: '七天无理由退货', color: 'blue' },

@@ -14,7 +14,7 @@ import {
   generateSellerReturnWaybill,
   cancelAfterSaleWaybill,
 } from '@/api/after-sale';
-import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap } from '@/constants/statusMaps';
+import { afterSaleTypeMap, afterSaleReasonMap, getAfterSaleDisplayStatus } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 const sellerAfterSaleTypeMap: Record<string, { text: string; color: string }> = {
@@ -174,13 +174,23 @@ export default function AfterSaleDetailPage() {
   if (isLoading) return <Spin style={{ display: 'block', margin: '100px auto' }} />;
   if (!afterSale) return <div>未找到售后记录</div>;
 
-  const statusInfo = afterSaleStatusMap[afterSale.status] || { text: afterSale.status, color: 'default' };
+  const statusInfo = getAfterSaleDisplayStatus(afterSale);
   const typeInfo = sellerAfterSaleTypeMap[afterSale.afterSaleType];
   const reasonInfo = afterSale.reasonType ? afterSaleReasonMap[afterSale.reasonType] : null;
   const isExchange = isExchangeType(afterSale.afterSaleType);
   const isReturn = isReturnType(afterSale.afterSaleType);
+  // 卖家能否发换货：
+  // - RECEIVED_BY_SELLER：旧货已到（含仲裁认定到）→ 可发新货
+  // - APPROVED 且免寄回（!requiresReturn）：买家保留旧货，可直接发新货
+  // - APPROVED 且需寄回：必须等买家寄回 → 不能发货（前端隐藏按钮、后端校验拦截）
   const canShipReplacement =
-    isExchange && ['APPROVED', 'RECEIVED_BY_SELLER'].includes(afterSale.status);
+    isExchange && (
+      afterSale.status === 'RECEIVED_BY_SELLER' ||
+      (afterSale.status === 'APPROVED' && !afterSale.requiresReturn)
+    );
+  // APPROVED + 需寄回 + 换货：显示"等待买家寄回"灰字提示卖家无操作
+  const awaitingBuyerReturn =
+    isExchange && afterSale.status === 'APPROVED' && afterSale.requiresReturn;
 
   // 从 productSnapshot 提取商品名和图片
   const snapshot = afterSale.orderItem?.productSnapshot;
@@ -191,12 +201,14 @@ export default function AfterSaleDetailPage() {
   const productImage = parsedSnapshot?.imageUrl || parsedSnapshot?.media?.[0]?.url;
 
   // 是否有待处理动作（决定顶部"待处理操作"Card 是否展示）
+  // 包含 awaitingBuyerReturn 是为了显示"等待买家寄回"提示文字
   const hasActionableState =
     afterSale.status === 'REQUESTED' ||
     afterSale.status === 'UNDER_REVIEW' ||
     afterSale.status === 'RETURN_SHIPPING' ||
     (afterSale.status === 'RECEIVED_BY_SELLER' && isReturn) ||
-    canShipReplacement;
+    canShipReplacement ||
+    awaitingBuyerReturn;
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -242,6 +254,10 @@ export default function AfterSaleDetailPage() {
                   验收不通过
                 </Button>
               </>
+            )}
+            {/* 换货+需寄回 状态下显示等待提示（无按钮）*/}
+            {awaitingBuyerReturn && (
+              <Tag color="gold">等待买家寄回退货，确认收到后才能发换货</Tag>
             )}
             {canShipReplacement && !afterSale.replacementWaybillNo && (
               <Button type="primary" loading={generatingWaybill} onClick={() => handleGenerateWaybill('SF')}>
