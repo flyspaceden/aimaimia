@@ -436,13 +436,15 @@ export default function OrderListPage() {
       render: (_, r) => {
         const s = orderStatusMap[r.status];
         const refundStatus = r.refundSummary ? refundStatusMap[r.refundSummary.status] : null;
+        const orderText = s?.text || r.status;
+        const refundText = refundStatus?.text || r.refundSummary?.status;
+        // 订单主状态和退款流水状态文字一致时（例如 REFUNDED + REFUNDED）只显示一个，避免冗余
+        const showRefundTag = Boolean(r.refundSummary) && refundText !== orderText;
         return (
           <Space size={4} wrap>
-            <Tag color={s?.color}>{s?.text || r.status}</Tag>
-            {r.refundSummary && (
-              <Tag color={refundStatus?.color}>
-                {refundStatus?.text || r.refundSummary.status}
-              </Tag>
+            <Tag color={s?.color}>{orderText}</Tag>
+            {showRefundTag && (
+              <Tag color={refundStatus?.color}>{refundText}</Tag>
             )}
           </Space>
         );
