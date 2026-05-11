@@ -303,13 +303,16 @@ export default function AfterSaleScreen() {
         return;
       }
 
-      // 刷新相关查询缓存
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['order', orderId] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-issue'] });
-      await queryClient.invalidateQueries({ queryKey: ['after-sales'] });
-      await queryClient.invalidateQueries({ queryKey: ['after-sale-eligibility', orderId] });
+      // 标记相关 query 为 stale，但**不立即触发 refetch**——
+      // refetchType: 'none' 让 React Query 只 mark stale，等下次组件挂载/聚焦时再拉。
+      // 之前 6 个 await invalidate 串行 refetch + 同时跳详情页起新 query →
+      // 弱网下并发 7+ 请求 + 跳转 race，体感"白屏死机"。
+      queryClient.invalidateQueries({ queryKey: ['orders'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['order', orderId], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['me-order-counts'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['me-order-issue'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['after-sales'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['after-sale-eligibility', orderId], refetchType: 'none' });
 
       const typeLabel = afterSaleTypeLabels[afterSaleType];
       show({ message: `${typeLabel}申请已提交`, type: 'success' });
