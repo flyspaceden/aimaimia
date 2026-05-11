@@ -145,10 +145,10 @@ export default function PreviewPanel() {
             </span>
           </Descriptions.Item>
           <Descriptions.Item label="命中规则">
-            {result.matchedRuleName ? (
+            {result.matchedRule ? (
               <Space size={4}>
-                <Tag color="blue">{result.matchedRuleName}</Tag>
-                <Text type="secondary">{result.matchedRuleId}</Text>
+                <Tag color="blue">{result.matchedRule.name}</Tag>
+                <Text type="secondary">{result.matchedRule.id}</Text>
               </Space>
             ) : (
               <Tag color="orange">兜底配置</Tag>

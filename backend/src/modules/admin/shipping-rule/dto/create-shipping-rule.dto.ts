@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -83,4 +84,8 @@ export class CreateShippingRuleDto {
   @Type(() => Number)
   @IsNumber({}, { message: 'priority 必须为数字' })
   priority?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'isActive 必须为布尔值' })
+  isActive?: boolean;
 }

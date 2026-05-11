@@ -565,6 +565,7 @@ export default function ShippingRulesPage() {
             additionalFee: values.additionalFee,
             minChargeWeightKg: values.minChargeWeightKg,
             priority: values.priority ?? 0,
+            isActive: values.isActive ?? true,
           };
 
           try {
@@ -575,10 +576,7 @@ export default function ShippingRulesPage() {
               });
               message.success('更新成功');
             } else {
-              const created = await createShippingRule(payload);
-              if (values.isActive === false) {
-                await updateShippingRule(created.id, { isActive: false });
-              }
+              await createShippingRule(payload);
               message.success('创建成功');
             }
             setEditModal({ visible: false, rule: null });

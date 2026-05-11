@@ -235,6 +235,77 @@ describe('ShippingRuleService 运费计算引擎', () => {
     expect(cache.invalidate).toHaveBeenCalledTimes(1);
   });
 
+  it('create 支持原子创建停用规则', async () => {
+    const { service, prisma, cache } = createMocks([]);
+    prisma.shippingRule.create.mockResolvedValue(makeRule({ isActive: false }));
+
+    const result = await service.create({
+      name: '停用规则',
+      regionCodes: [],
+      fee: 9.1,
+      firstWeightKg: 3,
+      firstFee: 9.1,
+      additionalWeightKg: 1,
+      additionalFee: 1.3,
+      minChargeWeightKg: 1,
+      priority: 10,
+      isActive: false,
+    });
+
+    expect(prisma.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: '停用规则',
+        isActive: false,
+      }),
+    });
+    expect(result.isActive).toBe(false);
+    expect(cache.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('preview 返回命中规则、公式和 fallback 标记', async () => {
+    const { service } = createMocks([makeRule()]);
+
+    const result = await service.preview({
+      goodsAmount: 50,
+      regionCode: '440300',
+      totalWeight: 4.2,
+    });
+
+    expect(result).toMatchObject({
+      fee: 11.7,
+      input: {
+        goodsAmount: 50,
+        regionCode: '440300',
+        totalWeight: 4.2,
+      },
+      matchedRule: {
+        id: 'rule-001',
+        name: '广东默认',
+      },
+      billingWeightKg: 4.2,
+      formula: '9.1 + ceil((4200g - 3000g) / 1000g) * 1.3 = 11.7',
+      fallbackUsed: false,
+    });
+  });
+
+  it('preview 无命中规则时返回兜底详情', async () => {
+    const { service } = createMocks([makeRule({ regionCodes: ['440000'] })]);
+
+    const result = await service.preview({
+      goodsAmount: 50,
+      regionCode: '110000',
+      totalWeight: 0.5,
+    });
+
+    expect(result).toMatchObject({
+      fee: 12,
+      matchedRule: null,
+      billingWeightKg: 1,
+      formula: 'fallback DEFAULT_SHIPPING_FEE = 12',
+      fallbackUsed: true,
+    });
+  });
+
   it('create 直接调用时拒绝 additionalWeightKg 为 0 且不写 DB', async () => {
     const { service, prisma } = createMocks([]);
 
@@ -447,6 +518,12 @@ describe('CreateShippingRuleDto 运费公式校验', () => {
 
   it('接受完整有效的运费公式字段', async () => {
     const errors = await validateCreateDto(validPayload);
+
+    expect(errors).toEqual([]);
+  });
+
+  it('接受 isActive=false 的新建请求', async () => {
+    const errors = await validateCreateDto({ ...validPayload, isActive: false });
 
     expect(errors).toEqual([]);
   });

@@ -81,6 +81,7 @@ export class ShippingRuleService {
         additionalFee: dto.additionalFee,
         minChargeWeightKg: dto.minChargeWeightKg,
         priority: dto.priority ?? 0,
+        isActive: dto.isActive ?? true,
       },
     });
     await this.cache.invalidate();
@@ -160,12 +161,21 @@ export class ShippingRuleService {
 
   /** 运费预览测试：传入金额/地区/重量，返回匹配的运费 */
   async preview(input: PreviewShippingDto) {
-    const fee = await this.calculateShippingFee(
+    const detail = await this.calculateShippingDetail(
       input.goodsAmount,
       input.regionCode,
       input.totalWeight === undefined ? undefined : this.kgToGram(input.totalWeight),
     );
-    return { fee, input };
+    return {
+      fee: detail.fee,
+      input,
+      matchedRule: detail.matchedRuleId
+        ? { id: detail.matchedRuleId, name: detail.matchedRuleName }
+        : null,
+      billingWeightKg: detail.billingWeightKg,
+      formula: detail.formula,
+      fallbackUsed: detail.fallbackUsed,
+    };
   }
 
   /**

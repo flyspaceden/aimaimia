@@ -23,8 +23,7 @@ export interface ShippingRule {
 
 export interface ShippingPreview {
   fee: number;
-  matchedRuleId: string | null;
-  matchedRuleName: string | null;
+  matchedRule: { id: string; name: string | null } | null;
   billingWeightKg: number;
   formula: string;
   fallbackUsed: boolean;
@@ -81,6 +80,7 @@ export interface CreateShippingRuleInput {
   additionalFee?: number;
   minChargeWeightKg?: number;
   priority?: number;
+  isActive?: boolean;
 }
 
 export interface UpdateShippingRuleInput extends Partial<CreateShippingRuleInput> {
