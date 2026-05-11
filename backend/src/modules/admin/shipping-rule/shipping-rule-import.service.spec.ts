@@ -565,6 +565,7 @@ describe('ShippingRuleImportService', () => {
     const existing = makeRule({
       id: 'csv-patch',
       name: 'CSV Patch',
+      regionCodes: ['31'],
       priority: 9,
       minAmount: 100,
       maxAmount: 500,
@@ -594,13 +595,65 @@ describe('ShippingRuleImportService', () => {
     expect(result.errors).toEqual([]);
     const updateArgs = tx.shippingRule.update.mock.calls[0][0];
     expect(updateArgs.where).toEqual({ id: 'csv-patch' });
-    expect(updateArgs.data).toEqual(expect.objectContaining({ firstFee: 10, regionCodes: [] }));
+    expect(updateArgs.data).toEqual(expect.objectContaining({ firstFee: 10 }));
     expect(updateArgs.data).not.toHaveProperty('priority');
     expect(updateArgs.data).not.toHaveProperty('minAmount');
     expect(updateArgs.data).not.toHaveProperty('maxAmount');
     expect(updateArgs.data).not.toHaveProperty('minWeight');
     expect(updateArgs.data).not.toHaveProperty('maxWeight');
     expect(updateArgs.data).not.toHaveProperty('isActive');
+    expect(updateArgs.data).not.toHaveProperty('regionCodes');
+  });
+
+  it('updates regionCodes when CSV regionCodes cell is non-blank', async () => {
+    const existing = makeRule({
+      id: 'csv-region-update',
+      name: 'CSV Region Update',
+      regionCodes: ['31'],
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: 'CSV Region Update',
+      regionCodes: '35|43',
+      firstFee: 10,
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'csv-region-update' });
+    expect(updateArgs.data).toEqual(expect.objectContaining({
+      firstFee: 10,
+      regionCodes: ['35', '43'],
+    }));
+  });
+
+  it('creates nationwide rule when CSV regionCodes cell is blank', async () => {
+    const { service, tx } = createService([]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: 'CSV Blank Region Create',
+      regionCodes: '',
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'CSV Blank Region Create',
+        regionCodes: [],
+      }),
+    });
   });
 
   it('counts existing rule as update when JSON explicitly changes only isActive', async () => {

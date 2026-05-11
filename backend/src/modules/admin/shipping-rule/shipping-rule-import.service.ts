@@ -235,7 +235,9 @@ export class ShippingRuleImportService {
       CSV_HEADERS.forEach((header, columnIndex) => {
         const raw = record[columnIndex];
         if (header === 'regionCodes') {
-          value[header] = raw === '' ? [] : raw.split('|');
+          if (raw !== '') {
+            value[header] = raw.split('|');
+          }
         } else if (this.isNumberHeader(header)) {
           if (raw !== '') {
             value[header] = raw;
