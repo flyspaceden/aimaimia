@@ -75,6 +75,16 @@ const REQUIRED_WRITE_FIELDS = [
   'minChargeWeightKg',
 ] as const satisfies ReadonlyArray<keyof RuleWriteData>;
 
+const BLANK_NULL_OPTIONAL_WRITE_FIELDS = [
+  'regionCodes',
+  'priority',
+  'minAmount',
+  'maxAmount',
+  'minWeight',
+  'maxWeight',
+  'isActive',
+] as const satisfies ReadonlyArray<keyof RuleWriteData>;
+
 @Injectable()
 export class ShippingRuleImportService {
   constructor(
@@ -180,13 +190,17 @@ export class ShippingRuleImportService {
         errors.push({ row: rawRow.row, message: rawRow.message });
         continue;
       }
-      const presentFields = this.getPresentFields(rawRow.value);
-      const instance = plainToInstance(ImportShippingRuleRowDto, rawRow.value);
+      const normalizedValue = this.omitBlankNullOptionalFields(rawRow.value);
+      const presentFields = this.getPresentFields(normalizedValue);
+      const instance = plainToInstance(ImportShippingRuleRowDto, normalizedValue);
       const validationErrors = await validate(instance, {
         whitelist: true,
         forbidNonWhitelisted: true,
       });
-      const messages = this.flattenValidationErrors(validationErrors);
+      const messages = [
+        ...this.validateRequiredFields(rawRow.value),
+        ...this.flattenValidationErrors(validationErrors),
+      ];
       this.validateBusinessRules(instance, messages);
 
       const name = typeof instance.name === 'string' ? instance.name.trim() : '';
@@ -547,6 +561,12 @@ export class ShippingRuleImportService {
     return fields;
   }
 
+  private validateRequiredFields(value: Record<string, unknown>): string[] {
+    return REQUIRED_WRITE_FIELDS
+      .filter((field) => value[field] === '' || value[field] === null)
+      .map((field) => `${field} 不能为空`);
+  }
+
   private isWriteField(key: string): key is keyof RuleWriteData {
     return [
       'name',
@@ -564,6 +584,16 @@ export class ShippingRuleImportService {
       'maxWeight',
       'isActive',
     ].includes(key);
+  }
+
+  private omitBlankNullOptionalFields(value: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...value };
+    for (const field of BLANK_NULL_OPTIONAL_WRITE_FIELDS) {
+      if (normalized[field] === '' || normalized[field] === null) {
+        delete normalized[field];
+      }
+    }
+    return normalized;
   }
 
   private kgToGram(weightKg: number): number {

@@ -561,6 +561,133 @@ describe('ShippingRuleImportService', () => {
     expect(updateArgs.data).not.toHaveProperty('regionCodes');
   });
 
+  it('does not reset blank or null JSON optional fields when updating an existing rule', async () => {
+    const existing = makeRule({
+      id: 'json-blank-null-patch',
+      name: 'JSON Blank Null Patch',
+      regionCodes: ['31', '32'],
+      priority: 9,
+      minAmount: 100,
+      maxAmount: 500,
+      minWeight: 1000,
+      maxWeight: 5000,
+      isActive: false,
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = JSON.stringify([
+      {
+        name: 'JSON Blank Null Patch',
+        regionCodes: null,
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 10,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        priority: '',
+        minAmount: null,
+        maxAmount: '',
+        minWeight: null,
+        maxWeight: '',
+        isActive: '',
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'json-blank-null-patch' });
+    expect(updateArgs.data).toEqual({
+      name: 'JSON Blank Null Patch',
+      fee: 9.1,
+      firstWeightKg: 3,
+      firstFee: 10,
+      additionalWeightKg: 1,
+      additionalFee: 1.3,
+      minChargeWeightKg: 1,
+    });
+  });
+
+  it('creates with defaults when JSON optional fields are blank or null', async () => {
+    const { service, tx } = createService([]);
+    const payload = JSON.stringify([
+      {
+        name: 'JSON Blank Null Create',
+        regionCodes: null,
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        priority: '',
+        minAmount: null,
+        maxAmount: '',
+        minWeight: null,
+        maxWeight: '',
+        isActive: '',
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'JSON Blank Null Create',
+        regionCodes: [],
+        priority: 0,
+        minAmount: null,
+        maxAmount: null,
+        minWeight: null,
+        maxWeight: null,
+        isActive: true,
+      }),
+    });
+  });
+
+  it('returns row error when JSON required fields are blank or null', async () => {
+    const { service, prisma, tx, cache } = createService([]);
+    const payload = JSON.stringify([
+      {
+        name: 'JSON Required Blank',
+        fee: '',
+        firstWeightKg: 3,
+        firstFee: null,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        row: 1,
+        message: expect.stringContaining('fee 不能为空'),
+      }),
+    ]);
+    expect(result.errors[0].message).toContain('firstFee 不能为空');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+    expect(cache.invalidate).not.toHaveBeenCalled();
+  });
+
   it('does not reset blank CSV optional cells when updating an existing rule', async () => {
     const existing = makeRule({
       id: 'csv-patch',
