@@ -105,7 +105,8 @@ export interface ProductSKU {
   cost?: number;
   stock: number;
   maxPerOrder?: number;
-  weightGram?: number;
+  skuCode?: string | null;
+  weightGram: number;
   status: string;
 }
 

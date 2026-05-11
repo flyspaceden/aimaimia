@@ -35,6 +35,17 @@ import dayjs from 'dayjs';
 const { Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
+const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
+
+function isDraftWeightPlaceholderSkuCode(skuCode?: string | null) {
+  return skuCode === LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE
+    || skuCode?.startsWith(DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX) === true;
+}
+
+function hydrateDraftWeightGram(sku: { skuCode?: string | null; weightGram?: number }) {
+  return isDraftWeightPlaceholderSkuCode(sku.skuCode) ? undefined : sku.weightGram;
+}
 
 // 轻量 debounce（避免引入 lodash 类型依赖）
 function makeDebounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
@@ -1026,7 +1037,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       ...(!isMulti && firstSku ? {
         singleCost: firstSku.cost || undefined,
         singleStock: firstSku.stock,
-        singleWeightGram: firstSku.weightGram,
+        singleWeightGram: hydrateDraftWeightGram(firstSku),
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
       } : {}),
       ...(isMulti ? {
@@ -1035,7 +1046,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           specName: s.title,
           cost: s.cost,
           stock: s.stock,
-          weightGram: s.weightGram,
+          weightGram: hydrateDraftWeightGram(s),
           maxPerOrder: s.maxPerOrder,
         })),
       } : {}),

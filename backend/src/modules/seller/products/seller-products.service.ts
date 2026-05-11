@@ -6,6 +6,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma, ReturnPolicy } from '@prisma/client';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -23,7 +24,8 @@ import {
 /** 每个商户最多保留的草稿数量 */
 const DRAFT_LIMIT_PER_COMPANY = 5;
 const DRAFT_WEIGHT_PLACEHOLDER_GRAM = 1000;
-const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
+const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
+const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
 
 @Injectable()
 export class SellerProductsService {
@@ -56,7 +58,12 @@ export class SellerProductsService {
   private draftSkuCodeForWeight(weightGram?: number) {
     return Number.isInteger(weightGram) && (weightGram ?? 0) > 0
       ? undefined
-      : DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE;
+      : `${DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX}${randomUUID()}`;
+  }
+
+  private isDraftWeightPlaceholderSkuCode(skuCode?: string | null) {
+    return skuCode === LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE
+      || skuCode?.startsWith(DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX) === true;
   }
 
   /** 我的商品列表 */
@@ -838,7 +845,7 @@ export class SellerProductsService {
       throw new BadRequestException('该商品非草稿状态，不能提交');
 
     const missingWeightSkuIndex = product.skus.findIndex(
-      (sku) => sku.skuCode === DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE,
+      (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
     );
     if (missingWeightSkuIndex >= 0) {
       throw new BadRequestException({
