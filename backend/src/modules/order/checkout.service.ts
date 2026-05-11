@@ -31,6 +31,7 @@ const CHANNEL_MAP: Record<string, string> = {
 // 默认运费规则（ShippingRule 无匹配时的 fallback）
 const DEFAULT_FREE_THRESHOLD = 99;
 const DEFAULT_BASE_FEE = 8;
+const DEFAULT_SKU_WEIGHT_GRAM = 1000;
 
 /** 快照中每一条购物车项的结构 */
 interface SnapshotItem {
@@ -456,8 +457,9 @@ export class CheckoutService {
     // 构建 skuId → weightGram 映射
     const skuWeightMap = new Map<string, number>();
     for (const [id, sku] of skuMap.entries()) {
-      skuWeightMap.set(id, (sku as any).weightGram ?? 0);
-      skuWeightMap.set(sku.id, (sku as any).weightGram ?? 0);
+      const weightGram = this.normalizeSkuWeightGram((sku as any).weightGram);
+      skuWeightMap.set(id, weightGram);
+      skuWeightMap.set(sku.id, weightGram);
     }
 
     const companyGroups = [...itemsByCompany.entries()]
@@ -505,14 +507,13 @@ export class CheckoutService {
     const totalGoodsForShipping = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
     const totalWeightForShipping = companyGroups.reduce((s, g) => s + g.totalWeight, 0);
     const isVip = !!vipNode;
-    const totalShippingFee = await this.calculateShippingFee(
-      '__PLATFORM__',
+    const shippingDetail = await this.calculateShippingDetailForCheckout(
       totalGoodsForShipping,
-      undefined,
       regionCode,
       totalWeightForShipping,
       isVip,
     );
+    const totalShippingFee = shippingDetail.fee;
     // 运费统一记录到快照中（每个商品项记录总运费，建单时按比例分配）
     for (const item of snapshotItems) {
       item.groupShippingFee = totalShippingFee;
@@ -1457,12 +1458,10 @@ export class CheckoutService {
 
             // 5. 运费按商户金额比例分配到各商户订单
             const totalSessionGoodsAmount = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
-            const groupShippingFees: number[] = companyGroups.map((group) => {
-              if (totalSessionGoodsAmount === 0) return 0;
-              return parseFloat(
-                ((group.goodsAmount / totalSessionGoodsAmount) * session.shippingFee).toFixed(2),
-              );
-            });
+            const groupShippingFees = this.allocateShippingFeeByGoodsAmount(
+              companyGroups.map((group) => group.goodsAmount),
+              session.shippingFee,
+            );
 
             // 6. 创建订单（含红包抵扣）
             const createdOrderIds: string[] = [];
@@ -2143,6 +2142,91 @@ export class CheckoutService {
     }
   }
 
+  private normalizeSkuWeightGram(weightGram: unknown): number {
+    const normalized = Number(weightGram);
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      return DEFAULT_SKU_WEIGHT_GRAM;
+    }
+    return Math.round(normalized);
+  }
+
+  private allocateShippingFeeByGoodsAmount(
+    goodsAmounts: number[],
+    totalShippingFee: number,
+  ): number[] {
+    const totalFeeCents = Math.max(
+      0,
+      Math.round((Number(totalShippingFee || 0) + Number.EPSILON) * 100),
+    );
+    if (goodsAmounts.length === 0) return [];
+    if (totalFeeCents === 0) return goodsAmounts.map(() => 0);
+
+    const weights = goodsAmounts.map((amount) =>
+      Math.max(0, Math.round((Number(amount || 0) + Number.EPSILON) * 100)),
+    );
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    if (totalWeight === 0) {
+      const allocations = goodsAmounts.map(() => 0);
+      allocations[allocations.length - 1] = totalFeeCents / 100;
+      return allocations;
+    }
+
+    const allocations: number[] = [];
+    let allocatedCents = 0;
+    for (let idx = 0; idx < weights.length; idx++) {
+      const remainingCents = totalFeeCents - allocatedCents;
+      if (idx === weights.length - 1) {
+        allocations.push(remainingCents / 100);
+        break;
+      }
+      const cents = Math.min(
+        remainingCents,
+        Math.round((weights[idx] / totalWeight) * totalFeeCents),
+      );
+      allocations.push(cents / 100);
+      allocatedCents += cents;
+    }
+    return allocations;
+  }
+
+  private async calculateShippingDetailForCheckout(
+    goodsAmount: number,
+    regionCode?: string,
+    totalWeight?: number,
+    isVip?: boolean,
+    tx?: any,
+  ): Promise<{ fee: number }> {
+    const sysConfig = await this.bonusConfig.getSystemConfig();
+    const threshold = isVip
+      ? sysConfig.vipFreeShippingThreshold
+      : sysConfig.normalFreeShippingThreshold;
+
+    // 门槛为 0 表示无条件免运费；订单金额达到门槛也免运费，不触发规则引擎。
+    if (threshold === 0 || goodsAmount >= threshold) {
+      return { fee: 0 };
+    }
+
+    if (this.shippingRuleService?.calculateShippingDetail) {
+      try {
+        const detail = await this.shippingRuleService.calculateShippingDetail(
+          goodsAmount,
+          regionCode,
+          totalWeight,
+          tx,
+        );
+        const fee = Number(detail?.fee);
+        if (Number.isFinite(fee) && fee >= 0) {
+          return { fee };
+        }
+        throw new Error('calculateShippingDetail returned invalid fee');
+      } catch (err: any) {
+        this.logger.warn(`ShippingRule 详情计算失败，降级为默认逻辑: ${err.message}`);
+      }
+    }
+
+    return { fee: sysConfig.defaultShippingFee ?? DEFAULT_BASE_FEE };
+  }
+
   /** 运费计算：平台统一发货，用整单总金额和总重量计算一次，支持 VIP 免运费门槛 */
   private async calculateShippingFee(
     _companyId: string,
@@ -2152,33 +2236,14 @@ export class CheckoutService {
     totalWeight?: number,
     isVip?: boolean,
   ): Promise<number> {
-    // 读取可配置的免运费门槛
-    const sysConfig = await this.bonusConfig.getSystemConfig();
-    const threshold = isVip
-      ? sysConfig.vipFreeShippingThreshold
-      : sysConfig.normalFreeShippingThreshold;
-
-    // 门槛为 0 表示无条件免运费；订单金额达到门槛也免运费
-    if (threshold === 0 || goodsAmount >= threshold) {
-      return 0;
-    }
-
-    // 通过 ShippingRule 匹配运费
-    if (this.shippingRuleService) {
-      try {
-        return await this.shippingRuleService.calculateShippingFee(
-          goodsAmount,
-          regionCode,
-          totalWeight,
-          tx,
-        );
-      } catch (err: any) {
-        this.logger.warn(`ShippingRule 计算失败，降级为默认逻辑: ${err.message}`);
-      }
-    }
-
-    // 降级：使用配置的默认运费
-    return sysConfig.defaultShippingFee ?? DEFAULT_BASE_FEE;
+    const detail = await this.calculateShippingDetailForCheckout(
+      goodsAmount,
+      regionCode,
+      totalWeight,
+      isVip,
+      tx,
+    );
+    return detail.fee;
   }
 
   /**
