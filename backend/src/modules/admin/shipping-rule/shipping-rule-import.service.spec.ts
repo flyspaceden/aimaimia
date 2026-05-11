@@ -3,6 +3,8 @@ import { ShippingRuleImportService } from './shipping-rule-import.service';
 
 const csvHeader =
   'name,regionCodes,fee,firstWeightKg,firstFee,additionalWeightKg,additionalFee,minChargeWeightKg,priority,minAmount,maxAmount,minWeight,maxWeight,isActive';
+const compactCsvHeader =
+  'name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,priority,isActive';
 
 function csvRow(values: Array<string | number | boolean | null | undefined>) {
   return values
@@ -47,6 +49,31 @@ function validCsvRow(overrides: Partial<Record<string, string | number | boolean
     row.maxAmount,
     row.minWeight,
     row.maxWeight,
+    row.isActive,
+  ]);
+}
+
+function validCompactCsvRow(overrides: Partial<Record<string, string | number | boolean>> = {}) {
+  const row = {
+    name: '全国默认',
+    regionCodes: '',
+    firstWeightKg: 3,
+    firstFee: 9.1,
+    additionalWeightKg: 1,
+    additionalFee: 1.3,
+    priority: 100,
+    isActive: true,
+    ...overrides,
+  };
+
+  return csvRow([
+    row.name,
+    row.regionCodes,
+    row.firstWeightKg,
+    row.firstFee,
+    row.additionalWeightKg,
+    row.additionalFee,
+    row.priority,
     row.isActive,
   ]);
 }
@@ -107,12 +134,38 @@ function createService(existingRules: any[] = []) {
 }
 
 describe('ShippingRuleImportService', () => {
-  it('includes isActive with true default in CSV template', () => {
+  it('uses the documented compact CSV template', () => {
     const { service } = createService([]);
     const template = service.getCsvTemplate();
 
-    expect(template.split('\n')[0]).toBe(csvHeader);
+    expect(template.split('\n')[0]).toBe(compactCsvHeader);
     expect(template.split('\n')[1].split(',').at(-1)).toBe('true');
+  });
+
+  it('accepts documented compact CSV and defaults fee/minChargeWeightKg', async () => {
+    const { service, tx } = createService([]);
+    const payload = `${compactCsvHeader}\n${validCompactCsvRow({
+      name: '文档示例',
+      regionCodes: '44',
+      firstFee: 9.1,
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: '文档示例',
+        regionCodes: ['44'],
+        fee: 9.1,
+        firstFee: 9.1,
+        minChargeWeightKg: 1,
+      }),
+    });
   });
 
   it('parses CSV quoted fields containing commas', async () => {
@@ -652,6 +705,39 @@ describe('ShippingRuleImportService', () => {
         minWeight: null,
         maxWeight: null,
         isActive: true,
+      }),
+    });
+  });
+
+  it('accepts documented compact JSON and defaults fee/minChargeWeightKg', async () => {
+    const { service, tx } = createService([]);
+    const payload = JSON.stringify([
+      {
+        name: 'JSON 文档示例',
+        regionCodes: ['44'],
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        priority: 100,
+        isActive: true,
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'JSON 文档示例',
+        regionCodes: ['44'],
+        fee: 9.1,
+        firstFee: 9.1,
+        minChargeWeightKg: 1,
       }),
     });
   });

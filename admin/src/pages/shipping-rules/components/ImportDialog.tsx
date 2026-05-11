@@ -21,8 +21,8 @@ interface ImportDialogProps {
 }
 
 const DEFAULT_CSV = [
-  'name,regionCodes,fee,firstWeightKg,firstFee,additionalWeightKg,additionalFee,minChargeWeightKg,priority,minAmount,maxAmount,minWeight,maxWeight,isActive',
-  '全国默认,,9.1,3,9.1,1,1.3,1,100,,,,,true',
+  'name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,priority,isActive',
+  '全国默认,,3,9.1,1,1.3,100,true',
 ].join('\n');
 
 const DEFAULT_JSON = JSON.stringify(
@@ -30,12 +30,10 @@ const DEFAULT_JSON = JSON.stringify(
     {
       name: '全国默认',
       regionCodes: [],
-      fee: 9.1,
       firstWeightKg: 3,
       firstFee: 9.1,
       additionalWeightKg: 1,
       additionalFee: 1.3,
-      minChargeWeightKg: 1,
       priority: 100,
       isActive: true,
     },
@@ -235,7 +233,7 @@ export default function ImportDialog({ open, onOpenChange, onSuccess }: ImportDi
         type="info"
         showIcon
         style={{ marginTop: 12 }}
-        message="按规则名称匹配已有记录；有错误时不能确认导入。fee 字段会与 firstFee 保持兼容。"
+        message="按规则名称匹配已有记录；有错误时不能确认导入。fee 可省略并自动与 firstFee 保持兼容，最低计费重量默认 1kg。"
       />
 
       {dryRunResult && (

@@ -12,7 +12,18 @@ import {
 } from './dto/import-shipping-rule.dto';
 import { ShippingRuleCache } from './shipping-rule.cache';
 
-const CSV_HEADERS = [
+const CSV_HEADERS_COMPACT = [
+  'name',
+  'regionCodes',
+  'firstWeightKg',
+  'firstFee',
+  'additionalWeightKg',
+  'additionalFee',
+  'priority',
+  'isActive',
+] as const;
+
+const CSV_HEADERS_EXTENDED = [
   'name',
   'regionCodes',
   'fee',
@@ -28,6 +39,8 @@ const CSV_HEADERS = [
   'maxWeight',
   'isActive',
 ] as const;
+
+type CsvHeader = typeof CSV_HEADERS_COMPACT[number] | typeof CSV_HEADERS_EXTENDED[number];
 
 const GRAMS_PER_KG = 1000;
 
@@ -156,20 +169,14 @@ export class ShippingRuleImportService {
   }
 
   getCsvTemplate(): string {
-    return `${CSV_HEADERS.join(',')}\n${[
+    return `${CSV_HEADERS_COMPACT.join(',')}\n${[
       '全国默认',
       '',
-      9.1,
       3,
       9.1,
       1,
       1.3,
-      1,
       100,
-      '',
-      '',
-      '',
-      '',
       true,
     ].join(',')}`;
   }
@@ -190,7 +197,8 @@ export class ShippingRuleImportService {
         errors.push({ row: rawRow.row, message: rawRow.message });
         continue;
       }
-      const normalizedValue = this.omitBlankNullOptionalFields(rawRow.value);
+      const defaultedValue = this.applyImportDefaults(rawRow.value);
+      const normalizedValue = this.omitBlankNullOptionalFields(defaultedValue);
       const presentFields = this.getPresentFields(normalizedValue);
       const instance = plainToInstance(ImportShippingRuleRowDto, normalizedValue);
       const validationErrors = await validate(instance, {
@@ -198,7 +206,7 @@ export class ShippingRuleImportService {
         forbidNonWhitelisted: true,
       });
       const messages = [
-        ...this.validateRequiredFields(rawRow.value),
+        ...this.validateRequiredFields(defaultedValue),
         ...this.flattenValidationErrors(validationErrors),
       ];
       this.validateBusinessRules(instance, messages);
@@ -229,24 +237,24 @@ export class ShippingRuleImportService {
       throw new BadRequestException('CSV 内容不能为空');
     }
     const headers = records[0];
-    if (
-      headers.length !== CSV_HEADERS.length ||
-      !CSV_HEADERS.every((header, index) => headers[index] === header)
-    ) {
-      throw new BadRequestException(`CSV header 必须为：${CSV_HEADERS.join(',')}`);
+    const matchedHeaders = this.matchCsvHeaders(headers);
+    if (!matchedHeaders) {
+      throw new BadRequestException(
+        `CSV header 必须为：${CSV_HEADERS_COMPACT.join(',')} 或 ${CSV_HEADERS_EXTENDED.join(',')}`,
+      );
     }
 
     return records.slice(1).map((record, index) => {
       const rowNumber = index + 2;
-      if (record.length !== CSV_HEADERS.length) {
+      if (record.length !== matchedHeaders.length) {
         return {
           row: rowNumber,
-          message: `CSV 第 ${rowNumber} 行字段数量错误，应为 ${CSV_HEADERS.length} 个`,
+          message: `CSV 第 ${rowNumber} 行字段数量错误，应为 ${matchedHeaders.length} 个`,
         };
       }
 
       const value: Record<string, unknown> = {};
-      CSV_HEADERS.forEach((header, columnIndex) => {
+      matchedHeaders.forEach((header, columnIndex) => {
         const raw = record[columnIndex];
         if (header === 'regionCodes') {
           value[header] = raw === '' ? [] : raw.split('|');
@@ -265,6 +273,16 @@ export class ShippingRuleImportService {
 
       return { row: rowNumber, value };
     });
+  }
+
+  private matchCsvHeaders(headers: string[]): CsvHeader[] | null {
+    if (this.sameStringArray(headers, [...CSV_HEADERS_COMPACT])) {
+      return [...CSV_HEADERS_COMPACT];
+    }
+    if (this.sameStringArray(headers, [...CSV_HEADERS_EXTENDED])) {
+      return [...CSV_HEADERS_EXTENDED];
+    }
+    return null;
   }
 
   private parseCsvRecords(payload: string): string[][] {
@@ -590,6 +608,26 @@ export class ShippingRuleImportService {
       if (normalized[field] === '' || normalized[field] === null) {
         delete normalized[field];
       }
+    }
+    return normalized;
+  }
+
+  private applyImportDefaults(value: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...value };
+    if (
+      (normalized.fee === undefined || normalized.fee === '' || normalized.fee === null) &&
+      normalized.firstFee !== undefined &&
+      normalized.firstFee !== '' &&
+      normalized.firstFee !== null
+    ) {
+      normalized.fee = normalized.firstFee;
+    }
+    if (
+      normalized.minChargeWeightKg === undefined ||
+      normalized.minChargeWeightKg === '' ||
+      normalized.minChargeWeightKg === null
+    ) {
+      normalized.minChargeWeightKg = 1;
     }
     return normalized;
   }
