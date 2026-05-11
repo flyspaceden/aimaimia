@@ -22,6 +22,8 @@ import {
 
 /** 每个商户最多保留的草稿数量 */
 const DRAFT_LIMIT_PER_COMPANY = 5;
+const DRAFT_WEIGHT_PLACEHOLDER_GRAM = 1000;
+const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
 
 @Injectable()
 export class SellerProductsService {
@@ -32,6 +34,30 @@ export class SellerProductsService {
     private bonusConfig: BonusConfigService,
     private semanticFillService: SemanticFillService,
   ) {}
+
+  private assertPositiveSkuWeights(
+    skus: Array<{ specName?: string; title?: string; weightGram?: number }>,
+  ) {
+    for (const sku of skus) {
+      if (!Number.isInteger(sku.weightGram) || (sku.weightGram ?? 0) <= 0) {
+        throw new BadRequestException(
+          `SKU "${sku.specName ?? sku.title ?? '默认规格'}" 必须填写包装后重量（克）`,
+        );
+      }
+    }
+  }
+
+  private normalizeDraftWeightGram(weightGram?: number) {
+    return Number.isInteger(weightGram) && (weightGram ?? 0) > 0
+      ? weightGram!
+      : DRAFT_WEIGHT_PLACEHOLDER_GRAM;
+  }
+
+  private draftSkuCodeForWeight(weightGram?: number) {
+    return Number.isInteger(weightGram) && (weightGram ?? 0) > 0
+      ? undefined
+      : DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE;
+  }
 
   /** 我的商品列表 */
   async findAll(
@@ -134,6 +160,7 @@ export class SellerProductsService {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
+    this.assertPositiveSkuWeights(dto.skus);
 
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
@@ -508,6 +535,7 @@ export class SellerProductsService {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
+    this.assertPositiveSkuWeights(skus);
 
     // SKU 变更同样触发重新审核（APPROVED/REJECTED 状态下）
     const needReAudit =
@@ -644,7 +672,8 @@ export class SellerProductsService {
                       price: 0, // 草稿占位
                       cost: s.cost ?? 0,
                       stock: s.stock ?? 0,
-                      weightGram: s.weightGram,
+                      skuCode: this.draftSkuCodeForWeight(s.weightGram),
+                      weightGram: this.normalizeDraftWeightGram(s.weightGram),
                       maxPerOrder: s.maxPerOrder ?? null,
                     })),
                   }
@@ -743,7 +772,8 @@ export class SellerProductsService {
               price: 0,
               cost: s.cost ?? 0,
               stock: s.stock ?? 0,
-              weightGram: s.weightGram,
+              skuCode: this.draftSkuCodeForWeight(s.weightGram),
+              weightGram: this.normalizeDraftWeightGram(s.weightGram),
               maxPerOrder: s.maxPerOrder ?? null,
             })),
           });
@@ -807,6 +837,19 @@ export class SellerProductsService {
     if (product.status !== 'DRAFT')
       throw new BadRequestException('该商品非草稿状态，不能提交');
 
+    const missingWeightSkuIndex = product.skus.findIndex(
+      (sku) => sku.skuCode === DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE,
+    );
+    if (missingWeightSkuIndex >= 0) {
+      throw new BadRequestException({
+        message: '提交前请补全以下字段：规格(包装后重量（克）)',
+        fieldErrors: [{
+          field: `skus.${missingWeightSkuIndex}.weightGram`,
+          message: '包装后重量（克）必须填写且大于 0',
+        }],
+      });
+    }
+
     // 组装 CreateProductDto 形状跑全量校验
     const candidate = {
       title: product.title,
@@ -821,7 +864,7 @@ export class SellerProductsService {
         cost: s.cost ?? 0,
         stock: s.stock,
         maxPerOrder: s.maxPerOrder ?? undefined,
-        weightGram: s.weightGram ?? undefined,
+        weightGram: s.weightGram,
       })),
       attributes: product.attributes ?? undefined,
       aiKeywords: product.aiKeywords,

@@ -44,8 +44,8 @@ export class RewardProductSkuDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'SKU 重量必须为数字' })
-  @Min(0, { message: 'SKU 重量不能小于 0' })
+  @IsInt({ message: 'SKU 重量必须为整数克' })
+  @Min(1, { message: 'SKU 重量必须大于 0 克' })
   weightGram?: number;
 }
 
@@ -153,8 +153,8 @@ export class CreateRewardProductSkuForUpdateDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'SKU 重量必须为数字' })
-  @Min(0, { message: 'SKU 重量不能小于 0' })
+  @IsInt({ message: 'SKU 重量必须为整数克' })
+  @Min(1, { message: 'SKU 重量必须大于 0 克' })
   weightGram?: number;
 }
 
@@ -190,8 +190,8 @@ export class UpdateRewardProductSkuDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'SKU 重量必须为数字' })
-  @Min(0, { message: 'SKU 重量不能小于 0' })
+  @IsInt({ message: 'SKU 重量必须为整数克' })
+  @Min(1, { message: 'SKU 重量必须大于 0 克' })
   weightGram?: number;
 }
 

@@ -137,6 +137,7 @@ async function seedRefundableAfterSale(
       price: 88,
       cost: 60,
       stock: 10,
+      weightGram: 1000,
       status: 'ACTIVE',
     },
   });
@@ -217,6 +218,7 @@ async function seedBuyerPaidReturnShippingAfterSale(
       price: 88,
       cost: 60,
       stock: 10,
+      weightGram: 1000,
       status: 'ACTIVE',
     },
   });

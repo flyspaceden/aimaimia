@@ -1,4 +1,14 @@
-import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested, ArrayMinSize } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Min,
+  ValidateNested,
+  ArrayMinSize,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SkuUpdateItem {
@@ -26,6 +36,12 @@ export class SkuUpdateItem {
   /** 库存数量 */
   @IsNumber()
   stock: number;
+
+  /** 包装后重量（克），用于计算运费和顺丰面单；老管理端不传时服务层用 1000g 兜底 */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  weightGram?: number;
 }
 
 export class UpdateProductSkusDto {

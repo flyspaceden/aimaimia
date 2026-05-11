@@ -16,6 +16,14 @@ import {
 export class RewardProductService {
   constructor(private prisma: PrismaService) {}
 
+  private resolveSkuWeightGram(weightGram?: number) {
+    if (weightGram === undefined || weightGram === null) return 1000;
+    if (!Number.isInteger(weightGram) || weightGram <= 0) {
+      throw new BadRequestException('SKU 重量必须为正整数克');
+    }
+    return weightGram;
+  }
+
   private async buildReferenceSummaryMap(
     products: Array<{ id: string; skus: Array<{ id: string }> }>,
   ) {
@@ -230,6 +238,7 @@ export class RewardProductService {
       if (sku.cost !== undefined && sku.cost > sku.price) {
         throw new BadRequestException(`SKU "${sku.title}" 成本价不能超过售价`);
       }
+      this.resolveSkuWeightGram(sku.weightGram);
     }
 
     return this.prisma.product.create({
@@ -253,7 +262,7 @@ export class RewardProductService {
             cost: sku.cost,
             stock: sku.stock,
             skuCode: sku.skuCode,
-            weightGram: sku.weightGram,
+            weightGram: this.resolveSkuWeightGram(sku.weightGram),
           })),
         },
         media: dto.media
@@ -394,6 +403,7 @@ export class RewardProductService {
     if (dto.cost !== undefined && dto.cost > dto.price) {
       throw new BadRequestException('SKU 成本价不能超过售价');
     }
+    const weightGram = this.resolveSkuWeightGram(dto.weightGram);
 
     return this.prisma.productSKU.create({
       data: {
@@ -403,7 +413,7 @@ export class RewardProductService {
         cost: dto.cost ?? 0,
         stock: dto.stock,
         skuCode: dto.skuCode,
-        weightGram: dto.weightGram,
+        weightGram,
       },
     });
   }
@@ -427,6 +437,9 @@ export class RewardProductService {
     const effectivePrice = dto.price ?? sku.price;
     if (effectiveCost !== undefined && effectiveCost !== null && effectiveCost > effectivePrice) {
       throw new BadRequestException('SKU 成本价不能超过售价');
+    }
+    if (dto.weightGram !== undefined) {
+      this.resolveSkuWeightGram(dto.weightGram);
     }
 
     return this.prisma.productSKU.update({

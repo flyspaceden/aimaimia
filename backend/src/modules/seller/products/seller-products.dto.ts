@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsNumber,
   IsInt,
+  IsPositive,
   IsArray,
   IsObject,
   ValidateNested,
@@ -43,14 +44,14 @@ export class CreateSkuDto {
   @Min(0)
   stock: number;
 
+  @IsInt()
+  @IsPositive()
+  weightGram: number; // 包装后重量（克），用于计算运费和顺丰面单
+
   @IsOptional()
   @IsInt()
   @Min(1)
   maxPerOrder?: number; // 单笔限购，null/不传 = 不限制
-
-  @IsOptional()
-  @IsNumber()
-  weightGram?: number; // 重量(克)
 }
 
 /** 创建商品 */
@@ -239,9 +240,9 @@ export class SkuItemDto {
   @Min(1)
   maxPerOrder?: number;
 
-  @IsOptional()
-  @IsNumber()
-  weightGram?: number;
+  @IsInt()
+  @IsPositive()
+  weightGram: number; // 包装后重量（克），用于计算运费和顺丰面单
 }
 
 /** 商品状态变更 */
@@ -277,7 +278,8 @@ export class DraftSkuDto {
   maxPerOrder?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
+  @IsPositive()
   weightGram?: number;
 }
 

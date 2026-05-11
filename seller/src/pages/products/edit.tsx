@@ -241,10 +241,15 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                   <Form.Item
                     {...field}
                     name={[field.name, 'weightGram']}
-                    label="重量"
+                    label="包装后重量（克）"
+                    tooltip="包装后重量（克），用于计算运费和顺丰面单。"
+                    rules={[
+                      { required: true, message: '请输入包装后重量（克）' },
+                      { type: 'number', min: 1, message: '包装后重量必须大于 0 克' },
+                    ]}
                     style={{ marginBottom: 0 }}
                   >
-                    <InputNumber placeholder="重量" min={0} style={{ width: '100%' }} addonAfter="克" />
+                    <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                   </Form.Item>
                 </Col>
                 <Col span={1} style={{ textAlign: 'center', paddingTop: 28 }}>
@@ -875,8 +880,16 @@ function ProductEditForm({ id }: { id: string }) {
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item label="重量" name="singleWeightGram">
-                  <InputNumber placeholder="重量" min={0} style={{ width: '100%' }} addonAfter="克" />
+                <Form.Item
+                  label="包装后重量（克）"
+                  name="singleWeightGram"
+                  tooltip="包装后重量（克），用于计算运费和顺丰面单。"
+                  rules={[
+                    { required: true, message: '请输入包装后重量（克）' },
+                    { type: 'number', min: 1, message: '包装后重量必须大于 0 克' },
+                  ]}
+                >
+                  <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                 </Form.Item>
               </Col>
               <Col span={5}>
@@ -1485,8 +1498,16 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item label="重量" name="singleWeightGram">
-                  <InputNumber placeholder="重量" min={0} style={{ width: '100%' }} addonAfter="克" />
+                <Form.Item
+                  label="包装后重量（克）"
+                  name="singleWeightGram"
+                  tooltip="包装后重量（克），用于计算运费和顺丰面单。"
+                  rules={[
+                    { required: true, message: '请输入包装后重量（克）' },
+                    { type: 'number', min: 1, message: '包装后重量必须大于 0 克' },
+                  ]}
+                >
+                  <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                 </Form.Item>
               </Col>
               <Col span={5}>

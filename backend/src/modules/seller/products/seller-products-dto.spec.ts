@@ -6,6 +6,7 @@ import {
   CreateDraftDto,
   UpdateDraftDto,
   DraftSkuDto,
+  SkuItemDto,
 } from './seller-products.dto';
 
 /**
@@ -27,9 +28,42 @@ function basePayload(extra: Record<string, unknown> = {}) {
     specName: '5斤装',
     cost: 10,
     stock: 100,
+    weightGram: 1000,
     ...extra,
   };
 }
+
+describe('正式 SKU weightGram 字段校验', () => {
+  it('CreateSkuDto 缺少 weightGram → 应有校验错误', async () => {
+    const { weightGram: _weightGram, ...payload } = basePayload();
+    const dto = plainToInstance(CreateSkuDto, payload);
+    const errors = await validate(dto);
+    const weightErrors = errors.filter((e) => e.property === 'weightGram');
+    expect(weightErrors.length).toBeGreaterThan(0);
+  });
+
+  it('CreateSkuDto weightGram=0 → 应有校验错误', async () => {
+    const dto = plainToInstance(CreateSkuDto, basePayload({ weightGram: 0 }));
+    const errors = await validate(dto);
+    const weightErrors = errors.filter((e) => e.property === 'weightGram');
+    expect(weightErrors.length).toBeGreaterThan(0);
+  });
+
+  it('SkuItemDto 缺少 weightGram → 应有校验错误', async () => {
+    const { weightGram: _weightGram, ...payload } = basePayload();
+    const dto = plainToInstance(SkuItemDto, payload);
+    const errors = await validate(dto);
+    const weightErrors = errors.filter((e) => e.property === 'weightGram');
+    expect(weightErrors.length).toBeGreaterThan(0);
+  });
+
+  it('SkuItemDto weightGram=1.5 → 应有校验错误', async () => {
+    const dto = plainToInstance(SkuItemDto, basePayload({ weightGram: 1.5 }));
+    const errors = await validate(dto);
+    const weightErrors = errors.filter((e) => e.property === 'weightGram');
+    expect(weightErrors.length).toBeGreaterThan(0);
+  });
+});
 
 describe('CreateSkuDto — maxPerOrder 字段校验', () => {
   it('合法正整数 maxPerOrder=5 → 无校验错误', async () => {
