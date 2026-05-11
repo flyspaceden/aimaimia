@@ -2,9 +2,9 @@ import { Prisma } from '@prisma/client';
 import { ShippingRuleImportService } from './shipping-rule-import.service';
 
 const csvHeader =
-  'name,regionCodes,fee,firstWeightKg,firstFee,additionalWeightKg,additionalFee,minChargeWeightKg,priority,minAmount,maxAmount,minWeight,maxWeight';
+  'name,regionCodes,fee,firstWeightKg,firstFee,additionalWeightKg,additionalFee,minChargeWeightKg,priority,minAmount,maxAmount,minWeight,maxWeight,isActive';
 
-function csvRow(values: Array<string | number | null | undefined>) {
+function csvRow(values: Array<string | number | boolean | null | undefined>) {
   return values
     .map((value) => {
       if (value === null || value === undefined) return '';
@@ -14,7 +14,7 @@ function csvRow(values: Array<string | number | null | undefined>) {
     .join(',');
 }
 
-function validCsvRow(overrides: Partial<Record<string, string | number>> = {}) {
+function validCsvRow(overrides: Partial<Record<string, string | number | boolean>> = {}) {
   const row = {
     name: '全国默认',
     regionCodes: '',
@@ -29,6 +29,7 @@ function validCsvRow(overrides: Partial<Record<string, string | number>> = {}) {
     maxAmount: '',
     minWeight: '',
     maxWeight: '',
+    isActive: true,
     ...overrides,
   };
 
@@ -46,6 +47,7 @@ function validCsvRow(overrides: Partial<Record<string, string | number>> = {}) {
     row.maxAmount,
     row.minWeight,
     row.maxWeight,
+    row.isActive,
   ]);
 }
 
@@ -104,6 +106,14 @@ function createService(existingRules: any[] = []) {
 }
 
 describe('ShippingRuleImportService', () => {
+  it('includes isActive with true default in CSV template', () => {
+    const { service } = createService([]);
+    const template = service.getCsvTemplate();
+
+    expect(template.split('\n')[0]).toBe(csvHeader);
+    expect(template.split('\n')[1].split(',').at(-1)).toBe('true');
+  });
+
   it('parses CSV quoted fields containing commas', async () => {
     const existing = makeRule({ id: 'rule-comma', name: '华东,特价' });
     const { service } = createService([existing]);
@@ -333,6 +343,145 @@ describe('ShippingRuleImportService', () => {
     expect(tx.shippingRule.create).not.toHaveBeenCalled();
     expect(tx.shippingRule.update).not.toHaveBeenCalled();
     expect(cache.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('accepts JSON isActive false in dry-run and persists it on create', async () => {
+    const { service, prisma, tx } = createService([]);
+    const payload = JSON.stringify([
+      {
+        name: '停用规则',
+        regionCodes: [],
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        priority: 100,
+        isActive: false,
+      },
+    ]);
+
+    const dryRunResult = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: true,
+    });
+
+    expect(dryRunResult).toMatchObject({
+      toCreate: 1,
+      errors: [],
+      created: 0,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+
+    const persistResult = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: false,
+    });
+
+    expect(persistResult.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: '停用规则',
+        isActive: false,
+      }),
+    });
+  });
+
+  it('parses CSV isActive aliases and rejects invalid values by row', async () => {
+    const { service, prisma, tx } = createService([]);
+    const payload = [
+      csvHeader,
+      validCsvRow({ name: '中文停用', isActive: '否' }),
+      validCsvRow({ name: '数字停用', isActive: '0' }),
+      validCsvRow({ name: '非法状态', isActive: 'maybe' }),
+    ].join('\n');
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        row: 4,
+        message: expect.stringContaining('isActive'),
+      }),
+    ]);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.shippingRule.create).not.toHaveBeenCalled();
+
+    const dryRunResult = await service.importRules({
+      format: 'csv',
+      payload: [
+        csvHeader,
+        validCsvRow({ name: '中文停用', isActive: '否' }),
+        validCsvRow({ name: '数字停用', isActive: '0' }),
+      ].join('\n'),
+      dryRun: true,
+    });
+
+    expect(dryRunResult.errors).toEqual([]);
+    expect(dryRunResult.toCreate).toBe(2);
+
+    const persistResult = await service.importRules({
+      format: 'csv',
+      payload: [
+        csvHeader,
+        validCsvRow({ name: '中文停用', isActive: '否' }),
+        validCsvRow({ name: '数字停用', isActive: '0' }),
+      ].join('\n'),
+      dryRun: false,
+    });
+
+    expect(persistResult.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: '中文停用',
+        isActive: false,
+      }),
+    });
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: '数字停用',
+        isActive: false,
+      }),
+    });
+  });
+
+  it('counts existing rule as update when only isActive changed', async () => {
+    const existing = makeRule({ id: 'active-change', name: '只改启用状态', isActive: true });
+    const { service } = createService([existing]);
+    const payload = JSON.stringify([
+      {
+        name: '只改启用状态',
+        regionCodes: [],
+        fee: 9.1,
+        firstWeightKg: 3,
+        firstFee: 9.1,
+        additionalWeightKg: 1,
+        additionalFee: 1.3,
+        minChargeWeightKg: 1,
+        priority: 100,
+        isActive: false,
+      },
+    ]);
+
+    const result = await service.importRules({
+      format: 'json',
+      payload,
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      toCreate: 0,
+      toUpdate: 1,
+      unchanged: 0,
+      errors: [],
+    });
   });
 
   it('invalidates cache once after persisting changes', async () => {

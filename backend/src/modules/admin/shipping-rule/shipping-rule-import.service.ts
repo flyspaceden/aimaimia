@@ -6,6 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateShippingRuleDto } from './dto/create-shipping-rule.dto';
 import {
   ImportPreview,
+  ImportShippingRuleRowDto,
   ImportShippingRuleDto,
   ImportShippingRuleResult,
 } from './dto/import-shipping-rule.dto';
@@ -25,13 +26,14 @@ const CSV_HEADERS = [
   'maxAmount',
   'minWeight',
   'maxWeight',
+  'isActive',
 ] as const;
 
 const GRAMS_PER_KG = 1000;
 
 type ImportRow = {
   row: number;
-  dto: CreateShippingRuleDto;
+  dto: ImportShippingRuleRowDto;
 };
 
 type RawImportRow =
@@ -52,6 +54,7 @@ type RuleWriteData = {
   maxAmount: number | null;
   minWeight: number | null;
   maxWeight: number | null;
+  isActive: boolean;
 };
 
 type PreparedImport = ImportPreview & {
@@ -133,6 +136,7 @@ export class ShippingRuleImportService {
       '',
       '',
       '',
+      true,
     ].join(',')}`;
   }
 
@@ -152,7 +156,7 @@ export class ShippingRuleImportService {
         errors.push({ row: rawRow.row, message: rawRow.message });
         continue;
       }
-      const instance = plainToInstance(CreateShippingRuleDto, rawRow.value);
+      const instance = plainToInstance(ImportShippingRuleRowDto, rawRow.value);
       const validationErrors = await validate(instance, {
         whitelist: true,
         forbidNonWhitelisted: true,
@@ -354,7 +358,7 @@ export class ShippingRuleImportService {
     };
   }
 
-  private toWriteData(dto: CreateShippingRuleDto): RuleWriteData {
+  private toWriteData(dto: ImportShippingRuleRowDto): RuleWriteData {
     return {
       name: dto.name.trim(),
       regionCodes: dto.regionCodes ?? [],
@@ -369,6 +373,7 @@ export class ShippingRuleImportService {
       maxAmount: dto.maxAmount ?? null,
       minWeight: dto.minWeight === undefined ? null : this.kgToGram(dto.minWeight),
       maxWeight: dto.maxWeight === undefined ? null : this.kgToGram(dto.maxWeight),
+      isActive: dto.isActive ?? true,
     };
   }
 
@@ -386,7 +391,8 @@ export class ShippingRuleImportService {
       this.sameNullableNumber(existing.minAmount, data.minAmount) &&
       this.sameNullableNumber(existing.maxAmount, data.maxAmount) &&
       this.sameNullableNumber(existing.minWeight, data.minWeight) &&
-      this.sameNullableNumber(existing.maxWeight, data.maxWeight)
+      this.sameNullableNumber(existing.maxWeight, data.maxWeight) &&
+      existing.isActive === data.isActive
     );
   }
 
@@ -429,7 +435,7 @@ export class ShippingRuleImportService {
   }
 
   private isNumberHeader(header: string): boolean {
-    return header !== 'name' && header !== 'regionCodes';
+    return header !== 'name' && header !== 'regionCodes' && header !== 'isActive';
   }
 
   private kgToGram(weightKg: number): number {
