@@ -223,6 +223,22 @@ describe('SellerAfterSaleService exchange waybills', () => {
     }));
     expect(shippingService.cancelCarrierWaybill).not.toHaveBeenCalled();
   });
+
+  it('rejects generateWaybill when APPROVED and requiresReturn=true (must wait for buyer return)', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(baseRequest({ requiresReturn: true })),
+        updateMany: jest.fn(),
+      },
+      $executeRaw: jest.fn(),  // advisory lock 调用
+    };
+    const { service } = makeService(tx);
+
+    await expect(
+      service.generateWaybill(companyId, staffId, afterSaleId, 'SF'),
+    ).rejects.toThrow('需要等买家寄回退货并确认收到后才能生成换货面单');
+    expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('SellerAfterSaleService.ship', () => {
@@ -254,6 +270,27 @@ describe('SellerAfterSaleService.ship', () => {
         }),
       }),
     );
+  });
+
+  it('rejects ship when APPROVED and requiresReturn=true (must wait for buyer return)', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(
+          baseRequest({
+            requiresReturn: true,
+            replacementWaybillNo: 'SF1234567890',
+          }),
+        ),
+        updateMany: jest.fn(),
+      },
+      $executeRaw: jest.fn(),
+    };
+    const { service } = makeService(tx);
+
+    await expect(service.ship(companyId, staffId, afterSaleId)).rejects.toThrow(
+      '需要等买家寄回退货并确认收到后才能发换货',
+    );
+    expect(tx.afterSaleRequest.updateMany).not.toHaveBeenCalled();
   });
 });
 

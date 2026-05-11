@@ -875,6 +875,14 @@ export class SellerAfterSaleService {
               );
             }
 
+            // 防呆：APPROVED + 需寄回 → 必须等买家寄回并卖家确认收到才能发货，
+            // 否则会出现"卖家发了新货但买家不寄回旧货"的资金风险
+            if (request.status === 'APPROVED' && request.requiresReturn) {
+              throw new BadRequestException(
+                '需要等买家寄回退货并确认收到后才能发换货',
+              );
+            }
+
             if (!request.replacementWaybillNo) {
               throw new BadRequestException(
                 '请先生成换货电子面单后再确认发货',
@@ -981,6 +989,13 @@ export class SellerAfterSaleService {
         ) {
           throw new BadRequestException(
             '仅审核通过或已收到退货的换货可生成面单',
+          );
+        }
+
+        // 防呆：APPROVED + 需寄回 → 必须等买家寄回并卖家确认收到才能生成换货面单
+        if (request.status === 'APPROVED' && request.requiresReturn) {
+          throw new BadRequestException(
+            '需要等买家寄回退货并确认收到后才能生成换货面单',
           );
         }
 
