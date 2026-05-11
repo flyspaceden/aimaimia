@@ -63,6 +63,7 @@ function createMocks() {
     order: { findUnique: jest.fn() },
     orderItem: { findMany: jest.fn() },
     shipment: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+    orderShippingCost: { update: jest.fn() },
     company: { findUnique: jest.fn() },
     sellerAuditLog: { create: jest.fn() },
     $executeRaw: jest.fn(), // pg_advisory_xact_lock
@@ -103,6 +104,7 @@ function createMocks() {
 
   const shippingCost = {
     recordPackage: jest.fn().mockResolvedValue({ id: 'cost_001' }),
+    reconcile: jest.fn(),
   };
 
   const service = new (SellerShippingService as any)(
@@ -254,6 +256,49 @@ describe('generateWaybill — 面单生成', () => {
 
     await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
 
+    expect(shippingCost.recordPackage).toHaveBeenCalledWith({
+      orderId: ORDER_PAID,
+      packageIndex: 0,
+      companyId: COMPANY_ID,
+      sfOrderId: 'sf-order-abc-123',
+      weightGramSent: 2000,
+    });
+  });
+
+  it('成本记录返回 null 不影响发货返回，Shipment 仍完成持久化', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    shippingCost.recordPackage.mockResolvedValue(null);
+
+    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(result.ok).toBe(true);
+    expect(result.waybillNo).toContain('***');
+    expect(prisma.shipment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: ORDER_PAID,
+        companyId: COMPANY_ID,
+        status: 'INIT',
+      }),
+    });
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ship-new',
+        waybillNo: null,
+        rawCarrierPayload: {
+          equals: {
+            waybillGeneration: expect.objectContaining({
+              status: 'IN_PROGRESS',
+            }),
+          },
+        },
+      },
+      data: expect.objectContaining({
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: Prisma.DbNull,
+      }),
+    });
     expect(shippingCost.recordPackage).toHaveBeenCalledWith({
       orderId: ORDER_PAID,
       packageIndex: 0,
@@ -511,7 +556,7 @@ describe('generateWaybill — 面单生成', () => {
 
 describe('cancelWaybill — 面单取消', () => {
   it('正常流程：先调顺丰取消，再清空本地 waybillNo/waybillUrl/sfOrderId', async () => {
-    const { service, prisma, sfExpress } = createMocks();
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
@@ -546,6 +591,8 @@ describe('cancelWaybill — 面单取消', () => {
         sfOrderId: null,
       },
     });
+    expect(shippingCost.reconcile).not.toHaveBeenCalled();
+    expect(prisma.orderShippingCost.update).not.toHaveBeenCalled();
   });
 
   it('未发货（INIT）才允许取消', async () => {
