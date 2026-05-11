@@ -3,7 +3,7 @@
  *
  * 三个业务分组：普通结构 / 奖励设置 / 利润六分比例
  * 支持实时校验、版本历史抽屉、变更说明
- * 增强功能：业务说明、推荐模板、恢复默认值、变更影响提示
+ * 增强功能：推荐模板、恢复默认值、变更影响提示
  */
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -203,13 +203,6 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
   }
   return acc;
 }, {} as Record<string, number>);
-
-// 业务说明文案
-const GROUP_DESCRIPTIONS = {
-  tree: '普通用户奖励结构决定了奖励如何在用户之间传递。分叉数控制每层最多可以有几个下级，最大分配层数决定一笔订单的奖励最多向上分配几层。调整这些参数会影响奖励分配的广度和深度。',
-  reward: '冻结天数控制普通用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
-  ratio: '利润六分比例决定了普通用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/16/16/8/8/2），该比例经过业务验证，能保证平台可持续运营。',
-} as const;
 
 /** 从配置列表中按 key 取原始值 */
 function getVal(configs: RuleConfig[], key: string): unknown {
@@ -548,13 +541,6 @@ export default function NormalConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.tree}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
               {CONFIG_SCHEMA.filter((m) => m.group === 'tree').map((meta) => (
                 <NumberField key={meta.key} meta={meta} />
               ))}
@@ -574,13 +560,6 @@ export default function NormalConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.reward}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
               {CONFIG_SCHEMA.filter((m) => m.group === 'reward').map((meta) => (
                 <NumberField key={meta.key} meta={meta} />
               ))}
@@ -621,14 +600,6 @@ export default function NormalConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.ratio}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
-
               <Divider style={{ margin: '0 0 12px' }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>以下六项须合计 = 100%（50/16/16/8/8/2）</Text>
               </Divider>
