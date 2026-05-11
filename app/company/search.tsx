@@ -13,10 +13,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/layout';
 import { CompanyCard } from '../../src/components/cards';
-import { EmptyState, ErrorState, Skeleton } from '../../src/components/feedback';
+import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AiCardGlow } from '../../src/components/ui/AiCardGlow';
 import { CompanyRepo } from '../../src/repos';
 import { useRecentSearches } from '../../src/hooks/useRecentSearches';
+import { useCartStore } from '../../src/store';
 import { AppError } from '../../src/types';
 import { useTheme } from '../../src/theme';
 
@@ -271,6 +272,8 @@ export default function CompanySearchScreen() {
   const [searchTerm, setSearchTerm] = useState(initialQuery);
   const [submitted, setSubmitted] = useState(!!initialQuery);
   const { add: addRecent } = useRecentSearches();
+  const { show } = useToast();
+  const addItem = useCartStore((state) => state.addItem);
 
   useEffect(() => {
     setQuery(initialQuery);
@@ -406,6 +409,18 @@ export default function CompanySearchScreen() {
                 <CompanyCard
                   company={company}
                   onPress={(item) => router.push({ pathname: '/company/[id]', params: { id: item.id } })}
+                  onProductPress={(productId) =>
+                    router.push({ pathname: '/product/[id]', params: { id: productId } })
+                  }
+                  onAddToCart={(product) => {
+                    addItem(
+                      { id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' },
+                      1,
+                      product.defaultSkuId,
+                      product.price,
+                    );
+                    show({ message: '已加入购物车', type: 'success' });
+                  }}
                 />
               </View>
             )}
