@@ -33,7 +33,7 @@ function makeService(order: any) {
     },
   };
 
-  return new AfterSaleService(prisma as any, {} as any);
+  return new AfterSaleService(prisma as any, {} as any, {} as any);
 }
 
 function makeOrder(overrides: Partial<any> = {}) {
@@ -142,7 +142,7 @@ function makeTxService(tx: any) {
   return {
     prisma,
     afterSaleRewardService,
-    service: new AfterSaleService(prisma as any, afterSaleRewardService as any),
+    service: new AfterSaleService(prisma as any, afterSaleRewardService as any, {} as any),
   };
 }
 
@@ -481,7 +481,7 @@ describe('AfterSaleService.getTimeline', () => {
         ]),
       },
     };
-    const service = new AfterSaleService(prisma as any, {} as any);
+    const service = new AfterSaleService(prisma as any, {} as any, {} as any);
 
     expect(typeof (service as any).getTimeline).toBe('function');
 
@@ -537,7 +537,7 @@ describe('AfterSaleService.getTimeline', () => {
         findMany: jest.fn(),
       },
     };
-    const service = new AfterSaleService(prisma as any, {} as any);
+    const service = new AfterSaleService(prisma as any, {} as any, {} as any);
 
     await expect(
       (service as any).getTimeline('user-2', 'after-sale-1'),

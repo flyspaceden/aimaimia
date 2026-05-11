@@ -245,7 +245,7 @@ describe('AfterSaleShippingPaymentService', () => {
     tx.afterSaleRequest.findUnique.mockResolvedValue(afterSaleRequestFixture({
       returnShippingPaidAt: null,
     }));
-    const afterSaleService = new AfterSaleService(prisma as any, {} as any);
+    const afterSaleService = new AfterSaleService(prisma as any, {} as any, {} as any);
 
     await expect(afterSaleService.fillReturnShipping('user_001', 'as_001', {
       returnCarrierName: '顺丰',

@@ -216,7 +216,7 @@ describe('AfterSaleReturnShippingService', () => {
         district: '盘龙区',
         detail: '退货仓 1 号',
       },
-      items: [{ name: '有机苹果', quantity: 2, weight: 1 }],
+      items: [{ name: '有机苹果', quantity: 2, weightGram: 500 }],
     });
     expect(shippingPaymentService.estimateReturnShippingFee).toHaveBeenCalledWith(AFTER_SALE_ID);
     expect(tx.afterSaleRequest.updateMany).toHaveBeenNthCalledWith(1, {
