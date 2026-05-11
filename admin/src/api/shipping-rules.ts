@@ -23,6 +23,11 @@ export interface ShippingRule {
 
 export interface ShippingPreview {
   fee: number;
+  matchedRuleId: string | null;
+  matchedRuleName: string | null;
+  billingWeightKg: number;
+  formula: string;
+  fallbackUsed: boolean;
   input: {
     goodsAmount: number;
     regionCode?: string;
@@ -30,8 +35,37 @@ export interface ShippingPreview {
   };
 }
 
-export const getShippingRules = (params?: PaginationParams): Promise<PaginatedData<ShippingRule>> =>
+export type ShippingRuleImportFormat = 'csv' | 'json';
+
+export interface ShippingRuleImportRequest {
+  format: ShippingRuleImportFormat;
+  payload: string;
+}
+
+export interface ShippingRuleImportError {
+  row: number;
+  message: string;
+}
+
+export interface ShippingRuleImportResult {
+  toCreate: number;
+  toUpdate: number;
+  unchanged: number;
+  errors: ShippingRuleImportError[];
+  created: number;
+  updated: number;
+}
+
+export interface ShippingRulePreviewRequest {
+  goodsAmount: number;
+  regionCode?: string;
+  totalWeight?: number;
+}
+
+export const listRules = (params?: PaginationParams): Promise<PaginatedData<ShippingRule>> =>
   client.get('/admin/shipping-rules', { params });
+
+export const getShippingRules = listRules;
 
 export interface CreateShippingRuleInput {
   name: string;
@@ -95,5 +129,16 @@ export const updateShippingRule = (id: string, data: UpdateShippingRuleInput): P
 export const deleteShippingRule = (id: string): Promise<{ ok: boolean }> =>
   client.delete(`/admin/shipping-rules/${id}`);
 
-export const previewShipping = (data: { goodsAmount: number; regionCode?: string; totalWeight?: number }): Promise<ShippingPreview> =>
+export const previewRule = (data: ShippingRulePreviewRequest): Promise<ShippingPreview> =>
   client.post('/admin/shipping-rules/preview', data);
+
+export const previewShipping = previewRule;
+
+export const importRulesDryRun = (data: ShippingRuleImportRequest): Promise<ShippingRuleImportResult> =>
+  client.post('/admin/shipping-rules/import', { ...data, dryRun: true });
+
+export const importRules = (data: ShippingRuleImportRequest): Promise<ShippingRuleImportResult> =>
+  client.post('/admin/shipping-rules/import', { ...data, dryRun: false });
+
+export const downloadTemplate = (): Promise<string> =>
+  client.get('/admin/shipping-rules/template');
