@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
+import { OrderShippingCostService } from '../../shipment/order-shipping-cost.service';
 import { maskIp, maskTrackingNo } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
@@ -26,6 +27,13 @@ export type CarrierWaybillAddress = {
   detail: string;
 };
 
+export type CarrierWaybillItem = {
+  name: string;
+  quantity: number;
+  weightGram?: number;
+  weight?: number;
+};
+
 type WaybillGenerationMarker = {
   waybillGeneration: {
     status: 'IN_PROGRESS';
@@ -35,10 +43,12 @@ type WaybillGenerationMarker = {
 };
 
 type WaybillGenerationContext = {
+  orderId: string;
+  companyId: string;
   shipmentId: string;
   marker: WaybillGenerationMarker;
   addressSnapshot: unknown;
-  items: Array<{ name: string; quantity: number; weight?: number }>;
+  items: CarrierWaybillItem[];
   carrierCode: string;
 };
 
@@ -56,6 +66,7 @@ export class SellerShippingService {
     private sellerRiskControl: SellerRiskControlService,
     private sfExpress: SfExpressService,
     private uploadService: UploadService,
+    private shippingCost: OrderShippingCostService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -196,6 +207,13 @@ export class SellerShippingService {
     }
 
     await this.persistGeneratedWaybill(context, waybillResult);
+    await this.shippingCost.recordPackage({
+      orderId: context.orderId,
+      packageIndex: 0,
+      companyId: context.companyId,
+      sfOrderId: waybillResult.sfOrderId,
+      weightGramSent: waybillResult.weightGramSent,
+    });
 
     this.logger.log(
       `面单生成成功: orderId=${orderId}, carrierCode=${carrierCode}, waybillNo=${waybillResult.waybillNo}`,
@@ -234,7 +252,12 @@ export class SellerShippingService {
         select: {
           companyId: true,
           quantity: true,
-          sku: { select: { product: { select: { title: true } } } },
+          sku: {
+            select: {
+              weightGram: true,
+              product: { select: { title: true } },
+            },
+          },
         },
       });
 
@@ -265,6 +288,7 @@ export class SellerShippingService {
       const items = orderItems.map((item) => ({
         name: item.sku?.product?.title || '商品',
         quantity: item.quantity,
+        weightGram: this.normalizeReserveItemWeightGram(item.sku?.weightGram),
       }));
 
       let shipmentId: string;
@@ -301,6 +325,8 @@ export class SellerShippingService {
       }
 
       return {
+        orderId,
+        companyId,
         shipmentId,
         marker,
         addressSnapshot: order.addressSnapshot,
@@ -590,7 +616,7 @@ export class SellerShippingService {
     orderId: string,
     carrierCode: string,
     addressSnapshot: unknown,
-    items: Array<{ name: string; quantity: number; weight?: number }>,
+    items: CarrierWaybillItem[],
   ) {
     const senderInfo = await this.getSenderInfo(companyId);
 
@@ -639,7 +665,7 @@ export class SellerShippingService {
     carrierCode: string;
     sender: CarrierWaybillAddress;
     receiver: CarrierWaybillAddress;
-    items: Array<{ name: string; quantity: number; weight?: number }>;
+    items: CarrierWaybillItem[];
   }) {
     const companyId = input.companyId;
     const bizNo = input.bizNo || input.orderId;
@@ -648,7 +674,9 @@ export class SellerShippingService {
     }
 
     const cargo = input.items.map((i) => i.name).join(', ');
-    const totalWeight = input.items.reduce((sum, i) => sum + (i.weight || 0), 0);
+    const totalWeightGram = this.calculateTotalWeightGram(input.items);
+    const weightGramSent = Math.max(totalWeightGram, 1000);
+    const totalWeightKg = Math.max(totalWeightGram / 1000, 1);
 
     // 使用 bizNo_companyId 作为顺丰 orderId，确保幂等性
     const orderResult = await this.sfExpress.createOrder({
@@ -656,7 +684,7 @@ export class SellerShippingService {
       sender: input.sender,
       receiver: input.receiver,
       cargo,
-      totalWeight: totalWeight > 0 ? totalWeight : undefined,
+      totalWeight: totalWeightKg,
       packageCount: 1,
     });
 
@@ -693,9 +721,36 @@ export class SellerShippingService {
       waybillNo: orderResult.waybillNo,
       waybillUrl,
       sfOrderId: orderResult.sfOrderId,
+      weightGramSent,
       senderInfoSnapshot: input.sender,
       receiverInfoSnapshot: input.receiver,
     };
+  }
+
+  private normalizeReserveItemWeightGram(weightGram: unknown): number {
+    const normalized = Number(weightGram);
+    return Number.isFinite(normalized) && normalized > 0
+      ? Math.trunc(normalized)
+      : 1000;
+  }
+
+  private calculateTotalWeightGram(items: CarrierWaybillItem[]): number {
+    return items.reduce((sum, item) => {
+      const quantity = Number.isFinite(Number(item.quantity)) && item.quantity > 0
+        ? item.quantity
+        : 0;
+      const weightGram = Number(item.weightGram);
+      if (Number.isFinite(weightGram) && weightGram > 0) {
+        return sum + Math.trunc(weightGram) * quantity;
+      }
+
+      const legacyWeightKg = Number(item.weight);
+      if (Number.isFinite(legacyWeightKg) && legacyWeightKg > 0) {
+        return sum + Math.round(legacyWeightKg * 1000);
+      }
+
+      return sum;
+    }, 0);
   }
 
   async cancelCarrierWaybill(sfOrderId: string, waybillNo: string) {

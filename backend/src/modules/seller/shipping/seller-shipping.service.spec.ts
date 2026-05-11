@@ -101,15 +101,20 @@ function createMocks() {
     }),
   };
 
-  const service = new SellerShippingService(
+  const shippingCost = {
+    recordPackage: jest.fn().mockResolvedValue({ id: 'cost_001' }),
+  };
+
+  const service = new (SellerShippingService as any)(
     prisma as any,
     configService as any,
     sellerRiskControl as any,
     sfExpress as any,
     uploadService as any,
-  );
+    shippingCost as any,
+  ) as SellerShippingService;
 
-  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService };
+  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService, shippingCost };
 }
 
 /**
@@ -135,12 +140,12 @@ function setupHappyPath(prisma: any, sfExpress: any, overrides?: {
     {
       companyId,
       quantity: 2,
-      sku: { product: { title: '有机苹果' } },
+      sku: { weightGram: 750, product: { title: '有机苹果' } },
     },
     {
       companyId,
       quantity: 1,
-      sku: { product: { title: '云南普洱茶' } },
+      sku: { weightGram: 500, product: { title: '云南普洱茶' } },
     },
   ]);
 
@@ -240,6 +245,21 @@ describe('generateWaybill — 面单生成', () => {
         sfOrderId: 'sf-order-abc-123',
         rawCarrierPayload: Prisma.DbNull,
       }),
+    });
+  });
+
+  it('生成面单成功后记录顺丰包裹成本字段', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(shippingCost.recordPackage).toHaveBeenCalledWith({
+      orderId: ORDER_PAID,
+      packageIndex: 0,
+      companyId: COMPANY_ID,
+      sfOrderId: 'sf-order-abc-123',
+      weightGramSent: 2000,
     });
   });
 
@@ -1123,7 +1143,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
       carrierCode: 'ZTO',
       sender: buyerSender,
       receiver: companyReceiver,
-      items: [{ name: '有机苹果', quantity: 2, weight: 1 }],
+      items: [{ name: '有机苹果', quantity: 2, weightGram: 500 }],
     });
 
     expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
@@ -1142,6 +1162,86 @@ describe('createCarrierWaybill — 快递面单创建', () => {
       senderInfoSnapshot: buyerSender,
       receiverInfoSnapshot: companyReceiver,
     }));
+  });
+
+  it('0 或缺失重量按最小 1kg 传给顺丰', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFMIN001',
+      sfOrderId: 'sf-min-order-001',
+    });
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'MIN_WEIGHT_ORDER',
+      carrierCode: 'SF',
+      sender: {
+        name: '张经理',
+        tel: '13800001001',
+        province: '云南省',
+        city: '玉溪市',
+        district: '红塔区',
+        detail: '高新技术产业园区',
+      },
+      receiver: {
+        name: '林青禾',
+        tel: '13800138000',
+        province: '云南省',
+        city: '昆明市',
+        district: '盘龙区',
+        detail: '翠湖路 88 号',
+      },
+      items: [
+        { name: '缺失重量商品', quantity: 1 } as any,
+        { name: '零重量商品', quantity: 1, weightGram: 0 },
+      ],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 1,
+    }));
+    expect(result.weightGramSent).toBe(1000);
+  });
+
+  it('真实重量按克换算成 kg 传给顺丰', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFREAL001',
+      sfOrderId: 'sf-real-order-001',
+    });
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'REAL_WEIGHT_ORDER',
+      carrierCode: 'SF',
+      sender: {
+        name: '张经理',
+        tel: '13800001001',
+        province: '云南省',
+        city: '玉溪市',
+        district: '红塔区',
+        detail: '高新技术产业园区',
+      },
+      receiver: {
+        name: '林青禾',
+        tel: '13800138000',
+        province: '云南省',
+        city: '昆明市',
+        district: '盘龙区',
+        detail: '翠湖路 88 号',
+      },
+      items: [
+        { name: '有机苹果', quantity: 2, weightGram: 750 },
+        { name: '云南普洱茶', quantity: 1, weightGram: 500 },
+      ],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 2,
+    }));
+    expect(result.weightGramSent).toBe(2000);
   });
 
   it('正确组装发件人和收件人信息传给顺丰', async () => {
