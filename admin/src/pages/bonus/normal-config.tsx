@@ -1,7 +1,7 @@
 /**
  * 普通用户系统参数配置页
  *
- * 三个业务分组：普通树结构 / 奖励设置 / 利润六分比例
+ * 三个业务分组：普通结构 / 奖励设置 / 利润六分比例
  * 支持实时校验、版本历史抽屉、变更说明
  * 增强功能：业务说明、推荐模板、恢复默认值、变更影响提示
  */
@@ -69,10 +69,10 @@ interface ConfigMeta {
 }
 
 const CONFIG_SCHEMA: ConfigMeta[] = [
-  // 普通树结构
+  // 普通结构
   {
     key: 'NORMAL_BRANCH_FACTOR',
-    label: '普通树分叉数',
+    label: '分组分叉数',
     group: 'tree',
     type: 'number',
     min: 2,
@@ -80,7 +80,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     step: 1,
     suffix: '叉',
     integer: true,
-    description: '普通树每个节点的最大子节点数',
+    description: '普通用户每个节点的最大子节点数',
     defaultValue: 3,
   },
   {
@@ -93,7 +93,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     step: 1,
     suffix: '层',
     integer: true,
-    description: '普通奖励上溯分润最大层级深度',
+    description: '普通奖励上溯最大层级深度',
     defaultValue: 15,
   },
 
@@ -206,7 +206,7 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
 
 // 业务说明文案
 const GROUP_DESCRIPTIONS = {
-  tree: '普通用户奖励树决定了奖励如何在用户之间传递。分叉数控制每个节点最多可以有几个下级，最大分配层数决定一笔订单的奖励最多向上分配几层。调整这些参数会影响普通用户奖励分配的广度和深度。',
+  tree: '普通用户奖励结构决定了奖励如何在用户之间传递。分叉数控制每层最多可以有几个下级，最大分配层数决定一笔订单的奖励最多向上分配几层。调整这些参数会影响奖励分配的广度和深度。',
   reward: '冻结天数控制普通用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
   ratio: '利润六分比例决定了普通用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/16/16/8/8/2），该比例经过业务验证，能保证平台可持续运营。',
 } as const;
@@ -381,10 +381,10 @@ export default function NormalConfigPage() {
 
     const impacts: string[] = [];
     if (hasRatioChange) {
-      impacts.push('修改分润比例将影响后续所有新订单的普通用户奖励分配金额');
+      impacts.push('修改奖励分配比例将影响后续所有新订单的普通用户奖励分配金额');
     }
     if (hasTreeChange) {
-      impacts.push('修改树结构参数将影响新用户的节点分配和奖励传递层级');
+      impacts.push('修改结构参数将影响新用户的分配和奖励传递层级');
     }
     if (hasRewardChange) {
       impacts.push('修改奖励设置将影响后续新产生的奖励冻结和过期时间');
@@ -505,9 +505,9 @@ export default function NormalConfigPage() {
       {/* 顶部标题栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>普通用户系统配置</Title>
+          <Title level={4} style={{ margin: 0 }}>普通系统配置</Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            管理普通用户奖励树结构、冻结/过期参数与利润六分比例（独立于 VIP 体系）
+            管理普通用户奖励结构、冻结/过期参数与利润六分比例（独立于 VIP 体系）
           </Text>
         </div>
         <Space>
@@ -535,7 +535,7 @@ export default function NormalConfigPage() {
         requiredMark={false}
       >
         <Row gutter={[16, 16]}>
-          {/* ====== 普通树结构 ====== */}
+          {/* ====== 普通结构 ====== */}
           <Col xs={24} lg={12}>
             <Card
               bordered={false}
@@ -544,7 +544,7 @@ export default function NormalConfigPage() {
               title={
                 <Space>
                   <ApartmentOutlined style={{ color: '#2E7D32', fontSize: 18 }} />
-                  <Text strong style={{ fontSize: 15 }}>普通树结构</Text>
+                  <Text strong style={{ fontSize: 15 }}>普通结构</Text>
                 </Space>
               }
             >
@@ -657,7 +657,7 @@ export default function NormalConfigPage() {
             <Card bordered={false} style={{ borderRadius: 12, background: '#fafafa' }}>
               <Alert
                 message="变更影响提示"
-                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分润比例将直接影响后续所有新订单的普通用户奖励分配金额，请谨慎操作。"
+                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分配比例将直接影响后续所有新订单的普通用户奖励分配金额，请谨慎操作。"
                 type="warning"
                 showIcon
                 style={{ marginBottom: 16, borderRadius: 8 }}

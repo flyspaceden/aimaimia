@@ -87,18 +87,18 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     max: 50,
     suffix: '层',
     integer: true,
-    description: 'VIP 奖励上溯分润最大层级深度',
+    description: 'VIP 奖励上溯最大层级深度',
   },
   {
     key: 'VIP_BRANCH_FACTOR',
-    label: '三叉树分叉数',
+    label: '分组分叉数',
     group: 'vip',
     type: 'number',
     min: 2,
     max: 5,
     suffix: '叉',
     integer: true,
-    description: 'VIP 三叉树每个节点的最大子节点数',
+    description: 'VIP 每个节点的最大子节点数',
   },
 
   // VIP 冻结设置
@@ -143,7 +143,7 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
 // 业务说明文案
 const GROUP_DESCRIPTIONS = {
   ratio: 'VIP利润六分比例决定了VIP用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/30/10/2/2/6）。',
-  vip: 'VIP基础设置控制奖励树结构参数。调整这些参数会影响VIP系统的奖励分配广度。VIP 档位价格和推荐奖励比例在「购买VIP赠品」页面管理。',
+  vip: 'VIP 基础设置控制奖励结构参数。调整这些参数会影响 VIP 奖励分配的广度。VIP 档位价格和推荐奖励比例在「购买VIP赠品」页面管理。',
   expiry: '冻结天数控制VIP用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
 } as const;
 
@@ -317,10 +317,10 @@ export default function VipConfigPage() {
 
     const impacts: string[] = [];
     if (hasRatioChange) {
-      impacts.push('修改分润比例将影响后续所有新订单的VIP用户奖励分配金额');
+      impacts.push('修改奖励分配比例将影响后续所有新订单的 VIP 用户奖励分配金额');
     }
     if (hasVipChange) {
-      impacts.push('修改VIP基础设置将影响奖励树结构参数');
+      impacts.push('修改 VIP 基础设置将影响奖励结构参数');
     }
     if (hasExpiryChange) {
       impacts.push('修改冻结天数将影响后续新产生的奖励冻结过期时间');
@@ -443,7 +443,7 @@ export default function VipConfigPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>VIP 系统配置</Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            管理 VIP 奖励体系的分润比例、基础设置与有效期参数（独立于普通用户体系）
+            管理 VIP 奖励体系的分配比例、基础设置与有效期参数（独立于普通用户体系）
           </Text>
         </div>
         <Space>
@@ -593,7 +593,7 @@ export default function VipConfigPage() {
             <Card bordered={false} style={{ borderRadius: 12, background: '#fafafa' }}>
               <Alert
                 message="变更影响提示"
-                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分润比例将直接影响后续所有新订单的VIP用户奖励分配金额，请谨慎操作。"
+                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分配比例将直接影响后续所有新订单的 VIP 用户奖励分配金额，请谨慎操作。"
                 type="warning"
                 showIcon
                 style={{ marginBottom: 16, borderRadius: 8 }}
