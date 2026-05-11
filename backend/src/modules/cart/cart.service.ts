@@ -127,7 +127,14 @@ export class CartService {
     if (prizeRecordIds.length > 0) {
       const records = await this.prisma.lotteryRecord.findMany({
         where: { id: { in: prizeRecordIds } },
-        include: { prize: true },
+        include: {
+          prize: {
+            include: {
+              sku: { include: { product: true } },
+              product: true,
+            },
+          },
+        },
       });
       for (const record of records) {
         prizeRecordMap.set(record.id, record);
