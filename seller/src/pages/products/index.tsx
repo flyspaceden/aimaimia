@@ -579,7 +579,14 @@ export default function ProductListPage() {
                   title: '重量',
                   dataIndex: 'weightGram',
                   width: 80,
-                  render: (v) => (typeof v === 'number' ? `${v}g` : '-'),
+                  render: (v, sku) => {
+                    const skuCode = (sku as { skuCode?: string | null }).skuCode;
+                    const isDraftWeightPlaceholder =
+                      skuCode === '__DRAFT_WEIGHT_PLACEHOLDER__' ||
+                      skuCode?.startsWith('__DRAFT_WEIGHT_PLACEHOLDER__:');
+                    if (isDraftWeightPlaceholder) return '未填写';
+                    return typeof v === 'number' ? `${v}g` : '-';
+                  },
                 },
               ]}
             />

@@ -23,9 +23,8 @@ export class RewardProductService {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
   };
 
-  private resolveSkuWeightGram(weightGram?: number) {
-    if (weightGram === undefined || weightGram === null) return 1000;
-    if (!Number.isInteger(weightGram) || weightGram <= 0) {
+  private resolveSkuWeightGram(weightGram?: number | null): number {
+    if (typeof weightGram !== 'number' || !Number.isInteger(weightGram) || weightGram <= 0) {
       throw new BadRequestException('SKU 重量必须为正整数克');
     }
     return weightGram;

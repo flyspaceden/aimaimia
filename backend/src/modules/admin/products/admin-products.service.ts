@@ -8,6 +8,12 @@ import { UpdateProductSkusDto } from './dto/update-sku.dto';
 export class AdminProductsService {
   constructor(private prisma: PrismaService) {}
 
+  private assertSkuWeightGram(weightGram?: number | null): asserts weightGram is number {
+    if (typeof weightGram !== 'number' || !Number.isInteger(weightGram) || weightGram <= 0) {
+      throw new BadRequestException('SKU 重量必须为正整数克');
+    }
+  }
+
   /** 商品列表（管理端） */
   async findAll(
     page = 1,
@@ -316,6 +322,9 @@ export class AdminProductsService {
   async updateSkus(productId: string, dto: UpdateProductSkusDto) {
     const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
+    for (const sku of dto.skus) {
+      this.assertSkuWeightGram(sku.weightGram);
+    }
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -340,7 +349,7 @@ export class AdminProductsService {
             };
             if (sku.cost !== undefined) data.cost = sku.cost;
             if (sku.specText !== undefined) data.title = sku.specText;
-            if (sku.weightGram !== undefined) data.weightGram = sku.weightGram;
+            data.weightGram = sku.weightGram;
             await tx.productSKU.update({ where: { id: sku.id }, data });
           } else {
             // 新建 SKU
@@ -351,7 +360,7 @@ export class AdminProductsService {
                 price: sku.price,
                 cost: sku.cost ?? 0,
                 stock: sku.stock,
-                weightGram: sku.weightGram ?? 1000,
+                weightGram: sku.weightGram,
               },
             });
           }

@@ -39,6 +39,7 @@ describe('SellerProductsService SKU weight validation', () => {
         findUnique: jest.fn().mockResolvedValue({
           id: 'draft_1',
           companyId: 'company_1',
+          status: 'DRAFT',
           skus: [],
           media: [],
           tags: [],
@@ -54,6 +55,7 @@ describe('SellerProductsService SKU weight validation', () => {
       },
       productTag: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       tag: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -235,5 +237,32 @@ describe('SellerProductsService SKU weight validation', () => {
     const createManyArg = tx.productSKU.createMany.mock.calls[0][0];
     expect(createManyArg.data[0].weightGram).toBe(750);
     expect(createManyArg.data[0].skuCode).toBeUndefined();
+  });
+
+  it('updateDraft rejects non-DRAFT from the Serializable transaction snapshot without writing', async () => {
+    const { service, prisma, tx } = buildDraftService();
+    tx.product.findUnique.mockResolvedValueOnce({
+      id: 'draft_1',
+      companyId: 'company_1',
+      status: 'ACTIVE',
+    });
+
+    await expect(service.updateDraft('company_1', 'draft_1', {
+      title: '不能覆盖正式商品',
+      skus: [{ specName: '默认规格', cost: 10, stock: 5, weightGram: 750 }],
+      mediaUrls: ['https://example.com/a.jpg'],
+      tagIds: ['tag_1'],
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    expect(prisma.product.findUnique).not.toHaveBeenCalled();
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(tx.productSKU.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productSKU.createMany).not.toHaveBeenCalled();
+    expect(tx.productMedia.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productTag.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productTag.createMany).not.toHaveBeenCalled();
   });
 });

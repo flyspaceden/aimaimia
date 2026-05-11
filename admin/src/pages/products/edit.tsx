@@ -193,6 +193,7 @@ export default function ProductEditPage() {
     price: s.price,
     cost: s.cost ?? 0,
     stock: s.stock ?? 0,
+    weightGram: s.weightGram,
   }));
 
   // 保存 SKU
@@ -579,6 +580,14 @@ export default function ProductEditPage() {
                       rules={[{ required: true, message: '请输入库存' }]}
                     >
                       <InputNumber style={{ width: 120 }} />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="包装后重量（克）"
+                      name={[field.name, 'weightGram']}
+                      rules={[{ required: true, message: '请输入包装后重量' }]}
+                    >
+                      <InputNumber min={1} precision={0} style={{ width: 150 }} placeholder="如：1000" />
                     </Form.Item>
                     <MinusCircleOutlined
                       style={{ marginTop: 38, color: '#999' }}

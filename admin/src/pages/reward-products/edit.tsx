@@ -78,7 +78,7 @@ interface SkuFormValues {
   cost: number;
   price: number;
   stock: number;
-  weightGram?: number;
+  weightGram: number;
 }
 
 export default function RewardProductEditPage() {
@@ -211,7 +211,7 @@ export default function RewardProductEditPage() {
           cost,
           price,
           stock: Math.floor(Number(values.stock)),
-          weightGram: values.weightGram != null ? Number(values.weightGram) : undefined,
+          weightGram: Number(values.weightGram),
         });
       }
 
@@ -239,7 +239,7 @@ export default function RewardProductEditPage() {
       cost: typeof sku.cost === 'number' ? sku.cost : 0,
       price: sku.price,
       stock: sku.stock,
-      weightGram: sku.weightGram || undefined,
+      weightGram: sku.weightGram ?? undefined,
     });
     setSkuModal({ visible: true, sku });
   };
@@ -265,7 +265,7 @@ export default function RewardProductEditPage() {
             cost,
             price,
             stock: Math.floor(Number(values.stock)),
-            weightGram: values.weightGram != null ? Number(values.weightGram) : undefined,
+            weightGram: Number(values.weightGram),
           },
         });
       } else {
@@ -275,7 +275,7 @@ export default function RewardProductEditPage() {
           cost,
           price,
           stock: Math.floor(Number(values.stock)),
-          weightGram: values.weightGram != null ? Number(values.weightGram) : undefined,
+          weightGram: Number(values.weightGram),
         });
       }
     } catch {
@@ -514,7 +514,7 @@ export default function RewardProductEditPage() {
             cost: defaultSku ? (typeof defaultSku.cost === 'number' ? defaultSku.cost : undefined) : undefined,
             price: defaultSku ? defaultSku.price : undefined,
             stock: defaultSku ? defaultSku.stock : undefined,
-            weightGram: defaultSku?.weightGram || undefined,
+            weightGram: defaultSku?.weightGram ?? undefined,
           }}
         >
           <Form.Item
@@ -617,12 +617,16 @@ export default function RewardProductEditPage() {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="重量（克）" name="weightGram">
+                  <Form.Item
+                    label="重量（克）"
+                    name="weightGram"
+                    rules={[{ required: true, message: '请输入重量' }]}
+                  >
                     <InputNumber
-                      min={0}
+                      min={1}
                       precision={0}
                       style={{ width: '100%' }}
-                      placeholder="选填"
+                      placeholder="如：1000"
                     />
                   </Form.Item>
                 </Col>
@@ -790,12 +794,16 @@ export default function RewardProductEditPage() {
             />
           </Form.Item>
 
-          <Form.Item label="重量（克）" name="weightGram">
+          <Form.Item
+            label="重量（克）"
+            name="weightGram"
+            rules={[{ required: true, message: '请输入重量' }]}
+          >
             <InputNumber
-              min={0}
+              min={1}
               precision={0}
               style={{ width: '100%' }}
-              placeholder="选填"
+              placeholder="如：1000"
             />
           </Form.Item>
         </Form>

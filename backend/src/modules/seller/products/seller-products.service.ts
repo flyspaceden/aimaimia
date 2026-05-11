@@ -737,16 +737,16 @@ export class SellerProductsService {
    * 全量覆盖写：skus 和 media 传了就整体替换，tagIds 传了就整体替换。
    */
   async updateDraft(companyId: string, productId: string, dto: UpdateDraftDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== companyId)
-      throw new ForbiddenException('无权操作该商品');
-    if (product.status !== 'DRAFT')
-      throw new BadRequestException('该商品非草稿状态，不能用此接口更新');
-
     return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.findUnique({
+        where: { id: productId },
+      });
+      if (!product) throw new NotFoundException('商品不存在');
+      if (product.companyId !== companyId)
+        throw new ForbiddenException('无权操作该商品');
+      if (product.status !== 'DRAFT')
+        throw new BadRequestException('该商品非草稿状态，不能用此接口更新');
+
       // 全量覆盖：dto 里出现的字段一律落库（含 null / 空数组）；只有 undefined 才视为"未触达"
       // Prisma 对 Json? 字段直接传 null 会写入 DB null，符合"清空"语义
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -826,7 +826,7 @@ export class SellerProductsService {
         where: { id: productId },
         include: { skus: true, media: true, tags: { include: { tag: true } } },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /**

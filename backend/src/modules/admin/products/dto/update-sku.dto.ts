@@ -37,11 +37,11 @@ export class SkuUpdateItem {
   @IsNumber()
   stock: number;
 
-  /** 包装后重量（克），用于计算运费和顺丰面单；老管理端不传时服务层用 1000g 兜底 */
-  @IsOptional()
+  /** 包装后重量（克），用于计算运费和顺丰面单 */
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
-  weightGram?: number;
+  weightGram: number;
 }
 
 export class UpdateProductSkusDto {

@@ -225,6 +225,7 @@ export interface ProductSKU {
   title: string;
   price: number;
   stock: number;
+  weightGram: number;
   attrs: Record<string, unknown> | null;
   cost?: number | null;
   status?: string;

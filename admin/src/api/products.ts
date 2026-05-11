@@ -51,6 +51,7 @@ export interface SkuUpdateItem {
   price: number;
   cost?: number;
   stock: number;
+  weightGram: number;
 }
 
 /** C21: 批量编辑商品 SKU（UPSERT） */

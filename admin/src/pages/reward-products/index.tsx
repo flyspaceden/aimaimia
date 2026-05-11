@@ -52,7 +52,7 @@ interface SkuRow {
   cost: number | undefined;
   price: number | undefined;
   stock: number | undefined;
-  weightGram?: number;
+  weightGram: number | undefined;
 }
 
 export default function RewardProductsPage() {
@@ -166,7 +166,7 @@ export default function RewardProductsPage() {
           cost: Number(sku.cost),
           price: Number(sku.price),
           stock: Math.floor(Number(sku.stock ?? 0)),
-          weightGram: sku.weightGram ? Number(sku.weightGram) : undefined,
+          weightGram: Number(sku.weightGram),
         }));
 
         await createRewardProduct({
@@ -182,7 +182,7 @@ export default function RewardProductsPage() {
         const cost = Number(values.cost);
         const price = Number(values.price);
         const stock = Math.floor(Number(values.stock ?? 0));
-        const weightGram = values.weightGram ? Number(values.weightGram) : undefined;
+        const weightGram = Number(values.weightGram);
 
         await createRewardProduct({
           title: values.title,
@@ -693,12 +693,16 @@ export default function RewardProductsPage() {
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="weightGram" label="重量（克）">
+                      <Form.Item
+                        name="weightGram"
+                        label="重量（克）"
+                        rules={[{ required: true, message: '请输入重量' }]}
+                      >
                         <InputNumber
-                          min={0}
+                          min={1}
                           precision={0}
                           style={{ width: '100%' }}
-                          placeholder="选填"
+                          placeholder="如：1000"
                         />
                       </Form.Item>
                     </Col>
@@ -786,12 +790,13 @@ export default function RewardProductsPage() {
                                 {...restField}
                                 name={[name, 'weightGram']}
                                 label="重量（克）"
+                                rules={[{ required: true, message: '请输入' }]}
                               >
                                 <InputNumber
-                                  min={0}
+                                  min={1}
                                   precision={0}
                                   style={{ width: '100%' }}
-                                  placeholder="选填"
+                                  placeholder="1000"
                                 />
                               </Form.Item>
                             </Col>
