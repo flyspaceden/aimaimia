@@ -343,7 +343,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         <Descriptions column={1} size="small" labelStyle={{ color: '#8c8c8c', width: 80 }}>
           <Descriptions.Item label="用户 ID">
             {node.isSystemNode ? (
-              <Text style={{ fontSize: 12 }}>系统平台根节点</Text>
+              <Text style={{ fontSize: 12 }}>全局视图节点</Text>
             ) : (
               <Text copyable style={{ fontSize: 12 }}>{node.userId}</Text>
             )}
@@ -355,7 +355,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
               <Tag>普通</Tag>
             )}
           </Descriptions.Item>
-          <Descriptions.Item label="树层级">L{node.level}</Descriptions.Item>
+          <Descriptions.Item label="层级">L{node.level}</Descriptions.Item>
           <Descriptions.Item label="手机号">{node.phone || '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
@@ -369,7 +369,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         contentStyle={{ fontSize: 12 }}
       >
         {/* 通用字段 */}
-        <Descriptions.Item label="入树时间">
+        <Descriptions.Item label="收录时间">
           {node.joinedTreeAt ? new Date(node.joinedTreeAt).toLocaleDateString('zh-CN') : '-'}
         </Descriptions.Item>
         <Descriptions.Item label="层级位置">
@@ -382,18 +382,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         {/* VIP 特有字段 */}
         {treeType === 'vip' && (
           <>
-            <Descriptions.Item label="所属根树">
+            <Descriptions.Item label="所属分组">
               {node.rootId ?? '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="入树方式">
-              <Tag color={node.entryMode === 'REFERRAL' ? 'blue' : node.entryMode === 'SYSTEM' ? 'gold' : 'default'}>
-                {node.entryMode === 'REFERRAL' ? '推荐邀请'
-                  : node.entryMode === 'SYSTEM' ? '系统节点'
-                  : '无推荐人 · 系统自动分配'}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="推荐人">
-              {node.referrerNickname || node.referrerUserId || '无'}
             </Descriptions.Item>
             {node.exitedAt && (
               <Descriptions.Item label="出局时间">
@@ -430,62 +420,6 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           </>
         )}
       </Descriptions>
-
-      {/* 落位解释 */}
-      <Card
-        size="small"
-        title={
-          <Text style={{ fontSize: 13, fontWeight: 600 }}>
-            {treeType === 'vip' ? '推荐落位说明' : '轮询落位说明'}
-          </Text>
-        }
-        style={{ marginTop: 16, borderRadius: 8, background: '#fafafa' }}
-        styles={{ body: { padding: '8px 12px', fontSize: 12 } }}
-      >
-        {treeType === 'vip' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#595959' }}>
-            {node.isSystemNode ? (
-              <Text type="secondary">系统根节点 {node.rootId}，无需落位</Text>
-            ) : node.entryMode === 'REFERRAL' ? (
-              <>
-                <div>该用户由 <Text strong>{node.referrerNickname || node.referrerUserId || '未知'}</Text> 推荐入树</div>
-                <div>落入推荐人子树 L{node.level} 第 {(node.position ?? 0) + 1} 位（直挂或 BFS 滑落到子树空位）</div>
-              </>
-            ) : (
-              <>
-                <div>无推荐人，由系统自动分配</div>
-                <div>通过 BFS 算法落入 L{node.level} 第 {(node.position ?? 0) + 1} 位</div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#595959' }}>
-            {node.isSystemNode ? (
-              <>
-                <div>这是普通奖励树的平台根节点</div>
-                <div>所有普通用户节点都从这里向下展开，便于整体查看树的顶部结构</div>
-              </>
-            ) : (
-              <>
-                <div>首次有效消费后自动入树</div>
-                <div>按轮询平衡算法分配到 L{node.level} 第 {(node.position ?? 0) + 1} 位</div>
-              </>
-            )}
-            {node.stoppedReason === 'UPGRADED_VIP' && (
-              <div style={{ marginTop: 4 }}>
-                <Tag color="blue" style={{ fontSize: 11 }}>已升级 VIP</Tag>
-                <Text type="secondary" style={{ fontSize: 11 }}> 普通树位置保留，但不再接收普通奖励</Text>
-              </div>
-            )}
-            {node.stoppedReason === 'FROZEN' && (
-              <div style={{ marginTop: 4 }}>
-                <Tag color="orange" style={{ fontSize: 11 }}>已冻结</Tag>
-                <Text type="secondary" style={{ fontSize: 11 }}> 账户冻结，暂停接收普通奖励</Text>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
 
       {/* 查看会员详情 */}
       {!node.isSystemNode && (

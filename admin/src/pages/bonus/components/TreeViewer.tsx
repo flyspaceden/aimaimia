@@ -139,8 +139,8 @@ export interface TreeViewerProps {
   themeColor: string;
   /** 页面标题 */
   title: string;
-  /** 副标题说明 */
-  subtitle: string;
+  /** 副标题说明（可选；提供后会作为标题 hover tooltip 显示） */
+  subtitle?: string;
   /** 搜索API */
   searchApi: (keyword: string) => Promise<TreeSearchResult[]>;
   /** 上下文API */
@@ -379,7 +379,7 @@ export default function TreeViewer({
           hasNormalNode: option.hasNormalNode,
         });
         setSearchText(option.nickname || option.userId);
-        message.warning(treeType === 'vip' ? '该用户尚未进入 VIP 树' : '该用户尚未进入普通树');
+        message.warning(treeType === 'vip' ? '该用户尚未收录到 VIP 奖励数据' : '该用户尚未收录到普通奖励数据');
         return;
       }
       setCenteredUserId(option.userId);
@@ -679,7 +679,7 @@ export default function TreeViewer({
                       color={hasNode ? 'green' : 'default'}
                       style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}
                     >
-                      {hasNode ? '已入树' : '未入树'}
+                      {hasNode ? '已收录' : '未收录'}
                     </Tag>
                   );
                 })()}
@@ -912,11 +912,17 @@ export default function TreeViewer({
             {!banner && (
               <>
                 <ApartmentOutlined style={{ fontSize: 20, color: themeColor }} />
-                <Tooltip title={subtitle}>
-                  <Title level={5} style={{ margin: 0, flex: 'none', cursor: 'help' }}>
+                {subtitle ? (
+                  <Tooltip title={subtitle}>
+                    <Title level={5} style={{ margin: 0, flex: 'none', cursor: 'help' }}>
+                      {title}
+                    </Title>
+                  </Tooltip>
+                ) : (
+                  <Title level={5} style={{ margin: 0, flex: 'none' }}>
                     {title}
                   </Title>
-                </Tooltip>
+                )}
               </>
             )}
             <AutoComplete
@@ -991,8 +997,8 @@ export default function TreeViewer({
             {/* 分隔线 */}
             <div style={{ width: 1, height: 24, background: '#e8e8e8' }} />
 
-            {/* 回到根节点（面包屑全为系统根节点时禁用） */}
-            <Tooltip title="回到根节点">
+            {/* 回到顶部（面包屑全为系统节点时禁用） */}
+            <Tooltip title="回到顶部">
               <Button
                 size="small"
                 icon={<HomeOutlined />}
@@ -1091,14 +1097,14 @@ export default function TreeViewer({
                     </a>
                   ) : treeType === 'normal' ? (
                     <a onClick={handleBackToRoot} style={{ cursor: 'pointer' }}>
-                      {b.nickname || '平台根节点'}
+                      {b.nickname || '全局视图'}
                       <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
                         L{b.level}
                       </Text>
                     </a>
                   ) : (
                     <Text type="secondary">
-                      {b.nickname || '系统根节点'}
+                      {b.nickname || '全局视图'}
                       <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
                         L{b.level}
                       </Text>
@@ -1134,7 +1140,7 @@ export default function TreeViewer({
               }}
             >
               <HomeOutlined style={{ fontSize: 11 }} />
-              <span>{rootEntryCollapsed ? '展开根节点入口' : '收起根节点入口'}</span>
+              <span>{rootEntryCollapsed ? '展开入口' : '收起入口'}</span>
               <span style={{ transform: rootEntryCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 200ms', display: 'inline-block', fontSize: 10 }}>▼</span>
             </div>
             {!rootEntryCollapsed && rootEntryElement}
@@ -1187,10 +1193,8 @@ export default function TreeViewer({
                 {unavailableTarget ? (
                   <Result
                     status="warning"
-                    title={`${unavailableTarget.nickname || unavailableTarget.userId} 尚未进入${treeType === 'vip' ? ' VIP' : '普通'}树`}
-                    subTitle={treeType === 'vip'
-                      ? '可以先查看对应根树，或等待该用户满足入树条件后再定位。'
-                      : '可以先查看平台根节点，或等待该用户首单入树后再定位。'}
+                    title={`${unavailableTarget.nickname || unavailableTarget.userId} 尚未被收录`}
+                    subTitle="可以先查看整体概览，或等待该用户产生消费数据后再定位。"
                     extra={[
                       <Button
                         key="clear"
@@ -1211,7 +1215,7 @@ export default function TreeViewer({
                             updateUrl(NORMAL_TREE_ROOT_VIEW_ID, treeDepth, 'locate');
                           }}
                         >
-                          查看平台根节点
+                          查看整体概览
                         </Button>
                       ) : null,
                     ].filter(Boolean)}
@@ -1224,7 +1228,7 @@ export default function TreeViewer({
                         {emptyText}
                       </Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        {rootEntryElement ? '点击上方根节点入口卡片，或在搜索框中输入用户信息' : '在搜索框中输入昵称、手机号或用户 ID'}
+                        {rootEntryElement ? '点击上方入口卡片，或在搜索框中输入用户信息' : '在搜索框中输入昵称、手机号或用户 ID'}
                       </Text>
                     </div>
                   </>
@@ -1397,7 +1401,7 @@ export default function TreeViewer({
                     color: '#ad6800',
                     textAlign: 'center',
                   }}>
-                    节点数量较多，部分深层节点已自动收起。点击节点底部的"展开"按钮查看更多。
+                    数据量较多，部分深层内容已自动收起。点击底部的"展开"按钮查看更多。
                   </div>
                 )}
               </div>

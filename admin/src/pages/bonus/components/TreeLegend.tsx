@@ -81,14 +81,6 @@ const TreeLegend: React.FC<TreeLegendProps> = ({ treeType }) => (
       </div>
       <span>空位</span>
     </div>
-
-    {/* 树规则 */}
-    <div style={{ width: 1, height: 14, background: '#e0e0e0' }} />
-    <span>
-      {treeType === 'vip'
-        ? '三叉树 · 推荐优先 · BFS滑落'
-        : '三叉树 · 轮询平衡插入'}
-    </span>
   </div>
 );
 

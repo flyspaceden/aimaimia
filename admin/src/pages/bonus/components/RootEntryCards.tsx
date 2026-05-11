@@ -1,11 +1,11 @@
 /**
- * 树根节点快捷入口卡片
+ * 可视化入口卡片
  *
- * VIP 树：展示 A1-A10 十棵根树入口卡片
- * 普通树：展示平台根节点单张入口卡片
+ * VIP：展示 A1-A10 十张入口卡片
+ * 普通：展示全局视图单张入口卡片
  *
- * 每张卡片显示：根节点 ID、节点总数、活跃率、本周新增
- * 点击卡片后自动切换到该根节点
+ * 每张卡片显示：入口标识、总数、活跃率、本周新增
+ * 点击卡片后自动切换到对应视图
  */
 import React from 'react';
 import { Card, Spin, Typography } from 'antd';
@@ -44,7 +44,7 @@ export const VipRootEntryCards: React.FC<VipRootEntryCardsProps> = ({
       <div style={{ padding: '24px 0', textAlign: 'center' }}>
         <Spin size="small" />
         <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-          加载根节点...
+          加载入口...
         </Text>
       </div>
     );
@@ -57,10 +57,10 @@ export const VipRootEntryCards: React.FC<VipRootEntryCardsProps> = ({
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
         <CrownOutlined style={{ color: themeColor, fontSize: 14 }} />
         <Text strong style={{ fontSize: 13, color: '#595959' }}>
-          VIP 根树入口
+          VIP 入口
         </Text>
         <Text type="secondary" style={{ fontSize: 11 }}>
-          点击进入对应子树
+          点击进入对应分组
         </Text>
       </div>
       <div
@@ -110,10 +110,10 @@ export const NormalRootEntryCard: React.FC<NormalRootEntryCardProps> = ({
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
         <ApartmentOutlined style={{ color: themeColor, fontSize: 14 }} />
         <Text strong style={{ fontSize: 13, color: '#595959' }}>
-          平台根节点
+          全局入口
         </Text>
         <Text type="secondary" style={{ fontSize: 11 }}>
-          点击进入普通分润树
+          点击查看普通奖励整体
         </Text>
       </div>
       <Card
@@ -149,7 +149,7 @@ export const NormalRootEntryCard: React.FC<NormalRootEntryCardProps> = ({
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <Text strong style={{ fontSize: 14 }}>
-                平台根节点
+                全局视图
               </Text>
               <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
                 <StatItem
