@@ -41,6 +41,58 @@ import type {
   ReturnShippingPaymentStatus,
 } from '../../../src/types/domain/Order';
 
+// ─── 物流轨迹 Timeline（纯 View 实现，避免引第三方库）───────
+function TrackingTimeline({
+  events,
+  accent,
+  colors,
+  typography,
+}: {
+  events: Array<{ time: string; message: string; location?: string }>;
+  accent: string;
+  colors: any;
+  typography: any;
+}) {
+  // 倒序展示：最新事件在顶
+  const sorted = [...events].sort((a, b) => String(b.time).localeCompare(String(a.time)));
+  return (
+    <View>
+      {sorted.map((e, idx) => {
+        const isLatest = idx === 0;
+        return (
+          <View key={`${e.time}-${idx}`} style={{ flexDirection: 'row', marginBottom: 12 }}>
+            {/* 圆点 + 竖线 */}
+            <View style={{ width: 16, alignItems: 'center' }}>
+              <View
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 5,
+                  backgroundColor: isLatest ? accent : colors.border,
+                  marginTop: 4,
+                }}
+              />
+              {idx < sorted.length - 1 && (
+                <View style={{ width: 2, flex: 1, backgroundColor: colors.border, marginTop: 2 }} />
+              )}
+            </View>
+            {/* 文案 */}
+            <View style={{ flex: 1, marginLeft: 8, paddingBottom: 4 }}>
+              <Text style={[typography.bodySm, { color: isLatest ? colors.text.primary : colors.text.secondary }]}>
+                {e.message}
+              </Text>
+              <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 2 }]}>
+                {e.time}
+                {e.location ? ` · ${e.location}` : ''}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 // ─── 照片瓦片：处理 loading / error 兜底 ───────────────────
 function PhotoTile({
   uri,
@@ -490,6 +542,57 @@ export default function AfterSaleDetailScreen() {
                   </Text>
                 </View>
               ) : null}
+
+              {/* 顺丰物流轨迹（买家寄回 / 卖家拒收回寄） */}
+              {as.returnTracking?.events?.length ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
+                    物流节点（实时）
+                  </Text>
+                  <TrackingTimeline events={as.returnTracking.events} accent={colors.brand.primary} colors={colors} typography={typography} />
+                </View>
+              ) : as.returnWaybillNo ? (
+                <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
+                  暂无物流节点（顺丰可能尚未揽收或推送延迟）
+                </Text>
+              ) : null}
+              {as.sellerReturnTracking?.events?.length ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
+                    卖家拒收回寄物流
+                  </Text>
+                  <TrackingTimeline events={as.sellerReturnTracking.events} accent={colors.warning ?? '#fa8c16'} colors={colors} typography={typography} />
+                </View>
+              ) : null}
+            </View>
+          </Animated.View>
+        )}
+
+        {/* ═══════ E2. 换货物流（卖家寄出的换货包裹） ═══════ */}
+        {as.replacementWaybillNo && (
+          <Animated.View entering={FadeInDown.duration(300).delay(280)}>
+            <View style={[styles.section, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+              <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: spacing.sm }]}>
+                换货物流（卖家寄出）
+              </Text>
+              <View style={[styles.infoBlock, { backgroundColor: colors.bgSecondary, borderRadius: radius.md }]}>
+                {as.replacementCarrierName ? (
+                  <InfoRow label="快递公司" value={as.replacementCarrierName} />
+                ) : null}
+                <InfoRow label="快递单号" value={as.replacementWaybillNo} noBorder={!as.replacementTracking?.events?.length} />
+              </View>
+              {as.replacementTracking?.events?.length ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
+                    物流节点（实时）
+                  </Text>
+                  <TrackingTimeline events={as.replacementTracking.events} accent={colors.success ?? '#52c41a'} colors={colors} typography={typography} />
+                </View>
+              ) : (
+                <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
+                  暂无物流节点（顺丰可能尚未揽收或推送延迟）
+                </Text>
+              )}
             </View>
           </Animated.View>
         )}

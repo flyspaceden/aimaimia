@@ -22,6 +22,7 @@ import {
   ACTIVE_STATUSES,
 } from './after-sale.constants';
 import { AfterSaleRewardService } from './after-sale-reward.service';
+import { SfExpressService } from '../shipment/sf-express.service';
 
 // 允许申请售后的订单状态
 const AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED', 'DELIVERED', 'RECEIVED'];
@@ -47,6 +48,7 @@ export class AfterSaleService {
   constructor(
     private prisma: PrismaService,
     private afterSaleRewardService: AfterSaleRewardService,
+    private sfExpress: SfExpressService,
   ) {}
 
   /**
@@ -1093,6 +1095,68 @@ export class AfterSaleService {
       }
       delete (request.orderItem as any).sku;
     }
+
+    // 物流轨迹：优先用 DB 里推送落库的（callback fallback 写入的 JSON 列），
+    // 没有再 fallback 主动查询 SEARCH_ROUTES。
+    // 三条线独立：买家寄回(returnTracking) / 卖家发换货(replacementTracking) /
+    //           卖家拒收回寄(sellerReturnTracking)
+    const buildFromDb = (
+      events: any,
+    ): { status: string; rawOpCode: string; events: any[] } | null => {
+      const arr = Array.isArray(events) ? events : null;
+      if (!arr || arr.length === 0) return null;
+      const latest = arr[arr.length - 1] ?? {};
+      return {
+        status: String(latest.statusCode ?? 'IN_TRANSIT'),
+        rawOpCode: String(latest.opCode ?? ''),
+        events: arr,
+      };
+    };
+    const dbReturn = buildFromDb((request as any).returnTrackingEvents);
+    const dbSellerReturn = buildFromDb((request as any).sellerReturnTrackingEvents);
+    const dbReplacement = buildFromDb((request as any).replacementTrackingEvents);
+
+    const [returnRoute, sellerReturnRoute, replacementRoute] = await Promise.all([
+      dbReturn
+        ? Promise.resolve(dbReturn)
+        : request.returnWaybillNo
+          ? this.sfExpress.queryRoutes(request.returnWaybillNo).catch(() => null)
+          : Promise.resolve(null),
+      dbSellerReturn
+        ? Promise.resolve(dbSellerReturn)
+        : request.sellerReturnWaybillNo
+          ? this.sfExpress.queryRoutes(request.sellerReturnWaybillNo).catch(() => null)
+          : Promise.resolve(null),
+      dbReplacement
+        ? Promise.resolve(dbReplacement)
+        : request.replacementWaybillNo
+          ? this.sfExpress.queryRoutes(request.replacementWaybillNo).catch(() => null)
+          : Promise.resolve(null),
+    ]);
+
+    // 沙箱旧路由过滤（按面单生成时间 + 1h 容差）
+    const filterStaleEvents = (
+      route: typeof returnRoute,
+      referenceTime: Date | null,
+    ) => {
+      if (!route || !route.events?.length || !referenceTime) return route;
+      const earliestAllowed = referenceTime.getTime() - 60 * 60 * 1000;
+      const fresh = route.events.filter((e: any) => {
+        const t = new Date(e.time).getTime();
+        return Number.isFinite(t) ? t >= earliestAllowed : true;
+      });
+      if (fresh.length !== route.events.length) {
+        this.logger.warn(
+          `过滤 SF 沙箱旧路由(buyer): afterSaleId=${request.id}, dropped=${route.events.length - fresh.length}, kept=${fresh.length}`,
+        );
+      }
+      return { ...route, events: fresh };
+    };
+    const returnRefTime = request.returnShippedAt ?? request.approvedAt ?? request.createdAt;
+    const refTimeFallback = request.updatedAt ?? request.createdAt;
+    (request as any).returnTracking = filterStaleEvents(returnRoute, returnRefTime);
+    (request as any).sellerReturnTracking = filterStaleEvents(sellerReturnRoute, refTimeFallback);
+    (request as any).replacementTracking = filterStaleEvents(replacementRoute, refTimeFallback);
 
     return request;
   }

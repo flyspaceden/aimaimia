@@ -13,9 +13,10 @@ import { PaymentModule } from '../payment/payment.module';
 import { PaymentService } from '../payment/payment.service';
 import { InboxModule } from '../inbox/inbox.module';
 import { SellerShippingModule } from '../seller/shipping/seller-shipping.module';
+import { ShipmentModule } from '../shipment/shipment.module';
 
 @Module({
-  imports: [forwardRef(() => PaymentModule), InboxModule, SellerShippingModule],
+  imports: [forwardRef(() => PaymentModule), InboxModule, SellerShippingModule, ShipmentModule],
   controllers: [AfterSaleController],
   providers: [
     AfterSaleService,

@@ -225,6 +225,22 @@ export type AfterSaleRequest = {
     companyId?: string;
     company?: { id: string; name: string };
   };
+  /** 顺丰物流轨迹（后端实时查询/推送落库；无该单号时为 null）*/
+  returnTracking?: SfTrackingResult | null;
+  sellerReturnTracking?: SfTrackingResult | null;
+  replacementTracking?: SfTrackingResult | null;
+};
+
+/** 顺丰物流轨迹（来自 EXP_RECE_SEARCH_ROUTES，已过滤沙箱旧路由污染）*/
+export type SfTrackingResult = {
+  status: string;
+  rawOpCode: string;
+  events: Array<{
+    time: string;
+    message: string;
+    location?: string;
+    opCode?: string;
+  }>;
 };
 
 export type Order = {
