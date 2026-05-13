@@ -99,6 +99,18 @@ describe('ShippingRuleService 运费计算引擎', () => {
     expect(detail.matchedRuleName).toBe('A 规则');
   });
 
+  it('同 priority 下地区规则优先于全国默认规则', async () => {
+    const { service } = createMocks([
+      makeRule({ id: 'rule-a', name: '全国默认', regionCodes: [] }),
+      makeRule({ id: 'rule-b', name: '广东规则', regionCodes: ['440000'] }),
+    ]);
+
+    const detail = await service.calculateShippingDetail(99, '440300', 3000);
+
+    expect(detail.matchedRuleId).toBe('rule-b');
+    expect(detail.matchedRuleName).toBe('广东规则');
+  });
+
   it('全国 priority=100 高于广东 priority=50 时全国命中', async () => {
     const { service } = createMocks([
       makeRule({ id: 'gd', name: '广东规则', regionCodes: ['440000'], priority: 50 }),

@@ -1,7 +1,7 @@
-import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Space, Popconfirm, Card, InputNumber, Alert, Badge, Row, Col, Spin, Tooltip, Typography, Switch } from 'antd';
+import { App, Button, Tag, Space, Popconfirm, Card, InputNumber, Alert, Row, Col, Spin, Tooltip, Typography, Switch } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, WarningOutlined, SaveOutlined, InfoCircleOutlined, UploadOutlined } from '@ant-design/icons';
 import {
   listRules,
@@ -66,16 +66,6 @@ const REGION_OPTIONS: { label: string; value: string }[] = [
 const REGION_NAME_MAP: Record<string, string> = {};
 REGION_OPTIONS.forEach((r) => { REGION_NAME_MAP[r.value] = r.label; });
 
-// 优先级等级颜色映射
-const getPriorityStyle = (priority: number, maxPriority: number) => {
-  if (maxPriority <= 0) return { color: '#999', bg: 'transparent' };
-  const ratio = priority / maxPriority;
-  if (ratio >= 0.8) return { color: '#f5222d', bg: '#fff1f0' };  // 高优先
-  if (ratio >= 0.5) return { color: '#fa8c16', bg: '#fff7e6' };  // 中优先
-  if (ratio > 0) return { color: '#1890ff', bg: '#e6f7ff' };     // 低优先
-  return { color: '#999', bg: 'transparent' };                     // 默认
-};
-
 interface ShippingRuleFormValues {
   name: string;
   regionCodesText?: string;
@@ -84,7 +74,6 @@ interface ShippingRuleFormValues {
   additionalWeightKg: number;
   additionalFee: number;
   minChargeWeightKg: number;
-  priority?: number;
   isActive?: boolean;
 }
 
@@ -149,12 +138,6 @@ export default function ShippingRulesPage() {
 
   // 缓存所有已加载规则，用于冲突检测
   const [allRules, setAllRules] = useState<ShippingRule[]>([]);
-
-  // 计算当前规则列表中的最大优先级（用于优先级高亮）
-  const maxPriority = useMemo(() => {
-    if (allRules.length === 0) return 0;
-    return Math.max(...allRules.map((r) => r.priority));
-  }, [allRules]);
 
   // 冲突检测：给定当前编辑的规则，找到与之条件重叠的其他规则
   const detectConflicts = useCallback((formRule: {
@@ -239,7 +222,7 @@ export default function ShippingRulesPage() {
   const columns: ProColumns<ShippingRule>[] = [
     {
       title: '#',
-      dataIndex: 'priorityRank',
+      dataIndex: 'rowIndex',
       width: 50,
       search: false,
       render: (_: unknown, _r: ShippingRule, index: number) => (
@@ -281,30 +264,6 @@ export default function ShippingRulesPage() {
       width: 110,
       search: false,
       render: (_: unknown, r: ShippingRule) => `¥${Number(r.additionalFee ?? 0).toFixed(2)}`,
-    },
-    {
-      title: '优先级',
-      dataIndex: 'priority',
-      width: 110,
-      search: false,
-      sorter: (a: ShippingRule, b: ShippingRule) => a.priority - b.priority,
-      defaultSortOrder: 'descend',
-      render: (_: unknown, r: ShippingRule) => {
-        const style = getPriorityStyle(r.priority, maxPriority);
-        return (
-          <Badge
-            count={r.priority}
-            showZero
-            style={{
-              backgroundColor: style.bg,
-              color: style.color,
-              border: `1px solid ${style.color}`,
-              fontWeight: 600,
-              boxShadow: 'none',
-            }}
-          />
-        );
-      },
     },
     {
       title: '状态',
@@ -457,9 +416,6 @@ export default function ShippingRulesPage() {
         search={false}
         rowClassName={(record) => {
           if (!record.isActive) return 'shipping-rule-row-inactive';
-          const style = getPriorityStyle(record.priority, maxPriority);
-          if (style.color === '#f5222d') return 'shipping-rule-row-high';
-          if (style.color === '#fa8c16') return 'shipping-rule-row-medium';
           return '';
         }}
         toolBarRender={() => [
@@ -490,20 +446,8 @@ export default function ShippingRulesPage() {
         onSuccess={() => actionRef.current?.reload()}
       />
 
-      {/* 内联样式：优先级行高亮 */}
+      {/* 内联样式：停用规则弱化 */}
       <style>{`
-        .shipping-rule-row-high {
-          background-color: #fff1f0 !important;
-        }
-        .shipping-rule-row-high:hover > td {
-          background-color: #ffccc7 !important;
-        }
-        .shipping-rule-row-medium {
-          background-color: #fff7e6 !important;
-        }
-        .shipping-rule-row-medium:hover > td {
-          background-color: #ffe7ba !important;
-        }
         .shipping-rule-row-inactive {
           opacity: 0.5;
         }
@@ -521,14 +465,12 @@ export default function ShippingRulesPage() {
           additionalWeightKg: editModal.rule.additionalWeightKg ?? 1,
           additionalFee: editModal.rule.additionalFee ?? 0,
           minChargeWeightKg: editModal.rule.minChargeWeightKg ?? 1,
-          priority: editModal.rule.priority,
           isActive: editModal.rule.isActive,
         } : {
           firstWeightKg: 3,
           additionalWeightKg: 1,
           additionalFee: 0,
           minChargeWeightKg: 1,
-          priority: 0,
           isActive: true,
         }}
         modalProps={{
@@ -571,7 +513,6 @@ export default function ShippingRulesPage() {
             additionalWeightKg: values.additionalWeightKg,
             additionalFee: values.additionalFee,
             minChargeWeightKg: values.minChargeWeightKg,
-            priority: values.priority ?? 0,
             isActive: values.isActive ?? true,
           };
 
@@ -612,12 +553,11 @@ export default function ShippingRulesPage() {
                     {' — '}
                     地区: {formatRegionCodes(c.regionCodes)}，
                     首重: {c.firstWeightKg ?? 3}kg / ¥{Number(c.firstFee ?? c.fee ?? 0).toFixed(2)}，
-                    续重: {c.additionalWeightKg ?? 1}kg / ¥{Number(c.additionalFee ?? 0).toFixed(2)}，
-                    优先级: {c.priority}
+                    续重: {c.additionalWeightKg ?? 1}kg / ¥{Number(c.additionalFee ?? 0).toFixed(2)}
                   </div>
                 ))}
                 <div style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
-                  地区范围重叠时将按优先级数值从高到低命中，请确认优先级设置正确。
+                  地区范围重叠会影响最终命中规则；建议停用或删除重复地区规则。
                 </div>
               </div>
             }
@@ -669,12 +609,6 @@ export default function ShippingRulesPage() {
           min={0}
           fieldProps={{ step: 0.5, precision: 2 }}
           rules={[{ required: true, message: '请输入最小计费重量' }]}
-        />
-        <ProFormDigit
-          name="priority"
-          label="优先级"
-          fieldProps={{ precision: 0 }}
-          extra="数值越大优先级越高"
         />
         <ProFormSelect
           name="isActive"

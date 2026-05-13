@@ -4,6 +4,8 @@ import { ShippingRuleImportService } from './shipping-rule-import.service';
 const csvHeader =
   'name,regionCodes,fee,firstWeightKg,firstFee,additionalWeightKg,additionalFee,minChargeWeightKg,priority,minAmount,maxAmount,minWeight,maxWeight,isActive';
 const compactCsvHeader =
+  'name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,isActive';
+const legacyCompactCsvHeader =
   'name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,priority,isActive';
 
 function csvRow(values: Array<string | number | boolean | null | undefined>) {
@@ -61,7 +63,6 @@ function validCompactCsvRow(overrides: Partial<Record<string, string | number | 
     firstFee: 9.1,
     additionalWeightKg: 1,
     additionalFee: 1.3,
-    priority: 100,
     isActive: true,
     ...overrides,
   };
@@ -73,7 +74,6 @@ function validCompactCsvRow(overrides: Partial<Record<string, string | number | 
     row.firstFee,
     row.additionalWeightKg,
     row.additionalFee,
-    row.priority,
     row.isActive,
   ]);
 }
@@ -164,6 +164,34 @@ describe('ShippingRuleImportService', () => {
         fee: 9.1,
         firstFee: 9.1,
         minChargeWeightKg: 1,
+      }),
+    });
+  });
+
+  it('still accepts legacy compact CSV that includes priority', async () => {
+    const { service, tx } = createService([]);
+    const payload = `${legacyCompactCsvHeader}\n${csvRow([
+      '旧模板',
+      '',
+      3,
+      9.1,
+      1,
+      1.3,
+      7,
+      true,
+    ])}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: '旧模板',
+        priority: 7,
       }),
     });
   });

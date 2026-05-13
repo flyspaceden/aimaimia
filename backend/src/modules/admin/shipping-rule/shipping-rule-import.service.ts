@@ -19,6 +19,16 @@ const CSV_HEADERS_COMPACT = [
   'firstFee',
   'additionalWeightKg',
   'additionalFee',
+  'isActive',
+] as const;
+
+const CSV_HEADERS_COMPACT_LEGACY = [
+  'name',
+  'regionCodes',
+  'firstWeightKg',
+  'firstFee',
+  'additionalWeightKg',
+  'additionalFee',
   'priority',
   'isActive',
 ] as const;
@@ -40,7 +50,10 @@ const CSV_HEADERS_EXTENDED = [
   'isActive',
 ] as const;
 
-type CsvHeader = typeof CSV_HEADERS_COMPACT[number] | typeof CSV_HEADERS_EXTENDED[number];
+type CsvHeader =
+  | typeof CSV_HEADERS_COMPACT[number]
+  | typeof CSV_HEADERS_COMPACT_LEGACY[number]
+  | typeof CSV_HEADERS_EXTENDED[number];
 
 const GRAMS_PER_KG = 1000;
 
@@ -176,7 +189,6 @@ export class ShippingRuleImportService {
       9.1,
       1,
       1.3,
-      100,
       true,
     ].join(',')}`;
   }
@@ -284,6 +296,9 @@ export class ShippingRuleImportService {
   private matchCsvHeaders(headers: string[]): CsvHeader[] | null {
     if (this.sameStringArray(headers, [...CSV_HEADERS_COMPACT])) {
       return [...CSV_HEADERS_COMPACT];
+    }
+    if (this.sameStringArray(headers, [...CSV_HEADERS_COMPACT_LEGACY])) {
+      return [...CSV_HEADERS_COMPACT_LEGACY];
     }
     if (this.sameStringArray(headers, [...CSV_HEADERS_EXTENDED])) {
       return [...CSV_HEADERS_EXTENDED];

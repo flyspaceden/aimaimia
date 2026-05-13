@@ -26,7 +26,7 @@
 
 后端运费引擎：
 
-- Modify `backend/src/modules/admin/shipping-rule/shipping-rule.service.ts`：新增 `calculateShippingDetail()`、整数化计算、priority+id 稳定排序、Redis 缓存。
+- Modify `backend/src/modules/admin/shipping-rule/shipping-rule.service.ts`：新增 `calculateShippingDetail()`、整数化计算、内部 priority + 地区优先 + id 稳定排序、Redis 缓存。
 - Create `backend/src/modules/admin/shipping-rule/shipping-rule.cache.ts`：Redis 缓存读写与失效。
 - Modify `backend/src/modules/admin/shipping-rule/dto/create-shipping-rule.dto.ts`：`firstFee` 必填 + `firstFee > 0` 校验、字段重命名对齐 spec。
 - Modify `backend/src/modules/admin/shipping-rule/dto/update-shipping-rule.dto.ts`：同上。
@@ -321,6 +321,8 @@ const candidates = rules
   .filter(r => regionMatches(r.regionCodes, regionCode))
   .sort((a, b) => {
     if (b.priority !== a.priority) return b.priority - a.priority;
+    const specificity = Number(b.regionCodes.length > 0) - Number(a.regionCodes.length > 0);
+    if (specificity !== 0) return specificity;
     return a.id.localeCompare(b.id);
   });
 const matched = candidates[0] ?? null;
@@ -368,12 +370,13 @@ async calculateShippingFee(
 
 1. 广东 3kg 内 → 首重价。
 2. 广东 4.2kg → 首重价 + 2 个续重（防浮点 bug：`totalWeightGram = 4200`，`ceil((4200 - 3000) / 1000) = 2`）。
-3. 同 priority 多条规则 → 按 id 升序稳定命中。
+3. 同 priority 多条地区规则 → 按 id 升序稳定命中。
 4. 全国 priority=100 vs 广东 priority=50 + 广东订单 → 全国命中（priority 绝对优先，用于管理员强制覆盖）。
 5. 全国 priority=50 vs 广东 priority=100 + 广东订单 → 广东命中（地区规则通过更高 priority 覆盖全国默认）。
-6. 含赠品 SKU 时总重量正确累加。
-7. 无规则命中 → `DEFAULT_SHIPPING_FEE` 且 `fallbackUsed = true`。
-8. 缓存命中跳过 DB 查询；写操作后缓存被清。
+6. 全国默认与地区规则 priority 相同 + 广东订单 → 地区规则命中。
+7. 含赠品 SKU 时总重量正确累加。
+8. 无规则命中 → `DEFAULT_SHIPPING_FEE` 且 `fallbackUsed = true`。
+9. 缓存命中跳过 DB 查询；写操作后缓存被清。
 
 **Verify:** `npm test -- shipping-rule.service.spec.ts` 全绿。
 
@@ -705,11 +708,11 @@ downloadTemplate()
 
 - [x] **Step 2: 列表页**
 
-ProTable 字段：规则名 / 地区范围 / 首重重量 / 首重价 / 续重单位 / 续重价 / 优先级 / 状态 / 更新时间 / 操作。
+ProTable 字段：规则名 / 地区范围 / 首重重量 / 首重价 / 续重单位 / 续重价 / 状态 / 更新时间 / 操作。`priority` 保留为平台内部兜底字段，不在常规页面展示。
 
 - [x] **Step 3: 新增/编辑表单**
 
-ProForm 字段（`firstFee` 必填）：名称、地区编码（留空 = 全国）、首重重量 kg、首重价、续重单位 kg、续重价、最小计费重量 kg、优先级、启用。
+ProForm 字段（`firstFee` 必填）：名称、地区编码（留空 = 全国）、首重重量 kg、首重价、续重单位 kg、续重价、最小计费重量 kg、启用。
 
 - [x] **Step 4: 预览面板**
 

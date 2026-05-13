@@ -234,7 +234,9 @@ const candidates = rules
   .filter(r => regionMatches(r.regionCodes, regionCode))   // 空数组 = 全国
   .sort((a, b) => {
     if (b.priority !== a.priority) return b.priority - a.priority;
-    return a.id.localeCompare(b.id);                        // 同 priority 按 id 升序，保证稳定
+    const specificity = Number(b.regionCodes.length > 0) - Number(a.regionCodes.length > 0);
+    if (specificity !== 0) return specificity;               // 同 priority 地区规则优先于全国
+    return a.id.localeCompare(b.id);                         // 同类型按 id 升序，保证稳定
   });
 return candidates[0] ?? null;  // 无命中时返回 DEFAULT_SHIPPING_FEE，fallbackUsed = true
 ```
@@ -242,7 +244,7 @@ return candidates[0] ?? null;  // 无命中时返回 DEFAULT_SHIPPING_FEE，fall
 补充说明：
 
 1. 地区匹配沿用当前省级前缀规则：`regionCode.slice(0, 2)` 与规则地区码前两位比较，空数组表示全国。
-2. 同 priority 多条规则按 `id` 升序兜底，避免 DB 顺序漂移。
+2. 同 priority 下地区规则优先于全国规则；同类型多条规则按 `id` 升序兜底，避免 DB 顺序漂移。
 3. `minAmount/maxAmount/minWeight/maxWeight/fee` 仅作为旧数据兼容与回滚兜底字段保留；当前顺丰风格计价不再按金额区间或重量区间匹配，低客单价特殊运费应通过新增显式业务字段另行设计。
 4. 命中后使用公式字段计算（见第 4 节）。
 
@@ -286,7 +288,6 @@ totalWeight = sum(sku.weightGram * quantity)  // 包含赠品/奖品 SKU
 首重价
 续重单位
 续重价
-优先级
 状态
 更新时间
 ```
@@ -301,9 +302,10 @@ totalWeight = sum(sku.weightGram * quantity)  // 包含赠品/奖品 SKU
 续重单位 kg，默认 1
 续重价 元
 最小计费重量 kg，默认 1
-优先级
 启用/停用
 ```
+
+`priority` 保留为平台内部兜底字段，不在管理后台常规表格、表单和下载模板中展示。规则同优先级时，地区规则优先于全国默认规则，再按 `id` 升序稳定命中，避免运营需要理解“优先级”概念。
 
 预览测试保留并显示计算过程：
 
@@ -319,9 +321,9 @@ totalWeight = sum(sku.weightGram * quantity)  // 包含赠品/奖品 SKU
 CSV 示例：
 
 ```csv
-name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,priority,isActive
-广东省,"44",3,9.1,1,1.3,100,true
-福建湖南广西江西,"35|43|45|36",3,10,1,2.3,90,true
+name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,isActive
+广东省,"44",3,9.1,1,1.3,true
+福建湖南广西江西,"35|43|45|36",3,10,1,2.3,true
 ```
 
 JSON 示例：
@@ -335,7 +337,6 @@ JSON 示例：
     "firstFee": 9.1,
     "additionalWeightKg": 1,
     "additionalFee": 1.3,
-    "priority": 100,
     "isActive": true
   }
 ]
@@ -407,7 +408,7 @@ summary.amountToFreeShipping
 1. Schema 增加公式字段时，迁移 SQL 先回填历史数据，再加 NOT NULL 约束；运行期 `firstFee / additionalFee` 不设默认值，漏配立即报错。
 2. 迁移已有种子规则为公式规则：
    - 全国默认：首重 3kg，首重价可沿用当前标准运费或按平台填写，续重价必须回填为真实价格；当前种子和老库迁移默认使用 1.3 元/kg，且通过 follow-up migration 修正已执行旧迁移的环境。
-   - 新疆/西藏等偏远地区用更高优先级覆盖，续重价应高于全国默认；当前种子示例分别为 5.1 元/kg、7.1 元/kg。
+   - 新疆/西藏等偏远地区用地区规则覆盖全国默认，续重价应高于全国默认；当前种子示例分别为 5.1 元/kg、7.1 元/kg。`priority` 仅作内部兜底，不在常规运营页面展示。
    - 旧规则迁移时 `firstFee = fee`，`fee` 继续保留为兼容字段。
 3. 生产上线前在管理后台检查至少有一条全国默认公式规则。
 4. 保留 `DEFAULT_SHIPPING_FEE`，避免地区规则漏配导致结算失败。
@@ -422,8 +423,8 @@ summary.amountToFreeShipping
 1. 广东 3kg 内返回首重价。
 2. 广东 4.2kg 返回首重价 + 2 个续重。
 3. **浮点边界**：`totalWeightGram = 4200`、首重 3kg、续重 1kg 时，结果稳定为 `首重价 + 1 × 续重价`，不被 `4.2 - 3` 浮点误差影响。
-4. 新疆/西藏等高优先级地区覆盖全国默认。
-5. **同 priority 多条规则**按 `id` 升序稳定命中，多次查询结果一致。
+4. 新疆/西藏等地区规则在同 priority 下覆盖全国默认。
+5. **同 priority 多条地区规则**按 `id` 升序稳定命中，多次查询结果一致。
 6. 满普通免邮门槛返回 0。
 7. 满 VIP 免邮门槛返回 0。
 8. 无规则命中返回 `DEFAULT_SHIPPING_FEE`，且 `fallbackUsed = true`。

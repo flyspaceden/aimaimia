@@ -181,7 +181,7 @@ export class ShippingRuleService {
   /**
    * 运费计算引擎（供 OrderService 调用）
    * totalWeight 单位：g（克）
-   * 按 priority 降序匹配第一条符合所有维度的规则
+   * 按 priority 降序匹配；同 priority 下地区规则优先于全国规则，再按 id 稳定命中
    */
   async calculateShippingFee(
     goodsAmount: number,
@@ -216,6 +216,8 @@ export class ShippingRuleService {
       .filter((rule) => this.regionMatches(rule.regionCodes, regionCode))
       .sort((a, b) => {
         if (b.priority !== a.priority) return b.priority - a.priority;
+        const specificity = this.regionSpecificityScore(b) - this.regionSpecificityScore(a);
+        if (specificity !== 0) return specificity;
         return a.id.localeCompare(b.id);
       });
     const matched = candidates[0] ?? null;
@@ -344,6 +346,10 @@ export class ShippingRuleService {
     }
     const provinceCode = regionCode.slice(0, 2);
     return regionCodes.some((code) => code.slice(0, 2) === provinceCode);
+  }
+
+  private regionSpecificityScore(rule: Pick<ShippingRule, 'regionCodes'>): number {
+    return rule.regionCodes.length > 0 ? 1 : 0;
   }
 
   private validateRuleBounds(input: {

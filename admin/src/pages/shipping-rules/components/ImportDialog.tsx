@@ -21,8 +21,8 @@ interface ImportDialogProps {
 }
 
 const DEFAULT_CSV = [
-  'name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,priority,isActive',
-  '全国默认,,3,9.1,1,1.3,100,true',
+  'name,regionCodes,firstWeightKg,firstFee,additionalWeightKg,additionalFee,isActive',
+  '全国默认,,3,9.1,1,1.3,true',
 ].join('\n');
 
 const DEFAULT_JSON = JSON.stringify(
@@ -34,7 +34,6 @@ const DEFAULT_JSON = JSON.stringify(
       firstFee: 9.1,
       additionalWeightKg: 1,
       additionalFee: 1.3,
-      priority: 100,
       isActive: true,
     },
   ],

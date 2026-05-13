@@ -79,7 +79,6 @@ export interface CreateShippingRuleInput {
   additionalWeightKg?: number;
   additionalFee?: number;
   minChargeWeightKg?: number;
-  priority?: number;
   isActive?: boolean;
 }
 
