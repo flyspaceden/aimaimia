@@ -731,7 +731,7 @@ export class SellerShippingService {
   private normalizeReserveItemWeightGram(weightGram: unknown): number {
     const normalized = Number(weightGram);
     return Number.isFinite(normalized) && normalized > 0
-      ? Math.trunc(normalized)
+      ? Math.ceil(normalized)
       : DEFAULT_SKU_WEIGHT_GRAM;
   }
 
@@ -742,7 +742,7 @@ export class SellerShippingService {
         : 0;
       const weightGram = Number(item.weightGram);
       if (Number.isFinite(weightGram) && weightGram > 0) {
-        return sum + Math.trunc(weightGram) * quantity;
+        return sum + Math.ceil(weightGram) * quantity;
       }
 
       const legacyWeightKg = Number(item.weight);

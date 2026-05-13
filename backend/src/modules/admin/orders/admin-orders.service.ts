@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
@@ -27,6 +27,7 @@ export class AdminOrdersService {
     private sfExpress: SfExpressService,
     private uploadService: UploadService,
     private paymentService: PaymentService,
+    @Optional()
     private shippingCost?: OrderShippingCostService,
   ) {}
 
@@ -840,13 +841,15 @@ export class AdminOrdersService {
   ): number {
     return items.reduce((sum, item) => {
       const quantity = Number(item.quantity);
-      const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0;
+      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
+        throw new BadRequestException('订单商品数量异常，无法生成顺丰面单');
+      }
       const weightGram = Number(item.sku?.weightGram);
       const safeWeightGram =
         Number.isFinite(weightGram) && weightGram > 0
-          ? Math.trunc(weightGram)
+          ? Math.ceil(weightGram)
           : DEFAULT_SKU_WEIGHT_GRAM;
-      return sum + safeWeightGram * safeQuantity;
+      return sum + safeWeightGram * quantity;
     }, 0);
   }
 

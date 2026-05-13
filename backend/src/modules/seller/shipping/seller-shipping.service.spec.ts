@@ -266,6 +266,31 @@ describe('generateWaybill — 面单生成', () => {
     });
   });
 
+  it('SKU 重量出现小数克时向上取整申报顺丰重量', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    prisma.orderItem.findMany.mockResolvedValue([
+      {
+        companyId: COMPANY_ID,
+        quantity: 1,
+        sku: { weightGram: 1500.5, product: { title: '精品番茄' } },
+      },
+    ]);
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        totalWeight: 1.501,
+      }),
+    );
+    expect(shippingCost.recordPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        weightGramSent: 1501,
+      }),
+    );
+  });
+
   it('成本记录返回 null 不影响发货返回，Shipment 仍完成持久化', async () => {
     const { service, prisma, sfExpress, shippingCost } = createMocks();
     setupHappyPath(prisma, sfExpress);

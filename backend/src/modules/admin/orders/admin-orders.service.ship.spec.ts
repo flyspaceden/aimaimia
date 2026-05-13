@@ -175,4 +175,27 @@ describe('AdminOrdersService.ship', () => {
       }),
     );
   });
+
+  it.each([
+    ['0', 0],
+    ['负数', -1],
+    ['NaN', Number.NaN],
+    ['非整数', 1.5],
+  ])('自动顺丰取号遇到非法商品数量 %s 时拒绝发货，避免少报重量', async (_label, quantity) => {
+    const { service, prisma, sfExpress, shippingCost } = makeService();
+    mockAutoShipOrder(prisma);
+    prisma.orderItem.findMany.mockResolvedValue([
+      { quantity, sku: { weightGram: 1500, product: { title: '苹果' } } },
+    ]);
+
+    await expect(
+      service.ship('order-001', {
+        useCarrierAuto: true,
+        carrierCode: 'SF',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(sfExpress.createOrder).not.toHaveBeenCalled();
+    expect(shippingCost.recordPackage).not.toHaveBeenCalled();
+  });
 });

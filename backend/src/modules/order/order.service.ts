@@ -1087,6 +1087,7 @@ export class OrderService {
     for (const [skuId, sku] of skuMap.entries()) {
       const weightGram = this.normalizeSkuWeightGram((sku as any).weightGram);
       skuWeightMap.set(skuId, weightGram);
+      // fallback SKU 查询会用 productId 作为 skuMap key；分组项里仍保存真实 sku.id。
       skuWeightMap.set((sku as any).id, weightGram);
     }
 
