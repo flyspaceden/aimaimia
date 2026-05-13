@@ -3,51 +3,13 @@ import { App, Alert, Button, Card, Col, Descriptions, InputNumber, Row, Select, 
 import { SearchOutlined } from '@ant-design/icons';
 import { previewRule } from '@/api/shipping-rules';
 import type { ShippingPreview } from '@/api/shipping-rules';
+import { SHIPPING_REGION_OPTIONS, formatRuleRegionCode } from '../regions';
 
 const { Text } = Typography;
 
-const REGION_OPTIONS: { label: string; value: string }[] = [
-  { label: '北京', value: '11' },
-  { label: '天津', value: '12' },
-  { label: '河北', value: '13' },
-  { label: '山西', value: '14' },
-  { label: '内蒙古', value: '15' },
-  { label: '辽宁', value: '21' },
-  { label: '吉林', value: '22' },
-  { label: '黑龙江', value: '23' },
-  { label: '上海', value: '31' },
-  { label: '江苏', value: '32' },
-  { label: '浙江', value: '33' },
-  { label: '安徽', value: '34' },
-  { label: '福建', value: '35' },
-  { label: '江西', value: '36' },
-  { label: '山东', value: '37' },
-  { label: '河南', value: '41' },
-  { label: '湖北', value: '42' },
-  { label: '湖南', value: '43' },
-  { label: '广东', value: '44' },
-  { label: '广西', value: '45' },
-  { label: '海南', value: '46' },
-  { label: '重庆', value: '50' },
-  { label: '四川', value: '51' },
-  { label: '贵州', value: '52' },
-  { label: '云南', value: '53' },
-  { label: '西藏', value: '54' },
-  { label: '陕西', value: '61' },
-  { label: '甘肃', value: '62' },
-  { label: '青海', value: '63' },
-  { label: '宁夏', value: '64' },
-  { label: '新疆', value: '65' },
-];
-
-const REGION_NAME_MAP = REGION_OPTIONS.reduce<Record<string, string>>((map, item) => {
-  map[item.value] = item.label;
-  return map;
-}, {});
-
 const formatRegion = (regionCode?: string) => {
   if (!regionCode) return '未指定';
-  return `${REGION_NAME_MAP[regionCode] || regionCode}（${regionCode}）`;
+  return formatRuleRegionCode(regionCode);
 };
 
 export default function PreviewPanel() {
@@ -104,7 +66,7 @@ export default function PreviewPanel() {
             allowClear
             showSearch
             optionFilterProp="label"
-            options={REGION_OPTIONS}
+            options={SHIPPING_REGION_OPTIONS}
             style={{ width: '100%' }}
           />
         </Col>

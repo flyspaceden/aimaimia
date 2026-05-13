@@ -16,6 +16,12 @@ import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import ImportDialog from './components/ImportDialog';
 import PreviewPanel from './components/PreviewPanel';
+import {
+  SHIPPING_REGION_OPTIONS,
+  formatRuleRegionCodes,
+  normalizeRuleRegionCodesForForm,
+  normalizeSelectedRegionCodes,
+} from './regions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -27,48 +33,9 @@ const getRuleStatusMeta = (isActive: boolean) => (
     : { text: '停用', color: 'default' }
 );
 
-// 中国省份/直辖市地区编码映射（用于预览区域选择器）
-const REGION_OPTIONS: { label: string; value: string }[] = [
-  { label: '北京', value: '11' },
-  { label: '天津', value: '12' },
-  { label: '河北', value: '13' },
-  { label: '山西', value: '14' },
-  { label: '内蒙古', value: '15' },
-  { label: '辽宁', value: '21' },
-  { label: '吉林', value: '22' },
-  { label: '黑龙江', value: '23' },
-  { label: '上海', value: '31' },
-  { label: '江苏', value: '32' },
-  { label: '浙江', value: '33' },
-  { label: '安徽', value: '34' },
-  { label: '福建', value: '35' },
-  { label: '江西', value: '36' },
-  { label: '山东', value: '37' },
-  { label: '河南', value: '41' },
-  { label: '湖北', value: '42' },
-  { label: '湖南', value: '43' },
-  { label: '广东', value: '44' },
-  { label: '广西', value: '45' },
-  { label: '海南', value: '46' },
-  { label: '重庆', value: '50' },
-  { label: '四川', value: '51' },
-  { label: '贵州', value: '52' },
-  { label: '云南', value: '53' },
-  { label: '西藏', value: '54' },
-  { label: '陕西', value: '61' },
-  { label: '甘肃', value: '62' },
-  { label: '青海', value: '63' },
-  { label: '宁夏', value: '64' },
-  { label: '新疆', value: '65' },
-];
-
-// 地区编码→名称映射
-const REGION_NAME_MAP: Record<string, string> = {};
-REGION_OPTIONS.forEach((r) => { REGION_NAME_MAP[r.value] = r.label; });
-
 interface ShippingRuleFormValues {
   name: string;
-  regionCodesText?: string;
+  regionCodes?: string[];
   firstWeightKg: number;
   firstFee: number;
   additionalWeightKg: number;
@@ -80,15 +47,8 @@ interface ShippingRuleFormValues {
 /** 检测两个地区列表是否有交集（空数组视为"全国"，与任何地区交叉） */
 const regionsOverlap = (a: string[], b: string[]): boolean => {
   if (a.length === 0 || b.length === 0) return true; // 全国与任何地区交叉
-  const provincePrefixes = new Set(
-    a
-      .map((code) => code.trim().slice(0, 2))
-      .filter(Boolean),
-  );
-  return b
-    .map((code) => code.trim().slice(0, 2))
-    .filter(Boolean)
-    .some((prefix) => provincePrefixes.has(prefix));
+  const provincePrefixes = new Set(normalizeRuleRegionCodesForForm(a));
+  return normalizeRuleRegionCodesForForm(b).some((prefix) => provincePrefixes.has(prefix));
 };
 
 export default function ShippingRulesPage() {
@@ -159,10 +119,7 @@ export default function ShippingRulesPage() {
 
   // 表单值变化时重新检测冲突
   const handleFormValuesChange = useCallback((_: unknown, allValues: ShippingRuleFormValues) => {
-    const regionCodes = (allValues.regionCodesText || '')
-      .split(/[,\n，]/)
-      .map((v) => v.trim())
-      .filter(Boolean);
+    const regionCodes = normalizeSelectedRegionCodes(allValues.regionCodes);
     const conflicts = detectConflicts(
       { regionCodes },
       editModal.rule?.id,
@@ -213,12 +170,6 @@ export default function ShippingRulesPage() {
     }
   };
 
-  // 将地区编码列表格式化为可读名称
-  const formatRegionCodes = (codes: string[]): string => {
-    if (codes.length === 0) return '全国';
-    return codes.map((c) => REGION_NAME_MAP[c] || c).join(', ');
-  };
-
   const columns: ProColumns<ShippingRule>[] = [
     {
       title: '#',
@@ -235,7 +186,7 @@ export default function ShippingRulesPage() {
       dataIndex: 'regionCodes',
       width: 200,
       search: false,
-      render: (_: unknown, r: ShippingRule) => formatRegionCodes(r.regionCodes),
+      render: (_: unknown, r: ShippingRule) => formatRuleRegionCodes(r.regionCodes),
     },
     {
       title: '首重重量',
@@ -459,7 +410,7 @@ export default function ShippingRulesPage() {
         open={editModal.visible}
         initialValues={editModal.rule ? {
           name: editModal.rule.name,
-          regionCodesText: editModal.rule.regionCodes.join(','),
+          regionCodes: normalizeRuleRegionCodesForForm(editModal.rule.regionCodes),
           firstWeightKg: editModal.rule.firstWeightKg ?? 3,
           firstFee: editModal.rule.firstFee ?? editModal.rule.fee,
           additionalWeightKg: editModal.rule.additionalWeightKg ?? 1,
@@ -499,10 +450,7 @@ export default function ShippingRulesPage() {
             return false;
           }
 
-          const regionCodes = (values.regionCodesText || '')
-            .split(/[,\n，]/)
-            .map((v) => v.trim())
-            .filter(Boolean);
+          const regionCodes = normalizeSelectedRegionCodes(values.regionCodes);
 
           const payload = {
             name: values.name,
@@ -551,7 +499,7 @@ export default function ShippingRulesPage() {
                   <div key={c.id} style={{ marginBottom: 4 }}>
                     <strong>{c.name}</strong>
                     {' — '}
-                    地区: {formatRegionCodes(c.regionCodes)}，
+                    地区: {formatRuleRegionCodes(c.regionCodes)}，
                     首重: {c.firstWeightKg ?? 3}kg / ¥{Number(c.firstFee ?? c.fee ?? 0).toFixed(2)}，
                     续重: {c.additionalWeightKg ?? 1}kg / ¥{Number(c.additionalFee ?? 0).toFixed(2)}
                   </div>
@@ -569,10 +517,19 @@ export default function ShippingRulesPage() {
           rules={[{ required: true, message: '请输入规则名称' }]}
           placeholder="如：华南小件、全国默认运费"
         />
-        <ProFormText
-          name="regionCodesText"
-          label="地区编码列表"
-          placeholder="如：44,45,46（逗号分隔，留空=全国）"
+        <ProFormSelect
+          name="regionCodes"
+          label="适用地区"
+          extra="不选择表示全国规则。这里使用行政区划省级归属，不是邮政编码。"
+          placeholder="选择省份/自治区/直辖市"
+          options={SHIPPING_REGION_OPTIONS}
+          fieldProps={{
+            mode: 'multiple',
+            allowClear: true,
+            showSearch: true,
+            optionFilterProp: 'label',
+            maxTagCount: 'responsive',
+          }}
         />
         <ProFormDigit
           name="firstWeightKg"
