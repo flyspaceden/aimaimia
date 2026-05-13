@@ -39,8 +39,8 @@ export class SkuUpdateItem {
 
   /** 包装后重量（克），用于计算运费和顺丰面单 */
   @Type(() => Number)
-  @IsInt()
-  @IsPositive()
+  @IsInt({ message: 'SKU 重量必须是整数克' })
+  @IsPositive({ message: 'SKU 重量必须大于 0 克' })
   weightGram: number;
 }
 

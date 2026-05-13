@@ -1253,6 +1253,7 @@
 - [✅] **SF05** SKU 重量链路：卖家商品、管理端普通商品、管理端奖励商品 SKU 发布前均强制填写重量；历史空值回填 1000g
 - [✅] **SF06** 管理后台：运费规则页升级首重/续重字段、公式预览、CSV/JSON 批量导入、dry-run 二次确认
 - [✅] **SF07** 文档同步：`data-system.md` / `shipping.md` / `plan-treeforuser.md` / `app-tofix3.md` / `sales.md` / `seller.md` / `AGENTS.md` / `CLAUDE.md` / `plan.md`
+- [✅] **SF07a** App / 管理端运费提示收口（2026-05-12）：购物车移除静态"再买免运费"提示；结算页预结算返回前显示"计算中"而非本地兜底运费；管理端规则冲突检测按后端省级前缀匹配口径
 - [ ] **SF08** staging / SF 沙箱冒烟：管理后台新增规则 → App 预结算 → 顺丰沙箱下单 → `order_shipping_costs` 入库 → 改规则后已创建 CheckoutSession 仍按锁价支付
 
 ---

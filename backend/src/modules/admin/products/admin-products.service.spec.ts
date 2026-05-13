@@ -55,7 +55,7 @@ describe('AdminProductsService SKU weight validation', () => {
     expect(JSON.stringify(skuErrors)).toContain('weightGram');
   });
 
-  it('DTO rejects non-positive SKU weights', async () => {
+  it('DTO rejects non-positive SKU weights with a Chinese message', async () => {
     const dto = plainToInstance(SkuUpdateItem, {
       id: 'sku_1',
       specText: '默认规格',
@@ -67,6 +67,7 @@ describe('AdminProductsService SKU weight validation', () => {
     const errors = await validate(dto);
 
     expect(errors.some((error) => error.property === 'weightGram')).toBe(true);
+    expect(JSON.stringify(errors)).toContain('SKU 重量必须大于 0 克');
   });
 
   it('rejects missing weightGram in service before writing SKU changes', async () => {

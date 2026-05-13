@@ -10,6 +10,7 @@ import { decryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
 import {
   CarrierWaybillAddress,
+  CarrierWaybillItem,
   SellerShippingService,
 } from '../seller/shipping/seller-shipping.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
@@ -22,7 +23,7 @@ type ReturnWaybillContext = {
   companyId: string;
   sender: CarrierWaybillAddress;
   receiver: CarrierWaybillAddress;
-  items: Array<{ name: string; quantity: number; weight?: number }>;
+  items: CarrierWaybillItem[];
   returnShippingFee: number;
   returnShippingPayer: string | null;
   generationMarkerReason: string;
@@ -123,9 +124,9 @@ export class AfterSaleReturnShippingService {
       const items = returnItems.map((item: any) => ({
         name: item.sku?.product?.title || '退货商品',
         quantity: item.quantity,
-        weight:
+        weightGram:
           item.sku?.weightGram && item.sku.weightGram > 0
-            ? (item.sku.weightGram * item.quantity) / 1000
+            ? item.sku.weightGram
             : undefined,
       }));
       const generationMarkerRequestedAt = new Date();

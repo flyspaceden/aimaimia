@@ -13,6 +13,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 import { AlipayService } from '../payment/alipay.service';
+import { decryptJsonValue } from '../../common/security/encryption';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
 type Tx = Prisma.TransactionClient;
 const SERIALIZABLE_MAX_RETRIES = 3;
@@ -29,10 +31,16 @@ export type AfterSaleShippingPaymentBuyerResponse = Pick<
 
 @Injectable()
 export class AfterSaleShippingPaymentService {
+  private shippingRuleService: any = null;
+
   constructor(
     private prisma: PrismaService,
     @Optional() private alipayService?: AlipayService,
   ) {}
+
+  setShippingRuleService(service: any) {
+    this.shippingRuleService = service;
+  }
 
   async estimateReturnShippingFee(afterSaleId: string): Promise<number> {
     return this.withSerializableRetry((tx) =>
@@ -318,14 +326,102 @@ export class AfterSaleShippingPaymentService {
 
   private async estimateReturnShippingFeeInTx(
     tx: Tx,
-    _afterSaleId: string,
+    afterSaleId: string,
   ): Promise<number> {
+    if (this.shippingRuleService?.calculateShippingDetail) {
+      try {
+        const request = await tx.afterSaleRequest.findUnique({
+          where: { id: afterSaleId },
+          include: {
+            order: {
+              select: {
+                addressSnapshot: true,
+                items: {
+                  select: {
+                    quantity: true,
+                    isPrize: true,
+                    sku: { select: { weightGram: true } },
+                  },
+                },
+              },
+            },
+            orderItem: {
+              select: {
+                quantity: true,
+                sku: { select: { weightGram: true } },
+              },
+            },
+          },
+        }) as any;
+        if (request) {
+          const detail = await this.shippingRuleService.calculateShippingDetail(
+            0,
+            this.resolveRegionCode(request.order?.addressSnapshot),
+            this.calculateReturnWeightGram(request),
+            tx,
+          );
+          const fee = Number(detail?.fee);
+          if (Number.isFinite(fee) && fee >= 0) {
+            return this.roundMoney(fee);
+          }
+          throw new Error('calculateShippingDetail returned invalid fee');
+        }
+      } catch (err) {
+        // 估算失败不阻断售后，沿用默认退货运费配置兜底。
+      }
+    }
+
     const configured = await getConfigValue(
       tx as any,
       AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
       10,
     );
-    return Math.max(0, Math.round(configured * 100) / 100);
+    return this.roundMoney(configured);
+  }
+
+  private roundMoney(value: number): number {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return 0;
+    return Math.max(0, Math.round(amount * 100) / 100);
+  }
+
+  private normalizeSkuWeightGram(value: unknown): number {
+    const weightGram = Number(value);
+    return Number.isFinite(weightGram) && weightGram > 0
+      ? Math.trunc(weightGram)
+      : DEFAULT_SKU_WEIGHT_GRAM;
+  }
+
+  private calculateReturnWeightGram(request: any): number {
+    const items = request.orderItem
+      ? [request.orderItem]
+      : (request.order?.items ?? []).filter((item: any) => !item.isPrize);
+
+    const total = items.reduce((sum: number, item: any) => {
+      const quantity = Number(item?.quantity);
+      const safeQuantity =
+        Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0;
+      return sum + safeQuantity * this.normalizeSkuWeightGram(item?.sku?.weightGram);
+    }, 0);
+
+    return total > 0 ? total : DEFAULT_SKU_WEIGHT_GRAM;
+  }
+
+  private resolveRegionCode(addressSnapshot: unknown): string | undefined {
+    const decrypted = decryptJsonValue<any>(addressSnapshot);
+    let address = decrypted;
+    if (typeof address === 'string') {
+      try {
+        address = JSON.parse(address);
+      } catch {
+        return undefined;
+      }
+    }
+    if (!address || typeof address !== 'object' || Array.isArray(address)) {
+      return undefined;
+    }
+    const regionCode = String(address.regionCode ?? '').trim();
+    return regionCode || undefined;
   }
 
   private assertBuyerShippingPaymentAllowed(request: AfterSaleRequest): void {

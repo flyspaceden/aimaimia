@@ -53,6 +53,11 @@ import { PERMISSIONS } from '@/constants/permissions';
 
 const { Text } = Typography;
 
+const rewardSkuWeightRules = [
+  { required: true, message: '请输入重量' },
+  { type: 'number' as const, min: 1, message: '重量必须大于 0 克' },
+];
+
 // 奖励商品状态映射
 const statusOptions = [
   { label: '上架', value: 'ACTIVE' },
@@ -620,7 +625,7 @@ export default function RewardProductEditPage() {
                   <Form.Item
                     label="重量（克）"
                     name="weightGram"
-                    rules={[{ required: true, message: '请输入重量' }]}
+                    rules={rewardSkuWeightRules}
                   >
                     <InputNumber
                       min={1}
@@ -797,7 +802,7 @@ export default function RewardProductEditPage() {
           <Form.Item
             label="重量（克）"
             name="weightGram"
-            rules={[{ required: true, message: '请输入重量' }]}
+            rules={rewardSkuWeightRules}
           >
             <InputNumber
               min={1}

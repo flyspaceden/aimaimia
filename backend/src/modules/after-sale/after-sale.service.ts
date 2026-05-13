@@ -23,6 +23,8 @@ import {
 } from './after-sale.constants';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { SfExpressService } from '../shipment/sf-express.service';
+import { decryptJsonValue } from '../../common/security/encryption';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
 // 允许申请售后的订单状态
 const AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED', 'DELIVERED', 'RECEIVED'];
@@ -44,12 +46,17 @@ const MAX_RETRIES = 3;
 @Injectable()
 export class AfterSaleService {
   private readonly logger = new Logger(AfterSaleService.name);
+  private shippingRuleService: any = null;
 
   constructor(
     private prisma: PrismaService,
     private afterSaleRewardService: AfterSaleRewardService,
     private sfExpress: SfExpressService,
   ) {}
+
+  setShippingRuleService(service: any) {
+    this.shippingRuleService = service;
+  }
 
   /**
    * 构造理由文本（与 replacement.service.ts 保持一致）
@@ -121,6 +128,72 @@ export class AfterSaleService {
     return '已超出售后申请时间窗口';
   }
 
+  private roundMoney(value: number): number {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return 0;
+    return Math.max(0, Math.round(amount * 100) / 100);
+  }
+
+  private normalizeSkuWeightGram(value: unknown): number {
+    const weightGram = Number(value);
+    return Number.isFinite(weightGram) && weightGram > 0
+      ? Math.trunc(weightGram)
+      : DEFAULT_SKU_WEIGHT_GRAM;
+  }
+
+  private resolveRegionCode(addressSnapshot: unknown): string | undefined {
+    const decrypted = decryptJsonValue<any>(addressSnapshot);
+    let address = decrypted;
+    if (typeof address === 'string') {
+      try {
+        address = JSON.parse(address);
+      } catch {
+        return undefined;
+      }
+    }
+    if (!address || typeof address !== 'object' || Array.isArray(address)) {
+      return undefined;
+    }
+    const regionCode = String(address.regionCode ?? '').trim();
+    return regionCode || undefined;
+  }
+
+  private async estimateBuyerReturnShippingFee(
+    order: any,
+    orderItem: any,
+    fallbackFee?: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    if (this.shippingRuleService?.calculateShippingDetail) {
+      try {
+        const quantity = Number(orderItem.quantity);
+        const totalWeightGram =
+          (Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 1) *
+          this.normalizeSkuWeightGram(orderItem.sku?.weightGram);
+        const detail = await this.shippingRuleService.calculateShippingDetail(
+          0,
+          this.resolveRegionCode(order.addressSnapshot),
+          totalWeightGram,
+          tx,
+        );
+        const fee = Number(detail?.fee);
+        if (Number.isFinite(fee) && fee >= 0) {
+          return this.roundMoney(fee);
+        }
+        throw new Error('calculateShippingDetail returned invalid fee');
+      } catch (err: any) {
+        this.logger.warn(`售后退货运费规则估算失败，降级为默认配置: ${err.message}`);
+      }
+    }
+
+    const configured = fallbackFee ?? (await getConfigValue(
+      (tx ?? this.prisma) as any,
+      AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
+      10,
+    ));
+    return this.roundMoney(Number(configured));
+  }
+
   // ========== 售后资格 ==========
 
   async getEligibility(userId: string, orderId: string) {
@@ -129,7 +202,7 @@ export class AfterSaleService {
       include: {
         items: {
           include: {
-            sku: { select: { productId: true } },
+            sku: { select: { productId: true, weightGram: true } },
             afterSaleRequests: {
               select: {
                 id: true,
@@ -205,6 +278,11 @@ export class AfterSaleService {
       const returnPolicy = await resolveReturnPolicy(this.prisma as any, productId);
       const itemAmount = orderItem.unitPrice * orderItem.quantity;
       const productSnapshot = (orderItem.productSnapshot as any) || {};
+      const estimatedBuyerReturnShippingFee = await this.estimateBuyerReturnShippingFee(
+        order,
+        orderItem,
+        returnShippingFee,
+      );
       const otherNonPrizeItems = nonPrizeItems.filter(
         (item: any) => item.id !== orderItem.id,
       );
@@ -244,7 +322,7 @@ export class AfterSaleService {
             : 'SELLER';
         const estimatedReturnShippingFee =
           requiresReturn && returnShippingPayer === 'BUYER'
-            ? returnShippingFee
+            ? estimatedBuyerReturnShippingFee
             : 0;
 
         let estimatedRefundAmount: number | null = null;
@@ -375,7 +453,7 @@ export class AfterSaleService {
             include: {
               items: {
                 include: {
-                  sku: { select: { productId: true } },
+                  sku: { select: { productId: true, weightGram: true } },
                 },
               },
             },
@@ -520,10 +598,11 @@ export class AfterSaleService {
           let returnShippingFeeDeducted = false;
 
           if (needsReturn && returnShippingPayer === 'BUYER') {
-            returnShippingFee = await getConfigValue(
+            returnShippingFee = await this.estimateBuyerReturnShippingFee(
+              order,
+              orderItem,
+              undefined,
               tx as any,
-              AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT,
-              10,
             );
           }
 

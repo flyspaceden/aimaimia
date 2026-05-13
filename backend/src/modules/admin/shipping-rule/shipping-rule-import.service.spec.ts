@@ -201,6 +201,22 @@ describe('ShippingRuleImportService', () => {
     });
   });
 
+  it('trims pipe-delimited regionCodes before writing', async () => {
+    const { service, tx } = createService([]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: '华南四省',
+      regionCodes: '35 | 43|45 |36',
+    })}`;
+
+    await service.importRules({ format: 'csv', payload, dryRun: false });
+
+    expect(tx.shippingRule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        regionCodes: ['35', '43', '45', '36'],
+      }),
+    });
+  });
+
   it('does not write any rows when one row is invalid', async () => {
     const { service, prisma, tx, cache } = createService([]);
     const payload = [
@@ -614,6 +630,60 @@ describe('ShippingRuleImportService', () => {
     expect(updateArgs.data).not.toHaveProperty('regionCodes');
   });
 
+  it('does not reset blank CSV regionCodes when updating an existing rule', async () => {
+    const existing = makeRule({
+      id: 'csv-blank-region-patch',
+      name: 'CSV Blank Region Patch',
+      regionCodes: ['44'],
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: 'CSV Blank Region Patch',
+      regionCodes: '',
+      firstFee: 10,
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'csv-blank-region-patch' });
+    expect(updateArgs.data).toEqual(expect.objectContaining({ firstFee: 10 }));
+    expect(updateArgs.data).not.toHaveProperty('regionCodes');
+  });
+
+  it('does not reset whitespace-only CSV regionCodes when updating an existing rule', async () => {
+    const existing = makeRule({
+      id: 'csv-whitespace-region-patch',
+      name: 'CSV Whitespace Region Patch',
+      regionCodes: ['44'],
+      firstFee: 8,
+    });
+    const { service, tx } = createService([existing]);
+    const payload = `${csvHeader}\n${validCsvRow({
+      name: 'CSV Whitespace Region Patch',
+      regionCodes: '   ',
+      firstFee: 10,
+    })}`;
+
+    const result = await service.importRules({
+      format: 'csv',
+      payload,
+      dryRun: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    const updateArgs = tx.shippingRule.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'csv-whitespace-region-patch' });
+    expect(updateArgs.data).toEqual(expect.objectContaining({ firstFee: 10 }));
+    expect(updateArgs.data).not.toHaveProperty('regionCodes');
+  });
+
   it('does not reset blank or null JSON optional fields when updating an existing rule', async () => {
     const existing = makeRule({
       id: 'json-blank-null-patch',
@@ -774,7 +844,7 @@ describe('ShippingRuleImportService', () => {
     expect(cache.invalidate).not.toHaveBeenCalled();
   });
 
-  it('clears CSV blank regionCodes to nationwide while preserving other blank optional cells', async () => {
+  it('preserves CSV blank regionCodes and other blank optional cells when updating', async () => {
     const existing = makeRule({
       id: 'csv-patch',
       name: 'CSV Patch',
@@ -815,7 +885,7 @@ describe('ShippingRuleImportService', () => {
     expect(updateArgs.data).not.toHaveProperty('minWeight');
     expect(updateArgs.data).not.toHaveProperty('maxWeight');
     expect(updateArgs.data).not.toHaveProperty('isActive');
-    expect(updateArgs.data).toEqual(expect.objectContaining({ regionCodes: [] }));
+    expect(updateArgs.data).not.toHaveProperty('regionCodes');
   });
 
   it('keeps legacy fee synchronized with firstFee during import writes', async () => {

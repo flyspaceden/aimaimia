@@ -998,12 +998,6 @@ Tab 栏设计：
 ┌─────────────────────────────┐
 │  ← 购物车(3)                 │
 │                             │
-│  ✦ AI 省钱建议               │ ← AI 提示（如：再买¥12免运费）
-│  ┌─────────────────────────┐│
-│  │ ◉ 再买 ¥12.00 可享免运费  ││ ← AI 卡片（aiSoft 背景）
-│  │   去凑单 >               ││
-│  └─────────────────────────┘│
-│                             │
 │  ☐ 全选              编辑   │
 │                             │
 │  ┌─────────────────────────┐│
@@ -1028,7 +1022,7 @@ Tab 栏设计：
 ```
 
 - 左滑商品行可删除（swipeable）
-- AI 省钱建议：基于当前商品计算满减/免运费差额
+- 免邮差额提示不在购物车展示；进入结算页后使用后端预结算返回的真实运费与免邮差额。
 - 空购物车状态：展示 AI 光球 + 「让脉脉帮你挑点好的？」+ 快捷指令按钮
 - 上下架兜底（2026-05-07）：服务端返回 `unavailableReason` 的商品/奖品显示"已下架/已停发"角标，禁勾选和数量调整，仅保留删除入口；仍锁定且可用的门槛赠品继续按锁定态保留；购物车已选/可选计数统一走 `isSelectableCartItem`
 
@@ -2199,7 +2193,7 @@ src/components/ai/   → 新增目录
 
 ### Phase 3: 购物链路
 11. 商品详情页（AI 品质评分 + 溯源）
-12. 购物车（AI 省钱建议）
+12. 购物车（毛玻璃结算栏）
 13. 结算页
 14. 搜索页（AI 搜索增强）
 
@@ -2234,7 +2228,7 @@ src/components/ai/   → 新增目录
 | Batch 2D 布局 | AppHeader毛玻璃重写(expo-blur) + Screen渐变背景支持 | 2026-02-19 | `AppHeader.tsx`, `Screen.tsx` |
 | Batch 2E 浮动伴侣 | AiFloatingCompanion全局浮动光球(路由感知/上下文菜单/home隐藏) | 2026-02-19 | `AiFloatingCompanion.tsx`, `effects/index.ts`, `app/_layout.tsx` |
 | Batch 2F 发现页 | museum.tsx全面重写(搜索框+分类横滑+AI推荐区+企业横滑+商品瀑布流+地图) | 2026-02-19 | `app/(tabs)/museum.tsx` |
-| Batch 3 购物链路 | 商品详情(AI品质评分+AI溯源+企业信赖分+入场动画+毛玻璃CTA) + 购物车(毛玻璃结算栏+AI省钱建议) + 结算页(渐变地址卡+毛玻璃底栏) + 搜索(AI摘要卡+Tab切换) | 2026-02-20 | `product/[id].tsx`, `cart.tsx`, `checkout.tsx`, `search.tsx` |
+| Batch 3 购物链路 | 商品详情(AI品质评分+AI溯源+企业信赖分+入场动画+毛玻璃CTA) + 购物车(毛玻璃结算栏) + 结算页(渐变地址卡+毛玻璃底栏+真实免邮差额提示) + 搜索(AI摘要卡+Tab切换) | 2026-02-20 | `product/[id].tsx`, `cart.tsx`, `checkout.tsx`, `search.tsx` |
 | Batch 4 AI功能页 | 聊天(AiChatBubble+打字机+毛玻璃输入栏) + 助手(Hero渐变+AiCardGlow场景卡) + 推荐(渐变进度条+画像卡) + 金融(状态编码卡片+风控评估卡) + 溯源(emoji时间线+脉动节点+AI可信度评分) | 2026-02-20 | `ai/chat.tsx`, `ai/assistant.tsx`, `ai/recommend.tsx`, `ai/finance.tsx`, `ai/trace.tsx` |
 | Batch 5 个人中心 | 14页视觉增强：钱包(渐变余额卡+金色提现按钮+AiDivider) + VIP(金色渐变卡+AiBadge+AiCardGlow+渐变进度条) + 三叉树(脉动节点+渐变连接线+装饰条) + 排队(渐变进度条+装饰条) + 提现(渐变余额+金色CTA) + 订单列表(状态左边框+微渐变芯片) + 订单详情(装饰条+脉动售后时间线+AiDivider) + 物流(脉动节点+渐变连接线+AiCardGlow产地卡) + 售后(微渐变芯片+渐变提交) + 任务(装饰条+渐变进度条+AiDivider+状态左边框) + 设置(AI偏好Section+AiBadge+FadeInDown) + 资料(渐变兴趣标签+渐变保存按钮) + 地址(渐变默认指示+渐变保存) + 关注(卡片化+shadow.md+FadeInDown) | 2026-02-20 | `me/wallet.tsx`, `me/vip.tsx`, `me/bonus-tree.tsx`, `me/bonus-queue.tsx`, `me/withdraw.tsx`, `orders/index.tsx`, `orders/[id].tsx`, `orders/track.tsx`, `orders/after-sale/[id].tsx`, `me/tasks.tsx`, `settings.tsx`, `me/profile.tsx`, `me/addresses.tsx`, `me/following.tsx` |
 | Batch 6 剩余页面 | 10页视觉增强：分类商品(渐变Hero+shadow.md+FadeInDown商品网格) + 企业详情(渐变封面遮罩+Tab微渐变+shadow.md卡片+FadeInDown+渐变CTA) + 拼团详情(渐变进度条+装饰条+shadow.md+FadeInDown成员) + 消息中心(Tab微渐变+shadow.md消息卡+FadeInDown+渐变图标底) + 结算地址(shadow.md+FadeInDown+渐变默认标记) + 用户主页(渐变关注按钮+亲密度渐变进度条+shadow.md+FadeInDown) + 装扮页(渐变预览框+shadow.md框架卡+FadeInDown+渐变选中态) + 推荐占位(渐变空状态) + 关于(shadow.md+FadeInDown+渐变装饰) + 隐私(shadow.md+FadeInDown) | 2026-02-20 | `category/[id].tsx`, `company/[id].tsx`, `group/[id].tsx`, `inbox/index.tsx`, `checkout-address.tsx`, `user/[id].tsx`, `me/appearance.tsx`, `me/recommend.tsx`, `about.tsx`, `privacy.tsx` |
@@ -2244,6 +2238,7 @@ src/components/ai/   → 新增目录
 | 商品上下架兜底 | 购物车 `unavailableReason` 已下架/已停发角标 + 禁勾选/禁数量调整/仅可删除 + 统一 selectable 计数；结算页补传 `cartItemId`，过滤不可用奖品并提示 `excludedItems[]` | 2026-05-07 | `cart.tsx`, `checkout.tsx`, `useCartStore.ts`, `OrderRepo.ts`, `ServerCart.ts` |
 | 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
 | 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |
+| 购物车免邮提示收口 | 购物车移除静态"再买免运费"提示；结算页保留后端预结算返回的真实免邮差额提示；预结算返回前显示"计算中"而非本地兜底运费 | 2026-05-12 | `app/cart.tsx`, `app/checkout.tsx`, `src/constants/search.ts` |
 | 售后链路收口 Task 9/12 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API；最终验证记录已同步，真机/沙箱仍需验证退货运费支付、顺丰退货面单和售后退款到账 | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
 
 ### Phase 进度对照
@@ -2261,7 +2256,7 @@ src/components/ai/   → 新增目录
 | | 9. ProductCard（AI 标签） | ✅ |
 | | 10. AppHeader / Screen / Tab 栏 | ✅ |
 | **Phase 3** | 11. 商品详情页（AI 品质评分 + 溯源 + 企业信赖分） | ✅ |
-| | 12. 购物车（AI 省钱建议 + 毛玻璃结算栏） | ✅ |
+| | 12. 购物车（毛玻璃结算栏） | ✅ |
 | | 13. 结算页（渐变地址卡 + 毛玻璃底栏） | ✅ |
 | | 14. 搜索页（AI 搜索摘要 + Tab 切换） | ✅ |
 | **Phase 4** | 15. AI 聊天页（AiChatBubble + 打字机 + 毛玻璃输入栏） | ✅ |

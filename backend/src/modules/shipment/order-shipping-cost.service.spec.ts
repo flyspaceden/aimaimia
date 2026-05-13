@@ -101,4 +101,28 @@ describe('OrderShippingCostService', () => {
       weightGramSent: 1000,
     })).resolves.toBeNull();
   });
+
+  it('recordPackage emits a structured alert log when persistence fails', async () => {
+    const { service, prisma } = createMocks();
+    prisma.orderShippingCost.upsert.mockRejectedValue(new Error('db down'));
+    const errorSpy = jest
+      .spyOn((service as any).logger, 'error')
+      .mockImplementation(() => undefined);
+
+    await service.recordPackage({
+      orderId: 'order_001',
+      packageIndex: 0,
+      companyId: 'company_001',
+      sfOrderId: 'sf_order_001',
+      weightGramSent: 1000,
+      estimatedCost: 12.5,
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"action":"order_shipping_cost_record_failed"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"sfOrderId":"sf_order_001"'),
+    );
+  });
 });

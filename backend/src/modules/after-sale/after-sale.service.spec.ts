@@ -36,6 +36,43 @@ function makeService(order: any) {
   return new AfterSaleService(prisma as any, {} as any, {} as any);
 }
 
+function makeServiceWithShippingRule(order: any, shippingRuleService: any) {
+  const prisma = {
+    order: {
+      findUnique: jest.fn().mockResolvedValue(order),
+    },
+    product: {
+      findUnique: jest.fn().mockResolvedValue({
+        returnPolicy: 'RETURNABLE',
+        categoryId: null,
+      }),
+    },
+    category: {
+      findUnique: jest.fn(),
+    },
+    ruleConfig: {
+      findUnique: jest.fn(({ where }: any) => {
+        const values: Record<string, number> = {
+          [AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS]: 7,
+          [AFTER_SALE_CONFIG_KEYS.NORMAL_RETURN_DAYS]: 7,
+          [AFTER_SALE_CONFIG_KEYS.FRESH_RETURN_HOURS]: 24,
+          [AFTER_SALE_CONFIG_KEYS.RETURN_NO_SHIP_THRESHOLD]: 50,
+          [AFTER_SALE_CONFIG_KEYS.RETURN_SHIPPING_FEE_DEFAULT]: 10,
+        };
+        return Promise.resolve({ key: where.key, value: values[where.key] });
+      }),
+    },
+  };
+
+  const service = new AfterSaleService(
+    prisma as any,
+    {} as any,
+    {} as any,
+  );
+  service.setShippingRuleService(shippingRuleService);
+  return service;
+}
+
 function makeOrder(overrides: Partial<any> = {}) {
   return {
     id: 'order-1',
@@ -77,6 +114,47 @@ describe('AfterSaleService.getEligibility', () => {
     expect(option.estimatedRefundAmount).toBe(5);
     expect(option.estimatedReturnShippingFee).toBe(10);
     expect(option.requiresBuyerShippingPayment).toBe(true);
+  });
+
+  it('无理由退货资格预估使用平台运费规则的地区和重量', async () => {
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 12.345 }),
+    };
+    const service = makeServiceWithShippingRule(
+      makeOrder({
+        addressSnapshot: {
+          regionCode: '440305',
+          regionText: '广东省/深圳市/南山区',
+        },
+        goodsAmount: 5,
+        items: [
+          {
+            id: 'item-1',
+            skuId: 'sku-1',
+            sku: { productId: 'product-1', weightGram: 800 },
+            productSnapshot: { title: '苹果' },
+            unitPrice: 5,
+            quantity: 2,
+            isPrize: false,
+            afterSaleRequests: [],
+          },
+        ],
+      }),
+      shippingRuleService,
+    );
+
+    const result = await service.getEligibility('user-1', 'order-1');
+    const option = result.items[0].options.find(
+      (item: any) => item.afterSaleType === AfterSaleType.NO_REASON_RETURN,
+    );
+
+    expect(option.estimatedReturnShippingFee).toBe(12.35);
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      0,
+      '440305',
+      1600,
+      undefined,
+    );
   });
 
   it('完成无理由换货后只允许质量退货资格继续启用', async () => {

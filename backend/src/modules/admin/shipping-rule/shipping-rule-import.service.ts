@@ -257,7 +257,13 @@ export class ShippingRuleImportService {
       matchedHeaders.forEach((header, columnIndex) => {
         const raw = record[columnIndex];
         if (header === 'regionCodes') {
-          value[header] = raw === '' ? [] : raw.split('|');
+          const normalizedRegionCodes = raw.trim();
+          if (normalizedRegionCodes !== '') {
+            value[header] = normalizedRegionCodes
+              .split('|')
+              .map((code) => code.trim())
+              .filter(Boolean);
+          }
         } else if (this.isNumberHeader(header)) {
           if (raw !== '') {
             value[header] = raw;

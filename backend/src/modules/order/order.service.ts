@@ -20,6 +20,7 @@ import {
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { CartService } from '../cart/cart.service';
 import { RepurchaseResult, RepurchaseResultItem, RepurchaseSkipReason } from './repurchase.types';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -269,6 +270,13 @@ export class OrderService {
 
     // 降级：使用配置的默认运费
     return sysConfig.defaultShippingFee ?? DEFAULT_BASE_FEE;
+  }
+
+  private normalizeSkuWeightGram(value: unknown): number {
+    const weightGram = Number(value);
+    return Number.isFinite(weightGram) && weightGram > 0
+      ? Math.trunc(weightGram)
+      : DEFAULT_SKU_WEIGHT_GRAM;
   }
 
   /**
@@ -1077,7 +1085,9 @@ export class OrderService {
     // 构建 skuId → weightGram 映射，用于计算分组总重量
     const skuWeightMap = new Map<string, number>();
     for (const [skuId, sku] of skuMap.entries()) {
-      skuWeightMap.set(skuId, (sku as any).weightGram ?? 0);
+      const weightGram = this.normalizeSkuWeightGram((sku as any).weightGram);
+      skuWeightMap.set(skuId, weightGram);
+      skuWeightMap.set((sku as any).id, weightGram);
     }
 
     const companyGroups = [...groupMap.entries()]

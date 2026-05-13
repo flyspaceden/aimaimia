@@ -213,14 +213,17 @@ export default function CheckoutScreen() {
     }
   }, [preview]);
 
-  // N09修复：优先使用服务端返回值，fallback 到本地计算
+  // N09修复：优先使用服务端返回值；预结算返回前不展示本地假运费
   const total = preview?.summary.totalGoodsAmount ?? localGoodsTotal;
-  const shippingFee = preview?.summary.totalShippingFee ?? (localGoodsTotal >= 99 ? 0 : 8);
+  const shippingFee = preview?.summary.totalShippingFee ?? 0;
   const serverDiscount = preview?.summary.totalDiscount ?? 0;
   const vipDiscount = preview?.summary.vipDiscount ?? 0;
   const finalTotal = preview
     ? Number(preview.summary.totalPayable.toFixed(2))
-    : Number(Math.max(0, localGoodsTotal + shippingFee - couponDiscount).toFixed(2));
+    : Number(Math.max(0, localGoodsTotal - couponDiscount).toFixed(2));
+  const shippingFeeText = preview
+    ? (shippingFee === 0 ? '免运费' : `¥${shippingFee.toFixed(2)}`)
+    : (previewFailed ? '校验失败' : '计算中...');
 
   const orderItems = useMemo(
     () =>
@@ -444,6 +447,10 @@ export default function CheckoutScreen() {
   const handleCheckout = async () => {
     if (previewPending) {
       show({ message: '价格校验中，请稍候再提交', type: 'warning' });
+      return;
+    }
+    if (!preview || previewFailed) {
+      show({ message: '价格校验失败，请刷新后重试', type: 'error' });
       return;
     }
     if (!selectedAddress) {
@@ -704,7 +711,9 @@ export default function CheckoutScreen() {
 
   // VIP 模式下的显示金额
   const vipTotal = vipPackageSelection?.price ?? 0;
-  const displayTotal = isVipMode ? vipTotal : finalTotal;
+  const displayTotalText = isVipMode
+    ? `¥${vipTotal.toFixed(2)}`
+    : (preview ? `¥${finalTotal.toFixed(2)}` : (previewFailed ? '校验失败' : '计算中...'));
   const hasContent = isVipMode || cartItems.length > 0;
 
   return (
@@ -1074,10 +1083,10 @@ export default function CheckoutScreen() {
                 <View style={styles.priceRow}>
                   <Text style={[typography.bodySm, { color: colors.text.secondary }]}>运费</Text>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[typography.bodySm, { color: shippingFee === 0 ? colors.brand.primary : colors.text.primary }]}>
-                      {shippingFee === 0 ? '免运费' : `¥${shippingFee.toFixed(2)}`}
+                    <Text style={[typography.bodySm, { color: preview && shippingFee === 0 ? colors.brand.primary : colors.text.primary }]}>
+                      {shippingFeeText}
                     </Text>
-                    {shippingFee > 0 && preview?.summary.amountToFreeShipping != null && preview.summary.amountToFreeShipping > 0 && (
+                    {preview && shippingFee > 0 && preview.summary.amountToFreeShipping != null && preview.summary.amountToFreeShipping > 0 && (
                       <Text style={[typography.caption, { color: colors.brand.primary, marginTop: 2, fontSize: 11 }]}>
                         再买¥{preview.summary.amountToFreeShipping.toFixed(2)}可免运费
                       </Text>
@@ -1125,7 +1134,7 @@ export default function CheckoutScreen() {
             <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
             <View style={{ flex: 1 }}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>应付金额</Text>
-              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>¥{displayTotal.toFixed(2)}</Text>
+              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>{displayTotalText}</Text>
             </View>
             <LinearGradient
               colors={[...gradients.goldGradient]}
@@ -1160,7 +1169,7 @@ export default function CheckoutScreen() {
           >
             <View style={{ flex: 1 }}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>应付金额</Text>
-              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>¥{displayTotal.toFixed(2)}</Text>
+              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>{displayTotalText}</Text>
             </View>
             <LinearGradient
               colors={[...gradients.goldGradient]}

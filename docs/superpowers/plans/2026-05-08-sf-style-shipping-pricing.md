@@ -178,6 +178,18 @@ SET "firstFee" = COALESCE("fee", 0),
     "additionalFee" = 0
 WHERE "firstFee" IS NULL;
 
+-- active 公式规则必须有真实续重价，避免老库迁移后继续按 0 元续重计费。
+UPDATE "ShippingRule"
+SET "additionalFee" = CASE
+        WHEN "additionalFee" IS NOT NULL AND "additionalFee" <> 0 THEN "additionalFee"
+        WHEN "id" = 'sr-003' OR "name" = '偏远地区公式（新疆）' THEN 5.1
+        WHEN "id" = 'sr-004' OR "name" = '偏远地区公式（西藏）' THEN 7.1
+        WHEN "additionalFee" IS NULL OR "additionalFee" = 0 THEN 1.3
+        ELSE "additionalFee"
+    END
+WHERE "id" IN ('sr-002', 'sr-003', 'sr-004')
+   OR "name" IN ('全国标准运费', '偏远地区公式（新疆）', '偏远地区公式（西藏）');
+
 -- 历史 SKU 无重量 → 默认 1000g
 UPDATE "ProductSKU" SET "weightGram" = 1000 WHERE "weightGram" IS NULL;
 ```
@@ -581,15 +593,17 @@ export class OrderShippingCostService {
 
 ```ts
 await this.shippingCost.recordPackage({
-  orderId: order.id,
+  orderId: context.orderId,
   packageIndex: 0,
-  companyId,
+  companyId: context.companyId,
   sfOrderId: waybillResult.sfOrderId,
   weightGramSent: waybillResult.weightGramSent,
-}, tx);
+});
 ```
 
 当前正向发货按 `orderId + companyId` 生成一个顺丰包裹，`packageIndex` 固定 0；如未来一个商户拆多包，再按同一订单同一商户内的包裹顺序递增。
+
+`recordPackage()` 的语义是按 `sfOrderId` 幂等 upsert：重复调用更新同一成本记录，不抛 duplicate 错；写入异常只记录 warn 并返回 `null`，不得阻塞 `Shipment` 创建或卖家发货返回。
 
 - [x] **Step 3: SF 下单传真实重量**
 

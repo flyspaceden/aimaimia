@@ -12,7 +12,6 @@ import { useToast } from '../src/components/feedback';
 import { QuantityStepper } from '../src/components/inputs';
 import { Price } from '../src/components/ui/Price';
 import { AiBadge } from '../src/components/ui/AiBadge';
-import { AiCardGlow } from '../src/components/ui/AiCardGlow';
 import { AiOrb } from '../src/components/effects/AiOrb';
 import { ProductCard } from '../src/components/cards/ProductCard';
 import { RecommendRepo } from '../src/repos';
@@ -20,7 +19,6 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
 import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
-import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
 import { useBottomInset, useTheme } from '../src/theme';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
 
@@ -132,10 +130,6 @@ export default function CartScreen() {
   const total = selectedTotal();
   const selCount = selectedCount();
 
-  // 省钱建议
-  const gap = FREE_SHIPPING_THRESHOLD - total;
-  const showSavingTip = gap > 0 && items.length > 0;
-
   // N08修复：删除选中项，cartKey 格式为 productId:skuId 或 productId
   const handleDeleteSelected = () => {
     const keys = [...selectedIds];
@@ -237,24 +231,6 @@ export default function CartScreen() {
           <>
             {/* 未完成订单横幅（无未支付订单时返回 null） */}
             <PendingCheckoutBanner />
-
-            {/* AI 省钱建议卡 */}
-            {showSavingTip && (
-              <AiCardGlow style={{ ...shadow.sm, marginBottom: spacing.md }}>
-                <Pressable
-                  onPress={() => router.push('/(tabs)/home')}
-                  style={{ padding: spacing.md, backgroundColor: colors.ai.soft }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ color: colors.ai.start, fontSize: 16, marginRight: spacing.xs }}>◉</Text>
-                    <Text style={[typography.bodySm, { color: colors.ai.start, flex: 1 }]}>
-                      再买 ¥{gap.toFixed(0)} 可享免运费
-                    </Text>
-                    <Text style={[typography.captionSm, { color: colors.ai.start }]}>去凑单 ›</Text>
-                  </View>
-                </Pressable>
-              </AiCardGlow>
-            )}
 
             {/* 全选栏 */}
             <View style={[styles.selectBar, { marginBottom: spacing.sm }]}>

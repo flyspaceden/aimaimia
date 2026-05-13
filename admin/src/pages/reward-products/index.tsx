@@ -31,6 +31,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 // 库存预警阈值
 const LOW_STOCK_THRESHOLD = 10;
 
+const rewardSkuWeightRules = [
+  { required: true, message: '请输入重量' },
+  { type: 'number' as const, min: 1, message: '重量必须大于 0 克' },
+];
+
 // 奖励商品状态映射
 const rewardProductStatusMap: Record<string, { text: string; color: string }> = {
   ACTIVE: { text: '上架', color: 'green' },
@@ -696,7 +701,7 @@ export default function RewardProductsPage() {
                       <Form.Item
                         name="weightGram"
                         label="重量（克）"
-                        rules={[{ required: true, message: '请输入重量' }]}
+                        rules={rewardSkuWeightRules}
                       >
                         <InputNumber
                           min={1}
@@ -790,7 +795,7 @@ export default function RewardProductsPage() {
                                 {...restField}
                                 name={[name, 'weightGram']}
                                 label="重量（克）"
-                                rules={[{ required: true, message: '请输入' }]}
+                                rules={rewardSkuWeightRules}
                               >
                                 <InputNumber
                                   min={1}

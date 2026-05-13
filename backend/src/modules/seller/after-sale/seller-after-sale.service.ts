@@ -25,6 +25,7 @@ import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-statu
 import { SfExpressService } from '../../shipment/sf-express.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../../common/constants/shipping.constants';
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
@@ -1488,25 +1489,31 @@ export class SellerAfterSaleService {
     },
     companyId: string,
   ) {
+    const toWaybillItem = (item: any) => {
+      const waybillItem: {
+        name: string;
+        quantity: number;
+        weightGram?: number;
+      } = {
+        name:
+          item.sku?.product?.title ||
+          item.productSnapshot?.title ||
+          '商品',
+        quantity: item.quantity,
+      };
+      const weightGram = Number(item.sku?.weightGram);
+      waybillItem.weightGram =
+        Number.isFinite(weightGram) && weightGram > 0
+          ? Math.trunc(weightGram)
+          : DEFAULT_SKU_WEIGHT_GRAM;
+      return waybillItem;
+    };
+
     return request.orderItem
-      ? [
-          {
-            name:
-              request.orderItem.sku?.product?.title ||
-              request.orderItem.productSnapshot?.title ||
-              '商品',
-            quantity: request.orderItem.quantity,
-          },
-        ]
+      ? [toWaybillItem(request.orderItem)]
       : request.order.items
           .filter((item) => item.companyId === companyId)
-          .map((item) => ({
-            name:
-              item.sku?.product?.title ||
-              item.productSnapshot?.title ||
-              '商品',
-            quantity: item.quantity,
-          }));
+          .map(toWaybillItem);
   }
 
   private parseBuyerAddress(addressSnapshot: unknown): CarrierWaybillAddress {

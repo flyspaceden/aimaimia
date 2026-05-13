@@ -91,8 +91,15 @@ interface ShippingRuleFormValues {
 /** 检测两个地区列表是否有交集（空数组视为"全国"，与任何地区交叉） */
 const regionsOverlap = (a: string[], b: string[]): boolean => {
   if (a.length === 0 || b.length === 0) return true; // 全国与任何地区交叉
-  const setA = new Set(a);
-  return b.some((code) => setA.has(code));
+  const provincePrefixes = new Set(
+    a
+      .map((code) => code.trim().slice(0, 2))
+      .filter(Boolean),
+  );
+  return b
+    .map((code) => code.trim().slice(0, 2))
+    .filter(Boolean)
+    .some((prefix) => provincePrefixes.has(prefix));
 };
 
 export default function ShippingRulesPage() {

@@ -152,7 +152,7 @@ describe('SellerAfterSaleService exchange waybills', () => {
       `AS_${afterSaleId}`,
       'SF',
       buyerAddress,
-      [{ name: '苹果', quantity: 2 }],
+      [{ name: '苹果', quantity: 2, weightGram: 1000 }],
     );
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,6 +165,68 @@ describe('SellerAfterSaleService exchange waybills', () => {
           replacementWaybillNo: 'SF1234567890',
         }),
       }),
+    );
+  });
+
+  it('passes orderItem sku weightGram to replacement waybill items', async () => {
+    const tx = {
+      $executeRaw: jest.fn(),
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(
+          baseRequest({
+            orderItem: {
+              ...baseRequest().orderItem,
+              sku: {
+                ...baseRequest().orderItem.sku,
+                weightGram: 1500,
+              },
+            },
+          }),
+        ),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, shippingService } = makeService(tx);
+
+    await service.generateWaybill(companyId, staffId, afterSaleId, 'SF');
+
+    expect(shippingService.createCarrierWaybill).toHaveBeenCalledWith(
+      companyId,
+      `AS_${afterSaleId}`,
+      'SF',
+      buyerAddress,
+      [{ name: '苹果', quantity: 2, weightGram: 1500 }],
+    );
+  });
+
+  it('passes per-item default weightGram to replacement waybill items when sku weight is invalid', async () => {
+    const tx = {
+      $executeRaw: jest.fn(),
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(
+          baseRequest({
+            orderItem: {
+              ...baseRequest().orderItem,
+              sku: {
+                ...baseRequest().orderItem.sku,
+                weightGram: 0,
+              },
+            },
+          }),
+        ),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, shippingService } = makeService(tx);
+
+    await service.generateWaybill(companyId, staffId, afterSaleId, 'SF');
+
+    expect(shippingService.createCarrierWaybill).toHaveBeenCalledWith(
+      companyId,
+      `AS_${afterSaleId}`,
+      'SF',
+      buyerAddress,
+      [{ name: '苹果', quantity: 2, weightGram: 1000 }],
     );
   });
 
@@ -406,7 +468,7 @@ describe('SellerAfterSaleService.generateSellerReturnWaybill', () => {
         district: buyerAddress.district,
         detail: buyerAddress.detail,
       }),
-      items: [{ name: '苹果', quantity: 2 }],
+      items: [{ name: '苹果', quantity: 2, weightGram: 1000 }],
     });
     expect(tx.afterSaleRequest.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -422,6 +484,42 @@ describe('SellerAfterSaleService.generateSellerReturnWaybill', () => {
           sellerReturnWaybillUrl: 'https://example.com/reject-waybill.pdf',
           sellerReturnSfOrderId: 'sf-order-return-1',
         }),
+      }),
+    );
+  });
+
+  it('passes order item sku weightGram to seller rejected return waybill items', async () => {
+    const weightedOrderItem = {
+      ...baseRequest().order.items[0],
+      sku: {
+        ...baseRequest().order.items[0].sku,
+        weightGram: 750,
+      },
+    };
+    const request = baseRequest({
+      status: 'SELLER_REJECTED_RETURN',
+      sellerReturnWaybillNo: null,
+      orderItem: null,
+      orderItemId: null,
+      order: {
+        ...baseRequest().order,
+        items: [weightedOrderItem],
+      },
+    });
+    const tx = {
+      $executeRaw: jest.fn(),
+      afterSaleRequest: {
+        findUnique: jest.fn().mockResolvedValue(request),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, shippingService } = makeService(tx);
+
+    await service.generateSellerReturnWaybill(companyId, staffId, afterSaleId);
+
+    expect(shippingService.createCarrierWaybillWithAddresses).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [{ name: '苹果', quantity: 2, weightGram: 750 }],
       }),
     );
   });

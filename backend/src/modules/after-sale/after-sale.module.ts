@@ -14,9 +14,17 @@ import { PaymentService } from '../payment/payment.service';
 import { InboxModule } from '../inbox/inbox.module';
 import { SellerShippingModule } from '../seller/shipping/seller-shipping.module';
 import { ShipmentModule } from '../shipment/shipment.module';
+import { ShippingRuleModule } from '../admin/shipping-rule/shipping-rule.module';
+import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.service';
 
 @Module({
-  imports: [forwardRef(() => PaymentModule), InboxModule, SellerShippingModule, ShipmentModule],
+  imports: [
+    forwardRef(() => PaymentModule),
+    InboxModule,
+    SellerShippingModule,
+    ShipmentModule,
+    ShippingRuleModule,
+  ],
   controllers: [AfterSaleController],
   providers: [
     AfterSaleService,
@@ -40,6 +48,7 @@ import { ShipmentModule } from '../shipment/shipment.module';
 export class AfterSaleModule implements OnModuleInit {
   constructor(
     private moduleRef: ModuleRef,
+    private afterSaleService: AfterSaleService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
   ) {}
@@ -51,6 +60,11 @@ export class AfterSaleModule implements OnModuleInit {
     }
     if (paymentService?.setAfterSaleShippingPaymentService) {
       paymentService.setAfterSaleShippingPaymentService(this.afterSaleShippingPaymentService);
+    }
+    const shippingRuleService = this.moduleRef.get(ShippingRuleService, { strict: false });
+    if (shippingRuleService) {
+      this.afterSaleService.setShippingRuleService(shippingRuleService);
+      this.afterSaleShippingPaymentService.setShippingRuleService(shippingRuleService);
     }
   }
 }

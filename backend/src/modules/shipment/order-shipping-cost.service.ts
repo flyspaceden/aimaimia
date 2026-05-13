@@ -38,9 +38,16 @@ export class OrderShippingCostService {
         },
       });
     } catch (err: any) {
-      this.logger.warn(
-        `OrderShippingCost 写入失败，不阻塞发货: sfOrderId=${input.sfOrderId}, err=${err.message}`,
-      );
+      this.logger.error(JSON.stringify({
+        action: 'order_shipping_cost_record_failed',
+        orderId: input.orderId,
+        packageIndex: input.packageIndex,
+        companyId: input.companyId ?? null,
+        sfOrderId: input.sfOrderId,
+        weightGramSent: input.weightGramSent,
+        estimatedCost: input.estimatedCost ?? null,
+        error: err?.message ?? 'unknown error',
+      }));
       return null;
     }
   }

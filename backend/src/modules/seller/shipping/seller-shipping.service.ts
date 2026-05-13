@@ -17,6 +17,7 @@ import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
 import { UploadService } from '../../upload/upload.service';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
+import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
 
 export type CarrierWaybillAddress = {
   name: string;
@@ -675,8 +676,8 @@ export class SellerShippingService {
 
     const cargo = input.items.map((i) => i.name).join(', ');
     const totalWeightGram = this.calculateTotalWeightGram(input.items);
-    const weightGramSent = Math.max(totalWeightGram, 1000);
-    const totalWeightKg = Math.max(totalWeightGram / 1000, 1);
+    const weightGramSent = Math.max(totalWeightGram, DEFAULT_SKU_WEIGHT_GRAM);
+    const totalWeightKg = Math.max(totalWeightGram / GRAMS_PER_KG, 1);
 
     // 使用 bizNo_companyId 作为顺丰 orderId，确保幂等性
     const orderResult = await this.sfExpress.createOrder({
@@ -731,7 +732,7 @@ export class SellerShippingService {
     const normalized = Number(weightGram);
     return Number.isFinite(normalized) && normalized > 0
       ? Math.trunc(normalized)
-      : 1000;
+      : DEFAULT_SKU_WEIGHT_GRAM;
   }
 
   private calculateTotalWeightGram(items: CarrierWaybillItem[]): number {
@@ -746,7 +747,7 @@ export class SellerShippingService {
 
       const legacyWeightKg = Number(item.weight);
       if (Number.isFinite(legacyWeightKg) && legacyWeightKg > 0) {
-        return sum + Math.round(legacyWeightKg * 1000);
+        return sum + Math.round(legacyWeightKg * GRAMS_PER_KG) * quantity;
       }
 
       return sum;

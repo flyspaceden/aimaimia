@@ -1,4 +1,5 @@
 import { OrderService } from './order.service';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
 describe('OrderService.previewOrder prize exclusion', () => {
   function createService() {
@@ -109,5 +110,67 @@ describe('OrderService.previewOrder prize exclusion', () => {
         addressId: 'addr1',
       } as any),
     ).rejects.toThrow('购物车项与商品规格不匹配');
+  });
+});
+
+describe('OrderService.previewOrder shipping weight', () => {
+  it('uses the real fallback SKU id and shared default weight when preview input still carries productId', async () => {
+    const fallbackSku = {
+      id: 'sku-real',
+      productId: 'product-legacy',
+      title: '新版 SKU',
+      price: 20,
+      stock: 10,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: undefined,
+      product: {
+        id: 'product-legacy',
+        title: '普通商品',
+        status: 'ACTIVE',
+        companyId: 'merchant-company',
+        company: { name: '普通商户' },
+        media: [],
+      },
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+    };
+    const prisma: any = {
+      productSKU: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([fallbackSku]),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 99,
+        vipFreeShippingThreshold: 99,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingFee: jest.fn().mockResolvedValue(8),
+    };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    await service.previewOrder('user1', {
+      items: [{ skuId: 'product-legacy', quantity: 2 }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(shippingRuleService.calculateShippingFee).toHaveBeenCalledWith(
+      40,
+      '110000',
+      DEFAULT_SKU_WEIGHT_GRAM * 2,
+      undefined,
+    );
   });
 });

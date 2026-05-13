@@ -16,6 +16,7 @@ import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 import { encryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 import {
   getPrizeUnavailableReason,
   getUnavailableReasonText,
@@ -31,7 +32,6 @@ const CHANNEL_MAP: Record<string, string> = {
 // 默认运费规则（ShippingRule 无匹配时的 fallback）
 const DEFAULT_FREE_THRESHOLD = 99;
 const DEFAULT_BASE_FEE = 8;
-const DEFAULT_SKU_WEIGHT_GRAM = 1000;
 
 /** 快照中每一条购物车项的结构 */
 interface SnapshotItem {

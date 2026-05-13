@@ -162,6 +162,67 @@ describe('AfterSaleShippingPaymentService', () => {
     });
   });
 
+  it('estimates buyer return shipping fee from shipping rules using buyer region and sku weight', async () => {
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 23.456 }),
+    };
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      ...afterSaleRequestFixture(),
+      order: {
+        addressSnapshot: {
+          regionCode: '440305',
+          regionText: '广东省/深圳市/南山区',
+        },
+      },
+      orderItem: {
+        quantity: 3,
+        sku: { weightGram: 1200 },
+      },
+    });
+    service = new AfterSaleShippingPaymentService(prisma as any, alipayService as any);
+    service.setShippingRuleService(shippingRuleService as any);
+
+    await expect(service.estimateReturnShippingFee('as_001')).resolves.toBe(23.46);
+
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      0,
+      '440305',
+      3600,
+      tx,
+    );
+  });
+
+  it('estimates buyer return shipping fee by summing non-prize order item weights for full-order after sale', async () => {
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 31.234 }),
+    };
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      ...afterSaleRequestFixture({
+        orderItemId: null,
+      } as any),
+      order: {
+        addressSnapshot: { regionCode: '440305' },
+        items: [
+          { quantity: 2, isPrize: false, sku: { weightGram: 800 } },
+          { quantity: 1, isPrize: false, sku: { weightGram: 1000 } },
+          { quantity: 99, isPrize: true, sku: { weightGram: 9999 } },
+        ],
+      },
+      orderItem: null,
+    });
+    service = new AfterSaleShippingPaymentService(prisma as any, alipayService as any);
+    service.setShippingRuleService(shippingRuleService as any);
+
+    await expect(service.estimateReturnShippingFee('as_001')).resolves.toBe(31.23);
+
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      0,
+      '440305',
+      2600,
+      tx,
+    );
+  });
+
   it('uses 10 yuan fallback when RuleConfig is missing', async () => {
     tx.ruleConfig.findUnique.mockResolvedValue(null);
 

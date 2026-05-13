@@ -4,8 +4,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
 import { PaymentService } from '../../payment/payment.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
+import { OrderShippingCostService } from '../../shipment/order-shipping-cost.service';
 import { UploadService } from '../../upload/upload.service';
 import { AdminShipDto, AdminOrderQueryDto } from './dto/admin-order.dto';
+import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
 import {
   maskAddressSnapshot,
   maskPhone,
@@ -25,6 +27,7 @@ export class AdminOrdersService {
     private sfExpress: SfExpressService,
     private uploadService: UploadService,
     private paymentService: PaymentService,
+    private shippingCost?: OrderShippingCostService,
   ) {}
 
   private normalizeTrackingNo(value?: string | null): string {
@@ -504,6 +507,7 @@ export class AdminOrdersService {
     let resolvedTrackingNo: string | null = null;
     let resolvedSfOrderId: string | null = null;
     let resolvedWaybillUrl: string | null = null;
+    let resolvedWeightGramSent: number | null = null;
 
     if (dto.useCarrierAuto) {
       // 自动取号只支持顺丰，避免误传 carrierCode 与实际承运商不一致
@@ -532,6 +536,7 @@ export class AdminOrdersService {
       resolvedWaybillNo = auto.waybillNo;
       resolvedSfOrderId = auto.sfOrderId;
       resolvedWaybillUrl = auto.waybillUrl;
+      resolvedWeightGramSent = auto.weightGramSent;
     } else {
       // 手填路径：carrierCode + carrierName + trackingNo 三者必传
       const manualTrackingNo = this.normalizeTrackingNo(dto.trackingNo);
@@ -656,6 +661,21 @@ export class AdminOrdersService {
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         txCommitted = true;
+        if (dto.useCarrierAuto && resolvedSfOrderId && resolvedWeightGramSent) {
+          try {
+            await this.shippingCost?.recordPackage({
+              orderId,
+              packageIndex: 0,
+              companyId,
+              sfOrderId: resolvedSfOrderId,
+              weightGramSent: resolvedWeightGramSent,
+            });
+          } catch (recordErr: any) {
+            this.logger.warn(
+              `[admin] 平台承运成本写入失败，不阻塞发货: orderId=${orderId}, sfOrderId=${resolvedSfOrderId}, err=${recordErr.message}`,
+            );
+          }
+        }
         return result;
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) continue;
@@ -689,7 +709,7 @@ export class AdminOrdersService {
     orderId: string,
     companyId: string,
     order: { addressSnapshot: Prisma.JsonValue | null },
-  ): Promise<{ waybillNo: string; sfOrderId: string; waybillUrl: string | null }> {
+  ): Promise<{ waybillNo: string; sfOrderId: string; waybillUrl: string | null; weightGramSent: number }> {
     // 1. 发件人信息（来自 Company）
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
@@ -739,8 +759,19 @@ export class AdminOrdersService {
     // 3. 商品描述（取首件）
     const items = await this.prisma.orderItem.findMany({
       where: { orderId, companyId },
-      select: { quantity: true, sku: { select: { product: { select: { title: true } } } } },
+      select: {
+        quantity: true,
+        sku: {
+          select: {
+            weightGram: true,
+            product: { select: { title: true } },
+          },
+        },
+      },
     });
+    const totalWeightGram = this.calculateAdminShipTotalWeightGram(items);
+    const weightGramSent = Math.max(totalWeightGram, DEFAULT_SKU_WEIGHT_GRAM);
+    const totalWeightKg = Number((weightGramSent / GRAMS_PER_KG).toFixed(3));
     const cargoDesc = items
       .map((i) => i.sku?.product?.title || '商品')
       .slice(0, 3)
@@ -766,6 +797,7 @@ export class AdminOrdersService {
         detail: recvDetail,
       },
       cargo: cargoDesc || '商品',
+      totalWeight: totalWeightKg,
       packageCount: 1,
     });
 
@@ -799,7 +831,23 @@ export class AdminOrdersService {
       waybillNo: orderResult.waybillNo,
       sfOrderId: orderResult.sfOrderId,
       waybillUrl,
+      weightGramSent,
     };
+  }
+
+  private calculateAdminShipTotalWeightGram(
+    items: Array<{ quantity: number; sku?: { weightGram?: unknown } | null }>,
+  ): number {
+    return items.reduce((sum, item) => {
+      const quantity = Number(item.quantity);
+      const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0;
+      const weightGram = Number(item.sku?.weightGram);
+      const safeWeightGram =
+        Number.isFinite(weightGram) && weightGram > 0
+          ? Math.trunc(weightGram)
+          : DEFAULT_SKU_WEIGHT_GRAM;
+      return sum + safeWeightGram * safeQuantity;
+    }, 0);
   }
 
   /**

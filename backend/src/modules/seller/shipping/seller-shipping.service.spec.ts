@@ -8,6 +8,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { SellerShippingService } from './seller-shipping.service';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../../common/constants/shipping.constants';
 
 // mock 加密模块：测试环境下直接透传
 jest.mock('../../../common/security/encryption', () => ({
@@ -305,6 +306,61 @@ describe('generateWaybill — 面单生成', () => {
       companyId: COMPANY_ID,
       sfOrderId: 'sf-order-abc-123',
       weightGramSent: 2000,
+    });
+  });
+
+  it('同一订单 3 个商户分别生成顺丰面单时记录 3 条包裹成本', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    const orderId = 'o-multi-company';
+    const companies = [
+      { companyId: 'c-multi-1', weightGram: 500, quantity: 1, expectedWeight: DEFAULT_SKU_WEIGHT_GRAM },
+      { companyId: 'c-multi-2', weightGram: 750, quantity: 2, expectedWeight: 1500 },
+      { companyId: 'c-multi-3', weightGram: undefined, quantity: 1, expectedWeight: DEFAULT_SKU_WEIGHT_GRAM },
+    ];
+
+    prisma.order.findUnique.mockResolvedValue({
+      id: orderId,
+      status: 'PAID',
+      addressSnapshot: ADDRESS_SNAPSHOT,
+    });
+    prisma.orderItem.findMany.mockImplementation(({ where }: any) => {
+      const company = companies.find((item) => item.companyId === where.companyId);
+      return Promise.resolve(company ? [{
+        companyId: company.companyId,
+        quantity: company.quantity,
+        sku: {
+          weightGram: company.weightGram,
+          product: { title: `商品-${company.companyId}` },
+        },
+      }] : []);
+    });
+    prisma.shipment.findUnique.mockResolvedValue(null);
+    prisma.shipment.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: `ship-${data.companyId}` }),
+    );
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+    prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
+    sfExpress.createOrder.mockImplementation(({ orderId: sfBizNo }: any) =>
+      Promise.resolve({
+        waybillNo: `SF-${sfBizNo}`,
+        sfOrderId: `sf-${sfBizNo}`,
+      }),
+    );
+
+    for (const company of companies) {
+      await service.generateWaybill(company.companyId, STAFF_ID, orderId, 'SF');
+    }
+
+    expect(sfExpress.createOrder).toHaveBeenCalledTimes(3);
+    expect(shippingCost.recordPackage).toHaveBeenCalledTimes(3);
+    companies.forEach((company, index) => {
+      expect(shippingCost.recordPackage).toHaveBeenNthCalledWith(index + 1, {
+        orderId,
+        packageIndex: 0,
+        companyId: company.companyId,
+        sfOrderId: `sf-${orderId}_${company.companyId}`,
+        weightGramSent: company.expectedWeight,
+      });
     });
   });
 
@@ -1289,6 +1345,45 @@ describe('createCarrierWaybill — 快递面单创建', () => {
       totalWeight: 2,
     }));
     expect(result.weightGramSent).toBe(2000);
+  });
+
+  it('legacy kg 重量按单件重量乘数量后传给顺丰', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFLEGACY001',
+      sfOrderId: 'sf-legacy-order-001',
+    });
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'LEGACY_WEIGHT_ORDER',
+      carrierCode: 'SF',
+      sender: {
+        name: '张经理',
+        tel: '13800001001',
+        province: '云南省',
+        city: '玉溪市',
+        district: '红塔区',
+        detail: '高新技术产业园区',
+      },
+      receiver: {
+        name: '林青禾',
+        tel: '13800138000',
+        province: '云南省',
+        city: '昆明市',
+        district: '盘龙区',
+        detail: '翠湖路 88 号',
+      },
+      items: [
+        { name: '旧调用商品', quantity: 3, weight: 0.6 },
+      ],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 1.8,
+    }));
+    expect(result.weightGramSent).toBe(1800);
   });
 
   it('正确组装发件人和收件人信息传给顺丰', async () => {
