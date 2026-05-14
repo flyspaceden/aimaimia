@@ -4,10 +4,10 @@
 > **触发场景**: 用户买完 VIP，会员中心"我的专属推荐码"显示"暂无推荐码"。审查发现整条推荐链路（QR 生成 → 扫码 → 落地页 → 下载引导 → App 首启延迟匹配 → 注册自动绑定）多点断裂
 > **审计方式**: 逐文件 file:line 读取 + 与 `docs/superpowers/specs/2026-03-27-deferred-deep-link-design.md` 设计稿交叉比对
 > **状态说明**: ⬜ 待修 | 🔧 修复中 | ✅ 代码已修 | ⏭️ 待部署/迁移 | ❓ 需真机验证 | ⏸️ 暂缓（iOS 阶段再处理）
-> **当前测试阶段**: 仅 Android APK 直发分发（无 OSS 公开 URL，靠手动发 APK 文件给测试人员），v1.0 暂未走 iOS App Store / 国内应用商店上架
+> **当前测试阶段**: 仅 Android 测试包分发；推荐码落地页的安卓下载入口已切到蒲公英测试页 `https://www.pgyer.com/aimaimai-android-test`，v1.0 暂未走 iOS App Store / 国内应用商店上架
 > **已暂缓**:
 > - Bug 2 / Bug 4 / 任务 17 — iOS 阶段再处理
-> - Bug 5 — 等正式上架前（应用宝 / 华为 / 小米 / OPPO / vivo），改为应用商店深链；测试期手动发 APK
+> - Bug 5 — 测试期先走蒲公英测试页；正式上架前再改为应用宝 / 华为 / 小米 / OPPO / vivo 等商店深链
 
 ---
 
@@ -19,7 +19,7 @@
 | 2 | CRITICAL | iOS AASA 文件 `appID` 占位 `TEAM_ID...` → Universal Link 全失效 | website 部署 + iOS 真机验证 | ⏸️ 暂缓 |
 | 3 | CRITICAL | 落地页 Cookie domain 写死 `.xn--ckqa175y.com`（旧域名）+ 中英双活域名 cookie 桶不互通 → Cookie 路径全废 | website 部署 + Nginx 配置 | ⬜ |
 | 4 | CRITICAL | App Store 链接 `id000000000` 占位 → iOS 用户没法下载 | website 部署 | ⏸️ 暂缓 |
-| 5 | HIGH | Google Play 链接在国内不可达，无 APK / 国内市场 fallback | website 部署 | ⏸️ 暂缓 |
+| 5 | HIGH | Google Play 链接在国内不可达，无 APK / 国内市场 fallback | website 部署 | ⏭️ 待部署/验证 |
 | 6 | HIGH | 启动后已登录态不会主动绑定 pending code（只在 `setLoggedIn` 那一瞬触发） | OTA | ⬜ |
 | 7 | HIGH | 指纹精确匹配几乎必失败（浏览器 UA vs RN WebView UA 必定不同） | 后端部署 + OTA | ⬜ |
 | 8 | MEDIUM | DDL `ddl_checked` 一次性兜死，永不重试 | OTA | ⬜ |
@@ -193,17 +193,18 @@ window.location.href = 'https://apps.apple.com/app/id000000000'
 
 ### Bug 5 🟠 HIGH — Google Play 链接国内不可达，缺 APK / 国内市场 fallback
 
-**位置**：`website/src/pages/Download.tsx:82`
+**位置**：`website/src/pages/Download.tsx`
 ```js
 window.location.href = 'https://play.google.com/store/apps/details?id=com.aimaimai.shop'
 ```
 
 **症状**：中国大陆用户点 Android 下载按钮，跳 Play Store 卡死/超时（GFW）。当前国内分发渠道是 APK 直链 / 应用宝 / 华为 / 小米 / OPPO / vivo 商店。
 
-**修复方案**（按工作量从小到大）：
-- **方案 A（最小**）：把 Play Store 链接改为后端配置项，默认指向当前最新 APK 的 OSS 直链（如 `https://oss.../aimaimai-latest.apk`）。每次 `eas build --profile production --platform android` 后上传 APK 到 OSS 并更新指针
-- **方案 B**：检测 UA 决定显示哪个商店深链（华为/小米/OPPO/vivo 商店 schema），fallback 到 APK
-- **方案 C**：跳一个"选择应用商店"的中间页，列各家市场图标 + APK 直链
+**修复方案（2026-05-14 测试期已落地）**：
+- 保留 `https://app.ai-maimai.com/r/{CODE}` 作为推荐码二维码内容，确保落地页先上报推荐码 + 设备信息，避免推荐绑定丢失
+- 安卓下载按钮从 Google Play 改为蒲公英测试页 `https://www.pgyer.com/aimaimai-android-test`
+- 安卓落地页额外展示蒲公英下载二维码，方便测试人员扫码安装
+- 正式上架前再把测试页切换为应用宝 / 华为 / 小米 / OPPO / vivo 等商店深链
 
 参考 `docs/operations/app-发布与OTA手册.md` 看当前实际分发渠道再决定。
 

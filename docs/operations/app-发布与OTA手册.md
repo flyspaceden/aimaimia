@@ -252,6 +252,12 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 - APK URL: `https://expo.dev/artifacts/eas/dT3CL8mC2hUEiewNDJgLxN.apk`
 - ⚠️ **此 APK 内嵌的 wechat.ts 是 broken 版本**（`NativeModules.WeChat` 检查失败），修复仅在 OTA 中
 
+### 当前安卓测试分发入口
+
+- 蒲公英测试页：`https://www.pgyer.com/aimaimai-android-test`
+- 推荐码落地页：`https://app.ai-maimai.com/r/{CODE}` 仍然是唯一推荐二维码入口；该页会先记录推荐码，再展示/跳转蒲公英测试下载页。
+- 网站代码位置：`website/src/pages/Download.tsx`；默认下载链接在 `website/src/lib/downloadLinks.ts`，可用 `VITE_ANDROID_TEST_DOWNLOAD_URL` 覆盖。
+
 ### Preview Branch 最近 OTA 历史（按时间倒序）
 
 | Group ID | 内容 | 备注 |
@@ -296,9 +302,10 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### 国内分发现状
 
-- 蒲公英 / fir.im：需要 App 备案（工信部），目前未备案 → **无法用**
+- 蒲公英：测试分发页已启用，当前 URL 为 `https://www.pgyer.com/aimaimai-android-test`
+- fir.im：未启用
 - 应用商店（华为 / 小米 / 应用宝）：需要软著 + App 备案，未启动
-- **当前只能直接发 APK 链接**给测试人员（链接来自 EAS），全国可下载
+- 当前安卓测试人员可通过推荐码落地页或蒲公英测试页安装；如蒲公英受限，再回退为直接发 EAS APK 链接。
 
 ### 备案启动后的方案（待 v1.0）
 
