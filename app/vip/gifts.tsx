@@ -26,7 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
@@ -260,6 +260,7 @@ function GiftCard({
 // ============================================================
 export default function VipGiftsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ packageId?: string; giftOptionId?: string }>();
   const insets = useSafeAreaInsets();
   const safeBottomBare = useBottomInset(0);  // 仅 inset + OEM 兜底
   const barBottomPad = useBottomInset(16);  // 16dp extra + OEM 兜底
@@ -277,6 +278,7 @@ export default function VipGiftsScreen() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<FlatList>(null);
+  const initialSelectionAppliedRef = useRef(false);
 
   // 获取赠品方案
   const { data: giftData, isLoading } = useQuery({
@@ -299,6 +301,9 @@ export default function VipGiftsScreen() {
   const member = memberData?.ok ? memberData.data : null;
   const isVip = member?.tier === 'VIP';
 
+  const packageIdParam = typeof params.packageId === 'string' ? params.packageId : undefined;
+  const giftOptionIdParam = typeof params.giftOptionId === 'string' ? params.giftOptionId : undefined;
+
   // 滚动处理
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -307,6 +312,33 @@ export default function VipGiftsScreen() {
   });
 
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    if (!packages.length || initialSelectionAppliedRef.current || !packageIdParam) return;
+
+    initialSelectionAppliedRef.current = true;
+    const nextPackageIndex = packages.findIndex((pkg) => pkg.id === packageIdParam);
+    if (nextPackageIndex < 0) return;
+
+    const nextGiftOptions = packages[nextPackageIndex].giftOptions;
+    const nextGiftIndex = giftOptionIdParam
+      ? nextGiftOptions.findIndex((gift) => gift.id === giftOptionIdParam)
+      : -1;
+    const scrollIndex = nextGiftIndex >= 0 ? nextGiftIndex : 0;
+
+    setSelectedPackageIndex(nextPackageIndex);
+    setSelectedIndex(nextGiftIndex >= 0 ? nextGiftIndex : null);
+    setCurrentIndex(scrollIndex);
+
+    const timer = setTimeout(() => {
+      flatListRef.current?.scrollToOffset({
+        offset: scrollIndex * CARD_TOTAL_WIDTH,
+        animated: false,
+      });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [packages, packageIdParam, giftOptionIdParam, CARD_TOTAL_WIDTH]);
 
   // 当前可见卡片追踪
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
@@ -439,6 +471,7 @@ export default function VipGiftsScreen() {
                 onPress={() => {
                   setSelectedPackageIndex(index);
                   setSelectedIndex(null);
+                  setCurrentIndex(0);
                   flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
                 }}
                 style={[

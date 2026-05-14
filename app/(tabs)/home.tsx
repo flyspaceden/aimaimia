@@ -24,14 +24,17 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../src/components/layout';
+import { VipHomePromoCarousel } from '../../src/components/data';
 import { AuthModal } from '../../src/components/overlay';
 import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
 import { FloatingParticles, AiOrb } from '../../src/components/effects';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
+import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
 import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
+import type { VipHomePromoCard } from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -165,6 +168,21 @@ export default function HomeScreen() {
   const lotteryStatus = lotteryStatusData?.ok ? lotteryStatusData.data : null;
   const hasLotteryChance = !!(lotteryStatus && !lotteryStatus.hasDrawn);
 
+  // VIP 首页广告：未登录/普通用户展示，VIP 用户隐藏
+  const { data: memberData } = useQuery({
+    queryKey: ['bonus-member'],
+    queryFn: () => BonusRepo.getMember(),
+    enabled: isLoggedIn,
+  });
+  const member = memberData?.ok ? memberData.data : null;
+  const shouldShowVipPromo = !isLoggedIn || member?.tier === 'NORMAL';
+  const { data: vipGiftOptionsData } = useQuery({
+    queryKey: ['vip-gift-options'],
+    queryFn: () => BonusRepo.getVipGiftOptions(),
+    enabled: shouldShowVipPromo,
+  });
+  const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
+
   // 跨零点自动刷新抽奖状态
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -262,6 +280,16 @@ export default function HomeScreen() {
     },
     [router]
   );
+
+  const handleVipPromoPress = useCallback((card: VipHomePromoCard) => {
+    router.push({
+      pathname: '/vip/gifts',
+      params: {
+        packageId: card.packageId,
+        giftOptionId: card.giftOptionId,
+      },
+    });
+  }, [router]);
 
   // --- 录音按钮动画 ---
   const recordHaloScale = useSharedValue(1);
@@ -511,6 +539,15 @@ export default function HomeScreen() {
             </Text>
           </Animated.View>
         )}
+
+        {shouldShowVipPromo ? (
+          <Animated.View entering={FadeInDown.duration(300).delay(40)}>
+            <VipHomePromoCarousel
+              packages={vipPackages}
+              onPressCard={handleVipPromoPress}
+            />
+          </Animated.View>
+        ) : null}
 
         {/* AI光球 + 抽奖按钮区域 */}
         <Animated.View entering={FadeInDown.duration(300)}>

@@ -484,7 +484,7 @@ Tab 栏设计：
 
 ### 5.1 首页 — AI Hub `/(tabs)/home`
 
-首页是纯 AI 入口，不展示商品列表。核心是中央大光球。
+首页是 AI 入口，不展示商品列表。核心是中央大光球。未登录/普通用户在搜索框下方展示 VIP 开通礼包横滑推广位，直接读取后台 `GET /bonus/vip/gift-options` 返回的档位与赠品组合内容；VIP 用户隐藏该推广位，避免重复购买入口干扰。
 
 ```
 ┌─────────────────────────────┐
@@ -498,6 +498,11 @@ Tab 栏设计：
 │  ┌───────────────────────┐  │
 │  │ 🔍 搜索商品，或问我...   │  │ ← 搜索框（点击跳转搜索页）
 │  └───────────────────────┘  │
+│                             │
+│  ┌──── VIP开通礼包 ────┐    │ ← 非VIP/未登录展示，横滑 399/699/999 档位
+│  │ ¥399 有机茶叶礼盒    │    │    展示后台赠品组合：商品+SKU+数量
+│  │ 高山绿茶×1 + 蜂蜜×2  │    │    点击进入 `/vip/gifts?packageId&giftOptionId`
+│  └─────────────────────┘    │
 │                             │
 │         · ·   · ·          │
 │        ╱ ░░░░░░░ ╲         │
@@ -2239,6 +2244,7 @@ src/components/ai/   → 新增目录
 | 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
 | 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |
 | 购物车免邮提示收口 | 购物车移除静态"再买免运费"提示；结算页保留后端预结算返回的真实免邮差额提示；预结算返回前显示"计算中"而非本地兜底运费 | 2026-05-12 | `app/cart.tsx`, `app/checkout.tsx`, `src/constants/search.ts` |
+| 首页 VIP 礼包推广 | 非 VIP/未登录首页在搜索框下方展示后台 VIP 档位主推赠品组合；点击携带 `packageId`/`giftOptionId` 进入 `/vip/gifts` 并自动定位对应档位和赠品 | 2026-05-14 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts` |
 | 售后链路收口 Task 9/12 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API；最终验证记录已同步，真机/沙箱仍需验证退货运费支付、顺丰退货面单和售后退款到账 | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
 
 ### Phase 进度对照

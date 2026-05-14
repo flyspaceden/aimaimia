@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-05-11
+> **最后更新**: 2026-05-14
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -1255,6 +1255,12 @@
 - [✅] **SF07** 文档同步：`data-system.md` / `shipping.md` / `plan-treeforuser.md` / `app-tofix3.md` / `sales.md` / `seller.md` / `AGENTS.md` / `CLAUDE.md` / `plan.md`
 - [✅] **SF07a** App / 管理端运费提示收口（2026-05-12）：购物车移除静态"再买免运费"提示；结算页预结算返回前显示"计算中"而非本地兜底运费；管理端规则冲突检测按后端省级前缀匹配口径
 - [ ] **SF08** staging / SF 沙箱冒烟：管理后台新增规则 → App 预结算 → 顺丰沙箱下单 → `order_shipping_costs` 入库 → 改规则后已创建 CheckoutSession 仍按锁价支付
+
+---
+
+## 首页 VIP 礼包推广（2026-05-14 新增）
+
+- [✅] **APP-VIP-PROMO01** 非 VIP 首页礼包推广位：未登录/普通用户在首页搜索框下方展示后台 VIP 档位主推赠品组合，卡片显示价格、赠品标题、商品/SKU/数量和参考价；点击携带 `packageId`/`giftOptionId` 进入 `/vip/gifts` 并自动定位对应档位和赠品，VIP 用户首页隐藏。
 
 ---
 
