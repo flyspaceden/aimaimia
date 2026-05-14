@@ -27,6 +27,7 @@
 | 10 | MEDIUM | Android assetlinks sha256 与 EAS keystore 是否匹配，需真机验证 | 真机 | ❓ |
 | 11 | MEDIUM | URL 监听器在隐私同意前不挂 → 待同意期间外部唤起 URL 丢失 | OTA | ⬜ |
 | 12 | MEDIUM | 同 IP 多用户碰撞，模糊匹配会拿错码（设计已知权衡） | 后端部署 + 监控 | ⬜ |
+| 13 | HIGH | 已装 App 扫 `/r/{CODE}` 只触发后台绑定但无 App 路由承接，可能落入 not-found | OTA | ✅ 代码已修 |
 
 ---
 
@@ -355,6 +356,24 @@ curl -I https://app.ai-maimai.com/r/ABCD1234                         # 期望 20
 - **方案 C**：拒绝模糊匹配——同 IP 多条记录直接放弃（牺牲覆盖率换准确率）
 
 设计文档已说明"低频权衡"，建议先做方案 A 监控，看真实碰撞率再决定要不要进一步处理。
+
+---
+
+### Bug 13 🟠 HIGH — 已装 App 扫推荐码缺少 `/r/{CODE}` 路由承接
+
+**位置**：`app/r/[code].tsx`
+
+**症状**：
+- Android App Link / iOS Universal Link 命中 `https://app.ai-maimai.com/r/{CODE}` 后，`app/_layout.tsx` 的全局 `Linking` 监听能提取推荐码并执行绑定/暂存
+- 但 App 文件路由中没有 `/r/{CODE}` 页面，前台可能落入 expo-router unmatched / not-found 页面，用户看不到明确反馈
+
+**修复方案（2026-05-14 已落地）**：
+- 新增 `app/r/[code].tsx` 承接页，只负责用户可见体验，不重复实现绑定业务
+- 页面挂载后立即回到 `/(tabs)/home`
+- 根据当前登录态显示 2 秒 toast：
+  - 已登录：`推荐码已绑定`
+  - 未登录：`推荐码已记录`
+- 绑定逻辑仍由 `app/_layout.tsx` 的 `handleIncomingURL()` 统一处理，避免分散业务入口
 
 ---
 
