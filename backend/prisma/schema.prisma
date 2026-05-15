@@ -1679,6 +1679,8 @@ model Invoice {
   providerRaw            Json?
   invoiceContentSnapshot Json?
   requestCount           Int           @default(1)
+  failedAttempts         Int           @default(0)
+  lastAutoIssueAttemptAt DateTime?
   requestedAt            DateTime      @default(now())
   issuedAt               DateTime?     // 开票时间
   failedAt               DateTime?
@@ -1690,6 +1692,7 @@ model Invoice {
 
   @@index([status])
   @@index([providerRequestId])
+  @@index([status, failedAttempts, lastAutoIssueAttemptAt])
 }
 
 model InvoiceStatusHistory {
