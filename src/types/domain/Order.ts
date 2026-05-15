@@ -17,6 +17,7 @@ export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCE
 
 import { PaymentMethod } from './Payment';
 import { ServerCart } from './ServerCart';
+import type { Invoice, InvoiceStatus } from './Invoice';
 
 export type AfterSaleStatus =
   | 'applying'
@@ -248,6 +249,12 @@ export type Order = {
   status: OrderStatus;
   bizType?: OrderBizType;
   repurchasable?: boolean;
+  invoiceEligible?: boolean;
+  invoiceStatus?: InvoiceStatus | null;
+  invoice?: Pick<
+    Invoice,
+    'id' | 'status' | 'invoiceNo' | 'pdfUrl' | 'requestedAt' | 'issuedAt' | 'failReason' | 'profileSnapshot'
+  > | null;
   issueFlag?: boolean;
   afterSaleStatus?: AfterSaleStatus;
   afterSaleReason?: string;

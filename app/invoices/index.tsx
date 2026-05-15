@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
@@ -46,6 +47,18 @@ export default function InvoicesScreen() {
   const listError = data && !data.ok ? data.error : null;
   const invoices = data?.ok ? data.data.items : [];
 
+  const openPdf = useCallback(async (url?: string | null) => {
+    if (!url || !/^https?:\/\//.test(url)) {
+      show({ message: '发票 PDF 地址无效', type: 'error' });
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      show({ message: '无法打开发票 PDF，请稍后重试', type: 'error' });
+    }
+  }, [show]);
+
   // 取消开票申请
   const handleCancel = useCallback(async (invoice: Invoice) => {
     Alert.alert('取消申请', `确认取消订单 ${invoice.orderId.slice(0, 10)}... 的开票申请？`, [
@@ -63,6 +76,9 @@ export default function InvoicesScreen() {
           }
           show({ message: '已取消开票申请', type: 'success' });
           queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['invoice-detail', invoice.id] });
+          queryClient.invalidateQueries({ queryKey: ['order', invoice.orderId] });
+          queryClient.invalidateQueries({ queryKey: ['orders'] });
         },
       },
     ]);
@@ -102,7 +118,7 @@ export default function InvoicesScreen() {
           {/* 抬头类型 + 申请时间 */}
           <View style={styles.cardMeta}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>
-              {item.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {item.createdAt}
+              {item.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {item.requestedAt || item.createdAt}
             </Text>
           </View>
 
@@ -110,7 +126,7 @@ export default function InvoicesScreen() {
           <View style={styles.cardFooter}>
             {item.status === 'ISSUED' && item.pdfUrl ? (
               <Pressable
-                onPress={() => show({ message: '正在打开发票...', type: 'success' })}
+                onPress={() => openPdf(item.pdfUrl)}
                 style={[styles.actionBtn, { borderColor: colors.brand.primary, borderRadius: radius.pill }]}
               >
                 <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>查看发票</Text>
@@ -134,7 +150,7 @@ export default function InvoicesScreen() {
         </Pressable>
       </Animated.View>
     );
-  }, [colors, radius, shadow, typography, cancelingId, handleCancel, show, router]);
+  }, [colors, radius, shadow, typography, cancelingId, handleCancel, openPdf, router]);
 
   const keyExtractor = useCallback((item: Invoice) => item.id, []);
 

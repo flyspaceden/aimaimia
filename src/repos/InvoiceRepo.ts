@@ -58,7 +58,10 @@ let mockInvoices: Invoice[] = [
     profileSnapshot: { type: 'PERSONAL', title: '张三', email: 'zhangsan@example.com' },
     status: 'ISSUED',
     invoiceNo: 'FP20260201001',
-    pdfUrl: 'https://example.com/invoice/FP20260201001.pdf',
+    pdfUrl: 'http://localhost:3000/uploads/invoices/mock/FP20260201001.pdf',
+    provider: 'MOCK',
+    providerRequestId: 'mock-inv-1-1',
+    requestedAt: '2026-02-01T10:00:00.000Z',
     issuedAt: '2026-02-02',
     createdAt: '2026-02-01',
     updatedAt: '2026-02-02',
@@ -68,10 +71,14 @@ let mockInvoices: Invoice[] = [
     orderId: 'o-mock-002',
     profileSnapshot: { type: 'COMPANY', title: '杭州绿源农业科技有限公司', taxNo: '91330100MA2EXAMPLE' },
     status: 'REQUESTED',
+    requestedAt: '2026-02-10T10:00:00.000Z',
     createdAt: '2026-02-10',
     updatedAt: '2026-02-10',
   },
 ];
+
+export const getMockInvoiceForOrder = (orderId: string): Invoice | null =>
+  mockInvoices.find((inv) => inv.orderId === orderId) ?? null;
 
 export const InvoiceRepo = {
   /**
@@ -141,21 +148,45 @@ export const InvoiceRepo = {
       if (!profile) {
         return err(createAppError('NOT_FOUND', '抬头不存在', '请先选择发票抬头'));
       }
+      const existing = mockInvoices.find((inv) => inv.orderId === params.orderId);
+      if (existing && (existing.status === 'REQUESTED' || existing.status === 'ISSUED')) {
+        return err(createAppError('INVALID', '该订单已申请过发票', '该订单已有发票记录'));
+      }
+      const now = new Date().toISOString();
+      const profileSnapshot = {
+        type: profile.type,
+        title: profile.title,
+        taxNo: profile.taxNo,
+        email: profile.email,
+        phone: profile.phone,
+        bankInfo: profile.bankInfo,
+        address: profile.address,
+      };
+      if (existing) {
+        Object.assign(existing, {
+          profileSnapshot,
+          status: 'REQUESTED' as const,
+          invoiceNo: null,
+          pdfUrl: null,
+          failReason: null,
+          provider: null,
+          providerRequestId: null,
+          requestedAt: now,
+          issuedAt: null,
+          failedAt: null,
+          canceledAt: null,
+          updatedAt: now,
+        });
+        return simulateRequest(existing, { delay: 300 });
+      }
       const invoice: Invoice = {
         id: `inv-${Date.now()}`,
         orderId: params.orderId,
-        profileSnapshot: {
-          type: profile.type,
-          title: profile.title,
-          taxNo: profile.taxNo,
-          email: profile.email,
-          phone: profile.phone,
-          bankInfo: profile.bankInfo,
-          address: profile.address,
-        },
+        profileSnapshot,
         status: 'REQUESTED',
-        createdAt: new Date().toISOString().slice(0, 10),
-        updatedAt: new Date().toISOString().slice(0, 10),
+        requestedAt: now,
+        createdAt: now,
+        updatedAt: now,
       };
       mockInvoices = [invoice, ...mockInvoices];
       return simulateRequest(invoice, { delay: 300 });
@@ -208,7 +239,8 @@ export const InvoiceRepo = {
         return err(createAppError('INVALID', '仅待开票的发票可取消', '当前状态不可取消'));
       }
       invoice.status = 'CANCELED';
-      invoice.updatedAt = new Date().toISOString().slice(0, 10);
+      invoice.canceledAt = new Date().toISOString();
+      invoice.updatedAt = invoice.canceledAt;
       return simulateRequest({ ok: true }, { delay: 200 });
     }
     return ApiClient.post<{ ok: boolean }>(`/invoices/${id}/cancel`);

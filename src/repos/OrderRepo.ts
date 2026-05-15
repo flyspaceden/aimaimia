@@ -44,8 +44,37 @@ import { CartRepo } from './CartRepo';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
 import { normalizePagination } from './http/pagination';
+import { getMockInvoiceForOrder } from './InvoiceRepo';
 
 let orderStore = [...mockOrders];
+
+const withMockInvoiceStatus = (order: Order): Order => {
+  const invoice = getMockInvoiceForOrder(order.id);
+  return {
+    ...order,
+    invoiceStatus: invoice?.status ?? null,
+    invoiceEligible: order.status === 'RECEIVED' && !invoice,
+  };
+};
+
+const withMockInvoiceDetail = (order: Order): Order => {
+  const invoice = getMockInvoiceForOrder(order.id);
+  return {
+    ...withMockInvoiceStatus(order),
+    invoice: invoice
+      ? {
+          id: invoice.id,
+          status: invoice.status,
+          invoiceNo: invoice.invoiceNo,
+          pdfUrl: invoice.pdfUrl,
+          requestedAt: invoice.requestedAt,
+          issuedAt: invoice.issuedAt,
+          failReason: invoice.failReason,
+          profileSnapshot: invoice.profileSnapshot,
+        }
+      : null,
+  };
+};
 
 const buildOrderTotal = (items: OrderItem[]) =>
   items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -385,7 +414,8 @@ export const OrderRepo = {
     if (USE_MOCK) {
       // 订单列表：支持按状态筛选，Mock 模式返回全量数据（无分页）
       const orders = status ? orderStore.filter((order) => order.status === status) : orderStore;
-      return simulateRequest({ items: orders, total: orders.length, page: 1, pageSize: orders.length });
+      const items = orders.map(withMockInvoiceStatus);
+      return simulateRequest({ items, total: items.length, page: 1, pageSize: items.length });
     }
 
     // 后端返回分页格式 { items, total, page, pageSize }，通过 normalizePagination 转换
@@ -452,7 +482,7 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${id}`, '订单未找到'));
       }
-      return simulateRequest(order);
+      return simulateRequest(withMockInvoiceDetail(order));
     }
 
     return ApiClient.get<Order>(`/orders/${id}`);
