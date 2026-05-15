@@ -158,6 +158,26 @@ export default function AdminLayout() {
     };
   }, [hasPermission]);
 
+  // 计算唯一选中的菜单 key：取与当前 pathname 最长前缀匹配的那一项，
+  // 避免 `/invoices/settings` 同时点亮 `/invoices` 父路径。
+  const selectedKeys = useMemo(() => {
+    const flatten = (routes: MenuRoute[]): string[] => {
+      const acc: string[] = [];
+      routes.forEach((r) => {
+        if (r.path) acc.push(r.path);
+        if (r.routes) acc.push(...flatten(r.routes as MenuRoute[]));
+      });
+      return acc;
+    };
+    const all = flatten(filteredRoute.routes as MenuRoute[]);
+    const matches = all.filter((p) =>
+      p === location.pathname ||
+      (p !== '/' && location.pathname.startsWith(p + '/')),
+    );
+    if (matches.length === 0) return [];
+    return [matches.reduce((longest, p) => (p.length > longest.length ? p : longest), matches[0])];
+  }, [filteredRoute, location.pathname]);
+
   return (
     <ProLayout
       title="爱买买管理后台"
@@ -172,10 +192,11 @@ export default function AdminLayout() {
       collapsed={collapsed}
       onCollapse={setCollapsed}
       route={filteredRoute}
-      // ProLayout location prop 仅接受 pathname，不支持 search
-      // 副作用：两菜单项同 pathname /companies（"企业管理" + "入驻审核"）会同时高亮
-      // 属轻微 UX 瑕疵，不影响功能，v1.0 可接受
+      // ProLayout 默认按前缀匹配 pathname，会出现父子菜单同时高亮；
+      // 通过 menuProps.selectedKeys 显式指定最长前缀匹配，保证唯一选中。
+      // 同 pathname 不同 search 的兄弟菜单（如 /companies?status=PENDING_AUDIT）仍会一起高亮，属预期。
       location={{ pathname: location.pathname }}
+      menuProps={{ selectedKeys }}
       token={{
         sider: {
           colorMenuBackground: '#001529',
