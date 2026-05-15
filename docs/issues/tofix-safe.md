@@ -223,6 +223,21 @@
   3. 无模板或查询失败时 fallback 到默认值（满 99 免运费，基础运费 8 元）
   4. `previewOrder` 和 `createFromCart` 均调用该方法
 
+### S21: 发票 Provider 预占期间管理端可覆盖状态
+- **状态**: ✅ 已修复（2026-05-15）
+- **文件**:
+  - `backend/src/modules/admin/invoices/admin-invoices.service.ts`
+  - `backend/src/modules/admin/invoices/admin-invoices.controller.ts`
+  - `admin/src/pages/invoices/index.tsx`
+  - `admin/src/pages/invoices/detail.tsx`
+- **问题**: 自动/Mock 开票先 CAS 预占 `providerRequestId` 再事务外调用 Provider。预占成功后、Provider finalize 前，管理端“标记失败”或“人工开票”原本只校验 `status=REQUESTED`，可能覆盖飞行中的 Provider 调用，导致上游已开票但本地状态被改写。
+- **修复内容**:
+  1. `failInvoice()` 和手工开票 CAS 均增加 `providerRequestId: null`，预检时对开票中记录返回冲突。
+  2. 新增 `resetProviderReservation()`，仅允许超过保护窗口的 `REQUESTED + providerRequestId` 记录被管理员审计重置。
+  3. 管理端读权限只返回脱敏抬头和开票快照，完整电话、邮箱、银行账号、地址等仅对 `invoices:issue` / 超管返回。
+  4. 管理后台将 `REQUESTED + providerRequestId` 显示为“开票中”，隐藏普通开票/失败操作，仅保留重置入口。
+  5. 手工开票 `pdfUrl` 增加平台上传 / OSS URL 白名单校验，避免任意外部链接写入发票记录。
+
 ---
 
 ## 修复统计
@@ -230,11 +245,11 @@
 | 级别 | 总数 | 已修复 | 未修复 |
 |------|------|--------|--------|
 | 🔴 CRITICAL | 6 | 6 | 0 |
-| 🟠 HIGH | 7 | 7 | 0 |
+| 🟠 HIGH | 8 | 8 | 0 |
 | 🟡 MEDIUM | 8 | 8 | 0 |
-| **合计** | **21** | **21** | **0** |
+| **合计** | **22** | **22** | **0** |
 
-全部 21 个安全问题已修复完成（2026-05-08 复核后更新）。
+全部 22 个安全问题已修复完成（2026-05-15 复核后更新）。
 
 ---
 

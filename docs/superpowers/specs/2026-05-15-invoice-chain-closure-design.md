@@ -437,21 +437,28 @@ export interface InvoiceProvider {
     - `mode = AUTO`：按 `INVOICE_PROVIDER_MODE` 解析 provider，本轮实际解析为 `MOCK`。
     - `mode = MOCK`：显式调用 Mock Provider，便于前端文案和测试。
     - `mode = MANUAL`：管理员上传 PDF 或录入 `invoiceNo + pdfUrl`，仍写 provider=`MANUAL`。
-  - 自动/Mock provider 开票必须分两段执行，避免 Serializable 重试重复调用外部服务：
-    1. 短事务内 CAS 预占：`status=REQUESTED AND providerRequestId IS NULL`，写入确定性 `providerRequestId = invoice-{invoiceId}-{requestCount}` 和 provider 名称。
-    2. 事务外调用 provider，并把 `providerRequestId` 作为幂等 key 传入。
-    3. 短事务内 CAS 落库：`status=REQUESTED AND providerRequestId=<key>`，写 `ISSUED` 或 `FAILED`。
-  - 买家取消也必须要求 `providerRequestId IS NULL`，防止开票中被取消。
-  - 人工开票无外部 provider 调用，可在单个 Serializable + CAS 事务内完成。
-  - 写 `invoiceNo/pdfUrl/provider/providerRequestId/providerRaw/invoiceContentSnapshot/issuedAt`。
-  - 写状态历史。
+	  - 自动/Mock provider 开票必须分两段执行，避免 Serializable 重试重复调用外部服务：
+	    1. 短事务内 CAS 预占：`status=REQUESTED AND providerRequestId IS NULL`，写入确定性 `providerRequestId = invoice-{invoiceId}-{requestCount}` 和 provider 名称。
+	    2. 事务外调用 provider，并把 `providerRequestId` 作为幂等 key 传入。
+	    3. 短事务内 CAS 落库：`status=REQUESTED AND providerRequestId=<key>`，写 `ISSUED` 或 `FAILED`。
+	  - 买家取消也必须要求 `providerRequestId IS NULL`，防止开票中被取消。
+	  - 管理端人工开票和标记失败也必须要求 `providerRequestId IS NULL`，防止覆盖 provider 飞行中的开票。
+	  - 人工开票无外部 provider 调用，可在单个 Serializable + CAS 事务内完成。
+	  - 人工开票 `pdfUrl` 必须来自平台上传域名 / OSS 域名白名单。
+	  - 写 `invoiceNo/pdfUrl/provider/providerRequestId/providerRaw/invoiceContentSnapshot/issuedAt`。
+	  - 写状态历史。
 
 `providerRaw` 只能保存脱敏后的 provider 响应元数据，禁止写入请求头、签名、token、证书、密钥、完整银行账号、手机号、私密 PDF 签名参数等敏感内容。真实 provider 接入时，如必须保存原始响应，应先做字段白名单和脱敏。
 
 - `failInvoice(invoiceId, dto)`
-  - Serializable + CAS。
+  - Serializable + CAS，条件为 `status=REQUESTED AND providerRequestId IS NULL`。
   - 写 `failReason/failedAt`。
   - 写状态历史。
+
+- `resetProviderReservation(invoiceId)`
+  - 仅用于恢复卡在 `REQUESTED + providerRequestId != null` 的开票任务。
+  - 默认保护窗口为 10 分钟，窗口内拒绝重置，避免覆盖真实飞行中的 provider 调用。
+  - 重置时 CAS 锁定当前 `providerRequestId`，清空 `provider/providerRequestId`，写 `providerRaw.resetReason` 和状态历史。
 
 ### 6.4 订单详情 API
 
@@ -524,7 +531,8 @@ updateInvoiceSettings(data: UpdateInvoiceSettingsParams): Promise<{ ok: boolean 
   - 备注
 - 人工开票弹窗支持两种输入：
   - 上传 PDF：复用现有上传能力，限制文件类型为 PDF，上传成功后回填 `pdfUrl`。
-  - 粘贴 URL：用于第三方系统已生成 PDF 的场景。
+  - 粘贴 URL：用于第三方系统已生成 PDF 的场景，但后端仍必须按平台上传域名 / OSS 域名白名单校验。
+  - `REQUESTED + providerRequestId != null` 显示为“开票中”，隐藏自动开票、人工开票、标记失败，只保留“重置开票任务”入口。
 
 ### 7.3 发票设置页
 
@@ -586,8 +594,10 @@ updateInvoiceSettings(data: UpdateInvoiceSettingsParams): Promise<{ ok: boolean 
 - 发票金额从订单读取，不接受前端传入金额。
 - 管理端写操作加 `@AuditLog()`。
 - Provider 凭据不写入 git，可提交文档只使用占位符。
+- 管理端 `invoices:read` 仅可看脱敏后的抬头 / 开票快照；完整电话、邮箱、银行账号、地址等只给 `invoices:issue` 或超级管理员。
 - 卖家端接口只返回状态，不能返回 `profileSnapshot` 或 `pdfUrl`。
 - 日志不得明文打印税号、手机号、银行账号、PDF 私密 URL。
+- 管理端手工发票 PDF URL 必须来自平台上传域名 / OSS 域名白名单，禁止保存任意外部链接。
 
 ---
 

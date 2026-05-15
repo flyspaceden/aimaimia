@@ -24,6 +24,7 @@
 - [x] **发票链路收口**（2026-05-15 新增并完成）
   - **来源**: `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` / `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md`
   - **实际做了**: Schema 增加 Provider 字段、开票内容快照、状态历史；买家申请/取消/重申请使用 Serializable + CAS；管理后台新增发票设置、Mock 自动开票、人工 PDF 上传/URL 开票；买家 App 订单详情展示发票状态并可打开 PDF；卖家端仅暴露 `invoiceStatus`
+  - **2026-05-15 审查收口**: Provider 开票中记录禁止管理端人工开票/标记失败；人工 PDF URL 增加平台上传/OSS 白名单；管理端增加受保护窗口限制的“重置开票任务”入口；`invoices:read` 详情脱敏、完整开票资料仅 `invoices:issue` / 超管可见；`CLAUDE.md` 补登记发票 spec/plan
   - **验证**: `prisma validate`、后端相关 Jest、后端 build、管理后台 build、卖家后台 build 通过；App 根 `tsc` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻塞，但无新增发票/订单类型错误
 
 ---

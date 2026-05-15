@@ -418,12 +418,14 @@ git commit -m "fix(invoice): make buyer invoice requests transactional"
 In `backend/src/modules/admin/invoices/admin-invoices.service.spec.ts`, cover:
 
 - `findAll({ keyword })` searches `invoiceNo`, exact `order.id`, and `profileSnapshot.title`.
+- `findById()` redacts profile / invoice snapshot sensitive fields when caller has only `invoices:read`.
 - `getInvoiceSettings()` returns defaults when `RuleConfig` rows are missing.
 - `updateInvoiceSettings()` validates and upserts every `INVOICE_*` key.
 - `issueInvoice(mode=AUTO)` builds payload from order/config, calls Mock provider, writes `ISSUED`, provider fields, `invoiceContentSnapshot`, `issuedAt`, and history.
 - `issueInvoice(mode=MANUAL)` requires `invoiceNo` and `pdfUrl`, writes provider `MANUAL`.
 - provider failure writes `FAILED`, `failedAt`, sanitized `providerRaw`, and history.
-- `failInvoice()` writes `failedAt` and history.
+- `failInvoice()` writes `failedAt` and history, but refuses rows with `providerRequestId != null`.
+- `resetProviderReservation()` clears stale `REQUESTED + providerRequestId` rows only after the protection window.
 - automatic/Mock provider issue reserves a deterministic `providerRequestId` before calling provider, calls provider outside the Serializable retry block, and never calls provider twice for one issue attempt.
 
 Key assertion:
@@ -669,8 +671,17 @@ Provider issue flow must avoid external side effects inside retryable Serializab
    ```
 5. If provider fails, use the same `where: { id, status: 'REQUESTED', providerRequestId }` guard to mark `FAILED`.
 6. Update buyer `cancelInvoice()` CAS to require `providerRequestId: null`, so an invoice reserved for provider issue cannot be canceled mid-issue.
+7. Admin `failInvoice()` and manual issue must also require `providerRequestId: null`; an invoice reserved for provider issue cannot be failed or manually issued mid-issue.
 
-Manual issue has no external provider side effect and can remain a single Serializable + CAS transaction.
+Manual issue has no external provider side effect and can remain a single Serializable + CAS transaction. Its `pdfUrl` must pass the platform upload / OSS URL allowlist.
+
+Stuck provider reservation recovery:
+
+- Add `POST /admin/invoices/:id/reset-provider-reservation`.
+- Require `invoices:issue` and `@AuditLog()`.
+- Allow only `REQUESTED + providerRequestId != null`.
+- Default protection window is 10 minutes; within the window the endpoint rejects with a conflict.
+- Reset uses CAS on the current `providerRequestId`, clears `provider/providerRequestId`, and writes status history metadata.
 
 - [ ] **Step 7: Run admin tests**
 
@@ -974,9 +985,8 @@ In `index.tsx`:
 - change application time from `createdAt` to `requestedAt`.
 - add toolbar button “发票设置” to navigate `/invoices/settings`.
 - for `REQUESTED` row, show:
-  - `自动开票`
-  - `人工开票`
-  - `失败`
+  - normal row: `自动开票` / `人工开票` / `失败`
+  - `providerRequestId != null`: status label `开票中` and only `重置` action
 - `自动开票` calls `issueInvoice(id, { mode: 'MOCK' })`.
 - `人工开票` keeps modal for `invoiceNo + pdfUrl`.
 
@@ -986,6 +996,7 @@ In `detail.tsx`:
 
 - show status history timeline.
 - show provider/providerRequestId.
+- if `REQUESTED + providerRequestId != null`, show status `开票中`, hide normal issue/fail actions, and show reset action.
 - show `invoiceContentSnapshot` if present:
   - buyer
   - issuer
@@ -1011,7 +1022,7 @@ Manual issue must support both upload and URL paste:
   />
   ```
 - read upload response URL and fill `pdfUrl`.
-- keep URL paste input for PDFs generated in a third-party system.
+- keep URL paste input for PDFs generated in a third-party system; backend must still allow only platform upload / OSS URL prefixes.
 - require `invoiceNo` plus either uploaded `pdfUrl` or pasted `pdfUrl`.
 
 The backend upload allowlist already includes `application/pdf`; do not defer upload support.
@@ -1318,11 +1329,15 @@ git commit -m "docs(invoice): record invoice chain closure"
 - [ ] Admin can issue through Mock provider and produce an accessible PDF URL.
 - [ ] Admin can manually issue with invoice number + PDF URL.
 - [ ] Admin can mark failure and buyer can see reason.
+- [ ] Admin cannot manually issue or mark failure while `providerRequestId` indicates a provider issue is in progress.
+- [ ] Admin can reset a stale provider reservation after the protection window.
+- [ ] `invoices:read` only admin receives redacted profile / invoice snapshots; `invoices:issue` and super admin receive full detail.
 - [ ] Invoice status history records create/cancel/issue/fail/reapply.
 - [ ] Buyer order list returns at most `invoiceStatus`.
 - [ ] Buyer order detail returns safe invoice summary.
 - [ ] Seller order detail returns only `invoiceStatus`.
 - [ ] `providerRaw` contains no secrets, signatures, tokens, certs, full bank account, phone, or private PDF params.
+- [ ] Manual invoice `pdfUrl` accepts only platform upload / OSS URL prefixes.
 - [ ] Logs do not print tax numbers, phone numbers, bank accounts, provider credentials, or private invoice PDF URLs.
 - [ ] `npx prisma validate`, backend build, admin build, seller build pass.
 - [ ] App type check has no new invoice/order errors.
