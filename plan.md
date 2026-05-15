@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-05-14
+> **最后更新**: 2026-05-15
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -18,6 +18,13 @@
 | 上线节奏 | 阶梯：管理后台 → 卖家后台 + 种子商户 → App 对外 |
 | 首批用户 | 500+ |
 | 时间 | 无硬 deadline，质量优先 |
+
+### 近期完成补充
+
+- [x] **发票链路收口**（2026-05-15 新增并完成）
+  - **来源**: `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` / `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md`
+  - **实际做了**: Schema 增加 Provider 字段、开票内容快照、状态历史；买家申请/取消/重申请使用 Serializable + CAS；管理后台新增发票设置、Mock 自动开票、人工 PDF 上传/URL 开票；买家 App 订单详情展示发票状态并可打开 PDF；卖家端仅暴露 `invoiceStatus`
+  - **验证**: `prisma validate`、后端相关 Jest、后端 build、管理后台 build、卖家后台 build 通过；App 根 `tsc` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻塞，但无新增发票/订单类型错误
 
 ---
 

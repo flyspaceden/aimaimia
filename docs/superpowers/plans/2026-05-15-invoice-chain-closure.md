@@ -8,6 +8,8 @@
 
 **Tech Stack:** NestJS 11, Prisma 6, PostgreSQL, Jest, React Native 0.81, Expo Router 6, expo-web-browser, React 19, Vite, Ant Design 5, @tanstack/react-query.
 
+**Execution Status (2026-05-15):** ✅ Implemented and locally verified. Backend schema/config/buyer invoice/admin provider/order exposure/seller privacy, admin settings + issue flows, buyer App invoice PDF opening/order detail state, and docs sync are complete. Root App `tsc` remains blocked only by pre-existing `tests/e2e` Playwright/Node type gaps.
+
 ---
 
 ## Source Documents

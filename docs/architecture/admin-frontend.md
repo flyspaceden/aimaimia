@@ -1059,3 +1059,12 @@
 - 工作台侧边栏菜单徽标（需全局状态方案）
 - 批量审核/导出（需后端批量接口 + 导出任务系统）
 - 筛选状态同步 URL query params（全局方案，逐页推进）
+
+### 2026-05-15 发票链路收口
+
+| 页面 | 完成内容 | 文件 |
+|------|----------|------|
+| 发票管理 | 列表按 `requestedAt` 展示申请时间；REQUESTED 行拆分为“自动开票 / 人工开票 / 失败”；自动开票调用 Mock Provider；人工开票支持 PDF 上传到 `/upload?folder=invoices/manual` 或粘贴 PDF URL；工具栏增加“发票设置”入口 | `admin/src/pages/invoices/index.tsx` |
+| 发票详情 | 展示 Provider、Provider 请求号、状态历史时间线、最终开票内容快照；无快照时展示预览并提示以开票时配置为准；支持 Mock 自动开票与人工开票 | `admin/src/pages/invoices/detail.tsx` |
+| 发票设置 | 新增配置页，管理开票主体、商品行模式、默认税率、税收分类编码、合并商品名称、备注模板、Provider 模式、VIP 礼包开票开关 | `admin/src/pages/invoices/settings.tsx` |
+| 菜单/路由 | 在“交易与售后”下增加“发票设置”；新增 `/invoices/settings` 路由，权限使用 `invoices:issue` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx` |
