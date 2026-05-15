@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Param,
   Body,
   Query,
@@ -9,13 +10,19 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminInvoicesService } from './admin-invoices.service';
-import { AdminInvoiceQueryDto, IssueInvoiceDto, FailInvoiceDto } from './dto/admin-invoice.dto';
+import {
+  AdminInvoiceQueryDto,
+  FailInvoiceDto,
+  IssueInvoiceDto,
+  UpdateInvoiceSettingsDto,
+} from './dto/admin-invoice.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequirePermission } from '../common/decorators/require-permission';
 import { AuditLog } from '../common/decorators/audit-action';
 import { AuditLogInterceptor } from '../common/interceptors/audit-log.interceptor';
+import { CurrentAdmin } from '../common/decorators/current-admin';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
@@ -46,6 +53,26 @@ export class AdminInvoicesController {
     return this.invoicesService.getStats();
   }
 
+  /** 发票设置 */
+  @Get('settings')
+  @RequirePermission('invoices:issue')
+  getSettings() {
+    return this.invoicesService.getInvoiceSettings();
+  }
+
+  /** 更新发票设置 */
+  @Put('settings')
+  @RequirePermission('invoices:issue')
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'invoices',
+    targetType: 'RuleConfig',
+    isReversible: true,
+  })
+  updateSettings(@Body() dto: UpdateInvoiceSettingsDto) {
+    return this.invoicesService.updateInvoiceSettings(dto);
+  }
+
   /** 发票详情 */
   @Get(':id')
   @RequirePermission('invoices:read')
@@ -63,8 +90,12 @@ export class AdminInvoicesController {
     targetIdParam: 'params.id',
     isReversible: false,
   })
-  issueInvoice(@Param('id') id: string, @Body() dto: IssueInvoiceDto) {
-    return this.invoicesService.issueInvoice(id, dto);
+  issueInvoice(
+    @Param('id') id: string,
+    @Body() dto: IssueInvoiceDto,
+    @CurrentAdmin('sub') adminId: string,
+  ) {
+    return this.invoicesService.issueInvoice(id, dto, adminId);
   }
 
   /** 标记开票失败 */
@@ -77,7 +108,11 @@ export class AdminInvoicesController {
     targetIdParam: 'params.id',
     isReversible: false,
   })
-  failInvoice(@Param('id') id: string, @Body() dto: FailInvoiceDto) {
-    return this.invoicesService.failInvoice(id, dto);
+  failInvoice(
+    @Param('id') id: string,
+    @Body() dto: FailInvoiceDto,
+    @CurrentAdmin('sub') adminId: string,
+  ) {
+    return this.invoicesService.failInvoice(id, dto, adminId);
   }
 }
