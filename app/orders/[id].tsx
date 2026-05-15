@@ -11,6 +11,7 @@ import { ShopGroup } from '../../src/components/orders/ShopGroup';
 import { AmountSummary } from '../../src/components/orders/AmountSummary';
 import { OrderInfoBlock } from '../../src/components/orders/OrderInfoBlock';
 import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
+import { InvoiceSection } from '../../src/components/cards/InvoiceSection';
 import { OrderRepo } from '../../src/repos';
 import { AfterSaleRepo } from '../../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore } from '../../src/store';
@@ -353,7 +354,15 @@ export default function OrderDetailScreen() {
             paymentMethod={(order as any).paymentMethod}
             buyerNote={(order as any).buyerNote}
             isVipPackage={isVip}
-            onApplyInvoice={!isVip ? () => router.push({ pathname: '/invoices/request', params: { orderId: order.id } }) : undefined}
+          />
+        </View>
+
+        <View style={{ paddingHorizontal: spacing.md, paddingTop: spacing.sm }}>
+          <InvoiceSection
+            orderId={order.id}
+            orderStatus={order.status}
+            invoice={order.invoice}
+            invoiceEligible={order.invoiceEligible}
           />
         </View>
       </ScrollView>

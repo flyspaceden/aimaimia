@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../theme';
-import { Invoice, InvoiceStatus, OrderStatus } from '../../types';
+import type { InvoiceStatus, Order, OrderStatus } from '../../types';
 
 // 发票状态标签映射
 const invoiceStatusLabels: Record<InvoiceStatus, string> = {
@@ -23,31 +23,33 @@ const getStatusColor = (status: InvoiceStatus, colors: any): string => {
   }
 };
 
-// 允许申请发票的订单状态（已送达 / 已收货）
+// 允许申请发票的订单状态：已确认收货
 const canRequestInvoice = (orderStatus: OrderStatus): boolean =>
-  orderStatus === 'DELIVERED' || orderStatus === 'RECEIVED';
+  orderStatus === 'RECEIVED';
 
 type InvoiceSectionProps = {
   orderId: string;
   orderStatus: OrderStatus;
-  invoice?: Invoice;
+  invoice?: Order['invoice'] | null;
+  invoiceEligible?: boolean;
 };
 
 /**
  * 发票区块组件 — 用于订单详情页
  *
- * - 无发票且订单已收货/完成：显示"申请发票"按钮
+ * - 无发票且后端判定可申请：显示"申请发票"按钮
  * - 有发票：显示发票状态
  * - ISSUED：显示"查看发票"链接
  * - REQUESTED：显示"取消申请"链接
+ * - FAILED/CANCELED：显示"重新申请"链接
  */
-export const InvoiceSection = ({ orderId, orderStatus, invoice }: InvoiceSectionProps) => {
-  const { colors, radius, shadow, spacing, typography } = useTheme();
+export const InvoiceSection = ({ orderId, orderStatus, invoice, invoiceEligible }: InvoiceSectionProps) => {
+  const { colors, radius, shadow, typography } = useTheme();
   const router = useRouter();
 
   // 无发票时判断是否可以申请
   if (!invoice) {
-    if (!canRequestInvoice(orderStatus)) return null;
+    if (!canRequestInvoice(orderStatus) || invoiceEligible !== true) return null;
     return (
       <View style={[styles.container, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
         <View style={styles.row}>
@@ -65,6 +67,7 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice }: InvoiceSection
 
   // 有发票记录
   const statusColor = getStatusColor(invoice.status, colors);
+  const canReapply = invoice.status === 'FAILED' || invoice.status === 'CANCELED';
   return (
     <View style={[styles.container, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
       <View style={styles.row}>
@@ -80,6 +83,11 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice }: InvoiceSection
       <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
         {invoice.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {invoice.profileSnapshot.title}
       </Text>
+      {invoice.status === 'FAILED' && invoice.failReason ? (
+        <Text style={[typography.caption, { color: colors.danger, marginTop: 4 }]}>
+          {invoice.failReason}
+        </Text>
+      ) : null}
 
       {/* 操作链接 */}
       <View style={styles.actionRow}>
@@ -97,6 +105,14 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice }: InvoiceSection
             style={{ marginTop: 8 }}
           >
             <Text style={[typography.caption, { color: colors.danger, fontWeight: '600' }]}>取消申请</Text>
+          </Pressable>
+        ) : null}
+        {canReapply ? (
+          <Pressable
+            onPress={() => router.push({ pathname: '/invoices/request', params: { orderId } })}
+            style={{ marginTop: 8 }}
+          >
+            <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>重新申请</Text>
           </Pressable>
         ) : null}
       </View>
