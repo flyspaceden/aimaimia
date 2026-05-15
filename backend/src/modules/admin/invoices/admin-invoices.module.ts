@@ -9,5 +9,6 @@ import { MockInvoiceProvider } from './provider/mock-invoice.provider';
   imports: [UploadModule],
   controllers: [AdminInvoicesController],
   providers: [AdminInvoicesService, InvoiceProviderFactory, MockInvoiceProvider],
+  exports: [AdminInvoicesService],
 })
 export class AdminInvoicesModule {}

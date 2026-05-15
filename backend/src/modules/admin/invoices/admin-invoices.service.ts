@@ -328,7 +328,7 @@ export class AdminInvoicesService {
    * AUTO/MOCK：先用 CAS 预占 providerRequestId，再在事务外调用 provider，最后 CAS 落库。
    * MANUAL：手工录入号码和 PDF，同样写入快照与状态历史。
    */
-  async issueInvoice(invoiceId: string, dto: IssueInvoiceDto, adminId?: string) {
+  async issueInvoice(invoiceId: string, dto: IssueInvoiceDto, adminId: string | null) {
     const mode = this.resolveIssueMode(dto);
     if (mode === 'MANUAL') return this.issueManualInvoice(invoiceId, dto, adminId);
 
@@ -349,13 +349,20 @@ export class AdminInvoicesService {
       }, adminId);
       return { ok: true };
     } catch (error: any) {
-      await this.markProviderIssueFailed(
-        invoiceId,
-        reservation.providerRequestId,
-        error?.message || '开票服务调用失败',
-        adminId,
-        error?.raw,
-      );
+      const reason = error?.message || '开票服务调用失败';
+      if (adminId === null) {
+        // SYSTEM 自动开票：软失败，不降级 status，等 cron 重试
+        await this.markAutoIssueAttemptFailure(invoiceId, reservation.providerRequestId, reason);
+      } else {
+        // ADMIN 主动开票：硬失败，立即翻 FAILED
+        await this.markProviderIssueFailed(
+          invoiceId,
+          reservation.providerRequestId,
+          reason,
+          adminId,
+          error?.raw,
+        );
+      }
       throw error;
     }
   }
@@ -400,7 +407,7 @@ export class AdminInvoicesService {
     });
   }
 
-  private async issueManualInvoice(invoiceId: string, dto: IssueInvoiceDto, adminId?: string) {
+  private async issueManualInvoice(invoiceId: string, dto: IssueInvoiceDto, adminId: string | null) {
     if (!dto.invoiceNo || !dto.pdfUrl) {
       throw new BadRequestException('手工开票必须填写发票号码和 PDF 地址');
     }
@@ -434,8 +441,8 @@ export class AdminInvoicesService {
           invoiceId,
           fromStatus: 'REQUESTED',
           toStatus: 'ISSUED',
-          operatorId: adminId,
-          operatorType: 'ADMIN',
+          operatorId: adminId ?? null,
+          operatorType: adminId ? 'ADMIN' : 'SYSTEM',
           metadata: { mode: 'MANUAL' },
         },
       });
@@ -543,7 +550,7 @@ export class AdminInvoicesService {
       invoiceContentSnapshot: Prisma.InputJsonValue;
       issuedAt: Date;
     },
-    adminId?: string,
+    adminId: string | null,
   ) {
     return this.runSerializable(async (tx) => {
       const result = await tx.invoice.updateMany({
@@ -559,8 +566,8 @@ export class AdminInvoicesService {
           invoiceId,
           fromStatus: 'REQUESTED',
           toStatus: 'ISSUED',
-          operatorId: adminId,
-          operatorType: 'ADMIN',
+          operatorId: adminId ?? null,
+          operatorType: adminId ? 'ADMIN' : 'SYSTEM',
           metadata: { provider: data.provider, providerRequestId },
         },
       });
@@ -571,7 +578,7 @@ export class AdminInvoicesService {
     invoiceId: string,
     providerRequestId: string,
     reason: string,
-    adminId?: string,
+    adminId: string | null,
     providerRaw?: unknown,
   ) {
     await this.runSerializable(async (tx) => {
@@ -592,11 +599,46 @@ export class AdminInvoicesService {
           fromStatus: 'REQUESTED',
           toStatus: 'FAILED',
           reason,
-          operatorId: adminId,
-          operatorType: 'PROVIDER',
+          operatorId: adminId ?? null,
+          operatorType: adminId ? 'ADMIN' : 'SYSTEM',
           metadata: { providerRequestId },
         },
       });
+    });
+  }
+
+  /**
+   * 自动开票"软失败"：不降级状态，仅记录 failedAttempts。
+   * 仅供 SYSTEM 自动触发链路调用；admin 主动 issue 失败仍走 markProviderIssueFailed。
+   */
+  async markAutoIssueAttemptFailure(
+    invoiceId: string,
+    providerRequestId: string,
+    reason: string,
+  ) {
+    return this.runSerializable(async (tx) => {
+      const result = await tx.invoice.updateMany({
+        where: { id: invoiceId, status: 'REQUESTED', providerRequestId },
+        data: {
+          provider: null,
+          providerRequestId: null,
+          failedAttempts: { increment: 1 },
+          lastAutoIssueAttemptAt: new Date(),
+        },
+      });
+      if (result.count === 0) return { ok: false };
+
+      await tx.invoiceStatusHistory.create({
+        data: {
+          invoiceId,
+          fromStatus: 'REQUESTED',
+          toStatus: 'REQUESTED',
+          reason: reason.slice(0, 500),
+          operatorType: 'SYSTEM',
+          metadata: { action: 'AUTO_ISSUE_ATTEMPT_FAILED', providerRequestId },
+        },
+      });
+      return { ok: true };
     });
   }
 

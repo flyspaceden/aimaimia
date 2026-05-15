@@ -359,6 +359,64 @@ describe('AdminInvoicesService invoice closure', () => {
     });
   });
 
+  it('writes SYSTEM operatorType when adminId is null', async () => {
+    const invoice = makeIssueableInvoice();
+    tx.invoice.findUnique.mockResolvedValue(invoice);
+    tx.ruleConfig.findMany.mockResolvedValue(invoiceSettingsRows);
+    tx.invoice.updateMany.mockResolvedValue({ count: 1 });
+    provider.issue.mockResolvedValue({
+      invoiceNo: 'MOCK-20260515-0001',
+      pdfUrl: 'http://localhost:3000/uploads/invoices/mock/inv.pdf',
+      provider: 'MOCK',
+      providerRequestId: 'invoice-inv-1-2',
+      raw: { ok: true },
+    });
+
+    await expect(service.issueInvoice('inv-1', { mode: 'MOCK' }, null)).resolves.toEqual({ ok: true });
+
+    expect(tx.invoiceStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        invoiceId: 'inv-1',
+        fromStatus: 'REQUESTED',
+        toStatus: 'ISSUED',
+        operatorType: 'SYSTEM',
+        operatorId: null,
+      }),
+    });
+  });
+
+  it('soft-fails (markAutoIssueAttemptFailure) when SYSTEM auto-issue provider throws', async () => {
+    tx.invoice.findUnique.mockResolvedValue(makeIssueableInvoice());
+    tx.ruleConfig.findMany.mockResolvedValue(invoiceSettingsRows);
+    tx.invoice.updateMany.mockResolvedValue({ count: 1 });
+    provider.issue.mockRejectedValue(new Error('mock provider boom'));
+
+    await expect(
+      service.issueInvoice('inv-1', { mode: 'MOCK' }, null),
+    ).rejects.toThrow('mock provider boom');
+
+    // Verify soft fail behavior: failedAttempts incremented, status NOT changed to FAILED
+    expect(tx.invoice.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'inv-1', status: 'REQUESTED' }),
+        data: expect.objectContaining({
+          failedAttempts: { increment: 1 },
+          provider: null,
+          providerRequestId: null,
+        }),
+      }),
+    );
+    // Verify SYSTEM history with AUTO_ISSUE_ATTEMPT_FAILED action, status NOT flipped to FAILED
+    expect(tx.invoiceStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operatorType: 'SYSTEM',
+        fromStatus: 'REQUESTED',
+        toStatus: 'REQUESTED',
+        metadata: expect.objectContaining({ action: 'AUTO_ISSUE_ATTEMPT_FAILED' }),
+      }),
+    });
+  });
+
   it('keeps recent provider reservations locked instead of resetting them', async () => {
     tx.invoice.findUnique.mockResolvedValue({
       id: 'inv-1',
