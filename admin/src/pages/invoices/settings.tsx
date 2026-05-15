@@ -48,7 +48,7 @@ export default function InvoiceSettingsPage() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/invoices')}>
           返回发票管理
         </Button>
-        <Text type="secondary">发票内容、税率、开票主体和 Provider 均从这里配置</Text>
+        <Text type="secondary">发票内容、税率、开票主体和开票通道均从这里配置</Text>
       </Space>
 
       <Card
@@ -152,9 +152,9 @@ export default function InvoiceSettingsPage() {
                 <Col xs={24} md={8}>
                   <ProFormSelect
                     name="providerMode"
-                    label="Provider"
-                    rules={[{ required: true, message: '请选择 Provider' }]}
-                    options={[{ label: 'Mock 开票', value: 'MOCK' }]}
+                    label="开票通道"
+                    rules={[{ required: true, message: '请选择开票通道' }]}
+                    options={[{ label: '沙箱开票（Mock）', value: 'MOCK' }]}
                   />
                 </Col>
                 <Col xs={24} md={8}>
