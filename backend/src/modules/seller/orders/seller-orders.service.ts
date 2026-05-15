@@ -129,6 +129,9 @@ export class SellerOrdersService {
               updatedAt: true,
             },
           },
+          invoice: {
+            select: { status: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
@@ -187,6 +190,7 @@ export class SellerOrdersService {
                 shippedAt: shipment.shippedAt,
               }
             : null,
+          invoiceStatus: (order as any).invoice?.status || null,
           refundSummary: this.mapRefundSummary((order as any).refunds?.[0]),
         };
       }),

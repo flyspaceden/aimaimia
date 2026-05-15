@@ -160,6 +160,68 @@ describe('OrderService.mapOrder snapshot', () => {
     expect(out.repurchasable).toBe(false);
   });
 
+  it('mapOrder exposes invoiceStatus only in list shape', () => {
+    const out = (service as any).mapOrder({
+      id: 'o1',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      createdAt: new Date(),
+      items: [],
+      shipments: [],
+      afterSaleRequests: [],
+      refunds: [],
+      invoice: { status: 'REQUESTED' },
+    });
+
+    expect(out.invoiceStatus).toBe('REQUESTED');
+    expect(out.invoiceEligible).toBe(false);
+    expect(out.invoice).toBeUndefined();
+  });
+
+  it('mapOrderDetail exposes safe invoice detail without tax number leakage', () => {
+    const now = new Date();
+    const out = (service as any).mapOrderDetail({
+      id: 'o1',
+      userId: 'u1',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 100,
+      goodsAmount: 100,
+      shippingFee: 0,
+      createdAt: now,
+      items: [],
+      shipments: [],
+      statusHistory: [],
+      payments: [],
+      refunds: [],
+      afterSaleRequests: [],
+      invoice: {
+        id: 'inv1',
+        status: 'ISSUED',
+        invoiceNo: 'MOCK-1',
+        pdfUrl: 'http://localhost/inv.pdf',
+        requestedAt: now,
+        issuedAt: now,
+        failReason: null,
+        profileSnapshot: {
+          type: 'COMPANY',
+          title: '某公司',
+          taxNo: '9144',
+          phone: '13800000000',
+          email: 'buyer@example.com',
+        },
+      },
+    });
+
+    expect(out.invoice).toMatchObject({ id: 'inv1', status: 'ISSUED', invoiceNo: 'MOCK-1' });
+    expect(out.invoice.profileSnapshot).toEqual({ type: 'COMPANY', title: '某公司' });
+    expect(JSON.stringify(out.invoice)).not.toContain('9144');
+    expect(JSON.stringify(out.invoice)).not.toContain('13800000000');
+    expect(JSON.stringify(out.invoice)).not.toContain('buyer@example.com');
+    expect(out.invoiceEligible).toBe(false);
+  });
+
   it('maps active afterSaleSummary with id and shipping payment status', () => {
     const mapped = (service as any).mapOrder({
       id: 'order_1',

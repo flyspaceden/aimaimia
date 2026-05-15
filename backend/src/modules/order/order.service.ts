@@ -234,6 +234,28 @@ export class OrderService {
     };
   }
 
+  private unwrapRuleConfigValue<T>(raw: any, fallback: T): T {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.prototype.hasOwnProperty.call(raw, 'value')) {
+      return raw.value as T;
+    }
+    return (raw ?? fallback) as T;
+  }
+
+  private async getInvoiceAllowVipPackage(): Promise<boolean> {
+    const config = await this.prisma.ruleConfig.findUnique({
+      where: { key: 'INVOICE_ALLOW_VIP_PACKAGE' },
+      select: { value: true },
+    });
+    return this.unwrapRuleConfigValue<boolean>(config?.value, false) === true;
+  }
+
+  private computeInvoiceEligible(order: any, allowVipPackage = false): boolean {
+    const bizType = order.bizType || 'NORMAL_GOODS';
+    return order.status === 'RECEIVED' &&
+      !order.invoice &&
+      (bizType !== 'VIP_PACKAGE' || allowVipPackage);
+  }
+
   /**
    * 运费计算：优先使用平台统一运费规则（ShippingRule），降级为旧 ShippingTemplate 逻辑
    */
@@ -394,6 +416,9 @@ export class OrderService {
             orderBy: { createdAt: 'desc' },
             take: 1,
             select: ORDER_AFTER_SALE_SUMMARY_SELECT,
+          },
+          invoice: {
+            select: { status: true },
           },
           refunds: {
             orderBy: { createdAt: 'desc' },
@@ -572,6 +597,18 @@ export class OrderService {
           select: ORDER_AFTER_SALE_SUMMARY_SELECT,
         },
         shipments: { include: { trackingEvents: { orderBy: { occurredAt: 'desc' } } }, orderBy: { createdAt: 'asc' } },
+        invoice: {
+          select: {
+            id: true,
+            status: true,
+            invoiceNo: true,
+            pdfUrl: true,
+            requestedAt: true,
+            issuedAt: true,
+            failReason: true,
+            profileSnapshot: true,
+          },
+        },
       },
     });
 
@@ -593,7 +630,14 @@ export class OrderService {
       ]),
     );
 
-    return this.mapOrderDetail(order, companyMap);
+    const allowVipPackage = !order.invoice && (order.bizType || 'NORMAL_GOODS') === 'VIP_PACKAGE'
+      ? await this.getInvoiceAllowVipPackage()
+      : false;
+
+    return this.mapOrderDetail({
+      ...order,
+      invoiceEligible: this.computeInvoiceEligible(order, allowVipPackage),
+    }, companyMap);
   }
 
   private repurchaseTitle(item: any): string {
@@ -2071,6 +2115,7 @@ export class OrderService {
     // 售后状态由 afterSaleStatus 字段单独承载（App 已用 afterSaleStatus 路由 CTA）
     // list() 仍保留 'afterSale' 虚拟聚合 tab（仅作为请求 status 入参，不作为返回值）
     const frontStatus = order.status;
+    const bizType = order.bizType || 'NORMAL_GOODS';
 
     let afterSaleStatus: string | undefined;
     let afterSaleReason: string | undefined;
@@ -2130,7 +2175,9 @@ export class OrderService {
     return {
       id: order.id,
       status: frontStatus,
-      bizType: order.bizType || 'NORMAL_GOODS',
+      bizType,
+      invoiceStatus: order.invoice?.status ?? null,
+      invoiceEligible: typeof order.invoiceEligible === 'boolean' ? order.invoiceEligible : false,
       afterSaleStatus,
       afterSaleReason,
       afterSaleType,
@@ -2170,7 +2217,7 @@ export class OrderService {
       logisticsSummary: this.summarizeLatestEvent(order.shipments),
       repurchasable:
         order.status === 'RECEIVED' &&
-        (order.bizType || 'NORMAL_GOODS') === 'NORMAL_GOODS' &&
+        bizType === 'NORMAL_GOODS' &&
         (order.items || []).some((item: any) => !item.isPrize),
       items: (order.items || []).map(snapshot),
     };
@@ -2183,6 +2230,7 @@ export class OrderService {
     const addressSnapshot = decryptJsonValue(order.addressSnapshot);
     const addressSnapshotMasked = maskAddressSnapshot(addressSnapshot);
     const logistics = this.summarizeShipments(order.shipments);
+    const invoiceSnapshot = (order.invoice?.profileSnapshot as any) || {};
 
     // 售后相关字段已由 mapOrder() 统一处理（afterSaleStatus/afterSaleReason/afterSaleType）
 
@@ -2222,6 +2270,21 @@ export class OrderService {
       trackingNoMasked: logistics.trackingNoMasked,
       trackingEvents: logistics.trackingEvents,
       shipments: logistics.shipments,
+      invoice: order.invoice
+        ? {
+            id: order.invoice.id,
+            status: order.invoice.status,
+            invoiceNo: order.invoice.invoiceNo,
+            pdfUrl: order.invoice.pdfUrl,
+            requestedAt: order.invoice.requestedAt?.toISOString?.() ?? order.invoice.requestedAt ?? null,
+            issuedAt: order.invoice.issuedAt?.toISOString?.() ?? order.invoice.issuedAt ?? null,
+            failReason: order.invoice.failReason ?? null,
+            profileSnapshot: {
+              type: invoiceSnapshot.type,
+              title: invoiceSnapshot.title,
+            },
+          }
+        : null,
       statusHistory: (order.statusHistory || []).map((h: any) => ({
         from: h.fromStatus,
         to: h.toStatus,
