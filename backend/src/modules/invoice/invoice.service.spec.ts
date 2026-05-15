@@ -6,6 +6,7 @@ describe('InvoiceService request/cancel safety', () => {
   const now = new Date('2026-05-15T12:00:00.000Z');
   let tx: any;
   let prisma: any;
+  let adminInvoicesService: any;
   let service: InvoiceService;
 
   beforeEach(() => {
@@ -39,7 +40,16 @@ describe('InvoiceService request/cancel safety', () => {
         findUnique: jest.fn(),
       },
     };
-    service = new InvoiceService(prisma);
+    adminInvoicesService = {
+      // 默认关闭 autoIssue，避免老用例触发 fire-and-forget 副作用
+      getInvoiceSettings: jest.fn().mockResolvedValue({
+        providerMode: 'MOCK',
+        autoIssue: false,
+        autoIssueMaxAttempts: 3,
+      }),
+      issueInvoice: jest.fn(),
+    };
+    service = new InvoiceService(prisma, adminInvoicesService);
   });
 
   afterEach(() => {
@@ -228,5 +238,100 @@ describe('InvoiceService request/cancel safety', () => {
     tx.invoice.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(service.cancelInvoice('user-1', 'inv-1')).rejects.toThrow(ConflictException);
+  });
+
+  describe('requestInvoice auto-issue trigger', () => {
+    let consoleErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      // fire-and-forget 用真定时器，避免 setImmediate 被 fake timer 拦住
+      jest.useRealTimers();
+      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // 默认让 requestInvoice 走到 create 成功路径
+      tx.order.findUnique.mockResolvedValue({
+        id: 'order-1',
+        userId: 'user-1',
+        status: 'RECEIVED',
+        bizType: 'NORMAL_GOODS',
+        invoice: null,
+      });
+      tx.invoiceProfile.findUnique.mockResolvedValue({
+        id: 'profile-1',
+        userId: 'user-1',
+        type: 'PERSONAL',
+        title: '张三',
+        taxNo: null,
+        email: null,
+        phone: null,
+        bankInfo: null,
+        address: null,
+      });
+      tx.invoice.create.mockResolvedValue({ id: 'inv-auto', status: 'REQUESTED' });
+    });
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('fires auto-issue after creating REQUESTED invoice when autoIssue=true', async () => {
+      adminInvoicesService.getInvoiceSettings.mockResolvedValue({
+        providerMode: 'MOCK',
+        autoIssue: true,
+        autoIssueMaxAttempts: 3,
+      });
+      adminInvoicesService.issueInvoice.mockResolvedValue({ ok: true });
+
+      const result = await service.requestInvoice('user-1', {
+        orderId: 'order-1',
+        profileId: 'profile-1',
+      });
+
+      // 释放 Promise.resolve().then(...) 的 microtask
+      await new Promise((r) => setImmediate(r));
+
+      expect(adminInvoicesService.getInvoiceSettings).toHaveBeenCalled();
+      expect(adminInvoicesService.issueInvoice).toHaveBeenCalledWith(
+        result.id,
+        { mode: 'MOCK' },
+        null,
+      );
+    });
+
+    it('does not fire auto-issue when autoIssue=false', async () => {
+      adminInvoicesService.getInvoiceSettings.mockResolvedValue({
+        providerMode: 'MOCK',
+        autoIssue: false,
+        autoIssueMaxAttempts: 3,
+      });
+
+      await service.requestInvoice('user-1', {
+        orderId: 'order-1',
+        profileId: 'profile-1',
+      });
+      await new Promise((r) => setImmediate(r));
+
+      expect(adminInvoicesService.issueInvoice).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when auto-issue itself fails', async () => {
+      adminInvoicesService.getInvoiceSettings.mockResolvedValue({
+        providerMode: 'MOCK',
+        autoIssue: true,
+        autoIssueMaxAttempts: 3,
+      });
+      adminInvoicesService.issueInvoice.mockRejectedValue(new Error('boom'));
+
+      await expect(
+        service.requestInvoice('user-1', { orderId: 'order-1', profileId: 'profile-1' }),
+      ).resolves.toBeDefined();
+      await new Promise((r) => setImmediate(r));
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[auto-issue]'),
+        'inv-auto',
+        expect.any(Error),
+      );
+    });
   });
 });

@@ -11,10 +11,14 @@ import { CreateInvoiceProfileDto } from './dto/create-invoice-profile.dto';
 import { UpdateInvoiceProfileDto } from './dto/update-invoice-profile.dto';
 import { RequestInvoiceDto } from './dto/request-invoice.dto';
 import { encryptJsonValue, decryptJsonValue } from '../../common/security/encryption';
+import { AdminInvoicesService } from '../admin/invoices/admin-invoices.service';
 
 @Injectable()
 export class InvoiceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private adminInvoicesService: AdminInvoicesService,
+  ) {}
 
   private async runSerializable<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
@@ -145,10 +149,34 @@ export class InvoiceService {
 
   // ===== 发票申请 =====
 
+  /**
+   * Fire-and-forget 触发自动开票。
+   * - 仅在 settings.autoIssue=true 时触发
+   * - HTTP 响应立即返回 REQUESTED，不等 issue 完成
+   * - 失败由 AdminInvoicesService.markAutoIssueAttemptFailure 软失败兜底
+   * - 任何异常被 catch 吞掉，避免污染请求上下文
+   */
+  private triggerAutoIssue(invoiceId: string) {
+    Promise.resolve().then(async () => {
+      try {
+        const settings = await this.adminInvoicesService.getInvoiceSettings();
+        if (!settings.autoIssue) return;
+        await this.adminInvoicesService.issueInvoice(
+          invoiceId,
+          { mode: settings.providerMode },
+          null,
+        );
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[auto-issue] unexpected error', invoiceId, e);
+      }
+    });
+  }
+
   /** 申请开票 */
   async requestInvoice(userId: string, dto: RequestInvoiceDto) {
     try {
-      return await this.runSerializable(async (tx) => {
+      const invoice = await this.runSerializable(async (tx) => {
         const order = await tx.order.findUnique({
           where: { id: dto.orderId },
           select: {
@@ -249,6 +277,8 @@ export class InvoiceService {
         });
         return invoice;
       });
+      this.triggerAutoIssue(invoice.id);
+      return invoice;
     } catch (e: any) {
       if (e?.code === 'P2002') {
         throw new ConflictException('该订单已申请过发票');
