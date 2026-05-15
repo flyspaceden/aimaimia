@@ -262,7 +262,9 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `65b0df76-94db-4d7c-ae3a-7af47d66868e` | 我的页换货/售后角标修复:后端 getStatusCounts 早就在返回 afterSale 字段(活跃售后订单数派生态),前端 OrderRepo 类型漏写 + me.tsx 死值 0 → 修补类型 + 改读 orderCounts.afterSale | **当前生效** ✅，commit `ae3c3ef`(2026-05-10),纯前端,后端无改动 |
+| `b8077df1-5d07-4f48-92f8-ec6d085ad048` | 首页非 VIP 礼包推广位：未登录/普通用户在搜索框下方横滑展示后台 VIP 档位主推赠品组合（价格/赠品标题/商品 SKU 行/参考价），点击携带 `packageId`+`giftOptionId` 进 `/vip/gifts` 并自动定位档位+赠品 | **当前生效** ✅，commit `19c0139`（2026-05-14），纯前端，后端无改动；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `d7606eca-67db-4b5a-8e74-10831778bd64` | `/r/{CODE}` App Link 承接页：已装 App 扫推荐码二维码 → 触发后端绑定 + 2 秒 toast（"推荐码已绑定" / "推荐码已记录"）→ 自动回首页；纯 UI 反馈层，绑定逻辑仍由 `_layout.tsx` 全局 Linking 监听统一处理 | commit `a386196`（2026-05-14），纯前端，后端无改动 |
+| `65b0df76-94db-4d7c-ae3a-7af47d66868e` | 我的页换货/售后角标修复:后端 getStatusCounts 早就在返回 afterSale 字段(活跃售后订单数派生态),前端 OrderRepo 类型漏写 + me.tsx 死值 0 → 修补类型 + 改读 orderCounts.afterSale | commit `ae3c3ef`(2026-05-10),纯前端,后端无改动 |
 | `e288de75-0587-410e-a1bb-ce0801da0c99` | 售后链路 fix 三件套:1)买家详情页加商家展示(后端 findById 走 sku→product→company);2)卖家列表去掉"开始审核"中间步,REQUESTED 直接显示通过/驳回;3)卖家列表加售后单号模糊搜索(contains) | commit `8222fb3`(2026-05-10),含后端改动需 staging deploy |
 | `066ffc01-4686-46c8-844b-2697e9f8010c` | 售后申请页 perf:照片串行 for-await 改 Promise.all 并行,3 张从 6-9s 压到 2-3s,2-3x 提速;overlay 文案改"正在并发上传 N 张/已完成 X/Y" | commit `7abf81f`(2026-05-10),纯前端,后端无改动 |
 | `958e7449-c577-41d3-994d-747bcc72ed08` | 售后申请页 UX 跟修:照片上传期间全屏 loading mask + "正在上传 X/Y" 进度计数 + "请勿关闭页面"提示;absolute zIndex 999 阻止用户点击穿透到下层按钮 | commit `f79a281`（2026-05-10），纯前端，后端无改动 |
