@@ -120,6 +120,11 @@ export default function InvoicesScreen() {
             <Text style={[typography.caption, { color: colors.text.secondary }]}>
               {item.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {item.requestedAt || item.createdAt}
             </Text>
+            {item.status === 'REQUESTED' && (
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                系统正在自动开票
+              </Text>
+            )}
           </View>
 
           {/* 操作按钮 */}

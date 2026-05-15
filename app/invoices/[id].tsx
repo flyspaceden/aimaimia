@@ -143,6 +143,11 @@ export default function InvoiceDetailScreen() {
               失败原因：{invoice.failReason}
             </Text>
           )}
+          {invoice.status === 'REQUESTED' && (
+            <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 8 }]}>
+              系统正在自动开票，预计 10 分钟内完成。如长时间未出票，请下拉刷新或联系客服。
+            </Text>
+          )}
         </View>
 
         {/* 抬头信息 */}

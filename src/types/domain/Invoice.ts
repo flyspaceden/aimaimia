@@ -71,6 +71,8 @@ export type Invoice = {
   issuedAt?: string | null;
   failedAt?: string | null;
   canceledAt?: string | null;
+  failedAttempts?: number;
+  lastAutoIssueAttemptAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

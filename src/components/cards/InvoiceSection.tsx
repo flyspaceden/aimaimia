@@ -83,6 +83,11 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice, invoiceEligible 
       <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
         {invoice.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {invoice.profileSnapshot.title}
       </Text>
+      {invoice.status === 'REQUESTED' ? (
+        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
+          系统正在自动开票，预计 10 分钟内出票，请稍后下拉刷新。
+        </Text>
+      ) : null}
       {invoice.status === 'FAILED' && invoice.failReason ? (
         <Text style={[typography.caption, { color: colors.danger, marginTop: 4 }]}>
           {invoice.failReason}
