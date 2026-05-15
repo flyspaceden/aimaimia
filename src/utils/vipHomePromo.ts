@@ -34,6 +34,17 @@ export type VipHomePromoCard = {
   hasMoreItems: boolean;
 };
 
+type MemberLike = {
+  tier?: string | null;
+  referralCode?: string | null;
+};
+
+export type VipReferralHomePrompt = {
+  title: string;
+  actionLabel: string;
+  targetPath: '/me/referral';
+};
+
 type BuildOptions = {
   maxCards?: number;
   maxItemLines?: number;
@@ -80,4 +91,14 @@ export function buildVipHomePromoCards(
     })
     .filter((item): item is VipHomePromoCard => item !== null)
     .slice(0, maxCards);
+}
+
+export function buildVipReferralHomePrompt(member: MemberLike | null | undefined): VipReferralHomePrompt | null {
+  if (member?.tier !== 'VIP' || !member.referralCode?.trim()) return null;
+
+  return {
+    title: '推荐好友开通 VIP，有高额奖励',
+    actionLabel: '去分享',
+    targetPath: '/me/referral',
+  };
 }

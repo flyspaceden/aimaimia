@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildVipHomePromoCards } from '../../src/utils/vipHomePromo.ts'
+import { buildVipHomePromoCards, buildVipReferralHomePrompt } from '../../src/utils/vipHomePromo.ts'
 
 const teaGift = {
   id: 'gift-tea',
@@ -91,4 +91,19 @@ test('uses the first available gift option and excludes packages without availab
   assert.deepEqual(cards[0].itemLines, ['百花蜜 500g ×2', '蜂巢蜜试吃装 ×1'])
   assert.equal(cards[0].hasMoreItems, true)
   assert.equal(cards[0].giftCount, 2)
+})
+
+test('builds VIP referral home prompt only for VIP users with referral code', () => {
+  assert.deepEqual(
+    buildVipReferralHomePrompt({ tier: 'VIP', referralCode: 'LQHE2025' }),
+    {
+      title: '推荐好友开通 VIP，有高额奖励',
+      actionLabel: '去分享',
+      targetPath: '/me/referral',
+    },
+  )
+
+  assert.equal(buildVipReferralHomePrompt({ tier: 'NORMAL', referralCode: 'NORMAL01' }), null)
+  assert.equal(buildVipReferralHomePrompt({ tier: 'VIP', referralCode: '' }), null)
+  assert.equal(buildVipReferralHomePrompt(null), null)
 })

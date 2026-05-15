@@ -34,7 +34,7 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
 import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
-import type { VipHomePromoCard } from '../../src/utils/vipHomePromo';
+import { buildVipReferralHomePrompt, type VipHomePromoCard } from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -176,6 +176,7 @@ export default function HomeScreen() {
   });
   const member = memberData?.ok ? memberData.data : null;
   const shouldShowVipPromo = !isLoggedIn || member?.tier === 'NORMAL';
+  const vipReferralPrompt = buildVipReferralHomePrompt(member);
   const { data: vipGiftOptionsData } = useQuery({
     queryKey: ['vip-gift-options'],
     queryFn: () => BonusRepo.getVipGiftOptions(),
@@ -289,6 +290,10 @@ export default function HomeScreen() {
         giftOptionId: card.giftOptionId,
       },
     });
+  }, [router]);
+
+  const handleVipReferralPress = useCallback(() => {
+    router.push('/me/referral');
   }, [router]);
 
   // --- 录音按钮动画 ---
@@ -546,6 +551,33 @@ export default function HomeScreen() {
               packages={vipPackages}
               onPressCard={handleVipPromoPress}
             />
+          </Animated.View>
+        ) : null}
+
+        {vipReferralPrompt ? (
+          <Animated.View entering={FadeInDown.duration(300).delay(40)}>
+            <Pressable
+              onPress={handleVipReferralPress}
+              accessibilityRole="button"
+              accessibilityLabel={`${vipReferralPrompt.title}，${vipReferralPrompt.actionLabel}`}
+              style={[
+                styles.vipReferralStrip,
+                {
+                  marginTop: spacing.lg,
+                  borderRadius: radius.pill,
+                  borderColor: 'rgba(201,169,110,0.28)',
+                },
+                shadow.sm,
+              ]}
+            >
+              <MaterialCommunityIcons name="crown-outline" size={16} color="#F5E6B8" />
+              <Text style={styles.vipReferralText} numberOfLines={1}>
+                {vipReferralPrompt.title}
+              </Text>
+              <View style={styles.vipReferralCta}>
+                <Text style={styles.vipReferralCtaText}>{vipReferralPrompt.actionLabel}</Text>
+              </View>
+            </Pressable>
           </Animated.View>
         ) : null}
 
@@ -1005,6 +1037,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  vipReferralStrip: {
+    height: 36,
+    paddingLeft: 12,
+    paddingRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    backgroundColor: '#0F1F17',
+  },
+  vipReferralText: {
+    flex: 1,
+    marginLeft: 8,
+    color: '#F5E6B8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  vipReferralCta: {
+    height: 26,
+    paddingHorizontal: 10,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5E6B8',
+  },
+  vipReferralCtaText: {
+    color: '#13231A',
+    fontSize: 11,
+    fontWeight: '800',
   },
   lotteryInline: {
     alignItems: 'center',
