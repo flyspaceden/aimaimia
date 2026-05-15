@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -7,9 +7,9 @@ import {
   ProFormSelect,
   ProFormSwitch,
   ProFormText,
-  ProFormTextArea,
 } from '@ant-design/pro-components';
-import { App, Button, Card, Col, Row, Skeleton, Space, Typography } from 'antd';
+import { App, Button, Card, Col, Form, Input, Row, Skeleton, Space, Typography } from 'antd';
+import type { TextAreaRef } from 'antd/es/input/TextArea';
 import { ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
 import {
   getInvoiceSettings,
@@ -18,6 +18,59 @@ import {
 import type { InvoiceSettings } from '@/api/invoices';
 
 const { Text } = Typography;
+
+const REMARK_TEMPLATE_TOKENS = ['订单号', '支付时间', '发票抬头', '订单金额'] as const;
+
+type RemarkTemplateInputProps = {
+  value?: string;
+  onChange?: (value: string) => void;
+};
+
+// 受控备注模板输入：textarea 上方挂 4 个 chip 按钮，点击在光标处插入【中文】token
+function RemarkTemplateInput({ value = '', onChange }: RemarkTemplateInputProps) {
+  const textareaRef = useRef<TextAreaRef>(null);
+
+  const insertToken = (token: string) => {
+    const inserted = `【${token}】`;
+    const inner: any = textareaRef.current?.resizableTextArea;
+    const textArea: HTMLTextAreaElement | undefined = inner?.textArea;
+    if (!textArea) {
+      onChange?.(value + inserted);
+      return;
+    }
+    const start = textArea.selectionStart ?? value.length;
+    const end = textArea.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + inserted + value.slice(end);
+    onChange?.(next);
+    requestAnimationFrame(() => {
+      const cursor = start + inserted.length;
+      textArea.focus();
+      textArea.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  return (
+    <div>
+      <Space size={8} wrap style={{ marginBottom: 8 }}>
+        <Text type="secondary">点击按钮在光标处插入变量：</Text>
+        {REMARK_TEMPLATE_TOKENS.map((token) => (
+          <Button key={token} size="small" onClick={() => insertToken(token)}>
+            + {token}
+          </Button>
+        ))}
+      </Space>
+      <Input.TextArea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+        autoSize={{ minRows: 3, maxRows: 6 }}
+        showCount
+        maxLength={500}
+        placeholder="例：订单号：【订单号】，金额 ¥【订单金额】"
+      />
+    </div>
+  );
+}
 
 export default function InvoiceSettingsPage() {
   const { message } = App.useApp();
@@ -164,12 +217,13 @@ export default function InvoiceSettingsPage() {
                   />
                 </Col>
                 <Col span={24}>
-                  <ProFormTextArea
+                  <Form.Item
                     name="remarkTemplate"
                     label="备注模板"
-                    fieldProps={{ rows: 3, maxLength: 500, showCount: true }}
-                    extra="可用变量：{{orderId}}、{{paidAt}}、{{buyerTitle}}、{{totalAmount}}"
-                  />
+                    extra="电子发票备注栏文字，可点击上方按钮插入变量"
+                  >
+                    <RemarkTemplateInput />
+                  </Form.Item>
                 </Col>
               </Row>
             </Card>

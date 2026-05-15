@@ -1620,7 +1620,7 @@ async function main() {
     { key: 'INVOICE_DEFAULT_TAX_RATE', value: 0, desc: '发票默认税率' },
     { key: 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE', value: '', desc: '发票默认税收分类编码' },
     { key: 'INVOICE_DEFAULT_GOODS_NAME', value: '农产品', desc: '发票合并商品行默认名称' },
-    { key: 'INVOICE_REMARK_TEMPLATE', value: '订单号：{{orderId}}', desc: '发票备注模板' },
+    { key: 'INVOICE_REMARK_TEMPLATE', value: '订单号：【订单号】', desc: '发票备注模板' },
     {
       key: 'INVOICE_ISSUER_PROFILE',
       value: {

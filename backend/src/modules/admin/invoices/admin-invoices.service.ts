@@ -79,7 +79,7 @@ const INVOICE_SETTING_DEFINITIONS = {
   },
   remarkTemplate: {
     key: 'INVOICE_REMARK_TEMPLATE',
-    defaultValue: '订单号：{{orderId}}',
+    defaultValue: '订单号：【订单号】',
     description: '发票备注模板',
   },
   issuerProfile: {
@@ -726,7 +726,21 @@ export class AdminInvoicesService {
   }
 
   private renderRemark(template: string, values: Record<string, string>) {
-    return template.replace(/\{\{([^}]+)\}\}/g, (_, key) => values[key.trim()] ?? '');
+    // 新版中文 token：【订单号】【支付时间】【发票抬头】【订单金额】
+    // 保留旧版 {{orderId}} 占位符兼容历史配置
+    const tokenToKey: Record<string, string> = {
+      订单号: 'orderId',
+      支付时间: 'paidAt',
+      发票抬头: 'buyerTitle',
+      订单金额: 'totalAmount',
+    };
+    return template
+      .replace(/【([^】]+)】/g, (match, token) => {
+        const key = tokenToKey[token];
+        if (!key) return match;
+        return values[key] ?? '';
+      })
+      .replace(/\{\{([^}]+)\}\}/g, (_, key) => values[key.trim()] ?? '');
   }
 
   private sanitizeProviderRaw(raw: unknown): Record<string, unknown> {
