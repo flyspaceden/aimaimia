@@ -13,9 +13,18 @@ import {
   InboxOutlined,
   SettingOutlined,
   ThunderboltOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
-import { getInvoices, getInvoiceStats, issueInvoice, failInvoice } from '@/api/invoices';
+import {
+  getInvoices,
+  getInvoiceStats,
+  issueInvoice,
+  failInvoice,
+  resetInvoiceProviderReservation,
+} from '@/api/invoices';
 import type { Invoice, InvoiceStatsMap } from '@/api/invoices';
+import PermissionGate from '@/components/PermissionGate';
+import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -55,7 +64,7 @@ const STAT_CARDS = [
 ];
 
 export default function InvoiceListPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [activeTab, setActiveTab] = useState('ALL');
@@ -112,6 +121,23 @@ export default function InvoiceListPage() {
     failForm.resetFields();
     actionRef.current?.reload();
     loadStats();
+  };
+
+  // 重置卡住的 Provider 预占
+  const handleResetProviderReservation = (invoice: Invoice) => {
+    modal.confirm({
+      title: '重置开票任务',
+      content: '仅用于处理长时间卡住的开票任务。重置后可重新自动开票、人工开票或标记失败。',
+      okText: '重置',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await resetInvoiceProviderReservation(invoice.id);
+        message.success('开票任务已重置');
+        actionRef.current?.reload();
+        loadStats();
+      },
+    });
   };
 
   const columns: ProColumns<Invoice>[] = [
@@ -193,6 +219,9 @@ export default function InvoiceListPage() {
       hideInSearch: true,
       render: (_: unknown, r: Invoice) => {
         const s = invoiceStatusMap[r.status];
+        if (r.status === 'REQUESTED' && r.providerRequestId) {
+          return <Tag color="processing">开票中</Tag>;
+        }
         return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
       },
     },
@@ -218,39 +247,53 @@ export default function InvoiceListPage() {
       render: (_: unknown, record: Invoice) => (
         <Space size={0} wrap>
           {record.status === 'REQUESTED' && (
-            <>
-              <Button
-                type="link"
-                size="small"
-                icon={<ThunderboltOutlined />}
-                onClick={() => handleAutoIssue(record)}
-              >
-                自动开票
-              </Button>
-              <Button
-                type="link"
-                size="small"
-                icon={<FileTextOutlined />}
-                onClick={() => {
-                  setCurrentInvoice(record);
-                  setIssueModalOpen(true);
-                }}
-              >
-                人工开票
-              </Button>
-              <Button
-                type="link"
-                size="small"
-                danger
-                icon={<CloseCircleOutlined />}
-                onClick={() => {
-                  setCurrentInvoice(record);
-                  setFailModalOpen(true);
-                }}
-              >
-                失败
-              </Button>
-            </>
+            <PermissionGate permission={PERMISSIONS.INVOICES_ISSUE}>
+              {record.providerRequestId ? (
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  icon={<SyncOutlined />}
+                  onClick={() => handleResetProviderReservation(record)}
+                >
+                  重置
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<ThunderboltOutlined />}
+                    onClick={() => handleAutoIssue(record)}
+                  >
+                    自动开票
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<FileTextOutlined />}
+                    onClick={() => {
+                      setCurrentInvoice(record);
+                      setIssueModalOpen(true);
+                    }}
+                  >
+                    人工开票
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    danger
+                    icon={<CloseCircleOutlined />}
+                    onClick={() => {
+                      setCurrentInvoice(record);
+                      setFailModalOpen(true);
+                    }}
+                  >
+                    失败
+                  </Button>
+                </>
+              )}
+            </PermissionGate>
           )}
           <Button
             type="link"

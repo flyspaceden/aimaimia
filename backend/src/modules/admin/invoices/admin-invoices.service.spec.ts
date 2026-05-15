@@ -51,6 +51,39 @@ describe('AdminInvoicesService invoice closure', () => {
     jest.useRealTimers();
   });
 
+  const invoiceSettingsRows = [
+    { key: 'INVOICE_PROVIDER_MODE', value: { value: 'MOCK', description: 'Provider' } },
+    { key: 'INVOICE_ISSUER_PROFILE', value: { value: { companyName: '爱买买app', taxNo: '9144' }, description: '主体' } },
+    { key: 'INVOICE_LINE_MODE', value: { value: 'ORDER_ITEMS', description: '行模式' } },
+    { key: 'INVOICE_DEFAULT_TAX_RATE', value: { value: 0, description: '税率' } },
+    { key: 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE', value: { value: '', description: '编码' } },
+    { key: 'INVOICE_REMARK_TEMPLATE', value: { value: '订单号：{{orderId}}', description: '备注' } },
+  ];
+
+  const makeIssueableInvoice = (overrides: Record<string, unknown> = {}) => ({
+    id: 'inv-1',
+    status: 'REQUESTED',
+    requestCount: 2,
+    providerRequestId: null,
+    provider: null,
+    updatedAt: now,
+    profileSnapshot: { type: 'COMPANY', title: '深圳某公司', taxNo: '91440300MAEXAMPLE' },
+    order: {
+      id: 'order-1',
+      totalAmount: 100,
+      goodsAmount: 92,
+      shippingFee: 8,
+      paidAt: new Date('2026-05-14T12:00:00.000Z'),
+      items: [{
+        id: 'item-1',
+        quantity: 2,
+        unitPrice: 50,
+        productSnapshot: { title: '苹果', skuTitle: '5斤装' },
+      }],
+    },
+    ...overrides,
+  });
+
   it('returns default settings when RuleConfig rows are missing', async () => {
     prisma.ruleConfig.findMany.mockResolvedValue([]);
 
@@ -102,35 +135,65 @@ describe('AdminInvoicesService invoice closure', () => {
     }));
   });
 
-  it('issues through mock provider with reservation, idempotency key, snapshot, and history', async () => {
-    const invoice = {
+  it('redacts sensitive invoice snapshots for read-only admin detail', async () => {
+    prisma.invoice.findUnique.mockResolvedValue({
       id: 'inv-1',
+      orderId: 'order-1',
       status: 'REQUESTED',
-      requestCount: 2,
-      profileSnapshot: { type: 'COMPANY', title: '深圳某公司', taxNo: '91440300MAEXAMPLE' },
-      order: {
-        id: 'order-1',
-        totalAmount: 100,
-        goodsAmount: 92,
-        shippingFee: 8,
-        paidAt: new Date('2026-05-14T12:00:00.000Z'),
-        items: [{
-          id: 'item-1',
-          quantity: 2,
-          unitPrice: 50,
-          productSnapshot: { title: '苹果', skuTitle: '5斤装' },
-        }],
+      profileSnapshot: {
+        type: 'COMPANY',
+        title: '深圳某公司',
+        taxNo: '91440300MAEXAMPLE',
+        email: 'finance@example.com',
+        phone: '13800138000',
+        bankInfo: { bankName: '招商银行', accountNo: '6222000000000000' },
+        address: '深圳市南山区',
       },
-    };
+      invoiceContentSnapshot: {
+        buyer: {
+          type: 'COMPANY',
+          title: '深圳某公司',
+          taxNo: '91440300MAEXAMPLE',
+          phone: '13800138000',
+          bankInfo: { bankName: '招商银行', accountNo: '6222000000000000' },
+        },
+        issuer: {
+          companyName: '爱买买app',
+          taxNo: '9144',
+          bankName: '平台银行',
+          bankAccount: '6222999999999999',
+          registeredPhone: '0755-12345678',
+          registeredAddress: '深圳市',
+        },
+        lines: [],
+      },
+      statusHistory: [],
+      order: null,
+    });
+
+    const detail = await service.findById('inv-1', { includeSensitive: false });
+
+    expect(detail.profileSnapshot).toEqual({
+      type: 'COMPANY',
+      title: '深圳某公司',
+    });
+    expect(detail.invoiceContentSnapshot).toEqual({
+      buyer: {
+        type: 'COMPANY',
+        title: '深圳某公司',
+      },
+      issuer: {
+        companyName: '爱买买app',
+        taxNo: '9144',
+      },
+      lines: [],
+    });
+  });
+
+  it('issues through mock provider with reservation, idempotency key, snapshot, and history', async () => {
+    const invoice = makeIssueableInvoice();
     tx.invoice.findUnique.mockResolvedValue(invoice);
-    tx.ruleConfig.findMany.mockResolvedValue([
-      { key: 'INVOICE_PROVIDER_MODE', value: { value: 'MOCK', description: 'Provider' } },
-      { key: 'INVOICE_ISSUER_PROFILE', value: { value: { companyName: '爱买买app', taxNo: '9144' }, description: '主体' } },
-      { key: 'INVOICE_LINE_MODE', value: { value: 'ORDER_ITEMS', description: '行模式' } },
-      { key: 'INVOICE_DEFAULT_TAX_RATE', value: { value: 0, description: '税率' } },
-      { key: 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE', value: { value: '', description: '编码' } },
-      { key: 'INVOICE_REMARK_TEMPLATE', value: { value: '订单号：{{orderId}}', description: '备注' } },
-    ]);
+    tx.ruleConfig.findMany.mockResolvedValue(invoiceSettingsRows);
     tx.invoice.updateMany.mockResolvedValue({ count: 1 });
     provider.issue.mockResolvedValue({
       invoiceNo: 'MOCK-20260515-0001',
@@ -179,7 +242,7 @@ describe('AdminInvoicesService invoice closure', () => {
   });
 
   it('marks invoice failed with failedAt and status history', async () => {
-    tx.invoice.findUnique.mockResolvedValue({ id: 'inv-1', status: 'REQUESTED' });
+    tx.invoice.findUnique.mockResolvedValue({ id: 'inv-1', status: 'REQUESTED', providerRequestId: null });
     tx.invoice.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
@@ -187,7 +250,7 @@ describe('AdminInvoicesService invoice closure', () => {
     ).resolves.toEqual({ ok: true, reason: '税号错误' });
 
     expect(tx.invoice.updateMany).toHaveBeenCalledWith({
-      where: { id: 'inv-1', status: 'REQUESTED' },
+      where: { id: 'inv-1', status: 'REQUESTED', providerRequestId: null },
       data: { status: 'FAILED', failReason: '税号错误', failedAt: now },
     });
     expect(tx.invoiceStatusHistory.create).toHaveBeenCalledWith({
@@ -200,5 +263,116 @@ describe('AdminInvoicesService invoice closure', () => {
         operatorType: 'ADMIN',
       }),
     });
+  });
+
+  it('does not mark an invoice failed while provider issue is in progress', async () => {
+    tx.invoice.findUnique.mockResolvedValue({
+      id: 'inv-1',
+      status: 'REQUESTED',
+      providerRequestId: 'invoice-inv-1-2',
+    });
+
+    await expect(
+      service.failInvoice('inv-1', { reason: '税号错误' }, 'admin-1'),
+    ).rejects.toThrow('发票正在开票中，请稍后或先重置卡住的开票任务');
+
+    expect(tx.invoice.updateMany).not.toHaveBeenCalled();
+    expect(tx.invoiceStatusHistory.create).not.toHaveBeenCalled();
+  });
+
+  it('does not manually issue an invoice while provider issue is in progress', async () => {
+    tx.invoice.findUnique.mockResolvedValue(makeIssueableInvoice({
+      provider: 'MOCK',
+      providerRequestId: 'invoice-inv-1-2',
+    }));
+
+    await expect(
+      service.issueInvoice('inv-1', {
+        mode: 'MANUAL',
+        invoiceNo: 'FP20260515001',
+        pdfUrl: 'http://localhost:3000/uploads/invoices/manual/inv.pdf',
+      }, 'admin-1'),
+    ).rejects.toThrow('发票正在开票中，请稍后或先重置卡住的开票任务');
+
+    expect(tx.invoice.updateMany).not.toHaveBeenCalled();
+    expect(tx.invoiceStatusHistory.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects manual invoice PDF URLs outside platform upload hosts', async () => {
+    tx.invoice.findUnique.mockResolvedValue(makeIssueableInvoice());
+    tx.ruleConfig.findMany.mockResolvedValue(invoiceSettingsRows);
+    tx.invoice.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.issueInvoice('inv-1', {
+        mode: 'MANUAL',
+        invoiceNo: 'FP20260515001',
+        pdfUrl: 'https://evil.example.com/inv.pdf',
+      }, 'admin-1'),
+    ).rejects.toThrow('发票 PDF 地址必须来自平台上传域名');
+
+    expect(tx.invoice.updateMany).not.toHaveBeenCalled();
+    expect(tx.invoiceStatusHistory.create).not.toHaveBeenCalled();
+  });
+
+  it('resets a stale provider reservation with CAS and status history', async () => {
+    tx.invoice.findUnique.mockResolvedValue({
+      id: 'inv-1',
+      status: 'REQUESTED',
+      provider: 'MOCK',
+      providerRequestId: 'invoice-inv-1-2',
+      updatedAt: new Date('2026-05-15T11:48:00.000Z'),
+    });
+    tx.invoice.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.resetProviderReservation('inv-1', 'admin-1'),
+    ).resolves.toEqual({ ok: true, providerRequestId: 'invoice-inv-1-2' });
+
+    expect(tx.invoice.updateMany).toHaveBeenCalledWith({
+      where: { id: 'inv-1', status: 'REQUESTED', providerRequestId: 'invoice-inv-1-2' },
+      data: {
+        provider: null,
+        providerRequestId: null,
+        providerRaw: {
+          resetReason: 'ADMIN_RESET_PROVIDER_RESERVATION',
+          previousProvider: 'MOCK',
+          previousProviderRequestId: 'invoice-inv-1-2',
+          resetAt: now.toISOString(),
+        },
+      },
+    });
+    expect(tx.invoiceStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        invoiceId: 'inv-1',
+        fromStatus: 'REQUESTED',
+        toStatus: 'REQUESTED',
+        reason: '重置卡住的开票任务',
+        operatorId: 'admin-1',
+        operatorType: 'ADMIN',
+        metadata: {
+          action: 'RESET_PROVIDER_RESERVATION',
+          previousProvider: 'MOCK',
+          previousProviderRequestId: 'invoice-inv-1-2',
+        },
+      }),
+    });
+  });
+
+  it('keeps recent provider reservations locked instead of resetting them', async () => {
+    tx.invoice.findUnique.mockResolvedValue({
+      id: 'inv-1',
+      status: 'REQUESTED',
+      provider: 'MOCK',
+      providerRequestId: 'invoice-inv-1-2',
+      updatedAt: new Date('2026-05-15T11:55:30.000Z'),
+    });
+
+    await expect(
+      service.resetProviderReservation('inv-1', 'admin-1'),
+    ).rejects.toThrow('开票任务仍在保护窗口内，请稍后再重置');
+
+    expect(tx.invoice.updateMany).not.toHaveBeenCalled();
+    expect(tx.invoiceStatusHistory.create).not.toHaveBeenCalled();
   });
 });

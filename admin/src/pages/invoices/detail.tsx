@@ -26,9 +26,17 @@ import {
   ThunderboltOutlined,
   HistoryOutlined,
   InboxOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
-import { getInvoiceDetail, issueInvoice, failInvoice } from '@/api/invoices';
+import {
+  getInvoiceDetail,
+  issueInvoice,
+  failInvoice,
+  resetInvoiceProviderReservation,
+} from '@/api/invoices';
 import type { InvoiceOrderItem } from '@/api/invoices';
+import PermissionGate from '@/components/PermissionGate';
+import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -141,7 +149,7 @@ const formatTime = (value?: string | null) =>
   value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
 
 export default function InvoiceDetailPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -188,6 +196,23 @@ export default function InvoiceDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['admin', 'invoice', id] });
   };
 
+  // 重置卡住的 Provider 预占
+  const handleResetProviderReservation = () => {
+    if (!invoice) return;
+    modal.confirm({
+      title: '重置开票任务',
+      content: '仅用于处理长时间卡住的开票任务。重置后可重新自动开票、人工开票或标记失败。',
+      okText: '重置',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await resetInvoiceProviderReservation(invoice.id);
+        message.success('开票任务已重置');
+        queryClient.invalidateQueries({ queryKey: ['admin', 'invoice', id] });
+      },
+    });
+  };
+
   if (isLoading) {
     return (
       <div style={{ textAlign: 'center', padding: 60 }}>
@@ -214,6 +239,7 @@ export default function InvoiceDetailPage() {
   const snapshotBuyer = snapshot?.buyer || {};
   const snapshotIssuer = snapshot?.issuer || {};
   const snapshotLines = Array.isArray(snapshot?.lines) ? snapshot.lines : [];
+  const isProviderInProgress = invoice.status === 'REQUESTED' && !!invoice.providerRequestId;
 
   return (
     <div style={{ padding: 24 }}>
@@ -235,35 +261,60 @@ export default function InvoiceDetailPage() {
         style={{ marginBottom: 16 }}
         extra={
           invoice.status === 'REQUESTED' && (
-            <Space>
-              <Button
-                type="primary"
-                icon={<ThunderboltOutlined />}
-                onClick={handleAutoIssue}
-              >
-                自动开票
-              </Button>
-              <Button
-                icon={<FileTextOutlined />}
-                onClick={() => setIssueModalOpen(true)}
-              >
-                人工开票
-              </Button>
-              <Button
-                danger
-                icon={<CloseCircleOutlined />}
-                onClick={() => setFailModalOpen(true)}
-              >
-                标记失败
-              </Button>
-            </Space>
+            <PermissionGate permission={PERMISSIONS.INVOICES_ISSUE}>
+              <Space>
+                {isProviderInProgress ? (
+                  <Button
+                    danger
+                    icon={<SyncOutlined />}
+                    onClick={handleResetProviderReservation}
+                  >
+                    重置开票任务
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      type="primary"
+                      icon={<ThunderboltOutlined />}
+                      onClick={handleAutoIssue}
+                    >
+                      自动开票
+                    </Button>
+                    <Button
+                      icon={<FileTextOutlined />}
+                      onClick={() => setIssueModalOpen(true)}
+                    >
+                      人工开票
+                    </Button>
+                    <Button
+                      danger
+                      icon={<CloseCircleOutlined />}
+                      onClick={() => setFailModalOpen(true)}
+                    >
+                      标记失败
+                    </Button>
+                  </>
+                )}
+              </Space>
+            </PermissionGate>
           )
         }
       >
+        {isProviderInProgress && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="开票任务处理中"
+            description="Provider 请求已预占，普通开票和失败标记已锁定。若任务长时间未完成，可重置后重新处理。"
+          />
+        )}
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }}>
           <Descriptions.Item label="发票ID">{invoice.id}</Descriptions.Item>
           <Descriptions.Item label="状态">
-            <Tag color={status?.color}>{status?.text || invoice.status}</Tag>
+            <Tag color={isProviderInProgress ? 'processing' : status?.color}>
+              {isProviderInProgress ? '开票中' : status?.text || invoice.status}
+            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="申请时间">
             {formatTime(invoice.requestedAt || invoice.createdAt)}

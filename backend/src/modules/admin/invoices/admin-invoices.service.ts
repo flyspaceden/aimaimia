@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { validateConfigValue } from '../config/config-validation';
@@ -37,7 +38,13 @@ type InvoiceSettings = {
   issuerProfile: InvoiceIssuerProfile;
 };
 
+type InvoiceVisibilityOptions = {
+  includeSensitive?: boolean;
+};
+
 const MAX_SERIALIZABLE_RETRIES = 3;
+const DEFAULT_PROVIDER_RESET_AFTER_MINUTES = 10;
+const INVOICE_IN_PROGRESS_MESSAGE = '发票正在开票中，请稍后或先重置卡住的开票任务';
 
 const INVOICE_SETTING_DEFINITIONS = {
   providerMode: {
@@ -99,10 +106,16 @@ export class AdminInvoicesService {
   constructor(
     private prisma: PrismaService,
     private providerFactory: InvoiceProviderFactory,
+    private config?: ConfigService,
   ) {}
 
   /** 发票列表（含筛选） */
-  async findAll(query: AdminInvoiceQueryDto, page = 1, pageSize = 20) {
+  async findAll(
+    query: AdminInvoiceQueryDto,
+    page = 1,
+    pageSize = 20,
+    options: InvoiceVisibilityOptions = {},
+  ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
 
@@ -150,8 +163,14 @@ export class AdminInvoicesService {
       items: items.map((inv) => {
         const snapshot = inv.profileSnapshot as any;
         const order = inv.order;
+        const profileSnapshot = this.redactInvoiceProfileSnapshot(snapshot, options.includeSensitive === true);
         return {
           ...inv,
+          profileSnapshot,
+          invoiceContentSnapshot: this.redactInvoiceContentSnapshot(
+            inv.invoiceContentSnapshot as any,
+            options.includeSensitive === true,
+          ),
           profileType: snapshot?.type || null,
           profileTitle: snapshot?.title || null,
           orderAmount: order?.totalAmount || 0,
@@ -177,7 +196,7 @@ export class AdminInvoicesService {
   }
 
   /** 发票详情 */
-  async findById(id: string) {
+  async findById(id: string, options: InvoiceVisibilityOptions = {}) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
       include: {
@@ -211,8 +230,14 @@ export class AdminInvoicesService {
     if (!invoice) throw new NotFoundException('发票不存在');
 
     const order = invoice.order;
+    const includeSensitive = options.includeSensitive === true;
     return {
       ...invoice,
+      profileSnapshot: this.redactInvoiceProfileSnapshot(invoice.profileSnapshot as any, includeSensitive),
+      invoiceContentSnapshot: this.redactInvoiceContentSnapshot(
+        invoice.invoiceContentSnapshot as any,
+        includeSensitive,
+      ),
       order: order ? {
         id: order.id,
         orderNo: order.id,
@@ -336,9 +361,12 @@ export class AdminInvoicesService {
       if (invoice.status !== 'REQUESTED') {
         throw new BadRequestException('仅待开票状态的发票可标记失败');
       }
+      if (invoice.providerRequestId) {
+        throw new ConflictException(INVOICE_IN_PROGRESS_MESSAGE);
+      }
 
       const result = await tx.invoice.updateMany({
-        where: { id: invoiceId, status: 'REQUESTED' },
+        where: { id: invoiceId, status: 'REQUESTED', providerRequestId: null },
         data: { status: 'FAILED', failReason: dto.reason, failedAt: new Date() },
       });
       if (result.count === 0) {
@@ -364,6 +392,7 @@ export class AdminInvoicesService {
     if (!dto.invoiceNo || !dto.pdfUrl) {
       throw new BadRequestException('手工开票必须填写发票号码和 PDF 地址');
     }
+    this.assertAllowedManualPdfUrl(dto.pdfUrl);
 
     return this.runSerializable(async (tx) => {
       const invoice = await this.getIssueableInvoice(tx, invoiceId);
@@ -372,7 +401,7 @@ export class AdminInvoicesService {
       const { snapshot } = this.buildInvoicePayload(invoice, settings, providerRequestId);
 
       const result = await tx.invoice.updateMany({
-        where: { id: invoiceId, status: 'REQUESTED' },
+        where: { id: invoiceId, status: 'REQUESTED', providerRequestId: null },
         data: {
           status: 'ISSUED',
           invoiceNo: dto.invoiceNo,
@@ -400,6 +429,72 @@ export class AdminInvoicesService {
       });
 
       return { ok: true };
+    });
+  }
+
+  /**
+   * 重置卡住的 Provider 预占。
+   * 只清理超过保护窗口的 REQUESTED + providerRequestId 记录，避免覆盖真实飞行中的开票。
+   */
+  async resetProviderReservation(invoiceId: string, adminId?: string) {
+    return this.runSerializable(async (tx) => {
+      const invoice = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+      });
+      if (!invoice) throw new NotFoundException('发票不存在');
+      if (invoice.status !== 'REQUESTED') {
+        throw new BadRequestException('仅待开票状态的发票可重置开票任务');
+      }
+      if (!invoice.providerRequestId) {
+        throw new BadRequestException('发票没有开票中的 Provider 任务');
+      }
+
+      const resetAfterMinutes = this.getProviderResetAfterMinutes();
+      const updatedAt = invoice.updatedAt ? new Date(invoice.updatedAt).getTime() : 0;
+      const ageMs = Date.now() - updatedAt;
+      if (ageMs < resetAfterMinutes * 60_000) {
+        throw new ConflictException('开票任务仍在保护窗口内，请稍后再重置');
+      }
+
+      const previousProvider = invoice.provider;
+      const previousProviderRequestId = invoice.providerRequestId;
+      const resetAt = new Date();
+      const providerRaw = {
+        resetReason: 'ADMIN_RESET_PROVIDER_RESERVATION',
+        previousProvider,
+        previousProviderRequestId,
+        resetAt: resetAt.toISOString(),
+      };
+
+      const result = await tx.invoice.updateMany({
+        where: { id: invoiceId, status: 'REQUESTED', providerRequestId: previousProviderRequestId },
+        data: {
+          provider: null,
+          providerRequestId: null,
+          providerRaw: providerRaw as Prisma.InputJsonValue,
+        },
+      });
+      if (result.count === 0) {
+        throw new ConflictException('发票状态已变更，请刷新后重试');
+      }
+
+      await tx.invoiceStatusHistory.create({
+        data: {
+          invoiceId,
+          fromStatus: 'REQUESTED',
+          toStatus: 'REQUESTED',
+          reason: '重置卡住的开票任务',
+          operatorId: adminId,
+          operatorType: 'ADMIN',
+          metadata: {
+            action: 'RESET_PROVIDER_RESERVATION',
+            previousProvider,
+            previousProviderRequestId,
+          },
+        },
+      });
+
+      return { ok: true, providerRequestId: previousProviderRequestId };
     });
   }
 
@@ -519,6 +614,9 @@ export class AdminInvoicesService {
     if (!invoice) throw new NotFoundException('发票不存在');
     if (invoice.status !== 'REQUESTED') {
       throw new BadRequestException('仅待开票状态的发票可执行开票操作');
+    }
+    if (invoice.providerRequestId) {
+      throw new ConflictException(INVOICE_IN_PROGRESS_MESSAGE);
     }
     if (!invoice.order) throw new BadRequestException('发票订单不存在');
     return invoice;
@@ -640,10 +738,109 @@ export class AdminInvoicesService {
     );
   }
 
+  private redactInvoiceProfileSnapshot(snapshot: any, includeSensitive: boolean) {
+    if (includeSensitive || !snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return snapshot;
+    }
+
+    return {
+      type: snapshot.type,
+      title: snapshot.title,
+    };
+  }
+
+  private redactInvoiceContentSnapshot(snapshot: any, includeSensitive: boolean) {
+    if (includeSensitive || !snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return snapshot;
+    }
+
+    const redacted: Record<string, unknown> = { ...snapshot };
+    if (snapshot.buyer && typeof snapshot.buyer === 'object' && !Array.isArray(snapshot.buyer)) {
+      redacted.buyer = {
+        type: snapshot.buyer.type,
+        title: snapshot.buyer.title,
+      };
+    }
+    if (snapshot.issuer && typeof snapshot.issuer === 'object' && !Array.isArray(snapshot.issuer)) {
+      redacted.issuer = {
+        companyName: snapshot.issuer.companyName,
+        taxNo: snapshot.issuer.taxNo,
+      };
+    }
+    return redacted;
+  }
+
   private resolveIssueMode(dto: IssueInvoiceDto): 'AUTO' | 'MOCK' | 'MANUAL' {
     if (dto.mode) return dto.mode;
     if (dto.invoiceNo || dto.pdfUrl) return 'MANUAL';
     return 'AUTO';
+  }
+
+  private assertAllowedManualPdfUrl(pdfUrl: string) {
+    let target: URL;
+    try {
+      target = new URL(pdfUrl);
+    } catch {
+      throw new BadRequestException('发票 PDF 地址格式不正确');
+    }
+
+    if (!['http:', 'https:'].includes(target.protocol)) {
+      throw new BadRequestException('发票 PDF 地址仅支持 HTTP/HTTPS');
+    }
+
+    const allowedPrefixes = this.getAllowedManualPdfUrlPrefixes();
+    const matched = allowedPrefixes.some((prefix) => this.isUrlUnderPrefix(target, prefix));
+    if (!matched) {
+      throw new BadRequestException('发票 PDF 地址必须来自平台上传域名');
+    }
+  }
+
+  private getAllowedManualPdfUrlPrefixes(): string[] {
+    const configured = this.getConfigValue('INVOICE_PDF_ALLOWED_URL_PREFIXES');
+    const prefixes = configured
+      ? configured.split(',').map((item) => item.trim()).filter(Boolean)
+      : [];
+
+    const uploadBaseUrl = this.getConfigValue('UPLOAD_BASE_URL', 'http://localhost:3000/uploads');
+    if (uploadBaseUrl) prefixes.push(uploadBaseUrl);
+
+    const privateBaseUrl = this.getConfigValue('UPLOAD_PRIVATE_BASE_URL');
+    if (privateBaseUrl) prefixes.push(privateBaseUrl);
+
+    const ossBucket = this.getConfigValue('OSS_BUCKET');
+    const ossRegion = this.getConfigValue('OSS_REGION');
+    if (ossBucket && ossRegion) {
+      prefixes.push(`https://${ossBucket}.${ossRegion}.aliyuncs.com`);
+    }
+
+    return [...new Set(prefixes)];
+  }
+
+  private isUrlUnderPrefix(target: URL, prefixText: string): boolean {
+    let prefix: URL;
+    try {
+      prefix = new URL(prefixText);
+    } catch {
+      return false;
+    }
+
+    if (target.origin !== prefix.origin) return false;
+    const prefixPath = prefix.pathname.endsWith('/')
+      ? prefix.pathname
+      : `${prefix.pathname}/`;
+    return target.pathname === prefix.pathname || target.pathname.startsWith(prefixPath);
+  }
+
+  private getProviderResetAfterMinutes(): number {
+    const raw = this.getConfigValue('INVOICE_PROVIDER_RESET_AFTER_MINUTES');
+    const parsed = raw == null ? NaN : Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_PROVIDER_RESET_AFTER_MINUTES;
+    return parsed;
+  }
+
+  private getConfigValue(key: string, fallback?: string): string | undefined {
+    const configValue = this.config?.get<string>(key);
+    return configValue ?? process.env[key] ?? fallback;
   }
 
   private async runSerializable<T>(handler: (tx: TxClient) => Promise<T>): Promise<T> {

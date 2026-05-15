@@ -23,6 +23,7 @@ import { RequirePermission } from '../common/decorators/require-permission';
 import { AuditLog } from '../common/decorators/audit-action';
 import { AuditLogInterceptor } from '../common/interceptors/audit-log.interceptor';
 import { CurrentAdmin } from '../common/decorators/current-admin';
+import { SUPER_ADMIN_ROLE } from '../common/constants';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
@@ -38,11 +39,13 @@ export class AdminInvoicesController {
     @Query() query: AdminInvoiceQueryDto,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @CurrentAdmin() admin?: any,
   ) {
     return this.invoicesService.findAll(
       query,
       page ? parseInt(page) : 1,
       pageSize ? parseInt(pageSize) : 20,
+      { includeSensitive: this.canViewSensitiveInvoice(admin) },
     );
   }
 
@@ -76,8 +79,10 @@ export class AdminInvoicesController {
   /** 发票详情 */
   @Get(':id')
   @RequirePermission('invoices:read')
-  findById(@Param('id') id: string) {
-    return this.invoicesService.findById(id);
+  findById(@Param('id') id: string, @CurrentAdmin() admin?: any) {
+    return this.invoicesService.findById(id, {
+      includeSensitive: this.canViewSensitiveInvoice(admin),
+    });
   }
 
   /** 开票 */
@@ -114,5 +119,29 @@ export class AdminInvoicesController {
     @CurrentAdmin('sub') adminId: string,
   ) {
     return this.invoicesService.failInvoice(id, dto, adminId);
+  }
+
+  /** 重置卡住的开票 Provider 任务 */
+  @Post(':id/reset-provider-reservation')
+  @RequirePermission('invoices:issue')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'invoices',
+    targetType: 'Invoice',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  resetProviderReservation(
+    @Param('id') id: string,
+    @CurrentAdmin('sub') adminId: string,
+  ) {
+    return this.invoicesService.resetProviderReservation(id, adminId);
+  }
+
+  private canViewSensitiveInvoice(admin?: any): boolean {
+    return Boolean(
+      admin?.permissions?.includes('invoices:issue') ||
+      admin?.roles?.includes(SUPER_ADMIN_ROLE),
+    );
   }
 }

@@ -152,3 +152,10 @@ export const failInvoice = (id: string, data: {
   reason: string;
 }): Promise<{ ok: boolean }> =>
   client.post(`/admin/invoices/${id}/fail`, data);
+
+/** 重置卡住的开票 Provider 任务 */
+export const resetInvoiceProviderReservation = (id: string): Promise<{
+  ok: boolean;
+  providerRequestId: string;
+}> =>
+  client.post(`/admin/invoices/${id}/reset-provider-reservation`);
