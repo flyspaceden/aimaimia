@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Statistic, Badge, Typography } from 'antd';
+import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Statistic, Badge, Typography, Upload } from 'antd';
 import {
   EyeOutlined,
   FileTextOutlined,
@@ -11,12 +11,16 @@ import {
   ClockCircleOutlined,
   StopOutlined,
   InboxOutlined,
+  SettingOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { getInvoices, getInvoiceStats, issueInvoice, failInvoice } from '@/api/invoices';
 import type { Invoice, InvoiceStatsMap } from '@/api/invoices';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
+const { Dragger } = Upload;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // 发票状态映射
 const invoiceStatusMap: Record<string, { text: string; color: string }> = {
@@ -80,10 +84,18 @@ export default function InvoiceListPage() {
     loadStats();
   }, []);
 
-  // 开票操作
+  // 自动开票
+  const handleAutoIssue = async (invoice: Invoice) => {
+    await issueInvoice(invoice.id, { mode: 'MOCK' });
+    message.success('自动开票成功');
+    actionRef.current?.reload();
+    loadStats();
+  };
+
+  // 人工开票
   const handleIssue = async (values: { invoiceNo: string; pdfUrl: string }) => {
     if (!currentInvoice) return;
-    await issueInvoice(currentInvoice.id, values);
+    await issueInvoice(currentInvoice.id, { mode: 'MANUAL', ...values });
     message.success('开票成功');
     setIssueModalOpen(false);
     issueForm.resetFields();
@@ -186,10 +198,10 @@ export default function InvoiceListPage() {
     },
     {
       title: '申请时间',
-      dataIndex: 'createdAt',
+      dataIndex: 'requestedAt',
       width: 160,
       valueType: 'dateRange',
-      render: (_: unknown, r: Invoice) => dayjs(r.createdAt).format('YYYY-MM-DD HH:mm'),
+      render: (_: unknown, r: Invoice) => dayjs(r.requestedAt || r.createdAt).format('YYYY-MM-DD HH:mm'),
       search: {
         transform: (value: [string, string]) => ({
           startDate: value[0],
@@ -204,9 +216,17 @@ export default function InvoiceListPage() {
       fixed: 'right',
       search: false,
       render: (_: unknown, record: Invoice) => (
-        <Space size={0}>
-          {record.status === 'REQUESTED' ? (
+        <Space size={0} wrap>
+          {record.status === 'REQUESTED' && (
             <>
+              <Button
+                type="link"
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={() => handleAutoIssue(record)}
+              >
+                自动开票
+              </Button>
               <Button
                 type="link"
                 size="small"
@@ -216,7 +236,7 @@ export default function InvoiceListPage() {
                   setIssueModalOpen(true);
                 }}
               >
-                开票
+                人工开票
               </Button>
               <Button
                 type="link"
@@ -231,16 +251,15 @@ export default function InvoiceListPage() {
                 失败
               </Button>
             </>
-          ) : (
-            <Button
-              type="link"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => navigate(`/invoices/${record.id}`)}
-            >
-              {record.status === 'ISSUED' ? '查看详情' : '查看'}
-            </Button>
           )}
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => navigate(`/invoices/${record.id}`)}
+          >
+            查看
+          </Button>
         </Space>
       ),
     },
@@ -319,6 +338,15 @@ export default function InvoiceListPage() {
             },
           },
         }}
+        toolBarRender={() => [
+          <Button
+            key="settings"
+            icon={<SettingOutlined />}
+            onClick={() => navigate('/invoices/settings')}
+          >
+            发票设置
+          </Button>,
+        ]}
         request={async (params) => {
           const {
             current,
@@ -344,9 +372,9 @@ export default function InvoiceListPage() {
         dateFormatter="string"
       />
 
-      {/* 开票弹窗 */}
+      {/* 人工开票弹窗 */}
       <Modal
-        title="开票"
+        title="人工开票"
         open={issueModalOpen}
         onCancel={() => {
           setIssueModalOpen(false);
@@ -362,6 +390,35 @@ export default function InvoiceListPage() {
             rules={[{ required: true, message: '请输入发票号码' }]}
           >
             <Input placeholder="请输入发票号码" />
+          </Form.Item>
+          <Form.Item label="上传发票 PDF">
+            <Dragger
+              name="file"
+              maxCount={1}
+              accept="application/pdf"
+              action={`${API_BASE}/upload?folder=invoices/manual`}
+              headers={{ Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}` }}
+              beforeUpload={(file) => {
+                const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+                if (!isPdf) {
+                  message.error('仅支持 PDF 文件');
+                  return Upload.LIST_IGNORE;
+                }
+                return true;
+              }}
+              onChange={({ file }) => {
+                if (file.status !== 'done') return;
+                const url = file.response?.data?.url || file.response?.url;
+                if (url) {
+                  issueForm.setFieldValue('pdfUrl', url);
+                  message.success('PDF 已上传');
+                }
+              }}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">点击或拖拽上传 PDF</p>
+              <p className="ant-upload-hint">也可以直接在下方粘贴已有 PDF 地址</p>
+            </Dragger>
           </Form.Item>
           <Form.Item
             name="pdfUrl"
