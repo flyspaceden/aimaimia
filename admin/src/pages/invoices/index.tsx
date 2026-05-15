@@ -222,6 +222,9 @@ export default function InvoiceListPage() {
         if (r.status === 'REQUESTED' && r.providerRequestId) {
           return <Tag color="processing">开票中</Tag>;
         }
+        if (r.status === 'REQUESTED' && r.failedAttempts > 0) {
+          return <Tag color="warning">自动开票失败 {r.failedAttempts} 次</Tag>;
+        }
         return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
       },
     },

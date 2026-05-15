@@ -57,6 +57,14 @@ const titleTypeMap: Record<string, string> = {
   COMPANY: '企业',
 };
 
+// 操作人类型映射
+const OPERATOR_TYPE_LABEL: Record<string, string> = {
+  BUYER: '买家',
+  ADMIN: '管理员',
+  SYSTEM: '系统自动',
+  PROVIDER: '开票服务',
+};
+
 // 订单商品列定义
 const itemColumns = [
   {
@@ -323,6 +331,15 @@ export default function InvoiceDetailPage() {
           <Descriptions.Item label="Provider请求号" span={2}>
             {invoice.providerRequestId || '-'}
           </Descriptions.Item>
+          {invoice.failedAttempts > 0 && (
+            <Descriptions.Item label="自动开票失败次数" span={3}>
+              <Text type="warning">
+                {invoice.failedAttempts} 次
+                {invoice.lastAutoIssueAttemptAt &&
+                  `（上次 ${dayjs(invoice.lastAutoIssueAttemptAt).format('YYYY-MM-DD HH:mm:ss')}）`}
+              </Text>
+            </Descriptions.Item>
+          )}
           {invoice.invoiceNo && (
             <Descriptions.Item label="发票号码">{invoice.invoiceNo}</Descriptions.Item>
           )}
@@ -499,7 +516,11 @@ export default function InvoiceDetailPage() {
                     {(item.fromStatus ? `${invoiceStatusMap[item.fromStatus]?.text || item.fromStatus} → ` : '')}
                     {invoiceStatusMap[item.toStatus]?.text || item.toStatus}
                   </Text>
-                  <Text type="secondary">{formatTime(item.createdAt)}</Text>
+                  <Text type="secondary">
+                    {formatTime(item.createdAt)}
+                    {item.operatorType &&
+                      `  ·  ${OPERATOR_TYPE_LABEL[item.operatorType] || item.operatorType}`}
+                  </Text>
                   {item.reason && <Text type="danger">{item.reason}</Text>}
                 </Space>
               ),
