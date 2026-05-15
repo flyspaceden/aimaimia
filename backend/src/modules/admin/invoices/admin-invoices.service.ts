@@ -600,7 +600,7 @@ export class AdminInvoicesService {
           toStatus: 'FAILED',
           reason,
           operatorId: adminId ?? null,
-          operatorType: adminId ? 'ADMIN' : 'SYSTEM',
+          operatorType: 'PROVIDER',
           metadata: { providerRequestId },
         },
       });
