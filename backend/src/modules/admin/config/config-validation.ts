@@ -310,6 +310,16 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     description: '发票 Provider 模式',
     custom: (value: any) => validateEnumString('INVOICE_PROVIDER_MODE', value, ['MOCK']),
   },
+  INVOICE_AUTO_ISSUE: {
+    type: 'boolean',
+    description: '买家申请发票后自动开票',
+  },
+  INVOICE_AUTO_ISSUE_MAX_ATTEMPTS: {
+    type: 'number',
+    description: '自动开票最大重试次数',
+    min: 1,
+    max: 10,
+  },
   INVOICE_ALLOW_VIP_PACKAGE: {
     type: 'boolean',
     description: 'VIP 礼包是否允许申请发票',

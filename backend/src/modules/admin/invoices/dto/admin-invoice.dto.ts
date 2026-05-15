@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEnum,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsNumberString,
@@ -159,4 +160,14 @@ export class UpdateInvoiceSettingsDto {
   @ValidateNested()
   @Type(() => InvoiceIssuerProfileDto)
   issuerProfile?: InvoiceIssuerProfileDto;
+
+  @IsOptional()
+  @IsBoolean()
+  autoIssue?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  autoIssueMaxAttempts?: number;
 }

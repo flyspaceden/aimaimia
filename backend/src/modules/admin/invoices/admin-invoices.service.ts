@@ -36,6 +36,8 @@ type InvoiceSettings = {
   defaultGoodsName: string;
   remarkTemplate: string;
   issuerProfile: InvoiceIssuerProfile;
+  autoIssue: boolean;
+  autoIssueMaxAttempts: number;
 };
 
 type InvoiceVisibilityOptions = {
@@ -96,6 +98,16 @@ const INVOICE_SETTING_DEFINITIONS = {
       payee: '',
     },
     description: '平台开票主体配置',
+  },
+  autoIssue: {
+    key: 'INVOICE_AUTO_ISSUE',
+    defaultValue: true,
+    description: '买家申请发票后自动开票',
+  },
+  autoIssueMaxAttempts: {
+    key: 'INVOICE_AUTO_ISSUE_MAX_ATTEMPTS',
+    defaultValue: 3,
+    description: '自动开票最大重试次数（含首次），超出后标记 FAILED',
   },
 } as const;
 
@@ -639,6 +651,8 @@ export class AdminInvoicesService {
       defaultGoodsName: this.getRuleValue(byKey, 'defaultGoodsName') as string,
       remarkTemplate: this.getRuleValue(byKey, 'remarkTemplate') as string,
       issuerProfile: this.getRuleValue(byKey, 'issuerProfile') as InvoiceIssuerProfile,
+      autoIssue: this.getRuleValue(byKey, 'autoIssue') as boolean,
+      autoIssueMaxAttempts: this.getRuleValue(byKey, 'autoIssueMaxAttempts') as number,
     };
   }
 

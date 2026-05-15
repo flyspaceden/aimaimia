@@ -1615,6 +1615,8 @@ async function main() {
     { key: 'BUYER_CONFIRM_TIMEOUT_DAYS', value: 7, desc: '买家确认收货超时（天）' },
     // --- 发票系统 ---
     { key: 'INVOICE_PROVIDER_MODE', value: 'MOCK', desc: '发票 Provider 模式' },
+    { key: 'INVOICE_AUTO_ISSUE', value: true, desc: '买家申请发票后自动开票' },
+    { key: 'INVOICE_AUTO_ISSUE_MAX_ATTEMPTS', value: 3, desc: '自动开票最大重试次数' },
     { key: 'INVOICE_ALLOW_VIP_PACKAGE', value: false, desc: 'VIP 礼包是否允许申请发票' },
     { key: 'INVOICE_LINE_MODE', value: 'ORDER_ITEMS', desc: '发票商品行生成模式' },
     { key: 'INVOICE_DEFAULT_TAX_RATE', value: 0, desc: '发票默认税率' },
