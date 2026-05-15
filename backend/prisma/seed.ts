@@ -1613,6 +1613,29 @@ async function main() {
     { key: 'BUYER_SHIP_TIMEOUT_DAYS', value: 7, desc: '买家退货寄回超时（天）' },
     { key: 'SELLER_RECEIVE_TIMEOUT_DAYS', value: 7, desc: '卖家签收退货超时（天）' },
     { key: 'BUYER_CONFIRM_TIMEOUT_DAYS', value: 7, desc: '买家确认收货超时（天）' },
+    // --- 发票系统 ---
+    { key: 'INVOICE_PROVIDER_MODE', value: 'MOCK', desc: '发票 Provider 模式' },
+    { key: 'INVOICE_ALLOW_VIP_PACKAGE', value: false, desc: 'VIP 礼包是否允许申请发票' },
+    { key: 'INVOICE_LINE_MODE', value: 'ORDER_ITEMS', desc: '发票商品行生成模式' },
+    { key: 'INVOICE_DEFAULT_TAX_RATE', value: 0, desc: '发票默认税率' },
+    { key: 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE', value: '', desc: '发票默认税收分类编码' },
+    { key: 'INVOICE_DEFAULT_GOODS_NAME', value: '农产品', desc: '发票合并商品行默认名称' },
+    { key: 'INVOICE_REMARK_TEMPLATE', value: '订单号：{{orderId}}', desc: '发票备注模板' },
+    {
+      key: 'INVOICE_ISSUER_PROFILE',
+      value: {
+        companyName: '爱买买app',
+        taxNo: '<PLATFORM_TAX_NO>',
+        registeredAddress: '',
+        registeredPhone: '',
+        bankName: '',
+        bankAccount: '',
+        drawer: '系统开票',
+        reviewer: '',
+        payee: '',
+      },
+      desc: '平台开票主体配置',
+    },
   ];
 
   for (const rc of ruleConfigs) {

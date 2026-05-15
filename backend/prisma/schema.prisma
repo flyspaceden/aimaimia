@@ -1666,19 +1666,45 @@ model InvoiceProfile {
 }
 
 model Invoice {
-  id              String        @id @default(cuid())
-  orderId         String        @unique
-  order           Order         @relation(fields: [orderId], references: [id])
-  profileSnapshot Json          // 开票时发票抬头快照
-  status          InvoiceStatus @default(REQUESTED)
-  invoiceNo       String?       // 发票号码
-  pdfUrl          String?       // 电子发票 PDF 地址
-  failReason      String?       // 开票失败原因
-  issuedAt        DateTime?     // 开票时间
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                     String        @id @default(cuid())
+  orderId                String        @unique
+  order                  Order         @relation(fields: [orderId], references: [id])
+  profileSnapshot        Json          // 开票时发票抬头快照
+  status                 InvoiceStatus @default(REQUESTED)
+  invoiceNo              String?       // 发票号码
+  pdfUrl                 String?       // 电子发票 PDF 地址
+  failReason             String?       // 开票失败原因
+  provider               String?
+  providerRequestId      String?
+  providerRaw            Json?
+  invoiceContentSnapshot Json?
+  requestCount           Int           @default(1)
+  requestedAt            DateTime      @default(now())
+  issuedAt               DateTime?     // 开票时间
+  failedAt               DateTime?
+  canceledAt             DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  statusHistory          InvoiceStatusHistory[]
 
   @@index([status])
+  @@index([providerRequestId])
+}
+
+model InvoiceStatusHistory {
+  id           String         @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  fromStatus   InvoiceStatus?
+  toStatus     InvoiceStatus
+  reason       String?
+  operatorId   String?
+  operatorType String?
+  metadata     Json?
+  createdAt    DateTime       @default(now())
+
+  @@index([invoiceId, createdAt])
 }
 
 // ============================================================
