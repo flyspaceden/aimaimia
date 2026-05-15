@@ -42,6 +42,7 @@ const VipGiftsPage = lazy(() => import('@/pages/vip-gifts/index'));
 const CategoriesPage = lazy(() => import('@/pages/categories/index'));
 const InvoiceListPage = lazy(() => import('@/pages/invoices/index'));
 const InvoiceDetailPage = lazy(() => import('@/pages/invoices/detail'));
+const InvoiceSettingsPage = lazy(() => import('@/pages/invoices/settings'));
 const TagManagementPage = lazy(() => import('@/pages/tags/index'));
 const DiscoveryFiltersPage = lazy(() => import('@/pages/config/discovery-filters'));
 const CsWorkstationPage = lazy(() => import('@/pages/cs/workstation'));
@@ -124,6 +125,7 @@ export default function App() {
             <Route path="coupons/usage" element={<CouponUsagePage />} />
             <Route path="coupons/stats" element={<CouponStatsPage />} />
             <Route path="invoices" element={<InvoiceListPage />} />
+            <Route path="invoices/settings" element={<InvoiceSettingsPage />} />
             <Route path="invoices/:id" element={<InvoiceDetailPage />} />
             <Route path="after-sale" element={<AfterSaleListPage />} />
             <Route path="lottery" element={<LotteryPage />} />

@@ -72,6 +72,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       routes: [
         { path: '/orders', name: '订单管理' },
         { path: '/invoices', name: '发票管理', permission: PERMISSIONS.INVOICES_READ },
+        { path: '/invoices/settings', name: '发票设置', permission: PERMISSIONS.INVOICES_ISSUE },
         { path: '/after-sale', name: '售后仲裁', permission: PERMISSIONS.AFTER_SALE_READ },
         { path: '/shipping-rules', name: '运费规则', permission: PERMISSIONS.SHIPPING_READ },
       ],
