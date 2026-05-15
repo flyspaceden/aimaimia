@@ -86,7 +86,7 @@ const INVOICE_SETTING_DEFINITIONS = {
     key: 'INVOICE_ISSUER_PROFILE',
     defaultValue: {
       companyName: '爱买买app',
-      taxNo: '<PLATFORM_TAX_NO>',
+      taxNo: '',
       registeredAddress: '',
       registeredPhone: '',
       bankName: '',

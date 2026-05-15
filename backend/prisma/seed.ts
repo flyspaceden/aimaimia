@@ -1625,7 +1625,7 @@ async function main() {
       key: 'INVOICE_ISSUER_PROFILE',
       value: {
         companyName: '爱买买app',
-        taxNo: '<PLATFORM_TAX_NO>',
+        taxNo: '',
         registeredAddress: '',
         registeredPhone: '',
         bankName: '',
