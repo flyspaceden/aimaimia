@@ -101,14 +101,6 @@ export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCaro
                 )}
               </View>
 
-              <View style={styles.footerRow}>
-                <Text style={styles.footerMuted}>
-                  {card.giftCount > 1 ? `${card.giftCount} 款可选` : '当前主推'}
-                </Text>
-                {card.totalPrice > 0 ? (
-                  <Text style={styles.footerValue}>参考价 ¥{card.totalPrice.toFixed(0)}</Text>
-                ) : null}
-              </View>
             </LinearGradient>
           </Pressable>
         ))}
@@ -233,23 +225,5 @@ const styles = StyleSheet.create({
   emptyItemsText: {
     color: 'rgba(255,255,255,0.62)',
     fontSize: 11,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.11)',
-  },
-  footerMuted: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.58)',
-  },
-  footerValue: {
-    fontSize: 11,
-    color: '#FFF7DC',
-    fontWeight: '600',
   },
 });

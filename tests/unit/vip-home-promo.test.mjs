@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { buildVipHomePromoCards, buildVipReferralHomePrompt } from '../../src/utils/vipHomePromo.ts'
+
+const carouselSource = readFileSync(new URL('../../src/components/data/VipHomePromoCarousel.tsx', import.meta.url), 'utf8')
 
 const teaGift = {
   id: 'gift-tea',
@@ -106,4 +109,9 @@ test('builds VIP referral home prompt only for VIP users with referral code', ()
   assert.equal(buildVipReferralHomePrompt({ tier: 'NORMAL', referralCode: 'NORMAL01' }), null)
   assert.equal(buildVipReferralHomePrompt({ tier: 'VIP', referralCode: '' }), null)
   assert.equal(buildVipReferralHomePrompt(null), null)
+})
+
+test('VIP home package cards do not show footer promo labels', () => {
+  assert.equal(carouselSource.includes('当前主推'), false)
+  assert.equal(carouselSource.includes('参考价'), false)
 })
