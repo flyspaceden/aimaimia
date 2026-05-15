@@ -62,6 +62,8 @@ export interface InvoiceSettings {
     reviewer?: string;
     payee?: string;
   };
+  autoIssue: boolean;
+  autoIssueMaxAttempts: number;
 }
 
 /** 发票关联的订单项 */
@@ -100,6 +102,8 @@ export interface Invoice {
   provider?: string | null;
   providerRequestId?: string | null;
   providerRaw?: Record<string, unknown> | null;
+  failedAttempts: number;
+  lastAutoIssueAttemptAt?: string | null;
   invoiceContentSnapshot?: Record<string, any> | null;
   requestCount?: number;
   requestedAt?: string | null;

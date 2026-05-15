@@ -216,6 +216,23 @@ export default function InvoiceSettingsPage() {
                     label="VIP 礼包允许申请发票"
                   />
                 </Col>
+                <Col xs={24} md={8}>
+                  <ProFormSwitch
+                    name="autoIssue"
+                    label="自动开票"
+                    tooltip="开启后，买家申请发票将立即触发后台自动开票，10 分钟内出票"
+                  />
+                </Col>
+                <Col xs={24} md={8}>
+                  <ProFormDigit
+                    name="autoIssueMaxAttempts"
+                    label="自动开票最大重试次数"
+                    min={1}
+                    max={10}
+                    fieldProps={{ precision: 0, step: 1 }}
+                    rules={[{ required: true, message: '请输入重试次数' }]}
+                  />
+                </Col>
                 <Col span={24}>
                   <Form.Item
                     name="remarkTemplate"
