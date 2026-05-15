@@ -642,6 +642,39 @@ export class AdminInvoicesService {
     });
   }
 
+  /**
+   * 自动开票重试次数耗尽，强制翻 FAILED。供 cron 调用，operatorType=SYSTEM。
+   */
+  async markAutoIssueRetryExhausted(invoiceId: string) {
+    return this.runSerializable(async (tx) => {
+      const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
+      if (!invoice || invoice.status !== 'REQUESTED' || invoice.providerRequestId) return { ok: false };
+
+      const result = await tx.invoice.updateMany({
+        where: { id: invoiceId, status: 'REQUESTED', providerRequestId: null },
+        data: {
+          status: 'FAILED',
+          failReason: '自动开票多次失败，请联系客服或重新申请',
+          failedAt: new Date(),
+        },
+      });
+      if (result.count === 0) return { ok: false };
+
+      await tx.invoiceStatusHistory.create({
+        data: {
+          invoiceId,
+          fromStatus: 'REQUESTED',
+          toStatus: 'FAILED',
+          reason: '自动开票重试次数耗尽',
+          operatorType: 'SYSTEM',
+          metadata: { action: 'AUTO_ISSUE_RETRY_EXHAUSTED', failedAttempts: invoice.failedAttempts },
+        },
+      });
+
+      return { ok: true };
+    });
+  }
+
   private async getIssueableInvoice(tx: any, invoiceId: string) {
     const invoice = await tx.invoice.findUnique({
       where: { id: invoiceId },
