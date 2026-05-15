@@ -27,6 +27,11 @@
   - **2026-05-15 审查收口**: Provider 开票中记录禁止管理端人工开票/标记失败；人工 PDF URL 增加平台上传/OSS 白名单；管理端增加受保护窗口限制的“重置开票任务”入口；`invoices:read` 详情脱敏、完整开票资料仅 `invoices:issue` / 超管可见；`CLAUDE.md` 补登记发票 spec/plan
   - **验证**: `prisma validate`、后端相关 Jest、后端 build、管理后台 build、卖家后台 build 通过；App 根 `tsc` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻塞，但无新增发票/订单类型错误
 
+- [x] **发票自动开票**（2026-05-15 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-05-15-invoice-auto-issue.md`
+  - **实际做了**: Invoice 加 `failedAttempts`/`lastAutoIssueAttemptAt`；新增 `INVOICE_AUTO_ISSUE` 开关 + `INVOICE_AUTO_ISSUE_MAX_ATTEMPTS`（默认 3）；`AdminInvoicesService.issueInvoice` 支持 `adminId: null` 走 SYSTEM 路径；新增 `markAutoIssueAttemptFailure`（软失败不降级）+ `markAutoIssueRetryExhausted`（重试耗尽强翻 FAILED）；买家 `requestInvoice` 末尾 fire-and-forget 触发；新增 `InvoiceAutoIssueRetryService` @Cron(EVERY_10_MINUTES)；管理后台设置页加开关 + 列表/详情显示失败次数；买家 App 文案改为"系统正在自动开票，预计 10 分钟内出票"
+  - **验证**: prisma validate / 后端 Jest（admin invoices 13 个 / invoice service 9 个 / auto issue retry 6 个）/ 后端 build / admin build / App TS（仅既有 e2e 阻塞）通过
+
 ---
 
 ## 📖 审查基线（2026-04-11）

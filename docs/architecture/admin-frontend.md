@@ -1064,7 +1064,7 @@
 
 | 页面 | 完成内容 | 文件 |
 |------|----------|------|
-| 发票管理 | 列表按 `requestedAt` 展示申请时间；普通 REQUESTED 行拆分为“自动开票 / 人工开票 / 失败”；`providerRequestId != null` 行显示“开票中”并仅保留“重置”入口；开票/失败/重置按钮只对 `invoices:issue` 可见；自动开票调用 Mock Provider；人工开票支持 PDF 上传到 `/upload?folder=invoices/manual` 或粘贴白名单 PDF URL；工具栏增加“发票设置”入口 | `admin/src/pages/invoices/index.tsx` |
-| 发票详情 | 展示 Provider、Provider 请求号、状态历史时间线、最终开票内容快照；无快照时展示预览并提示以开票时配置为准；支持 Mock 自动开票与人工开票；开票中记录隐藏普通操作并提供受后端保护窗口限制的重置入口；只有 `invoices:issue` / 超管可获得完整抬头和快照，读权限详情由后端脱敏 | `admin/src/pages/invoices/detail.tsx` |
-| 发票设置 | 新增配置页，管理开票主体、商品行模式、默认税率、税收分类编码、合并商品名称、备注模板、Provider 模式、VIP 礼包开票开关 | `admin/src/pages/invoices/settings.tsx` |
+| 发票管理 | 列表按 `requestedAt` 展示申请时间；普通 REQUESTED 行拆分为“自动开票 / 人工开票 / 失败”；`providerRequestId != null` 行显示“开票中”并仅保留“重置”入口；REQUESTED + `failedAttempts > 0` 显示“自动开票失败 N 次”橙色 Tag（优先级低于“开票中”）；开票/失败/重置按钮只对 `invoices:issue` 可见；自动开票调用 Mock Provider；人工开票支持 PDF 上传到 `/upload?folder=invoices/manual` 或粘贴白名单 PDF URL；工具栏增加“发票设置”入口 | `admin/src/pages/invoices/index.tsx` |
+| 发票详情 | 展示 Provider、Provider 请求号、状态历史时间线、最终开票内容快照；`failedAttempts > 0` 时 Descriptions 显示失败次数 + 上次尝试时间；状态历史 Timeline 区分 SYSTEM/ADMIN/PROVIDER/BUYER 操作者；无快照时展示预览并提示以开票时配置为准；支持 Mock 自动开票与人工开票；开票中记录隐藏普通操作并提供受后端保护窗口限制的重置入口；只有 `invoices:issue` / 超管可获得完整抬头和快照，读权限详情由后端脱敏 | `admin/src/pages/invoices/detail.tsx` |
+| 发票设置 | 新增配置页，管理开票主体、商品行模式、默认税率、税收分类编码、合并商品名称、备注模板、Provider 模式、VIP 礼包开票开关、自动开票开关（默认 ON）、自动开票最大重试次数（1-10，默认 3） | `admin/src/pages/invoices/settings.tsx` |
 | 菜单/路由 | 在“交易与售后”下增加“发票设置”；新增 `/invoices/settings` 路由，权限使用 `invoices:issue` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx` |

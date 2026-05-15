@@ -100,6 +100,7 @@
 - `docs/superpowers/plans/2026-05-08-sf-style-shipping-pricing.md` — 顺丰风格平台统一运费计价实施计划（Schema/运费引擎/Checkout 锁价/顺丰面单真实重量/`OrderShippingCost` 成本记录/管理后台/卖家 SKU 重量/文档同步，**平台运费计价实施排程**）
 - `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` — 发票链路完整收口设计方案（开票内容配置、Mock Provider 适配器、买家/管理/卖家三端状态闭环、并发安全与状态历史，**发票链路收口 / Provider / 设置页 / 状态历史权威来源，补充并覆盖 `docs/features/invoice.md` 对应部分**）
 - `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md` — 发票链路完整收口实施计划（Schema/配置/买家申请取消/Mock Provider/管理后台设置与开票/买家 App 发票闭环/卖家隐私/验证与文档同步，**发票链路收口实施排程**）
+- `docs/superpowers/plans/2026-05-15-invoice-auto-issue.md` — 发票自动开票实施计划（Schema 加 failedAttempts/lastAutoIssueAttemptAt、INVOICE_AUTO_ISSUE 开关、买家 requestInvoice fire-and-forget 触发、SYSTEM operatorType、cron 每 10 分钟重试、上限耗尽强翻 FAILED、管理端失败次数显示、买家 App 文案 + refetch，**发票自动开票权威来源**）
 - `docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md` — 微信支付集成设计方案（v1.1+ 推迟项，复用售后链路收口已完成的 PaymentChannel 抽象 + provider-agnostic initiateRefund，售后核心代码 0 改动，仅需新增 WechatPayService + Controller 端点 + initiateRefund 分支 + AfterSaleShippingPayment.provider dispatch 修正，**多通道支付扩展权威来源**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
