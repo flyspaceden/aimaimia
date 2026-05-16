@@ -1077,10 +1077,10 @@ export class BonusService {
   // ========== 私有方法 ==========
 
   /**
-   * 三叉树 BFS 插入（C31a 修复版）
+   * VIP 三叉树推荐子树落位
    *
-   * 有推荐人：在推荐人节点下 BFS 滑落插入，永远停留在推荐人子树内；
-   *           若 BFS 返回 null 视为系统异常直接抛出，严禁降级到系统节点。
+   * 有推荐人：在推荐人节点直连满后，按层选择当前层 childrenCount 最小节点插入；
+   *           若子树搜索返回 null 视为系统异常直接抛出，严禁降级到系统节点。
    * 无推荐人：遍历 A1→A2→...→A10 找第一个有空位的系统节点，
    *           A1-A10 全满则创建 A11, A12, ... 直到 MAX_ROOT_NODES 上限。
    */
@@ -1118,8 +1118,8 @@ export class BonusService {
         parentNode = inviterNode;
         rootId = inviterNode.rootId;
       } else {
-        // 推荐人已满，BFS 在推荐人子树内滑落
-        const found = await this.bfsInSubtree(tx, inviterNode.id);
+        // 推荐人已满，在推荐人子树内按层找当前层最空节点滑落
+        const found = await this.findLeastLoadedNodeByLevelInSubtree(tx, inviterNode.id);
         if (!found) {
           // 子树找不到空位 —— 按业务树无底设计，这是异常而非"降级"的理由
           throw new InternalServerErrorException(
@@ -1198,34 +1198,53 @@ export class BonusService {
   }
 
   /**
-   * 在指定节点的子树内 BFS，找到第一个 childrenCount < 3 的节点
+   * 在指定节点的子树内按层查找最空节点
+   *
+   * 规则：
+   * - 每次只比较同一层节点
+   * - 当前层存在未满节点时，选择 childrenCount 最小者
+   * - childrenCount 相同则沿用树顺序（父节点顺序 + position asc）
+   * - 当前层全满才进入下一层
+   *
    * 若子树已满，返回 null（C31a：调用方应视为系统异常抛出，不再降级到系统节点）
    *
    * 注：按业务设计三叉树无底，不对深度做限制；仅保留迭代次数上限作为保险丝，
    * 防止数据循环引用等异常造成死循环。
    */
-  private async bfsInSubtree(tx: any, startNodeId: string): Promise<any | null> {
-    const queue: string[] = [startNodeId];
+  private async findLeastLoadedNodeByLevelInSubtree(tx: any, startNodeId: string): Promise<any | null> {
+    let currentLevelParentIds: string[] = [startNodeId];
     let iterations = 0;
 
-    while (queue.length > 0) {
-      if (++iterations > MAX_BFS_ITERATIONS) {
-        this.logger.warn(`BFS 遍历超过 ${MAX_BFS_ITERATIONS} 次迭代，中止搜索（startNodeId=${startNodeId}）`);
+    while (currentLevelParentIds.length > 0) {
+      if ((iterations += currentLevelParentIds.length) > MAX_BFS_ITERATIONS) {
+        this.logger.warn(`VIP 子树落位遍历超过 ${MAX_BFS_ITERATIONS} 次迭代，中止搜索（startNodeId=${startNodeId}）`);
         break;
       }
-      const currentId = queue.shift()!;
 
-      const children = await tx.vipTreeNode.findMany({
-        where: { parentId: currentId },
+      const parentOrder = new Map(currentLevelParentIds.map((id, index) => [id, index]));
+      const levelNodes = await tx.vipTreeNode.findMany({
+        where: { parentId: { in: currentLevelParentIds } },
         orderBy: { position: 'asc' },
       });
 
-      for (const child of children) {
-        if (child.childrenCount < 3) {
-          return child;
+      levelNodes.sort((a: any, b: any) => {
+        const parentA = parentOrder.get(a.parentId) ?? Number.MAX_SAFE_INTEGER;
+        const parentB = parentOrder.get(b.parentId) ?? Number.MAX_SAFE_INTEGER;
+        if (parentA !== parentB) return parentA - parentB;
+        if (a.position !== b.position) return a.position - b.position;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+
+      let best: any | null = null;
+      for (const node of levelNodes) {
+        if (node.childrenCount >= 3) continue;
+        if (!best || node.childrenCount < best.childrenCount) {
+          best = node;
         }
-        queue.push(child.id);
       }
+
+      if (best) return best;
+      currentLevelParentIds = levelNodes.map((node: any) => node.id);
     }
 
     return null;

@@ -100,7 +100,7 @@
 | 改动 | 说明 |
 |------|------|
 | NormalTreeNode / NormalProgress / NormalEligibleOrder 模型 | 全新数据结构，独立于VIP |
-| 轮询平衡插入算法 | VIP用BFS+推荐人优先，普通树用轮询平衡（完全不同的算法） |
+| 轮询平衡插入算法 | VIP用推荐人子树内“层级优先 + 当前层最空节点”落位，普通树用全局轮询平衡（完全不同的算法） |
 | normal-upstream.service.ts | 普通树分配引擎（参考但独立于 vip-upstream） |
 | 利润六分公式 | 普通用户（50/16/16/8/8/2）和VIP用户（50/30/10/2/2/6）均使用六分结构，各自独立配比 |
 | NORMAL_RED_PACKET 账户类型 | 新账户类型，VIP继续用 RED_PACKET |

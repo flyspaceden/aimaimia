@@ -262,3 +262,148 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     expect(prismaMock.memberProfile.findUnique).not.toHaveBeenCalled();
   });
 });
+
+describe('BonusService.assignVipTreeNode — VIP 推荐人子树落位', () => {
+  function buildService(prismaMock: any = {}) {
+    return new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      {} as any,
+    );
+  }
+
+  function makeVipTreeTx(nodes: Record<string, any>) {
+    const memberByUserId: Record<string, any> = {
+      inviter: {
+        userId: 'inviter',
+        tier: 'VIP',
+        vipNodeId: 'node-inviter',
+      },
+      invitee: {
+        userId: 'invitee',
+        tier: 'NORMAL',
+        inviterUserId: 'inviter',
+      },
+    };
+
+    return {
+      memberProfile: {
+        findUnique: jest.fn(({ where }) => memberByUserId[where.userId] ?? null),
+        update: jest.fn(({ where, data }) => {
+          memberByUserId[where.userId] = {
+            ...(memberByUserId[where.userId] ?? { userId: where.userId }),
+            ...data,
+          };
+          return memberByUserId[where.userId];
+        }),
+      },
+      vipTreeNode: {
+        findUnique: jest.fn(({ where }) => nodes[where.id] ?? null),
+        findMany: jest.fn(({ where }) => {
+          const parentIds = Array.isArray(where.parentId?.in)
+            ? where.parentId.in
+            : [where.parentId];
+          return Object.values(nodes)
+            .filter((node: any) => parentIds.includes(node.parentId))
+            .sort((a: any, b: any) => a.position - b.position);
+        }),
+        update: jest.fn(({ where, data }) => {
+          const node = nodes[where.id];
+          node.childrenCount += data.childrenCount.increment;
+          return { ...node };
+        }),
+        create: jest.fn(({ data }) => {
+          const id = 'node-new';
+          nodes[id] = { id, childrenCount: 0, createdAt: new Date(), ...data };
+          return nodes[id];
+        }),
+      },
+    };
+  }
+
+  function node(id: string, parentId: string | null, position: number, childrenCount: number, level = 1) {
+    return {
+      id,
+      rootId: 'A1',
+      userId: id.replace('node-', ''),
+      parentId,
+      level,
+      position,
+      childrenCount,
+      createdAt: new Date(`2026-01-01T00:00:${String(position).padStart(2, '0')}Z`),
+    };
+  }
+
+  it('推荐人直连已满时，第一层选择 childrenCount 最小的节点承接新人', async () => {
+    const nodes = {
+      'node-inviter': node('node-inviter', null, 0, 3, 1),
+      'node-c0': node('node-c0', 'node-inviter', 0, 2, 2),
+      'node-c1': node('node-c1', 'node-inviter', 1, 0, 2),
+      'node-c2': node('node-c2', 'node-inviter', 2, 1, 2),
+    };
+    const tx = makeVipTreeTx(nodes);
+    const service = buildService();
+
+    await (service as any).assignVipTreeNode(tx, 'invitee');
+
+    expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'invitee',
+        parentId: 'node-c1',
+        position: 0,
+      }),
+    });
+  });
+
+  it('当前层全部满时，进入下一层并在整层选择 childrenCount 最小的节点', async () => {
+    const nodes = {
+      'node-inviter': node('node-inviter', null, 0, 3, 1),
+      'node-c0': node('node-c0', 'node-inviter', 0, 3, 2),
+      'node-c1': node('node-c1', 'node-inviter', 1, 3, 2),
+      'node-c2': node('node-c2', 'node-inviter', 2, 3, 2),
+      'node-c0-0': node('node-c0-0', 'node-c0', 0, 2, 3),
+      'node-c0-1': node('node-c0-1', 'node-c0', 1, 2, 3),
+      'node-c0-2': node('node-c0-2', 'node-c0', 2, 2, 3),
+      'node-c1-0': node('node-c1-0', 'node-c1', 0, 0, 3),
+      'node-c1-1': node('node-c1-1', 'node-c1', 1, 1, 3),
+      'node-c1-2': node('node-c1-2', 'node-c1', 2, 1, 3),
+      'node-c2-0': node('node-c2-0', 'node-c2', 0, 1, 3),
+      'node-c2-1': node('node-c2-1', 'node-c2', 1, 1, 3),
+      'node-c2-2': node('node-c2-2', 'node-c2', 2, 1, 3),
+    };
+    const tx = makeVipTreeTx(nodes);
+    const service = buildService();
+
+    await (service as any).assignVipTreeNode(tx, 'invitee');
+
+    expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'invitee',
+        parentId: 'node-c1-0',
+        position: 0,
+      }),
+    });
+  });
+
+  it('同层节点一样空时，按树顺序选择最靠前的节点', async () => {
+    const nodes = {
+      'node-inviter': node('node-inviter', null, 0, 3, 1),
+      'node-c0': node('node-c0', 'node-inviter', 0, 1, 2),
+      'node-c1': node('node-c1', 'node-inviter', 1, 1, 2),
+      'node-c2': node('node-c2', 'node-inviter', 2, 1, 2),
+    };
+    const tx = makeVipTreeTx(nodes);
+    const service = buildService();
+
+    await (service as any).assignVipTreeNode(tx, 'invitee');
+
+    expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'invitee',
+        parentId: 'node-c0',
+        position: 1,
+      }),
+    });
+  });
+});
