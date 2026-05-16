@@ -119,7 +119,7 @@
 |------|------|
 | 分润奖励 vs 平台红包 | **两套完全独立的系统，严禁混淆**。分润奖励（Reward 体系：`RewardAccount`/`RewardLedger`/`VIP_REWARD`/`NORMAL_REWARD`）只能提现；平台红包（Coupon 体系：`CouponCampaign`/`CouponInstance`）只能结算抵扣。部分前端页面功能可沿用，部分不能 |
 | 金额单位 | **Float / 元**（Prisma Schema 与前端一致，非 data-system.md 的 Int/分） |
-| VIP 三叉树根节点 | **A1–A10 十个高管**，每棵独立子树，BFS 滑落插入 |
+| VIP 三叉树根节点 | **A1–A10 十个高管**，每棵独立子树；有推荐人时优先落在推荐人直连空位，推荐人直连满后在推荐人子树内按层选择当前层 `childrenCount` 最小节点落位，同数按树顺序（父节点顺序 + position asc）；无推荐人遍历 A1→A10 找空位，全满则扩 A11、A12…直到 `MAX_ROOT_NODES`；子树搜索返回 null 视为系统异常直接抛出，严禁降级到系统节点 |
 | 管理端认证隔离 | 独立 JWT Secret（`ADMIN_JWT_SECRET`）、独立 Passport Strategy（`admin-jwt`）、独立 Guard |
 | 卖家端认证隔离 | 独立 JWT Secret（`SELLER_JWT_SECRET`）、独立 Passport Strategy（`seller-jwt`）、独立 Guard |
 | 多商户模式 | `CompanyStaff` 关联表连接 User ↔ Company，角色分 OWNER / MANAGER / OPERATOR |
