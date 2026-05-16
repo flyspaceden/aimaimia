@@ -3,7 +3,7 @@
  *
  * 后端接口：
  * - GET /api/v1/bonus/member → MemberProfile
- * - POST /api/v1/bonus/referral → { success, inviterUserId }
+ * - POST /api/v1/bonus/referral → { success, inviterUserId, inviter }
  * - POST /api/v1/bonus/vip/purchase → 已停用（改走 VIP 礼包结算）
  * - GET /api/v1/bonus/wallet → Wallet
  * - GET /api/v1/bonus/wallet/ledger?page=&pageSize= → WalletLedgerPage
@@ -16,6 +16,7 @@ import {
   MemberProfile, Wallet, WalletLedgerPage, WithdrawRecord,
   VipTree, QueueStatus, RewardItem, NormalRewardPage, Result,
   VipGiftOptionsResponse,
+  ReferralBindingResult,
 } from '../types';
 import { ApiClient } from './http/ApiClient';
 import { simulateRequest } from './helpers';
@@ -26,6 +27,7 @@ const mockMember: MemberProfile = {
   tier: 'VIP',
   referralCode: 'LQHE2025',
   inviterUserId: 'u-001',
+  inviter: { userId: 'u-001', nickname: '周阿姨', maskedPhone: '138****5678' },
   vipPurchasedAt: '2026-01-15T10:30:00Z',
   normalEligible: true,
   vipProgress: { selfPurchaseCount: 6, unlockedLevel: 4 },
@@ -45,9 +47,13 @@ export const BonusRepo = {
   },
 
   /** 使用推荐码 */
-  useReferralCode: async (code: string): Promise<Result<{ success: boolean; inviterUserId: string }>> => {
+  useReferralCode: async (code: string): Promise<Result<ReferralBindingResult>> => {
     if (USE_MOCK) {
-      return simulateRequest({ success: true, inviterUserId: 'u-inviter' }, { delay: 400 });
+      return simulateRequest({
+        success: true,
+        inviterUserId: 'u-inviter',
+        inviter: { userId: 'u-inviter', nickname: '李四', maskedPhone: '139****1111' },
+      }, { delay: 400 });
     }
     return ApiClient.post('/bonus/referral', { code });
   },

@@ -44,7 +44,7 @@ export class DeferredLinkService {
     const member = await this.prisma.memberProfile.findUnique({
       where: { referralCode: dto.referralCode },
     });
-    if (!member) {
+    if (!member || member.tier !== 'VIP') {
       throw new BadRequestException('推荐码无效');
     }
 

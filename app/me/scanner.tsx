@@ -54,7 +54,12 @@ export default function ScannerScreen() {
     mutationFn: (code: string) => BonusRepo.useReferralCode(code),
     onSuccess: (result) => {
       if (result.ok) {
-        show({ message: '推荐码绑定成功！', type: 'success' });
+        const inviter = result.data.inviter;
+        const inviterName = inviter?.nickname || inviter?.maskedPhone || null;
+        show({
+          message: inviterName ? `已绑定推荐人：${inviterName}` : '推荐码绑定成功！',
+          type: 'success',
+        });
         queryClient.invalidateQueries({ queryKey: ['bonus-member'] });
         router.back();
       } else {

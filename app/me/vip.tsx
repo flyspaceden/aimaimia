@@ -114,15 +114,25 @@ export default function VipScreen() {
   const wallet = walletData?.ok ? walletData.data : null;
 
   // 推荐码 & 深度链接
-  const referralCode = member?.referralCode ?? '';
+  const referralCode = isVip ? (member?.referralCode ?? '') : '';
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const inviter = member?.inviter ?? null;
+  const inviterLabel = inviter?.nickname || inviter?.maskedPhone || null;
 
   const handleCopyReferral = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可复制的推荐码', type: 'info' });
+      return;
+    }
     await Clipboard.setStringAsync(referralCode);
     show({ message: '推荐码已复制', type: 'success' });
   };
 
   const handleShareReferral = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可分享的推荐码', type: 'info' });
+      return;
+    }
     try {
       await Share.share({
         message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册，双方都能获得红包奖励！${deepLink}`,
@@ -202,7 +212,7 @@ export default function VipScreen() {
                     <MaterialCommunityIcons name="crown" size={24} color={VIP_COLORS.goldPrimary} />
                   </View>
                   <View style={{ marginLeft: 14, flex: 1 }}>
-                    <Text style={styles.identityTitle}>VIP 会员</Text>
+                    <Text style={styles.identityTitle}>{isVip ? 'VIP 会员' : '普通会员'}</Text>
                     {member.vipPurchasedAt ? (
                       <Text style={styles.identityDate}>
                         {formatDate(member.vipPurchasedAt)} 加入
@@ -212,11 +222,43 @@ export default function VipScreen() {
                 </View>
 
                 {/* 二维码图标 */}
-                <Pressable onPress={() => setQrVisible(true)} style={styles.qrIconBox}>
-                  <MaterialCommunityIcons name="qrcode" size={22} color={VIP_COLORS.goldPrimary} />
-                </Pressable>
+                {referralCode ? (
+                  <Pressable onPress={() => setQrVisible(true)} style={styles.qrIconBox}>
+                    <MaterialCommunityIcons name="qrcode" size={22} color={VIP_COLORS.goldPrimary} />
+                  </Pressable>
+                ) : null}
               </View>
 
+            </View>
+          </Animated.View>
+        ) : null}
+
+        {/* ===== 2. 推荐关系确认 ===== */}
+        {member ? (
+          <Animated.View entering={FadeInDown.duration(400).delay(180)} style={styles.section}>
+            <View style={styles.relationCard}>
+              <View style={styles.relationHeader}>
+                <View style={styles.relationIcon}>
+                  <MaterialCommunityIcons
+                    name={inviterLabel ? 'account-heart-outline' : 'account-question-outline'}
+                    size={20}
+                    color={VIP_COLORS.goldPrimary}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.relationTitle}>推荐关系</Text>
+                  <Text style={styles.relationDesc}>
+                    {inviterLabel
+                      ? `${isVip ? '已加入' : '购买 VIP 后将加入'} ${inviterLabel} 的 VIP 团队`
+                      : '尚未绑定推荐人，购买后将由系统分配'}
+                  </Text>
+                </View>
+                {!isVip ? (
+                  <Pressable onPress={() => router.push('/me/scanner')} style={styles.relationAction}>
+                    <Text style={styles.relationActionText}>去绑定</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           </Animated.View>
         ) : null}
@@ -349,31 +391,33 @@ export default function VipScreen() {
         </Animated.View>
 
         {/* ===== 7. 邀请好友入口 ===== */}
-        <Animated.View entering={FadeInDown.duration(400).delay(800)} style={[styles.section, { marginBottom: 0 }]}>
-          <Pressable
-            onPress={() => member && setQrVisible(true)}
-            style={styles.inviteCard}
-          >
-            <LinearGradient
-              colors={[VIP_COLORS.goldPrimary, VIP_COLORS.goldLight]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.inviteGradient}
+        {referralCode ? (
+          <Animated.View entering={FadeInDown.duration(400).delay(800)} style={[styles.section, { marginBottom: 0 }]}>
+            <Pressable
+              onPress={() => setQrVisible(true)}
+              style={styles.inviteCard}
             >
-              <View style={styles.inviteContent}>
-                <View>
-                  <Text style={styles.inviteTitle}>邀请好友成为 VIP</Text>
-                  <Text style={styles.inviteDesc}>好友成功开通，您即得现金奖励</Text>
+              <LinearGradient
+                colors={[VIP_COLORS.goldPrimary, VIP_COLORS.goldLight]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.inviteGradient}
+              >
+                <View style={styles.inviteContent}>
+                  <View>
+                    <Text style={styles.inviteTitle}>邀请好友成为 VIP</Text>
+                    <Text style={styles.inviteDesc}>好友成功开通，您即得现金奖励</Text>
+                  </View>
+                  <MaterialCommunityIcons name="qrcode" size={28} color="rgba(26,18,7,0.4)" />
                 </View>
-                <MaterialCommunityIcons name="qrcode" size={28} color="rgba(26,18,7,0.4)" />
-              </View>
-            </LinearGradient>
-          </Pressable>
-        </Animated.View>
+              </LinearGradient>
+            </Pressable>
+          </Animated.View>
+        ) : null}
       </ScrollView>
 
       {/* 推荐码浮层（与"我的"页面一致） */}
-      <Modal transparent visible={qrVisible} animationType="fade" onRequestClose={() => setQrVisible(false)}>
+      <Modal transparent visible={qrVisible && !!referralCode} animationType="fade" onRequestClose={() => setQrVisible(false)}>
         {Platform.OS === 'ios' ? (
           <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill}>
             <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
@@ -539,6 +583,53 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(201,169,110,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // 推荐关系
+  relationCard: {
+    backgroundColor: VIP_COLORS.highlightBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: VIP_COLORS.cardBorder,
+    padding: 14,
+  },
+  relationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  relationIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(201,169,110,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  relationTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: VIP_COLORS.warmWhite,
+  },
+  relationDesc: {
+    fontSize: 12,
+    color: VIP_COLORS.subtleGray,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  relationAction: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(201,169,110,0.16)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  relationActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: VIP_COLORS.goldPrimary,
   },
 
   // 收益概览

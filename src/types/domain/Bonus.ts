@@ -1,17 +1,32 @@
 /** 会员等级 */
 export type MemberTier = 'NORMAL' | 'VIP';
 
+/** 已绑定推荐人摘要 */
+export interface ReferralInviterSummary {
+  userId: string;
+  nickname: string | null;
+  maskedPhone: string | null;
+}
+
 /** 会员资料 */
 export interface MemberProfile {
   tier: MemberTier;
-  referralCode: string;
+  referralCode: string | null;
   inviterUserId: string | null;
+  inviter: ReferralInviterSummary | null;
   vipPurchasedAt: string | null;
   normalEligible: boolean;
   vipProgress: {
     selfPurchaseCount: number;
     unlockedLevel: number;
   } | null;
+}
+
+/** 推荐码绑定结果 */
+export interface ReferralBindingResult {
+  success: boolean;
+  inviterUserId: string;
+  inviter: ReferralInviterSummary | null;
 }
 
 /** 奖励钱包 */

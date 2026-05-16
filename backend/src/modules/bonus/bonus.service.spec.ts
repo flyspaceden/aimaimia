@@ -1,6 +1,92 @@
 import { Prisma } from '@prisma/client';
 import { BonusService } from './bonus.service';
 
+describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
+  function buildService(prismaMock: any) {
+    return new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      {} as any,
+    );
+  }
+
+  it('普通会员即使有历史 referralCode，也不向 App 返回自己的推荐码', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'normal-user',
+          tier: 'NORMAL',
+          referralCode: 'NORMAL01',
+          inviterUserId: null,
+          vipPurchasedAt: null,
+          normalEligible: false,
+        }),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getMemberProfile('normal-user');
+
+    expect(result.referralCode).toBeNull();
+    expect(result.inviter).toBeNull();
+  });
+
+  it('VIP 会员返回自己的推荐码', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'vip-user',
+          tier: 'VIP',
+          referralCode: 'VIPCODE1',
+          inviterUserId: null,
+          vipPurchasedAt: new Date('2026-05-01T00:00:00.000Z'),
+          normalEligible: false,
+        }),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getMemberProfile('vip-user');
+
+    expect(result.referralCode).toBe('VIPCODE1');
+  });
+
+  it('返回已绑定推荐人的昵称和脱敏手机号', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'normal-user',
+          tier: 'NORMAL',
+          referralCode: null,
+          inviterUserId: 'vip-inviter',
+          vipPurchasedAt: null,
+          normalEligible: false,
+        }),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'vip-inviter',
+          profile: { nickname: '张三' },
+          authIdentities: [{ identifier: '13812345678' }],
+        }),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getMemberProfile('normal-user');
+
+    expect(result.inviter).toEqual({
+      userId: 'vip-inviter',
+      nickname: '张三',
+      maskedPhone: '138****5678',
+    });
+  });
+});
+
 /**
  * 回归测试：CRIT-1 — VIP 激活重试路径状态机错位
  *
@@ -200,6 +286,13 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({}),
       },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'vip-user',
+          profile: { nickname: '李四' },
+          authIdentities: [{ identifier: '13900001111' }],
+        }),
+      },
       $transaction: jest.fn(),
     };
     prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
@@ -216,7 +309,24 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
 
     await expect(
       service.useReferralCode('invitee-y', 'VIPCODE1'),
-    ).resolves.toMatchObject({ success: true, inviterUserId: 'vip-user' });
+    ).resolves.toMatchObject({
+      success: true,
+      inviterUserId: 'vip-user',
+      inviter: {
+        userId: 'vip-user',
+        nickname: '李四',
+        maskedPhone: '139****1111',
+      },
+    });
+
+    expect(prismaMock.memberProfile.upsert).toHaveBeenCalledWith({
+      where: { userId: 'invitee-y' },
+      create: {
+        userId: 'invitee-y',
+        inviterUserId: 'vip-user',
+      },
+      update: { inviterUserId: 'vip-user' },
+    });
 
     expect(prismaMock.referralLink.create).toHaveBeenCalled();
   });

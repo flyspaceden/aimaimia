@@ -6,6 +6,7 @@ import { MIN_WITHDRAW_AMOUNT, MAX_DAILY_WITHDRAWALS, MAX_BFS_ITERATIONS, MAX_TRE
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { InboxService } from '../inbox/inbox.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
+import { maskPhone } from '../../common/security/privacy-mask';
 
 @Injectable()
 export class BonusService {
@@ -20,20 +21,44 @@ export class BonusService {
 
   // ========== 会员信息 ==========
 
+  private async buildInviterSummary(userId?: string | null) {
+    if (!userId) return null;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        profile: { select: { nickname: true } },
+        authIdentities: {
+          where: { provider: 'PHONE' },
+          select: { identifier: true },
+          take: 1,
+        },
+      },
+    });
+    if (!user) {
+      return { userId, nickname: null, maskedPhone: null };
+    }
+
+    return {
+      userId: user.id,
+      nickname: user.profile?.nickname ?? null,
+      maskedPhone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
+    };
+  }
+
   /** 获取会员信息 */
   async getMemberProfile(userId: string) {
     let member = await this.prisma.memberProfile.findUnique({ where: { userId } });
     if (!member) {
-      // 自动创建
+      // 普通用户允许先绑定推荐人/查看会员状态，但自己的推荐码只在成为 VIP 时生成并展示。
       member = await this.prisma.memberProfile.create({
         data: {
           userId,
-          referralCode: await pickUniqueReferralCode(this.prisma),
         },
       });
-    } else if (!member.referralCode) {
-      // 历史遗留兜底：member 存在但 referralCode 为 NULL（早期注册/管理端建号路径漏写），
-      // 借此次访问补上。pickUniqueReferralCode 预查找 + @unique 兜底重试至多 5 次
+    } else if (member.tier === 'VIP' && !member.referralCode) {
+      // 历史遗留兜底：VIP member 存在但 referralCode 为 NULL 时补上。普通会员不补码，
+      // 否则会和"非 VIP 没有可用推荐码"的业务口径冲突。
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
           member = await this.prisma.memberProfile.update({
@@ -49,16 +74,18 @@ export class BonusService {
         }
       }
       if (!member.referralCode) {
-        this.logger.warn(`getMemberProfile lazy 补码失败：userId=${userId}，5 次均遇 @unique 冲突`);
+        this.logger.warn(`getMemberProfile VIP lazy 补码失败：userId=${userId}，5 次均遇 @unique 冲突`);
       }
     }
 
     const vipProgress = await this.prisma.vipProgress.findUnique({ where: { userId } });
+    const inviter = await this.buildInviterSummary(member.inviterUserId);
 
     return {
       tier: member.tier,
-      referralCode: member.referralCode,
+      referralCode: member.tier === 'VIP' ? member.referralCode : null,
       inviterUserId: member.inviterUserId,
+      inviter,
       vipPurchasedAt: member.vipPurchasedAt?.toISOString() || null,
       normalEligible: member.normalEligible,
       vipProgress: vipProgress
@@ -76,11 +103,8 @@ export class BonusService {
       where: { referralCode: code },
     });
     if (!inviter) throw new BadRequestException('推荐码无效');
-    // 设计原则：只有 VIP 才能作为推荐人。普通用户在 DB 里也有 referralCode（lazy 生成 + 注册时
-    // 兜底），但买家 App UI 已守门不展示给普通用户。后端这里二次拦截，防止抓包/SQL 拿到普通用户
-    // 的码后绕过 UI 强行绑定——一旦绑成功，被推荐人买 VIP 时 assignVipTreeNode 会找不到推荐人
-    // 的 vipNodeId 抛错，整个 VIP 激活回滚（撞 CRIT-1 重试逻辑后推荐人永远拿不到奖）。
-    // 文案统一返回"推荐码无效"，不暴露内部 tier 状态。
+    // 只有 VIP 才能作为推荐人。历史普通用户可能已持有 referralCode，后端仍必须拒绝，
+    // 避免被抓包绕过 UI 后绑定到无法承接 VIP 树的普通用户。
     if (inviter.tier !== 'VIP') throw new BadRequestException('推荐码无效');
     if (inviter.userId === userId) throw new BadRequestException('不能使用自己的推荐码');
 
@@ -124,7 +148,6 @@ export class BonusService {
         create: {
           userId,
           inviterUserId: inviter.userId,
-          referralCode: await pickUniqueReferralCode(tx),
         },
         update: { inviterUserId: inviter.userId },
       });
@@ -147,7 +170,11 @@ export class BonusService {
         });
     }
 
-    return { success: true, inviterUserId: result.inviterUserId };
+    return {
+      success: true,
+      inviterUserId: result.inviterUserId,
+      inviter: await this.buildInviterSummary(result.inviterUserId),
+    };
   }
 
   /**
