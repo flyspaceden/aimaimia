@@ -262,7 +262,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `88967615-b7f0-4019-8f1b-dae236514180` | 推荐码改造（合 87fe8ca + ca77796）：非 VIP `referralCode=null` + 历史普通码绑定/DDL 拒绝 + 推荐码页/会员中心展示绑定推荐人 + 扫码 toast 显推荐人；后续修复 `buildInviterSummary` try/catch + `verified+orderBy` 稳定取手机号 + 前端 `referralRelation` helper 用 `inviterUserId` 判定（避免 user 摘要为空时误判"尚未绑定"） | **当前生效** ✅，commits `87fe8ca` + `ca77796`（2026-05-15），含后端改动需 staging deploy；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `eb76ecaa-0a10-44e5-ac30-31e915479a9d` | 我的页常用工具新增固定推荐入口：VIP 且有推荐码显示"我的推荐码"，普通用户/暂无 VIP 推荐码显示"推荐关系"；同时移除常用工具里的重复"奖励"入口（钱包仍保留在上方钱包卡） | **当前生效** ✅，commit `6c21337`（2026-05-15），纯前端；Android update `019e2e9c-6c54-7e65-8ce1-0d789022907e`，iOS update `019e2e9c-6c54-7b81-91c5-90b47ec8106f`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `88967615-b7f0-4019-8f1b-dae236514180` | 推荐码改造（合 87fe8ca + ca77796）：非 VIP `referralCode=null` + 历史普通码绑定/DDL 拒绝 + 推荐码页/会员中心展示绑定推荐人 + 扫码 toast 显推荐人；后续修复 `buildInviterSummary` try/catch + `verified+orderBy` 稳定取手机号 + 前端 `referralRelation` helper 用 `inviterUserId` 判定（避免 user 摘要为空时误判"尚未绑定"） | commits `87fe8ca` + `ca77796`（2026-05-15），含后端改动需 staging deploy；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `646330a6-3a07-4e66-9ca1-6ee2ed28dd48` | 首页非 VIP 礼包推广位：移除礼包卡片底部「当前主推 / 参考价」栏，仅保留价格、标题、赠品组合和数量 | commit `07783c1`（2026-05-15），纯前端，后端无改动 |
 | `1d8f952b-769c-4b06-8df4-858b137d0af8` | 发票链路买家端：「我的」tab 加「我的发票」入口；订单详情新增发票区块（申请/查看/取消/重新申请 + 失败原因）；已开票 PDF 用 `expo-web-browser` 打开（不再只 toast）；取消后联动失效 `invoices/invoice-detail/order/orders` 四个 query | commits `9bf17c2` + `2dffa4f`（2026-05-14），纯前端，对应后端发票链路收口同步在 staging；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `b8077df1-5d07-4f48-92f8-ec6d085ad048` | 首页非 VIP 礼包推广位：未登录/普通用户在搜索框下方横滑展示后台 VIP 档位主推赠品组合（价格/赠品标题/商品 SKU 行/参考价），点击携带 `packageId`+`giftOptionId` 进 `/vip/gifts` 并自动定位档位+赠品 | 已被 `646330a6-3a07-4e66-9ca1-6ee2ed28dd48` 覆盖底部文案展示，commit `19c0139`（2026-05-14），纯前端，后端无改动；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
