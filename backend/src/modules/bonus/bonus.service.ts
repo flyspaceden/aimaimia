@@ -23,27 +23,31 @@ export class BonusService {
 
   private async buildInviterSummary(userId?: string | null) {
     if (!userId) return null;
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        profile: { select: { nickname: true } },
-        authIdentities: {
-          where: { provider: 'PHONE' },
-          select: { identifier: true },
-          take: 1,
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          profile: { select: { nickname: true } },
+          authIdentities: {
+            where: { provider: 'PHONE', verified: true },
+            select: { identifier: true },
+            orderBy: { createdAt: 'asc' },
+            take: 1,
+          },
         },
-      },
-    });
-    if (!user) {
-      return { userId, nickname: null, maskedPhone: null };
-    }
+      });
+      if (!user) return null;
 
-    return {
-      userId: user.id,
-      nickname: user.profile?.nickname ?? null,
-      maskedPhone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
-    };
+      return {
+        userId: user.id,
+        nickname: user.profile?.nickname ?? null,
+        maskedPhone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
+      };
+    } catch (err: any) {
+      this.logger.warn(`查询推荐人摘要失败：userId=${userId}, error=${err?.message ?? err}`);
+      return null;
+    }
   }
 
   /** 获取会员信息 */

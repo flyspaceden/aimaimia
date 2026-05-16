@@ -85,6 +85,89 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
       maskedPhone: '138****5678',
     });
   });
+
+  it('查询推荐人摘要时只取已验证的最早手机号，避免多 PHONE 身份返回不稳定', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'normal-user',
+          tier: 'NORMAL',
+          referralCode: null,
+          inviterUserId: 'vip-inviter',
+          vipPurchasedAt: null,
+          normalEligible: false,
+        }),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'vip-inviter',
+          profile: { nickname: '张三' },
+          authIdentities: [{ identifier: '13812345678' }],
+        }),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    await service.getMemberProfile('normal-user');
+
+    expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'vip-inviter' },
+      select: expect.objectContaining({
+        authIdentities: {
+          where: { provider: 'PHONE', verified: true },
+          select: { identifier: true },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+        },
+      }),
+    });
+  });
+
+  it('绑定已写入后，推荐人摘要查询失败也应返回绑定成功', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
+          })
+          .mockResolvedValueOnce({
+            userId: 'invitee-y',
+            tier: 'NORMAL',
+          }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      referralLink: {
+        findUnique: jest.fn().mockResolvedValue({
+          inviterUserId: 'vip-user',
+          inviteeUserId: 'invitee-y',
+          codeUsed: 'VIPCODE1',
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockRejectedValue(new Error('connection timeout')),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      { handleTrigger: jest.fn() } as any,
+      {} as any,
+    );
+
+    await expect(
+      service.useReferralCode('invitee-y', 'VIPCODE1'),
+    ).resolves.toEqual({
+      success: true,
+      inviterUserId: 'vip-user',
+      inviter: null,
+    });
+  });
 });
 
 /**

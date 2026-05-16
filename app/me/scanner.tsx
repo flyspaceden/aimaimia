@@ -16,6 +16,7 @@ import { useToast } from '../../src/components/feedback';
 import { AppBottomSheet } from '../../src/components/overlay';
 import { BonusRepo } from '../../src/repos';
 import { useTheme } from '../../src/theme';
+import { getReferralInviterLabel } from '../../src/utils/referralRelation';
 
 const SCAN_BOX_SIZE = 250;
 const CORNER_SIZE = 24;
@@ -54,8 +55,7 @@ export default function ScannerScreen() {
     mutationFn: (code: string) => BonusRepo.useReferralCode(code),
     onSuccess: (result) => {
       if (result.ok) {
-        const inviter = result.data.inviter;
-        const inviterName = inviter?.nickname || inviter?.maskedPhone || null;
+        const inviterName = getReferralInviterLabel(result.data);
         show({
           message: inviterName ? `已绑定推荐人：${inviterName}` : '推荐码绑定成功！',
           type: 'success',

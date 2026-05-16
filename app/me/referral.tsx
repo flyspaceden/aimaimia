@@ -15,6 +15,7 @@ import { BonusRepo, CouponRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
+import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
 // 推荐码展示页
 export default function ReferralScreen() {
@@ -33,8 +34,8 @@ export default function ReferralScreen() {
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
-  const inviter = member?.inviter ?? null;
-  const inviterLabel = inviter?.nickname || inviter?.maskedPhone || null;
+  const inviterLabel = getReferralInviterLabel(member);
+  const hasInviter = hasBoundReferralInviter(member);
 
   // 复制推荐码
   const handleCopy = async () => {
@@ -97,17 +98,17 @@ export default function ReferralScreen() {
             entering={FadeInDown.duration(400)}
             style={[styles.bindingCard, shadow.sm, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg }]}
           >
-            <View style={[styles.bindingIcon, { backgroundColor: inviterLabel ? colors.brand.primarySoft : colors.background }]}>
+            <View style={[styles.bindingIcon, { backgroundColor: hasInviter ? colors.brand.primarySoft : colors.background }]}>
               <MaterialCommunityIcons
-                name={inviterLabel ? 'account-heart-outline' : 'qrcode-scan'}
+                name={hasInviter ? 'account-heart-outline' : 'qrcode-scan'}
                 size={30}
-                color={inviterLabel ? colors.brand.primary : colors.muted}
+                color={hasInviter ? colors.brand.primary : colors.muted}
               />
             </View>
             <Text style={[typography.headingSm, { color: colors.text.primary, marginTop: spacing.md, textAlign: 'center' }]}>
-              {inviterLabel ? '已绑定推荐人' : '尚未绑定推荐人'}
+              {hasInviter ? '已绑定推荐人' : '尚未绑定推荐人'}
             </Text>
-            {inviterLabel ? (
+            {hasInviter ? (
               <>
                 <Text style={[typography.bodyStrong, { color: colors.brand.primary, marginTop: spacing.sm, textAlign: 'center' }]}>
                   {inviterLabel}

@@ -17,6 +17,7 @@ import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useTheme, priceTextProps } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
+import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
 // VIP 专属空间色彩（与 gifts 页一致）
 const VIP_COLORS = {
@@ -116,8 +117,8 @@ export default function VipScreen() {
   // 推荐码 & 深度链接
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
-  const inviter = member?.inviter ?? null;
-  const inviterLabel = inviter?.nickname || inviter?.maskedPhone || null;
+  const inviterLabel = getReferralInviterLabel(member);
+  const hasInviter = hasBoundReferralInviter(member);
 
   const handleCopyReferral = async () => {
     if (!referralCode) {
@@ -240,7 +241,7 @@ export default function VipScreen() {
               <View style={styles.relationHeader}>
                 <View style={styles.relationIcon}>
                   <MaterialCommunityIcons
-                    name={inviterLabel ? 'account-heart-outline' : 'account-question-outline'}
+                    name={hasInviter ? 'account-heart-outline' : 'account-question-outline'}
                     size={20}
                     color={VIP_COLORS.goldPrimary}
                   />
@@ -248,7 +249,7 @@ export default function VipScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.relationTitle}>推荐关系</Text>
                   <Text style={styles.relationDesc}>
-                    {inviterLabel
+                    {hasInviter
                       ? `${isVip ? '已加入' : '购买 VIP 后将加入'} ${inviterLabel} 的 VIP 团队`
                       : '尚未绑定推荐人，购买后将由系统分配'}
                   </Text>
