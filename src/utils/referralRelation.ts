@@ -5,8 +5,16 @@ type ReferralInviterLike = {
 };
 
 type ReferralRelationLike = {
+  tier?: string | null;
+  referralCode?: string | null;
   inviterUserId?: string | null;
   inviter?: ReferralInviterLike | null;
+};
+
+export type MeReferralToolEntry = {
+  label: '我的推荐码' | '推荐关系';
+  icon: 'qrcode' | 'account-heart-outline';
+  route: '/me/referral';
 };
 
 function nonEmpty(value?: string | null) {
@@ -21,4 +29,13 @@ export function hasBoundReferralInviter(member?: ReferralRelationLike | null) {
 export function getReferralInviterLabel(member?: ReferralRelationLike | null) {
   if (!hasBoundReferralInviter(member)) return null;
   return nonEmpty(member?.inviter?.nickname) || nonEmpty(member?.inviter?.maskedPhone) || '已绑定用户';
+}
+
+export function buildMeReferralToolEntry(member?: ReferralRelationLike | null): MeReferralToolEntry {
+  const hasVipReferralCode = member?.tier === 'VIP' && Boolean(nonEmpty(member.referralCode));
+  return {
+    label: hasVipReferralCode ? '我的推荐码' : '推荐关系',
+    icon: hasVipReferralCode ? 'qrcode' : 'account-heart-outline',
+    route: '/me/referral',
+  };
 }

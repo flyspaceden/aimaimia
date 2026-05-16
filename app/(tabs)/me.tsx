@@ -21,6 +21,7 @@ import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
+import { buildMeReferralToolEntry } from '../../src/utils/referralRelation';
 
 // 订单快捷入口
 // 付款后建单架构：无 PENDING_PAYMENT 状态，未完成支付走 CheckoutSession 续付横幅
@@ -34,7 +35,7 @@ const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; ic
 ];
 
 // 工具网格
-const TOOL_GRID = [
+const TOOL_GRID_BASE = [
   { label: '设置', icon: 'cog-outline' as const, route: '/settings' },
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
@@ -125,6 +126,7 @@ export default function MeScreen() {
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const toolGrid = useMemo(() => [buildMeReferralToolEntry(member), ...TOOL_GRID_BASE], [member]);
 
   // 复制推荐码
   const handleCopyReferral = async () => {
@@ -519,7 +521,7 @@ export default function MeScreen() {
               常用工具
             </Text>
             <View style={styles.toolGrid}>
-              {TOOL_GRID.map((tool) => (
+              {toolGrid.map((tool) => (
                 <Pressable
                   key={tool.label}
                   onPress={() => requireLogin(() => router.push(tool.route as any))}
