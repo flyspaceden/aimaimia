@@ -40,7 +40,6 @@ const TOOL_GRID_BASE = [
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
-  { label: '奖励', icon: 'ticket-percent-outline' as const, route: '/me/wallet' },
   { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
   { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
