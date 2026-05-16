@@ -231,11 +231,6 @@ function GiftCard({
                 {item.items.map((it) => `${it.productTitle}×${it.quantity}`).join(' + ')}
               </Text>
             ) : null}
-            {item.totalPrice > 0 ? (
-              <Text style={styles.cardTotalPrice}>
-                市场参考价 ¥{item.totalPrice.toFixed(0)}
-              </Text>
-            ) : null}
             {item.badge ? (
               <View style={styles.badgeContainer}>
                 <Text style={styles.badgeText}>{item.badge}</Text>
@@ -809,12 +804,6 @@ const styles = StyleSheet.create({
     color: VIP.subtleGray,
     lineHeight: 18,
     marginBottom: 6,
-  },
-  cardTotalPrice: {
-    fontSize: 14,
-    color: VIP.subtleGray,
-    textDecorationLine: 'line-through',
-    marginBottom: 8,
   },
   badgeContainer: {
     alignSelf: 'flex-start',

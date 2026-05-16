@@ -117,11 +117,7 @@ export default function ReferralScreen() {
                   购买 VIP 后将加入该推荐人的 VIP 团队
                 </Text>
               </>
-            ) : (
-              <Text style={[typography.body, { color: colors.text.secondary, marginTop: spacing.sm, textAlign: 'center' }]}>
-                购买 VIP 前可扫描好友推荐码完成绑定
-              </Text>
-            )}
+            ) : null}
           </Animated.View>
 
           <View style={styles.nonVipActions}>
