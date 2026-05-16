@@ -262,7 +262,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `646330a6-3a07-4e66-9ca1-6ee2ed28dd48` | 首页非 VIP 礼包推广位：移除礼包卡片底部「当前主推 / 参考价」栏，仅保留价格、标题、赠品组合和数量 | **当前生效** ✅，commit `07783c1`（2026-05-15），纯前端，后端无改动 |
+| `88967615-b7f0-4019-8f1b-dae236514180` | 推荐码改造（合 87fe8ca + ca77796）：非 VIP `referralCode=null` + 历史普通码绑定/DDL 拒绝 + 推荐码页/会员中心展示绑定推荐人 + 扫码 toast 显推荐人；后续修复 `buildInviterSummary` try/catch + `verified+orderBy` 稳定取手机号 + 前端 `referralRelation` helper 用 `inviterUserId` 判定（避免 user 摘要为空时误判"尚未绑定"） | **当前生效** ✅，commits `87fe8ca` + `ca77796`（2026-05-15），含后端改动需 staging deploy；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `646330a6-3a07-4e66-9ca1-6ee2ed28dd48` | 首页非 VIP 礼包推广位：移除礼包卡片底部「当前主推 / 参考价」栏，仅保留价格、标题、赠品组合和数量 | commit `07783c1`（2026-05-15），纯前端，后端无改动 |
 | `1d8f952b-769c-4b06-8df4-858b137d0af8` | 发票链路买家端：「我的」tab 加「我的发票」入口；订单详情新增发票区块（申请/查看/取消/重新申请 + 失败原因）；已开票 PDF 用 `expo-web-browser` 打开（不再只 toast）；取消后联动失效 `invoices/invoice-detail/order/orders` 四个 query | commits `9bf17c2` + `2dffa4f`（2026-05-14），纯前端，对应后端发票链路收口同步在 staging；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `b8077df1-5d07-4f48-92f8-ec6d085ad048` | 首页非 VIP 礼包推广位：未登录/普通用户在搜索框下方横滑展示后台 VIP 档位主推赠品组合（价格/赠品标题/商品 SKU 行/参考价），点击携带 `packageId`+`giftOptionId` 进 `/vip/gifts` 并自动定位档位+赠品 | 已被 `646330a6-3a07-4e66-9ca1-6ee2ed28dd48` 覆盖底部文案展示，commit `19c0139`（2026-05-14），纯前端，后端无改动；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `d7606eca-67db-4b5a-8e74-10831778bd64` | `/r/{CODE}` App Link 承接页：已装 App 扫推荐码二维码 → 触发后端绑定 + 2 秒 toast（"推荐码已绑定" / "推荐码已记录"）→ 自动回首页；纯 UI 反馈层，绑定逻辑仍由 `_layout.tsx` 全局 Linking 监听统一处理 | commit `a386196`（2026-05-14），纯前端，后端无改动 |
