@@ -416,8 +416,16 @@ rg -n "<Screen contentStyle=\\{\\{ flex: 1 \\}\\}>" app src
 **结果总览**（2026-05-04 二次复核后修正；2026-05-18 追加二轮复核结论）：
 - 🔴 严重：20 处（涉及 16 个文件）
 - 🟡 中等：26+ 处
-- ✅ 干净：约 29 个文件（首版误把 `orders/index.tsx` 列入，已移到🟡）
+- ✅ 干净：约 26 个文件（首版误把 `orders/index.tsx` 列入，2026-05-18 又移出 `lottery.tsx` / `checkout-pending.tsx` / `invoices/request.tsx`）
 - ⚠️ 2026-05-18 后，“干净文件”清单只能作为历史记录；所有全屏结果页、底部固定栏页、固定横排卡片页必须按 §4 重新验收。
+
+### 2026-05-18 二轮适配执行状态
+
+- P0 支付成功页：已修复滚动可达、Android 安全返回、iOS 危险左滑、成功图标降级、金额/CTA 紧凑文本。
+- P0 结果面审计：`app/lottery.tsx` 结果 BottomSheet 已改为可滚动，并按大字体/短屏降级结果图标、标题行数和 CTA 文本。
+- P1 底部固定栏：购物车、结算页、商品详情、VIP 礼包、未完成订单、订单详情已改为实际 bar 高度测量或 `StickyCTABar` 高度回传。
+- P1 我的页：用户卡片、订单快捷入口、钱包/VIP 双卡已按大字体切换为换行/堆叠布局。
+- P2 审计：见 `docs/issues/tofix-app-frontend.md` 的 2026-05-18 P2 audit classification。P2 静态分类已完成；10 场景真机矩阵仍需测试人员执行后才能把 R-RS-LF03 关闭。
 
 #### 🔴 高优问题清单（按修复 ROI 排序）
 
@@ -479,21 +487,21 @@ rg -n "<Screen contentStyle=\\{\\{ flex: 1 \\}\\}>" app src
 | ScrollView `paddingBottom` 写死 `spacing['3xl']` 不吃 insets | company/[id] / category/[id] / group/[id] / search / orders/index / 大部分列表页 | ~10 处 |
 | 共用组件 safe area 隐患 | `Toast.tsx`（用 `insets.bottom` 但无 OEM 兜底）/ `Screen.tsx`（`safeAreaBottom` 默认 `false` 容易被忘）/ `AiFloatingCompanion.tsx` | 3 处 |
 
-#### ✅ 干净文件（无明显问题，约 30 个）
+#### ✅ 干净文件（无明显问题，约 26 个）
 
 ```
 about.tsx / privacy.tsx / terms.tsx / account-security.tsx
-referral.tsx / lottery.tsx / coupon-center.tsx / inbox/index.tsx
-checkout-address.tsx / checkout-pending.tsx / company/search.tsx
+referral.tsx / coupon-center.tsx / inbox/index.tsx
+checkout-address.tsx / company/search.tsx
 ai/history.tsx / orders/track.tsx
-invoices/index.tsx / invoices/request.tsx / invoices/profiles.tsx / invoices/profiles/edit.tsx
+invoices/index.tsx / invoices/profiles.tsx / invoices/profiles/edit.tsx
 me/addresses.tsx / me/appearance.tsx / me/following.tsx / me/profile.tsx
 me/recommend.tsx / me/referral.tsx / me/scanner.tsx / me/tasks.tsx
 user/[id].tsx
 src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 ```
 
-> 2026-05-18 修正：`payment-success.tsx` 已从干净清单移出，归入 D1。其他“干净文件”如后续真机发现大字体 / 虚拟键问题，必须同样移出并追加到 D 表或后续 R-RS-LF 批次。
+> 2026-05-18 修正：`payment-success.tsx` 已从干净清单移出，归入 D1；`lottery.tsx` 已按结果 BottomSheet 规则重审并修复；`checkout-pending.tsx` 已按底部固定栏规则重审并修复；`invoices/request.tsx` 从干净清单移出，作为 R-RS-LF03 后续底部按钮 safe-area 复核项。其他“干净文件”如后续真机发现大字体 / 虚拟键问题，必须同样移出并追加到 D 表或后续 R-RS-LF 批次。
 
 ---
 
@@ -508,9 +516,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 1（合并）| OTA（待） | 🟡 代码完成 |
 | **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，5 文件实际改）| 9 页（5 改 4 验证免改）| 2（族 A + 族 B） | OTA（待） | 🟡 代码完成 |
 | **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（13 处） | 10 页 | 1（合并） | OTA（待） | 🟡 代码完成 |
-| **R-RS-LF01** | P0 支付成功 / 结果页逃生修复：ScrollView、动态图标尺寸、CTA 可达、BackHandler 安全导航 | `app/payment-success.tsx` + 同类结果页审计 | 1 | OTA | ⬜ 待做 |
-| **R-RS-LF02** | 高频页大字体二轮修复：我的页、购物车、结算、商品详情、VIP 礼包等固定横排和底部栏 | 5+ 页 | 1-2 | OTA | ⬜ 待做 |
-| **R-RS-LF03** | 全 App 大字体 / 虚拟键复核：按 §5 rg 黑名单 + §4 10 场景矩阵逐页验收 | 60 页 + 16 组件 | 分批 | OTA | ⬜ 待做 |
+| **R-RS-LF01** | P0 支付成功 / 结果页逃生修复：ScrollView、动态图标尺寸、CTA 可达、BackHandler 安全导航 | `app/payment-success.tsx` + `app/lottery.tsx` 结果面审计 | 2 | OTA | 🟡 代码完成，待真机矩阵 |
+| **R-RS-LF02** | 高频页大字体二轮修复：我的页、购物车、结算、商品详情、VIP 礼包等固定横排和底部栏 | 7 页 + `StickyCTABar` | 4-5 | OTA | 🟡 代码完成，待真机矩阵 |
+| **R-RS-LF03** | 全 App 大字体 / 虚拟键复核：按 §5 rg 黑名单 + §4 10 场景矩阵逐页验收 | 60 页 + 16 组件 | 分批 | OTA | 🔧 静态分类完成，真机矩阵待跑 |
 | **R-RS-LT01** | PR 模板加适配 Checklist 提示 | — | 1 | — | ⬜ |
 | **R-RS-LT02** | OTA 发布前必跑 rg 审计（加进 `app-发布与OTA手册.md`）| — | 1 | — | ⬜ |
 | **R-RS-LT03**（可选）| 封装 `AppText` 组件包 `Text`，从 defaultProps 升级到组件层显式控制 | 全项目 | — | OTA | ⬜ |
@@ -520,7 +528,7 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 - R-RS02 第二（共用组件改一次修多页）
 - R-RS03 第三（用户已报告的 bug 优先于其他）
 - R-RS04~07 顺序无强依赖，可按可用时间穿插
-- 每个 sprint 完成 → 跑 §4 真机测试矩阵 8 场景 → OTA
+- 每个 sprint 完成 → 跑 §4 真机测试矩阵 10 场景 → OTA
 
 ---
 
@@ -531,28 +539,28 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `src/theme/responsive.ts`（新建 159 行）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
 | `app/_layout.tsx`（Text.defaultProps 1.2x 封顶）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
 | `src/theme/index.ts`（re-export responsive）| — | R-RS01 | 🟡 代码完成 待真机验证 | （待 commit）| 2026-05-04 |
-| `src/components/orders/StickyCTABar.tsx` | 🔴 A1 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `src/components/orders/StickyCTABar.tsx` | 🔴 A1 + 🔴 D4 | R-RS02 + R-RS-LF02 | 🟡 二轮完成：支持实际高度回传、组件内去重、大字体 CTA 纵向堆叠 | （本轮 commit）| 2026-05-18 |
 | `src/components/feedback/Toast.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `src/components/layout/Screen.tsx` | 🟡 | R-RS02 | 🟡 文档化完成（不改默认值） | （见 git log）| 2026-05-04 |
 | `src/components/effects/AiFloatingCompanion.tsx` | 🟡 | R-RS02 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `src/components/effects/FloatingParticles.tsx` | 🔴 B8 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
-| `app/orders/[id].tsx` | 🔴 A2 | R-RS03 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `app/orders/[id].tsx` | 🔴 A2 + 🔴 D4 | R-RS03 + R-RS-LF02 | 🟡 二轮完成：ScrollView paddingBottom 改用 `StickyCTABar` 实测高度 | （本轮 commit）| 2026-05-18 |
 | `app/orders/after-sale/[id].tsx` | 🔴 A3 | R-RS03 hotfix | 🟡 共用组件 + ScrollView paddingBottom 都修了（见 hotfix）| （见 git log）| 2026-05-04 |
 | `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03 hotfix | 🟡 同上 | （见 git log）| 2026-05-04 |
-| `app/checkout.tsx` | 🔴 A5 | R-RS03 | 🟡 代码完成 待真机验证（小米空白 bug）| （见 git log）| 2026-05-04 |
-| `app/cart.tsx` | 🔴 A6 + 🔴 B3 | R-RS03 + R-RS04 | 🟡 A6 完成；B3 留 R-RS04 | （见 git log）| 2026-05-04 |
+| `app/checkout.tsx` | 🔴 A5 + 🔴 D4 | R-RS03 + R-RS-LF02 | 🟡 二轮完成：底部提交栏实测高度、compact 纵向堆叠、金额/CTA 保护 | （本轮 commit）| 2026-05-18 |
+| `app/cart.tsx` | 🔴 A6 + 🔴 B3 + 🔴 D3 | R-RS03 + R-RS04 + R-RS-LF02 | 🟡 二轮完成：商品行 compact 降级、底部栏实测高度、compact 纵向堆叠 | （本轮 commit）| 2026-05-18 |
 | `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | 🟡 A7 完成；C6 留 R-RS05 | （见 git log）| 2026-05-04 |
-| `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 | R-RS03（一次改 3 类问题）| 🟡 B7 + C1 完成（spec §1.1 复现点修复）| （见 git log）| 2026-05-04 |
+| `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 + 🔴 D4 | R-RS03 + R-RS-LF02 | 🟡 二轮完成：底部栏实测高度、compact 纵向堆叠、价格/CTA 保护 | （本轮 commit）| 2026-05-18 |
 | ~~`app/(tabs)/museum.tsx`~~ | ~~🔴 B1~~ | R-RS04 | ✅ 已修复（先于本规范） | — | — |
 | `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | 🟡 B2 完成；C5 留 R-RS05 | （见 git log）| 2026-05-04 |
-| `app/product/[id].tsx` | 🔴 B4 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
+| `app/product/[id].tsx` | 🔴 B4 + 🔴 D4 | R-RS04 + R-RS-LF02 | 🟡 二轮完成：CTA bar 实测高度、compact 纵向堆叠、CTA 文本保护 | （本轮 commit）| 2026-05-18 |
 | `app/search.tsx` | 🔴 B5 + 🟡 | R-RS04 + R-RS07 | 🟡 B5 完成；🟡 留 R-RS07 | （见 git log）| 2026-05-04 |
 | `app/index.tsx` | 🔴 B6 | R-RS04 | 🟡 代码完成 待真机验证 | （见 git log）| 2026-05-04 |
 | `app/me/wallet.tsx` | 🔴 C2 + 🟡 R-RS07 | R-RS05 + R-RS07 | 🟡 完成（balanceAmount priceTextProps + FlatList paddingBottom useBottomInset）| （见 git log）| 2026-05-04 |
 | `app/me/bonus-queue.tsx` | 🔴 C3 | R-RS05 | 🟡 完成（positionNumber fontSize 56 priceTextProps）| （见 git log）| 2026-05-04 |
 | `app/me/coupons.tsx` | 🔴 C4 + 🟡 R-RS07 | R-RS05 + R-RS07 | 🟡 完成（amountValue ×2 priceTextProps + FlatList ×2 paddingBottom）| （见 git log）| 2026-05-04 |
 | `app/(tabs)/home.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（pairedAi 标题/品牌字加 priceTextProps + 问候语 fitTextProps）| （见 git log）| 2026-05-04 |
-| `app/(tabs)/me.tsx` | 🟡 | R-RS06 族 A | 🟡 完成（钱包余额/推荐码 priceTextProps + VIP 弹窗标题 fitTextProps）| （见 git log）| 2026-05-04 |
+| `app/(tabs)/me.tsx` | 🟡 + 🔴 D2 | R-RS06 族 A + R-RS-LF02 | 🟡 二轮完成：用户卡片、订单入口、钱包/VIP 双卡大字体换行/堆叠 | （本轮 commit）| 2026-05-18 |
 | `app/ai/assistant.tsx` | 🟡 | R-RS06 族 B | 🟡 完成（hero 标题 fitTextProps）| （见 git log）| 2026-05-04 |
 | `app/ai/finance.tsx` | 🟡 | R-RS06 族 B | ✅ 验证免改（最大 title3=18 < 20）| — | 2026-05-04 |
 | `app/ai/trace.tsx` | 🟡 | R-RS06 族 B | 🟡 完成（评分数字 priceTextProps）| （见 git log）| 2026-05-04 |
@@ -567,12 +575,12 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/cs/index.tsx` | 🟡 | R-RS07 | ⏭ 跳过（内部 spacing 非 safe area；后续 R-UX/单独 sprint 处理输入栏 inset）| — | — |
 | `app/orders/index.tsx` | 🟡（paddingBottom: spacing['3xl'] 不吃 insets，L153）| R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
 | `app/orders/track.tsx` | 🟡（R-RS07 扫描发现）| R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
-| `app/lottery.tsx` | 🟡（R-RS07 扫描发现，原 paddingBottom 写死 40）| R-RS07 | 🟡 完成（内联 override useBottomInset(40)）| （见 git log）| 2026-05-04 |
-| `app/payment-success.tsx` | 🔴 D1 | R-RS-LF01 | ⬜ 待修：ScrollView + CTA 可达 + BackHandler 安全导航 + 大字体尺寸降级 | — | 2026-05-18 追加 |
-| `app/(tabs)/me.tsx` | 🔴 D2 | R-RS-LF02 | ⬜ 待二轮修：用户卡片 / 订单入口 / 钱包 VIP 卡片大字体降级 | — | 2026-05-18 追加 |
-| `app/cart.tsx` | 🔴 D3 | R-RS-LF02 | ⬜ 待二轮修：商品卡大字体布局 + 底部结算栏动态留白 | — | 2026-05-18 追加 |
+| `app/lottery.tsx` | 🟡 + 🔴 D1-audit | R-RS07 + R-RS-LF01 | 🟡 二轮完成：结果 BottomSheet scrollable，图标/标题/CTA compact 降级 | （本轮 commit）| 2026-05-18 |
+| `app/payment-success.tsx` | 🔴 D1 | R-RS-LF01 | 🟡 二轮完成：ScrollView + CTA 可达 + BackHandler 安全导航 + iOS 手势禁用 + 大字体尺寸降级 | （本轮 commit）| 2026-05-18 |
+| `app/checkout-pending.tsx` | 🔴 D4 | R-RS-LF02 | 🟡 二轮完成：ScrollView paddingBottom 改用 `StickyCTABar` 实测高度 | （本轮 commit）| 2026-05-18 |
+| `app/invoices/request.tsx` | 🟡 D4-audit | R-RS-LF03 | ⬜ 后续复核：底部确认按钮不是 absolute，但仍需真机确认 safe-area / 大字体 CTA 可达 | — | 2026-05-18 追加 |
 
-> 29 个干净文件不进表（无修复任务，详见 §6.1 末尾✅清单）；后续真机/审计再发现新问题追加到本表。
+> 历史干净文件只作基线参考；2026-05-18 后 P2 关闭必须以 §4 10 场景矩阵和 §5 黑名单重审记录为准。
 
 ---
 

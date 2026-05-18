@@ -15,11 +15,11 @@ import { router } from 'expo-router';
 import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState } from '../src/components/feedback';
 import { AppBottomSheet } from '../src/components/overlay';
-import { AiTypingEffect, Confetti, SpinWheel, WheelPointer } from '../src/components/effects';
+import { Confetti, SpinWheel, WheelPointer } from '../src/components/effects';
 import { LotteryRepo, type DrawResult, type LotteryPrize } from '../src/repos/LotteryRepo';
 import { useAuthStore, useCartStore } from '../src/store';
 import type { CartItem } from '../src/store/useCartStore';
-import { useBottomInset, useTheme } from '../src/theme';
+import { compactActionTextProps, fitTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import type { ColorScheme } from '../src/theme/colors';
 
 // 状态机阶段
@@ -82,6 +82,10 @@ export default function LotteryScreen() {
   const queryClient = useQueryClient();
   // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底（覆盖 styles.scrollContent.paddingBottom = 40）
   const safeBottom = useBottomInset(40);
+  const { isCompact, isLargeText, height } = useResponsiveLayout();
+  const compactLotteryResult = isCompact || isLargeText || height < 700;
+  const resultIconSize = compactLotteryResult ? 48 : 64;
+  const resultTitleLines = compactLotteryResult ? 2 : 1;
 
   // 数据查询（未登录也可抽奖，登录态变化时重新请求）
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -486,24 +490,22 @@ export default function LotteryScreen() {
       </ScrollView>
 
       {/* 结果底部弹窗 */}
-      <AppBottomSheet open={showResult} onClose={handleCloseResult} mode="auto">
+      <AppBottomSheet open={showResult} onClose={handleCloseResult} mode="auto" scrollable>
         <View style={styles.resultContent}>
           {result?.won ? (
             <>
               {/* 中奖结果 */}
-              <Text style={{ fontSize: 64, textAlign: 'center', marginBottom: spacing.md }}>
+              <Text style={{ fontSize: resultIconSize, textAlign: 'center', marginBottom: spacing.md }}>
                 🎁
               </Text>
               <View style={{ marginBottom: spacing.sm }}>
-                <AiTypingEffect
-                  text={`恭喜获得：${result.prize?.name ?? '神秘奖品'}`}
-                  speed={60}
-                  style={{
-                    ...typography.title3,
-                    color: colors.gold.primary,
-                    textAlign: 'center',
-                  }}
-                />
+                <Text
+                  {...fitTextProps}
+                  numberOfLines={resultTitleLines}
+                  style={[typography.title3, { color: colors.gold.primary, textAlign: 'center' }]}
+                >
+                  恭喜获得：{result.prize?.name ?? '神秘奖品'}
+                </Text>
               </View>
               <Text
                 style={[
@@ -529,16 +531,18 @@ export default function LotteryScreen() {
                   },
                 ]}
               >
-                <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>太棒了!</Text>
+                <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>太棒了!</Text>
               </Pressable>
             </>
           ) : (
             <>
               {/* 未中奖结果 */}
-              <Text style={{ fontSize: 48, textAlign: 'center', marginBottom: spacing.md }}>
+              <Text style={{ fontSize: resultIconSize, textAlign: 'center', marginBottom: spacing.md }}>
                 😊
               </Text>
               <Text
+                {...fitTextProps}
+                numberOfLines={resultTitleLines}
                 style={[
                   typography.title3,
                   {
@@ -572,7 +576,7 @@ export default function LotteryScreen() {
                   },
                 ]}
               >
-                <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>好的</Text>
+                <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>好的</Text>
               </Pressable>
             </>
           )}
