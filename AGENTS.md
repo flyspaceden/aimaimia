@@ -96,7 +96,8 @@
 - `docs/superpowers/plans/2026-05-01-order-pages-redesign.md` — 订单页面重做实施计划（32 任务，3 Phase：UI 重写+最小后端 / 后端剩余 DTO+横幅+续付链路 / buyerNote 字段。**Phase 1 已完成**）
 - `docs/superpowers/specs/2026-05-08-order-repurchase-design.md` — 已完成订单再次购买设计方案（新增 `POST /orders/:id/repurchase`、普通商品批量回购物车、奖品/VIP 排除、部分成功提示，**订单复购功能权威来源**）
 - `docs/superpowers/plans/2026-05-08-order-repurchase.md` — 已完成订单再次购买实施计划（后端复购接口 / 幂等限流 / 购物车合并 / App 按钮接入 / 验证清单，**订单复购实施排程**）
-- `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` — 库存感知复购与低库存展示设计方案（复购低库存数量降级为 1 / 无库存入购物车但禁选 / App“仅剩 x 件”平台阈值，**复购库存与 App 低库存展示权威来源，补充并覆盖复购 spec 的库存口径**）
+- `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` — 库存感知复购与低库存展示设计方案（复购低库存数量降级为 1 / 无库存虚拟提示且不真实入购物车 / App“仅剩 x 件”平台阈值，**复购库存与 App 低库存展示权威来源，补充并覆盖复购 spec 的库存口径**）
+- `docs/superpowers/plans/2026-05-18-stock-aware-repurchase-low-stock-display.md` — 库存感知复购与低库存展示实施计划（后端库存裁决 / App 虚拟无库存提示 / 后台低库存阈值 / 售后库存回填，**库存体验与库存一致性实施排程**）
 - `docs/superpowers/plans/2026-05-08-unshipped-order-cancel-refund.md` — PAID 未发货取消退款收尾实施计划（买家 App / 后端资金链路 / 卖家中心 / 管理后台 / 分润隔离 / 真机验证 / 文档同步，**未发货取消退款上线收口排程**）
 - `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（基于现有 after-sale 主干，补齐 `NO_REASON_EXCHANGE`、顺丰退货面单、售后退款幂等、退款/售后状态历史、三端接线，**退款/退货/换货链路收口权威来源**）
 - `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（Schema/后端退款与面单服务/三端前端/验证与文档同步，**退款/退货/换货链路实施排程**）
