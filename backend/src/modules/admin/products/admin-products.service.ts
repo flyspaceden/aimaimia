@@ -350,6 +350,7 @@ export class AdminProductsService {
             if (sku.cost !== undefined) data.cost = sku.cost;
             if (sku.specText !== undefined) data.title = sku.specText;
             data.weightGram = sku.weightGram;
+            data.maxPerOrder = sku.maxPerOrder ?? null;
             await tx.productSKU.update({ where: { id: sku.id }, data });
           } else {
             // 新建 SKU
@@ -361,6 +362,7 @@ export class AdminProductsService {
                 cost: sku.cost ?? 0,
                 stock: sku.stock,
                 weightGram: sku.weightGram,
+                maxPerOrder: sku.maxPerOrder ?? null,
               },
             });
           }

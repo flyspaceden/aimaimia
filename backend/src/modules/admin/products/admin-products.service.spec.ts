@@ -70,6 +70,21 @@ describe('AdminProductsService SKU weight validation', () => {
     expect(JSON.stringify(errors)).toContain('SKU 重量必须大于 0 克');
   });
 
+  it('DTO rejects non-positive maxPerOrder values', async () => {
+    const dto = plainToInstance(SkuUpdateItem, {
+      id: 'sku_1',
+      specText: '默认规格',
+      price: 18,
+      stock: 5,
+      weightGram: 650,
+      maxPerOrder: 0,
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.some((error) => error.property === 'maxPerOrder')).toBe(true);
+  });
+
   it('rejects missing weightGram in service before writing SKU changes', async () => {
     const { service, tx } = buildService();
 
@@ -117,6 +132,39 @@ describe('AdminProductsService SKU weight validation', () => {
     }));
     expect(tx.productSKU.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ weightGram: 900 }),
+    }));
+  });
+
+  it('writes maxPerOrder for existing and new SKUs', async () => {
+    const { service, tx } = buildService();
+
+    await service.updateSkus('product_1', {
+      skus: [
+        {
+          id: 'sku_1',
+          specText: '默认规格',
+          price: 18,
+          stock: 5,
+          weightGram: 650,
+          maxPerOrder: 3,
+        } as any,
+        {
+          specText: '新增规格',
+          price: 28,
+          cost: 12,
+          stock: 3,
+          weightGram: 900,
+          maxPerOrder: undefined,
+        } as any,
+      ],
+    });
+
+    expect(tx.productSKU.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'sku_1' },
+      data: expect.objectContaining({ maxPerOrder: 3 }),
+    }));
+    expect(tx.productSKU.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ maxPerOrder: null }),
     }));
   });
 });

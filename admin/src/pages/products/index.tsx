@@ -295,6 +295,19 @@ export default function ProductListPage() {
       },
     },
     {
+      title: '单笔限购',
+      dataIndex: 'skus',
+      width: 90,
+      search: false,
+      render: (_: unknown, r: Product) => {
+        const limits = (r.skus ?? []).map((sku) => sku.maxPerOrder).filter((v): v is number => v != null);
+        if (limits.length === 0) return <Text type="secondary">不限</Text>;
+        const min = Math.min(...limits);
+        const max = Math.max(...limits);
+        return <Text>{min === max ? `${min} 件` : `${min}~${max} 件`}</Text>;
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 90,

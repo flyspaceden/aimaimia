@@ -194,6 +194,7 @@ export default function ProductEditPage() {
     cost: s.cost ?? 0,
     stock: s.stock ?? 0,
     weightGram: s.weightGram,
+    maxPerOrder: s.maxPerOrder ?? undefined,
   }));
 
   // 保存 SKU
@@ -589,6 +590,14 @@ export default function ProductEditPage() {
                     >
                       <InputNumber min={1} precision={0} style={{ width: 150 }} placeholder="如：1000" />
                     </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="单笔限购"
+                      name={[field.name, 'maxPerOrder']}
+                      rules={[{ type: 'number', min: 1, message: '最少为1' }]}
+                    >
+                      <InputNumber min={1} precision={0} style={{ width: 120 }} placeholder="不限" />
+                    </Form.Item>
                     <MinusCircleOutlined
                       style={{ marginTop: 38, color: '#999' }}
                       onClick={() => remove(field.name)}
@@ -597,7 +606,7 @@ export default function ProductEditPage() {
                 ))}
                 <Button
                   type="dashed"
-                  onClick={() => add({ price: 0, stock: 0, cost: 0 })}
+                  onClick={() => add({ price: 0, stock: 0, cost: 0, maxPerOrder: undefined })}
                   icon={<PlusOutlined />}
                 >
                   添加规格

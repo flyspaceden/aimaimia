@@ -230,6 +230,7 @@ export interface ProductSKU {
   cost?: number | null;
   status?: string;
   skuCode?: string | null;
+  maxPerOrder?: number | null;
 }
 
 export interface Product {

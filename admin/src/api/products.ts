@@ -52,6 +52,7 @@ export interface SkuUpdateItem {
   cost?: number;
   stock: number;
   weightGram: number;
+  maxPerOrder?: number;
 }
 
 /** C21: 批量编辑商品 SKU（UPSERT） */
