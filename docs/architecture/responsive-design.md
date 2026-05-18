@@ -1,7 +1,8 @@
 # 买家 App 响应式适配规范
 
 > **生成日期**: 2026-04-30
-> **触发**: P5 真机测试发现 VIP 价格档位在华为机（系统字体默认放大 1.15x）换行错位，类似问题在多个页面潜伏
+> **最近更新**: 2026-05-18
+> **触发**: P5 真机测试最初发现 VIP 价格档位在华为机（系统字体默认放大 1.15x）换行错位；2026-05-18 真机继续验证确认这不是华为个例，而是 Android 多品牌（华为 / 荣耀 / 小米 / OPPO / vivo 等）大字体、显示大小偏大、虚拟三键 / 手势条，以及 iOS Dynamic Type 场景下的系统性风险。
 > **适用范围**: `app/` 下所有页面 + `src/components/` 公共组件
 > **权威范围**: **本文档为响应式适配的唯一权威来源**。前端写新页面 / Code Review / OTA 发布前必须遵循
 
@@ -13,22 +14,26 @@
 
 | 现象 | 截图位置 | 根因 |
 |---|---|---|
-| VIP 价格档位 ¥399/¥699/¥999/¥1299 在华为机换行 | `app/vip/gifts.tsx:419-446` | `flex: 1` 4 列 + `fontSize: 22` 写死 + 没限制系统字体放大 |
-| Tab bar 在华为三键键被遮 | `app/(tabs)/_layout.tsx` | `insets.bottom = 0` OEM bug，固定底部栏必须走统一 bottom inset helper |
+| VIP 价格档位 ¥399/¥699/¥999/¥1299 在大字体手机换行 | `app/vip/gifts.tsx:419-446` | `flex: 1` 4 列 + `fontSize: 22` 写死 + 没限制系统字体放大 |
+| Tab bar / 底部按钮在 Android 虚拟三键或手势条场景被遮 | `app/(tabs)/_layout.tsx` / 底部固定栏页面 | `insets.bottom = 0` OEM bug 或正文 paddingBottom 不足，固定底部栏必须走统一 bottom inset helper |
 | 多页面键盘遮挡 | 11+ 含 TextInput 页面 | `Screen.tsx` 无 KAV，已加 `keyboardAvoiding` prop（commit b9ca8df）|
+| 我的页大字体下昵称、订单入口、钱包/VIP 卡片挤压变形 | `app/(tabs)/me.tsx` | 用户卡片 / 订单 5 项 / 双卡片固定横排，没有按 `isLargeText` 降级换行或单列 |
+| 购物车大字体下商品卡和底部结算栏拥挤 | `app/cart.tsx` | 商品卡固定横排；底部栏绝对定位，列表底部只按固定高度预留 |
+| 支付成功页大字体下底部按钮不可见，且无法上下滑动 | `app/payment-success.tsx` | 页面不是 ScrollView；固定 200px 成功图标 + `flex: 1` 占位把按钮推到底部；Android 返回键被吞掉 |
 
 ### 1.2 问题分类
 
-按根因分 4 类：
+按根因分 5 类：
 
-1. **字体缩放未控制**：React Native `<Text>` 默认跟随系统字体设置放大（华为/小米/OPPO 都有"超大字体"选项 1.5-2x）
-2. **写死 px / 模块顶层 Dimensions.get()**：旋转/分屏/字体放大时不更新
-3. **底部固定栏未吃 safe area**：手势条/虚拟键覆盖
+1. **字体缩放未控制**：React Native `<Text>` 默认跟随系统字体设置放大；Android 多品牌都有"大字体 / 超大字体 / 显示大小"选项，iOS 也有 Dynamic Type。不能只按华为或单一机型判断。
+2. **写死 px / 模块顶层 Dimensions.get()**：旋转/分屏/字体放大 / 显示大小变化时不更新
+3. **底部固定栏未吃 safe area**：手势条 / 虚拟三键覆盖，且不同 OEM 对 `insets.bottom` 返回不一致
 4. **横向多列硬塞**：`flex: 1` 平分屏宽，窄屏 / 大字体下溢出
+5. **不可滚动 + 返回键陷阱**：成功页 / 结果页 / 全屏流程页如果内容固定高度、没有 ScrollView，又吞掉系统返回键，大字体下会把 CTA 挤出屏幕后让用户无路可走
 
 ---
 
-## 二、6 条核心原则
+## 二、7 条核心原则
 
 ### 原则 1：横向多列必须按真实窗口宽度 + 字体缩放计算
 
@@ -169,6 +174,17 @@ const ITEM_WIDTH = SCREEN_WIDTH / 4 - 10;  // ← 猜
 const { columns, isNarrow, isLargeText } = useResponsiveLayout();
 const cols = columns({ wide: 4, narrow: 2 });
 ```
+
+### 原则 7：全屏结果页必须可滚动，且必须有逃生路径
+
+支付成功、提交成功、抽奖结果、授权结果、异常兜底页这类"结果页"经常没有顶部返回按钮，但仍必须满足：
+
+- 页面主体使用 `ScrollView` / `FlatList`，`contentContainerStyle` 使用 `flexGrow: 1`，确保小屏 + 大字体时底部 CTA 能滚出来
+- 不用 `flex: 1` 空白硬把按钮推到底部；用 `marginTop` / `gap` 控制视觉间距
+- 成功图标、插画、金额大字必须按 `isLargeText` / `height` 缩小；支付成功页基准为 `isLargeText || height < 700 ? 140 : 200`
+- 如果拦截 Android `BackHandler` 是为了防重复下单，不能简单 `return false` 放行，也不能 silent `return true`。允许的模式是先 `router.replace('/orders' | '/(tabs)/home')`，再 `return true`
+- iOS 同类页面必须禁用左滑返回手势（如 `Stack.Screen options={{ gestureEnabled: false }}`），避免回到 checkout 等重复动作页面
+- 主按钮 / 次按钮文案使用 `compactActionTextProps`，金额使用 `priceTextProps`
 
 ---
 
@@ -323,22 +339,24 @@ import { Text } from 'react-native';
 - [ ] 底部固定栏（`position: absolute` + `bottom: 0`）使用 `useBottomInset()`，不直接用 `insets.bottom`
 - [ ] 包含底部固定栏的 ScrollView，contentContainerStyle.paddingBottom ≥ 栏高 + `useBottomInset()`
 
-### 真机测试矩阵（PR 必须跑过的 8 个场景）
+### 真机测试矩阵（PR 必须跑过的 10 个场景）
 
 | 场景 | 设备 / 设置 | 关注点 |
 |---|---|---|
-| 1 | Android 360dp（窄屏，如华为某些低端机）| 横向多列是否降级 / 文本是否换行 |
-| 2 | iOS 390dp（iPhone 12/13/14）| 标准基准 |
-| 3 | 系统字体放大 1.2x（设置 → 显示 → 字体大小 +2）| 价格/按钮是否爆 |
-| 4 | 系统字体放大 1.3x（更激进）| 全局 maxFontSizeMultiplier 是否兜住 |
-| 5 | Android 三键虚拟键 | Tab bar / 底部栏不被覆盖 |
-| 6 | 全面屏手势条 + 键盘弹出 | 底部固定栏 + 键盘适配 |
-| 7 | Android 显示大小偏大（字体默认）| 宽度足够但布局被系统显示缩放挤爆 |
-| 8 | Android 字体 1.15x + 显示大小偏大 | 华为 / 小米真实高风险组合 |
+| 1 | Android 360dp 窄屏 | 横向多列是否降级 / 文本是否换行 |
+| 2 | Android 常见宽度 390-430dp，默认字体 | 标准 Android 基准 |
+| 3 | Android 字体放大 1.2x-1.3x | 价格/按钮/订单号是否爆 |
+| 4 | Android 显示大小偏大（字体默认）| 宽度足够但布局被系统显示缩放挤爆 |
+| 5 | Android 字体放大 + 显示大小偏大 | 多品牌真实高风险组合，不限华为 |
+| 6 | Android 三键虚拟导航 | Tab bar / 底部固定栏 / CTA 不被三键挡住 |
+| 7 | Android 全面屏手势条 | 底部固定栏与手势条留足安全距离 |
+| 8 | iOS 390dp 标准机型 | iPhone 12/13/14 基准 |
+| 9 | iOS Dynamic Type 放大 | 标题 / 表单 / CTA 不溢出，正文仍可读 |
+| 10 | 支付/提交成功页小屏 + 大字体 | CTA 可滚动可点击，物理返回键有安全去向 |
 
 ### OTA / Build 发布前
 
-- [ ] 上面 8 个场景全部跑过
+- [ ] 上面 10 个场景全部跑过
 - [ ] rg 审计黑名单（见五）输出 0 命中 OR 已知豁免
 - [ ] 文档若有更新，本文 commit message 引用
 
@@ -363,6 +381,18 @@ rg -n -B1 -A8 "position: 'absolute'" app src | rg -B3 -A8 "bottom: 0"
 
 # 5. flex:1 row 包多个 Text（窄屏/大字体爆）
 rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
+
+# 6. 结果页 / 流程页拦截返回键，必须人工确认不是直接吞事件
+rg -n "BackHandler\\.addEventListener|hardwareBackPress" app src
+
+# 7. 直接吞 Android 返回键的高风险写法（命中后人工确认是否先关闭弹层或导航到安全页）
+rg -n "=>\\s*true|return true" app src
+
+# 8. iOS 手势返回配置巡检（结果页 / 支付页应显式禁用危险左滑返回）
+rg -n "gestureEnabled" app src
+
+# 9. 全屏 flex 容器里无 ScrollView 的页面，重点检查小屏 + 大字体是否可达底部按钮
+rg -n "<Screen contentStyle=\\{\\{ flex: 1 \\}\\}>" app src
 ```
 
 每次发现新违反点：
@@ -379,13 +409,15 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 **触发**：
 - 2026-04-30 spec 立项时仅 VIP 礼包页 1 个截图复现点
 - 2026-05-04 用户随手测试发现 `checkout.tsx`（小米机底部空白）+ `orders/[id].tsx`（底部被手势条挡住）—— 决定全项目扫一遍，不再依赖随机发现
+- 2026-05-18 真机继续验证发现：大字体不是华为个例，几乎所有 Android 品牌的大字体 / 显示大小模式都可能触发；不同手机底部虚拟三键 / 手势条也会改变可用高度。`payment-success.tsx` 此前被误判为干净，但实际存在不可滚动 + 返回键吞掉导致 CTA 不可达的 P0 问题。
 
 **方法**：4 组并行 subagent 审查 60 个页面 + 16 个共用组件，对照 6 原则 + §5 rg 黑名单
 
-**结果总览**（2026-05-04 二次复核后修正）：
+**结果总览**（2026-05-04 二次复核后修正；2026-05-18 追加二轮复核结论）：
 - 🔴 严重：20 处（涉及 16 个文件）
 - 🟡 中等：26+ 处
 - ✅ 干净：约 29 个文件（首版误把 `orders/index.tsx` 列入，已移到🟡）
+- ⚠️ 2026-05-18 后，“干净文件”清单只能作为历史记录；所有全屏结果页、底部固定栏页、固定横排卡片页必须按 §4 重新验收。
 
 #### 🔴 高优问题清单（按修复 ROI 排序）
 
@@ -429,6 +461,16 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 | C5 | `app/ai/recommend.tsx` | L632 | 组合价格无 priceTextProps |
 | C6 | `app/checkout-coupon.tsx` | L98-102 | 金额区 fontSize:28/22 |
 
+**D. 2026-05-18 大字体 + 虚拟键二轮复核新增**
+
+| # | 文件 / 范围 | 问题 | 优先级 |
+|---|------|------|------|
+| D1 | `app/payment-success.tsx` | 不可滚动；固定 200px 成功图标和大金额；`flex: 1` 占位把按钮推到底部；Android 返回键直接吞掉 | 🔴 P0 |
+| D2 | `app/(tabs)/me.tsx` | 用户卡片、订单 5 项、钱包/VIP 双卡固定横排，大字体下挤压变形 | 🔴 P1 |
+| D3 | `app/cart.tsx` | 商品卡固定横排；底部结算栏高度随字体变大但列表底部只按固定高度预留 | 🔴 P1 |
+| D4 | 全 App 底部固定栏页 | `position:absolute; bottom:0` 页面必须按实际底栏高度 + `useBottomInset()` 给正文留白 | 🔴 P1 |
+| D5 | 全 App `row + flex:1` 卡片 / 列表项 | 大字体下不能只靠 `flex:1` 压缩，必须提供换行、单列或显式宽度 | 🟡 P1/P2 |
+
 #### 🟡 中等问题清单（局部 / 大字体下才出问题）
 
 | 类别 | 文件清单 | 数量 |
@@ -440,7 +482,7 @@ rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
 #### ✅ 干净文件（无明显问题，约 30 个）
 
 ```
-about.tsx / privacy.tsx / terms.tsx / payment-success.tsx / account-security.tsx
+about.tsx / privacy.tsx / terms.tsx / account-security.tsx
 referral.tsx / lottery.tsx / coupon-center.tsx / inbox/index.tsx
 checkout-address.tsx / checkout-pending.tsx / company/search.tsx
 ai/history.tsx / orders/track.tsx
@@ -450,6 +492,8 @@ me/recommend.tsx / me/referral.tsx / me/scanner.tsx / me/tasks.tsx
 user/[id].tsx
 src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 ```
+
+> 2026-05-18 修正：`payment-success.tsx` 已从干净清单移出，归入 D1。其他“干净文件”如后续真机发现大字体 / 虚拟键问题，必须同样移出并追加到 D 表或后续 R-RS-LF 批次。
 
 ---
 
@@ -464,6 +508,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | **R-RS05** | 金额字号 spread `priceTextProps`（C2-C6）| 5 页 | 1（合并）| OTA（待） | 🟡 代码完成 |
 | **R-RS06** | 中优字号批量修（fontSize≥20 缺保护，5 文件实际改）| 9 页（5 改 4 验证免改）| 2（族 A + 族 B） | OTA（待） | 🟡 代码完成 |
 | **R-RS07** | 中优 ScrollView paddingBottom 批量改吃 insets（13 处） | 10 页 | 1（合并） | OTA（待） | 🟡 代码完成 |
+| **R-RS-LF01** | P0 支付成功 / 结果页逃生修复：ScrollView、动态图标尺寸、CTA 可达、BackHandler 安全导航 | `app/payment-success.tsx` + 同类结果页审计 | 1 | OTA | ⬜ 待做 |
+| **R-RS-LF02** | 高频页大字体二轮修复：我的页、购物车、结算、商品详情、VIP 礼包等固定横排和底部栏 | 5+ 页 | 1-2 | OTA | ⬜ 待做 |
+| **R-RS-LF03** | 全 App 大字体 / 虚拟键复核：按 §5 rg 黑名单 + §4 10 场景矩阵逐页验收 | 60 页 + 16 组件 | 分批 | OTA | ⬜ 待做 |
 | **R-RS-LT01** | PR 模板加适配 Checklist 提示 | — | 1 | — | ⬜ |
 | **R-RS-LT02** | OTA 发布前必跑 rg 审计（加进 `app-发布与OTA手册.md`）| — | 1 | — | ⬜ |
 | **R-RS-LT03**（可选）| 封装 `AppText` 组件包 `Text`，从 defaultProps 升级到组件层显式控制 | 全项目 | — | OTA | ⬜ |
@@ -521,6 +568,9 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/orders/index.tsx` | 🟡（paddingBottom: spacing['3xl'] 不吃 insets，L153）| R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
 | `app/orders/track.tsx` | 🟡（R-RS07 扫描发现）| R-RS07 | 🟡 完成 | （见 git log）| 2026-05-04 |
 | `app/lottery.tsx` | 🟡（R-RS07 扫描发现，原 paddingBottom 写死 40）| R-RS07 | 🟡 完成（内联 override useBottomInset(40)）| （见 git log）| 2026-05-04 |
+| `app/payment-success.tsx` | 🔴 D1 | R-RS-LF01 | ⬜ 待修：ScrollView + CTA 可达 + BackHandler 安全导航 + 大字体尺寸降级 | — | 2026-05-18 追加 |
+| `app/(tabs)/me.tsx` | 🔴 D2 | R-RS-LF02 | ⬜ 待二轮修：用户卡片 / 订单入口 / 钱包 VIP 卡片大字体降级 | — | 2026-05-18 追加 |
+| `app/cart.tsx` | 🔴 D3 | R-RS-LF02 | ⬜ 待二轮修：商品卡大字体布局 + 底部结算栏动态留白 | — | 2026-05-18 追加 |
 
 > 29 个干净文件不进表（无修复任务，详见 §6.1 末尾✅清单）；后续真机/审计再发现新问题追加到本表。
 

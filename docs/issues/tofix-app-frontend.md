@@ -688,9 +688,9 @@
 - **Audit 范围**：地址表单、注册流、发票申请、实名认证、商家入驻、AI 聊天输入框（含已有的 11 个 KAV 页面要复查）
 
 #### ⬜ R-UX03: Android 物理返回键 / iOS 全面屏左滑返回
-- **问题**：多页面流（结账→选地址→选优惠券）返回行为不统一；Modal/BottomSheet 打开时按返回键是关 Modal 还是退页面无规范
+- **问题**：多页面流（结账→选地址→选优惠券）返回行为不统一；Modal/BottomSheet 打开时按返回键是关 Modal 还是退页面无规范；2026-05-18 真机发现 `payment-success.tsx` 在大字体下 CTA 被挤出屏幕后又吞掉 Android 返回键，用户会误以为 App 死机
 - **解法**：单独立档（`docs/architecture/back-handler.md` 暂定）规范返回行为；散落 `BackHandler.addEventListener` 必须在 useEffect cleanup 解绑
-- **Audit 范围**：所有 Modal/BottomSheet、多步流（结账/入驻/认证/AI 对话）
+- **Audit 范围**：所有 Modal/BottomSheet、多步流（结账/入驻/认证/AI 对话）、支付/提交/抽奖等结果页
 
 #### ⬜ R-UX04: TextInput 长按"复制/粘贴"菜单不被键盘遮
 - **问题**：粘贴验证码时菜单弹在键盘上方被键盘盖住
@@ -762,3 +762,38 @@
 - R-UX07-13（P2）等 R-RS01-07 全部推完之后再排期
 - R-UX14-18（P3）登记即可，等真有用户报告再升级
 - 任何一项升级为完整规范时（如 R-UX03 立 `back-handler.md`），在 `responsive-design.md` §九 对应行加文档链接
+
+## 九、响应式二轮复核：大字体 + 虚拟导航键（R-RS-LF）
+
+> **登记日期**：2026-05-18
+> **来源**：真机继续测试发现，我的页、购物车、支付成功页在大字体模式下出现变形 / 底部按钮不可达；用户补充确认这不是华为个例，几乎大部分手机的大字体 / 显示大小模式都会碰到，且不同手机底部可能是虚拟三键或手势条。
+> **权威规范**：`docs/architecture/responsive-design.md` 已更新为 10 场景矩阵，覆盖 Android 多品牌大字体、显示大小、虚拟三键、手势条、iOS Dynamic Type，以及结果页 CTA 可达性。
+
+### 🔴 R-RS-LF01：支付成功 / 结果页 P0 逃生修复
+
+- **问题**：`app/payment-success.tsx` 当前不是滚动容器；固定 200px 成功图标 + 大金额 + `flex: 1` 占位会在小屏大字体下把“查看订单 / 返回首页”挤出屏幕；Android `BackHandler` 直接 `return true` 吞掉返回键，形成不可操作状态。
+- **解法**：结果页统一改为 `ScrollView` / `FlatList` + `contentContainerStyle.flexGrow=1`；成功图标按 `isLargeText || height < 700 ? 140 : 200` 降级；按钮文案用 `compactActionTextProps`；金额用 `priceTextProps`；Android BackHandler 不能直接吞事件，必须 `return true + router.replace('/orders' | '/(tabs)/home')`；iOS 同类支付结果页必须禁用左滑返回手势。
+- **Audit 范围**：`payment-success.tsx` 是 P0 修复目标；`lottery.tsx` 结果 BottomSheet 是 P0 audit 目标；`checkout-pending.tsx` 和 `orders/after-sale-detail/[id].tsx` 归入 P1 底部栏 / 售后闭环审计，不误标为无返回头结果页。
+- **验收**：Android 字体放大 + 显示大小偏大 + 虚拟三键场景下，底部 CTA 能滚动到并可点击；物理返回键有安全去向。
+
+### 🔴 R-RS-LF02：高频购物页面大字体布局二轮修复
+
+- **问题**：`app/(tabs)/me.tsx` 用户卡片、订单 5 项、钱包/VIP 双卡固定横排；`app/cart.tsx` 商品卡固定横排，底部结算栏实际高度随字体变化但列表只预留固定高度；类似问题也可能存在于 checkout / product / vip-gifts 等底部固定栏页面。
+- **解法**：使用 `useResponsiveLayout()` 的 `isLargeText` / `isCompact` 分支；大字体时横排卡片改换行或单列；底部栏使用 `onLayout` 动态测量实际高度，正文 paddingBottom 用 `measuredBarHeight + extraSpacing`，不能只依赖固定估算；价格/按钮/标题分别使用 `priceTextProps`、`compactActionTextProps`、`fitTextProps`。
+- **Audit 范围**：`me.tsx`、`cart.tsx`、`checkout.tsx`、`product/[id].tsx`、`vip/gifts.tsx`、`checkout-coupon.tsx`、订单详情 Sticky CTA。
+- **验收**：大字体下不出现文字竖排、按钮被挡、卡片内容溢出、结算栏盖住列表最后一项。
+
+### 🟡 R-RS-LF03：全 App 大字体 / 虚拟键巡检
+
+- **问题**：第一轮 R-RS01-07 主要解决工具集、部分底部 inset、部分大字号，未完成全机型视觉验收；历史“干净文件”清单已被 `payment-success.tsx` 漏判证明不可靠。
+- **解法**：按 `responsive-design.md` §5 rg 黑名单重新扫全项目；所有命中点人工分类为“已保护 / 需修 / 可豁免”；新增命中必须追加到本文或 `responsive-design.md` §6.3。
+- **必跑命令**：
+  - `rg -n "Dimensions\\.get\\(['\"](?:window|screen)['\"]\\)" app src`
+  - `rg -n "width: [2-9][0-9]{2,}" app src`
+  - `rg -n -B2 -A2 "fontSize: [2-9][0-9]" app src`
+  - `rg -n -B1 -A8 "position: 'absolute'" app src | rg -B3 -A8 "bottom: 0"`
+  - `rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"`
+  - `rg -n "BackHandler\\.addEventListener|hardwareBackPress" app src`
+  - `rg -n "=>\\s*true|return true" app src`
+  - `rg -n "gestureEnabled" app src`
+- **验收矩阵**：Android 默认 / 大字体 / 显示大小偏大 / 大字体+显示大小偏大 / 虚拟三键 / 手势条 / iOS Dynamic Type / 支付成功结果页小屏大字体，共 10 场景，详见 `docs/architecture/responsive-design.md` §4。P2 必须重审 2026-05-04 历史“干净文件”清单；验收口径仅覆盖 `responsive-design.md` §1-§8，§9 的 R-UX 项保持独立 backlog。

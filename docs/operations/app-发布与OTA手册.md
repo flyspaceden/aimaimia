@@ -175,6 +175,24 @@ function risky() {
 
 最坏情况返回 false → 上层"功能不可用"提示，**绝不让 bundle 崩**。
 
+### 第五关：响应式 / 大字体 / 虚拟键审计
+
+只要本次 OTA 改了 `app/` 页面、`src/components/` 组件、底部固定栏、支付/提交结果页、购物车/结算/订单链路，就必须按 `docs/architecture/responsive-design.md` 复核：
+
+```bash
+# 大字体 / 固定宽度 / 底部栏 / row+flex / 返回键拦截巡检
+rg -n "Dimensions\\.get\\(['\"](?:window|screen)['\"]\\)" app src
+rg -n "width: [2-9][0-9]{2,}" app src
+rg -n -B2 -A2 "fontSize: [2-9][0-9]" app src
+rg -n -B1 -A8 "position: 'absolute'" app src | rg -B3 -A8 "bottom: 0"
+rg -n -B3 -A10 "flexDirection: 'row'" app src | rg -B3 -A10 "flex: 1"
+rg -n "BackHandler\\.addEventListener|hardwareBackPress" app src
+rg -n "=>\\s*true|return true" app src
+rg -n "gestureEnabled" app src
+```
+
+命中不要求机械清零，但必须逐项确认属于“已保护 / 需修 / 可豁免”。结果页（如支付成功）必须在 Android 大字体 + 显示大小偏大 + 虚拟三键场景下确认 CTA 可滚动可点击，物理返回键有安全去向；iOS 危险左滑返回必须禁用。底部固定栏页面必须确认正文底部留白来自实际 bar 高度或保守测量，不只依赖固定估算。
+
 ---
 
 ## 五、用户侧：OTA 什么时候生效

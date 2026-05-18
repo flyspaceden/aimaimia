@@ -901,12 +901,13 @@
 
 ## 📱 响应式适配专项（2026-04-30 立项 / 2026-05-04 全项目审计完成）
 
-> **触发**: 2026-04-30 立项时仅 VIP 礼包页 1 个截图复现点；2026-05-04 用户随手测试发现 checkout（小米机底部空白）+ 订单详情（底部被手势条挡）—— 决定全项目扫
+> **触发**: 2026-04-30 立项时仅 VIP 礼包页 1 个截图复现点；2026-05-04 用户随手测试发现 checkout（小米机底部空白）+ 订单详情（底部被手势条挡）—— 决定全项目扫；2026-05-18 真机继续验证确认大字体 / 显示大小 / 虚拟三键不是华为个例，而是多品牌手机系统性风险，且支付成功页存在 CTA 不可达 + 返回键被吞 P0 问题
 > **权威源**: `docs/architecture/responsive-design.md`（**单一文件囊括规范 + 工具集 spec + 全项目审计 + Sprint 拆解 + 修复进度表**，§6 持续更新）
-> **审计结果**: 60 页面 + 16 共用组件，🔴 15+ 高优 / 🟡 26+ 中优 / ✅ ~30 干净
-> **不阻塞 v1.0 上线**：可与 Tier 2 / 阶梯上线并行做；新页面强制走 §4 Checklist
+> **审计结果**: 60 页面 + 16 共用组件，首轮 🔴 15+ 高优 / 🟡 26+ 中优；2026-05-18 起历史“干净文件”清单仅作参考，需按 10 场景矩阵二轮验收
+> **上线判断**：R-RS01-07 已推 OTA，但 R-RS-LF01 支付成功逃生修复和 R-RS-LF02 高频页大字体修复会直接影响真机付款 / 购物体验，应作为测试版继续发放前的 P0/P1 收口项
 >
 > **🚀 2026-05-04 OTA 已推（preview branch）**：commit `694331a`，update group `5da9c55c-0e69-4eb5-af77-3d0c39a4b0ef`，含 R-RS01-07 + 2 hotfix 共 11 commit。下一步：真机验证（华为/小米三键 + iOS 灵动岛 + 系统字体放大 1.5x 场景）后状态全部 🟡 → ✅
+> **🧭 2026-05-18 二轮复核已立项**：`docs/architecture/responsive-design.md` 已扩展为 Android 多品牌大字体 / 显示大小 / 虚拟三键 / 手势条 + iOS Dynamic Type + 结果页 CTA 可达的 10 场景矩阵；新增 R-RS-LF01/R-RS-LF02/R-RS-LF03，避免与退款链路 R-RS08+ 编号冲突。
 
 ### Sprint 概览（详细拆解 + 进度表见 spec §6.2 / §6.3）
 
@@ -917,6 +918,9 @@
 - [🟡] **R-RS05** 金额字号 spread `priceTextProps`（wallet / bonus-queue / coupons / recommend / checkout-coupon）—— 2026-05-04 完成：5 文件 6 处金额/数字位 Text 全部加 priceTextProps（防字体放大 + 自动缩字号）。审查通过零问题
 - [🟡] **R-RS06** 中优字号批量修（fontSize≥20 缺保护）—— 2026-05-04 完成：实际只有 5 文件需要保护（home/me/me-vip/ai-assistant/ai-trace），共 12 个 Text 加 priceTextProps（紧凑数字位）或 fitTextProps（标题）；其余 4 文件（settings/notification-settings/ai-finance/ai-chat）经 typography 字号验证免改（最大 title3=18 < 20）。拆 2 commit（族 A: home/me 系；族 B: ai/* 系）
 - [🟡] **R-RS07** 中优 ScrollView paddingBottom 批量改吃 insets —— 2026-05-04 完成：10 文件 13 处 paddingBottom 全部改 useBottomInset(原写死值)，加 OEM 兜底。新发现 lottery/orders-track 也加入。cs/index 跳过（内部 spacing 非 safe area，输入栏 inset 留 R-UX 单独处理）。审查通过零问题
+- [ ] **R-RS-LF01** 支付成功 / 结果页 P0 逃生修复（2026-05-18 新增）—— `payment-success.tsx` 当前不可滚动、固定大图标、按钮被 `flex:1` 推到底部且 Android 返回键被吞；需改 ScrollView、动态图标尺寸、CTA 可达、BackHandler 安全导航
+- [ ] **R-RS-LF02** 高频购物页大字体二轮修复（2026-05-18 新增）—— `me.tsx` / `cart.tsx` / `checkout.tsx` / `product/[id].tsx` / `vip/gifts.tsx` 等固定横排和底部固定栏按 `isLargeText` / `isCompact` 降级
+- [ ] **R-RS-LF03** 全 App 大字体 + 虚拟键巡检（2026-05-18 新增）—— 按 `responsive-design.md` §5 rg 黑名单 + §4 10 场景矩阵复核 60 页面 + 16 组件，历史“干净文件”重新验证
 - [ ] **R-RS-LT01** PR 模板加 Checklist 提示
 - [ ] **R-RS-LT02** OTA 发布前必跑 rg 审计（写入 `app-发布与OTA手册.md` 第四章）
 - [ ] **R-RS-LT03**（可选）封装 `AppText` 组件升级 defaultProps
