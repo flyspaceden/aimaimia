@@ -19,7 +19,8 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
 import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
-import { useBottomInset, useTheme } from '../src/theme';
+import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
+import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
 
 // RECOMMEND_CARD_WIDTH 不依赖屏幕宽度（固定 140pt），保留在模块顶层
@@ -86,8 +87,11 @@ export default function CartScreen() {
   const clearVipPackageSelection = useCheckoutStore((s) => s.clearVipPackageSelection);
   // R-RS03 A6: 替换 useSafeAreaInsets → useBottomInset，加 OEM 兜底
   // 修复购物车确认栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
-  const scrollBottomPad = useBottomInset(100);
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactRows = isCompact || isLargeText;
   const barBottomPad = useBottomInset(spacing.sm);
+  const { bottomPadding: scrollBottomPad, onBarLayout: handleCheckoutBarLayout } =
+    useMeasuredBottomBar(compactRows ? 148 : 112, spacing.lg);
   const items = useCartStore((s) => s.items);
   const selectedIds = useCartStore((s) => s.selectedIds);
   const clear = useCartStore((s) => s.clear);
@@ -266,6 +270,7 @@ export default function CartScreen() {
             <View
               style={[
                 styles.card,
+                compactRows && styles.cardCompact,
                 shadow.sm,
                 {
                   backgroundColor: colors.surface,
@@ -296,7 +301,11 @@ export default function CartScreen() {
               })()}
 
               <View style={{ position: 'relative' }}>
-                <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                <Image
+                  source={{ uri: item.image }}
+                  style={[styles.cover, compactRows && styles.coverCompact, { borderRadius: radius.md }]}
+                  contentFit="cover"
+                />
                 {/* 奖品徽标 */}
                 {isPrize && (
                   <View style={[styles.prizeBadge, { backgroundColor: colors.brand.primary, borderRadius: radius.sm }]}>
@@ -316,8 +325,12 @@ export default function CartScreen() {
                 )}
               </View>
 
-              <View style={styles.content}>
-                <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={2}>
+              <View style={[styles.content, compactRows && styles.contentCompact]}>
+                <Text
+                  {...fitTextProps}
+                  style={[typography.bodyStrong, { color: colors.text.primary }]}
+                  numberOfLines={compactRows ? 3 : 2}
+                >
                   {item.title}
                 </Text>
                 {item.pendingClaim && (
@@ -347,7 +360,7 @@ export default function CartScreen() {
                     </Text>
                   )}
                 </View>
-                <View style={styles.metaRow}>
+                <View style={[styles.metaRow, compactRows && styles.metaRowCompact]}>
                   {/* 奖品不可修改数量 */}
                   {isUnavailable ? (
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>不可结算</Text>
@@ -466,10 +479,12 @@ export default function CartScreen() {
       {/* 底部结算栏 — 毛玻璃 */}
       {Platform.OS === 'ios' ? (
         <BlurView
+          onLayout={handleCheckoutBarLayout}
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={[
             styles.checkoutBar,
+            compactRows && styles.checkoutBarCompact,
             {
               paddingBottom: barBottomPad,
               paddingHorizontal: spacing.xl,
@@ -478,9 +493,11 @@ export default function CartScreen() {
           ]}
         >
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
-          <View style={{ flex: 1 }}>
+          <View style={compactRows ? styles.checkoutSummaryCompact : styles.checkoutSummary}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>合计</Text>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>¥{total.toFixed(2)}</Text>
+            <Text {...priceTextProps} style={[typography.title3, { color: colors.text.primary }]}>
+              ¥{total.toFixed(2)}
+            </Text>
           </View>
           <LinearGradient
             colors={[...gradients.goldGradient]}
@@ -504,7 +521,7 @@ export default function CartScreen() {
               }}
               style={styles.checkoutButton}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                 去结算({selCount})
               </Text>
             </Pressable>
@@ -512,8 +529,10 @@ export default function CartScreen() {
         </BlurView>
       ) : (
         <View
+          onLayout={handleCheckoutBarLayout}
           style={[
             styles.checkoutBar,
+            compactRows && styles.checkoutBarCompact,
             {
               paddingBottom: barBottomPad,
               paddingHorizontal: spacing.xl,
@@ -522,9 +541,11 @@ export default function CartScreen() {
             },
           ]}
         >
-          <View style={{ flex: 1 }}>
+          <View style={compactRows ? styles.checkoutSummaryCompact : styles.checkoutSummary}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>合计</Text>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>¥{total.toFixed(2)}</Text>
+            <Text {...priceTextProps} style={[typography.title3, { color: colors.text.primary }]}>
+              ¥{total.toFixed(2)}
+            </Text>
           </View>
           <LinearGradient
             colors={[...gradients.goldGradient]}
@@ -548,7 +569,7 @@ export default function CartScreen() {
               }}
               style={styles.checkoutButton}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                 去结算({selCount})
               </Text>
             </Pressable>
@@ -608,20 +629,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
   },
+  cardCompact: {
+    alignItems: 'flex-start',
+  },
   cover: {
     width: 80,
     height: 80,
     marginLeft: 8,
   },
+  coverCompact: {
+    width: 64,
+    height: 64,
+  },
   content: {
     flex: 1,
     marginLeft: 12,
+  },
+  contentCompact: {
+    minWidth: 0,
   },
   metaRow: {
     marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  metaRowCompact: {
+    alignItems: 'flex-start',
+    gap: 8,
   },
   deleteButton: {
     borderWidth: 1,
@@ -642,9 +677,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 12,
   },
+  checkoutBarCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  checkoutSummary: {
+    flex: 1,
+  },
+  checkoutSummaryCompact: {
+    width: '100%',
+  },
   checkoutButton: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   prizeBadge: {
     position: 'absolute',
