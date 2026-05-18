@@ -225,7 +225,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-05-15）
+## 六、当前 App 实际状态（2026-05-18）
 
 ### EAS 配置
 
@@ -262,7 +262,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `156273ed-3727-495f-8c5a-cb45d084b444` | 推荐码页移除"购买 VIP 前可扫描好友推荐码完成绑定"提示；VIP 礼包购买页移除赠品卡片"市场参考价"展示 | **当前生效** ✅，commit `a48bbee`（2026-05-16），纯前端；Android update `019e317d-c669-79d8-ab1d-c84606bf20b9`，iOS update `019e317d-c669-7d65-bf36-ca4fa0c1a996`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `51e6eec3-c0a4-4d2c-ad42-abfbcf08649b` | VIP 礼包订单金额显示修复：订单明细赠品行显示“赠品”而非 SKU 单价，底部实付以后端 `totalPrice` 为准 | **当前生效** ✅，commit `b97e3dd`（2026-05-18），App 前端为纯 JS/TS；配套后端同 commit 含 VIP_PACKAGE 金额建单修复 + 历史数据迁移，需 staging deploy 完成后旧单金额才会回填；Android update `019e3c69-b37f-7c4d-bcc6-10dc8cc18fbc`，iOS update `019e3c69-b37f-7084-9268-a6396a901c5f`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `156273ed-3727-495f-8c5a-cb45d084b444` | 推荐码页移除"购买 VIP 前可扫描好友推荐码完成绑定"提示；VIP 礼包购买页移除赠品卡片"市场参考价"展示 | commit `a48bbee`（2026-05-16），纯前端；Android update `019e317d-c669-79d8-ab1d-c84606bf20b9`，iOS update `019e317d-c669-7d65-bf36-ca4fa0c1a996`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `5c40a02a-5b04-4af2-8f67-c8c9f8c7986d` | 我的页常用工具移除"奖励"入口；钱包入口保留在上方钱包卡，常用工具第一项仍为"我的推荐码/推荐关系" | commit `1d779f2`（2026-05-15），纯前端；Android update `019e2ea0-acef-7472-a66c-c132130cf8e2`，iOS update `019e2ea0-acef-7b73-98a2-1328e7cd19d8`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `eb76ecaa-0a10-44e5-ac30-31e915479a9d` | 我的页常用工具新增固定推荐入口：VIP 且有推荐码显示"我的推荐码"，普通用户/暂无 VIP 推荐码显示"推荐关系" | commit `6c21337`（2026-05-15），纯前端；Android update `019e2e9c-6c54-7e65-8ce1-0d789022907e`，iOS update `019e2e9c-6c54-7b81-91c5-90b47ec8106f`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `88967615-b7f0-4019-8f1b-dae236514180` | 推荐码改造（合 87fe8ca + ca77796）：非 VIP `referralCode=null` + 历史普通码绑定/DDL 拒绝 + 推荐码页/会员中心展示绑定推荐人 + 扫码 toast 显推荐人；后续修复 `buildInviterSummary` try/catch + `verified+orderBy` 稳定取手机号 + 前端 `referralRelation` helper 用 `inviterUserId` 判定（避免 user 摘要为空时误判"尚未绑定"） | commits `87fe8ca` + `ca77796`（2026-05-15），含后端改动需 staging deploy；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
