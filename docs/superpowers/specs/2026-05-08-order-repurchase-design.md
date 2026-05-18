@@ -58,7 +58,7 @@ POST /api/v1/orders/:id/repurchase
 - 商品所属商户 `isPlatform = true`：跳过，原因 `PLATFORM_PRODUCT`，避免平台奖品/奖励商品被主动加购结算。
 - 购物车已有数量 + 原订单数量超过 `maxPerOrder`：跳过，原因 `MAX_PER_ORDER_EXCEEDED`。
 - 当前 SKU 价格与原订单 `unitPrice` 不一致：仍加入购物车，但返回 `priceChanged = true`、`originalPrice`、`currentPrice` 供前端提示。
-- 库存不作为硬拦截，沿用项目“超卖容忍”决策。
+- 库存展示与低库存/无库存复购口径由 `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` 补充并覆盖；底层普通商品支付链路仍保留“超卖容忍”作为并发兜底。
 
 ### 4.2 写入购物车
 
