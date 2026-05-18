@@ -908,7 +908,8 @@
 >
 > **🚀 2026-05-04 OTA 已推（preview branch）**：commit `694331a`，update group `5da9c55c-0e69-4eb5-af77-3d0c39a4b0ef`，含 R-RS01-07 + 2 hotfix 共 11 commit。下一步：真机验证（华为/小米三键 + iOS 灵动岛 + 系统字体放大 1.5x 场景）后状态全部 🟡 → ✅
 > **🧭 2026-05-18 二轮复核已立项**：`docs/architecture/responsive-design.md` 已扩展为 Android 多品牌大字体 / 显示大小 / 虚拟三键 / 手势条 + iOS Dynamic Type + 结果页 CTA 可达的 10 场景矩阵；新增 R-RS-LF01/R-RS-LF02/R-RS-LF03，避免与退款链路 R-RS08+ 编号冲突。
-> **🔧 2026-05-18 二轮代码已完成，待真机矩阵**：支付成功页逃生、抽奖结果弹窗、购物车/结算/商品详情/VIP 礼包/未完成订单/订单详情底部栏实测高度、我的页大字体降级已实现；静态审计已分类，10 场景真机验收后才能转 ✅。
+> **🔧 2026-05-18 二轮代码已完成，待真机矩阵**：支付成功页逃生、抽奖结果弹窗、购物车/结算/商品详情/VIP 礼包/未完成订单/订单详情/checkout-coupon/invoices-request 底部栏实测高度、我的页大字体降级已实现；静态审计已分类，10 场景真机验收后才能转 ✅。
+> **🚀 2026-05-18 OTA 已推（preview branch）**：update group `fc282546-a7dc-4094-ae9b-c544f82b95de`，commit `08d091e`，含 R-RS-LF01/LF02 + checkout-coupon/invoices-request 收口，共 13 commit。下一步：跑 `responsive-design.md` §4 10 场景真机矩阵 → 所有 🟡 转 ✅ → R-RS-LF03 关闭。
 
 ### Sprint 概览（详细拆解 + 进度表见 spec §6.2 / §6.3）
 
