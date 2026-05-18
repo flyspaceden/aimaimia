@@ -21,7 +21,8 @@ import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
 import { payWithAlipay } from '../src/utils/alipay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
-import { useBottomInset, useTheme } from '../src/theme';
+import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
 import type { VipPackageSelection } from '../src/store/useCheckoutStore';
 
@@ -30,10 +31,11 @@ export default function CheckoutScreen() {
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
-  // 改用 useBottomInset：自带 OEM 兜底（小米/华为三键 insets.bottom=0 时强制 32dp），
-  // 修复用户报告的"小米机底部空白"现象。详见 docs/architecture/responsive-design.md §3.3
-  const scrollBottomPad = useBottomInset(100);          // L696 ScrollView 底部留白
-  const barBottomPad = useBottomInset(spacing.sm);      // L1090/L1125 双 bottomBar paddingBottom
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactSubmitBar = isCompact || isLargeText;
+  const barBottomPad = useBottomInset(spacing.sm);
+  const { bottomPadding: scrollBottomPad, onBarLayout: handleBottomBarLayout } =
+    useMeasuredBottomBar(compactSubmitBar ? 150 : 112, spacing.lg);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
   // 从 checkout store 读取子页面选择结果（地址、红包、VIP 套餐）
@@ -1120,10 +1122,12 @@ export default function CheckoutScreen() {
       {hasContent && (
         Platform.OS === 'ios' ? (
           <BlurView
+            onLayout={handleBottomBarLayout}
             intensity={80}
             tint={isDark ? 'dark' : 'light'}
             style={[
               styles.bottomBar,
+              compactSubmitBar && styles.bottomBarCompact,
               {
                 paddingBottom: barBottomPad,
                 paddingHorizontal: spacing.xl,
@@ -1132,9 +1136,14 @@ export default function CheckoutScreen() {
             ]}
           >
             <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
-            <View style={{ flex: 1 }}>
+            <View style={compactSubmitBar ? styles.bottomSummaryCompact : styles.bottomSummary}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>应付金额</Text>
-              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>{displayTotalText}</Text>
+              <Text
+                {...priceTextProps}
+                style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}
+              >
+                {displayTotalText}
+              </Text>
             </View>
             <LinearGradient
               colors={[...gradients.goldGradient]}
@@ -1144,21 +1153,23 @@ export default function CheckoutScreen() {
             >
               {isVipMode ? (
                 <Pressable onPress={handleVipCheckout} disabled={submitting} style={[styles.submitButton, submitting && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                     {submitting ? '开通中...' : !isLoggedIn ? '登录后继续' : '✦ 开通 VIP'}
                   </Text>
                 </Pressable>
               ) : (
                 <Pressable onPress={handleCheckout} disabled={submitting || previewFailed || previewPending} style={[styles.submitButton, (submitting || previewFailed || previewPending) && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
                 </Pressable>
               )}
             </LinearGradient>
           </BlurView>
         ) : (
           <View
+            onLayout={handleBottomBarLayout}
             style={[
               styles.bottomBar,
+              compactSubmitBar && styles.bottomBarCompact,
               {
                 paddingBottom: barBottomPad,
                 paddingHorizontal: spacing.xl,
@@ -1167,9 +1178,14 @@ export default function CheckoutScreen() {
               },
             ]}
           >
-            <View style={{ flex: 1 }}>
+            <View style={compactSubmitBar ? styles.bottomSummaryCompact : styles.bottomSummary}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>应付金额</Text>
-              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>{displayTotalText}</Text>
+              <Text
+                {...priceTextProps}
+                style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}
+              >
+                {displayTotalText}
+              </Text>
             </View>
             <LinearGradient
               colors={[...gradients.goldGradient]}
@@ -1179,11 +1195,11 @@ export default function CheckoutScreen() {
             >
               {isVipMode ? (
                 <Pressable onPress={handleVipCheckout} disabled={submitting} style={[styles.submitButton, submitting && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '开通中...' : '✦ 开通 VIP'}</Text>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '开通中...' : '✦ 开通 VIP'}</Text>
                 </Pressable>
               ) : (
                 <Pressable onPress={handleCheckout} disabled={submitting || previewFailed || previewPending} style={[styles.submitButton, (submitting || previewFailed || previewPending) && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
                 </Pressable>
               )}
             </LinearGradient>
@@ -1453,9 +1469,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 12,
   },
+  bottomBarCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  bottomSummary: {
+    flex: 1,
+  },
+  bottomSummaryCompact: {
+    width: '100%',
+  },
   submitButton: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   merchantSubtotal: {
     borderTopWidth: 1,

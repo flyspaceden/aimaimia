@@ -26,7 +26,8 @@ import { AiBadge } from '../../src/components/ui/AiBadge';
 import { AiDivider } from '../../src/components/ui/AiDivider';
 import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
-import { useTheme, useBottomInset } from '../../src/theme';
+import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
+import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 
 import type { ProductDetail } from '../../src/types';
 
@@ -45,9 +46,10 @@ export default function ProductDetailScreen() {
   const { colors, radius, spacing, typography, shadow, gradients, isDark } = useTheme();
   const { show } = useToast();
   const barBottomPad = useBottomInset(spacing.md);
-  // CTA bar 高度 = paddingTop 16 + button 52 + paddingBottom (inset+12) ≈ inset+80dp。
-  // ScrollView 留 inset+120dp 才能覆盖 bar 高度 + 视觉间距 ≥ 40dp。
-  const contentBottomPad = useBottomInset(120);
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactCtaBar = isCompact || isLargeText;
+  const { bottomPadding: contentBottomPad, onBarLayout: handleCtaBarLayout } =
+    useMeasuredBottomBar(compactCtaBar ? 148 : 112, spacing.xl);
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const addItem = useCartStore((state) => state.addItem);
@@ -455,10 +457,12 @@ export default function ProductDetailScreen() {
       {/* 底部操作栏 — 毛玻璃 */}
       {Platform.OS === 'ios' ? (
         <BlurView
+          onLayout={handleCtaBarLayout}
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={[
             styles.ctaBar,
+            compactCtaBar && styles.ctaBarCompact,
             {
               paddingBottom: barBottomPad,
               paddingTop: spacing.md,
@@ -486,13 +490,15 @@ export default function ProductDetailScreen() {
             ]}
           >
             <MaterialCommunityIcons name="cart-plus" size={18} color={colors.brand.primary} style={{ marginRight: 6 }} />
-            <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>加入购物车</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+              加入购物车
+            </Text>
           </Pressable>
           <LinearGradient
             colors={[...gradients.goldGradient]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[styles.ctaButton, { borderRadius: radius.lg, marginLeft: spacing.md }]}
+            style={[styles.ctaButton, { borderRadius: radius.lg }, !compactCtaBar && { marginLeft: spacing.md }]}
           >
             <Pressable
               onPress={() => {
@@ -503,14 +509,18 @@ export default function ProductDetailScreen() {
               }}
               style={styles.ctaInner}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>✦ 立即购买</Text>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                ✦ 立即购买
+              </Text>
             </Pressable>
           </LinearGradient>
         </BlurView>
       ) : (
         <View
+          onLayout={handleCtaBarLayout}
           style={[
             styles.ctaBar,
+            compactCtaBar && styles.ctaBarCompact,
             {
               paddingBottom: barBottomPad,
               paddingTop: spacing.md,
@@ -538,13 +548,15 @@ export default function ProductDetailScreen() {
             ]}
           >
             <MaterialCommunityIcons name="cart-plus" size={18} color={colors.brand.primary} style={{ marginRight: 6 }} />
-            <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>加入购物车</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+              加入购物车
+            </Text>
           </Pressable>
           <LinearGradient
             colors={[...gradients.goldGradient]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[styles.ctaButton, { borderRadius: radius.lg, marginLeft: spacing.md }]}
+            style={[styles.ctaButton, { borderRadius: radius.lg }, !compactCtaBar && { marginLeft: spacing.md }]}
           >
             <Pressable
               onPress={() => {
@@ -555,7 +567,9 @@ export default function ProductDetailScreen() {
               }}
               style={styles.ctaInner}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>✦ 立即购买</Text>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                ✦ 立即购买
+              </Text>
             </Pressable>
           </LinearGradient>
         </View>
@@ -670,8 +684,13 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
   },
+  ctaBarCompact: {
+    flexDirection: 'column',
+    gap: 10,
+  },
   ctaButton: {
     flex: 1,
+    minHeight: 48,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',

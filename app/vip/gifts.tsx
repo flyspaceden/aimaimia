@@ -35,7 +35,8 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useToast } from '../../src/components/feedback';
 import { GiftCoverImage } from '../../src/components/cards';
-import { priceTextProps, useBottomInset } from '../../src/theme';
+import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout } from '../../src/theme';
 import type { VipGiftOption } from '../../src/types/domain/Bonus';
 
 // ============================================================
@@ -257,8 +258,11 @@ export default function VipGiftsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ packageId?: string; giftOptionId?: string }>();
   const insets = useSafeAreaInsets();
-  const safeBottomBare = useBottomInset(0);  // 仅 inset + OEM 兜底
   const barBottomPad = useBottomInset(16);  // 16dp extra + OEM 兜底
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactBottomBar = isCompact || isLargeText;
+  const { bottomPadding: contentBottomPad, onBarLayout: handleBottomBarLayout } =
+    useMeasuredBottomBar(compactBottomBar ? 156 : 124, 24);
   const { show } = useToast();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const setVipPackageSelection = useCheckoutStore((s) => s.setVipPackageSelection);
@@ -441,7 +445,7 @@ export default function VipGiftsScreen() {
       {/* 可滚动内容 */}
       <Animated.ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + safeBottomBare }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentBottomPad }]}
         showsVerticalScrollIndicator={false}
         directionalLockEnabled
         nestedScrollEnabled
@@ -589,12 +593,15 @@ export default function VipGiftsScreen() {
       </Animated.ScrollView>
 
       {/* 底部固定栏 */}
-      <View style={[styles.bottomBar, { paddingBottom: barBottomPad }]}>
+      <View
+        onLayout={handleBottomBarLayout}
+        style={[styles.bottomBar, compactBottomBar && styles.bottomBarCompact, { paddingBottom: barBottomPad }]}
+      >
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-        <View style={styles.bottomBarContent}>
-          <View style={styles.bottomPriceSection}>
+        <View style={[styles.bottomBarContent, compactBottomBar && styles.bottomBarContentCompact]}>
+          <View style={[styles.bottomPriceSection, compactBottomBar && styles.bottomPriceSectionCompact]}>
             <Text style={styles.bottomLabel}>开通 VIP</Text>
-            <Text style={styles.bottomPrice}>¥{vipPrice}</Text>
+            <Text {...priceTextProps} style={styles.bottomPrice}>¥{vipPrice}</Text>
           </View>
           <Pressable
             onPress={handleCheckout}
@@ -611,10 +618,13 @@ export default function VipGiftsScreen() {
               end={{ x: 1, y: 0 }}
               style={styles.checkoutButtonGradient}
             >
-              <Text style={[
-                styles.checkoutButtonText,
-                selectedIndex === null && styles.checkoutButtonTextDisabled,
-              ]}>
+              <Text
+                {...compactActionTextProps}
+                style={[
+                  styles.checkoutButtonText,
+                  selectedIndex === null && styles.checkoutButtonTextDisabled,
+                ]}
+              >
                 立即开通
               </Text>
             </LinearGradient>
@@ -935,13 +945,24 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(201,169,110,0.15)',
   },
+  bottomBarCompact: {
+    paddingHorizontal: 16,
+  },
   bottomBarContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  bottomBarContentCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
   bottomPriceSection: {
     flex: 1,
+  },
+  bottomPriceSectionCompact: {
+    flex: 0,
   },
   bottomLabel: {
     fontSize: 13,
