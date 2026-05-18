@@ -549,7 +549,7 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/orders/after-sale-detail/[id].tsx` | 🔴 A4 | R-RS03 hotfix | 🟡 同上 | （见 git log）| 2026-05-04 |
 | `app/checkout.tsx` | 🔴 A5 + 🔴 D4 | R-RS03 + R-RS-LF02 | 🟡 二轮完成：底部提交栏实测高度、compact 纵向堆叠、金额/CTA 保护 | （本轮 commit）| 2026-05-18 |
 | `app/cart.tsx` | 🔴 A6 + 🔴 B3 + 🔴 D3 | R-RS03 + R-RS04 + R-RS-LF02 | 🟡 二轮完成：商品行 compact 降级、底部栏实测高度、compact 纵向堆叠 | （本轮 commit）| 2026-05-18 |
-| `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 | R-RS03 + R-RS05 | 🟡 A7 完成；C6 留 R-RS05 | （见 git log）| 2026-05-04 |
+| `app/checkout-coupon.tsx` | 🔴 A7 + 🔴 C6 + 🔴 D4 | R-RS03 + R-RS05 + R-RS-LF02 | 🟡 二轮完成：A7+C6 已修；新增 onLayout 测高、compact 纵向堆叠、CTA 紧凑文本 | （本轮 commit）| 2026-05-18 |
 | `app/vip/gifts.tsx` | 🔴 B7 + 🔴 C1 + 🔴 D4 | R-RS03 + R-RS-LF02 | 🟡 二轮完成：底部栏实测高度、compact 纵向堆叠、价格/CTA 保护 | （本轮 commit）| 2026-05-18 |
 | ~~`app/(tabs)/museum.tsx`~~ | ~~🔴 B1~~ | R-RS04 | ✅ 已修复（先于本规范） | — | — |
 | `app/ai/recommend.tsx` | 🔴 B2 + 🔴 C5 | R-RS04 + R-RS05 | 🟡 B2 完成；C5 留 R-RS05 | （见 git log）| 2026-05-04 |
@@ -578,7 +578,7 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 | `app/lottery.tsx` | 🟡 + 🔴 D1-audit | R-RS07 + R-RS-LF01 | 🟡 二轮完成：结果 BottomSheet scrollable，图标/标题/CTA compact 降级 | （本轮 commit）| 2026-05-18 |
 | `app/payment-success.tsx` | 🔴 D1 | R-RS-LF01 | 🟡 二轮完成：ScrollView + CTA 可达 + BackHandler 安全导航 + iOS 手势禁用 + 大字体尺寸降级 | （本轮 commit）| 2026-05-18 |
 | `app/checkout-pending.tsx` | 🔴 D4 | R-RS-LF02 | 🟡 二轮完成：ScrollView paddingBottom 改用 `StickyCTABar` 实测高度 | （本轮 commit）| 2026-05-18 |
-| `app/invoices/request.tsx` | 🟡 D4-audit | R-RS-LF03 | ⬜ 后续复核：底部确认按钮不是 absolute，但仍需真机确认 safe-area / 大字体 CTA 可达 | — | 2026-05-18 追加 |
+| `app/invoices/request.tsx` | 🟡 D4-audit | R-RS-LF02 | 🟡 二轮完成：底部确认按钮加 `useBottomInset(16)` + CTA 紧凑文本 | （本轮 commit）| 2026-05-18 |
 
 > 历史干净文件只作基线参考；2026-05-18 后 P2 关闭必须以 §4 10 场景矩阵和 §5 黑名单重审记录为准。
 

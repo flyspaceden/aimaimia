@@ -783,7 +783,7 @@
 - **解法**：使用 `useResponsiveLayout()` 的 `isLargeText` / `isCompact` 分支；大字体时横排卡片改换行或单列；底部栏使用 `onLayout` 动态测量实际高度，正文 paddingBottom 用 `measuredBarHeight + extraSpacing`，不能只依赖固定估算；价格/按钮/标题分别使用 `priceTextProps`、`compactActionTextProps`、`fitTextProps`。
 - **Audit 范围**：`me.tsx`、`cart.tsx`、`checkout.tsx`、`product/[id].tsx`、`vip/gifts.tsx`、`checkout-coupon.tsx`、订单详情 Sticky CTA。
 - **验收**：大字体下不出现文字竖排、按钮被挡、卡片内容溢出、结算栏盖住列表最后一项。
-- **2026-05-18 进度**：🟡 代码完成，待真机矩阵。已覆盖 `me.tsx`、`cart.tsx`、`checkout.tsx`、`product/[id].tsx`、`vip/gifts.tsx`、`checkout-pending.tsx`、`orders/[id].tsx`、`StickyCTABar.tsx`；`checkout-coupon.tsx` 和 `invoices/request.tsx` 保留到 R-RS-LF03 后续批次复核。
+- **2026-05-18 进度**：🟡 代码完成，待真机矩阵。已覆盖 `me.tsx`、`cart.tsx`、`checkout.tsx`、`product/[id].tsx`、`vip/gifts.tsx`、`checkout-pending.tsx`、`orders/[id].tsx`、`StickyCTABar.tsx`、`checkout-coupon.tsx`（onLayout 测高 + compact 纵向堆叠 + CTA 紧凑文本）、`invoices/request.tsx`（底部按钮吃 safe area + CTA 紧凑文本）。
 
 ### 🟡 R-RS-LF03：全 App 大字体 / 虚拟键巡检
 
@@ -810,6 +810,6 @@
 | `rg -n "const\\s+\\w*Back\\w*\\s*=\\s*\\([^)]*\\)\\s*=>\\s*true|const\\s+\\w*Back\\w*\\s*=\\s*function" app src` | 0 | 0 | 0 | 0 | 未发现 alias-style `onBack => true` 反模式。 |
 | `rg -n "gestureEnabled" app src` | 1 | 1 | 0 | 0 | 仅 `app/payment-success.tsx` 命中，已用于禁用 iOS 危险左滑返回。 |
 | `rg -n "AppBottomSheet|支付成功|成功|完成|已提交|开奖|中奖" app src` | 210 | 2 | 0 | 208 | 受保护代码面为 `payment-success.tsx` 与 `lottery.tsx`。其余命中为 toast 文案、状态枚举、普通 BottomSheet、注释或列表状态，不构成 P0 结果页陷阱；后续只在页面同时满足“无正常返回 + 非滚动 + 结果 CTA”时升级。 |
-| `rg -n "bottomBar|ctaBar|StickyCTABar|position: 'absolute'.*bottom|useBottomInset\\(" app src` | 55 | 9 | 2 | 44 | 本轮保护：购物车、结算、商品详情、VIP 礼包、未完成订单、订单详情、`StickyCTABar`、Toast、浮动助手。后续复核：`checkout-coupon.tsx`、`invoices/request.tsx`。其余为普通列表 inset、非 absolute 样式或已由 R-RS07 处理。 |
+| `rg -n "bottomBar|ctaBar|StickyCTABar|position: 'absolute'.*bottom|useBottomInset\\(" app src` | 55 | 11 | 0 | 44 | 本轮保护：购物车、结算、商品详情、VIP 礼包、未完成订单、订单详情、`StickyCTABar`、Toast、浮动助手、`checkout-coupon.tsx`、`invoices/request.tsx`。其余为普通列表 inset、非 absolute 样式或已由 R-RS07 处理。 |
 
 > 2026-05-18 静态分类已完成，但 R-RS-LF03 不能关闭：还缺 `responsive-design.md` §4 的 10 场景真机矩阵结果。历史“干净文件”清单已重审并移出 `lottery.tsx`、`checkout-pending.tsx`、`invoices/request.tsx`。
