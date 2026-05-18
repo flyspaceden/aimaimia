@@ -1,11 +1,11 @@
-import React, { useEffect } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../src/components/layout';
-import { useTheme } from '../src/theme';
+import { compactActionTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../src/theme';
 
 /**
  * 支付成功页（P5 第三轮 Commit C）
@@ -27,6 +27,12 @@ import { useTheme } from '../src/theme';
  */
 export default function PaymentSuccessScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
+  const { height, isLargeText } = useResponsiveLayout();
+  const compactResult = isLargeText || height < 700;
+  const successCircleSize = compactResult ? 140 : 200;
+  const successIconSize = compactResult ? 64 : 96;
+  const topPadding = compactResult ? spacing.xl : spacing['3xl'];
+  const checkMarginTop = compactResult ? spacing.lg : spacing['2xl'];
   const router = useRouter();
   const params = useLocalSearchParams<{
     sessionId?: string;
@@ -50,13 +56,18 @@ export default function PaymentSuccessScreen() {
     minute: '2-digit',
   });
 
-  // 拦截系统返回键（Android）：禁止从成功页 back
+  const handleSystemBack = React.useCallback(() => {
+    router.replace('/orders');
+    return true;
+  }, [router]);
+
+  // Android: 成功页不能回 checkout，但也不能静默吞返回键。
+  // 拦截后同步跳到安全页，避免用户卡死或重复支付。
   useFocusEffect(
     React.useCallback(() => {
-      const onBack = () => true; // 吞掉返回事件
-      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+      const sub = BackHandler.addEventListener('hardwareBackPress', handleSystemBack);
       return () => sub.remove();
-    }, []),
+    }, [handleSystemBack]),
   );
 
   // 主按钮跳转
@@ -95,20 +106,47 @@ export default function PaymentSuccessScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      {/* 顶部不放 AppHeader（无返回按钮，防回 checkout） */}
-      <View style={{ flex: 1, padding: spacing.xl, paddingTop: spacing['3xl'] }}>
+      <Stack.Screen options={{ gestureEnabled: false }} />
+      {/* 顶部不放 AppHeader（无返回按钮，防回 checkout），但内容必须可滚动。 */}
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            padding: spacing.xl,
+            paddingTop: topPadding,
+            paddingBottom: spacing['3xl'],
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* 大对勾动画 */}
         <Animated.View
           entering={ZoomIn.duration(600)}
-          style={[styles.checkWrap, { alignSelf: 'center', marginTop: spacing['2xl'] }]}
+          style={[
+            styles.checkWrap,
+            {
+              width: successCircleSize,
+              height: successCircleSize,
+              alignSelf: 'center',
+              marginTop: checkMarginTop,
+            },
+          ]}
         >
           <LinearGradient
             colors={[colors.brand.primary, colors.ai.end]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={[styles.checkCircle, shadow.lg]}
+            style={[
+              styles.checkCircle,
+              {
+                width: successCircleSize,
+                height: successCircleSize,
+                borderRadius: successCircleSize / 2,
+              },
+              shadow.lg,
+            ]}
           >
-            <MaterialCommunityIcons name="check" size={96} color="#FFFFFF" />
+            <MaterialCommunityIcons name="check" size={successIconSize} color="#FFFFFF" />
           </LinearGradient>
         </Animated.View>
 
@@ -153,11 +191,12 @@ export default function PaymentSuccessScreen() {
           >
             <Text style={[typography.captionSm, { color: colors.text.secondary }]}>支付金额</Text>
             <Text
+              {...priceTextProps}
               style={[
                 {
                   color: colors.brand.primary,
                   marginTop: spacing.xs,
-                  fontSize: 32,
+                  fontSize: compactResult ? 28 : 32,
                   fontWeight: '700',
                   fontVariant: ['tabular-nums'],
                 },
@@ -207,9 +246,6 @@ export default function PaymentSuccessScreen() {
           </View>
         </Animated.View>
 
-        {/* 占位让按钮往下推 */}
-        <View style={{ flex: 1 }} />
-
         {/* 主按钮：查看订单 / VIP 中心 / 全部订单 */}
         <Animated.View entering={FadeInDown.duration(400).delay(400)}>
           <Pressable onPress={handlePrimaryAction}>
@@ -219,7 +255,9 @@ export default function PaymentSuccessScreen() {
               end={{ x: 1, y: 0 }}
               style={[styles.primaryBtn, { borderRadius: radius.pill }]}
             >
-              <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>{primaryBtnText}</Text>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: '#FFFFFF' }]}>
+                {primaryBtnText}
+              </Text>
             </LinearGradient>
           </Pressable>
         </Animated.View>
@@ -233,25 +271,26 @@ export default function PaymentSuccessScreen() {
               { borderColor: colors.border, borderRadius: radius.pill, marginTop: spacing.md },
             ]}
           >
-            <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>返回首页</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>
+              返回首页
+            </Text>
           </Pressable>
         </Animated.View>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
   checkWrap: {
-    width: 200,
-    height: 200,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -267,12 +306,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   primaryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   secondaryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
