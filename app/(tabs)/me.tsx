@@ -17,7 +17,7 @@ import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
-import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
+import { compactActionTextProps, fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
@@ -54,6 +54,8 @@ const AI_TOOLS = [
 
 export default function MeScreen() {
   const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactMe = isCompact || isLargeText;
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -212,14 +214,22 @@ export default function MeScreen() {
         {/* ===== 5A. 用户卡片 ===== */}
         {!isLoggedIn ? (
           /* 未登录态 */
-          <Animated.View entering={FadeInDown.duration(300)} style={[styles.loginCard, { margin: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg }, shadow.sm]}>
+          <Animated.View
+            entering={FadeInDown.duration(300)}
+            style={[
+              styles.loginCard,
+              compactMe && styles.loginCardCompact,
+              { margin: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg },
+              shadow.sm,
+            ]}
+          >
             <View style={styles.loginInfo}>
               <Text style={[typography.title3, { color: colors.text.primary }]}>登录/注册</Text>
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                 登录后解锁会员权益与订单追踪
               </Text>
             </View>
-            <View style={styles.loginActions}>
+            <View style={[styles.loginActions, compactMe && styles.loginActionsCompact]}>
               <Pressable
                 onPress={() => router.push('/me/scanner')}
                 hitSlop={10}
@@ -231,7 +241,7 @@ export default function MeScreen() {
                 onPress={() => setAuthOpen(true)}
                 style={[styles.loginButton, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
               >
-                <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>立即登录/注册</Text>
+                <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>立即登录/注册</Text>
               </Pressable>
             </View>
           </Animated.View>
@@ -246,14 +256,14 @@ export default function MeScreen() {
             end={{ x: 1, y: 1 }}
             style={[styles.userCard, { margin: spacing.xl, borderRadius: radius.lg }]}
           >
-            <View style={styles.userCardTop}>
+            <View style={[styles.userCardTop, compactMe && styles.userCardTopCompact]}>
               <Pressable onPress={() => router.push('/me/appearance')}>
                 <AvatarFrame uri={profile.avatar} size={64} frame={profile.avatarFrame} />
               </Pressable>
               <View style={styles.userCardInfo}>
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>{greeting}</Text>
-                <View style={styles.nameRow}>
-                  <Text style={[typography.headingSm, { color: colors.text.primary }]}>
+                <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>{greeting}</Text>
+                <View style={[styles.nameRow, compactMe && styles.nameRowCompact]}>
+                  <Text {...fitTextProps} style={[typography.headingSm, { color: colors.text.primary }]}>
                     {profile.name}
                   </Text>
                   {/* VIP 徽章 */}
@@ -269,7 +279,7 @@ export default function MeScreen() {
                       style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
                     >
                       <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
-                      <Text style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                      <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -281,14 +291,14 @@ export default function MeScreen() {
                   style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface }]}
                 >
                   <MaterialCommunityIcons name="qrcode-scan" size={14} color={colors.brand.primary} />
-                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>扫一扫</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>扫一扫</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => router.push('/me/profile')}
                   style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface, marginTop: 6 }]}
                 >
                   <MaterialCommunityIcons name="pencil-outline" size={14} color={colors.text.secondary} />
-                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
                 </Pressable>
               </View>
             </View>
@@ -308,16 +318,23 @@ export default function MeScreen() {
                 <Text style={[typography.captionSm, { color: colors.muted }]}>全部订单 &gt;</Text>
               </Pressable>
             </View>
-            <View style={[styles.orderRow, { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md }, shadow.sm]}>
+            <View
+              style={[
+                styles.orderRow,
+                compactMe && styles.orderRowCompact,
+                { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md },
+                shadow.sm,
+              ]}
+            >
               {pendingSession ? (
                 <Pressable
                   onPress={() => router.push({ pathname: '/checkout-pending', params: { sessionId: pendingSession.sessionId } })}
-                  style={styles.orderItem}
+                  style={[styles.orderItem, compactMe && styles.orderItemCompact]}
                 >
                   <View style={styles.orderIconWrap}>
                     <MaterialCommunityIcons name="credit-card-clock-outline" size={22} color="#FF6B35" />
                   </View>
-                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
                     未完成支付
                   </Text>
                   <Countdown
@@ -337,7 +354,7 @@ export default function MeScreen() {
                   <Pressable
                     key={entry.id}
                     onPress={() => requireLogin(() => router.push({ pathname: '/orders', params: { status: entry.id } }))}
-                    style={styles.orderItem}
+                    style={[styles.orderItem, compactMe && styles.orderItemCompact]}
                   >
                     <View style={styles.orderIconWrap}>
                       <MaterialCommunityIcons name={entry.icon as any} size={22} color={colors.brand.primary} />
@@ -349,7 +366,7 @@ export default function MeScreen() {
                         </View>
                       )}
                     </View>
-                    <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
                       {entry.label}
                     </Text>
                   </Pressable>
@@ -359,11 +376,11 @@ export default function MeScreen() {
           </Animated.View>
 
           {/* ===== 5C. 钱包/VIP 双卡片 ===== */}
-          <View style={[styles.dualCards, { marginBottom: spacing.lg }]}>
+          <View style={[styles.dualCards, compactMe && styles.dualCardsCompact, { marginBottom: spacing.lg }]}>
             {/* 钱包卡 */}
             <Pressable
               onPress={() => requireLogin(() => router.push('/me/wallet'))}
-              style={[styles.dualCardItem, { marginRight: spacing.sm }]}
+              style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginRight: spacing.sm }]}
             >
               <LinearGradient
                 colors={[colors.gold.primary, '#E8B730']}
@@ -379,7 +396,7 @@ export default function MeScreen() {
                   ¥{walletBalance}
                 </Text>
                 <View style={[styles.dualCardCta, { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: radius.pill }]}>
-                  <Text style={[typography.captionSm, { color: '#FFFFFF' }]}>去提现</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: '#FFFFFF' }]}>去提现</Text>
                 </View>
               </LinearGradient>
             </Pressable>
@@ -387,7 +404,7 @@ export default function MeScreen() {
             {/* VIP 卡 */}
             <Pressable
               onPress={handleVipPress}
-              style={[styles.dualCardItem, { marginLeft: spacing.sm }]}
+              style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginLeft: spacing.sm }]}
             >
               <LinearGradient
                 colors={[colors.brand.primary, colors.brand.primaryDark]}
@@ -403,19 +420,19 @@ export default function MeScreen() {
                     </Text>
                   </View>
                   <View style={{ justifyContent: 'center' }}>
-                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)' }]}>
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)' }]}>
                       · 全场 95 折
                     </Text>
-                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
                       · 更多奖励
                     </Text>
-                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
                       · 免运费
                     </Text>
                   </View>
                 </View>
                 <View style={[styles.dualCardCta, { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: radius.pill }]}>
-                  <Text style={[typography.captionSm, { color: '#FFFFFF' }]}>查看权益</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: '#FFFFFF' }]}>查看权益</Text>
                 </View>
               </LinearGradient>
             </Pressable>
@@ -854,6 +871,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  loginCardCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 12,
+  },
   loginInfo: {
     flex: 1,
     marginRight: 12,
@@ -861,6 +883,10 @@ const styles = StyleSheet.create({
   loginActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  loginActionsCompact: {
+    alignSelf: 'stretch',
+    justifyContent: 'space-between',
   },
   scanIconBtn: {
     width: 36,
@@ -883,6 +909,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  userCardTopCompact: {
+    alignItems: 'flex-start',
+  },
   userCardInfo: {
     flex: 1,
     marginLeft: 12,
@@ -892,6 +921,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 4,
+  },
+  nameRowCompact: {
+    flexWrap: 'wrap',
+    gap: 6,
   },
   vipBadge: {
     marginLeft: 8,
@@ -927,10 +960,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
+  orderRowCompact: {
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    rowGap: 12,
+  },
   orderItem: {
     alignItems: 'center',
     paddingVertical: 4,
     flex: 1,
+  },
+  orderItemCompact: {
+    width: '33.333%',
+    flex: 0,
+    minHeight: 68,
   },
   orderIconWrap: {
     position: 'relative',
@@ -956,8 +999,17 @@ const styles = StyleSheet.create({
   dualCards: {
     flexDirection: 'row',
   },
+  dualCardsCompact: {
+    flexDirection: 'column',
+    gap: 12,
+  },
   dualCardItem: {
     flex: 1,
+  },
+  dualCardItemStacked: {
+    flex: 0,
+    marginLeft: 0,
+    marginRight: 0,
   },
   dualCardGradient: {
     padding: 16,
