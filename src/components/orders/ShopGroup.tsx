@@ -7,12 +7,13 @@ import { OrderItem } from '../../types';
 interface Props {
   companyName: string;
   items: OrderItem[];
+  isVipPackage?: boolean;
   onContactSeller?: () => void;
   showAfterSaleAction?: boolean;
   onItemAfterSale?: (item: OrderItem) => void;
 }
 
-export function ShopGroup({ companyName, items, onContactSeller, showAfterSaleAction, onItemAfterSale }: Props) {
+export function ShopGroup({ companyName, items, isVipPackage, onContactSeller, showAfterSaleAction, onItemAfterSale }: Props) {
   const { colors, typography } = useTheme();
   return (
     <View>
@@ -32,6 +33,7 @@ export function ShopGroup({ companyName, items, onContactSeller, showAfterSaleAc
           skuTitle={item.skuTitle}
           unitPrice={item.price}
           quantity={item.quantity}
+          priceLabel={isVipPackage ? '赠品' : undefined}
           showAfterSaleAction={showAfterSaleAction && !item.isPrize}
           onAfterSale={() => onItemAfterSale?.(item)}
         />

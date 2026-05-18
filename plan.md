@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-05-15
+> **最后更新**: 2026-05-18
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -31,6 +31,11 @@
   - **来源**: `docs/superpowers/plans/2026-05-15-invoice-auto-issue.md`
   - **实际做了**: Invoice 加 `failedAttempts`/`lastAutoIssueAttemptAt`；新增 `INVOICE_AUTO_ISSUE` 开关 + `INVOICE_AUTO_ISSUE_MAX_ATTEMPTS`（默认 3）；`AdminInvoicesService.issueInvoice` 支持 `adminId: null` 走 SYSTEM 路径；新增 `markAutoIssueAttemptFailure`（软失败不降级）+ `markAutoIssueRetryExhausted`（重试耗尽强翻 FAILED）；买家 `requestInvoice` 末尾 fire-and-forget 触发；新增 `InvoiceAutoIssueRetryService` @Cron(EVERY_10_MINUTES)；管理后台设置页加开关 + 列表/详情显示失败次数；买家 App 文案改为"系统正在自动开票，预计 10 分钟内出票"
   - **验证**: prisma validate / 后端 Jest（admin invoices 13 个 / invoice service 9 个 / auto issue retry 6 个）/ 后端 build / admin build / App TS（仅既有 e2e 阻塞）通过
+
+- [x] **VIP 礼包订单金额显示修复**（2026-05-18 新增并完成）
+  - **来源**: 真机测试发现 399 VIP 礼包订单显示为赠品成本价合计
+  - **实际做了**: 支付回调建 VIP_PACKAGE 订单时以 CheckoutSession 礼包实付金额写入 `Order.totalAmount/goodsAmount`，新增历史订单金额修复迁移；买家 App 订单列表/详情赠品行显示“赠品”而非 SKU 单价
+  - **验证**: VIP 金额回归 Jest、订单运费锁价 Jest、`prisma validate`、后端 build、订单相关 App 文件定向 TS 检查通过；根目录 App TS 检查仍被既有 `tests/e2e` Node/Playwright 类型缺失阻塞
 
 ---
 

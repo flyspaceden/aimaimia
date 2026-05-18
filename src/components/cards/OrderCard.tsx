@@ -46,6 +46,7 @@ export function OrderCard({
   const { colors, radius, shadow, typography } = useTheme();
   const statusColor = STATUS_COLOR[order.status];
   const companyName = order.items[0]?.companyName || '商家';
+  const isVipPackage = order.bizType === 'VIP_PACKAGE';
 
   return (
     <Pressable onPress={onPress} style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
@@ -66,6 +67,7 @@ export function OrderCard({
           skuTitle={item.skuTitle}
           unitPrice={item.price}
           quantity={item.quantity}
+          priceLabel={isVipPackage ? '赠品' : undefined}
         />
       ))}
 

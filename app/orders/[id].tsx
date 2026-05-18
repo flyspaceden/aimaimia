@@ -325,6 +325,7 @@ export default function OrderDetailScreen() {
             <ShopGroup
               companyName={items[0].companyName || '商家'}
               items={items}
+              isVipPackage={isVip}
               showAfterSaleAction={['DELIVERED', 'RECEIVED'].includes(order.status) && !isVip}
               onItemAfterSale={() => router.push({ pathname: '/orders/after-sale/[id]', params: { id: order.id } })}
             />

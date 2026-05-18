@@ -8,12 +8,13 @@ interface Props {
   skuTitle?: string;
   unitPrice: number;
   quantity: number;
+  priceLabel?: string;
   /** 是否显示"申请售后"按钮 */
   showAfterSaleAction?: boolean;
   onAfterSale?: () => void;
 }
 
-export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, showAfterSaleAction, onAfterSale }: Props) {
+export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, priceLabel, showAfterSaleAction, onAfterSale }: Props) {
   const { colors, radius, typography } = useTheme();
   return (
     <View style={styles.row}>
@@ -40,7 +41,9 @@ export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, show
           ) : null}
         </View>
       </View>
-      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>¥{unitPrice.toFixed(2)}</Text>
+      <Text style={[typography.bodyStrong, { color: priceLabel ? colors.brand.primary : colors.text.primary }]}>
+        {priceLabel ?? `¥${unitPrice.toFixed(2)}`}
+      </Text>
     </View>
   );
 }

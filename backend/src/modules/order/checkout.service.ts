@@ -1436,6 +1436,8 @@ export class CheckoutService {
             // 3. 解析快照
             const items = session.itemsSnapshot as unknown as SnapshotItem[];
             const addressSnapshot = session.addressSnapshot;
+            const sessionBizType = (session as any).bizType || 'NORMAL_GOODS';
+            const isVipPackageSession = sessionBizType === 'VIP_PACKAGE';
 
             // 4. 按 companyId 分组
             const itemsByCompany = new Map<string, SnapshotItem[]>();
@@ -1455,6 +1457,14 @@ export class CheckoutService {
                 ),
               }))
               .sort((a, b) => b.goodsAmount - a.goodsAmount);
+
+            // VIP 礼包支付的是会员资格包，赠品 SKU 价格只用于履约快照，不能反写成订单实付金额。
+            if (isVipPackageSession && companyGroups.length > 0) {
+              const vipGoodsAmount = Number(session.goodsAmount || session.expectedTotal || 0);
+              companyGroups.forEach((group, idx) => {
+                group.goodsAmount = idx === 0 ? vipGoodsAmount : 0;
+              });
+            }
 
             // 5. 运费按商户金额比例分配到各商户订单
             const totalSessionGoodsAmount = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
@@ -1503,10 +1513,12 @@ export class CheckoutService {
               const groupCouponDiscount = couponDiscountAllocations[idx] || 0;
               const groupVipDiscount = vipDiscountAllocations[idx] || 0;
               const groupTotalDiscount = groupRewardDiscount + groupCouponDiscount;
-              const groupTotal = Math.max(
-                0,
-                group.goodsAmount - groupVipDiscount - groupTotalDiscount + groupShippingFee,
-              );
+              const groupTotal = isVipPackageSession
+                ? (idx === 0 ? Number(session.expectedTotal || group.goodsAmount || 0) : 0)
+                : Math.max(
+                    0,
+                    group.goodsAmount - groupVipDiscount - groupTotalDiscount + groupShippingFee,
+                  );
               const idempotencyKey = `cs:${session.id}:${cartContentHash}:${idx}`;
 
               const order = await tx.order.create({
@@ -1515,7 +1527,7 @@ export class CheckoutService {
                   checkoutSessionId: session.id,
                   status: 'PAID',
                   // 传递业务类型（VIP_PACKAGE / NORMAL_GOODS）
-                  bizType: (session as any).bizType || 'NORMAL_GOODS',
+                  bizType: sessionBizType,
                   bizMeta: (session as any).bizMeta || undefined,
                   totalAmount: groupTotal,
                   goodsAmount: group.goodsAmount,
