@@ -15,7 +15,7 @@ import { InvoiceSection } from '../../src/components/cards/InvoiceSection';
 import { OrderRepo } from '../../src/repos';
 import { AfterSaleRepo } from '../../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore } from '../../src/store';
-import { useBottomInset, useTheme } from '../../src/theme';
+import { useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
 
@@ -23,15 +23,13 @@ export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const orderId = String(id ?? '');
   const { colors, radius, spacing, typography } = useTheme();
-  // StickyCTABar 自吃 inset（高度 ~48dp + inset），ScrollView 留 80 + inset 才不会
-  // 让最后一个区块被 bar 盖住。useBottomInset(0) 仅 inset + OEM 兜底，不加 extra
-  const safeBottom = useBottomInset(0);
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const [canceling, setCanceling] = React.useState(false);
   const [repurchasing, setRepurchasing] = React.useState(false);
+  const [ctaBarHeight, setCtaBarHeight] = React.useState(96);
   const cancelingRef = React.useRef(false);
   const repurchasingRef = React.useRef(false);
   const replaceCartFromServer = useCartStore((s) => s.replaceFromServer);
@@ -257,7 +255,7 @@ export default function OrderDetailScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="订单详情" />
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 80 + safeBottom }}
+        contentContainerStyle={{ paddingBottom: ctaBarHeight + spacing.lg }}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
       >
         {/* ① StatusHero */}
@@ -369,7 +367,7 @@ export default function OrderDetailScreen() {
       </ScrollView>
 
       {/* ⑦ Sticky CTA */}
-      <StickyCTABar primary={primary} secondary={secondary} />
+      <StickyCTABar primary={primary} secondary={secondary} onHeightChange={setCtaBarHeight} />
     </Screen>
   );
 }

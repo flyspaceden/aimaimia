@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -20,6 +20,7 @@ export default function CheckoutPendingScreen() {
   const queryClient = useQueryClient();
   const { show } = useToast();
   const confirmPayment = useConfirmPayment();
+  const [ctaBarHeight, setCtaBarHeight] = useState(96);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['pending-checkout'],
@@ -95,7 +96,7 @@ export default function CheckoutPendingScreen() {
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="未完成订单" />
-      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: ctaBarHeight + spacing.lg }}>
         <LinearGradient
           colors={['#FF6B35', '#FF8C42']}
           start={{ x: 0, y: 0 }}
@@ -140,6 +141,7 @@ export default function CheckoutPendingScreen() {
       </ScrollView>
 
       <StickyCTABar
+        onHeightChange={setCtaBarHeight}
         primary={{ label: `继续支付 ¥${pending.expectedTotal.toFixed(2)}`, onPress: handleResume }}
         secondary={[{ label: '取消订单', onPress: handleCancel }]}
       />
