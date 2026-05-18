@@ -288,6 +288,24 @@ describe('CartService prize lifecycle guards', () => {
     expect(prisma.cartItem.update).not.toHaveBeenCalled();
   });
 
+  it('allows reducing quantity when cart quantity already exceeds current stock', async () => {
+    const { service, prisma } = createService();
+    prisma.cartItem.findFirst.mockResolvedValue({ id: 'ci-normal', skuId: 'sku1', quantity: 3 });
+    prisma.productSKU.findUnique.mockResolvedValue({
+      id: 'sku1',
+      status: 'ACTIVE',
+      stock: 1,
+      maxPerOrder: null,
+      product: { id: 'p1', status: 'ACTIVE' },
+    });
+
+    await expect(service.updateItemQuantity('user1', 'sku1', 2)).resolves.toEqual({ id: 'cart1', items: [] });
+    expect(prisma.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-normal' },
+      data: { quantity: 2 },
+    });
+  });
+
   it('deletes Redis claim data when prize claim becomes inactive before merge', async () => {
     const claimToken = generateClaimToken(
       {

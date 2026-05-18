@@ -262,7 +262,8 @@ export class CartService {
     });
     if (sku?.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
     if (sku?.product?.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
-    if (sku && quantity > sku.stock) throw new BadRequestException('库存不足');
+    const isIncreasingQuantity = quantity > item.quantity;
+    if (sku && isIncreasingQuantity && quantity > sku.stock) throw new BadRequestException('库存不足');
     if (sku && sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
       throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
     }
