@@ -58,13 +58,12 @@ App 上线必须**手动**走 EAS：要么推 OTA（覆盖 JS 改动），要么
 
 ```bash
 # 推 preview 环境（给测试人员用）
-eas update --branch preview --message "修复xxx / 加xxx功能"
+EXPO_PUBLIC_ALIPAY_SANDBOX=true eas update --branch preview --message "修复xxx / 加xxx功能"
 
 # 推 production 环境（线上正式版）
-eas update --branch production --message "修复xxx"
+EXPO_PUBLIC_ALIPAY_SANDBOX=false eas update --branch production --message "修复xxx"
 
-# 同时推两个环境（一般不这么干，先 preview 验，再 production）
-eas update --branch preview --branch production --message "xxx"
+# 不建议同时推 preview + production：支付宝沙箱开关不同，先 preview 验，再 production
 ```
 
 ### 查 OTA 历史
