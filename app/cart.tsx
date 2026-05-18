@@ -19,7 +19,7 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
 import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
-import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
 
@@ -327,9 +327,9 @@ export default function CartScreen() {
 
               <View style={[styles.content, compactRows && styles.contentCompact]}>
                 <Text
-                  {...fitTextProps}
                   style={[typography.bodyStrong, { color: colors.text.primary }]}
                   numberOfLines={compactRows ? 3 : 2}
+                  ellipsizeMode="tail"
                 >
                   {item.title}
                 </Text>

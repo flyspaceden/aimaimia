@@ -15,11 +15,11 @@ import { router } from 'expo-router';
 import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState } from '../src/components/feedback';
 import { AppBottomSheet } from '../src/components/overlay';
-import { Confetti, SpinWheel, WheelPointer } from '../src/components/effects';
+import { AiTypingEffect, Confetti, SpinWheel, WheelPointer } from '../src/components/effects';
 import { LotteryRepo, type DrawResult, type LotteryPrize } from '../src/repos/LotteryRepo';
 import { useAuthStore, useCartStore } from '../src/store';
 import type { CartItem } from '../src/store/useCartStore';
-import { compactActionTextProps, fitTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
+import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import type { ColorScheme } from '../src/theme/colors';
 
 // 状态机阶段
@@ -338,6 +338,7 @@ export default function LotteryScreen() {
   }, [syncFromServer, refetchStatus, queryClient]);
 
   const result = drawResultRef.current;
+  const resultPrizeName = result?.prize?.name ?? '神秘奖品';
   const isSpinning = phase === 'spinning' || phase === 'decelerating';
   const isDisabled = phase !== 'idle' || remainingDraws <= 0;
 
@@ -499,13 +500,25 @@ export default function LotteryScreen() {
                 🎁
               </Text>
               <View style={{ marginBottom: spacing.sm }}>
-                <Text
-                  {...fitTextProps}
-                  numberOfLines={resultTitleLines}
-                  style={[typography.title3, { color: colors.gold.primary, textAlign: 'center' }]}
-                >
-                  恭喜获得：{result.prize?.name ?? '神秘奖品'}
-                </Text>
+                {compactLotteryResult ? (
+                  <Text
+                    numberOfLines={resultTitleLines}
+                    ellipsizeMode="tail"
+                    style={[typography.title3, { color: colors.gold.primary, textAlign: 'center' }]}
+                  >
+                    恭喜获得：{resultPrizeName}
+                  </Text>
+                ) : (
+                  <AiTypingEffect
+                    text={`恭喜获得：${resultPrizeName}`}
+                    speed={60}
+                    style={{
+                      ...typography.title3,
+                      color: colors.gold.primary,
+                      textAlign: 'center',
+                    }}
+                  />
+                )}
               </View>
               <Text
                 style={[
@@ -541,8 +554,8 @@ export default function LotteryScreen() {
                 😊
               </Text>
               <Text
-                {...fitTextProps}
                 numberOfLines={resultTitleLines}
+                ellipsizeMode="tail"
                 style={[
                   typography.title3,
                   {

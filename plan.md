@@ -922,6 +922,7 @@
 - [🟡] **R-RS-LF01** 支付成功 / 结果页 P0 逃生修复（2026-05-18 新增）—— `payment-success.tsx` 已改 ScrollView、动态图标尺寸、CTA 可达、BackHandler 安全导航、iOS 手势禁用；`lottery.tsx` 结果 BottomSheet 已改可滚动和 compact 降级；待真机矩阵
 - [🟡] **R-RS-LF02** 高频购物页大字体二轮修复（2026-05-18 新增）—— `me.tsx` / `cart.tsx` / `checkout.tsx` / `product/[id].tsx` / `vip/gifts.tsx` / `checkout-pending.tsx` / `orders/[id].tsx` / `StickyCTABar` 已完成；待真机矩阵
 - [🔧] **R-RS-LF03** 全 App 大字体 + 虚拟键巡检（2026-05-18 新增）—— BackHandler / 结果面 / bottom bar 静态命中已分类，`checkout-coupon.tsx`、`invoices/request.tsx` 保留到后续批次；10 场景真机矩阵待跑
+- [ ] **R-RS-LF04** 恢复 E2E tests TypeScript 覆盖（2026-05-18 复审新增）—— 根 `npx tsc -b` 已临时排除 `tests/`；当前 `cd tests && npx tsc --noEmit -p tsconfig.json` 阻断于 `tests/e2e/regression/seller-permission-matrix.spec.ts:58` 的 `test.request` 类型用法。后续需修 tests 类型错误，并把 `tests/tsconfig.json` 纳入 CI 或恢复根编译覆盖
 - [ ] **R-RS-LT01** PR 模板加 Checklist 提示
 - [ ] **R-RS-LT02** OTA 发布前必跑 rg 审计（写入 `app-发布与OTA手册.md` 第四章）
 - [ ] **R-RS-LT03**（可选）封装 `AppText` 组件升级 defaultProps

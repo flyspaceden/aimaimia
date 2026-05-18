@@ -57,9 +57,9 @@ export default function PaymentSuccessScreen() {
   });
 
   const handleSystemBack = React.useCallback(() => {
-    router.replace('/orders');
+    router.replace(isVip ? '/me/vip' : '/orders');
     return true;
-  }, [router]);
+  }, [isVip, router]);
 
   // Android: 成功页不能回 checkout，但也不能静默吞返回键。
   // 拦截后同步跳到安全页，避免用户卡死或重复支付。

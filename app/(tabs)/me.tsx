@@ -420,13 +420,13 @@ export default function MeScreen() {
                     </Text>
                   </View>
                   <View style={{ justifyContent: 'center' }}>
-                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)' }]}>
+                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)' }]}>
                       · 全场 95 折
                     </Text>
-                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
+                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
                       · 更多奖励
                     </Text>
-                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
+                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
                       · 免运费
                     </Text>
                   </View>
