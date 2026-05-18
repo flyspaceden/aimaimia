@@ -19,9 +19,11 @@ This plan intentionally covers one inventory consistency feature across several 
 - Modify: `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` — source-of-truth rule change: zero stock is virtual, not a real added cart item.
 - Modify: `backend/src/modules/order/repurchase.types.ts` — add `LOW_STOCK_ADJUSTED`, `OUT_OF_STOCK_VIRTUAL`, `stockStatus`, `stock`, `adjustedQuantity`, `virtual`.
 - Modify: `src/types/domain/Order.ts` — mirror repurchase response fields for App.
-- Modify: `src/types/domain/ServerCart.ts` — add `OUT_OF_STOCK` unavailable reason plus optional `stockStatus`/`selectable`.
-- Modify: `src/store/useCartStore.ts` — carry SKU stock, derive selectable state, hold virtual repurchase notices.
+- Modify: `src/types/domain/ServerCart.ts` — add `OUT_OF_STOCK` unavailable reason plus optional `sku.stock`/`stockStatus`/`selectable`; keep `product.stock` as a temporary compatibility mirror.
+- Modify: `src/store/useCartStore.ts` — carry volatile SKU stock for display only, derive selectability from server `unavailableReason`, hold non-persisted virtual repurchase notices.
 - Modify: `backend/src/modules/cart/cart.service.ts` — reject zero-stock add, force zero-stock existing cart items unselected, reject selecting zero-stock, keep reducing overstock quantity allowed.
+- Modify: `backend/prisma/schema.prisma` — add cart-item lookup index for stock availability refresh.
+- Create: `backend/prisma/migrations/20260518020000_stock_aware_cart_and_after_sale_idempotency/migration.sql` — add cart-item index and partial unique index for after-sale restock idempotency.
 - Modify: `backend/src/modules/order/order.service.ts` — stock-aware repurchase, preview exclusion, after-sale stock follow-up references.
 - Modify: `backend/src/modules/order/checkout.service.ts` — block known zero-stock and quantity-over-current-stock checkout creation before `CheckoutSession`.
 - Modify: `backend/src/modules/admin/config/config-validation.ts` — validate `LOW_STOCK_DISPLAY_THRESHOLD`.
@@ -31,15 +33,16 @@ This plan intentionally covers one inventory consistency feature across several 
 - Create: `backend/src/modules/app-config/app-config.controller.ts`
 - Modify: `backend/src/app.module.ts` — import `AppConfigModule`.
 - Create: `src/repos/AppConfigRepo.ts`
+- Modify: `seller/src/api/config.ts` — expose public low-stock threshold read to seller web list.
 - Modify: `app/product/[id].tsx`, `app/cart.tsx`, `app/checkout.tsx`, `src/utils/repurchaseToast.ts`, `app/orders/index.tsx`, `app/orders/[id].tsx` — App inventory display, virtual notices, and checkout guards.
 - Modify: `admin/src/pages/products/index.tsx`, `seller/src/pages/products/index.tsx`, `seller/src/pages/products/edit.tsx`, `admin/src/pages/products/edit.tsx` — per-SKU warning and negative stock display/repair.
-- Modify: `backend/src/modules/after-sale/after-sale-refund.service.ts` — idempotent return restock after successful returned-goods refund.
+- Modify: `backend/src/modules/after-sale/after-sale-refund.service.ts` — idempotent return restock after successful returned-goods refund, guarded by the after-sale partial unique index.
 - Test: `backend/src/modules/order/order-repurchase.spec.ts`
 - Test: `backend/src/modules/cart/cart-stock-availability.spec.ts` (new)
 - Test: `backend/src/modules/order/checkout-stock-availability.spec.ts` (new)
 - Test: `backend/src/modules/admin/config/config-validation.spec.ts`
 - Test: `backend/src/modules/after-sale/after-sale-refund.service.spec.ts`
-- Docs: `docs/architecture/frontend.md`, `plan.md`, `AGENTS.md`
+- Docs: `docs/architecture/frontend.md`, `docs/architecture/data-system.md`, `plan.md`, `AGENTS.md`, `CLAUDE.md`
 
 ---
 
@@ -234,7 +237,8 @@ export const AppConfigRepo = {
     return ok({
       lowStockDisplayThreshold:
         Number.isInteger(result.data.lowStockDisplayThreshold) &&
-        result.data.lowStockDisplayThreshold >= 0
+        result.data.lowStockDisplayThreshold >= 0 &&
+        result.data.lowStockDisplayThreshold <= 999
           ? result.data.lowStockDisplayThreshold
           : FALLBACK_CONFIG.lowStockDisplayThreshold,
     });
@@ -266,6 +270,8 @@ git commit -m "feat(config): expose low stock display threshold"
 
 **Files:**
 - Modify: `backend/src/modules/cart/cart.service.ts`
+- Modify: `backend/prisma/schema.prisma`
+- Create: `backend/prisma/migrations/20260518020000_stock_aware_cart_and_after_sale_idempotency/migration.sql`
 - Create: `backend/src/modules/cart/cart-stock-availability.spec.ts`
 - Modify: `src/types/domain/ServerCart.ts`
 
@@ -298,12 +304,20 @@ function createService(stock = 0) {
       findFirst: jest.fn().mockResolvedValue({ id: 'ci1', cartId: 'cart1', skuId: 'sku-zero', quantity: 2, isPrize: false }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-      findMany: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue([{ id: 'ci1', cartId: 'cart1', skuId: 'sku-zero', quantity: 2, isPrize: false, isSelected: true, sku }]),
     },
     lotteryRecord: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
-  const service = new CartService(prisma, { get: jest.fn() } as any, {} as any, {} as any);
+  const redisCoord = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(true),
+    acquireLock: jest.fn().mockResolvedValue(true),
+    releaseLock: jest.fn().mockResolvedValue(true),
+    del: jest.fn().mockResolvedValue(true),
+  };
+  const bonusConfig = { getSystemConfig: jest.fn().mockResolvedValue({}) };
+  const service = new CartService(prisma, { get: jest.fn() } as any, redisCoord as any, bonusConfig as any);
   jest.spyOn(service, 'getCart').mockResolvedValue({ id: 'cart1', items: [] } as any);
   return { service, prisma };
 }
@@ -346,11 +360,15 @@ cd backend && npx jest src/modules/cart/cart-stock-availability.spec.ts --runInB
 
 Expected: FAIL because zero-stock add/select are not rejected yet.
 
-- [ ] **Step 3: Extend ServerCart unavailable reason**
+- [ ] **Step 3: Extend ServerCart stock contract**
 
-In `src/types/domain/ServerCart.ts`, change `unavailableReason` union:
+In `src/types/domain/ServerCart.ts`, change `unavailableReason` union and add a real SKU-level stock object. Keep `product.stock` as a temporary compatibility mirror because older App code reads stock from `product.stock`; new code must prefer `item.sku.stock`.
 
 ```ts
+  sku?: {
+    stock: number;
+    maxPerOrder?: number | null;
+  };
   unavailableReason?:
     | 'SKU_INACTIVE'
     | 'PRODUCT_INACTIVE'
@@ -363,7 +381,35 @@ In `src/types/domain/ServerCart.ts`, change `unavailableReason` union:
   selectable?: boolean;
 ```
 
-- [ ] **Step 4: Add backend stock helpers**
+Update the comment above `product.stock`:
+
+```ts
+    /** @deprecated compatibility mirror of sku.stock; use item.sku.stock for SKU-level stock */
+    stock: number;
+```
+
+- [ ] **Step 4: Add cart stock lookup index**
+
+In `backend/prisma/schema.prisma`, add this index to `model CartItem`:
+
+```prisma
+  @@index([cartId, isPrize, isSelected])
+```
+
+In `backend/prisma/migrations/20260518020000_stock_aware_cart_and_after_sale_idempotency/migration.sql`, add the matching SQL:
+
+```sql
+CREATE INDEX IF NOT EXISTS "CartItem_cartId_isPrize_isSelected_idx"
+ON "CartItem" ("cartId", "isPrize", "isSelected");
+
+CREATE UNIQUE INDEX IF NOT EXISTS "InventoryLedger_after_sale_release_once_idx"
+ON "InventoryLedger" ("refType", "refId")
+WHERE "type" = 'RELEASE'
+  AND "refType" = 'AFTER_SALE'
+  AND "refId" IS NOT NULL;
+```
+
+- [ ] **Step 5: Add backend stock helpers**
 
 In `backend/src/modules/cart/cart.service.ts`, add a local union near the existing `MergeResultItem` type:
 
@@ -387,19 +433,25 @@ Add private helpers near other private methods:
   }
 
   private async forceOutOfStockNormalItemsUnselected(cartId: string) {
-    await this.prisma.cartItem.updateMany({
+    const blocked = await this.prisma.cartItem.findMany({
       where: {
         cartId,
         isPrize: false,
         isSelected: true,
         sku: { stock: { lte: 0 } },
       },
+      select: { id: true },
+    });
+    const ids = blocked.map((item) => item.id);
+    if (ids.length === 0) return;
+    await this.prisma.cartItem.updateMany({
+      where: { id: { in: ids } },
       data: { isSelected: false },
     });
   }
 ```
 
-- [ ] **Step 5: Reject zero-stock add and login merge**
+- [ ] **Step 6: Reject zero-stock add and login merge**
 
 In `addItem()`, after SKU/Product active checks and before maxPerOrder:
 
@@ -493,7 +545,7 @@ In `updateItemQuantity()`, move the cart item read, SKU re-read, stock/maxPerOrd
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 ```
 
-- [ ] **Step 6: Reject selecting zero-stock**
+- [ ] **Step 7: Reject selecting zero-stock**
 
 In `toggleSelect()`, replace the standalone `findFirst()` + `update()` with one Serializable transaction:
 
@@ -518,7 +570,7 @@ In `toggleSelect()`, replace the standalone `findFirst()` + `update()` with one 
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 ```
 
-- [ ] **Step 7: Mark zero-stock cart items unavailable**
+- [ ] **Step 8: Mark zero-stock cart items unavailable**
 
 In `getCart()`, after `cleanExpiredPrizeItems(cart.id)` and before the `cartItem.findMany()` call, call:
 
@@ -535,16 +587,21 @@ In `mapCartItem()`, set normal item unavailable reason before returning:
 Return optional stock status:
 
 ```ts
+      sku: {
+        stock: sku?.stock || 0,
+        maxPerOrder: sku?.maxPerOrder ?? null,
+      },
       stockStatus: (sku?.stock ?? 0) <= 0 ? 'OUT_OF_STOCK' : 'NORMAL',
       selectable: !unavailableReason && !item.isLocked,
 ```
 
-- [ ] **Step 8: Verify and commit**
+- [ ] **Step 9: Verify and commit**
 
 Run:
 
 ```bash
 cd backend && npx jest src/modules/cart/cart-stock-availability.spec.ts src/modules/cart/cart-prize-lifecycle.spec.ts --runInBand
+npx prisma validate
 npx tsc -b
 ```
 
@@ -553,7 +610,7 @@ Expected: PASS.
 Commit:
 
 ```bash
-git add backend/src/modules/cart/cart.service.ts backend/src/modules/cart/cart-stock-availability.spec.ts src/types/domain/ServerCart.ts
+git add backend/src/modules/cart/cart.service.ts backend/src/modules/cart/cart-stock-availability.spec.ts backend/prisma/schema.prisma backend/prisma/migrations/20260518020000_stock_aware_cart_and_after_sale_idempotency/migration.sql src/types/domain/ServerCart.ts
 git commit -m "fix(cart): block zero stock normal items"
 ```
 
@@ -692,6 +749,23 @@ In `backend/src/modules/order/order.service.ts`, inside the `for (const [skuId, 
               const existing = existingRows[0] as any | undefined;
               const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
               const desiredQuantity = existingQuantity + group.totalQuantity;
+              const duplicateIds = existingRows.slice(1).map((item) => item.id);
+              if (duplicateIds.length > 0) {
+                await tx.cartItem.deleteMany({
+                  where: { id: { in: duplicateIds } },
+                });
+              }
+
+              if (group.sku.maxPerOrder !== null && group.sku.maxPerOrder < 1) {
+                for (const item of group.items) {
+                  output.push(this.repurchaseSkipped(
+                    item,
+                    'MAX_PER_ORDER_EXCEEDED',
+                    '该商品当前不可购买',
+                  ));
+                }
+                continue;
+              }
 
               if (currentStock <= 0) {
                 if (existing) {
@@ -720,6 +794,8 @@ In `backend/src/modules/order/order.service.ts`, inside the `for (const [skuId, 
               const finalQuantity = desiredQuantity > currentStock ? 1 : desiredQuantity;
               const lowStockAdjusted = desiredQuantity > currentStock;
 ```
+
+This duplicate cleanup happens before every stock branch, including `OUT_OF_STOCK_VIRTUAL`, so stale duplicate rows cannot keep an old selected quantity after the first row is forced unselected.
 
 Then use `finalQuantity` in update/create:
 
@@ -1004,6 +1080,7 @@ git commit -m "fix(checkout): block known unavailable stock"
 
 **Files:**
 - Modify: `src/store/useCartStore.ts`
+- Modify: `src/store/useAuthStore.ts`
 - Modify: `src/utils/repurchaseToast.ts`
 - Modify: `app/orders/index.tsx`
 - Modify: `app/orders/[id].tsx`
@@ -1055,6 +1132,7 @@ Add to `CartState`:
   virtualNotices: VirtualCartNotice[];
   setVirtualNotices: (items: VirtualCartNotice[]) => void;
   clearVirtualNotice: (skuId: string) => void;
+  clearVirtualNotices: () => void;
 ```
 
 Initialize and implement:
@@ -1066,34 +1144,73 @@ Initialize and implement:
         set((state) => ({
           virtualNotices: state.virtualNotices.filter((item) => item.skuId !== skuId),
         })),
+      clearVirtualNotices: () => set({ virtualNotices: [] }),
 ```
 
-Update `serverToLocal()` to copy:
+Update `serverToLocal()` to copy SKU stock as a volatile display field. Prefer the new `si.sku.stock`, and fall back to the temporary compatibility mirror `si.product.stock`.
 
 ```ts
-  stock: si.product.stock,
+  stock: si.sku?.stock ?? si.product.stock,
 ```
 
-and add `stock?: number;` to `CartItem`.
+Add `stock?: number;` to `CartItem`, with this comment:
+
+```ts
+  /** SKU 库存快照，仅用于当前会话展示；不可作为持久化后的选择裁决 */
+  stock?: number;
+```
+
+In `replaceFromServer()` and `syncFromServer()`, clear stale virtual notices after successful server hydration:
+
+```ts
+      replaceFromServer: (cart, forceSelectedSkuIds = []) => {
+        // ...existing mapping...
+        set((state) => {
+          // keep existing selected-id reconciliation, but include virtualNotices: []
+          return {
+            items: entries.map(({ local }) => local),
+            selectedIds: nextSelectedIds,
+            virtualNotices: [],
+          };
+        });
+      },
+```
+
+`syncFromServer()` should also end in a state write with `virtualNotices: []`.
 
 - [ ] **Step 3: Make selectable logic stock-aware**
 
-In `useCartStore.ts`, replace `isSelectableCartItem` with:
+In `useCartStore.ts`, keep selection authority on server `unavailableReason` and lock state. Do not use persisted `stock` for selectability because Zustand persists cart items and stock can become stale after cold start.
 
 ```ts
 export const isSelectableCartItem = (item: CartItem) =>
   !item.unavailableReason &&
-  !item.isLocked &&
-  Number(item.stock ?? 1) > 0;
+  !item.isLocked;
 ```
 
-In `replaceFromServer()` and `syncFromServer()`, this automatically prevents zero-stock server rows from being selected.
+In the persist `partialize`, strip volatile stock and virtual notices:
+
+```ts
+      partialize: (state) => ({
+        items: state.items.map(({ stock, ...item }) => item),
+        selectedIds: Array.from(state.selectedIds),
+      }),
+```
+
+In `src/store/useAuthStore.ts`, update the logout cart reset to clear notices:
+
+```ts
+useCartStore.setState({ items: [], selectedIds: new Set<string>(), virtualNotices: [] });
+```
+
+Document this invariant in a short code comment near `CartItem.stock`: stock is display state; `unavailableReason` is the checkout/selectability裁决 state.
 
 - [ ] **Step 4: Set virtual notices after repurchase**
 
-In both `app/orders/index.tsx` and `app/orders/[id].tsx`, after `const result = r.data`, add:
+In both `app/orders/index.tsx` and `app/orders/[id].tsx`, after `const result = r.data`, hydrate the real cart first, then set virtual notices so `replaceFromServer()` does not clear the notice from the same repurchase action:
 
 ```ts
+replaceCartFromServer(result.cart);
 const virtualNotices = result.items
   .filter((item) => item.virtual || item.reason === 'OUT_OF_STOCK_VIRTUAL')
   .map((item) => ({
@@ -1104,7 +1221,7 @@ const virtualNotices = result.items
 useCartStore.getState().setVirtualNotices(virtualNotices);
 ```
 
-Keep `replaceFromServer(result.cart)` for real cart items. If `addedQuantity === 0` but `virtualNotices.length > 0`, still navigate to `/cart` so the user sees the virtual explanation.
+If `addedQuantity === 0` but `virtualNotices.length > 0`, still navigate to `/cart` so the user sees the virtual explanation.
 
 - [ ] **Step 5: Improve repurchase toast**
 
@@ -1132,6 +1249,13 @@ In `app/cart.tsx`, read:
 ```ts
 const virtualNotices = useCartStore((s) => s.virtualNotices);
 const clearVirtualNotice = useCartStore((s) => s.clearVirtualNotice);
+```
+
+Also update `unavailableText()` in `app/cart.tsx`:
+
+```ts
+    case 'OUT_OF_STOCK':
+      return '无库存';
 ```
 
 In `ListHeaderComponent`, after the select-all row, render:
@@ -1170,6 +1294,7 @@ Use existing React Query import if already present. Add:
 const { data: appConfigResult } = useQuery({
   queryKey: ['app-config'],
   queryFn: AppConfigRepo.getPublicConfig,
+  staleTime: 1000 * 60 * 60,
 });
 const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
 const activeStockStatus = getStockStatus(selectedSku?.stock ?? 0, lowStockThreshold);
@@ -1198,12 +1323,26 @@ if (!canBuyActiveSku) {
 
 Set disabled style on buttons when `!canBuyActiveSku`.
 
+Use the same `['app-config']` query key and `staleTime: 1000 * 60 * 60` in `app/cart.tsx` and `app/checkout.tsx` when rendering stock text. This keeps App config to one cached request per hour across the App.
+
+In `app/cart.tsx`, render SKU-level stock text under the title:
+
+```tsx
+{getStockText(item.stock, lowStockThreshold) && (
+  <Text style={[typography.captionSm, { color: Number(item.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+    {getStockText(item.stock, lowStockThreshold)}
+  </Text>
+)}
+```
+
+In `app/checkout.tsx`, render the same text on checkout item rows and keep checkout blocking based on server refresh plus `unavailableReason`.
+
 - [ ] **Step 8: Prevent checkout navigation with zero-stock selected local rows**
 
 In `app/cart.tsx`, before `router.push('/checkout')`, add:
 
 ```ts
-const blocked = selectedItems.some((item) => Number(item.stock ?? 1) <= 0);
+const blocked = selectedItems.some((item) => item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
 if (blocked) {
   show({ message: '有商品暂无库存，请移除后再结算', type: 'warning' });
   return;
@@ -1213,7 +1352,7 @@ if (blocked) {
 In `app/checkout.tsx`, after `syncFromServer()` completes on entry, selected items already rehydrate; before create session, add:
 
 ```ts
-const blocked = cartItems.some((item) => Number(item.stock ?? 1) <= 0);
+const blocked = cartItems.some((item) => item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
 if (blocked) {
   show({ message: '有商品暂无库存，请返回购物车处理', type: 'warning' });
   return;
@@ -1233,7 +1372,7 @@ Expected: PASS.
 Commit:
 
 ```bash
-git add src/store/useCartStore.ts src/utils/stockDisplay.ts src/utils/repurchaseToast.ts src/types/domain/ServerCart.ts src/types/domain/Order.ts src/repos/AppConfigRepo.ts app/cart.tsx app/product/[id].tsx app/checkout.tsx app/orders/index.tsx app/orders/[id].tsx
+git add src/store/useCartStore.ts src/store/useAuthStore.ts src/utils/stockDisplay.ts src/utils/repurchaseToast.ts src/types/domain/ServerCart.ts src/types/domain/Order.ts src/repos/AppConfigRepo.ts app/cart.tsx app/product/[id].tsx app/checkout.tsx app/orders/index.tsx app/orders/[id].tsx
 git commit -m "fix(app): show stock aware cart states"
 ```
 
@@ -1244,71 +1383,152 @@ git commit -m "fix(app): show stock aware cart states"
 **Files:**
 - Modify: `admin/src/pages/products/index.tsx`
 - Modify: `admin/src/pages/products/edit.tsx`
+- Modify: `seller/src/api/config.ts`
 - Modify: `seller/src/pages/products/index.tsx`
 - Modify: `seller/src/pages/products/edit.tsx`
 
-- [ ] **Step 1: Replace total-only stock warning with per-SKU warning**
+- [ ] **Step 1: Add shared low-stock threshold reads**
 
-In `admin/src/pages/products/index.tsx`, change the type import to include `ProductSKU`:
+In `seller/src/api/config.ts`, add a public App config read:
 
 ```ts
-import type { Product, ProductSKU } from '@/types';
+export const getPublicAppConfig = (): Promise<{ lowStockDisplayThreshold: number }> =>
+  client.get('/app/config');
 ```
 
-`seller/src/pages/products/index.tsx` already imports `ProductSKU`. In both list pages, add or replace helpers:
+In `admin/src/pages/products/index.tsx`, import:
 
 ```ts
-const LOW_STOCK_THRESHOLD = 10;
+import { useQuery } from '@tanstack/react-query';
+import { getConfigs } from '@/api/config';
+import { extractConfigValue, type Product, type ProductSKU } from '@/types';
+```
 
-function getStockSummary(product: Product) {
+Then inside `ProductListPage()`:
+
+```ts
+const { data: configRows = [] } = useQuery({
+  queryKey: ['admin', 'configs', 'low-stock-threshold'],
+  queryFn: getConfigs,
+  staleTime: 1000 * 60 * 60,
+});
+const lowStockThreshold = (() => {
+  const row = configRows.find((item) => item.key === 'LOW_STOCK_DISPLAY_THRESHOLD');
+  const value = Number(row ? extractConfigValue(row) : 10);
+  return Number.isInteger(value) && value >= 0 && value <= 999 ? value : 10;
+})();
+```
+
+In `seller/src/pages/products/index.tsx`, import and query:
+
+```ts
+import { getPublicAppConfig } from '@/api/config';
+```
+
+```ts
+const { data: appConfig } = useQuery({
+  queryKey: ['app-config'],
+  queryFn: getPublicAppConfig,
+  staleTime: 1000 * 60 * 60,
+});
+const lowStockThreshold = appConfig?.lowStockDisplayThreshold ?? 10;
+```
+
+- [ ] **Step 2: Replace total-only stock warning with per-SKU warning**
+
+In `admin/src/pages/products/index.tsx`, make sure the `@/types` import uses `extractConfigValue, type Product, type ProductSKU` as shown in Step 1.
+
+`seller/src/pages/products/index.tsx` already imports `ProductSKU`. In both list pages, replace `LOW_STOCK_THRESHOLD = 10` and total-only helpers with:
+
+```ts
+function getStockSummary(product: Product, threshold: number) {
   const skus = product.skus ?? [];
   const total = skus.reduce((sum, sku) => sum + (sku.stock ?? 0), 0);
   const minSku = skus.reduce<ProductSKU | undefined>((min, sku) => {
     if (!min) return sku;
     return (sku.stock ?? 0) < (min.stock ?? 0) ? sku : min;
   }, undefined);
+  const owedSkus = skus.filter((sku) => (sku.stock ?? 0) < 0);
   const zeroCount = skus.filter((sku) => (sku.stock ?? 0) <= 0).length;
-  const lowCount = skus.filter((sku) => (sku.stock ?? 0) > 0 && (sku.stock ?? 0) <= LOW_STOCK_THRESHOLD).length;
-  return { total, minSku, zeroCount, lowCount };
+  const lowCount = threshold > 0
+    ? skus.filter((sku) => (sku.stock ?? 0) > 0 && (sku.stock ?? 0) <= threshold).length
+    : 0;
+  return { total, minSku, owedSkus, zeroCount, lowCount };
 }
 ```
 
-Use `zeroCount > 0 || lowCount > 0` for warnings instead of `total < LOW_STOCK_THRESHOLD`.
+Call `getStockSummary(r, lowStockThreshold)` in every product row. Use `zeroCount > 0 || lowCount > 0` for warnings instead of `total < 10` or `stock < LOW_STOCK_THRESHOLD`.
 
-- [ ] **Step 2: Display negative stock as owed stock**
+- [ ] **Step 3: Display negative stock as owed stock**
+
+In `seller/src/pages/products/index.tsx`, add `Tooltip` and `Typography` to the Ant Design import and add `const { Text } = Typography;` near the top. `admin/src/pages/products/index.tsx` already has both.
 
 In stock column renderers, display:
 
 ```tsx
-const { total, minSku, zeroCount, lowCount } = getStockSummary(r);
+const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
 const hasOwed = (minSku?.stock ?? 0) < 0;
+const owedText = owedSkus
+  .map((sku) => `${sku.title || sku.id}: 欠货 ${Math.abs(sku.stock ?? 0)} 件`)
+  .join('\n');
 return (
   <Space direction="vertical" size={0}>
     <Text type={hasOwed || zeroCount > 0 ? 'danger' : lowCount > 0 ? 'warning' : undefined}>
       {total}
     </Text>
-    {hasOwed && <Text type="danger" style={{ fontSize: 12 }}>欠货 {Math.abs(minSku!.stock)} 件</Text>}
+    {hasOwed && (
+      <Tooltip title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{owedText}</pre>}>
+        <Text type="danger" style={{ fontSize: 12 }}>
+          {owedSkus.length} 个规格欠货
+        </Text>
+      </Tooltip>
+    )}
     {!hasOwed && zeroCount > 0 && <Text type="danger" style={{ fontSize: 12 }}>{zeroCount} 个规格无库存</Text>}
     {!hasOwed && zeroCount === 0 && lowCount > 0 && <Text type="warning" style={{ fontSize: 12 }}>{lowCount} 个规格低库存</Text>}
   </Space>
 );
 ```
 
-- [ ] **Step 3: Add edit-page hint for negative initial stock**
+- [ ] **Step 4: Add edit-page hint for negative initial stock**
 
-In `seller/src/pages/products/edit.tsx` and `admin/src/pages/products/edit.tsx`, near stock `Form.Item`, add a small hint rendered from current field value:
+In `admin/src/pages/products/edit.tsx`, add `min={0}` and `precision={0}` to the SKU stock `InputNumber`:
 
 ```tsx
-{Number(form.getFieldValue('singleStock') ?? 0) < 0 && (
-  <Typography.Text type="danger" style={{ fontSize: 12 }}>
-    当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
-  </Typography.Text>
-)}
+<InputNumber min={0} precision={0} style={{ width: 120 }} />
+```
+
+In both `admin/src/pages/products/edit.tsx` and `seller/src/pages/products/edit.tsx`, add a responsive hint inside each `Form.List name="skus"` row, next to the stock `Form.Item`:
+
+```tsx
+<Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+  {({ getFieldValue }) => {
+    const stock = Number(getFieldValue(['skus', field.name, 'stock']) ?? 0);
+    return stock < 0 ? (
+      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+        当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
+      </Typography.Text>
+    ) : null;
+  }}
+</Form.Item>
+```
+
+In seller single-SKU sections that use `name="singleStock"`, add a separate responsive hint:
+
+```tsx
+<Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
+  {({ getFieldValue }) => (
+    Number(getFieldValue('singleStock') ?? 0) < 0 ? (
+      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+        当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
+      </Typography.Text>
+    ) : null
+  )}
+</Form.Item>
 ```
 
 Keep `min={0}` for input; the user repairs negative inventory by entering `0+`.
 
-- [ ] **Step 4: Verify and commit**
+- [ ] **Step 5: Verify and commit**
 
 Run:
 
@@ -1321,7 +1541,7 @@ Expected: PASS.
 Commit:
 
 ```bash
-git add admin/src/pages/products/index.tsx admin/src/pages/products/edit.tsx seller/src/pages/products/index.tsx seller/src/pages/products/edit.tsx
+git add admin/src/pages/products/index.tsx admin/src/pages/products/edit.tsx seller/src/api/config.ts seller/src/pages/products/index.tsx seller/src/pages/products/edit.tsx
 git commit -m "fix(web): surface per sku low stock warnings"
 ```
 
@@ -1379,6 +1599,37 @@ it('restocks returned normal item exactly once when return refund succeeds', asy
     }),
   }));
 });
+
+it('does not restock again when after-sale RELEASE ledger already exists', async () => {
+  const tx: any = {
+    refund: { findUnique: jest.fn().mockResolvedValue({ id: 'refund1', status: 'REFUNDING', afterSaleId: 'as1', amount: 234 }), update: jest.fn() },
+    afterSaleRequest: {
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'as1',
+        orderId: 'order1',
+        userId: 'user1',
+        status: 'REFUNDING',
+        afterSaleType: 'QUALITY_RETURN',
+        requiresReturn: true,
+        orderItem: { skuId: 'sku1', quantity: 2, isPrize: false },
+      }),
+      update: jest.fn(),
+    },
+    refundStatusHistory: { create: jest.fn() },
+    productSKU: { update: jest.fn() },
+    inventoryLedger: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'ledger-existing' }),
+      create: jest.fn(),
+    },
+    afterSaleStatusHistory: { create: jest.fn() },
+  };
+  prisma.$transaction.mockImplementation(async (cb: any) => cb(tx));
+
+  await service.handleRefundSuccess('refund1', 'provider1');
+
+  expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+  expect(tx.productSKU.update).not.toHaveBeenCalled();
+});
 ```
 
 - [ ] **Step 2: Run after-sale test and confirm failure**
@@ -1408,7 +1659,17 @@ In `handleRefundSuccess()`, change `tx.afterSaleRequest.findUnique` to:
 
 - [ ] **Step 4: Add idempotent restock helper**
 
-Inside the `if (request.status !== 'REFUNDED')` transition block, before returning completed payload, add:
+The migration created in Task 2 already includes the partial unique index:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS "InventoryLedger_after_sale_release_once_idx"
+ON "InventoryLedger" ("refType", "refId")
+WHERE "type" = 'RELEASE'
+  AND "refType" = 'AFTER_SALE'
+  AND "refId" IS NOT NULL;
+```
+
+Inside the `if (request.status !== 'REFUNDED')` transition block, before returning completed payload, add this helper. Create the ledger before incrementing stock so the unique index prevents duplicate stock increments under concurrent retry:
 
 ```ts
           const shouldRestock =
@@ -1426,18 +1687,28 @@ Inside the `if (request.status !== 'REFUNDED')` transition block, before returni
               },
             });
             if (!existingLedger) {
+              try {
+                await tx.inventoryLedger.create({
+                  data: {
+                    skuId: request.orderItem.skuId,
+                    type: 'RELEASE',
+                    qty: request.orderItem.quantity,
+                    refType: 'AFTER_SALE',
+                    refId: request.id,
+                  },
+                });
+              } catch (error) {
+                if (
+                  error instanceof Prisma.PrismaClientKnownRequestError &&
+                  error.code === 'P2002'
+                ) {
+                  return;
+                }
+                throw error;
+              }
               await tx.productSKU.update({
                 where: { id: request.orderItem.skuId },
                 data: { stock: { increment: request.orderItem.quantity } },
-              });
-              await tx.inventoryLedger.create({
-                data: {
-                  skuId: request.orderItem.skuId,
-                  type: 'RELEASE',
-                  qty: request.orderItem.quantity,
-                  refType: 'AFTER_SALE',
-                  refId: request.id,
-                },
               });
             }
           }
@@ -1469,9 +1740,11 @@ git commit -m "fix(after-sale): restock returned refunded items"
 
 **Files:**
 - Modify: `docs/architecture/frontend.md`
+- Modify: `docs/architecture/data-system.md`
 - Modify: `plan.md`
 - Modify: `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md`
 - Modify: `AGENTS.md`
+- Modify: `CLAUDE.md`
 
 - [ ] **Step 1: Update docs**
 
@@ -1491,6 +1764,42 @@ In `AGENTS.md`, register this plan:
 
 ```md
 - `docs/superpowers/plans/2026-05-18-stock-aware-repurchase-low-stock-display.md` — 库存感知复购与低库存展示实施计划（后端库存裁决 / App 虚拟无库存提示 / 后台低库存阈值 / 售后库存回填，**库存体验与库存一致性实施排程**）
+```
+
+In both `AGENTS.md` and `CLAUDE.md`, update the inventory architecture decision from:
+
+```md
+| 超卖容忍 | 允许库存变为负数，卖家收到补货通知，不退款 |
+```
+
+to:
+
+```md
+| 超卖容忍 | 已知无库存/超当前库存的普通商品在加购、复购、购物车勾选和 CheckoutSession 前拦截；支付回调阶段仍允许并发后的普通商品库存变为负数，卖家收到补货通知，不退款 |
+```
+
+In `docs/architecture/data-system.md`, document `InventoryLedger.refType='AFTER_SALE'` for returned-goods refund restock and the partial unique index:
+
+```md
+库存流水补充：退货退款成功后的库存回填使用 `InventoryLedger(type=RELEASE, refType=AFTER_SALE, refId=<afterSaleId>)` 记录幂等流水；数据库通过部分唯一索引保证同一个售后单只回填一次。
+```
+
+In `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md`, align the cart response shape with the implementation:
+
+```ts
+type ServerCartItem = {
+  sku?: {
+    stock: number;
+    maxPerOrder?: number | null;
+  };
+  product: {
+    /** compatibility mirror of sku.stock during rollout */
+    stock: number;
+  };
+  isSelected: boolean;
+  stockStatus?: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+  selectable?: boolean;
+};
 ```
 
 - [ ] **Step 2: Run focused backend tests**
@@ -1525,14 +1834,14 @@ Expected: PASS.
 Run:
 
 ```bash
-rg -n "库存不足|暂无库存|OUT_OF_STOCK|LOW_STOCK_DISPLAY_THRESHOLD|stock <= 0|stock: \\{ decrement|stock: \\{ increment" backend/src app src admin/src seller/src
+test "$(rg -n "OUT_OF_STOCK" backend/src/modules/cart/cart.service.ts src/types/domain/ServerCart.ts app/cart.tsx | wc -l | tr -d ' ')" -ge 3
+test "$(rg -n "LOW_STOCK_DISPLAY_THRESHOLD" backend/src admin/src src docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md | wc -l | tr -d ' ')" -ge 4
+test "$(rg -n "stock: \\{ decrement" backend/src/modules/order/checkout.service.ts | wc -l | tr -d ' ')" -ge 1
+test "$(rg -n "refType: 'AFTER_SALE'|refType=AFTER_SALE" backend/src docs/architecture/data-system.md backend/prisma/migrations | wc -l | tr -d ' ')" -ge 2
+test "$(rg -n "LOW_STOCK_THRESHOLD = 10|stock < 10" admin/src/pages/products/index.tsx seller/src/pages/products/index.tsx | wc -l | tr -d ' ')" -eq 0
 ```
 
-Expected:
-- zero-stock add/select/checkout paths are explicit;
-- payment callback still has normal-goods decrement fallback;
-- after-sale returned refund has one idempotent RELEASE ledger;
-- admin/seller show per-SKU warning and no longer rely only on total stock.
+Expected: all commands exit `0`. These assertions verify zero-stock handling is explicit, payment callback still has the R12 decrement fallback, after-sale restock is idempotent, and admin/seller no longer hard-code threshold `10`.
 
 - [ ] **Step 5: Manual real-device matrix**
 
@@ -1552,7 +1861,7 @@ Use Android real device with large font and virtual navigation keys:
 Commit docs after verification:
 
 ```bash
-git add docs/architecture/frontend.md plan.md docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md AGENTS.md
+git add docs/architecture/frontend.md docs/architecture/data-system.md plan.md docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md AGENTS.md CLAUDE.md
 git commit -m "docs(stock): record stock aware rollout"
 ```
 
