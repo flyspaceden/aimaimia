@@ -9,7 +9,8 @@ import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState, Skeleton } from '../src/components/feedback';
 import { CouponRepo } from '../src/repos';
 import { useAuthStore, useCheckoutStore } from '../src/store';
-import { priceTextProps, useBottomInset, useTheme } from '../src/theme';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
+import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import type { CheckoutEligibleCoupon } from '../src/types/domain/Coupon';
 
 /**
@@ -186,8 +187,12 @@ export default function CheckoutCouponScreen() {
   const router = useRouter();
   // R-RS03 A7: 替换 useSafeAreaInsets → useBottomInset，加 OEM 兜底
   // 修复优惠券选择栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
-  const scrollBottomPad = useBottomInset(100);
+  // R-RS-LF02: 底部栏改用 onLayout 测量实际高度，大字体下自动留够
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactConfirmBar = isCompact || isLargeText;
   const barBottomPad = useBottomInset(spacing.sm);
+  const { bottomPadding: scrollBottomPad, onBarLayout: handleConfirmBarLayout } =
+    useMeasuredBottomBar(compactConfirmBar ? 140 : 100, spacing.lg);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
   // 接收参数：订单金额 + 分类ID列表 + 商家ID列表 + 已选红包（回显）
@@ -465,8 +470,10 @@ export default function CheckoutCouponScreen() {
 
       {/* 底部确认栏 */}
       <View
+        onLayout={handleConfirmBarLayout}
         style={[
           styles.bottomBar,
+          compactConfirmBar && styles.bottomBarCompact,
           {
             paddingBottom: barBottomPad,
             paddingHorizontal: spacing.xl,
@@ -479,16 +486,21 @@ export default function CheckoutCouponScreen() {
           onPress={handleSkip}
           style={{ paddingVertical: 12, paddingHorizontal: spacing.md }}
         >
-          <Text style={[typography.bodySm, { color: colors.text.secondary }]}>不使用红包</Text>
+          <Text {...compactActionTextProps} style={[typography.bodySm, { color: colors.text.secondary }]}>
+            不使用红包
+          </Text>
         </Pressable>
         <LinearGradient
           colors={[...gradients.goldGradient]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={{ borderRadius: radius.pill, overflow: 'hidden' }}
+          style={[
+            { borderRadius: radius.pill, overflow: 'hidden' },
+            compactConfirmBar && { alignSelf: 'stretch' },
+          ]}
         >
           <Pressable onPress={handleConfirm} style={styles.confirmButton}>
-            <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
               {selectedCount > 0
                 ? `确认使用 ${selectedCount} 张 -¥${totalDiscount.toFixed(2)}`
                 : '确认'}
@@ -565,8 +577,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: 12,
   },
+  bottomBarCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
   confirmButton: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
