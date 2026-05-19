@@ -87,6 +87,8 @@ export type VirtualCartNotice = {
   skuId: string;
   title: string;
   message: string;
+  /** 内部标记：允许复购虚拟提示穿过下一次服务端同步；同步后自动移除 */
+  preserveOnNextSync?: boolean;
 };
 
 export type LocalCartMergeOutcome = {
@@ -131,6 +133,7 @@ type CartState = {
   virtualNotices: VirtualCartNotice[];
   loading: boolean;
   setVirtualNotices: (items: VirtualCartNotice[]) => void;
+  preserveVirtualNoticesOnce: () => void;
   clearVirtualNotice: (skuId: string) => void;
   clearVirtualNotices: () => void;
   /** 用服务端购物车响应直接覆盖本地购物车（用于复购等接口返回 cart 的场景） */
@@ -175,6 +178,10 @@ export const useCartStore = create<CartState>()(
       virtualNotices: [],
       loading: false,
       setVirtualNotices: (items) => set({ virtualNotices: items }),
+      preserveVirtualNoticesOnce: () =>
+        set((state) => ({
+          virtualNotices: state.virtualNotices.map((item) => ({ ...item, preserveOnNextSync: true })),
+        })),
       clearVirtualNotice: (skuId) =>
         set((state) => ({
           virtualNotices: state.virtualNotices.filter((item) => item.skuId !== skuId),
@@ -223,6 +230,9 @@ export const useCartStore = create<CartState>()(
               const oldKeys = new Set(state.items.map(itemKey));
               const validKeys = new Set(serverItems.map(itemKey));
               const newSelectedIds = new Set<string>();
+              const preservedVirtualNotices = state.virtualNotices
+                .filter((notice) => notice.preserveOnNextSync)
+                .map(({ preserveOnNextSync, ...notice }) => notice);
               // 保持已有的勾选状态
               for (const id of state.selectedIds) {
                 const item = serverItems.find((serverItem) => itemKey(serverItem) === id);
@@ -233,7 +243,7 @@ export const useCartStore = create<CartState>()(
                 const key = itemKey(item);
                 if (!oldKeys.has(key) && isSelectableCartItem(item)) newSelectedIds.add(key);
               }
-              return { items: serverItems, selectedIds: newSelectedIds, virtualNotices: [], loading: false };
+              return { items: serverItems, selectedIds: newSelectedIds, virtualNotices: preservedVirtualNotices, loading: false };
             });
           }
         } catch {

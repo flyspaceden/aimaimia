@@ -55,6 +55,9 @@ function useOrderActions() {
           message: item.message || '商品暂无库存，未加入购物车',
         }));
       useCartStore.getState().setVirtualNotices(virtualNotices);
+      if (virtualNotices.length > 0) {
+        useCartStore.getState().preserveVirtualNoticesOnce();
+      }
       if (result.addedQuantity <= 0 && virtualNotices.length === 0) {
         show({ message: '原订单商品当前不可再次购买', type: 'info' });
         return;

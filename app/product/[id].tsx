@@ -103,8 +103,8 @@ export default function ProductDetailScreen() {
   }, [activeSkuId, skus]);
   const activeSkuPrice = selectedSku?.price;
   const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
-  const activeStockStatus = getStockStatus(selectedSku?.stock ?? 0, lowStockThreshold);
-  const activeStockText = getStockText(selectedSku?.stock ?? 0, lowStockThreshold);
+  const activeStockStatus = getStockStatus(selectedSku?.stock, lowStockThreshold);
+  const activeStockText = getStockText(selectedSku?.stock, lowStockThreshold);
   const canBuyActiveSku = activeStockStatus !== 'OUT_OF_STOCK';
 
   const handleRefresh = async () => {
