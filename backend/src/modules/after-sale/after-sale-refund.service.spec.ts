@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { AfterSaleOperatorType } from '@prisma/client';
+import { AfterSaleOperatorType, Prisma } from '@prisma/client';
 import { AfterSaleRefundService } from './after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 
@@ -22,6 +22,12 @@ describe('AfterSaleRefundService', () => {
     },
     afterSaleStatusHistory: {
       create: jest.fn(),
+    },
+    inventoryLedger: {
+      create: jest.fn(),
+    },
+    productSKU: {
+      update: jest.fn(),
     },
     order: {
       findUnique: jest.fn(),
@@ -91,6 +97,8 @@ describe('AfterSaleRefundService', () => {
     });
     tx.refund.updateMany.mockResolvedValue({ count: 1 });
     tx.refundStatusHistory.findFirst.mockResolvedValue(null);
+    tx.inventoryLedger.create.mockResolvedValue({ id: 'inv_ledger_001' });
+    tx.productSKU.update.mockResolvedValue({ id: 'sku_001', stock: 12 });
     tx.order.findUnique.mockResolvedValue({ userId: 'user_001' });
     paymentService.initiateRefund.mockResolvedValue({
       success: true,
@@ -274,6 +282,199 @@ describe('AfterSaleRefundService', () => {
     }));
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
+  });
+
+  it('handleRefundSuccess restocks returned normal items exactly once when returned-goods refund succeeds', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 3,
+        isPrize: false,
+      },
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'as_001' },
+      include: {
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            isPrize: true,
+          },
+        },
+      },
+    }));
+    expect(tx.inventoryLedger.create).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.create).toHaveBeenCalledWith({
+      data: {
+        skuId: 'sku_001',
+        type: 'RELEASE',
+        qty: 3,
+        refType: 'AFTER_SALE',
+        refId: 'as_001',
+      },
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(1);
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'sku_001' },
+      data: { stock: { increment: 3 } },
+    });
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
+  });
+
+  it('handleRefundSuccess does not restock when after-sale release ledger already exists', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'NO_REASON_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 2,
+        isPrize: false,
+      },
+    });
+    tx.inventoryLedger.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: {
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            isPrize: true,
+          },
+        },
+      },
+    }));
+    expect(tx.inventoryLedger.create).toHaveBeenCalledTimes(1);
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+  });
+
+  it('handleRefundSuccess does not restock exchange types', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'NO_REASON_EXCHANGE',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 2,
+        isPrize: false,
+      },
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: {
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            isPrize: true,
+          },
+        },
+      },
+    }));
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+  });
+
+  it('handleRefundSuccess does not restock prize items', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 2,
+        isPrize: true,
+      },
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: {
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            isPrize: true,
+          },
+        },
+      },
+    }));
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
 
   it('handleRefundSuccess closes after-sale when refund is already REFUNDED but request is still REFUNDING', async () => {

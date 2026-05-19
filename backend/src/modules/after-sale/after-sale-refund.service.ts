@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AfterSaleType,
   AfterSaleOperatorType,
   AfterSaleStatus,
+  InventoryType,
   Prisma,
   Refund,
   RefundStatus,
@@ -180,6 +182,15 @@ export class AfterSaleRefundService {
 
         const request = await tx.afterSaleRequest.findUnique({
           where: { id: refund.afterSaleId },
+          include: {
+            orderItem: {
+              select: {
+                skuId: true,
+                quantity: true,
+                isPrize: true,
+              },
+            },
+          },
         });
         if (!request) throw new NotFoundException('售后单不存在');
 
@@ -218,6 +229,46 @@ export class AfterSaleRefundService {
             operatorType: AfterSaleOperatorType.SYSTEM,
             meta: { refundId, providerRefundId: providerRefundId ?? null },
           });
+
+          const shouldRestockReturnedItem =
+            request.requiresReturn &&
+            (
+              request.afterSaleType === AfterSaleType.NO_REASON_RETURN ||
+              request.afterSaleType === AfterSaleType.QUALITY_RETURN
+            ) &&
+            request.orderItem &&
+            !request.orderItem.isPrize &&
+            Boolean(request.orderItem.skuId) &&
+            request.orderItem.quantity > 0;
+
+          if (shouldRestockReturnedItem && request.orderItem) {
+            try {
+              await tx.inventoryLedger.create({
+                data: {
+                  skuId: request.orderItem.skuId,
+                  type: InventoryType.RELEASE,
+                  qty: request.orderItem.quantity,
+                  refType: 'AFTER_SALE',
+                  refId: request.id,
+                },
+              });
+            } catch (err) {
+              if (this.isUniqueConstraintError(err)) {
+                return {
+                  orderId: request.orderId,
+                  userId: request.userId,
+                  amount: refund.amount,
+                };
+              }
+              throw err;
+            }
+
+            await tx.productSKU.update({
+              where: { id: request.orderItem.skuId },
+              data: { stock: { increment: request.orderItem.quantity } },
+            });
+          }
+
           return {
             orderId: request.orderId,
             userId: request.userId,
@@ -242,6 +293,10 @@ export class AfterSaleRefundService {
       content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回支付宝账户。`,
       target: { route: '/orders' },
     }).catch(() => {});
+  }
+
+  private isUniqueConstraintError(err: unknown): boolean {
+    return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
   }
 
   async handleRefundFailure(refundId: string, reason: string): Promise<void> {
