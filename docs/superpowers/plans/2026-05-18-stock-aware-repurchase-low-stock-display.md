@@ -42,6 +42,8 @@ This plan intentionally covers one inventory consistency feature across several 
 - Test: `backend/src/modules/order/checkout-stock-availability.spec.ts` (new)
 - Test: `backend/src/modules/admin/config/config-validation.spec.ts`
 - Test: `backend/src/modules/after-sale/after-sale-refund.service.spec.ts`
+- Test: `src/utils/__tests__/stockDisplay.test.ts` (new)
+- Test: `src/utils/__tests__/repurchaseToast.test.ts` (new)
 - Docs: `docs/architecture/frontend.md`, `docs/architecture/data-system.md`, `plan.md`, `AGENTS.md`, `CLAUDE.md`
 
 ---
@@ -1090,6 +1092,8 @@ git commit -m "fix(checkout): block known unavailable stock"
 - Modify: `src/types/domain/ServerCart.ts`
 - Modify: `src/types/domain/Order.ts`
 - Create: `src/utils/stockDisplay.ts`
+- Create: `src/utils/__tests__/stockDisplay.test.ts`
+- Create: `src/utils/__tests__/repurchaseToast.test.ts`
 
 - [ ] **Step 1: Add stock display helper**
 
@@ -1176,7 +1180,20 @@ In `replaceFromServer()` and `syncFromServer()`, clear stale virtual notices aft
       },
 ```
 
-`syncFromServer()` should also end in a state write with `virtualNotices: []`.
+In `syncFromServer()`, locate the final `set(...)` call that writes back `items` and `selectedIds` after the server hydration, and add `virtualNotices: []` to that same state write. Example shape:
+
+```ts
+      syncFromServer: async () => {
+        // ...existing fetch + mapping...
+        set({
+          items: nextItems,
+          selectedIds: nextSelectedIds,
+          virtualNotices: [],
+        });
+      },
+```
+
+If there are multiple intermediate `set(...)` calls inside `syncFromServer`, only the final post-hydration write should clear notices; do not clear from inside loading-state writes.
 
 - [ ] **Step 3: Make selectable logic stock-aware**
 
@@ -1325,6 +1342,23 @@ Set disabled style on buttons when `!canBuyActiveSku`.
 
 Use the same `['app-config']` query key and `staleTime: 1000 * 60 * 60` in `app/cart.tsx` and `app/checkout.tsx` when rendering stock text. This keeps App config to one cached request per hour across the App.
 
+In `app/cart.tsx`, add the same imports and query block near the top of the component (where other React Query hooks live):
+
+```ts
+import { useQuery } from '@tanstack/react-query';
+import { AppConfigRepo } from '../src/repos/AppConfigRepo';
+import { getStockText } from '../src/utils/stockDisplay';
+
+const { data: appConfigResult } = useQuery({
+  queryKey: ['app-config'],
+  queryFn: AppConfigRepo.getPublicConfig,
+  staleTime: 1000 * 60 * 60,
+});
+const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
+```
+
+In `app/checkout.tsx`, add the identical import + query + `lowStockThreshold` derivation block.
+
 In `app/cart.tsx`, render SKU-level stock text under the title:
 
 ```tsx
@@ -1359,7 +1393,138 @@ if (blocked) {
 }
 ```
 
-- [ ] **Step 9: Verify and commit**
+- [ ] **Step 9: Add App-side unit tests for stock display and repurchase toast**
+
+Create `src/utils/__tests__/stockDisplay.test.ts`:
+
+```ts
+import { getStockStatus, getStockText } from '../stockDisplay';
+
+describe('getStockStatus', () => {
+  it('returns OUT_OF_STOCK for zero, negative, null, or undefined stock', () => {
+    expect(getStockStatus(0, 10)).toBe('OUT_OF_STOCK');
+    expect(getStockStatus(-1, 10)).toBe('OUT_OF_STOCK');
+    expect(getStockStatus(null, 10)).toBe('OUT_OF_STOCK');
+    expect(getStockStatus(undefined, 10)).toBe('OUT_OF_STOCK');
+  });
+
+  it('returns LOW_STOCK for 1..threshold when threshold > 0', () => {
+    expect(getStockStatus(1, 10)).toBe('LOW_STOCK');
+    expect(getStockStatus(10, 10)).toBe('LOW_STOCK');
+  });
+
+  it('returns NORMAL when stock exceeds threshold', () => {
+    expect(getStockStatus(11, 10)).toBe('NORMAL');
+    expect(getStockStatus(1000, 10)).toBe('NORMAL');
+  });
+
+  it('disables LOW_STOCK band when threshold is 0 but still reports OUT_OF_STOCK at zero', () => {
+    expect(getStockStatus(5, 0)).toBe('NORMAL');
+    expect(getStockStatus(0, 0)).toBe('OUT_OF_STOCK');
+  });
+});
+
+describe('getStockText', () => {
+  it('returns 无库存 for zero or negative stock', () => {
+    expect(getStockText(0, 10)).toBe('无库存');
+    expect(getStockText(-1, 10)).toBe('无库存');
+  });
+
+  it('returns 仅剩 x 件 inside the low-stock band', () => {
+    expect(getStockText(3, 10)).toBe('仅剩 3 件');
+    expect(getStockText(10, 10)).toBe('仅剩 10 件');
+  });
+
+  it('returns null when stock exceeds threshold', () => {
+    expect(getStockText(20, 10)).toBeNull();
+  });
+
+  it('returns null in the low band when threshold is 0', () => {
+    expect(getStockText(5, 0)).toBeNull();
+  });
+});
+```
+
+Create `src/utils/__tests__/repurchaseToast.test.ts`. The exact result shape must match the existing exports of `src/utils/repurchaseToast.ts`; only the virtual-stock branches added in Step 5 are asserted here:
+
+```ts
+import { formatRepurchaseToast } from '../repurchaseToast';
+import type { RepurchaseResult } from '../../types/domain/Order';
+
+function baseResult(overrides: Partial<RepurchaseResult> = {}): RepurchaseResult {
+  return {
+    addedItemCount: 0,
+    addedQuantity: 0,
+    skippedItemCount: 0,
+    skippedQuantity: 0,
+    priceChangedCount: 0,
+    cart: { id: 'c1', items: [] } as any,
+    items: [],
+    ...overrides,
+  };
+}
+
+describe('formatRepurchaseToast virtual stock branches', () => {
+  it('reports out-of-stock-only message when addedQuantity is 0 but virtual notices exist', () => {
+    const toast = formatRepurchaseToast(baseResult({
+      skippedItemCount: 1,
+      skippedQuantity: 3,
+      items: [
+        {
+          orderItemId: 'oi1',
+          skuId: 'sku1',
+          title: '龙虾',
+          quantity: 3,
+          status: 'SKIPPED',
+          reason: 'OUT_OF_STOCK_VIRTUAL',
+          virtual: true,
+        } as any,
+      ],
+    }));
+    expect(toast.message).toContain('暂无库存');
+  });
+
+  it('combines added count with virtual count when both happen', () => {
+    const toast = formatRepurchaseToast(baseResult({
+      addedItemCount: 1,
+      addedQuantity: 1,
+      skippedItemCount: 1,
+      skippedQuantity: 2,
+      items: [
+        {
+          orderItemId: 'oi1',
+          skuId: 'sku1',
+          title: '龙虾',
+          quantity: 1,
+          status: 'ADDED',
+          stockStatus: 'NORMAL',
+        } as any,
+        {
+          orderItemId: 'oi2',
+          skuId: 'sku2',
+          title: '橙子',
+          quantity: 2,
+          status: 'SKIPPED',
+          reason: 'OUT_OF_STOCK_VIRTUAL',
+          virtual: true,
+        } as any,
+      ],
+    }));
+    expect(toast.message).toMatch(/已加入 1 件商品/);
+    expect(toast.message).toMatch(/1 个商品暂无库存/);
+  });
+});
+```
+
+Run from repo root:
+
+```bash
+npx jest src/utils/__tests__/stockDisplay.test.ts src/utils/__tests__/repurchaseToast.test.ts --runInBand
+```
+
+Expected: PASS. If `formatRepurchaseToast` is renamed or exports a different shape in the current code base, adjust the import names accordingly — the assertions only depend on the Chinese substrings, not the exact return key.
+
+- [ ] **Step 10: Verify and commit**
 
 Run:
 
@@ -1372,7 +1537,7 @@ Expected: PASS.
 Commit:
 
 ```bash
-git add src/store/useCartStore.ts src/store/useAuthStore.ts src/utils/stockDisplay.ts src/utils/repurchaseToast.ts src/types/domain/ServerCart.ts src/types/domain/Order.ts src/repos/AppConfigRepo.ts app/cart.tsx app/product/[id].tsx app/checkout.tsx app/orders/index.tsx app/orders/[id].tsx
+git add src/store/useCartStore.ts src/store/useAuthStore.ts src/utils/stockDisplay.ts src/utils/__tests__/stockDisplay.test.ts src/utils/__tests__/repurchaseToast.test.ts src/utils/repurchaseToast.ts src/types/domain/ServerCart.ts src/types/domain/Order.ts src/repos/AppConfigRepo.ts app/cart.tsx app/product/[id].tsx app/checkout.tsx app/orders/index.tsx app/orders/[id].tsx
 git commit -m "fix(app): show stock aware cart states"
 ```
 
@@ -1815,6 +1980,14 @@ cd backend && npx jest \
   src/modules/admin/config/config-validation.spec.ts \
   src/modules/after-sale/after-sale-refund.service.spec.ts \
   --runInBand
+```
+
+Expected: PASS.
+
+Then run the App-side pure-function tests from repo root:
+
+```bash
+npx jest src/utils/__tests__/stockDisplay.test.ts src/utils/__tests__/repurchaseToast.test.ts --runInBand
 ```
 
 Expected: PASS.
