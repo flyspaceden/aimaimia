@@ -1230,6 +1230,9 @@ model InventoryLedger {
   createdAt DateTime      @default(now())
 
   @@index([skuId]) // M5: 外键索引，加速库存流水查询
+  // 退货退款回填幂等依赖手写部分唯一索引，Prisma schema 暂不能表达：
+  // InventoryLedger_after_sale_release_once_idx(refType, refId)
+  // WHERE type='RELEASE' AND refType='AFTER_SALE' AND refId IS NOT NULL
 }
 
 // ============================================================

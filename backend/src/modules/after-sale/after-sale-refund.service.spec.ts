@@ -26,6 +26,7 @@ describe('AfterSaleRefundService', () => {
     inventoryLedger: {
       create: jest.fn(),
       createMany: jest.fn(),
+      findFirst: jest.fn(),
     },
     productSKU: {
       update: jest.fn(),
@@ -99,6 +100,7 @@ describe('AfterSaleRefundService', () => {
     tx.refund.updateMany.mockResolvedValue({ count: 1 });
     tx.refundStatusHistory.findFirst.mockResolvedValue(null);
     tx.inventoryLedger.create.mockResolvedValue({ id: 'inv_ledger_001' });
+    tx.inventoryLedger.findFirst.mockResolvedValue(null);
     tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
     tx.productSKU.update.mockResolvedValue({ id: 'sku_001', stock: 12 });
     tx.order.findUnique.mockResolvedValue({ userId: 'user_001' });
@@ -326,6 +328,14 @@ describe('AfterSaleRefundService', () => {
       },
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
+      where: {
+        type: 'RELEASE',
+        refType: 'AFTER_SALE',
+        refId: 'as_001',
+      },
+      select: { id: true },
+    });
     expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
     expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
       data: [{
@@ -430,7 +440,7 @@ describe('AfterSaleRefundService', () => {
         isPrize: false,
       },
     });
-    tx.inventoryLedger.createMany.mockResolvedValue({ count: 0 });
+    tx.inventoryLedger.findFirst.mockResolvedValue({ id: 'ledger_existing' });
 
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
@@ -446,17 +456,15 @@ describe('AfterSaleRefundService', () => {
       },
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
-    expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
-    expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
-      data: [{
-        skuId: 'sku_001',
+    expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
+      where: {
         type: 'RELEASE',
-        qty: 2,
         refType: 'AFTER_SALE',
         refId: 'as_001',
-      }],
-      skipDuplicates: true,
+      },
+      select: { id: true },
     });
+    expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });

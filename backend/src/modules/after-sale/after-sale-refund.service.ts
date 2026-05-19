@@ -244,6 +244,23 @@ export class AfterSaleRefundService {
             request.orderItem.quantity > 0;
 
           if (shouldRestockReturnedItem && request.orderItem) {
+            const existingRestockLedger = await tx.inventoryLedger.findFirst({
+              where: {
+                type: InventoryType.RELEASE,
+                refType: 'AFTER_SALE',
+                refId: request.id,
+              },
+              select: { id: true },
+            });
+
+            if (existingRestockLedger) {
+              return {
+                orderId: request.orderId,
+                userId: request.userId,
+                amount: refund.amount,
+              };
+            }
+
             const restockLedger = await tx.inventoryLedger.createMany({
               data: [{
                 skuId: request.orderItem.skuId,
