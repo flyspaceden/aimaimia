@@ -262,7 +262,10 @@ describe('OrderService.repurchase', () => {
     expect(result.addedQuantity).toBe(0);
     expect(result.skippedQuantity).toBe(2);
     expect(result.items[0].reason).toBe('MAX_PER_ORDER_EXCEEDED');
-    expect(tx.cartItem.update).not.toHaveBeenCalled();
+    expect(tx.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-1' },
+      data: { quantity: 3, isSelected: true },
+    });
     expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ['ci-2'] } },
     });
@@ -282,7 +285,10 @@ describe('OrderService.repurchase', () => {
     expect(result.addedQuantity).toBe(0);
     expect(result.skippedQuantity).toBe(2);
     expect(result.items[0].reason).toBe('MAX_PER_ORDER_EXCEEDED');
-    expect(tx.cartItem.update).not.toHaveBeenCalled();
+    expect(tx.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-1' },
+      data: { quantity: 3, isSelected: true },
+    });
     expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ['ci-2'] } },
     });
@@ -370,6 +376,35 @@ describe('OrderService.repurchase', () => {
       stockStatus: 'OUT_OF_STOCK',
       stock: 0,
       virtual: true,
+    });
+    expect(tx.cartItem.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves duplicate cart quantity and unselects kept row when stock is zero', async () => {
+    const { service, tx } = createHarness({
+      order: makeOrder({ items: [{ id: 'oi-1', skuId: 'sku-1', unitPrice: 234, quantity: 3, isPrize: false, productSnapshot: { title: '龙虾' } }] }),
+      skus: [makeSku({ id: 'sku-1', stock: 0, price: 234 })],
+      cartItems: [
+        { id: 'ci-1', skuId: 'sku-1', quantity: 2, isPrize: false, isSelected: false },
+        { id: 'ci-2', skuId: 'sku-1', quantity: 1, isPrize: false, isSelected: true },
+      ],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(0);
+    expect(result.skippedQuantity).toBe(3);
+    expect(result.items[0].reason).toBe('OUT_OF_STOCK_VIRTUAL');
+    expect(tx.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-1' },
+      data: { quantity: 3, isSelected: true },
+    });
+    expect(tx.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-1' },
+      data: { quantity: 3, isSelected: false },
+    });
+    expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['ci-2'] } },
     });
     expect(tx.cartItem.create).not.toHaveBeenCalled();
   });

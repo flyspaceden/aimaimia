@@ -825,6 +825,13 @@ export class OrderService {
                 await tx.cartItem.deleteMany({
                   where: { id: { in: duplicateIds } },
                 });
+                await tx.cartItem.update({
+                  where: { id: existing.id },
+                  data: {
+                    quantity: existingQuantity,
+                    isSelected: existingRows.some((item) => item.isSelected),
+                  },
+                });
               }
 
               if (group.sku.maxPerOrder !== null && group.sku.maxPerOrder < 1) {
@@ -842,7 +849,7 @@ export class OrderService {
                 if (existing) {
                   await tx.cartItem.update({
                     where: { id: existing.id },
-                    data: { isSelected: false },
+                    data: { quantity: existingQuantity, isSelected: false },
                   });
                 }
                 for (const item of group.items) {
