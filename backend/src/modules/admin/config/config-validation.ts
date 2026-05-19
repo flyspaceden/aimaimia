@@ -269,6 +269,12 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     min: 1,
     max: 90,
   },
+  LOW_STOCK_DISPLAY_THRESHOLD: {
+    type: 'integer',
+    description: 'App 低库存展示阈值（0 表示关闭“仅剩 x 件”展示）',
+    min: 0,
+    max: 999,
+  },
   LOTTERY_ENABLED: {
     type: 'boolean',
     description: '抽奖功能开关',
@@ -441,10 +447,10 @@ export function validateConfigValue(key: string, value: any): string | null {
         return `配置项 ${key}（${rule.description}）的值必须是数字，当前值: ${JSON.stringify(value)}`;
       }
       if (rule.min !== undefined && value < rule.min) {
-        return `配置项 ${key}（${rule.description}）的值不能小于 ${rule.min}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能小于最小值 ${rule.min}，当前值: ${value}`;
       }
       if (rule.max !== undefined && value > rule.max) {
-        return `配置项 ${key}（${rule.description}）的值不能大于 ${rule.max}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能大于最大值 ${rule.max}，当前值: ${value}`;
       }
       break;
     }
@@ -454,10 +460,10 @@ export function validateConfigValue(key: string, value: any): string | null {
         return `配置项 ${key}（${rule.description}）的值必须是整数，当前值: ${JSON.stringify(value)}`;
       }
       if (rule.min !== undefined && value < rule.min) {
-        return `配置项 ${key}（${rule.description}）的值不能小于 ${rule.min}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能小于最小值 ${rule.min}，当前值: ${value}`;
       }
       if (rule.max !== undefined && value > rule.max) {
-        return `配置项 ${key}（${rule.description}）的值不能大于 ${rule.max}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能大于最大值 ${rule.max}，当前值: ${value}`;
       }
       break;
     }

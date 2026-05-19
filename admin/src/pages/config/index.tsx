@@ -68,6 +68,19 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
   { key: 'LOTTERY_DAILY_CHANCES',  label: '每日抽奖次数',     group: 'lottery', type: 'number', min: 1, max: 10, step: 1, suffix: '次', integer: true, defaultValue: 1 },
   // 订单设置
   { key: 'AUTO_CONFIRM_DAYS',      label: '自动确认收货天数', group: 'order', type: 'number', min: 1, max: 30, step: 1, suffix: '天', integer: true },
+  {
+    key: 'LOW_STOCK_DISPLAY_THRESHOLD',
+    label: 'App 低库存展示阈值',
+    group: 'order',
+    type: 'number',
+    min: 0,
+    max: 999,
+    step: 1,
+    suffix: '件',
+    integer: true,
+    description: '库存 1..阈值时 App 展示“仅剩 x 件”；0 表示关闭低库存文案，但无库存仍会禁选',
+    defaultValue: 10,
+  },
 ];
 
 /** 从配置列表中按 key 取原始值 */

@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { AppConfigModule } from './modules/app-config/app-config.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ProductModule } from './modules/product/product.module';
 import { CompanyModule } from './modules/company/company.module';
@@ -59,6 +60,7 @@ import { EmailModule } from './common/email/email.module';
     SmsModule,
     EmailModule,
     PrismaModule,
+    AppConfigModule,
     AuthModule,
     ProductModule,
     CompanyModule,

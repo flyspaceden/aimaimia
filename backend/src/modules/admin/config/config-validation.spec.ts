@@ -48,3 +48,17 @@ describe('invoice config validation', () => {
     ).toContain('密钥');
   });
 });
+
+describe('LOW_STOCK_DISPLAY_THRESHOLD validation', () => {
+  it('accepts integer threshold between 0 and 999', () => {
+    expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 0)).toBeNull();
+    expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 10)).toBeNull();
+    expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 999)).toBeNull();
+  });
+
+  it('rejects invalid low-stock threshold values', () => {
+    expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', -1)).toContain('最小值');
+    expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 1000)).toContain('最大值');
+    expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 1.5)).toContain('整数');
+  });
+});
