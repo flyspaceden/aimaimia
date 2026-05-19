@@ -99,7 +99,7 @@ export const useAuthStore = create<AuthState>()(
         if (!wasLoggedIn) return;
         try {
           const { useCartStore } = require('./useCartStore');
-          useCartStore.setState({ items: [], selectedIds: new Set<string>() });
+          useCartStore.setState({ items: [], selectedIds: new Set<string>(), virtualNotices: [] });
         } catch { /* 忽略 */ }
       },
     }),

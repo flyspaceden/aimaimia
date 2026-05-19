@@ -15,6 +15,7 @@ import { AiBadge } from '../src/components/ui/AiBadge';
 import { AiOrb } from '../src/components/effects/AiOrb';
 import { ProductCard } from '../src/components/cards/ProductCard';
 import { RecommendRepo } from '../src/repos';
+import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
@@ -22,6 +23,7 @@ import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckout
 import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
+import { getStockText } from '../src/utils/stockDisplay';
 
 // RECOMMEND_CARD_WIDTH 不依赖屏幕宽度（固定 140pt），保留在模块顶层
 // SCREEN_WIDTH 已删除：原本声明但未使用，且模块顶层 Dimensions.get 违反响应式规范
@@ -74,6 +76,8 @@ function unavailableText(reason?: string | null) {
       return '规格不存在';
     case 'PRODUCT_MISSING':
       return '商品不存在';
+    case 'OUT_OF_STOCK':
+      return '无库存';
     default:
       return '已下架';
   }
@@ -94,6 +98,8 @@ export default function CartScreen() {
     useMeasuredBottomBar(compactRows ? 148 : 112, spacing.lg);
   const items = useCartStore((s) => s.items);
   const selectedIds = useCartStore((s) => s.selectedIds);
+  const virtualNotices = useCartStore((s) => s.virtualNotices);
+  const clearVirtualNotice = useCartStore((s) => s.clearVirtualNotice);
   const clear = useCartStore((s) => s.clear);
   const updateQty = useCartStore((s) => s.updateQty);
   const removeItem = useCartStore((s) => s.removeItem);
@@ -111,6 +117,13 @@ export default function CartScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+
+  const { data: appConfigResult } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: AppConfigRepo.getPublicConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
 
   // 进入购物车页时从服务端同步（仅登录状态，仅首次挂载）
   useEffect(() => {
@@ -152,6 +165,30 @@ export default function CartScreen() {
     }
   };
 
+  const handleCheckoutPress = () => {
+    if (selCount === 0) {
+      show({ message: '请先选择商品', type: 'info' });
+      return;
+    }
+    if (!isLoggedIn) {
+      setAuthModalOpen(true);
+      return;
+    }
+    const { items: currentItems, selectedIds: currentSelectedIds } = useCartStore.getState();
+    const selectedItems = currentItems.filter((item) => {
+      const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+      return currentSelectedIds.has(key);
+    });
+    const blocked = selectedItems.some((item) => item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
+    if (blocked) {
+      show({ message: '有商品暂无库存，请移除后再结算', type: 'warning' });
+      return;
+    }
+    // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
+    clearVipPackageSelection();
+    router.push('/checkout');
+  };
+
   // 首次加载中
   if (loading && items.length === 0) {
     return (
@@ -168,7 +205,7 @@ export default function CartScreen() {
   }
 
   // 空购物车
-  if (items.length === 0) {
+  if (items.length === 0 && virtualNotices.length === 0) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="购物车" onBack={handleBack} />
@@ -253,6 +290,34 @@ export default function CartScreen() {
                 已选 {items.filter((item) => isSelectableCartItem(item) && selectedIds.has(item.skuId ? `${item.productId}:${item.skuId}` : item.productId)).reduce((sum, item) => sum + item.quantity, 0)}/{items.filter(isSelectableCartItem).reduce((sum, item) => sum + item.quantity, 0)}
               </Text>
             </View>
+            {virtualNotices.map((notice) => (
+              <View
+                key={notice.skuId}
+                style={[
+                  styles.card,
+                  shadow.sm,
+                  {
+                    borderColor: colors.danger,
+                    borderWidth: 1,
+                    backgroundColor: colors.surface,
+                    borderRadius: radius.lg,
+                    marginBottom: spacing.sm,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={2}>
+                    {notice.title}
+                  </Text>
+                  <Text style={[typography.caption, { color: colors.danger, marginTop: 4 }]}>
+                    {notice.message}
+                  </Text>
+                </View>
+                <Pressable onPress={() => clearVirtualNotice(notice.skuId)} hitSlop={8}>
+                  <MaterialCommunityIcons name="delete-outline" size={20} color={colors.danger} />
+                </Pressable>
+              </View>
+            ))}
           </>
         }
         renderItem={({ item }) => {
@@ -262,6 +327,7 @@ export default function CartScreen() {
           const isPrize = item.isPrize === true;
           const unavailableReason = item.unavailableReason;
           const isUnavailable = !!unavailableReason;
+          const stockText = getStockText(item.stock, lowStockThreshold);
           const nonPrizeTotal = selectedNonPrizeTotal();
           // 动态计算锁定状态：赠品在非奖品总额达到门槛时自动解锁
           const isLocked = !isUnavailable && item.isLocked === true && (!item.threshold || nonPrizeTotal < item.threshold);
@@ -333,6 +399,11 @@ export default function CartScreen() {
                 >
                   {item.title}
                 </Text>
+                {stockText && (
+                  <Text style={[typography.captionSm, { color: Number(item.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                    {stockText}
+                  </Text>
+                )}
                 {item.pendingClaim && (
                   <Text style={[typography.captionSm, { color: colors.brand.primary, marginTop: 2 }]}>
                     已加入本地购物车，登录后确认领取
@@ -506,19 +577,7 @@ export default function CartScreen() {
             style={{ borderRadius: radius.pill, overflow: 'hidden' }}
           >
             <Pressable
-              onPress={() => {
-                if (selCount === 0) {
-                  show({ message: '请先选择商品', type: 'info' });
-                  return;
-                }
-                if (!isLoggedIn) {
-                  setAuthModalOpen(true);
-                  return;
-                }
-                // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
-                clearVipPackageSelection();
-                router.push('/checkout');
-              }}
+              onPress={handleCheckoutPress}
               style={styles.checkoutButton}
             >
               <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
@@ -554,19 +613,7 @@ export default function CartScreen() {
             style={{ borderRadius: radius.pill, overflow: 'hidden' }}
           >
             <Pressable
-              onPress={() => {
-                if (selCount === 0) {
-                  show({ message: '请先选择商品', type: 'info' });
-                  return;
-                }
-                if (!isLoggedIn) {
-                  setAuthModalOpen(true);
-                  return;
-                }
-                // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
-                clearVipPackageSelection();
-                router.push('/checkout');
-              }}
+              onPress={handleCheckoutPress}
               style={styles.checkoutButton}
             >
               <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>

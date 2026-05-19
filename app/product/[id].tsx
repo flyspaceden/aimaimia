@@ -25,9 +25,11 @@ import { Price } from '../../src/components/ui/Price';
 import { AiBadge } from '../../src/components/ui/AiBadge';
 import { AiDivider } from '../../src/components/ui/AiDivider';
 import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
+import { AppConfigRepo } from '../../src/repos/AppConfigRepo';
 import { useCartStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
+import { getStockStatus, getStockText } from '../../src/utils/stockDisplay';
 
 import type { ProductDetail } from '../../src/types';
 
@@ -67,6 +69,12 @@ export default function ProductDetailScreen() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: appConfigResult } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: AppConfigRepo.getPublicConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+
   // 溯源数据（极少变动，10 分钟长缓存）
   const { data: traceData } = useQuery({
     queryKey: ['product-trace', id],
@@ -94,6 +102,10 @@ export default function ProductDetailScreen() {
     return skus.find((s) => s.id === activeSkuId);
   }, [activeSkuId, skus]);
   const activeSkuPrice = selectedSku?.price;
+  const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
+  const activeStockStatus = getStockStatus(selectedSku?.stock ?? 0, lowStockThreshold);
+  const activeStockText = getStockText(selectedSku?.stock ?? 0, lowStockThreshold);
+  const canBuyActiveSku = activeStockStatus !== 'OUT_OF_STOCK';
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -253,6 +265,7 @@ export default function ProductDetailScreen() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
                 {skus.map((sku) => {
                   const active = activeSkuId === sku.id;
+                  const stockText = getStockText(sku.stock, lowStockThreshold);
                   return (
                     <Pressable
                       key={sku.id}
@@ -278,9 +291,11 @@ export default function ProductDetailScreen() {
                       <Text style={[typography.captionSm, { color: active ? colors.brand.primary : colors.text.tertiary, marginTop: 2 }]}>
                         ¥{sku.price}
                       </Text>
-                      <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 2 }]}>
-                        库存: {sku.stock}
-                      </Text>
+                      {stockText && (
+                        <Text style={[typography.captionSm, { color: sku.stock <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                          {stockText}
+                        </Text>
+                      )}
                     </Pressable>
                   );
                 })}
@@ -289,6 +304,11 @@ export default function ProductDetailScreen() {
               {selectedSku?.maxPerOrder != null && (
                 <Text style={[typography.captionSm, { color: colors.warning, marginTop: spacing.xs }]}>
                   每单限购 {selectedSku.maxPerOrder} 件
+                </Text>
+              )}
+              {activeStockText && (
+                <Text style={[typography.captionSm, { color: activeStockStatus === 'OUT_OF_STOCK' ? colors.danger : colors.warning, marginTop: spacing.xs }]}>
+                  {activeStockText}
                 </Text>
               )}
             </Animated.View>
@@ -474,6 +494,10 @@ export default function ProductDetailScreen() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
           <Pressable
             onPress={() => {
+              if (!canBuyActiveSku) {
+                show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                return;
+              }
               const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               if (added) {
                 show({ message: '已加入购物车', type: 'success' });
@@ -487,6 +511,7 @@ export default function ProductDetailScreen() {
                 borderWidth: 1.5,
                 borderColor: colors.brand.primary,
               },
+              !canBuyActiveSku && { opacity: 0.5 },
             ]}
           >
             <MaterialCommunityIcons name="cart-plus" size={18} color={colors.brand.primary} style={{ marginRight: 6 }} />
@@ -502,12 +527,16 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
+                if (!canBuyActiveSku) {
+                  show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                  return;
+                }
                 const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
                 if (added) {
                   router.push('/checkout');
                 }
               }}
-              style={styles.ctaInner}
+              style={[styles.ctaInner, !canBuyActiveSku && { opacity: 0.5 }]}
             >
               <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                 ✦ 立即购买
@@ -532,6 +561,10 @@ export default function ProductDetailScreen() {
         >
           <Pressable
             onPress={() => {
+              if (!canBuyActiveSku) {
+                show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                return;
+              }
               const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               if (added) {
                 show({ message: '已加入购物车', type: 'success' });
@@ -545,6 +578,7 @@ export default function ProductDetailScreen() {
                 borderWidth: 1.5,
                 borderColor: colors.brand.primary,
               },
+              !canBuyActiveSku && { opacity: 0.5 },
             ]}
           >
             <MaterialCommunityIcons name="cart-plus" size={18} color={colors.brand.primary} style={{ marginRight: 6 }} />
@@ -560,12 +594,16 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
+                if (!canBuyActiveSku) {
+                  show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                  return;
+                }
                 const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
                 if (added) {
                   router.push('/checkout');
                 }
               }}
-              style={styles.ctaInner}
+              style={[styles.ctaInner, !canBuyActiveSku && { opacity: 0.5 }]}
             >
               <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                 ✦ 立即购买

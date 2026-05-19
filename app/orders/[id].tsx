@@ -165,14 +165,22 @@ export default function OrderDetailScreen() {
         return;
       }
       const result = r.data;
-      if (result.addedQuantity <= 0) {
-        show({ message: '原订单商品当前不可再次购买', type: 'info' });
-        return;
-      }
       replaceCartFromServer(
         result.cart,
         result.items.filter((item) => item.status === 'ADDED').map((item) => item.skuId),
       );
+      const virtualNotices = result.items
+        .filter((item) => item.virtual || item.reason === 'OUT_OF_STOCK_VIRTUAL')
+        .map((item) => ({
+          skuId: item.skuId,
+          title: item.title,
+          message: item.message || '商品暂无库存，未加入购物车',
+        }));
+      useCartStore.getState().setVirtualNotices(virtualNotices);
+      if (result.addedQuantity <= 0 && virtualNotices.length === 0) {
+        show({ message: '原订单商品当前不可再次购买', type: 'info' });
+        return;
+      }
       show(formatRepurchaseToast(result));
       router.push('/cart');
     } finally {

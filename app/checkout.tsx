@@ -18,7 +18,9 @@ import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
 import type { PendingCheckout } from '../src/types/domain/Checkout';
 import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
+import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { payWithAlipay } from '../src/utils/alipay';
+import { getStockText } from '../src/utils/stockDisplay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
@@ -152,6 +154,13 @@ export default function CheckoutScreen() {
   });
   const hasAgreedReturnPolicy = localAgreed || (profileData?.ok ? profileData.data.hasAgreedReturnPolicy : false);
 
+  const { data: appConfigResult } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: AppConfigRepo.getPublicConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
+
   // N09修复：调用预结算接口获取服务端计算结果
   const { data: previewData, isError: previewError, isLoading: previewLoading } = useQuery({
     queryKey: ['order-preview', previewSignature, parsedCouponIds, selectedAddress?.id],
@@ -238,6 +247,7 @@ export default function CheckoutScreen() {
         image: item.image,
         price: item.price,
         quantity: item.quantity,
+        stock: item.stock,
         cartItemId: item.id,
       })),
     [cartItems]
@@ -453,6 +463,14 @@ export default function CheckoutScreen() {
     }
     if (!preview || previewFailed) {
       show({ message: '价格校验失败，请刷新后重试', type: 'error' });
+      return;
+    }
+    const blocked = allItems.some((item) => {
+      const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+      return selectedIds.has(key) && (item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
+    }) || cartItems.some((item) => item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
+    if (blocked) {
+      show({ message: '有商品暂无库存，请返回购物车处理', type: 'warning' });
       return;
     }
     if (!selectedAddress) {
@@ -863,22 +881,31 @@ export default function CheckoutScreen() {
                 </View>
                 <AiDivider />
                 {/* 商品列表 */}
-                {group.items.map((item, ii) => (
-                  <View key={`${item.skuId}-${ii}`} style={styles.itemRow}>
-                    <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
-                    <View style={{ flex: 1, marginLeft: spacing.md }}>
-                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                        x{item.quantity}
+                {group.items.map((item, ii) => {
+                  const cartItem = cartItems.find((candidate) => (candidate.skuId ?? candidate.productId) === item.skuId);
+                  const stockText = getStockText(cartItem?.stock, lowStockThreshold);
+                  return (
+                    <View key={`${item.skuId}-${ii}`} style={styles.itemRow}>
+                      <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                      <View style={{ flex: 1, marginLeft: spacing.md }}>
+                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        {stockText && (
+                          <Text style={[typography.captionSm, { color: Number(cartItem?.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                            {stockText}
+                          </Text>
+                        )}
+                        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                          x{item.quantity}
+                        </Text>
+                      </View>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                        ¥{(item.unitPrice * item.quantity).toFixed(2)}
                       </Text>
                     </View>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                      ¥{(item.unitPrice * item.quantity).toFixed(2)}
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
                 {/* 商户小计 */}
                 <View style={[styles.merchantSubtotal, { borderTopColor: colors.divider, marginTop: 12 }]}>
                   <View style={styles.merchantSubtotalRow}>
@@ -898,22 +925,30 @@ export default function CheckoutScreen() {
                 </Text>
                 <AiDivider style={{ flex: 1 }} />
               </View>
-              {orderItems.map((item) => (
-                <View key={item.id} style={styles.itemRow}>
-                  <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
-                  <View style={{ flex: 1, marginLeft: spacing.md }}>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                      x{item.quantity}
+              {orderItems.map((item) => {
+                const stockText = getStockText(item.stock, lowStockThreshold);
+                return (
+                  <View key={item.id} style={styles.itemRow}>
+                    <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {stockText && (
+                        <Text style={[typography.captionSm, { color: Number(item.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                          {stockText}
+                        </Text>
+                      )}
+                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                        x{item.quantity}
+                      </Text>
+                    </View>
+                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                      ¥{(item.price * item.quantity).toFixed(2)}
                     </Text>
                   </View>
-                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                    ¥{(item.price * item.quantity).toFixed(2)}
-                  </Text>
-                </View>
-              ))}
+                );
+              })}
             </Animated.View>
           ) : null}
 

@@ -76,6 +76,17 @@ export type CartItem = {
   pendingClaim?: boolean;
   /** 下架/停发原因；存在时只能删除，不能勾选或结算 */
   unavailableReason?: ServerCartItem['unavailableReason'];
+  /**
+   * SKU 库存快照，仅用于当前会话展示；不可作为持久化后的选择裁决。
+   * 结算/可选裁决以服务端 unavailableReason 和锁定态为准。
+   */
+  stock?: number;
+};
+
+export type VirtualCartNotice = {
+  skuId: string;
+  title: string;
+  message: string;
 };
 
 export type LocalCartMergeOutcome = {
@@ -111,12 +122,17 @@ const serverToLocal = (si: ServerCartItem): CartItem => ({
   originalPrice: si.product.originalPrice,
   maxPerOrder: si.product.maxPerOrder ?? null,
   unavailableReason: si.unavailableReason ?? null,
+  stock: si.sku?.stock ?? si.product.stock,
 });
 
 type CartState = {
   items: CartItem[];
   selectedIds: Set<string>;
+  virtualNotices: VirtualCartNotice[];
   loading: boolean;
+  setVirtualNotices: (items: VirtualCartNotice[]) => void;
+  clearVirtualNotice: (skuId: string) => void;
+  clearVirtualNotices: () => void;
   /** 用服务端购物车响应直接覆盖本地购物车（用于复购等接口返回 cart 的场景） */
   replaceFromServer: (cart: ServerCart, forceSelectedSkuIds?: string[]) => void;
   /** 从服务端同步购物车 */
@@ -156,7 +172,14 @@ export const useCartStore = create<CartState>()(
     (set, get) => ({
       items: [],
       selectedIds: new Set<string>(),
+      virtualNotices: [],
       loading: false,
+      setVirtualNotices: (items) => set({ virtualNotices: items }),
+      clearVirtualNotice: (skuId) =>
+        set((state) => ({
+          virtualNotices: state.virtualNotices.filter((item) => item.skuId !== skuId),
+        })),
+      clearVirtualNotices: () => set({ virtualNotices: [] }),
 
       replaceFromServer: (cart, forceSelectedSkuIds = []) => {
         const forceSelected = new Set(forceSelectedSkuIds);
@@ -181,6 +204,7 @@ export const useCartStore = create<CartState>()(
           return {
             items: entries.map((entry) => entry.local),
             selectedIds: nextSelectedIds,
+            virtualNotices: [],
             loading: false,
           };
         });
@@ -209,7 +233,7 @@ export const useCartStore = create<CartState>()(
                 const key = itemKey(item);
                 if (!oldKeys.has(key) && isSelectableCartItem(item)) newSelectedIds.add(key);
               }
-              return { items: serverItems, selectedIds: newSelectedIds, loading: false };
+              return { items: serverItems, selectedIds: newSelectedIds, virtualNotices: [], loading: false };
             });
           }
         } catch {
@@ -471,6 +495,7 @@ export const useCartStore = create<CartState>()(
           set({
             items: serverItems,
             selectedIds: new Set(serverItems.filter(isSelectableCartItem).map(itemKey)),
+            virtualNotices: [],
           });
           return {
             mergeErrors: result.data.mergeErrors,
@@ -546,7 +571,7 @@ export const useCartStore = create<CartState>()(
       storage: createJSONStorage(() => cartStorage),
       // 只持久化数据字段，不持久化方法和 loading 状态
       partialize: (state) => ({
-        items: state.items,
+        items: state.items.map(({ stock, ...item }) => item),
         selectedIds: Array.from(state.selectedIds), // Set 无法直接序列化
       }),
       // 反序列化时将 selectedIds 数组还原为 Set
