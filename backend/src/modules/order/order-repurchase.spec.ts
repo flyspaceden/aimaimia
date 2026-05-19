@@ -263,7 +263,29 @@ describe('OrderService.repurchase', () => {
     expect(result.skippedQuantity).toBe(2);
     expect(result.items[0].reason).toBe('MAX_PER_ORDER_EXCEEDED');
     expect(tx.cartItem.update).not.toHaveBeenCalled();
-    expect(tx.cartItem.deleteMany).not.toHaveBeenCalled();
+    expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['ci-2'] } },
+    });
+  });
+
+  it('cleans duplicate cart rows when maxPerOrder disables repurchase', async () => {
+    const { service, tx } = createHarness({
+      skus: [makeSku({ maxPerOrder: 0 })],
+      cartItems: [
+        { id: 'ci-1', skuId: 'sku-1', quantity: 2, isPrize: false, isSelected: false },
+        { id: 'ci-2', skuId: 'sku-1', quantity: 1, isPrize: false, isSelected: true },
+      ],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(0);
+    expect(result.skippedQuantity).toBe(2);
+    expect(result.items[0].reason).toBe('MAX_PER_ORDER_EXCEEDED');
+    expect(tx.cartItem.update).not.toHaveBeenCalled();
+    expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['ci-2'] } },
+    });
   });
 
   it('aggregates repeated order items with the same SKU into one cart write', async () => {

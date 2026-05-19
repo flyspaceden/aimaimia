@@ -821,6 +821,11 @@ export class OrderService {
               const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
               const desiredQuantity = existingQuantity + group.totalQuantity;
               const duplicateIds = existingRows.slice(1).map((item) => item.id);
+              if (duplicateIds.length > 0) {
+                await tx.cartItem.deleteMany({
+                  where: { id: { in: duplicateIds } },
+                });
+              }
 
               if (group.sku.maxPerOrder !== null && group.sku.maxPerOrder < 1) {
                 for (const item of group.items) {
@@ -834,11 +839,6 @@ export class OrderService {
               }
 
               if (currentStock <= 0) {
-                if (duplicateIds.length > 0) {
-                  await tx.cartItem.deleteMany({
-                    where: { id: { in: duplicateIds } },
-                  });
-                }
                 if (existing) {
                   await tx.cartItem.update({
                     where: { id: existing.id },
@@ -879,11 +879,6 @@ export class OrderService {
               }
 
               if (existing) {
-                if (duplicateIds.length > 0) {
-                  await tx.cartItem.deleteMany({
-                    where: { id: { in: duplicateIds } },
-                  });
-                }
                 await tx.cartItem.update({
                   where: { id: existing.id },
                   data: { quantity: finalQuantity, isSelected: true },
