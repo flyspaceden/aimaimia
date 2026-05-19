@@ -242,31 +242,23 @@ export class AfterSaleRefundService {
             request.orderItem.quantity > 0;
 
           if (shouldRestockReturnedItem && request.orderItem) {
-            try {
-              await tx.inventoryLedger.create({
-                data: {
-                  skuId: request.orderItem.skuId,
-                  type: InventoryType.RELEASE,
-                  qty: request.orderItem.quantity,
-                  refType: 'AFTER_SALE',
-                  refId: request.id,
-                },
-              });
-            } catch (err) {
-              if (this.isUniqueConstraintError(err)) {
-                return {
-                  orderId: request.orderId,
-                  userId: request.userId,
-                  amount: refund.amount,
-                };
-              }
-              throw err;
-            }
-
-            await tx.productSKU.update({
-              where: { id: request.orderItem.skuId },
-              data: { stock: { increment: request.orderItem.quantity } },
+            const restockLedger = await tx.inventoryLedger.createMany({
+              data: [{
+                skuId: request.orderItem.skuId,
+                type: InventoryType.RELEASE,
+                qty: request.orderItem.quantity,
+                refType: 'AFTER_SALE',
+                refId: request.id,
+              }],
+              skipDuplicates: true,
             });
+
+            if (restockLedger.count === 1) {
+              await tx.productSKU.update({
+                where: { id: request.orderItem.skuId },
+                data: { stock: { increment: request.orderItem.quantity } },
+              });
+            }
           }
 
           return {
@@ -293,10 +285,6 @@ export class AfterSaleRefundService {
       content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回支付宝账户。`,
       target: { route: '/orders' },
     }).catch(() => {});
-  }
-
-  private isUniqueConstraintError(err: unknown): boolean {
-    return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
   }
 
   async handleRefundFailure(refundId: string, reason: string): Promise<void> {

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { AfterSaleOperatorType, Prisma } from '@prisma/client';
+import { AfterSaleOperatorType } from '@prisma/client';
 import { AfterSaleRefundService } from './after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 
@@ -25,6 +25,7 @@ describe('AfterSaleRefundService', () => {
     },
     inventoryLedger: {
       create: jest.fn(),
+      createMany: jest.fn(),
     },
     productSKU: {
       update: jest.fn(),
@@ -98,6 +99,7 @@ describe('AfterSaleRefundService', () => {
     tx.refund.updateMany.mockResolvedValue({ count: 1 });
     tx.refundStatusHistory.findFirst.mockResolvedValue(null);
     tx.inventoryLedger.create.mockResolvedValue({ id: 'inv_ledger_001' });
+    tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
     tx.productSKU.update.mockResolvedValue({ id: 'sku_001', stock: 12 });
     tx.order.findUnique.mockResolvedValue({ userId: 'user_001' });
     paymentService.initiateRefund.mockResolvedValue({
@@ -323,15 +325,17 @@ describe('AfterSaleRefundService', () => {
         },
       },
     }));
-    expect(tx.inventoryLedger.create).toHaveBeenCalledTimes(1);
-    expect(tx.inventoryLedger.create).toHaveBeenCalledWith({
-      data: {
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [{
         skuId: 'sku_001',
         type: 'RELEASE',
         qty: 3,
         refType: 'AFTER_SALE',
         refId: 'as_001',
-      },
+      }],
+      skipDuplicates: true,
     });
     expect(tx.productSKU.update).toHaveBeenCalledTimes(1);
     expect(tx.productSKU.update).toHaveBeenCalledWith({
@@ -366,12 +370,7 @@ describe('AfterSaleRefundService', () => {
         isPrize: false,
       },
     });
-    tx.inventoryLedger.create.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-        code: 'P2002',
-        clientVersion: 'test',
-      }),
-    );
+    tx.inventoryLedger.createMany.mockResolvedValue({ count: 0 });
 
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
@@ -386,7 +385,18 @@ describe('AfterSaleRefundService', () => {
         },
       },
     }));
-    expect(tx.inventoryLedger.create).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [{
+        skuId: 'sku_001',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'AFTER_SALE',
+        refId: 'as_001',
+      }],
+      skipDuplicates: true,
+    });
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
@@ -430,6 +440,7 @@ describe('AfterSaleRefundService', () => {
       },
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
@@ -473,6 +484,7 @@ describe('AfterSaleRefundService', () => {
       },
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
@@ -516,6 +528,7 @@ describe('AfterSaleRefundService', () => {
       },
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
