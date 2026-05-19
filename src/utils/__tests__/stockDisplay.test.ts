@@ -5,11 +5,14 @@ declare const expect: any;
 import { getStockStatus, getStockText } from '../stockDisplay';
 
 describe('getStockStatus', () => {
-  it('returns OUT_OF_STOCK for zero, negative, null, or undefined stock', () => {
+  it('returns OUT_OF_STOCK for real zero or negative stock', () => {
     expect(getStockStatus(0, 10)).toBe('OUT_OF_STOCK');
     expect(getStockStatus(-1, 10)).toBe('OUT_OF_STOCK');
-    expect(getStockStatus(null, 10)).toBe('OUT_OF_STOCK');
-    expect(getStockStatus(undefined, 10)).toBe('OUT_OF_STOCK');
+  });
+
+  it('returns NORMAL for missing volatile stock', () => {
+    expect(getStockStatus(null, 10)).toBe('NORMAL');
+    expect(getStockStatus(undefined, 10)).toBe('NORMAL');
   });
 
   it('returns LOW_STOCK for 1..threshold when threshold > 0', () => {
@@ -41,6 +44,11 @@ describe('getStockText', () => {
 
   it('returns null when stock exceeds threshold', () => {
     expect(getStockText(20, 10)).toBeNull();
+  });
+
+  it('returns null for missing volatile stock', () => {
+    expect(getStockText(null, 10)).toBeNull();
+    expect(getStockText(undefined, 10)).toBeNull();
   });
 
   it('returns null in the low band when threshold is 0', () => {
