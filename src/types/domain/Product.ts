@@ -21,6 +21,10 @@ export type Product = {
   companyName?: string;
   rating?: number;
   monthlySales?: number;
+  /** 商品总剩余库存（所有 ACTIVE SKU 库存之和，列表接口返回） */
+  stock?: number;
+  /** 单笔限购：仅当所有 ACTIVE SKU 都设了 maxPerOrder 时返回 min，否则 null */
+  maxPerOrder?: number | null;
 };
 
 /** 商品详情（后端 GET /products/:id 返回的完整数据） */

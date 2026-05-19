@@ -265,6 +265,8 @@ export default function CompanyDetailScreen() {
     tags: item.tags,
     unit: item.unit,
     origin: item.origin,
+    stock: item.stock,
+    maxPerOrder: item.maxPerOrder,
   }), []);
 
   // ---- 加载态 ----
