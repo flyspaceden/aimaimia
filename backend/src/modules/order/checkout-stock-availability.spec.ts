@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { CheckoutService } from './checkout.service';
 
 function validAddress() {
@@ -13,7 +12,9 @@ function validAddress() {
   };
 }
 
-function createService(stock: number) {
+function createService(stock: number, cartItems: any[] = [
+  { id: 'ci1', cartId: 'cart1', skuId: 'sku-1', quantity: 3, isPrize: false },
+]) {
   const sku = {
     id: 'sku-1',
     productId: 'p1',
@@ -27,10 +28,11 @@ function createService(stock: number) {
     product: { id: 'p1', companyId: 'c1', title: '龙虾', status: 'ACTIVE', media: [] },
   };
   const prisma: any = {
+    $transaction: jest.fn().mockRejectedValue(new Error('checkout session transaction should not run')),
     checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
     productSKU: { findMany: jest.fn().mockResolvedValue([sku]) },
     cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
-    cartItem: { findMany: jest.fn().mockResolvedValue([{ id: 'ci1', cartId: 'cart1', skuId: 'sku-1', quantity: 3, isPrize: false }]) },
+    cartItem: { findMany: jest.fn().mockResolvedValue(cartItems) },
     address: { findUnique: jest.fn().mockResolvedValue(validAddress()) },
     vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
     rewardLedger: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) },
@@ -44,23 +46,70 @@ function createService(stock: number) {
       defaultShippingFee: 0,
     }),
   };
-  return new CheckoutService(prisma, bonusConfig);
+  return {
+    service: new CheckoutService(prisma, bonusConfig),
+    prisma,
+  };
 }
 
 describe('CheckoutService stock availability', () => {
   it('rejects known zero-stock normal item before creating checkout session', async () => {
-    const service = createService(0);
+    const { service, prisma } = createService(0);
     await expect(service.checkout('user1', {
       items: [{ skuId: 'sku-1', quantity: 1, cartItemId: 'ci1' }],
       addressId: 'a1',
-    } as any)).rejects.toBeInstanceOf(BadRequestException);
+    } as any)).rejects.toThrow('商品「龙虾」暂无库存，请从购物车移除后再结算');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('rejects normal item quantity greater than current known stock', async () => {
-    const service = createService(1);
+    const { service, prisma } = createService(1);
     await expect(service.checkout('user1', {
       items: [{ skuId: 'sku-1', quantity: 3, cartItemId: 'ci1' }],
       addressId: 'a1',
-    } as any)).rejects.toThrow('仅剩 1 件');
+    } as any)).rejects.toThrow('商品「龙虾」当前仅剩 1 件，请调整数量');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps a normal cart item as normal when an unrelated prize row has the same SKU', async () => {
+    const { service, prisma } = createService(0, [
+      { id: 'ci-normal', cartId: 'cart1', skuId: 'sku-1', quantity: 3, isPrize: false },
+      {
+        id: 'ci-prize',
+        cartId: 'cart1',
+        skuId: 'sku-1',
+        quantity: 1,
+        isPrize: true,
+        prizeRecordId: 'lr-prize',
+        expiresAt: null,
+      },
+    ]);
+
+    await expect(service.checkout('user1', {
+      items: [{ skuId: 'sku-1', quantity: 1, cartItemId: 'ci-normal' }],
+      addressId: 'a1',
+    } as any)).rejects.toThrow('商品「龙虾」暂无库存，请从购物车移除后再结算');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects overstock normal cart item even when an unrelated prize row has the same SKU', async () => {
+    const { service, prisma } = createService(1, [
+      { id: 'ci-normal', cartId: 'cart1', skuId: 'sku-1', quantity: 3, isPrize: false },
+      {
+        id: 'ci-prize',
+        cartId: 'cart1',
+        skuId: 'sku-1',
+        quantity: 1,
+        isPrize: true,
+        prizeRecordId: 'lr-prize',
+        expiresAt: null,
+      },
+    ]);
+
+    await expect(service.checkout('user1', {
+      items: [{ skuId: 'sku-1', quantity: 3, cartItemId: 'ci-normal' }],
+      addressId: 'a1',
+    } as any)).rejects.toThrow('商品「龙虾」当前仅剩 1 件，请调整数量');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

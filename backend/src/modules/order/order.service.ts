@@ -1058,7 +1058,7 @@ export class OrderService {
           if (!previewMatchedIds.has(c.id)) { prizeCi = c; previewMatchedIds.add(c.id); }
         }
       }
-      if (!prizeCi && previewPrizeBySkuId.has(item.skuId)) {
+      if (!(item as any).cartItemId && !prizeCi && previewPrizeBySkuId.has(item.skuId)) {
         for (const c of previewPrizeBySkuId.get(item.skuId)!) {
           if (!previewMatchedIds.has(c.id)) { prizeCi = c; previewMatchedIds.add(c.id); break; }
         }

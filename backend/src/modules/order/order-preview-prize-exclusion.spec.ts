@@ -82,6 +82,63 @@ describe('OrderService.previewOrder prize exclusion', () => {
     };
   }
 
+  function createStockPreviewService(stock: number) {
+    const sku = {
+      id: 'sku-stock',
+      productId: 'product-stock',
+      title: '龙虾 SKU',
+      price: 234,
+      stock,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1000,
+      product: {
+        id: 'product-stock',
+        title: '龙虾',
+        status: 'ACTIVE',
+        companyId: 'merchant-company',
+        company: { name: '普通商户' },
+        media: [],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([sku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'ci-prize',
+            cartId: 'cart1',
+            skuId: 'sku-stock',
+            quantity: 1,
+            isPrize: true,
+            prizeRecordId: 'lr-prize',
+            expiresAt: null,
+          },
+        ]),
+      },
+      lotteryRecord: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'lr-prize',
+          status: 'IN_CART',
+          meta: { prizeType: 'THRESHOLD_GIFT', prizePrice: 0, threshold: 0 },
+        }),
+      },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 0,
+        vipFreeShippingThreshold: 0,
+        defaultShippingFee: 0,
+      }),
+    };
+    return new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+  }
+
   it('does not throw for inactive prize SKU and returns it in excludedItems', async () => {
     const { service } = createService();
 
@@ -151,6 +208,44 @@ describe('OrderService.previewOrder prize exclusion', () => {
     expect(result.groups).toEqual([]);
     expect((result as any).excludedItems).toEqual([
       expect.objectContaining({ skuId: 'sku-zero', reason: '商品暂无库存', isPrize: false }),
+    ]);
+  });
+
+  it('keeps a normal cart item as normal when same-SKU prize row exists in preview', async () => {
+    const service = createStockPreviewService(0);
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'sku-stock', quantity: 1, cartItemId: 'ci-normal' }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual([]);
+    expect((result as any).excludedItems).toEqual([
+      expect.objectContaining({
+        cartItemId: 'ci-normal',
+        skuId: 'sku-stock',
+        reason: '商品暂无库存',
+        isPrize: false,
+      }),
+    ]);
+  });
+
+  it('excludes overstock normal item from preview when same-SKU prize row exists', async () => {
+    const service = createStockPreviewService(1);
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'sku-stock', quantity: 3, cartItemId: 'ci-normal' }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual([]);
+    expect((result as any).excludedItems).toEqual([
+      expect.objectContaining({
+        cartItemId: 'ci-normal',
+        skuId: 'sku-stock',
+        reason: '商品当前仅剩 1 件',
+        isPrize: false,
+      }),
     ]);
   });
 });

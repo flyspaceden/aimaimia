@@ -267,7 +267,7 @@ export class CheckoutService {
           }
         }
       }
-      if (!prizeCartItem && cartPrizeBySkuId.has(resolvedSkuId)) {
+      if (!item.cartItemId && !prizeCartItem && cartPrizeBySkuId.has(resolvedSkuId)) {
         const candidates = cartPrizeBySkuId.get(resolvedSkuId)!;
         for (const c of candidates) {
           if (!matchedPrizeCartItemIds.has(c.id)) {
