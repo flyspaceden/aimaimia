@@ -13,6 +13,11 @@ export interface ServerCartItem {
     companyId?: string | null;
     /** 奖品项的 SKU 原价（用于划线展示），普通商品项为 null */
     originalPrice: number | null;
+    /** @deprecated compatibility mirror of sku.stock; use item.sku.stock for SKU-level stock */
+    stock: number;
+    maxPerOrder?: number | null;
+  };
+  sku?: {
     stock: number;
     maxPerOrder?: number | null;
   };
@@ -31,7 +36,16 @@ export interface ServerCartItem {
   /** 服务端选中状态 */
   isSelected?: boolean;
   /** 下架/停发原因；存在时只能删除，不能勾选或结算 */
-  unavailableReason?: 'SKU_INACTIVE' | 'PRODUCT_INACTIVE' | 'PRIZE_INACTIVE' | 'SKU_MISSING' | 'PRODUCT_MISSING' | null;
+  unavailableReason?:
+    | 'SKU_INACTIVE'
+    | 'PRODUCT_INACTIVE'
+    | 'PRIZE_INACTIVE'
+    | 'SKU_MISSING'
+    | 'PRODUCT_MISSING'
+    | 'OUT_OF_STOCK'
+    | null;
+  stockStatus?: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+  selectable?: boolean;
 }
 
 export type CartMergeResultStatus =

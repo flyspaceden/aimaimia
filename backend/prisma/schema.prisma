@@ -1337,6 +1337,7 @@ model CartItem {
   expiresAt     DateTime?                    // F3: 奖品过期时间，非奖品为 null
 
   @@index([cartId, skuId]) // 替换 @@unique：奖品项可能与普通项 SKU 相同
+  @@index([cartId, isPrize, isSelected])
   @@index([expiresAt])     // F3: 过期清理查询优化
 }
 

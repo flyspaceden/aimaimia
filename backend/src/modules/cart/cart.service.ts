@@ -31,6 +31,8 @@ type MergeResultItem = {
   message?: string;
 };
 
+type CartUnavailableReason = PrizeUnavailableReason | 'OUT_OF_STOCK';
+
 @Injectable()
 export class CartService {
   private readonly logger = new Logger(CartService.name);
@@ -102,6 +104,7 @@ export class CartService {
 
     // F3: 每次获取购物车前先清理过期奖品项
     await this.cleanExpiredPrizeItems(cart.id);
+    await this.forceOutOfStockNormalItemsUnselected(cart.id);
 
     const items = await this.prisma.cartItem.findMany({
       where: { cartId: cart.id },
@@ -186,6 +189,9 @@ export class CartService {
     if (!sku) throw new NotFoundException('商品规格不存在');
     if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
     if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
+    if (sku.stock <= 0) {
+      throw new BadRequestException('商品暂无库存，无法加入购物车');
+    }
 
     // 单笔限购校验（放在事务外做初步检查，事务内做精确检查）
     if (sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
@@ -199,35 +205,49 @@ export class CartService {
     const MAX_RETRIES = 1;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(async (tx) => {
-          const existing = await tx.cartItem.findFirst({
-            where: { cartId: cart.id, skuId, isPrize: false },
-          });
-
-          if (existing) {
-            const newQty = existing.quantity + quantity;
-            if (sku.maxPerOrder !== null && newQty > sku.maxPerOrder) {
-              throw new BadRequestException(
-                `该商品每单限购 ${sku.maxPerOrder} 件，购物车已有 ${existing.quantity} 件`,
-              );
-            }
-            if (newQty > sku.stock) throw new BadRequestException('库存不足');
-
-            await tx.cartItem.update({
-              where: { id: existing.id },
-              data: { quantity: newQty },
+        await this.prisma.$transaction(
+          async (tx) => {
+            const freshSku = await tx.productSKU.findUnique({
+              where: { id: skuId },
+              include: { product: true },
             });
-          } else {
-            if (sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
-              throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
+            if (!freshSku) throw new NotFoundException('商品规格不存在');
+            if (freshSku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
+            if (freshSku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
+            if (freshSku.stock <= 0) {
+              throw new BadRequestException('商品暂无库存，无法加入购物车');
             }
-            if (quantity > sku.stock) throw new BadRequestException('库存不足');
 
-            await tx.cartItem.create({
-              data: { cartId: cart.id, skuId, quantity },
+            const existing = await tx.cartItem.findFirst({
+              where: { cartId: cart.id, skuId, isPrize: false },
             });
-          }
-        });
+
+            if (existing) {
+              const newQty = existing.quantity + quantity;
+              if (freshSku.maxPerOrder !== null && newQty > freshSku.maxPerOrder) {
+                throw new BadRequestException(
+                  `该商品每单限购 ${freshSku.maxPerOrder} 件，购物车已有 ${existing.quantity} 件`,
+                );
+              }
+              if (newQty > freshSku.stock) throw new BadRequestException('库存不足');
+
+              await tx.cartItem.update({
+                where: { id: existing.id },
+                data: { quantity: newQty },
+              });
+            } else {
+              if (freshSku.maxPerOrder !== null && quantity > freshSku.maxPerOrder) {
+                throw new BadRequestException(`该商品每单限购 ${freshSku.maxPerOrder} 件`);
+              }
+              if (quantity > freshSku.stock) throw new BadRequestException('库存不足');
+
+              await tx.cartItem.create({
+                data: { cartId: cart.id, skuId, quantity },
+              });
+            }
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
         break; // 成功，退出重试循环
       } catch (error) {
         // 唯一索引冲突 = 并发加购同一 SKU，重试即可（第二次 findFirst 能找到）
@@ -251,27 +271,39 @@ export class CartService {
 
     const cart = await this.ensureCart(userId);
 
-    const item = await this.prisma.cartItem.findFirst({
-      where: { cartId: cart.id, skuId, isPrize: false },
-    });
-    if (!item) throw new NotFoundException('购物车中没有该商品');
+    await this.prisma.$transaction(
+      async (tx) => {
+        const item = await tx.cartItem.findFirst({
+          where: { cartId: cart.id, skuId, isPrize: false },
+        });
+        if (!item) throw new NotFoundException('购物车中没有该商品');
 
-    const sku = await this.prisma.productSKU.findUnique({
-      where: { id: skuId },
-      include: { product: true },
-    });
-    if (sku?.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
-    if (sku?.product?.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
-    const isIncreasingQuantity = quantity > item.quantity;
-    if (sku && isIncreasingQuantity && quantity > sku.stock) throw new BadRequestException('库存不足');
-    if (sku && sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
-      throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
-    }
+        const sku = await tx.productSKU.findUnique({
+          where: { id: skuId },
+          include: { product: true },
+        });
+        if (!sku) throw new NotFoundException('商品规格不存在');
+        if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
+        if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
 
-    await this.prisma.cartItem.update({
-      where: { id: item.id },
-      data: { quantity },
-    });
+        const isIncreasingQuantity = quantity > item.quantity;
+        if (isIncreasingQuantity && sku.stock <= 0) {
+          throw new BadRequestException('商品暂无库存，无法增加数量');
+        }
+        if (isIncreasingQuantity && quantity > sku.stock) {
+          throw new BadRequestException(`商品当前仅剩 ${sku.stock} 件`);
+        }
+        if (sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
+          throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
+        }
+
+        await tx.cartItem.update({
+          where: { id: item.id },
+          data: { quantity },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return this.getCart(userId);
   }
@@ -455,19 +487,55 @@ export class CartService {
     return null;
   }
 
+  private getNormalStockUnavailableReason(item: any): 'OUT_OF_STOCK' | null {
+    if (item.isPrize) return null;
+    const stock = Number(item.sku?.stock ?? 0);
+    return stock <= 0 ? 'OUT_OF_STOCK' : null;
+  }
+
+  private async forceOutOfStockNormalItemsUnselected(cartId: string) {
+    const blocked = await this.prisma.cartItem.findMany({
+      where: {
+        cartId,
+        isPrize: false,
+        isSelected: true,
+        sku: { stock: { lte: 0 } },
+      },
+      select: { id: true },
+    });
+    const ids = blocked.map((item) => item.id);
+    if (ids.length === 0) return;
+    await this.prisma.cartItem.updateMany({
+      where: { id: { in: ids } },
+      data: { isSelected: false },
+    });
+  }
+
   /** F2: 勾选/取消勾选购物车商品 */
   async toggleSelect(userId: string, skuId: string, isSelected: boolean) {
     const cart = await this.ensureCart(userId);
 
-    const item = await this.prisma.cartItem.findFirst({
-      where: { cartId: cart.id, skuId, isPrize: false },
-    });
-    if (!item) throw new NotFoundException('购物车中没有该商品');
-
-    await this.prisma.cartItem.update({
-      where: { id: item.id },
-      data: { isSelected },
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        const freshItem = await tx.cartItem.findFirst({
+          where: { cartId: cart.id, skuId, isPrize: false },
+          include: { sku: true },
+        });
+        if (!freshItem) throw new NotFoundException('购物车中没有该商品');
+        if (isSelected && Number(freshItem.sku?.stock ?? 0) <= 0) {
+          await tx.cartItem.update({
+            where: { id: freshItem.id },
+            data: { isSelected: false },
+          });
+          throw new BadRequestException('商品暂无库存，无法选择结算');
+        }
+        await tx.cartItem.update({
+          where: { id: freshItem.id },
+          data: { isSelected },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return this.getCart(userId);
   }
@@ -602,30 +670,66 @@ export class CartService {
       );
       return false; // 跳过已下架商品
     }
+    if (sku.stock <= 0) {
+      this.logger.warn(
+        JSON.stringify({
+          action: 'cart_merge_rejected',
+          reason: 'out_of_stock',
+          userId,
+          skuId: item.skuId,
+        }),
+      );
+      return false;
+    }
 
     const cart = await this.ensureCart(userId);
+    let merged = false;
 
     // 事务内查+写，防止并发重复行
     const MAX_RETRIES = 1;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(async (tx) => {
-          const existing = await tx.cartItem.findFirst({
-            where: { cartId: cart.id, skuId: item.skuId, isPrize: false },
-          });
+        await this.prisma.$transaction(
+          async (tx) => {
+            const freshSku = await tx.productSKU.findUnique({
+              where: { id: item.skuId },
+              include: { product: true },
+            });
+            if (
+              !freshSku ||
+              freshSku.status !== 'ACTIVE' ||
+              freshSku.product.status !== 'ACTIVE' ||
+              freshSku.stock <= 0
+            ) {
+              merged = false;
+              return;
+            }
 
-          if (existing) {
-            const newQty = existing.quantity + item.quantity;
-            await tx.cartItem.update({
-              where: { id: existing.id },
-              data: { quantity: newQty },
+            const existing = await tx.cartItem.findFirst({
+              where: { cartId: cart.id, skuId: item.skuId, isPrize: false },
             });
-          } else {
-            await tx.cartItem.create({
-              data: { cartId: cart.id, skuId: item.skuId, quantity: item.quantity },
-            });
-          }
-        });
+
+            if (existing) {
+              const newQty = existing.quantity + item.quantity;
+              if (newQty > freshSku.stock) {
+                throw new BadRequestException(`商品当前仅剩 ${freshSku.stock} 件`);
+              }
+              await tx.cartItem.update({
+                where: { id: existing.id },
+                data: { quantity: newQty },
+              });
+            } else {
+              if (item.quantity > freshSku.stock) {
+                throw new BadRequestException(`商品当前仅剩 ${freshSku.stock} 件`);
+              }
+              await tx.cartItem.create({
+                data: { cartId: cart.id, skuId: item.skuId, quantity: item.quantity },
+              });
+            }
+            merged = true;
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
         break;
       } catch (error) {
         if (
@@ -638,7 +742,7 @@ export class CartService {
         throw error;
       }
     }
-    return true;
+    return merged;
   }
 
   /** 合并奖品商品到购物车（两阶段 claimToken 消费） */
@@ -932,7 +1036,7 @@ export class CartService {
     let price = skuPrice;
     let originalPrice: number | null = null;
     let prizeType: string | null = null;
-    let unavailableReason: PrizeUnavailableReason | null = null;
+    let unavailableReason: CartUnavailableReason | null = null;
 
     if (sku?.status !== 'ACTIVE') {
       unavailableReason = 'SKU_INACTIVE';
@@ -961,6 +1065,7 @@ export class CartService {
         }
       }
     }
+    unavailableReason = unavailableReason ?? this.getNormalStockUnavailableReason(item);
 
     return {
       id: item.id,
@@ -974,6 +1079,12 @@ export class CartService {
       threshold: item.threshold || null,
       isSelected: item.isSelected ?? true,
       expiresAt: item.expiresAt ? item.expiresAt.toISOString() : null,
+      sku: {
+        stock: sku?.stock || 0,
+        maxPerOrder: sku?.maxPerOrder ?? null,
+      },
+      stockStatus: (sku?.stock ?? 0) <= 0 ? 'OUT_OF_STOCK' : 'NORMAL',
+      selectable: !unavailableReason && !item.isLocked,
       product: {
         id: product?.id || '',
         title: product?.title || '',
