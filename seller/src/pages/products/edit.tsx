@@ -24,7 +24,7 @@ import {
   submitDraft,
   type CategoryNode,
 } from '@/api/products';
-import { getMarkupRate } from '@/api/config';
+import { getMarkupRate, getPublicAppConfig } from '@/api/config';
 import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
@@ -35,8 +35,42 @@ import dayjs from 'dayjs';
 const { Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
 const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
 const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
+
+function normalizeLowStockThreshold(value: unknown): number {
+  const threshold = Number(value);
+  return Number.isInteger(threshold) && threshold >= 0 && threshold <= 999
+    ? threshold
+    : DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD;
+}
+
+function getStockHint(stockValue: unknown, threshold: number): { type: 'danger' | 'warning'; text: string } | null {
+  if (stockValue === undefined || stockValue === null || stockValue === '') return null;
+  const stock = Number(stockValue);
+  if (!Number.isFinite(stock)) return null;
+  if (stock < 0) {
+    return { type: 'danger', text: '当前为超卖欠货，请填写补货后的可售库存（不能保存负数）' };
+  }
+  if (stock === 0) {
+    return { type: 'danger', text: '无库存，App 端不可购买/不可结算' };
+  }
+  if (threshold > 0 && stock <= threshold) {
+    return { type: 'warning', text: `低库存：App 端显示仅剩 ${stock} 件` };
+  }
+  return null;
+}
+
+function StockHint({ value, threshold }: { value: unknown; threshold: number }) {
+  const hint = getStockHint(value, threshold);
+  if (!hint) return null;
+  return (
+    <Text type={hint.type} style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+      {hint.text}
+    </Text>
+  );
+}
 
 function isDraftWeightPlaceholderSkuCode(skuCode?: string | null) {
   return skuCode === LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE
@@ -165,7 +199,7 @@ function AiSearchOptimizationContent() {
 // ============================================================
 // 共享：多规格行列表
 // ============================================================
-function MultiSpecRows({ markupRate }: { markupRate: number }) {
+function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; lowStockThreshold: number }) {
   return (
     <Form.List name="skus" initialValue={[{ specName: '', stock: 0 }]}>
       {(fields, { add, remove }) => (
@@ -236,12 +270,8 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                   </Form.Item>
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
                     {({ getFieldValue }) => {
-                      const stock = Number(getFieldValue(['skus', field.name, 'stock']) ?? 0);
-                      return stock < 0 ? (
-                        <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                          当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
-                        </Typography.Text>
-                      ) : null;
+                      const stock = getFieldValue(['skus', field.name, 'stock']);
+                      return <StockHint value={stock} threshold={lowStockThreshold} />;
                     }}
                   </Form.Item>
                 </Col>
@@ -563,6 +593,13 @@ function ProductEditForm({ id }: { id: string }) {
     queryFn: getMarkupRate,
   });
   const markupRate = configData?.markupRate ?? 1.3;
+
+  const { data: appConfig } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: getPublicAppConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = normalizeLowStockThreshold(appConfig?.lowStockDisplayThreshold);
 
   // 商品标签选项（从标签池加载）
   const { data: productCategories = [] } = useQuery({
@@ -901,11 +938,7 @@ function ProductEditForm({ id }: { id: string }) {
                 </Form.Item>
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
                   {({ getFieldValue }) => (
-                    Number(getFieldValue('singleStock') ?? 0) < 0 ? (
-                      <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                        当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
-                      </Typography.Text>
-                    ) : null
+                    <StockHint value={getFieldValue('singleStock')} threshold={lowStockThreshold} />
                   )}
                 </Form.Item>
               </Col>
@@ -930,7 +963,7 @@ function ProductEditForm({ id }: { id: string }) {
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} />
+            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
           )}
         </Card>
 
@@ -1012,6 +1045,13 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     queryFn: getMarkupRate,
   });
   const markupRate = configData?.markupRate ?? 1.3;
+
+  const { data: appConfig } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: getPublicAppConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = normalizeLowStockThreshold(appConfig?.lowStockDisplayThreshold);
 
   // 商品标签选项（从标签池加载）
   const { data: productCategories = [] } = useQuery({
@@ -1528,11 +1568,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                 </Form.Item>
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
                   {({ getFieldValue }) => (
-                    Number(getFieldValue('singleStock') ?? 0) < 0 ? (
-                      <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                        当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
-                      </Typography.Text>
-                    ) : null
+                    <StockHint value={getFieldValue('singleStock')} threshold={lowStockThreshold} />
                   )}
                 </Form.Item>
               </Col>
@@ -1557,7 +1593,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} />
+            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
           )}
         </Card>
 

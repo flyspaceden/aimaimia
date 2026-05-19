@@ -141,11 +141,11 @@ export default function ConfigPage() {
 
   // 初始化表单
   useEffect(() => {
-    if (configs.length > 0) {
+    if (!isLoading) {
       form.setFieldsValue(configsToFormValues(configs));
       setDirty(false);
     }
-  }, [configs, form]);
+  }, [configs, form, isLoading]);
 
   // 保存
   const handleSave = useCallback(async () => {
@@ -170,7 +170,8 @@ export default function ConfigPage() {
         // 简单比较
         if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
 
-        const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+        const existingConfig = configs.find((c) => c.key === meta.key);
+        const desc = existingConfig ? extractConfigDescription(existingConfig) : undefined;
         await updateConfig(meta.key, {
           value: { value: newVal, description: desc || meta.description || meta.label },
           changeNote: note,
@@ -225,6 +226,7 @@ export default function ConfigPage() {
       <Form
         form={form}
         layout="vertical"
+        initialValues={configsToFormValues(configs)}
         onValuesChange={() => setDirty(true)}
         requiredMark={false}
       >

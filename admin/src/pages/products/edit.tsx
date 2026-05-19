@@ -24,17 +24,53 @@ import {
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined, DownloadOutlined } from '@ant-design/icons';
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
+import { getConfigs } from '@/api/config';
 import { getPublicTagCategories } from '@/api/tags';
-
-const { Text } = Typography;
 import { getTargetAuditLogs } from '@/api/audit';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
-import type { AuditLog } from '@/types';
+import { extractConfigValue, type AuditLog } from '@/types';
 import dayjs from 'dayjs';
+
+const { Text } = Typography;
+
+const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
+
+function normalizeLowStockThreshold(value: unknown): number {
+  const threshold = Number(value);
+  return Number.isInteger(threshold) && threshold >= 0 && threshold <= 999
+    ? threshold
+    : DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD;
+}
+
+function getStockHint(stockValue: unknown, threshold: number): { type: 'danger' | 'warning'; text: string } | null {
+  if (stockValue === undefined || stockValue === null || stockValue === '') return null;
+  const stock = Number(stockValue);
+  if (!Number.isFinite(stock)) return null;
+  if (stock < 0) {
+    return { type: 'danger', text: '当前为超卖欠货，请填写补货后的可售库存（不能保存负数）' };
+  }
+  if (stock === 0) {
+    return { type: 'danger', text: '无库存，App 端不可购买/不可结算' };
+  }
+  if (threshold > 0 && stock <= threshold) {
+    return { type: 'warning', text: `低库存：App 端显示仅剩 ${stock} 件` };
+  }
+  return null;
+}
+
+function StockHint({ value, threshold }: { value: unknown; threshold: number }) {
+  const hint = getStockHint(value, threshold);
+  if (!hint) return null;
+  return (
+    <Text type={hint.type} style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+      {hint.text}
+    </Text>
+  );
+}
 
 export default function ProductEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,6 +109,16 @@ export default function ProductEditPage() {
     queryFn: () => getProduct(id!),
     enabled: !!id,
   });
+
+  const { data: configRows = [] } = useQuery({
+    queryKey: ['admin', 'configs', 'low-stock-threshold'],
+    queryFn: getConfigs,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockConfig = configRows.find((item) => item.key === 'LOW_STOCK_DISPLAY_THRESHOLD');
+  const lowStockThreshold = normalizeLowStockThreshold(
+    lowStockConfig ? extractConfigValue(lowStockConfig) : undefined,
+  );
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -587,12 +633,8 @@ export default function ProductEditPage() {
                     </Form.Item>
                     <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
                       {({ getFieldValue }) => {
-                        const stock = Number(getFieldValue(['skus', field.name, 'stock']) ?? 0);
-                        return stock < 0 ? (
-                          <Typography.Text type="danger" style={{ fontSize: 12 }}>
-                            当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
-                          </Typography.Text>
-                        ) : null;
+                        const stock = getFieldValue(['skus', field.name, 'stock']);
+                        return <StockHint value={stock} threshold={lowStockThreshold} />;
                       }}
                     </Form.Item>
                     <Form.Item
