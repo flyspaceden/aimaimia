@@ -578,9 +578,22 @@ export default function ProductEditPage() {
                       {...field}
                       label="库存"
                       name={[field.name, 'stock']}
-                      rules={[{ required: true, message: '请输入库存' }]}
+                      rules={[
+                        { required: true, message: '请输入库存' },
+                        { type: 'number', min: 0, message: '库存不能为负数' },
+                      ]}
                     >
-                      <InputNumber style={{ width: 120 }} />
+                      <InputNumber min={0} precision={0} style={{ width: 120 }} />
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+                      {({ getFieldValue }) => {
+                        const stock = Number(getFieldValue(['skus', field.name, 'stock']) ?? 0);
+                        return stock < 0 ? (
+                          <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                            当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
+                          </Typography.Text>
+                        ) : null;
+                      }}
                     </Form.Item>
                     <Form.Item
                       {...field}

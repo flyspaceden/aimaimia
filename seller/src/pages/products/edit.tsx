@@ -234,6 +234,16 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                   >
                     <InputNumber placeholder="数量" min={0} precision={0} style={{ width: '100%' }} />
                   </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+                    {({ getFieldValue }) => {
+                      const stock = Number(getFieldValue(['skus', field.name, 'stock']) ?? 0);
+                      return stock < 0 ? (
+                        <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                          当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
+                        </Typography.Text>
+                      ) : null;
+                    }}
+                  </Form.Item>
                 </Col>
                 <Col span={3}>
                   <Form.Item
@@ -889,6 +899,15 @@ function ProductEditForm({ id }: { id: string }) {
                 >
                   <InputNumber placeholder="数量" min={0} precision={0} style={{ width: '100%' }} />
                 </Form.Item>
+                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
+                  {({ getFieldValue }) => (
+                    Number(getFieldValue('singleStock') ?? 0) < 0 ? (
+                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                        当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
+                      </Typography.Text>
+                    ) : null
+                  )}
+                </Form.Item>
               </Col>
               <Col span={5}>
                 <Form.Item
@@ -1506,6 +1525,15 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   ]}
                 >
                   <InputNumber placeholder="数量" min={0} precision={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
+                  {({ getFieldValue }) => (
+                    Number(getFieldValue('singleStock') ?? 0) < 0 ? (
+                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                        当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
+                      </Typography.Text>
+                    ) : null
+                  )}
                 </Form.Item>
               </Col>
               <Col span={5}>

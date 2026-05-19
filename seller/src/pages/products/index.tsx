@@ -12,6 +12,8 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
+  Typography,
 } from 'antd';
 import {
   PlusOutlined,
@@ -28,17 +30,26 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProducts, toggleProductStatus, deleteProduct } from '@/api/products';
-import { getMarkupRate } from '@/api/config';
+import { getMarkupRate, getPublicAppConfig } from '@/api/config';
 import { productStatusMap, auditStatusMap, returnPolicyMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
 import { getOverview } from '@/api/analytics';
 
-// 低库存阈值
-const LOW_STOCK_THRESHOLD = 10;
+const { Text } = Typography;
 
-// 计算 SKU 总库存
-function getTotalStock(product: Product): number {
-  return (product.skus ?? []).reduce((sum, s) => sum + s.stock, 0);
+function getStockSummary(product: Product, threshold: number) {
+  const skus = product.skus ?? [];
+  const total = skus.reduce((sum, sku) => sum + (sku.stock ?? 0), 0);
+  const minSku = skus.reduce<ProductSKU | undefined>((min, sku) => {
+    if (!min) return sku;
+    return (sku.stock ?? 0) < (min.stock ?? 0) ? sku : min;
+  }, undefined);
+  const owedSkus = skus.filter((sku) => (sku.stock ?? 0) < 0);
+  const zeroCount = skus.filter((sku) => (sku.stock ?? 0) <= 0).length;
+  const lowCount = threshold > 0
+    ? skus.filter((sku) => (sku.stock ?? 0) > 0 && (sku.stock ?? 0) <= threshold).length
+    : 0;
+  return { total, minSku, owedSkus, zeroCount, lowCount };
 }
 
 export default function ProductListPage() {
@@ -57,6 +68,13 @@ export default function ProductListPage() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  const { data: appConfig } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: getPublicAppConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = appConfig?.lowStockDisplayThreshold ?? 10;
 
   // 使用少量请求获取统计计数（按状态各请求 1 条只取 total）
   const { data: statusCounts } = useQuery({
@@ -153,8 +171,9 @@ export default function ProductListPage() {
       ellipsis: true,
       render: (_, r) => {
         const cover = r.media?.[0]?.url;
-        const stock = getTotalStock(r);
-        const isLowStock = stock < LOW_STOCK_THRESHOLD && r.status === 'ACTIVE';
+        const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
+        const hasOwed = (minSku?.stock ?? 0) < 0;
+        const hasStockWarning = zeroCount > 0 || lowCount > 0;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {cover ? (
@@ -198,10 +217,15 @@ export default function ProductListPage() {
                 {r.skus?.length > 1 && (
                   <span>{r.skus.length} 规格</span>
                 )}
-                {isLowStock && (
+                {(hasOwed || hasStockWarning) && (
                   <span style={{ color: '#ff4d4f' }}>
                     <WarningOutlined style={{ marginRight: 2 }} />
-                    库存 {stock}
+                    {hasOwed
+                      ? `${owedSkus.length} 规格欠货`
+                      : zeroCount > 0
+                        ? `${zeroCount} 规格无库存`
+                        : `${lowCount} 规格低库存`}
+                    <span style={{ marginLeft: 4 }}>库存 {total}</span>
                   </span>
                 )}
               </div>
@@ -269,18 +293,26 @@ export default function ProductListPage() {
       search: false,
       sorter: true,
       render: (_, r) => {
-        const stock = getTotalStock(r);
-        const isLow = stock < LOW_STOCK_THRESHOLD && r.status === 'ACTIVE';
+        const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
+        const hasOwed = (minSku?.stock ?? 0) < 0;
+        const owedText = owedSkus
+          .map((sku) => `${sku.title || sku.id}: 欠货 ${Math.abs(sku.stock ?? 0)} 件`)
+          .join('\n');
         return (
-          <span
-            style={{
-              fontWeight: isLow ? 600 : 400,
-              color: isLow ? '#ff4d4f' : undefined,
-              fontFamily: 'monospace',
-            }}
-          >
-            {stock}
-          </span>
+          <Space direction="vertical" size={0}>
+            <Text type={hasOwed || zeroCount > 0 ? 'danger' : lowCount > 0 ? 'warning' : undefined}>
+              {total}
+            </Text>
+            {hasOwed && (
+              <Tooltip title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{owedText}</pre>}>
+                <Text type="danger" style={{ fontSize: 12 }}>
+                  {owedSkus.length} 个规格欠货
+                </Text>
+              </Tooltip>
+            )}
+            {!hasOwed && zeroCount > 0 && <Text type="danger" style={{ fontSize: 12 }}>{zeroCount} 个规格无库存</Text>}
+            {!hasOwed && zeroCount === 0 && lowCount > 0 && <Text type="warning" style={{ fontSize: 12 }}>{lowCount} 个规格低库存</Text>}
+          </Space>
         );
       },
     },
@@ -560,18 +592,14 @@ export default function ProductListPage() {
                   dataIndex: 'stock',
                   width: 80,
                   render: (v: number) => {
-                    const isLow = v < LOW_STOCK_THRESHOLD && r.status === 'ACTIVE';
+                    const hasOwed = v < 0;
+                    const isZero = v <= 0;
+                    const isLow = lowStockThreshold > 0 && v > 0 && v <= lowStockThreshold;
                     return (
-                      <span
-                        style={{
-                          fontFamily: 'monospace',
-                          fontWeight: isLow ? 600 : 400,
-                          color: isLow ? '#ff4d4f' : undefined,
-                        }}
-                      >
-                        {isLow && <WarningOutlined style={{ marginRight: 4 }} />}
-                        {v}
-                      </span>
+                      <Text type={hasOwed || isZero ? 'danger' : isLow ? 'warning' : undefined}>
+                        {(hasOwed || isZero || isLow) && <WarningOutlined style={{ marginRight: 4 }} />}
+                        {hasOwed ? `欠货 ${Math.abs(v)} 件` : v}
+                      </Text>
                     );
                   },
                 },

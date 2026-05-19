@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
   App, Button, Tag, Modal, Space, Switch, Input, Badge, Popconfirm,
-  Descriptions, Card, Row, Col, Select, Statistic, Typography, Image,
+  Descriptions, Card, Row, Col, Select, Statistic, Tooltip, Typography, Image,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -18,8 +19,9 @@ import {
 } from '@ant-design/icons';
 import { getProducts, getProductStats, auditProduct, deleteProduct } from '@/api/products';
 import { getCompanies } from '@/api/companies';
+import { getConfigs } from '@/api/config';
 import PermissionGate from '@/components/PermissionGate';
-import type { Product } from '@/types';
+import { extractConfigValue, type Product, type ProductSKU } from '@/types';
 import {
   productStatusMap as statusMap,
   auditStatusMap,
@@ -30,6 +32,21 @@ import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
+
+function getStockSummary(product: Product, threshold: number) {
+  const skus = product.skus ?? [];
+  const total = skus.reduce((sum, sku) => sum + (sku.stock ?? 0), 0);
+  const minSku = skus.reduce<ProductSKU | undefined>((min, sku) => {
+    if (!min) return sku;
+    return (sku.stock ?? 0) < (min.stock ?? 0) ? sku : min;
+  }, undefined);
+  const owedSkus = skus.filter((sku) => (sku.stock ?? 0) < 0);
+  const zeroCount = skus.filter((sku) => (sku.stock ?? 0) <= 0).length;
+  const lowCount = threshold > 0
+    ? skus.filter((sku) => (sku.stock ?? 0) > 0 && (sku.stock ?? 0) <= threshold).length
+    : 0;
+  return { total, minSku, owedSkus, zeroCount, lowCount };
+}
 
 // 状态 Tab 配置
 const STATUS_TABS = [
@@ -60,6 +77,17 @@ export default function ProductListPage() {
   const [activeTab, setActiveTab] = useState('ALL');
   const [stats, setStats] = useState<Record<string, number>>({});
   const [companyOptions, setCompanyOptions] = useState<{ label: string; value: string }[]>([]);
+
+  const { data: configRows = [] } = useQuery({
+    queryKey: ['admin', 'configs', 'low-stock-threshold'],
+    queryFn: getConfigs,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = (() => {
+    const row = configRows.find((item) => item.key === 'LOW_STOCK_DISPLAY_THRESHOLD');
+    const value = Number(row ? extractConfigValue(row) : 10);
+    return Number.isInteger(value) && value >= 0 && value <= 999 ? value : 10;
+  })();
 
   // 加载统计数据
   const loadStats = async () => {
@@ -286,11 +314,26 @@ export default function ProductListPage() {
       width: 80,
       search: false,
       render: (_: unknown, r: Product) => {
-        const total = r.skus?.reduce((sum, sku) => sum + (sku.stock ?? 0), 0) ?? 0;
+        const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
+        const hasOwed = (minSku?.stock ?? 0) < 0;
+        const owedText = owedSkus
+          .map((sku) => `${sku.title || sku.id}: 欠货 ${Math.abs(sku.stock ?? 0)} 件`)
+          .join('\n');
         return (
-          <Text type={total <= 0 ? 'danger' : total < 10 ? 'warning' : undefined}>
-            {total}
-          </Text>
+          <Space direction="vertical" size={0}>
+            <Text type={hasOwed || zeroCount > 0 ? 'danger' : lowCount > 0 ? 'warning' : undefined}>
+              {total}
+            </Text>
+            {hasOwed && (
+              <Tooltip title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{owedText}</pre>}>
+                <Text type="danger" style={{ fontSize: 12 }}>
+                  {owedSkus.length} 个规格欠货
+                </Text>
+              </Tooltip>
+            )}
+            {!hasOwed && zeroCount > 0 && <Text type="danger" style={{ fontSize: 12 }}>{zeroCount} 个规格无库存</Text>}
+            {!hasOwed && zeroCount === 0 && lowCount > 0 && <Text type="warning" style={{ fontSize: 12 }}>{lowCount} 个规格低库存</Text>}
+          </Space>
         );
       },
     },
