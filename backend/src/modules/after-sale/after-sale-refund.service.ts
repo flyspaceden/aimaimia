@@ -22,6 +22,8 @@ import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
+const SERIALIZABLE_MAX_RETRIES = 3;
+
 type StartRefundLease = {
   refund: Refund;
   amount: number;
@@ -172,7 +174,7 @@ export class AfterSaleRefundService {
     refundId: string,
     providerRefundId?: string | null,
   ): Promise<void> {
-    const completed = await this.prisma.$transaction(
+    const completed = await this.withSerializableRetry(
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
@@ -270,7 +272,6 @@ export class AfterSaleRefundService {
 
         return null;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     if (!completed) return;
@@ -463,5 +464,23 @@ export class AfterSaleRefundService {
     }
 
     return { request, refund, merchantRefundNo, wasCreated: !existingRefund };
+  }
+
+  private async withSerializableRetry<T>(
+    operation: (tx: Tx) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 0; attempt < SERIALIZABLE_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Serializable transaction retry exhausted');
   }
 }

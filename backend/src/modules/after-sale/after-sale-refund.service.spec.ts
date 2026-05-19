@@ -346,6 +346,66 @@ describe('AfterSaleRefundService', () => {
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 
+  it('handleRefundSuccess retries P2034 once and restocks returned goods once after success', async () => {
+    prisma.$transaction
+      .mockImplementationOnce(async () => {
+        throw { code: 'P2034' };
+      })
+      .mockImplementationOnce((cb: any) => cb(tx));
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 3,
+        isPrize: false,
+      },
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.refund.update).toHaveBeenCalledTimes(1);
+    expect(tx.refundStatusHistory.create).toHaveBeenCalledTimes(1);
+    expect(tx.afterSaleRequest.update).toHaveBeenCalledTimes(1);
+    expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [{
+        skuId: 'sku_001',
+        type: 'RELEASE',
+        qty: 3,
+        refType: 'AFTER_SALE',
+        refId: 'as_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(1);
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'sku_001' },
+      data: { stock: { increment: 3 } },
+    });
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledTimes(1);
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledTimes(1);
+    expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
+    expect(inboxService.send).toHaveBeenCalledTimes(1);
+  });
+
   it('handleRefundSuccess does not restock when after-sale release ledger already exists', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
