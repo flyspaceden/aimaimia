@@ -620,23 +620,26 @@ export default function ProductEditPage() {
                     >
                       <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
                     </Form.Item>
-                    <Form.Item
-                      {...field}
-                      label="库存"
-                      name={[field.name, 'stock']}
-                      rules={[
-                        { required: true, message: '请输入库存' },
-                        { type: 'number', min: 0, message: '库存不能为负数' },
-                      ]}
-                    >
-                      <InputNumber min={0} precision={0} style={{ width: 120 }} />
-                    </Form.Item>
-                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
-                      {({ getFieldValue }) => {
-                        const stock = getFieldValue(['skus', field.name, 'stock']);
-                        return <StockHint value={stock} threshold={lowStockThreshold} />;
-                      }}
-                    </Form.Item>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <Form.Item
+                        {...field}
+                        label="库存"
+                        name={[field.name, 'stock']}
+                        rules={[
+                          { required: true, message: '请输入库存' },
+                          { type: 'number', min: 0, message: '库存不能为负数' },
+                        ]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <InputNumber min={0} precision={0} style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+                        {({ getFieldValue }) => {
+                          const stock = getFieldValue(['skus', field.name, 'stock']);
+                          return <StockHint value={stock} threshold={lowStockThreshold} />;
+                        }}
+                      </Form.Item>
+                    </div>
                     <Form.Item
                       {...field}
                       label="包装后重量（克）"
