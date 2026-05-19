@@ -434,6 +434,49 @@ describe('AfterSaleRefundService', () => {
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
   });
 
+  it('handleRefundSuccess does not restock refund-only return types without returned goods', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: false,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 2,
+        isPrize: false,
+      },
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: {
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            isPrize: true,
+          },
+        },
+      },
+    }));
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+  });
+
   it('handleRefundSuccess does not restock prize items', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
