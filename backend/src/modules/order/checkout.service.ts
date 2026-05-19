@@ -293,9 +293,13 @@ export class CheckoutService {
         throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
       }
 
-      // 库存读检查（不扣减），允许低库存通过（R12 超卖容忍由支付回调处理）
-      if (sku.stock <= 0) {
-        this.logger.warn(`R12: SKU ${sku.id} 库存已为 ${sku.stock}，允许继续结算（超卖容忍）`);
+      if (!prizeCartItem) {
+        if (sku.stock <= 0) {
+          throw new BadRequestException(`商品「${sku.product.title}」暂无库存，请从购物车移除后再结算`);
+        }
+        if (item.quantity > sku.stock) {
+          throw new BadRequestException(`商品「${sku.product.title}」当前仅剩 ${sku.stock} 件，请调整数量`);
+        }
       }
 
       // 单笔限购校验

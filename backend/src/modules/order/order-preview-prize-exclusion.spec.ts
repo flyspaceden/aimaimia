@@ -111,6 +111,48 @@ describe('OrderService.previewOrder prize exclusion', () => {
       } as any),
     ).rejects.toThrow('购物车项与商品规格不匹配');
   });
+
+  it('excludes zero-stock normal SKU from preview instead of pricing it', async () => {
+    const zeroStockSku = {
+      id: 'sku-zero',
+      productId: 'product-zero',
+      title: '龙虾 SKU',
+      price: 234,
+      stock: 0,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1000,
+      product: {
+        id: 'product-zero',
+        title: '龙虾',
+        status: 'ACTIVE',
+        companyId: 'merchant-company',
+        company: { name: '普通商户' },
+        media: [],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([zeroStockSku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = { getSystemConfig: jest.fn().mockResolvedValue({ normalFreeShippingThreshold: 0, vipFreeShippingThreshold: 0, defaultShippingFee: 0 }) };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'sku-zero', quantity: 1, cartItemId: 'ci-zero' }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual([]);
+    expect((result as any).excludedItems).toEqual([
+      expect.objectContaining({ skuId: 'sku-zero', reason: '商品暂无库存', isPrize: false }),
+    ]);
+  });
 });
 
 describe('OrderService.previewOrder shipping weight', () => {

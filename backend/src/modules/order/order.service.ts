@@ -1079,6 +1079,27 @@ export class OrderService {
         throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
       }
 
+      if (!prizeCi) {
+        if (sku.stock <= 0) {
+          excludedItems.push({
+            cartItemId: (item as any).cartItemId,
+            skuId: sku.id,
+            reason: '商品暂无库存',
+            isPrize: false,
+          });
+          continue;
+        }
+        if (item.quantity > sku.stock) {
+          excludedItems.push({
+            cartItemId: (item as any).cartItemId,
+            skuId: sku.id,
+            reason: `商品当前仅剩 ${sku.stock} 件`,
+            isPrize: false,
+          });
+          continue;
+        }
+      }
+
       let itemPrice = sku.price;
       let isPrizeItem = false;
       let itemPrizeType: string | null = null;
