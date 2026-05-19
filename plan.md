@@ -1037,7 +1037,7 @@
 - [x] **Phase 2 · 后端剩余 DTO + 防重锁 + 续付链路 + 横幅（14 任务）** — mapOrder 完整版（Company join + logisticsSummary）/ pending checkout 接口 / resume 接口 / 防重锁 / 横幅 / checkout-pending 页 / 6001 改造 / 409 Modal / me 页"未完成支付"入口
 - [x] **Phase 3 · buyerNote 字段 + 收尾（5 任务）** — Schema 加 buyerNote、CheckoutDto + Service 透传、详情 DTO 暴露、结算页留言输入框
 - [x] **Phase 4 · 再次购买（2026-05-08）** — `POST /orders/:id/repurchase` + Redis result/lock 幂等 + Serializable 购物车合并 + SKU/Product/Company 跳过原因 + 价格变动提示 + App 列表/详情真实按钮 + 同步 ref guard 防同帧双击 + cart response hydrate 后跳 `/cart`
-- [x] **Phase 4 补充 · 复购低库存减量（2026-05-18）** — 购物车数量从历史高数量向下减少时不再被当前低库存拦截
+- [x] **Phase 4 补充 · 库存感知复购与低库存展示（2026-05-18）** — 复购低库存降级为 1、0 库存虚拟提示不入真实购物车、购物车/结算禁选无库存、后台低库存阈值、售后退货退款回填库存
 - [x] **Phase 4 补充 · 管理后台限购配置（2026-05-18）** — 管理后台普通商品列表/详情补齐 SKU 单笔限购展示与编辑，空值表示不限
 
 权威文档：`docs/superpowers/specs/2026-05-01-order-pages-redesign-design.md` + `docs/superpowers/plans/2026-05-01-order-pages-redesign.md`

@@ -1834,7 +1834,7 @@ WHERE "type" = 'RELEASE'
   AND "refId" IS NOT NULL;
 ```
 
-Inside the `if (request.status !== 'REFUNDED')` transition block, before returning completed payload, add this helper. Create the ledger before incrementing stock so the unique index prevents duplicate stock increments under concurrent retry:
+Inside the `if (request.status !== 'REFUNDED')` transition block, before returning completed payload, add this helper. Insert the ledger before incrementing stock so the unique index prevents duplicate stock increments under concurrent retry. Use a non-throwing insert path (`createMany({ skipDuplicates: true })` / PostgreSQL `ON CONFLICT DO NOTHING`) so a duplicate ledger does not abort the surrounding interactive transaction:
 
 ```ts
           const shouldRestock =
@@ -1844,33 +1844,19 @@ Inside the `if (request.status !== 'REFUNDED')` transition block, before returni
             request.orderItem.isPrize !== true;
 
           if (shouldRestock) {
-            const existingLedger = await tx.inventoryLedger.findFirst({
-              where: {
-                type: 'RELEASE',
-                refType: 'AFTER_SALE',
-                refId: request.id,
-              },
+            const inserted = await tx.inventoryLedger.createMany({
+              data: [
+                {
+                  skuId: request.orderItem.skuId,
+                  type: 'RELEASE',
+                  qty: request.orderItem.quantity,
+                  refType: 'AFTER_SALE',
+                  refId: request.id,
+                },
+              ],
+              skipDuplicates: true,
             });
-            if (!existingLedger) {
-              try {
-                await tx.inventoryLedger.create({
-                  data: {
-                    skuId: request.orderItem.skuId,
-                    type: 'RELEASE',
-                    qty: request.orderItem.quantity,
-                    refType: 'AFTER_SALE',
-                    refId: request.id,
-                  },
-                });
-              } catch (error) {
-                if (
-                  error instanceof Prisma.PrismaClientKnownRequestError &&
-                  error.code === 'P2002'
-                ) {
-                  return;
-                }
-                throw error;
-              }
+            if (inserted.count === 1) {
               await tx.productSKU.update({
                 where: { id: request.orderItem.skuId },
                 data: { stock: { increment: request.orderItem.quantity } },

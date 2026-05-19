@@ -94,6 +94,8 @@
 - `docs/superpowers/plans/2026-04-08-intelligent-customer-service.md` — 智能客服系统实施计划（17个任务、Schema/后端7服务/Socket.IO Gateway/管理前端7页面/买家App组件/种子数据，**智能客服系统实施排程**）
 - `docs/superpowers/specs/2026-05-01-order-pages-redesign-design.md` — 订单页面重做设计方案（淘宝展开风列表 + 七区块详情 + 状态变色 + 未完成订单横幅 + 续付页 + checkout 防重锁 + 6001 改造，**买家 App 订单链路 UX 升级权威来源**）
 - `docs/superpowers/plans/2026-05-01-order-pages-redesign.md` — 订单页面重做实施计划（32 任务，3 Phase：UI 重写+最小后端 / 后端剩余 DTO+横幅+续付链路 / buyerNote 字段。**3 Phase 全部完成**）
+- `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` — 库存感知复购与低库存展示设计方案（复购低库存数量降级为 1 / 无库存虚拟提示且不真实入购物车 / App“仅剩 x 件”平台阈值，**复购库存与 App 低库存展示权威来源，补充并覆盖复购 spec 的库存口径**）
+- `docs/superpowers/plans/2026-05-18-stock-aware-repurchase-low-stock-display.md` — 库存感知复购与低库存展示实施计划（后端库存裁决 / App 虚拟无库存提示 / 后台低库存阈值 / 售后库存回填，**库存体验与库存一致性实施排程**）
 - `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（NO_REASON_EXCHANGE 四类售后 / 顺丰退货面单 / 买家付退货运费 AS_SHIP_PAY_ 通道 / 退款失败转人工处理 / 三端接线 / 双向一致性巡检，**退款/退货/换货链路收口权威来源，2026-05-10 全套验收通过**）
 - `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（12 Task / 49 commits 一篮子合入 + 15+ 后续 fix/feat，**售后链路完整闭环 + 多通道支付抽象就绪**）
 - `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md` — 顺丰风格平台统一运费计价设计方案（首重+续重公式、平台自定义价格、满额包邮、整单一次计费、SKU 重量补强、管理后台批量导入，**平台运费计价改造权威来源**）
@@ -133,7 +135,7 @@
 | 赠品锁定 | THRESHOLD_GIFT 入购物车锁定，按勾选非奖品商品总额实时解锁，解锁后自动包含在订单中 |
 | 奖品过期 | 可配置过期时间（小时），从入购物车起算，wonCount 永不回退 |
 | 平台公司 | 命名"爱买买app"，Company.isPlatform=true，奖品商品归属平台，用户搜索排除奖励商品 |
-| 超卖容忍 | 允许库存变为负数，卖家收到补货通知，不退款 |
+| 超卖容忍 | 已知无库存/超当前库存的普通商品在加购、复购、购物车勾选和 CheckoutSession 前拦截；支付回调阶段仍允许并发后的普通商品库存变为负数，卖家收到补货通知，不退款 |
 | 奖品不可退 | 清空购物车删奖品为预期行为，wonCount 永不回退，过期名额不释放 |
 | VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
 | 卖家商品草稿 | 复用 `ProductStatus.DRAFT` 持久化未完成商品，每商户 **5 份**上限，最低门槛**标题必填**，30 秒 debounce 自动保存；DRAFT 在卖家默认列表/管理审核/商品总数统计/买家查询中全部排除；提交审核时手动跑 `CreateProductDto` 全量校验 |

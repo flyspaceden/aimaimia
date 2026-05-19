@@ -442,9 +442,11 @@ SellerUserRole
 - skuId (uuid FK ProductSKU)
 - type (enum: IN/OUT/ADJUST/RESERVE/RELEASE)
 - qty (int)
-- refType (text) — ORDER/ADMIN/IMPORT
+- refType (text) — ORDER/ADMIN/IMPORT/AFTER_SALE
 - refId (uuid nullable)
 - createdAt
+
+库存流水补充：退货退款成功后的库存回填使用 `InventoryLedger(type=RELEASE, refType=AFTER_SALE, refId=<afterSaleId>)` 记录幂等流水；数据库通过部分唯一索引保证同一个售后单只回填一次。
 
 ---
 

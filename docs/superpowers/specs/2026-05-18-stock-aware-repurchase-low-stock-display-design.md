@@ -144,9 +144,13 @@ type RepurchaseItemResult = {
 
 ```ts
 type ServerCartItem = {
-  sku: {
+  sku?: {
     stock: number;
     maxPerOrder?: number | null;
+  };
+  product: {
+    /** compatibility mirror of sku.stock during rollout */
+    stock: number;
   };
   isSelected: boolean;
   stockStatus?: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK';
