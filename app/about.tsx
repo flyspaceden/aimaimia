@@ -46,7 +46,7 @@ export default function AboutScreen() {
                 AI 赋能农业，夯实健康之路
               </Text>
               <Text style={[typography.body, { color: colors.text.secondary, marginTop: spacing.sm }]}>
-                我们致力于连接消费者与生产者，打造可信赖的农业内容与电商生态。当前为前端占位内容。
+                我们致力于连接消费者与生产者，打造农产品信用确权可信赖的农业内容与电商生态。
               </Text>
             </View>
           </View>
@@ -74,10 +74,7 @@ export default function AboutScreen() {
           <Text style={[typography.title3, { color: colors.text.primary }]}>联系我们</Text>
           <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             <View style={{ padding: 16 }}>
-              <Text style={[typography.body, { color: colors.text.secondary }]}>邮箱：support@nongmai.ai</Text>
-              <Text style={[typography.body, { color: colors.text.secondary, marginTop: 6 }]}>
-                微信客服：爱买买助手（占位）
-              </Text>
+              <Text style={[typography.body, { color: colors.text.secondary }]}>邮箱：zenghaifeng13@163.com</Text>
             </View>
           </View>
         </Animated.View>
@@ -87,7 +84,7 @@ export default function AboutScreen() {
             © 2026 深圳华海农业科技集团有限公司
           </Text>
           <Text style={[typography.caption, { color: colors.text.secondary, textAlign: 'center', marginTop: 4 }]}>
-            粤ICP备2023047684号-5
+            粤ICP备2023047684号-6A
           </Text>
         </Animated.View>
       </ScrollView>
