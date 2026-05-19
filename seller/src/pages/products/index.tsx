@@ -45,7 +45,7 @@ function getStockSummary(product: Product, threshold: number) {
     return (sku.stock ?? 0) < (min.stock ?? 0) ? sku : min;
   }, undefined);
   const owedSkus = skus.filter((sku) => (sku.stock ?? 0) < 0);
-  const zeroCount = skus.filter((sku) => (sku.stock ?? 0) <= 0).length;
+  const zeroCount = skus.filter((sku) => (sku.stock ?? 0) === 0).length;
   const lowCount = threshold > 0
     ? skus.filter((sku) => (sku.stock ?? 0) > 0 && (sku.stock ?? 0) <= threshold).length
     : 0;
@@ -220,11 +220,11 @@ export default function ProductListPage() {
                 {(hasOwed || hasStockWarning) && (
                   <span style={{ color: '#ff4d4f' }}>
                     <WarningOutlined style={{ marginRight: 2 }} />
-                    {hasOwed
-                      ? `${owedSkus.length} 规格欠货`
-                      : zeroCount > 0
-                        ? `${zeroCount} 规格无库存`
-                        : `${lowCount} 规格低库存`}
+                    {[
+                      hasOwed ? `${owedSkus.length} 规格欠货` : null,
+                      zeroCount > 0 ? `${zeroCount} 规格无库存` : null,
+                      lowCount > 0 ? `${lowCount} 规格低库存` : null,
+                    ].filter(Boolean).join(' / ')}
                     <span style={{ marginLeft: 4 }}>库存 {total}</span>
                   </span>
                 )}
@@ -310,8 +310,8 @@ export default function ProductListPage() {
                 </Text>
               </Tooltip>
             )}
-            {!hasOwed && zeroCount > 0 && <Text type="danger" style={{ fontSize: 12 }}>{zeroCount} 个规格无库存</Text>}
-            {!hasOwed && zeroCount === 0 && lowCount > 0 && <Text type="warning" style={{ fontSize: 12 }}>{lowCount} 个规格低库存</Text>}
+            {zeroCount > 0 && <Text type="danger" style={{ fontSize: 12 }}>{zeroCount} 个规格无库存</Text>}
+            {lowCount > 0 && <Text type="warning" style={{ fontSize: 12 }}>{lowCount} 个规格低库存</Text>}
           </Space>
         );
       },

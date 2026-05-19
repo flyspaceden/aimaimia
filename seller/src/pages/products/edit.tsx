@@ -221,7 +221,7 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                     }}
                   </Form.Item>
                 </Col>
-                <Col span={3}>
+                <Col xs={24} sm={12} md={6} lg={3}>
                   <Form.Item
                     {...field}
                     name={[field.name, 'stock']}
@@ -238,7 +238,7 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                     {({ getFieldValue }) => {
                       const stock = Number(getFieldValue(['skus', field.name, 'stock']) ?? 0);
                       return stock < 0 ? (
-                        <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                        <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
                           当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
                         </Typography.Text>
                       ) : null;
@@ -888,7 +888,7 @@ function ProductEditForm({ id }: { id: string }) {
                   }}
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item
                   label="库存"
                   name="singleStock"
@@ -902,7 +902,7 @@ function ProductEditForm({ id }: { id: string }) {
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
                   {({ getFieldValue }) => (
                     Number(getFieldValue('singleStock') ?? 0) < 0 ? (
-                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                      <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
                         当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
                       </Typography.Text>
                     ) : null
@@ -1515,7 +1515,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   }}
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item
                   label="库存"
                   name="singleStock"
@@ -1529,7 +1529,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
                   {({ getFieldValue }) => (
                     Number(getFieldValue('singleStock') ?? 0) < 0 ? (
-                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                      <Typography.Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
                         当前为超卖欠货，请填写补货后的可售库存（不能保存负数）
                       </Typography.Text>
                     ) : null
