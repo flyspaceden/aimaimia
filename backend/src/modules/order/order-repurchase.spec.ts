@@ -287,6 +287,71 @@ describe('OrderService.repurchase', () => {
     }));
   });
 
+  it('degrades low-stock repurchase to quantity 1 and overwrites existing cart row', async () => {
+    const { service, tx } = createHarness({
+      order: makeOrder({ items: [{ id: 'oi-1', skuId: 'sku-1', unitPrice: 234, quantity: 3, isPrize: false, productSnapshot: { title: '龙虾' } }] }),
+      skus: [makeSku({ id: 'sku-1', stock: 1, price: 234 })],
+      cartItems: [{ id: 'ci-1', skuId: 'sku-1', quantity: 3, isPrize: false, isSelected: true }],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      status: 'ADDED',
+      reason: 'LOW_STOCK_ADJUSTED',
+      stockStatus: 'LOW_STOCK',
+      stock: 1,
+      adjustedQuantity: 1,
+    });
+    expect(tx.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-1' },
+      data: { quantity: 1, isSelected: true },
+    });
+  });
+
+  it('counts repeated low-stock order rows as one adjusted cart quantity', async () => {
+    const { service, tx } = createHarness({
+      order: makeOrder({
+        items: [
+          { id: 'oi-1', skuId: 'sku-1', unitPrice: 234, quantity: 2, isPrize: false, productSnapshot: { title: '龙虾' } },
+          { id: 'oi-2', skuId: 'sku-1', unitPrice: 234, quantity: 3, isPrize: false, productSnapshot: { title: '龙虾' } },
+        ],
+      }),
+      skus: [makeSku({ id: 'sku-1', stock: 1, price: 234 })],
+      cartItems: [],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(1);
+    expect(result.items.filter((item: any) => item.reason === 'LOW_STOCK_ADJUSTED')).toHaveLength(2);
+    expect(tx.cartItem.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ skuId: 'sku-1', quantity: 1, isSelected: true }),
+    }));
+  });
+
+  it('returns virtual result and does not create cart row when stock is zero', async () => {
+    const { service, tx } = createHarness({
+      order: makeOrder({ items: [{ id: 'oi-1', skuId: 'sku-1', unitPrice: 234, quantity: 3, isPrize: false, productSnapshot: { title: '龙虾' } }] }),
+      skus: [makeSku({ id: 'sku-1', stock: 0, price: 234 })],
+      cartItems: [],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(0);
+    expect(result.skippedQuantity).toBe(3);
+    expect(result.items[0]).toMatchObject({
+      status: 'SKIPPED',
+      reason: 'OUT_OF_STOCK_VIRTUAL',
+      stockStatus: 'OUT_OF_STOCK',
+      stock: 0,
+      virtual: true,
+    });
+    expect(tx.cartItem.create).not.toHaveBeenCalled();
+  });
+
   it('returns cached result for duplicate requests but refreshes cart from CartService', async () => {
     const cached = JSON.stringify({
       addedItemCount: 1,

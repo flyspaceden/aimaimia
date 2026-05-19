@@ -670,7 +670,7 @@ export class OrderService {
     const skipped = items.filter((item) => item.status === 'SKIPPED');
     return {
       addedItemCount: added.length,
-      addedQuantity: added.reduce((sum, item) => sum + item.quantity, 0),
+      addedQuantity: added.reduce((sum, item) => sum + (item.adjustedQuantity ?? item.quantity), 0),
       skippedItemCount: skipped.length,
       skippedQuantity: skipped.reduce((sum, item) => sum + item.quantity, 0),
       priceChangedCount: added.filter((item) => item.priceChanged).length,
@@ -815,11 +815,57 @@ export class OrderService {
             }
 
             for (const [skuId, group] of purchasableBySkuId.entries()) {
+              const currentStock = Number(group.sku.stock ?? 0);
               const existingRows = existingGroupsBySkuId.get(skuId) ?? [];
               const existing = existingRows[0] as any | undefined;
               const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
-              const nextQuantity = existingQuantity + group.totalQuantity;
-              if (group.sku.maxPerOrder != null && nextQuantity > group.sku.maxPerOrder) {
+              const desiredQuantity = existingQuantity + group.totalQuantity;
+              const duplicateIds = existingRows.slice(1).map((item) => item.id);
+
+              if (group.sku.maxPerOrder !== null && group.sku.maxPerOrder < 1) {
+                for (const item of group.items) {
+                  output.push(this.repurchaseSkipped(
+                    item,
+                    'MAX_PER_ORDER_EXCEEDED',
+                    '该商品当前不可购买',
+                  ));
+                }
+                continue;
+              }
+
+              if (currentStock <= 0) {
+                if (duplicateIds.length > 0) {
+                  await tx.cartItem.deleteMany({
+                    where: { id: { in: duplicateIds } },
+                  });
+                }
+                if (existing) {
+                  await tx.cartItem.update({
+                    where: { id: existing.id },
+                    data: { isSelected: false },
+                  });
+                }
+                for (const item of group.items) {
+                  output.push({
+                    orderItemId: item.id,
+                    skuId,
+                    title: this.repurchaseTitle(item),
+                    quantity: item.quantity,
+                    status: 'SKIPPED',
+                    reason: 'OUT_OF_STOCK_VIRTUAL',
+                    stockStatus: 'OUT_OF_STOCK',
+                    stock: currentStock,
+                    virtual: true,
+                    message: '商品暂无库存，未加入购物车',
+                  });
+                }
+                continue;
+              }
+
+              const finalQuantity = desiredQuantity > currentStock ? 1 : desiredQuantity;
+              const lowStockAdjusted = desiredQuantity > currentStock;
+
+              if (group.sku.maxPerOrder != null && finalQuantity > group.sku.maxPerOrder) {
                 for (const item of group.items) {
                   output.push(this.repurchaseSkipped(
                     item,
@@ -833,36 +879,48 @@ export class OrderService {
               }
 
               if (existing) {
-                await tx.cartItem.update({
-                  where: { id: existing.id },
-                  data: { quantity: nextQuantity, isSelected: true },
-                });
-                const duplicateIds = existingRows.slice(1).map((item) => item.id);
                 if (duplicateIds.length > 0) {
                   await tx.cartItem.deleteMany({
                     where: { id: { in: duplicateIds } },
                   });
                 }
+                await tx.cartItem.update({
+                  where: { id: existing.id },
+                  data: { quantity: finalQuantity, isSelected: true },
+                });
               } else {
                 await tx.cartItem.create({
-                  data: { cartId: cart.id, skuId, quantity: group.totalQuantity, isSelected: true },
+                  data: { cartId: cart.id, skuId, quantity: finalQuantity, isSelected: true },
                 });
               }
 
+              let remainingAdjustedQuantity = lowStockAdjusted ? finalQuantity : group.totalQuantity;
               for (const item of group.items) {
                 const originalPrice = item.unitPrice;
                 const currentPrice = group.sku.price;
                 const priceChanged = Math.abs(originalPrice - currentPrice) > 0.01;
+                const adjustedQuantity = lowStockAdjusted
+                  ? Math.min(remainingAdjustedQuantity, item.quantity)
+                  : undefined;
+                if (adjustedQuantity !== undefined) {
+                  remainingAdjustedQuantity = Math.max(0, remainingAdjustedQuantity - adjustedQuantity);
+                }
                 output.push({
                   orderItemId: item.id,
                   skuId,
                   title: this.repurchaseTitle(item),
                   quantity: item.quantity,
                   status: 'ADDED',
+                  reason: lowStockAdjusted ? 'LOW_STOCK_ADJUSTED' : undefined,
+                  stockStatus: lowStockAdjusted ? 'LOW_STOCK' : 'NORMAL',
+                  stock: currentStock,
+                  adjustedQuantity,
                   priceChanged,
                   originalPrice,
                   currentPrice,
-                  message: priceChanged ? '商品价格已变动，请到购物车确认' : undefined,
+                  message: lowStockAdjusted
+                    ? `当前仅剩 ${currentStock} 件，已按 1 件加入购物车`
+                    : priceChanged ? '商品价格已变动，请到购物车确认' : undefined,
                 });
               }
             }
