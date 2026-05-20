@@ -14,9 +14,12 @@ import { FreezeExpireService } from './engine/freeze-expire.service';
 import { VipActivationRetryService } from './vip-activation-retry.service';
 import { CouponModule } from '../coupon/coupon.module';
 import { InboxModule } from '../inbox/inbox.module';
+import { InfraModule } from '../../common/infra/infra.module';
+import { WithdrawPayoutService } from './withdraw-payout.service';
+import { WithdrawRulesService } from './withdraw-rules.service';
 
 @Module({
-  imports: [CouponModule, InboxModule],
+  imports: [CouponModule, InboxModule, InfraModule],
   controllers: [BonusController],
   providers: [
     BonusService,
@@ -31,7 +34,9 @@ import { InboxModule } from '../inbox/inbox.module';
     VipPlatformSplitService,
     FreezeExpireService,
     VipActivationRetryService,
+    WithdrawRulesService,
+    WithdrawPayoutService,
   ],
-  exports: [BonusConfigService, BonusAllocationService, BonusService],
+  exports: [BonusConfigService, BonusAllocationService, BonusService, WithdrawRulesService, WithdrawPayoutService],
 })
 export class BonusModule {}

@@ -27,6 +27,55 @@ interface WithdrawQueryParams extends PaginationParams {
   accountType?: string;
 }
 
+export interface WithdrawRules {
+  withdrawTaxRate: number;
+  withdrawMinAmount: number;
+  withdrawMaxAmount: number;
+  withdrawDailyMaxCount: number;
+  withdrawCooldownSeconds: number;
+  withdrawYearlyMaxAmount: number;
+  deductionRatioNormal: number;
+  deductionRatioVip: number;
+  deductionMinOrderAmount: number;
+  deductionAllowCouponStack: boolean;
+  withdrawProviderFeeAmount: number;
+  withdrawYearlyAlertThreshold: number;
+}
+
+export interface TaxReportSummary {
+  year: number;
+  month: number;
+  count: number;
+  grossTotal: number;
+  taxTotal: number;
+  netTotal: number;
+}
+
+export interface TaxReportDetailRow {
+  id: string;
+  userId: string;
+  amount: number;
+  taxAmount: number;
+  netAmount: number;
+  taxRate: number;
+  paidAt: string | null;
+  providerPayoutId: string | null;
+  providerFundOrderId: string | null;
+}
+
+export interface QueryWithdrawStatusResult {
+  ok: boolean;
+  message: string;
+  newStatus: string;
+}
+
+export interface TaxVoucherResult {
+  fileName: string;
+  mimeType: string;
+  content: string;
+  summary: TaxReportSummary;
+}
+
 // ========== 会员 / 提现 ==========
 
 /** 会员列表 */
@@ -48,6 +97,30 @@ export const approveWithdrawal = (id: string): Promise<WithdrawRequest> =>
 /** 拒绝提现 */
 export const rejectWithdrawal = (id: string, reason?: string): Promise<WithdrawRequest> =>
   client.post(`/admin/bonus/withdrawals/${id}/reject`, { reason });
+
+/** 查询提现规则配置 */
+export const getWithdrawRules = (): Promise<WithdrawRules> =>
+  client.get('/admin/bonus/withdraw-rules');
+
+/** 更新提现/抵扣规则配置 */
+export const updateWithdrawRules = (dto: Partial<WithdrawRules>): Promise<WithdrawRules> =>
+  client.put('/admin/bonus/withdraw-rules', dto);
+
+/** 税务报送月度汇总 */
+export const getTaxReportSummary = (year: number, month: number): Promise<TaxReportSummary> =>
+  client.get('/admin/bonus/tax-report/summary', { params: { year, month } });
+
+/** 税务报送明细 */
+export const getTaxReportDetail = (year: number, month: number): Promise<TaxReportDetailRow[]> =>
+  client.get('/admin/bonus/tax-report/detail', { params: { year, month } });
+
+/** 生成代扣凭证 */
+export const generateTaxVoucher = (year: number, month: number): Promise<TaxVoucherResult> =>
+  client.post('/admin/bonus/tax-report/voucher', { year, month });
+
+/** 手动查询 PROCESSING 提现状态 */
+export const queryWithdrawStatus = (id: string): Promise<QueryWithdrawStatusResult> =>
+  client.post(`/admin/bonus/withdrawals/${id}/query`);
 
 // ========== VIP 树可视化 ==========
 

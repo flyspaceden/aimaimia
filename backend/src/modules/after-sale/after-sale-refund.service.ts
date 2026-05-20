@@ -18,6 +18,7 @@ import { PaymentService } from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { InboxService } from '../inbox/inbox.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
@@ -36,6 +37,7 @@ type StartRefundLease = {
 @Injectable()
 export class AfterSaleRefundService {
   private readonly logger = new Logger(AfterSaleRefundService.name);
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -44,6 +46,10 @@ export class AfterSaleRefundService {
     private statusHistory: AfterSaleStatusHistoryService,
     private inboxService: InboxService,
   ) {}
+
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
+  }
 
   async createOrGetRefund(afterSaleId: string): Promise<Refund> {
     return this.prisma.$transaction(
@@ -253,38 +259,34 @@ export class AfterSaleRefundService {
               select: { id: true },
             });
 
-            if (existingRestockLedger) {
-              return {
-                orderId: request.orderId,
-                userId: request.userId,
-                amount: refund.amount,
-              };
-            }
-
-            const restockLedger = await tx.inventoryLedger.createMany({
-              data: [{
-                skuId: request.orderItem.skuId,
-                type: InventoryType.RELEASE,
-                qty: request.orderItem.quantity,
-                refType: 'AFTER_SALE',
-                refId: request.id,
-              }],
-              skipDuplicates: true,
-            });
-
-            if (restockLedger.count === 1) {
-              await tx.productSKU.update({
-                where: { id: request.orderItem.skuId },
-                data: { stock: { increment: request.orderItem.quantity } },
+            if (!existingRestockLedger) {
+              const restockLedger = await tx.inventoryLedger.createMany({
+                data: [{
+                  skuId: request.orderItem.skuId,
+                  type: InventoryType.RELEASE,
+                  qty: request.orderItem.quantity,
+                  refType: 'AFTER_SALE',
+                  refId: request.id,
+                }],
+                skipDuplicates: true,
               });
-            } else {
-              // findFirst 未命中却被 partial unique index 拦截 = ledger 已存在但前面漏判；
-              // 不能 increment（避免双发），但必须留下告警让监控可见。
-              this.logger.warn(
-                `售后回填库存被静默跳过（findFirst 漏判，partial unique index 拦截）: afterSaleId=${request.id}, skuId=${request.orderItem.skuId}, quantity=${request.orderItem.quantity}`,
-              );
+
+              if (restockLedger.count === 1) {
+                await tx.productSKU.update({
+                  where: { id: request.orderItem.skuId },
+                  data: { stock: { increment: request.orderItem.quantity } },
+                });
+              } else {
+                // findFirst 未命中却被 partial unique index 拦截 = ledger 已存在但前面漏判；
+                // 不能 increment（避免双发），但必须留下告警让监控可见。
+                this.logger.warn(
+                  `售后回填库存被静默跳过（findFirst 漏判，partial unique index 拦截）: afterSaleId=${request.id}, skuId=${request.orderItem.skuId}, quantity=${request.orderItem.quantity}`,
+                );
+              }
             }
           }
+
+          await this.restoreDeductedPointsInTx(tx, refundId, request);
 
           return {
             orderId: request.orderId,
@@ -309,6 +311,118 @@ export class AfterSaleRefundService {
       content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回支付宝账户。`,
       target: { route: '/orders' },
     }).catch(() => {});
+  }
+
+  private async restoreDeductedPointsInTx(
+    tx: Tx,
+    refundId: string,
+    request: any,
+  ): Promise<void> {
+    if (!this.rewardDeductionService) return;
+
+    const order = await tx.order.findUnique({
+      where: { id: request.orderId },
+      select: { checkoutSessionId: true },
+    });
+    if (!order?.checkoutSessionId) return;
+
+    const session = await (tx as any).checkoutSession.findUnique({
+      where: { id: order.checkoutSessionId },
+      select: {
+        deductionGroupId: true,
+        discountAmount: true,
+        goodsAmount: true,
+      },
+    });
+    if (!session?.deductionGroupId || (session.discountAmount ?? 0) <= 0) return;
+
+    const refundGoodsAmount = await this.resolveOriginalGoodsRefundAmount(tx, request);
+    if (refundGoodsAmount === null || refundGoodsAmount <= 0) {
+      this.logger.warn(
+        `跳过退款积分返还（缺商品原价口径金额）：refundId=${refundId}, afterSaleId=${request.id}`,
+      );
+      return;
+    }
+
+    const priorRestoredLedgers = await (tx as any).rewardLedger.findMany({
+      where: {
+        refType: 'REFUND_RESTORE',
+        meta: { path: ['groupId'], equals: session.deductionGroupId },
+        deletedAt: null,
+      },
+      select: {
+        refId: true,
+        meta: true,
+      },
+    });
+    const seenRefundIds = new Set<string>();
+    const priorGoodsRefundAmount = priorRestoredLedgers.reduce((sum: number, ledger: any) => {
+      if (ledger.refId && seenRefundIds.has(ledger.refId)) return sum;
+      if (ledger.refId) seenRefundIds.add(ledger.refId);
+      const amount = Number(ledger.meta?.originalGoodsRefundAmount ?? 0);
+      return Number.isFinite(amount) ? sum + amount : sum;
+    }, 0);
+    const cumulativeGoodsRefundAmount = Number(
+      (priorGoodsRefundAmount + refundGoodsAmount).toFixed(2),
+    );
+    const originalGoodsCents = Math.round(Number(session.goodsAmount || 0) * 100);
+    const cumulativeGoodsRefundCents = Math.round(cumulativeGoodsRefundAmount * 100);
+    const isFinalRefund = cumulativeGoodsRefundCents >= originalGoodsCents;
+
+    await this.rewardDeductionService.refundDeduction(tx, {
+      refundId,
+      orderId: request.orderId,
+      originalGoodsAmount: session.goodsAmount,
+      originalGoodsRefundAmount: refundGoodsAmount,
+      originalDeductAmount: session.discountAmount,
+      deductionGroupId: session.deductionGroupId,
+      isFinalRefund,
+      cumulativeGoodsRefundAmount,
+    });
+  }
+
+  private async resolveOriginalGoodsRefundAmount(
+    tx: Tx,
+    request: any,
+  ): Promise<number | null> {
+    if (
+      request.orderItem &&
+      !request.orderItem.isPrize &&
+      request.orderItem.skuId &&
+      request.orderItem.quantity > 0
+    ) {
+      const orderItem = await (tx as any).orderItem.findFirst({
+        where: {
+          orderId: request.orderId,
+          skuId: request.orderItem.skuId,
+          isPrize: false,
+          deletedAt: null,
+        },
+        select: { unitPrice: true },
+      });
+      if (orderItem?.unitPrice !== undefined && orderItem?.unitPrice !== null) {
+        return Number((request.orderItem.quantity * orderItem.unitPrice).toFixed(2));
+      }
+    }
+
+    const orderItems = await (tx as any).orderItem.findMany({
+      where: {
+        orderId: request.orderId,
+        isPrize: false,
+        deletedAt: null,
+      },
+      select: {
+        quantity: true,
+        unitPrice: true,
+      },
+    });
+    if (!orderItems.length) return null;
+
+    return Number(
+      orderItems
+        .reduce((sum: number, item: any) => sum + item.quantity * item.unitPrice, 0)
+        .toFixed(2),
+    );
   }
 
   async handleRefundFailure(refundId: string, reason: string): Promise<void> {

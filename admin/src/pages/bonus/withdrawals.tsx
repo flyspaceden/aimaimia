@@ -8,8 +8,9 @@ import {
   AlipayCircleOutlined,
   WechatOutlined,
   BankOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
-import { getWithdrawals, approveWithdrawal, rejectWithdrawal } from '@/api/bonus';
+import { getWithdrawals, approveWithdrawal, rejectWithdrawal, queryWithdrawStatus } from '@/api/bonus';
 import PermissionGate from '@/components/PermissionGate';
 import type { WithdrawRequest } from '@/types';
 import {
@@ -41,6 +42,10 @@ const channelLabelMap: Record<string, string> = {
 function maskAccount(account: string): string {
   if (account.length <= 7) return account;
   return `${account.slice(0, 3)}****${account.slice(-4)}`;
+}
+
+function formatMoney(value: number | null | undefined): string {
+  return `¥${(value ?? 0).toFixed(2)}`;
 }
 
 /** 从 accountSnapshot 提取展示信息 */
@@ -99,11 +104,23 @@ export default function WithdrawalListPage() {
   });
   const [rejectReason, setRejectReason] = useState('');
   const [rejectLoading, setRejectLoading] = useState(false);
+  const [queryingId, setQueryingId] = useState<string | null>(null);
 
   const handleApprove = async (id: string) => {
     await approveWithdrawal(id);
     message.success('已批准');
     actionRef.current?.reload();
+  };
+
+  const handleQueryStatus = async (id: string) => {
+    setQueryingId(id);
+    try {
+      const result = await queryWithdrawStatus(id);
+      message.success(result.message || '已触发查询');
+      actionRef.current?.reload();
+    } finally {
+      setQueryingId(null);
+    }
   };
 
   /** 打开拒绝弹窗 */
@@ -154,6 +171,62 @@ export default function WithdrawalListPage() {
       render: (_: unknown, r: WithdrawRequest) => (
         <Text strong>¥{r.amount.toFixed(2)}</Text>
       ),
+    },
+    {
+      title: '代扣',
+      dataIndex: 'taxAmount',
+      width: 90,
+      search: false,
+      render: (_: unknown, r: WithdrawRequest) => formatMoney(r.taxAmount),
+    },
+    {
+      title: '到账',
+      dataIndex: 'netAmount',
+      width: 90,
+      search: false,
+      render: (_: unknown, r: WithdrawRequest) => (
+        <Text strong>{formatMoney(r.netAmount)}</Text>
+      ),
+    },
+    {
+      title: '商户单号',
+      dataIndex: 'outBizNo',
+      width: 180,
+      search: false,
+      ellipsis: true,
+    },
+    {
+      title: '支付宝单号',
+      dataIndex: 'providerPayoutId',
+      width: 180,
+      search: false,
+      ellipsis: true,
+    },
+    {
+      title: '资金流水号',
+      dataIndex: 'providerFundOrderId',
+      width: 180,
+      search: false,
+      ellipsis: true,
+    },
+    {
+      title: '错误信息',
+      dataIndex: 'providerErrorMessage',
+      width: 200,
+      search: false,
+      ellipsis: true,
+      render: (_: unknown, r: WithdrawRequest) => r.providerErrorMessage ? (
+        <Tooltip title={r.providerErrorMessage}>
+          <Tag color="red">{r.providerErrorCode || 'FAIL'}</Tag>
+        </Tooltip>
+      ) : '-',
+    },
+    {
+      title: '到账时间',
+      dataIndex: 'paidAt',
+      width: 160,
+      search: false,
+      render: (_: unknown, r: WithdrawRequest) => r.paidAt ? dayjs(r.paidAt).format('YYYY-MM-DD HH:mm') : '-',
     },
     {
       title: '提现渠道',
@@ -220,8 +293,9 @@ export default function WithdrawalListPage() {
       width: 160,
       fixed: 'right',
       search: false,
-      render: (_: unknown, record: WithdrawRequest) =>
-        record.status === 'REQUESTED' ? (
+      render: (_: unknown, record: WithdrawRequest) => {
+        if (record.status === 'REQUESTED') {
+          return (
           <PermissionGate permission={PERMISSIONS.BONUS_APPROVE_WITHDRAW}>
             <Space>
               <Popconfirm title="确认批准？" onConfirm={() => handleApprove(record.id)}>
@@ -238,9 +312,25 @@ export default function WithdrawalListPage() {
               </Button>
             </Space>
           </PermissionGate>
-        ) : (
-          '-'
-        ),
+          );
+        }
+        if (record.status === 'PROCESSING') {
+          return (
+            <PermissionGate permission={PERMISSIONS.BONUS_APPROVE_WITHDRAW}>
+              <Button
+                type="link"
+                size="small"
+                icon={<SyncOutlined />}
+                loading={queryingId === record.id}
+                onClick={() => handleQueryStatus(record.id)}
+              >
+                查询状态
+              </Button>
+            </PermissionGate>
+          );
+        }
+        return '-';
+      },
     },
   ];
 
@@ -258,7 +348,7 @@ export default function WithdrawalListPage() {
         }}
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 20 }}
-        scroll={{ x: 1180 }}
+        scroll={{ x: 2200 }}
       />
 
       {/* 拒绝原因弹窗 */}

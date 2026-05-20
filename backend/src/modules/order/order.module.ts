@@ -15,6 +15,7 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
 import { CouponService } from '../coupon/coupon.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { BonusService } from '../bonus/bonus.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { AlipayService } from '../payment/alipay.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
@@ -40,6 +41,7 @@ import { CartModule } from '../cart/cart.module';
     OrderAutoConfirmService,
     OrderExpireService,
     BonusCompensationService,
+    RewardDeductionService,
   ],
   exports: [OrderService, CheckoutService],
 })
@@ -85,6 +87,15 @@ export class OrderModule implements OnModuleInit {
       console.warn('[OrderModule] BonusService 未注入，VIP 支付后激活功能不可用');
     }
 
+    const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
+    if (rewardDeductionService) {
+      this.orderService.setRewardDeductionService(rewardDeductionService);
+      this.checkoutService.setRewardDeductionService(rewardDeductionService);
+      this.checkoutExpireService.setRewardDeductionService(rewardDeductionService);
+    } else {
+      console.warn('[OrderModule] RewardDeductionService 未注入，消费积分抵扣不可用');
+    }
+
     // C13修复：InboxService 改硬依赖，确保通知功能可用
     const inboxService = this.moduleRef.get(InboxService, { strict: false });
     if (!inboxService) {
@@ -110,6 +121,9 @@ export class OrderModule implements OnModuleInit {
       this.checkoutExpireService.setPaymentService(paymentService);
       // PAID 未发货取消调 initiateRefund 用
       this.orderService.setPaymentService(paymentService);
+      if (rewardDeductionService && paymentService.setRewardDeductionService) {
+        paymentService.setRewardDeductionService(rewardDeductionService);
+      }
     } else {
       console.warn('[OrderModule] PaymentService 未注入，cancel/expire 主动建单后无法通知商家；PAID 取消退款失败');
     }

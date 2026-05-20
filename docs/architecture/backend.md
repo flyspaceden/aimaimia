@@ -330,9 +330,10 @@ npm run start:dev
 | `/orders/batch-pay` | POST | ~~batchPayOrders~~ → 统一走 CheckoutSession |
 
 **CheckoutSession 流程说明：**
-- `CheckoutService.checkout()` 创建结算会话：校验库存+地址 → 计算金额（含运费/奖励抵扣）→ 预留奖励 → 返回支付参数
-- 支付回调（`POST /payments/callback`）触发原子建单：在同一个 Serializable 事务中验证回调 → 更新 CheckoutSession 为 PAID → 创建 Order/OrderItem/Payment → 扣减库存
-- 会话 30 分钟后自动过期，过期会话中的预留奖励自动释放
+- `CheckoutService.checkout()` 创建结算会话：校验库存+地址 → 计算金额（含运费/平台红包/消费积分抵扣）→ 预留消费积分 → 返回支付参数
+- 支付回调（`POST /payments/callback`）触发原子建单：在同一个 Serializable 事务中验证回调 → 更新 CheckoutSession 为 PAID → 创建 Order/OrderItem/Payment → 扣减库存 → 确认消费积分抵扣
+- 会话 30 分钟后自动过期，过期会话中的消费积分预留自动释放；支付失败/主动取消同样释放 `deductionGroupId`
+- 消费积分抵扣只允许普通商品订单使用，VIP 礼包链路强制 `deductionGroupId=null`；若历史脏数据让 VIP 礼包带入抵扣组，支付成功链路会直接抛出系统异常阻断建单
 
 **定时任务：**
 - `OrderExpireService`（@deprecated）：仅处理旧流程历史 PENDING_PAYMENT 订单
@@ -344,6 +345,7 @@ npm run start:dev
 |------|------|------|------|
 | `/payments/order/:orderId` | GET | 需认证 | 查询订单支付记录 |
 | `/payments/:id` | GET | 需认证 | 支付详情 |
+| `/payments/alipay/transfer-notify` | POST | 支付宝回调 | 支付宝商家转账到账/失败通知，验签后收口提现状态 |
 
 ### 8.8 物流（Shipment）
 
@@ -378,10 +380,16 @@ npm run start:dev
 | `/bonus/referral` | POST | 需认证 | 使用推荐码 |
 | `/bonus/wallet` | GET | 需认证 | 钱包余额 |
 | `/bonus/wallet/ledger` | GET | 需认证 | 奖励流水（分页） |
-| `/bonus/wallet/withdraw` | POST | 需认证 | 提现申请 |
-| `/bonus/wallet/withdrawals` | GET | 需认证 | 提现记录 |
+| `/bonus/withdraw` | POST | 需认证 | 消费积分提现申请（需 `Idempotency-Key`，实时调用支付宝商家转账） |
+| `/bonus/withdraw/history` | GET | 需认证 | 提现记录 |
 | `/bonus/vip-tree` | GET | 需认证 | 三叉树可视化 |
 | `/bonus/queue-status` | GET | 需认证 | 普通队列状态 |
+
+**消费积分双轨（2026-05-19）：**
+- `WithdrawPayoutService`：提现唯一执行入口。申请提现时在 Serializable 事务内冻结余额、计算代扣税/服务费/净额、写 `WithdrawRequest`，随后调用支付宝 `alipay.fund.trans.uni.transfer`；支付宝返回 SUCCESS/FAIL/PROCESSING 后分别进入到账、失败回滚或处理中。
+- `WithdrawRulesService`：统一读取提现/抵扣规则配置，默认提现代扣税率 20%，普通商品抵扣比例普通用户 10%、VIP 15%。
+- `RewardDeductionService`：结算时按 VIP → NORMAL 顺序预留可用积分，支付成功后将 DEDUCT ledger 从 RESERVED 转 VOIDED；支付失败、会话取消、会话过期时释放回 AVAILABLE；售后退款按商品退款比例恢复抵扣积分。
+- 提现兜底：`WithdrawPayoutService.retryProcessingWithdrawals()` 每 10 分钟加 Redis 锁扫描超过 5 分钟仍为 PROCESSING 的提现，先递增查询次数再调用支付宝转账查询；SUCCESS/FAIL/NOT_FOUND 超限均原子收口，支付宝处理中或临时查询异常继续保持 PROCESSING，避免余额永久冻结或误回滚。
 
 ### 8.12 其他模块
 
@@ -438,7 +446,9 @@ npm run start:dev
 | Orders | `GET /admin/orders` | 订单列表/详情/发货/退款/取消 |
 | Companies | `GET/PATCH /admin/companies` | 企业列表/详情/审核 |
 | App Users | `GET /admin/app-users` | 买家用户列表/详情/封禁解封 |
-| Bonus | `GET /admin/bonus/members` | 会员列表/提现审核/拒绝 |
+| Bonus | `GET /admin/bonus/members` | 会员列表/提现记录/提现规则/税务报送 |
+| | `GET/PUT /admin/bonus/withdraw-rules` | 提现与抵扣规则配置 |
+| | `GET /admin/bonus/tax-report/*` | 提现代扣税汇总、明细与 CSV 凭证 |
 | Trace | `CRUD /admin/trace` | 溯源批次管理 |
 | Config | `GET/PATCH /admin/config` | 系统配置编辑 + 版本历史 |
 | Admin Users | `CRUD /admin/users` | 管理员 CRUD + 角色分配 |
@@ -561,7 +571,7 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 | 地址 | 2 | u-001 的默认地址 |
 | VIP 树 | A1-A3 系统节点 + u-001/u-006 VIP 节点 |
 | 分润流水 | 3 条演示 RewardLedger |
-| 提现 | 2 条（REQUESTED / APPROVED） |
+| 提现 | PROCESSING / PAID / FAILED 演示记录 |
 | RuleConfig | 13 条分润参数 |
 
 种子使用 `upsert`（含完整 `update` 字段），支持幂等重跑。

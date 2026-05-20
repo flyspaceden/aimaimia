@@ -189,6 +189,13 @@
   - **验收**: 后端 tsc 通过；PM2 reload 后 00:00 cron 不再报 `make_interval bigint` 错误（下次凌晨验证）
   - **状态**: ✅ | 完成日期: 2026-04-19
 
+- [x] **C14b** — 消费积分双轨：支付宝提现 + 普通商品抵扣（2026-05-19 新增）
+  - **修改**: `backend/prisma/schema.prisma`、`backend/src/modules/bonus/*withdraw*`、`backend/src/modules/bonus/reward-deduction.service.ts`、`backend/src/modules/order/checkout.service.ts`、`backend/src/modules/payment/alipay.service.ts`、`backend/src/modules/payment/payment.controller.ts`、`app/me/wallet.tsx`、`app/me/withdraw.tsx`、`app/checkout.tsx`、`admin/src/pages/bonus/*`
+  - **做什么**: 将 Reward 余额对外命名为"消费积分"，同一余额池支持实时提现到支付宝和普通商品结算抵扣；提现按后台规则代扣个税，抵扣按普通 10% / VIP 15% 比例上限；平台红包可叠加，VIP 礼包不可抵扣
+  - **实际做了**: 新增提现规则、提现出款、消费积分抵扣服务；支付宝商家转账、transfer notify 和 PROCESSING 查询补偿；结算支付成功确认抵扣、取消/过期/支付失败释放抵扣、售后退款按比例恢复抵扣；管理后台增加提现规则与税务报送；买家 App 钱包、提现、结算接入真实接口
+  - **权威文档**: `docs/superpowers/specs/2026-05-19-reward-dual-track-design.md` / `docs/superpowers/plans/2026-05-19-reward-dual-track.md`
+  - **状态**: ✅ | 完成日期: 2026-05-20
+
 **第一批完成判定**:
 - [x] 支付宝真实退款到账（代码已接通，小额测试需上线后验证）
 - [x] Order 状态机闭环（全退 → REFUNDED）

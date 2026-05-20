@@ -17,6 +17,8 @@ const UserListPage = lazy(() => import('@/pages/users/index'));
 const UserDetailPage = lazy(() => import('@/pages/users/detail'));
 const MemberListPage = lazy(() => import('@/pages/bonus/members'));
 const WithdrawalListPage = lazy(() => import('@/pages/bonus/withdrawals'));
+const WithdrawRulesPage = lazy(() => import('@/pages/bonus/withdraw-rules'));
+const TaxReportingPage = lazy(() => import('@/pages/bonus/tax-reporting'));
 const TraceListPage = lazy(() => import('@/pages/trace/index'));
 const ConfigPage = lazy(() => import('@/pages/config/index'));
 const AuditLogPage = lazy(() => import('@/pages/audit/index'));
@@ -113,6 +115,8 @@ export default function App() {
             <Route path="bonus/members" element={<MemberListPage />} />
             <Route path="bonus/members/:userId" element={<MemberDetailPage />} />
             <Route path="bonus/withdrawals" element={<WithdrawalListPage />} />
+            <Route path="bonus/withdraw-rules" element={<WithdrawRulesPage />} />
+            <Route path="bonus/tax-reporting" element={<TaxReportingPage />} />
             <Route path="bonus/vip-tree" element={<VipTreePage />} />
             <Route path="bonus/broadcast-window" element={<BroadcastWindowPage />} />
             <Route path="bonus/normal-tree" element={<NormalTreePage />} />

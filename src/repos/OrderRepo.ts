@@ -127,6 +127,9 @@ export interface PreviewOrderGroup {
 
 export interface PreviewOrderResult {
   groups: PreviewOrderGroup[];
+  pointsBalance: number;
+  pointsRatio: number;
+  maxDeductible: number;
   summary: {
     totalGoodsAmount: number;
     totalShippingFee: number;
@@ -210,16 +213,18 @@ export const OrderRepo = {
     paymentChannel?: string;
     idempotencyKey?: string;
     expectedTotal?: number;
+    deductionAmount?: number;
     buyerNote?: string;
   }): Promise<Result<CheckoutSessionResult>> => {
     if (USE_MOCK) {
+      const deductionAmount = Math.max(0, payload.deductionAmount ?? 0);
       return simulateRequest({
         sessionId: `cs-${Date.now()}`,
         merchantOrderNo: `MO-${Date.now()}`,
-        expectedTotal: 100,
+        expectedTotal: payload.expectedTotal ?? Number(Math.max(0, 100 - deductionAmount).toFixed(2)),
         goodsAmount: 92,
         shippingFee: 8,
-        discountAmount: 0,
+        discountAmount: deductionAmount,
       }, { delay: 300 });
     }
     return ApiClient.post<CheckoutSessionResult>('/orders/checkout', payload);
@@ -373,6 +378,9 @@ export const OrderRepo = {
       const items = payload.items;
       const goodsAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
       const shippingFee = goodsAmount >= 99 ? 0 : 8;
+      const pointsBalance = 236.80;
+      const pointsRatio = 0.10;
+      const maxDeductible = Number(Math.min(pointsBalance, goodsAmount * pointsRatio).toFixed(2));
       return simulateRequest({
         groups: [{
           companyId: 'mock-company',
@@ -382,6 +390,9 @@ export const OrderRepo = {
           shippingFee,
           discountAmount: 0,
         }],
+        pointsBalance,
+        pointsRatio,
+        maxDeductible,
         summary: {
           totalGoodsAmount: goodsAmount,
           totalShippingFee: shippingFee,

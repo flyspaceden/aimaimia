@@ -43,6 +43,8 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/users', name: '用户管理', permission: PERMISSIONS.USERS_READ },
         { path: '/bonus/members', name: 'VIP 会员' },
         { path: '/bonus/withdrawals', name: '提现审核' },
+        { path: '/bonus/withdraw-rules', name: '提现规则', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
+        { path: '/bonus/tax-reporting', name: '税务报送', icon: <FileTextOutlined />, permission: PERMISSIONS.BONUS_APPROVE_WITHDRAW },
         { path: '/bonus/vip-tree', name: 'VIP 奖励可视化', icon: <ApartmentOutlined /> },
         { path: '/bonus/normal-tree', name: '普通奖励可视化', icon: <ApartmentOutlined /> },
         { path: '/bonus/vip-config', name: 'VIP 系统配置', icon: <SettingOutlined /> },

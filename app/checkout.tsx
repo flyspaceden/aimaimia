@@ -17,7 +17,7 @@ import { Countdown } from '../src/components/ui/Countdown';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
 import type { PendingCheckout } from '../src/types/domain/Checkout';
-import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
+import { AddressRepo, OrderRepo, UserRepo } from '../src/repos';
 import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { payWithAlipay } from '../src/utils/alipay';
 import { getStockText } from '../src/utils/stockDisplay';
@@ -27,6 +27,21 @@ import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
 import type { VipPackageSelection } from '../src/store/useCheckoutStore';
+
+const normalizeMoneyInput = (value: string) => {
+  const cleaned = value.replace(/[^\d.]/g, '');
+  const parts = cleaned.split('.');
+  const integerPart = parts[0] ?? '';
+  const decimalPart = parts.length > 1 ? parts.slice(1).join('').slice(0, 2) : undefined;
+  return decimalPart === undefined ? integerPart : `${integerPart}.${decimalPart}`;
+};
+
+const parseMoneyInput = (value: string) => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatMoneyInput = (value: number) => (value > 0 ? value.toFixed(2) : '');
 
 export default function CheckoutScreen() {
   const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
@@ -81,6 +96,7 @@ export default function CheckoutScreen() {
   // v1.0 仅接通支付宝，默认选支付宝；wechat/bankcard 在 paymentMethods 配置里 available=false 灰掉
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('alipay');
   const [buyerNote, setBuyerNote] = useState('');
+  const [deductionAmount, setDeductionAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   // 退换货政策协议弹窗状态
@@ -232,9 +248,42 @@ export default function CheckoutScreen() {
   const finalTotal = preview
     ? Number(preview.summary.totalPayable.toFixed(2))
     : Number(Math.max(0, localGoodsTotal - couponDiscount).toFixed(2));
+  const previewMaxDeductible = !isVipMode && preview ? Math.max(0, preview.maxDeductible ?? 0) : 0;
+  const maxDeductible = !isVipMode && preview ? Number(Math.min(previewMaxDeductible, finalTotal).toFixed(2)) : 0;
+  const pointsBalance = !isVipMode && preview ? Number(Math.max(0, preview.pointsBalance ?? 0).toFixed(2)) : 0;
+  const pointsRatio = !isVipMode && preview ? preview.pointsRatio ?? 0 : 0;
+  const requestedDeductionAmount = parseMoneyInput(deductionAmount);
+  const appliedDeductionAmount = !isVipMode
+    ? Number(Math.min(requestedDeductionAmount, maxDeductible, finalTotal).toFixed(2))
+    : 0;
+  const payableAfterDeduction = !isVipMode
+    ? Number(Math.max(0, finalTotal - appliedDeductionAmount).toFixed(2))
+    : finalTotal;
   const shippingFeeText = preview
     ? (shippingFee === 0 ? '免运费' : `¥${shippingFee.toFixed(2)}`)
     : (previewFailed ? '校验失败' : '计算中...');
+
+  React.useEffect(() => {
+    if (isVipMode) {
+      if (deductionAmount) setDeductionAmount('');
+      return;
+    }
+    const current = parseMoneyInput(deductionAmount);
+    if (current > maxDeductible) {
+      setDeductionAmount(formatMoneyInput(maxDeductible));
+    }
+  }, [deductionAmount, isVipMode, maxDeductible]);
+
+  const handleDeductionChange = (value: string) => {
+    const normalized = normalizeMoneyInput(value);
+    const next = parseMoneyInput(normalized);
+    if (next > maxDeductible) {
+      show({ message: `最多可抵扣 ¥${maxDeductible.toFixed(2)}`, type: 'warning' });
+      setDeductionAmount(formatMoneyInput(maxDeductible));
+      return;
+    }
+    setDeductionAmount(normalized);
+  };
 
   const orderItems = useMemo(
     () =>
@@ -477,6 +526,12 @@ export default function CheckoutScreen() {
       show({ message: '请先选择收货地址', type: 'warning' });
       return;
     }
+    const deductionToSubmit = Number(parseMoneyInput(deductionAmount).toFixed(2));
+    if (deductionToSubmit > maxDeductible) {
+      show({ message: `最多可抵扣 ¥${maxDeductible.toFixed(2)}`, type: 'warning' });
+      setDeductionAmount(formatMoneyInput(maxDeductible));
+      return;
+    }
     // 退换货政策拦截：未同意则弹窗，同意后自动重新触发
     if (!ensurePolicyAgreed(handleCheckout)) return;
     if (submitting) return;
@@ -493,7 +548,8 @@ export default function CheckoutScreen() {
         couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
         paymentChannel: paymentMethod,
         idempotencyKey: normalIdempotencyKeyRef.current,
-        expectedTotal: preview ? preview.summary.totalPayable : undefined,
+        expectedTotal: payableAfterDeduction,
+        deductionAmount: deductionToSubmit,
         buyerNote: buyerNote.trim() || undefined,
       });
       if (!sessionResult.ok) {
@@ -733,7 +789,7 @@ export default function CheckoutScreen() {
   const vipTotal = vipPackageSelection?.price ?? 0;
   const displayTotalText = isVipMode
     ? `¥${vipTotal.toFixed(2)}`
-    : (preview ? `¥${finalTotal.toFixed(2)}` : (previewFailed ? '校验失败' : '计算中...'));
+    : (preview ? `¥${payableAfterDeduction.toFixed(2)}` : (previewFailed ? '校验失败' : '计算中...'));
   const hasContent = isVipMode || cartItems.length > 0;
 
   return (
@@ -1090,6 +1146,63 @@ export default function CheckoutScreen() {
           </Animated.View>
           )}
 
+          {/* 消费积分抵扣（VIP 模式禁用） */}
+          {!isVipMode && preview && maxDeductible > 0 ? (
+            <Animated.View entering={FadeInDown.duration(300).delay(220)} style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brand.primarySoft, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md }}>
+                  <MaterialCommunityIcons name="cash-multiple" size={18} color={colors.brand.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>消费积分</Text>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                    可用 ¥{pointsBalance.toFixed(2)}，本单最多抵扣 ¥{maxDeductible.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={[styles.deductionInputRow, { borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bgSecondary }]}>
+                <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>¥</Text>
+                <TextInput
+                  value={deductionAmount}
+                  onChangeText={handleDeductionChange}
+                  editable={maxDeductible > 0}
+                  placeholder="0.00"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="decimal-pad"
+                  style={[styles.deductionInput, typography.bodyStrong, { color: colors.text.primary }]}
+                />
+                <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
+                  最高{Math.round(pointsRatio * 100)}%
+                </Text>
+              </View>
+
+              <View style={styles.deductionActionRow}>
+                <Pressable
+                  onPress={() => setDeductionAmount('')}
+                  style={[styles.deductionAction, { borderColor: colors.border, borderRadius: radius.pill }]}
+                >
+                  <Text style={[typography.caption, { color: colors.text.secondary }]}>不使用</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setDeductionAmount(formatMoneyInput(maxDeductible))}
+                  disabled={maxDeductible <= 0}
+                  style={[
+                    styles.deductionAction,
+                    {
+                      borderColor: colors.brand.primary,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.brand.primarySoft,
+                      opacity: maxDeductible > 0 ? 1 : 0.5,
+                    },
+                  ]}
+                >
+                  <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>抵扣最大</Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          ) : null}
+
           {/* 价格明细 */}
           <View style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             {isVipMode ? (
@@ -1142,10 +1255,16 @@ export default function CheckoutScreen() {
                     <Text style={[typography.bodySm, { color: colors.danger }]}>-¥{(serverDiscount || couponDiscount).toFixed(2)}</Text>
                   </View>
                 )}
+                {appliedDeductionAmount > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={[typography.bodySm, { color: colors.text.secondary }]}>消费积分</Text>
+                    <Text style={[typography.bodySm, { color: colors.danger }]}>-¥{appliedDeductionAmount.toFixed(2)}</Text>
+                  </View>
+                )}
                 <View style={[styles.divider, { backgroundColor: colors.divider }]} />
                 <View style={styles.priceRow}>
                   <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>合计</Text>
-                  <Text style={[typography.title2, { color: colors.text.primary }]}>¥{finalTotal.toFixed(2)}</Text>
+                  <Text style={[typography.title2, { color: colors.text.primary }]}>¥{payableAfterDeduction.toFixed(2)}</Text>
                 </View>
               </>
             )}
@@ -1484,6 +1603,30 @@ const styles = StyleSheet.create({
     padding: 12,
     minHeight: 60,
     textAlignVertical: 'top',
+  },
+  deductionInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  deductionInput: {
+    flex: 1,
+    marginLeft: 6,
+    paddingVertical: 0,
+  },
+  deductionActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  deductionAction: {
+    flex: 1,
+    alignItems: 'center',
+    borderWidth: 1,
+    paddingVertical: 8,
   },
   priceRow: {
     flexDirection: 'row',

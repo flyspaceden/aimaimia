@@ -1360,6 +1360,7 @@ async function main() {
     { code: 'companies:audit', module: 'companies', action: 'audit', description: '审核企业' },
     { code: 'bonus:read', module: 'bonus', action: 'read', description: '查看会员/奖励' },
     { code: 'bonus:approve_withdraw', module: 'bonus', action: 'approve_withdraw', description: '审批提现' },
+    { code: 'bonus:manage_rules', module: 'bonus', action: 'manage_rules', description: '管理提现与抵扣规则' },
     { code: 'bonus:adjust', module: 'bonus', action: 'adjust', description: '调整奖励' },
     { code: 'coupon:read', module: 'coupon', action: 'read', description: '查看红包活动与记录' },
     { code: 'coupon:manage', module: 'coupon', action: 'manage', description: '管理红包活动与发放' },
@@ -1638,6 +1639,19 @@ async function main() {
       },
       desc: '平台开票主体配置',
     },
+    // --- 消费积分双轨配置 ---
+    { key: 'WITHDRAW_TAX_RATE', value: 0.20, desc: '提现代扣个税比例' },
+    { key: 'WITHDRAW_MIN_AMOUNT', value: 10, desc: '提现单笔最低（元）' },
+    { key: 'WITHDRAW_MAX_AMOUNT', value: 10000, desc: '提现单笔最高（元）' },
+    { key: 'WITHDRAW_DAILY_MAX_COUNT', value: 3, desc: '提现每日最多次数' },
+    { key: 'WITHDRAW_COOLDOWN_SECONDS', value: 60, desc: '提现间冷却时间（秒）' },
+    { key: 'WITHDRAW_YEARLY_MAX_AMOUNT', value: 50000, desc: '单用户年累计提现上限（元）' },
+    { key: 'DEDUCTION_RATIO_NORMAL', value: 0.10, desc: '普通用户抵扣比例上限' },
+    { key: 'DEDUCTION_RATIO_VIP', value: 0.15, desc: 'VIP 用户抵扣比例上限' },
+    { key: 'DEDUCTION_MIN_ORDER_AMOUNT', value: 0, desc: '最低订单门槛（元）' },
+    { key: 'DEDUCTION_ALLOW_COUPON_STACK', value: true, desc: '是否允许与平台红包叠加' },
+    { key: 'WITHDRAW_PROVIDER_FEE_AMOUNT', value: 0, desc: '单笔通道手续费（元，v1.0=0）' },
+    { key: 'WITHDRAW_YEARLY_ALERT_THRESHOLD', value: 0.80, desc: '年累计达上限多少时告警（0-1）' },
   ];
 
   for (const rc of ruleConfigs) {

@@ -538,7 +538,7 @@ export interface BonusStats {
   vipRate: number;
 }
 
-export type WithdrawStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'PAID' | 'FAILED';
+export type WithdrawStatus = 'REQUESTED' | 'PROCESSING' | 'APPROVED' | 'REJECTED' | 'PAID' | 'FAILED';
 
 export type WithdrawChannel = 'WECHAT' | 'ALIPAY' | 'BANKCARD';
 
@@ -547,6 +547,16 @@ export interface WithdrawRequest {
   userId: string;
   user?: { id: string; profile?: { nickname: string | null } | null };
   amount: number;
+  taxAmount?: number | null;
+  netAmount?: number | null;
+  taxRate?: number | null;
+  outBizNo?: string | null;
+  providerPayoutId?: string | null;
+  providerFundOrderId?: string | null;
+  providerStatus?: string | null;
+  providerErrorCode?: string | null;
+  providerErrorMessage?: string | null;
+  paidAt?: string | null;
   status: WithdrawStatus;
   channel: WithdrawChannel | string;
   /** 后端字段名为 accountSnapshot，包含脱敏账户信息 { name, account } */

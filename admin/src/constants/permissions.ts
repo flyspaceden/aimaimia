@@ -30,6 +30,7 @@ export const PERMISSIONS = {
   // 会员/奖励
   BONUS_READ: 'bonus:read',
   BONUS_APPROVE_WITHDRAW: 'bonus:approve_withdraw',
+  BONUS_MANAGE_RULES: 'bonus:manage_rules',
 
   // 溯源
   TRACE_READ: 'trace:read',

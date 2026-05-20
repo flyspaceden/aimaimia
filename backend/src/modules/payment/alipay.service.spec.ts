@@ -104,3 +104,172 @@ describe('AlipayService.closeOrder', () => {
     expect(r).toEqual({ success: false });
   });
 });
+
+describe('AlipayService.transferToAccount', () => {
+  let service: AlipayService;
+  let exec: jest.Mock;
+
+  beforeEach(() => {
+    exec = jest.fn();
+    service = new AlipayService({ get: jest.fn().mockReturnValue('test') } as any);
+    (service as any).sdk = { exec };
+  });
+
+  it('calls alipay.fund.trans.uni.transfer with direct account transfer parameters', async () => {
+    exec.mockResolvedValue({ code: '10000', orderId: 'O1', payFundOrderId: 'F1' });
+
+    await service.transferToAccount({
+      outBizNo: 'WD-x',
+      amount: 80,
+      payeeAccount: 'a@b.com',
+      payeeRealName: '张三',
+    });
+
+    expect(exec).toHaveBeenCalledWith('alipay.fund.trans.uni.transfer', {
+      bizContent: expect.objectContaining({
+        out_biz_no: 'WD-x',
+        trans_amount: '80.00',
+        product_code: 'TRANS_ACCOUNT_NO_PWD',
+        biz_scene: 'DIRECT_TRANSFER',
+        payee_info: {
+          identity: 'a@b.com',
+          identity_type: 'ALIPAY_LOGON_ID',
+          name: '张三',
+        },
+      }),
+    });
+  });
+
+  it('maps successful transfer response', async () => {
+    exec.mockResolvedValue({
+      code: '10000',
+      orderId: 'O1',
+      payFundOrderId: 'F1',
+      status: 'SUCCESS',
+    });
+
+    const result = await service.transferToAccount({
+      outBizNo: 'WD-x',
+      amount: 80,
+      payeeAccount: 'a',
+      payeeRealName: 'b',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      processing: false,
+      outBizNo: 'WD-x',
+      orderId: 'O1',
+      payFundOrderId: 'F1',
+      providerStatus: 'SUCCESS',
+    }));
+  });
+
+  it('maps deterministic business failure with sub code and message', async () => {
+    exec.mockResolvedValue({
+      code: '40004',
+      subCode: 'PAYEE_NOT_EXIST',
+      subMsg: '收款方账户不存在',
+      msg: 'Business Failed',
+    });
+
+    const result = await service.transferToAccount({
+      outBizNo: 'WD-x',
+      amount: 80,
+      payeeAccount: 'a',
+      payeeRealName: 'b',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.processing).toBe(false);
+    expect(result.errorCode).toBe('PAYEE_NOT_EXIST');
+    expect(result.errorMessage).toContain('收款方账户不存在');
+  });
+
+  it('maps system error as processing because the final result is unknown', async () => {
+    exec.mockResolvedValue({
+      code: '20000',
+      subCode: 'SYSTEM_ERROR',
+      subMsg: '系统错误',
+    });
+
+    const result = await service.transferToAccount({
+      outBizNo: 'WD-x',
+      amount: 80,
+      payeeAccount: 'a',
+      payeeRealName: 'b',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.processing).toBe(true);
+  });
+});
+
+describe('AlipayService.queryTransfer', () => {
+  let service: AlipayService;
+  let exec: jest.Mock;
+
+  beforeEach(() => {
+    exec = jest.fn();
+    service = new AlipayService({ get: jest.fn().mockReturnValue('test') } as any);
+    (service as any).sdk = { exec };
+  });
+
+  it('queries transfer by out_biz_no with direct transfer parameters', async () => {
+    exec.mockResolvedValue({ code: '10000', status: 'SUCCESS', orderId: 'O1' });
+
+    await service.queryTransfer({ outBizNo: 'WD-x' });
+
+    expect(exec).toHaveBeenCalledWith('alipay.fund.trans.common.query', {
+      bizContent: expect.objectContaining({
+        out_biz_no: 'WD-x',
+        product_code: 'TRANS_ACCOUNT_NO_PWD',
+        biz_scene: 'DIRECT_TRANSFER',
+      }),
+    });
+  });
+
+  it('maps successful query response', async () => {
+    exec.mockResolvedValue({
+      code: '10000',
+      status: 'SUCCESS',
+      orderId: 'O1',
+      payFundOrderId: 'F1',
+      payDate: '2026-01-01 10:00:00',
+    });
+
+    const result = await service.queryTransfer({ outBizNo: 'WD-x' });
+
+    expect(result.status).toBe('SUCCESS');
+    expect(result.orderId).toBe('O1');
+    expect(result.payFundOrderId).toBe('F1');
+    expect(result.payDate).toBeInstanceOf(Date);
+  });
+
+  it('maps not-found provider responses to NOT_FOUND', async () => {
+    exec.mockResolvedValue({
+      code: '40004',
+      subCode: 'ORDER_NOT_EXIST',
+      subMsg: '订单不存在',
+    });
+
+    const result = await service.queryTransfer({ outBizNo: 'WD-x' });
+
+    expect(result.status).toBe('NOT_FOUND');
+    expect(result.errorCode).toBe('ORDER_NOT_EXIST');
+  });
+
+  it('keeps transient provider query failures as PROCESSING', async () => {
+    exec.mockResolvedValue({
+      code: '20000',
+      subCode: 'SYSTEM_ERROR',
+      msg: '服务不可用',
+      subMsg: '系统繁忙，请稍后查询',
+    });
+
+    const result = await service.queryTransfer({ outBizNo: 'WD-x' });
+
+    expect(result.status).toBe('PROCESSING');
+    expect(result.errorCode).toBe('SYSTEM_ERROR');
+  });
+});

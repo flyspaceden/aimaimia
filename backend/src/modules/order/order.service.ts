@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusAllocationService } from '../bonus/engine/bonus-allocation.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { sanitizeErrorForLog, sanitizeForLog } from '../../common/logging/log-sanitizer';
 import { DEAD_LETTER_REASON } from '../bonus/engine/constants';
@@ -64,6 +65,17 @@ const ORDER_AFTER_SALE_SUMMARY_SELECT = {
   },
 } as const;
 
+type DeductionRefundRestoreParams = {
+  refundId: string;
+  orderId: string;
+  originalGoodsAmount: number;
+  originalGoodsRefundAmount: number;
+  originalDeductAmount: number;
+  deductionGroupId: string | null;
+  isFinalRefund?: boolean;
+  cumulativeGoodsRefundAmount?: number;
+};
+
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
@@ -78,6 +90,8 @@ export class OrderService {
   private paymentService: any = null;
   // InboxService 通过 setter 注入（PAID 取消通知商户用）
   private inboxService: any = null;
+  // RewardDeductionService 通过 setter 注入（预览消费积分可抵扣上限）
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -110,6 +124,11 @@ export class OrderService {
   /** 注入站内信服务（PAID 取消通知商户 OWNER 用） */
   setInboxService(service: any) {
     this.inboxService = service;
+  }
+
+  /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
   }
 
   private earliestShippedAt(shipments?: any[]): string | null {
@@ -1335,18 +1354,7 @@ export class OrderService {
       );
     }
 
-    if (dto.rewardId) {
-      const ledger = await this.prisma.rewardLedger.findUnique({ where: { id: dto.rewardId } });
-      if (ledger && ledger.userId === userId && ledger.status === 'AVAILABLE' && ledger.entryType === 'RELEASE') {
-        // 已到账奖励不过期，直接检查使用条件
-        const minOrderAmount = ledger.amount >= 10 ? ledger.amount * 5 : 0;
-        if (minOrderAmount === 0 || totalGoodsAmount >= minOrderAmount) {
-          rewardDiscount = Number(
-            Math.min(ledger.amount, totalGoodsAmount).toFixed(2),
-          );
-        }
-      }
-    }
+    // 旧 rewardId 整张式抵扣已废弃；preview 只返回本次最多可用的消费积分抵扣额。
 
     const rewardAllocations = this.allocateDiscountByCapacities(
       groups.map((group) => group.goodsAmount),
@@ -1380,6 +1388,9 @@ export class OrderService {
     const amountToFreeShipping = freeShippingThreshold === 0
       ? 0
       : Math.max(0, Number((freeShippingThreshold - totalGoodsAmount).toFixed(2)));
+    const pointsInfo = this.rewardDeductionService
+      ? await this.rewardDeductionService.calculateMaxDeductible(userId, totalGoodsAmount)
+      : { pointsBalance: 0, pointsRatio: vipNode ? 0.15 : 0.1, maxDeductible: 0 };
 
     return {
       groups,
@@ -1392,6 +1403,9 @@ export class OrderService {
         freeShippingThreshold,
         amountToFreeShipping,
       },
+      pointsBalance: pointsInfo.pointsBalance,
+      pointsRatio: pointsInfo.pointsRatio,
+      maxDeductible: pointsInfo.maxDeductible,
       expiredPrizes: [],       // F3: 过期的奖品（查询时已排除）
       lockedGifts: excludedGifts, // F2: 未解锁的赠品列表（未达消费门槛）
       excludedItems,
@@ -1743,12 +1757,6 @@ export class OrderService {
         });
       }
 
-      // 恢复奖励账（VOIDED → AVAILABLE）
-      await tx.rewardLedger.updateMany({
-        where: { refType: 'ORDER', refId: id, status: 'VOIDED' },
-        data: { status: 'AVAILABLE', refType: null, refId: null },
-      });
-
       // 恢复红包（USED → AVAILABLE/EXPIRED）— 调 CouponService.restoreCouponsForOrder
       if (this.couponService?.restoreCouponsForOrder) {
         await this.couponService.restoreCouponsForOrder(id, tx);
@@ -1789,6 +1797,12 @@ export class OrderService {
         refundAmount: order.totalAmount,
         merchantRefundNo: refund.merchantRefundNo,
         affectedCompanyIds: companyIds,
+        deductionRestore: await this.buildDeductionRefundRestoreParams(tx, {
+          refundId: refund.id,
+          order,
+          fallbackOrderId: id,
+          isFinalRefund: true,
+        }),
       };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -1820,6 +1834,7 @@ export class OrderService {
                 operatorId: userId,
               },
             });
+            await this.restoreDeductionForRefund(tx, refundData.deductionRestore);
           });
         } else {
           this.logger.warn(
@@ -1987,13 +2002,6 @@ export class OrderService {
         }
       }
 
-      // 恢复奖励账（VOIDED → AVAILABLE）— RewardLedger.refId 仅指 primary，
-      // 用 IN 包含所有 orderId 即可命中
-      await tx.rewardLedger.updateMany({
-        where: { refType: 'ORDER', refId: { in: orderIds }, status: 'VOIDED' },
-        data: { status: 'AVAILABLE', refType: null, refId: null },
-      });
-
       // 恢复红包（CouponUsageRecord.orderId = primary，逐 Order 调即可
       // 仅 primary 那次会真正命中，其他 no-op）
       if (this.couponService?.restoreCouponsForOrder) {
@@ -2006,8 +2014,10 @@ export class OrderService {
       const refunds: Array<{
         refundId: string;
         refundAmount: number;
+        goodsRefundAmount: number;
         merchantRefundNo: string;
         orderId: string;
+        deductionRestore: DeductionRefundRestoreParams | null;
       }> = [];
       for (const o of orders) {
         const refund = await tx.refund.create({
@@ -2038,8 +2048,14 @@ export class OrderService {
         refunds.push({
           refundId: refund.id,
           refundAmount: o.totalAmount,
+          goodsRefundAmount: Number(o.goodsAmount || 0),
           merchantRefundNo: refund.merchantRefundNo,
           orderId: o.id,
+          deductionRestore: await this.buildDeductionRefundRestoreParams(tx, {
+            refundId: refund.id,
+            order: o,
+            fallbackOrderId: o.id,
+          }),
         });
       }
 
@@ -2053,6 +2069,7 @@ export class OrderService {
 
     // Step 5：事务外逐笔调 alipay refund（任一失败 cron 兜底，不影响主流程）
     if (this.paymentService?.initiateRefund) {
+      let successfulGoodsRefundAmount = 0;
       for (const r of refundData.refunds) {
         try {
           const result = await this.paymentService.initiateRefund(
@@ -2078,6 +2095,16 @@ export class OrderService {
                   operatorId: userId,
                 },
               });
+              successfulGoodsRefundAmount = Number(
+                (successfulGoodsRefundAmount + Number(r.goodsRefundAmount || 0)).toFixed(2),
+              );
+              await this.restoreDeductionForRefund(tx, r.deductionRestore
+                ? {
+                    ...r.deductionRestore,
+                    cumulativeGoodsRefundAmount: successfulGoodsRefundAmount,
+                    isFinalRefund: successfulGoodsRefundAmount >= r.deductionRestore.originalGoodsAmount,
+                  }
+                : null);
             });
           } else {
             this.logger.warn(
@@ -2132,6 +2159,53 @@ export class OrderService {
       include: { items: true },
     });
     return this.mapOrder(primary);
+  }
+
+  private async buildDeductionRefundRestoreParams(
+    tx: any,
+    params: {
+      refundId: string;
+      order: any;
+      fallbackOrderId: string;
+      isFinalRefund?: boolean;
+    },
+  ): Promise<DeductionRefundRestoreParams | null> {
+    if (!this.rewardDeductionService || !params.order?.checkoutSessionId) return null;
+
+    const session = await tx.checkoutSession?.findUnique?.({
+      where: { id: params.order.checkoutSessionId },
+      select: {
+        deductionGroupId: true,
+        goodsAmount: true,
+        discountAmount: true,
+      },
+    });
+    const deductionGroupId = session?.deductionGroupId ?? null;
+    const originalDeductAmount = Number(session?.discountAmount ?? params.order.discountAmount ?? 0);
+    if (!deductionGroupId || originalDeductAmount <= 0) return null;
+
+    const originalGoodsAmount = Number(session?.goodsAmount ?? params.order.goodsAmount ?? 0);
+    const originalGoodsRefundAmount = Number(params.order.goodsAmount ?? 0);
+    if (originalGoodsAmount <= 0 || originalGoodsRefundAmount <= 0) return null;
+
+    return {
+      refundId: params.refundId,
+      orderId: params.fallbackOrderId,
+      originalGoodsAmount,
+      originalGoodsRefundAmount,
+      originalDeductAmount,
+      deductionGroupId,
+      isFinalRefund: params.isFinalRefund,
+      cumulativeGoodsRefundAmount: params.isFinalRefund ? originalGoodsAmount : undefined,
+    };
+  }
+
+  private async restoreDeductionForRefund(
+    tx: any,
+    params: DeductionRefundRestoreParams | null,
+  ): Promise<void> {
+    if (!params || !this.rewardDeductionService) return;
+    await this.rewardDeductionService.refundDeduction(tx, params);
   }
 
   /** 映射为前端 Order 列表项 */

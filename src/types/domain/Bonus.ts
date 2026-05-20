@@ -67,6 +67,31 @@ export interface WithdrawRecord {
   createdAt: string;
 }
 
+/** 提现申请输入（v1.0 无二次验证） */
+export interface WithdrawRequestInput {
+  amount: number;
+  alipayAccount: string;
+  alipayName: string;
+}
+
+/** 提现结果 */
+export interface WithdrawResult {
+  withdrawId: string;
+  grossAmount: number;
+  taxAmount: number;
+  taxRate: number;
+  netAmount: number;
+  status: 'PROCESSING' | 'PAID' | 'FAILED';
+  message: string;
+}
+
+/** 抵扣预览 */
+export interface DeductionPreview {
+  pointsBalance: number;
+  pointsRatio: number;
+  maxDeductible: number;
+}
+
 /** VIP 三叉树节点 */
 export interface VipTreeNode {
   id: string;

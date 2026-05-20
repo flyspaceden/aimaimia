@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Param,
   Query,
@@ -17,6 +18,7 @@ import { RequirePermission } from '../common/decorators/require-permission';
 import { CurrentAdmin } from '../common/decorators/current-admin';
 import { AuditLog } from '../common/decorators/audit-action';
 import { AuditLogInterceptor } from '../common/interceptors/audit-log.interceptor';
+import { UpdateWithdrawRulesDto } from './dto/update-withdraw-rules.dto';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
@@ -51,11 +53,15 @@ export class AdminBonusController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
+    @Query('channel') channel?: string,
+    @Query('accountType') accountType?: string,
   ) {
     return this.bonusService.findWithdrawals(
       page ? parseInt(page) : 1,
       pageSize ? parseInt(pageSize) : 20,
       status,
+      channel,
+      accountType,
     );
   }
 
@@ -226,6 +232,70 @@ export class AdminBonusController {
   }
 
   // ============ 提现管理 ============
+
+  @Get('withdraw-rules')
+  @RequirePermission('bonus:manage_rules')
+  getWithdrawRules() {
+    return this.bonusService.getWithdrawRules();
+  }
+
+  @Put('withdraw-rules')
+  @RequirePermission('bonus:manage_rules')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'bonus',
+    targetType: 'WithdrawRules',
+    isReversible: false,
+  })
+  updateWithdrawRules(@Body() dto: UpdateWithdrawRulesDto) {
+    return this.bonusService.updateWithdrawRules(dto);
+  }
+
+  @Get('tax-report/summary')
+  @RequirePermission('bonus:approve_withdraw')
+  getTaxReportSummary(
+    @Query('year') year: string,
+    @Query('month') month: string,
+  ) {
+    return this.bonusService.getTaxReportSummary(parseInt(year, 10), parseInt(month, 10));
+  }
+
+  @Get('tax-report/detail')
+  @RequirePermission('bonus:approve_withdraw')
+  getTaxReportDetail(
+    @Query('year') year: string,
+    @Query('month') month: string,
+  ) {
+    return this.bonusService.getTaxReportDetail(parseInt(year, 10), parseInt(month, 10));
+  }
+
+  @Post('tax-report/voucher')
+  @RequirePermission('bonus:approve_withdraw')
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'bonus',
+    targetType: 'WithdrawTaxVoucher',
+    isReversible: false,
+  })
+  generateTaxVoucher(
+    @Body('year') year: number,
+    @Body('month') month: number,
+  ) {
+    return this.bonusService.generateTaxVoucher(Number(year), Number(month));
+  }
+
+  @Post('withdrawals/:id/query')
+  @RequirePermission('bonus:approve_withdraw')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'bonus',
+    targetType: 'WithdrawRequest',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  manualQueryWithdrawStatus(@Param('id') id: string) {
+    return this.bonusService.manualQueryWithdrawStatus(id);
+  }
 
   @Post('withdrawals/:id/approve')
   @RequirePermission('bonus:approve_withdraw')
