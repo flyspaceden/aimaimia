@@ -1102,12 +1102,22 @@ export class WithdrawPayoutService {
     if (amountCents < minCents) throw new BadRequestException(`单笔最低 ¥${rules.withdrawMinAmount}`);
     if (amountCents > maxCents) throw new BadRequestException(`单笔最高 ¥${rules.withdrawMaxAmount}`);
 
-    // 2. 幂等键查询
+    // 2. 幂等键查询 + 一致性校验（审查 P0-4）
     if (idempotencyKey) {
       const existing = await this.prisma.withdrawRequest.findUnique({
         where: { clientIdempotencyKey: idempotencyKey },
       });
       if (existing) {
+        // 防止同 key 改金额/账户的攻击：三元组必须完全一致
+        const snapshot = (existing.accountSnapshot as any) || {};
+        const decryptedAccount = snapshot.account
+          ? decryptJsonValue(snapshot).account
+          : null;
+        const sameAmount = Math.round(existing.amount * 100) === amountCents;
+        const sameAccount = decryptedAccount === input.alipayAccount;
+        if (!sameAmount || existing.userId !== userId || !sameAccount) {
+          throw new BadRequestException('Idempotency-Key conflict: existing request differs');
+        }
         return {
           withdrawId: existing.id,
           grossAmount: existing.amount,
@@ -1342,11 +1352,11 @@ export class WithdrawPayoutService {
 
 - [ ] **Step 4: 在 BonusModule 注册**
 
-打开 `backend/src/modules/bonus/bonus.module.ts`，确保 `providers` 含 `WithdrawPayoutService` 且 `imports` 含 `PaymentModule`、`InboxModule`、`SmsModule`（按需补 import 语句）：
+打开 `backend/src/modules/bonus/bonus.module.ts`，确保 `providers` 含 `WithdrawPayoutService` 且 `imports` 含 `PaymentModule`、`InboxModule`（按需补 import 语句；**不需要 SmsModule，v1.0 无二次验证**）：
 
 ```typescript
 import { WithdrawPayoutService } from './withdraw-payout.service';
-// imports: [..., PaymentModule, InboxModule, SmsModule, ...]
+// imports: [..., PaymentModule, InboxModule, ...]
 // providers: [BonusService, WithdrawRulesService, WithdrawPayoutService, ...]
 // exports:   [BonusService, WithdrawRulesService, WithdrawPayoutService, ...]
 ```
@@ -1708,6 +1718,10 @@ requestWithdraw(
   @Body() dto: WithdrawDto,
   @Headers('idempotency-key') idempotencyKey?: string,
 ) {
+  // 审查 P0-4：Idempotency-Key 必填
+  if (!idempotencyKey || idempotencyKey.length < 8) {
+    throw new BadRequestException('Idempotency-Key header required');
+  }
   return this.withdrawPayoutService.requestWithdraw(userId, dto, idempotencyKey);
 }
 ```
@@ -1913,60 +1927,65 @@ async handleAlipayTransferNotify(
 }
 ```
 
-- [ ] **Step 4: 模块依赖循环处理（审查 P0-8）**
+- [ ] **Step 4: 模块依赖单向化（审查 P0-8 + 复审 #2）**
 
-**问题**：BonusModule 需要 PaymentService（提现调用），PaymentController 需要 WithdrawPayoutService（notify 处理）→ 双向依赖。
+**问题**：如果 BonusModule import PaymentModule **同时** PaymentModule import BonusModule，无论 forwardRef 还是 ModuleRef 都仍是循环。要明确单向。
 
-**避免 forwardRef 套娃的方案**：把 transfer-notify 处理逻辑**搬到 WithdrawPayoutService 的一个 public 方法**，PaymentController 通过**只读注入**调用，不需要 PaymentModule import BonusModule 的反向依赖。
+**最终方案：BonusModule → PaymentModule（单向 import）**
 
-具体做法：
+1. **BonusModule import PaymentModule**（正常 import，**不 forwardRef**）
 
-1. **PaymentController 通过 ModuleRef 延迟解析**
+打开 `backend/src/modules/bonus/bonus.module.ts`：
 
-打开 `backend/src/modules/payment/payment.controller.ts`，把 WithdrawPayoutService 注入改为 ModuleRef lazy resolve：
+```typescript
+import { PaymentModule } from '../payment/payment.module';
+@Module({
+  imports: [..., PaymentModule],   // 单向：Bonus 依赖 Payment
+  // ...
+})
+```
+
+WithdrawPayoutService 正常 `constructor(private paymentService: PaymentService)` 注入。
+
+2. **PaymentModule 不 import BonusModule**
+
+PaymentModule 保持现状，**不引 BonusModule**。
+
+3. **PaymentController 用 ModuleRef 解析 WithdrawPayoutService**
+
+PaymentController 需要在 `/alipay/transfer-notify` 端点里调 WithdrawPayoutService，但 PaymentModule 不 import BonusModule。用 ModuleRef + `strict: false` 全局解析：
 
 ```typescript
 import { ModuleRef } from '@nestjs/core';
+import { WithdrawPayoutService } from '../bonus/withdraw-payout.service';
 // ...
 constructor(
   private paymentService: PaymentService,
   private alipayService: AlipayService,
   private checkoutService: CheckoutService,
-  private moduleRef: ModuleRef,    // ← 替代直接注入 WithdrawPayoutService
+  private moduleRef: ModuleRef,
   private prisma: PrismaService,
 ) {}
 
-// 在 handleAlipayTransferNotify 内：
+// 在 handleAlipayTransferNotify 内运行期解析：
 async handleAlipayTransferNotify(...) {
-  // 延迟解析（运行时拿，不参与 DI 构造期循环）
   const withdrawPayoutService = this.moduleRef.get(WithdrawPayoutService, { strict: false });
-  // ... 原 finalize 调用逻辑
+  // ... finalize 调用逻辑
 }
 ```
 
-2. **PaymentModule 仅 import BonusModule（单向）**
+**前提**：`AppModule` 已经 import 了 BonusModule（任意一处即可，因为 BonusModule 一旦被 AppModule 注册，ModuleRef strict:false 就能找到它的 providers）。
 
-```typescript
-import { Module } from '@nestjs/common';
-import { BonusModule } from '../bonus/bonus.module';
-@Module({
-  imports: [..., BonusModule],   // 单向：Payment 依赖 Bonus
-  // ...
-})
+**单向依赖图**：
+```
+AppModule
+  ├─ BonusModule  → PaymentModule
+  ├─ PaymentModule           ← BonusModule, PaymentController(ModuleRef → WithdrawPayoutService)
+  ├─ OrderModule  → BonusModule
+  └─ AfterSaleModule → BonusModule
 ```
 
-3. **BonusModule 不反向 import PaymentModule**
-
-BonusModule 已经在 Task 7 通过 `forwardRef(() => PaymentModule)` 拿到 PaymentService。**这里改为不 forwardRef**，因为 PaymentModule 不再依赖 BonusModule 的构造期注入（ModuleRef 是运行期）。
-
-打开 `bonus.module.ts`：
-
-```typescript
-imports: [..., PaymentModule],   // 普通 import，不需要 forwardRef
-exports: [..., WithdrawPayoutService, RewardDeductionService, WithdrawRulesService],
-```
-
-这样依赖关系变成单向：`PaymentModule → BonusModule`，`PaymentController` 通过 ModuleRef 运行期解析 `WithdrawPayoutService`，构造期无循环。
+无循环。构造期 PaymentController 不需要 WithdrawPayoutService 存在；运行期支付宝通知到达时 ModuleRef.get 即可拿到。
 
 - [ ] **Step 5: TypeScript 编译**
 
@@ -1997,12 +2016,13 @@ git commit -m "feat(payment): add alipay transfer notify endpoint"
 - Modify: `backend/src/modules/bonus/withdraw-payout.service.ts`
 - Modify: `backend/src/modules/bonus/bonus.module.ts`（import RedisCoordinatorService 所在 module）
 
-- [ ] **Step 1: 注入 RedisCoordinatorService**
+- [ ] **Step 1: 注入 RedisCoordinatorService + AlipayService（复审 #8：用类型注入，不用 `as any`）**
 
 打开 `withdraw-payout.service.ts`，加 import + constructor 注入：
 
 ```typescript
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
+import { AlipayService } from '../payment/alipay.service';
 import { randomUUID } from 'crypto';
 // constructor 加：
 constructor(
@@ -2010,9 +2030,12 @@ constructor(
   private rulesService: WithdrawRulesService,
   private paymentService: PaymentService,
   private inboxService: InboxService,
-  private redisCoordinator: RedisCoordinatorService,    // ← 新增
+  private redisCoordinator: RedisCoordinatorService,    // 新增
+  private alipayService: AlipayService,                  // 新增（cron 直接调 queryTransfer）
 ) {}
 ```
+
+注入 AlipayService 而**不通过 `(this.paymentService as any).alipayService`** 绕过类型——后者既丑也容易让人改坏（Payment 内部重构时静默失效）。PaymentModule 已经 export AlipayService（如未 export 在 Task 5 之前补一下）。
 
 确认 BonusModule import 了 RedisCoordinatorService 所在的 module（如 `CommonInfraModule` / `RedisModule`）：
 
@@ -2059,15 +2082,14 @@ async retryProcessingWithdrawals(): Promise<void> {
 
   for (const w of candidates) {
     if (!w.outBizNo) continue;
-    try {
-      // 调 paymentService 包装的查询（沿用同 channel-agnostic 风格）
-      const alipay = (this.paymentService as any).alipayService;
-      const queryResult = await alipay.queryTransfer({ outBizNo: w.outBizNo });
+    // 先 ++ queryAttempts 避免异常时无限重试（复审 #8）
+    await this.prisma.withdrawRequest.update({
+      where: { id: w.id },
+      data: { lastQueriedAt: new Date(), queryAttempts: { increment: 1 } },
+    });
 
-      await this.prisma.withdrawRequest.update({
-        where: { id: w.id },
-        data: { lastQueriedAt: new Date(), queryAttempts: { increment: 1 } },
-      });
+    try {
+      const queryResult = await this.alipayService.queryTransfer({ outBizNo: w.outBizNo });
 
       if (queryResult.status === 'SUCCESS') {
         await this.finalizeWithdrawalPaid(w.id, {
@@ -2894,25 +2916,36 @@ async refundDeduction(tx: any, params: {
 
   if (restoreCents <= 0) return;
 
-  // 5. 按原拆分比例返回各账户，**每个被增加 balance 的账户单独写一条 ADJUST ledger**
-  //    （审查 P0-5：单条 ledger 给两个账户加 balance 会让对账公式
-  //     `sum(ledger.amount where accountId=X) == balance 变动` 破裂）
+  // 5. 按原拆分比例返回各账户（审查 P0-5 + 复审 #5：N-1 比例取整 + 最后一个收尾，避免 cent 漂移）
+  //    每个被增加 balance 的账户单独写一条 ADJUST ledger
+  //    （sum(ledger.amount where accountId=X) == balance 变动 公式才成立）
   const totalOriginalCents = original.reduce((s: number, l: any) => s + yuanToCents(l.amount), 0);
 
-  // 同 refundId 但跨账户的多条 REFUND_RESTORE ledger 共用一个 groupId，便于审计反查
-  // refundId 本身已经唯一了（@unique 在 refType+refId 上的查询会拿到所有同 refundId 的 ledger）
-  for (const l of original) {
-    const portion = Math.round(restoreCents * yuanToCents(l.amount) / totalOriginalCents);
+  // 5.a 计算每条返还 cents：N-1 用 Math.round 按比例，最后一条 = 剩余
+  const portions: number[] = [];
+  let allocated = 0;
+  for (let i = 0; i < original.length - 1; i++) {
+    const p = Math.round(restoreCents * yuanToCents(original[i].amount) / totalOriginalCents);
+    portions.push(p);
+    allocated += p;
+  }
+  // 最后一条 = restoreCents - 前面已分（保证总和 == restoreCents，0 cent 漂移）
+  portions.push(restoreCents - allocated);
+
+  // 5.b 跨账户依次写入
+  for (let i = 0; i < original.length; i++) {
+    const l = original[i];
+    const portion = portions[i];
     if (portion === 0) continue;
     const yuan = centsToYuan(portion);
 
-    // 5.a: balance += portion（对应账户）
+    // balance += portion（对应账户）
     await tx.rewardAccount.updateMany({
       where: { id: l.accountId },
       data: { balance: { increment: yuan } },
     });
 
-    // 5.b: 该账户单独写一条 REFUND_RESTORE ledger（对账闭环）
+    // 该账户单独写一条 REFUND_RESTORE ledger（对账闭环）
     await tx.rewardLedger.create({
       data: {
         accountId: l.accountId,         // 关键：每条 ledger 的 accountId 跟它影响的账户一致
@@ -2960,22 +2993,22 @@ git commit -m "feat(reward): add refundDeduction with refundId idempotency and c
 **实际入口（已用代码验证）**：
 - `backend/src/modules/order/order.controller.ts:95 @Post('preview')` → `OrderService.previewOrder` (`order.service.ts:966`)
 - `backend/src/modules/order/order.controller.ts @Post('checkout')` → `CheckoutService.createCheckoutSession`
-- DTO 在 `CreateOrderDto`（preview 用）和 `CreateCheckoutSessionDto`（checkout 用）
+- DTO 在 `CreateOrderDto`（preview 用，路径 `backend/src/modules/order/dto/create-order.dto.ts`）和 `CheckoutDto`（checkout 用，路径 `backend/src/modules/order/checkout.dto.ts`）
 
 **Files:**
-- Modify: `backend/src/modules/order/checkout.dto.ts`（含 CreateCheckoutSessionDto 和 CreateOrderDto，按现状两个 DTO 都加字段）
+- Modify: `backend/src/modules/order/checkout.dto.ts`（只改 `CheckoutDto`；`CreateOrderDto` 在 `dto/create-order.dto.ts` 里，preview 不接受抵扣金额所以**不改它**）
 - Modify: `backend/src/modules/order/order.service.ts`（previewOrder 返回 points 字段）
 - Modify: `backend/src/modules/order/checkout.service.ts`（替换旧 rewardId 整张式逻辑）
 - Modify: `backend/src/modules/order/order.module.ts`（import BonusModule）
 
 - [ ] **Step 1: DTO 加 deductionAmount**
 
-打开 `backend/src/modules/order/checkout.dto.ts`，找到 `CreateCheckoutSessionDto` 加字段：
+打开 `backend/src/modules/order/checkout.dto.ts`，找到 `CheckoutDto` 加字段：
 
 ```typescript
 import { IsNumber, IsOptional, Min } from 'class-validator';
 
-export class CreateCheckoutSessionDto {
+export class CheckoutDto {
   // ...existing fields
 
   @IsOptional()
@@ -3146,23 +3179,88 @@ if (session.deductionGroupId) {
 }
 ```
 
-- [ ] **Step 3: handlePaymentCallback 失败分支同改**
+- [ ] **Step 3: 在 CheckoutService 加 releaseSessionOnFailure 方法**
 
-打开 `backend/src/modules/payment/payment.service.ts` line 749 附近 `tx.rewardLedger.updateMany` 把 RESERVED 改回 AVAILABLE 的地方。**这里 PaymentService 内的旧逻辑**：
-
-如果支付失败回调直接在 PaymentService 内处理（不走 CheckoutService），就**整段删除**这个 RESERVED→AVAILABLE 逻辑，**改为通过 CheckoutService 的 releaseSession 方法**间接处理：
+打开 `backend/src/modules/order/checkout.service.ts`，加新方法（放在 `cancelSession` 附近）：
 
 ```typescript
-// payment.service.ts 内的失败分支
-if (this.checkoutService) {
-  await this.checkoutService.releaseSessionOnFailure(merchantOrderNo);
-  // releaseSessionOnFailure 内部会调 rewardDeductionService.releaseDeduction
+/**
+ * 支付失败/通道异常时释放 session 资源：
+ * - CheckoutSession.status: ACTIVE → FAILED
+ * - 抵扣金 deduction：RESERVED → AVAILABLE（balance 恢复）
+ * - 平台红包 coupon：RESERVED → AVAILABLE（CouponService 处理）
+ * - 库存：（如有 reserveInventory 模式，按现有逻辑回滚）
+ *
+ * 调用方：PaymentService.handlePaymentCallback 失败分支
+ * 幂等：session 非 ACTIVE 时直接返回
+ */
+async releaseSessionOnFailure(merchantOrderNo: string): Promise<void> {
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const session = await tx.checkoutSession.findFirst({
+          where: { merchantOrderNo },
+        });
+        if (!session) return { released: false, reason: 'session not found' };
+
+        // CAS：ACTIVE → FAILED
+        const cas = await tx.checkoutSession.updateMany({
+          where: { id: session.id, status: 'ACTIVE' },
+          data: { status: 'FAILED' },
+        });
+        if (cas.count === 0) {
+          return { released: false, reason: 'session not ACTIVE (already finalized)' };
+        }
+
+        // 释放抵扣金（新模型）
+        if (session.deductionGroupId) {
+          await this.rewardDeductionService.releaseDeduction(tx, session.deductionGroupId);
+        }
+
+        // 释放预留库存（如果业务有此逻辑，按现有 release 方法调用）
+        // 例：VIP 礼包 → releaseVipReservationInTx；普通商品按现状无显式释放
+
+        return {
+          released: true,
+          sessionId: session.id,
+          couponInstanceIds: session.couponInstanceIds || [],
+        };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      // 事务外释放平台红包（CouponService 有自己的事务）
+      if (result.released && result.couponInstanceIds?.length && this.couponService) {
+        await this.couponService.releaseCoupons(result.couponInstanceIds).catch((err: any) =>
+          this.logger.error(`释放红包失败 sessionId=${result.sessionId}: ${err.message}`),
+        );
+      }
+      return;
+    } catch (err: any) {
+      if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 ```
 
-需要在 CheckoutService 加一个新方法 `releaseSessionOnFailure(merchantOrderNo)`，内部包 Serializable 事务 + 调 releaseDeduction。
+- [ ] **Step 4: PaymentService 失败分支调 releaseSessionOnFailure**
 
-- [ ] **Step 4: TypeScript 编译**
+打开 `backend/src/modules/payment/payment.service.ts` 找现有 CheckoutSession 失败分支（line 749 附近 `tx.rewardLedger.updateMany` 把 RESERVED 改回 AVAILABLE 的整块）。
+
+**整段删除**这部分老逻辑，改为：
+
+```typescript
+// 旧 ledger RESERVED→AVAILABLE + VIP 预留释放等逻辑全部搬到 CheckoutService.releaseSessionOnFailure
+if (this.checkoutService) {
+  await this.checkoutService.releaseSessionOnFailure(merchantOrderNo);
+}
+```
+
+注意：line 728-754 区域是 Serializable 事务 + P2034 重试的整块逻辑，现在简化为一行调用。原 `releaseVipReservationInTx` 和 ledger CAS 都搬到 releaseSessionOnFailure 内。
+
+- [ ] **Step 5: TypeScript 编译**
 
 ```bash
 cd backend
@@ -3171,7 +3269,7 @@ npx tsc --noEmit
 
 Expected: 通过。PaymentService 注入列表保持原样（不加 RewardDeductionService）。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add backend/src/modules/order/checkout.service.ts \
@@ -3235,20 +3333,33 @@ grep -n "BonusModule" backend/src/modules/after-sale/after-sale.module.ts
               },
             });
             if (session?.deductionGroupId && (session.discountAmount ?? 0) > 0) {
-              // 算商品原价的退款金额：优先用 orderItem.quantity × unitPrice（单 SKU 退款），
-              // 若 request.orderItem 缺失则按 refund.amount 近似（多 SKU 整单退款场景较少）
-              const refundGoodsAmount = request.orderItem
-                ? request.orderItem.quantity * (request.orderItem as any).unitPrice
-                : refund.amount;
+              // 算商品原价的退款金额（审查 P0-5 复审：refund.amount 含运费退款，不能作 fallback）
+              //   优先：orderItem.quantity × unitPrice（单 SKU 退款，精准）
+              //   fallback：request.refundAmount（售后单上买家商品金额维度，已扣运费）
+              //   如果两者都缺，跳过返还（不要用可能含运费的 refund.amount 估算）
+              let refundGoodsAmount: number | null = null;
+              if (request.orderItem) {
+                refundGoodsAmount =
+                  request.orderItem.quantity * (request.orderItem as any).unitPrice;
+              } else if (request.refundAmount && request.refundAmount > 0) {
+                refundGoodsAmount = request.refundAmount;
+              }
+              if (refundGoodsAmount === null) {
+                this.logger.warn(
+                  `跳过退款积分返还（缺商品口径金额）：refundId=${refundId}, afterSaleId=${request.id}`,
+                );
+                // 不返还，但不阻断退款主流程
+              } else {
 
               await this.rewardDeductionService.refundDeduction(tx, {
-                refundId,
-                orderId: request.orderId,
-                originalGoodsAmount: session.goodsAmount,
-                originalGoodsRefundAmount: refundGoodsAmount,
-                originalDeductAmount: session.discountAmount,
-                deductionGroupId: session.deductionGroupId,
-              });
+                  refundId,
+                  orderId: request.orderId,
+                  originalGoodsAmount: session.goodsAmount,
+                  originalGoodsRefundAmount: refundGoodsAmount,
+                  originalDeductAmount: session.discountAmount,
+                  deductionGroupId: session.deductionGroupId,
+                });
+              }
             }
           }
 ```
@@ -4312,7 +4423,28 @@ const createdMap = this.initStatusMap(['REQUESTED', 'PROCESSING', 'APPROVED', 'R
 const touchedMap = this.initStatusMap(['REQUESTED', 'PROCESSING', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
 ```
 
-- [ ] **Step 4: 视情况检查 reconciliation controller 返回字段**
+- [ ] **Step 4: 补 ledger 状态期望映射（审查复审 #7）**
+
+`admin-reconciliation.service.ts` 内可能还有一处期望状态映射（line 648 附近），形如：
+
+```typescript
+case 'WITHDRAW_FROZEN': return { ledgerStatuses: ['FROZEN'], entryTypes: ['WITHDRAW'] };
+case 'WITHDRAW_PAID':   return { ledgerStatuses: ['WITHDRAWN'], entryTypes: ['WITHDRAW'] };
+case 'WITHDRAW_VOID':   return { ledgerStatuses: ['VOIDED'], entryTypes: ['VOID'] };
+```
+
+需要补 DEDUCT 的几种状态映射：
+
+```typescript
+case 'DEDUCT_RESERVED':  return { ledgerStatuses: ['RESERVED'],  entryTypes: ['DEDUCT'] };
+case 'DEDUCT_VOIDED':    return { ledgerStatuses: ['VOIDED'],    entryTypes: ['DEDUCT'] };
+case 'DEDUCT_AVAILABLE': return { ledgerStatuses: ['AVAILABLE'], entryTypes: ['DEDUCT'] };
+case 'REFUND_RESTORE':   return { ledgerStatuses: ['AVAILABLE'], entryTypes: ['ADJUST'] };
+```
+
+具体 case 名按现有 reconciliation switch 的命名风格补齐。
+
+- [ ] **Step 5: 视情况检查 reconciliation controller 返回字段**
 
 ```bash
 grep -n "DEDUCT\|PROCESSING\|entryMap\|createdMap" backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts
@@ -4320,7 +4452,7 @@ grep -n "DEDUCT\|PROCESSING\|entryMap\|createdMap" backend/src/modules/admin/rec
 
 如返回对象里直接 destructure entry 名（例如 `result.WITHDRAW`），新加的 `result.DEDUCT` 也要透出到 API 返回。改 controller 或 DTO 对应处。
 
-- [ ] **Step 5: TypeScript 编译**
+- [ ] **Step 6: TypeScript 编译**
 
 ```bash
 cd backend
@@ -4329,11 +4461,11 @@ npx tsc --noEmit
 
 Expected: 通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts
-git commit -m "feat(admin/reconciliation): include DEDUCT entry + PROCESSING withdraw status"
+git commit -m "feat(admin/reconciliation): include DEDUCT entry + PROCESSING withdraw status + ledger maps"
 ```
 
 ---

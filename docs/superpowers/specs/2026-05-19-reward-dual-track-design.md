@@ -296,9 +296,10 @@ Response: {
 ```
 
 **幂等设计**：
-- App 提交前生成 `Idempotency-Key`（UUID v4）
-- 后端 WithdrawRequest 加 `clientIdempotencyKey String? @unique` 字段
-- 同一 key 重复提交：返回已存在的 WithdrawRequest 结果（不创建新提现）
+- App 提交前生成 `Idempotency-Key`（UUID v4，**必填**）
+- Controller 校验 header 缺失即 400 `Idempotency-Key required`
+- 后端 WithdrawRequest 加 `clientIdempotencyKey String? @unique` 字段（schema nullable 仅为兼容历史数据，新建必填由 controller 强制）
+- 同一 key 重复提交：先校验 `(userId, amount, alipayAccount)` 三元组**完全一致**才返回已存在记录；不一致 409 `Idempotency-Key conflict: existing request differs`（防止攻击者用同一 key 偷换金额）
 - key 不存在时正常创建
 - 防 App 网络抖动重试导致重复打款
 
@@ -920,7 +921,8 @@ API：
 - [ ] 沙箱账号提现成功路径
 - [ ] 沙箱错误账号提现失败 → 余额回滚
 - [ ] 沙箱系统错误 → PROCESSING 保留 → cron 兜底 PAID
-- [ ] 短信验证码错误 → 拒绝
+- [ ] 缺 Idempotency-Key → 400
+- [ ] 同 Idempotency-Key 不同金额 → 409
 - [ ] 余额不足 → 拒绝
 - [ ] 日次数超限 → 拒绝
 - [ ] 冷却时间内 → 拒绝
