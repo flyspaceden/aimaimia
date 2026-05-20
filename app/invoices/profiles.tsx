@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { AppError, InvoiceProfile } from '../../src/types';
 
 export default function InvoiceProfilesScreen() {
@@ -17,6 +17,9 @@ export default function InvoiceProfilesScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  // R-RS-LF02 followup: 底部按钮吃 safe area + Android OEM 兜底
+  // 修复用户报告华为 3 键设备上"新建抬头"按钮被虚拟键挡住
+  const bottomPadding = useBottomInset(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['invoice-profiles'],
@@ -141,9 +144,18 @@ export default function InvoiceProfilesScreen() {
           colors={[colors.brand.primary, colors.ai.start]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.bottomBtn, { borderTopColor: colors.border, borderTopWidth: 1 }]}
+          style={[
+            styles.bottomBtn,
+            {
+              borderTopColor: colors.border,
+              borderTopWidth: 1,
+              paddingBottom: 14 + bottomPadding,
+            },
+          ]}
         >
-          <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>新建抬头</Text>
+          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+            新建抬头
+          </Text>
         </LinearGradient>
       </Pressable>
     </Screen>
@@ -166,6 +178,8 @@ const styles = StyleSheet.create({
   },
   bottomBtn: {
     alignItems: 'center',
-    paddingVertical: 14,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingTop: 14,
   },
 });

@@ -13,23 +13,24 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
   // Android OEM 精准兜底：仅在 edge-to-edge 模式（系统栏覆盖 app 窗口）且
-  // useSafeAreaInsets() 错误返回 0 时强制 32dp。避免在非 edge-to-edge 旧机型/
-  // 全屏沉浸 App 上引入无意义的 32dp 空白。
+  // useSafeAreaInsets() 错误返回 0 时强制 56dp。避免在非 edge-to-edge 旧机型/
+  // 全屏沉浸 App 上引入无意义的 56dp 空白。
   //
   // 判定方法：window.height (app 可绘制区) === screen.height (整屏含系统栏)
   //   - 相等 → edge-to-edge 开启，app 画到系统栏后面，必须靠 inset 自适应
   //   - 不等 → 系统栏在 app 窗口外，inset 自然为 0 是正确行为，无需兜底
   //
-  // 三键虚拟键 + OEM 错把 insets 报 0 时（华为/小米/OPPO）→ 32dp 救场
+  // 三键虚拟键 + OEM 错把 insets 报 0 时（华为/小米/OPPO）→ 56dp 救场
   // 现代 Android 手势条（insets 正常返回 24-48）→ max 取大值不变
   // iOS home indicator → 直接用 insets.bottom（约 34dp 或 0）
+  // 2026-05-20: 32 → 56 与 src/theme/responsive.ts ANDROID_NAV_FALLBACK 同步
   let safeBottomPad = insets.bottom;
   if (Platform.OS === 'android' && insets.bottom === 0) {
     const window = Dimensions.get('window');
     const screen = Dimensions.get('screen');
     const isEdgeToEdge = Math.abs(window.height - screen.height) < 2; // 容忍 1px 误差
     if (isEdgeToEdge) {
-      safeBottomPad = 32; // OEM bug 兜底
+      safeBottomPad = 56; // OEM bug 兜底
     }
   }
 

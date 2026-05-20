@@ -117,23 +117,27 @@ export const compactActionTextProps: Partial<TextProps> = {
 // useBottomInset — 固定底部栏 padding 兜底
 // ---------------------------------------------------------------------------
 
-const ANDROID_NAV_FALLBACK = 32;
+// 2026-05-20: 32 → 56。原因：用户在华为 3 键机上反馈 invoices/request 底部按钮
+// 仍被虚拟键挡住，diagnose 后发现 32dp 对部分华为/Honor 3 键导航条（实际高度
+// 50-70dp）不够。56dp = 标准 Android nav 48dp + 8dp 安全余量；只影响 edge-to-edge
+// 模式下 insets.bottom 错报 0 的少数机型，其余机型继续走真实 insets。
+const ANDROID_NAV_FALLBACK = 56;
 
 /**
  * 固定底部栏专用 paddingBottom。
  *
  * Android edge-to-edge 模式（系统栏覆盖 app 窗口）下，部分 OEM / 三键导航
- * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制 32dp 兜底。
+ * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制 56dp 兜底。
  *
- * 但**只在确认 edge-to-edge 时才补**：粗暴的 Math.max(insets.bottom, 32)
- * 会在非 edge-to-edge 旧机型 / 全屏沉浸 App 上多塞 32dp 空白，所以必须用
+ * 但**只在确认 edge-to-edge 时才补**：粗暴的 Math.max(insets.bottom, 56)
+ * 会在非 edge-to-edge 旧机型 / 全屏沉浸 App 上多塞 56dp 空白，所以必须用
  * window.height vs screen.height 判定。逻辑与 app/(tabs)/_layout.tsx:13-34
  * 一致。
  *
  * 判定矩阵：
  * | 机型 / 模式                          | insets | window=screen | 结果 |
  * |--------------------------------------|--------|---------------|------|
- * | 华为三键 OEM bug + edge-to-edge      | 0      | 是            | 32   |
+ * | 华为三键 OEM bug + edge-to-edge      | 0      | 是            | 56   |
  * | 三键正常返回 inset                   | 48     | 是            | 48   |
  * | 全面屏小白条                         | 24-34  | 是            | 24-34|
  * | 非 edge-to-edge 旧机                 | 0      | 否            | 0    |
