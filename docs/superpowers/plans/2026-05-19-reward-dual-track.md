@@ -55,6 +55,10 @@
 - Modify: `backend/src/modules/payment/payment.service.ts` (initiateTransfer)
 - Modify: `backend/src/modules/payment/payment.controller.ts` (alipay/transfer-notify 端点)
 - Create: `backend/src/modules/payment/payment.controller.transfer-notify.spec.ts`
+- Use existing: `backend/src/common/infra/redis-coordinator.service.ts` (Cron 锁)
+- Use existing: `backend/src/common/security/encryption.ts` (accountSnapshot 加密)
+
+**注：v1.0 不做 SMS 二次验证**（spec 6.1 已记载），故不涉及 `backend/src/modules/auth/` 或 `backend/src/common/sms/` 改动。
 
 ### Backend: 抵扣链路
 
@@ -78,7 +82,7 @@
 
 - Modify: `src/types/domain/Bonus.ts`
 - Modify: `src/repos/BonusRepo.ts`
-- Modify: `src/repos/CheckoutRepo.ts` (or 对应的 OrderRepo)
+- Modify: `src/repos/OrderRepo.ts`（实际文件名，**不是** CheckoutRepo.ts）
 - Modify: `app/me/wallet.tsx` (文案改"消费积分")
 - Modify: `app/me/withdraw.tsx` (完全重写)
 - Modify: 结算页（buyer App checkout 页面，加积分输入）
@@ -92,7 +96,9 @@
 - Modify: `admin/src/pages/bonus/withdrawals.tsx`
 - Create: `admin/src/pages/bonus/withdraw-rules.tsx`
 - Create: `admin/src/pages/bonus/tax-reporting.tsx`
-- Modify: 路由配置（admin/src/router）
+- Modify: `admin/src/App.tsx`（Routes 配置，line 100-134 区域，加新页 Route）
+- Modify: `admin/src/layouts/AdminLayout.tsx`（menuRoutes 配置，line 38-52 区域 `/user-bonus` 子菜单加新页菜单项）
+- Modify: `backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts`（line 322 entryMap 加 DEDUCT；line 361 createdMap/touchedMap 加 PROCESSING）
 
 ### 文档
 
@@ -553,16 +559,10 @@ export class WithdrawDto {
   @IsNotEmpty()
   @MaxLength(64)
   alipayName: string;
-
-  @IsString()
-  @IsNotEmpty()
-  smsCode: string;
-
-  @IsString()
-  @IsNotEmpty()
-  smsVerifyToken: string;
 }
 ```
+
+**v1.0 不加 smsCode / smsVerifyToken**。资金防护依赖 Idempotency-Key + 多层限额（spec 6.1 已记载）。
 
 - [ ] **Step 2: TypeScript 校验**
 
@@ -939,7 +939,6 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
   let prisma: any;
   let rulesService: any;
   let paymentService: any;
-  let smsService: any;
 
   const makeRules = (overrides: any = {}) => ({
     withdrawTaxRate: 0.20,
@@ -979,21 +978,18 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     };
     rulesService = { getRules: jest.fn().mockResolvedValue(makeRules()) };
     paymentService = { initiateTransfer: jest.fn() };
-    smsService = { verify: jest.fn().mockResolvedValue(true) };
-    service = new WithdrawPayoutService(prisma, rulesService, paymentService, smsService, {} as any);
+    service = new WithdrawPayoutService(prisma, rulesService, paymentService, {} as any);
   });
 
   it('rejects amount below min', async () => {
     await expect(service.requestWithdraw('u1', {
       amount: 9.99, alipayAccount: 'a', alipayName: 'b',
-      smsCode: '1', smsVerifyToken: 't',
     }, undefined)).rejects.toThrow(BadRequestException);
   });
 
   it('rejects amount above max', async () => {
     await expect(service.requestWithdraw('u1', {
       amount: 10001, alipayAccount: 'a', alipayName: 'b',
-      smsCode: '1', smsVerifyToken: 't',
     }, undefined)).rejects.toThrow(BadRequestException);
   });
 
@@ -1004,7 +1000,6 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     prisma.withdrawRequest.aggregate.mockResolvedValue({ _sum: { amount: 0 } });
     await expect(service.requestWithdraw('u1', {
       amount: 100, alipayAccount: 'a', alipayName: 'b',
-      smsCode: '1', smsVerifyToken: 't',
     }, undefined)).rejects.toThrow(/每日最多提现/);
   });
 
@@ -1015,7 +1010,6 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     prisma.withdrawRequest.aggregate.mockResolvedValue({ _sum: { amount: 0 } });
     await expect(service.requestWithdraw('u1', {
       amount: 100, alipayAccount: 'a', alipayName: 'b',
-      smsCode: '1', smsVerifyToken: 't',
     }, undefined)).rejects.toThrow(/冷却时间/);
   });
 
@@ -1026,7 +1020,6 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     prisma.withdrawRequest.aggregate.mockResolvedValue({ _sum: { amount: 50000 } });
     await expect(service.requestWithdraw('u1', {
       amount: 100, alipayAccount: 'a', alipayName: 'b',
-      smsCode: '1', smsVerifyToken: 't',
     }, undefined)).rejects.toThrow(/年累计提现/);
   });
 
@@ -1036,7 +1029,6 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     });
     const result = await service.requestWithdraw('u1', {
       amount: 100, alipayAccount: 'a', alipayName: 'b',
-      smsCode: '1', smsVerifyToken: 't',
     }, 'idemp-1');
     expect(prisma.withdrawRequest.findUnique).toHaveBeenCalledWith({ where: { clientIdempotencyKey: 'idemp-1' } });
     expect(result.withdrawId).toBe('w-1');
@@ -1069,8 +1061,6 @@ interface WithdrawInput {
   amount: number;
   alipayAccount: string;
   alipayName: string;
-  smsCode: string;
-  smsVerifyToken: string;
 }
 
 interface WithdrawResult {
@@ -1095,8 +1085,6 @@ export class WithdrawPayoutService {
     private prisma: PrismaService,
     private rulesService: WithdrawRulesService,
     private paymentService: PaymentService,
-    // SmsService 注入名称按项目实际，这里假设有
-    private smsService: any,
     private inboxService: InboxService,
   ) {}
 
@@ -1132,9 +1120,7 @@ export class WithdrawPayoutService {
       }
     }
 
-    // 3. 短信验证
-    const smsOk = await this.smsService.verify(input.smsVerifyToken, input.smsCode);
-    if (!smsOk) throw new BadRequestException('短信验证码错误');
+    // 3. (v1.0 跳过：不做短信/支付密码二次验证)
 
     // 4. Serializable 事务：校验+冻结+创建
     const created = await this.createWithdrawTx(userId, input, idempotencyKey, rules);
@@ -1927,26 +1913,60 @@ async handleAlipayTransferNotify(
 }
 ```
 
-- [ ] **Step 4: 在 PaymentModule import BonusModule（或循环依赖处理）**
+- [ ] **Step 4: 模块依赖循环处理（审查 P0-8）**
 
-打开 `backend/src/modules/payment/payment.module.ts`，确认 `BonusModule` 在 imports（如果 BonusModule 也导入 PaymentModule 会有循环；用 `forwardRef(() => BonusModule)`）：
+**问题**：BonusModule 需要 PaymentService（提现调用），PaymentController 需要 WithdrawPayoutService（notify 处理）→ 双向依赖。
+
+**避免 forwardRef 套娃的方案**：把 transfer-notify 处理逻辑**搬到 WithdrawPayoutService 的一个 public 方法**，PaymentController 通过**只读注入**调用，不需要 PaymentModule import BonusModule 的反向依赖。
+
+具体做法：
+
+1. **PaymentController 通过 ModuleRef 延迟解析**
+
+打开 `backend/src/modules/payment/payment.controller.ts`，把 WithdrawPayoutService 注入改为 ModuleRef lazy resolve：
 
 ```typescript
-import { forwardRef, Module } from '@nestjs/common';
-import { BonusModule } from '../bonus/bonus.module';
+import { ModuleRef } from '@nestjs/core';
 // ...
+constructor(
+  private paymentService: PaymentService,
+  private alipayService: AlipayService,
+  private checkoutService: CheckoutService,
+  private moduleRef: ModuleRef,    // ← 替代直接注入 WithdrawPayoutService
+  private prisma: PrismaService,
+) {}
+
+// 在 handleAlipayTransferNotify 内：
+async handleAlipayTransferNotify(...) {
+  // 延迟解析（运行时拿，不参与 DI 构造期循环）
+  const withdrawPayoutService = this.moduleRef.get(WithdrawPayoutService, { strict: false });
+  // ... 原 finalize 调用逻辑
+}
+```
+
+2. **PaymentModule 仅 import BonusModule（单向）**
+
+```typescript
+import { Module } from '@nestjs/common';
+import { BonusModule } from '../bonus/bonus.module';
 @Module({
-  imports: [..., forwardRef(() => BonusModule), ...],
+  imports: [..., BonusModule],   // 单向：Payment 依赖 Bonus
   // ...
 })
 ```
 
-对应 `bonus.module.ts` 引 `PaymentModule` 也改 `forwardRef`：
+3. **BonusModule 不反向 import PaymentModule**
+
+BonusModule 已经在 Task 7 通过 `forwardRef(() => PaymentModule)` 拿到 PaymentService。**这里改为不 forwardRef**，因为 PaymentModule 不再依赖 BonusModule 的构造期注入（ModuleRef 是运行期）。
+
+打开 `bonus.module.ts`：
 
 ```typescript
-import { forwardRef } from '@nestjs/common';
-imports: [..., forwardRef(() => PaymentModule), ...],
+imports: [..., PaymentModule],   // 普通 import，不需要 forwardRef
+exports: [..., WithdrawPayoutService, RewardDeductionService, WithdrawRulesService],
 ```
+
+这样依赖关系变成单向：`PaymentModule → BonusModule`，`PaymentController` 通过 ModuleRef 运行期解析 `WithdrawPayoutService`，构造期无循环。
 
 - [ ] **Step 5: TypeScript 编译**
 
@@ -1969,12 +1989,40 @@ git commit -m "feat(payment): add alipay transfer notify endpoint"
 
 ---
 
-### Task 11: Cron 补偿任务
+### Task 11: Cron 补偿任务（含 Redis 锁）
+
+**审查 P1-10**：v1.0 必须实现 Redis 锁，不能只写注释。项目已有 `RedisCoordinatorService`（`backend/src/common/infra/redis-coordinator.service.ts:117 acquireLock(key, owner, ttlMs)`），直接复用。
 
 **Files:**
 - Modify: `backend/src/modules/bonus/withdraw-payout.service.ts`
+- Modify: `backend/src/modules/bonus/bonus.module.ts`（import RedisCoordinatorService 所在 module）
 
-- [ ] **Step 1: 加 cron 方法**
+- [ ] **Step 1: 注入 RedisCoordinatorService**
+
+打开 `withdraw-payout.service.ts`，加 import + constructor 注入：
+
+```typescript
+import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
+import { randomUUID } from 'crypto';
+// constructor 加：
+constructor(
+  private prisma: PrismaService,
+  private rulesService: WithdrawRulesService,
+  private paymentService: PaymentService,
+  private inboxService: InboxService,
+  private redisCoordinator: RedisCoordinatorService,    // ← 新增
+) {}
+```
+
+确认 BonusModule import 了 RedisCoordinatorService 所在的 module（如 `CommonInfraModule` / `RedisModule`）：
+
+```bash
+grep -rn "RedisCoordinatorService" backend/src --include="*.module.ts" | head -5
+```
+
+按 grep 结果在 BonusModule.imports 加对应 module 引用。
+
+- [ ] **Step 2: 加 cron 方法（含真实 Redis 锁）**
 
 在 `WithdrawPayoutService` 类内末尾追加：
 
@@ -1984,17 +2032,30 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Cron(CronExpression.EVERY_10_MINUTES)
 async retryProcessingWithdrawals(): Promise<void> {
-  // Redis 锁（如有 RedisService）
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
-  const candidates = await this.prisma.withdrawRequest.findMany({
-    where: {
-      status: 'PROCESSING',
-      createdAt: { lte: fiveMinAgo },
-      queryAttempts: { lt: 10 },
-    },
-    orderBy: { createdAt: 'asc' },
-    take: 20,
-  });
+  // 真实 Redis 锁（防多实例并发）
+  const lockOwner = randomUUID();
+  const lockTtlMs = 9 * 60 * 1000;  // 9 分钟（< cron 间隔 10 分钟）
+  const got = await this.redisCoordinator.acquireLock(
+    'cron:withdraw-payout-retry',
+    lockOwner,
+    lockTtlMs,
+  );
+  if (!got) {
+    this.logger.log('另一实例正在跑提现补偿，跳过');
+    return;
+  }
+
+  try {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const candidates = await this.prisma.withdrawRequest.findMany({
+      where: {
+        status: 'PROCESSING',
+        createdAt: { lte: fiveMinAgo },
+        queryAttempts: { lt: 10 },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+    });
 
   for (const w of candidates) {
     if (!w.outBizNo) continue;
@@ -2028,11 +2089,22 @@ async retryProcessingWithdrawals(): Promise<void> {
     } catch (err: any) {
       this.logger.error(`cron 补偿 ${w.id} 异常: ${err.message}`);
     }
+    }
+  } finally {
+    await this.redisCoordinator.releaseLock('cron:withdraw-payout-retry', lockOwner);
   }
 }
 ```
 
-- [ ] **Step 2: 确保 ScheduleModule 注册**
+- [ ] **Step 3: 确认 RedisCoordinatorService 有 releaseLock 方法**
+
+```bash
+grep -n "releaseLock\|release_lock" backend/src/common/infra/redis-coordinator.service.ts
+```
+
+如果没有 `releaseLock` 方法（API 可能叫别的，如 `release` 或仅靠 TTL 自然过期），按 grep 结果调整调用。若仅依赖 TTL，可省略 finally 块（lock 9 分钟自然过期）。
+
+- [ ] **Step 4: 确保 ScheduleModule 注册**
 
 ```bash
 grep -n "ScheduleModule" backend/src/app.module.ts
@@ -2706,6 +2778,51 @@ describe('RewardDeductionService.refundDeduction', () => {
       data: { balance: { increment: 7.2 } },
     }));
   });
+
+  it('writes separate ledger per account when original deduction was cross-account', async () => {
+    // 原扣 VIP=10, NORMAL=8，部分退 ratio = 80/200 = 0.4
+    // VIP 返 10 × 0.4 = 4，NORMAL 返 8 × 0.4 = 3.2
+    tx.rewardLedger.findFirst.mockResolvedValue(null);
+    tx.rewardLedger.findMany.mockResolvedValue([
+      { id: 'l-vip',    accountId: 'acc-vip',    amount: 10, userId: 'u', meta: { groupId: 'DG-1', role: 'PRIMARY' } },
+      { id: 'l-normal', accountId: 'acc-normal', amount: 8,  userId: 'u', meta: { groupId: 'DG-1', role: 'SECONDARY' } },
+    ]);
+    tx.rewardLedger.aggregate.mockResolvedValue({ _sum: { amount: 0 } });
+
+    await service.refundDeduction(tx, {
+      refundId: 'r-cross', orderId: 'o-1',
+      originalGoodsAmount: 200, originalGoodsRefundAmount: 80,
+      originalDeductAmount: 18, deductionGroupId: 'DG-1',
+    });
+
+    // VIP 账户 balance += 4
+    expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'acc-vip' },
+      data: { balance: { increment: 4 } },
+    }));
+    // VIP 账户 ledger 写一条（accountId 跟它一致）
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountId: 'acc-vip', amount: 4, refId: 'r-cross',
+        refType: 'REFUND_RESTORE', entryType: 'ADJUST',
+      }),
+    }));
+
+    // NORMAL 账户 balance += 3.2
+    expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'acc-normal' },
+      data: { balance: { increment: 3.2 } },
+    }));
+    // NORMAL 账户 ledger 写一条
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountId: 'acc-normal', amount: 3.2, refId: 'r-cross',
+        refType: 'REFUND_RESTORE', entryType: 'ADJUST',
+      }),
+    }));
+    // 总共 2 条 ledger（不是 1 条）
+    expect(tx.rewardLedger.create).toHaveBeenCalledTimes(2);
+  });
 });
 ```
 
@@ -2777,32 +2894,43 @@ async refundDeduction(tx: any, params: {
 
   if (restoreCents <= 0) return;
 
-  // 5. 按原拆分比例返回各账户
+  // 5. 按原拆分比例返回各账户，**每个被增加 balance 的账户单独写一条 ADJUST ledger**
+  //    （审查 P0-5：单条 ledger 给两个账户加 balance 会让对账公式
+  //     `sum(ledger.amount where accountId=X) == balance 变动` 破裂）
   const totalOriginalCents = original.reduce((s: number, l: any) => s + yuanToCents(l.amount), 0);
+
+  // 同 refundId 但跨账户的多条 REFUND_RESTORE ledger 共用一个 groupId，便于审计反查
+  // refundId 本身已经唯一了（@unique 在 refType+refId 上的查询会拿到所有同 refundId 的 ledger）
   for (const l of original) {
     const portion = Math.round(restoreCents * yuanToCents(l.amount) / totalOriginalCents);
     if (portion === 0) continue;
     const yuan = centsToYuan(portion);
+
+    // 5.a: balance += portion（对应账户）
     await tx.rewardAccount.updateMany({
       where: { id: l.accountId },
       data: { balance: { increment: yuan } },
     });
-  }
 
-  // 6. 写 REFUND_RESTORE ledger（主账户即可，meta 含 groupId）
-  const primaryAccountId = original[0].accountId;
-  await tx.rewardLedger.create({
-    data: {
-      accountId: primaryAccountId,
-      userId: original[0].userId,
-      entryType: 'ADJUST',
-      amount: centsToYuan(restoreCents),
-      status: 'AVAILABLE',
-      refType: 'REFUND_RESTORE',
-      refId: params.refundId,
-      meta: { scheme: 'REFUND_RESTORE', groupId: params.deductionGroupId, orderId: params.orderId },
-    },
-  });
+    // 5.b: 该账户单独写一条 REFUND_RESTORE ledger（对账闭环）
+    await tx.rewardLedger.create({
+      data: {
+        accountId: l.accountId,         // 关键：每条 ledger 的 accountId 跟它影响的账户一致
+        userId: l.userId,
+        entryType: 'ADJUST',
+        amount: yuan,
+        status: 'AVAILABLE',
+        refType: 'REFUND_RESTORE',
+        refId: params.refundId,
+        meta: {
+          scheme: 'REFUND_RESTORE',
+          groupId: params.deductionGroupId,
+          orderId: params.orderId,
+          sourceLedgerId: l.id,         // 反查回原 DEDUCT ledger 用
+        },
+      },
+    });
+  }
 }
 ```
 
@@ -2827,16 +2955,22 @@ git commit -m "feat(reward): add refundDeduction with refundId idempotency and c
 
 ## Chunk 6: Checkout / Refund 集成
 
-### Task 16: CheckoutService 集成抵扣
+### Task 16: Order 预览/结算集成抵扣
+
+**实际入口（已用代码验证）**：
+- `backend/src/modules/order/order.controller.ts:95 @Post('preview')` → `OrderService.previewOrder` (`order.service.ts:966`)
+- `backend/src/modules/order/order.controller.ts @Post('checkout')` → `CheckoutService.createCheckoutSession`
+- DTO 在 `CreateOrderDto`（preview 用）和 `CreateCheckoutSessionDto`（checkout 用）
 
 **Files:**
-- Modify: `backend/src/modules/order/checkout.dto.ts`
-- Modify: `backend/src/modules/order/checkout.service.ts`
-- Modify: `backend/src/modules/order/order.controller.ts`
+- Modify: `backend/src/modules/order/checkout.dto.ts`（含 CreateCheckoutSessionDto 和 CreateOrderDto，按现状两个 DTO 都加字段）
+- Modify: `backend/src/modules/order/order.service.ts`（previewOrder 返回 points 字段）
+- Modify: `backend/src/modules/order/checkout.service.ts`（替换旧 rewardId 整张式逻辑）
+- Modify: `backend/src/modules/order/order.module.ts`（import BonusModule）
 
 - [ ] **Step 1: DTO 加 deductionAmount**
 
-打开 `backend/src/modules/order/checkout.dto.ts`，找到现有 `CreateCheckoutSessionDto` (或对应类)，加字段：
+打开 `backend/src/modules/order/checkout.dto.ts`，找到 `CreateCheckoutSessionDto` 加字段：
 
 ```typescript
 import { IsNumber, IsOptional, Min } from 'class-validator';
@@ -2851,18 +2985,72 @@ export class CreateCheckoutSessionDto {
 }
 ```
 
-`PreviewOrderDto`（或对应预览 DTO）保持不变 —— 预览不接受 deductionAmount，由后端算最大值。
+`CreateOrderDto`（用于 preview）**不加** deductionAmount —— preview 只算"最多能扣多少"，不接受用户输入。
 
-- [ ] **Step 2: checkout.service.ts 把旧 rewardId 整张式逻辑替换**
+- [ ] **Step 2: 注入 RewardDeductionService 到 CheckoutService + OrderService**
 
-打开 `backend/src/modules/order/checkout.service.ts`，找到 line 566-590 区域（dto.rewardId 校验），整段替换：
+打开 `backend/src/modules/order/checkout.service.ts`，constructor 加：
+
+```typescript
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
+constructor(
+  // ... existing
+  private rewardDeductionService: RewardDeductionService,
+) {}
+```
+
+同样改 `backend/src/modules/order/order.service.ts`：
+
+```typescript
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
+constructor(
+  // ... existing
+  private rewardDeductionService: RewardDeductionService,
+) {}
+```
+
+确认 `OrderModule` 已 import `BonusModule`：
+
+```bash
+grep -n "BonusModule" backend/src/modules/order/order.module.ts
+```
+
+如果没有，加：
+
+```typescript
+import { BonusModule } from '../bonus/bonus.module';
+imports: [..., BonusModule, ...]
+```
+
+- [ ] **Step 3: order.service.ts 的 previewOrder 加 points 字段**
+
+打开 `backend/src/modules/order/order.service.ts:966 previewOrder`，在 return 语句之前加：
+
+```typescript
+const pointsInfo = await this.rewardDeductionService.calculateMaxDeductible(
+  userId, totalGoodsAmount,
+);
+```
+
+return 对象加上：
+
+```typescript
+return {
+  // ... existing fields
+  pointsBalance: pointsInfo.pointsBalance,
+  pointsRatio: pointsInfo.pointsRatio,
+  maxDeductible: pointsInfo.maxDeductible,
+};
+```
+
+- [ ] **Step 4: checkout.service.ts 把旧 rewardId 整张式逻辑替换**
+
+打开 `backend/src/modules/order/checkout.service.ts`，找到 line 566-590 区域（dto.rewardId 校验，"奖励 ≥ 10 时 5x minOrder" 那段），整段替换：
 
 ```typescript
 // 新模型：按余额比例式抵扣
-// rewardDeductionService 注入需要先做
-let reserveResult: any = null;
 if (dto.deductionAmount && dto.deductionAmount > 0) {
-  // 仅校验，正式预留在事务内
+  // 事务外只读校验上限（事务内会用 reserveDeduction 重新加 CAS 防并发）
   const max = await this.rewardDeductionService.calculateMaxDeductible(userId, totalGoodsAmount);
   if (dto.deductionAmount > max.maxDeductible) {
     throw new BadRequestException('抵扣金额超出上限');
@@ -2870,7 +3058,7 @@ if (dto.deductionAmount && dto.deductionAmount > 0) {
 }
 ```
 
-找到事务内现有 `dto.rewardId && rewardLedger` 块（line 625-644 区域）整段替换：
+找到事务内现有 `dto.rewardId && rewardLedger` 块（line 625-644 区域），整段替换：
 
 ```typescript
 // 事务内 reserve（CAS 防并发）
@@ -2890,69 +3078,15 @@ if (dto.deductionAmount && dto.deductionAmount > 0) {
 }
 ```
 
-找到事务内 CheckoutSession 创建（line 695 附近 `tx.checkoutSession.create({ data: ...`）的 `data` 对象内加上：
+找到事务内 `tx.checkoutSession.create({ data: ...`（line 695 附近）的 `data` 对象，在 `rewardId: ...` 那一行后面加上：
 
 ```typescript
 deductionGroupId,
 ```
 
-紧跟 `rewardId: ...` 那一行后面。
+- [ ] **Step 5: 老 /bonus/rewards/available 路由保留兼容旧 App**
 
-- [ ] **Step 3: 移除 BonusService.getAvailableRewards 调用引用**
-
-旧前端会调 `/bonus/rewards/available` 拿可用奖励列表。新模型下不需要这种"逐张"枚举，**但 API 保留**（为兼容旧 App 版本）。`bonus.controller.ts` 的 `@Get('rewards/available')` 路由可保留，前端 v1.1 后逐步不用。
-
-不在本 task 改 API，只是确认现状。
-
-- [ ] **Step 4: order.controller.ts 在 preview 端点扩展返回**
-
-打开 `backend/src/modules/order/order.controller.ts`，找到 `@Post('preview')` 路由（line 95）对应的 service 调用。
-
-在 `OrderService.previewOrder`（或对应方法）的返回里追加 points 字段。需要在 checkout.service.ts 或 order.service.ts 找到预览返回处，加：
-
-```typescript
-const pointsInfo = await this.rewardDeductionService.calculateMaxDeductible(userId, totalGoodsAmount);
-return {
-  // ... existing fields
-  pointsBalance: pointsInfo.pointsBalance,
-  pointsRatio: pointsInfo.pointsRatio,
-  maxDeductible: pointsInfo.maxDeductible,
-};
-```
-
-具体定位：
-
-```bash
-grep -n "preview" backend/src/modules/order/checkout.service.ts | head -5
-```
-
-把 points 字段加到 preview 返回对象。
-
-- [ ] **Step 5: 注入 RewardDeductionService 到 CheckoutService**
-
-打开 `backend/src/modules/order/checkout.service.ts`，在 constructor 加：
-
-```typescript
-import { RewardDeductionService } from '../bonus/reward-deduction.service';
-// ...
-constructor(
-  // ... existing
-  private rewardDeductionService: RewardDeductionService,
-) {}
-```
-
-确认 `OrderModule` 已 import `BonusModule`：
-
-```bash
-grep -n "BonusModule" backend/src/modules/order/order.module.ts
-```
-
-如果没有，加上：
-
-```typescript
-import { BonusModule } from '../bonus/bonus.module';
-imports: [..., BonusModule, ...]
-```
+`bonus.controller.ts` 的 `@Get('rewards/available')` 路由不动，让旧版 App（用 ledger 整张式抵扣选择列表的）不破。新版 App 不再调它。
 
 - [ ] **Step 6: TypeScript 编译**
 
@@ -2968,54 +3102,43 @@ Expected: 通过。
 ```bash
 git add backend/src/modules/order/checkout.dto.ts \
         backend/src/modules/order/checkout.service.ts \
-        backend/src/modules/order/order.controller.ts \
+        backend/src/modules/order/order.service.ts \
         backend/src/modules/order/order.module.ts
-git commit -m "feat(checkout): integrate points deduction (balance-ratio model)"
+git commit -m "feat(checkout): integrate points deduction at OrderService.previewOrder + CheckoutService"
 ```
 
 ---
 
-### Task 17: PaymentService 集成 confirm/release
+### Task 17: CheckoutService 集成 confirm/release（PaymentService 不参与）
+
+**审查 P0-8**：PaymentService 已有 6 个依赖，再加 RewardDeductionService 会让模块依赖更乱。改为**由 CheckoutService 直接调** RewardDeductionService（Task 16 已注入），PaymentService 不动。
 
 **Files:**
-- Modify: `backend/src/modules/payment/payment.service.ts`
+- Modify: `backend/src/modules/order/checkout.service.ts`
 
-- [ ] **Step 1: 注入 RewardDeductionService**
+- [ ] **Step 1: handlePaymentSuccess 内调 confirmDeduction**
 
-打开 `backend/src/modules/payment/payment.service.ts`，加 import + 注入：
+打开 `backend/src/modules/order/checkout.service.ts`，找到 line 1641-1644 的 "奖励：RESERVED → VOIDED" 块。
 
-```typescript
-import { RewardDeductionService } from '../bonus/reward-deduction.service';
-// ...
-constructor(
-  private prisma: PrismaService,
-  private configService: ConfigService,
-  private alipayService: AlipayService,
-  @Optional() private checkoutService?: CheckoutService,
-  @Optional() private couponService?: CouponService,
-  @Optional() private inboxService?: InboxService,
-  @Optional() private rewardDeductionService?: RewardDeductionService,
-) {}
-```
-
-- [ ] **Step 2: 在支付成功分支调 confirmDeduction**
-
-找到 `handlePaymentCallback` 内 CheckoutSession 成功分支（line 706 附近 `this.checkoutService.handlePaymentSuccess`）。需要在其内部（或紧跟之后）追加：
-
-实际上 `handlePaymentSuccess` 内已有创建订单事务。最干净是在 `CheckoutService.handlePaymentSuccess` 内创建订单的事务里加一行调 `confirmDeduction`。
-
-打开 `backend/src/modules/order/checkout.service.ts`，找到 line 1641-1644 的 "奖励：RESERVED → VOIDED" 块。把它整块替换为：
+把它整块替换为：
 
 ```typescript
 // 抵扣金 confirm（新模型走 groupId）
+// 在 handlePaymentSuccess 现有事务内调用，跟订单创建/库存扣减保持原子性
 if (session.deductionGroupId) {
   await this.rewardDeductionService.confirmDeduction(tx, session.deductionGroupId);
 }
 ```
 
-- [ ] **Step 3: 在支付失败/取消分支调 releaseDeduction**
+- [ ] **Step 2: cancelSession / expireSession 内调 releaseDeduction**
 
-找到 `cancelSession` 或对应取消方法（grep `releaseRewardOnCancel\|session.rewardId.*RESERVED.*AVAILABLE` 找现有释放逻辑），改造为：
+找到 `cancelSession` 或对应取消方法：
+
+```bash
+grep -n "cancelSession\|session.rewardId.*RESERVED.*AVAILABLE" backend/src/modules/order/checkout.service.ts
+```
+
+把旧 `session.rewardId` 的 RESERVED→AVAILABLE 块替换为：
 
 ```typescript
 if (session.deductionGroupId) {
@@ -3023,7 +3146,21 @@ if (session.deductionGroupId) {
 }
 ```
 
-同样改 `handlePaymentCallback` 内支付失败分支（line 749 附近 `tx.rewardLedger.updateMany` 把 RESERVED 改回 AVAILABLE 的地方）。
+- [ ] **Step 3: handlePaymentCallback 失败分支同改**
+
+打开 `backend/src/modules/payment/payment.service.ts` line 749 附近 `tx.rewardLedger.updateMany` 把 RESERVED 改回 AVAILABLE 的地方。**这里 PaymentService 内的旧逻辑**：
+
+如果支付失败回调直接在 PaymentService 内处理（不走 CheckoutService），就**整段删除**这个 RESERVED→AVAILABLE 逻辑，**改为通过 CheckoutService 的 releaseSession 方法**间接处理：
+
+```typescript
+// payment.service.ts 内的失败分支
+if (this.checkoutService) {
+  await this.checkoutService.releaseSessionOnFailure(merchantOrderNo);
+  // releaseSessionOnFailure 内部会调 rewardDeductionService.releaseDeduction
+}
+```
+
+需要在 CheckoutService 加一个新方法 `releaseSessionOnFailure(merchantOrderNo)`，内部包 Serializable 事务 + 调 releaseDeduction。
 
 - [ ] **Step 4: TypeScript 编译**
 
@@ -3032,19 +3169,21 @@ cd backend
 npx tsc --noEmit
 ```
 
-Expected: 通过。
+Expected: 通过。PaymentService 注入列表保持原样（不加 RewardDeductionService）。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/src/modules/payment/payment.service.ts \
-        backend/src/modules/order/checkout.service.ts
-git commit -m "feat(checkout): wire confirm/release deduction into payment lifecycle"
+git add backend/src/modules/order/checkout.service.ts \
+        backend/src/modules/payment/payment.service.ts
+git commit -m "feat(checkout): confirm/release deduction in CheckoutService (not PaymentService)"
 ```
 
 ---
 
-### Task 18: AfterSaleRefundService 集成 refundDeduction
+### Task 18: AfterSaleRefundService 集成 refundDeduction（事务内）
+
+**审查 P0-6**：`handleRefundSuccess` 已经在 `withSerializableRetry(async (tx) => { ... })` 内运行（after-sale-refund.service.ts:177），**不能再起新 tx**。要把 `refundDeduction(tx, ...)` 调用塞进现有 tx 里。
 
 **Files:**
 - Modify: `backend/src/modules/after-sale/after-sale-refund.service.ts`
@@ -3075,59 +3214,71 @@ grep -n "BonusModule" backend/src/modules/after-sale/after-sale.module.ts
 
 如缺，加 `imports: [..., BonusModule]`。
 
-- [ ] **Step 2: 在 handleRefundSuccess 内调 refundDeduction**
+- [ ] **Step 2: 在现有 handleRefundSuccess 的 tx 内插入 refundDeduction**
 
-打开 `after-sale-refund.service.ts`，在 `handleRefundSuccess` 末尾、`await this.inboxService.send(...)` 之前插入：
+定位 `after-sale-refund.service.ts:177 handleRefundSuccess` 的 `withSerializableRetry(async (tx) => { ... })` 块。在 line 218 那个 `if (request.status !== 'REFUNDED') { ... }` 块的**最后**（line 287 之后、`return { orderId, userId, amount }` 之前）插入：
 
 ```typescript
-// 退款成功后，按比例返还消费积分
-if (completed) {
-  try {
-    const order = await this.prisma.order.findUnique({
-      where: { id: completed.orderId },
-      select: { checkoutSessionId: true },
-    });
-    if (order?.checkoutSessionId) {
-      const session = await this.prisma.checkoutSession.findUnique({
-        where: { id: order.checkoutSessionId },
-        select: {
-          deductionGroupId: true, discountAmount: true, goodsAmount: true,
-        },
-      });
-      if (session?.deductionGroupId && session.discountAmount > 0) {
-        // 计算商品原价的退款金额：refund.amount 是实付现金退款；商品原价比例 = refund.amount / (session.expectedTotal - shipping)。
-        // 此处使用 AfterSaleRequest 关联的 OrderItem 累加原价（更准确）
-        const request = await this.prisma.afterSaleRequest.findFirst({
-          where: { orderId: completed.orderId, status: 'REFUNDED' },
-          orderBy: { updatedAt: 'desc' },
-          include: { orderItem: { select: { quantity: true, unitPrice: true } } },
-        });
-        const refundGoodsAmount = request?.orderItem
-          ? request.orderItem.quantity * request.orderItem.unitPrice
-          : completed.amount; // fallback：当不是单 SKU 退款时近似用现金额
-
-        await this.prisma.$transaction(async (tx) => {
-          await this.rewardDeductionService.refundDeduction(tx, {
-            refundId,
-            orderId: completed.orderId,
-            originalGoodsAmount: session.goodsAmount,
-            originalGoodsRefundAmount: refundGoodsAmount,
-            originalDeductAmount: session.discountAmount,
-            deductionGroupId: session.deductionGroupId,
+          // === 退款返还消费积分（加入现有 Serializable tx，不要再起新 tx）===
+          // 通过 order → checkoutSession 找到原抵扣信息
+          const order = await tx.order.findUnique({
+            where: { id: request.orderId },
+            select: { checkoutSessionId: true },
           });
-        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-      }
-    }
-  } catch (err: any) {
-    this.logger.error(`退款返还积分失败: refundId=${refundId}, error=${err.message}`);
-    // 不影响退款本身闭环
-  }
-}
+          if (order?.checkoutSessionId) {
+            const session = await tx.checkoutSession.findUnique({
+              where: { id: order.checkoutSessionId },
+              select: {
+                deductionGroupId: true,
+                discountAmount: true,
+                goodsAmount: true,
+              },
+            });
+            if (session?.deductionGroupId && (session.discountAmount ?? 0) > 0) {
+              // 算商品原价的退款金额：优先用 orderItem.quantity × unitPrice（单 SKU 退款），
+              // 若 request.orderItem 缺失则按 refund.amount 近似（多 SKU 整单退款场景较少）
+              const refundGoodsAmount = request.orderItem
+                ? request.orderItem.quantity * (request.orderItem as any).unitPrice
+                : refund.amount;
+
+              await this.rewardDeductionService.refundDeduction(tx, {
+                refundId,
+                orderId: request.orderId,
+                originalGoodsAmount: session.goodsAmount,
+                originalGoodsRefundAmount: refundGoodsAmount,
+                originalDeductAmount: session.discountAmount,
+                deductionGroupId: session.deductionGroupId,
+              });
+            }
+          }
 ```
 
-注意：`refundId` 变量来自上文的 `handleRefundSuccess(refundId, ...)` 参数；如果方法签名不一样，相应调整变量名。
+注意：
+- `tx` 是 `withSerializableRetry` 提供的事务客户端，**不能再调 `prisma.$transaction`**
+- `request` 已经在 line 185-196 `findUnique` 查过；如果 `request.orderItem` 没 include 进来需要补：在原 line 185 那个 `findUnique` 的 `include` 加 `orderItem: { select: { quantity: true, unitPrice: true } }`
+- `refund` 已经在 line 179 查过，可直接用 `refund.amount` 作 fallback
 
-- [ ] **Step 3: TypeScript 编译**
+- [ ] **Step 3: 确认 request 的 orderItem 已 include**
+
+打开 line 185-196 区域，检查 `findUnique` 的 include：
+
+```typescript
+const request = await tx.afterSaleRequest.findUnique({
+  where: { id: refund.afterSaleId },
+  include: {
+    orderItem: {
+      select: {
+        skuId: true,
+        quantity: true,
+        isPrize: true,
+        unitPrice: true,    // ← 新加；如已存在跳过
+      },
+    },
+  },
+});
+```
+
+- [ ] **Step 4: TypeScript 编译**
 
 ```bash
 cd backend
@@ -3136,12 +3287,12 @@ npx tsc --noEmit
 
 Expected: 通过。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/after-sale/after-sale-refund.service.ts \
         backend/src/modules/after-sale/after-sale.module.ts
-git commit -m "feat(refund): restore deducted points on refund completion"
+git commit -m "feat(refund): restore deducted points within handleRefundSuccess tx"
 ```
 
 ---
@@ -3153,20 +3304,18 @@ git commit -m "feat(refund): restore deducted points on refund completion"
 **Files:**
 - Modify: `src/types/domain/Bonus.ts`
 - Modify: `src/repos/BonusRepo.ts`
-- Modify: `src/repos/CheckoutRepo.ts`（或对应的 OrderRepo）
+- Modify: `src/repos/OrderRepo.ts`（实际文件名）
 
 - [ ] **Step 1: 更新 Bonus.ts 类型**
 
 打开 `src/types/domain/Bonus.ts`，加：
 
 ```typescript
-/** 提现申请输入 */
+/** 提现申请输入（v1.0 无二次验证） */
 export interface WithdrawRequestInput {
   amount: number;
   alipayAccount: string;
   alipayName: string;
-  smsCode: string;
-  smsVerifyToken: string;
 }
 
 /** 提现结果 */
@@ -3223,12 +3372,12 @@ cd /Users/jamesheden/Desktop/农脉\ -\ AI赋能农业电商平台
 npm ls uuid || npm install uuid && npm install -D @types/uuid
 ```
 
-- [ ] **Step 4: CheckoutRepo 加 deductionAmount + preview 字段**
+- [ ] **Step 4: OrderRepo 加 deductionAmount + preview 字段**
 
-找到 App 端 checkout 提交 repo：
+打开 `src/repos/OrderRepo.ts`（**不是 CheckoutRepo**）：
 
 ```bash
-grep -rn "/orders/preview\|/orders/checkout" src/repos/
+grep -n "preview\|checkout\|createOrder" src/repos/OrderRepo.ts
 ```
 
 修改 `preview` 调用返回类型加 points 字段；`submit/checkout` 调用 body 加 `deductionAmount`。具体代码取决于现有 repo 结构。示例修改：
@@ -3263,7 +3412,7 @@ Expected: 无错误。
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/types/domain/Bonus.ts src/repos/BonusRepo.ts src/repos/CheckoutRepo.ts \
+git add src/types/domain/Bonus.ts src/repos/BonusRepo.ts src/repos/OrderRepo.ts \
         package.json package-lock.json
 git commit -m "feat(app/repo): support withdraw v2 + deduction preview"
 ```
@@ -3284,9 +3433,8 @@ git commit -m "feat(app/repo): support withdraw v2 + deduction preview"
 - 顶部：可用积分（合并显示一个数字）
 - 金额输入框 + 快捷按钮 10/50/100/全部
 - 支付宝账号 + 真实姓名输入
-- 短信验证码：[获取] + 6 位输入框
 - 实时计算展示：申请金额 - 代扣个税 = 实际到账
-- 底部说明：限额规则 + 支付宝服务费提示
+- 底部说明：限额规则 + 支付宝服务费提示 + 账号安全责任声明（v1.0 无二次验证）
 ```
 
 - [ ] **Step 2: 用设计指导后重写 withdraw.tsx**
@@ -3296,17 +3444,11 @@ git commit -m "feat(app/repo): support withdraw v2 + deduction preview"
 关键交互逻辑：
 
 ```typescript
-// 调短信
-const sendSms = async () => {
-  const r = await SmsRepo.sendCode({ purpose: 'WITHDRAW' });
-  if (r.ok) setSmsToken(r.data.token);
-};
-
-// 提交
+// 提交（v1.0 无短信/支付密码）
 const submit = async () => {
   const r = await BonusRepo.requestWithdraw({
     amount: parseFloat(amount),
-    alipayAccount, alipayName, smsCode, smsVerifyToken: smsToken,
+    alipayAccount, alipayName,
   });
   if (!r.ok) {
     show({ message: r.error.displayMessage, type: 'error' });
@@ -3536,16 +3678,26 @@ export { UpdateWithdrawRulesDto, WithdrawRules } from '../../../bonus/dto/withdr
 
 - [ ] **Step 2: admin-bonus.service 加方法**
 
-打开 `admin-bonus.service.ts`，加 import + constructor 注入 `WithdrawRulesService`：
+打开 `admin-bonus.service.ts`，加 import + constructor 注入：
 
 ```typescript
 import { WithdrawRulesService } from '../../bonus/withdraw-rules.service';
+import { WithdrawPayoutService } from '../../bonus/withdraw-payout.service';
+import { AlipayService } from '../../payment/alipay.service';
 // constructor 加：
 constructor(
   private prisma: PrismaService,
   private inboxService: InboxService,
   private withdrawRulesService: WithdrawRulesService,
+  private withdrawPayoutService: WithdrawPayoutService,   // 用于 manualQuery 后 finalize
+  private alipayService: AlipayService,                   // 用于 manualQuery 调 queryTransfer
 ) {}
+```
+
+确认 `AdminBonusModule` import 了 `BonusModule` 和 `PaymentModule`：
+
+```bash
+grep -n "imports" backend/src/modules/admin/bonus/admin-bonus.module.ts
 ```
 
 加方法：
@@ -3590,14 +3742,58 @@ async getTaxReportDetail(year: number, month: number) {
 }
 
 async manualQueryWithdrawStatus(withdrawId: string) {
-  // 手动触发 cron 单条查询
-  // 调 paymentService.alipayService.queryTransfer
-  // 简化版：标 lastQueriedAt + 让 cron 下次自动处理
+  // 审查 P1-11：真调 alipay queryTransfer，按结果 finalize
+  const withdraw = await this.prisma.withdrawRequest.findUnique({
+    where: { id: withdrawId },
+    select: { id: true, status: true, outBizNo: true, queryAttempts: true },
+  });
+  if (!withdraw) throw new NotFoundException('提现记录不存在');
+  if (withdraw.status !== 'PROCESSING') {
+    return {
+      ok: true,
+      message: `当前状态 ${withdraw.status}，无需查询`,
+      newStatus: withdraw.status,
+    };
+  }
+  if (!withdraw.outBizNo) {
+    throw new BadRequestException('提现记录缺 outBizNo，无法查询');
+  }
+
+  // 通过 paymentService 暴露的 alipay 接口查询
+  // 注：admin-bonus.service.ts 需要先注入 PaymentService 或 AlipayService
+  const queryResult = await this.alipayService.queryTransfer({
+    outBizNo: withdraw.outBizNo,
+  });
+
+  // 更新查询次数与时间
   await this.prisma.withdrawRequest.update({
     where: { id: withdrawId },
-    data: { lastQueriedAt: new Date() },
+    data: {
+      lastQueriedAt: new Date(),
+      queryAttempts: { increment: 1 },
+    },
   });
-  return { ok: true };
+
+  // 根据查询结果调对应 finalize
+  if (queryResult.status === 'SUCCESS') {
+    await this.withdrawPayoutService.finalizeWithdrawalPaid(withdrawId, {
+      providerOrderId: queryResult.orderId,
+      providerFundOrderId: queryResult.payFundOrderId,
+    });
+    return { ok: true, message: '已确认支付宝转账成功，状态更新为 PAID', newStatus: 'PAID' };
+  }
+  if (queryResult.status === 'FAIL') {
+    await this.withdrawPayoutService.finalizeWithdrawalFailed(withdrawId, {
+      errorCode: queryResult.errorCode,
+      errorMessage: queryResult.errorMessage,
+    });
+    return { ok: true, message: '支付宝查询返回失败，已退款', newStatus: 'FAILED' };
+  }
+  return {
+    ok: true,
+    message: `支付宝侧仍为 ${queryResult.status}，请稍后再查或等 cron 兜底`,
+    newStatus: 'PROCESSING',
+  };
 }
 ```
 
@@ -3871,7 +4067,8 @@ git commit -m "feat(admin/withdrawals): add tax/net/provider cols + manual query
 
 **Files:**
 - Create: `admin/src/pages/bonus/withdraw-rules.tsx`
-- Modify: 路由配置（admin/src/router 或 routes 配置）
+- Modify: `admin/src/App.tsx`（Routes 配置，line 100-134 之间加 Route）
+- Modify: `admin/src/layouts/AdminLayout.tsx`（menuRoutes 配置，`/user-bonus` 子菜单加新条目）
 
 - [ ] **Step 1: 创建页面文件**
 
@@ -3931,21 +4128,29 @@ export default function WithdrawRulesPage() {
 }
 ```
 
-- [ ] **Step 2: 加路由**
+- [ ] **Step 2: 加路由到 App.tsx**
 
-打开 admin 的 router 配置（`admin/src/router/index.tsx` 或 `admin/src/routes.tsx`），在 bonus 路由组下加：
-
-```typescript
-{ path: '/bonus/withdraw-rules', component: lazy(() => import('@/pages/bonus/withdraw-rules')) },
-```
-
-并加菜单条目（在菜单配置文件）：
+打开 `admin/src/App.tsx`，在 line 16-40 区域（其它 bonus 页 lazy import 旁）加：
 
 ```typescript
-{ key: '/bonus/withdraw-rules', label: '提现规则' }
+const WithdrawRulesPage = lazy(() => import('@/pages/bonus/withdraw-rules'));
 ```
 
-- [ ] **Step 3: 构建**
+在 line 113-120 区域（其它 bonus Route 旁）加：
+
+```typescript
+<Route path="bonus/withdraw-rules" element={<WithdrawRulesPage />} />
+```
+
+- [ ] **Step 3: 加菜单条目到 AdminLayout.tsx**
+
+打开 `admin/src/layouts/AdminLayout.tsx` line 38-52 区域 `/user-bonus` 子菜单 routes 数组，加：
+
+```typescript
+{ path: '/bonus/withdraw-rules', name: '提现规则', icon: <SettingOutlined /> },
+```
+
+- [ ] **Step 4: 构建**
 
 ```bash
 cd admin
@@ -3954,10 +4159,12 @@ npm run build
 
 Expected: 成功。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add admin/src/pages/bonus/withdraw-rules.tsx admin/src/router # 路径按实际
+git add admin/src/pages/bonus/withdraw-rules.tsx \
+        admin/src/App.tsx \
+        admin/src/layouts/AdminLayout.tsx
 git commit -m "feat(admin/bonus): add withdraw rules config page"
 ```
 
@@ -3967,7 +4174,8 @@ git commit -m "feat(admin/bonus): add withdraw rules config page"
 
 **Files:**
 - Create: `admin/src/pages/bonus/tax-reporting.tsx`
-- Modify: 路由配置
+- Modify: `admin/src/App.tsx`（Routes 加 Route）
+- Modify: `admin/src/layouts/AdminLayout.tsx`（menuRoutes 加菜单条目）
 
 - [ ] **Step 1: 创建页面**
 
@@ -4030,19 +4238,27 @@ export default function TaxReportingPage() {
 }
 ```
 
-- [ ] **Step 2: 加路由**
+- [ ] **Step 2: 加路由到 App.tsx**
+
+`admin/src/App.tsx`：
 
 ```typescript
-{ path: '/bonus/tax-reporting', component: lazy(() => import('@/pages/bonus/tax-reporting')) },
+const TaxReportingPage = lazy(() => import('@/pages/bonus/tax-reporting'));
+// ...
+<Route path="bonus/tax-reporting" element={<TaxReportingPage />} />
 ```
 
-菜单：
+- [ ] **Step 3: 加菜单条目到 AdminLayout.tsx**
+
+`admin/src/layouts/AdminLayout.tsx` `/user-bonus` 子菜单：
 
 ```typescript
-{ key: '/bonus/tax-reporting', label: '税务报送' }
+{ path: '/bonus/tax-reporting', name: '税务报送', icon: <FileTextOutlined /> },
 ```
 
-- [ ] **Step 3: 构建**
+注意 import `FileTextOutlined`（如果尚未 import）。
+
+- [ ] **Step 4: 构建**
 
 ```bash
 cd admin
@@ -4051,18 +4267,80 @@ npm run build
 
 Expected: 成功。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add admin/src/pages/bonus/tax-reporting.tsx admin/src/router
+git add admin/src/pages/bonus/tax-reporting.tsx \
+        admin/src/App.tsx \
+        admin/src/layouts/AdminLayout.tsx
 git commit -m "feat(admin/bonus): add monthly tax reporting page with CSV export"
+```
+
+---
+
+### Task 28: 对账模块同步新增 DEDUCT/PROCESSING
+
+**审查 P0-7**：上线后若不改对账，admin-reconciliation 面板会缺漏报。
+
+**Files:**
+- Modify: `backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts`
+
+- [ ] **Step 1: 定位现有枚举初始化**
+
+```bash
+grep -n "initStatusMap\|FREEZE\|REQUESTED" backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts | head -20
+```
+
+Expected: 看到 line 322 区域 `entryMap = this.initStatusMap(['FREEZE', 'RELEASE', 'WITHDRAW', 'VOID', 'ADJUST'])`，和 line 361/362 区域 `createdMap = this.initStatusMap(['REQUESTED', 'APPROVED', 'REJECTED', 'PAID', 'FAILED'])`。
+
+- [ ] **Step 2: 加 DEDUCT 到 entry 类型**
+
+打开 `admin-reconciliation.service.ts`，line 322 改为：
+
+```typescript
+const entryMap = this.initStatusMap(['FREEZE', 'RELEASE', 'WITHDRAW', 'VOID', 'ADJUST', 'DEDUCT']);
+```
+
+如果同文件别处还有 entry 类型枚举的硬编码列表（line 648 / 651 / 653 区域），按需扩展。
+
+- [ ] **Step 3: 加 PROCESSING 到 WithdrawRequest 状态**
+
+line 361 + 362 都改为：
+
+```typescript
+const createdMap = this.initStatusMap(['REQUESTED', 'PROCESSING', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
+const touchedMap = this.initStatusMap(['REQUESTED', 'PROCESSING', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
+```
+
+- [ ] **Step 4: 视情况检查 reconciliation controller 返回字段**
+
+```bash
+grep -n "DEDUCT\|PROCESSING\|entryMap\|createdMap" backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts
+```
+
+如返回对象里直接 destructure entry 名（例如 `result.WITHDRAW`），新加的 `result.DEDUCT` 也要透出到 API 返回。改 controller 或 DTO 对应处。
+
+- [ ] **Step 5: TypeScript 编译**
+
+```bash
+cd backend
+npx tsc --noEmit
+```
+
+Expected: 通过。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/src/modules/admin/reconciliation/admin-reconciliation.service.ts
+git commit -m "feat(admin/reconciliation): include DEDUCT entry + PROCESSING withdraw status"
 ```
 
 ---
 
 ## Chunk 9: 验收与文档
 
-### Task 28: 后端综合验证
+### Task 29: 后端综合验证
 
 - [ ] **Step 1: Prisma validate**
 
@@ -4097,7 +4375,7 @@ Expected: 0 error。
 
 ---
 
-### Task 29: 买家 App + Admin 验证
+### Task 30: 买家 App + Admin 验证
 
 - [ ] **Step 1: App typecheck**
 
@@ -4129,7 +4407,7 @@ Expected: 无报错、布局正常。
 
 ---
 
-### Task 30: 文档同步
+### Task 31: 文档同步
 
 **Files:**
 - Modify: `docs/architecture/frontend.md`
@@ -4143,7 +4421,7 @@ Expected: 无报错、布局正常。
 
 打开 `docs/architecture/frontend.md`，在钱包相关 Section 加：
 - 钱包页改名"消费积分"
-- 提现页新设计（金额输入 + 实时税额展示 + 短信验证）
+- 提现页新设计（金额输入 + 实时税额展示，v1.0 无二次验证）
 - 结算页加积分输入控件
 
 - [ ] **Step 2: backend.md 加新模块**
@@ -4196,7 +4474,7 @@ git commit -m "docs(reward): sync architecture + plan + agents + payment docs"
 
 ---
 
-### Task 31: 沙箱端到端验收
+### Task 32: 沙箱端到端验收
 
 **前提：** 支付宝沙箱已配置，`ALIPAY_GATEWAY=https://openapi.alipaydev.com/gateway.do`，`/api/v1/payments/alipay/transfer-notify` 在沙箱可达。
 
@@ -4222,7 +4500,6 @@ ALIPAY_TRANSFER_NOTIFY_URL=https://<your-tunnel>/api/v1/payments/alipay/transfer
 amount: 100
 alipayAccount: <sandbox 买家账号>
 alipayName: <sandbox 买家用户名>
-smsCode: <真实/mock 验证码>
 ```
 
 Expected:

@@ -283,8 +283,6 @@ Body: {
   amount: number              // 申请金额（元，存数据库前先转 cents 校验）
   alipayAccount: string       // 支付宝账号（手机/邮箱/沙箱账号）
   alipayName: string          // 真实姓名
-  smsCode: string             // 短信验证码
-  smsVerifyToken: string      // 短信凭据
 }
 Response: {
   withdrawId: string
@@ -304,6 +302,23 @@ Response: {
 - key 不存在时正常创建
 - 防 App 网络抖动重试导致重复打款
 
+**v1.0 不做二次验证**：
+
+v1.0 提现不要求短信验证码、支付密码等二次验证。资金防护依赖以下多层机制：
+
+| 机制 | 作用 |
+|---|---|
+| Idempotency-Key | 防 App 重试导致重复扣款 |
+| 单笔最低 ¥10 / 最高 ¥10000 | 限制单次损失上限 |
+| 每日 3 次 + 冷却 60s | 限制套现速度 |
+| 年累计 ¥50000 | 限制单一账户总暴露面 |
+| 代扣 20% | 套现成本天然提高 |
+| 反洗钱告警（达 80% 阈值 Inbox） | 异常行为人工兜底 |
+
+用户协议必须声明："提现风险防护依赖账号登录状态，请妥善保管登录密码 / 不要在不安全网络登录"，把账号安全责任边界划清。
+
+v1.1+ 出现实际攻击案例后，可以加支付密码（独立于登录密码，参考支付宝/微信模式）。
+
 **金额精度约定**：
 - 所有金额计算**全程 cents（整数分）**：`cents = Math.round(yuan * 100)`
 - 入参 `amount` 校验：`Math.round(amount * 100) ≥ Math.round(MIN_AMOUNT * 100)` 等
@@ -317,7 +332,7 @@ Response: {
 ```
 Phase 1: 校验 + 冻结（Serializable 事务内）
   1. WithdrawRulesService.getRules() → 取所有限额参数
-  2. SmsService.verify(smsVerifyToken, smsCode) → 验证短信码
+  2. 幂等键查询：clientIdempotencyKey 存在则返回已有结果
   3. 事务内：
      a. 重新读 RewardAccount 余额（VIP + NORMAL）
      b. 校验：
@@ -702,9 +717,10 @@ await this.rewardDeductionService.refundDeduction(tx, {
 
 `refundDeduction` 内部职责：
 - 算 refundDeductCents（按商品原价比例）
-- 找出原抵扣 ledger（含跨账户的两条），按拆分比例返还到对应账户
-- 创建新的 ledger：`entryType=ADJUST, refType='REFUND_RESTORE', refId=refundId, status=AVAILABLE`
-- 跨账户场景：返还到 VIP 和 NORMAL 也按原拆分比例
+- 找出原抵扣 ledger（含跨账户的两条），按各账户原扣减比例计算返还到对应账户的金额
+- **每个被增加 balance 的账户单独写一条 ADJUST ledger**：`entryType=ADJUST, refType='REFUND_RESTORE', refId=refundId, status=AVAILABLE`
+- 跨账户场景示例：原扣 VIP=10、NORMAL=8 → 部分退款比例 0.5 → VIP 返 5 写 ledger 给 VIP 账户、NORMAL 返 4 写 ledger 给 NORMAL 账户。**禁止只写一条 primary 账户 ledger 然后给两个账户加 balance**（会让 `sum(ledger.amount where accountId=X) == balance 变动` 对账公式破裂）
+- 两条 REFUND_RESTORE ledger 用同一个 `meta.groupId = 原 DEDUCT 的 groupId` 关联，便于对账反查
 
 ## 9. 买家 App 改造
 
@@ -726,9 +742,10 @@ await this.rewardDeductionService.refundDeduction(tx, {
 - 支付宝账号输入
 - 真实姓名输入
 - 实时显示：申请金额、代扣个税(20%)、实际到账
-- 短信验证码区域（获取 + 输入）
-- 提交按钮
-- 底部提现说明（限额、规则、支付宝服务费提示）
+- 提交按钮（点击前生成 Idempotency-Key，作为 header 发送）
+- 底部提现说明（限额、规则、支付宝服务费提示、账号安全责任声明）
+
+**v1.0 不加短信验证、不加支付密码**。资金防护依赖账号登录态 + 多层后端限制（详见 spec 6.1）。
 
 ### 9.3 结算页
 
@@ -744,16 +761,16 @@ await this.rewardDeductionService.refundDeduction(tx, {
 requestWithdraw(input: WithdrawRequestInput): Promise<WithdrawResult>;
 getDeductionPreview(goodsAmount: number): Promise<DeductionPreview>;
 
-// src/repos/CheckoutRepo.ts
-createSession(input: {..., deductionAmount?: number}): Promise<...>;
+// src/repos/OrderRepo.ts（实际文件名，**不是** CheckoutRepo.ts）
+createCheckout(input: {..., deductionAmount?: number}): Promise<...>;
+preview(input: {...}): Promise<OrderPreviewResponse>;  // 返回新增 pointsBalance/pointsRatio/maxDeductible
 
 // src/types/domain/Bonus.ts
 export interface WithdrawRequestInput {
   amount: number;
   alipayAccount: string;
   alipayName: string;
-  smsCode: string;
-  smsVerifyToken: string;
+  // v1.0 不带 smsCode / smsVerifyToken（spec 6.1 已记载）
 }
 export interface WithdrawResult { ... }
 export interface DeductionPreview { ... }
@@ -895,8 +912,8 @@ API：
 - [ ] Redis 可用（cron lock 必需）
 - [ ] 数据库迁移：`prisma migrate deploy`
 - [ ] Seed RuleConfig 12 个 key 默认值
-- [ ] SmsService 支持 `WITHDRAW` purpose
 - [ ] 找税务师/会计师签字背书"消费积分 + 提现按偶然所得 20% 代扣"的合规方案
+- [ ] 用户协议加"账号安全责任"条款（v1.0 无二次验证 → 用户对登录态安全负责）
 
 ### 14.2 沙箱端到端验证
 
