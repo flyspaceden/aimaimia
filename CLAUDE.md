@@ -97,6 +97,7 @@
 - `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` — 库存感知复购与低库存展示设计方案（复购低库存数量降级为 1 / 无库存虚拟提示且不真实入购物车 / App“仅剩 x 件”平台阈值，**复购库存与 App 低库存展示权威来源，补充并覆盖复购 spec 的库存口径**）
 - `docs/superpowers/plans/2026-05-18-stock-aware-repurchase-low-stock-display.md` — 库存感知复购与低库存展示实施计划（后端库存裁决 / App 虚拟无库存提示 / 后台低库存阈值 / 售后库存回填，**库存体验与库存一致性实施排程**）
 - `docs/superpowers/specs/2026-05-19-reward-dual-track-design.md` — 消费积分双轨设计方案（提现 + 抵扣双轨 / 平台代扣 20% 个税参数化 / 抵扣按订单×比例上限（普通 10%/VIP 15%）/ 跨账户拆 2 条 ledger / Idempotency-Key + cents 化 / 永不过期 / 名称从"奖励"改"消费积分"，**消费积分双轨权威来源，替代 `plans/2026-05-17-alipay-realtime-withdrawal.md`**）
+- `docs/superpowers/plans/2026-05-19-reward-dual-track.md` — 消费积分双轨实施计划（31 个任务、9 个 chunk：Schema/Rules + Alipay Provider + 提现链路 + 抵扣链路 + Checkout/Refund 集成 + 买家 App + 管理后台 + 验证 + 沙箱 E2E，**消费积分双轨实施排程**）
 - `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（NO_REASON_EXCHANGE 四类售后 / 顺丰退货面单 / 买家付退货运费 AS_SHIP_PAY_ 通道 / 退款失败转人工处理 / 三端接线 / 双向一致性巡检，**退款/退货/换货链路收口权威来源，2026-05-10 全套验收通过**）
 - `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（12 Task / 49 commits 一篮子合入 + 15+ 后续 fix/feat，**售后链路完整闭环 + 多通道支付抽象就绪**）
 - `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md` — 顺丰风格平台统一运费计价设计方案（首重+续重公式、平台自定义价格、满额包邮、整单一次计费、SKU 重量补强、管理后台批量导入，**平台运费计价改造权威来源**）
