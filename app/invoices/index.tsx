@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Invoice, InvoiceStatus } from '../../src/types';
 
 // 发票状态标签映射
@@ -37,6 +37,8 @@ export default function InvoicesScreen() {
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  // 底部"管理发票抬头"按钮吃 safe area + Android OEM 兜底
+  const bottomPadding = useBottomInset(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['invoices'],
@@ -197,10 +199,17 @@ export default function InvoicesScreen() {
         onPress={() => router.push('/invoices/profiles')}
         style={[
           styles.bottomBtn,
-          { backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: 1 },
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+            borderTopWidth: 1,
+            paddingBottom: 14 + bottomPadding,
+          },
         ]}
       >
-        <Text style={[typography.bodySm, { color: colors.accent.blue }]}>管理发票抬头</Text>
+        <Text {...compactActionTextProps} style={[typography.bodySm, { color: colors.accent.blue }]}>
+          管理发票抬头
+        </Text>
       </Pressable>
     </Screen>
   );

@@ -13,7 +13,7 @@ import { AiBadge, AiDivider } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
@@ -23,6 +23,9 @@ export default function ReferralScreen() {
   const router = useRouter();
   const { show } = useToast();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  // 非 VIP 分支底部双按钮（"扫描推荐码" / "了解 VIP"）需要吃 safe area，
+  // 否则在华为/Honor/小米 3 键虚拟键设备上会被系统按钮挡住
+  const bottomPadding = useBottomInset(0);
 
   const { data, isLoading } = useQuery({
     queryKey: ['bonus-member'],
@@ -93,7 +96,7 @@ export default function ReferralScreen() {
           <Skeleton height={140} radius={radius.lg} />
         </View>
       ) : !isVip ? (
-        <View style={[styles.nonVipContainer, { padding: spacing.xl }]}>
+        <View style={[styles.nonVipContainer, { padding: spacing.xl, paddingBottom: spacing.xl + bottomPadding }]}>
           <Animated.View
             entering={FadeInDown.duration(400)}
             style={[styles.bindingCard, shadow.sm, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg }]}
@@ -126,7 +129,9 @@ export default function ReferralScreen() {
               style={[styles.primaryBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
             >
               <MaterialCommunityIcons name="qrcode-scan" size={17} color="#FFFFFF" />
-              <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginLeft: 6 }]}>扫描推荐码</Text>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: '#FFFFFF', marginLeft: 6 }]}>
+                扫描推荐码
+              </Text>
             </Pressable>
           </View>
 
@@ -134,7 +139,9 @@ export default function ReferralScreen() {
             onPress={() => router.push('/me/vip')}
             style={[styles.secondaryBtn, { borderColor: colors.border, borderRadius: radius.pill }]}
           >
-            <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>了解 VIP</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>
+              了解 VIP
+            </Text>
           </Pressable>
         </View>
       ) : (
