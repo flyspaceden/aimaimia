@@ -460,6 +460,20 @@ if (yearTotal >= threshold && yearTotal < rules.yearlyMaxAmount) {
 
 ## 7. 抵扣链路设计
 
+### 7.0 业务约束：仅普通商品可抵扣
+
+**消费积分仅能用于普通商品订单（`bizType=NORMAL_GOODS`）抵扣。VIP 礼包购买（`bizType=VIP_PACKAGE`）禁止使用积分**。
+
+理由：
+- VIP 礼包是引流入会产品，需保证用户付出完整金额（否则平台获客成本失控）
+- 防止"先 VIP 拿积分→用积分抵扣 VIP 续费"的套利循环
+
+代码体现：
+- `VipCheckoutDto`（VIP 礼包结算 DTO）**不加** `deductionAmount` 字段
+- `OrderService.previewOrder` 走 `CreateOrderDto`（普通商品 preview），返回 maxDeductible
+- 买家 App VIP 礼包结算页**不显示**积分输入控件
+- VIP 礼包 `checkoutVipPackage()` 服务方法**完全不调** `RewardDeductionService`
+
 ### 7.1 API 规范
 
 **复用现有路由**，不新建。
