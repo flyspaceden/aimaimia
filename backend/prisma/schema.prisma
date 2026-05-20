@@ -350,6 +350,7 @@ enum RewardEntryType {
   WITHDRAW
   VOID
   ADJUST
+  DEDUCT
 }
 
 enum RewardLedgerStatus {
@@ -369,6 +370,7 @@ enum WithdrawChannel {
 
 enum WithdrawStatus {
   REQUESTED
+  PROCESSING
   APPROVED
   REJECTED
   PAID
@@ -1356,6 +1358,7 @@ model CheckoutSession {
   itemsSnapshot   Json                  // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
   addressSnapshot Json                  // 完整地址快照
   rewardId        String?  @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
+  deductionGroupId String?              // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
   expectedTotal   Float                 // 服务端计算的应付总额
   goodsAmount     Float                 // 商品金额
   shippingFee     Float                 // 运费
@@ -1975,18 +1978,36 @@ model WithdrawRequest {
   id               String          @id @default(cuid())
   userId           String
   user             User            @relation(fields: [userId], references: [id])
-  amount           Float // 提现金额（元）
+  amount           Float // grossAmount 申请金额（元，保留旧字段名）
   channel          WithdrawChannel
-  accountSnapshot  Json? // 脱敏/加密
-  accountType      String          @default("VIP_REWARD") // VIP_REWARD 或 NORMAL_REWARD
-  status           WithdrawStatus  @default(REQUESTED)
-  rejectReason     String?         // 拒绝原因
+  accountSnapshot  Json? // 加密存 { account, name }
+  accountType      String          @default("VIP_REWARD")
+  status           WithdrawStatus  @default(PROCESSING)
+  providerPayoutId String?
+  taxAmount             Float      @default(0)
+  netAmount             Float      @default(0)
+  taxRate               Float      @default(0.20)
+  providerFeeAmount     Float      @default(0)
+  outBizNo              String?    @unique
+  clientIdempotencyKey  String?    @unique
+  providerFundOrderId   String?
+  providerStatus        String?
+  providerErrorCode     String?
+  providerErrorMessage  String?
+  paidAt                DateTime?
+  lastQueriedAt         DateTime?
+  queryAttempts         Int        @default(0)
+  rejectReason     String?
   reviewerAdminId  String?
   reviewerAdmin    AdminUser?      @relation(fields: [reviewerAdminId], references: [id])
-  providerPayoutId String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
-  deletedAt        DateTime?       // 软删除标记
+  deletedAt        DateTime?
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([providerFundOrderId])
+  @@index([userId, createdAt])
 }
 
 // ============================================================

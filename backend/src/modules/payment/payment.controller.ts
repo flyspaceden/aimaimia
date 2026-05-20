@@ -1,12 +1,25 @@
-import { BadRequestException, Body, Controller, Get, Headers, Logger, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Logger, Optional, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Response } from 'express';
 import { PaymentService } from './payment.service';
 import { AlipayService } from './alipay.service';
 import { CheckoutService } from '../order/checkout.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
 import { PaymentCallbackDto } from './dto/payment-callback.dto';
+
+type WithdrawPayoutRuntimeService = {
+  finalizeWithdrawalPaid(
+    withdrawId: string,
+    providerResult: { providerOrderId?: string; providerFundOrderId?: string },
+  ): Promise<void>;
+  finalizeWithdrawalFailed(
+    withdrawId: string,
+    failure: { errorCode?: string; errorMessage?: string; providerStatus?: string },
+  ): Promise<void>;
+};
 
 @Controller('payments')
 export class PaymentController {
@@ -17,6 +30,8 @@ export class PaymentController {
     private alipayService: AlipayService,
     // P5 第三轮 finding F3：notify 路径金额校验需要查 session
     private checkoutService: CheckoutService,
+    @Optional() private moduleRef?: ModuleRef,
+    @Optional() private prisma?: PrismaService,
   ) {}
 
   /** 查询订单支付记录 */
@@ -157,5 +172,147 @@ export class PaymentController {
       // 返回 failure 让支付宝重试
       res.status(200).send('failure');
     }
+  }
+
+  /**
+   * 支付宝转账异步通知回调。
+   *
+   * PaymentModule 不 import BonusModule；提现闭环服务通过 ModuleRef 在运行期解析，
+   * 避免 Payment → Order → Bonus → Payment 的构造期循环依赖。
+   */
+  @Public()
+  @UseGuards(WebhookIpGuard)
+  @Post('alipay/transfer-notify')
+  async handleAlipayTransferNotify(
+    @Body() body: Record<string, string>,
+    @Res() res: Response,
+  ) {
+    this.logger.log(
+      `收到支付宝转账通知: msg_method=${body.msg_method || 'N/A'}, notify_id=${body.notify_id || 'N/A'}`,
+    );
+
+    const verified = await this.alipayService.verifyNotify(body);
+    if (!verified) {
+      this.logger.error(
+        `支付宝转账通知验签失败: msg_method=${body.msg_method || 'N/A'}, 字段数=${Object.keys(body).length}`,
+      );
+      res.status(200).send('failure');
+      return;
+    }
+
+    if (body.msg_method !== 'alipay.fund.trans.order.changed') {
+      res.status(200).send('success');
+      return;
+    }
+
+    let biz: Record<string, any>;
+    try {
+      biz = JSON.parse(body.biz_content);
+    } catch {
+      this.logger.error('支付宝转账通知 biz_content 解析失败');
+      res.status(200).send('failure');
+      return;
+    }
+
+    const outBizNo = biz.out_biz_no || biz.outBizNo;
+    if (!outBizNo) {
+      this.logger.error('支付宝转账通知缺少 out_biz_no');
+      res.status(200).send('failure');
+      return;
+    }
+
+    if (!this.prisma) {
+      this.logger.error('PrismaService 未注入，无法处理支付宝转账通知');
+      res.status(200).send('failure');
+      return;
+    }
+
+    let withdraw: any;
+    try {
+      withdraw = await (this.prisma as any).withdrawRequest.findFirst({
+        where: { outBizNo },
+      });
+    } catch (err: any) {
+      this.logger.error(`查询 WithdrawRequest 异常: ${err.message}`);
+      res.status(200).send('failure');
+      return;
+    }
+
+    if (!withdraw) {
+      this.logger.warn(`未找到 WithdrawRequest: out_biz_no=${outBizNo}`);
+      res.status(200).send('success');
+      return;
+    }
+
+    if (withdraw.status !== 'PROCESSING') {
+      res.status(200).send('success');
+      return;
+    }
+
+    try {
+      const withdrawPayoutService = this.getWithdrawPayoutService();
+      const providerStatus = biz.status;
+      if (providerStatus === 'SUCCESS') {
+        await withdrawPayoutService.finalizeWithdrawalPaid(withdraw.id, {
+          providerOrderId: biz.order_id || biz.orderId,
+          providerFundOrderId: biz.pay_fund_order_id || biz.payFundOrderId,
+        });
+      } else if (
+        providerStatus === 'FAIL' ||
+        providerStatus === 'FAILED' ||
+        providerStatus === 'CLOSED'
+      ) {
+        await withdrawPayoutService.finalizeWithdrawalFailed(withdraw.id, {
+          errorCode: biz.error_code || biz.errorCode,
+          errorMessage:
+            biz.fail_reason ||
+            biz.failReason ||
+            biz.error_msg ||
+            biz.errorMessage ||
+            `支付宝转账 ${providerStatus}`,
+          providerStatus,
+        });
+      }
+      res.status(200).send('success');
+    } catch (err: any) {
+      this.logger.error(`处理支付宝转账通知异常: ${err.message}`);
+      res.status(200).send('failure');
+    }
+  }
+
+  private getWithdrawPayoutService(): WithdrawPayoutRuntimeService {
+    if (!this.moduleRef) {
+      throw new Error('ModuleRef 未注入，无法解析 WithdrawPayoutService');
+    }
+
+    const tokens = this.getWithdrawPayoutServiceTokens();
+    let lastError: unknown;
+    for (const token of tokens) {
+      try {
+        const service = this.moduleRef.get<WithdrawPayoutRuntimeService>(token, { strict: false });
+        if (service) return service;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (lastError instanceof Error) throw lastError;
+    throw new Error('WithdrawPayoutService 未注册');
+  }
+
+  private getWithdrawPayoutServiceTokens(): any[] {
+    const tokens: any[] = [];
+    try {
+      const withdrawPayoutModule = require('../bonus/withdraw-payout.service') as {
+        WithdrawPayoutService?: any;
+      };
+      if (withdrawPayoutModule.WithdrawPayoutService) {
+        tokens.push(withdrawPayoutModule.WithdrawPayoutService);
+      }
+    } catch {
+      // Parallel reward work may create this provider after the payment slice lands.
+    }
+    tokens.push('WithdrawPayoutService');
+    return tokens;
   }
 }

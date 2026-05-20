@@ -175,4 +175,84 @@ describe('PaymentService.initiateRefund', () => {
     );
     expect(afterSaleRefundService.handleRefundFailure).not.toHaveBeenCalled();
   });
+
+  it('AUTO-CANCEL 退款补偿成功后返还消费积分抵扣', async () => {
+    const { service, prisma } = makeService();
+    const rewardDeductionService = {
+      refundDeduction: jest.fn(),
+    };
+    service.setRewardDeductionService(rewardDeductionService as any);
+    jest.spyOn(service, 'initiateRefund').mockResolvedValue({
+      success: true,
+      providerRefundId: 'provider_auto_001',
+      message: 'OK',
+    });
+    prisma.refund.findMany.mockResolvedValue([{
+      id: 'r_auto_1',
+      orderId: 'o1',
+      amount: 65,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AUTO-CANCEL-o1',
+      updatedAt: new Date(Date.now() - 600_000),
+    }]);
+    const claimTx = {
+      $executeRaw: jest.fn(),
+      refund: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'r_auto_1',
+          status: 'REFUNDING',
+          orderId: 'o1',
+          amount: 65,
+          merchantRefundNo: 'AUTO-CANCEL-o1',
+        }),
+      },
+      refundStatusHistory: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+    };
+    const updateTx = {
+      refund: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce({ id: 'r_auto_1', status: 'REFUNDING' })
+          .mockResolvedValueOnce({
+            id: 'r_auto_1',
+            merchantRefundNo: 'AUTO-CANCEL-o1',
+            order: {
+              id: 'o1',
+              checkoutSessionId: 'cs1',
+              goodsAmount: 60,
+              discountAmount: 8,
+            },
+          }),
+        update: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          { order: { goodsAmount: 60 } },
+        ]),
+      },
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          deductionGroupId: 'DG-1',
+          goodsAmount: 60,
+          discountAmount: 8,
+        }),
+      },
+      refundStatusHistory: { create: jest.fn() },
+    };
+    prisma.$transaction
+      .mockImplementationOnce(async (callback: any) => callback(claimTx))
+      .mockImplementationOnce(async (callback: any) => callback(updateTx));
+
+    await service.retryStaleAutoRefunds();
+
+    expect(rewardDeductionService.refundDeduction).toHaveBeenCalledWith(updateTx, expect.objectContaining({
+      refundId: 'r_auto_1',
+      orderId: 'o1',
+      originalGoodsAmount: 60,
+      originalGoodsRefundAmount: 60,
+      originalDeductAmount: 8,
+      deductionGroupId: 'DG-1',
+      isFinalRefund: true,
+    }));
+  });
 });

@@ -5,11 +5,13 @@ import {
   BadRequestException,
   ConflictException,
   ServiceUnavailableException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
@@ -72,6 +74,8 @@ export class CheckoutService {
   private alipayService: any = null;
   // PaymentService 通过可选注入（cancel/expire 主动建单后通知商家用）
   private paymentService: any = null;
+  // RewardDeductionService 通过 setter 注入，避免扩大构造函数循环依赖面
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -106,6 +110,11 @@ export class CheckoutService {
   /** 注入支付服务（cancel/expire 主动建单后通知商家用，由 OrderModule 在 onModuleInit 时调用） */
   setPaymentService(service: any) {
     this.paymentService = service;
+  }
+
+  /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
   }
 
   // ---------- 公开方法 ----------
@@ -564,33 +573,18 @@ export class CheckoutService {
       }
     }
 
-    // 预留奖励前的只读校验（在事务外执行，减少事务持有时间）
-    let rewardLedger: any = null;
-
-    if (dto.rewardId) {
-      // 先读取奖励信息进行校验（只读，不修改状态）
-      const ledger = await this.prisma.rewardLedger.findUnique({
-        where: { id: dto.rewardId },
-      });
-      if (!ledger) {
-        throw new BadRequestException('奖励不存在');
+    // 消费积分抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
+    if (dto.deductionAmount && dto.deductionAmount > 0) {
+      if (!this.rewardDeductionService) {
+        throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
       }
-      if (ledger.userId !== userId) {
-        throw new BadRequestException('奖励不属于当前用户');
+      const maxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
+        userId,
+        totalGoodsAmount,
+      );
+      if (dto.deductionAmount > maxDeduction.maxDeductible) {
+        throw new BadRequestException('抵扣金额超出上限');
       }
-      if (ledger.status !== 'AVAILABLE') {
-        throw new BadRequestException('奖励已被使用');
-      }
-
-      // 最低消费检查（CAS 之前验证，避免预留后再回滚）
-      const minOrderAmount = ledger.amount >= 10 ? ledger.amount * 5 : 0;
-      if (minOrderAmount > 0 && totalGoodsAmount < minOrderAmount) {
-        throw new BadRequestException(
-          `订单金额不满足奖励使用条件（最低 ¥${minOrderAmount}）`,
-        );
-      }
-
-      rewardLedger = ledger;
     }
 
     // 10. 生成 merchantOrderNo（在事务外生成，事务内使用）
@@ -622,28 +616,25 @@ export class CheckoutService {
             });
           }
 
-          // 奖励 CAS 预留（在事务内执行，回滚时自动恢复）
+          // 消费积分抵扣 CAS 预留（在事务内执行，回滚时自动恢复）
           let discountAmount = 0;
           let reservedRewardId: string | null = null;
+          let deductionGroupId: string | null = null;
 
-          if (dto.rewardId && rewardLedger) {
-            const updated = await tx.rewardLedger.updateMany({
-              where: {
-                id: dto.rewardId,
-                userId,
-                status: 'AVAILABLE',
-                entryType: 'RELEASE',
-                refId: null,
-              },
-              data: { status: 'RESERVED' },
-            });
-
-            if (updated.count > 0) {
-              discountAmount = rewardLedger.amount;
-              reservedRewardId = dto.rewardId;
-            } else {
-              // CAS 失败：在校验和 CAS 之间状态已变化（并发竞争）
-              throw new BadRequestException('奖励已被使用（请重试）');
+          if (dto.deductionAmount && dto.deductionAmount > 0) {
+            if (!this.rewardDeductionService) {
+              throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
+            }
+            const reserved = await this.rewardDeductionService.reserveDeduction(
+              tx,
+              userId,
+              totalGoodsAmount,
+              dto.deductionAmount,
+            );
+            if (reserved) {
+              discountAmount = Number((reserved.deductedFromVip + reserved.deductedFromNormal).toFixed(2));
+              reservedRewardId = reserved.primaryLedgerId;
+              deductionGroupId = reserved.groupId;
             }
           }
 
@@ -706,6 +697,7 @@ export class CheckoutService {
               itemsSnapshot: snapshotItems as any,
               addressSnapshot: encryptedAddressSnapshot as any,
               rewardId: reservedRewardId && discountAmount > 0 ? reservedRewardId : null,
+              deductionGroupId,
               expectedTotal,
               goodsAmount: totalGoodsAmount,
               shippingFee: totalShippingFee,
@@ -720,7 +712,7 @@ export class CheckoutService {
               idempotencyKey: dto.idempotencyKey || null,
               buyerNote: dto.buyerNote || null,
               expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 分钟过期
-            },
+            } as any,
           });
 
           return created;
@@ -1025,10 +1017,11 @@ export class CheckoutService {
               goodsAmount: vipPrice,
               shippingFee: 0,
               discountAmount: 0,
+              deductionGroupId: null,
               idempotencyKey: dto.idempotencyKey || null,
               buyerNote: dto.buyerNote || null,
               expiresAt,
-            },
+            } as any,
           });
 
           // 逐项预留库存（CAS 模式，防止超卖）
@@ -1254,8 +1247,11 @@ export class CheckoutService {
             await this.releaseVipReservation(tx, session);
           }
 
-          // 释放预留奖励
-          if (session.rewardId) {
+          const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+          if (deductionGroupId && this.rewardDeductionService) {
+            await this.rewardDeductionService.releaseDeduction(tx, deductionGroupId);
+          } else if (session.rewardId) {
+            // 兼容旧会话：旧模型只存 primary rewardId。
             await tx.rewardLedger.updateMany({
               where: { id: session.rewardId, status: 'RESERVED' },
               data: { status: 'AVAILABLE', refType: null, refId: null },
@@ -1291,6 +1287,75 @@ export class CheckoutService {
 
     this.logger.log(`CheckoutSession ${sessionId} 已取消`);
     return { success: true };
+  }
+
+  /**
+   * 支付失败/通道异常时释放 CheckoutSession 占用资源。
+   *
+   * 幂等：只有 ACTIVE 会话会被 CAS 标记为 FAILED；非 ACTIVE 直接返回。
+   */
+  async releaseSessionOnFailure(merchantOrderNo: string): Promise<void> {
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const result = await this.prisma.$transaction(async (tx) => {
+          const session = await tx.checkoutSession.findFirst({
+            where: { merchantOrderNo },
+          });
+          if (!session) {
+            return { released: false, reason: 'session_not_found', couponInstanceIds: [] as string[] };
+          }
+
+          const cas = await tx.checkoutSession.updateMany({
+            where: { id: session.id, status: 'ACTIVE' },
+            data: { status: 'FAILED' },
+          });
+          if (cas.count === 0) {
+            return { released: false, reason: 'session_not_active', couponInstanceIds: [] as string[] };
+          }
+
+          const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+          if (deductionGroupId && this.rewardDeductionService) {
+            await this.rewardDeductionService.releaseDeduction(tx, deductionGroupId);
+          } else if (session.rewardId) {
+            // 兼容旧会话：Worker B 移除 PaymentService 旧释放逻辑后，这里兜住历史 rewardId。
+            await tx.rewardLedger.updateMany({
+              where: { id: session.rewardId, status: 'RESERVED' },
+              data: { status: 'AVAILABLE', refType: null, refId: null },
+            });
+          }
+
+          if (session.bizType === 'VIP_PACKAGE') {
+            await this.releaseVipReservationInTx(tx, {
+              id: session.id,
+              bizType: session.bizType,
+              itemsSnapshot: session.itemsSnapshot,
+            });
+          }
+
+          return {
+            released: true,
+            sessionId: session.id,
+            couponInstanceIds: session.couponInstanceIds ?? [],
+          };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+        if (result.released && result.couponInstanceIds.length > 0 && this.couponService) {
+          await this.couponService.releaseCoupons(result.couponInstanceIds).catch((err: any) => {
+            this.logger.error(`释放红包失败（支付失败释放）：sessionId=${result.sessionId}, error=${err.message}`);
+          });
+        }
+        return;
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
+          this.logger.warn(
+            `releaseSessionOnFailure 序列化冲突，第 ${attempt + 1}/${MAX_RETRIES} 次重试`,
+          );
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   /** F1: 查询结算会话状态（前端轮询） */
@@ -1442,6 +1507,9 @@ export class CheckoutService {
             const addressSnapshot = session.addressSnapshot;
             const sessionBizType = (session as any).bizType || 'NORMAL_GOODS';
             const isVipPackageSession = sessionBizType === 'VIP_PACKAGE';
+            if (isVipPackageSession && (session as any).deductionGroupId) {
+              throw new InternalServerErrorException('VIP 礼包不应有 deductionGroupId，数据异常');
+            }
 
             // 4. 按 companyId 分组
             const itemsByCompany = new Map<string, SnapshotItem[]>();
@@ -1559,12 +1627,23 @@ export class CheckoutService {
                 },
               });
 
-              // 奖励关联主订单
-              if (isPrimary && session.rewardId && session.discountAmount > 0) {
-                await tx.rewardLedger.update({
-                  where: { id: session.rewardId },
-                  data: { refType: 'ORDER', refId: order.id },
-                });
+              // 消费积分抵扣关联主订单。新模型按 groupId 关联全部 DEDUCT ledger。
+              if (isPrimary && session.discountAmount > 0) {
+                const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+                if (deductionGroupId) {
+                  await (tx as any).rewardLedger.updateMany({
+                    where: {
+                      entryType: 'DEDUCT',
+                      meta: { path: ['groupId'], equals: deductionGroupId },
+                    },
+                    data: { refType: 'ORDER', refId: order.id },
+                  });
+                } else if (session.rewardId) {
+                  await tx.rewardLedger.update({
+                    where: { id: session.rewardId },
+                    data: { refType: 'ORDER', refId: order.id },
+                  });
+                }
               }
 
               // 记录订单状态历史
@@ -1654,8 +1733,11 @@ export class CheckoutService {
               });
             }
 
-            // 8. 奖励：RESERVED → VOIDED
-            if (session.rewardId && session.discountAmount > 0) {
+            // 8. 消费积分抵扣：RESERVED → VOIDED
+            const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+            if (deductionGroupId && this.rewardDeductionService) {
+              await this.rewardDeductionService.confirmDeduction(tx, deductionGroupId);
+            } else if (session.rewardId && session.discountAmount > 0) {
               await tx.rewardLedger.updateMany({
                 where: { id: session.rewardId, status: 'RESERVED' },
                 data: { status: 'VOIDED' },

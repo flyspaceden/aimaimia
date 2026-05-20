@@ -16,6 +16,7 @@ import { SellerShippingModule } from '../seller/shipping/seller-shipping.module'
 import { ShipmentModule } from '../shipment/shipment.module';
 import { ShippingRuleModule } from '../admin/shipping-rule/shipping-rule.module';
 import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
     AfterSaleRefundConsistencyService,
     AfterSaleShippingPaymentService,
     AfterSaleReturnShippingService,
+    RewardDeductionService,
   ],
   exports: [
     AfterSaleService,
@@ -65,6 +67,10 @@ export class AfterSaleModule implements OnModuleInit {
     if (shippingRuleService) {
       this.afterSaleService.setShippingRuleService(shippingRuleService);
       this.afterSaleShippingPaymentService.setShippingRuleService(shippingRuleService);
+    }
+    const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
+    if (rewardDeductionService) {
+      this.afterSaleRefundService.setRewardDeductionService(rewardDeductionService);
     }
   }
 }

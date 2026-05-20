@@ -1,13 +1,17 @@
-import { Controller, Get, Post, Body, Query, GoneException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, GoneException, Headers, Post, Query } from '@nestjs/common';
 import { BonusService } from './bonus.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { UseReferralDto } from './dto/use-referral.dto';
 import { WithdrawDto } from './dto/withdraw.dto';
+import { WithdrawPayoutService } from './withdraw-payout.service';
 
 @Controller('bonus')
 export class BonusController {
-  constructor(private bonusService: BonusService) {}
+  constructor(
+    private bonusService: BonusService,
+    private withdrawPayoutService: WithdrawPayoutService,
+  ) {}
 
   // ========== 会员信息 ==========
 
@@ -66,8 +70,12 @@ export class BonusController {
   requestWithdraw(
     @CurrentUser('sub') userId: string,
     @Body() dto: WithdrawDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.bonusService.requestWithdraw(userId, dto);
+    if (!idempotencyKey || idempotencyKey.trim().length < 8) {
+      throw new BadRequestException('Idempotency-Key header required');
+    }
+    return this.withdrawPayoutService.requestWithdraw(userId, dto, idempotencyKey.trim());
   }
 
   /** 提现记录 */

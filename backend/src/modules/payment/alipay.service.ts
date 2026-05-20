@@ -202,6 +202,157 @@ export class AlipayService implements OnModuleInit {
   }
 
   /**
+   * 商家到个人单笔转账（用户提现到支付宝）。
+   */
+  async transferToAccount(params: {
+    outBizNo: string;
+    amount: number;
+    payeeAccount: string;
+    payeeRealName: string;
+    remark?: string;
+  }): Promise<{
+    success: boolean;
+    processing: boolean;
+    outBizNo: string;
+    orderId?: string;
+    payFundOrderId?: string;
+    providerStatus?: string;
+    errorCode?: string;
+    errorMessage?: string;
+    raw: any;
+  }> {
+    if (!this.sdk) {
+      throw new Error('支付宝 SDK 未初始化');
+    }
+
+    const result = await this.sdk.exec('alipay.fund.trans.uni.transfer', {
+      bizContent: {
+        out_biz_no: params.outBizNo,
+        trans_amount: params.amount.toFixed(2),
+        product_code: 'TRANS_ACCOUNT_NO_PWD',
+        biz_scene: 'DIRECT_TRANSFER',
+        order_title: '爱买买消费积分提现',
+        payee_info: {
+          identity: params.payeeAccount,
+          identity_type: 'ALIPAY_LOGON_ID',
+          name: params.payeeRealName,
+        },
+        remark: params.remark || '爱买买消费积分提现',
+      },
+    }) as any;
+
+    const code = result.code;
+    const subCode = result.subCode;
+    const success = code === '10000';
+    const processing =
+      !success &&
+      (
+        code === '10003' ||
+        code === '20000' ||
+        subCode === 'SYSTEM_ERROR' ||
+        subCode === 'REQUEST_PROCESSING'
+      );
+    const errorMessage = success
+      ? undefined
+      : [result.msg, subCode ? `[${subCode}]` : '', result.subMsg]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || '未知错误';
+
+    return {
+      success,
+      processing,
+      outBizNo: params.outBizNo,
+      orderId: result.orderId,
+      payFundOrderId: result.payFundOrderId,
+      providerStatus: result.status,
+      errorCode: subCode,
+      errorMessage,
+      raw: result,
+    };
+  }
+
+  async queryTransfer(params: {
+    outBizNo?: string;
+    orderId?: string;
+  }): Promise<{
+    status: 'SUCCESS' | 'PROCESSING' | 'FAIL' | 'NOT_FOUND';
+    orderId?: string;
+    payFundOrderId?: string;
+    payDate?: Date;
+    errorCode?: string;
+    errorMessage?: string;
+    raw: any;
+  }> {
+    if (!this.sdk) {
+      throw new Error('支付宝 SDK 未初始化');
+    }
+
+    const bizContent: Record<string, string> = {
+      product_code: 'TRANS_ACCOUNT_NO_PWD',
+      biz_scene: 'DIRECT_TRANSFER',
+    };
+    if (params.outBizNo) bizContent.out_biz_no = params.outBizNo;
+    if (params.orderId) bizContent.order_id = params.orderId;
+
+    const result = await this.sdk.exec('alipay.fund.trans.common.query', {
+      bizContent,
+    }) as any;
+
+    if (result.code !== '10000') {
+      const subCode = result.subCode;
+      const errorMessage = result.subMsg || result.msg || '未知错误';
+      const processing =
+        result.code === '10003' ||
+        result.code === '20000' ||
+        subCode === 'SYSTEM_ERROR' ||
+        subCode === 'REQUEST_PROCESSING';
+      if (
+        subCode === 'ORDER_NOT_EXIST' ||
+        subCode === 'PAYMENT_NOT_EXIST' ||
+        subCode === 'ACQ.TRADE_NOT_EXIST'
+      ) {
+        return {
+          status: 'NOT_FOUND',
+          errorCode: subCode,
+          errorMessage,
+          raw: result,
+        };
+      }
+      if (processing) {
+        return {
+          status: 'PROCESSING',
+          errorCode: subCode,
+          errorMessage,
+          raw: result,
+        };
+      }
+      return {
+        status: 'FAIL',
+        errorCode: subCode,
+        errorMessage,
+        raw: result,
+      };
+    }
+
+    const providerStatus = result.status;
+    const status: 'SUCCESS' | 'PROCESSING' | 'FAIL' =
+      providerStatus === 'SUCCESS'
+        ? 'SUCCESS'
+        : (providerStatus === 'FAIL' || providerStatus === 'CLOSED')
+          ? 'FAIL'
+          : 'PROCESSING';
+
+    return {
+      status,
+      orderId: result.orderId,
+      payFundOrderId: result.payFundOrderId,
+      payDate: result.payDate ? new Date(result.payDate) : undefined,
+      raw: result,
+    };
+  }
+
+  /**
    * 查询订单支付状态
    */
   async queryOrder(merchantOrderNo: string): Promise<{

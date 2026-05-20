@@ -105,7 +105,7 @@ describe('OrderService cancel PAID orders', () => {
     await expect(service.cancelOrder('o1', 'u1')).rejects.toThrow(BadRequestException);
   });
 
-  it('PAID 未发货单订单取消会恢复库存、奖励、红包并发起退款', async () => {
+  it('PAID 未发货单订单取消会恢复库存、红包并在退款成功后返还抵扣积分', async () => {
     const { service, prisma, bonusAllocation } = makeService();
     const order = {
       id: 'o1',
@@ -113,6 +113,8 @@ describe('OrderService cancel PAID orders', () => {
       status: 'PAID',
       checkoutSessionId: 'cs1',
       totalAmount: 65,
+      goodsAmount: 60,
+      discountAmount: 8,
       items: [{ skuId: 'sku1', quantity: 2, companyId: 'c1' }],
     };
     const refund = {
@@ -121,11 +123,17 @@ describe('OrderService cancel PAID orders', () => {
     };
     const tx = {
       $executeRaw: jest.fn(),
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          deductionGroupId: 'DG-1',
+          goodsAmount: 60,
+          discountAmount: 8,
+        }),
+      },
       shipment: { count: jest.fn().mockResolvedValue(0) },
       order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       productSKU: { update: jest.fn() },
       inventoryLedger: { create: jest.fn() },
-      rewardLedger: { updateMany: jest.fn() },
       refund: {
         create: jest.fn().mockResolvedValue(refund),
         update: jest.fn(),
@@ -150,6 +158,10 @@ describe('OrderService cancel PAID orders', () => {
     };
     service.setCouponService(couponService as any);
     service.setPaymentService(paymentService as any);
+    const rewardDeductionService = {
+      refundDeduction: jest.fn(),
+    };
+    service.setRewardDeductionService(rewardDeductionService as any);
 
     await service.cancelOrder('o1', 'u1');
 
@@ -166,16 +178,21 @@ describe('OrderService cancel PAID orders', () => {
         refId: 'o1',
       },
     });
-    expect(tx.rewardLedger.updateMany).toHaveBeenCalledWith({
-      where: { refType: 'ORDER', refId: 'o1', status: 'VOIDED' },
-      data: { status: 'AVAILABLE', refType: null, refId: null },
-    });
     expect(couponService.restoreCouponsForOrder).toHaveBeenCalledWith('o1', tx);
     expect(paymentService.initiateRefund).toHaveBeenCalledWith('o1', 65, 'AUTO-CANCEL-o1');
     expect(tx.refund.update).toHaveBeenCalledWith({
       where: { id: 'r1' },
       data: { status: 'REFUNDED', providerRefundId: 'AUTO-CANCEL-o1' },
     });
+    expect(rewardDeductionService.refundDeduction).toHaveBeenCalledWith(tx, expect.objectContaining({
+      refundId: 'r1',
+      orderId: 'o1',
+      originalGoodsAmount: 60,
+      originalGoodsRefundAmount: 60,
+      originalDeductAmount: 8,
+      deductionGroupId: 'DG-1',
+      isFinalRefund: true,
+    }));
     expect(bonusAllocation.allocateForOrder).not.toHaveBeenCalled();
   });
 

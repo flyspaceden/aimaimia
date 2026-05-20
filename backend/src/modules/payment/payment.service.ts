@@ -11,6 +11,7 @@ import { CouponService } from '../coupon/coupon.service';
 import { InboxService } from '../inbox/inbox.service';
 import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
 import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
+import type { RewardDeductionService } from '../bonus/reward-deduction.service';
 
 @Injectable()
 export class PaymentService {
@@ -21,6 +22,7 @@ export class PaymentService {
   private readonly autoRefundRetryCooldownMs = 5 * 60_000;
   private afterSaleRefundService: AfterSaleRefundService | null = null;
   private afterSaleShippingPaymentService: AfterSaleShippingPaymentService | null = null;
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -37,6 +39,10 @@ export class PaymentService {
 
   setAfterSaleShippingPaymentService(service: AfterSaleShippingPaymentService) {
     this.afterSaleShippingPaymentService = service;
+  }
+
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
   }
 
   /**
@@ -434,6 +440,64 @@ export class PaymentService {
     throw new NotImplementedException(`退款渠道 ${channel} 暂未接入`);
   }
 
+  /**
+   * 发起渠道转账（提现）。
+   */
+  async initiateTransfer(params: {
+    channel: 'ALIPAY' | 'WECHAT_PAY' | 'UNIONPAY' | 'AGGREGATOR' | 'WECHAT' | 'BANKCARD';
+    amount: number;
+    outBizNo: string;
+    payeeAccount: string;
+    payeeRealName: string;
+    remark?: string;
+  }): Promise<{
+    success: boolean;
+    processing: boolean;
+    outBizNo: string;
+    providerOrderId?: string;
+    providerFundOrderId?: string;
+    providerStatus?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  }> {
+    this.logger.log(
+      `发起渠道转账: channel=${params.channel}, outBizNo=${this.maskBizId(params.outBizNo)}, amount=${params.amount}`,
+    );
+
+    if (params.channel === 'ALIPAY') {
+      if (!this.alipayService.isAvailable()) {
+        this.logger.error(`支付宝 SDK 未初始化，无法转账: outBizNo=${this.maskBizId(params.outBizNo)}`);
+        return {
+          success: false,
+          processing: false,
+          outBizNo: params.outBizNo,
+          errorMessage: '支付宝 SDK 未初始化',
+        };
+      }
+
+      const result = await this.alipayService.transferToAccount({
+        outBizNo: params.outBizNo,
+        amount: params.amount,
+        payeeAccount: params.payeeAccount,
+        payeeRealName: params.payeeRealName,
+        remark: params.remark,
+      });
+
+      return {
+        success: result.success,
+        processing: result.processing,
+        outBizNo: result.outBizNo,
+        providerOrderId: result.orderId,
+        providerFundOrderId: result.payFundOrderId,
+        providerStatus: result.providerStatus,
+        errorCode: result.errorCode,
+        errorMessage: result.errorMessage,
+      };
+    }
+
+    throw new NotImplementedException(`提现渠道 ${params.channel} 暂未接入`);
+  }
+
   /** 自动退款补偿任务：重试长时间停留在 FAILED/REFUNDING 的自动退款记录 */
   @Cron('0 */10 * * * *')
   async retryStaleAutoRefunds() {
@@ -719,75 +783,13 @@ export class PaymentService {
 
           return { code: 'SUCCESS', message: '处理成功', orderIds: result.orderIds };
         } else {
-          // H7+M17修复：支付失败分支使用 Serializable 事务 + P2034 重试
-          // 与 SUCCESS 分支（handlePaymentSuccess）隔离级别对称，防止并发竞态
-          const MAX_RETRIES = 3;
-          let failHandled = false;
-          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            try {
-              const failResult = await this.prisma.$transaction(async (tx) => {
-                // CAS: ACTIVE → FAILED（原子性状态转换）
-                const updateResult = await tx.checkoutSession.updateMany({
-                  where: { merchantOrderNo, status: 'ACTIVE' },
-                  data: { status: 'FAILED' },
-                });
-                if (updateResult.count === 0) {
-                  // 会话已非 ACTIVE，返回标记跳过后续处理
-                  return { skipped: true };
-                }
-                // VIP 礼包失败：释放预留库存（避免库存泄漏）
-                if (session.bizType === 'VIP_PACKAGE' && this.checkoutService) {
-                  await this.checkoutService.releaseVipReservationInTx(tx, {
-                    id: session.id,
-                    bizType: session.bizType,
-                    itemsSnapshot: session.itemsSnapshot,
-                  });
-                }
-                // 释放预留奖励（在同一事务内，保证原子性）
-                if (session.rewardId) {
-                  await tx.rewardLedger.updateMany({
-                    where: { id: session.rewardId, status: 'RESERVED' },
-                    data: { status: 'AVAILABLE', refType: null, refId: null },
-                  });
-                }
-                return { skipped: false };
-              }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-
-              if (failResult.skipped) {
-                this.logger.warn(
-                  `CheckoutSession 支付失败回调忽略：会话非 ACTIVE，merchantOrderNo=${this.maskBizId(merchantOrderNo)}`,
-                );
-              } else {
-                failHandled = true;
-                this.logger.warn(
-                  `CheckoutSession 支付失败：merchantOrderNo=${this.maskBizId(merchantOrderNo)}`,
-                );
-              }
-              break; // 成功则跳出重试循环
-            } catch (e: any) {
-              if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
-                this.logger.warn(
-                  `CheckoutSession 支付失败回调序列化冲突，第 ${attempt + 1}/${MAX_RETRIES} 次重试`,
-                );
-                continue;
-              }
-              throw e;
-            }
-          }
-
-          // 事务成功后：释放已锁定的平台红包（在事务外执行，CouponService 有自己的事务）
-          if (failHandled && session.couponInstanceIds && session.couponInstanceIds.length > 0 && this.couponService) {
-            try {
-              await this.couponService.releaseCoupons(session.couponInstanceIds);
-              this.logger.log(
-                `已释放 ${session.couponInstanceIds.length} 张平台红包（支付失败）`,
-              );
-            } catch (couponErr: any) {
-              this.logger.error(
-                `释放红包失败（支付失败）：${couponErr.message}`,
-              );
-            }
-          }
+          // 旧 ledger RESERVED→AVAILABLE、VIP 预留释放、红包释放等逻辑统一收口到 CheckoutService。
+          await (this.checkoutService as CheckoutService & {
+            releaseSessionOnFailure: (merchantOrderNo: string) => Promise<void>;
+          }).releaseSessionOnFailure(merchantOrderNo);
+          this.logger.warn(
+            `CheckoutSession 支付失败：merchantOrderNo=${this.maskBizId(merchantOrderNo)}`,
+          );
 
           return { code: 'SUCCESS', message: '处理成功' };
         }
@@ -1098,8 +1100,70 @@ export class PaymentService {
           operatorId: this.autoRefundOperator,
         },
       });
+      if (toStatus === 'REFUNDED') {
+        await this.restoreAutoCancelDeduction(tx, refundId);
+      }
       return true;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  private async restoreAutoCancelDeduction(tx: any, refundId: string): Promise<void> {
+    if (!this.rewardDeductionService) return;
+    const refund = await tx.refund.findUnique({
+      where: { id: refundId },
+      select: {
+        id: true,
+        merchantRefundNo: true,
+        order: {
+          select: {
+            id: true,
+            checkoutSessionId: true,
+            goodsAmount: true,
+            discountAmount: true,
+          },
+        },
+      },
+    });
+    if (!refund?.merchantRefundNo?.startsWith('AUTO-CANCEL-')) return;
+    const order = refund.order;
+    if (!order?.checkoutSessionId) return;
+
+    const session = await tx.checkoutSession.findUnique({
+      where: { id: order.checkoutSessionId },
+      select: {
+        deductionGroupId: true,
+        goodsAmount: true,
+        discountAmount: true,
+      },
+    });
+    if (!session?.deductionGroupId || Number(session.discountAmount || 0) <= 0) return;
+
+    const refundedSiblings = await tx.refund.findMany({
+      where: {
+        status: 'REFUNDED',
+        merchantRefundNo: { startsWith: 'AUTO-CANCEL-' },
+        order: { checkoutSessionId: order.checkoutSessionId },
+      },
+      select: {
+        order: { select: { goodsAmount: true } },
+      },
+    });
+    const cumulativeGoodsRefundAmount = Number(
+      refundedSiblings
+        .reduce((sum: number, item: any) => sum + Number(item.order?.goodsAmount || 0), 0)
+        .toFixed(2),
+    );
+
+    await this.rewardDeductionService.refundDeduction(tx, {
+      refundId,
+      orderId: order.id,
+      originalGoodsAmount: Number(session.goodsAmount || order.goodsAmount || 0),
+      originalGoodsRefundAmount: Number(order.goodsAmount || 0),
+      originalDeductAmount: Number(session.discountAmount || order.discountAmount || 0),
+      deductionGroupId: session.deductionGroupId,
+      cumulativeGoodsRefundAmount,
+      isFinalRefund: cumulativeGoodsRefundAmount >= Number(session.goodsAmount || 0),
+    });
   }
 
   /**

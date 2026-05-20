@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 
 /**
  * F1: CheckoutSession 过期清理
@@ -21,6 +22,8 @@ export class CheckoutExpireService {
   private checkoutService: any = null;
   // PaymentService 通过可选注入（expire 主动建单后通知商家用）
   private paymentService: any = null;
+  // RewardDeductionService 通过可选注入（释放消费积分抵扣）
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(private prisma: PrismaService) {}
 
@@ -44,6 +47,11 @@ export class CheckoutExpireService {
     this.paymentService = service;
   }
 
+  /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
+  }
+
   @Cron('0 * * * * *')
   async handleExpire() {
     const now = new Date();
@@ -57,6 +65,7 @@ export class CheckoutExpireService {
       select: {
         id: true,
         rewardId: true,
+        deductionGroupId: true,
         couponInstanceIds: true,
         bizType: true,
         itemsSnapshot: true,
@@ -220,6 +229,7 @@ export class CheckoutExpireService {
   private async expireSession(session: {
     id: string;
     rewardId: string | null;
+    deductionGroupId?: string | null;
     couponInstanceIds: string[];
     bizType: string;
     itemsSnapshot: unknown;
@@ -399,8 +409,12 @@ export class CheckoutExpireService {
           }
         }
 
-        // 释放预留奖励（RESERVED → AVAILABLE）
-        if (session.rewardId) {
+        // 释放消费积分抵扣（RESERVED → AVAILABLE）
+        if (session.deductionGroupId && this.rewardDeductionService) {
+          await this.rewardDeductionService.releaseDeduction(tx, session.deductionGroupId);
+          this.logger.log(`已释放消费积分抵扣组: groupId=${session.deductionGroupId}`);
+        } else if (session.rewardId) {
+          // 兼容旧会话：旧模型只存 primary rewardId。
           await tx.rewardLedger.updateMany({
             where: { id: session.rewardId, status: 'RESERVED' },
             data: { status: 'AVAILABLE', refType: null, refId: null },

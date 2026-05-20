@@ -105,6 +105,8 @@
 - `docs/superpowers/plans/2026-05-08-sf-style-shipping-pricing.md` — 顺丰风格平台统一运费计价实施计划（Schema/运费引擎/Checkout 锁价/顺丰面单真实重量/`OrderShippingCost` 成本记录/管理后台/卖家 SKU 重量/文档同步，**平台运费计价实施排程**）
 - `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` — 发票链路完整收口设计方案（开票内容配置、Mock Provider 适配器、买家/管理/卖家三端状态闭环、并发安全与状态历史，**发票链路收口 / Provider / 设置页 / 状态历史权威来源，补充并覆盖 `docs/features/invoice.md` 对应部分**）
 - `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md` — 发票链路完整收口实施计划（Schema/配置/买家申请取消/Mock Provider/管理后台设置与开票/买家 App 发票闭环/卖家隐私/验证与文档同步，**发票链路收口实施排程**）
+- `docs/superpowers/specs/2026-05-19-reward-dual-track-design.md` — 消费积分双轨设计方案（Reward 余额同时支持支付宝提现与普通商品结算抵扣、默认提现代扣 20%、普通/VIP 抵扣比例 10%/15%、平台红包可叠加、VIP 礼包禁止抵扣，**消费积分提现/抵扣权威来源，替代旧支付宝实时提现单轨方案**）
+- `docs/superpowers/plans/2026-05-19-reward-dual-track.md` — 消费积分双轨实施计划（Schema/提现服务/抵扣服务/支付宝转账与查询补偿/买家 App 钱包提现结算/管理后台规则与税务报送/验证与文档同步，**消费积分双轨实施排程**）
 - `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
@@ -122,7 +124,7 @@
 
 | 决策 | 结论 |
 |------|------|
-| 分润奖励 vs 平台红包 | **两套完全独立的系统，严禁混淆**。分润奖励（Reward 体系：`RewardAccount`/`RewardLedger`/`VIP_REWARD`/`NORMAL_REWARD`）只能提现；平台红包（Coupon 体系：`CouponCampaign`/`CouponInstance`）只能结算抵扣。部分前端页面功能可沿用，部分不能 |
+| 消费积分（Reward）vs 平台红包（Coupon） | **两套完全独立的系统，严禁混淆**。消费积分（Reward 体系：`RewardAccount`/`RewardLedger`/`VIP_REWARD`/`NORMAL_REWARD`）在 v1.0 支持两条轨道：支付宝提现 + 普通商品订单部分抵扣；平台红包（Coupon 体系：`CouponCampaign`/`CouponInstance`）仍是独立优惠券系统，可与消费积分抵扣叠加。VIP 礼包禁止使用消费积分抵扣 |
 | 金额单位 | **Float / 元**（Prisma Schema 与前端一致，非 data-system.md 的 Int/分） |
 | 推荐码归属 | **只有 VIP 拥有可展示、可分享、可被延迟深链接收的推荐码**。普通用户可绑定推荐人，但 `GET /bonus/member` 对普通用户返回 `referralCode=null`，历史普通码后端按无效码拒绝 |
 | VIP 三叉树根节点 | **A1–A10 十个高管**，每棵独立子树；有推荐人时落在推荐人子树内，推荐人直连满后按层选择当前层 `childrenCount` 最小节点落位，同数按树顺序 |

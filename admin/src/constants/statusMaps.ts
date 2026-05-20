@@ -46,10 +46,11 @@ export const userStatusMap: Record<string, StatusEntry> = {
 // 提现状态
 export const withdrawalStatusMap: Record<string, StatusEntry> = {
   REQUESTED: { text: '待审核', color: 'orange' },
-  APPROVED: { text: '已批准', color: 'green' },
+  PROCESSING: { text: '处理中', color: 'processing' },
+  APPROVED: { text: '已批准', color: 'cyan' },
   REJECTED: { text: '已拒绝', color: 'red' },
-  PAID: { text: '已打款', color: 'blue' },
-  FAILED: { text: '打款失败', color: 'volcano' },
+  PAID: { text: '已到账', color: 'green' },
+  FAILED: { text: '失败', color: 'red' },
 };
 
 // 会员等级颜色

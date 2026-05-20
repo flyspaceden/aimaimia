@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ConflictExc
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
-import { MIN_WITHDRAW_AMOUNT, MAX_DAILY_WITHDRAWALS, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
+import { MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { InboxService } from '../inbox/inbox.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
@@ -552,119 +552,6 @@ export class BonusService {
         createdAt: l.createdAt.toISOString(),
       })),
       nextPage: skip + pageSize < total ? page + 1 : undefined,
-    };
-  }
-
-  /** 申请提现（支持 VIP VIP_REWARD 和普通 NORMAL_REWARD 账户） */
-  async requestWithdraw(userId: string, dto: { amount: number; channel: string; accountType?: 'VIP_REWARD' | 'NORMAL_REWARD' }) {
-    if (dto.amount <= 0) throw new BadRequestException('提现金额必须大于 0');
-    // L7修复：最小提现金额限制
-    if (dto.amount < MIN_WITHDRAW_AMOUNT) {
-      throw new BadRequestException(`最小提现金额为 ${MIN_WITHDRAW_AMOUNT} 元`);
-    }
-
-    // 确定提现账户类型：客户端可指定，默认自动选择余额充足的账户
-    const validTypes: readonly string[] = ['VIP_REWARD', 'NORMAL_REWARD'];
-    let targetType: string;
-
-    if (dto.accountType && validTypes.includes(dto.accountType)) {
-      targetType = dto.accountType;
-    } else {
-      // 自动选择：优先 VIP 账户，不足则尝试普通账户
-      const accounts = await this.prisma.rewardAccount.findMany({
-        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] as any } },
-      });
-      const vipAcc = accounts.find((a) => a.type === 'VIP_REWARD');
-      const normalAcc = accounts.find((a) => a.type === 'NORMAL_REWARD');
-
-      if (vipAcc && Math.round(vipAcc.balance * 100) >= Math.round(dto.amount * 100)) {
-        targetType = 'VIP_REWARD';
-      } else if (normalAcc && Math.round(normalAcc.balance * 100) >= Math.round(dto.amount * 100)) {
-        targetType = 'NORMAL_REWARD';
-      } else {
-        throw new BadRequestException('余额不足');
-      }
-    }
-
-    const account = await this.prisma.rewardAccount.findUnique({
-      where: { userId_type: { userId, type: targetType as any } },
-    });
-    // L03修复：转换为分（整数）比较，避免浮点精度问题
-    if (!account || Math.round(account.balance * 100) < Math.round(dto.amount * 100)) {
-      throw new BadRequestException('余额不足');
-    }
-
-    const channelMap: Record<string, string> = {
-      wechat: 'WECHAT',
-      alipay: 'ALIPAY',
-      bankcard: 'BANKCARD',
-    };
-
-    // M09 修复：提现余额扣减使用 Serializable 隔离级别，防止并发提现超额
-    const request = await this.prisma.$transaction(async (tx) => {
-      // L7修复：每日提现次数限制（移入事务内，防止并发绕过）
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayCount = await tx.withdrawRequest.count({
-        where: { userId, createdAt: { gte: todayStart } },
-      });
-      if (todayCount >= MAX_DAILY_WITHDRAWALS) {
-        throw new BadRequestException(`每日最多提现 ${MAX_DAILY_WITHDRAWALS} 次`);
-      }
-
-      // 事务内重新检查余额，防止并发扣减
-      const freshAccount = await tx.rewardAccount.findUnique({
-        where: { id: account.id },
-      });
-      // L03修复：事务内同样使用整数比较，避免浮点精度问题
-      if (!freshAccount || Math.round(freshAccount.balance * 100) < Math.round(dto.amount * 100)) {
-        throw new BadRequestException('余额不足');
-      }
-
-      // 冻结金额
-      await tx.rewardAccount.update({
-        where: { id: account.id },
-        data: {
-          balance: { decrement: dto.amount },
-          frozen: { increment: dto.amount },
-        },
-      });
-
-      const wr = await tx.withdrawRequest.create({
-        data: {
-          userId,
-          amount: dto.amount,
-          channel: (channelMap[dto.channel] || 'WECHAT') as any,
-          status: 'REQUESTED',
-          accountType: targetType, // 记录提现账户类型，审批/拒绝时使用
-        },
-      });
-
-      // P0-4: 创建提现流水记录
-      await tx.rewardLedger.create({
-        data: {
-          accountId: account.id,
-          userId,
-          entryType: 'WITHDRAW',
-          amount: dto.amount,
-          status: 'FROZEN',
-          refType: 'WITHDRAW',
-          refId: wr.id,
-          meta: { scheme: 'WITHDRAW', channel: dto.channel, accountType: targetType },
-        },
-      });
-
-      return wr;
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
-
-    return {
-      id: request.id,
-      amount: request.amount,
-      channel: request.channel,
-      status: request.status,
-      createdAt: request.createdAt.toISOString(),
     };
   }
 

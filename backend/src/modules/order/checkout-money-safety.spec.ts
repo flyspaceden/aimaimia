@@ -1,6 +1,6 @@
 import { CheckoutService } from './checkout.service';
 import { CheckoutExpireService } from './checkout-expire.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 
 /**
  * 资金安全回归测试
@@ -226,6 +226,51 @@ describe('CheckoutService cancelSession 资金安全', () => {
   });
 });
 
+describe('CheckoutService handlePaymentSuccess VIP 抵扣隔离', () => {
+  it('rejects VIP_PACKAGE sessions that unexpectedly carry a deductionGroupId', async () => {
+    const session = {
+      id: 'cs-vip-dirty',
+      userId: 'user1',
+      status: 'ACTIVE',
+      bizType: 'VIP_PACKAGE',
+      merchantOrderNo: 'VIP-001',
+      expectedTotal: 399,
+      goodsAmount: 399,
+      shippingFee: 0,
+      discountAmount: 10,
+      deductionGroupId: 'DG-dirty',
+      totalCouponDiscount: 0,
+      vipDiscountAmount: 0,
+      itemsSnapshot: [{
+        skuId: 'sku1',
+        quantity: 1,
+        unitPrice: 399,
+        companyId: 'platform',
+        productSnapshot: {},
+      }],
+      addressSnapshot: {},
+      couponInstanceIds: [],
+    };
+    const tx = {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+    const svc = new CheckoutService(prisma, {} as any);
+
+    await expect(svc.handlePaymentSuccess('VIP-001', 'trade-1')).rejects.toThrow(
+      InternalServerErrorException,
+    );
+    await expect(svc.handlePaymentSuccess('VIP-001', 'trade-1')).rejects.toThrow(
+      'VIP 礼包不应有 deductionGroupId',
+    );
+  });
+});
+
 describe('CheckoutExpireService expireSession 资金安全', () => {
   function buildSession(overrides: Partial<any> = {}) {
     return {
@@ -368,50 +413,60 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1); // close 成功后走 EXPIRED
   });
+
+  it('过期会话有 deductionGroupId 时释放消费积分抵扣组', async () => {
+    const releaseDeduction = jest.fn().mockResolvedValue(undefined);
+    const tx = {
+      checkoutSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      rewardLedger: { updateMany: jest.fn() },
+    };
+    const prisma: any = {
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+    const svc = new CheckoutExpireService(prisma);
+    (svc as any).setRewardDeductionService({ releaseDeduction });
+
+    await (svc as any).expireSession(buildSession({
+      paymentChannel: null,
+      merchantOrderNo: null,
+      rewardId: 'legacy-ledger',
+      deductionGroupId: 'DG-1',
+    }));
+
+    expect(releaseDeduction).toHaveBeenCalledWith(tx, 'DG-1');
+    expect(tx.rewardLedger.updateMany).not.toHaveBeenCalled();
+  });
 });
 
 /**
- * VIP FAILED notify 释放预留库存测试 — releaseVipReservationInTx 行为校验
+ * FAILED notify 释放会话资源测试 — releaseSessionOnFailure 行为校验
  *
  * 由于 PaymentService 的 notify 路径需要构造大量上下文（CheckoutSession +
  * SnapshotItem + InventoryLedger 等），完整集成测试在单测层成本太高。
- * 此处通过 spy releaseVipReservationInTx 验证："VIP_PACKAGE 失败时该方法被调用"
- * 的契约式断言。
+ * 此处验证 PaymentService 只委托 CheckoutService 释放失败会话资源。
  */
 describe('PaymentService VIP FAILED notify 契约', () => {
-  it('VIP 支付失败时 PaymentService 应调 checkoutService.releaseVipReservationInTx', async () => {
+  it('VIP 支付失败时 PaymentService 应委托 checkoutService.releaseSessionOnFailure', async () => {
     const { PaymentService } = await import('../payment/payment.service');
 
-    // 构造 VIP_PACKAGE session
-    const vipSession = {
-      id: 'cs-vip-1',
-      merchantOrderNo: 'MO-VIP-1',
-      bizType: 'VIP_PACKAGE',
-      itemsSnapshot: [{ skuId: 's1', quantity: 1, unitPrice: 399, productSnapshot: {} }],
-      rewardId: null,
-      couponInstanceIds: [],
-      status: 'ACTIVE',
-    };
-
-    // 事务内 mock：CAS 成功（count=1，进入释放分支）
-    const txCheckoutSessionUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const txRewardLedgerUpdateMany = jest.fn();
-    const txMock = {
-      checkoutSession: { updateMany: txCheckoutSessionUpdateMany },
-      rewardLedger: { updateMany: txRewardLedgerUpdateMany },
-    };
-
-    const txSpy = jest.fn().mockImplementation(async (cb: any) => cb(txMock));
     const prisma: any = {
-      $transaction: txSpy,
+      $transaction: jest.fn(),
       // FAILED 分支不直接读 prisma，但 PaymentService 构造需 prisma 引用
     };
 
-    // mock checkoutService：findByMerchantOrderNo + releaseVipReservationInTx
-    const releaseSpy = jest.fn().mockResolvedValue(undefined);
+    const releaseSessionOnFailure = jest.fn().mockResolvedValue(undefined);
     const checkoutService: any = {
-      findByMerchantOrderNo: jest.fn().mockResolvedValue(vipSession),
-      releaseVipReservationInTx: releaseSpy,
+      findByMerchantOrderNo: jest.fn().mockResolvedValue({
+        id: 'cs-vip-1',
+        merchantOrderNo: 'MO-VIP-1',
+        bizType: 'VIP_PACKAGE',
+        itemsSnapshot: [{ skuId: 's1', quantity: 1, unitPrice: 399, productSnapshot: {} }],
+        rewardId: null,
+        couponInstanceIds: [],
+        status: 'ACTIVE',
+      }),
+      releaseSessionOnFailure,
+      releaseVipReservationInTx: jest.fn(),
     };
 
     // 构造 PaymentService（依赖：prisma, configService, alipayService, checkoutService?, couponService?, inboxService?）
@@ -435,48 +490,32 @@ describe('PaymentService VIP FAILED notify 契约', () => {
       skipSignatureVerification: true,
     });
 
-    // 核心断言：releaseVipReservationInTx 被调用一次，入参为 tx + session 摘要
-    expect(releaseSpy).toHaveBeenCalledTimes(1);
-    const [txArg, sessionArg] = releaseSpy.mock.calls[0];
-    expect(txArg).toBe(txMock);
-    expect(sessionArg).toMatchObject({
-      id: 'cs-vip-1',
-      bizType: 'VIP_PACKAGE',
-    });
-    expect(sessionArg.itemsSnapshot).toEqual(vipSession.itemsSnapshot);
-
-    // CAS ACTIVE → FAILED 也被执行
-    expect(txCheckoutSessionUpdateMany).toHaveBeenCalledWith({
-      where: { merchantOrderNo: 'MO-VIP-1', status: 'ACTIVE' },
-      data: { status: 'FAILED' },
-    });
+    expect(releaseSessionOnFailure).toHaveBeenCalledTimes(1);
+    expect(releaseSessionOnFailure).toHaveBeenCalledWith('MO-VIP-1');
+    expect(checkoutService.releaseVipReservationInTx).not.toHaveBeenCalled();
   });
 
-  it('NORMAL_GOODS 支付失败时不调 releaseVipReservationInTx（仅 VIP 才释放）', async () => {
+  it('NORMAL_GOODS 支付失败时也委托 releaseSessionOnFailure（内部按类型释放资源）', async () => {
     const { PaymentService } = await import('../payment/payment.service');
 
-    const normalSession = {
-      id: 'cs-normal-1',
-      merchantOrderNo: 'MO-NORMAL-1',
-      bizType: 'NORMAL_GOODS',
-      itemsSnapshot: [],
-      rewardId: null,
-      couponInstanceIds: [],
-      status: 'ACTIVE',
-    };
-
-    const txMock = {
-      checkoutSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      rewardLedger: { updateMany: jest.fn() },
-    };
     const prisma: any = {
-      $transaction: jest.fn().mockImplementation(async (cb: any) => cb(txMock)),
+      $transaction: jest.fn(),
     };
 
-    const releaseSpy = jest.fn();
+    const releaseSessionOnFailure = jest.fn().mockResolvedValue(undefined);
+    const releaseVipReservationInTx = jest.fn();
     const checkoutService: any = {
-      findByMerchantOrderNo: jest.fn().mockResolvedValue(normalSession),
-      releaseVipReservationInTx: releaseSpy,
+      findByMerchantOrderNo: jest.fn().mockResolvedValue({
+        id: 'cs-normal-1',
+        merchantOrderNo: 'MO-NORMAL-1',
+        bizType: 'NORMAL_GOODS',
+        itemsSnapshot: [],
+        rewardId: null,
+        couponInstanceIds: [],
+        status: 'ACTIVE',
+      }),
+      releaseSessionOnFailure,
+      releaseVipReservationInTx,
     };
 
     const svc = new (PaymentService as any)(
@@ -495,7 +534,9 @@ describe('PaymentService VIP FAILED notify 契约', () => {
       skipSignatureVerification: true,
     });
 
-    // NORMAL_GOODS 不应触发 VIP 库存释放
-    expect(releaseSpy).not.toHaveBeenCalled();
+    expect(releaseSessionOnFailure).toHaveBeenCalledTimes(1);
+    expect(releaseSessionOnFailure).toHaveBeenCalledWith('MO-NORMAL-1');
+    // PaymentService 不再直接决定 VIP 库存释放；具体资源释放在 CheckoutService 内完成。
+    expect(releaseVipReservationInTx).not.toHaveBeenCalled();
   });
 });
