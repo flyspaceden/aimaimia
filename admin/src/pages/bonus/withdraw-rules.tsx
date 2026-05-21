@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ProForm, ProFormDigit, ProFormSwitch } from '@ant-design/pro-components';
+import { ProForm, ProFormDigit } from '@ant-design/pro-components';
 import { App, Card, Divider } from 'antd';
 import {
   getWithdrawRules,
@@ -98,11 +98,9 @@ export default function WithdrawRulesPage() {
                 label="最低订单门槛（元）"
                 fieldProps={{ min: 0, precision: 2 }}
               />
-              <ProFormSwitch
-                colProps={{ md: 8 }}
-                name="deductionAllowCouponStack"
-                label="允许与平台红包叠加"
-              />
+              {/* A2-H2: deductionAllowCouponStack 后端业务代码暂未读取此开关，v1.0 默认允许叠加。
+                  避免管理员误以为已禁用，UI 入口先移除。后续若需启用，需先在
+                  backend/src/modules/order/checkout.service.ts 锁定红包前补 rules.deductionAllowCouponStack 校验 */}
 
               <Divider orientation="left">通道与监控</Divider>
               <ProFormDigit
