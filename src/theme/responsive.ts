@@ -149,12 +149,16 @@ const ANDROID_NAV_FALLBACK = 64;
 export const useBottomInset = (extra: number = 12): number => {
   const insets = useSafeAreaInsets();
 
-  // 2026-05-20 v3：取消 edge-to-edge 检测，Android 无条件 Math.max。
-  // 华为 HarmonyOS / 小米 MIUI 等 OEM 即使在 edge-to-edge 模式下也可能
-  // 错报 insets.bottom（小值或 0）+ window.height < screen.height（让旧的检测失败），
-  // 导致按钮被虚拟键挡。无条件兜底保证至少 ANDROID_NAV_FALLBACK 安全距离。
-  if (Platform.OS === 'android') {
-    return Math.max(insets.bottom, ANDROID_NAV_FALLBACK) + extra;
+  // 2026-05-20 v4：阈值策略（之前的无条件 Math.max 让正确报 insets 的设备
+  // 如小米手势条机 24dp 被强制提到 64dp，出现可见 gap，最明显是 tab bar）。
+  //
+  // 新规则：
+  // - insets.bottom > 16dp：信任系统报值（正常的 iOS home indicator / Android 手势条 /
+  //   3 键导航 / 边到边精确返回，都在这个范围）
+  // - insets.bottom ≤ 16dp：视为 OEM 错报或完全无导航栏，兜底 ANDROID_NAV_FALLBACK
+  //   覆盖华为 HarmonyOS edge-to-edge insets=0 之类的 bug 场景
+  if (Platform.OS === 'android' && insets.bottom <= 16) {
+    return ANDROID_NAV_FALLBACK + extra;
   }
 
   return insets.bottom + extra;
