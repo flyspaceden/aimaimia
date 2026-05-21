@@ -5,4 +5,5 @@ export * from './spacing';
 export * from './typography';
 export * from './animation';
 export * from './ThemeProvider';
+export * from './bottomInset';
 export * from './responsive';

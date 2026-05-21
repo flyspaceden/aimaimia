@@ -21,7 +21,7 @@ export default function InvoiceRequestScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // R-RS-LF02: 底部按钮吃 safe area + Android OEM 兜底（三键/手势条 inset=0 兜底 32dp）
+  // R-RS-LF02: 底部按钮吃 safe area + Android 导航栏兜底
   const bottomPadding = useBottomInset(16);
 
   // 加载用户的发票抬头列表

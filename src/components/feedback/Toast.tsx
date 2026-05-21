@@ -83,7 +83,7 @@ type ToastViewportProps = {
 
 const ToastViewport = ({ toast }: ToastViewportProps) => {
   const { colors, spacing, radius, typography, shadow } = useTheme();
-  // useBottomInset 自带 OEM 兜底（华为/小米三键虚拟键 insets.bottom = 0 时强制 32dp），
+  // useBottomInset 自带 Android 导航栏兜底（区分系统已预留导航栏与 OEM low/zero inset），
   // 避免 toast 被虚拟键挡住下半部分。详见 docs/architecture/responsive-design.md §3.3
   const bottomOffset = useBottomInset(spacing.lg);
   const opacity = useRef(new Animated.Value(0)).current;

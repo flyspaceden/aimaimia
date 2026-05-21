@@ -120,9 +120,9 @@ export function AiFloatingCompanion() {
   const router = useRouter();
   const pathname = usePathname();
   const segments = useSegments();
-  // useBottomInset 自带 OEM 兜底（华为/小米三键虚拟键 insets.bottom 误报 0 时强制 32dp），
+  // useBottomInset 自带 Android 导航栏兜底（区分系统已预留导航栏与 OEM low/zero inset），
   // 避免悬浮球在虚拟键设备上被 Tab bar 盖住或者贴在虚拟键上。
-  // 传 0 表示只要 inset+OEM 兜底，不加额外 extra（额外 96dp 由 80 tab + 16 视觉间距给出）
+  // 传 0 表示只要 inset + Android 导航栏兜底，不加额外 extra（额外 96dp 由 80 tab + 16 视觉间距给出）
   const safeBottom = useBottomInset(0);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 

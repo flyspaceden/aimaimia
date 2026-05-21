@@ -93,7 +93,8 @@ export default function CartScreen() {
   // 修复购物车确认栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compactRows = isCompact || isLargeText;
-  const barBottomPad = useBottomInset(spacing.sm);
+  // 2026-05-20 v5：extra 从 spacing.sm(8) → 4。减少 Xiaomi 手势条上按钮下方的可见空白。
+  const barBottomPad = useBottomInset(4);
   const { bottomPadding: scrollBottomPad, onBarLayout: handleCheckoutBarLayout } =
     useMeasuredBottomBar(compactRows ? 148 : 112, spacing.lg);
   const items = useCartStore((s) => s.items);

@@ -14,13 +14,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { RegionPicker, type RegionValue } from '../../src/components/forms';
 import { AddressRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { Address } from '../../src/types';
 
 type FormData = {
@@ -38,7 +37,7 @@ export default function AddressesScreen() {
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const insets = useSafeAreaInsets();
+  const formBottomPadding = useBottomInset(200);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const setSelectedAddress = useCheckoutStore((state) => state.setSelectedAddress);
   // 支持从其他页面（如 checkout-address）带 openNew=1 参数直达新增表单，避免多一跳列表
@@ -175,10 +174,9 @@ export default function AddressesScreen() {
           title={editing === 'new' ? '新增地址' : '编辑地址'}
           onBack={handleFormBack}
         />
-        {/* ScrollView 让区县/详细地址等底部字段在键盘弹起时能滚到可视区上方
-            paddingBottom 用 insets.bottom + 200 动态适配带手势条/虚拟键的机型 */}
+        {/* ScrollView 让区县/详细地址等底部字段在键盘弹起时能滚到可视区上方 */}
         <ScrollView
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 200 }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: formBottomPadding }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >

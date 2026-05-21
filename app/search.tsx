@@ -114,6 +114,8 @@ export default function SearchScreen() {
   const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
   // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
   const safeBottom = useBottomInset(spacing['3xl']);
+  // 购物车悬浮按钮位置同样走底部 inset helper，避免 Android 虚拟导航栏覆盖或硬编码留白。
+  const fabBottom = useBottomInset(40);
   const router = useRouter();
   const {
     q,
@@ -719,7 +721,7 @@ export default function SearchScreen() {
         style={[
           styles.cartFab,
           shadow.md,
-          { backgroundColor: colors.brand.primary, borderRadius: radius.full },
+          { backgroundColor: colors.brand.primary, borderRadius: radius.full, bottom: fabBottom },
         ]}
       >
         <MaterialCommunityIcons name="cart-outline" size={22} color="#fff" />
@@ -775,7 +777,6 @@ const styles = StyleSheet.create({
   },
   cartFab: {
     position: 'absolute',
-    bottom: 90,
     left: 20,
     width: 48,
     height: 48,

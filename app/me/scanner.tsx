@@ -15,7 +15,7 @@ import { Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AppBottomSheet } from '../../src/components/overlay';
 import { BonusRepo } from '../../src/repos';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { getReferralInviterLabel } from '../../src/utils/referralRelation';
 
 const SCAN_BOX_SIZE = 250;
@@ -25,6 +25,7 @@ const CORNER_WIDTH = 3;
 // 二维码扫描页
 export default function ScannerScreen() {
   const { colors, radius, spacing, typography } = useTheme();
+  const bottomAreaPadding = useBottomInset(32);
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -195,7 +196,7 @@ export default function ScannerScreen() {
         </View>
 
         {/* 底部提示 */}
-        <View style={styles.bottomArea}>
+        <View style={[styles.bottomArea, { paddingBottom: bottomAreaPadding }]}>
           <Text style={[typography.bodySm, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
             将推荐码二维码放入框内
           </Text>
@@ -343,7 +344,7 @@ const styles = StyleSheet.create({
   },
   // 底部区域
   bottomArea: {
-    paddingVertical: 32,
+    paddingTop: 32,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   // 手动输入

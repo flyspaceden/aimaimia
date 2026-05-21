@@ -24,7 +24,9 @@ export function StickyCTABar({ primary, secondary, onHeightChange }: Props) {
   const { colors, radius, typography } = useTheme();
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compact = isCompact || isLargeText;
-  const paddingBottom = useBottomInset(10);
+  // 2026-05-20 v5：extra 从 10 → 4。Xiaomi 手势条 insets=24dp 时之前
+  // paddingBottom=34dp，按钮下方明显空白；现在 28dp 贴近系统区。
+  const paddingBottom = useBottomInset(4);
   const lastHeightRef = React.useRef(0);
 
   const handleLayout = React.useCallback((event: LayoutChangeEvent) => {

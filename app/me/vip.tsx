@@ -15,7 +15,7 @@ import { AiBadge } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme, priceTextProps } from '../../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
@@ -85,6 +85,7 @@ export default function VipScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const scrollBottomPadding = useBottomInset(40);
   const { show } = useToast();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [qrVisible, setQrVisible] = useState(false);
@@ -191,7 +192,7 @@ export default function VipScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: scrollBottomPadding }}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} tintColor={VIP_COLORS.goldPrimary} />}
         showsVerticalScrollIndicator={false}
       >

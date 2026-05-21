@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import Constants from 'expo-constants';
-import { useTheme } from '../../theme';
+import { useBottomInset, useTheme } from '../../theme';
 
 type AppBottomSheetProps = {
   open: boolean;
@@ -34,8 +34,9 @@ export const AppBottomSheet = ({
   children,
 }: AppBottomSheetProps) => {
   const { colors, radius, spacing, typography } = useTheme();
+  const bottomPadding = useBottomInset(spacing.lg);
   const snapPoints = useMemo(() => (mode === 'half' ? ['52%'] : ['92%']), [mode]);
-  const contentContainerStyle = StyleSheet.flatten([styles.content, { padding: spacing.lg }, contentStyle]);
+  const contentContainerStyle = StyleSheet.flatten([styles.content, { padding: spacing.lg, paddingBottom: bottomPadding }, contentStyle]);
   const shouldFallback =
     isExpoGo || isWeb || !BottomSheet || !BottomSheetBackdrop || !BottomSheetView || (scrollable && !BottomSheetScrollView);
 

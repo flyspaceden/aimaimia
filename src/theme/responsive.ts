@@ -15,8 +15,9 @@
  * 所有 Text 默认最大字体放大不超过 1.2x（无障碍合规 + 防爆）。
  */
 
-import { PixelRatio, Platform, TextProps, useWindowDimensions } from 'react-native';
+import { Dimensions, PixelRatio, Platform, TextProps, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { calculateBottomInset } from './bottomInset';
 
 // ---------------------------------------------------------------------------
 // useResponsiveLayout — 屏宽 / 字体缩放感知 Hook
@@ -117,49 +118,37 @@ export const compactActionTextProps: Partial<TextProps> = {
 // useBottomInset — 固定底部栏 padding 兜底
 // ---------------------------------------------------------------------------
 
-// 2026-05-20: 32 → 56。原因：用户在华为 3 键机上反馈 invoices/request 底部按钮
-// 仍被虚拟键挡住，diagnose 后发现 32dp 对部分华为/Honor 3 键导航条（实际高度
-// 50-70dp）不够。56dp = 标准 Android nav 48dp + 8dp 安全余量；只影响 edge-to-edge
-// 模式下 insets.bottom 错报 0 的少数机型，其余机型继续走真实 insets。
-const ANDROID_NAV_FALLBACK = 64;
-
 /**
  * 固定底部栏专用 paddingBottom。
  *
  * Android edge-to-edge 模式（系统栏覆盖 app 窗口）下，部分 OEM / 三键导航
- * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制 56dp 兜底。
- *
- * 但**只在确认 edge-to-edge 时才补**：粗暴的 Math.max(insets.bottom, 56)
- * 会在非 edge-to-edge 旧机型 / 全屏沉浸 App 上多塞 56dp 空白，所以必须用
- * window.height vs screen.height 判定。逻辑与 app/(tabs)/_layout.tsx:13-34
- * 一致。
+ * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制兜底。
+ * 但 Android 也有合法的 0 inset：系统已把虚拟导航栏排除在 app window 外。
+ * 所以这里必须结合 screen/window 高度和顶部 inset 判断，而不是对
+ * `insets.bottom <= 16` 一律补 64dp。
  *
  * 判定矩阵：
- * | 机型 / 模式                          | insets | window=screen | 结果 |
- * |--------------------------------------|--------|---------------|------|
- * | 华为三键 OEM bug + edge-to-edge      | 0      | 是            | 56   |
- * | 三键正常返回 inset                   | 48     | 是            | 48   |
- * | 全面屏小白条                         | 24-34  | 是            | 24-34|
- * | 非 edge-to-edge 旧机                 | 0      | 否            | 0    |
- * | 全屏沉浸 App                         | 0      | 否            | 0    |
- * | iOS home indicator                   | 34     | N/A           | 34   |
+ * | 机型 / 模式                          | bottom inset | reserved bottom | 结果 |
+ * |--------------------------------------|--------------|-----------------|------|
+ * | 华为三键 OEM bug + app 画到底部      | 0            | 0               | 64   |
+ * | 三键正常返回 inset                   | 48           | 0               | 48   |
+ * | 全面屏小白条                         | 24-34        | 0               | 24-34|
+ * | 非 edge-to-edge，系统已预留导航栏    | 0            | >32             | 0    |
+ * | iOS home indicator                   | 34           | N/A             | 34   |
  *
  * @param extra 额外的视觉 padding（默认 12，用于和系统按钮拉开距离）
  */
 export const useBottomInset = (extra: number = 12): number => {
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  const screen = Dimensions.get('screen');
 
-  // 2026-05-20 v4：阈值策略（之前的无条件 Math.max 让正确报 insets 的设备
-  // 如小米手势条机 24dp 被强制提到 64dp，出现可见 gap，最明显是 tab bar）。
-  //
-  // 新规则：
-  // - insets.bottom > 16dp：信任系统报值（正常的 iOS home indicator / Android 手势条 /
-  //   3 键导航 / 边到边精确返回，都在这个范围）
-  // - insets.bottom ≤ 16dp：视为 OEM 错报或完全无导航栏，兜底 ANDROID_NAV_FALLBACK
-  //   覆盖华为 HarmonyOS edge-to-edge insets=0 之类的 bug 场景
-  if (Platform.OS === 'android' && insets.bottom <= 16) {
-    return ANDROID_NAV_FALLBACK + extra;
-  }
-
-  return insets.bottom + extra;
+  return calculateBottomInset({
+    platform: Platform.OS,
+    insetBottom: insets.bottom,
+    insetTop: insets.top,
+    windowHeight: window.height,
+    screenHeight: screen.height,
+    extra,
+  });
 };

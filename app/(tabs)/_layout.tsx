@@ -1,10 +1,10 @@
 import React from 'react';
-import { Dimensions, Platform, StyleSheet, View } from 'react-native';
+import { Dimensions, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AiOrb } from '../../src/components/effects';
-import { useTheme } from '../../src/theme';
+import { calculateBottomInset, useTheme } from '../../src/theme';
 
 // 底部三个主 Tab 的导航容器
 export default function TabsLayout() {
@@ -12,20 +12,20 @@ export default function TabsLayout() {
   // 适配底部安全区（手势条 / 小白条 / 三大金刚键），避免 tab bar 被系统按钮遮挡
   const insets = useSafeAreaInsets();
 
-  // 2026-05-20 v4：回退到原 edge-to-edge 条件兜底，仅在 insets=0 + edge-to-edge
-  // 模式时强制 32dp。之前的无条件 Math.max(insets, 64) 让 Xiaomi 手势条这类正确
-  // 报 insets 的设备（24-34dp）被强制提到 64dp，tab bar 底部出现明显可见的 gap，
-  // 用户反馈 home / discover / me tab 下方多出 30-40dp 空白条。
-  // 现在：信任 insets 报的值，仅在 OEM bug 场景兜底。
-  let safeBottomPad = insets.bottom;
-  if (Platform.OS === 'android' && insets.bottom === 0) {
-    const window = Dimensions.get('window');
-    const screen = Dimensions.get('screen');
-    const isEdgeToEdge = Math.abs(window.height - screen.height) < 2;
-    if (isEdgeToEdge) {
-      safeBottomPad = 32; // OEM bug 兜底
-    }
-  }
+  // 与 useBottomInset 复用同一套 Android 判断：
+  // - 真实 bottom inset > 16 时信任系统
+  // - 系统已把导航栏排除在 app window 外时不补
+  // - 只有 app 画到底部且 OEM 错报 low/zero inset 时才兜底
+  const window = useWindowDimensions();
+  const screen = Dimensions.get('screen');
+  const safeBottomPad = calculateBottomInset({
+    platform: Platform.OS,
+    insetBottom: insets.bottom,
+    insetTop: insets.top,
+    windowHeight: window.height,
+    screenHeight: screen.height,
+    extra: 0,
+  });
 
   return (
     <Tabs

@@ -270,44 +270,41 @@ export const compactActionTextProps: Partial<TextProps> = {
 ### 3.3 `useBottomInset()` 固定底部栏安全区 helper
 
 ```ts
-import { Dimensions, Platform } from 'react-native';
+import { Dimensions, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const ANDROID_NAV_FALLBACK = 32;
+import { calculateBottomInset } from './bottomInset';
 
 /**
  * 固定底部栏专用 paddingBottom。
  *
  * Android edge-to-edge 模式（系统栏覆盖 app 窗口）下，部分 OEM / 三键导航
- * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制 32dp 兜底。
- *
- * 但**只在确认 edge-to-edge 时才补**：粗暴的 `Math.max(insets.bottom, 32)`
- * 会在非 edge-to-edge 旧机型 / 全屏沉浸 App 上多塞 32dp 空白（典型表现：
- * 小米机底部出现莫名空白条），所以必须用 window.height vs screen.height
- * 判定，与 `app/(tabs)/_layout.tsx` 的实现保持一致。
+ * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制兜底。
+ * 但 Android 也有合法的 0 inset：系统已把虚拟导航栏排除在 app window 外。
+ * 所以必须结合 screen/window 高度和顶部 inset 判断，而不是对
+ * `insets.bottom <= 16` 一律补 64dp。
  */
 export const useBottomInset = (extra = 12) => {
   const insets = useSafeAreaInsets();
-  let safeBottom = insets.bottom;
+  const window = useWindowDimensions();
+  const screen = Dimensions.get('screen');
 
-  if (Platform.OS === 'android' && insets.bottom === 0) {
-    const window = Dimensions.get('window');
-    const screen = Dimensions.get('screen');
-    const isEdgeToEdge = Math.abs(window.height - screen.height) < 2; // 容忍 1px 误差
-    if (isEdgeToEdge) {
-      safeBottom = ANDROID_NAV_FALLBACK; // OEM bug 兜底
-    }
-  }
-
-  return safeBottom + extra;
+  return calculateBottomInset({
+    platform: Platform.OS,
+    insetBottom: insets.bottom,
+    insetTop: insets.top,
+    windowHeight: window.height,
+    screenHeight: screen.height,
+    extra,
+  });
 };
 ```
 
 > **判定逻辑要点**：
-> - `window.height === screen.height` → edge-to-edge 已开启，app 画到系统栏后面，必须靠 inset 自适应；inset 报 0 就是 OEM bug，补 32dp
-> - `window.height < screen.height` → 系统栏在 app 窗口外，inset 自然为 0 是正确行为，不补
+> - `insets.bottom > 16` → 信任系统返回值（iOS Home Indicator / Android 手势条 / 正常三键导航）。
+> - `insets.bottom <= 16` 且 `screen.height - window.height - insets.top > 32` → 系统已在 app window 外预留底部导航栏，不补兜底，避免底部空白。32dp 用来排除“只有状态栏高度差”的误判，真正的虚拟导航栏通常明显高于这个值。
+> - `insets.bottom <= 16` 且底部未被系统预留 → 视为 app 画到屏幕底部但 OEM 错报 low/zero inset，补 `ANDROID_NAV_FALLBACK=64`。
 >
-> 这里**只允许在函数体内**用 `Dimensions.get`（运行时一次性判定），不算违反原则 4——原则 4 禁止的是"模块顶层 `Dimensions.get`"导致旋转/分屏不更新。
+> `window` 高度必须来自 `useWindowDimensions()`，确保旋转/分屏后重新计算；`screen` 可以在函数体内用 `Dimensions.get('screen')` 读取。原则 4 禁止的是"模块顶层 `Dimensions.get`"导致旋转/分屏不更新。
 
 ### 3.4 全局兜底（app/_layout.tsx）
 
@@ -657,8 +654,9 @@ const bottomPadding = useBottomInset(12);
 - 反模式新发现 → §7
 
 > **配套文件**：
-> - `src/theme/responsive.ts`（工具实现，🟡 2026-05-04 R-RS01 落地 159 行 5 helper，待真机视觉验证）
-> - `app/(tabs)/_layout.tsx:13-34`（已落地的 edge-to-edge bottom inset 判定，§3.3 `useBottomInset` 必须与之一致）
+> - `src/theme/responsive.ts`（工具实现；`useBottomInset()` 通过 `src/theme/bottomInset.ts` 统一判定底部安全区）
+> - `src/theme/bottomInset.ts`（纯函数 `calculateBottomInset()`，覆盖 Android 真实 inset / 系统预留导航栏 / OEM low-zero inset 三类矩阵）
+> - `app/(tabs)/_layout.tsx:13-34`（Tab bar 复用 `calculateBottomInset()`，必须与 §3.3 保持一致）
 > - `docs/operations/app-发布与OTA手册.md` 第四章（OTA 前 checklist 引用本文）
 
 ---

@@ -14,10 +14,9 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { useAuthStore } from '../../src/store';
 import { CsRepo } from '../../src/repos';
 import { CsMessage, CsQuickEntry } from '../../src/types';
@@ -34,7 +33,7 @@ const POLL_INTERVAL = 5000;
 export default function CsIndexScreen() {
   const { colors, radius, spacing, typography, isDark } = useTheme();
   const { show } = useToast();
-  const insets = useSafeAreaInsets();
+  const inputBottomPadding = useBottomInset(spacing.xs);
   const { source, sourceId } = useLocalSearchParams<{
     source?: string;
     sourceId?: string;
@@ -389,7 +388,7 @@ export default function CsIndexScreen() {
             style={[
               styles.closedBar,
               {
-                paddingBottom: insets.bottom || spacing.xs,
+                paddingBottom: inputBottomPadding,
                 backgroundColor: colors.bgSecondary,
                 borderTopColor: colors.border,
               },
@@ -426,7 +425,7 @@ export default function CsIndexScreen() {
             style={[
               styles.inputBarFlow,
               {
-                paddingBottom: keyboardHeight > 0 ? spacing.xs : insets.bottom || spacing.xs,
+                paddingBottom: keyboardHeight > 0 ? spacing.xs : inputBottomPadding,
                 borderTopColor: colors.border,
               },
             ]}
@@ -438,7 +437,7 @@ export default function CsIndexScreen() {
             style={[
               styles.inputBarFlow,
               {
-                paddingBottom: keyboardHeight > 0 ? spacing.xs : insets.bottom || spacing.xs,
+                paddingBottom: keyboardHeight > 0 ? spacing.xs : inputBottomPadding,
                 borderTopColor: colors.border,
                 backgroundColor: isDark ? 'rgba(6,14,6,0.95)' : 'rgba(250,252,250,0.95)',
               },
