@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { TouchableOpacity as GestureTouchable } from 'react-native-gesture-handler';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -294,12 +295,13 @@ export default function WithdrawScreen() {
               举例：申请提现 ¥100，代扣个税 ¥20，实际到账您的支付宝余额 ¥80。
             </Text>
           </View>
-          <Pressable
+          <GestureTouchable
+            activeOpacity={0.8}
             onPress={() => setLawSheetOpen(false)}
             style={[styles.lawCloseBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
           >
             <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>我知道了</Text>
-          </Pressable>
+          </GestureTouchable>
         </View>
       </AppBottomSheet>
     </Screen>
