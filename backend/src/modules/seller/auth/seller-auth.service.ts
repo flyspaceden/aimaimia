@@ -893,6 +893,13 @@ export class SellerAuthService {
           data: { passwordHash: newHash },
         });
 
+        // A8-H1：忘记密码后立刻失效该 staff 所有活跃 sellerSession
+        // 与 seller changePassword (line 404-407) 对称，防止旧 session 在改密后继续可用
+        await tx.sellerSession.updateMany({
+          where: { staffId: staff.id, expiresAt: { gt: new Date() } },
+          data: { expiresAt: new Date() },
+        });
+
         // 3. 审计：复用 LoginEvent（meta.action 与买家端一致，readers 已按 action 排除）
         await tx.loginEvent.create({
           data: {

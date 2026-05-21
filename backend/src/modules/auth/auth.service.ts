@@ -239,6 +239,13 @@ export class AuthService {
           data: { meta: { ...prevMeta, passwordHash: newHash } },
         });
 
+        // A8-H1：忘记密码后立刻失效该用户所有活跃 session（access + refresh）
+        // 买家 refresh token TTL 30 天，若被偷需立即踢下线，否则旧设备最长 30 天仍可继续操作
+        await tx.session.updateMany({
+          where: { userId: identity.userId, status: 'ACTIVE' },
+          data: { status: 'REVOKED', expiresAt: new Date() },
+        });
+
         // 4. 审计日志（复用现有 LoginEvent，meta.action 区分）
         // 注意：登录限流 / 密码锁的 readers 会按 meta.action 排除此事件，action 值必须与
         // AuthService.PASSWORD_RESET_EVENT_ACTION 常量一致，防止拼写漂移导致污染重现
