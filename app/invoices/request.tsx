@@ -21,9 +21,9 @@ export default function InvoiceRequestScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // 仅此页保留 Android zero-inset 逃生：这台真机其他页面已正常贴底，
-  // 但发票申请底部 CTA 在 insets.bottom=0 时仍会被系统手势区压到屏幕外。
-  const bottomPadding = useBottomInset(16, { androidZeroInsetMinimum: 64 });
+  // 仅此页保留 Android bottom minimum：这台真机其他页面已正常贴底，
+  // 但发票申请底部 CTA 在 low/zero inset 时仍会被系统手势区压到屏幕外。
+  const bottomPadding = useBottomInset(16, { androidMinimumBottomPadding: 80 });
 
   // 加载用户的发票抬头列表
   const { data, isLoading, refetch } = useQuery({
@@ -187,7 +187,7 @@ export default function InvoiceRequestScreen() {
             <Pressable
               onPress={handleSubmit}
               disabled={!selectedId || submitting}
-              style={{ flex: 1 }}
+              style={{ alignSelf: 'stretch' }}
             >
               <LinearGradient
                 colors={!selectedId || submitting ? [colors.border, colors.border] : [colors.brand.primary, colors.ai.start]}
@@ -247,6 +247,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   bottomBar: {
+    flexShrink: 0,
     paddingHorizontal: 16,
     paddingTop: 16,
   },

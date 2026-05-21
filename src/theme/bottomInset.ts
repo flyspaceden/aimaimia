@@ -9,13 +9,14 @@ export interface BottomInsetMetrics {
   extra?: number;
   /**
    * Page-level escape hatch for isolated Android screens whose bottom CTA is
-   * still obscured when the OEM reports bottom inset as 0.
+   * still obscured when the OEM reports bottom inset as 0 or a tiny non-zero
+   * value.
    *
    * Do not use globally. The default path intentionally avoids inferring a
    * nav-bar fallback because that caused app-wide bottom gaps on gesture-nav
    * devices.
    */
-  androidZeroInsetMinimum?: number;
+  androidMinimumBottomPadding?: number;
 }
 
 /**
@@ -32,16 +33,15 @@ export function calculateBottomInset({
   platform,
   insetBottom,
   extra = 12,
-  androidZeroInsetMinimum,
+  androidMinimumBottomPadding,
 }: BottomInsetMetrics): number {
   const base = insetBottom + extra;
 
   if (
     platform === 'android' &&
-    insetBottom === 0 &&
-    typeof androidZeroInsetMinimum === 'number'
+    typeof androidMinimumBottomPadding === 'number'
   ) {
-    return Math.max(base, androidZeroInsetMinimum);
+    return Math.max(base, androidMinimumBottomPadding);
   }
 
   return base;

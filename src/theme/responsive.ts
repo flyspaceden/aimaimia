@@ -117,12 +117,13 @@ export const compactActionTextProps: Partial<TextProps> = {
 export interface BottomInsetOptions {
   /**
    * Isolated page-level escape hatch for Android screens whose bottom CTA is
-   * still obscured when the OEM reports bottom inset as 0.
+   * still obscured when the OEM reports bottom inset as 0 or a tiny non-zero
+   * value.
    *
    * This must not be used as a global default; global Android zero-inset
    * fallback caused app-wide bottom gaps on gesture-nav devices.
    */
-  androidZeroInsetMinimum?: number;
+  androidMinimumBottomPadding?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,6 @@ export const useBottomInset = (extra: number = 12, options: BottomInsetOptions =
     platform: Platform.OS,
     insetBottom: insets.bottom,
     extra,
-    androidZeroInsetMinimum: options.androidZeroInsetMinimum,
+    androidMinimumBottomPadding: options.androidMinimumBottomPadding,
   });
 };

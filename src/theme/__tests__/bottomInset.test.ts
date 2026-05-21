@@ -64,10 +64,21 @@ function run() {
       platform: 'android',
       insetBottom: 0,
       extra: 16,
-      androidZeroInsetMinimum: 64,
+      androidMinimumBottomPadding: 80,
     }),
-    64,
-    'allows a page-level Android zero-inset minimum for isolated bottom CTA escape hatches',
+    80,
+    'allows a page-level Android minimum bottom padding for isolated bottom CTA escape hatches',
+  );
+
+  expectEqual(
+    calculateBottomInset({
+      platform: 'android',
+      insetBottom: 8,
+      extra: 16,
+      androidMinimumBottomPadding: 80,
+    }),
+    80,
+    'applies the page-level Android minimum when OEM reports a small non-zero bottom inset',
   );
 
   expectEqual(
