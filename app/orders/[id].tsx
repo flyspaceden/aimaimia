@@ -100,6 +100,9 @@ export default function OrderDetailScreen() {
     if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
     await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
+    // 收货可能触发分润奖励发放（普通树/VIP 树分润），刷新钱包让新积分立即可见
+    await queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] });
+    await queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] });
     show({ message: '已确认收货', type: 'success' });
     refetch();
   };

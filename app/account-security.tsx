@@ -25,7 +25,7 @@ export default function AccountSecurityScreen() {
 
   // 用户资料
   const { data: profileResult } = useQuery({
-    queryKey: ['profile'],
+    queryKey: ['me-profile'],
     queryFn: () => UserRepo.profile(),
     enabled: isLoggedIn,
   });

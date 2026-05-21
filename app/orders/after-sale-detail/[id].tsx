@@ -215,6 +215,9 @@ export default function AfterSaleDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['after-sales'] }),
       queryClient.invalidateQueries({ queryKey: ['orders'] }),
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+      // 售后状态变化可能触发退款/积分返还，需同步刷新钱包
+      queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
     ]);
   };
 
