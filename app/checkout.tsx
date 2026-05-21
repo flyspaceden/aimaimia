@@ -483,6 +483,8 @@ export default function CheckoutScreen() {
       queryClient.invalidateQueries({ queryKey: ['orders'] }),
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
       queryClient.invalidateQueries({ queryKey: ['me-order-issue'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),    // 抵扣后钱包余额变化
+      queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),    // 钱包流水变化
       ...(isVip ? [queryClient.invalidateQueries({ queryKey: ['bonus-member'] })] : []),
     ]);
     if (isVip) {
@@ -730,6 +732,8 @@ export default function CheckoutScreen() {
               queryClient.invalidateQueries({ queryKey: ['orders'] }),
               queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
               queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),   // 抵扣后钱包余额变化
+              queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
             ]);
             show({ message: '支付成功', type: 'success' });
             router.replace('/orders');

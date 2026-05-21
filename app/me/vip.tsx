@@ -108,7 +108,7 @@ export default function VipScreen() {
 
   // VIP 用户额外查询：钱包
   const { data: walletData } = useQuery({
-    queryKey: ['my-wallet'],
+    queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
     enabled: isLoggedIn && isVip,
   });

@@ -107,7 +107,7 @@ export default function MeScreen() {
     enabled: isLoggedIn,
   });
   const { data: walletData } = useQuery({
-    queryKey: ['my-wallet'],
+    queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
     enabled: isLoggedIn,
   });
@@ -158,7 +158,7 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
-      queryClient.invalidateQueries({ queryKey: ['my-wallet'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
     ]);
     setRefreshing(false);
   };
