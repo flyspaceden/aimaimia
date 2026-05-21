@@ -61,7 +61,7 @@
 - `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
 - `docs/operations/app-发布与OTA手册.md` — App 发布与 OTA 操作手册（OTA vs Build 决策表、EAS 命令速查、推送前 checklist、当前 App 状态、回滚流程、测试人员分发，**App 维度操作权威来源**，每次 eas build / update 后必须更新第六章）
 - `docs/operations/商户操作手册.md` — 商户端操作手册（企业入驻 + 登录 + 卖家中心全页面 + 商品/订单/售后/员工/账号安全全流程，**测试阶段商户操作权威来源**）
-- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（11 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 / 第三方回调切换 / 前端三端 / 买家 App 切换 / 数据库迁移 / push main 步骤 / 验证清单 / 回滚预案 / 首次切换额外动作，**测试→生产切换权威来源，每次发布必查**）
+- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（12 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 + 启动强校验 + .env.example 缺项 / 第三方回调切换（含 alipay 提现 transfer-notify）/ 前端三端（含 website main 锁）/ 买家 App 切换 / 数据库迁移（含 54 条累计 migration 时序表 + 5 条 🔴 不可回退迁移）/ push main 步骤 / 验证清单（含 WS + 提现 + 真实退款）/ 回滚预案（含 fail-forward 规则）/ 首次切换额外动作（含 WEBHOOK_IP_WHITELIST 查询步骤 + 平台公司种子 SQL）/ 上线后第一周监控重点，**测试→生产切换权威来源，每次发布必查**）
 
 ### 参考资料 (`docs/reference/`)
 - `docs/reference/apikey.md` — API 密钥说明
