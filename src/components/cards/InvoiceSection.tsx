@@ -99,7 +99,7 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice, invoiceEligible 
         {invoice.status === 'ISSUED' && invoice.pdfUrl ? (
           <Pressable
             onPress={() => router.push({ pathname: '/invoices/[id]' as any, params: { id: invoice.id } })}
-            style={{ marginTop: 8 }}
+            style={styles.actionLink}
           >
             <Text style={[typography.caption, { color: colors.accent.blue, fontWeight: '600' }]}>查看发票</Text>
           </Pressable>
@@ -107,7 +107,7 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice, invoiceEligible 
         {invoice.status === 'REQUESTED' ? (
           <Pressable
             onPress={() => router.push({ pathname: '/invoices/[id]' as any, params: { id: invoice.id } })}
-            style={{ marginTop: 8 }}
+            style={styles.actionLink}
           >
             <Text style={[typography.caption, { color: colors.danger, fontWeight: '600' }]}>取消申请</Text>
           </Pressable>
@@ -115,7 +115,7 @@ export const InvoiceSection = ({ orderId, orderStatus, invoice, invoiceEligible 
         {canReapply ? (
           <Pressable
             onPress={() => router.push({ pathname: '/invoices/request', params: { orderId } })}
-            style={{ marginTop: 8 }}
+            style={styles.actionLink}
           >
             <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>重新申请</Text>
           </Pressable>
@@ -145,6 +145,11 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  actionLink: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingRight: 16,
   },
 });

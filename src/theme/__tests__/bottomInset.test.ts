@@ -64,9 +64,9 @@ function run() {
       platform: 'android',
       insetBottom: 0,
       extra: 16,
-      androidMinimumBottomPadding: 80,
+      androidMinimumBottomPadding: 64,
     }),
-    80,
+    64,
     'allows a page-level Android minimum bottom padding for isolated bottom CTA escape hatches',
   );
 
@@ -75,9 +75,9 @@ function run() {
       platform: 'android',
       insetBottom: 8,
       extra: 16,
-      androidMinimumBottomPadding: 80,
+      androidMinimumBottomPadding: 64,
     }),
-    80,
+    64,
     'applies the page-level Android minimum when OEM reports a small non-zero bottom inset',
   );
 

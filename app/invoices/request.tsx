@@ -22,8 +22,8 @@ export default function InvoiceRequestScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // 仅此页保留 Android bottom minimum：这台真机其他页面已正常贴底，
-  // 但发票申请底部 CTA 在 low/zero inset 时仍会被系统手势区压到屏幕外。
-  const bottomPadding = useBottomInset(16, { androidMinimumBottomPadding: 80 });
+  // 但发票申请底部 CTA 在 low/zero inset 时仍需要避开系统手势区。
+  const bottomPadding = useBottomInset(16, { androidMinimumBottomPadding: 64 });
 
   // 加载用户的发票抬头列表
   const { data, isLoading, refetch } = useQuery({
