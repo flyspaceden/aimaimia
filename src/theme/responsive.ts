@@ -114,6 +114,17 @@ export const compactActionTextProps: Partial<TextProps> = {
   maxFontSizeMultiplier: 1.1,
 };
 
+export interface BottomInsetOptions {
+  /**
+   * Isolated page-level escape hatch for Android screens whose bottom CTA is
+   * still obscured when the OEM reports bottom inset as 0.
+   *
+   * This must not be used as a global default; global Android zero-inset
+   * fallback caused app-wide bottom gaps on gesture-nav devices.
+   */
+  androidZeroInsetMinimum?: number;
+}
+
 // ---------------------------------------------------------------------------
 // useBottomInset — 固定底部栏 safe-area padding
 // ---------------------------------------------------------------------------
@@ -137,13 +148,15 @@ export const compactActionTextProps: Partial<TextProps> = {
  * | iOS home indicator                   | 34           | 34 + extra |
  *
  * @param extra 额外的视觉 padding（默认 12，用于和系统按钮拉开距离）
+ * @param options 页面级例外配置。默认不要传。
  */
-export const useBottomInset = (extra: number = 12): number => {
+export const useBottomInset = (extra: number = 12, options: BottomInsetOptions = {}): number => {
   const insets = useSafeAreaInsets();
 
   return calculateBottomInset({
     platform: Platform.OS,
     insetBottom: insets.bottom,
     extra,
+    androidZeroInsetMinimum: options.androidZeroInsetMinimum,
   });
 };

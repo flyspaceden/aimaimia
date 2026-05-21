@@ -61,6 +61,17 @@ function run() {
 
   expectEqual(
     calculateBottomInset({
+      platform: 'android',
+      insetBottom: 0,
+      extra: 16,
+      androidZeroInsetMinimum: 64,
+    }),
+    64,
+    'allows a page-level Android zero-inset minimum for isolated bottom CTA escape hatches',
+  );
+
+  expectEqual(
+    calculateBottomInset({
       platform: 'ios',
       insetBottom: 34,
       insetTop: 47,

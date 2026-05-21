@@ -298,7 +298,8 @@ export const useBottomInset = (extra = 12) => {
 > - `useBottomInset(extra)` 返回 `insets.bottom + extra`。
 > - Android `insets.bottom=0` 时也只返回 `extra`，不再自动补 64dp。
 > - 原因：JS 层无法稳定区分“0 是正确的手势导航返回值”和“0 是 OEM 错报”，之前的尺寸差推断会导致首页、商品详情、购物车、确认订单、VIP 礼包等全页面底部统一 gap。
-> - 如果某个 Android 三键设备仍遮挡底部栏，必须走 native 层导航栏配置 / 新 APK 处理，不能再在 JS helper 里全局加大 padding。
+> - 如果某个 Android 三键设备仍遮挡底部栏，优先走 native 层导航栏配置 / 新 APK 处理，不能再在 JS helper 里全局加大 padding。
+> - 只有经过真机确认的单页例外，才允许传 `androidZeroInsetMinimum` 做页面级逃生；当前唯一例外是 `app/invoices/request.tsx`，用于避免发票申请页 CTA 在 `insets.bottom=0` 时被系统手势区压到屏幕外。
 
 ### 3.4 全局兜底（app/_layout.tsx）
 
@@ -648,8 +649,8 @@ const bottomPadding = useBottomInset(12);
 - 反模式新发现 → §7
 
 > **配套文件**：
-> - `src/theme/responsive.ts`（工具实现；`useBottomInset()` 只封装系统 safe-area + caller extra）
-> - `src/theme/bottomInset.ts`（纯函数 `calculateBottomInset()`，防止 Android zero-inset 被误补成 64dp）
+> - `src/theme/responsive.ts`（工具实现；`useBottomInset()` 默认只封装系统 safe-area + caller extra，支持单页 `androidZeroInsetMinimum` 例外）
+> - `src/theme/bottomInset.ts`（纯函数 `calculateBottomInset()`，防止 Android zero-inset 被全局误补成 64dp）
 > - `app/(tabs)/_layout.tsx`（Tab bar 只使用 `insets.bottom`，必须与 §3.3 保持一致）
 > - `docs/operations/app-发布与OTA手册.md` 第四章（OTA 前 checklist 引用本文）
 

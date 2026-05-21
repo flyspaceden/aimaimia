@@ -7,6 +7,15 @@ export interface BottomInsetMetrics {
   windowHeight?: number;
   screenHeight?: number;
   extra?: number;
+  /**
+   * Page-level escape hatch for isolated Android screens whose bottom CTA is
+   * still obscured when the OEM reports bottom inset as 0.
+   *
+   * Do not use globally. The default path intentionally avoids inferring a
+   * nav-bar fallback because that caused app-wide bottom gaps on gesture-nav
+   * devices.
+   */
+  androidZeroInsetMinimum?: number;
 }
 
 /**
@@ -20,8 +29,20 @@ export interface BottomInsetMetrics {
  * react-native-safe-area-context plus the caller's visual spacing.
  */
 export function calculateBottomInset({
+  platform,
   insetBottom,
   extra = 12,
+  androidZeroInsetMinimum,
 }: BottomInsetMetrics): number {
-  return insetBottom + extra;
+  const base = insetBottom + extra;
+
+  if (
+    platform === 'android' &&
+    insetBottom === 0 &&
+    typeof androidZeroInsetMinimum === 'number'
+  ) {
+    return Math.max(base, androidZeroInsetMinimum);
+  }
+
+  return base;
 }
