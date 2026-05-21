@@ -54,7 +54,7 @@ export default function CompanyDetailScreen() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const { addItem } = useCartStore();
   const { id } = useLocalSearchParams();
-  // R-RS07: ScrollView/FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: ScrollView/FlatList paddingBottom 吃系统 safe-area，避免底部内容被固定区遮住。
   const safeBottom = useBottomInset(spacing['3xl']);
 
   // ---- 状态 ----

@@ -18,7 +18,7 @@ export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('wechat');
   const [refreshing, setRefreshing] = useState(false);
-  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
 
   const groupId = Array.isArray(id) ? id[0] : id;

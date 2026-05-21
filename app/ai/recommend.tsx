@@ -323,8 +323,7 @@ export default function AiRecommendScreen() {
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
-  // 购物车悬浮按钮位置（吃 safe area + Android OEM 兜底；之前硬编码 90 在
-  // 华为/Honor 3 键设备上会被虚拟键挡住）
+  // 购物车悬浮按钮位置走系统 safe-area，避免硬编码 bottom 留白。
   const fabBottom = useBottomInset(40);
   const router = useRouter();
   const { show } = useToast();
@@ -881,7 +880,7 @@ const styles = StyleSheet.create({
   },
   cartFab: {
     position: 'absolute',
-    // bottom 由组件内 useBottomInset(40) 动态计算（吃 safe area + OEM 兜底）
+    // bottom 由组件内 useBottomInset(40) 动态计算。
     left: 20,
     width: 48,
     height: 48,

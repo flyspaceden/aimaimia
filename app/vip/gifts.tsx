@@ -258,7 +258,7 @@ export default function VipGiftsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ packageId?: string; giftOptionId?: string }>();
   const insets = useSafeAreaInsets();
-  const barBottomPad = useBottomInset(16);  // 16dp extra + OEM 兜底
+  const barBottomPad = useBottomInset(16);  // 16dp extra + 系统 safe-area
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compactBottomBar = isCompact || isLargeText;
   const { bottomPadding: contentBottomPad, onBarLayout: handleBottomBarLayout } =

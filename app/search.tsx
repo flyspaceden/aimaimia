@@ -112,9 +112,9 @@ export default function SearchScreen() {
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
-  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
-  // 购物车悬浮按钮位置同样走底部 inset helper，避免 Android 虚拟导航栏覆盖或硬编码留白。
+  // 购物车悬浮按钮位置同样走底部 inset helper，避免硬编码 bottom 留白。
   const fabBottom = useBottomInset(40);
   const router = useRouter();
   const {

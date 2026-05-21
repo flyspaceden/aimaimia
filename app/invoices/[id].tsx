@@ -35,7 +35,7 @@ export default function InvoiceDetailScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
 
   const { data, isLoading, refetch } = useQuery({

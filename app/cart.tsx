@@ -89,8 +89,7 @@ export default function CartScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const clearVipPackageSelection = useCheckoutStore((s) => s.clearVipPackageSelection);
-  // R-RS03 A6: 替换 useSafeAreaInsets → useBottomInset，加 OEM 兜底
-  // 修复购物车确认栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
+  // 底部确认栏统一使用系统 safe-area + 视觉间距，避免全局推断导致底部 gap。
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compactRows = isCompact || isLargeText;
   // 2026-05-20 v5：extra 从 spacing.sm(8) → 4。减少 Xiaomi 手势条上按钮下方的可见空白。

@@ -159,7 +159,7 @@ export default function MyCouponsScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
-  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing.xl);
 
   // 主 Tab 状态：我的红包 / 领券中心

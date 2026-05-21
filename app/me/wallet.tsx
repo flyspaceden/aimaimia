@@ -63,7 +63,7 @@ export default function WalletScreen() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
-  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
 
   // 钱包余额

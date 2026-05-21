@@ -112,7 +112,7 @@ export default function OrderTrackScreen() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
-  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
   // 多包裹时当前展开的包裹索引集合（默认全部展开）
   const [expandedPkgs, setExpandedPkgs] = useState<Set<number>>(new Set());

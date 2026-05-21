@@ -1,10 +1,10 @@
 import React from 'react';
-import { Dimensions, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AiOrb } from '../../src/components/effects';
-import { calculateBottomInset, useTheme } from '../../src/theme';
+import { useTheme } from '../../src/theme';
 
 // 底部三个主 Tab 的导航容器
 export default function TabsLayout() {
@@ -12,20 +12,9 @@ export default function TabsLayout() {
   // 适配底部安全区（手势条 / 小白条 / 三大金刚键），避免 tab bar 被系统按钮遮挡
   const insets = useSafeAreaInsets();
 
-  // 与 useBottomInset 复用同一套 Android 判断：
-  // - 真实 bottom inset > 16 时信任系统
-  // - 系统已把导航栏排除在 app window 外时不补
-  // - 只有 app 画到底部且 OEM 错报 low/zero inset 时才兜底
-  const window = useWindowDimensions();
-  const screen = Dimensions.get('screen');
-  const safeBottomPad = calculateBottomInset({
-    platform: Platform.OS,
-    insetBottom: insets.bottom,
-    insetTop: insets.top,
-    windowHeight: window.height,
-    screenHeight: screen.height,
-    extra: 0,
-  });
+  // 只信任系统 safe-area；不根据 Android Dimensions 推断虚拟导航栏，
+  // 否则部分手势条设备会被误补 64dp，所有 tab 页面底部出现统一 gap。
+  const safeBottomPad = insets.bottom;
 
   return (
     <Tabs

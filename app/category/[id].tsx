@@ -20,7 +20,7 @@ export default function CategoryScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const categoryId = Array.isArray(id) ? id[0] : id;
   const addItem = useCartStore((state) => state.addItem);
-  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
 
   const { data: categoriesResult, isLoading: categoriesLoading } = useQuery({

@@ -15,7 +15,7 @@
 | 现象 | 截图位置 | 根因 |
 |---|---|---|
 | VIP 价格档位 ¥399/¥699/¥999/¥1299 在大字体手机换行 | `app/vip/gifts.tsx:419-446` | `flex: 1` 4 列 + `fontSize: 22` 写死 + 没限制系统字体放大 |
-| Tab bar / 底部按钮在 Android 虚拟三键或手势条场景被遮 | `app/(tabs)/_layout.tsx` / 底部固定栏页面 | `insets.bottom = 0` OEM bug 或正文 paddingBottom 不足，固定底部栏必须走统一 bottom inset helper |
+| Tab bar / 底部按钮在 Android 虚拟三键或手势条场景被遮 / 留白 | `app/(tabs)/_layout.tsx` / 底部固定栏页面 | 不同设备 safe-area 返回不一致，固定底部栏必须走统一 bottom inset helper，禁止页面各自猜导航栏高度 |
 | 多页面键盘遮挡 | 11+ 含 TextInput 页面 | `Screen.tsx` 无 KAV，已加 `keyboardAvoiding` prop（commit b9ca8df）|
 | 我的页大字体下昵称、订单入口、钱包/VIP 卡片挤压变形 | `app/(tabs)/me.tsx` | 用户卡片 / 订单 5 项 / 双卡片固定横排，没有按 `isLargeText` 降级换行或单列 |
 | 购物车大字体下商品卡和底部结算栏拥挤 | `app/cart.tsx` | 商品卡固定横排；底部栏绝对定位，列表底部只按固定高度预留 |
@@ -27,7 +27,7 @@
 
 1. **字体缩放未控制**：React Native `<Text>` 默认跟随系统字体设置放大；Android 多品牌都有"大字体 / 超大字体 / 显示大小"选项，iOS 也有 Dynamic Type。不能只按华为或单一机型判断。
 2. **写死 px / 模块顶层 Dimensions.get()**：旋转/分屏/字体放大 / 显示大小变化时不更新
-3. **底部固定栏未吃 safe area**：手势条 / 虚拟三键覆盖，且不同 OEM 对 `insets.bottom` 返回不一致
+3. **底部固定栏未吃 safe area 或过度兜底**：手势条 / 虚拟三键覆盖，且不同 Android 设备对 `insets.bottom` 返回不一致
 4. **横向多列硬塞**：`flex: 1` 平分屏宽，窄屏 / 大字体下溢出
 5. **不可滚动 + 返回键陷阱**：成功页 / 结果页 / 全屏流程页如果内容固定高度、没有 ScrollView，又吞掉系统返回键，大字体下会把 CTA 挤出屏幕后让用户无路可走
 
@@ -107,7 +107,7 @@ const bottomPadding = useBottomInset(12);
 <View style={{
   position: 'absolute',
   bottom: 0,
-  paddingBottom: bottomPadding,   // ← 吃底部安全区 + Android OEM 兜底
+  paddingBottom: bottomPadding,   // ← 吃系统 safe-area + 视觉间距
   paddingTop: 12,
 }}>
   <Button>提交订单</Button>
@@ -124,7 +124,7 @@ const bottomPadding = useBottomInset(12);
 </ScrollView>
 ```
 
-不要在页面里直接写 `insets.bottom + 12`。Android 部分 OEM / 三键导航会返回 `insets.bottom = 0`，必须通过项目统一 helper 做兜底。
+不要在页面里直接写 `insets.bottom + 12`。统一使用 `useBottomInset(extra)`，这样以后 safe-area 策略变化时只改一个 helper；页面也不能自行 `Math.max(insets.bottom, 64)` 或用 `Dimensions` 猜导航栏高度。
 
 ### 原则 4：避免模块顶层 Dimensions.get()
 
@@ -270,41 +270,35 @@ export const compactActionTextProps: Partial<TextProps> = {
 ### 3.3 `useBottomInset()` 固定底部栏安全区 helper
 
 ```ts
-import { Dimensions, Platform, useWindowDimensions } from 'react-native';
+import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { calculateBottomInset } from './bottomInset';
 
 /**
  * 固定底部栏专用 paddingBottom。
  *
- * Android edge-to-edge 模式（系统栏覆盖 app 窗口）下，部分 OEM / 三键导航
- * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制兜底。
- * 但 Android 也有合法的 0 inset：系统已把虚拟导航栏排除在 app window 外。
- * 所以必须结合 screen/window 高度和顶部 inset 判断，而不是对
- * `insets.bottom <= 16` 一律补 64dp。
+ * 不根据 Android Dimensions 推断虚拟导航栏高度：
+ * 不同 OEM 在手势条 / 三键导航 / edge-to-edge 下返回的
+ * insets 与 window/screen 组合不稳定，JS 侧兜底会把正常页面顶出统一 gap。
+ *
+ * 统一规则：只使用系统 safe-area 返回值 + 调用方额外视觉间距。
  */
 export const useBottomInset = (extra = 12) => {
   const insets = useSafeAreaInsets();
-  const window = useWindowDimensions();
-  const screen = Dimensions.get('screen');
 
   return calculateBottomInset({
     platform: Platform.OS,
     insetBottom: insets.bottom,
-    insetTop: insets.top,
-    windowHeight: window.height,
-    screenHeight: screen.height,
     extra,
   });
 };
 ```
 
 > **判定逻辑要点**：
-> - `insets.bottom > 16` → 信任系统返回值（iOS Home Indicator / Android 手势条 / 正常三键导航）。
-> - `insets.bottom <= 16` 且 `screen.height - window.height - insets.top > 32` → 系统已在 app window 外预留底部导航栏，不补兜底，避免底部空白。32dp 用来排除“只有状态栏高度差”的误判，真正的虚拟导航栏通常明显高于这个值。
-> - `insets.bottom <= 16` 且底部未被系统预留 → 视为 app 画到屏幕底部但 OEM 错报 low/zero inset，补 `ANDROID_NAV_FALLBACK=64`。
->
-> `window` 高度必须来自 `useWindowDimensions()`，确保旋转/分屏后重新计算；`screen` 可以在函数体内用 `Dimensions.get('screen')` 读取。原则 4 禁止的是"模块顶层 `Dimensions.get`"导致旋转/分屏不更新。
+> - `useBottomInset(extra)` 返回 `insets.bottom + extra`。
+> - Android `insets.bottom=0` 时也只返回 `extra`，不再自动补 64dp。
+> - 原因：JS 层无法稳定区分“0 是正确的手势导航返回值”和“0 是 OEM 错报”，之前的尺寸差推断会导致首页、商品详情、购物车、确认订单、VIP 礼包等全页面底部统一 gap。
+> - 如果某个 Android 三键设备仍遮挡底部栏，必须走 native 层导航栏配置 / 新 APK 处理，不能再在 JS helper 里全局加大 padding。
 
 ### 3.4 全局兜底（app/_layout.tsx）
 
@@ -434,9 +428,9 @@ rg -n "<Screen contentStyle=\\{\\{ flex: 1 \\}\\}>" app src
 | A2 | `app/orders/[id].tsx` | ScrollView paddingBottom=80 写死 + StickyCTABar 没保护 | 用户已报告 |
 | A3 | `app/orders/after-sale/[id].tsx` | 同 A2，走同共用组件 | — |
 | A4 | `app/orders/after-sale-detail/[id].tsx` | 同 A2 | — |
-| A5 | `app/checkout.tsx` | bottomBar `paddingBottom: insets.bottom + 8` 无 OEM 兜底 + ScrollView paddingBottom 不对称 | 用户已报告（小米空白）|
-| A6 | `app/cart.tsx` | 同样 bottomBar OEM bug | 购物车确认栏 |
-| A7 | `app/checkout-coupon.tsx` | 同样 bottomBar OEM bug + 优惠券价格未防缩放 | 优惠券选择栏 |
+| A5 | `app/checkout.tsx` | bottomBar 直接读 `insets.bottom` + ScrollView paddingBottom 不对称 | 用户已报告（小米空白）|
+| A6 | `app/cart.tsx` | 同样 bottomBar safe-area 策略分散 | 购物车确认栏 |
+| A7 | `app/checkout-coupon.tsx` | 同样 bottomBar safe-area 策略分散 + 优惠券价格未防缩放 | 优惠券选择栏 |
 
 **B. 模块顶层 `Dimensions.get` 锁死宽度（违反原则 4）**
 
@@ -482,7 +476,7 @@ rg -n "<Screen contentStyle=\\{\\{ flex: 1 \\}\\}>" app src
 |------|---------|------|
 | `fontSize ≥ 20` 缺 `numberOfLines` / `fitTextProps` | home / me / assistant / finance / trace / settings / notification / vip / chat / about | ~15 处 |
 | ScrollView `paddingBottom` 写死 `spacing['3xl']` 不吃 insets | company/[id] / category/[id] / group/[id] / search / orders/index / 大部分列表页 | ~10 处 |
-| 共用组件 safe area 隐患 | `Toast.tsx`（用 `insets.bottom` 但无 OEM 兜底）/ `Screen.tsx`（`safeAreaBottom` 默认 `false` 容易被忘）/ `AiFloatingCompanion.tsx` | 3 处 |
+| 共用组件 safe area 隐患 | `Toast.tsx` / `Screen.tsx`（`safeAreaBottom` 默认 `false` 容易被忘）/ `AiFloatingCompanion.tsx` | 3 处 |
 
 #### ✅ 干净文件（无明显问题，约 26 个）
 
@@ -654,9 +648,9 @@ const bottomPadding = useBottomInset(12);
 - 反模式新发现 → §7
 
 > **配套文件**：
-> - `src/theme/responsive.ts`（工具实现；`useBottomInset()` 通过 `src/theme/bottomInset.ts` 统一判定底部安全区）
-> - `src/theme/bottomInset.ts`（纯函数 `calculateBottomInset()`，覆盖 Android 真实 inset / 系统预留导航栏 / OEM low-zero inset 三类矩阵）
-> - `app/(tabs)/_layout.tsx:13-34`（Tab bar 复用 `calculateBottomInset()`，必须与 §3.3 保持一致）
+> - `src/theme/responsive.ts`（工具实现；`useBottomInset()` 只封装系统 safe-area + caller extra）
+> - `src/theme/bottomInset.ts`（纯函数 `calculateBottomInset()`，防止 Android zero-inset 被误补成 64dp）
+> - `app/(tabs)/_layout.tsx`（Tab bar 只使用 `insets.bottom`，必须与 §3.3 保持一致）
 > - `docs/operations/app-发布与OTA手册.md` 第四章（OTA 前 checklist 引用本文）
 
 ---

@@ -17,8 +17,7 @@ export default function InvoiceProfilesScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
-  // R-RS-LF02 followup: 底部按钮吃 safe area + Android OEM 兜底
-  // 修复用户报告华为 3 键设备上"新建抬头"按钮被虚拟键挡住
+  // 底部按钮吃系统 safe-area + 视觉间距。
   const bottomPadding = useBottomInset(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({

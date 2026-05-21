@@ -185,8 +185,7 @@ const CouponCard = React.memo(function CouponCard({
 export default function CheckoutCouponScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const router = useRouter();
-  // R-RS03 A7: 替换 useSafeAreaInsets → useBottomInset，加 OEM 兜底
-  // 修复优惠券选择栏在华为/小米三键虚拟键设备上 inset=0 时贴系统栏的 bug
+  // 底部选择栏统一使用系统 safe-area + 视觉间距，避免全局推断导致底部 gap。
   // R-RS-LF02: 底部栏改用 onLayout 测量实际高度，大字体下自动留够
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compactConfirmBar = isCompact || isLargeText;

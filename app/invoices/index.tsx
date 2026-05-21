@@ -37,7 +37,7 @@ export default function InvoicesScreen() {
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
-  // 底部"管理发票抬头"按钮吃 safe area + Android OEM 兜底
+  // 底部"管理发票抬头"按钮吃系统 safe-area + 视觉间距。
   const bottomPadding = useBottomInset(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({

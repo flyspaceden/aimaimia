@@ -15,7 +15,7 @@
  * 所有 Text 默认最大字体放大不超过 1.2x（无障碍合规 + 防爆）。
  */
 
-import { Dimensions, PixelRatio, Platform, TextProps, useWindowDimensions } from 'react-native';
+import { PixelRatio, Platform, TextProps, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { calculateBottomInset } from './bottomInset';
 
@@ -115,40 +115,35 @@ export const compactActionTextProps: Partial<TextProps> = {
 };
 
 // ---------------------------------------------------------------------------
-// useBottomInset — 固定底部栏 padding 兜底
+// useBottomInset — 固定底部栏 safe-area padding
 // ---------------------------------------------------------------------------
 
 /**
  * 固定底部栏专用 paddingBottom。
  *
- * Android edge-to-edge 模式（系统栏覆盖 app 窗口）下，部分 OEM / 三键导航
- * 会错把 insets.bottom 报 0，导致底部栏被系统按钮挡住——此时强制兜底。
- * 但 Android 也有合法的 0 inset：系统已把虚拟导航栏排除在 app window 外。
- * 所以这里必须结合 screen/window 高度和顶部 inset 判断，而不是对
- * `insets.bottom <= 16` 一律补 64dp。
+ * 这里不再根据 Android `Dimensions` 推断虚拟导航栏高度：
+ * 不同 OEM 在手势条 / 三键导航 / edge-to-edge 下返回的
+ * `insets.bottom`、`window.height`、`screen.height` 组合不稳定，
+ * JS 侧强行兜底会把正常页面顶出统一 gap。
+ *
+ * 统一规则：只使用系统 safe-area 返回值 + 调用方额外视觉间距。
  *
  * 判定矩阵：
- * | 机型 / 模式                          | bottom inset | reserved bottom | 结果 |
- * |--------------------------------------|--------------|-----------------|------|
- * | 华为三键 OEM bug + app 画到底部      | 0            | 0               | 64   |
- * | 三键正常返回 inset                   | 48           | 0               | 48   |
- * | 全面屏小白条                         | 24-34        | 0               | 24-34|
- * | 非 edge-to-edge，系统已预留导航栏    | 0            | >32             | 0    |
- * | iOS home indicator                   | 34           | N/A             | 34   |
+ * | 机型 / 模式                          | bottom inset | 结果 |
+ * |--------------------------------------|--------------|------|
+ * | Android 手势条且系统返回 0           | 0            | extra |
+ * | Android 手势条且系统返回 24-34       | 24-34        | inset + extra |
+ * | Android 三键且系统返回 48-64         | 48-64        | inset + extra |
+ * | iOS home indicator                   | 34           | 34 + extra |
  *
  * @param extra 额外的视觉 padding（默认 12，用于和系统按钮拉开距离）
  */
 export const useBottomInset = (extra: number = 12): number => {
   const insets = useSafeAreaInsets();
-  const window = useWindowDimensions();
-  const screen = Dimensions.get('screen');
 
   return calculateBottomInset({
     platform: Platform.OS,
     insetBottom: insets.bottom,
-    insetTop: insets.top,
-    windowHeight: window.height,
-    screenHeight: screen.height,
     extra,
   });
 };

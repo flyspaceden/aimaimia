@@ -114,7 +114,7 @@ export default function OrdersScreen() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const selectedStatus = isOrderStatus(params.status) ? params.status : undefined;
   const getActions = useOrderActions();
-  // R-RS07: FlatList paddingBottom 吃 safe area inset + Android OEM 兜底
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容被固定区遮住。
   const safeBottom = useBottomInset(spacing['3xl']);
 
   // Phase 3 Review Fix 3：useInfiniteQuery 替代 useQuery，FlatList 触底加载下一页

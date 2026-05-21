@@ -80,7 +80,7 @@ export default function LotteryScreen() {
   const syncFromServer = useCartStore((state) => state.syncFromServer);
   const addPendingPrizeItem = useCartStore((state) => state.addPendingPrizeItem);
   const queryClient = useQueryClient();
-  // R-RS07: ScrollView paddingBottom 吃 safe area inset + Android OEM 兜底（覆盖 styles.scrollContent.paddingBottom = 40）
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area（覆盖 styles.scrollContent.paddingBottom = 40）
   const safeBottom = useBottomInset(40);
   const { isCompact, isLargeText, height } = useResponsiveLayout();
   const compactLotteryResult = isCompact || isLargeText || height < 700;

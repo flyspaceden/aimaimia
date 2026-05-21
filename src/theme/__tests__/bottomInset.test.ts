@@ -42,8 +42,8 @@ function run() {
       screenHeight: 2400,
       extra: 16,
     }),
-    80,
-    'adds nav fallback when Android reports zero bottom inset but the app still reaches the screen bottom',
+    16,
+    'does not infer an Android nav fallback when the window delta is only the top status bar',
   );
 
   expectEqual(
@@ -55,8 +55,8 @@ function run() {
       screenHeight: 2400,
       extra: 4,
     }),
-    68,
-    'does not mistake a status-bar-sized window delta for a reserved bottom navigation bar',
+    4,
+    'does not add an Android nav fallback from ambiguous zero-inset metrics',
   );
 
   expectEqual(
