@@ -27,6 +27,7 @@
 | **顺丰生产凭证** | 已申请生产月结 + 丰桥生产 clientCode / checkWord / 模板 / 推送 secret？UAT 凭据**绝不能**复用 |
 | **App 渠道** | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事 |
 | **website main 锁** | `.github/workflows/deploy-website.yml:100` 是否已加回 `&& github.ref == 'refs/heads/main'`？目前为测试期临时去掉的，**切 main 前必须先合一个 PR 加回去**，否则 staging 推送会污染生产官网 |
+| **法律合规文本** | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
 | **回滚预案** | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
 
 任何一项答不上来，**先停下，不要 push main**。
@@ -79,7 +80,7 @@
 | `ADMIN_JWT_SECRET` | `<TEST_ADMIN_JWT_SECRET>` | **`<PROD_ADMIN_JWT_SECRET>`（独立，与 JWT_SECRET 不同）** |
 | `SELLER_JWT_SECRET` | `<TEST_SELLER_JWT_SECRET>` | **`<PROD_SELLER_JWT_SECRET>`（独立）** |
 | `JWT_EXPIRES_IN` | `15m` | `15m`（access token 15 分钟；refresh 30 天写死在代码里）|
-| `DATA_ENCRYPTION_KEY` | （可留空，兜底走弱默认） | **`<PROD_DATA_ENCRYPTION_KEY>`（32 字节随机 hex，用于 PII 字段加密；生产必填，否则发票 bankInfo / 个人税号等明文）** |
+| `DATA_ENCRYPTION_KEY` | （可留空，兜底走 `JWT_SECRET` → `'nongmai-dev-data-key'`）| **`<PROD_DATA_ENCRYPTION_KEY>`（32 字节随机 hex，用于 PII 字段 AES-256-GCM 加密）**。**强烈建议生产必填**：`encryption.ts:20-26` 的兜底顺序是 `DATA_ENCRYPTION_KEY → JWT_SECRET → 弱默认`，若依赖 JWT_SECRET 作为加密 key，则 JWT 泄露 = 加密 key 同步泄露（发票 bankInfo / 税号等 PII 全暴露），必须独立配置 |
 | `PAYMENT_WEBHOOK_SECRET` | `<TEST_PAYMENT_WEBHOOK_SECRET>` | **`<PROD_PAYMENT_WEBHOOK_SECRET>`（独立，HMAC-SHA256）** |
 | `LOGISTICS_WEBHOOK_SECRET` | `<TEST_LOGISTICS_WEBHOOK_SECRET>` | **`<PROD_LOGISTICS_WEBHOOK_SECRET>`（独立）** |
 | `WEBHOOK_IP_WHITELIST` | 可留空（开发环境放行）| **必填**：`<支付宝生产回调IP段>,<顺丰回调IP段>`，支持 CIDR。**为空时 `NODE_ENV=production` → 所有 webhook 直接 `ForbiddenException`，订单永远停在未支付**（`webhook-ip.guard.ts:40-44`）|
@@ -114,8 +115,9 @@
 | `ALIPAY_ROOT_CERT_PATH` | （沙箱无）| **`certs/alipay/alipayRootCert.crt`** |
 | `ALIPAY_GATEWAY` | `https://openapi-sandbox.dl.alipaydev.com/gateway.do` | **`https://openapi.alipay.com/gateway.do`** |
 | `ALIPAY_ENDPOINT` | `https://openapi-sandbox.dl.alipaydev.com` | **`https://openapi.alipay.com`** |
-| `ALIPAY_NOTIFY_URL` | `https://test-api.ai-maimai.com/api/v1/payments/alipay/notify` | **`https://api.ai-maimai.com/api/v1/payments/alipay/notify`**（必须带 `/api/v1` 前缀，否则回调打到 404）|
-| `ALIPAY_TRANSFER_NOTIFY_URL` | （可不配）| **`https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`**（消费积分提现 webhook；同时需在支付宝开放平台后台订阅事件 `alipay.fund.trans.order.changed`）|
+| `ALIPAY_NOTIFY_URL` | `https://test-api.ai-maimai.com/api/v1/payments/alipay/notify` | **`https://api.ai-maimai.com/api/v1/payments/alipay/notify`**（必须带 `/api/v1` 前缀，否则回调打到 404；`alipay.service.ts:105` 在 `createAppPayOrder` 时显式传给支付宝）|
+
+> **注**：`ALIPAY_TRANSFER_NOTIFY_URL` env **代码当前不读**（`alipay.fund.trans.uni.transfer` API 不接受 notify_url 入参），转账 webhook 是支付宝开放平台**账户级订阅**配置，不在代码里。详见 §三 第 2 行的运营操作。
 | `BODY_LIMIT` | （默认 `1mb`） | 同左（除非有大文件上传业务）|
 | `AI_SEMANTIC_SLOTS_ENABLED` | `true` | 默认 `true`，按上线节奏决定先关闭再灰度 |
 | `AI_PRODUCT_SEMANTIC_FIELDS_ENABLED` | `false` | `false`（v1.0 暂不启用，留 v1.1）|
@@ -136,12 +138,13 @@
 `backend/.env.example` 目前**未声明**以下生产必配项（应当补占位行）：
 
 - `CORS_ORIGINS=` — 生产空值会启动 throw
-- `ALIPAY_NOTIFY_URL=` — 只在注释里（line 99/106）
-- `ALIPAY_TRANSFER_NOTIFY_URL=` — 消费积分提现 webhook（新增）
-- `DATA_ENCRYPTION_KEY=` — 加密 fallback 走弱默认
+- `ALIPAY_NOTIFY_URL=` — 只在注释里（line 99/106），代码实际从 env 读
+- `DATA_ENCRYPTION_KEY=` — 加密 fallback 会偷偷复用 JWT_SECRET
 - `TRUST_PROXY=` — 反代下必须配 1
 
-**这 5 个不补到 .env.example 不影响生产部署**（直接写到生产 `.env` 即可），但建议合并到 staging 测试期内一起补。
+**这 4 个不补到 .env.example 不影响生产部署**（直接写到生产 `.env` 即可），但建议合并到 staging 测试期内一起补。
+
+注：`ALIPAY_TRANSFER_NOTIFY_URL` 不在此列——代码完全不读它，是纯运营 checklist 项（开放平台后台订阅），无需在 .env 占位。
 
 ---
 
@@ -150,7 +153,7 @@
 | 服务 | 后台位置 | 改成什么 |
 |------|---------|---------|
 | **支付宝（开放平台正式应用）** | open.alipay.com → 应用详情 → 开发设置 → **应用网关** + **回调地址** | `https://api.ai-maimai.com/api/v1/payments/alipay/notify`（注意：实际生效的是下单时后端传的 `notify_url`，但开放平台后台的"应用网关"是兜底，必须同步配）|
-| **支付宝转账 webhook（消费积分提现）** | 同上 → **事件订阅** → 选择 `alipay.fund.trans.order.changed` | **`https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`**（**不配置**则提现到账只能靠后端 cron 每 10 分钟主动查询，用户体感"卡 5-10 分钟"）|
+| **支付宝转账 webhook（消费积分提现）** | 同上 → **事件订阅** → 选择 `alipay.fund.trans.order.changed` | **`https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`**（**不配置**则提现到账只能靠后端 cron 每 10 分钟主动查询，用户体感"卡 5-10 分钟"）。注意：转账接口本身不接受 notify_url 入参，必须在开放平台后台账户级订阅 |
 | **支付宝授权回调域名** | 同上 → 授权回调地址 | `https://api.ai-maimai.com`、`https://app.ai-maimai.com` |
 | **顺丰丰桥（正式环境）** | 联系顺丰商务 / 丰桥后台 → 路由推送配置 | `https://api.ai-maimai.com/api/v1/shipments/sf/callback/<SF_PUSH_SECRET>`（**末尾 secret 段必须与后端 `.env` 一致**，双源信任防伪造）|
 | **微信开放平台（移动应用）** | open.weixin.qq.com → 应用详情 → 开发信息 | 包名 `com.aimaimai.shop` + **release keystore 签名 MD5**（`76:6B:AF:B6:A3:B3:4A:67:87:61:E4:B0:7E:36:65:C4`，与 EAS 上传的 keystore 一致）|
@@ -510,22 +513,41 @@ pm2 stop aimaimai-api-prod
    - 改 line 100：`if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'`
    - 单独一个 commit 合到 staging → 再合到 main
 
-2. **生产数据库初始化**：`prisma migrate deploy`（GitHub Actions 自动跑）+ 手动 SQL 插入最少必要的基础数据：
+2. **生产数据库初始化**：`prisma migrate deploy`（GitHub Actions 自动跑）+ 手动 SQL 插入最少必要的基础数据。
+   **关键常量来源（不要凭印象编 ID）**：`backend/src/modules/bonus/engine/constants.ts`
+   - `PLATFORM_USER_ID = 'PLATFORM'`（平台用户的 userId）
+   - `PLATFORM_COMPANY_ID = 'PLATFORM_COMPANY'`（平台公司的 id）
+   - `NORMAL_ROOT_ID = 'NORMAL_ROOT'`（普通用户三叉树根）
+   - VIP 三叉树根 `A1...A20`（按需扩到 MAX_ROOT_NODES）
+
    ```sql
-   -- 平台公司（爱买买 app）
+   -- ① 平台用户（必须先建，作为平台公司的 ownerId / 平台 RewardAccount.userId）
+   INSERT INTO "User" (id, phone, status, "createdAt", "updatedAt")
+   VALUES ('PLATFORM', '13900000000', 'ACTIVE', NOW(), NOW());
+
+   -- ② 平台公司（爱买买 app）
    INSERT INTO "Company" (id, name, "shortName", "isPlatform", status, "createdAt", "updatedAt")
-   VALUES ('platform-001', '爱买买app', '爱买买', true, 'ACTIVE', NOW(), NOW());
+   VALUES ('PLATFORM_COMPANY', '爱买买app', '爱买买', true, 'ACTIVE', NOW(), NOW());
 
-   -- VIP 三叉树根节点 A1-A10（user + memberProfile + vipTreeNode）
-   -- 详见 backend/prisma/seed.ts 第 1687-1701 行模板
+   -- ③ 普通树根节点 NORMAL_ROOT
+   INSERT INTO "NormalTreeNode" (id, "userId", "parentId", level, "childrenCount", "createdAt", "updatedAt")
+   VALUES ('NORMAL_ROOT', 'PLATFORM', NULL, 0, 0, NOW(), NOW());
+
+   -- ④ VIP 三叉树根节点 A1-A10（详见 backend/prisma/seed.ts:1687-1701 模板）
    -- 注：当前 seed 只到 A3，需要手工补 A4-A10 或调整 seed 后单跑（生产严禁全量 seed）
+   -- 每个根节点需配套创建 User + UserProfile + MemberProfile(tier=VIP) + VipProgress + VipTreeNode
 
-   -- 初始超管账号（首次部署后立刻改密）
+   -- ⑤ 初始超管账号（首次部署后立刻改密）
+   -- bcrypt-hash 用 `node -e "console.log(require('bcrypt').hashSync('<新密码>', 10))"` 本地生成
    INSERT INTO "AdminUser" (id, username, "passwordHash", phone, status, "createdAt", "updatedAt")
-   VALUES ('admin-001', 'admin', '<bcrypt-hash-of-123456>', '13900000000', 'ACTIVE', NOW(), NOW());
-   -- 上线后立刻在管理后台"账号安全"页改密！默认 admin/123456 必改
+   VALUES (gen_random_uuid()::text, 'admin', '<bcrypt-hash-of-strong-password>', '13900000000', 'ACTIVE', NOW(), NOW());
+   -- 上线后立刻在管理后台"账号安全"页再改一次密！
+
+   -- ⑥ RuleConfig 初始化（提现规则 / 抵扣规则 / 发票自动开票开关等）
+   -- 详见 backend/prisma/seed.ts 中 RuleConfig.createMany 模板（约 line 1500+）
+   -- 至少要 seed: WITHDRAW_TAX_RATE / DEDUCTION_RATIO_NORMAL / DEDUCTION_RATIO_VIP / INVOICE_AUTO_ISSUE / INVOICE_AUTO_ISSUE_MAX_ATTEMPTS
    ```
-   **不跑 `db seed`**（会重置基础数据）
+   **不跑 `db seed`**（会重置基础数据）。建议把上面 SQL 写到 `backend/prisma/production-bootstrap.sql` 单独维护
 
 3. **超管账号改密**：默认 `admin / 123456` 必须立即改为强密码并写入 `密码本.md §2.x`
 
@@ -551,11 +573,22 @@ pm2 stop aimaimai-api-prod
    - 包名 `com.aimaimai.shop` 审核通过
    - 实际状态记录到 `docs/operations/阿里云部署.md` 或 `app-发布与OTA手册.md`
 
-8. **OSS 软隔离**：在后端 `OssService` 的 path 前缀加 `prod/`（避免 staging 测试数据污染线上 path 命名空间）
+8. **OSS 软隔离**（**当前未实现**）：实际上传 key 在 `backend/src/modules/upload/upload.service.ts:124-126` 直接生成 `${safeFolder}/${uuid}.${ext}` 形式，**没有** `prod/` / `staging/` 前缀。两种做法二选一：
+   - 改 `UploadService.uploadFile` 在 key 前面拼一个 `${process.env.OSS_KEY_PREFIX || ''}` 前缀（推荐，需新增 env）
+   - 或在 OSS 后台为两个环境分别建独立 bucket（运维成本高）
 
-9. **首次 App 上架**：走 `docs/operations/app-compliance-guide.md`（营业执照 / 软著 / App 备案 / 应用商店上架）
+   生产首次部署前最好做 a 方案，避免 staging 测试图片污染线上 OSS 命名空间。
 
-10. **更新 `docs/operations/阿里云部署.md` 变更记录**：记录首次生产部署日期 + 所有人工动作 + 凭据所在密码本章节
+9. **法律合规文本填实**（**上线 + App 上架双重前置**）：
+   - 编辑 `src/content/legal/privacyPolicy.ts` — 把所有【待填】字段替换为真实内容（公司全称、注册地址、统一社会信用代码、联系电话、联系邮箱）
+   - 编辑 `src/content/legal/termsOfService.ts` — 同上
+   - **必须经法律顾问审核**（文件头部已写明，分润奖励条款尤其要审）
+   - 上线前推一次 OTA（这两个是纯 JS 内容文件）
+   - App 上架审核时应用商店会逐字检查，不符合规范直接拒绝
+
+10. **首次 App 上架**：走 `docs/operations/app-compliance-guide.md`（营业执照 / 软著 / App 备案 / 应用商店上架）
+
+11. **更新 `docs/operations/阿里云部署.md` 变更记录**：记录首次生产部署日期 + 所有人工动作 + 凭据所在密码本章节
 
 ---
 
