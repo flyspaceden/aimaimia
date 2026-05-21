@@ -322,6 +322,11 @@ export class ProductService {
     if ((product as any).auditStatus !== 'APPROVED') {
       throw new NotFoundException('商品已下架');
     }
+    // M1: 卖家下架（status=INACTIVE）的商品，深链/旧链接进来时直接 404
+    // 避免"详情页能进、加购才报错"的 UX 不一致
+    if (product.status !== 'ACTIVE') {
+      throw new NotFoundException('商品已下架');
+    }
 
     const detail = this.mapToDetail(product);
 
