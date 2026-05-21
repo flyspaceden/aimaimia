@@ -125,11 +125,13 @@ export default function InvoiceProfilesScreen() {
           />
         </View>
       ) : profiles.length === 0 ? (
-        <View style={{ padding: spacing.xl }}>
+        // flex:1 让空态填满剩余空间，否则底部"新建抬头"按钮会贴在空态下方（页面中部）
+        <View style={{ flex: 1, padding: spacing.xl }}>
           <EmptyState title="暂无发票抬头" description="添加抬头后可快速申请开票" />
         </View>
       ) : (
         <FlatList
+          style={{ flex: 1 }}
           data={profiles}
           renderItem={renderItem}
           keyExtractor={keyExtractor}

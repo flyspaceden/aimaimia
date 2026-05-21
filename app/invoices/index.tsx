@@ -181,11 +181,13 @@ export default function InvoicesScreen() {
           />
         </View>
       ) : invoices.length === 0 ? (
-        <View style={{ padding: spacing.xl }}>
+        // flex:1 让空态填满剩余空间，否则底部"管理发票抬头"按钮会贴在空态下方（页面中部）
+        <View style={{ flex: 1, padding: spacing.xl }}>
           <EmptyState title="暂无发票记录" description="完成订单后可申请开票" />
         </View>
       ) : (
         <FlatList
+          style={{ flex: 1 }}
           data={invoices}
           renderItem={renderItem}
           keyExtractor={keyExtractor}

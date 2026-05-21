@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dimensions, Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,27 +12,13 @@ export default function TabsLayout() {
   // 适配底部安全区（手势条 / 小白条 / 三大金刚键），避免 tab bar 被系统按钮遮挡
   const insets = useSafeAreaInsets();
 
-  // Android OEM 精准兜底：仅在 edge-to-edge 模式（系统栏覆盖 app 窗口）且
-  // useSafeAreaInsets() 错误返回 0 时强制 56dp。避免在非 edge-to-edge 旧机型/
-  // 全屏沉浸 App 上引入无意义的 56dp 空白。
-  //
-  // 判定方法：window.height (app 可绘制区) === screen.height (整屏含系统栏)
-  //   - 相等 → edge-to-edge 开启，app 画到系统栏后面，必须靠 inset 自适应
-  //   - 不等 → 系统栏在 app 窗口外，inset 自然为 0 是正确行为，无需兜底
-  //
-  // 三键虚拟键 + OEM 错把 insets 报 0 时（华为/小米/OPPO）→ 56dp 救场
-  // 现代 Android 手势条（insets 正常返回 24-48）→ max 取大值不变
-  // iOS home indicator → 直接用 insets.bottom（约 34dp 或 0）
-  // 2026-05-20: 32 → 56 与 src/theme/responsive.ts ANDROID_NAV_FALLBACK 同步
-  let safeBottomPad = insets.bottom;
-  if (Platform.OS === 'android' && insets.bottom === 0) {
-    const window = Dimensions.get('window');
-    const screen = Dimensions.get('screen');
-    const isEdgeToEdge = Math.abs(window.height - screen.height) < 2; // 容忍 1px 误差
-    if (isEdgeToEdge) {
-      safeBottomPad = 56; // OEM bug 兜底
-    }
-  }
+  // 2026-05-20 v3：与 src/theme/responsive.ts useBottomInset 同步。
+  // 取消 edge-to-edge 检测（华为 HarmonyOS / 小米 MIUI 在该检测下不可靠），
+  // Android 无条件 Math.max(insets.bottom, 64)，保证 tab bar 不被虚拟键挡。
+  // 副作用：非 edge-to-edge 老机 tab 区底部多 64dp，可接受。
+  const safeBottomPad = Platform.OS === 'android'
+    ? Math.max(insets.bottom, 64)
+    : insets.bottom;
 
   return (
     <Tabs

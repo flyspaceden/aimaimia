@@ -144,7 +144,10 @@ export default function InvoiceRequestScreen() {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
+          {/* style={{ flex: 1 }} 必须显式声明：否则 ScrollView 取自然内容高度，
+              当 profiles 为空（仅 EmptyState）时高度只有 ~100dp，下面的底部栏
+              就紧贴在 ScrollView 后面（页面中间），看起来像 "按钮跑出屏幕"。 */}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
             {/* 提示 */}
             <Text style={[typography.bodySm, { color: colors.text.secondary, marginBottom: spacing.lg }]}>
               请选择发票抬头，确认后将为订单 {params.orderId?.slice(0, 10)}... 申请开票

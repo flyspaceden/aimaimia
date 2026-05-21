@@ -15,7 +15,7 @@
  * 所有 Text 默认最大字体放大不超过 1.2x（无障碍合规 + 防爆）。
  */
 
-import { Dimensions, PixelRatio, Platform, TextProps, useWindowDimensions } from 'react-native';
+import { PixelRatio, Platform, TextProps, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ export const compactActionTextProps: Partial<TextProps> = {
 // 仍被虚拟键挡住，diagnose 后发现 32dp 对部分华为/Honor 3 键导航条（实际高度
 // 50-70dp）不够。56dp = 标准 Android nav 48dp + 8dp 安全余量；只影响 edge-to-edge
 // 模式下 insets.bottom 错报 0 的少数机型，其余机型继续走真实 insets。
-const ANDROID_NAV_FALLBACK = 56;
+const ANDROID_NAV_FALLBACK = 64;
 
 /**
  * 固定底部栏专用 paddingBottom。
@@ -148,16 +148,14 @@ const ANDROID_NAV_FALLBACK = 56;
  */
 export const useBottomInset = (extra: number = 12): number => {
   const insets = useSafeAreaInsets();
-  let safeBottom = insets.bottom;
 
-  if (Platform.OS === 'android' && insets.bottom === 0) {
-    const window = Dimensions.get('window');
-    const screen = Dimensions.get('screen');
-    const isEdgeToEdge = Math.abs(window.height - screen.height) < 2; // 容忍 1px 误差
-    if (isEdgeToEdge) {
-      safeBottom = ANDROID_NAV_FALLBACK; // OEM bug 兜底
-    }
+  // 2026-05-20 v3：取消 edge-to-edge 检测，Android 无条件 Math.max。
+  // 华为 HarmonyOS / 小米 MIUI 等 OEM 即使在 edge-to-edge 模式下也可能
+  // 错报 insets.bottom（小值或 0）+ window.height < screen.height（让旧的检测失败），
+  // 导致按钮被虚拟键挡。无条件兜底保证至少 ANDROID_NAV_FALLBACK 安全距离。
+  if (Platform.OS === 'android') {
+    return Math.max(insets.bottom, ANDROID_NAV_FALLBACK) + extra;
   }
 
-  return safeBottom + extra;
+  return insets.bottom + extra;
 };
