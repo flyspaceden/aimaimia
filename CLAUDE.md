@@ -55,13 +55,14 @@
 ### 部署运维 (`docs/operations/`)
 - `docs/operations/deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
 - `docs/operations/阿里云部署.md` — 阿里云部署实施记录（服务器/域名/SSL/宝塔站点/PostgreSQL 实际配置 + 数据库凭据 + 变更日志 + 常见问题，**实际部署状态权威来源，每次部署动作必须更新**）
-- `docs/operations/版本管理.md` — 版本管理指南（Git 分支策略 dev/staging/main、阿里云双环境规划、GitHub Actions 自动部署规则、App 三阶段发布流程、版本号规范，**版本管理权威来源**）
+- `docs/operations/版本管理.md` — 版本管理指南（三个环境的实物对照清单：开发=本地 localhost / 测试=test-*.ai-maimai.com / 生产=*.ai-maimai.com，**环境清单权威来源**）
+- `docs/operations/branch-strategy.md` — 分支维护策略（双分支 staging/main + feature/hotfix 短期分支、4 种典型场景操作流、切换时机判断、防止 staging-main 分化、上线后第一个月特殊节奏、应急/异常处理、决策树速查，**分支策略权威来源**，上线后维护必查）
 - `docs/operations/github操作.md` — GitHub 日常操作指南（双分支 staging/main 发布流程、自动部署规则、手动触发、紧急场景速查，**测试→生产发布权威来源**）
 - `docs/operations/新手指南-部署机制详解.md` — 部署/CI/CD 系统全套概念解释（32 个 Q&A，从 workflow 路由到 App 测试，含 PM2/Nginx/Prisma migration/SSH 密钥/回滚/灰度等基础概念，**新手学习部署体系权威入门**）
 - `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
 - `docs/operations/app-发布与OTA手册.md` — App 发布与 OTA 操作手册（OTA vs Build 决策表、EAS 命令速查、推送前 checklist、当前 App 状态、回滚流程、测试人员分发，**App 维度操作权威来源**，每次 eas build / update 后必须更新第六章）
 - `docs/operations/商户操作手册.md` — 商户端操作手册（企业入驻 + 登录 + 卖家中心全页面 + 商品/订单/售后/员工/账号安全全流程，**测试阶段商户操作权威来源**）
-- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（12 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 + 启动强校验 + .env.example 缺项 / 第三方回调切换（含 alipay 提现 transfer-notify）/ 前端三端（含 website main 锁）/ 买家 App 切换 / 数据库迁移（含 54 条累计 migration 时序表 + 5 条 🔴 不可回退迁移）/ push main 步骤 / 验证清单（含 WS + 提现 + 真实退款）/ 回滚预案（含 fail-forward 规则）/ 首次切换额外动作（含 WEBHOOK_IP_WHITELIST 查询步骤 + 平台公司种子 SQL）/ 上线后第一周监控重点，**测试→生产切换权威来源，每次发布必查**）
+- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（12 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 + 启动强校验 + .env.example 缺项 / 第三方回调切换（含 alipay 提现 transfer-notify）/ 前端三端（含 website main 锁）/ 买家 App 切换 / 数据库迁移（含 54 条累计 migration 时序表 + 5 条 🔴 不可回退迁移）/ push main 步骤 / 验证清单（含 WS + 提现 + 真实退款）/ 回滚预案（含 fail-forward 规则）/ 首次切换额外动作（含 PLATFORM_COMPANY/PLATFORM_USER_ID/NORMAL_ROOT_ID 真实常量种子 SQL + WEBHOOK_IP_WHITELIST 查询步骤 + OSS_KEY_PREFIX 软隔离 + 法律合规 privacyPolicy/termsOfService 填实）/ 上线后第一周监控重点，**测试→生产切换权威来源，每次发布必查**）
 
 ### 参考资料 (`docs/reference/`)
 - `docs/reference/apikey.md` — API 密钥说明
