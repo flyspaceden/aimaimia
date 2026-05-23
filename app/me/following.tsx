@@ -2,12 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { SearchInput } from '../../src/components/inputs';
+import { UserAvatar } from '../../src/components/ui';
 import { FollowRepo } from '../../src/repos';
 import { mockUserProfile } from '../../src/mocks';
 import { useAuthStore } from '../../src/store';
@@ -171,11 +171,7 @@ export default function FollowingScreen() {
                   onPress={() => handleOpenAuthor(item.author)}
                   style={[styles.row, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg, borderBottomWidth: 0, marginBottom: 8, padding: 12 }]}
                 >
-                  {item.author.avatar ? (
-                    <Image source={{ uri: item.author.avatar }} style={styles.avatar} />
-                  ) : (
-                    <View style={[styles.avatar, { backgroundColor: colors.brand.primarySoft }]} />
-                  )}
+                  <UserAvatar uri={item.author.avatar} size={36} style={styles.avatar} />
                   <View style={styles.info}>
                     <View style={styles.nameRow}>
                       <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>

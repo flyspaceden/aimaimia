@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
+import { UserAvatar } from '../../src/components/ui';
 import { FollowRepo } from '../../src/repos';
 import { mockUserProfile } from '../../src/mocks';
 import { useTheme } from '../../src/theme';
@@ -79,11 +79,7 @@ export default function UserProfileScreen() {
       >
         <Animated.View entering={FadeInDown.duration(300)} style={[styles.profileCard, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
           <View style={styles.profileRow}>
-            {author.avatar ? (
-              <Image source={{ uri: author.avatar }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, { backgroundColor: colors.brand.primarySoft }]} />
-            )}
+            <UserAvatar uri={author.avatar} size={64} style={styles.avatar} />
             <View style={styles.profileInfo}>
               <Text style={[typography.title3, { color: colors.text.primary }]}>{author.name}</Text>
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>

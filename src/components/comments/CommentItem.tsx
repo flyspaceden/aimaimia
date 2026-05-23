@@ -1,9 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
 import { CommentBase } from '../../types';
 import { useTheme } from '../../theme';
-import { LikeButton } from '../ui';
+import { LikeButton, UserAvatar } from '../ui';
 
 type CommentItemProps = {
   comment: CommentBase;
@@ -28,11 +27,7 @@ export const CommentItem = ({ comment, onReply, onLike, isReply, currentUserId }
       ]}
     >
       <View style={styles.row}>
-        {comment.author.avatar ? (
-          <Image source={{ uri: comment.author.avatar }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatarFallback, { backgroundColor: colors.brand.primarySoft }]} />
-        )}
+        <UserAvatar uri={comment.author.avatar} size={32} style={styles.avatar} />
         <View style={styles.content}>
           <View style={styles.nameRow}>
             <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{comment.author.name}</Text>
