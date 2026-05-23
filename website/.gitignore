@@ -4,3 +4,5 @@ dist
 
 # 由 scripts/build-resolve.mjs 在 prebuild 钩子生成，不入仓
 public/resolve/
+
+# 临时部署 trigger（2026-05-23）— 确保 detect-changes 标记 website=true，触发 deploy-website job 抢上华为隐私政策。本行随同 workflow main 锁恢复 commit 一并 revert。

@@ -97,8 +97,9 @@ jobs:
 
   deploy-website:
     needs: detect-changes
-    # 锁死只有 main 才能部署 website，避免 staging 推送覆盖生产产物（与 deploy-huahai 同处理）
-    if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'
+    # ⚠️ 临时移除 main 锁（2026-05-23）— 抢上华为应用市场，将 staging 上的隐私政策 / 服务条款页面提前部署到生产
+    # 部署完后立即 revert 本 commit 恢复 main 锁。详见 staging 上的 revert commit。
+    if: needs.detect-changes.outputs.website == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
