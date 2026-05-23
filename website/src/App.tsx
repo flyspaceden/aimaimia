@@ -14,6 +14,8 @@ const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
 const Download = lazy(() => import('@/pages/Download'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
+const Privacy = lazy(() => import('@/pages/Privacy'))
+const Terms = lazy(() => import('@/pages/Terms'))
 
 /** 动态更新页面 title 和 meta description */
 function MetaUpdater() {
@@ -68,6 +70,8 @@ export default function App() {
             <Route path="/r/:code" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             {/* 商城暂未开放，所有 /shop 路径重定向回首页 */}
             <Route path="/shop/*" element={<Navigate to="/" replace />} />
             <Route path="*" element={<NotFound />} />

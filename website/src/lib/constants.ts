@@ -102,6 +102,14 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
     title: 'AI爱买买 - 商户入驻申请',
     description: '在线提交商户入驻申请，加入AI爱买买农业直销平台',
   },
+  '/privacy': {
+    title: '隐私政策 — AI爱买买',
+    description: 'AI爱买买（深圳华海农业科技集团有限公司）隐私政策，说明我们如何收集、使用、存储和保护您的个人信息',
+  },
+  '/terms': {
+    title: '用户服务协议 — AI爱买买',
+    description: 'AI爱买买用户服务协议，规定您与AI爱买买平台之间的权利义务关系',
+  },
 }
 
 // ============================================
