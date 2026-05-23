@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
 import { AvatarFrame as AvatarFrameType } from '../../types';
+import { DefaultAvatar, parsePresetUri } from './DefaultAvatar';
 
 type AvatarFrameProps = {
   uri?: string | null;
@@ -83,11 +84,24 @@ export const AvatarFrame = ({ uri, size = 72, frame, style }: AvatarFrameProps) 
           },
         ]}
       >
-        {uri ? (
-          <Image source={{ uri }} style={{ width: innerSize, height: innerSize, borderRadius: innerSize / 2 }} />
-        ) : (
-          <View style={{ width: innerSize, height: innerSize, borderRadius: innerSize / 2, backgroundColor: colors.border }} />
-        )}
+        {(() => {
+          const presetId = parsePresetUri(uri);
+          if (presetId) {
+            return (
+              <View style={{ width: innerSize, height: innerSize, borderRadius: innerSize / 2, overflow: 'hidden' }}>
+                <DefaultAvatar presetId={presetId} size={innerSize} />
+              </View>
+            );
+          }
+          if (uri) {
+            return (
+              <Image source={{ uri }} style={{ width: innerSize, height: innerSize, borderRadius: innerSize / 2 }} />
+            );
+          }
+          return (
+            <View style={{ width: innerSize, height: innerSize, borderRadius: innerSize / 2, backgroundColor: colors.border }} />
+          );
+        })()}
         {frame ? (
           <View style={[styles.badge, { backgroundColor: colors.surface }]}>
             <MaterialCommunityIcons name="star-four-points" size={10} color={ringColors.badge} />
