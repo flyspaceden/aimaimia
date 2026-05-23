@@ -35,6 +35,17 @@ ios/
 *.csr
 *_RSA*.txt
 
+# 支付宝生产证书（含应用私钥 + 4 张 .crt），生产服务器单独 scp 上去
+backend/certs/
+
+# 主体资质 / Logo / 母公司站点压缩包（避免误传到公开仓库）
+软著*
+华海农科logo*.jpg
+huahai-corporate-site.zip
+
+# 内部运营手册 PDF（其他业务 PDF 如 refund-rules.pdf 仍正常追踪）
+docs/operations/*.pdf
+
 # 部署实施记录 + 密码本（含真实凭据，仅本地保留）
 docs/operations/阿里云部署.md
 docs/operations/密码本.md
