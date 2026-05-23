@@ -43,7 +43,7 @@
         "EXPO_PUBLIC_ALIPAY_SANDBOX": "false"
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "apk"
       },
       "ios": {
         "resourceClass": "m-medium"
