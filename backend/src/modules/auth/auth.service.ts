@@ -490,6 +490,51 @@ export class AuthService {
     return this.issueTokens(user.id, 'wechat');
   }
 
+  /**
+   * 用 wechat code 换取微信用户公开资料（openId + headimgurl + nickname）
+   * 不创建用户、不签 Token。给"绑定微信后回填头像"等已登录态场景用
+   *
+   * @returns 失败抛 BadRequestException；mock 模式下返回稳定的派生 openId 但 avatarUrl 为 undefined
+   */
+  async exchangeCodeForWechatProfile(code: string): Promise<{
+    openId: string;
+    unionId: string;
+    nickname: string;
+    avatarUrl?: string;
+  }> {
+    const wechatMock = this.config.get('WECHAT_MOCK', 'true');
+    let openId: string;
+    let unionId: string;
+    let accessToken: string | null = null;
+
+    if (wechatMock === 'true') {
+      openId = createHash('sha256').update(`wx_openid_${code}`).digest('hex').slice(0, 28);
+      unionId = createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28);
+    } else {
+      const appId = this.config.getOrThrow<string>('WECHAT_APP_ID');
+      const appSecret = this.config.getOrThrow<string>('WECHAT_APP_SECRET');
+      const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${appId}&secret=${appSecret}&code=${code}&grant_type=authorization_code`;
+      const tokenRes = await fetch(tokenUrl);
+      const tokenData = (await tokenRes.json()) as {
+        access_token?: string;
+        openid?: string;
+        unionid?: string;
+        errcode?: number;
+        errmsg?: string;
+      };
+      if (tokenData.errcode || !tokenData.openid) {
+        this.logger.error(`[WeChat] token 换取失败: errcode=${tokenData.errcode}, errmsg=${tokenData.errmsg}`);
+        throw new BadRequestException(`微信授权失败：${tokenData.errmsg || '未知错误'}`);
+      }
+      openId = tokenData.openid;
+      unionId = tokenData.unionid || '';
+      accessToken = tokenData.access_token || null;
+    }
+
+    const profile = await this.fetchWechatUserProfile(accessToken, openId);
+    return { openId, unionId, nickname: profile.nickname, avatarUrl: profile.avatarUrl };
+  }
+
   /** Apple 登录（占位） */
   async loginWithApple() {
     throw new BadRequestException('Apple 登录暂未开放');
