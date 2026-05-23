@@ -307,6 +307,7 @@ export interface Order {
     waybillNoMasked?: string;
     trackingNo?: string;
     trackingNoMasked?: string;
+    sfOrderId?: string | null;
     status?: string;
     shippedAt?: string | null;
   } | null;
@@ -319,6 +320,7 @@ export interface Order {
     waybillNoMasked?: string;
     trackingNo?: string;
     trackingNoMasked?: string;
+    sfOrderId?: string | null;
     status?: string;
     shippedAt?: string | null;
   }>;

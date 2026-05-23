@@ -516,6 +516,20 @@ export default function OrderDetailPage() {
                 },
               },
               {
+                // 顺丰下单时传给 SF 的客户订单号（${bizNo}_${companyId}），调
+                // EXP_RECE_UPDATE_ORDER / SEARCH_ORDER_RESP 时填这个，不是 Order.id
+                title: '顺丰订单号',
+                render: (_value, record) => {
+                  const sfOrderId = record.sfOrderId;
+                  if (!sfOrderId) return '-';
+                  return (
+                    <Typography.Text copyable={{ text: sfOrderId }} style={{ fontFamily: 'monospace' }}>
+                      {sfOrderId}
+                    </Typography.Text>
+                  );
+                },
+              },
+              {
                 title: '状态',
                 dataIndex: 'status',
                 render: (value: string | undefined) => value || '-',
