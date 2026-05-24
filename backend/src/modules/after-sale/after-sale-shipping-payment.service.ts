@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -31,6 +32,7 @@ export type AfterSaleShippingPaymentBuyerResponse = Pick<
 
 @Injectable()
 export class AfterSaleShippingPaymentService {
+  private readonly logger = new Logger(AfterSaleShippingPaymentService.name);
   private shippingRuleService: any = null;
 
   constructor(
@@ -285,6 +287,67 @@ export class AfterSaleShippingPaymentService {
                 failureReason: `退货运费退款失败: ${result.message || '支付宝退款失败'}`,
               },
         });
+      },
+    );
+  }
+
+  async handleWechatRefundNotify(args: {
+    merchantPaymentNo: string;
+    outRefundNo?: string | null;
+    tradeState: string;
+    providerRefundId?: string | null;
+  }): Promise<void> {
+    await this.withSerializableRetry(
+      async (tx) => {
+        const payment = await tx.afterSaleShippingPayment.findUnique({
+          where: { merchantPaymentNo: args.merchantPaymentNo },
+        });
+        if (!payment) {
+          this.logger.warn(`微信退货运费退款通知未找到支付单: ${args.merchantPaymentNo}`);
+          return;
+        }
+
+        if (args.tradeState === 'SUCCESS') {
+          await tx.afterSaleShippingPayment.updateMany({
+            where: {
+              merchantPaymentNo: args.merchantPaymentNo,
+              status: { in: ['REFUNDING', 'FAILED'] },
+            },
+            data: {
+              status: 'REFUNDED',
+              refundedAt: new Date(),
+              failureReason: null,
+            },
+          });
+          return;
+        }
+
+        if (args.tradeState === 'PROCESSING') {
+          await tx.afterSaleShippingPayment.updateMany({
+            where: {
+              merchantPaymentNo: args.merchantPaymentNo,
+              status: { in: ['PAID', 'REFUNDING', 'FAILED'] },
+            },
+            data: {
+              status: 'REFUNDING',
+              failureReason: `退货运费微信退款处理中: ${args.outRefundNo || args.providerRefundId || 'UNKNOWN'}`,
+            },
+          });
+          return;
+        }
+
+        if (['CLOSED', 'ABNORMAL', 'FAILED'].includes(args.tradeState)) {
+          await tx.afterSaleShippingPayment.updateMany({
+            where: {
+              merchantPaymentNo: args.merchantPaymentNo,
+              status: { in: ['REFUNDING', 'FAILED'] },
+            },
+            data: {
+              status: 'FAILED',
+              failureReason: `退货运费微信退款失败: ${args.tradeState}`,
+            },
+          });
+        }
       },
     );
   }

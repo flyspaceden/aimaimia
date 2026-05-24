@@ -653,6 +653,82 @@ describe('AfterSaleShippingPaymentService', () => {
     }));
   });
 
+  it('handleWechatRefundNotify marks return shipping refund as REFUNDED on SUCCESS', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue(shippingPaymentFixture({
+      status: 'REFUNDING',
+      paidAt,
+    }));
+
+    await service.handleWechatRefundNotify({
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-ship-refund-1',
+    });
+
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        status: { in: ['REFUNDING', 'FAILED'] },
+      },
+      data: expect.objectContaining({
+        status: 'REFUNDED',
+        refundedAt: expect.any(Date),
+        failureReason: null,
+      }),
+    }));
+  });
+
+  it('handleWechatRefundNotify keeps return shipping refund REFUNDING on PROCESSING', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue(shippingPaymentFixture({
+      status: 'PAID',
+      paidAt,
+    }));
+
+    await service.handleWechatRefundNotify({
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      tradeState: 'PROCESSING',
+      providerRefundId: 'wx-ship-refund-1',
+    });
+
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        status: { in: ['PAID', 'REFUNDING', 'FAILED'] },
+      },
+      data: expect.objectContaining({
+        status: 'REFUNDING',
+        failureReason: expect.stringContaining('退货运费微信退款处理中'),
+      }),
+    }));
+  });
+
+  it('handleWechatRefundNotify marks return shipping refund as FAILED on CLOSED', async () => {
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue(shippingPaymentFixture({
+      status: 'REFUNDING',
+      paidAt,
+    }));
+
+    await service.handleWechatRefundNotify({
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      tradeState: 'CLOSED',
+      providerRefundId: 'wx-ship-refund-1',
+    });
+
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        status: { in: ['REFUNDING', 'FAILED'] },
+      },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        failureReason: '退货运费微信退款失败: CLOSED',
+      }),
+    }));
+  });
+
   it.each(['UNPAID', 'FAILED'])(
     'refundShippingPayment closes %s payment because no money was collected',
     async (status) => {

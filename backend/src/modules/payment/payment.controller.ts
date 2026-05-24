@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Headers, Logger, Optional, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Logger, NotFoundException, Optional, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { PaymentService } from './payment.service';
 import { AlipayService } from './alipay.service';
+import { WechatPayService } from './wechat-pay.service';
 import { CheckoutService } from '../order/checkout.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -32,6 +33,7 @@ export class PaymentController {
     private checkoutService: CheckoutService,
     @Optional() private moduleRef?: ModuleRef,
     @Optional() private prisma?: PrismaService,
+    @Optional() private wechatPayService?: WechatPayService,
   ) {}
 
   /** 查询订单支付记录 */
@@ -175,6 +177,118 @@ export class PaymentController {
   }
 
   /**
+   * 微信支付异步通知回调
+   * - req.rawBody 用于微信 v3 RSA 验签，不能用 JSON 重新序列化后的 body
+   * - 成功处理统一 200 空 body ack；身份或验签失败返回 401 FAIL
+   */
+  @Public()
+  @UseGuards(WebhookIpGuard)
+  @Post('wechat/notify')
+  async handleWechatNotify(
+    @Body() body: Record<string, any>,
+    @Req() req: Request & { rawBody?: Buffer | string },
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Res() res: Response,
+  ) {
+    if (!this.wechatPayService) {
+      res.status(401).send({ code: 'FAIL', message: '微信支付服务未启用' });
+      return;
+    }
+
+    const rawBody = this.normalizeRawBody(req.rawBody);
+    if (!rawBody) {
+      res.status(401).send({ code: 'FAIL', message: '微信支付通知缺少 rawBody' });
+      return;
+    }
+
+    let notify: any;
+    try {
+      notify = await this.wechatPayService.parseNotify({
+        body,
+        rawBody,
+        headers: this.normalizeWechatNotifyHeaders(headers),
+      });
+    } catch (err: any) {
+      const message = err?.message || '微信支付通知验签失败';
+      this.logger.error(`微信支付通知解析失败: ${message}`);
+      res.status(401).send({ code: 'FAIL', message });
+      return;
+    }
+
+    if (!this.assertWechatNotifyIdentity(notify)) {
+      this.logger.error(
+        `微信支付通知身份不匹配: type=${notify?.type || 'UNKNOWN'} outTradeNo=${notify?.outTradeNo || 'N/A'}`,
+      );
+      res.status(401).send({ code: 'FAIL', message: '微信支付通知身份不匹配' });
+      return;
+    }
+
+    if (notify.type === 'refund') {
+      await this.paymentService.handleWechatRefundNotify({
+        outTradeNo: notify.outTradeNo,
+        outRefundNo: notify.outRefundNo,
+        providerRefundId: notify.providerTxnId,
+        tradeState: notify.tradeState,
+        amountFen: notify.amountFen,
+        rawPayload: body,
+      });
+      res.status(200).send();
+      return;
+    }
+
+    if (notify.type !== 'payment') {
+      res.status(401).send({ code: 'FAIL', message: '微信支付通知类型不支持' });
+      return;
+    }
+
+    const status: 'SUCCESS' | 'FAILED' = notify.tradeState === 'SUCCESS' ? 'SUCCESS' : 'FAILED';
+    if (status === 'SUCCESS') {
+      try {
+        if (notify.outTradeNo?.startsWith('AS_SHIP_PAY_')) {
+          await this.paymentService.assertWechatAfterSaleShippingPaymentAmountMatches(
+            notify.outTradeNo,
+            notify.amountFen,
+          );
+        } else {
+          const session = await this.checkoutService.findByMerchantOrderNo(notify.outTradeNo);
+          if (session) {
+            this.paymentService.assertWechatAmountMatchesSession(
+              { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+              notify.amountFen,
+              'notify',
+            );
+          } else {
+            await this.paymentService.assertWechatPaymentAmountMatches(
+              notify.outTradeNo,
+              notify.amountFen,
+            );
+          }
+        }
+      } catch (amountErr: any) {
+        if (amountErr instanceof BadRequestException || amountErr instanceof NotFoundException) {
+          this.logger.error(
+            `微信 notify 金额校验失败，已拒绝处理：${amountErr.message} ` +
+            `out_trade_no=${notify.outTradeNo} amountFen=${notify.amountFen}`,
+          );
+          res.status(200).send();
+          return;
+        }
+        throw amountErr;
+      }
+    }
+
+    await this.paymentService.handlePaymentCallback({
+      merchantOrderNo: notify.outTradeNo,
+      providerTxnId: notify.providerTxnId,
+      status,
+      paidAt: this.normalizeNotifyPaidAt(notify.paidAt),
+      rawPayload: body,
+      skipSignatureVerification: true,
+    });
+    res.status(200).send();
+  }
+
+  /**
    * 支付宝转账异步通知回调。
    *
    * PaymentModule 不 import BonusModule；提现闭环服务通过 ModuleRef 在运行期解析，
@@ -314,5 +428,48 @@ export class PaymentController {
     }
     tokens.push('WithdrawPayoutService');
     return tokens;
+  }
+
+  private normalizeRawBody(rawBody?: Buffer | string): string | null {
+    if (Buffer.isBuffer(rawBody)) return rawBody.toString('utf8');
+    if (typeof rawBody === 'string' && rawBody.length > 0) return rawBody;
+    return null;
+  }
+
+  private normalizeWechatNotifyHeaders(
+    headers: Record<string, string | string[] | undefined>,
+  ): {
+    signature?: string;
+    timestamp?: string;
+    nonce?: string;
+    serial?: string;
+  } {
+    const pick = (name: string): string | undefined => {
+      const value = headers[name] ?? headers[name.toLowerCase()];
+      if (Array.isArray(value)) return value[0];
+      return value;
+    };
+
+    return {
+      signature: pick('wechatpay-signature'),
+      timestamp: pick('wechatpay-timestamp'),
+      nonce: pick('wechatpay-nonce'),
+      serial: pick('wechatpay-serial'),
+    };
+  }
+
+  private assertWechatNotifyIdentity(notify: any): boolean {
+    const expectedMchId = this.wechatPayService?.getMchId();
+    if (!expectedMchId || notify?.mchId !== expectedMchId) return false;
+    if (notify?.type === 'refund') return true;
+
+    const expectedAppId = this.wechatPayService?.getAppId();
+    return Boolean(expectedAppId && notify?.appId === expectedAppId);
+  }
+
+  private normalizeNotifyPaidAt(paidAt?: Date | string | null): string | undefined {
+    if (!paidAt) return undefined;
+    if (paidAt instanceof Date) return paidAt.toISOString();
+    return paidAt;
   }
 }

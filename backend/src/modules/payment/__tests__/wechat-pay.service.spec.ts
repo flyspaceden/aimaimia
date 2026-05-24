@@ -1180,6 +1180,8 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-NOTIFY-001',
         transaction_id: 'WX-TXN-001',
         trade_state: 'SUCCESS',
@@ -1207,6 +1209,8 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-PAY-999',
         transaction_id: 'WX-TXN-999',
         trade_state: 'SUCCESS',
@@ -1228,6 +1232,8 @@ describe('WechatPayService', () => {
       );
       expect(result).toEqual({
         type: 'payment',
+        appId: 'wxtest',
+        mchId: '1234567890',
         outTradeNo: 'CS-PAY-999',
         providerTxnId: 'WX-TXN-999',
         tradeState: 'SUCCESS',
@@ -1242,6 +1248,7 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        mchid: '1234567890',
         out_trade_no: 'CS-REFUND-PAY',
         out_refund_no: 'RF-NOTIFY-500',
         refund_id: 'WX-REFUND-500',
@@ -1266,6 +1273,7 @@ describe('WechatPayService', () => {
 
       expect(result).toEqual({
         type: 'refund',
+        mchId: '1234567890',
         outTradeNo: 'CS-REFUND-PAY',
         outRefundNo: 'RF-NOTIFY-500',
         providerTxnId: 'WX-REFUND-500',
@@ -1274,6 +1282,7 @@ describe('WechatPayService', () => {
         amount: 5,
         paidAt: new Date('2026-05-23T12:00:00+08:00'),
       });
+      expect(result).not.toHaveProperty('appId');
     });
 
     it('treats resource.original_type refund as refund when event_type is missing', async () => {
@@ -1281,6 +1290,7 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        mchid: '1234567890',
         out_trade_no: 'CS-ORIGINAL-TYPE',
         out_refund_no: 'RF-ORIGINAL-TYPE',
         refund_id: 'WX-REFUND-ORIGINAL',
@@ -1309,6 +1319,7 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        mchid: '1234567890',
         out_trade_no: 'CS-DECRYPTED-REFUND',
         out_refund_no: 'RF-DECRYPTED-REFUND',
         refund_id: 'WX-REFUND-DECRYPTED',
@@ -1338,6 +1349,8 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue(JSON.stringify({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-STRING-PAYLOAD',
         transaction_id: 'WX-TXN-STRING',
         trade_state: 'SUCCESS',
@@ -1352,6 +1365,8 @@ describe('WechatPayService', () => {
 
       expect(result).toEqual({
         type: 'payment',
+        appId: 'wxtest',
+        mchId: '1234567890',
         outTradeNo: 'CS-STRING-PAYLOAD',
         providerTxnId: 'WX-TXN-STRING',
         tradeState: 'SUCCESS',
@@ -1366,6 +1381,8 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-COMPAT-PAY',
         transaction_id: 'WX-TXN-COMPAT',
         trade_state: 'SUCCESS',
@@ -1385,6 +1402,8 @@ describe('WechatPayService', () => {
 
       expect(result).toEqual({
         type: 'payment',
+        appId: 'wxtest',
+        mchId: '1234567890',
         outTradeNo: 'CS-COMPAT-PAY',
         providerTxnId: 'WX-TXN-COMPAT',
         tradeState: 'SUCCESS',
@@ -1400,6 +1419,8 @@ describe('WechatPayService', () => {
       const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-MISSING-TXN',
         trade_state: 'SUCCESS',
         amount: { total: 100 },
@@ -1424,13 +1445,66 @@ describe('WechatPayService', () => {
       loggerError.mockRestore();
     });
 
+    it.each([
+      ['appid', { mchid: '1234567890' }],
+      ['mchid', { appid: 'wxtest' }],
+    ])('throws when payment notify is missing %s', async (_field, identityFields) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        ...identityFields,
+        out_trade_no: 'CS-MISSING-IDENTITY',
+        transaction_id: 'WX-TXN-MISSING-IDENTITY',
+        trade_state: 'SUCCESS',
+        amount: { total: 100 },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: paymentNotifyBody,
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信支付通知缺少必要字段');
+    });
+
     it('throws when refund notify is missing refund_id', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        mchid: '1234567890',
         out_trade_no: 'CS-REFUND-MISSING-ID',
         out_refund_no: 'RF-MISSING-ID',
+        refund_status: 'SUCCESS',
+        amount: { refund: 100 },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: {
+            event_type: 'REFUND.SUCCESS',
+            resource: {
+              original_type: 'refund',
+              ciphertext: 'REFUND-CIPHER',
+              nonce: 'REFUND-RESOURCE-NONCE',
+            },
+          },
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信退款通知缺少必要字段');
+    });
+
+    it('throws when refund notify is missing mchid but does not require appid', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-REFUND-MISSING-MCHID',
+        out_refund_no: 'RF-MISSING-MCHID',
+        refund_id: 'WX-REFUND-MISSING-MCHID',
         refund_status: 'SUCCESS',
         amount: { refund: 100 },
       });
@@ -1456,6 +1530,8 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-UNKNOWN-EVENT',
         transaction_id: 'WX-TXN-UNKNOWN',
         trade_state: 'SUCCESS',
@@ -1486,6 +1562,8 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        appid: 'wxtest',
+        mchid: '1234567890',
         out_trade_no: 'CS-BAD-PAY-AMOUNT',
         transaction_id: 'WX-TXN-BAD-AMOUNT',
         trade_state: 'SUCCESS',
@@ -1509,6 +1587,7 @@ describe('WechatPayService', () => {
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
       client.decipher_gcm = jest.fn().mockReturnValue({
+        mchid: '1234567890',
         out_trade_no: 'CS-BAD-REFUND-AMOUNT',
         out_refund_no: 'RF-BAD-AMOUNT',
         refund_id: 'WX-REFUND-BAD-AMOUNT',

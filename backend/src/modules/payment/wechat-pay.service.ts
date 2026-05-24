@@ -24,6 +24,8 @@ type WechatPayNotifyHeaders = {
 
 type WechatPayParsedNotify = {
   type: 'payment' | 'refund';
+  appId?: string;
+  mchId: string;
   outTradeNo: string;
   outRefundNo?: string;
   providerTxnId: string;
@@ -232,6 +234,8 @@ export class WechatPayService implements OnModuleInit {
 
   private hasCompletePaymentNotifyFields(decrypted: any): boolean {
     return (
+      this.isNonEmptyString(decrypted?.appid) &&
+      this.isNonEmptyString(decrypted?.mchid) &&
       this.isNonEmptyString(decrypted?.out_trade_no) &&
       this.isNonEmptyString(decrypted?.transaction_id) &&
       this.isNonEmptyString(decrypted?.trade_state) &&
@@ -244,6 +248,8 @@ export class WechatPayService implements OnModuleInit {
 
   private validatePaymentNotifyPayload(decrypted: any): number {
     if (
+      !this.isNonEmptyString(decrypted?.appid) ||
+      !this.isNonEmptyString(decrypted?.mchid) ||
       !this.isNonEmptyString(decrypted?.out_trade_no) ||
       !this.isNonEmptyString(decrypted?.transaction_id) ||
       !this.isNonEmptyString(decrypted?.trade_state)
@@ -255,6 +261,7 @@ export class WechatPayService implements OnModuleInit {
 
   private validateRefundNotifyPayload(decrypted: any): number {
     if (
+      !this.isNonEmptyString(decrypted?.mchid) ||
       !this.isNonEmptyString(decrypted?.out_trade_no) ||
       !this.isNonEmptyString(decrypted?.out_refund_no) ||
       !this.isNonEmptyString(decrypted?.refund_id) ||
@@ -419,6 +426,7 @@ export class WechatPayService implements OnModuleInit {
         const amountFen = this.validateRefundNotifyPayload(decrypted);
         return {
           type: 'refund',
+          mchId: decrypted.mchid,
           outTradeNo: decrypted.out_trade_no,
           outRefundNo: decrypted.out_refund_no,
           providerTxnId: decrypted.refund_id,
@@ -436,6 +444,8 @@ export class WechatPayService implements OnModuleInit {
       const amountFen = this.validatePaymentNotifyPayload(decrypted);
       return {
         type: 'payment',
+        appId: decrypted.appid,
+        mchId: decrypted.mchid,
         outTradeNo: decrypted.out_trade_no,
         providerTxnId: decrypted.transaction_id,
         tradeState: decrypted.trade_state,

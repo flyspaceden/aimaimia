@@ -6,7 +6,7 @@ describe('PaymentService.initiateRefund', () => {
       payment: { findFirst: jest.fn(), findUnique: jest.fn() },
       order: { findUnique: jest.fn() },
       checkoutSession: { findUnique: jest.fn() },
-      refund: { findMany: jest.fn() },
+      refund: { findMany: jest.fn(), findFirst: jest.fn() },
       refundStatusHistory: { create: jest.fn() },
       orderStatusHistory: { create: jest.fn() },
       $transaction: jest.fn(),
@@ -628,5 +628,174 @@ describe('PaymentService.initiateRefund', () => {
         }),
       }),
     }));
+  });
+
+  it('微信售后退款 SUCCESS notify 委托售后退款成功闭环', async () => {
+    const { service, prisma } = makeService();
+    const afterSaleRefundService = {
+      handleRefundSuccess: jest.fn(),
+      handleRefundFailure: jest.fn(),
+    };
+    service.setAfterSaleRefundService(afterSaleRefundService as any);
+    prisma.refund.findFirst.mockResolvedValue({
+      id: 'r_as_1',
+      merchantRefundNo: 'AS-after-sale-1',
+      status: 'REFUNDING',
+    });
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AS-after-sale-1',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-refund-1',
+    });
+
+    expect(prisma.refund.findFirst).toHaveBeenCalledWith({
+      where: { merchantRefundNo: 'AS-after-sale-1', deletedAt: null },
+      select: { id: true, merchantRefundNo: true, status: true },
+    });
+    expect(afterSaleRefundService.handleRefundSuccess).toHaveBeenCalledWith('r_as_1', 'wx-refund-1');
+    expect(afterSaleRefundService.handleRefundFailure).not.toHaveBeenCalled();
+  });
+
+  it('微信退货运费退款 notify 委托 AfterSaleShippingPaymentService', async () => {
+    const { service, prisma } = makeService();
+    const afterSaleShippingPaymentService = {
+      handleWechatRefundNotify: jest.fn(),
+    };
+    service.setAfterSaleShippingPaymentService(afterSaleShippingPaymentService as any);
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'AS_SHIP_PAY_as_001',
+      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-ship-refund-1',
+    });
+
+    expect(afterSaleShippingPaymentService.handleWechatRefundNotify).toHaveBeenCalledWith({
+      merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-ship-refund-1',
+    });
+    expect(prisma.refund.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('微信售后退款 CLOSED notify 委托售后退款失败闭环', async () => {
+    const { service, prisma } = makeService();
+    const afterSaleRefundService = {
+      handleRefundSuccess: jest.fn(),
+      handleRefundFailure: jest.fn(),
+    };
+    service.setAfterSaleRefundService(afterSaleRefundService as any);
+    prisma.refund.findFirst.mockResolvedValue({
+      id: 'r_as_1',
+      merchantRefundNo: 'AS-after-sale-1',
+      status: 'REFUNDING',
+    });
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AS-after-sale-1',
+      tradeState: 'CLOSED',
+      providerRefundId: 'wx-refund-1',
+    });
+
+    expect(afterSaleRefundService.handleRefundFailure).toHaveBeenCalledWith(
+      'r_as_1',
+      '微信退款失败: CLOSED',
+    );
+    expect(afterSaleRefundService.handleRefundSuccess).not.toHaveBeenCalled();
+  });
+
+  it('微信自动退款 SUCCESS notify 走自动退款 finalizer', async () => {
+    const { service, prisma } = makeService();
+    prisma.refund.findFirst.mockResolvedValue({
+      id: 'r_auto_1',
+      merchantRefundNo: 'AUTO-CANCEL-o1',
+      status: 'REFUNDING',
+    });
+    const updateAutoRefundRecord = jest
+      .spyOn(service as any, 'updateAutoRefundRecord')
+      .mockResolvedValue(true);
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AUTO-CANCEL-o1',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-refund-auto-1',
+      rawPayload: { event_type: 'REFUND.SUCCESS' },
+    });
+
+    expect(updateAutoRefundRecord).toHaveBeenCalledWith({
+      refundId: 'r_auto_1',
+      toStatus: 'REFUNDED',
+      fromStatuses: ['REFUNDING', 'FAILED'],
+      providerRefundId: 'wx-refund-auto-1',
+      rawNotifyPayload: { event_type: 'REFUND.SUCCESS' },
+      remark: '微信退款成功',
+    });
+  });
+
+  it('微信自动退款 PROCESSING notify 只保存 providerRefundId 并保持 REFUNDING', async () => {
+    const { service, prisma } = makeService();
+    prisma.refund.findFirst.mockResolvedValue({
+      id: 'r_auto_1',
+      merchantRefundNo: 'AUTO-CANCEL-o1',
+      status: 'REFUNDING',
+    });
+    const updateAutoRefundRecord = jest
+      .spyOn(service as any, 'updateAutoRefundRecord')
+      .mockResolvedValue(true);
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AUTO-CANCEL-o1',
+      tradeState: 'PROCESSING',
+      providerRefundId: 'wx-refund-auto-1',
+      rawPayload: { event_type: 'REFUND.PROCESSING' },
+    });
+
+    expect(updateAutoRefundRecord).toHaveBeenCalledWith({
+      refundId: 'r_auto_1',
+      toStatus: 'REFUNDING',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'wx-refund-auto-1',
+      rawNotifyPayload: { event_type: 'REFUND.PROCESSING' },
+      remark: '微信退款处理中',
+    });
+  });
+
+  it('微信退款 notify 找不到或软删除 Refund 时直接忽略', async () => {
+    const { service, prisma } = makeService();
+    prisma.refund.findFirst.mockResolvedValue(null);
+    const updateAutoRefundRecord = jest.spyOn(service as any, 'updateAutoRefundRecord');
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AUTO-CANCEL-o1',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-refund-auto-1',
+    });
+
+    expect(prisma.refund.findFirst).toHaveBeenCalledWith({
+      where: { merchantRefundNo: 'AUTO-CANCEL-o1', deletedAt: null },
+      select: { id: true, merchantRefundNo: true, status: true },
+    });
+    expect(updateAutoRefundRecord).not.toHaveBeenCalled();
+  });
+
+  it('微信 legacy Payment 金额校验使用 Payment.amount 元转分', async () => {
+    const { service, prisma } = makeService();
+    prisma.payment.findFirst.mockResolvedValue({
+      merchantOrderNo: 'WX-LEGACY-1',
+      amount: 18.13,
+    });
+
+    await expect(service.assertWechatPaymentAmountMatches('WX-LEGACY-1', 1813)).resolves.toBeUndefined();
+    expect(prisma.payment.findFirst).toHaveBeenCalledWith({
+      where: { merchantOrderNo: 'WX-LEGACY-1', deletedAt: null },
+      select: { amount: true, merchantOrderNo: true },
+    });
   });
 });
