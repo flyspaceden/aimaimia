@@ -28,6 +28,7 @@ type WechatPayParsedNotify = {
   outRefundNo?: string;
   providerTxnId: string;
   tradeState: string;
+  amountFen: number;
   amount: number;
   paidAt?: Date;
 };
@@ -196,6 +197,57 @@ export class WechatPayService implements OnModuleInit {
     return decrypted;
   }
 
+  private isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  private validateNotifyAmountFen(value: unknown): number {
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      !Number.isSafeInteger(value) ||
+      value < 0
+    ) {
+      throw new Error('微信通知金额字段无效');
+    }
+    return value;
+  }
+
+  private hasCompletePaymentNotifyFields(decrypted: any): boolean {
+    return (
+      this.isNonEmptyString(decrypted?.out_trade_no) &&
+      this.isNonEmptyString(decrypted?.transaction_id) &&
+      this.isNonEmptyString(decrypted?.trade_state) &&
+      typeof decrypted?.amount?.total === 'number' &&
+      Number.isInteger(decrypted.amount.total) &&
+      Number.isSafeInteger(decrypted.amount.total) &&
+      decrypted.amount.total >= 0
+    );
+  }
+
+  private validatePaymentNotifyPayload(decrypted: any): number {
+    if (
+      !this.isNonEmptyString(decrypted?.out_trade_no) ||
+      !this.isNonEmptyString(decrypted?.transaction_id) ||
+      !this.isNonEmptyString(decrypted?.trade_state)
+    ) {
+      throw new Error('微信支付通知缺少必要字段');
+    }
+    return this.validateNotifyAmountFen(decrypted?.amount?.total);
+  }
+
+  private validateRefundNotifyPayload(decrypted: any): number {
+    if (
+      !this.isNonEmptyString(decrypted?.out_trade_no) ||
+      !this.isNonEmptyString(decrypted?.out_refund_no) ||
+      !this.isNonEmptyString(decrypted?.refund_id) ||
+      !this.isNonEmptyString(decrypted?.refund_status)
+    ) {
+      throw new Error('微信退款通知缺少必要字段');
+    }
+    return this.validateNotifyAmountFen(decrypted?.amount?.refund);
+  }
+
   isAvailable(): boolean {
     return this.client !== null;
   }
@@ -328,29 +380,50 @@ export class WechatPayService implements OnModuleInit {
     }
 
     try {
+      const eventType = this.isNonEmptyString(body.event_type) ? body.event_type : undefined;
+      const originalType = this.isNonEmptyString(resource.original_type) ? resource.original_type : undefined;
       const isRefund =
-        (typeof body.event_type === 'string' && body.event_type.startsWith('REFUND.')) ||
-        resource.original_type === 'refund' ||
+        (typeof eventType === 'string' && eventType.startsWith('REFUND.')) ||
+        originalType === 'refund' ||
         typeof decrypted?.out_refund_no === 'string';
+      const isPayment =
+        eventType === 'TRANSACTION.SUCCESS' &&
+        originalType === 'transaction';
+      const hasPaymentEventSignal = eventType === 'TRANSACTION.SUCCESS' || !eventType;
+      const hasPaymentOriginalSignal = originalType === 'transaction' || !originalType;
+      const isCompatPayment =
+        (!eventType || !originalType) &&
+        hasPaymentEventSignal &&
+        hasPaymentOriginalSignal &&
+        !isRefund &&
+        this.hasCompletePaymentNotifyFields(decrypted);
 
       if (isRefund) {
+        const amountFen = this.validateRefundNotifyPayload(decrypted);
         return {
           type: 'refund',
           outTradeNo: decrypted.out_trade_no,
           outRefundNo: decrypted.out_refund_no,
           providerTxnId: decrypted.refund_id,
           tradeState: decrypted.refund_status,
-          amount: (decrypted.amount?.refund ?? 0) / 100,
+          amountFen,
+          amount: amountFen / 100,
           paidAt: decrypted.success_time ? new Date(decrypted.success_time) : undefined,
         };
       }
 
+      if (!isPayment && !isCompatPayment) {
+        throw new Error('微信通知事件类型不支持');
+      }
+
+      const amountFen = this.validatePaymentNotifyPayload(decrypted);
       return {
         type: 'payment',
         outTradeNo: decrypted.out_trade_no,
         providerTxnId: decrypted.transaction_id,
         tradeState: decrypted.trade_state,
-        amount: (decrypted.amount?.total ?? 0) / 100,
+        amountFen,
+        amount: amountFen / 100,
         paidAt: decrypted.success_time ? new Date(decrypted.success_time) : undefined,
       };
     } catch (err) {

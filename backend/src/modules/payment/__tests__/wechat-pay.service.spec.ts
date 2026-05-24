@@ -587,6 +587,7 @@ describe('WechatPayService', () => {
         outTradeNo: 'CS-PAY-999',
         providerTxnId: 'WX-TXN-999',
         tradeState: 'SUCCESS',
+        amountFen: 999,
         amount: 9.99,
         paidAt: new Date('2026-05-23T10:11:12+08:00'),
       });
@@ -625,6 +626,7 @@ describe('WechatPayService', () => {
         outRefundNo: 'RF-NOTIFY-500',
         providerTxnId: 'WX-REFUND-500',
         tradeState: 'SUCCESS',
+        amountFen: 500,
         amount: 5,
         paidAt: new Date('2026-05-23T12:00:00+08:00'),
       });
@@ -709,9 +711,181 @@ describe('WechatPayService', () => {
         outTradeNo: 'CS-STRING-PAYLOAD',
         providerTxnId: 'WX-TXN-STRING',
         tradeState: 'SUCCESS',
+        amountFen: 999,
         amount: 9.99,
         paidAt: undefined,
       });
+    });
+
+    it('accepts complete payment fields when notify metadata is missing for compatibility', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-COMPAT-PAY',
+        transaction_id: 'WX-TXN-COMPAT',
+        trade_state: 'SUCCESS',
+        amount: { total: 1000 },
+      });
+
+      const result = await (svc as any).parseNotify({
+        body: {
+          resource: {
+            ciphertext: 'PAY-CIPHER',
+            nonce: 'RESOURCE-NONCE',
+          },
+        },
+        rawBody,
+        headers,
+      });
+
+      expect(result).toEqual({
+        type: 'payment',
+        outTradeNo: 'CS-COMPAT-PAY',
+        providerTxnId: 'WX-TXN-COMPAT',
+        tradeState: 'SUCCESS',
+        amountFen: 1000,
+        amount: 10,
+        paidAt: undefined,
+      });
+    });
+
+    it('throws when payment notify is missing transaction_id', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-MISSING-TXN',
+        trade_state: 'SUCCESS',
+        amount: { total: 100 },
+        secret_payload: 'DECRYPTED-SECRET',
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: paymentNotifyBody,
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信支付通知缺少必要字段');
+
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('event_type=TRANSACTION.SUCCESS');
+      expect(logged).toContain('original_type=transaction');
+      expect(logged).toContain('outTradeNo=CS-***-TXN');
+      expect(logged).not.toContain(rawBody);
+      expect(logged).not.toContain('PAY-CIPHER');
+      expect(logged).not.toContain('DECRYPTED-SECRET');
+      loggerError.mockRestore();
+    });
+
+    it('throws when refund notify is missing refund_id', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-REFUND-MISSING-ID',
+        out_refund_no: 'RF-MISSING-ID',
+        refund_status: 'SUCCESS',
+        amount: { refund: 100 },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: {
+            event_type: 'REFUND.SUCCESS',
+            resource: {
+              original_type: 'refund',
+              ciphertext: 'REFUND-CIPHER',
+              nonce: 'REFUND-RESOURCE-NONCE',
+            },
+          },
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信退款通知缺少必要字段');
+    });
+
+    it('throws instead of treating unknown transaction events as payment', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-UNKNOWN-EVENT',
+        transaction_id: 'WX-TXN-UNKNOWN',
+        trade_state: 'SUCCESS',
+        amount: { total: 100 },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: {
+            event_type: 'UNKNOWN.SUCCESS',
+            resource: {
+              original_type: 'transaction',
+              ciphertext: 'PAY-CIPHER',
+              nonce: 'RESOURCE-NONCE',
+            },
+          },
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信通知事件类型不支持');
+    });
+
+    it.each([
+      ['non-integer', 100.5],
+      ['negative', -1],
+    ])('throws when payment amount.total is %s', async (_case, total) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-BAD-PAY-AMOUNT',
+        transaction_id: 'WX-TXN-BAD-AMOUNT',
+        trade_state: 'SUCCESS',
+        amount: { total },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: paymentNotifyBody,
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信通知金额字段无效');
+    });
+
+    it.each([
+      ['non-integer', 100.5],
+      ['negative', -1],
+    ])('throws when refund amount.refund is %s', async (_case, refund) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-BAD-REFUND-AMOUNT',
+        out_refund_no: 'RF-BAD-AMOUNT',
+        refund_id: 'WX-REFUND-BAD-AMOUNT',
+        refund_status: 'SUCCESS',
+        amount: { refund },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: {
+            event_type: 'REFUND.SUCCESS',
+            resource: {
+              original_type: 'refund',
+              ciphertext: 'REFUND-CIPHER',
+              nonce: 'REFUND-RESOURCE-NONCE',
+            },
+          },
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信通知金额字段无效');
     });
 
     it('logs only sanitized notify context when decryption fails', async () => {
