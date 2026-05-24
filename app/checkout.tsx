@@ -20,6 +20,7 @@ import type { PendingCheckout } from '../src/types/domain/Checkout';
 import { AddressRepo, OrderRepo, UserRepo } from '../src/repos';
 import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { payWithAlipay } from '../src/utils/alipay';
+import { payWithWechat } from '../src/utils/wechat-pay';
 import { getStockText } from '../src/utils/stockDisplay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
@@ -574,8 +575,8 @@ export default function CheckoutScreen() {
 
       // 支付分流：先调起渠道支付，然后统一交给 confirmPaymentAndNavigate 走 active-query + polling
       // 流程图（详见 docs/issues/app-tpfix1.md P5 第三轮）：
-      //   - 6001 用户取消 → cancel session 直接退出
-      //   - 其他 (9000/8000/6004/4000/空) → 不依赖 SDK resultStatus，进 active-query
+      //   - 6001 用户取消 → 保留 session，跳未完成订单续付页
+      //   - 其他 (9000/8000/6004/4000/空/微信 errCode) → 不依赖 SDK resultStatus，进 active-query
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
@@ -607,9 +608,42 @@ export default function CheckoutScreen() {
           });
         }
         // 9000/8000/6004/4000/空字符串/TIMEOUT 等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
+      } else if (paymentParams?.channel === 'wechat' && paymentParams?.prepayId) {
+        const wechatResult = await payWithWechat({
+          appId: paymentParams.appId,
+          partnerId: paymentParams.partnerId,
+          timestamp: paymentParams.timestamp,
+          nonceStr: paymentParams.nonceStr,
+          prepayId: paymentParams.prepayId,
+          packageVal: paymentParams.packageVal,
+          signType: paymentParams.signType,
+          paySign: paymentParams.paySign,
+        });
+        if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+            await OrderRepo.cancelCheckoutSession(sessionId);
+            return;
+          }
+        } else if (wechatResult.resultStatus === '6001') {
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          return;
+        }
+        // errCode=0 / 其他错误码：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
       } else if (paymentMethod === 'alipay') {
         // 用户选了支付宝但后端没生成 orderStr → 后端 SDK 初始化失败/凭据错
         show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (paymentMethod === 'wechat') {
+        show({ message: '微信支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
         await OrderRepo.cancelCheckoutSession(sessionId);
         return;
       } else if (__DEV__) {
@@ -703,7 +737,7 @@ export default function CheckoutScreen() {
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // VIP 分支与主结算分支保持完全相同的支付分流（流程图详见 docs/issues/app-tpfix1.md P5 第三轮）
+      // VIP 分支复用主结算支付分流；取消支付时额外做 active-query 防止 SDK 误报
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
@@ -752,8 +786,57 @@ export default function CheckoutScreen() {
           });
         }
         // 其他状态（9000/8000/6004/4000/空/TIMEOUT）→ 进 active-query
+      } else if (paymentParams?.channel === 'wechat' && paymentParams?.prepayId) {
+        const wechatResult = await payWithWechat({
+          appId: paymentParams.appId,
+          partnerId: paymentParams.partnerId,
+          timestamp: paymentParams.timestamp,
+          nonceStr: paymentParams.nonceStr,
+          prepayId: paymentParams.prepayId,
+          packageVal: paymentParams.packageVal,
+          signType: paymentParams.signType,
+          paySign: paymentParams.paySign,
+        });
+        if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+            await OrderRepo.cancelCheckoutSession(sessionId);
+            return;
+          }
+        } else if (wechatResult.resultStatus === '6001') {
+          const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (activeR.ok && activeR.data.status === 'COMPLETED') {
+            clearVipPackageSelection();
+            resetCheckoutStore();
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['orders'] }),
+              queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
+            ]);
+            show({ message: '支付成功', type: 'success' });
+            router.replace('/orders');
+            return;
+          }
+          show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
+          router.replace('/vip/gifts');
+          return;
+        }
+        // errCode=0 / 其他错误码 → 进 active-query
       } else if (paymentMethod === 'alipay') {
         show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (paymentMethod === 'wechat') {
+        show({ message: '微信支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
         await OrderRepo.cancelCheckoutSession(sessionId);
         return;
       } else if (__DEV__) {
