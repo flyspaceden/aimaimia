@@ -603,7 +603,7 @@ export class WechatPayService implements OnModuleInit {
       };
     }
 
-    const { code, message } = this.parseSdkError(result, '微信关单失败');
+    const { code } = this.parseSdkError(result, '微信关单失败');
 
     if (code === 'ORDERNOTEXIST' || code === 'ORDERCLOSED') {
       return {
@@ -630,7 +630,7 @@ export class WechatPayService implements OnModuleInit {
       success: false,
       terminal: false,
       alreadyPaid: false,
-      message: `微信关单失败 [${code}] ${message}`,
+      message: `微信关单失败 [${code}]`,
     };
   }
 

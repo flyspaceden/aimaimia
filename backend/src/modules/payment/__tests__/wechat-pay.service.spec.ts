@@ -516,6 +516,21 @@ describe('WechatPayService', () => {
       });
     });
 
+    it('returns non-terminal success on 200', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.close = jest.fn().mockResolvedValue({ status: 200 });
+
+      const result = await (svc as any).closeOrder('CS-CLOSE-200');
+
+      expect(result).toEqual({
+        success: true,
+        terminal: false,
+        alreadyPaid: false,
+        message: '关单成功',
+      });
+    });
+
     it.each(['ORDERNOTEXIST', 'ORDERCLOSED'])(
       'treats %s as terminal success',
       async (code) => {
@@ -576,8 +591,11 @@ describe('WechatPayService', () => {
         success: false,
         terminal: false,
         alreadyPaid: false,
-        message: '微信关单失败 [SYSTEM_ERROR] provider system busy',
+        message: '微信关单失败 [SYSTEM_ERROR]',
       });
+      const serializedResult = JSON.stringify(result);
+      expect(serializedResult).not.toContain('provider system busy');
+      expect(serializedResult).not.toContain('RAW-CLOSE-ERROR-SECRET');
       const logged = loggerError.mock.calls.flat().join(' ');
       expect(logged).toContain('status=500 code=SYSTEM_ERROR outTradeNo=CS-***NOWN');
       expect(logged).not.toContain('provider system busy');
