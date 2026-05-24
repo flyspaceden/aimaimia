@@ -78,6 +78,73 @@ export class WechatPayService implements OnModuleInit {
     return this.client !== null;
   }
 
+  async createAppOrder(params: {
+    outTradeNo: string;
+    amount: number;
+    description: string;
+    timeExpire?: Date;
+  }): Promise<{
+    appId: string;
+    partnerId: string;
+    timestamp: string;
+    nonceStr: string;
+    prepayId: string;
+    packageVal: string;
+    signType: string;
+    paySign: string;
+  }> {
+    if (!this.client) {
+      throw new Error('微信支付 SDK 未初始化');
+    }
+
+    const notifyUrl = this.configService.get<string>(
+      'WECHAT_PAY_NOTIFY_URL',
+      'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
+    );
+
+    const result = await this.client.transactions_app({
+      appid: this.appId!,
+      mchid: this.mchId!,
+      description: params.description,
+      out_trade_no: params.outTradeNo,
+      notify_url: notifyUrl,
+      amount: {
+        total: Math.round(params.amount * 100),
+        currency: 'CNY',
+      },
+      ...(params.timeExpire ? { time_expire: params.timeExpire.toISOString() } : {}),
+    });
+
+    if (result?.status !== 200) {
+      let parsedError: any = {};
+      try {
+        parsedError = result?.error ? JSON.parse(result.error) : {};
+      } catch {
+        parsedError = {};
+      }
+      const code = parsedError?.code || result?.code || 'UNKNOWN';
+      const message = parsedError?.message || result?.message || result?.error || JSON.stringify(result);
+      this.logger.error(`微信支付下单失败: code=${code} message=${message}`);
+      throw new Error(`微信支付下单失败 [${code}] ${message}`);
+    }
+
+    const data = result.data;
+    if (!data?.prepayid || !data?.sign) {
+      throw new Error(`微信支付下单返回缺少 prepayid/sign: ${JSON.stringify(result)}`);
+    }
+
+    return {
+      appId: data.appid,
+      partnerId: data.partnerid ?? this.mchId!,
+      timestamp: data.timestamp,
+      nonceStr: data.noncestr,
+      prepayId: data.prepayid,
+      packageVal: data.package,
+      signType: 'RSA',
+      paySign: data.sign,
+    };
+  }
+
   /** 暴露给上层做金额校验、防伪造（notify 路径用） */
   getAppId(): string | null { return this.appId; }
   getMchId(): string | null { return this.mchId; }
