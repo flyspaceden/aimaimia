@@ -34,6 +34,13 @@ type StartRefundLease = {
   shouldCloseSuccess?: boolean;
 };
 
+type RefundInitiationResult = {
+  success: boolean;
+  pending?: boolean;
+  providerRefundId?: string | null;
+  message?: string | null;
+};
+
 @Injectable()
 export class AfterSaleRefundService {
   private readonly logger = new Logger(AfterSaleRefundService.name);
@@ -151,7 +158,7 @@ export class AfterSaleRefundService {
       return refund;
     }
 
-    let result: { success: boolean; providerRefundId?: string; message: string };
+    let result: RefundInitiationResult;
     try {
       result = await this.paymentService.initiateRefund(
         orderId,
@@ -167,10 +174,15 @@ export class AfterSaleRefundService {
       return refund;
     }
 
+    const providerRefundId = this.sanitizeProviderRefundId(result.providerRefundId);
     if (result.success) {
-      await this.handleRefundSuccess(refund.id, result.providerRefundId || null);
+      if (result.pending) {
+        await this.savePendingProviderRefundId(refund.id, providerRefundId);
+      } else {
+        await this.handleRefundSuccess(refund.id, providerRefundId);
+      }
     } else {
-      await this.handleRefundFailure(refund.id, result.message);
+      await this.handleRefundFailure(refund.id, this.sanitizeProviderMessage(result.message));
     }
 
     return refund;
@@ -479,17 +491,48 @@ export class AfterSaleRefundService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    const result = await this.paymentService.initiateRefund(
+    const result: RefundInitiationResult = await this.paymentService.initiateRefund(
       lease.refund.orderId,
       lease.refund.amount,
       lease.refund.merchantRefundNo,
     );
+    const providerRefundId = this.sanitizeProviderRefundId(result.providerRefundId);
     if (result.success) {
-      await this.handleRefundSuccess(lease.refund.id, result.providerRefundId || null);
+      if (result.pending) {
+        await this.savePendingProviderRefundId(lease.refund.id, providerRefundId);
+      } else {
+        await this.handleRefundSuccess(lease.refund.id, providerRefundId);
+      }
     } else {
-      await this.handleRefundFailure(lease.refund.id, result.message);
+      await this.handleRefundFailure(
+        lease.refund.id,
+        this.sanitizeProviderMessage(result.message),
+      );
     }
     return lease.refund;
+  }
+
+  private async savePendingProviderRefundId(
+    refundId: string,
+    providerRefundId: string | null,
+  ): Promise<void> {
+    if (!providerRefundId) return;
+
+    await this.withSerializableRetry(async (tx) => {
+      await tx.refund.updateMany({
+        where: { id: refundId, status: 'REFUNDING' },
+        data: { providerRefundId },
+      });
+    });
+  }
+
+  private sanitizeProviderRefundId(providerRefundId?: string | null): string | null {
+    if (!providerRefundId) return null;
+    return sanitizeStringForLog(providerRefundId, { maxStringLength: 256 }) || null;
+  }
+
+  private sanitizeProviderMessage(message?: string | null): string {
+    return sanitizeStringForLog(message || 'UNKNOWN', { maxStringLength: 256 });
   }
 
   private async acquireProviderRetryLeaseInTx(

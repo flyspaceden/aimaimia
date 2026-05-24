@@ -159,6 +159,53 @@ describe('AfterSaleRefundService', () => {
     );
   });
 
+  it('startRefund keeps pending provider refunds in REFUNDING and only stores providerRefundId', async () => {
+    tx.refund.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'refund_001',
+        orderId: 'order_001',
+        afterSaleId: 'as_001',
+        amount: 88,
+        status: 'REFUNDING',
+        merchantRefundNo: 'AS-as_001',
+        providerRefundId: null,
+      });
+    paymentService.initiateRefund.mockResolvedValue({
+      success: true,
+      pending: true,
+      providerRefundId: 'provider_pending_001',
+      message: 'PROCESSING',
+    });
+    const successSpy = jest.spyOn(service, 'handleRefundSuccess');
+    const failureSpy = jest.spyOn(service, 'handleRefundFailure');
+
+    await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+    expect(successSpy).not.toHaveBeenCalled();
+    expect(failureSpy).not.toHaveBeenCalled();
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'REFUNDING' },
+      data: { providerRefundId: 'provider_pending_001' },
+    }));
+    expect(tx.refund.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
+    expect(tx.refund.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED' }),
+    }));
+    expect(tx.afterSaleRequest.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'as_001' },
+      data: expect.objectContaining({
+        status: 'REFUNDING',
+        refundId: 'refund_001',
+      }),
+    }));
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
+  });
+
   it('startRefund does not call provider again for an existing REFUNDING refund', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
@@ -750,6 +797,51 @@ describe('AfterSaleRefundService', () => {
       88,
       'AS-as_001',
     );
+  });
+
+  it('retryRefund keeps pending provider refunds in REFUNDING and only stores providerRefundId', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'FAILED',
+      merchantRefundNo: 'AS-as_001',
+      afterSaleId: 'as_001',
+      providerRefundId: null,
+    });
+    paymentService.initiateRefund.mockResolvedValue({
+      success: true,
+      pending: true,
+      providerRefundId: 'provider_pending_retry_001',
+      message: 'PROCESSING',
+    });
+    const successSpy = jest.spyOn(service, 'handleRefundSuccess');
+    const failureSpy = jest.spyOn(service, 'handleRefundFailure');
+
+    await service.retryRefund('refund_001', {
+      type: AfterSaleOperatorType.ADMIN,
+      id: 'admin_001',
+    });
+
+    expect(successSpy).not.toHaveBeenCalled();
+    expect(failureSpy).not.toHaveBeenCalled();
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'FAILED' },
+      data: { status: 'REFUNDING' },
+    }));
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'REFUNDING' },
+      data: { providerRefundId: 'provider_pending_retry_001' },
+    }));
+    expect(tx.refund.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
+    expect(tx.refund.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED' }),
+    }));
+    expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
   });
 
   it('retryRefund rejects recent manual retry within 30 seconds', async () => {
