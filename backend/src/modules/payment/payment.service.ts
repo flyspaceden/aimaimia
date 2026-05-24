@@ -12,6 +12,7 @@ import { InboxService } from '../inbox/inbox.service';
 import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
 import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
 import type { RewardDeductionService } from '../bonus/reward-deduction.service';
+import { WechatPayService } from './wechat-pay.service';
 
 @Injectable()
 export class PaymentService {
@@ -31,6 +32,7 @@ export class PaymentService {
     @Optional() private checkoutService?: CheckoutService,
     @Optional() private couponService?: CouponService,
     @Optional() private inboxService?: InboxService,
+    @Optional() private wechatPayService?: WechatPayService,
   ) {}
 
   setAfterSaleRefundService(service: AfterSaleRefundService) {
@@ -367,7 +369,7 @@ export class PaymentService {
     orderId: string,
     amount: number,
     merchantRefundNo?: string,
-  ): Promise<{ success: boolean; providerRefundId?: string; message: string }> {
+  ): Promise<{ success: boolean; pending?: boolean; providerRefundId?: string; message: string }> {
     this.logger.log(
       `发起渠道退款: orderId=${this.maskBizId(orderId)}, amount=${amount}, merchantRefundNo=${merchantRefundNo ? this.maskBizId(merchantRefundNo) : 'N/A'}`,
     );
@@ -420,7 +422,7 @@ export class PaymentService {
     if (channel === 'ALIPAY') {
       if (!this.alipayService.isAvailable()) {
         this.logger.error(`支付宝 SDK 未初始化，无法退款: orderId=${this.maskBizId(orderId)}`);
-        return { success: false, message: '支付宝 SDK 未初始化' };
+        return { success: false, pending: false, message: '支付宝 SDK 未初始化' };
       }
       const refundNo = merchantRefundNo || `REFUND-${Date.now()}`;
       const result = await this.alipayService.refund({
@@ -431,12 +433,34 @@ export class PaymentService {
       });
       return {
         success: result.success,
+        pending: false,
         providerRefundId: result.success ? refundNo : undefined,
         message: result.message,
       };
     }
 
-    // 微信支付暂未接入，v1.0 仅支持支付宝
+    if (channel === 'WECHAT_PAY') {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.error(`微信支付 SDK 未初始化，无法退款: orderId=${this.maskBizId(orderId)}`);
+        return { success: false, pending: false, message: '微信支付 SDK 未初始化' };
+      }
+      const refundNo = merchantRefundNo || `REFUND-${Date.now()}`;
+      const totalAmount = payment?.amount ?? amount;
+      const result = await this.wechatPayService.refund({
+        outTradeNo: providerOrderNo!,
+        outRefundNo: refundNo,
+        refundAmount: amount,
+        totalAmount,
+        reason: '用户退款',
+      });
+      return {
+        success: result.success,
+        pending: result.pending,
+        providerRefundId: result.success ? refundNo : undefined,
+        message: result.message,
+      };
+    }
+
     throw new NotImplementedException(`退款渠道 ${channel} 暂未接入`);
   }
 
@@ -534,6 +558,12 @@ export class PaymentService {
         const result = await this.initiateRefund(claim.orderId, claim.amount, claim.merchantRefundNo);
         const isAfterSaleRefund = claim.merchantRefundNo.startsWith('AS-');
         if (result.success) {
+          if (result.pending) {
+            this.logger.log(
+              `退款已受理，等待渠道通知: refundId=${this.maskBizId(refund.id)}, merchantRefundNo=${this.maskBizId(claim.merchantRefundNo)}`,
+            );
+            continue;
+          }
           if (isAfterSaleRefund && this.afterSaleRefundService) {
             try {
               await this.afterSaleRefundService.handleRefundSuccess(
