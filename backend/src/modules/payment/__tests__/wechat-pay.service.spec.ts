@@ -292,6 +292,55 @@ describe('WechatPayService', () => {
       expect(result).not.toHaveProperty('transactionId');
     });
 
+    it('returns null and warns when SUCCESS payload is missing transaction_id without leaking raw provider payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerWarn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(jest.fn());
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'SUCCESS',
+          out_trade_no: 'CS-SUCCESS-NO-TXN',
+          amount: { total: 100 },
+          rawSecretPayload: 'RAW-SUCCESS-NO-TXN-SECRET',
+        },
+      });
+
+      const result = await svc.queryOrder('CS-SUCCESS-NO-TXN');
+
+      expect(result).toBeNull();
+      const logged = loggerWarn.mock.calls.flat().join(' ');
+      expect(logged).toContain('outTradeNo=CS-***-TXN');
+      expect(logged).not.toContain('RAW-SUCCESS-NO-TXN-SECRET');
+      loggerWarn.mockRestore();
+    });
+
+    it('returns null and warns when trade_state is outside official WeChat states without leaking raw provider payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerWarn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(jest.fn());
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'PAID_OK',
+          transaction_id: 'WX-TXN-UNKNOWN-STATE',
+          out_trade_no: 'CS-UNKNOWN-STATE',
+          amount: { total: 100 },
+          rawSecretPayload: 'RAW-UNKNOWN-STATE-SECRET',
+        },
+      });
+
+      const result = await svc.queryOrder('CS-UNKNOWN-STATE');
+
+      expect(result).toBeNull();
+      const logged = loggerWarn.mock.calls.flat().join(' ');
+      expect(logged).toContain('outTradeNo=CS-***TATE');
+      expect(logged).not.toContain('PAID_OK');
+      expect(logged).not.toContain('WX-TXN-UNKNOWN-STATE');
+      expect(logged).not.toContain('RAW-UNKNOWN-STATE-SECRET');
+      loggerWarn.mockRestore();
+    });
+
     it('returns null on non-200 SDK response and logs only sanitized context', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
@@ -342,6 +391,17 @@ describe('WechatPayService', () => {
       expect(logged).not.toContain('raw thrown payload should not leak');
       expect(logged).not.toContain('RAW-THROW-SECRET');
       loggerError.mockRestore();
+    });
+
+    it('returns null for runtime null outTradeNo and does not call SDK', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn();
+
+      const result = await (svc as any).queryOrder(null);
+
+      expect(result).toBeNull();
+      expect(client.query).not.toHaveBeenCalled();
     });
 
     it.each([

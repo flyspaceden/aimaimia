@@ -33,6 +33,16 @@ type WechatPayParsedNotify = {
   paidAt?: Date;
 };
 
+const WECHAT_ORDER_TRADE_STATES = new Set([
+  'SUCCESS',
+  'REFUND',
+  'NOTPAY',
+  'CLOSED',
+  'REVOKED',
+  'USERPAYING',
+  'PAYERROR',
+]);
+
 @Injectable()
 export class WechatPayService implements OnModuleInit {
   private readonly logger = new Logger(WechatPayService.name);
@@ -478,6 +488,20 @@ export class WechatPayService implements OnModuleInit {
         !this.isNonEmptyString(data?.out_trade_no)
       ) {
         throw new Error('微信主动查单返回缺少必要字段');
+      }
+
+      if (!WECHAT_ORDER_TRADE_STATES.has(data.trade_state)) {
+        this.logger.warn(
+          `微信主动查单返回未知交易状态: outTradeNo=${outTradeNoForLog}`,
+        );
+        return null;
+      }
+
+      if (data.trade_state === 'SUCCESS' && !this.isNonEmptyString(data.transaction_id)) {
+        this.logger.warn(
+          `微信主动查单成功态缺少交易流水号: outTradeNo=${outTradeNoForLog}`,
+        );
+        return null;
       }
 
       if (data.out_trade_no !== outTradeNo) {
