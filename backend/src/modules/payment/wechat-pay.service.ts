@@ -43,6 +43,13 @@ const WECHAT_ORDER_TRADE_STATES = new Set([
   'PAYERROR',
 ]);
 
+const WECHAT_REFUND_STATUSES = new Set([
+  'SUCCESS',
+  'CLOSED',
+  'PROCESSING',
+  'ABNORMAL',
+]);
+
 @Injectable()
 export class WechatPayService implements OnModuleInit {
   private readonly logger = new Logger(WechatPayService.name);
@@ -538,6 +545,113 @@ export class WechatPayService implements OnModuleInit {
     } catch {
       this.logger.warn(
         `微信主动查单返回字段无效: outTradeNo=${outTradeNoForLog}`,
+      );
+      return null;
+    }
+  }
+
+  async queryRefund(outRefundNo: string): Promise<{
+    outRefundNo: string;
+    outTradeNo: string;
+    providerRefundId: string;
+    status: string;
+    refundAmountFen: number;
+    totalAmountFen: number;
+    refundAmount: number;
+    totalAmount: number;
+    successAt?: Date;
+  } | null> {
+    if (!this.client) {
+      return null;
+    }
+
+    try {
+      this.validateOutRefundNo(outRefundNo);
+    } catch {
+      return null;
+    }
+
+    const outRefundNoForLog = this.maskBizId(outRefundNo);
+
+    let result: any;
+    try {
+      result = await this.client.find_refunds(outRefundNo);
+    } catch (err: any) {
+      const code = String(err?.code || 'SDK_EXCEPTION');
+      this.logger.error(
+        `微信主动查退款 SDK 调用失败: code=${code} outRefundNo=${outRefundNoForLog}`,
+      );
+      return null;
+    }
+
+    if (result?.status !== 200) {
+      const { code } = this.parseSdkError(result, '微信主动查退款失败');
+      this.logger.error(
+        `微信主动查退款失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outRefundNo=${outRefundNoForLog}`,
+      );
+      return null;
+    }
+
+    const data = result.data;
+    try {
+      if (!this.isNonEmptyString(data?.out_refund_no)) {
+        throw new Error('微信主动查退款返回缺少商户退款单号');
+      }
+
+      if (data.out_refund_no !== outRefundNo) {
+        this.logger.warn(
+          `微信主动查退款返回退款单号不匹配: outRefundNo=${outRefundNoForLog} providerOutRefundNo=${this.maskBizId(data.out_refund_no)}`,
+        );
+        return null;
+      }
+
+      if (
+        !this.isNonEmptyString(data?.out_trade_no) ||
+        !this.isNonEmptyString(data?.refund_id) ||
+        !this.isNonEmptyString(data?.status)
+      ) {
+        throw new Error('微信主动查退款返回缺少必要字段');
+      }
+      this.validateOutTradeNo(data.out_trade_no);
+
+      if (!WECHAT_REFUND_STATUSES.has(data.status)) {
+        this.logger.warn(
+          `微信主动查退款返回未知退款状态: outRefundNo=${outRefundNoForLog}`,
+        );
+        return null;
+      }
+
+      const refundAmountFen = this.validateNotifyAmountFen(data?.amount?.refund);
+      const totalAmountFen = this.validateNotifyAmountFen(data?.amount?.total);
+      const parsed: {
+        outRefundNo: string;
+        outTradeNo: string;
+        providerRefundId: string;
+        status: string;
+        refundAmountFen: number;
+        totalAmountFen: number;
+        refundAmount: number;
+        totalAmount: number;
+        successAt?: Date;
+      } = {
+        outRefundNo: data.out_refund_no,
+        outTradeNo: data.out_trade_no,
+        providerRefundId: data.refund_id,
+        status: data.status,
+        refundAmountFen,
+        totalAmountFen,
+        refundAmount: refundAmountFen / 100,
+        totalAmount: totalAmountFen / 100,
+      };
+
+      if (this.isNonEmptyString(data.success_time)) {
+        parsed.successAt = new Date(data.success_time);
+      }
+
+      return parsed;
+    } catch {
+      this.logger.warn(
+        `微信主动查退款返回字段无效: outRefundNo=${outRefundNoForLog}`,
       );
       return null;
     }

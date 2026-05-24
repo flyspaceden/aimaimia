@@ -7,6 +7,7 @@ jest.mock('wechatpay-node-v3', () => ({
   default: jest.fn().mockImplementation(() => ({
     transactions_app: jest.fn(),
     refunds: jest.fn(),
+    find_refunds: jest.fn(),
     query: jest.fn(),
     verifySign: jest.fn(),
     decipher_gcm: jest.fn(),
@@ -714,6 +715,247 @@ describe('WechatPayService', () => {
         message: 'outTradeNo 不能超过 32 个字符',
       });
       expect(client.refunds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('queryRefund', () => {
+    it('returns null when SDK is not initialized', async () => {
+      const svc = await buildModule({});
+
+      await expect(svc.queryRefund('RF-QUERY-001')).resolves.toBeNull();
+    });
+
+    it('queries by out_refund_no and returns parsed SUCCESS payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.find_refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          out_refund_no: 'RF-QUERY-001',
+          out_trade_no: 'CS-REFUND-001',
+          refund_id: 'wxrefund-query-001',
+          status: 'SUCCESS',
+          amount: {
+            refund: 1234,
+            total: 2000,
+          },
+          success_time: '2026-05-23T10:11:12+08:00',
+        },
+      });
+
+      const result = await svc.queryRefund('RF-QUERY-001');
+
+      expect(client.find_refunds).toHaveBeenCalledWith('RF-QUERY-001');
+      expect(result).toEqual({
+        outRefundNo: 'RF-QUERY-001',
+        outTradeNo: 'CS-REFUND-001',
+        providerRefundId: 'wxrefund-query-001',
+        status: 'SUCCESS',
+        refundAmountFen: 1234,
+        totalAmountFen: 2000,
+        refundAmount: 12.34,
+        totalAmount: 20,
+        successAt: new Date('2026-05-23T10:11:12+08:00'),
+      });
+    });
+
+    it('returns parsed PROCESSING payload without successAt', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.find_refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          out_refund_no: 'RF-QUERY-PROCESSING',
+          out_trade_no: 'CS-REFUND-PROCESSING',
+          refund_id: 'wxrefund-query-processing',
+          status: 'PROCESSING',
+          amount: {
+            refund: 500,
+            total: 1200,
+          },
+        },
+      });
+
+      const result = await svc.queryRefund('RF-QUERY-PROCESSING');
+
+      expect(result).toEqual({
+        outRefundNo: 'RF-QUERY-PROCESSING',
+        outTradeNo: 'CS-REFUND-PROCESSING',
+        providerRefundId: 'wxrefund-query-processing',
+        status: 'PROCESSING',
+        refundAmountFen: 500,
+        totalAmountFen: 1200,
+        refundAmount: 5,
+        totalAmount: 12,
+      });
+      expect(result?.successAt).toBeUndefined();
+    });
+
+    it('returns null on non-200 SDK response and logs only sanitized context', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.find_refunds = jest.fn().mockResolvedValue({
+        status: 404,
+        error: JSON.stringify({
+          code: 'RESOURCE_NOT_EXISTS',
+          message: 'raw refund query secret should not leak',
+        }),
+        data: {
+          rawSecretPayload: 'RAW-REFUND-NON200-SECRET',
+        },
+      });
+
+      const result = await svc.queryRefund('RF-NON200-001');
+
+      expect(result).toBeNull();
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('status=404 code=RESOURCE_NOT_EXISTS outRefundNo=RF-***-001');
+      expect(logged).not.toContain('raw refund query secret should not leak');
+      expect(logged).not.toContain('RAW-REFUND-NON200-SECRET');
+      expect(logged).not.toContain('{"code":"RESOURCE_NOT_EXISTS"');
+      loggerError.mockRestore();
+    });
+
+    it('returns null when SDK throws and does not leak raw exception payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.find_refunds = jest.fn().mockRejectedValue(Object.assign(
+        new Error('raw thrown refund payload should not leak'),
+        {
+          code: 'SYSTEM_ERROR',
+          response: {
+            data: {
+              rawSecretPayload: 'RAW-REFUND-THROW-SECRET',
+            },
+          },
+        },
+      ));
+
+      const result = await svc.queryRefund('RF-THROW-001');
+
+      expect(result).toBeNull();
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('code=SYSTEM_ERROR outRefundNo=RF-***-001');
+      expect(logged).not.toContain('raw thrown refund payload should not leak');
+      expect(logged).not.toContain('RAW-REFUND-THROW-SECRET');
+      loggerError.mockRestore();
+    });
+
+    it('returns null for runtime null outRefundNo and does not call SDK', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.find_refunds = jest.fn();
+
+      const result = await (svc as any).queryRefund(null);
+
+      expect(result).toBeNull();
+      expect(client.find_refunds).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['empty', ''],
+      ['too long', 'R'.repeat(65)],
+    ])('returns null for %s outRefundNo and does not call SDK', async (_case, outRefundNo) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.find_refunds = jest.fn();
+
+      const result = await svc.queryRefund(outRefundNo);
+
+      expect(result).toBeNull();
+      expect(client.find_refunds).not.toHaveBeenCalled();
+    });
+
+    it('returns null and warns when response out_refund_no differs from request', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerWarn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(jest.fn());
+      client.find_refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          out_refund_no: 'RF-OTHER-456',
+          out_trade_no: 'CS-REFUND-001',
+          refund_id: 'wxrefund-query-mismatch',
+          status: 'SUCCESS',
+          amount: {
+            refund: 100,
+            total: 200,
+          },
+        },
+      });
+
+      const result = await svc.queryRefund('RF-REQUEST-123');
+
+      expect(result).toBeNull();
+      const logged = loggerWarn.mock.calls.flat().join(' ');
+      expect(logged).toContain('outRefundNo=RF-***-123');
+      expect(logged).toContain('providerOutRefundNo=RF-***-456');
+      loggerWarn.mockRestore();
+    });
+
+    it('returns null and warns when refund status is outside official WeChat states without leaking raw provider payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerWarn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(jest.fn());
+      client.find_refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          out_refund_no: 'RF-UNKNOWN-STATE',
+          out_trade_no: 'CS-REFUND-UNKNOWN',
+          refund_id: 'wxrefund-query-unknown',
+          status: 'USERPAYING',
+          amount: {
+            refund: 100,
+            total: 200,
+          },
+          rawSecretPayload: 'RAW-REFUND-UNKNOWN-STATE-SECRET',
+        },
+      });
+
+      const result = await svc.queryRefund('RF-UNKNOWN-STATE');
+
+      expect(result).toBeNull();
+      const logged = loggerWarn.mock.calls.flat().join(' ');
+      expect(logged).toContain('outRefundNo=RF-***TATE');
+      expect(logged).not.toContain('USERPAYING');
+      expect(logged).not.toContain('wxrefund-query-unknown');
+      expect(logged).not.toContain('RAW-REFUND-UNKNOWN-STATE-SECRET');
+      loggerWarn.mockRestore();
+    });
+
+    it.each([
+      ['missing refund_id', {
+        out_refund_no: 'RF-MISSING-REFUND-ID',
+        out_trade_no: 'CS-MISSING-REFUND-ID',
+        status: 'SUCCESS',
+        amount: {
+          refund: 100,
+          total: 200,
+        },
+      }],
+      ['non-integer amount.total', {
+        out_refund_no: 'RF-BAD-TOTAL',
+        out_trade_no: 'CS-BAD-TOTAL',
+        refund_id: 'wxrefund-bad-total',
+        status: 'SUCCESS',
+        amount: {
+          refund: 100,
+          total: 200.5,
+        },
+      }],
+    ])('returns null when refund query payload has %s', async (_case, data) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.find_refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data,
+      });
+
+      const result = await svc.queryRefund(data.out_refund_no);
+
+      expect(result).toBeNull();
     });
   });
 
