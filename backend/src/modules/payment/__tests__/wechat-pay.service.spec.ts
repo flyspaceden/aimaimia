@@ -5,15 +5,16 @@ import { WechatPayService } from '../wechat-pay.service';
 jest.mock('wechatpay-node-v3', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
-    transactions_app: jest.fn(),
-    refunds: jest.fn(),
-    find_refunds: jest.fn(),
-    query: jest.fn(),
-    close: jest.fn(),
-    verifySign: jest.fn(),
-    decipher_gcm: jest.fn(),
-  })),
-}));
+	    transactions_app: jest.fn(),
+	    refunds: jest.fn(),
+	    find_refunds: jest.fn(),
+	    query: jest.fn(),
+	    close: jest.fn(),
+	    fetchCertificates: jest.fn(),
+	    verifySign: jest.fn(),
+	    decipher_gcm: jest.fn(),
+	  })),
+	}));
 
 describe('WechatPayService', () => {
   const validWechatEnv = {
@@ -58,10 +59,22 @@ describe('WechatPayService', () => {
     it('returns true when all required credentials present', async () => {
       const svc = await buildModule(validWechatEnv);
       expect(svc.isAvailable()).toBe(true);
-    });
-  });
+	  });
 
-  describe('createAppOrder', () => {
+	  describe('refreshPlatformCertificates', () => {
+	    it('fetches platform certificates with API v3 key when SDK is initialized', async () => {
+	      const svc = await buildModule(validWechatEnv);
+	      const client = (svc as any).client;
+	      client.fetchCertificates = jest.fn().mockResolvedValue(undefined);
+
+	      await svc.refreshPlatformCertificates();
+
+	      expect(client.fetchCertificates).toHaveBeenCalledWith(validWechatEnv.WECHAT_PAY_API_V3_KEY);
+	    });
+	  });
+	});
+
+	  describe('createAppOrder', () => {
     it('throws when SDK not available', async () => {
       const svc = await buildModule({});
       await expect(
@@ -121,7 +134,7 @@ describe('WechatPayService', () => {
       });
     });
 
-    it('returns native-compatible aliases matching the existing app contract fields', async () => {
+	    it('returns native-compatible aliases matching the existing app contract fields', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.transactions_app = jest.fn().mockResolvedValue({
@@ -145,8 +158,36 @@ describe('WechatPayService', () => {
 
       expect(result.timeStamp).toBe(result.timestamp);
       expect(result.package).toBe(result.packageVal);
-      expect(result.sign).toBe(result.paySign);
-    });
+	      expect(result.sign).toBe(result.paySign);
+	    });
+
+	    it('formats time_expire without milliseconds for WeChat V3', async () => {
+	      const svc = await buildModule(validWechatEnv);
+	      const client = (svc as any).client;
+	      client.transactions_app = jest.fn().mockResolvedValue({
+	        status: 200,
+	        data: {
+	          appid: 'wxtest',
+	          partnerid: '1234567890',
+	          prepayid: 'wx2024xxxxxxxxxxxxxxxx',
+	          package: 'Sign=WXPay',
+	          noncestr: 'NONCESTRX',
+	          timestamp: '1700000000',
+	          sign: 'SIGNED',
+	        },
+	      });
+
+	      await svc.createAppOrder({
+	        outTradeNo: 'CS-TIME-EXPIRE',
+	        amount: 9.99,
+	        description: 'unit test',
+	        timeExpire: new Date('2026-05-24T10:11:12.345Z'),
+	      });
+
+	      expect(client.transactions_app).toHaveBeenCalledWith(expect.objectContaining({
+	        time_expire: '2026-05-24T10:11:12Z',
+	      }));
+	    });
 
     it('throws when amount is not a finite number', async () => {
       const svc = await buildModule(validWechatEnv);
@@ -782,7 +823,7 @@ describe('WechatPayService', () => {
       },
     );
 
-    it('returns failed result with SDK error code and message on non-200 response', async () => {
+	    it('returns failed result with SDK error code and message on non-200 response', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
@@ -804,8 +845,24 @@ describe('WechatPayService', () => {
       expect(logged).toContain('outRefundNo=RF-***-001');
       expect(logged).not.toContain('refund amount invalid');
       expect(logged).not.toContain('{"code":"PARAM_ERROR"');
-      loggerError.mockRestore();
-    });
+	      loggerError.mockRestore();
+	    });
+
+	    it('treats network exceptions as pending so queryRefund can reconcile later', async () => {
+	      const svc = await buildModule(validWechatEnv);
+	      const client = (svc as any).client;
+	      client.refunds = jest.fn().mockRejectedValue(Object.assign(new Error('socket hang up'), {
+	        code: 'ECONNRESET',
+	      }));
+
+	      const result = await svc.refund(refundParams);
+
+	      expect(result).toEqual({
+	        success: true,
+	        pending: true,
+	        message: '微信退款请求异常待查 [ECONNRESET] socket hang up',
+	      });
+	    });
 
     it('treats missing data.status as pending instead of success', async () => {
       const svc = await buildModule(validWechatEnv);
@@ -1161,14 +1218,14 @@ describe('WechatPayService', () => {
     });
   });
 
-  describe('parseNotify', () => {
-    const rawBody = '{"id":"notify-001","resource":{"ciphertext":"PAY-CIPHER"}}';
-    const headers = {
-      signature: 'SIGNATURE',
-      timestamp: '1710000000',
-      nonce: 'HEADER-NONCE',
-      serial: 'PLATFORM-SERIAL',
-    };
+	  describe('parseNotify', () => {
+	    const rawBody = '{"id":"notify-001","resource":{"ciphertext":"PAY-CIPHER"}}';
+	    const buildHeaders = () => ({
+	      signature: 'SIGNATURE',
+	      timestamp: Math.floor(Date.now() / 1000).toString(),
+	      nonce: 'HEADER-NONCE',
+	      serial: 'PLATFORM-SERIAL',
+	    });
 
     const paymentNotifyBody = {
       event_type: 'TRANSACTION.SUCCESS',
@@ -1187,12 +1244,12 @@ describe('WechatPayService', () => {
         (svc as any).parseNotify({
           body: paymentNotifyBody,
           rawBody,
-          headers,
+          headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信支付 SDK 未初始化');
     });
 
-    it('throws when notify signature verification returns false', async () => {
+	    it('throws when notify signature verification returns false', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(false);
@@ -1202,11 +1259,31 @@ describe('WechatPayService', () => {
         (svc as any).parseNotify({
           body: paymentNotifyBody,
           rawBody,
-          headers,
+          headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信通知签名校验失败');
-      expect(client.decipher_gcm).not.toHaveBeenCalled();
-    });
+	      expect(client.decipher_gcm).not.toHaveBeenCalled();
+	    });
+
+	    it('rejects stale notify timestamp before signature verification', async () => {
+	      const svc = await buildModule(validWechatEnv);
+	      const client = (svc as any).client;
+	      client.verifySign = jest.fn();
+	      client.decipher_gcm = jest.fn();
+
+	      await expect(
+	        (svc as any).parseNotify({
+	          body: paymentNotifyBody,
+	          rawBody,
+	          headers: {
+	            ...buildHeaders(),
+	            timestamp: String(Math.floor(Date.now() / 1000) - 301),
+	          },
+	        }),
+	      ).rejects.toThrow('微信通知 timestamp 超过 5 分钟窗口');
+	      expect(client.verifySign).not.toHaveBeenCalled();
+	      expect(client.decipher_gcm).not.toHaveBeenCalled();
+	    });
 
     it('calls verifySign with the rawBody string', async () => {
       const svc = await buildModule(validWechatEnv);
@@ -1221,21 +1298,22 @@ describe('WechatPayService', () => {
         amount: { total: 100 },
       });
 
+      const headers = buildHeaders();
       await (svc as any).parseNotify({
         body: paymentNotifyBody,
         rawBody,
         headers,
       });
 
-      expect(client.verifySign).toHaveBeenCalledWith({
-        timestamp: '1710000000',
-        nonce: 'HEADER-NONCE',
-        body: rawBody,
-        serial: 'PLATFORM-SERIAL',
-        signature: 'SIGNATURE',
-        apiSecret: validWechatEnv.WECHAT_PAY_API_V3_KEY,
-      });
-    });
+	      expect(client.verifySign).toHaveBeenCalledWith({
+	        timestamp: headers.timestamp,
+	        nonce: 'HEADER-NONCE',
+	        body: rawBody,
+	        serial: 'PLATFORM-SERIAL',
+	        signature: 'SIGNATURE',
+	        apiSecret: validWechatEnv.WECHAT_PAY_API_V3_KEY,
+	      });
+	    });
 
     it('decrypts a successful payment notify payload and maps fen to yuan', async () => {
       const svc = await buildModule(validWechatEnv);
@@ -1254,7 +1332,7 @@ describe('WechatPayService', () => {
       const result = await (svc as any).parseNotify({
         body: paymentNotifyBody,
         rawBody,
-        headers,
+        headers: buildHeaders(),
       });
 
       expect(client.decipher_gcm).toHaveBeenCalledWith(
@@ -1270,13 +1348,13 @@ describe('WechatPayService', () => {
         outTradeNo: 'CS-PAY-999',
         providerTxnId: 'WX-TXN-999',
         tradeState: 'SUCCESS',
-        amountFen: 999,
-        amount: 9.99,
-        paidAt: new Date('2026-05-23T10:11:12+08:00'),
-      });
-    });
+	        amountFen: 999,
+	        amount: 9.99,
+	        paidAt: new Date('2026-05-23T10:11:12+08:00'),
+		  });
+	    });
 
-    it('decrypts a successful refund notify payload when event_type is REFUND.SUCCESS', async () => {
+	    it('decrypts a successful refund notify payload when event_type is REFUND.SUCCESS', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
@@ -1301,7 +1379,7 @@ describe('WechatPayService', () => {
           },
         },
         rawBody,
-        headers,
+        headers: buildHeaders(),
       });
 
       expect(result).toEqual({
@@ -1342,7 +1420,7 @@ describe('WechatPayService', () => {
           },
         },
         rawBody,
-        headers,
+        headers: buildHeaders(),
       });
 
       expect(result.type).toBe('refund');
@@ -1372,7 +1450,7 @@ describe('WechatPayService', () => {
           },
         },
         rawBody,
-        headers,
+        headers: buildHeaders(),
       });
 
       expect(result.type).toBe('refund');
@@ -1395,23 +1473,23 @@ describe('WechatPayService', () => {
       const result = await (svc as any).parseNotify({
         body: paymentNotifyBody,
         rawBody,
-        headers,
+        headers: buildHeaders(),
       });
 
-      expect(result).toEqual({
-        type: 'payment',
-        appId: 'wxtest',
-        mchId: '1234567890',
-        outTradeNo: 'CS-STRING-PAYLOAD',
-        providerTxnId: 'WX-TXN-STRING',
-        tradeState: 'SUCCESS',
-        amountFen: 999,
-        amount: 9.99,
-        paidAt: undefined,
-      });
-    });
+	      expect(result).toEqual({
+	        type: 'payment',
+	        appId: 'wxtest',
+	        mchId: '1234567890',
+	        outTradeNo: 'CS-STRING-PAYLOAD',
+	        providerTxnId: 'WX-TXN-STRING',
+	        tradeState: 'SUCCESS',
+	        amountFen: 999,
+	        amount: 9.99,
+	        paidAt: undefined,
+		  });
+	    });
 
-    it('accepts complete payment fields when notify metadata is missing for compatibility', async () => {
+	    it('accepts complete payment fields when notify metadata is missing for compatibility', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.verifySign = jest.fn().mockReturnValue(true);
@@ -1432,23 +1510,23 @@ describe('WechatPayService', () => {
           },
         },
         rawBody,
-        headers,
+        headers: buildHeaders(),
       });
 
-      expect(result).toEqual({
-        type: 'payment',
-        appId: 'wxtest',
-        mchId: '1234567890',
-        outTradeNo: 'CS-COMPAT-PAY',
-        providerTxnId: 'WX-TXN-COMPAT',
-        tradeState: 'SUCCESS',
-        amountFen: 1000,
-        amount: 10,
-        paidAt: undefined,
-      });
-    });
+	      expect(result).toEqual({
+	        type: 'payment',
+	        appId: 'wxtest',
+	        mchId: '1234567890',
+	        outTradeNo: 'CS-COMPAT-PAY',
+	        providerTxnId: 'WX-TXN-COMPAT',
+	        tradeState: 'SUCCESS',
+	        amountFen: 1000,
+	        amount: 10,
+	        paidAt: undefined,
+		  });
+	    });
 
-    it('throws when payment notify is missing transaction_id', async () => {
+	    it('throws when payment notify is missing transaction_id', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
@@ -1466,7 +1544,7 @@ describe('WechatPayService', () => {
         (svc as any).parseNotify({
           body: paymentNotifyBody,
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信支付通知缺少必要字段');
 
@@ -1499,7 +1577,7 @@ describe('WechatPayService', () => {
         (svc as any).parseNotify({
           body: paymentNotifyBody,
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信支付通知缺少必要字段');
     });
@@ -1527,7 +1605,7 @@ describe('WechatPayService', () => {
             },
           },
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信退款通知缺少必要字段');
     });
@@ -1555,7 +1633,7 @@ describe('WechatPayService', () => {
             },
           },
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信退款通知缺少必要字段');
     });
@@ -1584,7 +1662,7 @@ describe('WechatPayService', () => {
             },
           },
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信通知事件类型不支持');
     });
@@ -1609,7 +1687,7 @@ describe('WechatPayService', () => {
         (svc as any).parseNotify({
           body: paymentNotifyBody,
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信通知金额字段无效');
     });
@@ -1641,7 +1719,7 @@ describe('WechatPayService', () => {
             },
           },
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信通知金额字段无效');
     });
@@ -1675,7 +1753,7 @@ describe('WechatPayService', () => {
             },
           },
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('微信通知金额字段无效');
     });
@@ -1693,7 +1771,7 @@ describe('WechatPayService', () => {
         (svc as any).parseNotify({
           body: paymentNotifyBody,
           rawBody,
-          headers,
+        headers: buildHeaders(),
         }),
       ).rejects.toThrow('decrypt failed with secret payload');
 

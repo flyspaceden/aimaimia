@@ -73,6 +73,14 @@ export default function CheckoutPendingScreen() {
     }
     if (params?.channel === 'wechat' && hasCompleteWechatPayPayload(params)) {
       const result = await payWithWechat(params);
+      if (result.errStr === 'NATIVE_UNAVAILABLE') {
+        show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+        return;
+      }
+      if (result.errStr === 'WECHAT_NOT_INSTALLED') {
+        show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
+        return;
+      }
       await confirmPayment({
         sessionId: pending.sessionId,
         sdkResultStatus: result.resultStatus,

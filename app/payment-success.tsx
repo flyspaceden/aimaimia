@@ -17,6 +17,7 @@ import { compactActionTextProps, priceTextProps, useResponsiveLayout, useTheme }
  * - firstOrderId: 子订单的第一个 id，单商户场景跳订单详情用
  * - orderCount: 子订单总数（多商户时显示"已为您创建 X 笔商家订单"）
  * - isVip: '0' 普通购物 / '1' VIP 礼包
+ * - paymentMethod: alipay / wechat
  *
  * 设计原则：
  * - router.replace 进入（防 back 回 checkout 重复下单）
@@ -41,9 +42,18 @@ export default function PaymentSuccessScreen() {
     firstOrderId?: string;
     orderCount?: string;
     isVip?: string;
+    paymentMethod?: string;
   }>();
 
   const isVip = params.isVip === '1';
+  const paymentMethod = params.paymentMethod === 'wechat' ? 'wechat' : 'alipay';
+  const paymentMeta = paymentMethod === 'wechat'
+    ? { icon: 'wechat' as const, color: '#07C160', label: '微信支付' }
+    : {
+        icon: 'alpha-a-circle' as const,
+        color: '#1677FF',
+        label: process.env.EXPO_PUBLIC_ALIPAY_SANDBOX === 'true' ? '支付宝（沙箱）' : '支付宝',
+      };
   const orderCount = Math.max(1, parseInt(params.orderCount ?? '1', 10) || 1);
   const amountStr = params.amount ?? '0.00';
   const totalOrderNo = params.totalOrderNo ?? '-';
@@ -212,12 +222,12 @@ export default function PaymentSuccessScreen() {
               <Text style={[typography.captionSm, { color: colors.text.secondary }]}>支付方式</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <MaterialCommunityIcons
-                  name="alpha-a-circle"
+                  name={paymentMeta.icon}
                   size={14}
-                  color="#1677FF"
+                  color={paymentMeta.color}
                   style={{ marginRight: 4 }}
                 />
-                <Text style={[typography.captionSm, { color: colors.text.primary }]}>支付宝（沙箱）</Text>
+                <Text style={[typography.captionSm, { color: colors.text.primary }]}>{paymentMeta.label}</Text>
               </View>
             </View>
 

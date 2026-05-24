@@ -34,6 +34,15 @@ export function hasCompleteWechatPayPayload(
   );
 }
 
+function normalizeWechatErrCode(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 export async function payWithWechat(payload: WechatPayPayload): Promise<WechatPayResult> {
   if (!hasCompleteWechatPayPayload(payload)) {
     return { success: false, resultStatus: '', errStr: 'PAY_PARAMS_MISSING' };
@@ -63,7 +72,7 @@ export async function payWithWechat(payload: WechatPayPayload): Promise<WechatPa
       sign: payload.paySign,
     });
 
-    const errCode = Number(result?.errCode);
+    const errCode = normalizeWechatErrCode(result?.errCode);
     if (errCode === 0) {
       return { success: true, resultStatus: '', errCode, errStr: result?.errStr };
     }
@@ -72,7 +81,7 @@ export async function payWithWechat(payload: WechatPayPayload): Promise<WechatPa
     }
     return { success: false, resultStatus: '', errCode, errStr: result?.errStr };
   } catch (err: any) {
-    const errCode = typeof err?.errCode === 'number' ? err.errCode : undefined;
+    const errCode = normalizeWechatErrCode(err?.errCode ?? err?.code);
     const errStr = err?.errStr || err?.errMsg || err?.message || 'UNKNOWN_ERROR';
     if (errCode === -2) {
       return { success: false, resultStatus: '6001', errCode, errStr };

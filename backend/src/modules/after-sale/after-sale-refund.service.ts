@@ -203,6 +203,17 @@ export class AfterSaleRefundService {
         const request = await tx.afterSaleRequest.findUnique({
           where: { id: refund.afterSaleId },
           include: {
+            order: {
+              select: {
+                checkoutSession: { select: { paymentChannel: true } },
+                payments: {
+                  where: { status: 'PAID', deletedAt: null },
+                  orderBy: { createdAt: 'desc' },
+                  take: 1,
+                  select: { channel: true },
+                },
+              },
+            },
             orderItem: {
               select: {
                 skuId: true,
@@ -304,6 +315,9 @@ export class AfterSaleRefundService {
             orderId: request.orderId,
             userId: request.userId,
             amount: refund.amount,
+            refundDestination: this.formatRefundDestination(
+              request.order?.checkoutSession?.paymentChannel ?? request.order?.payments?.[0]?.channel,
+            ),
           };
         }
 
@@ -320,9 +334,15 @@ export class AfterSaleRefundService {
       category: 'transaction',
       type: 'refund_credited',
       title: '退款已到账',
-      content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回支付宝账户。`,
+      content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回${completed.refundDestination}。`,
       target: { route: '/orders' },
     }).catch(() => {});
+  }
+
+  private formatRefundDestination(channel?: string | null): string {
+    if (channel === 'WECHAT_PAY') return '微信支付账户';
+    if (channel === 'ALIPAY') return '支付宝账户';
+    return '原支付账户';
   }
 
   private async restoreDeductedPointsInTx(
@@ -490,6 +510,11 @@ export class AfterSaleRefundService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+
+    if (lease.fromStatus === 'REFUNDING') {
+      const handled = await this.paymentService.reconcileWechatRefundBeforeRetry(lease.refund);
+      if (handled) return lease.refund;
+    }
 
     const result: RefundInitiationResult = await this.paymentService.initiateRefund(
       lease.refund.orderId,

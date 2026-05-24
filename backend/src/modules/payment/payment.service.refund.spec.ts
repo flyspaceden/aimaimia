@@ -18,6 +18,7 @@ describe('PaymentService.initiateRefund', () => {
     const wechatPayService = {
       isAvailable: jest.fn(),
       refund: jest.fn(),
+      queryRefund: jest.fn(),
     };
     const couponService = {
       restoreCouponsForOrder: jest.fn(),
@@ -82,7 +83,7 @@ describe('PaymentService.initiateRefund', () => {
     expect(wechatPayService.refund).not.toHaveBeenCalled();
   });
 
-  it('WECHAT_PAY Payment 行退款成功时返回商户退款单号且 pending false', async () => {
+  it('WECHAT_PAY Payment 行退款成功时返回微信退款流水号且 pending false', async () => {
     const { service, prisma, wechatPayService } = makeService();
     prisma.payment.findFirst.mockResolvedValue({
       orderId: 'o1',
@@ -103,7 +104,7 @@ describe('PaymentService.initiateRefund', () => {
     expect(result).toEqual({
       success: true,
       pending: false,
-      providerRefundId: 'WX-REFUND-1',
+      providerRefundId: 'wx-provider-refund-1',
       message: '退款成功',
     });
     expect(wechatPayService.refund).toHaveBeenCalledWith({
@@ -136,7 +137,7 @@ describe('PaymentService.initiateRefund', () => {
     expect(result).toEqual({
       success: true,
       pending: true,
-      providerRefundId: 'WX-REFUND-1',
+      providerRefundId: 'wx-provider-refund-1',
       message: '退款受理中，等待结果通知',
     });
     expect(wechatPayService.refund).toHaveBeenCalledWith({
@@ -170,7 +171,7 @@ describe('PaymentService.initiateRefund', () => {
     expect(result).toEqual({
       success: true,
       pending: false,
-      providerRefundId: 'WX-REFUND-SESSION-1',
+      providerRefundId: undefined,
       message: '退款成功',
     });
     expect(prisma.checkoutSession.findUnique).toHaveBeenCalledWith({
@@ -555,6 +556,143 @@ describe('PaymentService.initiateRefund', () => {
     expect(couponService.restoreCouponsForOrder).not.toHaveBeenCalled();
   });
 
+  it('自动退款补偿对已受理的微信 REFUNDING 退款优先查单而不是重复发起退款', async () => {
+    const { service, prisma, wechatPayService } = makeService();
+    wechatPayService.isAvailable.mockReturnValue(true);
+    wechatPayService.queryRefund.mockResolvedValue({
+      outRefundNo: 'AUTO-CANCEL-o1',
+      outTradeNo: 'WX-ORDER-1',
+      providerRefundId: 'wx-refund-1',
+      status: 'SUCCESS',
+      refundAmountFen: 6500,
+      totalAmountFen: 12000,
+      refundAmount: 65,
+      totalAmount: 120,
+    });
+    const initiateRefund = jest.spyOn(service, 'initiateRefund').mockResolvedValue({
+      success: true,
+      pending: true,
+      message: 'should not be called',
+    });
+    const updateAutoRefundRecord = jest
+      .spyOn(service as any, 'updateAutoRefundRecord')
+      .mockResolvedValue(true);
+    jest
+      .spyOn(service as any, 'claimAutoRefundRetry')
+      .mockResolvedValueOnce({
+        orderId: 'o1',
+        amount: 65,
+        merchantRefundNo: 'AUTO-CANCEL-o1',
+        status: 'REFUNDING',
+        providerRefundId: 'wx-refund-1',
+        paymentChannel: 'WECHAT_PAY',
+      });
+    prisma.refund.findMany.mockResolvedValue([
+      {
+        id: 'r_auto_1',
+        orderId: 'o1',
+        amount: 65,
+        status: 'REFUNDING',
+        merchantRefundNo: 'AUTO-CANCEL-o1',
+        providerRefundId: 'wx-refund-1',
+        updatedAt: new Date(Date.now() - 600_000),
+      },
+    ]);
+
+    await service.retryStaleAutoRefunds();
+
+    expect(wechatPayService.queryRefund).toHaveBeenCalledWith('AUTO-CANCEL-o1');
+    expect(initiateRefund).not.toHaveBeenCalled();
+    expect(updateAutoRefundRecord).toHaveBeenCalledWith(expect.objectContaining({
+      refundId: 'r_auto_1',
+      toStatus: 'REFUNDED',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'wx-refund-1',
+      remark: '微信退款查单成功',
+    }));
+  });
+
+  it('自动退款补偿对微信 REFUNDING 查单无结果时保持退款中且不重复发起退款', async () => {
+    const { service, prisma, wechatPayService } = makeService();
+    wechatPayService.isAvailable.mockReturnValue(true);
+    wechatPayService.queryRefund.mockResolvedValue(null);
+    const initiateRefund = jest.spyOn(service, 'initiateRefund').mockResolvedValue({
+      success: true,
+      pending: true,
+      message: 'should not be called',
+    });
+    const updateAutoRefundRecord = jest
+      .spyOn(service as any, 'updateAutoRefundRecord')
+      .mockResolvedValue(true);
+    jest
+      .spyOn(service as any, 'claimAutoRefundRetry')
+      .mockResolvedValueOnce({
+        orderId: 'o1',
+        amount: 65,
+        merchantRefundNo: 'AUTO-CANCEL-o1',
+        status: 'REFUNDING',
+        providerRefundId: 'wx-refund-1',
+        paymentChannel: 'WECHAT_PAY',
+      });
+    prisma.refund.findMany.mockResolvedValue([
+      {
+        id: 'r_auto_1',
+        orderId: 'o1',
+        amount: 65,
+        status: 'REFUNDING',
+        merchantRefundNo: 'AUTO-CANCEL-o1',
+        providerRefundId: 'wx-refund-1',
+        updatedAt: new Date(Date.now() - 600_000),
+      },
+    ]);
+
+    await service.retryStaleAutoRefunds();
+
+    expect(wechatPayService.queryRefund).toHaveBeenCalledWith('AUTO-CANCEL-o1');
+    expect(initiateRefund).not.toHaveBeenCalled();
+    expect(updateAutoRefundRecord).not.toHaveBeenCalled();
+  });
+
+  it('自动退款补偿对微信 REFUNDING 在微信服务不可用时保持退款中且不重复发起退款', async () => {
+    const { service, prisma, wechatPayService } = makeService();
+    wechatPayService.isAvailable.mockReturnValue(false);
+    const initiateRefund = jest.spyOn(service, 'initiateRefund').mockResolvedValue({
+      success: false,
+      pending: false,
+      message: 'should not be called',
+    });
+    const updateAutoRefundRecord = jest
+      .spyOn(service as any, 'updateAutoRefundRecord')
+      .mockResolvedValue(true);
+    jest
+      .spyOn(service as any, 'claimAutoRefundRetry')
+      .mockResolvedValueOnce({
+        orderId: 'o1',
+        amount: 65,
+        merchantRefundNo: 'AUTO-CANCEL-o1',
+        status: 'REFUNDING',
+        providerRefundId: null,
+        paymentChannel: 'WECHAT_PAY',
+      });
+    prisma.refund.findMany.mockResolvedValue([
+      {
+        id: 'r_auto_1',
+        orderId: 'o1',
+        amount: 65,
+        status: 'REFUNDING',
+        merchantRefundNo: 'AUTO-CANCEL-o1',
+        providerRefundId: null,
+        updatedAt: new Date(Date.now() - 600_000),
+      },
+    ]);
+
+    await service.retryStaleAutoRefunds();
+
+    expect(wechatPayService.queryRefund).not.toHaveBeenCalled();
+    expect(initiateRefund).not.toHaveBeenCalled();
+    expect(updateAutoRefundRecord).not.toHaveBeenCalled();
+  });
+
   it('支付回调自动退款遇到微信 pending 时不写 REFUNDED 且不恢复抵扣', async () => {
     const { service, prisma, couponService } = makeService();
     const rewardDeductionService = {
@@ -641,6 +779,7 @@ describe('PaymentService.initiateRefund', () => {
       id: 'r_as_1',
       merchantRefundNo: 'AS-after-sale-1',
       status: 'REFUNDING',
+      amount: 65,
     });
 
     await service.handleWechatRefundNotify({
@@ -648,13 +787,42 @@ describe('PaymentService.initiateRefund', () => {
       outRefundNo: 'AS-after-sale-1',
       tradeState: 'SUCCESS',
       providerRefundId: 'wx-refund-1',
+      amountFen: 6500,
+      totalAmountFen: 12000,
     });
 
     expect(prisma.refund.findFirst).toHaveBeenCalledWith({
       where: { merchantRefundNo: 'AS-after-sale-1', deletedAt: null },
-      select: { id: true, merchantRefundNo: true, status: true },
+      select: { id: true, merchantRefundNo: true, status: true, amount: true },
     });
     expect(afterSaleRefundService.handleRefundSuccess).toHaveBeenCalledWith('r_as_1', 'wx-refund-1');
+    expect(afterSaleRefundService.handleRefundFailure).not.toHaveBeenCalled();
+  });
+
+  it('微信售后退款 SUCCESS notify 金额不匹配时拒绝闭环', async () => {
+    const { service, prisma } = makeService();
+    const afterSaleRefundService = {
+      handleRefundSuccess: jest.fn(),
+      handleRefundFailure: jest.fn(),
+    };
+    service.setAfterSaleRefundService(afterSaleRefundService as any);
+    prisma.refund.findFirst.mockResolvedValue({
+      id: 'r_as_1',
+      merchantRefundNo: 'AS-after-sale-1',
+      status: 'REFUNDING',
+      amount: 65,
+    });
+
+    await service.handleWechatRefundNotify({
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AS-after-sale-1',
+      tradeState: 'SUCCESS',
+      providerRefundId: 'wx-refund-1',
+      amountFen: 6400,
+      totalAmountFen: 12000,
+    });
+
+    expect(afterSaleRefundService.handleRefundSuccess).not.toHaveBeenCalled();
     expect(afterSaleRefundService.handleRefundFailure).not.toHaveBeenCalled();
   });
 
@@ -718,6 +886,7 @@ describe('PaymentService.initiateRefund', () => {
       id: 'r_auto_1',
       merchantRefundNo: 'AUTO-CANCEL-o1',
       status: 'REFUNDING',
+      amount: 65,
     });
     const updateAutoRefundRecord = jest
       .spyOn(service as any, 'updateAutoRefundRecord')
@@ -728,6 +897,8 @@ describe('PaymentService.initiateRefund', () => {
       outRefundNo: 'AUTO-CANCEL-o1',
       tradeState: 'SUCCESS',
       providerRefundId: 'wx-refund-auto-1',
+      amountFen: 6500,
+      totalAmountFen: 12000,
       rawPayload: { event_type: 'REFUND.SUCCESS' },
     });
 
@@ -784,7 +955,7 @@ describe('PaymentService.initiateRefund', () => {
 
     expect(prisma.refund.findFirst).toHaveBeenCalledWith({
       where: { merchantRefundNo: 'AUTO-CANCEL-o1', deletedAt: null },
-      select: { id: true, merchantRefundNo: true, status: true },
+      select: { id: true, merchantRefundNo: true, status: true, amount: true },
     });
     expect(updateAutoRefundRecord).not.toHaveBeenCalled();
   });

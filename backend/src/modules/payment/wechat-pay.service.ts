@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -138,7 +139,7 @@ export class WechatPayService implements OnModuleInit {
     return null;
   }
 
-  private yuanToFen(amount: number, fieldName: string): number {
+  static yuanToFenAmount(amount: number, fieldName: string): number {
     if (typeof amount !== 'number' || !Number.isFinite(amount)) {
       throw new Error(`${fieldName} 必须是有效数字`);
     }
@@ -156,6 +157,10 @@ export class WechatPayService implements OnModuleInit {
     }
 
     return rounded;
+  }
+
+  private yuanToFen(amount: number, fieldName: string): number {
+    return WechatPayService.yuanToFenAmount(amount, fieldName);
   }
 
   private validateOutTradeNo(outTradeNo: string): void {
@@ -388,7 +393,7 @@ export class WechatPayService implements OnModuleInit {
         total,
         currency: 'CNY',
       },
-      ...(params.timeExpire ? { time_expire: params.timeExpire.toISOString() } : {}),
+      ...(params.timeExpire ? { time_expire: this.formatWechatTimeExpire(params.timeExpire) } : {}),
     });
 
     if (result?.status !== 200) {
@@ -433,6 +438,8 @@ export class WechatPayService implements OnModuleInit {
 
     const { body, rawBody, headers } = args;
     const resource = body.resource ?? {};
+
+    this.assertNotifyTimestampFresh(headers.timestamp);
 
     let verified: boolean;
     try {
@@ -882,9 +889,17 @@ export class WechatPayService implements OnModuleInit {
     } catch (err: any) {
       const code = String(err?.code || 'SDK_EXCEPTION');
       const message = String(err?.message || '微信退款调用失败');
+      const isNetworkError = this.isNetworkError(err);
       this.logger.error(
         `微信退款 SDK 调用失败: code=${code} outTradeNo=${outTradeNoForLog} outRefundNo=${outRefundNoForLog}`,
       );
+      if (isNetworkError) {
+        return {
+          success: true,
+          pending: true,
+          message: `微信退款请求异常待查 [${code}] ${message}`,
+        };
+      }
       return {
         success: false,
         pending: false,
@@ -946,6 +961,11 @@ export class WechatPayService implements OnModuleInit {
     }
 
     if (status === 'PROCESSING') {
+      if (!providerRefundId) {
+        this.logger.warn(
+          `微信退款 PROCESSING 返回缺少 refund_id，后续依赖 outRefundNo 查单: outRefundNo=${outRefundNoForLog}`,
+        );
+      }
       return {
         success: true,
         pending: true,
@@ -963,6 +983,36 @@ export class WechatPayService implements OnModuleInit {
       providerRefundId,
       message: `微信退款失败，状态=${status}`,
     };
+  }
+
+  @Cron('0 0 3 * * *')
+  async refreshPlatformCertificates(): Promise<void> {
+    if (!this.client || !this.apiV3Key || !this.client.fetchCertificates) return;
+    try {
+      await this.client.fetchCertificates(this.apiV3Key);
+      this.logger.log('微信支付平台证书缓存刷新成功');
+    } catch (err: any) {
+      this.logger.warn(`微信支付平台证书缓存刷新失败: ${err?.message || 'UNKNOWN'}`);
+    }
+  }
+
+  private formatWechatTimeExpire(value: Date): string {
+    return value.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+
+  private assertNotifyTimestampFresh(timestamp?: string): void {
+    const ts = Number(timestamp);
+    const now = Math.floor(Date.now() / 1000);
+    if (!Number.isFinite(ts) || Math.abs(now - ts) > 300) {
+      throw new Error('微信通知 timestamp 超过 5 分钟窗口');
+    }
+  }
+
+  private isNetworkError(err: any): boolean {
+    const code = String(err?.code || '');
+    const message = String(err?.message || '');
+    return /ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|ECONNABORTED|ENOTFOUND|EAI_AGAIN|socket hang up|timeout/i
+      .test(`${code} ${message}`);
   }
 
   /** 暴露给上层做金额校验、防伪造（notify 路径用） */

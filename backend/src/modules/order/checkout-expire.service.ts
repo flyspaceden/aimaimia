@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
+import { WechatPayService } from '../payment/wechat-pay.service';
 
 /**
  * F1: CheckoutSession 过期清理
@@ -71,7 +72,7 @@ export class CheckoutExpireService {
 
   private isWechatAmountMatched(queryResult: any, expectedTotal: number): boolean {
     const claimedFen = this.extractWechatAmountFen(queryResult);
-    return claimedFen !== null && claimedFen === Math.round(expectedTotal * 100);
+    return claimedFen !== null && claimedFen === WechatPayService.yuanToFenAmount(expectedTotal, 'expectedTotal');
   }
 
   @Cron('0 * * * * *')
@@ -407,7 +408,8 @@ export class CheckoutExpireService {
       }
 
       if (!queryResult) {
-        this.logger.warn(`expireSession 查微信无结果，尝试关单 sessionId=${session.id}`);
+        this.logger.warn(`expireSession 查微信无结果，跳过本次 sessionId=${session.id}`);
+        return;
       }
 
       if (queryResult?.tradeState === 'SUCCESS') {
@@ -421,7 +423,7 @@ export class CheckoutExpireService {
         }
         if (!this.isWechatAmountMatched(queryResult, session.expectedTotal)) {
           this.logger.error(
-            `expireSession 微信金额校验失败：wechatFen=${this.extractWechatAmountFen(queryResult) ?? 'N/A'} sessionFen=${Math.round(session.expectedTotal * 100)} sessionId=${session.id}`,
+            `expireSession 微信金额校验失败：wechatFen=${this.extractWechatAmountFen(queryResult) ?? 'N/A'} sessionFen=${WechatPayService.yuanToFenAmount(session.expectedTotal, 'expectedTotal')} sessionId=${session.id}`,
           );
           return;
         }
@@ -474,7 +476,7 @@ export class CheckoutExpireService {
           }
           if (!this.isWechatAmountMatched(queryAfterClose, session.expectedTotal)) {
             this.logger.error(
-              `expireSession 微信 close-paid 金额校验失败：wechatFen=${this.extractWechatAmountFen(queryAfterClose) ?? 'N/A'} sessionFen=${Math.round(session.expectedTotal * 100)} sessionId=${session.id}`,
+              `expireSession 微信 close-paid 金额校验失败：wechatFen=${this.extractWechatAmountFen(queryAfterClose) ?? 'N/A'} sessionFen=${WechatPayService.yuanToFenAmount(session.expectedTotal, 'expectedTotal')} sessionId=${session.id}`,
             );
             return;
           }

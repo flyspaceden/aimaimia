@@ -62,6 +62,28 @@ describe('payWithWechat', () => {
     }));
   });
 
+  it('maps react-native-wechat-lib WechatError.code user cancel to alipay-like 6001 status', async () => {
+    mockPay.mockRejectedValue(Object.assign(new Error('cancel'), { code: -2, errStr: 'cancel' }));
+
+    await expect(payWithWechat(payload)).resolves.toEqual(expect.objectContaining({
+      success: false,
+      resultStatus: '6001',
+      errCode: -2,
+    }));
+  });
+
+  it('returns a terminal error when WeChat is not installed', async () => {
+    mockIsWXAppInstalled.mockResolvedValue(false);
+
+    await expect(payWithWechat(payload)).resolves.toEqual(expect.objectContaining({
+      success: false,
+      resultStatus: '',
+      errStr: 'WECHAT_NOT_INSTALLED',
+    }));
+
+    expect(mockPay).not.toHaveBeenCalled();
+  });
+
   it('rejects incomplete payload before initializing the native SDK', async () => {
     await expect(payWithWechat({ ...payload, paySign: '' })).resolves.toEqual(expect.objectContaining({
       success: false,

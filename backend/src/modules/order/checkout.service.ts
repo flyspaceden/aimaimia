@@ -23,6 +23,7 @@ import {
   getPrizeUnavailableReason,
   getUnavailableReasonText,
 } from '../lottery/prize-availability.util';
+import { WechatPayService } from '../payment/wechat-pay.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -140,7 +141,7 @@ export class CheckoutService {
     sessionId: string,
   ): void {
     const claimedFen = this.extractWechatAmountFen(queryResult);
-    const expectedFen = Math.round(expectedTotal * 100);
+    const expectedFen = WechatPayService.yuanToFenAmount(expectedTotal, 'expectedTotal');
     if (claimedFen === null || claimedFen !== expectedFen) {
       this.logger.error(
         `${context} 微信金额校验失败：wechatFen=${claimedFen ?? 'N/A'} sessionFen=${expectedFen} sessionId=${sessionId}`,
@@ -1306,8 +1307,9 @@ export class CheckoutService {
 
       if (!queryResult) {
         this.logger.warn(
-          `cancelSession 查微信无结果，尝试关单：sessionId=${sessionId}`,
+          `cancelSession 查微信无结果，拒绝取消：sessionId=${sessionId}`,
         );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
       }
 
       if (queryResult?.tradeState === 'SUCCESS') {

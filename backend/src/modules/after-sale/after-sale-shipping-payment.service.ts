@@ -16,7 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 import { AlipayService } from '../payment/alipay.service';
-import type { WechatPayService } from '../payment/wechat-pay.service';
+import { WechatPayService } from '../payment/wechat-pay.service';
 import { decryptJsonValue } from '../../common/security/encryption';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
@@ -57,6 +57,7 @@ export class AfterSaleShippingPaymentService {
   private readonly logger = new Logger(AfterSaleShippingPaymentService.name);
   private shippingRuleService: any = null;
   private wechatPayService?: WechatPayService;
+  private readonly wechatRefundQueryFailureMs = 6 * 60 * 60_000;
 
   constructor(
     private prisma: PrismaService,
@@ -251,7 +252,7 @@ export class AfterSaleShippingPaymentService {
               failureReason: `退货运费退款中: ${reason}`,
             },
           });
-          return payment;
+          return payment.provider === 'WECHAT_PAY' ? null : payment;
         }
 
         if (payment.status === 'PAID' || (payment.status === 'FAILED' && payment.paidAt)) {
@@ -462,7 +463,32 @@ export class AfterSaleShippingPaymentService {
       const refund = await this.wechatPayService.queryRefund(
         this.getWechatMerchantRefundNo(payment.afterSaleId),
       );
-      if (!refund) continue;
+      if (!refund) {
+        const failureCutoff = new Date(Date.now() - this.wechatRefundQueryFailureMs);
+        if (payment.updatedAt <= failureCutoff) {
+          await this.withSerializableRetry((tx) =>
+            tx.afterSaleShippingPayment.updateMany({
+              where: {
+                id: payment.id,
+                provider: 'WECHAT_PAY',
+                status: 'REFUNDING',
+              },
+              data: {
+                status: 'FAILED',
+                failureReason: '微信退货运费退款查单无结果，请人工确认后重试',
+              },
+            }),
+          );
+          this.logger.error(
+            `微信退货运费退款查单长期无结果，已转 FAILED: payment=${payment.merchantPaymentNo}`,
+          );
+        } else {
+          this.logger.warn(
+            `微信退货运费退款查单无结果，保持 REFUNDING: payment=${payment.merchantPaymentNo}`,
+          );
+        }
+        continue;
+      }
       if (refund.outTradeNo !== payment.merchantPaymentNo) {
         this.logger.warn(
           `微信退货运费退款查单返回订单号不匹配: payment=${payment.merchantPaymentNo} provider=${refund.outTradeNo}`,
@@ -489,16 +515,6 @@ export class AfterSaleShippingPaymentService {
     request: AfterSaleRequest,
   ): Promise<AfterSaleShippingPayment> {
     const amount = await this.resolveReturnShippingFeeInTx(tx, request);
-    const merchantPaymentNo = this.getMerchantPaymentNo(request.id);
-    const legacyMerchantPaymentNo = `AS_SHIP_PAY_${request.id}`;
-    if (merchantPaymentNo !== legacyMerchantPaymentNo) {
-      const existingPayment = await tx.afterSaleShippingPayment.findUnique({
-        where: { afterSaleId: request.id },
-      });
-      if (existingPayment) {
-        return existingPayment;
-      }
-    }
     const order = (tx as any).order?.findUnique
       ? await (tx as any).order.findUnique({
           where: { id: request.orderId },
@@ -507,6 +523,16 @@ export class AfterSaleShippingPaymentService {
       : null;
     const provider =
       order?.checkoutSession?.paymentChannel === 'WECHAT_PAY' ? 'WECHAT_PAY' : 'ALIPAY';
+    const merchantPaymentNo = this.getMerchantPaymentNo(request.id, provider);
+    const legacyMerchantPaymentNo = `AS_SHIP_PAY_${request.id}`;
+    if (provider === 'WECHAT_PAY' && merchantPaymentNo !== legacyMerchantPaymentNo) {
+      const existingPayment = await tx.afterSaleShippingPayment.findUnique({
+        where: { afterSaleId: request.id },
+      });
+      if (existingPayment) {
+        return existingPayment;
+      }
+    }
 
     return tx.afterSaleShippingPayment.upsert({
       where: { merchantPaymentNo },
@@ -644,8 +670,9 @@ export class AfterSaleShippingPaymentService {
     }
   }
 
-  private getMerchantPaymentNo(afterSaleId: string): string {
+  private getMerchantPaymentNo(afterSaleId: string, provider: 'ALIPAY' | 'WECHAT_PAY'): string {
     const legacy = `AS_SHIP_PAY_${afterSaleId}`;
+    if (provider === 'ALIPAY') return legacy;
     return legacy.length <= 32 ? legacy : `AS_SHIP_PAY_${this.shortToken(afterSaleId)}`;
   }
 
@@ -665,7 +692,7 @@ export class AfterSaleShippingPaymentService {
     args: { refundAmountFen?: number; totalAmountFen?: number },
     paymentAmount: number,
   ): boolean {
-    const expectedFen = Math.round(Number(paymentAmount) * 100);
+    const expectedFen = WechatPayService.yuanToFenAmount(Number(paymentAmount), 'payment.amount');
     return (
       Number.isInteger(expectedFen) &&
       Number.isInteger(args.refundAmountFen) &&

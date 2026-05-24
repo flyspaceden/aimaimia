@@ -237,7 +237,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('cancelSession tries closeOrder when WECHAT_PAY query returns null and expires on terminal close', async () => {
+  it('cancelSession rejects when WECHAT_PAY query returns null and does not close order', async () => {
     const wechatPay = {
       isAvailable: jest.fn().mockReturnValue(true),
       queryOrder: jest.fn().mockResolvedValue(null),
@@ -256,11 +256,13 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
     });
     svc.setWechatPayService(wechatPay);
 
-    await svc.cancelSession('U1', 'S-query-null');
+    await expect(svc.cancelSession('U1', 'S-query-null')).rejects.toThrow(
+      '正在确认支付状态，请稍后再试',
+    );
 
     expect(wechatPay.queryOrder).toHaveBeenCalledWith('CS-query-null');
-    expect(wechatPay.closeOrder).toHaveBeenCalledWith('CS-query-null');
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(wechatPay.closeOrder).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('cancelSession rejects WECHAT_PAY cancel when service is unavailable', async () => {
@@ -385,7 +387,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('expireSession tries closeOrder when WECHAT_PAY query returns null and expires on terminal close', async () => {
+  it('expireSession skips local expiry when WECHAT_PAY query returns null', async () => {
     const wechatPay = {
       isAvailable: jest.fn().mockReturnValue(true),
       queryOrder: jest.fn().mockResolvedValue(null),
@@ -407,8 +409,8 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
     }));
 
     expect(wechatPay.queryOrder).toHaveBeenCalledWith('CS-exp-query-null');
-    expect(wechatPay.closeOrder).toHaveBeenCalledWith('CS-exp-query-null');
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(wechatPay.closeOrder).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('expireSession skips local expiry when WECHAT_PAY close fails non-terminally', async () => {

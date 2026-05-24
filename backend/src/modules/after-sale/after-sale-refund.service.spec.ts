@@ -46,6 +46,7 @@ describe('AfterSaleRefundService', () => {
 
   const paymentService = {
     initiateRefund: jest.fn(),
+    reconcileWechatRefundBeforeRetry: jest.fn(),
   };
 
   const rewardService = {
@@ -109,6 +110,7 @@ describe('AfterSaleRefundService', () => {
       providerRefundId: 'provider_refund_001',
       message: 'OK',
     });
+    paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(false);
     rewardService.voidRewardsForOrder.mockResolvedValue(undefined);
     rewardService.checkAndMarkOrderRefunded.mockResolvedValue(undefined);
     inboxService.send.mockResolvedValue(undefined);
@@ -364,7 +366,7 @@ describe('AfterSaleRefundService', () => {
 
     expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'as_001' },
-      include: {
+      include: expect.objectContaining({
         orderItem: {
           select: {
             skuId: true,
@@ -372,7 +374,7 @@ describe('AfterSaleRefundService', () => {
             isPrize: true,
           },
         },
-      },
+      }),
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
@@ -492,7 +494,7 @@ describe('AfterSaleRefundService', () => {
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
     expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      include: {
+      include: expect.objectContaining({
         orderItem: {
           select: {
             skuId: true,
@@ -500,7 +502,7 @@ describe('AfterSaleRefundService', () => {
             isPrize: true,
           },
         },
-      },
+      }),
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
@@ -544,7 +546,7 @@ describe('AfterSaleRefundService', () => {
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
     expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      include: {
+      include: expect.objectContaining({
         orderItem: {
           select: {
             skuId: true,
@@ -552,7 +554,7 @@ describe('AfterSaleRefundService', () => {
             isPrize: true,
           },
         },
-      },
+      }),
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
@@ -588,7 +590,7 @@ describe('AfterSaleRefundService', () => {
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
     expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      include: {
+      include: expect.objectContaining({
         orderItem: {
           select: {
             skuId: true,
@@ -596,7 +598,7 @@ describe('AfterSaleRefundService', () => {
             isPrize: true,
           },
         },
-      },
+      }),
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
@@ -632,7 +634,7 @@ describe('AfterSaleRefundService', () => {
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
     expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      include: {
+      include: expect.objectContaining({
         orderItem: {
           select: {
             skuId: true,
@@ -640,7 +642,7 @@ describe('AfterSaleRefundService', () => {
             isPrize: true,
           },
         },
-      },
+      }),
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
@@ -842,6 +844,33 @@ describe('AfterSaleRefundService', () => {
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'REFUNDED' }),
     }));
+  });
+
+  it('retryRefund asks payment service to reconcile REFUNDING WeChat refund before reissuing', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      afterSaleId: 'as_001',
+      paymentId: 'payment_001',
+      providerRefundId: 'wx-refund-001',
+    });
+    paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(true);
+
+    await service.retryRefund('refund_001', {
+      type: AfterSaleOperatorType.SYSTEM,
+    });
+
+    expect(paymentService.reconcileWechatRefundBeforeRetry).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      merchantRefundNo: 'AS-as_001',
+      paymentId: 'payment_001',
+    }));
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
   });
 
   it('retryRefund rejects recent manual retry within 30 seconds', async () => {

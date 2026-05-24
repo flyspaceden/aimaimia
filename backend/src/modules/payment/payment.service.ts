@@ -81,7 +81,10 @@ export class PaymentService {
     claimedAmountFen: number,
     source: string,
   ): void {
-    const expectedFen = Math.round(Number(session.expectedTotal) * 100);
+    const expectedFen = WechatPayService.yuanToFenAmount(
+      Number(session.expectedTotal),
+      'session.expectedTotal',
+    );
     this.assertWechatFenAmountMatches(
       expectedFen,
       claimedAmountFen,
@@ -123,7 +126,7 @@ export class PaymentService {
       throw new NotFoundException('售后退货运费支付单不存在');
     }
 
-    const expectedFen = Math.round(Number(payment.amount) * 100);
+    const expectedFen = WechatPayService.yuanToFenAmount(Number(payment.amount), 'payment.amount');
     this.assertWechatFenAmountMatches(
       expectedFen,
       claimedAmountFen,
@@ -145,7 +148,7 @@ export class PaymentService {
       throw new NotFoundException('支付记录不存在，无法校验微信支付金额');
     }
 
-    const expectedFen = Math.round(Number(payment.amount) * 100);
+    const expectedFen = WechatPayService.yuanToFenAmount(Number(payment.amount), 'payment.amount');
     this.assertWechatFenAmountMatches(
       expectedFen,
       claimedAmountFen,
@@ -709,7 +712,7 @@ export class PaymentService {
       return {
         success: result.success,
         pending: result.pending,
-        providerRefundId: result.success ? refundNo : undefined,
+        providerRefundId: result.success ? result.providerRefundId : undefined,
         message: result.message,
       };
     }
@@ -816,6 +819,7 @@ export class PaymentService {
         id: true,
         merchantRefundNo: true,
         status: true,
+        amount: true,
       },
     });
     if (!refund) {
@@ -829,6 +833,9 @@ export class PaymentService {
 
     if (merchantRefundNo.startsWith('AS-')) {
       if (tradeState === 'SUCCESS') {
+        if (!this.isWechatRefundNotifyAmountValid(refund, args.amountFen, outRefundNo)) {
+          return;
+        }
         if (!this.afterSaleRefundService) {
           this.logger.error(
             `微信售后退款成功通知无法闭环：AfterSaleRefundService 未注入 refundId=${this.maskBizId(refund.id)}`,
@@ -861,6 +868,9 @@ export class PaymentService {
 
     if (merchantRefundNo.startsWith('AUTO-CANCEL-') || merchantRefundNo.startsWith('AUTO-')) {
       if (tradeState === 'SUCCESS') {
+        if (!this.isWechatRefundNotifyAmountValid(refund, args.amountFen, outRefundNo)) {
+          return;
+        }
         await this.updateAutoRefundRecord({
           refundId: refund.id,
           toStatus: 'REFUNDED',
@@ -900,6 +910,31 @@ export class PaymentService {
     this.logger.warn(`微信退款通知未识别退款单类型: outRefundNo=${this.maskBizId(outRefundNo)}`);
   }
 
+  private isWechatRefundNotifyAmountValid(
+    refund: { amount: number; merchantRefundNo: string },
+    claimedAmountFen: number | undefined,
+    outRefundNo: string,
+  ): boolean {
+    let expectedFen: number;
+    try {
+      expectedFen = WechatPayService.yuanToFenAmount(Number(refund.amount), 'refund.amount');
+    } catch {
+      expectedFen = Number.NaN;
+    }
+    if (
+      !Number.isInteger(expectedFen) ||
+      !Number.isInteger(claimedAmountFen) ||
+      expectedFen !== claimedAmountFen
+    ) {
+      this.logger.error(
+        `微信退款通知金额校验失败：微信=${claimedAmountFen ?? 'N/A'} refund=${expectedFen} ` +
+        `outRefundNo=${this.maskBizId(outRefundNo || refund.merchantRefundNo)} → 拒绝闭环，请人工核查`,
+      );
+      return false;
+    }
+    return true;
+  }
+
   /** 自动退款补偿任务：重试长时间停留在 FAILED/REFUNDING 的自动退款记录 */
   @Cron('0 */10 * * * *')
   async retryStaleAutoRefunds() {
@@ -928,13 +963,42 @@ export class PaymentService {
         orderId: string;
         amount: number;
         merchantRefundNo: string;
+        status: string;
+        providerRefundId?: string | null;
+        paymentChannel?: string | null;
       } | null = null;
       try {
         claim = await this.claimAutoRefundRetry(refund.id);
         if (!claim) continue;
 
-        const result = await this.initiateRefund(claim.orderId, claim.amount, claim.merchantRefundNo);
         const isAfterSaleRefund = claim.merchantRefundNo.startsWith('AS-');
+        if (
+          claim.status === 'REFUNDING' &&
+          claim.paymentChannel === 'WECHAT_PAY'
+        ) {
+          if (!this.wechatPayService?.isAvailable?.() || !this.wechatPayService?.queryRefund) {
+            this.logger.warn(
+              `微信退款补偿服务不可用，保持退款中且不重复发起: refundId=${this.maskBizId(refund.id)}, merchantRefundNo=${this.maskBizId(claim.merchantRefundNo)}`,
+            );
+            continue;
+          }
+          const queried = await this.wechatPayService.queryRefund(claim.merchantRefundNo);
+          if (!queried) {
+            this.logger.warn(
+              `微信退款补偿查单无结果，保持退款中且不重复发起: refundId=${this.maskBizId(refund.id)}, merchantRefundNo=${this.maskBizId(claim.merchantRefundNo)}`,
+            );
+            continue;
+          }
+          await this.handleWechatRefundRetryQueryResult(
+            refund.id,
+            claim,
+            queried,
+            isAfterSaleRefund,
+          );
+          continue;
+        }
+
+        const result = await this.initiateRefund(claim.orderId, claim.amount, claim.merchantRefundNo);
         if (result.success) {
           if (result.pending) {
             this.logger.log(
@@ -1008,6 +1072,9 @@ export class PaymentService {
     orderId: string;
     amount: number;
     merchantRefundNo: string;
+    status: string;
+    providerRefundId?: string | null;
+    paymentChannel?: string | null;
   } | null> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
@@ -1023,11 +1090,14 @@ export class PaymentService {
           id: true,
           status: true,
           orderId: true,
+          paymentId: true,
           amount: true,
           merchantRefundNo: true,
+          providerRefundId: true,
         },
       });
       if (!fresh || !['FAILED', 'REFUNDING'].includes(fresh.status)) return null;
+      const originalStatus = fresh.status;
 
       const recent = await tx.refundStatusHistory.findFirst({
         where: {
@@ -1059,12 +1129,168 @@ export class PaymentService {
         },
       });
 
+      const paymentChannel = await this.resolveRefundPaymentChannel(tx, fresh);
+
       return {
         orderId: fresh.orderId,
         amount: fresh.amount,
         merchantRefundNo: fresh.merchantRefundNo,
+        status: originalStatus,
+        providerRefundId: fresh.providerRefundId,
+        paymentChannel,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async reconcileWechatRefundBeforeRetry(refund: {
+    id: string;
+    orderId: string;
+    amount: number;
+    merchantRefundNo: string;
+    paymentId?: string | null;
+  }): Promise<boolean> {
+    const paymentChannel = await this.resolveRefundPaymentChannel(this.prisma, refund);
+    if (paymentChannel !== 'WECHAT_PAY') return false;
+
+    if (!this.wechatPayService?.isAvailable?.() || !this.wechatPayService?.queryRefund) {
+      this.logger.warn(
+        `微信退款服务不可用，跳过 REFUNDING 退款重发: refundId=${this.maskBizId(refund.id)}, merchantRefundNo=${this.maskBizId(refund.merchantRefundNo)}`,
+      );
+      return true;
+    }
+
+    const queried = await this.wechatPayService.queryRefund(refund.merchantRefundNo);
+    if (!queried) {
+      this.logger.warn(
+        `微信退款重试前查单无结果，保持退款中且不重复发起: refundId=${this.maskBizId(refund.id)}, merchantRefundNo=${this.maskBizId(refund.merchantRefundNo)}`,
+      );
+      return true;
+    }
+
+    await this.handleWechatRefundRetryQueryResult(
+      refund.id,
+      {
+        orderId: refund.orderId,
+        amount: refund.amount,
+        merchantRefundNo: refund.merchantRefundNo,
+      },
+      queried,
+      refund.merchantRefundNo.startsWith('AS-'),
+    );
+    return true;
+  }
+
+  private async resolveRefundPaymentChannel(
+    tx: any,
+    refund: { orderId: string; paymentId?: string | null },
+  ): Promise<string | null> {
+    if (refund.paymentId && tx?.payment?.findUnique) {
+      const payment = await tx.payment.findUnique({
+        where: { id: refund.paymentId },
+        select: { channel: true },
+      });
+      if (payment?.channel) return payment.channel;
+    }
+    if (tx?.order?.findUnique) {
+      const order = await tx.order.findUnique({
+        where: { id: refund.orderId },
+        select: { checkoutSession: { select: { paymentChannel: true } } },
+      });
+      return order?.checkoutSession?.paymentChannel ?? null;
+    }
+    return null;
+  }
+
+  private async handleWechatRefundRetryQueryResult(
+    refundId: string,
+    claim: {
+      orderId: string;
+      amount: number;
+      merchantRefundNo: string;
+    },
+    queried: {
+      outRefundNo: string;
+      providerRefundId?: string | null;
+      status: string;
+      refundAmountFen?: number;
+    },
+    isAfterSaleRefund: boolean,
+  ): Promise<boolean> {
+    if (queried.outRefundNo !== claim.merchantRefundNo) {
+      this.logger.error(
+        `微信退款查单返回退款单号不匹配: refundId=${this.maskBizId(refundId)}, expected=${this.maskBizId(claim.merchantRefundNo)}, got=${this.maskBizId(queried.outRefundNo)}`,
+      );
+      return true;
+    }
+
+    const providerRefundId = queried.providerRefundId || null;
+    if (queried.status === 'SUCCESS') {
+      if (
+        !this.isWechatRefundNotifyAmountValid(
+          { amount: claim.amount, merchantRefundNo: claim.merchantRefundNo },
+          queried.refundAmountFen,
+          claim.merchantRefundNo,
+        )
+      ) {
+        return true;
+      }
+      if (isAfterSaleRefund) {
+        if (!this.afterSaleRefundService) {
+          this.logger.error(
+            `微信售后退款查单成功但无法闭环：AfterSaleRefundService 未注入 refundId=${this.maskBizId(refundId)}`,
+          );
+          return true;
+        }
+        await this.afterSaleRefundService.handleRefundSuccess(refundId, providerRefundId);
+      } else {
+        await this.updateAutoRefundRecord({
+          refundId,
+          toStatus: 'REFUNDED',
+          fromStatuses: ['REFUNDING'],
+          providerRefundId,
+          remark: '微信退款查单成功',
+        });
+      }
+      return true;
+    }
+
+    if (queried.status === 'PROCESSING') {
+      if (isAfterSaleRefund) {
+        await this.saveWechatPendingRefundId(refundId, providerRefundId);
+        return true;
+      }
+      await this.updateAutoRefundRecord({
+        refundId,
+        toStatus: 'REFUNDING',
+        fromStatuses: ['REFUNDING'],
+        providerRefundId,
+        remark: '微信退款查单仍处理中',
+      });
+      return true;
+    }
+
+    if (['CLOSED', 'ABNORMAL', 'FAILED'].includes(queried.status)) {
+      if (isAfterSaleRefund && this.afterSaleRefundService) {
+        await this.afterSaleRefundService.handleRefundFailure(
+          refundId,
+          `微信退款失败: ${queried.status}`,
+        );
+      } else {
+        await this.updateAutoRefundRecord({
+          refundId,
+          toStatus: 'FAILED',
+          fromStatuses: ['REFUNDING'],
+          providerRefundId,
+          remark: `微信退款查单失败: ${queried.status}`,
+        });
+      }
+      return true;
+    }
+
+    this.logger.warn(
+      `微信退款查单返回未知状态: refundId=${this.maskBizId(refundId)}, status=${queried.status}`,
+    );
+    return true;
   }
 
   /**

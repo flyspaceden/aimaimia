@@ -162,6 +162,24 @@ describe('AfterSaleShippingPaymentService provider dispatch', () => {
     }));
   });
 
+  it('does not reissue WeChat shipping refund when payment is already REFUNDING', async () => {
+    const { service, tx, wechatPayService } = createHarness();
+    service.setWechatPayService(wechatPayService as any);
+    tx.afterSaleShippingPayment.findUnique.mockResolvedValue({
+      ...baseShippingPayment,
+      status: 'REFUNDING',
+      paidAt: new Date('2026-05-24T01:00:00.000Z'),
+    });
+
+    await service.refundShippingPayment('as_001', '进程中断后重试');
+
+    expect(wechatPayService.refund).not.toHaveBeenCalled();
+    expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith({
+      where: { afterSaleId: 'as_001', status: 'REFUNDING' },
+      data: { failureReason: '退货运费退款中: 进程中断后重试' },
+    });
+  });
+
   it('keeps synchronous WeChat SUCCESS refund in REFUNDING when verification fields are missing', async () => {
     const { service, tx, wechatPayService } = createHarness();
     service.setWechatPayService(wechatPayService as any);
@@ -269,6 +287,42 @@ describe('AfterSaleShippingPaymentService provider dispatch', () => {
     await service.retryStaleWechatShippingRefunds();
 
     expect(tx.afterSaleShippingPayment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('marks very stale WeChat shipping refund as FAILED when queryRefund keeps returning no result', async () => {
+    const now = new Date('2026-05-24T08:00:00.000Z').getTime();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+    const { service, tx, wechatPayService } = createHarness();
+    service.setWechatPayService(wechatPayService as any);
+    const merchantRefundNo = (service as any).getWechatMerchantRefundNo('as_001');
+    tx.afterSaleShippingPayment.findMany.mockResolvedValue([
+      {
+        ...baseShippingPayment,
+        status: 'REFUNDING',
+        updatedAt: new Date('2026-05-24T01:00:00.000Z'),
+      },
+    ]);
+    wechatPayService.queryRefund.mockResolvedValue(null);
+
+    try {
+      await service.retryStaleWechatShippingRefunds();
+
+      expect(wechatPayService.queryRefund).toHaveBeenCalledWith(merchantRefundNo);
+      expect(wechatPayService.refund).not.toHaveBeenCalled();
+      expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: 'ship_pay_001',
+          provider: 'WECHAT_PAY',
+          status: 'REFUNDING',
+        },
+        data: expect.objectContaining({
+          status: 'FAILED',
+          failureReason: expect.stringContaining('微信退货运费退款查单无结果'),
+        }),
+      }));
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('does not mark WeChat shipping refund as REFUNDED when notify refund number mismatches', async () => {
@@ -436,13 +490,35 @@ describe('AfterSaleShippingPaymentService provider dispatch', () => {
     const { service } = createHarness();
     const longAfterSaleId = 'as_' + 'x'.repeat(80);
 
-    const merchantPaymentNo = (service as any).getMerchantPaymentNo(longAfterSaleId);
+    const merchantPaymentNo = (service as any).getMerchantPaymentNo(longAfterSaleId, 'WECHAT_PAY');
     const merchantRefundNo = (service as any).getWechatMerchantRefundNo(longAfterSaleId);
 
     expect(merchantPaymentNo).toMatch(/^AS_SHIP_PAY_[0-9A-F]{16}$/);
     expect(merchantPaymentNo.length).toBeLessThanOrEqual(32);
     expect(merchantRefundNo).toMatch(/^AS_SHIP_REF_[0-9A-F]{16}$/);
     expect(merchantRefundNo.length).toBeLessThanOrEqual(32);
+  });
+
+  it('keeps legacy Alipay merchant payment number even when afterSaleId is longer than 32 chars', async () => {
+    const { service, tx } = createHarness();
+    const longAfterSaleId = 'as_' + 'x'.repeat(80);
+    tx.order.findUnique.mockResolvedValue({
+      checkoutSession: { paymentChannel: 'ALIPAY' },
+    });
+
+    const result = await (service as any).upsertPaymentInTx(tx, {
+      ...baseAfterSaleRequest,
+      id: longAfterSaleId,
+    });
+
+    expect(tx.afterSaleShippingPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { merchantPaymentNo: `AS_SHIP_PAY_${longAfterSaleId}` },
+      create: expect.objectContaining({
+        provider: 'ALIPAY',
+        merchantPaymentNo: `AS_SHIP_PAY_${longAfterSaleId}`,
+      }),
+    }));
+    expect(result).toBe(baseShippingPayment);
   });
 
   it('reuses existing legacy shipping payment by afterSaleId before creating shortened merchant number', async () => {

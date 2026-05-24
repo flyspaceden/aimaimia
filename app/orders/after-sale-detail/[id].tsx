@@ -341,6 +341,12 @@ export default function AfterSaleDetailScreen() {
         if (payResult.resultStatus === '6001') {
           shouldActiveQuery = false;
           show({ message: '已取消支付', type: 'warning' });
+        } else if (payResult.errStr === 'NATIVE_UNAVAILABLE') {
+          shouldActiveQuery = false;
+          show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+        } else if (payResult.errStr === 'WECHAT_NOT_INSTALLED') {
+          shouldActiveQuery = false;
+          show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
         } else if (!payResult.success) {
           show({ message: '支付未完成，正在查询支付状态', type: 'warning' });
         }

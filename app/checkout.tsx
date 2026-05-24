@@ -392,8 +392,9 @@ export default function CheckoutScreen() {
     merchantOrderNo: string;
     amount: number;
     isVip: boolean;
+    paymentMethod: PaymentMethod;
   }) => {
-    const { sessionId, merchantOrderNo, amount, isVip } = args;
+    const { sessionId, merchantOrderNo, amount, isVip, paymentMethod: successPaymentMethod } = args;
 
     show({ message: '支付确认中...', type: 'info' });
 
@@ -504,6 +505,7 @@ export default function CheckoutScreen() {
         firstOrderId: orderIds[0] ?? '',
         orderCount: String(Math.max(1, orderIds.length)),
         isVip: isVip ? '1' : '0',
+        paymentMethod: successPaymentMethod,
       },
     });
   };
@@ -626,6 +628,10 @@ export default function CheckoutScreen() {
         } else if (wechatResult.resultStatus === '6001') {
           router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
+        } else if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
+          show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          return;
         }
         // errCode=0 / 其他错误码：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
       } else if (paymentMethod === 'alipay') {
@@ -659,6 +665,7 @@ export default function CheckoutScreen() {
         merchantOrderNo,
         amount: sessionResult.data.expectedTotal,
         isVip: false,
+        paymentMethod,
       });
     } finally {
       setSubmitting(false);
@@ -811,6 +818,10 @@ export default function CheckoutScreen() {
           show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
           router.replace('/vip/gifts');
           return;
+        } else if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
+          show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          return;
         }
         // errCode=0 / 其他错误码 → 进 active-query
       } else if (paymentMethod === 'alipay') {
@@ -841,6 +852,7 @@ export default function CheckoutScreen() {
         merchantOrderNo,
         amount: sessionResult.data.expectedTotal,
         isVip: true,
+        paymentMethod,
       });
     } finally {
       setSubmitting(false);
