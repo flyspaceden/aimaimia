@@ -145,6 +145,7 @@
 | 奖品不可退 | 清空购物车删奖品为预期行为，wonCount 永不回退，过期名额不释放 |
 | VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
 | 卖家商品草稿 | 复用 `ProductStatus.DRAFT` 持久化未完成商品，每商户 **5 份**上限，最低门槛**标题必填**，30 秒 debounce 自动保存；DRAFT 在卖家默认列表/管理审核/商品总数统计/买家查询中全部排除；提交审核时手动跑 `CreateProductDto` 全量校验 |
+| 微信支付集成 | **支付宝行为不变 + 微信并列分支 + Android-only（v1.0）**：新增 `WechatPayService` 并列于 `AlipayService`，覆盖 APP 下单、主动查单、关单、退款、查退款、支付/退款通知验签解密；`PaymentService.confirmCheckout` 按 channel 派发；取消/过期 CheckoutSession 对 WECHAT_PAY 先查单再关单，已支付则主动建单；售后退款和退货运费支付按原订单 channel dispatch。微信路径由 `WechatPayService.isAvailable()` 守门，`src/constants/payment.ts` 的微信入口保持关闭，等 APP 支付权限和真金联调通过后再开启 |
 
 ## 技术栈
 
@@ -158,7 +159,7 @@ Vite + React 19 + TypeScript / react-router-dom v7 / Ant Design 5 + @ant-design/
 Vite + React 19 + TypeScript / react-router-dom v7 / Ant Design 5 + @ant-design/pro-components / @tanstack/react-query / @ant-design/charts / Zustand
 
 ### 后端
-NestJS + Prisma + PostgreSQL / Redis（队列/缓存） / 第三方服务均为占位实现（微信支付/支付宝/讯飞/高德/阿里云 OSS/SMS）
+NestJS + Prisma + PostgreSQL / Redis（队列/缓存） / 支付宝已接通（收款沙箱已测通，提现链路按配置启用）/ 微信支付代码链路已接入但买家入口关闭，待 APP 支付权限和真金联调后开放 / 其他第三方服务按模块配置或占位实现（讯飞/高德/阿里云 OSS/SMS）
 
 ## 项目结构
 ```
@@ -282,7 +283,7 @@ admin/                  # 管理后台前端
 - 超级管理员角色绕过所有权限检查
 
 ### 注意事项
-- 地图 SDK / 支付 / AI 语音均为占位实现，不要删除，在其基础上迭代
+- 支付通道按当前接入状态迭代：支付宝已接通；微信支付代码链路已接入但买家入口关闭；地图 SDK / AI 语音等第三方能力仍按占位或配置启用方式保留，不要删除
 - 管理后台超级管理员账号：`admin` / `123456`
 
 ### 服务器部署架构（Node 直装 + PM2）

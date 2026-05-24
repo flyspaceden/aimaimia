@@ -12,8 +12,8 @@
 |---|---|
 | 版本 | v1.0 MVP |
 | 范围 | Tier 1 + Tier 2（详见下方批次 + [审查报告 §6/§7](docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md)） |
-| 支付 | 仅支付宝（微信支付推迟 v1.1） |
-| 退款 | 必须退回原支付方式（支付宝 API） |
+| 支付 | 支付宝已开放；微信支付代码链路已接入但入口关闭，待 APP 支付权限 + 真金联调通过后开放 |
+| 退款 | 必须退回原支付渠道；支付宝已接通，微信退款链路已接入但随微信支付入口待联调后开放 |
 | 快递 | 顺丰丰桥直连（快递100 废弃） |
 | 上线节奏 | 阶梯：管理后台 → 卖家后台 + 种子商户 → App 对外 |
 | 首批用户 | 500+ |
@@ -973,7 +973,7 @@
 
 ## 📦 v1.1+ 推迟项（明确不在 v1.0）
 
-- 微信支付（spec 已写：`docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md`，待商户号申请+app 上架后执行）
+- 微信支付（代码接入已按 `docs/superpowers/plans/2026-05-23-wechat-pay-integration.md` 推进：后端 WechatPayService + notify + active-query + 关单/退款闭环 + App Android 支付分发 + admin 展示；入口开关仍关闭，待 APP 支付权限和真金联调通过后开启）
 - 微信登录
 - 可配置标签系统（TagCategory/CompanyTag）
 - 发现页筛选栏动态化
@@ -1302,22 +1302,23 @@
 
 ## 💳 多通道支付扩展（2026-05-10 立项，v1.1+）
 
-> **背景**: 售后链路收口（2026-05-09）已经把支付通道抽象到位（PaymentChannel enum + provider-agnostic initiateRefund + 售后核心 channel-agnostic），下一步加微信/银联/信用卡时**售后代码 0 改动**，只需补 provider service。
+> **背景**: 售后链路收口（2026-05-09）已经把支付通道抽象到位（PaymentChannel enum + provider-agnostic initiateRefund + 售后核心 channel-agnostic）。微信已补 provider service 和退货运费 provider dispatch；未来加银联/信用卡时仍需补对应 provider service 与支付入口分发。
 > **设计**: `docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md`
+> **实施**: `docs/superpowers/plans/2026-05-23-wechat-pay-integration.md`
 
 ### 微信支付（next）
 
-> ⚠️ **必须先做线下事项**：注册商户号 + 完成企业认证（1-4 周）+ 微信开放平台注册 App + 商户证书下载 + APIv3 密钥生成
+> ⚠️ **上线前置**：微信开放平台移动应用审核 + 商户平台 APP 支付权限 + 商户证书/APIv3 密钥配置 + 0.01 元真金联调。未完成前 `src/constants/payment.ts` 的微信入口保持 `available: false`。
 
-- [ ] **WP01** Phase 1 凭据申请（用户线下操作）—— mch.weixin.qq.com 商户号 + 微信开放平台 AppID + 商户证书
-- [ ] **WP02** Phase 2 后端 `WechatPayService` 实现（createAppOrder / refund / parseNotify / queryOrder）
-- [ ] **WP03** Phase 2 PaymentController `/wechat/notify` 端点 + PaymentService.handlePaymentCallback channel 分发
-- [ ] **WP04** Phase 2 PaymentService.initiateRefund 加 WECHAT_PAY 分支（10 行）
-- [ ] **WP05** Phase 2 AfterSaleShippingPaymentService 修正 provider hardcoded（3-5 行 dispatch）
-- [ ] **WP06** Phase 3 App 装 `react-native-wechat-lib` + Expo Plugin + Universal Link 配置（必须 `eas build`，不能 OTA）
-- [ ] **WP07** Phase 3 结账页加支付方式选择 UI
-- [ ] **WP08** Phase 4 真机联调（0.01 元小额测试，微信无沙箱）：支付 → notify → 售后 → 退款
-- [ ] **WP09** Phase 5 上线 checklist 收尾（商户后台开通 APP 支付权限 / Nginx / 商户余额 / production AAB）
+- [✅] **WP01** 后端 `WechatPayService` 实现（createAppOrder / refund / queryRefund / parseNotify / queryOrder / closeOrder）
+- [✅] **WP02** PaymentController `/wechat/notify` 端点 + raw body 验签解密 + appid/mchid/金额校验 + 支付/退款通知闭环
+- [✅] **WP03** PaymentService `initiateRefund` / `confirmCheckout` 按 channel 派发，微信退款 pending 二态不误标完成
+- [✅] **WP04** CheckoutSession 取消/过期对 WECHAT_PAY 先查单再关单，已支付主动建单
+- [✅] **WP05** AfterSaleShippingPaymentService 退货运费支付/退款按原订单 paymentChannel dispatch
+- [✅] **WP06** App 增加 `react-native-wechat-lib` 支付封装、Android `WXPayEntryActivity`、普通/VIP checkout、续付页、未支付横幅、售后退货运费支付分发
+- [✅] **WP07** 管理后台订单详情 `WECHAT_PAY` 中文展示
+- [ ] **WP08** 真机联调（0.01 元小额测试，微信无沙箱）：支付 → notify → 主动查单 → 售后 → 退款 → 查退款
+- [ ] **WP09** 开放入口与合规收尾：商户后台 APP 支付权限确认、生产回调/Nginx/IP 白名单、`src/constants/payment.ts` 开关、隐私政策 SDK 清单、production AAB
 
 ### 银联（待评估，无强烈需求）
 

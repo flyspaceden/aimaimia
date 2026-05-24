@@ -106,7 +106,8 @@
 - `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` — 发票链路完整收口设计方案（开票内容配置、Mock Provider 适配器、买家/管理/卖家三端状态闭环、并发安全与状态历史，**发票链路收口 / Provider / 设置页 / 状态历史权威来源，补充并覆盖 `docs/features/invoice.md` 对应部分**）
 - `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md` — 发票链路完整收口实施计划（Schema/配置/买家申请取消/Mock Provider/管理后台设置与开票/买家 App 发票闭环/卖家隐私/验证与文档同步，**发票链路收口实施排程**）
 - `docs/superpowers/plans/2026-05-15-invoice-auto-issue.md` — 发票自动开票实施计划（Schema 加 failedAttempts/lastAutoIssueAttemptAt、INVOICE_AUTO_ISSUE 开关、买家 requestInvoice fire-and-forget 触发、SYSTEM operatorType、cron 每 10 分钟重试、上限耗尽强翻 FAILED、管理端失败次数显示、买家 App 文案 + refetch，**发票自动开票权威来源**）
-- `docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md` — 微信支付集成设计方案（v1.1+ 推迟项，复用售后链路收口已完成的 PaymentChannel 抽象 + provider-agnostic initiateRefund，售后核心代码 0 改动，仅需新增 WechatPayService + Controller 端点 + initiateRefund 分支 + AfterSaleShippingPayment.provider dispatch 修正，**多通道支付扩展权威来源**）
+- `docs/superpowers/specs/2026-05-10-wechat-pay-integration-design.md` — 微信支付集成设计方案（原 v1.1+ 设计，复用售后链路收口已完成的 PaymentChannel 抽象；当前实施状态以后续 `2026-05-23-wechat-pay-integration.md` 为准，**多通道支付扩展权威来源**）
+- `docs/superpowers/plans/2026-05-23-wechat-pay-integration.md` — 微信支付接入实施计划（WechatPayService 全套含 createAppOrder/refund/queryRefund/parseNotify/queryOrder/closeOrder / 退款 pending 二态 / raw body 验签的 wechat notify / confirmCheckout channel dispatch / cancel/expire 关单 / 售后退货运费支付与退款微信全链路 / 未发货取消退款 pending 闭环 / Android WXPayEntryActivity / App checkout 普通+VIP+续付+Pending Banner+售后详情 / admin 订单详情中文标签 / available 开关和隐私政策条件触发，**微信支付接入实施排程，支付宝行为不变 + 资金链路安全 + Android-only v1.0**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
 - `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
@@ -142,7 +143,8 @@
 | 奖品不可退 | 清空购物车删奖品为预期行为，wonCount 永不回退，过期名额不释放 |
 | VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
 | 卖家商品草稿 | 复用 `ProductStatus.DRAFT` 持久化未完成商品，每商户 **5 份**上限，最低门槛**标题必填**，30 秒 debounce 自动保存；DRAFT 在卖家默认列表/管理审核/商品总数统计/买家查询中全部排除；提交审核时手动跑 `CreateProductDto` 全量校验 |
-| 多通道支付抽象 | **售后链路 channel-agnostic**：`PaymentChannel` enum 含 WECHAT_PAY/ALIPAY/UNIONPAY/AGGREGATOR；`PaymentService.initiateRefund(orderId, amount, merchantRefundNo)` 签名 provider-agnostic，内部按 `channel` 分支；`AfterSaleRefundService` 完全不知道用的是哪家支付。加新 channel 时**售后核心代码 0 改动**，只需补 `<Provider>Service` + Controller 新 notify 端点 + initiateRefund 加 if 分支。唯一需修：`AfterSaleShippingPaymentService.provider` 当前 hardcoded `'ALIPAY'`，加新 channel 时按订单 channel dispatch（3-5 行）|
+| 多通道支付抽象 | **售后链路 channel-agnostic**：`PaymentChannel` enum 含 WECHAT_PAY/ALIPAY/UNIONPAY/AGGREGATOR；`PaymentService.initiateRefund(orderId, amount, merchantRefundNo)` 签名 provider-agnostic，内部按 `channel` 分支；`AfterSaleRefundService` 完全不知道用的是哪家支付。`AfterSaleShippingPaymentService.provider` 已按原订单 `checkoutSession.paymentChannel` dispatch，微信/支付宝退货运费支付和退款均走对应 provider |
+| 微信支付集成 | **支付宝行为不变 + 微信并列分支 + Android-only（v1.0）**：新增 `WechatPayService` 并列于 `AlipayService`，覆盖 APP 下单、主动查单、关单、退款、查退款、支付/退款通知验签解密；`PaymentService.confirmCheckout` 按 channel 派发；取消/过期 CheckoutSession 对 WECHAT_PAY 先查单再关单，已支付则主动建单；售后退款和退货运费支付按原订单 channel dispatch。微信路径由 `WechatPayService.isAvailable()` 守门，`src/constants/payment.ts` 的微信入口保持关闭，等 APP 支付权限和真金联调通过后再开启 |
 | 售后退款幂等键 | **4 个独立 key 不冲突**：`AS-${afterSaleId}` 售后退款 / `AS_SHIP_PAY_${afterSaleId}` 买家付退货运费 / `AS_RETURN_${afterSaleId}` 买家退货顺丰面单 / `AS_REJECT_RETURN_${afterSaleId}` 卖家拒收回寄面单。每个 key 对应独立 advisory lock namespace。退款失败时 `Refund.status=FAILED` 但 `AfterSaleRequest.status=REFUNDING`（不降级），cron 10 分钟自动重试 + 管理员手动重试入口（30s 节流） |
 
 ## 技术栈
@@ -157,7 +159,7 @@ Vite + React 19 + TypeScript / react-router-dom v7 / Ant Design 5 + @ant-design/
 Vite + React 19 + TypeScript / react-router-dom v7 / Ant Design 5 + @ant-design/pro-components / @tanstack/react-query / @ant-design/charts / Zustand
 
 ### 后端
-NestJS + Prisma + PostgreSQL / Redis（队列/缓存） / 第三方服务均为占位实现（微信支付/支付宝/讯飞/高德/阿里云 OSS/SMS）
+NestJS + Prisma + PostgreSQL / Redis（队列/缓存） / 支付宝已接通（收款沙箱已测通，提现链路按配置启用）/ 微信支付代码链路已接入但买家入口关闭，待 APP 支付权限和真金联调后开放 / 其他第三方服务按模块配置或占位实现（讯飞/高德/阿里云 OSS/SMS）
 
 ## 项目结构
 ```
@@ -281,7 +283,7 @@ admin/                  # 管理后台前端
 - 超级管理员角色绕过所有权限检查
 
 ### 注意事项
-- 地图 SDK / 支付 / AI 语音均为占位实现，不要删除，在其基础上迭代
+- 支付通道按当前接入状态迭代：支付宝已接通；微信支付代码链路已接入但买家入口关闭；地图 SDK / AI 语音等第三方能力仍按占位或配置启用方式保留，不要删除
 - 管理后台超级管理员账号：`admin` / `123456`
 
 ### 服务器部署架构（Node 直装 + PM2）
