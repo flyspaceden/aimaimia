@@ -5,7 +5,7 @@
  * - 在首页 / 购物车顶部展示当前用户最新一条 ACTIVE CheckoutSession（未支付订单）
  * - 显示倒计时 + 商品预览 + "继续支付" 按钮
  * - 点击横幅跳转到未完成订单详情页 `/checkout-pending`
- * - 点击"继续支付"按钮调用 OrderRepo.resumeCheckout 重新拉起支付宝
+ * - 点击"继续支付"按钮调用 OrderRepo.resumeCheckout 重新拉起支付渠道
  *
  * 行为：
  * - 未登录时不渲染（useQuery enabled 控制）
@@ -22,6 +22,7 @@ import { useTheme } from '../../theme';
 import { useToast } from '../feedback';
 import { Countdown } from '../ui/Countdown';
 import { payWithAlipay } from '../../utils/alipay';
+import { hasCompleteWechatPayPayload, payWithWechat } from '../../utils/wechat-pay';
 import { useConfirmPayment } from '../../hooks/useConfirmPayment';
 
 export function PendingCheckoutBanner() {
@@ -30,6 +31,7 @@ export function PendingCheckoutBanner() {
   const router = useRouter();
   const { show } = useToast();
   const confirmPayment = useConfirmPayment();
+  const [resuming, setResuming] = React.useState(false);
 
   const { data, refetch } = useQuery({
     queryKey: ['pending-checkout'],
@@ -42,28 +44,49 @@ export function PendingCheckoutBanner() {
   const pending = data.data;
 
   const handleResume = async () => {
-    const r = await OrderRepo.resumeCheckout(pending.sessionId);
-    if (!r.ok) {
-      show({ message: r.error.displayMessage ?? '续付失败', type: 'error' });
-      return;
-    }
-    const params = r.data.paymentParams;
-    const orderStr = params?.channel === 'alipay' ? params.orderStr : undefined;
-    if (!orderStr) {
+    if (resuming) return;
+    setResuming(true);
+    try {
+      const r = await OrderRepo.resumeCheckout(pending.sessionId);
+      if (!r.ok) {
+        show({ message: r.error.displayMessage ?? '续付失败', type: 'error' });
+        return;
+      }
+      const params = r.data.paymentParams;
+      if (params?.channel === 'alipay' && params.orderStr) {
+        const result = await payWithAlipay(params.orderStr);
+        await confirmPayment({
+          sessionId: pending.sessionId,
+          sdkResultStatus: result.resultStatus ?? '',
+          onSuccess: () => router.push('/orders'),
+        });
+        return;
+      }
+      if (params?.channel === 'wechat' && hasCompleteWechatPayPayload(params)) {
+        const result = await payWithWechat(params);
+        await confirmPayment({
+          sessionId: pending.sessionId,
+          sdkResultStatus: result.resultStatus,
+          onSuccess: () => router.push('/orders'),
+        });
+        return;
+      }
       show({ message: '支付参数获取失败', type: 'error' });
+    } finally {
+      setResuming(false);
+    }
+  };
+
+  const handleOpenPending = () => {
+    if (resuming) {
       return;
     }
-    const result = await payWithAlipay(orderStr);
-    await confirmPayment({
-      sessionId: pending.sessionId,
-      sdkResultStatus: result.resultStatus ?? '',
-      onSuccess: () => router.push('/orders'),
-    });
+    router.push({ pathname: '/checkout-pending', params: { sessionId: pending.sessionId } });
   };
 
   return (
     <Pressable
-      onPress={() => router.push({ pathname: '/checkout-pending', params: { sessionId: pending.sessionId } })}
+      onPress={handleOpenPending}
       style={[styles.banner, { backgroundColor: '#FFF8E1', borderRadius: radius.md }]}
     >
       <View style={{ flex: 1 }}>
@@ -85,8 +108,13 @@ export function PendingCheckoutBanner() {
           </Text>
         </View>
       </View>
-      <Pressable onPress={handleResume} style={[styles.cta, { backgroundColor: '#FF6B35', borderRadius: radius.pill }]}>
-        <Text style={[typography.caption, { color: '#fff', fontWeight: '600' }]}>继续支付</Text>
+      <Pressable
+        onPress={handleResume}
+        disabled={resuming}
+        accessibilityState={{ disabled: resuming }}
+        style={[styles.cta, { backgroundColor: '#FF6B35', borderRadius: radius.pill }, resuming && styles.disabled]}
+      >
+        <Text style={[typography.caption, { color: '#fff', fontWeight: '600' }]}>{resuming ? '处理中' : '继续支付'}</Text>
       </Pressable>
     </Pressable>
   );
@@ -95,4 +123,5 @@ export function PendingCheckoutBanner() {
 const styles = StyleSheet.create({
   banner: { flexDirection: 'row', alignItems: 'center', padding: 10, marginHorizontal: 12, marginTop: 8 },
   cta: { paddingHorizontal: 14, paddingVertical: 6, marginLeft: 8 },
+  disabled: { opacity: 0.55 },
 });
