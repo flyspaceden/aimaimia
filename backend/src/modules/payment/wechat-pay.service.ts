@@ -74,6 +74,64 @@ export class WechatPayService implements OnModuleInit {
     return null;
   }
 
+  private yuanToFen(amount: number, fieldName: string): number {
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) {
+      throw new Error(`${fieldName} 必须是有效数字`);
+    }
+    if (amount <= 0) {
+      throw new Error(`${fieldName} 必须大于 0`);
+    }
+
+    const scaled = amount * 100;
+    const rounded = Math.round(scaled);
+    if (Math.abs(scaled - rounded) > 1e-8) {
+      throw new Error(`${fieldName} 最多支持 2 位小数`);
+    }
+    if (!Number.isSafeInteger(rounded)) {
+      throw new Error(`${fieldName} 转换后的分值超出安全整数范围`);
+    }
+
+    return rounded;
+  }
+
+  private validateOutTradeNo(outTradeNo: string): void {
+    if (typeof outTradeNo !== 'string' || !outTradeNo.trim()) {
+      throw new Error('outTradeNo 不能为空');
+    }
+    if (outTradeNo.length > 32) {
+      throw new Error('outTradeNo 不能超过 32 个字符');
+    }
+  }
+
+  private parseSdkError(result: any): { code: string; message: string } {
+    let parsedError: any = {};
+    if (typeof result?.error === 'string') {
+      try {
+        parsedError = JSON.parse(result.error);
+      } catch {
+        parsedError = {};
+      }
+    } else if (result?.error && typeof result.error === 'object') {
+      parsedError = result.error;
+    }
+
+    return {
+      code: String(parsedError?.code || result?.code || 'UNKNOWN'),
+      message: String(parsedError?.message || result?.message || '微信支付下单失败'),
+    };
+  }
+
+  private maskBizId(id: unknown): string {
+    if (typeof id !== 'string' || !id.trim()) {
+      return '<empty>';
+    }
+    const trimmed = id.trim();
+    if (trimmed.length <= 4) {
+      return `${trimmed.slice(0, 1)}***`;
+    }
+    return `${trimmed.slice(0, 3)}***${trimmed.slice(-4)}`;
+  }
+
   isAvailable(): boolean {
     return this.client !== null;
   }
@@ -90,12 +148,18 @@ export class WechatPayService implements OnModuleInit {
     nonceStr: string;
     prepayId: string;
     packageVal: string;
+    package: string;
     signType: string;
     paySign: string;
+    sign: string;
+    timeStamp: string;
   }> {
     if (!this.client) {
       throw new Error('微信支付 SDK 未初始化');
     }
+
+    this.validateOutTradeNo(params.outTradeNo);
+    const total = this.yuanToFen(params.amount, 'amount');
 
     const notifyUrl = this.configService.get<string>(
       'WECHAT_PAY_NOTIFY_URL',
@@ -109,39 +173,40 @@ export class WechatPayService implements OnModuleInit {
       out_trade_no: params.outTradeNo,
       notify_url: notifyUrl,
       amount: {
-        total: Math.round(params.amount * 100),
+        total,
         currency: 'CNY',
       },
       ...(params.timeExpire ? { time_expire: params.timeExpire.toISOString() } : {}),
     });
 
     if (result?.status !== 200) {
-      let parsedError: any = {};
-      try {
-        parsedError = result?.error ? JSON.parse(result.error) : {};
-      } catch {
-        parsedError = {};
-      }
-      const code = parsedError?.code || result?.code || 'UNKNOWN';
-      const message = parsedError?.message || result?.message || result?.error || JSON.stringify(result);
-      this.logger.error(`微信支付下单失败: code=${code} message=${message}`);
+      const { code, message } = this.parseSdkError(result);
+      this.logger.error(
+        `微信支付下单失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outTradeNo=${this.maskBizId(params.outTradeNo)}`,
+      );
       throw new Error(`微信支付下单失败 [${code}] ${message}`);
     }
 
     const data = result.data;
     if (!data?.prepayid || !data?.sign) {
-      throw new Error(`微信支付下单返回缺少 prepayid/sign: ${JSON.stringify(result)}`);
+      this.logger.error(
+        `微信支付下单返回缺少必要签名字段: outTradeNo=${this.maskBizId(params.outTradeNo)}`,
+      );
+      throw new Error('微信支付下单返回缺少必要签名字段');
     }
 
     return {
       appId: data.appid,
       partnerId: data.partnerid ?? this.mchId!,
       timestamp: data.timestamp,
+      timeStamp: data.timestamp,
       nonceStr: data.noncestr,
       prepayId: data.prepayid,
       packageVal: data.package,
+      package: data.package,
       signType: 'RSA',
       paySign: data.sign,
+      sign: data.sign,
     };
   }
 
