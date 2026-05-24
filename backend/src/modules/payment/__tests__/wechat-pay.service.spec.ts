@@ -483,4 +483,261 @@ describe('WechatPayService', () => {
       expect(client.refunds).not.toHaveBeenCalled();
     });
   });
+
+  describe('parseNotify', () => {
+    const rawBody = '{"id":"notify-001","resource":{"ciphertext":"PAY-CIPHER"}}';
+    const headers = {
+      signature: 'SIGNATURE',
+      timestamp: '1710000000',
+      nonce: 'HEADER-NONCE',
+      serial: 'PLATFORM-SERIAL',
+    };
+
+    const paymentNotifyBody = {
+      event_type: 'TRANSACTION.SUCCESS',
+      resource: {
+        original_type: 'transaction',
+        ciphertext: 'PAY-CIPHER',
+        nonce: 'RESOURCE-NONCE',
+        associated_data: 'transaction',
+      },
+    };
+
+    it('throws when SDK not available', async () => {
+      const svc = await buildModule({});
+
+      await expect(
+        (svc as any).parseNotify({
+          body: paymentNotifyBody,
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信支付 SDK 未初始化');
+    });
+
+    it('throws when notify signature verification returns false', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(false);
+      client.decipher_gcm = jest.fn();
+
+      await expect(
+        (svc as any).parseNotify({
+          body: paymentNotifyBody,
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信通知签名校验失败');
+      expect(client.decipher_gcm).not.toHaveBeenCalled();
+    });
+
+    it('calls verifySign with the rawBody string', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-NOTIFY-001',
+        transaction_id: 'WX-TXN-001',
+        trade_state: 'SUCCESS',
+        amount: { total: 100 },
+      });
+
+      await (svc as any).parseNotify({
+        body: paymentNotifyBody,
+        rawBody,
+        headers,
+      });
+
+      expect(client.verifySign).toHaveBeenCalledWith({
+        timestamp: '1710000000',
+        nonce: 'HEADER-NONCE',
+        body: rawBody,
+        serial: 'PLATFORM-SERIAL',
+        signature: 'SIGNATURE',
+        apiSecret: validWechatEnv.WECHAT_PAY_API_V3_KEY,
+      });
+    });
+
+    it('decrypts a successful payment notify payload and maps fen to yuan', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-PAY-999',
+        transaction_id: 'WX-TXN-999',
+        trade_state: 'SUCCESS',
+        amount: { total: 999 },
+        success_time: '2026-05-23T10:11:12+08:00',
+      });
+
+      const result = await (svc as any).parseNotify({
+        body: paymentNotifyBody,
+        rawBody,
+        headers,
+      });
+
+      expect(client.decipher_gcm).toHaveBeenCalledWith(
+        'PAY-CIPHER',
+        'transaction',
+        'RESOURCE-NONCE',
+        validWechatEnv.WECHAT_PAY_API_V3_KEY,
+      );
+      expect(result).toEqual({
+        type: 'payment',
+        outTradeNo: 'CS-PAY-999',
+        providerTxnId: 'WX-TXN-999',
+        tradeState: 'SUCCESS',
+        amount: 9.99,
+        paidAt: new Date('2026-05-23T10:11:12+08:00'),
+      });
+    });
+
+    it('decrypts a successful refund notify payload when event_type is REFUND.SUCCESS', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-REFUND-PAY',
+        out_refund_no: 'RF-NOTIFY-500',
+        refund_id: 'WX-REFUND-500',
+        refund_status: 'SUCCESS',
+        amount: { refund: 500 },
+        success_time: '2026-05-23T12:00:00+08:00',
+      });
+
+      const result = await (svc as any).parseNotify({
+        body: {
+          event_type: 'REFUND.SUCCESS',
+          resource: {
+            original_type: 'refund',
+            ciphertext: 'REFUND-CIPHER',
+            nonce: 'REFUND-RESOURCE-NONCE',
+            associated_data: 'refund',
+          },
+        },
+        rawBody,
+        headers,
+      });
+
+      expect(result).toEqual({
+        type: 'refund',
+        outTradeNo: 'CS-REFUND-PAY',
+        outRefundNo: 'RF-NOTIFY-500',
+        providerTxnId: 'WX-REFUND-500',
+        tradeState: 'SUCCESS',
+        amount: 5,
+        paidAt: new Date('2026-05-23T12:00:00+08:00'),
+      });
+    });
+
+    it('treats resource.original_type refund as refund when event_type is missing', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-ORIGINAL-TYPE',
+        out_refund_no: 'RF-ORIGINAL-TYPE',
+        refund_id: 'WX-REFUND-ORIGINAL',
+        refund_status: 'SUCCESS',
+        amount: { refund: 500 },
+      });
+
+      const result = await (svc as any).parseNotify({
+        body: {
+          resource: {
+            original_type: 'refund',
+            ciphertext: 'REFUND-CIPHER',
+            nonce: 'REFUND-RESOURCE-NONCE',
+          },
+        },
+        rawBody,
+        headers,
+      });
+
+      expect(result.type).toBe('refund');
+      expect(result.outRefundNo).toBe('RF-ORIGINAL-TYPE');
+    });
+
+    it('treats decrypted out_refund_no as refund when notify metadata is ambiguous', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        out_trade_no: 'CS-DECRYPTED-REFUND',
+        out_refund_no: 'RF-DECRYPTED-REFUND',
+        refund_id: 'WX-REFUND-DECRYPTED',
+        refund_status: 'SUCCESS',
+        amount: { refund: 500 },
+      });
+
+      const result = await (svc as any).parseNotify({
+        body: {
+          event_type: 'UNKNOWN.SUCCESS',
+          resource: {
+            original_type: 'transaction',
+            ciphertext: 'REFUND-CIPHER',
+            nonce: 'REFUND-RESOURCE-NONCE',
+          },
+        },
+        rawBody,
+        headers,
+      });
+
+      expect(result.type).toBe('refund');
+      expect(result.outRefundNo).toBe('RF-DECRYPTED-REFUND');
+    });
+
+    it('parses decrypted JSON string payloads', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue(JSON.stringify({
+        out_trade_no: 'CS-STRING-PAYLOAD',
+        transaction_id: 'WX-TXN-STRING',
+        trade_state: 'SUCCESS',
+        amount: { total: 999 },
+      }));
+
+      const result = await (svc as any).parseNotify({
+        body: paymentNotifyBody,
+        rawBody,
+        headers,
+      });
+
+      expect(result).toEqual({
+        type: 'payment',
+        outTradeNo: 'CS-STRING-PAYLOAD',
+        providerTxnId: 'WX-TXN-STRING',
+        tradeState: 'SUCCESS',
+        amount: 9.99,
+        paidAt: undefined,
+      });
+    });
+
+    it('logs only sanitized notify context when decryption fails', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn(() => {
+        throw new Error('decrypt failed with secret payload');
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: paymentNotifyBody,
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('decrypt failed with secret payload');
+
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('event_type=TRANSACTION.SUCCESS');
+      expect(logged).toContain('original_type=transaction');
+      expect(logged).not.toContain(rawBody);
+      expect(logged).not.toContain('PAY-CIPHER');
+      expect(logged).not.toContain('secret payload');
+      loggerError.mockRestore();
+    });
+  });
 });

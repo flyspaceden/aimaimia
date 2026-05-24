@@ -3,6 +3,35 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 
+type WechatPayNotifyResource = {
+  original_type?: 'transaction' | 'refund' | string;
+  ciphertext?: string;
+  nonce?: string;
+  associated_data?: string;
+};
+
+type WechatPayNotifyBody = {
+  event_type?: string;
+  resource?: WechatPayNotifyResource;
+};
+
+type WechatPayNotifyHeaders = {
+  signature?: string;
+  timestamp?: string;
+  nonce?: string;
+  serial?: string;
+};
+
+type WechatPayParsedNotify = {
+  type: 'payment' | 'refund';
+  outTradeNo: string;
+  outRefundNo?: string;
+  providerTxnId: string;
+  tradeState: string;
+  amount: number;
+  paidAt?: Date;
+};
+
 @Injectable()
 export class WechatPayService implements OnModuleInit {
   private readonly logger = new Logger(WechatPayService.name);
@@ -144,6 +173,29 @@ export class WechatPayService implements OnModuleInit {
     return `${trimmed.slice(0, 3)}***${trimmed.slice(-4)}`;
   }
 
+  private buildNotifyLogContext(body?: WechatPayNotifyBody, decrypted?: any): string {
+    const context = [
+      `event_type=${body?.event_type ?? '<empty>'}`,
+      `original_type=${body?.resource?.original_type ?? '<empty>'}`,
+    ];
+
+    if (typeof decrypted?.out_trade_no === 'string') {
+      context.push(`outTradeNo=${this.maskBizId(decrypted.out_trade_no)}`);
+    }
+    if (typeof decrypted?.out_refund_no === 'string') {
+      context.push(`outRefundNo=${this.maskBizId(decrypted.out_refund_no)}`);
+    }
+
+    return context.join(' ');
+  }
+
+  private normalizeNotifyPayload(decrypted: unknown): any {
+    if (typeof decrypted === 'string') {
+      return JSON.parse(decrypted);
+    }
+    return decrypted;
+  }
+
   isAvailable(): boolean {
     return this.client !== null;
   }
@@ -220,6 +272,91 @@ export class WechatPayService implements OnModuleInit {
       paySign: data.sign,
       sign: data.sign,
     };
+  }
+
+  async parseNotify(args: {
+    body: WechatPayNotifyBody;
+    rawBody: string;
+    headers: WechatPayNotifyHeaders;
+  }): Promise<WechatPayParsedNotify> {
+    if (!this.client) {
+      throw new Error('微信支付 SDK 未初始化');
+    }
+
+    const { body, rawBody, headers } = args;
+    const resource = body.resource ?? {};
+
+    let verified: boolean;
+    try {
+      verified = await this.client.verifySign({
+        timestamp: headers.timestamp,
+        nonce: headers.nonce,
+        body: rawBody,
+        serial: headers.serial,
+        signature: headers.signature,
+        apiSecret: this.apiV3Key!,
+      });
+    } catch (err) {
+      this.logger.error(`微信通知签名校验异常: ${this.buildNotifyLogContext(body)}`);
+      throw err;
+    }
+
+    if (!verified) {
+      this.logger.warn(`微信通知签名校验失败: ${this.buildNotifyLogContext(body)}`);
+      throw new Error('微信通知签名校验失败');
+    }
+
+    let decryptedRaw: unknown;
+    try {
+      decryptedRaw = await this.client.decipher_gcm(
+        resource.ciphertext,
+        resource.associated_data ?? '',
+        resource.nonce,
+        this.apiV3Key!,
+      );
+    } catch (err) {
+      this.logger.error(`微信通知解密失败: ${this.buildNotifyLogContext(body)}`);
+      throw err;
+    }
+
+    let decrypted: any;
+    try {
+      decrypted = this.normalizeNotifyPayload(decryptedRaw);
+    } catch (err) {
+      this.logger.error(`微信通知解密结果解析失败: ${this.buildNotifyLogContext(body)}`);
+      throw err;
+    }
+
+    try {
+      const isRefund =
+        (typeof body.event_type === 'string' && body.event_type.startsWith('REFUND.')) ||
+        resource.original_type === 'refund' ||
+        typeof decrypted?.out_refund_no === 'string';
+
+      if (isRefund) {
+        return {
+          type: 'refund',
+          outTradeNo: decrypted.out_trade_no,
+          outRefundNo: decrypted.out_refund_no,
+          providerTxnId: decrypted.refund_id,
+          tradeState: decrypted.refund_status,
+          amount: (decrypted.amount?.refund ?? 0) / 100,
+          paidAt: decrypted.success_time ? new Date(decrypted.success_time) : undefined,
+        };
+      }
+
+      return {
+        type: 'payment',
+        outTradeNo: decrypted.out_trade_no,
+        providerTxnId: decrypted.transaction_id,
+        tradeState: decrypted.trade_state,
+        amount: (decrypted.amount?.total ?? 0) / 100,
+        paidAt: decrypted.success_time ? new Date(decrypted.success_time) : undefined,
+      };
+    } catch (err) {
+      this.logger.error(`微信通知字段映射失败: ${this.buildNotifyLogContext(body, decrypted)}`);
+      throw err;
+    }
   }
 
   async refund(params: {
