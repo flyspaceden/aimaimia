@@ -103,7 +103,19 @@ export class WechatPayService implements OnModuleInit {
     }
   }
 
-  private parseSdkError(result: any): { code: string; message: string } {
+  private validateOutRefundNo(outRefundNo: string): void {
+    if (typeof outRefundNo !== 'string' || !outRefundNo.trim()) {
+      throw new Error('outRefundNo 不能为空');
+    }
+    if (outRefundNo.length > 64) {
+      throw new Error('outRefundNo 不能超过 64 个字符');
+    }
+  }
+
+  private parseSdkError(
+    result: any,
+    fallbackMessage = '微信支付下单失败',
+  ): { code: string; message: string } {
     let parsedError: any = {};
     if (typeof result?.error === 'string') {
       try {
@@ -117,7 +129,7 @@ export class WechatPayService implements OnModuleInit {
 
     return {
       code: String(parsedError?.code || result?.code || 'UNKNOWN'),
-      message: String(parsedError?.message || result?.message || '微信支付下单失败'),
+      message: String(parsedError?.message || result?.message || fallbackMessage),
     };
   }
 
@@ -207,6 +219,136 @@ export class WechatPayService implements OnModuleInit {
       signType: 'RSA',
       paySign: data.sign,
       sign: data.sign,
+    };
+  }
+
+  async refund(params: {
+    outTradeNo: string;
+    outRefundNo: string;
+    refundAmount: number;
+    totalAmount: number;
+    reason: string;
+  }): Promise<{
+    success: boolean;
+    pending: boolean;
+    providerRefundId?: string;
+    message: string;
+  }> {
+    if (!this.client) {
+      return {
+        success: false,
+        pending: false,
+        message: '微信支付 SDK 未初始化',
+      };
+    }
+
+    let refund: number;
+    let total: number;
+    try {
+      this.validateOutTradeNo(params.outTradeNo);
+      this.validateOutRefundNo(params.outRefundNo);
+      refund = this.yuanToFen(params.refundAmount, 'refundAmount');
+      total = this.yuanToFen(params.totalAmount, 'totalAmount');
+      if (refund > total) {
+        throw new Error('refundAmount 不能大于 totalAmount');
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        pending: false,
+        message: err?.message || '微信退款参数无效',
+      };
+    }
+
+    const notifyUrl = this.configService.get<string>(
+      'WECHAT_PAY_NOTIFY_URL',
+      'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
+    );
+
+    const outTradeNoForLog = this.maskBizId(params.outTradeNo);
+    const outRefundNoForLog = this.maskBizId(params.outRefundNo);
+
+    let result: any;
+    try {
+      result = await this.client.refunds({
+        out_trade_no: params.outTradeNo,
+        out_refund_no: params.outRefundNo,
+        reason: params.reason,
+        notify_url: notifyUrl,
+        amount: {
+          refund,
+          total,
+          currency: 'CNY',
+        },
+      });
+    } catch (err: any) {
+      const code = String(err?.code || 'SDK_EXCEPTION');
+      const message = String(err?.message || '微信退款调用失败');
+      this.logger.error(
+        `微信退款 SDK 调用失败: code=${code} outTradeNo=${outTradeNoForLog} outRefundNo=${outRefundNoForLog}`,
+      );
+      return {
+        success: false,
+        pending: false,
+        message: `微信退款失败 [${code}] ${message}`,
+      };
+    }
+
+    if (result?.status !== 200) {
+      const { code, message } = this.parseSdkError(result, '微信退款失败');
+      this.logger.error(
+        `微信退款失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outTradeNo=${outTradeNoForLog} outRefundNo=${outRefundNoForLog}`,
+      );
+      return {
+        success: false,
+        pending: false,
+        message: `微信退款失败 [${code}] ${message}`,
+      };
+    }
+
+    const data = result.data;
+    const providerRefundId = data?.refund_id;
+    const statusValue = data?.status;
+    const status = typeof statusValue === 'string' ? statusValue : '';
+
+    if (!status) {
+      this.logger.warn(
+        `微信退款返回缺少状态，按待确认处理: outTradeNo=${outTradeNoForLog} outRefundNo=${outRefundNoForLog}`,
+      );
+      return {
+        success: true,
+        pending: true,
+        providerRefundId,
+        message: '微信退款状态待确认',
+      };
+    }
+
+    if (status === 'SUCCESS') {
+      return {
+        success: true,
+        pending: false,
+        providerRefundId,
+        message: '退款成功',
+      };
+    }
+
+    if (status === 'PROCESSING') {
+      return {
+        success: true,
+        pending: true,
+        providerRefundId,
+        message: '退款受理中，等待结果通知',
+      };
+    }
+
+    this.logger.warn(
+      `微信退款状态失败: status=${status} outTradeNo=${outTradeNoForLog} outRefundNo=${outRefundNoForLog}`,
+    );
+    return {
+      success: false,
+      pending: false,
+      providerRefundId,
+      message: `微信退款失败，状态=${status}`,
     };
   }
 

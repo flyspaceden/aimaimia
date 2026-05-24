@@ -232,4 +232,174 @@ describe('WechatPayService', () => {
       loggerError.mockRestore();
     });
   });
+
+  describe('refund', () => {
+    const refundParams = {
+      outTradeNo: 'CS-REFUND-001',
+      outRefundNo: 'RF-REFUND-001',
+      refundAmount: 12.34,
+      totalAmount: 20,
+      reason: '用户申请退款',
+    };
+
+    it('returns failed result when SDK not available', async () => {
+      const svc = await buildModule({});
+
+      await expect(svc.refund(refundParams)).resolves.toEqual({
+        success: false,
+        pending: false,
+        message: '微信支付 SDK 未初始化',
+      });
+    });
+
+    it('calls refunds with fen amounts and returns success on SUCCESS status', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          status: 'SUCCESS',
+          refund_id: 'wxrefund-success-001',
+        },
+      });
+
+      const result = await svc.refund(refundParams);
+
+      expect(client.refunds).toHaveBeenCalledWith({
+        out_trade_no: 'CS-REFUND-001',
+        out_refund_no: 'RF-REFUND-001',
+        reason: '用户申请退款',
+        notify_url: 'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
+        amount: {
+          refund: 1234,
+          total: 2000,
+          currency: 'CNY',
+        },
+      });
+      expect(result).toEqual({
+        success: true,
+        pending: false,
+        providerRefundId: 'wxrefund-success-001',
+        message: '退款成功',
+      });
+    });
+
+    it('returns pending result on PROCESSING status', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          status: 'PROCESSING',
+          refund_id: 'wxrefund-processing-001',
+        },
+      });
+
+      await expect(svc.refund(refundParams)).resolves.toEqual({
+        success: true,
+        pending: true,
+        providerRefundId: 'wxrefund-processing-001',
+        message: '退款受理中，等待结果通知',
+      });
+    });
+
+    it.each(['CLOSED', 'ABNORMAL'])('returns failed result on %s status', async (status) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          status,
+          refund_id: `wxrefund-${status.toLowerCase()}`,
+        },
+      });
+
+      const result = await svc.refund(refundParams);
+
+      expect(result).toEqual(expect.objectContaining({
+        success: false,
+        pending: false,
+      }));
+      expect(result.message).toContain(status);
+    });
+
+    it('returns failed result with SDK error code and message on non-200 response', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.refunds = jest.fn().mockResolvedValue({
+        status: 400,
+        error: JSON.stringify({ code: 'PARAM_ERROR', message: 'refund amount invalid' }),
+      });
+
+      const result = await svc.refund(refundParams);
+
+      expect(result).toEqual({
+        success: false,
+        pending: false,
+        message: '微信退款失败 [PARAM_ERROR] refund amount invalid',
+      });
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('status=400 code=PARAM_ERROR');
+      expect(logged).toContain('outTradeNo=CS-***-001');
+      expect(logged).toContain('outRefundNo=RF-***-001');
+      expect(logged).not.toContain('refund amount invalid');
+      expect(logged).not.toContain('{"code":"PARAM_ERROR"');
+      loggerError.mockRestore();
+    });
+
+    it('treats missing data.status as pending instead of success', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          refund_id: 'wxrefund-missing-status',
+        },
+      });
+
+      await expect(svc.refund(refundParams)).resolves.toEqual({
+        success: true,
+        pending: true,
+        providerRefundId: 'wxrefund-missing-status',
+        message: '微信退款状态待确认',
+      });
+    });
+
+    it('rejects refundAmount with more than 2 decimal places and does not call SDK', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn();
+
+      const result = await svc.refund({
+        ...refundParams,
+        refundAmount: 1.234,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        pending: false,
+        message: 'refundAmount 最多支持 2 位小数',
+      });
+      expect(client.refunds).not.toHaveBeenCalled();
+    });
+
+    it('rejects outTradeNo over 32 chars and does not call SDK', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn();
+
+      const result = await svc.refund({
+        ...refundParams,
+        outTradeNo: 'T'.repeat(33),
+      });
+
+      expect(result).toEqual({
+        success: false,
+        pending: false,
+        message: 'outTradeNo 不能超过 32 个字符',
+      });
+      expect(client.refunds).not.toHaveBeenCalled();
+    });
+  });
 });
