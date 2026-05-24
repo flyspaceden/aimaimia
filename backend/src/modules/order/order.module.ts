@@ -17,6 +17,7 @@ import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { BonusService } from '../bonus/bonus.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { AlipayService } from '../payment/alipay.service';
+import { WechatPayService } from '../payment/wechat-pay.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
@@ -109,6 +110,12 @@ export class OrderModule implements OnModuleInit {
     if (alipayService) {
       this.checkoutService.setAlipayService(alipayService);
       this.checkoutExpireService.setAlipayService(alipayService);
+    }
+
+    // 注入微信支付服务
+    const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
+    if (wechatPayService) {
+      this.checkoutService.setWechatPayService(wechatPayService);
     }
 
     // 注入 CheckoutService 到 ExpireService（expire 检测到已支付时主动建单用）

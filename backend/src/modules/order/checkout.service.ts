@@ -72,6 +72,7 @@ export class CheckoutService {
   private inboxService: any = null; // 由 OrderModule.onModuleInit 注入，启动时校验
   // AlipayService 通过可选注入（支付宝下单用）
   private alipayService: any = null;
+  private wechatPayService: any = null;
   // PaymentService 通过可选注入（cancel/expire 主动建单后通知商家用）
   private paymentService: any = null;
   // RewardDeductionService 通过 setter 注入，避免扩大构造函数循环依赖面
@@ -105,6 +106,11 @@ export class CheckoutService {
   /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
   setAlipayService(service: any) {
     this.alipayService = service;
+  }
+
+  /** 注入微信支付服务（由 OrderModule 在 onModuleInit 时调用） */
+  setWechatPayService(service: any) {
+    this.wechatPayService = service;
   }
 
   /** 注入支付服务（cancel/expire 主动建单后通知商家用，由 OrderModule 在 onModuleInit 时调用） */
@@ -151,6 +157,17 @@ export class CheckoutService {
           paymentParams = { channel: 'alipay', orderStr };
         } catch (err: any) {
           this.logger.error(`生成支付宝支付参数失败: ${err.message}`);
+        }
+      } else if (session.paymentChannel === 'WECHAT_PAY' && this.wechatPayService?.isAvailable() && session.merchantOrderNo) {
+        try {
+          const wxParams = await this.wechatPayService.createAppOrder({
+            outTradeNo: session.merchantOrderNo,
+            amount: session.expectedTotal,
+            description: `爱买买订单-${session.merchantOrderNo}`,
+          });
+          paymentParams = { channel: 'wechat', ...wxParams };
+        } catch (err: any) {
+          this.logger.error(`生成微信支付参数失败: ${err.message}`);
         }
       }
 
@@ -1089,6 +1106,17 @@ export class CheckoutService {
       } catch (err: any) {
         this.logger.error(`VIP 结账生成支付宝参数失败: ${err.message}`);
       }
+    } else if (paymentChannel === 'WECHAT_PAY' && this.wechatPayService?.isAvailable() && session.merchantOrderNo) {
+      try {
+        const wxParams = await this.wechatPayService.createAppOrder({
+          outTradeNo: session.merchantOrderNo,
+          amount: vipPrice,
+          description: `爱买买VIP礼包-${giftOption.title}`,
+        });
+        paymentParams = { channel: 'wechat', ...wxParams };
+      } catch (err: any) {
+        this.logger.error(`VIP 结账生成微信支付参数失败: ${err.message}`);
+      }
     }
 
     return {
@@ -1431,6 +1459,22 @@ export class CheckoutService {
         paymentParams = { channel: 'alipay', orderStr };
       } catch (err: any) {
         this.logger.error(`续付生成支付宝参数失败: ${err.message}`);
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+    } else if (session.paymentChannel === 'WECHAT_PAY') {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.error(`续付生成微信支付参数失败: 微信支付服务未启用`);
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+      try {
+        const wxParams = await this.wechatPayService.createAppOrder({
+          outTradeNo: session.merchantOrderNo,
+          amount: session.expectedTotal,
+          description: `爱买买订单-${session.merchantOrderNo}`,
+        });
+        paymentParams = { channel: 'wechat', ...wxParams };
+      } catch (err: any) {
+        this.logger.error(`续付生成微信支付参数失败: ${err.message}`);
         throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
       }
     }
