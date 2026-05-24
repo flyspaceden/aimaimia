@@ -323,6 +323,29 @@ describe('WechatPayService', () => {
       expect(result.message).toContain(status);
     });
 
+    it.each(['USERPAYING', 'UNKNOWN_STATUS'])(
+      'returns failed result on unexpected %s status',
+      async (status) => {
+        const svc = await buildModule(validWechatEnv);
+        const client = (svc as any).client;
+        client.refunds = jest.fn().mockResolvedValue({
+          status: 200,
+          data: {
+            status,
+            refund_id: `wxrefund-${status.toLowerCase()}`,
+          },
+        });
+
+        const result = await svc.refund(refundParams);
+
+        expect(result).toEqual(expect.objectContaining({
+          success: false,
+          pending: false,
+        }));
+        expect(result.message).toContain(status);
+      },
+    );
+
     it('returns failed result with SDK error code and message on non-200 response', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
@@ -380,6 +403,64 @@ describe('WechatPayService', () => {
         success: false,
         pending: false,
         message: 'refundAmount 最多支持 2 位小数',
+      });
+      expect(client.refunds).not.toHaveBeenCalled();
+    });
+
+    it('rejects totalAmount with more than 2 decimal places and does not call SDK', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn();
+
+      const result = await svc.refund({
+        ...refundParams,
+        totalAmount: 12.345,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        pending: false,
+        message: 'totalAmount 最多支持 2 位小数',
+      });
+      expect(client.refunds).not.toHaveBeenCalled();
+    });
+
+    it('rejects refundAmount greater than totalAmount and does not call SDK', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn();
+
+      const result = await svc.refund({
+        ...refundParams,
+        refundAmount: 20.01,
+        totalAmount: 20,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        pending: false,
+        message: 'refundAmount 不能大于 totalAmount',
+      });
+      expect(client.refunds).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['', 'outRefundNo 不能为空'],
+      ['R'.repeat(65), 'outRefundNo 不能超过 64 个字符'],
+    ])('rejects invalid outRefundNo and does not call SDK', async (outRefundNo, message) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn();
+
+      const result = await svc.refund({
+        ...refundParams,
+        outRefundNo,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        pending: false,
+        message,
       });
       expect(client.refunds).not.toHaveBeenCalled();
     });
