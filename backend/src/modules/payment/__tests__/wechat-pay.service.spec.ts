@@ -9,6 +9,7 @@ jest.mock('wechatpay-node-v3', () => ({
     refunds: jest.fn(),
     find_refunds: jest.fn(),
     query: jest.fn(),
+    close: jest.fn(),
     verifySign: jest.fn(),
     decipher_gcm: jest.fn(),
   })),
@@ -464,6 +465,156 @@ describe('WechatPayService', () => {
       expect(logged).toContain('outTradeNo=CS-***-123');
       expect(logged).toContain('providerOutTradeNo=CS-***-456');
       loggerWarn.mockRestore();
+    });
+  });
+
+  describe('closeOrder', () => {
+    it('treats uninitialized SDK as terminal uncreated order', async () => {
+      const svc = await buildModule({});
+
+      await expect((svc as any).closeOrder('CS-CLOSE-001')).resolves.toEqual({
+        success: true,
+        terminal: true,
+        alreadyPaid: false,
+        message: '微信支付 SDK 未初始化，按未建单处理',
+      });
+    });
+
+    it.each([
+      ['runtime null', null],
+      ['empty', ''],
+      ['too long', 'T'.repeat(33)],
+    ])('treats %s outTradeNo as terminal uncreated order without calling SDK', async (_case, outTradeNo) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.close = jest.fn();
+
+      const result = await (svc as any).closeOrder(outTradeNo);
+
+      expect(result).toEqual({
+        success: true,
+        terminal: true,
+        alreadyPaid: false,
+        message: '微信支付商户订单号无效，按未建单处理',
+      });
+      expect(client.close).not.toHaveBeenCalled();
+    });
+
+    it('calls SDK close with only outTradeNo and returns non-terminal success on 204', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.close = jest.fn().mockResolvedValue({ status: 204 });
+
+      const result = await (svc as any).closeOrder('CS-CLOSE-204');
+
+      expect(client.close).toHaveBeenCalledWith('CS-CLOSE-204');
+      expect(result).toEqual({
+        success: true,
+        terminal: false,
+        alreadyPaid: false,
+        message: '关单成功',
+      });
+    });
+
+    it.each(['ORDERNOTEXIST', 'ORDERCLOSED'])(
+      'treats %s as terminal success',
+      async (code) => {
+        const svc = await buildModule(validWechatEnv);
+        const client = (svc as any).client;
+        client.close = jest.fn().mockResolvedValue({
+          status: 400,
+          error: JSON.stringify({ code, message: 'raw close-order secret should not leak' }),
+        });
+
+        const result = await (svc as any).closeOrder(`CS-CLOSE-${code}`);
+
+        expect(result).toEqual({
+          success: true,
+          terminal: true,
+          alreadyPaid: false,
+          message: '订单不存在或已关闭',
+        });
+      },
+    );
+
+    it('returns alreadyPaid when SDK reports ORDERPAID', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.close = jest.fn().mockResolvedValue({
+        status: 400,
+        error: JSON.stringify({ code: 'ORDERPAID', message: 'order already paid' }),
+      });
+
+      const result = await (svc as any).closeOrder('CS-CLOSE-PAID');
+
+      expect(result).toEqual({
+        success: false,
+        terminal: false,
+        alreadyPaid: true,
+        message: '订单已支付',
+      });
+    });
+
+    it('returns sanitized failure for unknown SDK error and logs no raw error payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.close = jest.fn().mockResolvedValue({
+        status: 500,
+        error: JSON.stringify({
+          code: 'SYSTEM_ERROR',
+          message: 'provider system busy',
+        }),
+        data: {
+          rawSecretPayload: 'RAW-CLOSE-ERROR-SECRET',
+        },
+      });
+
+      const result = await (svc as any).closeOrder('CS-CLOSE-UNKNOWN');
+
+      expect(result).toEqual({
+        success: false,
+        terminal: false,
+        alreadyPaid: false,
+        message: '微信关单失败 [SYSTEM_ERROR] provider system busy',
+      });
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('status=500 code=SYSTEM_ERROR outTradeNo=CS-***NOWN');
+      expect(logged).not.toContain('provider system busy');
+      expect(logged).not.toContain('RAW-CLOSE-ERROR-SECRET');
+      expect(logged).not.toContain('{"code":"SYSTEM_ERROR"');
+      loggerError.mockRestore();
+    });
+
+    it('returns sanitized failure when SDK throws and logs no raw exception payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.close = jest.fn().mockRejectedValue(Object.assign(
+        new Error('raw thrown close-order secret should not leak'),
+        {
+          code: 'SYSTEM_ERROR',
+          response: {
+            data: {
+              rawSecretPayload: 'RAW-CLOSE-THROW-SECRET',
+            },
+          },
+        },
+      ));
+
+      const result = await (svc as any).closeOrder('CS-CLOSE-THROW');
+
+      expect(result).toEqual({
+        success: false,
+        terminal: false,
+        alreadyPaid: false,
+        message: '微信关单失败 [SYSTEM_ERROR]',
+      });
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('code=SYSTEM_ERROR outTradeNo=CS-***HROW');
+      expect(logged).not.toContain('raw thrown close-order secret should not leak');
+      expect(logged).not.toContain('RAW-CLOSE-THROW-SECRET');
+      loggerError.mockRestore();
     });
   });
 

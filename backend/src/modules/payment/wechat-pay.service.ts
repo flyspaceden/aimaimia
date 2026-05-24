@@ -550,6 +550,90 @@ export class WechatPayService implements OnModuleInit {
     }
   }
 
+  async closeOrder(outTradeNo: string): Promise<{
+    success: boolean;
+    terminal: boolean;
+    alreadyPaid: boolean;
+    message: string;
+  }> {
+    if (!this.client) {
+      return {
+        success: true,
+        terminal: true,
+        alreadyPaid: false,
+        message: '微信支付 SDK 未初始化，按未建单处理',
+      };
+    }
+
+    try {
+      this.validateOutTradeNo(outTradeNo);
+    } catch {
+      return {
+        success: true,
+        terminal: true,
+        alreadyPaid: false,
+        message: '微信支付商户订单号无效，按未建单处理',
+      };
+    }
+
+    const outTradeNoForLog = this.maskBizId(outTradeNo);
+
+    let result: any;
+    try {
+      result = await this.client.close(outTradeNo);
+    } catch (err: any) {
+      const code = String(err?.code || 'SDK_EXCEPTION');
+      this.logger.error(
+        `微信关单 SDK 调用失败: code=${code} outTradeNo=${outTradeNoForLog}`,
+      );
+      return {
+        success: false,
+        terminal: false,
+        alreadyPaid: false,
+        message: `微信关单失败 [${code}]`,
+      };
+    }
+
+    if (result?.status === 204 || result?.status === 200) {
+      return {
+        success: true,
+        terminal: false,
+        alreadyPaid: false,
+        message: '关单成功',
+      };
+    }
+
+    const { code, message } = this.parseSdkError(result, '微信关单失败');
+
+    if (code === 'ORDERNOTEXIST' || code === 'ORDERCLOSED') {
+      return {
+        success: true,
+        terminal: true,
+        alreadyPaid: false,
+        message: '订单不存在或已关闭',
+      };
+    }
+
+    if (code === 'ORDERPAID') {
+      return {
+        success: false,
+        terminal: false,
+        alreadyPaid: true,
+        message: '订单已支付',
+      };
+    }
+
+    this.logger.error(
+      `微信关单失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outTradeNo=${outTradeNoForLog}`,
+    );
+    return {
+      success: false,
+      terminal: false,
+      alreadyPaid: false,
+      message: `微信关单失败 [${code}] ${message}`,
+    };
+  }
+
   async queryRefund(outRefundNo: string): Promise<{
     outRefundNo: string;
     outTradeNo: string;
