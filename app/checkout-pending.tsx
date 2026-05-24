@@ -60,7 +60,8 @@ export default function CheckoutPendingScreen() {
       show({ message: r.error.displayMessage ?? '续付失败', type: 'error' });
       return;
     }
-    const orderStr = r.data.paymentParams?.orderStr;
+    const params = r.data.paymentParams;
+    const orderStr = params?.channel === 'alipay' ? params.orderStr : undefined;
     if (!orderStr) {
       show({ message: '支付参数获取失败，请重试', type: 'error' });
       return;

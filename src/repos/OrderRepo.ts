@@ -148,6 +148,28 @@ export interface PreviewOrderResult {
   }>;
 }
 
+export interface AlipayPaymentParams {
+  channel: 'alipay';
+  orderStr: string;
+}
+
+export interface WechatPaymentParams {
+  channel: 'wechat';
+  appId: string;
+  partnerId: string;
+  timestamp: string;
+  nonceStr: string;
+  prepayId: string;
+  packageVal: string;
+  signType: string;
+  paySign: string;
+}
+
+export type CheckoutPaymentParams =
+  | AlipayPaymentParams
+  | WechatPaymentParams
+  | Record<string, never>;
+
 /** F1: CheckoutSession 响应类型 */
 export interface CheckoutSessionResult {
   sessionId: string;
@@ -158,7 +180,7 @@ export interface CheckoutSessionResult {
   discountAmount: number;
   vipDiscountAmount?: number;
   excludedItems?: PreviewOrderResult['excludedItems'];
-  paymentParams?: Record<string, unknown>;
+  paymentParams?: CheckoutPaymentParams;
 }
 
 /** F1: CheckoutSession 状态 */
@@ -327,9 +349,14 @@ export const OrderRepo = {
   /**
    * 续付未完成订单（重新生成支付参数）
    * - 后端接口：POST /api/v1/orders/checkout/:sessionId/resume
-   * - 返回新的 paymentParams（含支付宝 orderStr）
+   * - 返回新的 paymentParams（含支付宝 orderStr 或微信 prepay 参数）
    */
-  resumeCheckout: async (sessionId: string): Promise<Result<{ sessionId: string; merchantOrderNo: string | null; expectedTotal: number; paymentParams: { channel?: string; orderStr?: string } }>> => {
+  resumeCheckout: async (sessionId: string): Promise<Result<{
+    sessionId: string;
+    merchantOrderNo: string | null;
+    expectedTotal: number;
+    paymentParams: CheckoutPaymentParams;
+  }>> => {
     if (USE_MOCK) {
       return simulateRequest({ sessionId, merchantOrderNo: 'MO-mock', expectedTotal: 100, paymentParams: { channel: 'alipay', orderStr: 'mock-order-str' } }, { delay: 300 });
     }
