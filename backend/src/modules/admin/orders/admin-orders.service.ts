@@ -370,7 +370,7 @@ export class AdminOrdersService {
       throw new BadRequestException(lease.reason);
     }
 
-    let result: { success: boolean; message?: string; providerRefundId?: string };
+    let result: { success: boolean; pending?: boolean; message?: string; providerRefundId?: string };
     try {
       result = await this.paymentService.initiateRefund(
         refund.orderId,
@@ -390,10 +390,48 @@ export class AdminOrdersService {
       throw new BadRequestException('退款通道异常，请稍后再试或查看日志');
     }
 
-    const toStatus = result.success ? 'REFUNDED' : 'FAILED';
+    const isPendingRefund = result.success && result.pending === true;
+    const toStatus = result.success ? (isPendingRefund ? 'REFUNDING' : 'REFUNDED') : 'FAILED';
     const providerRefundId = result.providerRefundId ?? refund.providerRefundId ?? null;
+    const resultLabel = result.success
+      ? (isPendingRefund ? '已受理，等待渠道确认' : '成功')
+      : '失败';
+    const historyRemark = result.success
+      ? (isPendingRefund ? '管理员手动重试已受理，等待渠道确认' : '管理员手动重试成功')
+      : `管理员手动重试失败: ${result.message ?? ''}`;
+    const isAutoCancelFinalSuccess =
+      result.success &&
+      !isPendingRefund &&
+      refund.merchantRefundNo?.startsWith('AUTO-CANCEL-') &&
+      typeof this.paymentService.finalizeAutoRefundRecord === 'function';
 
     try {
+      if (isAutoCancelFinalSuccess) {
+        const written = await this.paymentService.finalizeAutoRefundRecord({
+          refundId,
+          fromStatuses: [lease.fromStatus],
+          toStatus: 'REFUNDED',
+          providerRefundId,
+          remark: historyRemark,
+          operatorId: adminUserId,
+        });
+        if (!written) {
+          await this.prisma.refundStatusHistory.create({
+            data: {
+              refundId,
+              fromStatus: lease.fromStatus,
+              toStatus: lease.fromStatus,
+              remark: `管理员手动重试时状态已被并发更新，跳过覆盖（外部结果: ${resultLabel}）`,
+              operatorId: adminUserId,
+            },
+          });
+        }
+        return {
+          ok: result.success,
+          message: result.message,
+        };
+      }
+
       const writeBack = await this.prisma.$transaction(async (tx) => {
         if (providerRefundId) {
           const conflict = await tx.refund.findFirst({
@@ -430,7 +468,7 @@ export class AdminOrdersService {
               refundId,
               fromStatus: lease.fromStatus,
               toStatus: lease.fromStatus,
-              remark: `管理员手动重试时状态已被并发更新，跳过覆盖（外部结果: ${result.success ? '成功' : '失败'}）`,
+              remark: `管理员手动重试时状态已被并发更新，跳过覆盖（外部结果: ${resultLabel}）`,
               operatorId: adminUserId,
             },
           });
@@ -442,7 +480,7 @@ export class AdminOrdersService {
             refundId,
             fromStatus: lease.fromStatus,
             toStatus,
-            remark: result.success ? '管理员手动重试成功' : `管理员手动重试失败: ${result.message ?? ''}`,
+            remark: historyRemark,
             operatorId: adminUserId,
           },
         });
@@ -474,7 +512,10 @@ export class AdminOrdersService {
       throw new ConflictException('退款渠道流水号已被其他退款单占用，请人工核对');
     }
 
-    return { ok: result.success, message: result.message };
+    return {
+      ok: result.success,
+      message: isPendingRefund ? '退款已受理，等待渠道确认' : result.message,
+    };
   }
 
   /**

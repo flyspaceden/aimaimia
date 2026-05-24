@@ -1757,11 +1757,6 @@ export class OrderService {
         });
       }
 
-      // 恢复红包（USED → AVAILABLE/EXPIRED）— 调 CouponService.restoreCouponsForOrder
-      if (this.couponService?.restoreCouponsForOrder) {
-        await this.couponService.restoreCouponsForOrder(id, tx);
-      }
-
       // 创建 Refund 行（status=REFUNDING；merchantRefundNo 'AUTO-' 前缀让 cron 兜底重试）
       const refund = await tx.refund.create({
         data: {
@@ -1808,7 +1803,7 @@ export class OrderService {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
-    // Step 4：事务外调支付宝 refund（不持长事务，失败 cron 兜底）
+    // Step 4：事务外调渠道 refund（不持长事务，失败 cron 兜底）
     if (this.paymentService?.initiateRefund) {
       try {
         const result = await this.paymentService.initiateRefund(
@@ -1816,7 +1811,28 @@ export class OrderService {
           refundData.refundAmount,
           refundData.merchantRefundNo,
         );
-        if (result?.success) {
+        if (result?.success && result?.pending) {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.refund.update({
+              where: { id: refundData.refundId },
+              data: {
+                status: 'REFUNDING',
+                providerRefundId: result.providerRefundId,
+              },
+            });
+            await tx.refundStatusHistory.create({
+              data: {
+                refundId: refundData.refundId,
+                fromStatus: 'REFUNDING',
+                toStatus: 'REFUNDING',
+                remark: '渠道已受理，等待通知/查询确认',
+                operatorId: userId,
+              },
+            });
+          }, {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          });
+        } else if (result?.success) {
           await this.prisma.$transaction(async (tx) => {
             await tx.refund.update({
               where: { id: refundData.refundId },
@@ -1834,7 +1850,12 @@ export class OrderService {
                 operatorId: userId,
               },
             });
+            if (this.couponService?.restoreCouponsForOrder) {
+              await this.couponService.restoreCouponsForOrder(id, tx);
+            }
             await this.restoreDeductionForRefund(tx, refundData.deductionRestore);
+          }, {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           });
         } else {
           this.logger.warn(
@@ -2002,14 +2023,6 @@ export class OrderService {
         }
       }
 
-      // 恢复红包（CouponUsageRecord.orderId = primary，逐 Order 调即可
-      // 仅 primary 那次会真正命中，其他 no-op）
-      if (this.couponService?.restoreCouponsForOrder) {
-        for (const o of orders) {
-          await this.couponService.restoreCouponsForOrder(o.id, tx);
-        }
-      }
-
       // 每个 Order 创建独立 Refund 行 + 状态历史
       const refunds: Array<{
         refundId: string;
@@ -2070,6 +2083,7 @@ export class OrderService {
     // Step 5：事务外逐笔调 alipay refund（任一失败 cron 兜底，不影响主流程）
     if (this.paymentService?.initiateRefund) {
       let successfulGoodsRefundAmount = 0;
+      const successfulRefundOrderIds = new Set<string>();
       for (const r of refundData.refunds) {
         try {
           const result = await this.paymentService.initiateRefund(
@@ -2077,7 +2091,30 @@ export class OrderService {
             r.refundAmount,
             r.merchantRefundNo,
           );
-          if (result?.success) {
+          if (result?.success && result?.pending) {
+            await this.prisma.$transaction(async (tx) => {
+              await tx.refund.update({
+                where: { id: r.refundId },
+                data: {
+                  status: 'REFUNDING',
+                  providerRefundId: result.providerRefundId,
+                },
+              });
+              await tx.refundStatusHistory.create({
+                data: {
+                  refundId: r.refundId,
+                  fromStatus: 'REFUNDING',
+                  toStatus: 'REFUNDING',
+                  remark: '渠道已受理，等待通知/查询确认',
+                  operatorId: userId,
+                },
+              });
+            }, {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            });
+          } else if (result?.success) {
+            const nextSuccessfulRefundOrderIds = new Set(successfulRefundOrderIds);
+            nextSuccessfulRefundOrderIds.add(r.orderId);
             await this.prisma.$transaction(async (tx) => {
               await tx.refund.update({
                 where: { id: r.refundId },
@@ -2095,6 +2132,14 @@ export class OrderService {
                   operatorId: userId,
                 },
               });
+              if (
+                this.couponService?.restoreCouponsForOrder &&
+                nextSuccessfulRefundOrderIds.size === refundData.refunds.length
+              ) {
+                for (const item of refundData.refunds) {
+                  await this.couponService.restoreCouponsForOrder(item.orderId, tx);
+                }
+              }
               successfulGoodsRefundAmount = Number(
                 (successfulGoodsRefundAmount + Number(r.goodsRefundAmount || 0)).toFixed(2),
               );
@@ -2105,7 +2150,10 @@ export class OrderService {
                     isFinalRefund: successfulGoodsRefundAmount >= r.deductionRestore.originalGoodsAmount,
                   }
                 : null);
+            }, {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
             });
+            successfulRefundOrderIds.add(r.orderId);
           } else {
             this.logger.warn(
               `整 session 退款发起失败，cron 将重试: refundId=${r.refundId}, msg=${result?.message ?? 'unknown'}`,

@@ -382,10 +382,12 @@ export class PaymentService {
 
     let channel: string | null = null;
     let providerOrderNo: string | null = null;
+    let originalPaymentAmount: number | null = null;
 
     if (payment) {
       channel = payment.channel;
       providerOrderNo = payment.merchantOrderNo;
+      originalPaymentAmount = payment.amount;
     } else {
       // 路径 2：新架构 — 通过 Order.checkoutSessionId 找 CheckoutSession
       const order = await this.prisma.order.findUnique({
@@ -398,7 +400,7 @@ export class PaymentService {
       }
       const session = await this.prisma.checkoutSession.findUnique({
         where: { id: order.checkoutSessionId },
-        select: { merchantOrderNo: true, paymentChannel: true, status: true },
+        select: { merchantOrderNo: true, paymentChannel: true, status: true, expectedTotal: true },
       });
       if (!session?.merchantOrderNo || !session.paymentChannel) {
         this.logger.warn(
@@ -414,6 +416,7 @@ export class PaymentService {
       }
       channel = session.paymentChannel as string;
       providerOrderNo = session.merchantOrderNo;
+      originalPaymentAmount = session.expectedTotal;
       this.logger.log(
         `走 CheckoutSession 退款路径: orderId=${this.maskBizId(orderId)}, channel=${channel}`,
       );
@@ -445,12 +448,11 @@ export class PaymentService {
         return { success: false, pending: false, message: '微信支付 SDK 未初始化' };
       }
       const refundNo = merchantRefundNo || `REFUND-${Date.now()}`;
-      const totalAmount = payment?.amount ?? amount;
       const result = await this.wechatPayService.refund({
         outTradeNo: providerOrderNo!,
         outRefundNo: refundNo,
         refundAmount: amount,
-        totalAmount,
+        totalAmount: originalPaymentAmount!,
         reason: '用户退款',
       });
       return {
@@ -562,6 +564,13 @@ export class PaymentService {
             this.logger.log(
               `退款已受理，等待渠道通知: refundId=${this.maskBizId(refund.id)}, merchantRefundNo=${this.maskBizId(claim.merchantRefundNo)}`,
             );
+            await this.updateAutoRefundRecord({
+              refundId: refund.id,
+              toStatus: 'REFUNDING',
+              fromStatuses: ['REFUNDING'],
+              providerRefundId: result.providerRefundId || null,
+              remark: '微信退款已受理，等待渠道通知',
+            });
             continue;
           }
           if (isAfterSaleRefund && this.afterSaleRefundService) {
@@ -984,30 +993,58 @@ export class PaymentService {
         try {
           const refundResult = await this.initiateRefund(orderId, amount, merchantRefundNo);
           if (refundResult.success) {
-            await this.updateAutoRefundRecord({
-              refundId,
-              toStatus: 'REFUNDED',
-              fromStatuses: ['REFUNDING', 'FAILED'],
-              providerRefundId: refundResult.providerRefundId || null,
-              rawNotifyPayload: rawPayload ?? null,
-              remark: '自动退款成功',
-            });
-            await this.prisma.orderStatusHistory.create({
-              data: {
-                orderId,
-                fromStatus: 'CANCELED',
-                toStatus: 'CANCELED',
-                reason: '订单取消后支付成功，系统已发起自动退款',
-                meta: {
-                  autoRefund: true,
-                  providerTxnId,
-                  merchantOrderNo,
-                  merchantRefundNo,
-                  refundId,
-                  providerRefundId: refundResult.providerRefundId || null,
+            if (refundResult.pending) {
+              await this.updateAutoRefundRecord({
+                refundId,
+                toStatus: 'REFUNDING',
+                fromStatuses: ['REFUNDING', 'FAILED'],
+                providerRefundId: refundResult.providerRefundId || null,
+                rawNotifyPayload: rawPayload ?? null,
+                remark: '微信退款已受理，等待渠道通知',
+              });
+              await this.prisma.orderStatusHistory.create({
+                data: {
+                  orderId,
+                  fromStatus: 'CANCELED',
+                  toStatus: 'CANCELED',
+                  reason: '订单取消后支付成功，微信退款已受理，等待渠道通知',
+                  meta: {
+                    autoRefund: true,
+                    providerTxnId,
+                    merchantOrderNo,
+                    merchantRefundNo,
+                    refundId,
+                    providerRefundId: refundResult.providerRefundId || null,
+                    pending: true,
+                  },
                 },
-              },
-            });
+              });
+            } else {
+              await this.updateAutoRefundRecord({
+                refundId,
+                toStatus: 'REFUNDED',
+                fromStatuses: ['REFUNDING', 'FAILED'],
+                providerRefundId: refundResult.providerRefundId || null,
+                rawNotifyPayload: rawPayload ?? null,
+                remark: '自动退款成功',
+              });
+              await this.prisma.orderStatusHistory.create({
+                data: {
+                  orderId,
+                  fromStatus: 'CANCELED',
+                  toStatus: 'CANCELED',
+                  reason: '订单取消后支付成功，系统已发起自动退款',
+                  meta: {
+                    autoRefund: true,
+                    providerTxnId,
+                    merchantOrderNo,
+                    merchantRefundNo,
+                    refundId,
+                    providerRefundId: refundResult.providerRefundId || null,
+                  },
+                },
+              });
+            }
           } else {
             await this.updateAutoRefundRecord({
               refundId,
@@ -1096,15 +1133,16 @@ export class PaymentService {
     return { code: 'SUCCESS', message: '处理成功' };
   }
 
-  private async updateAutoRefundRecord(params: {
+  async finalizeAutoRefundRecord(params: {
     refundId: string;
     fromStatuses: string[];
     toStatus: 'REFUNDING' | 'REFUNDED' | 'FAILED';
     remark: string;
     providerRefundId?: string | null;
     rawNotifyPayload?: any;
+    operatorId?: string | null;
   }): Promise<boolean> {
-    const { refundId, fromStatuses, toStatus, remark, providerRefundId, rawNotifyPayload } = params;
+    const { refundId, fromStatuses, toStatus, remark, providerRefundId, rawNotifyPayload, operatorId } = params;
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.refund.findUnique({
         where: { id: refundId },
@@ -1127,7 +1165,7 @@ export class PaymentService {
           fromStatus: current.status,
           toStatus,
           remark,
-          operatorId: this.autoRefundOperator,
+          operatorId: operatorId ?? this.autoRefundOperator,
         },
       });
       if (toStatus === 'REFUNDED') {
@@ -1137,8 +1175,19 @@ export class PaymentService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
+  private async updateAutoRefundRecord(params: {
+    refundId: string;
+    fromStatuses: string[];
+    toStatus: 'REFUNDING' | 'REFUNDED' | 'FAILED';
+    remark: string;
+    providerRefundId?: string | null;
+    rawNotifyPayload?: any;
+    operatorId?: string | null;
+  }): Promise<boolean> {
+    return this.finalizeAutoRefundRecord(params);
+  }
+
   private async restoreAutoCancelDeduction(tx: any, refundId: string): Promise<void> {
-    if (!this.rewardDeductionService) return;
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
       select: {
@@ -1156,6 +1205,10 @@ export class PaymentService {
     });
     if (!refund?.merchantRefundNo?.startsWith('AUTO-CANCEL-')) return;
     const order = refund.order;
+    if (order?.id && this.couponService?.restoreCouponsForOrder) {
+      await this.restoreAutoCancelCoupons(tx, order.id, order.checkoutSessionId);
+    }
+    if (!this.rewardDeductionService) return;
     if (!order?.checkoutSessionId) return;
 
     const session = await tx.checkoutSession.findUnique({
@@ -1194,6 +1247,46 @@ export class PaymentService {
       cumulativeGoodsRefundAmount,
       isFinalRefund: cumulativeGoodsRefundAmount >= Number(session.goodsAmount || 0),
     });
+  }
+
+  private async restoreAutoCancelCoupons(
+    tx: any,
+    orderId: string,
+    checkoutSessionId?: string | null,
+  ): Promise<void> {
+    if (!this.couponService?.restoreCouponsForOrder) return;
+    if (!checkoutSessionId) {
+      await this.couponService.restoreCouponsForOrder(orderId, tx);
+      return;
+    }
+
+    const sessionOrders = await tx.order.findMany({
+      where: { checkoutSessionId },
+      select: { id: true },
+    });
+    const sessionOrderIds = sessionOrders.map((item: { id: string }) => item.id);
+    if (sessionOrderIds.length <= 1) {
+      await this.couponService.restoreCouponsForOrder(orderId, tx);
+      return;
+    }
+
+    const autoRefunds = await tx.refund.findMany({
+      where: {
+        orderId: { in: sessionOrderIds },
+        merchantRefundNo: { startsWith: 'AUTO-CANCEL-' },
+      },
+      select: { orderId: true, status: true },
+    });
+    const refundedOrderIds = new Set(
+      autoRefunds
+        .filter((item: { orderId: string; status: string }) => item.status === 'REFUNDED')
+        .map((item: { orderId: string }) => item.orderId),
+    );
+    if (!sessionOrderIds.every((id: string) => refundedOrderIds.has(id))) return;
+
+    for (const id of sessionOrderIds) {
+      await this.couponService.restoreCouponsForOrder(id, tx);
+    }
   }
 
   /**

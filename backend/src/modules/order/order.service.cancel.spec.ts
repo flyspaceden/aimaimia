@@ -121,7 +121,7 @@ describe('OrderService cancel PAID orders', () => {
       id: 'r1',
       merchantRefundNo: 'AUTO-CANCEL-o1',
     };
-    const tx = {
+    const initialTx = {
       $executeRaw: jest.fn(),
       checkoutSession: {
         findUnique: jest.fn().mockResolvedValue({
@@ -141,6 +141,10 @@ describe('OrderService cancel PAID orders', () => {
       refundStatusHistory: { create: jest.fn() },
       orderStatusHistory: { create: jest.fn() },
     };
+    const finalTx = {
+      refund: { update: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+    };
     prisma.order.findUnique
       .mockResolvedValueOnce(order)
       .mockResolvedValueOnce({ ...order, createdAt: new Date(), afterSaleRequests: [], refunds: [], shipments: [] });
@@ -148,7 +152,9 @@ describe('OrderService cancel PAID orders', () => {
     prisma.shipment.findMany.mockResolvedValue([]);
     prisma.refund.findFirst.mockResolvedValue(null);
     prisma.companyStaff.findMany.mockResolvedValue([]);
-    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    prisma.$transaction
+      .mockImplementationOnce(async (callback: any) => callback(initialTx))
+      .mockImplementationOnce(async (callback: any) => callback(finalTx));
     const couponService = { restoreCouponsForOrder: jest.fn() };
     const paymentService = {
       initiateRefund: jest.fn().mockResolvedValue({
@@ -165,11 +171,11 @@ describe('OrderService cancel PAID orders', () => {
 
     await service.cancelOrder('o1', 'u1');
 
-    expect(tx.productSKU.update).toHaveBeenCalledWith({
+    expect(initialTx.productSKU.update).toHaveBeenCalledWith({
       where: { id: 'sku1' },
       data: { stock: { increment: 2 } },
     });
-    expect(tx.inventoryLedger.create).toHaveBeenCalledWith({
+    expect(initialTx.inventoryLedger.create).toHaveBeenCalledWith({
       data: {
         skuId: 'sku1',
         type: 'RELEASE',
@@ -178,13 +184,15 @@ describe('OrderService cancel PAID orders', () => {
         refId: 'o1',
       },
     });
-    expect(couponService.restoreCouponsForOrder).toHaveBeenCalledWith('o1', tx);
+    expect(couponService.restoreCouponsForOrder).toHaveBeenCalledTimes(1);
+    expect(couponService.restoreCouponsForOrder).toHaveBeenCalledWith('o1', finalTx);
+    expect(couponService.restoreCouponsForOrder).not.toHaveBeenCalledWith('o1', initialTx);
     expect(paymentService.initiateRefund).toHaveBeenCalledWith('o1', 65, 'AUTO-CANCEL-o1');
-    expect(tx.refund.update).toHaveBeenCalledWith({
+    expect(finalTx.refund.update).toHaveBeenCalledWith({
       where: { id: 'r1' },
       data: { status: 'REFUNDED', providerRefundId: 'AUTO-CANCEL-o1' },
     });
-    expect(rewardDeductionService.refundDeduction).toHaveBeenCalledWith(tx, expect.objectContaining({
+    expect(rewardDeductionService.refundDeduction).toHaveBeenCalledWith(finalTx, expect.objectContaining({
       refundId: 'r1',
       orderId: 'o1',
       originalGoodsAmount: 60,
@@ -194,6 +202,91 @@ describe('OrderService cancel PAID orders', () => {
       isFinalRefund: true,
     }));
     expect(bonusAllocation.allocateForOrder).not.toHaveBeenCalled();
+  });
+
+  it('PAID 未发货单微信退款 pending 时保持 REFUNDING 并不返还抵扣积分', async () => {
+    const { service, prisma } = makeService();
+    const order = {
+      id: 'o-wechat-pending',
+      userId: 'u1',
+      status: 'PAID',
+      checkoutSessionId: 'cs-pending',
+      totalAmount: 65,
+      goodsAmount: 60,
+      discountAmount: 8,
+      items: [{ skuId: 'sku1', quantity: 2, companyId: 'c1' }],
+    };
+    const refund = {
+      id: 'r-wechat-pending',
+      merchantRefundNo: 'AUTO-CANCEL-o-wechat-pending',
+    };
+    const initialTx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          deductionGroupId: 'DG-1',
+          goodsAmount: 60,
+          discountAmount: 8,
+        }),
+      },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: {
+        create: jest.fn().mockResolvedValue(refund),
+        update: jest.fn(),
+      },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    const pendingTx = {
+      refund: { update: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+    };
+    prisma.order.findUnique
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce({ ...order, createdAt: new Date(), afterSaleRequests: [], refunds: [], shipments: [] });
+    prisma.order.findMany.mockResolvedValue([]);
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction
+      .mockImplementationOnce(async (callback: any) => callback(initialTx))
+      .mockImplementationOnce(async (callback: any) => callback(pendingTx));
+    const couponService = { restoreCouponsForOrder: jest.fn() };
+    service.setCouponService(couponService as any);
+    service.setPaymentService({
+      initiateRefund: jest.fn().mockResolvedValue({
+        success: true,
+        pending: true,
+        providerRefundId: 'wx-refund-1',
+      }),
+    } as any);
+    const rewardDeductionService = {
+      refundDeduction: jest.fn(),
+    };
+    service.setRewardDeductionService(rewardDeductionService as any);
+
+    await service.cancelOrder('o-wechat-pending', 'u1');
+
+    expect(pendingTx.refund.update).toHaveBeenCalledWith({
+      where: { id: 'r-wechat-pending' },
+      data: { status: 'REFUNDING', providerRefundId: 'wx-refund-1' },
+    });
+    expect(pendingTx.refund.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
+    expect(pendingTx.refundStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        refundId: 'r-wechat-pending',
+        fromStatus: 'REFUNDING',
+        toStatus: 'REFUNDING',
+        remark: '渠道已受理，等待通知/查询确认',
+      }),
+    });
+    expect(couponService.restoreCouponsForOrder).not.toHaveBeenCalled();
+    expect(rewardDeductionService.refundDeduction).not.toHaveBeenCalled();
   });
 
   it('VIP_PACKAGE 不允许买家未发货取消退款', async () => {
@@ -346,5 +439,129 @@ describe('OrderService cancel PAID orders', () => {
 
     await expect(service.cancelOrder('o2', 'u1')).rejects.toThrow();
     expect(inboxService.send).not.toHaveBeenCalled();
+  });
+
+  it('整 CheckoutSession 部分退款成功部分 pending 时不提前恢复平台红包', async () => {
+    const { service, prisma } = makeService();
+    const orders = [
+      {
+        id: 'o-session-1',
+        userId: 'u1',
+        status: 'PAID',
+        checkoutSessionId: 'cs-pending',
+        totalAmount: 30,
+        goodsAmount: 30,
+        discountAmount: 8,
+        items: [{ skuId: 'sku1', quantity: 1, companyId: 'c1' }],
+      },
+      {
+        id: 'o-session-2',
+        userId: 'u1',
+        status: 'PAID',
+        checkoutSessionId: 'cs-pending',
+        totalAmount: 40,
+        goodsAmount: 40,
+        discountAmount: 0,
+        items: [{ skuId: 'sku2', quantity: 1, companyId: 'c2' }],
+      },
+    ];
+    const refunds = [
+      { id: 'r-session-1', merchantRefundNo: 'AUTO-CANCEL-o-session-1' },
+      { id: 'r-session-2', merchantRefundNo: 'AUTO-CANCEL-o-session-2' },
+    ];
+    const initialTx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          deductionGroupId: 'DG-1',
+          goodsAmount: 70,
+          discountAmount: 8,
+        }),
+      },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: {
+        create: jest.fn()
+          .mockResolvedValueOnce(refunds[0])
+          .mockResolvedValueOnce(refunds[1]),
+        update: jest.fn(),
+      },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    const finalTx1 = {
+      refund: { update: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+    };
+    const pendingTx2 = {
+      refund: { update: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+    };
+    prisma.order.findMany.mockResolvedValue(orders);
+    prisma.order.findUnique.mockResolvedValue({ ...orders[0], createdAt: new Date(), afterSaleRequests: [], refunds: [], shipments: [] });
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction
+      .mockImplementationOnce(async (callback: any) => callback(initialTx))
+      .mockImplementationOnce(async (callback: any) => callback(finalTx1))
+      .mockImplementationOnce(async (callback: any) => callback(pendingTx2));
+    const couponService = { restoreCouponsForOrder: jest.fn() };
+    service.setCouponService(couponService as any);
+    service.setPaymentService({
+      initiateRefund: jest.fn()
+        .mockResolvedValueOnce({
+          success: true,
+          providerRefundId: 'wx-session-refund-1',
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          pending: true,
+          providerRefundId: 'wx-session-refund-2',
+        }),
+    } as any);
+    const rewardDeductionService = {
+      refundDeduction: jest.fn(),
+    };
+    service.setRewardDeductionService(rewardDeductionService as any);
+
+    await (service as any).cancelEntireSessionUnshipped('cs-pending', 'u1');
+
+    expect(finalTx1.refund.update).toHaveBeenCalledWith({
+      where: { id: 'r-session-1' },
+      data: { status: 'REFUNDED', providerRefundId: 'wx-session-refund-1' },
+    });
+    expect(pendingTx2.refund.update).toHaveBeenCalledWith({
+      where: { id: 'r-session-2' },
+      data: { status: 'REFUNDING', providerRefundId: 'wx-session-refund-2' },
+    });
+    expect(pendingTx2.refund.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
+    expect(finalTx1.refundStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        refundId: 'r-session-1',
+        fromStatus: 'REFUNDING',
+        toStatus: 'REFUNDED',
+        remark: '渠道退款成功',
+      }),
+    });
+    expect(pendingTx2.refundStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        refundId: 'r-session-2',
+        fromStatus: 'REFUNDING',
+        toStatus: 'REFUNDING',
+        remark: '渠道已受理，等待通知/查询确认',
+      }),
+    });
+    expect(couponService.restoreCouponsForOrder).not.toHaveBeenCalled();
+    expect(rewardDeductionService.refundDeduction).toHaveBeenCalledTimes(1);
+    expect(rewardDeductionService.refundDeduction).toHaveBeenCalledWith(finalTx1, expect.objectContaining({
+      refundId: 'r-session-1',
+      orderId: 'o-session-1',
+      isFinalRefund: false,
+    }));
   });
 });
