@@ -2,8 +2,8 @@
  * Expo Config Plugin for react-native-wechat-lib (Android only for now)
  *
  * 做三件事：
- *   1. 在 android/app/src/main/java/<package>/wxapi/ 下生成 WXEntryActivity.java
- *   2. 在 AndroidManifest.xml 注册 WXEntryActivity
+ *   1. 在 android/app/src/main/java/<package>/wxapi/ 下生成 WXEntryActivity.java / WXPayEntryActivity.java
+ *   2. 在 AndroidManifest.xml 注册 WXEntryActivity / WXPayEntryActivity
  *   3. 在 AndroidManifest.xml 加 <queries><package android:name="com.tencent.mm"/></queries>
  *      （Android 11+ 需要声明查询的包才能 isWXAppInstalled 判断）
  *
@@ -140,6 +140,23 @@ public class WXEntryActivity extends Activity {
 `;
       fs.writeFileSync(path.join(wxapiDir, 'WXEntryActivity.java'), wxEntryCode);
 
+      const wxPayEntryCode = `package ${androidPackage}.wxapi;
+
+import android.app.Activity;
+import android.os.Bundle;
+import com.theweflex.react.WeChatModule;
+
+public class WXPayEntryActivity extends Activity {
+  @Override
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    WeChatModule.handleIntent(getIntent());
+    finish();
+  }
+}
+`;
+      fs.writeFileSync(path.join(wxapiDir, 'WXPayEntryActivity.java'), wxPayEntryCode);
+
       return cfg;
     },
   ]);
@@ -159,6 +176,21 @@ function withWechatAndroidManifest(config) {
       application.activity.push({
         $: {
           'android:name': '.wxapi.WXEntryActivity',
+          'android:label': '@string/app_name',
+          'android:exported': 'true',
+          'android:launchMode': 'singleTask',
+          'android:taskAffinity': cfg.android?.package || 'com.aimaimai.shop',
+        },
+      });
+    }
+
+    const payActivityExists = application.activity.some(
+      (a) => a.$?.['android:name'] === '.wxapi.WXPayEntryActivity',
+    );
+    if (!payActivityExists) {
+      application.activity.push({
+        $: {
+          'android:name': '.wxapi.WXPayEntryActivity',
           'android:label': '@string/app_name',
           'android:exported': 'true',
           'android:launchMode': 'singleTask',
