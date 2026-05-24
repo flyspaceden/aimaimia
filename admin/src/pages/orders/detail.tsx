@@ -17,11 +17,12 @@ const statusSteps = [
   { key: 'RECEIVED', title: '已收货' },
 ];
 
-// 支付方式枚举 → 中文显示
+// 支付方式枚举 → 中文显示（key 与后端 PaymentChannel enum 对齐）
 const paymentChannelLabel: Record<string, string> = {
   ALIPAY: '支付宝',
-  WECHAT: '微信',
-  WALLET: '钱包',
+  WECHAT_PAY: '微信支付',
+  UNIONPAY: '银联支付',
+  AGGREGATOR: '聚合支付',
 };
 
 const formatDateTime = (value?: string | null) =>
