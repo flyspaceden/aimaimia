@@ -162,10 +162,10 @@ describe('PaymentService.confirmAlipayCheckout', () => {
       .rejects.toThrow(NotFoundException);
   });
 
-  it('附加：非 ALIPAY 渠道应拒绝', async () => {
+  it('附加：不支持主动查询的渠道应拒绝', async () => {
     const session = {
       id: sessionId, userId, status: 'ACTIVE',
-      paymentChannel: 'WECHAT_PAY', merchantOrderNo, expectedTotal: 100, orders: [],
+      paymentChannel: 'UNIONPAY', merchantOrderNo, expectedTotal: 100, orders: [],
     };
     const { service } = buildService({ session });
     await expect(service.confirmAlipayCheckout(sessionId, userId))

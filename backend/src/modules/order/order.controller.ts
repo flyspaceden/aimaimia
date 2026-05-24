@@ -73,11 +73,11 @@ export class OrderController {
   }
 
   /**
-   * P5 第三轮：App 端主动查询支付宝订单状态（不等 notify）
+   * P5 第三轮：App 端主动查询支付订单状态（不等 notify）
    *
-   * App 调起支付宝 SDK 后立即调用此接口，让后端去支付宝主动查询：
-   * - 查到 TRADE_SUCCESS → 立刻建单 + session COMPLETED
-   * - WAIT_BUYER_PAY / 中间态 / 异常 → 返回当前状态，让前端 polling 兜底
+   * App 调起支付 SDK 后立即调用此接口，让后端按 CheckoutSession 支付渠道主动查询：
+   * - 查到成功态 → 立刻建单 + session COMPLETED
+   * - 未支付 / 中间态 / 异常 → 返回当前状态，让前端 polling 兜底
    *
    * 解决沙箱 notify 慢/丢失导致的"已扣款但订单未生成"问题
    */
@@ -86,7 +86,7 @@ export class OrderController {
     @CurrentUser('sub') userId: string,
     @Param('sessionId') sessionId: string,
   ) {
-    return this.paymentService.confirmAlipayCheckout(sessionId, userId);
+    return this.paymentService.confirmCheckout(sessionId, userId);
   }
 
   // ===== 已有接口 =====
