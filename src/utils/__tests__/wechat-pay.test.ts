@@ -23,7 +23,7 @@ jest.mock('react-native-wechat-lib', () => ({
   pay: mockPay,
 }), { virtual: true });
 
-const { payWithWechat } = require('../wechat-pay');
+const { hasCompleteWechatPayPayload, payWithWechat } = require('../wechat-pay');
 
 const payload = {
   appId: 'wx-app',
@@ -60,5 +60,24 @@ describe('payWithWechat', () => {
       resultStatus: '6001',
       errCode: -2,
     }));
+  });
+
+  it('rejects incomplete payload before initializing the native SDK', async () => {
+    await expect(payWithWechat({ ...payload, paySign: '' })).resolves.toEqual(expect.objectContaining({
+      success: false,
+      errStr: 'PAY_PARAMS_MISSING',
+    }));
+
+    expect(mockInitWechat).not.toHaveBeenCalled();
+    expect(mockIsWXAppInstalled).not.toHaveBeenCalled();
+    expect(mockPay).not.toHaveBeenCalled();
+  });
+});
+
+describe('hasCompleteWechatPayPayload', () => {
+  it('requires all WeChat APP pay fields', () => {
+    expect(hasCompleteWechatPayPayload(payload)).toBe(true);
+    expect(hasCompleteWechatPayPayload({ ...payload, appId: ' ' })).toBe(false);
+    expect(hasCompleteWechatPayPayload({ ...payload, signType: '' })).toBe(false);
   });
 });

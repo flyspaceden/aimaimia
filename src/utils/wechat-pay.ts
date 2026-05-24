@@ -19,7 +19,26 @@ export interface WechatPayResult {
   errStr?: string;
 }
 
+export function hasCompleteWechatPayPayload(
+  payload: WechatPayPayload | null | undefined
+): payload is Required<WechatPayPayload> {
+  return !!(
+    payload?.appId?.trim() &&
+    payload.partnerId?.trim() &&
+    payload.timestamp?.trim() &&
+    payload.nonceStr?.trim() &&
+    payload.prepayId?.trim() &&
+    payload.packageVal?.trim() &&
+    payload.signType?.trim() &&
+    payload.paySign?.trim()
+  );
+}
+
 export async function payWithWechat(payload: WechatPayPayload): Promise<WechatPayResult> {
+  if (!hasCompleteWechatPayPayload(payload)) {
+    return { success: false, resultStatus: '', errStr: 'PAY_PARAMS_MISSING' };
+  }
+
   const initialized = await initWechat();
   if (!initialized) {
     return { success: false, resultStatus: '', errStr: 'NATIVE_UNAVAILABLE' };
@@ -33,17 +52,6 @@ export async function payWithWechat(payload: WechatPayPayload): Promise<WechatPa
       if (!installed) {
         return { success: false, resultStatus: '', errStr: 'WECHAT_NOT_INSTALLED' };
       }
-    }
-
-    if (
-      !payload.partnerId ||
-      !payload.prepayId ||
-      !payload.nonceStr ||
-      !payload.timestamp ||
-      !payload.packageVal ||
-      !payload.paySign
-    ) {
-      return { success: false, resultStatus: '', errStr: 'PAY_PARAMS_MISSING' };
     }
 
     const result = await WeChatLib.pay({

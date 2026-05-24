@@ -20,7 +20,7 @@ import type { PendingCheckout } from '../src/types/domain/Checkout';
 import { AddressRepo, OrderRepo, UserRepo } from '../src/repos';
 import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { payWithAlipay } from '../src/utils/alipay';
-import { payWithWechat } from '../src/utils/wechat-pay';
+import { hasCompleteWechatPayPayload, payWithWechat } from '../src/utils/wechat-pay';
 import { getStockText } from '../src/utils/stockDisplay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
@@ -608,17 +608,8 @@ export default function CheckoutScreen() {
           });
         }
         // 9000/8000/6004/4000/空字符串/TIMEOUT 等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
-      } else if (paymentParams?.channel === 'wechat' && paymentParams?.prepayId) {
-        const wechatResult = await payWithWechat({
-          appId: paymentParams.appId,
-          partnerId: paymentParams.partnerId,
-          timestamp: paymentParams.timestamp,
-          nonceStr: paymentParams.nonceStr,
-          prepayId: paymentParams.prepayId,
-          packageVal: paymentParams.packageVal,
-          signType: paymentParams.signType,
-          paySign: paymentParams.paySign,
-        });
+      } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
+        const wechatResult = await payWithWechat(paymentParams);
         if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
@@ -786,17 +777,8 @@ export default function CheckoutScreen() {
           });
         }
         // 其他状态（9000/8000/6004/4000/空/TIMEOUT）→ 进 active-query
-      } else if (paymentParams?.channel === 'wechat' && paymentParams?.prepayId) {
-        const wechatResult = await payWithWechat({
-          appId: paymentParams.appId,
-          partnerId: paymentParams.partnerId,
-          timestamp: paymentParams.timestamp,
-          nonceStr: paymentParams.nonceStr,
-          prepayId: paymentParams.prepayId,
-          packageVal: paymentParams.packageVal,
-          signType: paymentParams.signType,
-          paySign: paymentParams.paySign,
-        });
+      } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
+        const wechatResult = await payWithWechat(paymentParams);
         if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);

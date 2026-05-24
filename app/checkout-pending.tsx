@@ -12,6 +12,7 @@ import { Countdown } from '../src/components/ui/Countdown';
 import { OrderRepo } from '../src/repos';
 import { useTheme } from '../src/theme';
 import { payWithAlipay } from '../src/utils/alipay';
+import { hasCompleteWechatPayPayload, payWithWechat } from '../src/utils/wechat-pay';
 import { useConfirmPayment } from '../src/hooks/useConfirmPayment';
 
 export default function CheckoutPendingScreen() {
@@ -61,17 +62,25 @@ export default function CheckoutPendingScreen() {
       return;
     }
     const params = r.data.paymentParams;
-    const orderStr = params?.channel === 'alipay' ? params.orderStr : undefined;
-    if (!orderStr) {
-      show({ message: '支付参数获取失败，请重试', type: 'error' });
+    if (params?.channel === 'alipay' && params.orderStr) {
+      const result = await payWithAlipay(params.orderStr);
+      await confirmPayment({
+        sessionId: pending.sessionId,
+        sdkResultStatus: result.resultStatus ?? '',
+        onSuccess: () => router.replace('/orders'),
+      });
       return;
     }
-    const result = await payWithAlipay(orderStr);
-    await confirmPayment({
-      sessionId: pending.sessionId,
-      sdkResultStatus: result.resultStatus ?? '',
-      onSuccess: () => router.replace('/orders'),
-    });
+    if (params?.channel === 'wechat' && hasCompleteWechatPayPayload(params)) {
+      const result = await payWithWechat(params);
+      await confirmPayment({
+        sessionId: pending.sessionId,
+        sdkResultStatus: result.resultStatus,
+        onSuccess: () => router.replace('/orders'),
+      });
+      return;
+    }
+    show({ message: '支付参数获取失败，请重试', type: 'error' });
   };
 
   const handleCancel = () => {
