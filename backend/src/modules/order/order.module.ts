@@ -116,6 +116,7 @@ export class OrderModule implements OnModuleInit {
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {
       this.checkoutService.setWechatPayService(wechatPayService);
+      this.checkoutExpireService.setWechatPayService(wechatPayService);
     }
 
     // 注入 CheckoutService 到 ExpireService（expire 检测到已支付时主动建单用）

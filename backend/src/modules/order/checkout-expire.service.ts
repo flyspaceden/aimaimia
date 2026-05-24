@@ -18,6 +18,8 @@ export class CheckoutExpireService {
   private couponService: any = null;
   // AlipayService 通过可选注入（expire 前查支付宝用，避免误删已付款 session）
   private alipayService: any = null;
+  // WechatPayService 通过可选注入（expire 前查微信并关单，避免误删已付款 session）
+  private wechatPayService: any = null;
   // CheckoutService 通过可选注入（expire 检测到已支付时主动建单用）
   private checkoutService: any = null;
   // PaymentService 通过可选注入（expire 主动建单后通知商家用）
@@ -37,6 +39,11 @@ export class CheckoutExpireService {
     this.alipayService = service;
   }
 
+  /** 注入微信支付服务（由 OrderModule 在 onModuleInit 时调用） */
+  setWechatPayService(service: any) {
+    this.wechatPayService = service;
+  }
+
   /** 注入结算服务（由 OrderModule 在 onModuleInit 时调用） */
   setCheckoutService(service: any) {
     this.checkoutService = service;
@@ -50,6 +57,21 @@ export class CheckoutExpireService {
   /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  private extractWechatAmountFen(queryResult: any): number | null {
+    const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
+    return (
+      typeof rawFen === 'number' &&
+      Number.isInteger(rawFen) &&
+      Number.isSafeInteger(rawFen) &&
+      rawFen >= 0
+    ) ? rawFen : null;
+  }
+
+  private isWechatAmountMatched(queryResult: any, expectedTotal: number): boolean {
+    const claimedFen = this.extractWechatAmountFen(queryResult);
+    return claimedFen !== null && claimedFen === Math.round(expectedTotal * 100);
   }
 
   @Cron('0 * * * * *')
@@ -361,6 +383,125 @@ export class CheckoutExpireService {
         this.logger.warn(
           `expireSession close 异常，跳过本次：sessionId=${session.id}, error=${err.message}`,
         );
+        return;
+      }
+    }
+
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'WECHAT_PAY'
+    ) {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.warn(`expireSession 微信支付服务不可用，跳过本次 sessionId=${session.id}`);
+        return;
+      }
+
+      let queryResult: any = null;
+      try {
+        queryResult = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession 查微信异常，跳过本次 sessionId=${session.id}：${err.message}`,
+        );
+        return;
+      }
+
+      if (!queryResult) {
+        this.logger.warn(`expireSession 查微信无结果，尝试关单 sessionId=${session.id}`);
+      }
+
+      if (queryResult?.tradeState === 'SUCCESS') {
+        if (!this.checkoutService) {
+          this.logger.error(`expireSession 微信已支付但 CheckoutService 未注入，sessionId=${session.id}`);
+          return;
+        }
+        if (!queryResult.transactionId) {
+          this.logger.error(`expireSession 微信成功态缺少交易流水号，跳过建单：sessionId=${session.id}`);
+          return;
+        }
+        if (!this.isWechatAmountMatched(queryResult, session.expectedTotal)) {
+          this.logger.error(
+            `expireSession 微信金额校验失败：wechatFen=${this.extractWechatAmountFen(queryResult) ?? 'N/A'} sessionFen=${Math.round(session.expectedTotal * 100)} sessionId=${session.id}`,
+          );
+          return;
+        }
+        try {
+          const buildResult = await this.checkoutService.handlePaymentSuccess(
+            session.merchantOrderNo,
+            queryResult.transactionId,
+            queryResult.paidAt?.toISOString?.() ?? queryResult.paidAt ?? new Date().toISOString(),
+          );
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'expire-paid-wechat');
+          }
+        } catch (err: any) {
+          this.logger.error(
+            `expireSession 微信主动建单失败，sessionId=${session.id}：${err.message}`,
+          );
+        }
+        return;
+      }
+
+      let closeResult: any;
+      try {
+        closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession 微信关单异常，跳过本次 sessionId=${session.id}：${err.message}`,
+        );
+        return;
+      }
+
+      if (closeResult?.alreadyPaid) {
+        let queryAfterClose: any = null;
+        try {
+          queryAfterClose = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+        } catch (err: any) {
+          this.logger.warn(
+            `expireSession 微信 close-paid 后再查单异常，跳过本次 sessionId=${session.id}：${err.message}`,
+          );
+          return;
+        }
+
+        if (queryAfterClose?.tradeState === 'SUCCESS') {
+          if (!this.checkoutService) {
+            this.logger.error(`expireSession 微信 close-paid 无法建单（CheckoutService 未注入），sessionId=${session.id}`);
+            return;
+          }
+          if (!queryAfterClose.transactionId) {
+            this.logger.error(`expireSession 微信 close-paid 成功态缺少交易流水号，跳过建单：sessionId=${session.id}`);
+            return;
+          }
+          if (!this.isWechatAmountMatched(queryAfterClose, session.expectedTotal)) {
+            this.logger.error(
+              `expireSession 微信 close-paid 金额校验失败：wechatFen=${this.extractWechatAmountFen(queryAfterClose) ?? 'N/A'} sessionFen=${Math.round(session.expectedTotal * 100)} sessionId=${session.id}`,
+            );
+            return;
+          }
+          try {
+            const closePaidResult = await this.checkoutService.handlePaymentSuccess(
+              session.merchantOrderNo,
+              queryAfterClose.transactionId,
+              queryAfterClose.paidAt?.toISOString?.() ?? queryAfterClose.paidAt ?? new Date().toISOString(),
+            );
+            if (closePaidResult?.orderIds?.length > 0) {
+              void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'expire-close-paid-wechat');
+            }
+          } catch (err: any) {
+            this.logger.error(
+              `expireSession 微信 close-paid 建单失败，sessionId=${session.id}：${err.message}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `expireSession 微信 close-paid 后未查到 SUCCESS，跳过本次 sessionId=${session.id}`,
+          );
+        }
+        return;
+      }
+
+      if (!closeResult || (closeResult.success === false && !closeResult.terminal)) {
+        this.logger.warn(`expireSession 微信关单失败，跳过本次 sessionId=${session.id}`);
         return;
       }
     }

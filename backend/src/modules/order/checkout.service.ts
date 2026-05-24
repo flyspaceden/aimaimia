@@ -123,6 +123,32 @@ export class CheckoutService {
     this.rewardDeductionService = service;
   }
 
+  private extractWechatAmountFen(queryResult: any): number | null {
+    const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
+    return (
+      typeof rawFen === 'number' &&
+      Number.isInteger(rawFen) &&
+      Number.isSafeInteger(rawFen) &&
+      rawFen >= 0
+    ) ? rawFen : null;
+  }
+
+  private assertWechatAmountMatchesSession(
+    queryResult: any,
+    expectedTotal: number,
+    context: string,
+    sessionId: string,
+  ): void {
+    const claimedFen = this.extractWechatAmountFen(queryResult);
+    const expectedFen = Math.round(expectedTotal * 100);
+    if (claimedFen === null || claimedFen !== expectedFen) {
+      this.logger.error(
+        `${context} 微信金额校验失败：wechatFen=${claimedFen ?? 'N/A'} sessionFen=${expectedFen} sessionId=${sessionId}`,
+      );
+      throw new BadRequestException('支付金额校验失败，请联系客服');
+    }
+  }
+
   // ---------- 公开方法 ----------
 
   /** F1: 创建 CheckoutSession（校验库存+计算总额+预留奖励+返回支付参数） */
@@ -1252,6 +1278,123 @@ export class CheckoutService {
         if (closeErr instanceof BadRequestException) throw closeErr;
         this.logger.warn(
           `cancelSession close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+    }
+
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'WECHAT_PAY'
+    ) {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.warn(
+          `cancelSession 微信支付服务不可用，拒绝取消：sessionId=${sessionId}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      let queryResult: any = null;
+      try {
+        queryResult = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `cancelSession 查微信异常，拒绝取消：sessionId=${sessionId}, error=${err.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      if (!queryResult) {
+        this.logger.warn(
+          `cancelSession 查微信无结果，尝试关单：sessionId=${sessionId}`,
+        );
+      }
+
+      if (queryResult?.tradeState === 'SUCCESS') {
+        this.logger.warn(
+          `cancelSession 检测到微信已支付，主动建单：sessionId=${sessionId}, tradeState=${queryResult.tradeState}`,
+        );
+        if (!queryResult.transactionId) {
+          this.logger.error(`cancelSession 微信成功态缺少交易流水号：sessionId=${sessionId}`);
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+        try {
+          this.assertWechatAmountMatchesSession(
+            queryResult,
+            session.expectedTotal,
+            'cancelSession 主动建单',
+            sessionId,
+          );
+          const buildResult = await this.handlePaymentSuccess(
+            session.merchantOrderNo,
+            queryResult.transactionId,
+            queryResult.paidAt?.toISOString?.() ?? queryResult.paidAt ?? new Date().toISOString(),
+          );
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'cancel-paid-wechat');
+          }
+          throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+        } catch (e: any) {
+          if (e instanceof BadRequestException) throw e;
+          this.logger.error(
+            `cancelSession 微信主动建单失败，sessionId=${sessionId}：${e.message}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+      }
+
+      let closeResult: any;
+      try {
+        closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
+      } catch (closeErr: any) {
+        this.logger.warn(
+          `cancelSession 微信 close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      if (closeResult?.alreadyPaid) {
+        let queryAfterClose: any = null;
+        try {
+          queryAfterClose = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+        } catch {
+          throw new BadRequestException('支付状态异常，请稍后再试');
+        }
+        if (queryAfterClose?.tradeState === 'SUCCESS') {
+          if (!queryAfterClose.transactionId) {
+            this.logger.error(`cancelSession 微信 close-paid 成功态缺少交易流水号：sessionId=${sessionId}`);
+            throw new BadRequestException('正在确认支付状态，请稍后再试');
+          }
+          try {
+            this.assertWechatAmountMatchesSession(
+              queryAfterClose,
+              session.expectedTotal,
+              'cancelSession close-paid',
+              sessionId,
+            );
+            const closePaidResult = await this.handlePaymentSuccess(
+              session.merchantOrderNo,
+              queryAfterClose.transactionId,
+              queryAfterClose.paidAt?.toISOString?.() ?? queryAfterClose.paidAt ?? new Date().toISOString(),
+            );
+            if (closePaidResult?.orderIds?.length > 0) {
+              void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'cancel-close-paid-wechat');
+            }
+          } catch (buildErr: any) {
+            if (buildErr instanceof BadRequestException) throw buildErr;
+            this.logger.error(
+              `cancelSession 微信 close-paid 建单失败，sessionId=${sessionId}：${buildErr.message}`,
+            );
+            throw new BadRequestException('正在确认支付状态，请稍后再试');
+          }
+          throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+        }
+        throw new BadRequestException('支付状态异常，请稍后再试');
+      }
+
+      if (!closeResult || (closeResult.success === false && !closeResult.terminal)) {
+        this.logger.warn(
+          `cancelSession 微信 close 失败，拒绝取消：sessionId=${sessionId}`,
         );
         throw new BadRequestException('正在确认支付状态，请稍后再试');
       }
