@@ -11,6 +11,7 @@ import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.s
 import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
 import { PaymentModule } from '../payment/payment.module';
 import { PaymentService } from '../payment/payment.service';
+import { WechatPayService } from '../payment/wechat-pay.service';
 import { InboxModule } from '../inbox/inbox.module';
 import { SellerShippingModule } from '../seller/shipping/seller-shipping.module';
 import { ShipmentModule } from '../shipment/shipment.module';
@@ -71,6 +72,10 @@ export class AfterSaleModule implements OnModuleInit {
     const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
     if (rewardDeductionService) {
       this.afterSaleRefundService.setRewardDeductionService(rewardDeductionService);
+    }
+    const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
+    if (wechatPayService) {
+      this.afterSaleShippingPaymentService.setWechatPayService(wechatPayService);
     }
   }
 }

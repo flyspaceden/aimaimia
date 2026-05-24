@@ -230,6 +230,7 @@ export class PaymentController {
         providerRefundId: notify.providerTxnId,
         tradeState: notify.tradeState,
         amountFen: notify.amountFen,
+        totalAmountFen: notify.totalAmountFen,
         rawPayload: body,
       });
       res.status(200).send();

@@ -32,7 +32,22 @@ type WechatPayParsedNotify = {
   tradeState: string;
   amountFen: number;
   amount: number;
+  totalAmountFen?: number;
+  totalAmount?: number;
   paidAt?: Date;
+};
+
+type WechatRefundResult = {
+  success: boolean;
+  pending: boolean;
+  providerRefundId?: string;
+  outTradeNo?: string;
+  outRefundNo?: string;
+  refundAmountFen?: number;
+  totalAmountFen?: number;
+  refundAmount?: number;
+  totalAmount?: number;
+  message: string;
 };
 
 const WECHAT_ORDER_TRADE_STATES = new Set([
@@ -259,7 +274,10 @@ export class WechatPayService implements OnModuleInit {
     return this.validateNotifyAmountFen(decrypted?.amount?.total);
   }
 
-  private validateRefundNotifyPayload(decrypted: any): number {
+  private validateRefundNotifyPayload(decrypted: any): {
+    refundAmountFen: number;
+    totalAmountFen: number;
+  } {
     if (
       !this.isNonEmptyString(decrypted?.mchid) ||
       !this.isNonEmptyString(decrypted?.out_trade_no) ||
@@ -269,7 +287,61 @@ export class WechatPayService implements OnModuleInit {
     ) {
       throw new Error('微信退款通知缺少必要字段');
     }
-    return this.validateNotifyAmountFen(decrypted?.amount?.refund);
+    return {
+      refundAmountFen: this.validateNotifyAmountFen(decrypted?.amount?.refund),
+      totalAmountFen: this.validateNotifyAmountFen(decrypted?.amount?.total),
+    };
+  }
+
+  private parseVerifiedRefundSuccessResponse(
+    data: any,
+    expected: {
+      outTradeNo: string;
+      outRefundNo: string;
+      refundAmountFen: number;
+      totalAmountFen: number;
+    },
+  ): Pick<
+    WechatRefundResult,
+    'outTradeNo' | 'outRefundNo' | 'refundAmountFen' | 'totalAmountFen' | 'refundAmount' | 'totalAmount'
+  > | null {
+    try {
+      if (
+        !this.isNonEmptyString(data?.out_trade_no) ||
+        !this.isNonEmptyString(data?.out_refund_no)
+      ) {
+        throw new Error('微信退款 SUCCESS 返回缺少订单号或退款单号');
+      }
+
+      const refundAmountFen = this.validateNotifyAmountFen(data?.amount?.refund);
+      const totalAmountFen = this.validateNotifyAmountFen(data?.amount?.total);
+
+      if (
+        data.out_trade_no !== expected.outTradeNo ||
+        data.out_refund_no !== expected.outRefundNo ||
+        refundAmountFen !== expected.refundAmountFen ||
+        totalAmountFen !== expected.totalAmountFen
+      ) {
+        this.logger.warn(
+          `微信退款 SUCCESS 返回字段不匹配: outTradeNo=${this.maskBizId(expected.outTradeNo)} outRefundNo=${this.maskBizId(expected.outRefundNo)}`,
+        );
+        return null;
+      }
+
+      return {
+        outTradeNo: data.out_trade_no,
+        outRefundNo: data.out_refund_no,
+        refundAmountFen,
+        totalAmountFen,
+        refundAmount: refundAmountFen / 100,
+        totalAmount: totalAmountFen / 100,
+      };
+    } catch {
+      this.logger.warn(
+        `微信退款 SUCCESS 返回缺少可验证字段: outTradeNo=${this.maskBizId(expected.outTradeNo)} outRefundNo=${this.maskBizId(expected.outRefundNo)}`,
+      );
+      return null;
+    }
   }
 
   isAvailable(): boolean {
@@ -423,7 +495,7 @@ export class WechatPayService implements OnModuleInit {
         this.hasCompletePaymentNotifyFields(decrypted);
 
       if (isRefund) {
-        const amountFen = this.validateRefundNotifyPayload(decrypted);
+        const { refundAmountFen, totalAmountFen } = this.validateRefundNotifyPayload(decrypted);
         return {
           type: 'refund',
           mchId: decrypted.mchid,
@@ -431,8 +503,10 @@ export class WechatPayService implements OnModuleInit {
           outRefundNo: decrypted.out_refund_no,
           providerTxnId: decrypted.refund_id,
           tradeState: decrypted.refund_status,
-          amountFen,
-          amount: amountFen / 100,
+          amountFen: refundAmountFen,
+          amount: refundAmountFen / 100,
+          totalAmountFen,
+          totalAmount: totalAmountFen / 100,
           paidAt: decrypted.success_time ? new Date(decrypted.success_time) : undefined,
         };
       }
@@ -757,12 +831,7 @@ export class WechatPayService implements OnModuleInit {
     refundAmount: number;
     totalAmount: number;
     reason: string;
-  }): Promise<{
-    success: boolean;
-    pending: boolean;
-    providerRefundId?: string;
-    message: string;
-  }> {
+  }): Promise<WechatRefundResult> {
     if (!this.client) {
       return {
         success: false,
@@ -853,10 +922,25 @@ export class WechatPayService implements OnModuleInit {
     }
 
     if (status === 'SUCCESS') {
+      const verified = this.parseVerifiedRefundSuccessResponse(data, {
+        outTradeNo: params.outTradeNo,
+        outRefundNo: params.outRefundNo,
+        refundAmountFen: refund,
+        totalAmountFen: total,
+      });
+      if (!verified) {
+        return {
+          success: true,
+          pending: true,
+          providerRefundId,
+          message: '微信退款成功状态待确认',
+        };
+      }
       return {
         success: true,
         pending: false,
         providerRefundId,
+        ...verified,
         message: '退款成功',
       };
     }

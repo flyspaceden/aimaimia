@@ -423,7 +423,105 @@ export class PaymentService {
       throw new NotFoundException('售后退货运费支付单不存在');
     }
 
-    // Task 10 会按 payment.provider 分发微信/支付宝；这里先保留既有支付宝路径。
+    if (payment.provider === 'WECHAT_PAY') {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.warn(`active-query 微信支付未启用，售后退货运费支付单 ${this.maskBizId(merchantPaymentNo)} 保持当前状态 ${payment.status}`);
+        return {
+          status: payment.status,
+          orderIds: [],
+          expectedTotal: payment.amount,
+          confirmedBy: 'query-error' as const,
+        };
+      }
+
+      let queryResult: {
+        tradeState: string;
+        transactionId?: string;
+        outTradeNo: string;
+        totalAmountFen?: number;
+        amountFen?: number;
+        paidAt?: Date;
+      } | null = null;
+      try {
+        queryResult = await this.wechatPayService.queryOrder(merchantPaymentNo);
+      } catch (err: any) {
+        this.logger.error(`active-query 售后退货运费调用微信异常: ${err.message}`);
+        return {
+          status: payment.status,
+          orderIds: [],
+          expectedTotal: payment.amount,
+          confirmedBy: 'query-error' as const,
+        };
+      }
+
+      if (!queryResult) {
+        return {
+          status: payment.status,
+          orderIds: [],
+          expectedTotal: payment.amount,
+          confirmedBy: 'not-found' as const,
+        };
+      }
+
+      const { tradeState, transactionId, paidAt } = queryResult;
+      if (tradeState !== 'SUCCESS') {
+        this.logger.log(
+          `active-query: 微信支付返回 ${tradeState}，售后退货运费支付单 ${this.maskBizId(merchantPaymentNo)} 保持当前状态 ${payment.status}`,
+        );
+        return {
+          status: payment.status,
+          orderIds: [],
+          expectedTotal: payment.amount,
+          confirmedBy: `wechat-${tradeState.toLowerCase()}` as const,
+        };
+      }
+
+      if (!transactionId) {
+        this.logger.error(
+          `active-query 售后退货运费调用微信异常: SUCCESS 缺少 transactionId，merchantPaymentNo=${this.maskBizId(merchantPaymentNo)}`,
+        );
+        return {
+          status: payment.status,
+          orderIds: [],
+          expectedTotal: payment.amount,
+          confirmedBy: 'query-error' as const,
+        };
+      }
+
+      const claimedAmountFen = queryResult.totalAmountFen ?? queryResult.amountFen;
+      if (typeof claimedAmountFen !== 'number' || !Number.isInteger(claimedAmountFen)) {
+        this.logger.error(
+          `active-query 售后退货运费调用微信异常: SUCCESS 缺少有效金额，merchantPaymentNo=${this.maskBizId(merchantPaymentNo)}`,
+        );
+        return {
+          status: payment.status,
+          orderIds: [],
+          expectedTotal: payment.amount,
+          confirmedBy: 'query-error' as const,
+        };
+      }
+      await this.assertWechatAfterSaleShippingPaymentAmountMatches(
+        merchantPaymentNo,
+        claimedAmountFen,
+      );
+
+      await this.handlePaymentCallback({
+        merchantOrderNo: merchantPaymentNo,
+        providerTxnId: transactionId,
+        status: 'SUCCESS',
+        paidAt: paidAt?.toISOString() ?? new Date().toISOString(),
+        rawPayload: { source: 'active-query', ...queryResult },
+        skipSignatureVerification: true,
+      });
+
+      return {
+        status: 'PAID',
+        orderIds: [],
+        expectedTotal: payment.amount,
+        confirmedBy: 'active-query-success' as const,
+      };
+    }
+
     let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
     try {
       queryResult = await this.alipayService.queryOrder(merchantPaymentNo);
@@ -683,6 +781,7 @@ export class PaymentService {
     providerRefundId?: string | null;
     tradeState: string;
     amountFen?: number;
+    totalAmountFen?: number;
     rawPayload?: any;
   }): Promise<void> {
     const outTradeNo = args.outTradeNo || '';
@@ -700,6 +799,8 @@ export class PaymentService {
         outRefundNo,
         tradeState: args.tradeState,
         providerRefundId: args.providerRefundId,
+        refundAmountFen: args.amountFen,
+        totalAmountFen: args.totalAmountFen,
       });
       return;
     }

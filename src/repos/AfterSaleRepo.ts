@@ -96,9 +96,16 @@ export interface AfterSaleShippingPayment {
   amount: number;
   status: Exclude<ReturnShippingPaymentStatus, 'NOT_REQUIRED'>;
   paymentParams?: {
-    channel?: string;
+    channel?: 'alipay' | 'wechat';
     orderStr?: string;
-    [key: string]: unknown;
+    appId?: string;
+    partnerId?: string;
+    timestamp?: string;
+    nonceStr?: string;
+    prepayId?: string;
+    packageVal?: string;
+    signType?: string;
+    paySign?: string;
   };
 }
 

@@ -655,20 +655,24 @@ describe('AfterSaleShippingPaymentService', () => {
 
   it('handleWechatRefundNotify marks return shipping refund as REFUNDED on SUCCESS', async () => {
     tx.afterSaleShippingPayment.findUnique.mockResolvedValue(shippingPaymentFixture({
+      provider: 'WECHAT_PAY',
       status: 'REFUNDING',
       paidAt,
     }));
 
     await service.handleWechatRefundNotify({
       merchantPaymentNo: 'AS_SHIP_PAY_as_001',
-      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      outRefundNo: (service as any).getWechatMerchantRefundNo('as_001'),
       tradeState: 'SUCCESS',
       providerRefundId: 'wx-ship-refund-1',
+      refundAmountFen: 1813,
+      totalAmountFen: 1813,
     });
 
     expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        provider: 'WECHAT_PAY',
         status: { in: ['REFUNDING', 'FAILED'] },
       },
       data: expect.objectContaining({
@@ -681,20 +685,24 @@ describe('AfterSaleShippingPaymentService', () => {
 
   it('handleWechatRefundNotify keeps return shipping refund REFUNDING on PROCESSING', async () => {
     tx.afterSaleShippingPayment.findUnique.mockResolvedValue(shippingPaymentFixture({
+      provider: 'WECHAT_PAY',
       status: 'PAID',
       paidAt,
     }));
 
     await service.handleWechatRefundNotify({
       merchantPaymentNo: 'AS_SHIP_PAY_as_001',
-      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      outRefundNo: (service as any).getWechatMerchantRefundNo('as_001'),
       tradeState: 'PROCESSING',
       providerRefundId: 'wx-ship-refund-1',
+      refundAmountFen: 1813,
+      totalAmountFen: 1813,
     });
 
     expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        provider: 'WECHAT_PAY',
         status: { in: ['PAID', 'REFUNDING', 'FAILED'] },
       },
       data: expect.objectContaining({
@@ -706,20 +714,24 @@ describe('AfterSaleShippingPaymentService', () => {
 
   it('handleWechatRefundNotify marks return shipping refund as FAILED on CLOSED', async () => {
     tx.afterSaleShippingPayment.findUnique.mockResolvedValue(shippingPaymentFixture({
+      provider: 'WECHAT_PAY',
       status: 'REFUNDING',
       paidAt,
     }));
 
     await service.handleWechatRefundNotify({
       merchantPaymentNo: 'AS_SHIP_PAY_as_001',
-      outRefundNo: 'AS_SHIP_REFUND_as_001',
+      outRefundNo: (service as any).getWechatMerchantRefundNo('as_001'),
       tradeState: 'CLOSED',
       providerRefundId: 'wx-ship-refund-1',
+      refundAmountFen: 1813,
+      totalAmountFen: 1813,
     });
 
     expect(tx.afterSaleShippingPayment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         merchantPaymentNo: 'AS_SHIP_PAY_as_001',
+        provider: 'WECHAT_PAY',
         status: { in: ['REFUNDING', 'FAILED'] },
       },
       data: expect.objectContaining({

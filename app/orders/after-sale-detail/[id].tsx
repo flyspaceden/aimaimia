@@ -33,6 +33,7 @@ import { AfterSaleRepo } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
 import { payWithAlipay } from '../../../src/utils/alipay';
+import { payWithWechat } from '../../../src/utils/wechat-pay';
 import type {
   AfterSaleDetailStatus,
   AfterSaleRequest,
@@ -297,10 +298,10 @@ export default function AfterSaleDetailScreen() {
         return;
       }
 
-      const orderStr = result.data.paymentParams?.orderStr;
+      const params = result.data.paymentParams;
       let shouldActiveQuery = true;
-      if (orderStr) {
-        const payResult = await payWithAlipay(orderStr);
+      if (params?.channel === 'alipay' && params.orderStr) {
+        const payResult = await payWithAlipay(params.orderStr);
         if (payResult.resultStatus === '6001') {
           shouldActiveQuery = false;
           show({ message: '已取消支付', type: 'warning' });
@@ -313,8 +314,39 @@ export default function AfterSaleDetailScreen() {
                 : '支付未完成，正在查询支付状态';
           show({ message, type: 'warning' });
         }
+      } else if (params?.channel === 'wechat') {
+        if (
+          !params.appId ||
+          !params.partnerId ||
+          !params.timestamp ||
+          !params.nonceStr ||
+          !params.prepayId ||
+          !params.packageVal ||
+          !params.signType ||
+          !params.paySign
+        ) {
+          show({ message: '支付参数获取失败，请稍后重试', type: 'error' });
+          return;
+        }
+        const payResult = await payWithWechat({
+          appId: params.appId,
+          partnerId: params.partnerId,
+          timestamp: params.timestamp,
+          nonceStr: params.nonceStr,
+          prepayId: params.prepayId,
+          packageVal: params.packageVal,
+          signType: params.signType,
+          paySign: params.paySign,
+        });
+        if (payResult.resultStatus === '6001') {
+          shouldActiveQuery = false;
+          show({ message: '已取消支付', type: 'warning' });
+        } else if (!payResult.success) {
+          show({ message: '支付未完成，正在查询支付状态', type: 'warning' });
+        }
       } else {
-        show({ message: '退货运费支付单已创建', type: 'success' });
+        show({ message: '支付参数获取失败，请稍后重试', type: 'error' });
+        return;
       }
 
       if (shouldActiveQuery) {

@@ -670,6 +670,8 @@ describe('PaymentService.initiateRefund', () => {
       outRefundNo: 'AS_SHIP_REFUND_as_001',
       tradeState: 'SUCCESS',
       providerRefundId: 'wx-ship-refund-1',
+      amountFen: 1813,
+      totalAmountFen: 1813,
     });
 
     expect(afterSaleShippingPaymentService.handleWechatRefundNotify).toHaveBeenCalledWith({
@@ -677,6 +679,8 @@ describe('PaymentService.initiateRefund', () => {
       outRefundNo: 'AS_SHIP_REFUND_as_001',
       tradeState: 'SUCCESS',
       providerRefundId: 'wx-ship-refund-1',
+      refundAmountFen: 1813,
+      totalAmountFen: 1813,
     });
     expect(prisma.refund.findFirst).not.toHaveBeenCalled();
   });

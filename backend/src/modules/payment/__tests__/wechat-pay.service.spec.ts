@@ -663,6 +663,12 @@ describe('WechatPayService', () => {
         data: {
           status: 'SUCCESS',
           refund_id: 'wxrefund-success-001',
+          out_trade_no: 'CS-REFUND-001',
+          out_refund_no: 'RF-REFUND-001',
+          amount: {
+            refund: 1234,
+            total: 2000,
+          },
         },
       });
 
@@ -683,7 +689,34 @@ describe('WechatPayService', () => {
         success: true,
         pending: false,
         providerRefundId: 'wxrefund-success-001',
+        outTradeNo: 'CS-REFUND-001',
+        outRefundNo: 'RF-REFUND-001',
+        refundAmountFen: 1234,
+        totalAmountFen: 2000,
+        refundAmount: 12.34,
+        totalAmount: 20,
         message: '退款成功',
+      });
+    });
+
+    it('treats SUCCESS refund response without verifiable fields as pending', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          status: 'SUCCESS',
+          refund_id: 'wxrefund-success-001',
+        },
+      });
+
+      const result = await svc.refund(refundParams);
+
+      expect(result).toEqual({
+        success: true,
+        pending: true,
+        providerRefundId: 'wxrefund-success-001',
+        message: '微信退款成功状态待确认',
       });
     });
 
@@ -1253,7 +1286,7 @@ describe('WechatPayService', () => {
         out_refund_no: 'RF-NOTIFY-500',
         refund_id: 'WX-REFUND-500',
         refund_status: 'SUCCESS',
-        amount: { refund: 500 },
+        amount: { refund: 500, total: 500 },
         success_time: '2026-05-23T12:00:00+08:00',
       });
 
@@ -1280,6 +1313,8 @@ describe('WechatPayService', () => {
         tradeState: 'SUCCESS',
         amountFen: 500,
         amount: 5,
+        totalAmountFen: 500,
+        totalAmount: 5,
         paidAt: new Date('2026-05-23T12:00:00+08:00'),
       });
       expect(result).not.toHaveProperty('appId');
@@ -1295,7 +1330,7 @@ describe('WechatPayService', () => {
         out_refund_no: 'RF-ORIGINAL-TYPE',
         refund_id: 'WX-REFUND-ORIGINAL',
         refund_status: 'SUCCESS',
-        amount: { refund: 500 },
+        amount: { refund: 500, total: 500 },
       });
 
       const result = await (svc as any).parseNotify({
@@ -1324,7 +1359,7 @@ describe('WechatPayService', () => {
         out_refund_no: 'RF-DECRYPTED-REFUND',
         refund_id: 'WX-REFUND-DECRYPTED',
         refund_status: 'SUCCESS',
-        amount: { refund: 500 },
+        amount: { refund: 500, total: 500 },
       });
 
       const result = await (svc as any).parseNotify({
@@ -1592,7 +1627,7 @@ describe('WechatPayService', () => {
         out_refund_no: 'RF-BAD-AMOUNT',
         refund_id: 'WX-REFUND-BAD-AMOUNT',
         refund_status: 'SUCCESS',
-        amount: { refund },
+        amount: { refund, total: 100 },
       });
 
       await expect(
@@ -1603,6 +1638,40 @@ describe('WechatPayService', () => {
               original_type: 'refund',
               ciphertext: 'REFUND-CIPHER',
               nonce: 'REFUND-RESOURCE-NONCE',
+            },
+          },
+          rawBody,
+          headers,
+        }),
+      ).rejects.toThrow('微信通知金额字段无效');
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['non-integer', 100.5],
+      ['negative', -1],
+    ])('throws when refund amount.total is %s', async (_case, total) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.verifySign = jest.fn().mockReturnValue(true);
+      client.decipher_gcm = jest.fn().mockReturnValue({
+        mchid: '1234567890',
+        out_trade_no: 'CS-BAD-REFUND-TOTAL',
+        out_refund_no: 'RF-BAD-TOTAL',
+        refund_id: 'WX-REFUND-BAD-TOTAL',
+        refund_status: 'SUCCESS',
+        amount: { refund: 100, total },
+      });
+
+      await expect(
+        (svc as any).parseNotify({
+          body: {
+            event_type: 'REFUND.SUCCESS',
+            resource: {
+              original_type: 'refund',
+              ciphertext: 'REFUND-CIPHER',
+              nonce: 'REFUND-RESOURCE-NONCE',
+              associated_data: 'refund',
             },
           },
           rawBody,

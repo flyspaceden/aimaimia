@@ -29,6 +29,7 @@ describe('PaymentController.handleWechatNotify', () => {
     tradeState: 'SUCCESS',
     amount: 65,
     amountFen: 6500,
+    totalAmountFen: 6500,
   };
 
   const buildController = (overrides?: {
@@ -232,6 +233,7 @@ describe('PaymentController.handleWechatNotify', () => {
       providerRefundId: refundNotify.providerTxnId,
       tradeState,
       amountFen: refundNotify.amountFen,
+      totalAmountFen: refundNotify.totalAmountFen,
       rawPayload: {},
     });
     expect(paymentService.handlePaymentCallback).not.toHaveBeenCalled();

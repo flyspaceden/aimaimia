@@ -5,28 +5,50 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import {
   AfterSaleRequest,
   AfterSaleShippingPayment,
   Prisma,
 } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 import { AlipayService } from '../payment/alipay.service';
+import type { WechatPayService } from '../payment/wechat-pay.service';
 import { decryptJsonValue } from '../../common/security/encryption';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
 type Tx = Prisma.TransactionClient;
 const SERIALIZABLE_MAX_RETRIES = 3;
 
+type ChannelRefundResult = {
+  success: boolean;
+  pending?: boolean;
+  providerRefundId?: string;
+  message: string;
+  outTradeNo?: string;
+  outRefundNo?: string;
+  refundAmountFen?: number;
+  totalAmountFen?: number;
+};
+
 export type AfterSaleShippingPaymentBuyerResponse = Pick<
   AfterSaleShippingPayment,
   'id' | 'afterSaleId' | 'merchantPaymentNo' | 'amount' | 'status'
 > & {
   paymentParams: {
-    channel?: 'alipay';
+    channel?: 'alipay' | 'wechat';
     orderStr?: string;
+    appId?: string;
+    partnerId?: string;
+    timestamp?: string;
+    nonceStr?: string;
+    prepayId?: string;
+    packageVal?: string;
+    signType?: string;
+    paySign?: string;
   };
 };
 
@@ -34,6 +56,7 @@ export type AfterSaleShippingPaymentBuyerResponse = Pick<
 export class AfterSaleShippingPaymentService {
   private readonly logger = new Logger(AfterSaleShippingPaymentService.name);
   private shippingRuleService: any = null;
+  private wechatPayService?: WechatPayService;
 
   constructor(
     private prisma: PrismaService,
@@ -42,6 +65,10 @@ export class AfterSaleShippingPaymentService {
 
   setShippingRuleService(service: any) {
     this.shippingRuleService = service;
+  }
+
+  setWechatPayService(service?: WechatPayService) {
+    this.wechatPayService = service;
   }
 
   async estimateReturnShippingFee(afterSaleId: string): Promise<number> {
@@ -80,7 +107,7 @@ export class AfterSaleShippingPaymentService {
       },
     );
 
-    const paymentParams = await this.buildAlipayPaymentParams(payment);
+    const paymentParams = await this.buildPaymentParams(payment);
     return {
       id: payment.id,
       afterSaleId: payment.afterSaleId,
@@ -251,22 +278,54 @@ export class AfterSaleShippingPaymentService {
 
     if (!paymentToRefund) return;
 
-    const merchantRefundNo = this.getMerchantRefundNo(afterSaleId);
-    let result: { success: boolean; message: string };
+    const isWechatRefund = paymentToRefund.provider === 'WECHAT_PAY';
+    const merchantRefundNo = isWechatRefund
+      ? this.getWechatMerchantRefundNo(afterSaleId)
+      : this.getMerchantRefundNo(afterSaleId);
+    let result: ChannelRefundResult;
     try {
-      if (!this.alipayService?.refund) {
-        throw new Error('支付宝退款服务不可用');
+      if (isWechatRefund) {
+        if (!this.wechatPayService?.isAvailable?.() || !this.wechatPayService?.refund) {
+          throw new Error('微信退款服务不可用');
+        }
+        result = await this.wechatPayService.refund({
+          outTradeNo: paymentToRefund.merchantPaymentNo,
+          outRefundNo: merchantRefundNo,
+          refundAmount: paymentToRefund.amount,
+          totalAmount: paymentToRefund.amount,
+          reason,
+        });
+      } else {
+        if (!this.alipayService?.refund) {
+          throw new Error('支付宝退款服务不可用');
+        }
+        result = await this.alipayService.refund({
+          merchantOrderNo: paymentToRefund.merchantPaymentNo,
+          refundAmount: paymentToRefund.amount,
+          merchantRefundNo,
+          refundReason: reason,
+        });
       }
-      result = await this.alipayService.refund({
-        merchantOrderNo: paymentToRefund.merchantPaymentNo,
-        refundAmount: paymentToRefund.amount,
-        merchantRefundNo,
-        refundReason: reason,
-      });
     } catch (err: any) {
       result = {
         success: false,
-        message: err?.message || '支付宝退款异常',
+        message: err?.message || (isWechatRefund ? '微信退款异常' : '支付宝退款异常'),
+      };
+    }
+
+    if (
+      isWechatRefund &&
+      result.success &&
+      !result.pending &&
+      !this.wechatRefundResultMatchesPayment(result, paymentToRefund, merchantRefundNo)
+    ) {
+      this.logger.warn(
+        `微信退货运费同步退款成功返回缺少可验证字段，等待通知/查单确认: payment=${paymentToRefund.merchantPaymentNo}`,
+      );
+      result = {
+        ...result,
+        pending: true,
+        message: result.message || '微信退款成功状态待确认',
       };
     }
 
@@ -277,14 +336,21 @@ export class AfterSaleShippingPaymentService {
             ? { afterSaleId, status: { in: ['REFUNDING', 'FAILED'] } }
             : { afterSaleId, status: 'REFUNDING' },
           data: result.success
-            ? {
-                status: 'REFUNDED',
-                refundedAt: new Date(),
-                failureReason: null,
-              }
+            ? result.pending
+              ? {
+                  status: 'REFUNDING',
+                  failureReason: `退货运费微信退款处理中: ${result.message || merchantRefundNo}`,
+                }
+              : {
+                  status: 'REFUNDED',
+                  refundedAt: new Date(),
+                  failureReason: null,
+                }
             : {
                 status: 'FAILED',
-                failureReason: `退货运费退款失败: ${result.message || '支付宝退款失败'}`,
+                failureReason: `退货运费退款失败: ${
+                  result.message || (isWechatRefund ? '微信退款失败' : '支付宝退款失败')
+                }`,
               },
         });
       },
@@ -296,6 +362,8 @@ export class AfterSaleShippingPaymentService {
     outRefundNo?: string | null;
     tradeState: string;
     providerRefundId?: string | null;
+    refundAmountFen?: number;
+    totalAmountFen?: number;
   }): Promise<void> {
     await this.withSerializableRetry(
       async (tx) => {
@@ -306,11 +374,30 @@ export class AfterSaleShippingPaymentService {
           this.logger.warn(`微信退货运费退款通知未找到支付单: ${args.merchantPaymentNo}`);
           return;
         }
+        if (payment.provider !== 'WECHAT_PAY') {
+          this.logger.warn(
+            `微信退货运费退款通知命中非微信支付单: payment=${args.merchantPaymentNo} provider=${payment.provider}`,
+          );
+          return;
+        }
+        if (args.outRefundNo !== this.getWechatMerchantRefundNo(payment.afterSaleId)) {
+          this.logger.warn(
+            `微信退货运费退款通知退款单号不匹配: payment=${args.merchantPaymentNo} outRefundNo=${args.outRefundNo || '<empty>'}`,
+          );
+          return;
+        }
+        if (args.tradeState === 'SUCCESS' && !this.wechatRefundAmountMatchesPayment(args, payment.amount)) {
+          this.logger.warn(
+            `微信退货运费退款通知金额不匹配: payment=${args.merchantPaymentNo}`,
+          );
+          return;
+        }
 
         if (args.tradeState === 'SUCCESS') {
           await tx.afterSaleShippingPayment.updateMany({
             where: {
               merchantPaymentNo: args.merchantPaymentNo,
+              provider: 'WECHAT_PAY',
               status: { in: ['REFUNDING', 'FAILED'] },
             },
             data: {
@@ -326,6 +413,7 @@ export class AfterSaleShippingPaymentService {
           await tx.afterSaleShippingPayment.updateMany({
             where: {
               merchantPaymentNo: args.merchantPaymentNo,
+              provider: 'WECHAT_PAY',
               status: { in: ['PAID', 'REFUNDING', 'FAILED'] },
             },
             data: {
@@ -340,6 +428,7 @@ export class AfterSaleShippingPaymentService {
           await tx.afterSaleShippingPayment.updateMany({
             where: {
               merchantPaymentNo: args.merchantPaymentNo,
+              provider: 'WECHAT_PAY',
               status: { in: ['REFUNDING', 'FAILED'] },
             },
             data: {
@@ -352,6 +441,45 @@ export class AfterSaleShippingPaymentService {
     );
   }
 
+  @Cron('30 */10 * * * *')
+  async retryStaleWechatShippingRefunds(): Promise<void> {
+    if (!this.wechatPayService?.isAvailable?.() || !this.wechatPayService?.queryRefund) return;
+
+    const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+    const candidates = await this.withSerializableRetry((tx) =>
+      tx.afterSaleShippingPayment.findMany({
+        where: {
+          provider: 'WECHAT_PAY',
+          status: 'REFUNDING',
+          updatedAt: { lte: cutoff },
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 20,
+      }),
+    );
+
+    for (const payment of candidates) {
+      const refund = await this.wechatPayService.queryRefund(
+        this.getWechatMerchantRefundNo(payment.afterSaleId),
+      );
+      if (!refund) continue;
+      if (refund.outTradeNo !== payment.merchantPaymentNo) {
+        this.logger.warn(
+          `微信退货运费退款查单返回订单号不匹配: payment=${payment.merchantPaymentNo} provider=${refund.outTradeNo}`,
+        );
+        continue;
+      }
+      await this.handleWechatRefundNotify({
+        merchantPaymentNo: payment.merchantPaymentNo,
+        outRefundNo: refund.outRefundNo,
+        tradeState: refund.status,
+        providerRefundId: refund.providerRefundId,
+        refundAmountFen: refund.refundAmountFen ?? refund.refundAmount,
+        totalAmountFen: refund.totalAmountFen ?? refund.totalAmount,
+      });
+    }
+  }
+
   private normalizeRefundRetryReason(reason?: string | null): string {
     return reason?.replace(/^退货运费退款中:\s*/, '') || '退货运费退款重试';
   }
@@ -362,6 +490,23 @@ export class AfterSaleShippingPaymentService {
   ): Promise<AfterSaleShippingPayment> {
     const amount = await this.resolveReturnShippingFeeInTx(tx, request);
     const merchantPaymentNo = this.getMerchantPaymentNo(request.id);
+    const legacyMerchantPaymentNo = `AS_SHIP_PAY_${request.id}`;
+    if (merchantPaymentNo !== legacyMerchantPaymentNo) {
+      const existingPayment = await tx.afterSaleShippingPayment.findUnique({
+        where: { afterSaleId: request.id },
+      });
+      if (existingPayment) {
+        return existingPayment;
+      }
+    }
+    const order = (tx as any).order?.findUnique
+      ? await (tx as any).order.findUnique({
+          where: { id: request.orderId },
+          select: { checkoutSession: { select: { paymentChannel: true } } },
+        })
+      : null;
+    const provider =
+      order?.checkoutSession?.paymentChannel === 'WECHAT_PAY' ? 'WECHAT_PAY' : 'ALIPAY';
 
     return tx.afterSaleShippingPayment.upsert({
       where: { merchantPaymentNo },
@@ -370,7 +515,7 @@ export class AfterSaleShippingPaymentService {
         amount,
         status: 'UNPAID',
         merchantPaymentNo,
-        provider: 'ALIPAY',
+        provider,
       },
       update: {},
     });
@@ -500,11 +645,83 @@ export class AfterSaleShippingPaymentService {
   }
 
   private getMerchantPaymentNo(afterSaleId: string): string {
-    return `AS_SHIP_PAY_${afterSaleId}`;
+    const legacy = `AS_SHIP_PAY_${afterSaleId}`;
+    return legacy.length <= 32 ? legacy : `AS_SHIP_PAY_${this.shortToken(afterSaleId)}`;
   }
 
   private getMerchantRefundNo(afterSaleId: string): string {
     return `AS_SHIP_REFUND_${afterSaleId}`;
+  }
+
+  private getWechatMerchantRefundNo(afterSaleId: string): string {
+    return `AS_SHIP_REF_${this.shortToken(afterSaleId)}`;
+  }
+
+  private shortToken(value: string): string {
+    return createHash('sha256').update(value).digest('hex').slice(0, 16).toUpperCase();
+  }
+
+  private wechatRefundAmountMatchesPayment(
+    args: { refundAmountFen?: number; totalAmountFen?: number },
+    paymentAmount: number,
+  ): boolean {
+    const expectedFen = Math.round(Number(paymentAmount) * 100);
+    return (
+      Number.isInteger(expectedFen) &&
+      Number.isInteger(args.refundAmountFen) &&
+      Number.isInteger(args.totalAmountFen) &&
+      args.refundAmountFen === expectedFen &&
+      args.totalAmountFen === expectedFen
+    );
+  }
+
+  private wechatRefundResultMatchesPayment(
+    result: ChannelRefundResult,
+    payment: AfterSaleShippingPayment,
+    expectedRefundNo: string,
+  ): boolean {
+    return (
+      result.outTradeNo === payment.merchantPaymentNo &&
+      result.outRefundNo === expectedRefundNo &&
+      this.wechatRefundAmountMatchesPayment(result, payment.amount)
+    );
+  }
+
+  private async buildPaymentParams(
+    payment: AfterSaleShippingPayment,
+  ): Promise<AfterSaleShippingPaymentBuyerResponse['paymentParams']> {
+    if (payment.provider === 'WECHAT_PAY') {
+      return this.buildWechatPaymentParams(payment);
+    }
+    return this.buildAlipayPaymentParams(payment);
+  }
+
+  private async buildWechatPaymentParams(
+    payment: AfterSaleShippingPayment,
+  ): Promise<AfterSaleShippingPaymentBuyerResponse['paymentParams']> {
+    if (payment.status !== 'UNPAID' && payment.status !== 'PENDING' && payment.status !== 'FAILED') {
+      return {};
+    }
+    if (!this.wechatPayService?.isAvailable?.()) {
+      return {};
+    }
+
+    const wxParams = await this.wechatPayService.createAppOrder({
+      outTradeNo: payment.merchantPaymentNo,
+      amount: payment.amount,
+      description: `爱买买退货运费-${payment.afterSaleId}`,
+    });
+    return {
+      channel: 'wechat',
+      appId: wxParams.appId,
+      partnerId: wxParams.partnerId,
+      timestamp: wxParams.timestamp,
+      nonceStr: wxParams.nonceStr,
+      prepayId: wxParams.prepayId,
+      packageVal: wxParams.packageVal,
+      signType: wxParams.signType,
+      paySign: wxParams.paySign,
+    };
   }
 
   private async buildAlipayPaymentParams(
