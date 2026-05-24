@@ -432,6 +432,93 @@ export class WechatPayService implements OnModuleInit {
     }
   }
 
+  async queryOrder(outTradeNo: string): Promise<{
+    tradeState: string;
+    transactionId?: string;
+    outTradeNo: string;
+    totalAmountFen: number;
+    totalAmount: number;
+    paidAt?: Date;
+  } | null> {
+    if (!this.client) {
+      return null;
+    }
+
+    try {
+      this.validateOutTradeNo(outTradeNo);
+    } catch {
+      return null;
+    }
+
+    const outTradeNoForLog = this.maskBizId(outTradeNo);
+
+    let result: any;
+    try {
+      result = await this.client.query({ out_trade_no: outTradeNo });
+    } catch (err: any) {
+      const code = String(err?.code || 'SDK_EXCEPTION');
+      this.logger.error(
+        `微信主动查单 SDK 调用失败: code=${code} outTradeNo=${outTradeNoForLog}`,
+      );
+      return null;
+    }
+
+    if (result?.status !== 200) {
+      const { code } = this.parseSdkError(result, '微信主动查单失败');
+      this.logger.error(
+        `微信主动查单失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outTradeNo=${outTradeNoForLog}`,
+      );
+      return null;
+    }
+
+    const data = result.data;
+    try {
+      if (
+        !this.isNonEmptyString(data?.trade_state) ||
+        !this.isNonEmptyString(data?.out_trade_no)
+      ) {
+        throw new Error('微信主动查单返回缺少必要字段');
+      }
+
+      if (data.out_trade_no !== outTradeNo) {
+        this.logger.warn(
+          `微信主动查单返回订单号不匹配: outTradeNo=${outTradeNoForLog} providerOutTradeNo=${this.maskBizId(data.out_trade_no)}`,
+        );
+        return null;
+      }
+
+      const totalAmountFen = this.validateNotifyAmountFen(data?.amount?.total);
+      const parsed: {
+        tradeState: string;
+        transactionId?: string;
+        outTradeNo: string;
+        totalAmountFen: number;
+        totalAmount: number;
+        paidAt?: Date;
+      } = {
+        tradeState: data.trade_state,
+        outTradeNo: data.out_trade_no,
+        totalAmountFen,
+        totalAmount: totalAmountFen / 100,
+      };
+
+      if (this.isNonEmptyString(data.transaction_id)) {
+        parsed.transactionId = data.transaction_id;
+      }
+
+      if (this.isNonEmptyString(data.success_time)) {
+        parsed.paidAt = new Date(data.success_time);
+      }
+
+      return parsed;
+    } catch {
+      this.logger.warn(
+        `微信主动查单返回字段无效: outTradeNo=${outTradeNoForLog}`,
+      );
+      return null;
+    }
+  }
+
   async refund(params: {
     outTradeNo: string;
     outRefundNo: string;

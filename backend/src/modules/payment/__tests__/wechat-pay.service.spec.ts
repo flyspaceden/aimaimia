@@ -7,6 +7,7 @@ jest.mock('wechatpay-node-v3', () => ({
   default: jest.fn().mockImplementation(() => ({
     transactions_app: jest.fn(),
     refunds: jest.fn(),
+    query: jest.fn(),
     verifySign: jest.fn(),
     decipher_gcm: jest.fn(),
   })),
@@ -230,6 +231,178 @@ describe('WechatPayService', () => {
       expect(logged).not.toContain('amount invalid');
       expect(logged).not.toContain('{"code":"PARAM_ERROR"');
       loggerError.mockRestore();
+    });
+  });
+
+  describe('queryOrder', () => {
+    it('returns null when SDK is not initialized', async () => {
+      const svc = await buildModule({});
+
+      await expect(svc.queryOrder('CS-1')).resolves.toBeNull();
+    });
+
+    it('queries by out_trade_no and returns parsed SUCCESS payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'SUCCESS',
+          transaction_id: 'WX-TXN-1',
+          out_trade_no: 'CS-1',
+          amount: { total: 1234 },
+          success_time: '2026-05-23T10:11:12+08:00',
+        },
+      });
+
+      const result = await svc.queryOrder('CS-1');
+
+      expect(client.query).toHaveBeenCalledWith({ out_trade_no: 'CS-1' });
+      expect(result).toEqual({
+        tradeState: 'SUCCESS',
+        transactionId: 'WX-TXN-1',
+        outTradeNo: 'CS-1',
+        totalAmountFen: 1234,
+        totalAmount: 12.34,
+        paidAt: new Date('2026-05-23T10:11:12+08:00'),
+      });
+    });
+
+    it('returns parsed NOTPAY payload without requiring paidAt or transactionId', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'NOTPAY',
+          out_trade_no: 'CS-NOTPAY-1',
+          amount: { total: 0 },
+        },
+      });
+
+      const result = await svc.queryOrder('CS-NOTPAY-1');
+
+      expect(result).toEqual({
+        tradeState: 'NOTPAY',
+        outTradeNo: 'CS-NOTPAY-1',
+        totalAmountFen: 0,
+        totalAmount: 0,
+      });
+      expect(result?.paidAt).toBeUndefined();
+      expect(result).not.toHaveProperty('transactionId');
+    });
+
+    it('returns null on non-200 SDK response and logs only sanitized context', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.query = jest.fn().mockResolvedValue({
+        status: 404,
+        error: JSON.stringify({
+          code: 'ORDER_NOT_EXIST',
+          message: 'raw non-200 secret should not leak',
+        }),
+        data: {
+          rawSecretPayload: 'RAW-NON200-SECRET',
+        },
+      });
+
+      const result = await svc.queryOrder('CS-NON200-001');
+
+      expect(result).toBeNull();
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('status=404 code=ORDER_NOT_EXIST outTradeNo=CS-***-001');
+      expect(logged).not.toContain('raw non-200 secret should not leak');
+      expect(logged).not.toContain('RAW-NON200-SECRET');
+      expect(logged).not.toContain('{"code":"ORDER_NOT_EXIST"');
+      loggerError.mockRestore();
+    });
+
+    it('returns null when SDK throws and does not leak raw exception payload', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerError = jest.spyOn((svc as any).logger, 'error').mockImplementation(jest.fn());
+      client.query = jest.fn().mockRejectedValue(Object.assign(
+        new Error('raw thrown payload should not leak'),
+        {
+          code: 'SYSTEM_ERROR',
+          response: {
+            data: {
+              rawSecretPayload: 'RAW-THROW-SECRET',
+            },
+          },
+        },
+      ));
+
+      const result = await svc.queryOrder('CS-THROW-001');
+
+      expect(result).toBeNull();
+      const logged = loggerError.mock.calls.flat().join(' ');
+      expect(logged).toContain('code=SYSTEM_ERROR outTradeNo=CS-***-001');
+      expect(logged).not.toContain('raw thrown payload should not leak');
+      expect(logged).not.toContain('RAW-THROW-SECRET');
+      loggerError.mockRestore();
+    });
+
+    it.each([
+      ['empty', ''],
+      ['too long', 'T'.repeat(33)],
+    ])('returns null for %s outTradeNo and does not call SDK', async (_case, outTradeNo) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn();
+
+      const result = await svc.queryOrder(outTradeNo);
+
+      expect(result).toBeNull();
+      expect(client.query).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['missing trade_state', {
+        out_trade_no: 'CS-MISSING-STATE',
+        amount: { total: 100 },
+      }],
+      ['non-integer amount.total', {
+        trade_state: 'SUCCESS',
+        out_trade_no: 'CS-BAD-AMOUNT',
+        transaction_id: 'WX-TXN-BAD-AMOUNT',
+        amount: { total: 100.5 },
+      }],
+    ])('returns null when query payload has %s', async (_case, data) => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data,
+      });
+
+      const result = await svc.queryOrder(data.out_trade_no);
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null and warns when response out_trade_no differs from request', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      const loggerWarn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(jest.fn());
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'SUCCESS',
+          transaction_id: 'WX-TXN-MISMATCH',
+          out_trade_no: 'CS-OTHER-456',
+          amount: { total: 100 },
+        },
+      });
+
+      const result = await svc.queryOrder('CS-REQUEST-123');
+
+      expect(result).toBeNull();
+      const logged = loggerWarn.mock.calls.flat().join(' ');
+      expect(logged).toContain('outTradeNo=CS-***-123');
+      expect(logged).toContain('providerOutTradeNo=CS-***-456');
+      loggerWarn.mockRestore();
     });
   });
 
