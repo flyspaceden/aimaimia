@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, Tooltip, Typography } from 'antd';
+import { Button, Popover, QRCode, Space, Tag, Tooltip, Typography } from 'antd';
 import { EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getMembers } from '@/api/bonus';
@@ -51,16 +51,36 @@ export default function MemberListPage() {
       dataIndex: 'referralCode',
       width: 140,
       hideInSearch: true,
-      render: (_, r) =>
-        r.referralCode ? (
-          <Typography.Text copyable={{ text: r.referralCode }}>
-            <Tag color="blue" style={{ fontFamily: 'monospace', marginRight: 4 }}>
-              {r.referralCode}
-            </Tag>
-          </Typography.Text>
-        ) : (
-          '-'
-        ),
+      render: (_, r) => {
+        if (!r.referralCode) return '-';
+        const inviteUrl = `https://app.ai-maimai.com/r/${r.referralCode}`;
+        return (
+          <Popover
+            placement="right"
+            mouseEnterDelay={0.2}
+            content={
+              <Space direction="vertical" align="center" size={8} style={{ width: 200 }}>
+                <QRCode value={inviteUrl} size={160} bordered={false} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  扫码注册并绑定推荐
+                </Typography.Text>
+                <Typography.Text
+                  copyable={{ text: inviteUrl }}
+                  style={{ fontSize: 11, wordBreak: 'break-all', textAlign: 'center' }}
+                >
+                  {inviteUrl}
+                </Typography.Text>
+              </Space>
+            }
+          >
+            <Typography.Text copyable={{ text: r.referralCode }}>
+              <Tag color="blue" style={{ fontFamily: 'monospace', marginRight: 4, cursor: 'pointer' }}>
+                {r.referralCode}
+              </Tag>
+            </Typography.Text>
+          </Popover>
+        );
+      },
     },
     {
       title: '邀请人',
