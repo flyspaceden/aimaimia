@@ -1091,7 +1091,7 @@ export default function CompanyDetailPage() {
         extra={
           industryFund?.owner ? (
             <Space size="small">
-              <span style={{ color: '#999' }}>当前 OWNER：</span>
+              <span style={{ color: '#999' }}>当前创始人：</span>
               <Button
                 type="link"
                 size="small"
@@ -1107,7 +1107,7 @@ export default function CompanyDetailPage() {
               </span>
             </Space>
           ) : (
-            <Tag color="red">未绑定 OWNER</Tag>
+            <Tag color="red">未绑定创始人</Tag>
           )
         }
       >
@@ -1115,7 +1115,7 @@ export default function CompanyDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="产业基金（VIP/普通分润的卖家份额）按订单 meta.companyId 归属于本商户，自动入账到当前 OWNER 用户的奖励账户。换 OWNER 时历史流水仍归属本商户。"
+          message="产业基金是会员（含普通用户）订单利润中分给卖家的份额，按订单所属企业归属于本商户。每笔利润会自动入账到该商户当前创始人的奖励账户。后续更换创始人时，历史流水仍归属本商户，不会丢失。"
         />
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={6}>
