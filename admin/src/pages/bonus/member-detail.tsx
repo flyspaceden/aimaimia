@@ -245,21 +245,21 @@ export default function MemberDetailPage() {
         </Descriptions>
       </Card>
 
-      {/* 树结构 */}
-      <Divider orientation="left">树结构</Divider>
+      {/* 奖励位置 */}
+      <Divider orientation="left">奖励位置</Divider>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {/* VIP 树位置 — 仅 VIP 用户且存在树节点时展示 */}
+        {/* VIP 奖励位置 — 仅 VIP 用户且存在节点时展示 */}
         {d.tree && d.tier === 'VIP' && (
           <Col xs={24} lg={12}>
             <Card
-              title="VIP 树位置"
+              title="VIP 奖励位置"
               extra={
                 <Button
                   type="link"
                   size="small"
                   onClick={() => navigate(buildTreeLink('/bonus/vip-tree'))}
                 >
-                  查看树结构 →
+                  查看完整结构 →
                 </Button>
               }
             >
@@ -282,17 +282,17 @@ export default function MemberDetailPage() {
           </Col>
         )}
 
-        {/* 普通奖励树 — 所有用户都有 */}
+        {/* 普通奖励位置 — 所有用户都有 */}
         <Col xs={24} lg={d.tier === 'VIP' && d.tree ? 12 : 24}>
           <Card
-            title="普通奖励树"
+            title="普通奖励账户"
             extra={
               <Button
                 type="link"
                 size="small"
                 onClick={() => navigate(buildTreeLink('/bonus/normal-tree'))}
               >
-                查看树结构 →
+                查看完整结构 →
               </Button>
             }
           >

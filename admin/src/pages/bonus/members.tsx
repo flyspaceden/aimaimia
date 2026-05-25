@@ -129,7 +129,7 @@ export default function MemberListPage() {
       hideInSearch: true,
       align: 'center',
       render: (_, r) => (
-        <Tooltip title={`自购 ${r.selfPurchaseCount} 次 → 已解锁前 ${r.unlockedLevel} 层下级分润`}>
+        <Tooltip title={`自购 ${r.selfPurchaseCount} 次 → 已解锁前 ${r.unlockedLevel} 层奖励`}>
           <span>
             <Typography.Text strong>{r.selfPurchaseCount}</Typography.Text>
             <Typography.Text type="secondary"> / L{r.unlockedLevel}</Typography.Text>
@@ -138,7 +138,7 @@ export default function MemberListPage() {
       ),
     },
     {
-      title: 'VIP 树位置',
+      title: 'VIP 奖励位置',
       dataIndex: 'treeRootId',
       width: 110,
       hideInSearch: true,
