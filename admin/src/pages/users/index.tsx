@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton } from 'antd';
+import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton, Tooltip, Typography } from 'antd';
 import {
   UserOutlined,
   EyeOutlined,
@@ -69,13 +69,20 @@ export default function UserListPage() {
     {
       title: '用户',
       dataIndex: 'nickname',
-      width: 200,
+      width: 220,
       render: (_: unknown, r: AppUser) => (
         <Space>
           <Avatar src={r.avatarUrl} icon={<UserOutlined />} size="small" />
           <div>
             <div>{r.nickname || r.phone || '-'}</div>
-            <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>{r.id.slice(0, 8)}</div>
+            <Tooltip title={r.id}>
+              <Typography.Text
+                copyable={{ text: r.id }}
+                style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}
+              >
+                …{r.id.slice(-8)}
+              </Typography.Text>
+            </Tooltip>
           </div>
         </Space>
       ),

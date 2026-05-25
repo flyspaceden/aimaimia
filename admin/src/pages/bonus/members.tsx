@@ -16,13 +16,15 @@ export default function MemberListPage() {
     {
       title: '用户 ID',
       dataIndex: 'userId',
-      width: 120,
+      width: 140,
       search: false,
       ellipsis: true,
       render: (_, r) => (
-        <Typography.Text copyable={{ text: r.userId }} style={{ fontSize: 12 }}>
-          {r.userId.slice(-8)}
-        </Typography.Text>
+        <Tooltip title={r.userId}>
+          <Typography.Text copyable={{ text: r.userId }} style={{ fontSize: 12 }}>
+            …{r.userId.slice(-8)}
+          </Typography.Text>
+        </Tooltip>
       ),
     },
     {
@@ -47,13 +49,15 @@ export default function MemberListPage() {
     {
       title: '推荐码',
       dataIndex: 'referralCode',
-      width: 110,
+      width: 140,
       hideInSearch: true,
       render: (_, r) =>
         r.referralCode ? (
-          <Tag color="blue" style={{ fontFamily: 'monospace' }}>
-            {r.referralCode}
-          </Tag>
+          <Typography.Text copyable={{ text: r.referralCode }}>
+            <Tag color="blue" style={{ fontFamily: 'monospace', marginRight: 4 }}>
+              {r.referralCode}
+            </Tag>
+          </Typography.Text>
         ) : (
           '-'
         ),
@@ -72,7 +76,7 @@ export default function MemberListPage() {
               style={{ padding: 0 }}
               onClick={() => navigate(`/bonus/members/${r.inviterUserId}`)}
             >
-              {r.inviterNickname || r.inviterUserId.slice(-8)}
+              {r.inviterNickname || `…${r.inviterUserId.slice(-8)}`}
             </Button>
           </Tooltip>
         ) : (
