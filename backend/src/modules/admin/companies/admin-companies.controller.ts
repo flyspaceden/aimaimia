@@ -281,6 +281,23 @@ export class AdminCompaniesController {
     return this.companiesService.updateCompanyTags(id, dto.tagIds);
   }
 
+  // ===================== 产业基金（INDUSTRY_FUND）查询 =====================
+
+  /** 商户产业基金板块：累计/可用/已提现/冻结 + 流水分页 */
+  @Get(':id/industry-fund')
+  @RequirePermission('companies:read')
+  getIndustryFund(
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.companiesService.getIndustryFund(
+      id,
+      page ? parseInt(page) : 1,
+      pageSize ? parseInt(pageSize) : 20,
+    );
+  }
+
   @Post(':id/documents/:docId/verify')
   @RequirePermission('companies:audit')
   @AuditLog({

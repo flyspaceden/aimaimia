@@ -55,6 +55,8 @@ import {
   verifyDocument,
   getCompanyAiSearchProfile,
   updateCompanyAiSearchProfile,
+  getCompanyIndustryFund,
+  type IndustryFundLedgerItem,
 } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -171,6 +173,19 @@ export default function CompanyDetailPage() {
   const { data: aiProfile, refetch: refetchAiProfile } = useQuery({
     queryKey: ['admin', 'company-ai-search-profile', id],
     queryFn: () => getCompanyAiSearchProfile(id!),
+    enabled: !!id,
+  });
+
+  // 产业基金板块
+  const [industryFundPage, setIndustryFundPage] = useState(1);
+  const industryFundPageSize = 10;
+  const { data: industryFund, isLoading: industryFundLoading } = useQuery({
+    queryKey: ['admin', 'company-industry-fund', id, industryFundPage],
+    queryFn: () =>
+      getCompanyIndustryFund(id!, {
+        page: industryFundPage,
+        pageSize: industryFundPageSize,
+      }),
     enabled: !!id,
   });
 
@@ -656,6 +671,89 @@ export default function CompanyDetailPage() {
     },
   ];
 
+  // 产业基金流水列
+  const industryFundLedgerStatusMap: Record<
+    IndustryFundLedgerItem['status'],
+    { text: string; color: string }
+  > = {
+    FROZEN: { text: '提现冻结', color: 'orange' },
+    AVAILABLE: { text: '可用', color: 'green' },
+    WITHDRAWN: { text: '已提现', color: 'blue' },
+    VOIDED: { text: '已作废', color: 'default' },
+    RESERVED: { text: '预留', color: 'cyan' },
+    RETURN_FROZEN: { text: '售后冻结', color: 'red' },
+  };
+  const industryFundEntryTypeMap: Record<
+    IndustryFundLedgerItem['entryType'],
+    string
+  > = {
+    FREEZE: '冻结',
+    RELEASE: '入账',
+    WITHDRAW: '提现',
+    VOID: '作废',
+    ADJUST: '调整',
+    DEDUCT: '扣回',
+  };
+  const industryFundColumns = [
+    {
+      title: '时间',
+      dataIndex: 'createdAt',
+      width: 170,
+      render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
+    },
+    {
+      title: '类型',
+      dataIndex: 'entryType',
+      width: 80,
+      render: (v: IndustryFundLedgerItem['entryType']) =>
+        industryFundEntryTypeMap[v] || v,
+    },
+    {
+      title: '金额（元）',
+      dataIndex: 'amount',
+      width: 120,
+      align: 'right' as const,
+      render: (v: number, row: IndustryFundLedgerItem) => {
+        const isOut =
+          row.entryType === 'WITHDRAW' || row.entryType === 'DEDUCT';
+        const color = isOut ? '#cf1322' : '#3f8600';
+        const sign = isOut ? '-' : '+';
+        return (
+          <span style={{ color, fontWeight: 500 }}>
+            {sign}
+            {v.toFixed(2)}
+          </span>
+        );
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 100,
+      render: (v: IndustryFundLedgerItem['status']) => {
+        const m = industryFundLedgerStatusMap[v];
+        return <Tag color={m?.color || 'default'}>{m?.text || v}</Tag>;
+      },
+    },
+    {
+      title: '关联订单',
+      dataIndex: 'refId',
+      render: (refId: string | null, row: IndustryFundLedgerItem) => {
+        if (row.refType !== 'ORDER' || !refId) return '-';
+        return (
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0 }}
+            onClick={() => navigate(`/orders/${refId}`)}
+          >
+            {refId}
+          </Button>
+        );
+      },
+    },
+  ];
+
   return (
     <div style={{ padding: 24 }}>
       <Breadcrumb
@@ -983,6 +1081,99 @@ export default function CompanyDetailPage() {
           size="small"
           locale={{ emptyText: '暂无文档' }}
           scroll={{ x: 700 }}
+        />
+      </Card>
+
+      {/* 产业基金 */}
+      <Divider orientation="left">产业基金</Divider>
+      <Card
+        title="产业基金"
+        extra={
+          industryFund?.owner ? (
+            <Space size="small">
+              <span style={{ color: '#999' }}>当前 OWNER：</span>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0 }}
+                onClick={() =>
+                  navigate(`/users/${industryFund.owner!.userId}`)
+                }
+              >
+                {industryFund.owner.nickname || '未设置昵称'}
+              </Button>
+              <span style={{ color: '#999' }}>
+                ({industryFund.owner.phone})
+              </span>
+            </Space>
+          ) : (
+            <Tag color="red">未绑定 OWNER</Tag>
+          )
+        }
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="产业基金（VIP/普通分润的卖家份额）按订单 meta.companyId 归属于本商户，自动入账到当前 OWNER 用户的奖励账户。换 OWNER 时历史流水仍归属本商户。"
+        />
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic
+                title="累计已分配（元）"
+                value={industryFund?.summary.totalReleased ?? 0}
+                precision={2}
+                valueStyle={{ color: '#3f8600' }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic
+                title="当前可用（元）"
+                value={industryFund?.summary.available ?? 0}
+                precision={2}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic
+                title="已提现（元）"
+                value={industryFund?.summary.totalWithdrawn ?? 0}
+                precision={2}
+                valueStyle={{ color: '#1677ff' }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic
+                title="冻结中（元）"
+                value={industryFund?.summary.frozen ?? 0}
+                precision={2}
+                valueStyle={{ color: '#cf1322' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+        <Table
+          columns={industryFundColumns}
+          dataSource={industryFund?.items || []}
+          rowKey="id"
+          size="small"
+          loading={industryFundLoading}
+          locale={{ emptyText: '暂无产业基金流水' }}
+          scroll={{ x: 700 }}
+          pagination={{
+            current: industryFundPage,
+            pageSize: industryFundPageSize,
+            total: industryFund?.total ?? 0,
+            showSizeChanger: false,
+            onChange: (p) => setIndustryFundPage(p),
+            showTotal: (t) => `共 ${t} 条流水`,
+          }}
         />
       </Card>
 

@@ -816,4 +816,121 @@ export class AdminCompaniesService {
       return { ok: true, unchanged: false, oldPhone, newPhone };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
+
+  // ===================== 产业基金（INDUSTRY_FUND）查询 =====================
+
+  /**
+   * 查询某商户的产业基金累计/可用/已提现/流水。
+   * 按 RewardLedger.meta.companyId 过滤，覆盖 OWNER 变更前后所有历史流水。
+   */
+  async getIndustryFund(companyId: string, page = 1, pageSize = 20) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true },
+    });
+    if (!company) {
+      throw new NotFoundException('企业不存在');
+    }
+
+    // 当前 OWNER（用于展示，仅作为参考；流水按 companyId 过滤不受换 OWNER 影响）
+    const ownerStaff = await this.prisma.companyStaff.findFirst({
+      where: { companyId, role: 'OWNER', status: 'ACTIVE' },
+      select: {
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            authIdentities: {
+              where: { provider: 'PHONE' },
+              select: { identifier: true },
+              take: 1,
+            },
+            profile: { select: { nickname: true } },
+          },
+        },
+      },
+    });
+
+    const ownerInfo = ownerStaff
+      ? {
+          userId: ownerStaff.userId,
+          nickname: ownerStaff.user?.profile?.nickname || null,
+          phone: maskPhone(
+            ownerStaff.user?.authIdentities?.[0]?.identifier || '',
+          ),
+        }
+      : null;
+
+    // meta.companyId + meta.accountType=INDUSTRY_FUND 双重过滤
+    // （accountType 双重保险：避免提现/调账等可能在同账户上写入的非 INDUSTRY_FUND 流水串入）
+    const baseWhere: Prisma.RewardLedgerWhereInput = {
+      deletedAt: null,
+      AND: [
+        { meta: { path: ['companyId'], equals: companyId } },
+        { meta: { path: ['accountType'], equals: 'INDUSTRY_FUND' } },
+      ],
+    };
+
+    const [releasedAgg, withdrawnAgg, availableAgg, frozenAgg, total] =
+      await Promise.all([
+        // 累计已分配（所有入账）
+        this.prisma.rewardLedger.aggregate({
+          where: { ...baseWhere, entryType: 'RELEASE' },
+          _sum: { amount: true },
+        }),
+        // 已提现（status=WITHDRAWN 表示提现已完成）
+        this.prisma.rewardLedger.aggregate({
+          where: { ...baseWhere, status: 'WITHDRAWN' },
+          _sum: { amount: true },
+        }),
+        // 可用余额
+        this.prisma.rewardLedger.aggregate({
+          where: { ...baseWhere, status: 'AVAILABLE' },
+          _sum: { amount: true },
+        }),
+        // 冻结中（售后退货冻结 + 提现冻结）
+        this.prisma.rewardLedger.aggregate({
+          where: {
+            ...baseWhere,
+            status: { in: ['FROZEN', 'RETURN_FROZEN'] },
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.rewardLedger.count({ where: baseWhere }),
+      ]);
+
+    const items = await this.prisma.rewardLedger.findMany({
+      where: baseWhere,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        userId: true,
+        amount: true,
+        entryType: true,
+        status: true,
+        refType: true,
+        refId: true,
+        meta: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      company,
+      owner: ownerInfo,
+      summary: {
+        totalReleased: releasedAgg._sum.amount ?? 0,
+        totalWithdrawn: withdrawnAgg._sum.amount ?? 0,
+        available: availableAgg._sum.amount ?? 0,
+        frozen: frozenAgg._sum.amount ?? 0,
+        ledgerCount: total,
+      },
+      items,
+      total,
+      page,
+      pageSize,
+    };
+  }
 }

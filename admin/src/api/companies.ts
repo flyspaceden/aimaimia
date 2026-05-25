@@ -129,6 +129,43 @@ export const getCompanyAiSearchProfile = (companyId: string): Promise<AiSearchPr
 export const updateCompanyAiSearchProfile = (companyId: string, data: AiSearchProfile): Promise<AiSearchProfile> =>
   client.put(`/admin/companies/${companyId}/ai-search-profile`, data);
 
+// ========== 产业基金（INDUSTRY_FUND） ==========
+
+export interface IndustryFundLedgerItem {
+  id: string;
+  userId: string;
+  amount: number;
+  entryType: 'FREEZE' | 'RELEASE' | 'WITHDRAW' | 'VOID' | 'ADJUST' | 'DEDUCT';
+  status: 'FROZEN' | 'AVAILABLE' | 'WITHDRAWN' | 'VOIDED' | 'RESERVED' | 'RETURN_FROZEN';
+  refType: string | null;
+  refId: string | null;
+  meta: Record<string, any> | null;
+  createdAt: string;
+}
+
+export interface IndustryFundResponse {
+  company: { id: string; name: string };
+  owner: { userId: string; nickname: string | null; phone: string } | null;
+  summary: {
+    totalReleased: number;
+    totalWithdrawn: number;
+    available: number;
+    frozen: number;
+    ledgerCount: number;
+  };
+  items: IndustryFundLedgerItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** 查询商户产业基金（累计/可用/已提现/冻结 + 流水分页） */
+export const getCompanyIndustryFund = (
+  companyId: string,
+  params?: { page?: number; pageSize?: number },
+): Promise<IndustryFundResponse> =>
+  client.get(`/admin/companies/${companyId}/industry-fund`, { params });
+
 /** 添加企业 */
 export const createCompany = (data: {
   companyName: string;
