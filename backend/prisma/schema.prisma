@@ -1870,7 +1870,20 @@ model VipProgress {
   userId            String    @unique
   user              User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   selfPurchaseCount Int       @default(0)
-  unlockedLevel     Int       @default(0) // <=15，CHECK 约束(0-15)在 seed.ts 中通过 raw SQL 添加
+  // ⚠️ 字段实际语义 ≠ 字面"已解锁层级"。
+  // 仅当 unlockFrozenRewards 实际释放了 VIP_UPSTREAM FROZEN 流水时才会被更新；
+  // 自购充足、下级始终 AVAILABLE 直接到账的用户会永远停留在 0。
+  //
+  // 例：u-001 自购达 15 次（selfPurchaseCount=15），下级买东西时永远
+  //     ancestorSelfCount >= k → 直接 AVAILABLE，从未产生 FROZEN，
+  //     因此 unlockedLevel 永远是 0，与"已解锁 15 层"的直觉相反。
+  //
+  // 业务判定"祖先是否解锁第 k 层"用 selfPurchaseCount，见
+  // vip-upstream.service.ts line 113-116。
+  // 前端展示请用 min(selfPurchaseCount, vipMaxLayers) 计算，见
+  // admin-bonus.service.ts computeUnlockedLevel。
+  // CHECK 约束 (0-15) 在 seed.ts 中通过 raw SQL 添加。
+  unlockedLevel     Int       @default(0)
   exitedAt          DateTime?
   updatedAt         DateTime  @updatedAt
 }

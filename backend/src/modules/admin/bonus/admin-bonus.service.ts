@@ -3,9 +3,9 @@ import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { InboxService } from '../../inbox/inbox.service';
-import { maskPhone } from '../../../common/security/privacy-mask';
 import { AlipayService } from '../../payment/alipay.service';
 import { WithdrawPayoutService } from '../../bonus/withdraw-payout.service';
+import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
 import {
   UpdateWithdrawRulesDto,
   WithdrawRules,
@@ -114,15 +114,62 @@ export class AdminBonusService {
     private prisma: PrismaService,
     private inboxService: InboxService,
     private moduleRef: ModuleRef,
+    private bonusConfig: BonusConfigService,
   ) {}
 
-  /** VIP 会员列表 */
-  async findMembers(page = 1, pageSize = 20, tier?: string) {
-    const skip = (page - 1) * pageSize;
-    const where: any = {};
-    if (tier) where.tier = tier;
+  /**
+   * 计算"已实际解锁的下级分润层级"用于前端展示。
+   *
+   * 背景：VipProgress.unlockedLevel 字段的实际语义是
+   * "上次有 VIP_UPSTREAM FROZEN 流水被释放时记录的层级戳"
+   * （见 vip-upstream.service.ts `unlockFrozenRewards`）。
+   * 如果用户自购充足、下级买东西时永远 AVAILABLE 直接到账、
+   * 从未积累过 FROZEN VIP_UPSTREAM 流水，则该字段永远为 0，
+   * 与"已解锁层级"的直觉语义不符。
+   *
+   * 真正的"已解锁层级"取决于 selfPurchaseCount 与 vipMaxLayers 上限。
+   */
+  private computeUnlockedLevel(selfPurchaseCount: number, vipMaxLayers: number): number {
+    // 防御异常配置（如 vipMaxLayers=0 或负数），避免输出负值
+    const safeMax = Math.max(vipMaxLayers, 0);
+    const safeCount = Math.max(selfPurchaseCount, 0);
+    return Math.min(safeCount, safeMax);
+  }
 
-    const [items, total] = await Promise.all([
+  /** VIP 会员列表 */
+  async findMembers(
+    page = 1,
+    pageSize = 20,
+    tier?: string,
+    keyword?: string,
+  ) {
+    const skip = (page - 1) * pageSize;
+    const where: Prisma.MemberProfileWhereInput = {};
+    if (tier) where.tier = tier as any;
+
+    const trimmedKeyword = keyword?.trim();
+    if (trimmedKeyword) {
+      where.OR = [
+        { referralCode: { contains: trimmedKeyword, mode: 'insensitive' } },
+        { user: { profile: { nickname: { contains: trimmedKeyword } } } },
+        {
+          user: {
+            authIdentities: {
+              some: {
+                provider: 'PHONE',
+                identifier: { contains: trimmedKeyword },
+              },
+            },
+          },
+        },
+      ];
+    }
+
+    // 用于计算前端展示的"已解锁层级"上限，
+    // 见 computeUnlockedLevel 注释
+    const config = await this.bonusConfig.getConfig();
+
+    const [profiles, total] = await Promise.all([
       this.prisma.memberProfile.findMany({
         where,
         skip,
@@ -133,12 +180,143 @@ export class AdminBonusService {
             select: {
               id: true,
               profile: { select: { nickname: true } },
+              authIdentities: {
+                where: { provider: 'PHONE' },
+                select: { identifier: true },
+                take: 1,
+              },
+              vipPurchase: {
+                select: { amount: true, packageId: true, status: true },
+              },
+              vipProgress: {
+                select: { selfPurchaseCount: true, unlockedLevel: true },
+              },
             },
           },
         },
       }),
       this.prisma.memberProfile.count({ where }),
     ]);
+
+    const userIds = profiles.map((p) => p.userId);
+    const inviterIds = Array.from(
+      new Set(
+        profiles
+          .map((p) => p.inviterUserId)
+          .filter((id): id is string => !!id),
+      ),
+    );
+
+    const [rewardAccounts, treeNodes, inviterProfiles, inviteeVipCounts] =
+      await Promise.all([
+        userIds.length
+          ? this.prisma.rewardAccount.findMany({
+              where: { userId: { in: userIds }, type: 'VIP_REWARD' },
+              select: { userId: true, balance: true, frozen: true },
+            })
+          : Promise.resolve([] as Array<{ userId: string; balance: number; frozen: number }>),
+        userIds.length
+          ? this.prisma.vipTreeNode.findMany({
+              where: { userId: { in: userIds } },
+              select: { userId: true, rootId: true, level: true, position: true },
+            })
+          : Promise.resolve(
+              [] as Array<{
+                userId: string | null;
+                rootId: string;
+                level: number;
+                position: number;
+              }>,
+            ),
+        inviterIds.length
+          ? this.prisma.user.findMany({
+              where: { id: { in: inviterIds } },
+              select: {
+                id: true,
+                profile: { select: { nickname: true } },
+              },
+            })
+          : Promise.resolve(
+              [] as Array<{
+                id: string;
+                profile: { nickname: string | null } | null;
+              }>,
+            ),
+        userIds.length
+          ? this.prisma.memberProfile.groupBy({
+              by: ['inviterUserId'],
+              where: { inviterUserId: { in: userIds }, tier: 'VIP' },
+              _count: { inviterUserId: true },
+            })
+          : Promise.resolve(
+              [] as Array<{
+                inviterUserId: string | null;
+                _count: { inviterUserId: number };
+              }>,
+            ),
+      ]);
+
+    const walletByUser = new Map(
+      rewardAccounts.map((a) => [a.userId, { balance: a.balance, frozen: a.frozen }]),
+    );
+    const treeByUser = new Map(
+      treeNodes
+        .filter((n): n is typeof n & { userId: string } => !!n.userId)
+        .map((n) => [n.userId, { rootId: n.rootId, level: n.level, position: n.position }]),
+    );
+    const inviterByUser = new Map(
+      inviterProfiles.map((u) => [u.id, u.profile?.nickname ?? null]),
+    );
+    const inviteeCountByUser = new Map(
+      inviteeVipCounts
+        .filter((g): g is typeof g & { inviterUserId: string } => !!g.inviterUserId)
+        .map((g) => [g.inviterUserId, g._count.inviterUserId]),
+    );
+
+    const items = profiles.map((p) => {
+      const phone = p.user?.authIdentities?.[0]?.identifier ?? null;
+      const wallet = walletByUser.get(p.userId) ?? { balance: 0, frozen: 0 };
+      const tree = treeByUser.get(p.userId) ?? null;
+      const vipPurchase = p.user?.vipPurchase ?? null;
+      const progress = p.user?.vipProgress ?? null;
+      return {
+        id: p.id,
+        userId: p.userId,
+        user: { id: p.userId, profile: { nickname: p.user?.profile?.nickname ?? null } },
+        tier: p.tier,
+        referralCode: p.referralCode,
+        inviterUserId: p.inviterUserId,
+        inviterNickname: p.inviterUserId
+          ? inviterByUser.get(p.inviterUserId) ?? null
+          : null,
+        inviteeVipCount: inviteeCountByUser.get(p.userId) ?? 0,
+        vipPurchasedAt: p.vipPurchasedAt,
+        vipNodeId: p.vipNodeId,
+        normalEligible: p.normalEligible,
+        phone,
+        wallet,
+        treeRootId: tree?.rootId ?? null,
+        treeLevel: tree?.level ?? null,
+        treePosition: tree?.position ?? null,
+        selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
+        // 不直接返回 progress.unlockedLevel：该字段在数据库里实际是
+        // "上次有 FROZEN VIP_UPSTREAM 被释放时的层级戳"，对自购充足
+        // 的用户永远是 0，会误导后台运营。用 computeUnlockedLevel 修正。
+        unlockedLevel: this.computeUnlockedLevel(
+          progress?.selfPurchaseCount ?? 0,
+          config.vipMaxLayers,
+        ),
+        vipPurchase: vipPurchase
+          ? {
+              amount: vipPurchase.amount,
+              packageId: vipPurchase.packageId,
+              status: vipPurchase.status,
+            }
+          : null,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
 
     return { items, total, page, pageSize };
   }
@@ -746,7 +924,7 @@ export class AdminBonusService {
       userId: user.id,
       nickname: user.profile?.nickname ?? null,
       avatarUrl: user.profile?.avatarUrl ?? null,
-      phone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
+      phone: user.authIdentities?.[0]?.identifier ?? null,
       tier: member?.tier ?? 'NORMAL',
       referralCode: member?.referralCode ?? null,
       inviterUserId: member?.inviterUserId ?? null,
@@ -756,15 +934,22 @@ export class AdminBonusService {
         frozen: account?.frozen ?? 0,
         totalEarned: earned._sum.amount ?? 0,
       },
-      tree: node ? {
-        level: node.level,
-        position: node.position,
-        parentUserId,
-        childCount,
-        selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
-        unlockedLevel: progress?.unlockedLevel ?? 0,
-        exitedAt: progress?.exitedAt?.toISOString() ?? null,
-      } : null,
+      tree: node ? await (async () => {
+        const config = await this.bonusConfig.getConfig();
+        return {
+          level: node.level,
+          position: node.position,
+          parentUserId,
+          childCount,
+          selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
+          // 见 computeUnlockedLevel 注释：不直接用 progress.unlockedLevel
+          unlockedLevel: this.computeUnlockedLevel(
+            progress?.selfPurchaseCount ?? 0,
+            config.vipMaxLayers,
+          ),
+          exitedAt: progress?.exitedAt?.toISOString() ?? null,
+        };
+      })() : null,
       ledgers,
       withdrawals,
     };
@@ -916,7 +1101,7 @@ export class AdminBonusService {
     return users.map((u) => ({
       userId: u.id,
       nickname: u.profile?.nickname ?? null,
-      phone: maskPhone(u.authIdentities?.[0]?.identifier ?? null),
+      phone: u.authIdentities?.[0]?.identifier ?? null,
       avatarUrl: u.profile?.avatarUrl ?? null,
       tier: u.memberProfile?.tier ?? 'NORMAL',
       treeStatus: this.resolveVipNodeStatus(
@@ -960,7 +1145,7 @@ export class AdminBonusService {
       .map((u) => ({
         userId: u.id,
         nickname: u.profile?.nickname ?? null,
-        phone: maskPhone(u.authIdentities?.[0]?.identifier ?? null),
+        phone: u.authIdentities?.[0]?.identifier ?? null,
         avatarUrl: u.profile?.avatarUrl ?? null,
         tier: u.memberProfile?.tier ?? 'NORMAL',
         treeStatus: this.resolveNormalNodeStatus(
@@ -1065,10 +1250,12 @@ export class AdminBonusService {
       : memberProfile?.inviterUserId ? 'REFERRAL' as const
       : 'AUTO_PLACE' as const;
 
+    const config = await this.bonusConfig.getConfig();
+
     return {
       userId,
       nickname: user?.profile?.nickname ?? (isSystem ? userId : null),
-      phone: maskPhone(phone),
+      phone: phone ?? null,
       tier: isSystem ? 'VIP' : (progress ? 'VIP' : 'NORMAL'),
       selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
       totalEarned: earned._sum.amount ?? 0,
@@ -1079,7 +1266,11 @@ export class AdminBonusService {
       isSystemNode: isSystem,
       joinedTreeAt: node?.createdAt?.toISOString() ?? null,
       position: node?.position ?? 0,
-      unlockedLevel: progress?.unlockedLevel ?? 0,
+      // 见 computeUnlockedLevel 注释：不直接用 progress.unlockedLevel
+      unlockedLevel: this.computeUnlockedLevel(
+        progress?.selfPurchaseCount ?? 0,
+        config.vipMaxLayers,
+      ),
       exitedAt: progress?.exitedAt?.toISOString() ?? null,
       rootId: node?.rootId ?? null,
       referrerUserId: memberProfile?.inviterUserId ?? null,
@@ -1588,7 +1779,7 @@ export class AdminBonusService {
     return {
       userId,
       nickname: user?.profile?.nickname ?? null,
-      phone: maskPhone(phone),
+      phone: phone ?? null,
       selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
       totalEarned: earned._sum?.amount ?? 0,
       frozenAmount: account?.frozen ?? 0,

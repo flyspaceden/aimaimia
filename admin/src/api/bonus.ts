@@ -19,6 +19,7 @@ import type {
 
 interface MemberQueryParams extends PaginationParams {
   tier?: string;
+  keyword?: string;
 }
 
 interface WithdrawQueryParams extends PaginationParams {

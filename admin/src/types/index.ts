@@ -473,15 +473,31 @@ export interface BonusMember {
   tier: 'NORMAL' | 'VIP';
   referralCode: string | null;
   inviterUserId: string | null;
+  /** 邀请人昵称（findMembers 接口拼接） */
+  inviterNickname: string | null;
+  /** 该会员邀请的 VIP 人数 */
+  inviteeVipCount: number;
   vipPurchasedAt: string | null;
   vipNodeId: string | null;
   normalEligible: boolean;
-  /** 钱包信息（列表接口可选返回） */
-  wallet?: { balance: number; frozen: number };
-  /** 奖励树层级 */
-  treeLevel?: number;
-  /** 自购次数 */
-  selfPurchaseCount?: number;
+  /** 手机号（明文，仅 admin 后台可见） */
+  phone: string | null;
+  /** VIP 奖励账户钱包 */
+  wallet: { balance: number; frozen: number };
+  /** VIP 三叉树位置 */
+  treeRootId: string | null;
+  treeLevel: number | null;
+  treePosition: number | null;
+  /** VIP 自购次数（决定解锁第几层下级分润） */
+  selfPurchaseCount: number;
+  /** 当前已解锁的下级层级（上限 15） */
+  unlockedLevel: number;
+  /** VIP 礼包购买快照 */
+  vipPurchase: {
+    amount: number;
+    packageId: string | null;
+    status: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
