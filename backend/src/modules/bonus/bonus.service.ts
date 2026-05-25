@@ -84,6 +84,7 @@ export class BonusService {
 
     const vipProgress = await this.prisma.vipProgress.findUnique({ where: { userId } });
     const inviter = await this.buildInviterSummary(member.inviterUserId);
+    const config = await this.bonusConfig.getConfig();
 
     return {
       tier: member.tier,
@@ -95,7 +96,15 @@ export class BonusService {
       vipProgress: vipProgress
         ? {
             selfPurchaseCount: vipProgress.selfPurchaseCount,
-            unlockedLevel: vipProgress.unlockedLevel,
+            // 不直接返回 vipProgress.unlockedLevel：该字段在数据库里实际是
+            // "上次有 FROZEN VIP_UPSTREAM 被释放时的层级戳"，对自购充足
+            // 的用户永远是 0，与"已解锁层级"的直觉相反。
+            // 真正可展示的"已解锁层级"应按 min(selfPurchaseCount, vipMaxLayers)
+            // 计算，见 schema.prisma VipProgress.unlockedLevel 注释。
+            unlockedLevel: Math.min(
+              Math.max(vipProgress.selfPurchaseCount, 0),
+              Math.max(config.vipMaxLayers, 0),
+            ),
           }
         : null,
     };
