@@ -482,6 +482,10 @@ export interface BonusMember {
   normalEligible: boolean;
   /** 手机号（明文，仅 admin 后台可见） */
   phone: string | null;
+  /** 微信 openId（手机号缺失时兜底标识，多用于纯微信登录用户） */
+  wechatOpenId: string | null;
+  /** 微信 unionId（跨应用统一，可能为空） */
+  wechatUnionId: string | null;
   /** VIP 奖励账户钱包 */
   wallet: { balance: number; frozen: number };
   /** VIP 三叉树位置 */

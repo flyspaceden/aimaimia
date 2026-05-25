@@ -136,6 +136,43 @@ export class AdminBonusService {
     return Math.min(safeCount, safeMax);
   }
 
+  /**
+   * VIP 会员统计：总数、今日/本周/本月新增。
+   * "新增"按 vipPurchasedAt 计算（成为 VIP 的时间，非 profile 创建时间），
+   * "本周"按周一起算，"本月"按月初 1 号起算。
+   * 时间均用服务器本地时间（与 app-users.getStats 保持一致）。
+   */
+  async getMembersStats() {
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    // 周一为一周开始（getDay: 0=周日, 1=周一, ..., 6=周六）
+    const startOfWeek = new Date(startOfDay);
+    const dayOfWeek = startOfDay.getDay();
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    startOfWeek.setDate(startOfDay.getDate() - daysSinceMonday);
+
+    const startOfMonth = new Date(startOfDay);
+    startOfMonth.setDate(1);
+
+    const vipWhere = { tier: 'VIP' as const };
+    const [totalVips, newToday, newThisWeek, newThisMonth] = await Promise.all([
+      this.prisma.memberProfile.count({ where: vipWhere }),
+      this.prisma.memberProfile.count({
+        where: { ...vipWhere, vipPurchasedAt: { gte: startOfDay } },
+      }),
+      this.prisma.memberProfile.count({
+        where: { ...vipWhere, vipPurchasedAt: { gte: startOfWeek } },
+      }),
+      this.prisma.memberProfile.count({
+        where: { ...vipWhere, vipPurchasedAt: { gte: startOfMonth } },
+      }),
+    ]);
+
+    return { totalVips, newToday, newThisWeek, newThisMonth };
+  }
+
   /** VIP 会员列表 */
   async findMembers(
     page = 1,
@@ -152,12 +189,16 @@ export class AdminBonusService {
       where.OR = [
         { referralCode: { contains: trimmedKeyword, mode: 'insensitive' } },
         { user: { profile: { nickname: { contains: trimmedKeyword } } } },
+        // 手机号或微信 openId/unionId 任意子串命中
         {
           user: {
             authIdentities: {
               some: {
-                provider: 'PHONE',
-                identifier: { contains: trimmedKeyword },
+                provider: { in: ['PHONE', 'WECHAT'] },
+                OR: [
+                  { identifier: { contains: trimmedKeyword } },
+                  { unionId: { contains: trimmedKeyword } },
+                ],
               },
             },
           },
@@ -181,9 +222,10 @@ export class AdminBonusService {
               id: true,
               profile: { select: { nickname: true } },
               authIdentities: {
-                where: { provider: 'PHONE' },
-                select: { identifier: true },
-                take: 1,
+                // 同时取 PHONE 与 WECHAT，前端先优先展示手机号，
+                // 没手机号的微信登录用户兜底展示微信 openId
+                where: { provider: { in: ['PHONE', 'WECHAT'] } },
+                select: { provider: true, identifier: true, unionId: true },
               },
               vipPurchase: {
                 select: { amount: true, packageId: true, status: true },
@@ -274,7 +316,12 @@ export class AdminBonusService {
     );
 
     const items = profiles.map((p) => {
-      const phone = p.user?.authIdentities?.[0]?.identifier ?? null;
+      const identities = p.user?.authIdentities ?? [];
+      const phoneIdentity = identities.find((i) => i.provider === 'PHONE');
+      const wechatIdentity = identities.find((i) => i.provider === 'WECHAT');
+      const phone = phoneIdentity?.identifier ?? null;
+      const wechatOpenId = wechatIdentity?.identifier ?? null;
+      const wechatUnionId = wechatIdentity?.unionId ?? null;
       const wallet = walletByUser.get(p.userId) ?? { balance: 0, frozen: 0 };
       const tree = treeByUser.get(p.userId) ?? null;
       const vipPurchase = p.user?.vipPurchase ?? null;
@@ -294,6 +341,8 @@ export class AdminBonusService {
         vipNodeId: p.vipNodeId,
         normalEligible: p.normalEligible,
         phone,
+        wechatOpenId,
+        wechatUnionId,
         wallet,
         treeRootId: tree?.rootId ?? null,
         treeLevel: tree?.level ?? null,

@@ -83,6 +83,16 @@ export interface TaxVoucherResult {
 export const getMembers = (params?: MemberQueryParams): Promise<PaginatedData<BonusMember>> =>
   client.get('/admin/bonus/members', { params });
 
+/** VIP 会员统计（总数 + 今日/本周/本月新增） */
+export interface VipMembersStats {
+  totalVips: number;
+  newToday: number;
+  newThisWeek: number;
+  newThisMonth: number;
+}
+export const getVipMembersStats = (): Promise<VipMembersStats> =>
+  client.get('/admin/bonus/members/stats');
+
 /** 会员详情 */
 export const getMemberDetail = (userId: string): Promise<BonusMemberDetail> =>
   client.get(`/admin/bonus/members/${userId}`);

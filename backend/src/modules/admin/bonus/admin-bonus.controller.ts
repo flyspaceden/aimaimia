@@ -43,6 +43,13 @@ export class AdminBonusController {
     );
   }
 
+  // 注意：静态路由必须放在 ':userId' 动态路由之前，避免 'stats' 被当作 userId 解析
+  @Get('members/stats')
+  @RequirePermission('bonus:read')
+  getMembersStats() {
+    return this.bonusService.getMembersStats();
+  }
+
   @Get('members/:userId')
   @RequirePermission('bonus:read')
   getMemberDetail(@Param('userId') userId: string) {

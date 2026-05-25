@@ -1,16 +1,30 @@
 import { useRef } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Popover, QRCode, Space, Tag, Tooltip, Typography } from 'antd';
-import { EyeOutlined } from '@ant-design/icons';
+import { Button, Card, Col, Popover, QRCode, Row, Skeleton, Space, Statistic, Tag, Tooltip, Typography } from 'antd';
+import { CrownOutlined, EyeOutlined, RiseOutlined, CalendarOutlined, ClockCircleOutlined, WechatOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { getMembers } from '@/api/bonus';
+import { useQuery } from '@tanstack/react-query';
+import { getMembers, getVipMembersStats } from '@/api/bonus';
 import type { BonusMember } from '@/types';
 import dayjs from 'dayjs';
+
+const STAT_CARDS = [
+  { key: 'totalVips' as const, title: 'VIP 总数', icon: <CrownOutlined />, color: '#D97706' },
+  { key: 'newToday' as const, title: '今日新增', icon: <ClockCircleOutlined />, color: '#059669' },
+  { key: 'newThisWeek' as const, title: '本周新增', icon: <RiseOutlined />, color: '#1E40AF' },
+  { key: 'newThisMonth' as const, title: '本月新增', icon: <CalendarOutlined />, color: '#7C3AED' },
+];
 
 export default function MemberListPage() {
   const actionRef = useRef<ActionType>(null);
   const navigate = useNavigate();
+
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['admin', 'vip-members-stats'],
+    queryFn: getVipMembersStats,
+    staleTime: 30_000,
+  });
 
   const columns: ProColumns<BonusMember>[] = [
     {
@@ -35,16 +49,28 @@ export default function MemberListPage() {
       render: (_, r) => r.user?.profile?.nickname || '-',
     },
     {
-      title: '手机号',
+      title: '联系方式',
       dataIndex: 'phone',
-      width: 130,
+      width: 170,
       hideInSearch: true,
-      render: (_, r) =>
-        r.phone ? (
-          <Typography.Text copyable={{ text: r.phone }}>{r.phone}</Typography.Text>
-        ) : (
-          '-'
-        ),
+      render: (_, r) => {
+        if (r.phone) {
+          return <Typography.Text copyable={{ text: r.phone }}>{r.phone}</Typography.Text>;
+        }
+        if (r.wechatOpenId) {
+          const tail = r.wechatOpenId.slice(-6);
+          const tooltip = `openId: ${r.wechatOpenId}${r.wechatUnionId ? `\nunionId: ${r.wechatUnionId}` : ''}`;
+          return (
+            <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{tooltip}</span>}>
+              <Typography.Text copyable={{ text: r.wechatOpenId }} style={{ fontSize: 12 }}>
+                <WechatOutlined style={{ color: '#07C160', marginRight: 4 }} />
+                微信 ···{tail}
+              </Typography.Text>
+            </Tooltip>
+          );
+        }
+        return '-';
+      },
     },
     {
       title: '推荐码',
@@ -207,7 +233,7 @@ export default function MemberListPage() {
       title: '搜索',
       dataIndex: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '昵称 / 手机号 / 推荐码' },
+      fieldProps: { placeholder: '昵称 / 手机号 / 微信 / 推荐码' },
     },
     {
       title: '操作',
@@ -230,6 +256,23 @@ export default function MemberListPage() {
 
   return (
     <div style={{ padding: 24 }}>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        {STAT_CARDS.map((card) => (
+          <Col span={6} key={card.key}>
+            <Card size="small">
+              {statsLoading ? (
+                <Skeleton paragraph={false} active />
+              ) : (
+                <Statistic
+                  title={card.title}
+                  value={stats?.[card.key] ?? 0}
+                  prefix={<span style={{ color: card.color }}>{card.icon}</span>}
+                />
+              )}
+            </Card>
+          </Col>
+        ))}
+      </Row>
       <ProTable<BonusMember>
         headerTitle="VIP 会员"
         actionRef={actionRef}
