@@ -24,29 +24,53 @@ import { getMemberDetail } from '@/api/bonus';
 import type { BonusMemberDetail } from '@/types';
 import dayjs from 'dayjs';
 
-// 流水类型映射
+// 流水类型映射（与 schema.prisma RewardEntryType 枚举对齐）
 const entryTypeMap: Record<string, { text: string; color: string }> = {
-  CREDIT: { text: '收入', color: 'green' },
-  DEBIT: { text: '支出', color: 'red' },
   FREEZE: { text: '冻结', color: 'orange' },
+  RELEASE: { text: '释放', color: 'green' },
+  WITHDRAW: { text: '提现', color: 'blue' },
   VOID: { text: '作废', color: 'default' },
+  ADJUST: { text: '调账', color: 'purple' },
+  DEDUCT: { text: '抵扣', color: 'magenta' },
 };
 
-// 流水状态映射
+// 流水状态映射（与 schema.prisma RewardLedgerStatus 枚举对齐）
 const ledgerStatusMap: Record<string, { text: string; color: string }> = {
   AVAILABLE: { text: '可用', color: 'green' },
   FROZEN: { text: '冻结', color: 'orange' },
   WITHDRAWN: { text: '已提现', color: 'blue' },
   VOIDED: { text: '已作废', color: 'default' },
+  RESERVED: { text: '预留', color: 'cyan' },
+  RETURN_FROZEN: { text: '售后冻结', color: 'gold' },
 };
 
-// 提现状态映射
+// 关联类型映射（refType 字段，由业务代码写入，非 Prisma enum）
+const refTypeMap: Record<string, string> = {
+  ORDER: '订单',
+  CHECKOUT: '下单',
+  CHECKOUT_SESSION: '结算',
+  WITHDRAW: '提现',
+  AFTER_SALE: '售后',
+  REFUND_RESTORE: '退款回填',
+  FREEZE_EXPIRE: '冻结过期',
+  VIP_REFERRAL: 'VIP 推荐奖励',
+};
+
+// 提现状态映射（与 schema.prisma WithdrawStatus 枚举对齐）
 const withdrawStatusMap: Record<string, { text: string; color: string }> = {
   REQUESTED: { text: '待审核', color: 'processing' },
+  PROCESSING: { text: '处理中', color: 'processing' },
   APPROVED: { text: '已批准', color: 'success' },
   REJECTED: { text: '已拒绝', color: 'error' },
   PAID: { text: '已打款', color: 'green' },
   FAILED: { text: '失败', color: 'red' },
+};
+
+// 提现渠道映射（与 schema.prisma WithdrawChannel 枚举对齐）
+const withdrawChannelMap: Record<string, string> = {
+  WECHAT: '微信',
+  ALIPAY: '支付宝',
+  BANKCARD: '银行卡',
 };
 
 export default function MemberDetailPage() {
@@ -119,8 +143,8 @@ export default function MemberDetailPage() {
     {
       title: '关联类型',
       dataIndex: 'refType',
-      width: 120,
-      render: (v: string | null) => v ?? '-',
+      width: 130,
+      render: (v: string | null) => (v ? refTypeMap[v] ?? v : '-'),
     },
     {
       title: '时间',
@@ -151,6 +175,7 @@ export default function MemberDetailPage() {
       title: '渠道',
       dataIndex: 'channel',
       width: 100,
+      render: (v: string | null) => (v ? withdrawChannelMap[v] ?? v : '-'),
     },
     {
       title: '时间',
