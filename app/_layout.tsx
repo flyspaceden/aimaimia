@@ -4,7 +4,7 @@ import { Stack } from 'expo-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Text, View } from 'react-native';
+import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider } from '../src/theme';
@@ -137,6 +137,21 @@ export default function RootLayout() {
       const needs = await needsPrivacyConsent();
       setConsentState(needs ? 'needed' : 'granted');
     })();
+  }, []);
+
+  // App 回到前台时重新检查隐私同意状态
+  // 场景：设置页"撤回隐私同意" → BackHandler.exitApp() 只 finish Activity，进程可能仍在
+  //       → 重开 App 时 useEffect 不会重跑，需要靠 AppState 监听把状态拉回 'needed' 重弹弹窗
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (nextState) => {
+      if (nextState === 'active') {
+        const needs = await needsPrivacyConsent();
+        if (needs) {
+          setConsentState('needed');
+        }
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   const handleConsent = useCallback(() => {
