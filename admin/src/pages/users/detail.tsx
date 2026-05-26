@@ -17,7 +17,7 @@ import { getOrders } from '@/api/orders';
 import { getMemberDetail } from '@/api/bonus';
 import { getInstances } from '@/api/coupon';
 import type { AppUserDetail, Order, BonusMemberDetail } from '@/types';
-import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap } from '@/constants/statusMaps';
+import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
@@ -213,6 +213,10 @@ export default function UserDetailPage() {
                   const m = rewardLedgerStatusMap[v];
                   return <Tag color={m?.color || 'default'}>{m?.text || v}</Tag>;
                 },
+              },
+              {
+                title: '关联类型', dataIndex: 'refType', width: 100,
+                render: (v: string | null) => (v ? (rewardRefTypeMap[v] || v) : '-'),
               },
               { title: '时间', dataIndex: 'createdAt', width: 160, render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm') },
             ]}

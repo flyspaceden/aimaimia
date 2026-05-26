@@ -219,3 +219,15 @@ export const rewardLedgerStatusMap: Record<string, StatusEntry> = {
   RESERVED: { text: '预留', color: 'cyan' },
   RETURN_FROZEN: { text: '售后冻结', color: 'gold' },
 };
+
+// 奖励流水关联类型（RewardLedger.refType，由业务代码写入，非 Prisma enum）
+export const rewardRefTypeMap: Record<string, string> = {
+  ORDER: '订单',
+  CHECKOUT: '下单',
+  CHECKOUT_SESSION: '结算',
+  WITHDRAW: '提现',
+  AFTER_SALE: '售后',
+  REFUND_RESTORE: '退款回填',
+  FREEZE_EXPIRE: '冻结过期',
+  VIP_REFERRAL: 'VIP 推荐奖励',
+};
