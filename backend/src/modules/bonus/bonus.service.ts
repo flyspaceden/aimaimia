@@ -512,27 +512,34 @@ export class BonusService {
 
   // ========== 奖励钱包 ==========
 
-  /** 获取奖励钱包（合并 VIP + 普通奖励账户） */
+  /** 获取奖励钱包（合并 VIP + 普通 + 产业基金账户） */
   async getWallet(userId: string) {
     const accounts = await this.prisma.rewardAccount.findMany({
-      where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] } },
+      where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
     });
 
     const vip = accounts.find((a) => a.type === 'VIP_REWARD');
     const normal = accounts.find((a) => a.type === 'NORMAL_REWARD');
+    const industry = accounts.find((a) => a.type === 'INDUSTRY_FUND');
 
     const vipBalance = vip?.balance ?? 0;
     const vipFrozen = vip?.frozen ?? 0;
     const normalBalance = normal?.balance ?? 0;
     const normalFrozen = normal?.frozen ?? 0;
+    const industryBalance = industry?.balance ?? 0;
+    const industryFrozen = industry?.frozen ?? 0;
 
     return {
-      balance: vipBalance + normalBalance,
-      frozen: vipFrozen + normalFrozen,
-      total: vipBalance + vipFrozen + normalBalance + normalFrozen,
+      balance: vipBalance + normalBalance + industryBalance,
+      frozen: vipFrozen + normalFrozen + industryFrozen,
+      total:
+        vipBalance + vipFrozen +
+        normalBalance + normalFrozen +
+        industryBalance + industryFrozen,
       // 分账户明细
       vip: { balance: vipBalance, frozen: vipFrozen },
       normal: { balance: normalBalance, frozen: normalFrozen },
+      industryFund: { balance: industryBalance, frozen: industryFrozen },
     };
   }
 
