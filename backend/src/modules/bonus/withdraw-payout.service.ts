@@ -56,8 +56,10 @@ type WithdrawResult = {
 type WithdrawSplit = {
   fromVipCents: number;
   fromNormalCents: number;
+  fromIndustryFundCents: number;
   vipAccountId?: string;
   normalAccountId?: string;
+  industryFundAccountId?: string;
 };
 
 const yuanToCents = (amount: number) => Math.round(amount * 100);
@@ -189,21 +191,29 @@ export class WithdrawPayoutService implements OnModuleInit {
     userId: string,
     amountCents: number,
   ): Promise<WithdrawSplit> {
+    // 优先级：VIP_REWARD → NORMAL_REWARD → INDUSTRY_FUND（产业基金最后扣）
     const vip = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'VIP_REWARD' as any } },
     });
     const normal = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'NORMAL_REWARD' as any } },
     });
+    const industry = await tx.rewardAccount.findUnique({
+      where: { userId_type: { userId, type: 'INDUSTRY_FUND' as any } },
+    });
 
     const vipBalanceCents = vip ? yuanToCents(vip.balance) : 0;
     const normalBalanceCents = normal ? yuanToCents(normal.balance) : 0;
-    if (vipBalanceCents + normalBalanceCents < amountCents) {
+    const industryBalanceCents = industry ? yuanToCents(industry.balance) : 0;
+    if (vipBalanceCents + normalBalanceCents + industryBalanceCents < amountCents) {
       throw new BadRequestException('余额不足');
     }
 
     const fromVipCents = Math.min(vipBalanceCents, amountCents);
-    const fromNormalCents = amountCents - fromVipCents;
+    let remaining = amountCents - fromVipCents;
+    const fromNormalCents = Math.min(normalBalanceCents, remaining);
+    remaining -= fromNormalCents;
+    const fromIndustryFundCents = Math.min(industryBalanceCents, remaining);
 
     if (fromVipCents > 0 && vip) {
       const amount = centsToYuan(fromVipCents);
@@ -233,11 +243,27 @@ export class WithdrawPayoutService implements OnModuleInit {
       }
     }
 
+    if (fromIndustryFundCents > 0 && industry) {
+      const amount = centsToYuan(fromIndustryFundCents);
+      const cas = await tx.rewardAccount.updateMany({
+        where: { id: industry.id, balance: { gte: amount } },
+        data: {
+          balance: { decrement: amount },
+          frozen: { increment: amount },
+        },
+      });
+      if (cas.count !== 1) {
+        throw new BadRequestException('产业基金余额扣减并发失败，请重试');
+      }
+    }
+
     return {
       fromVipCents,
       fromNormalCents,
+      fromIndustryFundCents,
       vipAccountId: vip?.id,
       normalAccountId: normal?.id,
+      industryFundAccountId: industry?.id,
     };
   }
 
@@ -550,7 +576,11 @@ export class WithdrawPayoutService implements OnModuleInit {
 
       const id = randomUUID();
       const outBizNo = `WD-${id}`;
-      const primaryAccountType = split.fromVipCents > 0 ? 'VIP_REWARD' : 'NORMAL_REWARD';
+      // 主账户记录在 WithdrawRequest.accountType（用于管理后台筛选展示），优先级 VIP > NORMAL > INDUSTRY
+      const primaryAccountType =
+        split.fromVipCents > 0 ? 'VIP_REWARD'
+        : split.fromNormalCents > 0 ? 'NORMAL_REWARD'
+        : 'INDUSTRY_FUND';
       const created = await tx.withdrawRequest.create({
         data: {
           id,
@@ -593,6 +623,13 @@ export class WithdrawPayoutService implements OnModuleInit {
     },
   ): Promise<void> {
     const groupId = `WG-${params.withdrawId}`;
+    // role 计算：SOLE / PRIMARY / SECONDARY / TERTIARY
+    const sourcesUsed = [
+      params.split.fromVipCents > 0,
+      params.split.fromNormalCents > 0,
+      params.split.fromIndustryFundCents > 0,
+    ].filter(Boolean).length;
+
     if (params.split.fromVipCents > 0 && params.split.vipAccountId) {
       await tx.rewardLedger.create({
         data: {
@@ -608,7 +645,7 @@ export class WithdrawPayoutService implements OnModuleInit {
             groupId,
             outBizNo: params.outBizNo,
             accountType: 'VIP_REWARD',
-            role: params.split.fromNormalCents > 0 ? 'PRIMARY' : 'SOLE',
+            role: sourcesUsed > 1 ? 'PRIMARY' : 'SOLE',
           },
         },
       });
@@ -629,7 +666,28 @@ export class WithdrawPayoutService implements OnModuleInit {
             groupId,
             outBizNo: params.outBizNo,
             accountType: 'NORMAL_REWARD',
-            role: 'SECONDARY',
+            role: params.split.fromVipCents > 0 ? 'SECONDARY' : 'PRIMARY',
+          },
+        },
+      });
+    }
+
+    if (params.split.fromIndustryFundCents > 0 && params.split.industryFundAccountId) {
+      await tx.rewardLedger.create({
+        data: {
+          accountId: params.split.industryFundAccountId,
+          userId: params.userId,
+          entryType: 'WITHDRAW' as any,
+          amount: centsToYuan(params.split.fromIndustryFundCents),
+          status: 'FROZEN' as any,
+          refType: 'WITHDRAW',
+          refId: params.withdrawId,
+          meta: {
+            scheme: 'POINTS_WITHDRAW',
+            groupId,
+            outBizNo: params.outBizNo,
+            accountType: 'INDUSTRY_FUND',
+            role: 'TERTIARY',
           },
         },
       });
