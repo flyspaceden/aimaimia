@@ -48,7 +48,32 @@ export const DEAD_LETTER_REASON = '分润分配失败（死信记录）';
 /** 售后退货保护冻结状态（订单确认收货后 7 天内不可见） */
 export const RETURN_FREEZE_STATUS = 'RETURN_FROZEN';
 
-/** 根据 scheme 判断应使用的 RewardAccount 类型 */
+/** 所有 RewardAccount 类型字面量（与 schema.prisma RewardAccountType enum 对齐） */
+export type RewardAccountTypeStr =
+  | 'VIP_REWARD'
+  | 'NORMAL_REWARD'
+  | 'POINTS'
+  | 'FUND_POOL'
+  | 'PLATFORM_PROFIT'
+  | 'INDUSTRY_FUND'
+  | 'CHARITY_FUND'
+  | 'TECH_FUND'
+  | 'RESERVE_FUND';
+
+/**
+ * 根据 ledger.meta 判断应使用的 RewardAccount 类型。
+ * 优先用 meta.accountType（新代码明确写入，覆盖 INDUSTRY_FUND/CHARITY_FUND 等）；
+ * 没有时按 scheme 名兜底（兼容历史 VIP_UPSTREAM/NORMAL_TREE 等只写 scheme 的 ledger）。
+ */
+export function getAccountTypeForLedger(meta: any): RewardAccountTypeStr {
+  if (meta?.accountType) {
+    return meta.accountType as RewardAccountTypeStr;
+  }
+  const scheme = meta?.scheme;
+  return (NORMAL_SCHEMES as readonly string[]).includes(scheme) ? 'NORMAL_REWARD' : 'VIP_REWARD';
+}
+
+/** @deprecated 用 getAccountTypeForLedger(meta) 替代，本函数只考虑 scheme 名不能区分 INDUSTRY_FUND */
 export function getAccountTypeForScheme(scheme: string): 'VIP_REWARD' | 'NORMAL_REWARD' {
   return (NORMAL_SCHEMES as readonly string[]).includes(scheme) ? 'NORMAL_REWARD' : 'VIP_REWARD';
 }

@@ -3,7 +3,19 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from './bonus-config.service';
-import { PLATFORM_USER_ID, getAccountTypeForScheme } from './constants';
+import { PLATFORM_USER_ID, getAccountTypeForLedger, type RewardAccountTypeStr } from './constants';
+
+/**
+ * 这些账户类型不走"FROZEN 等解锁"二段冻结，RETURN_FROZEN 一过退货窗口期就直接 AVAILABLE。
+ * 适用于产业基金 / 慈善 / 科技 / 备用金 / 平台利润这类没有"祖辈 selfPurchaseCount 解锁"概念的账户。
+ */
+const NO_FURTHER_LOCK_TYPES: ReadonlySet<RewardAccountTypeStr> = new Set([
+  'INDUSTRY_FUND',
+  'CHARITY_FUND',
+  'TECH_FUND',
+  'RESERVE_FUND',
+  'PLATFORM_PROFIT',
+]);
 import { ACTIVE_STATUSES } from '../../after-sale/after-sale.constants';
 import { InboxService } from '../../inbox/inbox.service';
 
@@ -202,17 +214,33 @@ export class FreezeExpireService {
           return;
         }
 
-        // RETURN_FROZEN 期间未计入账户 frozen，现在转为 FROZEN 需要计入
-        const scheme = (ledger.meta as any)?.scheme;
-        const accountType = getAccountTypeForScheme(scheme);
-        await tx.rewardAccount.updateMany({
-          where: { userId: ledger.userId, type: accountType },
-          data: { frozen: { increment: ledger.amount } },
-        });
+        // RETURN_FROZEN 期间未计入账户。判断该账户类型是否需要二段冻结（FROZEN→等解锁）
+        const accountType = getAccountTypeForLedger(ledger.meta);
 
-        this.logger.log(
-          `RETURN_FROZEN→FROZEN：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，frozen +${ledger.amount}`,
-        );
+        if (NO_FURTHER_LOCK_TYPES.has(accountType)) {
+          // 产业基金等：跳过 FROZEN 阶段，直接 RETURN_FROZEN→AVAILABLE 进账户余额
+          // 上面 CAS 已经把 status=FROZEN，这里再 CAS 转 AVAILABLE 并把 entryType 改回 RELEASE
+          await tx.rewardLedger.updateMany({
+            where: { id: ledger.id, status: 'FROZEN', entryType: 'FREEZE' },
+            data: { status: 'AVAILABLE', entryType: 'RELEASE' },
+          });
+          await tx.rewardAccount.updateMany({
+            where: { userId: ledger.userId, type: accountType as any },
+            data: { balance: { increment: ledger.amount } },
+          });
+          this.logger.log(
+            `RETURN_FROZEN→AVAILABLE（${accountType}）：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，balance +${ledger.amount}`,
+          );
+        } else {
+          // VIP/普通奖励：进 FROZEN 等祖辈解锁或 expiresAt 作废
+          await tx.rewardAccount.updateMany({
+            where: { userId: ledger.userId, type: accountType as any },
+            data: { frozen: { increment: ledger.amount } },
+          });
+          this.logger.log(
+            `RETURN_FROZEN→FROZEN：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，frozen +${ledger.amount}`,
+          );
+        }
       },
       {
         timeout: 10000,
@@ -226,10 +254,10 @@ export class FreezeExpireService {
    */
   private async expireSingleLedger(ledger: any): Promise<void> {
     const meta = ledger.meta as any;
-    const scheme = meta?.scheme;
+    const scheme = meta?.scheme; // 仅用于审计 meta
 
-    // 根据 scheme 判断账户类型
-    const accountType = getAccountTypeForScheme(scheme);
+    // 根据 meta 判断账户类型（兼容 INDUSTRY_FUND 等）
+    const accountType = getAccountTypeForLedger(meta);
 
     await this.prisma.$transaction(
       async (tx) => {
