@@ -393,7 +393,7 @@ export default function MeScreen() {
                   钱包
                 </Text>
                 <Text {...priceTextProps} style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
-                  ¥{walletBalance}
+                  ¥{Number(walletBalance ?? 0).toFixed(2)}
                 </Text>
                 <View style={[styles.dualCardCta, { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: radius.pill }]}>
                   <Text {...compactActionTextProps} style={[typography.captionSm, { color: '#FFFFFF' }]}>去提现</Text>
