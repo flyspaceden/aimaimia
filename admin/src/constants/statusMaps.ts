@@ -178,10 +178,17 @@ export const withdrawChannelMap: Record<string, StatusEntry> = {
   BANKCARD: { text: '银行卡', color: 'orange' },
 };
 
-// 奖励账户类型
+// 奖励账户类型（schema.prisma RewardAccountType）
 export const rewardAccountTypeMap: Record<string, StatusEntry> = {
-  VIP_REWARD: { text: 'VIP奖励', color: 'gold' },
-  NORMAL_REWARD: { text: '普通奖励', color: 'cyan' },
+  VIP_REWARD: { text: 'VIP 奖励', color: 'blue' },
+  NORMAL_REWARD: { text: '普通分润', color: 'default' },
+  INDUSTRY_FUND: { text: '产业基金', color: 'gold' },
+  PLATFORM_PROFIT: { text: '平台利润', color: 'purple' },
+  CHARITY_FUND: { text: '慈善基金', color: 'magenta' },
+  TECH_FUND: { text: '科技基金', color: 'cyan' },
+  RESERVE_FUND: { text: '备用金', color: 'orange' },
+  POINTS: { text: '积分', color: 'default' },
+  FUND_POOL: { text: '资金池', color: 'default' },
 };
 
 // 审计日志操作类型颜色

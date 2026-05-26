@@ -538,6 +538,7 @@ export interface BonusMemberDetail {
     refType: string | null;
     refId: string | null;
     createdAt: string;
+    account: { type: string } | null;
   }[];
   withdrawals: {
     id: string;

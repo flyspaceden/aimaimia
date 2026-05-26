@@ -17,7 +17,7 @@ import { getOrders } from '@/api/orders';
 import { getMemberDetail } from '@/api/bonus';
 import { getInstances } from '@/api/coupon';
 import type { AppUserDetail, Order, BonusMemberDetail } from '@/types';
-import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap } from '@/constants/statusMaps';
+import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap, rewardAccountTypeMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
@@ -199,6 +199,14 @@ export default function UserDetailPage() {
             size="small"
             pagination={false}
             columns={[
+              {
+                title: '账户', dataIndex: ['account', 'type'], width: 110,
+                render: (v: string | undefined) => {
+                  if (!v) return '-';
+                  const m = rewardAccountTypeMap[v];
+                  return <Tag color={m?.color || 'default'}>{m?.text || v}</Tag>;
+                },
+              },
               {
                 title: '类型', dataIndex: 'entryType', width: 80,
                 render: (v: string) => {

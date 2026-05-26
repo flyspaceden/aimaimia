@@ -938,7 +938,7 @@ export class AdminBonusService {
       parentUserId = parentNode?.userId ?? null;
     }
 
-    // 收支流水（最近 20 条）
+    // 收支流水（最近 20 条）—— join account 拿 account.type 让前端区分 VIP奖励/产业基金/普通分润
     const ledgers = await this.prisma.rewardLedger.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -951,6 +951,7 @@ export class AdminBonusService {
         refType: true,
         refId: true,
         createdAt: true,
+        account: { select: { type: true } },
       },
     });
 
