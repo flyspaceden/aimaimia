@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -179,7 +181,15 @@ export default function AfterSaleScreen() {
     const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
       if (!perm.canAskAgain) {
-        show({ message: '请在系统设置中打开"照片"权限', type: 'warning' });
+        // 已永久拒绝：提示前往系统设置
+        Alert.alert(
+          '需要相册权限',
+          '上传售后凭证图片需要使用相册权限。\n您之前已拒绝授权，请前往系统设置手动开启。',
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
+          ],
+        );
         return;
       }
       const userAgreed = await showPermissionRationale({

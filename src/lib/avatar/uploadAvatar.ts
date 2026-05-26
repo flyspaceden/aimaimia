@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { ApiClient } from '../../repos/http/ApiClient';
 import { Result } from '../../types/Result';
 import { showPermissionRationale } from '../../components/overlay/PermissionRationaleModal';
@@ -19,6 +19,18 @@ const PICKER_OPTIONS: ImagePicker.ImagePickerOptions = {
   exif: false,
 };
 
+// 引导用户去系统设置（已永久拒绝权限的兜底）
+function promptOpenSettings(permLabel: string, featureLabel: string) {
+  Alert.alert(
+    `需要${permLabel}权限`,
+    `${featureLabel}需要使用${permLabel}权限。\n您之前已拒绝授权，请前往系统设置手动开启。`,
+    [
+      { text: '取消', style: 'cancel' },
+      { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
+    ],
+  );
+}
+
 async function ensureLibraryPermission(): Promise<boolean> {
   const { status, canAskAgain } = await ImagePicker.getMediaLibraryPermissionsAsync();
   if (status === 'granted') return true;
@@ -33,7 +45,7 @@ async function ensureLibraryPermission(): Promise<boolean> {
     const res = await ImagePicker.requestMediaLibraryPermissionsAsync();
     return res.status === 'granted';
   }
-  Alert.alert('需要相册权限', '请在系统设置中打开"照片"权限以选择头像');
+  promptOpenSettings('相册', '选择头像图片');
   return false;
 }
 
@@ -51,7 +63,7 @@ async function ensureCameraPermission(): Promise<boolean> {
     const res = await ImagePicker.requestCameraPermissionsAsync();
     return res.status === 'granted';
   }
-  Alert.alert('需要相机权限', '请在系统设置中打开"相机"权限以拍摄头像');
+  promptOpenSettings('相机', '拍摄头像');
   return false;
 }
 

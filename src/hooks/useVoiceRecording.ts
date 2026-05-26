@@ -1,6 +1,6 @@
 // src/hooks/useVoiceRecording.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { Audio } from 'expo-av';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAiChatStore } from '../store/useAiChatStore';
@@ -290,7 +290,14 @@ export function useVoiceRecording(
       const current = await Audio.getPermissionsAsync();
       if (!current.granted) {
         if (!current.canAskAgain) {
-          Alert.alert('需要麦克风权限', '请在系统设置中打开"麦克风"权限');
+          Alert.alert(
+            '需要麦克风权限',
+            'AI 语音助手需要使用麦克风权限。\n您之前已拒绝授权，请前往系统设置手动开启。',
+            [
+              { text: '取消', style: 'cancel' },
+              { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
+            ],
+          );
           return;
         }
         const userAgreed = await showPermissionRationale({
