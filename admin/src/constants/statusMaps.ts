@@ -199,3 +199,23 @@ export const auditActionColors: Record<string, string> = {
   CONFIG_CHANGE: 'purple',
   ROLLBACK: 'gold',
 };
+
+// 奖励流水类型（schema.prisma RewardEntryType）
+export const rewardEntryTypeMap: Record<string, StatusEntry> = {
+  FREEZE: { text: '冻结', color: 'orange' },
+  RELEASE: { text: '释放', color: 'green' },
+  WITHDRAW: { text: '提现', color: 'blue' },
+  VOID: { text: '作废', color: 'default' },
+  ADJUST: { text: '调账', color: 'purple' },
+  DEDUCT: { text: '抵扣', color: 'magenta' },
+};
+
+// 奖励流水状态（schema.prisma RewardLedgerStatus）
+export const rewardLedgerStatusMap: Record<string, StatusEntry> = {
+  AVAILABLE: { text: '可用', color: 'green' },
+  FROZEN: { text: '冻结', color: 'orange' },
+  WITHDRAWN: { text: '已提现', color: 'blue' },
+  VOIDED: { text: '已作废', color: 'default' },
+  RESERVED: { text: '预留', color: 'cyan' },
+  RETURN_FROZEN: { text: '售后冻结', color: 'gold' },
+};
