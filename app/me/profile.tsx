@@ -265,12 +265,6 @@ export default function MeProfileScreen() {
                     </Text>
                   </LinearGradient>
                 </Pressable>
-                <Pressable
-                  onPress={() => handleReset(profile)}
-                  style={[styles.secondary, { borderColor: colors.border, borderRadius: radius.pill }]}
-                >
-                  <Text style={[typography.bodyStrong, { color: colors.text.secondary }]}>重置</Text>
-                </Pressable>
               </View>
             </View>
           </Animated.View>
@@ -314,11 +308,5 @@ const styles = StyleSheet.create({
   primary: {
     alignItems: 'center',
     paddingVertical: 10,
-  },
-  secondary: {
-    marginTop: 10,
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderWidth: 1,
   },
 });
