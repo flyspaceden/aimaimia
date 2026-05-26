@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -10,6 +10,7 @@ import { AuthRepo } from '../src/repos';
 import { useAuthStore } from '../src/store';
 import { useTheme } from '../src/theme';
 import { logoutAndClearClientState } from '../src/utils/logout';
+import { revokePrivacyConsent } from '../src/services/privacyConsent';
 
 export default function SettingsScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
@@ -33,6 +34,35 @@ export default function SettingsScreen() {
     logoutAndClearClientState();
     show({ message: '已退出登录', type: 'success' });
     router.replace('/(tabs)/home');
+  };
+
+  // 撤回隐私同意（《个人信息保护法》第 15 条赋予用户随时撤回的权利）
+  // 撤回后需重启 App 才会再次弹隐私同意弹窗（首启检查在 _layout.tsx）
+  const handleRevokePrivacyConsent = () => {
+    Alert.alert(
+      '撤回隐私同意',
+      '撤回后，下次启动 App 时会再次弹出《用户协议》和《隐私政策》同意页。\n\n是否继续？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确认撤回',
+          style: 'destructive',
+          onPress: async () => {
+            await revokePrivacyConsent();
+            // Android 可直接退出 App；iOS 无法编程退出，只能提示用户手动重启
+            if (Platform.OS === 'android') {
+              Alert.alert(
+                '已撤回',
+                '已撤回您的隐私同意。\nApp 将退出，请重新打开以查看隐私政策。',
+                [{ text: '退出', onPress: () => BackHandler.exitApp() }],
+              );
+            } else {
+              Alert.alert('已撤回', '已撤回您的隐私同意。\n请手动关闭并重新打开 App。');
+            }
+          },
+        },
+      ],
+    );
   };
 
   // 退出登录（直接执行，跳过确认弹窗避免平台兼容问题）
@@ -157,6 +187,15 @@ export default function SettingsScreen() {
             >
               <MaterialCommunityIcons name="key-variant" size={18} color={colors.text.secondary} />
               <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>应用权限说明</Text>
+              <View style={styles.spacer} />
+              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
+            </Pressable>
+            <Pressable
+              onPress={handleRevokePrivacyConsent}
+              style={[styles.row, { borderBottomColor: colors.border }]}
+            >
+              <MaterialCommunityIcons name="undo-variant" size={18} color={colors.text.secondary} />
+              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>撤回隐私同意</Text>
               <View style={styles.spacer} />
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
             </Pressable>
