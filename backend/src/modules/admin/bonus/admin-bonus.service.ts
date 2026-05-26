@@ -902,7 +902,7 @@ export class AdminBonusService {
 
   /** 会员详情 — 聚合钱包、树位置、收支流水、提现记录 */
   async getMemberDetail(userId: string) {
-    const [user, member, progress, account, node] = await Promise.all([
+    const [user, member, progress, accounts, node] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -913,8 +913,9 @@ export class AdminBonusService {
       }),
       this.prisma.memberProfile.findUnique({ where: { userId } }),
       this.prisma.vipProgress.findUnique({ where: { userId } }),
-      this.prisma.rewardAccount.findUnique({
-        where: { userId_type: { userId, type: 'VIP_REWARD' } },
+      // 三个可提现账户合并算余额（与买家 App 端 BonusService.getWallet 一致）
+      this.prisma.rewardAccount.findMany({
+        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
       }),
       this.prisma.vipTreeNode.findUnique({ where: { userId } }),
     ]);
@@ -980,8 +981,9 @@ export class AdminBonusService {
       inviterUserId: member?.inviterUserId ?? null,
       vipPurchasedAt: member?.vipPurchasedAt?.toISOString() ?? null,
       wallet: {
-        balance: account?.balance ?? 0,
-        frozen: account?.frozen ?? 0,
+        // 3 个账户合并：VIP_REWARD + NORMAL_REWARD + INDUSTRY_FUND
+        balance: accounts.reduce((s, a) => s + a.balance, 0),
+        frozen: accounts.reduce((s, a) => s + a.frozen, 0),
         totalEarned: earned._sum.amount ?? 0,
       },
       tree: node ? await (async () => {
