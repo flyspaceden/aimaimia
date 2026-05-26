@@ -296,8 +296,8 @@ export default function VipScreen() {
                   <Text style={styles.earningsLabel}>累计收益</Text>
                 </View>
               </View>
-              {/* VIP/普通分项 */}
-              {wallet.vip || wallet.normal ? (
+              {/* VIP/普通/产业基金 分项 */}
+              {wallet.vip || wallet.normal || wallet.industryFund ? (
                 <View style={styles.walletBreakdown}>
                   {wallet.vip ? (
                     <View style={styles.breakdownItem}>
@@ -309,6 +309,12 @@ export default function VipScreen() {
                     <View style={styles.breakdownItem}>
                       <View style={[styles.breakdownDot, { backgroundColor: '#4CAF50' }]} />
                       <Text style={styles.breakdownText}>普通奖励 ¥{wallet.normal.balance.toFixed(2)}</Text>
+                    </View>
+                  ) : null}
+                  {wallet.industryFund ? (
+                    <View style={styles.breakdownItem}>
+                      <View style={[styles.breakdownDot, { backgroundColor: '#D4A943' }]} />
+                      <Text style={styles.breakdownText}>产业基金 ¥{wallet.industryFund.balance.toFixed(2)}</Text>
                     </View>
                   ) : null}
                 </View>

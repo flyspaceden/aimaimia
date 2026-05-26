@@ -38,6 +38,7 @@ export interface Wallet {
   vip?: { balance: number; frozen: number };
   /** 普通奖励分账户 */
   normal?: { balance: number; frozen: number };
+  industryFund?: { balance: number; frozen: number };
 }
 
 /** 奖励流水条目 */
