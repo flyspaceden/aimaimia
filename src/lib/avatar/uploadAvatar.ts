@@ -2,6 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Alert } from 'react-native';
 import { ApiClient } from '../../repos/http/ApiClient';
 import { Result } from '../../types/Result';
+import { showPermissionRationale } from '../../components/overlay/PermissionRationaleModal';
 
 type UploadResponse = {
   url: string;
@@ -22,6 +23,13 @@ async function ensureLibraryPermission(): Promise<boolean> {
   const { status, canAskAgain } = await ImagePicker.getMediaLibraryPermissionsAsync();
   if (status === 'granted') return true;
   if (canAskAgain) {
+    // 华为合规：申请系统权限前先展示自定义说明弹窗
+    const userAgreed = await showPermissionRationale({
+      permission: 'photoLibrary',
+      featureName: '选择头像图片',
+      purpose: '从您的相册中选择一张图片作为头像，用于个人资料展示',
+    });
+    if (!userAgreed) return false;
     const res = await ImagePicker.requestMediaLibraryPermissionsAsync();
     return res.status === 'granted';
   }
@@ -33,6 +41,13 @@ async function ensureCameraPermission(): Promise<boolean> {
   const { status, canAskAgain } = await ImagePicker.getCameraPermissionsAsync();
   if (status === 'granted') return true;
   if (canAskAgain) {
+    // 华为合规：申请系统权限前先展示自定义说明弹窗
+    const userAgreed = await showPermissionRationale({
+      permission: 'camera',
+      featureName: '拍摄头像',
+      purpose: '使用相机拍摄一张照片作为头像，用于个人资料展示',
+    });
+    if (!userAgreed) return false;
     const res = await ImagePicker.requestCameraPermissionsAsync();
     return res.status === 'granted';
   }

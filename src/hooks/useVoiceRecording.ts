@@ -13,6 +13,7 @@ import { resolveIntent, IntentResult } from '../utils/navigateByIntent';
 import { buildVoiceCartConfirmation } from '../utils/voiceCartConfirmation';
 import type { AiVoiceIntent } from '../types/domain/Ai';
 import { USE_MOCK } from '../repos/http/config';
+import { showPermissionRationale } from '../components/overlay/PermissionRationaleModal';
 
 export type UseVoiceRecordingOptions = {
   /** 当前页面标识，传给 parseVoiceIntent（首页传 'home'，全局浮窗传实际路径） */
@@ -284,10 +285,22 @@ export function useVoiceRecording(
         recordingRef.current = null;
       }
 
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('需要麦克风权限', '请在设置中允许麦克风访问');
-        return;
+      // 华为合规：申请系统麦克风权限前先以弹窗形式同步告知用途
+      // 已授权时直接复用，避免每次按住都弹 rationale
+      const current = await Audio.getPermissionsAsync();
+      if (!current.granted) {
+        if (!current.canAskAgain) {
+          Alert.alert('需要麦克风权限', '请在系统设置中打开"麦克风"权限');
+          return;
+        }
+        const userAgreed = await showPermissionRationale({
+          permission: 'microphone',
+          featureName: 'AI 语音助手',
+          purpose: '采集您的语音指令并转换为文字，以便 AI 助手识别您的搜索/导航/购物需求',
+        });
+        if (!userAgreed) return;
+        const perm = await Audio.requestPermissionsAsync();
+        if (!perm.granted) return;
       }
 
       // 权限获取后检查：用户可能在等待权限弹窗时已松手

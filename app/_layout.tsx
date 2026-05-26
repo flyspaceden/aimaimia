@@ -10,7 +10,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider } from '../src/theme';
 import { ToastProvider } from '../src/components/feedback';
 import { AiFloatingCompanion } from '../src/components/effects';
-import { PrivacyConsentModal } from '../src/components/overlay';
+import { PrivacyConsentModal, PermissionRationaleModal } from '../src/components/overlay';
 import { initAlipayEnv } from '../src/utils/alipay';
 import { initWechat } from '../src/services/wechat';
 import { appQueryClient } from '../src/queryClient';
@@ -247,6 +247,7 @@ export default function RootLayout() {
                 }} />
                 <AiFloatingCompanion />
                 <PrivacyConsentModal open={consentState === 'needed'} onAgree={handleConsent} />
+                <PermissionRationaleModal />
               </View>
             </ToastProvider>
           </ThemeProvider>

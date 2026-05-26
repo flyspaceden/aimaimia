@@ -24,6 +24,7 @@ import { ApiClient } from '../../../src/repos/http/ApiClient';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
 import { afterSaleTypeLabels } from '../../../src/constants/statuses';
+import { showPermissionRationale } from '../../../src/components/overlay/PermissionRationaleModal';
 import type { AfterSaleType, OrderItem } from '../../../src/types/domain/Order';
 
 // ─── 质量问题原因选项（QUALITY_RETURN / QUALITY_EXCHANGE 必选）─────
@@ -171,6 +172,24 @@ export default function AfterSaleScreen() {
     if (photos.length >= 10) {
       show({ message: '最多上传 10 张照片', type: 'warning' });
       return;
+    }
+
+    // 华为合规：调起相册前先以弹窗形式同步告知权限用途
+    // 仅在系统层尚未授权时弹（已授权时直接调起，避免重复打扰）
+    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') {
+      if (!perm.canAskAgain) {
+        show({ message: '请在系统设置中打开"照片"权限', type: 'warning' });
+        return;
+      }
+      const userAgreed = await showPermissionRationale({
+        permission: 'photoLibrary',
+        featureName: '上传售后凭证图片',
+        purpose: '从您的相册中选择售后申请所需的凭证图片（如商品瑕疵、物流损坏等照片）',
+      });
+      if (!userAgreed) return;
+      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (req.status !== 'granted') return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({

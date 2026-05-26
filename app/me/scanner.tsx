@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AppBottomSheet } from '../../src/components/overlay';
+import { showPermissionRationale } from '../../src/components/overlay/PermissionRationaleModal';
 import { BonusRepo } from '../../src/repos';
 import { useBottomInset, useTheme } from '../../src/theme';
 import { getReferralInviterLabel } from '../../src/utils/referralRelation';
@@ -31,6 +32,17 @@ export default function ScannerScreen() {
   const queryClient = useQueryClient();
 
   const [permission, requestPermission] = useCameraPermissions();
+
+  // 华为合规：申请相机权限前先以弹窗形式同步告知权限用途
+  const handleRequestCameraPermission = useCallback(async () => {
+    const userAgreed = await showPermissionRationale({
+      permission: 'camera',
+      featureName: '扫描推荐码二维码',
+      purpose: '使用相机扫描他人分享的推荐码二维码，以快速绑定推荐关系',
+    });
+    if (!userAgreed) return;
+    await requestPermission();
+  }, [requestPermission]);
   const [scanned, setScanned] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -125,7 +137,7 @@ export default function ScannerScreen() {
             扫描推荐码二维码需要使用相机，请授权相机访问权限
           </Text>
           <Pressable
-            onPress={requestPermission}
+            onPress={handleRequestCameraPermission}
             style={[styles.permissionBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill, marginTop: spacing.xl }]}
           >
             <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>授权相机</Text>
