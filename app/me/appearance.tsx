@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,7 +12,6 @@ import { useAuthStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { AvatarFrame as AvatarFrameType } from '../../src/types';
 import { pickAvatarFromCamera, pickAvatarFromLibrary } from '../../src/lib/avatar/uploadAvatar';
-import { requestWechatAuth } from '../../src/services/wechat';
 
 type FrameOption = {
   id: 'default' | 'vip';
@@ -30,7 +29,7 @@ export default function MeAppearanceScreen() {
   const [selectedFrameId, setSelectedFrameId] = useState<FrameOption['id']>('default');
   // 选中头像：preset:// 或 https:// URL
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<null | 'library' | 'camera' | 'wechat'>(null);
+  const [uploading, setUploading] = useState<null | 'library' | 'camera'>(null);
   const [saving, setSaving] = useState(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
@@ -121,30 +120,6 @@ export default function MeAppearanceScreen() {
       }
       setSelectedAvatar(result.data.url);
       show({ message: '已选择新头像，记得点保存', type: 'info' });
-    } finally {
-      setUploading(null);
-    }
-  };
-
-  const handleSyncWechat = async () => {
-    if (uploading) return;
-    setUploading('wechat');
-    try {
-      const code = await requestWechatAuth();
-      const result = await UserRepo.syncWechatAvatar(code);
-      if (!result.ok) {
-        show({ message: result.error.displayMessage ?? '同步微信头像失败', type: 'error' });
-        return;
-      }
-      setSelectedAvatar(result.data.avatar);
-      await invalidateProfileQueries();
-      show({ message: '已同步微信头像', type: 'success' });
-    } catch (err: any) {
-      const msg = err?.message ?? '同步失败';
-      // 用户取消不算错
-      if (!/cancel|user denied/i.test(msg)) {
-        Alert.alert('同步微信头像失败', msg);
-      }
     } finally {
       setUploading(null);
     }
@@ -276,13 +251,6 @@ export default function MeAppearanceScreen() {
                 loading={uploading === 'camera'}
                 disabled={!!uploading && uploading !== 'camera'}
                 onPress={handlePickFromCamera}
-              />
-              <UploadAction
-                icon="wechat"
-                label="微信头像"
-                loading={uploading === 'wechat'}
-                disabled={!!uploading && uploading !== 'wechat'}
-                onPress={handleSyncWechat}
               />
             </View>
             <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
