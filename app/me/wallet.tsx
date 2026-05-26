@@ -34,6 +34,15 @@ const refTypeLabel: Record<string, string> = {
   WITHDRAW: '提现到支付宝',
 };
 
+// 卖家侧账户类型 → 友好名称（OWNER 在自己 App 里看到的）
+const sellerAccountLabel: Record<string, string> = {
+  INDUSTRY_FUND: '产业基金',
+  CHARITY_FUND: '慈善基金',
+  TECH_FUND: '科技基金',
+  RESERVE_FUND: '备用金',
+  PLATFORM_PROFIT: '平台利润',
+};
+
 // 统一列表项类型
 interface LedgerDisplayItem {
   id: string;
@@ -109,7 +118,9 @@ export default function WalletScreen() {
       const isWithdraw = entry.entryType === 'WITHDRAW' || entry.refType === 'WITHDRAW';
       const isVoided = entry.status === 'VOIDED' || entry.entryType === 'VOID';
       const isAdjust = entry.entryType === 'ADJUST';
-      const title = refTypeLabel[entry.refType ?? ''] ?? (isIncome ? '消费返积分' : isAdjust ? '系统调整' : '支出');
+      // 卖家账户（产业基金等）优先按账户类型命名，避免显示成"消费返积分"
+      const sellerLabel = entry.accountType ? sellerAccountLabel[entry.accountType] : null;
+      const title = sellerLabel ?? refTypeLabel[entry.refType ?? ''] ?? (isIncome ? '消费返积分' : isAdjust ? '系统调整' : '支出');
       const meta = entry.meta as Record<string, unknown> | null;
 
       if (isDeduct) {
@@ -149,7 +160,7 @@ export default function WalletScreen() {
         frozenFromLedger.add(entry.id);
         items.push({
           id: entry.id,
-          title: '消费返积分',
+          title: sellerLabel ?? '消费返积分',
           desc: requiredLevel ? `需消费 ${requiredLevel} 笔解锁` : '冻结中',
           amount: entry.amount,
           date: entry.createdAt,
@@ -163,7 +174,7 @@ export default function WalletScreen() {
       if (isVoided) {
         items.push({
           id: entry.id,
-          title: '消费返积分',
+          title: sellerLabel ?? '消费返积分',
           desc: '未在有效期内解锁',
           amount: entry.amount,
           date: entry.createdAt,
@@ -179,6 +190,8 @@ export default function WalletScreen() {
         desc = '平台调整';
       } else if (entry.refType === 'REFERRAL' || entry.refType === 'VIP_REFERRAL') {
         desc = '好友开通 VIP';
+      } else if (sellerLabel) {
+        desc = `订单${sellerLabel}`;
       } else {
         desc = '订单消费返积分';
       }

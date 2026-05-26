@@ -146,18 +146,18 @@ export const BonusRepo = {
     if (USE_MOCK) {
       return simulateRequest({
         items: [
-          { id: 'l-01', entryType: 'CREDIT', amount: 18.60, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-03-26' },
-          { id: 'l-02', entryType: 'CREDIT', amount: 50.00, status: 'SETTLED', refType: 'VIP_REFERRAL', meta: null, createdAt: '2026-03-24' },
-          { id: 'l-03', entryType: 'CREDIT', amount: 9.30, status: 'SETTLED', refType: 'NORMAL_TREE', meta: null, createdAt: '2026-03-22' },
-          { id: 'l-04', entryType: 'CREDIT', amount: 24.50, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-03-18' },
-          { id: 'l-04-deduct', entryType: 'DEDUCT', amount: 18.00, status: 'SETTLED', refType: 'ORDER', meta: { orderNo: 'MO-20260318' }, createdAt: '2026-03-17' },
-          { id: 'l-05', entryType: 'DEBIT', amount: -100.00, status: 'SETTLED', refType: 'WITHDRAW', meta: null, createdAt: '2026-03-15' },
-          { id: 'l-06', entryType: 'CREDIT', amount: 50.00, status: 'SETTLED', refType: 'VIP_REFERRAL', meta: null, createdAt: '2026-03-12' },
-          { id: 'l-06-restore', entryType: 'RELEASE', amount: 7.20, status: 'SETTLED', refType: 'REFUND_RESTORE', meta: { orderNo: 'MO-20260310' }, createdAt: '2026-03-10' },
-          { id: 'l-07', entryType: 'CREDIT', amount: 15.80, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-03-08' },
-          { id: 'l-08', entryType: 'CREDIT', amount: 6.20, status: 'SETTLED', refType: 'ORDER', meta: null, createdAt: '2026-03-05' },
-          { id: 'l-09', entryType: 'DEBIT', amount: -50.00, status: 'SETTLED', refType: 'WITHDRAW', meta: null, createdAt: '2026-02-28' },
-          { id: 'l-10', entryType: 'CREDIT', amount: 12.40, status: 'SETTLED', refType: 'VIP_TREE', meta: null, createdAt: '2026-02-20' },
+          { id: 'l-01', entryType: 'CREDIT', amount: 18.60, status: 'SETTLED', refType: 'VIP_TREE', meta: null, accountType: null, createdAt: '2026-03-26' },
+          { id: 'l-02', entryType: 'CREDIT', amount: 50.00, status: 'SETTLED', refType: 'VIP_REFERRAL', meta: null, accountType: null, createdAt: '2026-03-24' },
+          { id: 'l-03', entryType: 'CREDIT', amount: 9.30, status: 'SETTLED', refType: 'NORMAL_TREE', meta: null, accountType: null, createdAt: '2026-03-22' },
+          { id: 'l-04', entryType: 'CREDIT', amount: 24.50, status: 'SETTLED', refType: 'VIP_TREE', meta: null, accountType: null, createdAt: '2026-03-18' },
+          { id: 'l-04-deduct', entryType: 'DEDUCT', amount: 18.00, status: 'SETTLED', refType: 'ORDER', meta: { orderNo: 'MO-20260318' }, accountType: null, createdAt: '2026-03-17' },
+          { id: 'l-05', entryType: 'DEBIT', amount: -100.00, status: 'SETTLED', refType: 'WITHDRAW', meta: null, accountType: null, createdAt: '2026-03-15' },
+          { id: 'l-06', entryType: 'CREDIT', amount: 50.00, status: 'SETTLED', refType: 'VIP_REFERRAL', meta: null, accountType: null, createdAt: '2026-03-12' },
+          { id: 'l-06-restore', entryType: 'RELEASE', amount: 7.20, status: 'SETTLED', refType: 'REFUND_RESTORE', meta: { orderNo: 'MO-20260310' }, accountType: null, createdAt: '2026-03-10' },
+          { id: 'l-07', entryType: 'CREDIT', amount: 15.80, status: 'SETTLED', refType: 'VIP_TREE', meta: null, accountType: null, createdAt: '2026-03-08' },
+          { id: 'l-08', entryType: 'CREDIT', amount: 6.20, status: 'SETTLED', refType: 'ORDER', meta: null, accountType: null, createdAt: '2026-03-05' },
+          { id: 'l-09', entryType: 'DEBIT', amount: -50.00, status: 'SETTLED', refType: 'WITHDRAW', meta: null, accountType: null, createdAt: '2026-02-28' },
+          { id: 'l-10', entryType: 'CREDIT', amount: 12.40, status: 'SETTLED', refType: 'VIP_TREE', meta: null, accountType: null, createdAt: '2026-02-20' },
         ],
         nextPage: undefined,
       });
@@ -208,8 +208,8 @@ export const BonusRepo = {
   getWithdrawHistory: async (): Promise<Result<WithdrawRecord[]>> => {
     if (USE_MOCK) {
       return simulateRequest([
-        { id: 'w-1', amount: 50, channel: 'WECHAT', status: 'COMPLETED', createdAt: '2026-02-01' },
-        { id: 'w-2', amount: 20, channel: 'ALIPAY', status: 'REQUESTED', createdAt: '2026-02-12' },
+        { id: 'w-1', amount: 50, channel: 'WECHAT', status: 'COMPLETED', accountType: null, createdAt: '2026-02-01' },
+        { id: 'w-2', amount: 20, channel: 'ALIPAY', status: 'REQUESTED', accountType: null, createdAt: '2026-02-12' },
       ]);
     }
     return ApiClient.get<WithdrawRecord[]>('/bonus/withdraw/history');
@@ -264,10 +264,10 @@ export const BonusRepo = {
     if (USE_MOCK) {
       return simulateRequest({
         items: [
-          { id: 'nrp-1', amount: 8.50, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 4, expiresAt: '2026-04-20T00:00:00Z', remainingDays: 24, sourceOrderId: 'o-201', scheme: 'VIP_UPSTREAM', createdAt: '2026-03-21' },
-          { id: 'nrp-2', amount: 15.30, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 6, expiresAt: '2026-04-15T00:00:00Z', remainingDays: 19, sourceOrderId: 'o-202', scheme: 'VIP_UPSTREAM', createdAt: '2026-03-16' },
-          { id: 'nrp-3', amount: 5.20, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 8, expiresAt: '2026-03-30T00:00:00Z', remainingDays: 3, sourceOrderId: 'o-203', scheme: 'NORMAL_TREE', createdAt: '2026-02-28' },
-          { id: 'nrp-4', amount: 18.60, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 10, expiresAt: '2026-03-29T00:00:00Z', remainingDays: 2, sourceOrderId: 'o-204', scheme: 'VIP_UPSTREAM', createdAt: '2026-02-27' },
+          { id: 'nrp-1', amount: 8.50, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 4, expiresAt: '2026-04-20T00:00:00Z', remainingDays: 24, sourceOrderId: 'o-201', scheme: 'VIP_UPSTREAM', accountType: null, createdAt: '2026-03-21' },
+          { id: 'nrp-2', amount: 15.30, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 6, expiresAt: '2026-04-15T00:00:00Z', remainingDays: 19, sourceOrderId: 'o-202', scheme: 'VIP_UPSTREAM', accountType: null, createdAt: '2026-03-16' },
+          { id: 'nrp-3', amount: 5.20, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 8, expiresAt: '2026-03-30T00:00:00Z', remainingDays: 3, sourceOrderId: 'o-203', scheme: 'NORMAL_TREE', accountType: null, createdAt: '2026-02-28' },
+          { id: 'nrp-4', amount: 18.60, status: 'FROZEN' as const, entryType: 'FREEZE' as const, requiredLevel: 10, expiresAt: '2026-03-29T00:00:00Z', remainingDays: 2, sourceOrderId: 'o-204', scheme: 'VIP_UPSTREAM', accountType: null, createdAt: '2026-02-27' },
         ],
         total: 4, page: 1, pageSize: 20,
       });

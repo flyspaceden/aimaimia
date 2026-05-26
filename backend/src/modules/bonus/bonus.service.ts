@@ -546,6 +546,7 @@ export class BonusService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
+        include: { account: { select: { type: true } } },
       }),
       this.prisma.rewardLedger.count({ where: { userId, status: { not: 'RETURN_FROZEN' } } }),
     ]);
@@ -559,6 +560,7 @@ export class BonusService {
         refType: l.refType,
         meta: l.meta,
         createdAt: l.createdAt.toISOString(),
+        accountType: l.account?.type ?? null,
       })),
       nextPage: skip + pageSize < total ? page + 1 : undefined,
     };

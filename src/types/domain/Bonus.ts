@@ -50,6 +50,8 @@ export interface WalletLedgerEntry {
   refType: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
+  /** 所属奖励账户类型，用于区分消费积分(VIP_REWARD/NORMAL_REWARD) vs 产业基金(INDUSTRY_FUND) 等 */
+  accountType: string | null;
 }
 
 /** 奖励流水分页 */
