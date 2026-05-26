@@ -1,10 +1,13 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from '../auth/auth.service';
+import { recordAvatarHistory, listAvatarHistory } from './avatar-history.util';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
@@ -115,6 +118,14 @@ export class UserService {
       data,
     });
 
+    // 头像历史入库（仅当本次提交带 avatar 且非 preset）
+    // fire-and-forget：历史入库失败不应阻塞主流程（与 auth.service 微信首次登录一致）
+    if (dto.avatar) {
+      recordAvatarHistory(this.prisma, userId, dto.avatar, 'UPLOAD').catch((err) =>
+        this.logger.warn(`AvatarHistory record 失败 userId=${userId}: ${err?.message}`),
+      );
+    }
+
     return this.getProfile(userId);
   }
 
@@ -146,6 +157,16 @@ export class UserService {
       update: { avatarUrl: wechatProfile.avatarUrl },
     });
 
+    // 同步微信头像也算一次历史入库（fire-and-forget，不阻塞主流程）
+    recordAvatarHistory(this.prisma, userId, wechatProfile.avatarUrl, 'WECHAT').catch((err) =>
+      this.logger.warn(`AvatarHistory record 失败 userId=${userId}: ${err?.message}`),
+    );
+
     return this.getProfile(userId);
+  }
+
+  /** 获取头像历史（最近 5 条） */
+  async getAvatarHistory(userId: string) {
+    return listAvatarHistory(this.prisma, userId);
   }
 }

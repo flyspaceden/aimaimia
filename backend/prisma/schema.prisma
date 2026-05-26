@@ -645,6 +645,23 @@ model User {
   // N 域关系（智能客服）
   csTickets    CsTicket[]
   csSessions   CsSession[]
+
+  // 头像历史（保留最近 5 张，便于用户切回旧头像）
+  avatarHistory AvatarHistory[]
+}
+
+// 头像历史表：用户每次修改头像（上传或微信同步）时记一条
+// 用于在「头像与装扮」页提供"历史头像"快捷切换入口
+// 容量上限：每用户最近 5 条，超限时删旧
+model AvatarHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String   // OSS URL 或微信头像 URL
+  source    String   // 'UPLOAD' | 'WECHAT'
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model UserProfile {

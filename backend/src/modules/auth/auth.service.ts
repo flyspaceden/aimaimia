@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, SmsPurpose } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
+import { recordAvatarHistory } from '../user/avatar-history.util';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
@@ -481,6 +482,13 @@ export class AuthService {
         },
       },
     });
+
+    // 微信首次登录拉到的头像入库（给用户后续切回微信头像用）
+    if (profileData.avatarUrl) {
+      await recordAvatarHistory(this.prisma, user.id, profileData.avatarUrl, 'WECHAT').catch(
+        (err) => this.logger.warn(`AvatarHistory record 失败 userId=${user.id}: ${err?.message}`),
+      );
+    }
 
     // Phase F: 微信首次登录自动注册触发 REGISTER 红包
     this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
