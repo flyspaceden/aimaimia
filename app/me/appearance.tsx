@@ -7,6 +7,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AvatarFrame, DefaultAvatar, PRESET_AVATAR_IDS, PRESET_AVATAR_LABEL, PresetAvatarId, Tag, isPresetUri, parsePresetUri, toPresetUri } from '../../src/components/ui';
+import { AppBottomSheet } from '../../src/components/overlay';
+import { Image } from 'expo-image';
 import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
@@ -31,6 +33,7 @@ export default function MeAppearanceScreen() {
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
   const [uploading, setUploading] = useState<null | 'library' | 'camera'>(null);
   const [saving, setSaving] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
   const { data, isLoading, refetch } = useQuery({
@@ -45,6 +48,14 @@ export default function MeAppearanceScreen() {
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
+
+  // 头像历史（按需加载：用户点开 BottomSheet 才请求）
+  const { data: historyData, isLoading: historyLoading, refetch: refetchHistory } = useQuery({
+    queryKey: ['me-avatar-history'],
+    queryFn: () => UserRepo.avatarHistory(),
+    enabled: isLoggedIn && historyOpen,
+  });
+  const avatarHistoryList = historyData?.ok ? historyData.data : [];
 
   const profile = data?.ok ? data.data : null;
   const error = data && !data.ok ? data.error : null;
@@ -89,6 +100,8 @@ export default function MeAppearanceScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
       queryClient.invalidateQueries({ queryKey: ['me-profile-detail'] }),
       queryClient.invalidateQueries({ queryKey: ['me-appearance-profile'] }),
+      // 保存后历史列表里要看到刚保存的新头像
+      queryClient.invalidateQueries({ queryKey: ['me-avatar-history'] }),
     ]);
 
   const handlePickFromLibrary = async () => {
@@ -106,6 +119,12 @@ export default function MeAppearanceScreen() {
     } finally {
       setUploading(null);
     }
+  };
+
+  const handlePickFromHistory = (url: string) => {
+    setSelectedAvatar(url);
+    setHistoryOpen(false);
+    show({ message: '已选择历史头像，记得点保存', type: 'info' });
   };
 
   const handlePickFromCamera = async () => {
@@ -234,7 +253,7 @@ export default function MeAppearanceScreen() {
             </View>
           </Animated.View>
 
-          {/* 上传 / 同步操作 */}
+          {/* 上传 / 同步 / 历史 */}
           <Animated.View entering={FadeInDown.duration(280).delay(120)} style={{ marginTop: spacing.xl }}>
             <Text style={[typography.title3, { color: colors.text.primary }]}>使用自己的头像</Text>
             <View style={styles.uploadRow}>
@@ -251,6 +270,13 @@ export default function MeAppearanceScreen() {
                 loading={uploading === 'camera'}
                 disabled={!!uploading && uploading !== 'camera'}
                 onPress={handlePickFromCamera}
+              />
+              <UploadAction
+                icon="history"
+                label="历史"
+                loading={false}
+                disabled={!!uploading}
+                onPress={() => setHistoryOpen(true)}
               />
             </View>
             <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
@@ -323,6 +349,67 @@ export default function MeAppearanceScreen() {
           </Pressable>
         </ScrollView>
       )}
+
+      {/* 历史头像 BottomSheet */}
+      <AppBottomSheet
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        mode="auto"
+        title="历史头像"
+      >
+        {historyLoading ? (
+          <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
+            <ActivityIndicator color={colors.brand.primary} />
+          </View>
+        ) : avatarHistoryList.length === 0 ? (
+          <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
+            <MaterialCommunityIcons name="history" size={40} color={colors.muted} />
+            <Text style={[typography.bodySm, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+              暂无历史头像
+            </Text>
+            <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 4, textAlign: 'center' }]}>
+              上传或同步过的头像会自动保存到这里（保留最近 5 张）
+            </Text>
+          </View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingVertical: spacing.md, gap: spacing.md }}
+          >
+            {avatarHistoryList.map((item) => {
+              const isCurrent = item.url === selectedAvatar;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => handlePickFromHistory(item.url)}
+                  style={{ alignItems: 'center' }}
+                >
+                  <View
+                    style={{
+                      width: 72,
+                      height: 72,
+                      borderRadius: 36,
+                      borderWidth: isCurrent ? 2 : 1,
+                      borderColor: isCurrent ? colors.brand.primary : colors.border,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <Image
+                      source={{ uri: item.url }}
+                      style={{ width: '100%', height: '100%' }}
+                      contentFit="cover"
+                    />
+                  </View>
+                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                    {item.source === 'WECHAT' ? '微信' : '上传'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+      </AppBottomSheet>
     </Screen>
   );
 }
