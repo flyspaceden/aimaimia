@@ -295,3 +295,13 @@
 | N05 | 奖品超发 | 🔴 HIGH | dailyLimit/totalLimit 原子检查，wonCount 并发递增需 CAS 保护 | ⬜ Phase C |
 | N06 | 换货申请重复提交 | 🟡 LOW | 同一订单/商品项的换货申请幂等校验 | ⬜ Phase E |
 | N07 | 自动定价绕过 | 🟡 MEDIUM | 后端强制校验 price = cost × markupRate，拒绝前端传入的 price | ⬜ Phase D |
+
+---
+
+## 2026-05-25 账号身份绑定（方案 A）安全检查
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| B01 | **AuthIdentity 唯一约束在 NULL 上失效** | 🟠 HIGH | Schema `@@unique([provider, identifier, appId])` 在 `appId=null` 时 PostgreSQL `NULLS DISTINCT` 让两条 `(WECHAT, openId, NULL)` 不冲突，P2002 不触发。当前所有微信身份 `appId=null`，意味着登录注册/绑定的 schema 层防并发是**纸面约束**。本次 `bindPhone`/`bindWechat` 已用 Serializable 事务在应用层兜底，但根治需改 migration（候选：`@@unique([provider, identifier])` 移除 appId、或 partial index `WHERE appId IS NULL` 等价处理）。**注意：修这个 schema 会影响 `loginWithWeChat`、`register`、`loginByPhone` 的并发行为，需要整组回归** | ⬜ 单独开 PR |
+| B02 | 绑定身份成功后不清 session | 🟡 LOW | 与卖家端 `changePhone` 不同：本次是**新增身份**而非修改现有身份，当前 session 应保持有效。已在代码注释中说明决策。无需修复，仅记录避免后续误改 | ✅ 设计内 |
+| B03 | sendBindPhoneCode 不应泄露占用信息 | 🟠 HIGH | 发码端点若预检"目标号已被占"并拒绝，会成为攻击者枚举注册号的渠道。已修：sendBindPhoneCode 只检查当前账号是否已绑，占用判断推迟到 bindPhone（OTP 消费后） | ✅ 已修 |

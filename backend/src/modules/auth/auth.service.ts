@@ -1029,4 +1029,158 @@ export class AuthService {
   private hashKey(value: string) {
     return createHash('sha256').update(value).digest('hex').slice(0, 24);
   }
+
+  // ============ 账号身份绑定（买家 App "账号与安全" 页用） ============
+  //
+  // 设计：方案 A — 只允许"空位绑定"，不允许换绑/解绑。
+  // - 当前账号已绑过该 provider → 拒绝
+  // - 该 identifier 已被其他账号占用 → 拒绝（提示文案不暴露被占账号信息）
+  // - 否则原子 create AuthIdentity；P2002 兜底防并发抢占
+
+  /** 发送"绑定手机号"验证码（purpose=BIND，需登录态）
+   *
+   * 安全口径：本端点不预检"目标号是否已被占用"，因为发码结果会泄露"号码是否已注册"，
+   * 攻击者可通过批量发码探测用户名单。占用检查统一放到 bindPhone（OTP 消费后做），
+   * 失败文案"该手机号已被其他账号绑定"只在用户主动尝试绑定时才暴露。
+   */
+  async sendBindPhoneCode(userId: string, phone: string) {
+    // 当前账号若已绑手机号，直接拒（不允许换绑，前端按钮在已绑状态下也不应允许进入此流程）
+    const own = await this.prisma.authIdentity.findFirst({
+      where: { userId, provider: 'PHONE' },
+    });
+    if (own) {
+      throw new BadRequestException('当前账号已绑定手机号');
+    }
+
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.createOtpWithRateLimit(phone, codeHash, expiresAt, SmsPurpose.BIND);
+
+    const nodeEnv = this.config.get('NODE_ENV', 'development');
+    if (smsMock === 'true') {
+      if (nodeEnv === 'production') {
+        this.logger.warn('[SMS] 生产环境仍使用 Mock 短信（绑定手机号），请设置 SMS_MOCK=false');
+      }
+      this.logger.log(`[SMS Mock] 绑定手机号验证码=${code}（目标=${this.maskContact(phone)}）`);
+    } else {
+      try {
+        await this.aliyunSms.sendVerificationCode(phone, code);
+        this.logger.log(`[SMS] 绑定手机号验证码已发送（目标=${this.maskContact(phone)}）`);
+      } catch (err) {
+        this.logger.error(
+          `[SMS] 绑定手机号验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
+        );
+      }
+    }
+    return { ok: true };
+  }
+
+  /** 提交"绑定手机号"：校验 OTP + 防占用 + 写 AuthIdentity
+   *
+   * 注：本次新增身份不影响当前 session（不同于 changePhone 是修改现有身份）。
+   */
+  async bindPhone(userId: string, phone: string, code: string) {
+    // 1. 校验 OTP（事务外，purpose=BIND，CAS 原子消费）。失败抛错，不消耗后续事务资源。
+    //    OTP 一旦消费成功就标记 usedAt，下面事务若 P2034 重试不会重复消费。
+    await this.verifyCode(phone, code, SmsPurpose.BIND);
+
+    // 2. 写入用 Serializable 事务包裹 findFirst+create，闭合并发抢占窗口。
+    //    背景：schema `@@unique([provider, identifier, appId])` 在 appId=null 时 PG
+    //    NULLS DISTINCT 会让 P2002 不触发，所以应用层必须用事务隔离兜底。
+    //    P2034（Serializable 冲突）允许 1 次退避重试，与 bonus-allocation 同模式。
+    const MAX_RETRIES = 1;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const own = await tx.authIdentity.findFirst({
+            where: { userId, provider: 'PHONE' },
+          });
+          if (own) {
+            throw new BadRequestException('当前账号已绑定手机号');
+          }
+          const taken = await tx.authIdentity.findFirst({
+            where: { provider: 'PHONE', identifier: phone },
+          });
+          if (taken) {
+            throw new BadRequestException('该手机号已被其他账号绑定，请使用该手机号直接登录');
+          }
+          await tx.authIdentity.create({
+            data: { userId, provider: 'PHONE', identifier: phone, verified: true },
+          });
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+        break;
+      } catch (err: any) {
+        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+        if (isPrismaError && err.code === 'P2002') {
+          throw new BadRequestException('该手机号已被其他账号绑定，请使用该手机号直接登录');
+        }
+        if (isPrismaError && err.code === 'P2034' && attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    this.logger.log(`[BindPhone] userId=${userId} 已绑定手机号 ${this.maskContact(phone)}`);
+    return { ok: true };
+  }
+
+  /** 提交"绑定微信"：code 换 openId + 防占用 + 写 AuthIdentity
+   *
+   * 注：本次新增身份不影响当前 session（不同于 changePhone 是修改现有身份）。
+   * 微信 code 由微信侧保证一次性，重复 code 会被 exchangeCodeForWechatProfile 抛错；
+   * 因此 P2034 重试只重跑事务体（findFirst+create），不重复调微信换 openId 接口。
+   */
+  async bindWechat(userId: string, code: string) {
+    // 1. 先 code 换 openId（事务外，外部 HTTP 调用不进事务）
+    const wechatProfile = await this.exchangeCodeForWechatProfile(code);
+    const { openId, unionId } = wechatProfile;
+
+    // 2. Serializable 事务：findFirst+create 原子化；P2034 退避重试 1 次（同 bindPhone）
+    const MAX_RETRIES = 1;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const own = await tx.authIdentity.findFirst({
+            where: { userId, provider: 'WECHAT' },
+          });
+          if (own) {
+            throw new BadRequestException('当前账号已绑定微信');
+          }
+          const taken = await tx.authIdentity.findFirst({
+            where: { provider: 'WECHAT', identifier: openId },
+          });
+          if (taken) {
+            throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
+          }
+          await tx.authIdentity.create({
+            data: { userId, provider: 'WECHAT', identifier: openId, verified: true, meta: { unionId } },
+          });
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+        break;
+      } catch (err: any) {
+        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+        if (isPrismaError && err.code === 'P2002') {
+          throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
+        }
+        if (isPrismaError && err.code === 'P2034' && attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    this.logger.log(`[BindWechat] userId=${userId} 已绑定微信 openId=${this.maskOpaqueId(openId)}`);
+    return { ok: true };
+  }
 }

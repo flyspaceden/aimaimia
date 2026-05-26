@@ -3,13 +3,14 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../src/components/layout';
 import { useToast } from '../src/components/feedback';
 import { AuthRepo, UserRepo } from '../src/repos';
 import { useAuthStore } from '../src/store';
 import { useTheme } from '../src/theme';
 import { logoutAndClearClientState } from '../src/utils/logout';
+import { requestWechatAuth } from '../src/services/wechat';
 
 // 手机号脱敏：138****5678
 const maskPhone = (phone?: string) => {
@@ -21,6 +22,7 @@ export default function AccountSecurityScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
   const { show } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
 
   // 用户资料
@@ -30,6 +32,34 @@ export default function AccountSecurityScreen() {
     enabled: isLoggedIn,
   });
   const profile = profileResult?.ok ? profileResult.data : undefined;
+
+  // 微信绑定中态：避免重复点击
+  const [bindingWechat, setBindingWechat] = useState(false);
+
+  // 微信绑定：调起微信 SDK 拿 code → 调后端绑定接口
+  const handleBindWechat = async () => {
+    if (bindingWechat) return;
+    setBindingWechat(true);
+    try {
+      let wxCode: string;
+      try {
+        wxCode = await requestWechatAuth();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '微信授权失败';
+        show({ message: msg, type: 'error' });
+        return;
+      }
+      const r = await UserRepo.bindWechat(wxCode);
+      if (!r.ok) {
+        show({ message: r.error.displayMessage ?? '微信绑定失败', type: 'error' });
+        return;
+      }
+      show({ message: '微信绑定成功', type: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['me-profile'] });
+    } finally {
+      setBindingWechat(false);
+    }
+  };
 
   // 修改密码表单
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -112,7 +142,13 @@ export default function AccountSecurityScreen() {
           <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             {/* 手机号 */}
             <Pressable
-              onPress={() => show({ message: phoneMasked ? '换绑手机号功能即将上线' : '绑定手机号功能即将上线', type: 'info' })}
+              onPress={() => {
+                if (phoneMasked) {
+                  show({ message: '换绑手机号功能即将上线', type: 'info' });
+                  return;
+                }
+                router.push('/bind-phone');
+              }}
               style={[styles.row, { borderBottomColor: colors.border }]}
             >
               <MaterialCommunityIcons name="cellphone" size={20} color={colors.brand.primary} />
@@ -130,7 +166,14 @@ export default function AccountSecurityScreen() {
 
             {/* 微信 */}
             <Pressable
-              onPress={() => show({ message: wechatBound ? '换绑微信功能即将上线' : '绑定微信功能即将上线', type: 'info' })}
+              onPress={() => {
+                if (wechatBound) {
+                  show({ message: '换绑微信功能即将上线', type: 'info' });
+                  return;
+                }
+                handleBindWechat();
+              }}
+              disabled={bindingWechat}
               style={styles.row}
             >
               <MaterialCommunityIcons name="wechat" size={20} color="#07C160" />

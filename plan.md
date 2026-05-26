@@ -1329,3 +1329,20 @@
 
 - 数据层 AGGREGATOR enum 已就绪
 - ⚠️ **特别警告**：信用卡退款 7-30 天到账，App 文案需按 channel 区分（与支付宝/微信即时退款不同）
+
+---
+
+## 2026-05-25 账号身份绑定（方案 A：仅空位绑定）
+
+> 已登录账号绑定一个未占用的手机号/微信；该 identifier 已被他人占用则拒绝；当前账号已绑过则拒绝。同一账号同时绑了手机号 + 微信后，任意一种登录都进同一账号（沿用现有逻辑）。**本次不做换绑、不做解绑**。
+
+- [✅] **AB01** 后端 `auth.service.ts` 新增 `sendBindPhoneCode` / `bindPhone` / `bindWechat`，绑定写入用 Serializable 事务兜底（schema `@@unique` 在 appId=null 时 PG NULLS DISTINCT 失效，已记入 `docs/issues/tofix-safe.md` B01）
+- [✅] **AB02** 后端 `user.controller.ts` 暴露 `POST /me/bind-phone/sms/code`、`POST /me/bind-phone`、`POST /me/bind-wechat`，IP 维度 3/min 限流 + 号码维度复用 `SmsPurpose.BIND` 限额
+- [✅] **AB03** DTO `auth/dto/bind.dto.ts` 手机号 `/^1[3-9]\d{9}$/` + 验证码 6 位数字
+- [✅] **AB04** 买家 App `src/repos/UserRepo.ts` 加 `sendBindPhoneCode` / `bindPhone` / `bindWechat`
+- [✅] **AB05** 买家 App 新增 `app/bind-phone.tsx`：手机号 + 验证码 + 60s 倒计时 + 提交 + 底部安全提示
+- [✅] **AB06** 买家 App `app/account-security.tsx` 移除占位 Toast，未绑手机号跳 `/bind-phone`；未绑微信调起 `requestWechatAuth` + 调后端
+- [✅] **AB07** 安全口径：发码端点不预检"目标号被占"，避免成为枚举注册号渠道；占用判断在 OTP 消费后做
+- [✅] **AB08** 文档：plan.md + tofix-safe.md B01/B02/B03 已记录
+- [ ] **AB09** （独立后续）修 schema `AuthIdentity` 唯一约束在 appId=null 时失效问题（需 migration + 全量微信登录回归）
+- [ ] **AB10** 真机联调：覆盖 5 个场景（空位绑、被自己绑过、被他人绑过、并发抢绑、绑完后用新身份登录回同一账号）
