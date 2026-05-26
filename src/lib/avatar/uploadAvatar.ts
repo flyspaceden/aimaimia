@@ -13,8 +13,11 @@ type UploadResponse = {
 
 const PICKER_OPTIONS: ImagePicker.ImagePickerOptions = {
   mediaTypes: ['images'],
-  allowsEditing: true,
-  aspect: [1, 1],
+  // 不用 allowsEditing：华为 EMUI / 小米 MIUI 等定制系统的裁切 Activity 在
+  // expo-image-picker 调用下经常无法 setResult() 回调，导致点"裁切"无反应、
+  // 卡死回不到 App。改在 App 层用 expo-image-manipulator 或纯 CSS center-crop
+  // 处理头像方形显示。
+  allowsEditing: false,
   quality: 0.85,
   exif: false,
 };
