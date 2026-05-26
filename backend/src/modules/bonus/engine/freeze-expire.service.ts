@@ -54,6 +54,9 @@ export class FreezeExpireService {
     const normalFreezeDays = config.normalFreezeDays;
     const maxFreezeDays = Math.max(vipFreezeDays, normalFreezeDays);
 
+    // 兜底过滤：产业基金/慈善/科技/备用金/平台利润这些 NO_FURTHER_LOCK_TYPES 账户
+    // 设计上不会进 FROZEN（transitionReturnFrozenToFrozen 已单次 CAS 直转 AVAILABLE），
+    // 但万一因异常卡在 FROZEN，本 cron 不能误把它们 VOIDED 归平台（资金安全防线）
     // 查询1: 有 expiresAt 的过期冻结奖励
     const expiredWithDate: any[] = await this.prisma.$queryRaw`
       SELECT id, "userId", "accountId", amount, meta
@@ -63,6 +66,7 @@ export class FreezeExpireService {
         AND meta IS NOT NULL
         AND (meta->>'expiresAt') IS NOT NULL
         AND (meta->>'expiresAt')::timestamp <= NOW()
+        AND COALESCE(meta->>'accountType', '') NOT IN ('INDUSTRY_FUND', 'CHARITY_FUND', 'TECH_FUND', 'RESERVE_FUND', 'PLATFORM_PROFIT')
       LIMIT ${BATCH_SIZE}
     `;
 
@@ -76,6 +80,7 @@ export class FreezeExpireService {
         AND "entryType" = 'FREEZE'
         AND (meta IS NULL OR (meta->>'expiresAt') IS NULL)
         AND "createdAt" <= NOW() - MAKE_INTERVAL(days => ${maxFreezeDays}::int)
+        AND COALESCE(meta->>'accountType', '') NOT IN ('INDUSTRY_FUND', 'CHARITY_FUND', 'TECH_FUND', 'RESERVE_FUND', 'PLATFORM_PROFIT')
       LIMIT ${BATCH_SIZE}
     `;
 
@@ -197,16 +202,24 @@ export class FreezeExpireService {
   private async transitionReturnFrozenToFrozen(
     ledger: { id: string; userId: string; accountId: string; amount: number; meta: any },
   ): Promise<void> {
+    // 先在事务外确定账户类型 → 决定单次 CAS 的目标状态
+    // 产业基金/慈善/科技/备用金/平台利润 → 直接 RETURN_FROZEN → AVAILABLE（无 FROZEN 中间态，避免被 handleFrozenExpire 误判）
+    // VIP_REWARD / NORMAL_REWARD → RETURN_FROZEN → FROZEN（等解锁或 expiresAt 作废，原行为）
+    const accountType = getAccountTypeForLedger(ledger.meta);
+    const directToAvailable = NO_FURTHER_LOCK_TYPES.has(accountType);
+
     await this.prisma.$transaction(
       async (tx) => {
-        // CAS 更新：仅当仍为 RETURN_FROZEN 时才转换
+        // 单次 CAS：根据 accountType 决定一步到位写哪个状态
         const cas = await tx.rewardLedger.updateMany({
           where: {
             id: ledger.id,
             status: 'RETURN_FROZEN',
             entryType: 'FREEZE',
           },
-          data: { status: 'FROZEN' },
+          data: directToAvailable
+            ? { status: 'AVAILABLE', entryType: 'RELEASE' }
+            : { status: 'FROZEN' },
         });
 
         if (cas.count === 0) {
@@ -214,33 +227,19 @@ export class FreezeExpireService {
           return;
         }
 
-        // RETURN_FROZEN 期间未计入账户。判断该账户类型是否需要二段冻结（FROZEN→等解锁）
-        const accountType = getAccountTypeForLedger(ledger.meta);
+        // 更新对应账户字段
+        await tx.rewardAccount.updateMany({
+          where: { userId: ledger.userId, type: accountType as any },
+          data: directToAvailable
+            ? { balance: { increment: ledger.amount } }
+            : { frozen: { increment: ledger.amount } },
+        });
 
-        if (NO_FURTHER_LOCK_TYPES.has(accountType)) {
-          // 产业基金等：跳过 FROZEN 阶段，直接 RETURN_FROZEN→AVAILABLE 进账户余额
-          // 上面 CAS 已经把 status=FROZEN，这里再 CAS 转 AVAILABLE 并把 entryType 改回 RELEASE
-          await tx.rewardLedger.updateMany({
-            where: { id: ledger.id, status: 'FROZEN', entryType: 'FREEZE' },
-            data: { status: 'AVAILABLE', entryType: 'RELEASE' },
-          });
-          await tx.rewardAccount.updateMany({
-            where: { userId: ledger.userId, type: accountType as any },
-            data: { balance: { increment: ledger.amount } },
-          });
-          this.logger.log(
-            `RETURN_FROZEN→AVAILABLE（${accountType}）：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，balance +${ledger.amount}`,
-          );
-        } else {
-          // VIP/普通奖励：进 FROZEN 等祖辈解锁或 expiresAt 作废
-          await tx.rewardAccount.updateMany({
-            where: { userId: ledger.userId, type: accountType as any },
-            data: { frozen: { increment: ledger.amount } },
-          });
-          this.logger.log(
-            `RETURN_FROZEN→FROZEN：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，frozen +${ledger.amount}`,
-          );
-        }
+        this.logger.log(
+          directToAvailable
+            ? `RETURN_FROZEN→AVAILABLE（${accountType}）：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，balance +${ledger.amount}`
+            : `RETURN_FROZEN→FROZEN：ledger ${ledger.id}，${ledger.amount} 元，用户 ${ledger.userId}，frozen +${ledger.amount}`,
+        );
       },
       {
         timeout: 10000,
