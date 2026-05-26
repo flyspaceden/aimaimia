@@ -111,14 +111,19 @@ export class VipPlatformSplitService {
       // 确保卖家 OWNER 有 INDUSTRY_FUND 账户
       const account = await this.ensureAccount(tx, ownerStaff.userId, 'INDUSTRY_FUND');
 
+      // 入账时进入「售后保护冻结」(RETURN_FROZEN)：
+      // - 退货窗口期内对 OWNER 完全不可见、不可提现
+      // - freeze-expire cron 在订单 returnWindowExpiresAt 过期后会按 NO_FURTHER_LOCK_TYPES 分支
+      //   直接 RETURN_FROZEN → AVAILABLE 并 increment balance（无 FROZEN 中间态）
+      // - 此处不更新 RewardAccount.balance/frozen
       await tx.rewardLedger.create({
         data: {
           allocationId,
           accountId: account.id,
           userId: ownerStaff.userId,
-          entryType: 'RELEASE',
+          entryType: 'FREEZE',
           amount,
-          status: 'AVAILABLE',
+          status: 'RETURN_FROZEN',
           refType: 'ORDER',
           refId: orderId,
           meta: {
@@ -131,12 +136,7 @@ export class VipPlatformSplitService {
         },
       });
 
-      await tx.rewardAccount.update({
-        where: { id: account.id },
-        data: { balance: { increment: amount } },
-      });
-
-      this.logger.log(`VIP产业基金入账：${amount} 元 → 卖家 ${ownerStaff.userId}（公司 ${companyId}）`);
+      this.logger.log(`VIP产业基金入账(冻结)：${amount} 元 → 卖家 ${ownerStaff.userId}（公司 ${companyId}），待退货窗口期满后解冻`);
     }
   }
 
