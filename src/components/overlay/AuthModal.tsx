@@ -136,7 +136,9 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
 
   // 微信授权（登录/注册通用，后端自动创建账号）
   // C40c4: react-native-wechat-lib 真实 SDK 集成 + Mock 回退（USE_MOCK / Expo Go 返回假 code）
+  // 华为合规：未勾选《用户协议》《隐私政策》时禁止登录
   const handleWeChat = useCallback(async () => {
+    if (!agreed) { showError('请先阅读并同意《用户协议》和《隐私政策》'); return; }
     setSubmitting(true);
     try {
       let wxCode: string;
@@ -153,11 +155,14 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
     } finally {
       setSubmitting(false);
     }
-  }, [showError, onAuthSuccess]);
+  }, [agreed, showError, onAuthSuccess]);
 
   // 主表单提交
   const handleSubmit = useCallback(async () => {
     setErrorMsg('');
+
+    // 华为合规：所有登录/注册路径都必须先勾选协议
+    if (!agreed) { showError('请先阅读并同意《用户协议》和《隐私政策》'); return; }
 
     // 手机号验证
     if (!/^1\d{10}$/.test(phone.trim())) { showError('请输入有效的手机号'); return; }
@@ -180,11 +185,10 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
       return;
     }
 
-    // 注册验证
+    // 注册验证（agreed 已在顶部统一校验）
     if (code.trim().length < 4) { showError('请输入验证码'); return; }
     if (nickname.trim().length < 2 || nickname.trim().length > 12) { showError('昵称需要 2-12 个字'); return; }
     if (password.trim().length < 6) { showError('密码至少 6 位'); return; }
-    if (!agreed) { showError('请阅读并同意用户协议'); return; }
 
     setSubmitting(true);
     try {
@@ -206,7 +210,9 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   }, [showError]);
 
   // 打开忘记密码向导
+  // 华为合规：进入忘记密码也需先勾选协议（涉及手机号采集，属于个人信息处理）
   const handleOpenForgotPassword = useCallback(() => {
+    if (!agreed) { showError('请先阅读并同意《用户协议》和《隐私政策》'); return; }
     setErrorMsg(''); setSuccessMsg('');
     setFpStep(1);
     setFpCaptchaCode(''); setFpCode('');
@@ -214,7 +220,7 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
     if (cdRef.current) { clearInterval(cdRef.current); setCountdown(0); }
     setFlowMode('forgotPassword');
     fetchFpCaptcha();
-  }, [fetchFpCaptcha]);
+  }, [agreed, fetchFpCaptcha, showError]);
 
   // 返回登录态（从向导任意步骤点"返回"触发）
   const handleFpBackToAuth = useCallback(() => {
@@ -604,49 +610,51 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
                 </View>
               )}
 
-              {/* 注册额外字段：昵称 + 密码 + 协议 */}
+              {/* 注册额外字段：昵称 + 密码 */}
               {!isLogin && (
                 <>
                   {renderInput({ label: '昵称', value: nickname, onChange: setNickname, placeholder: '2-12 个字', maxLen: 12 })}
                   {renderInput({ label: '设置密码', value: password, onChange: setPassword, placeholder: '至少 6 位', secure: !showPwd, right: eyeButton })}
-                  <View style={[styles.agreementRow, { marginTop: spacing.sm }]}>
-                    <Pressable onPress={() => setAgreed(!agreed)} hitSlop={6}>
-                      <MaterialCommunityIcons
-                        name={agreed ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                        size={16}
-                        color={agreed ? colors.brand.primary : colors.muted}
-                      />
-                    </Pressable>
-                    <Text
-                      style={[
-                        typography.captionSm,
-                        { color: colors.text.secondary, marginLeft: 5, flex: 1, lineHeight: 18 },
-                      ]}
-                    >
-                      <Text onPress={() => setAgreed(!agreed)}>我已阅读并同意</Text>
-                      <Text
-                        style={{ color: colors.brand.primary }}
-                        onPress={() => {
-                          handleClose();
-                          router.push('/terms');
-                        }}
-                      >
-                        《用户协议》
-                      </Text>
-                      <Text onPress={() => setAgreed(!agreed)}>和</Text>
-                      <Text
-                        style={{ color: colors.brand.primary }}
-                        onPress={() => {
-                          handleClose();
-                          router.push('/privacy');
-                        }}
-                      >
-                        《隐私政策》
-                      </Text>
-                    </Text>
-                  </View>
                 </>
               )}
+
+              {/* 协议勾选框（登录/注册公用，华为合规明示同意） */}
+              <View style={[styles.agreementRow, { marginTop: spacing.md }]}>
+                <Pressable onPress={() => setAgreed(!agreed)} hitSlop={6}>
+                  <MaterialCommunityIcons
+                    name={agreed ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                    size={16}
+                    color={agreed ? colors.brand.primary : colors.muted}
+                  />
+                </Pressable>
+                <Text
+                  style={[
+                    typography.captionSm,
+                    { color: colors.text.secondary, marginLeft: 5, flex: 1, lineHeight: 18 },
+                  ]}
+                >
+                  <Text onPress={() => setAgreed(!agreed)}>我已阅读并同意</Text>
+                  <Text
+                    style={{ color: colors.brand.primary }}
+                    onPress={() => {
+                      handleClose();
+                      router.push('/terms');
+                    }}
+                  >
+                    《用户协议》
+                  </Text>
+                  <Text onPress={() => setAgreed(!agreed)}>和</Text>
+                  <Text
+                    style={{ color: colors.brand.primary }}
+                    onPress={() => {
+                      handleClose();
+                      router.push('/privacy');
+                    }}
+                  >
+                    《隐私政策》
+                  </Text>
+                </Text>
+              </View>
 
               {/* 内联提示（错误/成功，显示在按钮上方） */}
               {(errorMsg || successMsg) ? (
