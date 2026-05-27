@@ -8,7 +8,7 @@ import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider } from '../src/theme';
-import { ToastProvider } from '../src/components/feedback';
+import { ToastProvider, EnvBanner } from '../src/components/feedback';
 import { AiFloatingCompanion } from '../src/components/effects';
 import { PrivacyConsentModal, PermissionRationaleModal } from '../src/components/overlay';
 import { initAlipayEnv } from '../src/utils/alipay';
@@ -255,6 +255,7 @@ export default function RootLayout() {
           <ThemeProvider>
             <ToastProvider>
               <View style={{ flex: 1 }}>
+                <EnvBanner />
                 <Stack screenOptions={{
                   headerShown: false,
                   animation: 'slide_from_right',

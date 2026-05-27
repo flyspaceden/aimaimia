@@ -255,7 +255,17 @@ if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/
 `eas.json` 已写好 `production` profile：
 - `EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1`
 - `EXPO_PUBLIC_ALIPAY_SANDBOX=false` ← **生产必须 false**，否则 App 会调沙箱网关，生产订单全部失败
+- `EXPO_PUBLIC_ENV=production` ← 触发 `app/_layout.tsx` 的 `<EnvBanner />` 不渲染（preview / development build 顶部有 22px 红色"测试环境"横条，生产 build 无）
 - `channel=production`、Android `app-bundle`、`autoIncrement=true`
+
+**单包名方案约束**（2026-05-27 起）：
+
+包名 `com.aimaimai.shop` android/ios 共用，无法在同一台手机同时装测试和生产版本。测试机和生产机靠物理设备隔离：
+
+- 测试团队的手机永远只装 internal distribution 的 `preview` / `development` build（顶部有红条 + 走 test-api + 支付宝沙箱）
+- 真实用户永远从应用商店下载 `production` build（无红条 + 走 api + 支付宝真金）
+- 同一台手机切换环境 = 卸载重装
+- 微信 / 支付宝回调只有一套（生产环境），preview / development 的支付必走沙箱；微信支付沙箱能力受限，真金联调必须用生产环境真实小额订单
 
 ### 5.2 何时发 OTA / 何时发 Build
 
