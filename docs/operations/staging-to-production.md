@@ -23,12 +23,14 @@
 | **数据库迁移** | `backend/prisma/migrations/` 当前累计 **54 条**，**生产从未部署过**，需全量 deploy。是否已逐条 review §6.4 的清单，特别是 5 条 🔴 破坏性变更？|
 | **支付宝生产配置** | 已申请下来生产 `APP_ID` / 应用私钥 / 4 张证书（appCert / alipayCert / alipayRootCert）？沙箱**绝不能**直接复用到生产 |
 | **支付宝转账（提现）订阅** | 开放平台后台已订阅事件 `alipay.fund.trans.order.changed` 并配 webhook 到 `https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`？否则消费积分提现只能靠 cron 兜底 5-10 分钟 |
-| **支付回调 IP 白名单** | 已确认支付宝生产回调 IP 段、顺丰回调 IP 段，写入 `WEBHOOK_IP_WHITELIST`？（生产 + 该值为空时所有 webhook 直接 403）|
+| **支付回调 IP 白名单** | 已确认**支付宝**生产回调 IP 段，写入 `WEBHOOK_IP_WHITELIST`？（生产 + 该值为空时所有挂 `WebhookIpGuard` 的 webhook 直接 403）。**注意**：顺丰 callback / 微信支付 notify **都不挂** `WebhookIpGuard`（顺丰靠 URL token，微信靠 RSA 签名），无需写入；详见 `shipment.controller.ts:54` 和 `payment.controller.ts:184` |
 | **顺丰生产凭证** | 已申请生产月结 + 丰桥生产 clientCode / checkWord / 模板 / 推送 secret？UAT 凭据**绝不能**复用 |
 | **App 渠道** | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事 |
 | **website main 锁** | `.github/workflows/deploy-website.yml:100` 是否已加回 `&& github.ref == 'refs/heads/main'`？目前为测试期临时去掉的，**切 main 前必须先合一个 PR 加回去**，否则 staging 推送会污染生产官网 |
 | **法律合规文本** | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
 | **回滚预案** | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
+| **环境共用资源已知** | 是否已 review §1.1「staging↔prod 共用资源风险表」？特别是 Redis 单实例共用、阿里云配额按账户级共享。OSS 已 2026-05-26 启用硬隔离独立 bucket ✅ |
+| **手动改动有记录** | 上线前后所有"绕过 git"的人工动作（宝塔 / 阿里云控制台 / 支付宝&微信&顺丰商户后台 / 服务器 .env / pg SQL）是否在动作完成后**立刻**写入 §1.2 列的归属文档？|
 
 任何一项答不上来，**先停下，不要 push main**。
 
@@ -54,10 +56,56 @@
 | 顺丰 | `SF_ENV=UAT` 走 `SF_API_URL_UAT` 沙箱地址 + `SF_MONTHLY_ACCOUNT_UAT=7551234567` | **`SF_ENV=PROD`** 走 `SF_API_URL` 正式地址 + 真实月结账号 |
 | 顺丰推送签名 | `SF_PUSH_SECRET` 任意 32 位 hex | **生产环境启动期强校验**：未配置则 `SfExpressService.onModuleInit` 抛异常 |
 | 短信 | 真实（华海签名） | 真实（同签名，模板可换可不换）|
-| OSS Bucket | `huahai-aimaimai`（共用） | 同左（共用，按 path 前缀软隔离）|
+| OSS Bucket | `huahai-aimaimai` | **`huahai-aimaimai-prod`**（2026-05-26 新建独立 bucket + 独立 RAM 子账号 `aimaimai-prod-oss`，详见密码本 §4.3.2）|
 | App `EXPO_PUBLIC_API_BASE_URL` | `https://test-api.ai-maimai.com/api/v1` | `https://api.ai-maimai.com/api/v1` |
 | App 支付宝沙箱开关 | `EXPO_PUBLIC_ALIPAY_SANDBOX=true` | **`false`**（**env 改动必须 Build，不能 OTA**）|
 | App OTA Channel | `preview` | `production` |
+
+### 1.1 staging ↔ prod 共用资源风险表（隐形通道汇总）
+
+代码层面已彻底隔离（不同分支 / 进程 / 目录 / 域名 / 数据库），但**有 5 类"隐形通道"会跨环境**。任何在 staging 做的事可能通过这些通道影响生产，必须有意识地管理：
+
+| # | 通道 | 共用程度 | 已知风险 | 缓解状态 |
+|---|------|---------|---------|---------|
+| ① | **migration 文件** | 同一代码库 | staging 跑通的 migration push main 后自动在生产数据库执行；5 条 🔴 不可纯 SQL 回退 | ✅ §六整章 + §6.4 54 条逐条标级 + §九 回滚预案。**每次 push main 必须 review** |
+| ② | **OSS bucket** | **已硬隔离**：staging 用 `huahai-aimaimai`，prod 用 `huahai-aimaimai-prod`（2026-05-26 新建） | 物理隔离 → 不会污染、不会误删跨环境、独立账单/RAM 子账号 | ✅ 已实现。AccessKey ID `LTAI5t6N4HK8e6Qj26NGsXjg` 曾在 Claude 对话出现，**上线前需在 RAM 控制台轮换**（密码本 §4.3.2 + §4.3.3 已留 checklist）|
+| ③ | **Redis 实例** | 同一 `127.0.0.1:6379` | 业务 cache key 有 namespace 不会撞 ✅；**但 Socket.IO Redis adapter 的跨实例广播 channel `socket.io#${ns}#` 会让 staging 和 prod 互发事件**（理论上生产用户能收到 staging 触发的客服/订单 WS 推送）| ⚠️ 实际影响：staging 当前无真实用户流量，**无感**。中期建议给 Redis adapter 加 `key: 'prod:' / 'staging:'` 前缀（`RedisIoAdapter` 改 10 行）。短期缓解：staging 永远不接真客服会话 |
+| ④ | **阿里云账号配额**（SMS / OSS / DashScope） | 共用 RAM AccessKey | staging 测试发短信 / 调 AI / 上传图 → 全用生产账户配额计费 | ⚠️ 详见 §1.2 配额风险表。**短信 / OSS 成本可忽略；DashScope 按 token 计费要监控** |
+| ⑤ | **手动改动** | 完全绕过 git | 改宝塔站点 / 阿里云控制台 / 支付宝&微信&顺丰商户后台 / 服务器 `.env` / `psql -c "UPDATE ..."` 等 = 谁改了别人不知道 = **回滚找不到** | ⚠️ §1.3 集中清单 + 强制要求"动作完成立刻记录"|
+
+⚠️ 这 5 类**不在 GitHub Actions 自动监管范围内**——靠纪律和文档。
+
+### 1.2 阿里云账号配额风险（共用资源 ④）
+
+| 资源 | 单价 / 配额 | staging 实际用量预估 | 风险等级 |
+|------|------------|---------------------|---------|
+| **短信**（SMS） | 0.045 元/条 | staging 测试每天 ≤ 50 条 → 月 < 70 元 | 🟢 可忽略 |
+| **OSS 存储** | 0.12 元/GB·月 | staging 上传测试图 < 1GB | 🟢 可忽略 |
+| **OSS 流量**（外网下行） | 0.50 元/GB | 用户访问 staging 产品图 < 1GB/月 | 🟢 可忽略 |
+| **DashScope（百炼）** | 按 token 计费，qwen-plus 输入 0.0008 元/千 token / 输出 0.002 元/千 token | AI 语音意图解析每次 ≈ 200 token，staging 真机测每天 ≤ 100 次 → 月 < 5 元 | 🟡 **要监控**：若 staging 集成测试自动化调起 AI，token 可能暴涨 |
+| **阿里云 DirectMail** | 0.10 元/封 | 邮箱验证码 / 找回密码 < 100 封/月 | 🟢 可忽略 |
+| **阿里云 ECS** | 共用一台 ECS 跑 staging + prod | 单进程 ~200MB RAM × 2 = 400MB / 4 核机器 | 🟢 已规划 |
+
+**建议**：每月初查一次阿里云费用账单（`https://usercenter2.aliyun.com/finance/expense-report`），如某项突然涨 10× 立即排查 staging 是否有泄漏（如 AI 调用死循环）。
+
+### 1.3 手动改动归属文档清单（共用资源 ⑤）
+
+这些动作**完全不进 git**，必须在动作完成的当天写入对应文档，否则一个月后没人记得改过什么：
+
+| 动作类型 | 归属文档 | 段落示例 |
+|---------|---------|---------|
+| 新建宝塔站点 / 改 Nginx / 申请 SSL | `阿里云部署.md` | "变更日志 2026-MM-DD" |
+| 服务器 `.env` 任何字段变更 | `阿里云部署.md` + `密码本.md` | 后者放真实值，前者写变更原因和日期 |
+| 装新服务（Redis / PG / Node）/ 改 PM2 配置 | `阿里云部署.md` | 第三节"服务器环境" |
+| 数据库直跑 `psql` SQL（数据修复 / 排查） | `阿里云部署.md` "SQL 操作记录" | 含完整 SQL + 影响行数 + 操作人 + 原因 |
+| 支付宝商户后台改设置（应用网关 / 回调 / 事件订阅 / 加签方式）| `密码本.md §6.1` | "已签约能力" + 改动日期 |
+| 微信开放平台 / 微信支付商户后台 | `密码本.md §5.1 / §5.2` | "上线前 checklist" |
+| 顺丰丰桥后台（推送地址 / 模板变更）| `密码本.md §7` | 推送回调 secret + 改动日期 |
+| 阿里云控制台改（短信模板 / OSS 权限 / RAM 子账号）| `密码本.md §4.x` | 对应子节 |
+| App 商店改（华为 / 小米 / 应用宝 上架材料）| `app-发布与OTA手册.md §六` + `app-compliance-guide.md` | 上架记录 |
+| EAS Build / OTA 任何动作 | `app-发布与OTA手册.md §六` + memory `project_app_release_status` | 当前 APK 状态快照 |
+
+**强制纪律**：任何手动改动后必须立即同步对应文档；如发现"线上某行为变了但代码没改"，第一时间查这些文档。
 
 ---
 
@@ -83,7 +131,7 @@
 | `DATA_ENCRYPTION_KEY` | （可留空，兜底走 `JWT_SECRET` → `'nongmai-dev-data-key'`）| **`<PROD_DATA_ENCRYPTION_KEY>`（32 字节随机 hex，用于 PII 字段 AES-256-GCM 加密）**。**强烈建议生产必填**：`encryption.ts:20-26` 的兜底顺序是 `DATA_ENCRYPTION_KEY → JWT_SECRET → 弱默认`，若依赖 JWT_SECRET 作为加密 key，则 JWT 泄露 = 加密 key 同步泄露（发票 bankInfo / 税号等 PII 全暴露），必须独立配置 |
 | `PAYMENT_WEBHOOK_SECRET` | `<TEST_PAYMENT_WEBHOOK_SECRET>` | **`<PROD_PAYMENT_WEBHOOK_SECRET>`（独立，HMAC-SHA256）** |
 | `LOGISTICS_WEBHOOK_SECRET` | `<TEST_LOGISTICS_WEBHOOK_SECRET>` | **`<PROD_LOGISTICS_WEBHOOK_SECRET>`（独立）** |
-| `WEBHOOK_IP_WHITELIST` | 可留空（开发环境放行）| **必填**：`<支付宝生产回调IP段>,<顺丰回调IP段>`，支持 CIDR。**为空时 `NODE_ENV=production` → 所有 webhook 直接 `ForbiddenException`，订单永远停在未支付**（`webhook-ip.guard.ts:40-44`）|
+| `WEBHOOK_IP_WHITELIST` | 可留空（开发环境放行）| **必填**：`<支付宝生产回调IP段>`，逗号分隔，支持 CIDR。**为空时 `NODE_ENV=production` → 所有挂 `WebhookIpGuard` 的 webhook 直接 `ForbiddenException`，支付订单永远停在未支付**（`webhook-ip.guard.ts:40-44`）。**只配支付宝**：顺丰 callback / 微信支付 notify 不在守卫范围内（`shipment.controller.ts:54` / `payment.controller.ts:184`），各自靠 token / RSA 签名独立防伪 |
 | `WECHAT_MOCK` | `false` | `false` |
 | `WECHAT_APP_ID` | `wxeb8e8dc219da02dd`（当前两环境共用同一应用）| 同左 + 在微信开放平台后台**确认 release keystore 签名 MD5 已注册**（详见密码本 §11.1）|
 | `WECHAT_APP_SECRET` | `<TEST_WECHAT_SECRET>` | 同左 |
@@ -92,7 +140,9 @@
 | `SMS_SIGN_NAME` | `深圳华海农业科技集团` | 同左 |
 | `SMS_TEMPLATE_CODE` | `<TEST_SMS_TEMPLATE>` | **生产模板**（如已为生产单独审核了模板号，需切换；否则共用 `SMS_501860621`）|
 | `EMAIL_SMTP_HOST/PORT/USER/PASS` | 阿里云 DirectMail（邮箱验证码）| 同左 |
-| `OSS_*` | 共用 `huahai-aimaimai` | 同左（OSS 上传路径建议加 `prod/` / `staging/` 前缀做软隔离，`OssService` 控制）|
+| `OSS_BUCKET` | `huahai-aimaimai` | **`huahai-aimaimai-prod`**（2026-05-26 新建独立 bucket）|
+| `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` | 共用 §4.1 主账号 Key `LTAI5tC8...` | **独立 RAM 子账号** `aimaimai-prod-oss` 的 Key（密码本 §4.3.2，⚠️ 上线前需轮换消除 Claude 污点）|
+| `OSS_REGION` | `oss-cn-hangzhou` | 同左（生产 bucket 同地域）|
 | `UPLOAD_LOCAL` | `false`（OSS 生产） | `false` |
 | `UPLOAD_LOCAL_PRIVATE` | `false` | `false`（启用私有签名静态资源时改 true）|
 | `INVOICE_PDF_ALLOWED_URL_PREFIXES` | 默认走 OSS / UPLOAD_BASE_URL | 同左（如手工开票要上传 PDF 到第三方 CDN，在此列前缀白名单）|
@@ -128,7 +178,7 @@
 后端启动时会做以下强校验，**任何一项不通过都会拒绝启动 / 拒绝业务**：
 
 1. `backend/src/main.ts:71-73` — `isProduction && !CORS_ORIGINS` → `throw Error('生产环境必须配置 CORS_ORIGINS')`，进程起不来
-2. `backend/src/common/guards/webhook-ip.guard.ts:40-44` — `NODE_ENV=production` 且未配 `WEBHOOK_IP_WHITELIST` → 所有 webhook 路由 `ForbiddenException`，订单永远停在未支付
+2. `backend/src/common/guards/webhook-ip.guard.ts:40-44` — `NODE_ENV=production` 且未配 `WEBHOOK_IP_WHITELIST` → **所有挂 `WebhookIpGuard` 的 webhook 路由**（仅支付宝 notify/refund/transfer-notify 三条，见 `payment.controller.ts:52/73/305`）抛 `ForbiddenException`，支付订单永远停在未支付。顺丰 callback 和微信支付 notify 不受影响
 3. **`backend/src/modules/shipment/sf-express.service.ts:onModuleInit`** — `SF_ENV=PROD` 且未配 `SF_PUSH_SECRET` → 抛异常；`SF_TEMPLATE_CODE` 后缀必须以 `_<SF_CLIENT_CODE>` 结尾，否则抛
 4. **`backend/src/modules/payment/alipay.service.ts:onModuleInit`** — 生产 + 证书加载失败 → 抛异常（之前是静默降级，C11 已修）
 5. **`backend/src/modules/admin/auth/admin-auth.module.ts:16` / `seller-auth.module.ts:19`** — 三个 JWT secret 全部 `getOrThrow`，缺一个就起不来
@@ -552,15 +602,15 @@ pm2 stop aimaimai-api-prod
 3. **超管账号改密**：默认 `admin / 123456` 必须立即改为强密码并写入 `密码本.md §2.x`
 
 4. **WEBHOOK_IP_WHITELIST 首次填值**：
-   - 支付宝生产回调 IP 段：查支付宝开放平台文档（搜"支付宝服务端 IP"）
-   - 顺丰生产回调 IP 段：找顺丰商务确认
+   - **仅写支付宝**生产回调 IP 段：查支付宝开放平台文档（搜"支付宝服务端 IP"），https://opendocs.alipay.com/open/200/ipwhitelist
+   - 顺丰 callback / 微信支付 notify **不在这个白名单管辖范围**（各自靠 URL token / RSA 签名），无需 IP 段
    - 写入 `WEBHOOK_IP_WHITELIST` 后 `pm2 reload aimaimai-api-prod --update-env`
    - 记录 IP 段来源、查询日期、后台截图到 `docs/operations/阿里云部署.md` 或 `密码本.md`
 
-5. **顺丰商务沟通**：
-   - 申请生产月结账号（与 UAT 不同）
-   - 拿到生产 clientCode / checkWord / 模板号
-   - 把生产推送回调地址 `https://api.ai-maimai.com/api/v1/shipments/sf/callback/<SF_PUSH_SECRET>` 同步给商务
+5. **顺丰商务沟通**（2026-05-26 已完成，凭据见密码本 §7）：
+   - ✅ 申请生产月结账号 `7551253482`
+   - ✅ 拿到生产 clientCode `HHNYKCL5OWXM` / checkWord `mO1AN9899...` / 模板号 `fm_150_standard_HHNYKCL5OWXM`
+   - ✅ 把生产推送回调地址 `https://api.ai-maimai.com/api/v1/shipments/sf/callback/84a7d77ac0ec13252cdb5fc4e244be7b` 配进丰桥后台（2 个推送接口 RoutePushService + PushOrderState 都已上线）
 
 6. **支付宝开放平台**：
    - 沙箱应用切换为正式应用
@@ -601,6 +651,7 @@ pm2 stop aimaimai-api-prod
 | 后端 PM2 重启次数 | 每天 | 当天 > 3 次 | `pm2 logs aimaimai-api-prod --err --lines 200` |
 | 支付回调失败率 | 每天 | 失败率 > 1% | grep `alipay.*notify` + `Refund.status=FAILED` count |
 | 消费积分提现 PROCESSING 卡单 | 每小时 | 超过 30 分钟还在 PROCESSING | `WithdrawRequest.status=PROCESSING AND queryAttempts > 0` |
+| **企业支付宝余额 vs 待付提现总额** | 每周 | 余额 < 待付 PROCESSING 总额 | b.alipay.com 余额页 vs `SELECT SUM(amount) FROM "WithdrawRequest" WHERE status='PROCESSING'`。**触发后立刻去网银充值**（决策：未做自动调拨 + 未预充提现池，详见密码本 §6.1） |
 | 售后退款失败 cron 重试 | 每天 | 同一笔重试 > 3 次 | `Refund.status=FAILED AND afterSaleRequestId IS NOT NULL` |
 | 自动开票 FAILED | 每天 | 当天 > 5 单 | `Invoice.status=FAILED AND failedAttempts >= max` |
 | 顺丰下单失败 | 每天 | 当天 > 3 单 | grep `SfExpressService.*error` |
