@@ -58,13 +58,24 @@ App 上线必须**手动**走 EAS：要么推 OTA（覆盖 JS 改动），要么
 
 ```bash
 # 推 preview 环境（给测试人员用）
-EXPO_PUBLIC_ALIPAY_SANDBOX=true eas update --branch preview --message "修复xxx / 加xxx功能"
+EXPO_PUBLIC_ENV=staging EXPO_PUBLIC_ALIPAY_SANDBOX=true \
+  eas update --branch preview --message "修复xxx / 加xxx功能"
 
 # 推 production 环境（线上正式版）
-EXPO_PUBLIC_ALIPAY_SANDBOX=false eas update --branch production --message "修复xxx"
+EXPO_PUBLIC_ENV=production EXPO_PUBLIC_ALIPAY_SANDBOX=false \
+  eas update --branch production --message "修复xxx"
 
-# 不建议同时推 preview + production：支付宝沙箱开关不同，先 preview 验，再 production
+# 不建议同时推 preview + production：env 不同，先 preview 验，再 production
 ```
+
+**必带 env 前缀，否则 OTA bundle 里相关变量是 undefined**：
+
+| Env Var | 不带前缀的后果 |
+|---------|---------------|
+| `EXPO_PUBLIC_ALIPAY_SANDBOX` | 真机付款显示"商家订单参数异常"（详见 memory `feedback_ota_must_prepend_alipay_sandbox.md`） |
+| `EXPO_PUBLIC_ENV`（2026-05-27 P0 起） | `APP_ENV` fallback 到 `'development'`，红条文案显示"开发环境"而非"测试环境/生产环境"；非生产 build 仍能看到红条但文案细节不对 |
+
+OTA env 和 build env 是**完全分离**的：build 时 `eas.json` 的 env 烧进 native APK + 当时的 JS bundle；OTA 时只看 `eas update` 命令前缀的 env，不会自动从 `eas.json` 读取。
 
 ### 查 OTA 历史
 
@@ -287,7 +298,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `041c413d-d22c-4089-8a3e-7ae13016a44f` | VIP 专属空间换金色风格轻金 v1：`app/me/vip.tsx` + `app/vip/gifts.tsx` palette 从深墨绿黑底改为暖香槟金底——bgStart/bgEnd `#0A1F1A→#0D0D0D` → `#FFFDF5→#EAD78F`，goldPrimary `#C9A96E→#B8860B`，goldLight `#E8D5A3→#FFD700`，warmWhite `#F5F0E8→#3D2E1A`（key 名保留语义翻转为深棕文字），`cardBg` 0.06→0.55；硬编码 `rgba(201,169,110,*)` 全部 `→rgba(184,134,11,*)`。新增 3 个动效组件 `src/components/effects/`：①`GoldShimmerLine` 顶部金线 7 色金箔渐变 + 4s 水平扫动（接入身份卡顶线）②`GoldShineSweep` CTA 流光扫光半透明白色 3.5s 扫过（接入邀请好友 + 立即开通 CTA）③`GoldBgGlows` 背景 3 个柔焦金色圆斑。皇冠圆加 `shadowColor:#FFD700` 静态金发光替代 conic 转动光环。StatusBar light→dark 适配金底。跳过金箔渐变文字（需 `@react-native-masked-view` 装新原生包会破 OTA） | **当前生效** ✅，commit `3b191b6`（2026-05-27），纯 JS/TS 无原生改动，无后端依赖；Android update `019e67f1-2c8b-78aa-8689-2bfb1ff10222`，iOS update `019e67f1-2c8b-7aec-9219-0ae317bda122`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
+| `db56d548-a481-49d6-9142-acdf955bdb0f` | P0 EnvBanner + EXPO_PUBLIC_ENV：单包名方案下区分测试/生产环境的运行时标记。`src/repos/http/config.ts` 新增 `APP_ENV` / `IS_PRODUCTION` 常量；`eas.json` 三档 profile 都注入 `EXPO_PUBLIC_ENV`（development/staging/production），`development` 补 `EXPO_PUBLIC_ALIPAY_SANDBOX=true`；新增 `src/components/feedback/EnvBanner.tsx` 22px 红色顶条（非生产 build 渲染，故意不消耗 safe area 避免双重撑高），`app/_layout.tsx` 根布局 Stack 之上挂 EnvBanner。⚠️ **本次 OTA 命令前缀只带了 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` 没带 `EXPO_PUBLIC_ENV=staging`**（首次推没意识到 EXPO_PUBLIC_ENV 也要前缀注入），现有 preview APK 装这个 OTA bundle 后，`APP_ENV` fallback 到默认 `'development'`，红条显示"⚠️ 开发环境 · test-api.ai-maimai.com"。红条 UI 验证 OK，文案细节差异不影响功能。已同步更新 §三 OTA 命令模板，下次推 preview 时带 `EXPO_PUBLIC_ENV=staging` 前缀红条会显示"⚠️ 测试环境" | **当前生效** ✅，commit `5979e0a`（2026-05-27），纯 JS/TS 无原生改动，无后端依赖；Android update `019e6bc9-d45a-7730-a499-b61579df8817`，iOS update `019e6bc9-d45a-7886-8ed3-7ad9f9d072b7`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true`（漏带 `EXPO_PUBLIC_ENV=staging`）|
+| `041c413d-d22c-4089-8a3e-7ae13016a44f` | VIP 专属空间换金色风格轻金 v1：`app/me/vip.tsx` + `app/vip/gifts.tsx` palette 从深墨绿黑底改为暖香槟金底——bgStart/bgEnd `#0A1F1A→#0D0D0D` → `#FFFDF5→#EAD78F`，goldPrimary `#C9A96E→#B8860B`，goldLight `#E8D5A3→#FFD700`，warmWhite `#F5F0E8→#3D2E1A`（key 名保留语义翻转为深棕文字），`cardBg` 0.06→0.55；硬编码 `rgba(201,169,110,*)` 全部 `→rgba(184,134,11,*)`。新增 3 个动效组件 `src/components/effects/`：①`GoldShimmerLine` 顶部金线 7 色金箔渐变 + 4s 水平扫动（接入身份卡顶线）②`GoldShineSweep` CTA 流光扫光半透明白色 3.5s 扫过（接入邀请好友 + 立即开通 CTA）③`GoldBgGlows` 背景 3 个柔焦金色圆斑。皇冠圆加 `shadowColor:#FFD700` 静态金发光替代 conic 转动光环。StatusBar light→dark 适配金底。跳过金箔渐变文字（需 `@react-native-masked-view` 装新原生包会破 OTA） | 已被 `db56d548-a481-49d6-9142-acdf955bdb0f` 覆盖；commit `3b191b6`（2026-05-27），纯 JS/TS 无原生改动，无后端依赖；Android update `019e67f1-2c8b-78aa-8689-2bfb1ff10222`，iOS update `019e67f1-2c8b-7aec-9219-0ae317bda122`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `6faa6331-f6d3-4c6c-8bee-b51883c3c080` | 支付宝支付方式描述按沙箱开关动态切换：`src/constants/payment.ts:26` description 从硬编码"支持快捷支付（沙箱测试中）"改为按 `EXPO_PUBLIC_ALIPAY_SANDBOX` env 动态选择。沙箱 build 仍显示"沙箱测试中"，生产 build 仅显示"支持快捷支付"，避免生产 APK 误导真实用户。仿 `app/payment-success.tsx:55` 的同款 env 切换逻辑 | 已被 `041c413d-d22c-4089-8a3e-7ae13016a44f` 覆盖；commit `8aeafa0`（2026-05-27），纯 JS/TS 无原生改动，无后端依赖；Android update `019e67ac-feb2-78a1-be91-71146ca08d73`，iOS update `019e67ac-feb2-75b8-8f6b-468e68982580`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `b49053f1-56e3-4aab-8418-577c75340385` | 消费积分页空态文案改写：`app/me/wallet.tsx:521` EmptyState description 从「完成消费或推荐好友后即可获得消费积分」改成「成为 VIP 推荐好友获得消费积分」，统一引导用户走 VIP 推荐链路（普通用户/非 VIP 没有可分享推荐码） | 已被 `6faa6331-f6d3-4c6c-8bee-b51883c3c080` 覆盖；commit `1883ef6`（2026-05-27），纯 JS/TS 无原生改动，无后端依赖；Android update `019e67aa-3347-75df-851f-9c29856efbfc`，iOS update `019e67aa-3347-742c-b63f-e760a5978320`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `e6b584f4-094c-44a4-a3c9-8baea6b7f173` | VIP 礼包广告位卡片高度对齐：修 999 比 399/699 视觉高的错位（itemLines 数量不定 + subtitle 行数不定共同造成）；`itemLines` 显示上限 `MAX_ITEM_LINES=2`，超过的在第 2 行末尾加「等 N 款」收口；`cardPressable` / `card` 从 `minHeight:176` 改为 `height:188` 锁死，配合 `overflow:hidden` 把变长内容硬截（188dp = 28padding + 41header + 31title + 39subtitle 2-line + 38items 2-line + 11 buffer） | 已被 `b49053f1-56e3-4aab-8418-577c75340385` 覆盖；commit `a8bc889`（2026-05-27），纯 JS/TS 无原生改动，无后端依赖；Android update `019e679f-b58a-7757-8c55-aa058009573c`，iOS update `019e679f-b58a-7c3d-9f8b-6919a7cf85dc`；带 `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
