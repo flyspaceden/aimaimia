@@ -13,26 +13,31 @@ import { Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AiBadge } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
+import { GoldShimmerLine } from '../../src/components/effects/GoldShimmerLine';
+import { GoldShineSweep } from '../../src/components/effects/GoldShineSweep';
+import { GoldBgGlows } from '../../src/components/effects/GoldBgGlows';
 import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
-// VIP 专属空间色彩（与 gifts 页一致）
+// VIP 专属空间色彩 · 轻金 v1（与 gifts 页一致）
+// 背景从深墨绿黑换成暖香槟金，文字翻转为深棕，金色加深为深金 #B8860B + 亮金 #FFD700
+// warmWhite 语义已变为"文字主色"（金底上视觉为深棕），key 名保留避免大范围改动
 const VIP_COLORS = {
-  bgStart: '#0A1F1A',
-  bgMid: '#0F1A14',
-  bgEnd: '#0D0D0D',
-  goldPrimary: '#C9A96E',
-  goldLight: '#E8D5A3',
-  goldDim: 'rgba(201,169,110,0.6)',
-  warmWhite: '#F5F0E8',
-  subtleGray: '#8A8578',
-  cardBg: 'rgba(255,255,255,0.06)',
-  cardBorder: 'rgba(201,169,110,0.2)',
-  divider: 'rgba(201,169,110,0.12)',
-  highlightBg: 'rgba(201,169,110,0.08)',
+  bgStart: '#FFFDF5',
+  bgMid: '#FAF0CC',
+  bgEnd: '#EAD78F',
+  goldPrimary: '#B8860B',
+  goldLight: '#FFD700',
+  goldDim: 'rgba(184,134,11,0.6)',
+  warmWhite: '#3D2E1A',
+  subtleGray: '#5D4A2C',
+  cardBg: 'rgba(255,255,255,0.5)',
+  cardBorder: 'rgba(184,134,11,0.35)',
+  divider: 'rgba(184,134,11,0.25)',
+  highlightBg: 'rgba(184,134,11,0.12)',
 };
 
 // VIP 专属权益数据
@@ -182,6 +187,9 @@ export default function VipScreen() {
       colors={[VIP_COLORS.bgStart, VIP_COLORS.bgMid, VIP_COLORS.bgEnd]}
       style={styles.container}
     >
+      {/* 背景金箔光斑（柔焦圆斑，pointerEvents none） */}
+      <GoldBgGlows />
+
       {/* 自定义导航栏 */}
       <View style={[styles.navbar, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backButton}>
@@ -200,13 +208,8 @@ export default function VipScreen() {
         {member ? (
           <Animated.View entering={FadeInDown.duration(400).delay(100)} style={styles.section}>
             <View style={styles.identityCard}>
-              {/* 金色顶部装饰线 */}
-              <LinearGradient
-                colors={[VIP_COLORS.goldPrimary, VIP_COLORS.goldLight, VIP_COLORS.goldPrimary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.cardTopLine}
-              />
+              {/* 金色顶部装饰线（shimmer 流光金线） */}
+              <GoldShimmerLine height={3} />
               <View style={styles.identityContent}>
                 <View style={styles.identityLeft}>
                   {/* 皇冠图标 */}
@@ -411,6 +414,8 @@ export default function VipScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.inviteGradient}
               >
+                {/* 流光扫光（在 gradient 之上，content 之下） */}
+                <GoldShineSweep width={90} duration={3500} travel={420} />
                 <View style={styles.inviteContent}>
                   <View>
                     <Text style={styles.inviteTitle}>邀请好友成为 VIP</Text>
@@ -548,9 +553,6 @@ const styles = StyleSheet.create({
     borderColor: VIP_COLORS.cardBorder,
     overflow: 'hidden',
   },
-  cardTopLine: {
-    height: 2,
-  },
   identityContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -567,11 +569,17 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(201,169,110,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(201,169,110,0.3)',
+    backgroundColor: 'rgba(255,215,0,0.18)',
+    borderWidth: 1.5,
+    borderColor: VIP_COLORS.goldPrimary,
     justifyContent: 'center',
     alignItems: 'center',
+    // 金光发光环（静态）
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 6,
   },
   identityTitle: {
     fontSize: 18,
@@ -588,7 +596,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(201,169,110,0.12)',
+    backgroundColor: 'rgba(184,134,11,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -609,7 +617,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: 'rgba(201,169,110,0.12)',
+    backgroundColor: 'rgba(184,134,11,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -629,7 +637,7 @@ const styles = StyleSheet.create({
     minHeight: 32,
     paddingHorizontal: 12,
     borderRadius: 16,
-    backgroundColor: 'rgba(201,169,110,0.16)',
+    backgroundColor: 'rgba(184,134,11,0.16)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 10,
@@ -726,7 +734,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: 'rgba(201,169,110,0.1)',
+    backgroundColor: 'rgba(184,134,11,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -745,7 +753,7 @@ const styles = StyleSheet.create({
     color: VIP_COLORS.warmWhite,
   },
   benefitHighlight: {
-    backgroundColor: 'rgba(201,169,110,0.15)',
+    backgroundColor: 'rgba(184,134,11,0.15)',
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -763,7 +771,7 @@ const styles = StyleSheet.create({
   },
   benefitCompare: {
     fontSize: 11,
-    color: 'rgba(201,169,110,0.5)',
+    color: 'rgba(184,134,11,0.5)',
     marginTop: 3,
   },
 
@@ -788,7 +796,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(201,169,110,0.15)',
+    backgroundColor: 'rgba(184,134,11,0.15)',
     borderWidth: 1,
     borderColor: VIP_COLORS.goldPrimary,
     justifyContent: 'center',

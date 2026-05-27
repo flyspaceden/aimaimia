@@ -35,6 +35,8 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useToast } from '../../src/components/feedback';
 import { GiftCoverImage } from '../../src/components/cards';
+import { GoldShineSweep } from '../../src/components/effects/GoldShineSweep';
+import { GoldBgGlows } from '../../src/components/effects/GoldBgGlows';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout } from '../../src/theme';
 import type { VipGiftOption } from '../../src/types/domain/Bonus';
@@ -44,21 +46,23 @@ import type { VipGiftOption } from '../../src/types/domain/Bonus';
 // 设计规范见 buy-vip.md Section 5.2
 // ============================================================
 
-// VIP 专属空间色彩规范
+// VIP 专属空间色彩规范 · 轻金 v1
+// 背景从深墨绿黑换成暖香槟金，文字翻转为深棕，金色加深为深金 + 亮金
+// warmWhite 语义已变为"文字主色"（金底上视觉为深棕），key 名保留避免大范围改动
 const VIP = {
-  bgStart: '#0A1F1A',
-  bgEnd: '#0D0D0D',
-  goldPrimary: '#C9A96E',
-  goldLight: '#E8D5A3',
-  warmWhite: '#F5F0E8',
-  subtleGray: '#8A8578',
-  cardBg: 'rgba(255,255,255,0.06)',
-  cardBorder: 'rgba(201,169,110,0.3)',
-  cardBorderActive: 'rgba(201,169,110,0.8)',
-  cardGlow: 'rgba(201,169,110,0.15)',
-  soldOutOverlay: 'rgba(0,0,0,0.6)',
-  referralBg: 'rgba(201,169,110,0.08)',
-  bottomBarBg: 'rgba(13,13,13,0.85)',
+  bgStart: '#FFFDF5',
+  bgEnd: '#EAD78F',
+  goldPrimary: '#B8860B',
+  goldLight: '#FFD700',
+  warmWhite: '#3D2E1A',
+  subtleGray: '#5D4A2C',
+  cardBg: 'rgba(255,255,255,0.55)',
+  cardBorder: 'rgba(184,134,11,0.35)',
+  cardBorderActive: '#B8860B',
+  cardGlow: 'rgba(184,134,11,0.2)',
+  soldOutOverlay: 'rgba(255,253,245,0.65)',
+  referralBg: 'rgba(184,134,11,0.12)',
+  bottomBarBg: 'rgba(255,253,245,0.92)',
 };
 
 // VIP 权益图标
@@ -388,7 +392,7 @@ export default function VipGiftsScreen() {
         colors={[VIP.bgStart, VIP.bgEnd]}
         style={[styles.container, { paddingTop: insets.top }]}
       >
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
         <GoldParticles screenWidth={SCREEN_WIDTH} />
         <View style={styles.vipAlreadyContainer}>
           <MaterialCommunityIcons name="crown" size={64} color={VIP.goldPrimary} />
@@ -419,7 +423,7 @@ export default function VipGiftsScreen() {
         colors={[VIP.bgStart, VIP.bgEnd]}
         style={[styles.container, { paddingTop: insets.top }]}
       >
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>加载中...</Text>
         </View>
@@ -432,7 +436,8 @@ export default function VipGiftsScreen() {
       colors={[VIP.bgStart, VIP.bgEnd]}
       style={styles.container}
     >
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
+      <GoldBgGlows />
       <GoldParticles screenWidth={SCREEN_WIDTH} />
 
       {/* 导航栏 */}
@@ -613,11 +618,14 @@ export default function VipGiftsScreen() {
             ]}
           >
             <LinearGradient
-              colors={selectedIndex !== null ? [VIP.goldPrimary, VIP.goldLight] : ['#555', '#444']}
+              colors={selectedIndex !== null ? [VIP.goldPrimary, VIP.goldLight] : ['#999', '#777']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.checkoutButtonGradient}
             >
+              {selectedIndex !== null ? (
+                <GoldShineSweep width={80} duration={3500} travel={300} />
+              ) : null}
               <Text
                 {...compactActionTextProps}
                 style={[
@@ -904,13 +912,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: 'rgba(201,169,110,0.3)',
+    borderColor: 'rgba(184,134,11,0.3)',
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
   },
   priceTabActive: {
     borderColor: '#C9A96E',
-    backgroundColor: 'rgba(201,169,110,0.12)',
+    backgroundColor: 'rgba(184,134,11,0.12)',
   },
   priceTabAmount: {
     fontSize: 22,
@@ -943,7 +951,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     overflow: 'hidden',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(201,169,110,0.15)',
+    borderTopColor: 'rgba(184,134,11,0.15)',
   },
   bottomBarCompact: {
     paddingHorizontal: 16,
