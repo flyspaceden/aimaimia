@@ -518,7 +518,7 @@ export default function WalletScreen() {
                   : activeFilter === 'available' ? '暂无已到账积分'
                   : '暂无收支记录'
                 }
-                description="完成消费或推荐好友后即可获得消费积分"
+                description="成为 VIP 推荐好友获得消费积分"
               />
             )
           }
