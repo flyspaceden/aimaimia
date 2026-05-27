@@ -602,7 +602,7 @@ export default function VipGiftsScreen() {
         onLayout={handleBottomBarLayout}
         style={[styles.bottomBar, compactBottomBar && styles.bottomBarCompact, { paddingBottom: barBottomPad }]}
       >
-        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
         <View style={[styles.bottomBarContent, compactBottomBar && styles.bottomBarContentCompact]}>
           <View style={[styles.bottomPriceSection, compactBottomBar && styles.bottomPriceSectionCompact]}>
             <Text style={styles.bottomLabel}>开通 VIP</Text>
