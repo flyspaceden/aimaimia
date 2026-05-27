@@ -1,13 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../theme';
@@ -19,59 +11,82 @@ type VipHomePromoCarouselProps = {
   onPressCard: (card: VipHomePromoCard) => void;
 };
 
-const AUTO_PLAY_INTERVAL = 3500;
-const RESUME_AFTER_USER_INTERACT = 5000;
+// 每秒平移多少 dp，太大眼花、太小停滞，28dp/s 在 240dp 卡上等价一张约 8.5s 走完
+const SCROLL_SPEED_DP_PER_SEC = 28;
 
-// 首页非 VIP 礼包广告位：展示后台 VIP 档位下的主推赠品组合内容（自动轮播 + 用户交互暂停）。
+// 首页非 VIP 礼包广告位：连续顺滑滚动的跑马灯（复制一份卡片实现无缝循环）
 export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCarouselProps) {
   const { colors, spacing, radius, typography, shadow } = useTheme();
   const { width, isLargeText } = useResponsiveLayout();
   const cards = useMemo(() => buildVipHomePromoCards(packages), [packages]);
 
-  const scrollRef = useRef<ScrollView>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [autoPlayPaused, setAutoPlayPaused] = useState(false);
-  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // 大字体/紧凑屏下卡片适度收窄，避免内文拥挤
   const cardWidth = isLargeText
     ? Math.min(220, Math.max(184, width * 0.55))
     : Math.min(246, Math.max(204, width * 0.58));
-  const cardStep = cardWidth + 8; // 卡片宽度 + 卡间距 spacing.sm
+  const cardStep = cardWidth + 8;
+  // 复制一份卡片以实现无缝循环：translateX 跑到 -loopDistance 时，
+  // 视觉位置等同于 0（第二组的开头与第一组的开头屏幕位置一致），瞬时 reset 用户察觉不到
+  const loopCards = useMemo(
+    () => (cards.length > 1 ? [...cards, ...cards] : cards),
+    [cards],
+  );
+  const loopDistance = cardStep * cards.length;
 
-  // 自动轮播：每 3.5s 切下一张，到尾循环回 0
-  useEffect(() => {
-    if (autoPlayPaused || cards.length <= 1) return;
-    const timer = setInterval(() => {
-      setActiveIndex((prev) => {
-        const next = (prev + 1) % cards.length;
-        scrollRef.current?.scrollTo({ x: next * cardStep, animated: true });
-        return next;
-      });
-    }, AUTO_PLAY_INTERVAL);
-    return () => clearInterval(timer);
-  }, [autoPlayPaused, cards.length, cardStep]);
+  const translateX = useRef(new Animated.Value(0)).current;
+  // 自驱动循环（替代 Animated.loop）使我们能在长按时停在当前位置，松开后从该位置续滑
+  const currentXRef = useRef(0);
+  const pausedRef = useRef(false);
 
-  // 用户手动滑动时暂停自动播放，5s 后恢复
-  const pauseAutoPlay = () => {
-    setAutoPlayPaused(true);
-    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-    resumeTimerRef.current = setTimeout(() => setAutoPlayPaused(false), RESUME_AFTER_USER_INTERACT);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-    };
-  }, []);
-
-  const handleMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const idx = Math.round(x / cardStep);
-    if (idx !== activeIndex && idx >= 0 && idx < cards.length) {
-      setActiveIndex(idx);
+  const runOneCycle = useCallback(() => {
+    if (pausedRef.current || cards.length <= 1 || loopDistance <= 0) return;
+    const start = currentXRef.current; // ≤ 0
+    const remaining = loopDistance + start;
+    if (remaining <= 0) {
+      // 已到/越过尾部，重置后继续
+      translateX.setValue(0);
+      currentXRef.current = 0;
+      runOneCycle();
+      return;
     }
-  };
+    const duration = (remaining / SCROLL_SPEED_DP_PER_SEC) * 1000;
+    Animated.timing(translateX, {
+      toValue: -loopDistance,
+      duration,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        // 自然滑到 -loopDistance：复制卡组让该位置视觉等同 0，瞬时 reset 用户无感
+        translateX.setValue(0);
+        currentXRef.current = 0;
+        if (!pausedRef.current) runOneCycle();
+      }
+      // !finished → 被 stopAnimation 打断，currentXRef 已由 handlePressIn 捕获
+    });
+  }, [cards.length, loopDistance, translateX]);
+
+  useEffect(() => {
+    currentXRef.current = 0;
+    pausedRef.current = false;
+    translateX.setValue(0);
+    runOneCycle();
+    return () => {
+      translateX.stopAnimation();
+    };
+  }, [cards.length, loopDistance, runOneCycle, translateX]);
+
+  const handlePressIn = useCallback(() => {
+    pausedRef.current = true;
+    translateX.stopAnimation((value) => {
+      currentXRef.current = value;
+    });
+  }, [translateX]);
+
+  const handlePressOut = useCallback(() => {
+    pausedRef.current = false;
+    runOneCycle();
+  }, [runOneCycle]);
 
   if (cards.length === 0) return null;
 
@@ -89,120 +104,106 @@ export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCaro
         </Text>
       </View>
 
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[styles.listContent, { paddingHorizontal: spacing.xl }]}
-        style={{ marginHorizontal: -spacing.xl }}
-        onScrollBeginDrag={pauseAutoPlay}
-        onMomentumScrollEnd={handleMomentumScrollEnd}
-        decelerationRate="fast"
-        snapToInterval={cardStep}
-        snapToAlignment="start"
+      <View
+        style={[
+          styles.marqueeViewport,
+          { marginHorizontal: -spacing.xl, paddingLeft: spacing.xl },
+        ]}
       >
-        {cards.map((card, index) => (
-          <Pressable
-            key={`${card.packageId}-${card.giftOptionId}`}
-            onPress={() => {
-              pauseAutoPlay();
-              onPressCard(card);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`${card.price}元 VIP 礼包，${card.title}，点击查看赠品详情`}
-            style={[
-              styles.cardPressable,
-              { width: cardWidth, marginRight: index === cards.length - 1 ? 0 : 8 },
-            ]}
-          >
-            <LinearGradient
-              colors={['#FFFDF5', '#FFF8E1', '#FFF1C8']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[
-                styles.card,
-                {
-                  borderRadius: radius.lg,
-                  borderColor: colors.brand.primary,
-                },
-                shadow.sm,
-              ]}
+        <Animated.View style={[styles.marqueeTrack, { transform: [{ translateX }] }]}>
+          {loopCards.map((card, index) => (
+            <Pressable
+              key={`${card.packageId}-${card.giftOptionId}-${index}`}
+              onPress={() => onPressCard(card)}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              accessibilityRole="button"
+              accessibilityLabel={`${card.price}元 VIP 礼包，${card.title}，点击查看赠品详情`}
+              style={[styles.cardPressable, { width: cardWidth, marginRight: 8 }]}
             >
-              <View style={styles.cardGlow} />
-              <View style={styles.cardHeader}>
-                <View>
-                  <Text {...priceTextProps} style={styles.priceText}>
-                    ¥{Number.isInteger(card.price) ? card.price.toFixed(0) : card.price.toFixed(2)}
-                  </Text>
-                  <Text style={[styles.packageLabel, { color: colors.text.secondary }]}>
-                    VIP 礼包
-                  </Text>
-                </View>
-                <View style={[styles.giftIconBox, { borderColor: colors.brand.primary }]}>
-                  <MaterialCommunityIcons name="gift-outline" size={22} color={colors.brand.primary} />
-                </View>
-              </View>
-
-              <View style={styles.titleRow}>
-                <Text
-                  {...fitTextProps}
-                  style={[styles.giftTitle, { color: colors.brand.primaryDark }]}
-                >
-                  {card.title}
-                </Text>
-                {card.badge ? (
-                  <View style={[styles.badge, { borderColor: colors.brand.primary, backgroundColor: colors.brand.primarySoft }]}>
-                    <Text style={[styles.badgeText, { color: colors.brand.primaryDark }]} numberOfLines={1}>
-                      {card.badge}
+              <LinearGradient
+                colors={['#FFFDF5', '#FFF8E1', '#FFF1C8']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[
+                  styles.card,
+                  { borderRadius: radius.lg, borderColor: colors.brand.primary },
+                  shadow.sm,
+                ]}
+              >
+                <View style={styles.cardGlow} />
+                <View style={styles.cardHeader}>
+                  <View>
+                    <Text {...priceTextProps} style={styles.priceText}>
+                      ¥{Number.isInteger(card.price) ? card.price.toFixed(0) : card.price.toFixed(2)}
+                    </Text>
+                    <Text style={[styles.packageLabel, { color: colors.text.secondary }]}>
+                      VIP 礼包
                     </Text>
                   </View>
-                ) : null}
-              </View>
+                  <View style={[styles.giftIconBox, { borderColor: colors.brand.primary }]}>
+                    <MaterialCommunityIcons name="gift-outline" size={22} color={colors.brand.primary} />
+                  </View>
+                </View>
 
-              <Text style={[styles.subtitle, { color: colors.text.secondary }]} numberOfLines={2}>
-                {card.subtitle}
-              </Text>
-
-              <View style={styles.itemsBox}>
-                {card.itemLines.length > 0 ? (
-                  card.itemLines.map((line, lineIndex) => (
+                <View style={styles.titleRow}>
+                  <Text
+                    {...fitTextProps}
+                    style={[styles.giftTitle, { color: colors.brand.primaryDark }]}
+                  >
+                    {card.title}
+                  </Text>
+                  {card.badge ? (
                     <View
-                      key={`${card.packageId}-${card.giftOptionId}-line-${lineIndex}`}
-                      style={styles.itemLine}
+                      style={[
+                        styles.badge,
+                        {
+                          borderColor: colors.brand.primary,
+                          backgroundColor: colors.brand.primarySoft,
+                        },
+                      ]}
                     >
-                      <View style={[styles.itemDot, { backgroundColor: colors.brand.primary }]} />
-                      <Text style={[styles.itemText, { color: colors.text.primary }]} numberOfLines={1}>
-                        {line}
+                      <Text
+                        style={[styles.badgeText, { color: colors.brand.primaryDark }]}
+                        numberOfLines={1}
+                      >
+                        {card.badge}
                       </Text>
                     </View>
-                  ))
-                ) : (
-                  <Text style={[styles.emptyItemsText, { color: colors.text.tertiary }]}>
-                    开通后选择该档位赠品
-                  </Text>
-                )}
-              </View>
+                  ) : null}
+                </View>
 
-            </LinearGradient>
-          </Pressable>
-        ))}
-      </ScrollView>
+                <Text style={[styles.subtitle, { color: colors.text.secondary }]} numberOfLines={2}>
+                  {card.subtitle}
+                </Text>
 
-      {cards.length > 1 ? (
-        <View style={styles.dotsRow}>
-          {cards.map((card, index) => (
-            <View
-              key={`dot-${card.packageId}-${card.giftOptionId}`}
-              style={[
-                styles.dot,
-                index === activeIndex
-                  ? { backgroundColor: colors.brand.primary, width: 16 }
-                  : { backgroundColor: colors.border },
-              ]}
-            />
+                <View style={styles.itemsBox}>
+                  {card.itemLines.length > 0 ? (
+                    card.itemLines.map((line, lineIndex) => (
+                      <View
+                        key={`${card.packageId}-${card.giftOptionId}-${index}-line-${lineIndex}`}
+                        style={styles.itemLine}
+                      >
+                        <View style={[styles.itemDot, { backgroundColor: colors.brand.primary }]} />
+                        <Text
+                          style={[styles.itemText, { color: colors.text.primary }]}
+                          numberOfLines={1}
+                        >
+                          {line}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={[styles.emptyItemsText, { color: colors.text.tertiary }]}>
+                      开通后选择该档位赠品
+                    </Text>
+                  )}
+                </View>
+              </LinearGradient>
+            </Pressable>
           ))}
-        </View>
-      ) : null}
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -218,7 +219,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  listContent: {
+  marqueeViewport: {
+    overflow: 'hidden',
+  },
+  marqueeTrack: {
+    flexDirection: 'row',
     paddingVertical: 2,
   },
   cardPressable: {
@@ -312,17 +317,5 @@ const styles = StyleSheet.create({
   },
   emptyItemsText: {
     fontSize: 11,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-    gap: 6,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
   },
 });
