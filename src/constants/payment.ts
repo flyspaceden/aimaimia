@@ -23,7 +23,15 @@ export const paymentMethods: Array<{
   available: boolean;
   comingSoon?: string;
 }> = [
-  { value: 'alipay', label: '支付宝', description: '支持快捷支付（沙箱测试中）', available: true },
+  {
+    value: 'alipay',
+    label: '支付宝',
+    description:
+      process.env.EXPO_PUBLIC_ALIPAY_SANDBOX === 'true'
+        ? '支持快捷支付（沙箱测试中）'
+        : '支持快捷支付',
+    available: true,
+  },
   {
     value: 'wechat',
     label: '微信支付',
