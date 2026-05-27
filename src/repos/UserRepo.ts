@@ -52,15 +52,6 @@ export const UserRepo = {
     return ApiClient.post<UserProfile>('/me/sync-wechat-avatar', { code });
   },
   /**
-   * 头像历史（最近 5 条，按时间倒序）
-   * - 后端接口：`GET /api/v1/me/avatar-history`
-   * - 来源：UPLOAD（用户上传）/ WECHAT（微信同步）
-   */
-  avatarHistory: async (): Promise<Result<Array<{ id: string; url: string; source: 'UPLOAD' | 'WECHAT'; createdAt: string }>>> => {
-    if (USE_MOCK) return simulateRequest([], { delay: 200 });
-    return ApiClient.get('/me/avatar-history');
-  },
-  /**
    * 发送"绑定手机号"验证码
    * - 后端接口：`POST /api/v1/me/bind-phone/sms/code` body: { phone }
    */
