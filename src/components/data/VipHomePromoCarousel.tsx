@@ -14,6 +14,9 @@ type VipHomePromoCarouselProps = {
 // 每秒平移多少 dp，太大眼花、太小停滞，28dp/s 在 240dp 卡上等价一张约 8.5s 走完
 const SCROLL_SPEED_DP_PER_SEC = 28;
 
+// itemLines 最多显示几行，超过的在第二行末尾以「等 N 款」收口，保证所有卡片高度一致
+const MAX_ITEM_LINES = 2;
+
 // 首页非 VIP 礼包广告位：连续顺滑滚动的跑马灯（复制一份卡片实现无缝循环）
 export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCarouselProps) {
   const { colors, spacing, radius, typography, shadow } = useTheme();
@@ -179,20 +182,28 @@ export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCaro
 
                 <View style={styles.itemsBox}>
                   {card.itemLines.length > 0 ? (
-                    card.itemLines.map((line, lineIndex) => (
-                      <View
-                        key={`${card.packageId}-${card.giftOptionId}-${index}-line-${lineIndex}`}
-                        style={styles.itemLine}
-                      >
-                        <View style={[styles.itemDot, { backgroundColor: colors.brand.primary }]} />
-                        <Text
-                          style={[styles.itemText, { color: colors.text.primary }]}
-                          numberOfLines={1}
+                    card.itemLines.slice(0, MAX_ITEM_LINES).map((line, lineIndex, arr) => {
+                      const isLastVisible = lineIndex === arr.length - 1;
+                      const hasOverflow = card.itemLines.length > MAX_ITEM_LINES;
+                      const displayText =
+                        isLastVisible && hasOverflow
+                          ? `${line} 等 ${card.itemLines.length} 款`
+                          : line;
+                      return (
+                        <View
+                          key={`${card.packageId}-${card.giftOptionId}-${index}-line-${lineIndex}`}
+                          style={styles.itemLine}
                         >
-                          {line}
-                        </Text>
-                      </View>
-                    ))
+                          <View style={[styles.itemDot, { backgroundColor: colors.brand.primary }]} />
+                          <Text
+                            style={[styles.itemText, { color: colors.text.primary }]}
+                            numberOfLines={1}
+                          >
+                            {displayText}
+                          </Text>
+                        </View>
+                      );
+                    })
                   ) : (
                     <Text style={[styles.emptyItemsText, { color: colors.text.tertiary }]}>
                       开通后选择该档位赠品
@@ -227,10 +238,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   cardPressable: {
-    minHeight: 176,
+    height: 188,
   },
   card: {
-    minHeight: 176,
+    height: 188,
     padding: 14,
     overflow: 'hidden',
     borderWidth: 1.2,
