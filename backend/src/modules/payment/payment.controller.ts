@@ -180,9 +180,15 @@ export class PaymentController {
    * 微信支付异步通知回调
    * - req.rawBody 用于微信 v3 RSA 验签，不能用 JSON 重新序列化后的 body
    * - 成功处理统一 200 空 body ack；身份或验签失败返回 401 FAIL
+   *
+   * ⚠️ 不挂 WebhookIpGuard（与顺丰回调同策略，参见 shipment.controller.ts:54）：
+   *   微信支付官方不公布回调 IP 段且 IP 漂移频繁
+   *   （https://pay.weixin.qq.com/doc/v3/merchant/4012791902 明确"不公布具体IP段"）
+   *   防伪靠 RSA-SHA256 签名 + 微信平台公钥校验（WechatPayService.parseNotify），
+   *   该签名机制密码学层面攻击者无法伪造（平台私钥只在微信侧），强度高于 IP 白名单。
+   *   另：parseNotify 还做了 timestamp 5 分钟重放窗口 + appid/mchid 身份校验 双重防护。
    */
   @Public()
-  @UseGuards(WebhookIpGuard)
   @Post('wechat/notify')
   async handleWechatNotify(
     @Body() body: Record<string, any>,
