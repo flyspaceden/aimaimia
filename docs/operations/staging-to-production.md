@@ -16,21 +16,27 @@
 
 ## 〇、上线前必须先确认的事（拍板项）
 
-| 项 | 要在切换前回答 |
-|----|----------------|
-| **ICP 备案** | `ai-maimai.com` 主域 + 子域名（`api / admin / seller / app / www`，加上各自 `test-` 前缀的测试域名）是否全部已通过备案？|
-| **业务版本** | `staging` 分支当前 commit 是否就是要上生产的版本？是否已在测试环境跑完所有 critical path？包括：**消费积分双轨（提现到支付宝 + 抵扣）/ 退货顺丰面单 / 自动开票 / 售后退款失败重试** |
-| **数据库迁移** | `backend/prisma/migrations/` 当前累计 **54 条**，**生产从未部署过**，需全量 deploy。是否已逐条 review §6.4 的清单，特别是 5 条 🔴 破坏性变更？|
-| **支付宝生产配置** | 已申请下来生产 `APP_ID` / 应用私钥 / 4 张证书（appCert / alipayCert / alipayRootCert）？沙箱**绝不能**直接复用到生产 |
-| **支付宝转账（提现）订阅** | 开放平台后台已订阅事件 `alipay.fund.trans.order.changed` 并配 webhook 到 `https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`？否则消费积分提现只能靠 cron 兜底 5-10 分钟 |
-| **支付回调 IP 白名单** | 已确认**支付宝**生产回调 IP 段，写入 `WEBHOOK_IP_WHITELIST`？（生产 + 该值为空时所有挂 `WebhookIpGuard` 的 webhook 直接 403）。**注意**：顺丰 callback / 微信支付 notify **都不挂** `WebhookIpGuard`（顺丰靠 URL token，微信靠 RSA 签名），无需写入；详见 `shipment.controller.ts:54` 和 `payment.controller.ts:184` |
-| **顺丰生产凭证** | 已申请生产月结 + 丰桥生产 clientCode / checkWord / 模板 / 推送 secret？UAT 凭据**绝不能**复用 |
-| **App 渠道** | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事 |
-| **website main 锁** | `.github/workflows/deploy-website.yml:100` 是否已加回 `&& github.ref == 'refs/heads/main'`？目前为测试期临时去掉的，**切 main 前必须先合一个 PR 加回去**，否则 staging 推送会污染生产官网 |
-| **法律合规文本** | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
-| **回滚预案** | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
-| **环境共用资源已知** | 是否已 review §1.1「staging↔prod 共用资源风险表」？特别是 Redis 单实例共用、阿里云配额按账户级共享。OSS 已 2026-05-26 启用硬隔离独立 bucket ✅ |
-| **手动改动有记录** | 上线前后所有"绕过 git"的人工动作（宝塔 / 阿里云控制台 / 支付宝&微信&顺丰商户后台 / 服务器 .env / pg SQL）是否在动作完成后**立刻**写入 §1.2 列的归属文档？|
+> **进度快照（2026-05-27 凌晨更新）**：支付宝外部配置 + 顺丰外部配置基本就位 ✅；剩 `WEBHOOK_IP_WHITELIST`（支付宝 IP）+ 服务器 IP 白名单（防御性）+ website main 锁 + 法律合规文本 4 项硬卡，加上 push main 当天的服务器部署动作。
+
+| 项 | 状态 | 要在切换前回答 |
+|----|------|----------------|
+| **ICP 备案** | ✅ | `ai-maimai.com` 主域 + 子域名（`api / admin / seller / app / www`，加上各自 `test-` 前缀的测试域名）全部已通过备案 |
+| **业务版本** | ⏳ | `staging` 分支当前 commit 是否就是要上生产的版本？是否已在测试环境跑完所有 critical path？包括：**消费积分双轨（提现到支付宝 + 抵扣）/ 退货顺丰面单 / 自动开票 / 售后退款失败重试** |
+| **数据库迁移** | ⏳ | `backend/prisma/migrations/` 当前累计 **54 条**，**生产从未部署过**，需全量 deploy。是否已逐条 review §6.4 的清单，特别是 5 条 🔴 破坏性变更？|
+| **支付宝生产配置** | ✅ | 生产 `APP_ID=2021006144601730` / PID `2088480327393784` / 4 张证书全部就位（本地 `backend/certs/alipay/`，密码本 §6.1）；APP 支付签约（2026-04-06）+ 转账签约（2026-04-11）；2026-05-26 b.alipay.com 提额材料补充完成，额度已恢复。⏳ push main 当天 `scp` 证书到生产服务器 + 写 8 行 `.env` |
+| **支付宝转账（提现）订阅** | ✅ | 2026-05-26 已在开放平台订阅事件 `alipay.fund.trans.order.changed`（FROM 平台 / HTTP / 回调 `/api/v1/payments/alipay/transfer-notify`） |
+| **支付宝开放平台后台配置** | ✅ | 2026-05-27 应用网关已切到生产 `https://api.ai-maimai.com/api/v1/payments/alipay/notify` + 加签方式 RSA2 公钥证书模式（密码本 §6.1） |
+| **支付回调 IP 白名单** | ❌ | 还要做：抄 https://opendocs.alipay.com/open/200/ipwhitelist 的支付宝生产回调 IP 段写入 `WEBHOOK_IP_WHITELIST`（生产 + 该值为空时所有挂 `WebhookIpGuard` 的 webhook 直接 403）。**注意**：顺丰 callback / 微信支付 notify **都不挂** `WebhookIpGuard`（顺丰靠 URL token，微信靠 RSA 签名），无需写入；详见 `shipment.controller.ts:54` 和 `payment.controller.ts:184` |
+| **支付宝服务器 IP 白名单** | ❌ | 开放平台「开发设置 → 服务器 IP 白名单」未配置。建议设上作纵深防御：万一应用私钥/证书泄露，攻击者从其他 IP 也调不动支付宝 OpenAPI。填我方生产 ECS 出口 IP（在服务器跑 `curl -4 ifconfig.me` 实测；预计就是 `8.163.16.32`） |
+| **顺丰生产凭证** | ✅ | 生产 clientCode `HHNYKCL5OWXM` / checkWord `mO1AN9899...` / 月结账号 `7551253482` / 面单模板 `fm_150_standard_HHNYKCL5OWXM` / 推送 secret 全部下发并存入密码本 §7。沙箱 6 个核心 API 联调通过 |
+| **顺丰丰桥后台推送配置** | ✅ | 2026-05-26 已在丰桥后台为 RoutePushService + PushOrderState 两个推送接口配置生产 URL（都带 token 段，状态"已上线"）。两推送共享后端同一 endpoint `/sf/callback/:token`，按 body 结构自动分发 |
+| **App 渠道** | ⏳ | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事。**关沙箱开关（`EXPO_PUBLIC_ALIPAY_SANDBOX=false`）属 env 改动必须 Build，不能 OTA** |
+| **微信支付入口** | ⏳ | v1.0 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 留空 → 微信入口灰掉。开启前置：①微信商户 APP 支付权限审核 ②生产凭据 + 证书写 .env ③真金联调 ④改 eas.json 加 env 重新 Build（密码本 §十三 链条已细化） |
+| **website main 锁** | ❌ | `.github/workflows/deploy-website.yml:100` 是否已加回 `&& github.ref == 'refs/heads/main'`？目前为测试期临时去掉的，**切 main 前必须先合一个 PR 加回去**，否则 staging 推送会污染生产官网 |
+| **法律合规文本** | ❌ | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
+| **回滚预案** | ⏳ | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
+| **环境共用资源已知** | ⏳ | 是否已 review §1.1「staging↔prod 共用资源风险表」？特别是 Redis 单实例共用、阿里云配额按账户级共享。OSS 已 2026-05-26 启用硬隔离独立 bucket ✅ |
+| **手动改动有记录** | ⏳ | 上线前后所有"绕过 git"的人工动作（宝塔 / 阿里云控制台 / 支付宝&微信&顺丰商户后台 / 服务器 .env / pg SQL）是否在动作完成后**立刻**写入 §1.2 列的归属文档？|
 
 任何一项答不上来，**先停下，不要 push main**。
 
@@ -573,7 +579,50 @@ pm2 stop aimaimai-api-prod
    - 改 line 100：`if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'`
    - 单独一个 commit 合到 staging → 再合到 main
 
-2. **生产数据库初始化**：`prisma migrate deploy`（GitHub Actions 自动跑）+ 手动 SQL 插入最少必要的基础数据。
+2. **首次服务器初始化**（**push main 之前必做，workflow 不会替你做**）
+
+   GitHub Actions backend job 假定 3 个前提：`/www/wwwroot/aimaimai-prod-src` 已是 git 仓库 / `backend/.env` 已存在 / `pm2 reload aimaimai-api-prod` 能找到现存进程。首次部署这 3 个都没有，必须人工初始化一次。
+
+   ```bash
+   # ① SSH 到生产服务器
+   ssh root@8.163.16.32
+
+   # ② git clone main 分支（目录已由宝塔预建）
+   cd /www/wwwroot/aimaimai-prod-src
+   git clone https://github.com/flyspaceden/aimaimia.git .
+   git checkout main
+   git status   # clean
+
+   # ③ 写 backend/.env（按 §二 逐字段对照 + docs/operations/.env.prod 本地副本）
+   #    凭据全部来自密码本（DB / JWT × 3 / 支付宝 4 件套路径 / 微信 §5.2 / 顺丰 §7 / OSS §4.3.2）
+   #    特别注意：WEBHOOK_IP_WHITELIST 必填（支付宝 IP 段，§十一 第 5 项）
+   #              TRUST_PROXY=1（反代后必须）
+   #              DATA_ENCRYPTION_KEY=（独立 32 字节 hex，不要省）
+   vim /www/wwwroot/aimaimai-prod-src/backend/.env
+
+   # ④ scp 支付宝 4 张证书（本地终端跑，不是 ssh 里）
+   scp backend/certs/alipay/{appCertPublicKey.crt,alipayCertPublicKey.crt,alipayRootCert.crt,app-private-key.txt} \
+       root@8.163.16.32:/www/wwwroot/aimaimai-prod-src/backend/certs/alipay/
+   # 微信支付 2 张证书（apiclient_key.pem + apiclient_cert.pem），若开启微信入口同步 scp
+
+   # ⑤ 首次启动（必须用 pm2 start 而非 reload）
+   cd /www/wwwroot/aimaimai-prod-src/backend
+   npm ci
+   npx prisma generate
+   npx prisma migrate deploy   # 54 条 migration 全量首次部署，看 §6.4 清单确认无意外
+   npm run build
+   pm2 start dist/main.js --name aimaimai-api-prod -- --env=production
+   pm2 save                     # 持久化进程列表，服务器重启后自动拉起
+   pm2 logs aimaimai-api-prod --lines 50 --nostream   # 看启动期强校验是否全过
+
+   # ⑥ 健康检查
+   curl http://127.0.0.1:3000/api/v1/health   # {"status":"ok"}
+   curl https://api.ai-maimai.com/api/v1/health   # 走 Nginx 一次端到端
+   ```
+
+   完成后才能 push main 让 workflow 的 `pm2 reload --update-env` 接管后续部署。
+
+3. **生产数据库初始化**：`prisma migrate deploy`（GitHub Actions 自动跑 / 首次手动跑过一次）+ 手动 SQL 插入最少必要的基础数据。
    **关键常量来源（不要凭印象编 ID）**：`backend/src/modules/bonus/engine/constants.ts`
    - `PLATFORM_USER_ID = 'PLATFORM'`（平台用户的 userId）
    - `PLATFORM_COMPANY_ID = 'PLATFORM_COMPANY'`（平台公司的 id）
@@ -609,46 +658,51 @@ pm2 stop aimaimai-api-prod
    ```
    **不跑 `db seed`**（会重置基础数据）。建议把上面 SQL 写到 `backend/prisma/production-bootstrap.sql` 单独维护
 
-3. **超管账号改密**：默认 `admin / 123456` 必须立即改为强密码并写入 `密码本.md §2.x`
+4. **超管账号改密**：默认 `admin / 123456` 必须立即改为强密码并写入 `密码本.md §2.x`
 
-4. **WEBHOOK_IP_WHITELIST 首次填值**：
+5. **WEBHOOK_IP_WHITELIST 首次填值**：
    - **仅写支付宝**生产回调 IP 段：查支付宝开放平台文档（搜"支付宝服务端 IP"），https://opendocs.alipay.com/open/200/ipwhitelist
    - 顺丰 callback / 微信支付 notify **不在这个白名单管辖范围**（各自靠 URL token / RSA 签名），无需 IP 段
    - 写入 `WEBHOOK_IP_WHITELIST` 后 `pm2 reload aimaimai-api-prod --update-env`
    - 记录 IP 段来源、查询日期、后台截图到 `docs/operations/阿里云部署.md` 或 `密码本.md`
 
-5. **顺丰商务沟通**（2026-05-26 已完成，凭据见密码本 §7）：
+6. **顺丰商务沟通**（2026-05-26 已完成，凭据见密码本 §7）：
    - ✅ 申请生产月结账号 `7551253482`
    - ✅ 拿到生产 clientCode `HHNYKCL5OWXM` / checkWord `mO1AN9899...` / 模板号 `fm_150_standard_HHNYKCL5OWXM`
    - ✅ 把生产推送回调地址 `https://api.ai-maimai.com/api/v1/shipments/sf/callback/84a7d77ac0ec13252cdb5fc4e244be7b` 配进丰桥后台（2 个推送接口 RoutePushService + PushOrderState 都已上线）
 
-6. **支付宝开放平台**：
-   - 沙箱应用切换为正式应用
-   - 重配「应用网关 / 授权回调 / 加签方式（**推荐 RSA2 公钥证书模式**）」
-   - **订阅事件 `alipay.fund.trans.order.changed`** + webhook 配 `https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`（消费积分提现链路依赖）
-   - 上传生产应用证书四件套到服务器 `/www/wwwroot/aimaimai-prod-src/backend/certs/alipay/`
+7. **支付宝开放平台**（2026-05-27 大部分已完成，凭据见密码本 §6.1）：
+   - ✅ 沙箱应用切换为正式应用（生产 AppID `2021006144601730`，沙箱 AppID `9021000162667503` 独立保留供测试用）
+   - ✅ 应用网关 `https://api.ai-maimai.com/api/v1/payments/alipay/notify` + 加签方式 RSA2 公钥证书模式
+   - ⏳ 授权回调地址（OAuth 用）—— v1.0 代码未用到支付宝 OAuth，**决策延后**，未来加"支付宝快捷登录"再配
+   - ✅ 订阅事件 `alipay.fund.trans.order.changed` + webhook `https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`（消费积分提现链路秒到，无需 cron 兜底）
+   - ✅ 接口加签方式：密钥/证书模式（已设置）
+   - ❌ 服务器 IP 白名单：未配置，建议 push main 前补上作纵深防御（防应用私钥泄露后被滥用），填 ECS 出口 IP
+   - ⏳ 上传生产应用证书四件套到服务器 `/www/wwwroot/aimaimai-prod-src/backend/certs/alipay/`（push main 当天 `scp` 一条命令，参见密码本 §6.1）
 
-7. **微信开放平台**：
+8. **微信开放平台**：
    - 确认上传的是 release keystore 的签名 MD5（`76:6B:AF:B6:A3:B3:4A:67:87:61:E4:B0:7E:36:65:C4`）
    - 包名 `com.aimaimai.shop` 审核通过
    - 实际状态记录到 `docs/operations/阿里云部署.md` 或 `app-发布与OTA手册.md`
 
-8. **OSS 软隔离**（**当前未实现**）：实际上传 key 在 `backend/src/modules/upload/upload.service.ts:124-126` 直接生成 `${safeFolder}/${uuid}.${ext}` 形式，**没有** `prod/` / `staging/` 前缀。两种做法二选一：
-   - 改 `UploadService.uploadFile` 在 key 前面拼一个 `${process.env.OSS_KEY_PREFIX || ''}` 前缀（推荐，需新增 env）
-   - 或在 OSS 后台为两个环境分别建独立 bucket（运维成本高）
+9. **OSS 硬隔离**（**2026-05-26 已实现**）：放弃软隔离前缀方案，直接为生产建独立 bucket + 独立 RAM 子账号，物理隔离。当前状态：
+   - bucket：`huahai-aimaimai-prod`（华东1杭州 / 私有 / 版本控制开启 / AES256 加密 / 本地冗余 / tag env=prod app=aimaimai）
+   - CORS：6 个生产域名（`https://*.ai-maimai.com` / `https://ai-maimai.com` / `https://xn--ckqa175y.com`）+ methods GET/POST/PUT/DELETE/HEAD + headers `*` + expose `ETag` `x-oss-request-id` + 600s cache
+   - RAM 子账号：`aimaimai-prod-oss@1012909846841930.onaliyun.com`，授权 `AliyunOSSFullAccess`（2026-05-27 完成）
+   - 凭据：密码本 §4.3.2（含 AccessKey ID + Secret）
+   - 代码无需改动：`UploadService` 走 `OSS_BUCKET` env，写 `huahai-aimaimai-prod` 就自动隔离
+   - ⚠️ **上线前 TODO**：AccessKey ID `LTAI5t6N4HK8e6Qj26NGsXjg` 在创建过程中出现在 Claude 对话上下文，建议在 RAM 控制台 → 用户 → AccessKey 管理 → 创建新 AccessKey → 更新生产 `.env` + 密码本 → 禁用旧 Key（密码本 §4.3.3 已留 checklist）
 
-   生产首次部署前最好做 a 方案，避免 staging 测试图片污染线上 OSS 命名空间。
+10. **法律合规文本填实**（**上线 + App 上架双重前置**）：
+    - 编辑 `src/content/legal/privacyPolicy.ts` — 把所有【待填】字段替换为真实内容（公司全称、注册地址、统一社会信用代码、联系电话、联系邮箱）
+    - 编辑 `src/content/legal/termsOfService.ts` — 同上
+    - **必须经法律顾问审核**（文件头部已写明，分润奖励条款尤其要审）
+    - 上线前推一次 OTA（这两个是纯 JS 内容文件）
+    - App 上架审核时应用商店会逐字检查，不符合规范直接拒绝
 
-9. **法律合规文本填实**（**上线 + App 上架双重前置**）：
-   - 编辑 `src/content/legal/privacyPolicy.ts` — 把所有【待填】字段替换为真实内容（公司全称、注册地址、统一社会信用代码、联系电话、联系邮箱）
-   - 编辑 `src/content/legal/termsOfService.ts` — 同上
-   - **必须经法律顾问审核**（文件头部已写明，分润奖励条款尤其要审）
-   - 上线前推一次 OTA（这两个是纯 JS 内容文件）
-   - App 上架审核时应用商店会逐字检查，不符合规范直接拒绝
+11. **首次 App 上架**：走 `docs/operations/app-compliance-guide.md`（营业执照 / 软著 / App 备案 / 应用商店上架）
 
-10. **首次 App 上架**：走 `docs/operations/app-compliance-guide.md`（营业执照 / 软著 / App 备案 / 应用商店上架）
-
-11. **更新 `docs/operations/阿里云部署.md` 变更记录**：记录首次生产部署日期 + 所有人工动作 + 凭据所在密码本章节
+12. **更新 `docs/operations/阿里云部署.md` 变更记录**：记录首次生产部署日期 + 所有人工动作 + 凭据所在密码本章节
 
 ---
 
