@@ -41,12 +41,6 @@ export class UserController {
     return this.userService.syncWechatAvatar(userId, body.code);
   }
 
-  /** 头像历史（最近 5 条，按时间倒序） */
-  @Get('avatar-history')
-  getAvatarHistory(@CurrentUser('sub') userId: string) {
-    return this.userService.getAvatarHistory(userId);
-  }
-
   /** 发送"绑定手机号"验证码（IP 维度 3/min 防多账号同 IP 误伤；号码维度限流在 service 里） */
   @Throttle({ default: { ttl: 60_000, limit: 3 } })
   @Post('bind-phone/sms/code')
