@@ -89,7 +89,7 @@
 
 ---
 
-## 🟠 HIGH 问题（7 个）
+## 🟠 HIGH 问题（8 个）
 
 ### S07: OTP 验证码可被并发重复使用
 - **状态**: ✅ 已修复（2026-02-24）
@@ -141,6 +141,22 @@
   2. 前端提交订单时传入 `preview.summary.totalPayable` 作为 `expectedTotal`
   3. 后端 `createFromCart` 事务内先计算所有子订单实际合计，与 `expectedTotal` 比对
   4. 差异超过 ¥0.01 时拒绝下单，返回「价格已变更」错误提示新金额
+
+### S22: 红包锁定与 CheckoutSession 创建非原子（v1.1 待重构）
+- **状态**: ⏸️ **v1.0 决策延后**（2026-05-28 识别 + cron 缓解）
+- **文件**: `backend/src/modules/order/checkout.service.ts:604-617` + `backend/src/modules/coupon/coupon.service.ts` (validateAndReserveCoupons)
+- **问题**: 红包预留与订单 CheckoutSession 创建跨两个独立 Serializable 事务执行：
+  1. 第一个事务（line 604）调 `couponService.validateAndReserveCoupons()` 把 `CouponInstance.status` CAS 改为 `RESERVED`
+  2. 中间执行业务逻辑（计算订单金额等）
+  3. 第二个事务（line 649）`prisma.$transaction()` 创建 CheckoutSession
+  4. 第二个事务失败 → catch（line 792）释放红包；进程崩溃 → **僵尸 RESERVED 记录**
+- **设计意图**：红包预留应该与订单链路原子绑定，违反则有 race window 暴露在 ACID 之外
+- **v1.0 缓解措施**：2026-05-28 在 `coupon.service.ts` 加 `cronRecoverStuckReservations`（每 5 min 扫 `status=RESERVED AND updatedAt < now-10min`，按关联 Order 状态自动 confirm/release），把僵尸记录恢复时间从"永久卡死"压到"最多 15 分钟内自动恢复"。
+- **剩余风险**（cron 缓解后还有的）：
+  1. 中间 race window 期间，并发用户看到 RESERVED 红包不可领（**几百毫秒级，UX 影响微乎其微**）
+  2. 架构上违反"红包预留必须在订单链路内"原则（**代码 smell，非业务 bug**）
+- **v1.1 重构方案**: 把 `validateAndReserveCoupons` 改成接受 `tx` 参数，或在 `checkout.service.ts` inline coupon CAS 直接写进 session 事务。**触及资金核心路径，重构有回归风险，先在 v1.1 集中处理。**
+- **决策记录**: 2026-05-28 用户明确选择 v1.0 跳过重构（cron 已缓解 + 改动风险大于收益）
 
 ### S21: 顺丰沙箱旧路由事件污染当前订单状态
 - **状态**: ✅ 已修复（2026-05-08）
@@ -245,9 +261,11 @@
 | 级别 | 总数 | 已修复 | 未修复 |
 |------|------|--------|--------|
 | 🔴 CRITICAL | 6 | 6 | 0 |
-| 🟠 HIGH | 8 | 8 | 0 |
+| 🟠 HIGH | 8 | 7 | 1 ⏸️ |
 | 🟡 MEDIUM | 8 | 8 | 0 |
-| **合计** | **22** | **22** | **0** |
+| **合计** | **22** | **21** | **1** |
+
+⏸️ S22（红包锁定 atomicity）v1.0 决策延后到 v1.1，cron 已缓解实际影响，详见对应条目。
 
 全部 22 个安全问题已修复完成（2026-05-15 复核后更新）。
 
