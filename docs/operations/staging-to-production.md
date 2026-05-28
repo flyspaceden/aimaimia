@@ -22,7 +22,7 @@
 |----|------|----------------|
 | **ICP 备案** | ✅ | `ai-maimai.com` 主域 + 子域名（`api / admin / seller / app / www`，加上各自 `test-` 前缀的测试域名）全部已通过备案 |
 | **业务版本** | ⏳ | `staging` 分支当前 commit 是否就是要上生产的版本？是否已在测试环境跑完所有 critical path？包括：**消费积分双轨（提现到支付宝 + 抵扣）/ 退货顺丰面单 / 自动开票 / 售后退款失败重试** |
-| **数据库迁移** | ⏳ | `backend/prisma/migrations/` 当前累计 **54 条**，**生产从未部署过**，需全量 deploy。是否已逐条 review §6.4 的清单，特别是 5 条 🔴 破坏性变更？|
+| **数据库迁移** | ⏳ | `backend/prisma/migrations/` 当前累计 **56 条**，**生产从未部署过**，需全量 deploy。是否已逐条 review §6.4 的清单，特别是 5 条 🔴 破坏性变更？|
 | **支付宝生产配置** | ✅ | 生产 `APP_ID=2021006144601730` / PID `2088480327393784` / 4 张证书全部就位（本地 `backend/certs/alipay/`，密码本 §6.1）；APP 支付签约（2026-04-06）+ 转账签约（2026-04-11）；2026-05-26 b.alipay.com 提额材料补充完成，额度已恢复。⏳ push main 当天 `scp` 证书到生产服务器 + 写 8 行 `.env` |
 | **支付宝转账（提现）订阅** | ✅ | 2026-05-26 已在开放平台订阅事件 `alipay.fund.trans.order.changed`（FROM 平台 / HTTP / 回调 `/api/v1/payments/alipay/transfer-notify`） |
 | **支付宝开放平台后台配置** | ✅ | 2026-05-27 应用网关已切到生产 `https://api.ai-maimai.com/api/v1/payments/alipay/notify` + 加签方式 RSA2 公钥证书模式（密码本 §6.1） |
@@ -74,7 +74,7 @@
 
 | # | 通道 | 共用程度 | 已知风险 | 缓解状态 |
 |---|------|---------|---------|---------|
-| ① | **migration 文件** | 同一代码库 | staging 跑通的 migration push main 后自动在生产数据库执行；5 条 🔴 不可纯 SQL 回退 | ✅ §六整章 + §6.4 54 条逐条标级 + §九 回滚预案。**每次 push main 必须 review** |
+| ① | **migration 文件** | 同一代码库 | staging 跑通的 migration push main 后自动在生产数据库执行；5 条 🔴 不可纯 SQL 回退 | ✅ §六整章 + §6.4 56 条逐条标级 + §九 回滚预案。**每次 push main 必须 review** |
 | ② | **OSS bucket** | **已硬隔离**：staging 用 `huahai-aimaimai`，prod 用 `huahai-aimaimai-prod`（2026-05-26 新建） | 物理隔离 → 不会污染、不会误删跨环境、独立账单/RAM 子账号 | ✅ 已实现。AccessKey ID `LTAI5t6N4HK8e6Qj26NGsXjg` 曾在 Claude 对话出现，**上线前需在 RAM 控制台轮换**（密码本 §4.3.2 + §4.3.3 已留 checklist）|
 | ③ | **Redis 实例** | 同一 `127.0.0.1:6379` | 业务 cache key 有 namespace 不会撞 ✅；**但 Socket.IO Redis adapter 的跨实例广播 channel `socket.io#${ns}#` 会让 staging 和 prod 互发事件**（理论上生产用户能收到 staging 触发的客服/订单 WS 推送）| ⚠️ 实际影响：staging 当前无真实用户流量，**无感**。中期建议给 Redis adapter 加 `key: 'prod:' / 'staging:'` 前缀（`RedisIoAdapter` 改 10 行）。短期缓解：staging 永远不接真客服会话 |
 | ④ | **阿里云账号配额**（SMS / OSS / DashScope） | 共用 RAM AccessKey | staging 测试发短信 / 调 AI / 上传图 → 全用生产账户配额计费 | ⚠️ 详见 §1.2 配额风险表。**短信 / OSS 成本可忽略；DashScope 按 token 计费要监控** |
@@ -135,7 +135,7 @@
 | `ADMIN_JWT_SECRET` | `<TEST_ADMIN_JWT_SECRET>` | **`<PROD_ADMIN_JWT_SECRET>`（独立，与 JWT_SECRET 不同）** |
 | `SELLER_JWT_SECRET` | `<TEST_SELLER_JWT_SECRET>` | **`<PROD_SELLER_JWT_SECRET>`（独立）** |
 | `JWT_EXPIRES_IN` | `15m` | `15m`（access token 15 分钟；refresh 30 天写死在代码里）|
-| `DATA_ENCRYPTION_KEY` | （可留空，兜底走 `JWT_SECRET` → `'nongmai-dev-data-key'`）| **`<PROD_DATA_ENCRYPTION_KEY>`（32 字节随机 hex，用于 PII 字段 AES-256-GCM 加密）**。**强烈建议生产必填**：`encryption.ts:20-26` 的兜底顺序是 `DATA_ENCRYPTION_KEY → JWT_SECRET → 弱默认`，若依赖 JWT_SECRET 作为加密 key，则 JWT 泄露 = 加密 key 同步泄露（发票 bankInfo / 税号等 PII 全暴露），必须独立配置 |
+| `DATA_ENCRYPTION_KEY` | （可留空，兜底走 `JWT_SECRET` → `'nongmai-dev-data-key'`）| **`<PROD_DATA_ENCRYPTION_KEY>`（32 字节随机 hex，用于 PII 字段 AES-256-GCM 加密）**。**生产必填且已加启动强校验**（见 §2.2 第 6 条，为空或等于 JWT_SECRET 直接拒绝启动）：`encryption.ts:20-26` 的兜底顺序是 `DATA_ENCRYPTION_KEY → JWT_SECRET → 弱默认`，若依赖 JWT_SECRET 作为加密 key，则 JWT 泄露 = 加密 key 同步泄露（发票 bankInfo / 税号等 PII 全暴露），必须独立配置 |
 | `PAYMENT_WEBHOOK_SECRET` | `<TEST_PAYMENT_WEBHOOK_SECRET>` | **`<PROD_PAYMENT_WEBHOOK_SECRET>`（独立，HMAC-SHA256）** |
 | `LOGISTICS_WEBHOOK_SECRET` | `<TEST_LOGISTICS_WEBHOOK_SECRET>` | **`<PROD_LOGISTICS_WEBHOOK_SECRET>`（独立）** |
 | `WEBHOOK_IP_WHITELIST` | 可留空（开发环境放行）| **必填**：`<支付宝生产回调IP段>`，逗号分隔，支持 CIDR。**为空时 `NODE_ENV=production` → 所有挂 `WebhookIpGuard` 的 webhook 直接 `ForbiddenException`，支付订单永远停在未支付**（`webhook-ip.guard.ts:40-44`）。**只配支付宝**：顺丰 callback / 微信支付 notify 不在守卫范围内（`shipment.controller.ts:54` / `payment.controller.ts:184`），各自靠 token / RSA 签名独立防伪 |
@@ -184,11 +184,12 @@
 
 后端启动时会做以下强校验，**任何一项不通过都会拒绝启动 / 拒绝业务**：
 
-1. `backend/src/main.ts:71-73` — `isProduction && !CORS_ORIGINS` → `throw Error('生产环境必须配置 CORS_ORIGINS')`，进程起不来
+1. `backend/src/main.ts:88-90` — `isProduction && !CORS_ORIGINS` → `throw Error('生产环境必须配置 CORS_ORIGINS')`，进程起不来
 2. `backend/src/common/guards/webhook-ip.guard.ts:40-44` — `NODE_ENV=production` 且未配 `WEBHOOK_IP_WHITELIST` → **所有挂 `WebhookIpGuard` 的 webhook 路由**（仅支付宝 notify/refund/transfer-notify 三条，见 `payment.controller.ts:52/73/305`）抛 `ForbiddenException`，支付订单永远停在未支付。顺丰 callback 和微信支付 notify 不受影响
 3. **`backend/src/modules/shipment/sf-express.service.ts:onModuleInit`** — `SF_ENV=PROD` 且未配 `SF_PUSH_SECRET` → 抛异常；`SF_TEMPLATE_CODE` 后缀必须以 `_<SF_CLIENT_CODE>` 结尾，否则抛
 4. **`backend/src/modules/payment/alipay.service.ts:onModuleInit`** — 生产 + 证书加载失败 → 抛异常（之前是静默降级，C11 已修）
 5. **`backend/src/modules/admin/auth/admin-auth.module.ts:16` / `seller-auth.module.ts:19`** — 三个 JWT secret 全部 `getOrThrow`，缺一个就起不来
+6. **`backend/src/main.ts:35-47`** — 生产环境 `DATA_ENCRYPTION_KEY` 为空 → 抛异常拒绝启动；且 `DATA_ENCRYPTION_KEY === JWT_SECRET` 也抛（防止退化回兜底耦合）。原因：`encryption.ts:20-26` 的 `deriveKey()` 兜底链会静默改用 `JWT_SECRET`，缺失时一旦轮换 JWT 或补配独立 key，已加密 PII（发票银行信息/税号、提现账号、地址快照、卖家虚拟号）永久解不开。**此校验把"看不见的不可逆坑"变成"上线即拒启动"**（2026-05-28 新增）
 
 ### 2.3 .env.example 当前缺失的占位（**部署前需手动加到生产 .env**）
 
@@ -334,7 +335,7 @@ git log staging --oneline ^main -- backend/prisma/migrations/
 
 任何破坏性变更，**push main 前**必须把对应的反向 SQL 写进 PR 描述或本文档「十、本次发布的差异与反向操作」模板对应的发布记录。
 
-### 6.4 当前累计迁移清单（54 条，按时序）
+### 6.4 当前累计迁移清单（56 条，按时序）
 
 **生产从未部署，需全量一次性 deploy**。等级标记：🟢 安全（加表 / 加可空字段 / 加索引 / 加枚举值）/ 🟡 谨慎（NOT NULL+DEFAULT、数据修复 UPDATE）/ 🔴 危险（DROP / RENAME / 改枚举语义 / 状态机）。
 
@@ -372,8 +373,10 @@ git log staging --oneline ^main -- backend/prisma/migrations/
 | 52 | `20260518020000_stock_aware_cart_and_after_sale_idempotency` | 🟢 | 加字段 / 加幂等索引 |
 | 53 | `20260519010000_reward_dual_track` | 🔴 | **`WithdrawStatus ADD VALUE PROCESSING` / `RewardEntryType ADD VALUE DEDUCT`** |
 | 54 | `20260519010001_reward_dual_track_columns` | 🔴 | `WithdrawRequest` 加 12 字段 + 4 索引 + `status` DEFAULT 改为 PROCESSING + 幂等键 |
+| 55 | `20260526010000_add_avatar_history` | 🟢 | 加表 `AvatarHistory`（头像历史）|
+| 56 | `20260526020000_drop_avatar_history` | 🟡 | DROP TABLE `AvatarHistory`（撤销 M55，产品决策不存历史）。首次空库部署净中性（建完即删）；二次发布回滚可重建表，不属不可逆类 |
 
-**5 条 🔴 真正不可纯 SQL 回退的迁移**：M17 / M32 / M36 / M41 / M44 / M53（enum RENAME VALUE / 表 RENAME / 列 RENAME / enum ADD VALUE）。
+**6 条 🔴 真正不可纯 SQL 回退的迁移**：M17 / M32 / M36 / M41 / M44 / M53（enum RENAME VALUE / 表 RENAME / 列 RENAME / enum ADD VALUE）。M55/M56 虽改表结构但可纯 SQL 反向，不在此列。
 
 **首次切换不需要写反向 SQL**（生产是空库，旧名根本不存在）。**后续如果某次发布需回滚**，按以下规则：
 - 加表 / 加可空字段 / 加索引：可以先回滚代码，跑反向 `DROP` 语句
@@ -610,7 +613,7 @@ pm2 stop aimaimai-api-prod
    cd /www/wwwroot/aimaimai-prod-src/backend
    npm ci
    npx prisma generate
-   npx prisma migrate deploy   # 54 条 migration 全量首次部署，看 §6.4 清单确认无意外
+   npx prisma migrate deploy   # 56 条 migration 全量首次部署，看 §6.4 清单确认无意外
    npm run build
    pm2 start dist/main.js --name aimaimai-api-prod -- --env=production
    pm2 save                     # 持久化进程列表，服务器重启后自动拉起
@@ -623,41 +626,24 @@ pm2 stop aimaimai-api-prod
 
    完成后才能 push main 让 workflow 的 `pm2 reload --update-env` 接管后续部署。
 
-3. **生产数据库初始化**：`prisma migrate deploy`（GitHub Actions 自动跑 / 首次手动跑过一次）+ 手动 SQL 插入最少必要的基础数据。
-   **关键常量来源（不要凭印象编 ID）**：`backend/src/modules/bonus/engine/constants.ts`
-   - `PLATFORM_USER_ID = 'PLATFORM'`（平台用户的 userId）
-   - `PLATFORM_COMPANY_ID = 'PLATFORM_COMPANY'`（平台公司的 id）
-   - `NORMAL_ROOT_ID = 'NORMAL_ROOT'`（普通用户三叉树根）
-   - VIP 三叉树根 `A1...A20`（按需扩到 MAX_ROOT_NODES）
+3. **生产数据库初始化**：`prisma migrate deploy` 之后，跑**现成的引导脚本** `backend/prisma/production-bootstrap.ts` 建立最小必要基础数据。**不要手写 SQL，更不要跑 `db seed`**（后者会写入 u-001 等演示数据，生产严禁）。
 
-   ```sql
-   -- ① 平台用户（必须先建，作为平台公司的 ownerId / 平台 RewardAccount.userId）
-   INSERT INTO "User" (id, phone, status, "createdAt", "updatedAt")
-   VALUES ('PLATFORM', '13900000000', 'ACTIVE', NOW(), NOW());
-
-   -- ② 平台公司（爱买买 app）
-   INSERT INTO "Company" (id, name, "shortName", "isPlatform", status, "createdAt", "updatedAt")
-   VALUES ('PLATFORM_COMPANY', '爱买买app', '爱买买', true, 'ACTIVE', NOW(), NOW());
-
-   -- ③ 普通树根节点 NORMAL_ROOT
-   INSERT INTO "NormalTreeNode" (id, "userId", "parentId", level, "childrenCount", "createdAt", "updatedAt")
-   VALUES ('NORMAL_ROOT', 'PLATFORM', NULL, 0, 0, NOW(), NOW());
-
-   -- ④ VIP 三叉树根节点 A1-A10（详见 backend/prisma/seed.ts:1687-1701 模板）
-   -- 注：当前 seed 只到 A3，需要手工补 A4-A10 或调整 seed 后单跑（生产严禁全量 seed）
-   -- 每个根节点需配套创建 User + UserProfile + MemberProfile(tier=VIP) + VipProgress + VipTreeNode
-
-   -- ⑤ 初始超管账号（首次部署后立刻改密）
-   -- bcrypt-hash 用 `node -e "console.log(require('bcrypt').hashSync('<新密码>', 10))"` 本地生成
-   INSERT INTO "AdminUser" (id, username, "passwordHash", phone, status, "createdAt", "updatedAt")
-   VALUES (gen_random_uuid()::text, 'admin', '<bcrypt-hash-of-strong-password>', '13900000000', 'ACTIVE', NOW(), NOW());
-   -- 上线后立刻在管理后台"账号安全"页再改一次密！
-
-   -- ⑥ RuleConfig 初始化（提现规则 / 抵扣规则 / 发票自动开票开关等）
-   -- 详见 backend/prisma/seed.ts 中 RuleConfig.createMany 模板（约 line 1500+）
-   -- 至少要 seed: WITHDRAW_TAX_RATE / DEDUCTION_RATIO_NORMAL / DEDUCTION_RATIO_VIP / INVOICE_AUTO_ISSUE / INVOICE_AUTO_ISSUE_MAX_ATTEMPTS
+   ```bash
+   cd /www/wwwroot/aimaimai-prod-src/backend
+   # 已 npm ci + npx prisma generate + npx prisma migrate deploy 之后：
+   ADMIN_BOOTSTRAP_PASSWORD='<强密码>' npx ts-node prisma/production-bootstrap.ts
    ```
-   **不跑 `db seed`**（会重置基础数据）。建议把上面 SQL 写到 `backend/prisma/production-bootstrap.sql` 单独维护
+
+   脚本内容（全 upsert，幂等可重复跑；详见文件头注释）：
+   - 60 条权限 + 3 角色（超管/经理/员工）+ 角色-权限关联
+   - 超管账号 `admin`（密码取 `ADMIN_BOOTSTRAP_PASSWORD`，缺省 `123456`；重跑不覆盖已改的密码）
+   - 平台用户 `PLATFORM` + 平台公司 `PLATFORM_COMPANY` + 普通树根 `NORMAL_ROOT`
+   - VIP 三叉树根 `A1–A10`（即便不预置也能跑：无推荐人 VIP 落位时系统从 A1 起自动建，见 `bonus.service.ts` 的 `assignVipTreeNode`）
+   - RuleConfig 56 条（`{value, description}` 信封）+ RuleVersion `initial` 快照；`INVOICE_ISSUER_PROFILE` 已填真实开票主体
+
+   **关键常量来源（核对用，勿凭印象编 ID）**：`backend/src/modules/bonus/engine/constants.ts` —— `PLATFORM_USER_ID='PLATFORM'` / `PLATFORM_COMPANY_ID='PLATFORM_COMPANY'` / `NORMAL_ROOT_ID='NORMAL_ROOT'`。
+
+   ⚠️ **已知小缺口**：脚本未含 RuleConfig `DISCOVERY_COMPANY_FILTERS`（发现页企业筛选栏，seed.ts 有）。缺失不报错——`company.service.ts` 读不到时返回空数组（发现页不显示企业筛选栏），上线后在管理后台「发现页筛选配置」配置即可，或手动补该 key（注意它存的是**裸数组** `[]`，不走 `{value, description}` 信封）。
 
 4. **超管账号改密**：默认 `admin / 123456` 必须立即改为强密码并写入 `密码本.md §2.x`
 
@@ -678,7 +664,7 @@ pm2 stop aimaimai-api-prod
    - ⏳ 授权回调地址（OAuth 用）—— v1.0 代码未用到支付宝 OAuth，**决策延后**，未来加"支付宝快捷登录"再配
    - ✅ 订阅事件 `alipay.fund.trans.order.changed` + webhook `https://api.ai-maimai.com/api/v1/payments/alipay/transfer-notify`（消费积分提现链路秒到，无需 cron 兜底）
    - ✅ 接口加签方式：密钥/证书模式（已设置）
-   - ❌ 服务器 IP 白名单：未配置，建议 push main 前补上作纵深防御（防应用私钥泄露后被滥用），填 ECS 出口 IP
+   - ✅ 服务器 IP 白名单：2026-05-27 已配置（模式「配置全量接口」+ IP `8.163.16.32`，即 ssh 实测 ECS 出站 IP）。AppID `2021006144601730` 名下所有接口强制走此 IP，纵深防御应用私钥泄露后被异地滥用（含转账接口）。详见密码本 §6.1「服务器 IP 白名单」
    - ⏳ 上传生产应用证书四件套到服务器 `/www/wwwroot/aimaimai-prod-src/backend/certs/alipay/`（push main 当天 `scp` 一条命令，参见密码本 §6.1）
 
 8. **微信开放平台**：
