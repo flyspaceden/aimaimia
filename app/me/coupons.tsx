@@ -76,7 +76,7 @@ const CouponCard = React.memo(function CouponCard({
     RESERVED: '锁定中',
     REVOKED: '已撤回',
   };
-  const statusText = statusTextMap[item.status] ?? item.status;
+  const statusText = statusTextMap[item.status] ?? `未知状态(${item.status})`;
 
   return (
     <View
@@ -139,7 +139,7 @@ const CouponCard = React.memo(function CouponCard({
         )}
 
         <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-          过期时间：{item.expiresAt.slice(0, 10)}
+          过期时间：{new Date(item.expiresAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}
         </Text>
 
         {item.status === 'USED' && item.usedOrderId && (
@@ -309,7 +309,12 @@ export default function MyCouponsScreen() {
               <Skeleton height={96} radius={radius.lg} />
             </View>
           ) : coupons.length === 0 ? (
-            <EmptyState title="暂无红包" description="去领券中心领取可用红包" />
+            <EmptyState
+              title="暂无红包"
+              description="去领券中心领取可用红包"
+              actionLabel="去领券中心"
+              onAction={() => setMainTab('center')}
+            />
           ) : (
             <FlatList
               data={coupons}
@@ -373,7 +378,7 @@ export default function MyCouponsScreen() {
                       >
                         <Text {...priceTextProps} style={styles.amountValue}>{formatCampaignDiscount(item)}</Text>
                         <Text style={styles.amountThreshold}>
-                          {item.minOrderAmount > 0 ? `满¥${item.minOrderAmount}` : '无门槛'}
+                          {item.minOrderAmount > 0 ? `满¥${item.minOrderAmount}可用` : '无门槛'}
                         </Text>
                       </LinearGradient>
 
