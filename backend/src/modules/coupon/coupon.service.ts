@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CouponEngineService } from './coupon-engine.service';
@@ -85,12 +86,24 @@ export class CouponService {
 
   /**
    * 查询用户的红包列表（支持状态筛选）
+   *
+   * Bug 19 修复：增加分页默认上限防止 OOM。
+   * 前端 (`src/repos/CouponRepo.ts`) 当前消费纯数组返回，因此保持返回结构不变，
+   * 只在内部强制 skip/take（默认 page=1, limit=100），后续如需更大量可通过 query 传参。
    */
-  async getMyCoupons(userId: string, status?: string) {
+  async getMyCoupons(
+    userId: string,
+    status?: string,
+    options?: { page?: number; limit?: number },
+  ) {
     const where: any = { userId };
     if (status) {
       where.status = status;
     }
+
+    const page = Math.max(1, options?.page ?? 1);
+    const limit = Math.min(Math.max(1, options?.limit ?? 100), 200);
+    const skip = (page - 1) * limit;
 
     const instances = await this.prisma.couponInstance.findMany({
       where,
@@ -98,6 +111,8 @@ export class CouponService {
         campaign: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
     });
 
     return instances.map((inst) => ({
@@ -595,28 +610,57 @@ export class CouponService {
   /**
    * 释放已锁定的红包（RESERVED → AVAILABLE）
    * 在 CheckoutSession 过期或取消时调用
+   *
+   * Bug 14 修复：包裹 Serializable 事务，防止与 confirmCouponUsage / claimCoupon
+   * 等并发写入产生不一致；CAS 条件保证只释放 RESERVED 的实例，
+   * 已 USED/EXPIRED/REVOKED 的不会被覆盖。叠加 P2034 序列化冲突重试。
    */
   async releaseCoupons(couponInstanceIds: string[]) {
     if (!couponInstanceIds || couponInstanceIds.length === 0) return;
 
-    const result = await this.prisma.couponInstance.updateMany({
-      where: {
-        id: { in: couponInstanceIds },
-        status: 'RESERVED', // 只释放 RESERVED 状态的
-      },
-      data: {
-        status: 'AVAILABLE',
-      },
-    });
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(
+          async (tx) => {
+            const result = await tx.couponInstance.updateMany({
+              where: {
+                id: { in: couponInstanceIds },
+                status: 'RESERVED', // CAS：仅释放 RESERVED 状态
+              },
+              data: {
+                status: 'AVAILABLE',
+              },
+            });
 
-    if (result.count < couponInstanceIds.length) {
-      this.logger.warn(
-        `红包部分释放：请求 ${couponInstanceIds.length} 张，实际 ${result.count} 张`,
-      );
-    } else {
-      this.logger.log(
-        `释放 ${result.count}/${couponInstanceIds.length} 张红包`,
-      );
+            if (result.count < couponInstanceIds.length) {
+              // 部分释放是安全的（可能已被 confirm 为 USED 或 cron 标记为 EXPIRED）
+              this.logger.warn(
+                `红包部分释放：请求 ${couponInstanceIds.length} 张，实际 ${result.count} 张`,
+              );
+            } else {
+              this.logger.log(
+                `释放 ${result.count}/${couponInstanceIds.length} 张红包`,
+              );
+            }
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+        return;
+      } catch (err: any) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2034' &&
+          attempt < MAX_RETRIES
+        ) {
+          const delay = 50 * attempt + Math.random() * 100;
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
     }
   }
 
@@ -1439,6 +1483,173 @@ export class CouponService {
           : 0,
       avgDiscountPerOrder: usageAgg._avg.discountAmount || 0,
     };
+  }
+
+  // ========== 定时任务（Cron） ==========
+
+  /**
+   * Bug 4 修复：补偿卡在 RESERVED 状态的红包僵尸记录
+   *
+   * 场景：支付回调里 `confirmCouponUsage` 3 次重试都失败时，只 log 不补救，
+   * 红包会永久卡在 RESERVED，既不能被用户重复使用也不会回到 AVAILABLE。
+   *
+   * 策略：每 5 分钟扫描 `RESERVED` 且 `updatedAt < now - 10 分钟` 的实例：
+   *   - Order 已 PAID         → 再次调用 confirmCouponUsage（幂等）
+   *   - Order CANCELED/REFUND → releaseCoupons 释放回 AVAILABLE
+   *   - Order PENDING_PAYMENT → 跳过，下一轮继续观察
+   *   - Order 不存在           → 安全释放（数据漂浮）
+   *
+   * 关联订单的查询路径：`CouponInstance` 没有直接的 `orderId` 列，
+   * 它通过 `CouponUsageRecord` 关联 Order（confirmCouponUsage 时创建），
+   * 但在 RESERVED 阶段 `CouponUsageRecord` 还不存在，因此使用 CheckoutSession
+   * 中存的 `couponInstanceIds` 反查最为可靠：先在 CheckoutSession 里找出
+   * 引用此实例的会话，再读其 `orderId`。
+   *
+   * 全程 try/catch 包住每条记录的处理，单条失败不影响其余。
+   */
+  @Cron('0 */5 * * * *')
+  async cronRecoverStuckReservations() {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+
+    let stuck: Array<{ id: string; userId: string }> = [];
+    try {
+      stuck = await this.prisma.couponInstance.findMany({
+        where: {
+          status: 'RESERVED',
+          updatedAt: { lt: tenMinutesAgo },
+        },
+        select: { id: true, userId: true },
+        take: 200, // 单轮上限，防止异常情况一次扫太多
+      });
+    } catch (err: any) {
+      this.logger.error(
+        `[Cron] 扫描卡死 RESERVED 红包失败: ${err?.message}`,
+        err?.stack,
+      );
+      return;
+    }
+
+    if (stuck.length === 0) return;
+
+    this.logger.log(`[Cron] 发现 ${stuck.length} 张卡死 RESERVED 红包，开始补偿`);
+
+    let confirmed = 0;
+    let released = 0;
+    let skipped = 0;
+
+    for (const inst of stuck) {
+      try {
+        // 通过 CheckoutSession.couponInstanceIds 反查关联订单
+        // （RESERVED 阶段不一定有 CouponUsageRecord，CheckoutSession 才是唯一
+        // 持有红包引用的位置；Order.checkoutSessionId 反向关联到 orders[]）
+        const session = await this.prisma.checkoutSession.findFirst({
+          where: {
+            couponInstanceIds: { has: inst.id },
+          },
+          select: {
+            id: true,
+            status: true,
+            couponInstanceIds: true,
+            couponPerAmounts: true,
+            orders: {
+              select: { id: true, status: true },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (!session) {
+          // 数据漂浮：没有任何 session 引用，安全释放
+          await this.releaseCoupons([inst.id]);
+          released++;
+          this.logger.warn(
+            `[Cron] 红包 ${inst.id} 无关联 CheckoutSession，已释放`,
+          );
+          continue;
+        }
+
+        const order = session.orders[0] ?? null;
+
+        if (!order) {
+          // 订单尚未创建：若 session 已经终态（EXPIRED/CANCELED）则释放，
+          // 否则跳过等待 checkout-expire cron 处理
+          if (session.status === 'ACTIVE') {
+            skipped++;
+          } else {
+            await this.releaseCoupons([inst.id]);
+            released++;
+          }
+          continue;
+        }
+
+        if (
+          order.status === 'PAID' ||
+          order.status === 'SHIPPED' ||
+          order.status === 'DELIVERED' ||
+          order.status === 'RECEIVED'
+        ) {
+          // 订单已成交，重试 confirm（confirmCouponUsage 是 CAS + 幂等的）
+          const amounts = Array.isArray(session.couponPerAmounts)
+            ? (session.couponPerAmounts as unknown as Array<{
+                couponInstanceId: string;
+                discountAmount: number;
+              }>)
+            : [];
+          await this.confirmCouponUsage([inst.id], order.id, amounts);
+          confirmed++;
+        } else if (order.status === 'CANCELED' || order.status === 'REFUNDED') {
+          // 订单已取消/退款：红包归还逻辑由 restoreCouponsForOrder 处理；
+          // 仍卡在 RESERVED 说明 confirm 之前订单就被关掉了，安全释放即可
+          await this.releaseCoupons([inst.id]);
+          released++;
+        } else {
+          // PENDING_PAYMENT 等中间态：等下一轮
+          skipped++;
+        }
+      } catch (err: any) {
+        // 单条失败不阻塞其余
+        this.logger.error(
+          `[Cron] 红包 ${inst.id} 补偿失败: ${err?.message}`,
+          err?.stack,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[Cron] 卡死 RESERVED 红包补偿完成：confirm=${confirmed} release=${released} skip=${skipped} total=${stuck.length}`,
+    );
+  }
+
+  /**
+   * Bug 16 修复：标记过期红包（AVAILABLE → EXPIRED）
+   *
+   * 之前没有任何 cron 处理过期，过期红包只会在前端通过 `expiresAt < now` 过滤掉，
+   * 但 DB 状态依旧是 AVAILABLE，会污染统计、`getStats`、`getCampaignStats`。
+   *
+   * 每小时整点跑一次，批量 updateMany 一次性把所有过期的 AVAILABLE 翻 EXPIRED。
+   */
+  @Cron('0 0 * * * *')
+  async cronMarkExpiredCoupons() {
+    const now = new Date();
+    try {
+      const result = await this.prisma.couponInstance.updateMany({
+        where: {
+          status: 'AVAILABLE',
+          expiresAt: { lt: now },
+        },
+        data: { status: 'EXPIRED' },
+      });
+      if (result.count > 0) {
+        this.logger.log(`[Cron] 标记 ${result.count} 张过期红包为 EXPIRED`);
+      }
+    } catch (err: any) {
+      this.logger.error(
+        `[Cron] 过期红包标记失败: ${err?.message}`,
+        err?.stack,
+      );
+    }
   }
 
   // ========== 私有辅助方法 ==========
