@@ -1017,8 +1017,8 @@ export class BonusService {
    *
    * 有推荐人：在推荐人节点直连满后，按层选择当前层 childrenCount 最小节点插入；
    *           若子树搜索返回 null 视为系统异常直接抛出，严禁降级到系统节点。
-   * 无推荐人：遍历 A1→A2→...→A10 找第一个有空位的系统节点，
-   *           A1-A10 全满则创建 A11, A12, ... 直到 MAX_ROOT_NODES 上限。
+   * 无推荐人：从 A1 起依次 找/建 第一个有空位（childrenCount<3）的系统根节点，
+   *           连续编号无空洞（A3 满则建 A4，依此类推），上限 10 + MAX_ROOT_NODES。
    */
   private async assignVipTreeNode(tx: any, userId: string) {
     const member = await tx.memberProfile.findUnique({ where: { userId } });
@@ -1066,44 +1066,30 @@ export class BonusService {
         rootId = inviterNode.rootId;
       }
     } else {
-      // ===== 无推荐人：遍历系统节点 A1-A10 =====
-      for (let i = 1; i <= 10; i++) {
+      // ===== 无推荐人：从 A1 起，依次 找/建 第一个未满（childrenCount<3）的系统根节点 =====
+      // 连续编号、无空洞：A1 满→A2，A2 满→A3，A3 满→自动建 A4，依此类推。
+      // 系统根节点为虚拟"平台节点"（userId=null），无推荐人 VIP 直接挂在其下，上溯分润归平台。
+      // 上限沿用 L8 修复：10 + MAX_ROOT_NODES，硬上限 = (10 + MAX_ROOT_NODES) × 3 个无推荐人 VIP。
+      const maxIdx = 10 + MAX_ROOT_NODES;
+      for (let i = 1; i <= maxIdx; i++) {
         const sysRootId = `A${i}`;
-        const sysNode = await tx.vipTreeNode.findFirst({
+        let sysNode = await tx.vipTreeNode.findFirst({
           where: { rootId: sysRootId, level: 0 },
         });
-        if (sysNode && sysNode.childrenCount < 3) {
+        if (!sysNode) {
+          // 当前编号根节点不存在 → 自动创建（无推荐人树无底设计）
+          sysNode = await tx.vipTreeNode.create({
+            data: { rootId: sysRootId, userId: null, level: 0, position: 0 },
+          });
+        }
+        if (sysNode.childrenCount < 3) {
           parentNode = sysNode;
           rootId = sysRootId;
           break;
         }
       }
-
-      // A1-A10 全满 → 找 A11, A12, ...（L8修复：上限 MAX_ROOT_NODES 防止无限循环）
       if (!parentNode) {
-        let nextIdx = 11;
-        const maxIdx = 10 + MAX_ROOT_NODES;
-        while (nextIdx <= maxIdx) {
-          const sysRootId = `A${nextIdx}`;
-          let sysNode = await tx.vipTreeNode.findFirst({
-            where: { rootId: sysRootId, level: 0 },
-          });
-          if (!sysNode) {
-            // 创建新系统根节点
-            sysNode = await tx.vipTreeNode.create({
-              data: { rootId: sysRootId, userId: null, level: 0, position: 0 },
-            });
-          }
-          if (sysNode.childrenCount < 3) {
-            parentNode = sysNode;
-            rootId = sysRootId;
-            break;
-          }
-          nextIdx++;
-        }
-        if (!parentNode) {
-          throw new BadRequestException('系统节点已达上限，无法分配VIP位置');
-        }
+        throw new BadRequestException('系统节点已达上限，无法分配VIP位置');
       }
     }
 
