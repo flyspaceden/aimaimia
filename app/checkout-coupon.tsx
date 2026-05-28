@@ -15,14 +15,15 @@ import type { CheckoutEligibleCoupon } from '../src/types/domain/Coupon';
 
 /**
  * 格式化折扣展示文案
- * - FIXED 类型：¥10
- * - PERCENT 类型：discountValue=20 表示打 8 折（即减 20%）
+ * - FIXED 类型：discountValue 含义=固定抵扣金额（单位：元），如 10.5 表示减 ¥10.50
+ * - PERCENT 类型：discountValue 含义=减扣百分比（20 表示减 20%，即 8 折）
+ * 后端 DTO 同款语义见 backend/src/modules/coupon/dto/
  */
 const formatDiscountLabel = (coupon: CheckoutEligibleCoupon): { symbol: string; value: string } => {
   if (coupon.discountType === 'FIXED') {
-    return { symbol: '¥', value: String(coupon.discountValue) };
+    return { symbol: '¥', value: coupon.discountValue.toFixed(2) };
   }
-  // PERCENT 类型：discountValue 是折扣百分比，如 20 表示减 20%，即打 8 折
+  // PERCENT 类型：discountValue 是减扣百分比，如 20 表示减 20%，即打 8 折
   const zheKou = (100 - coupon.discountValue) / 10;
   return { symbol: '', value: `${zheKou}折` };
 };
@@ -159,9 +160,15 @@ const CouponCard = React.memo(function CouponCard({
         )}
       </View>
 
-      {/* 选中指示器（多选复选框样式） */}
-      {!isDisabled && (
-        <View style={styles.checkWrap}>
+      {/* 选中指示器：可选态显示 checkbox，禁用态显示禁用 icon（不显示 checkbox） */}
+      <View style={styles.checkWrap}>
+        {isDisabled ? (
+          <MaterialCommunityIcons
+            name="close-circle-outline"
+            size={20}
+            color={colors.muted}
+          />
+        ) : (
           <View
             style={[
               styles.checkbox,
@@ -176,8 +183,8 @@ const CouponCard = React.memo(function CouponCard({
               <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
             )}
           </View>
-        </View>
-      )}
+        )}
+      </View>
     </Pressable>
   );
 });
@@ -235,19 +242,21 @@ export default function CheckoutCouponScreen() {
 
   const allCoupons = data?.ok ? data.data : [];
 
-  // 分离可用和不可用红包
+  // 分离可用和不可用红包（过期红包统一归入不可用，双保险）
   const { eligible, ineligible } = useMemo(() => {
     const elig: CheckoutEligibleCoupon[] = [];
     const inelig: CheckoutEligibleCoupon[] = [];
+    const nowTime = Date.now();
     allCoupons.forEach((coupon) => {
-      if (coupon.eligible) {
+      const isExpired = new Date(coupon.expiresAt).getTime() <= nowTime;
+      if (coupon.eligible && !isExpired) {
         elig.push(coupon);
       } else {
         inelig.push(coupon);
       }
     });
-    // 可用红包按预估抵扣金额降序
-    elig.sort((a, b) => b.estimatedDiscount - a.estimatedDiscount);
+    // 可用红包按预估抵扣金额降序；同金额时按 id 升序作为二级排序键保证稳定性
+    elig.sort((a, b) => b.estimatedDiscount - a.estimatedDiscount || a.id.localeCompare(b.id));
     return { eligible: elig, ineligible: inelig };
   }, [allCoupons]);
 
@@ -280,6 +289,13 @@ export default function CheckoutCouponScreen() {
   }, [eligible, selectedIds]);
 
   const handleSelect = useCallback((coupon: CheckoutEligibleCoupon) => {
+    // 过期红包不可选（双保险：列表已过滤，此处再拦一次）
+    const nowTime = Date.now();
+    const isExpired = new Date(coupon.expiresAt).getTime() <= nowTime;
+    if (isExpired) {
+      Alert.alert('提示', '该红包已过期');
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(coupon.id)) {
