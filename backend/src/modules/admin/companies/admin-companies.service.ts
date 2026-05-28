@@ -480,6 +480,11 @@ export class AdminCompaniesService {
   // ===================== C40c9 管理员员工 CRUD + 换 OWNER =====================
 
   /** 添加员工（经理/运营，不支持创始人） */
+  // ⚠️ 架构债（2026-05-27 识别，v1.0 暂不修）：本方法对 isPlatform=true 的平台公司**不挡**——
+  //    超管能给 PLATFORM_COMPANY 添加员工，配合 seller-auth 不查 isPlatform，可让该手机号
+  //    登录 seller-center 管理平台公司。这与 seller-company.service.ts:254 的 F4
+  //    「平台公司不支持邀请员工」逻辑不一致（仅 seller-center 那条路被挡）。
+  //    上线后若决定走"方案 A 严格分离"，在此处加 `if (company.isPlatform) throw` 收口。
   async addStaff(companyId: string, dto: AdminAddStaffDto) {
     if (dto.role === 'OWNER' as any) {
       throw new BadRequestException('添加员工仅支持经理或运营，创始人请使用「转让创始人」功能');

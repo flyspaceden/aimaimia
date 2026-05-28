@@ -252,6 +252,13 @@ export class SellerCompanyService {
   /** 邀请员工 */
   async inviteStaff(companyId: string, inviterUserId: string, dto: InviteStaffDto) {
     // F4: 禁止向平台公司邀请员工
+    // ⚠️ 架构债（2026-05-27 识别，v1.0 暂不修）：F4 只挡了 seller-center 这一条路径，
+    //    超管走 admin-backend 的 addStaff（admin-companies.service.ts:483）能绕过此检查
+    //    给平台公司加员工，且 seller-auth 登录不查 isPlatform → 平台公司可被 seller-center 登
+    //    上线后若决定收口走"方案 A 严格分离"，要同步补：
+    //    (1) admin-companies.service.ts addStaff/transferOwner 加 isPlatform 检查
+    //    (2) seller-auth 登录排除 isPlatform=true 的 CompanyStaff
+    //    (3) 清理已存在的平台公司员工
     if (companyId === PLATFORM_COMPANY_ID) {
       throw new BadRequestException('平台公司不支持邀请员工');
     }
