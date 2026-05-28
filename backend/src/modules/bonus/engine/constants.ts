@@ -20,8 +20,19 @@ export const MAX_BFS_ITERATIONS = 100000000;
  */
 export const MAX_TREE_DEPTH = 20;
 
-/** L8: 系统根节点搜索上限 */
-export const MAX_ROOT_NODES = 20;
+/**
+ * L8: 系统根节点搜索上限（A1-A_${10+MAX_ROOT_NODES}）
+ *
+ * 业务设计：A1-A10 + A11+ 全部是 userId=null 的虚拟平台节点（树的骨架），
+ *           真实 VIP 用户都挂在它们底下。当 A1-A10 直接子位全满（每个 3 个），
+ *           代码会自动创建 A11、A12... 继续容纳无推荐人的新 VIP。
+ *
+ * 实际意义：每个根节点能容纳 3 个直接子节点（无推荐人挂载点），所以这个常量
+ *           直接决定"无推荐人 VIP"的硬上限 = (10 + MAX_ROOT_NODES) × 3。
+ *           当前 1000 → 上限约 3030 个无推荐人 VIP，远超 v1.0 预期规模，
+ *           实际上等同于"无业务上限"，仅作防无限循环的安全闸。
+ */
+export const MAX_ROOT_NODES = 1000;
 
 /** 平台公司 ID（用于奖励商品和抽奖奖品） */
 export const PLATFORM_COMPANY_ID = 'PLATFORM_COMPANY';
