@@ -16,7 +16,7 @@
 
 ## 〇、上线前必须先确认的事（拍板项）
 
-> **进度快照（2026-05-27 凌晨更新）**：支付宝外部配置 + 顺丰外部配置基本就位 ✅；剩 `WEBHOOK_IP_WHITELIST`（支付宝 IP）+ 服务器 IP 白名单（防御性）+ website main 锁 + 法律合规文本 4 项硬卡，加上 push main 当天的服务器部署动作。
+> **进度快照（2026-05-27 更新）**：支付宝外部配置 + 顺丰外部配置全部就位 ✅；`WEBHOOK_IP_WHITELIST` 已抄录支付宝 11 段 ✅；支付宝服务器 IP 白名单已配 ✅；website main 锁 2026-05-23 已 revert 加回 ✅。剩 **法律合规文本 1 项硬卡**（异步法务审核），加上 push main 当天的服务器部署动作。
 
 | 项 | 状态 | 要在切换前回答 |
 |----|------|----------------|
@@ -26,13 +26,14 @@
 | **支付宝生产配置** | ✅ | 生产 `APP_ID=2021006144601730` / PID `2088480327393784` / 4 张证书全部就位（本地 `backend/certs/alipay/`，密码本 §6.1）；APP 支付签约（2026-04-06）+ 转账签约（2026-04-11）；2026-05-26 b.alipay.com 提额材料补充完成，额度已恢复。⏳ push main 当天 `scp` 证书到生产服务器 + 写 8 行 `.env` |
 | **支付宝转账（提现）订阅** | ✅ | 2026-05-26 已在开放平台订阅事件 `alipay.fund.trans.order.changed`（FROM 平台 / HTTP / 回调 `/api/v1/payments/alipay/transfer-notify`） |
 | **支付宝开放平台后台配置** | ✅ | 2026-05-27 应用网关已切到生产 `https://api.ai-maimai.com/api/v1/payments/alipay/notify` + 加签方式 RSA2 公钥证书模式（密码本 §6.1） |
-| **支付回调 IP 白名单** | ❌ | 还要做：抄 https://opendocs.alipay.com/open/200/ipwhitelist 的支付宝生产回调 IP 段写入 `WEBHOOK_IP_WHITELIST`（生产 + 该值为空时所有挂 `WebhookIpGuard` 的 webhook 直接 403）。**注意**：顺丰 callback / 微信支付 notify **都不挂** `WebhookIpGuard`（顺丰靠 URL token，微信靠 RSA 签名），无需写入；详见 `shipment.controller.ts:54` 和 `payment.controller.ts:184` |
-| **支付宝服务器 IP 白名单** | ❌ | 开放平台「开发设置 → 服务器 IP 白名单」未配置。建议设上作纵深防御：万一应用私钥/证书泄露，攻击者从其他 IP 也调不动支付宝 OpenAPI。填我方生产 ECS 出口 IP（在服务器跑 `curl -4 ifconfig.me` 实测；预计就是 `8.163.16.32`） |
+| **支付回调 IP 白名单** | ✅ | 2026-05-27 已抄录支付宝异步通知 11 段（10 IPv4 CIDR + 1 IPv6）写入 `.env.prod` 的 `WEBHOOK_IP_WHITELIST`（详见密码本 §6.1「IP 白名单清单」）。上线后需每周扫 nginx log 验证有无段外 IP。**注意**：顺丰 callback / 微信支付 notify **都不挂** `WebhookIpGuard`（顺丰靠 URL token，微信靠 RSA 签名），无需写入；详见 `shipment.controller.ts:54` 和 `payment.controller.ts:184` |
+| **支付宝服务器 IP 白名单** | ✅ | 2026-05-27 已配置：模式「配置全量接口」+ IP `8.163.16.32`（ssh 实测 ECS 出站 IP）。AppID `2021006144601730` 名下所有接口强制走此 IP，纵深防御应用私钥泄露 → 攻击者从其他 IP 也调不动支付宝 OpenAPI（含转账接口）。详见密码本 §6.1「服务器 IP 白名单」 |
 | **顺丰生产凭证** | ✅ | 生产 clientCode `HHNYKCL5OWXM` / checkWord `mO1AN9899...` / 月结账号 `7551253482` / 面单模板 `fm_150_standard_HHNYKCL5OWXM` / 推送 secret 全部下发并存入密码本 §7。沙箱 6 个核心 API 联调通过 |
+| **顺丰生产 API 上线审核** | ✅ | 2026-05-27 丰桥后台 6 个核心 API（下订单/云打印/路由查询/订单结果查询/订单确认取消/订单筛选）+ 2 个推送接口生产环境上线审核全部通过，可走真金真单。剩真机端到端待第一笔生产订单验证 |
 | **顺丰丰桥后台推送配置** | ✅ | 2026-05-26 已在丰桥后台为 RoutePushService + PushOrderState 两个推送接口配置生产 URL（都带 token 段，状态"已上线"）。两推送共享后端同一 endpoint `/sf/callback/:token`，按 body 结构自动分发 |
 | **App 渠道** | ⏳ | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事。**关沙箱开关（`EXPO_PUBLIC_ALIPAY_SANDBOX=false`）属 env 改动必须 Build，不能 OTA** |
 | **微信支付入口** | ⏳ | v1.0 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 留空 → 微信入口灰掉。开启前置：①微信商户 APP 支付权限审核 ②生产凭据 + 证书写 .env ③真金联调 ④改 eas.json 加 env 重新 Build（密码本 §十三 链条已细化） |
-| **website main 锁** | ❌ | `.github/workflows/deploy-website.yml:100` 是否已加回 `&& github.ref == 'refs/heads/main'`？目前为测试期临时去掉的，**切 main 前必须先合一个 PR 加回去**，否则 staging 推送会污染生产官网 |
+| **website main 锁** | ✅ | 2026-05-23 commit `8905a6d` 已 revert 临时去掉的状态，恢复 `&& github.ref == 'refs/heads/main'` 锁。当前 `.github/workflows/deploy-website.yml:101`（website 站点）+ line 255（huahai 站点）两个共用物理目录的站点都已上锁，admin/seller/backend 按分支分流不需要锁 |
 | **法律合规文本** | ❌ | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
 | **回滚预案** | ⏳ | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
 | **环境共用资源已知** | ⏳ | 是否已 review §1.1「staging↔prod 共用资源风险表」？特别是 Redis 单实例共用、阿里云配额按账户级共享。OSS 已 2026-05-26 启用硬隔离独立 bucket ✅ |
@@ -55,7 +56,7 @@
 | 后端域名 | `test-api.ai-maimai.com` | `api.ai-maimai.com` |
 | Admin 站点 | `test-admin.ai-maimai.com` → `/www/wwwroot/test-admin/` | `admin.ai-maimai.com` → `/www/wwwroot/admin/` |
 | Seller 站点 | `test-seller.ai-maimai.com` → `/www/wwwroot/test-seller/` | `seller.ai-maimai.com` → `/www/wwwroot/seller/` |
-| Website 站点 | ⚠️ 测试期共用 `/www/wwwroot/website/`（main 锁未加回前 staging 推送也会部署）| `/www/wwwroot/website/` |
+| Website 站点 | 只在 main 推送时部署到 `/www/wwwroot/website/`（main 锁已恢复，详见 §4.2）| `/www/wwwroot/website/` |
 | 数据库 | `testaimaimai` / 用户 `testaimaimai` | `aimaimai` / 用户 `aimaimai` |
 | `NODE_ENV` | `staging` | **`production`** ← 触发 CORS 强校验 + Webhook IP 强校验 + AlipayService 证书加载失败硬抛 |
 | 支付宝 | 沙箱 `openapi-sandbox.dl.alipaydev.com`（公钥模式）| 正式 `https://openapi.alipay.com/gateway.do`（**RSA2 证书模式**）|
@@ -231,19 +232,18 @@
 
 `admin/.env` `seller/.env` 里写的是**本地开发值**（`http://localhost:3000/api/v1`），**不会**进生产构建产物——构建时由 workflow 用 inline env 覆盖。**不需要手动改这两个文件**。
 
-### 4.2 website main 锁（**push main 前的硬前置**）
+### 4.2 website main 锁（✅ 2026-05-23 已恢复）
 
-当前 `.github/workflows/deploy-website.yml:100` 是：
-```yaml
-if: needs.detect-changes.outputs.website == 'true'
-```
-
-**push main 前必须先合并一个 PR**，把它改回：
+`.github/workflows/deploy-website.yml:101` 当前是：
 ```yaml
 if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'
 ```
 
-否则上线后任何一次 staging push（哪怕只改后端）都会重建 website + 用 staging build 覆盖 `/www/wwwroot/website/`，导致生产官网回到测试版（连测试 API + 测试数据库）。
+历史背景：2026-05 早期为赶华为隐私政策抢上架，临时去掉过这个 `github.ref` 条件让 staging 推送也部署 website。2026-05-23 commit `8905a6d` 已 revert 加回。huahai 站点（line 255）也是同样的锁。
+
+**作用**：避免 staging push 用 staging build 覆盖 `/www/wwwroot/website/`，导致生产官网回到测试版（连测试 API + 测试数据库）。
+
+如未来再次为某种紧急原因临时去掉，**必须**在解封后第一时间通过新的 revert PR 加回，且每次去掉前先看一眼本节确认理解后果。
 
 ### 4.3 需要人工确认的部分
 
@@ -575,9 +575,10 @@ pm2 stop aimaimai-api-prod
 
 只需要做一次的事情，做完即归档：
 
-1. **加回 `deploy-website.yml` 的 main 锁**（**push main 前必做**）
-   - 改 line 100：`if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'`
-   - 单独一个 commit 合到 staging → 再合到 main
+1. ✅ **`deploy-website.yml` 的 main 锁已恢复**（2026-05-23 commit `8905a6d`）
+   - 当前 line 101：`if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'` ✅
+   - huahai 站点 line 255 同样有锁 ✅
+   - 此步骤已完成，归档保留作历史记录
 
 2. **首次服务器初始化**（**push main 之前必做，workflow 不会替你做**）
 
