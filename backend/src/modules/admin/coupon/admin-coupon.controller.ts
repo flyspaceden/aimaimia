@@ -130,7 +130,7 @@ export class AdminCouponController {
     });
   }
 
-  /** 全局发放记录 */
+  /** 全局发放记录（跨活动） */
   @Get('instances')
   @RequirePermission('coupon:read')
   getInstances(
@@ -138,12 +138,14 @@ export class AdminCouponController {
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
     @Query('userId') userId?: string,
+    @Query('campaignId') campaignId?: string,
   ) {
     return this.couponService.getInstances({
       page: page ? parseInt(page, 10) : 1,
       pageSize: pageSize ? parseInt(pageSize, 10) : 20,
       status,
       userId,
+      campaignId,
     });
   }
 
@@ -161,7 +163,7 @@ export class AdminCouponController {
     });
   }
 
-  /** 全局使用记录 */
+  /** 全局使用记录（跨活动，按使用时间倒序） */
   @Get('usage')
   @RequirePermission('coupon:read')
   getUsageRecords(
@@ -169,12 +171,18 @@ export class AdminCouponController {
     @Query('pageSize') pageSize?: string,
     @Query('orderId') orderId?: string,
     @Query('userId') userId?: string,
+    @Query('campaignId') campaignId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.couponService.getUsageRecords({
       page: page ? parseInt(page, 10) : 1,
       pageSize: pageSize ? parseInt(pageSize, 10) : 20,
       orderId,
       userId,
+      campaignId,
+      startDate,
+      endDate,
     });
   }
 

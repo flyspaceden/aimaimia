@@ -1086,13 +1086,15 @@ export class CouponService {
     pageSize?: number;
     status?: string;
     userId?: string;
+    campaignId?: string;
   }) {
-    const { page = 1, pageSize = 20, status, userId } = pagination;
+    const { page = 1, pageSize = 20, status, userId, campaignId } = pagination;
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
     if (status) where.status = status;
     if (userId) where.userId = userId;
+    if (campaignId) where.campaignId = campaignId;
 
     const [items, total] = await Promise.all([
       this.prisma.couponInstance.findMany({
@@ -1145,13 +1147,38 @@ export class CouponService {
     pageSize?: number;
     orderId?: string;
     userId?: string;
+    campaignId?: string;
+    startDate?: string;
+    endDate?: string;
   }) {
-    const { page = 1, pageSize = 20, orderId, userId } = pagination;
+    const {
+      page = 1,
+      pageSize = 20,
+      orderId,
+      userId,
+      campaignId,
+      startDate,
+      endDate,
+    } = pagination;
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
     if (orderId) where.orderId = orderId;
-    if (userId) where.couponInstance = { userId };
+
+    // couponInstance 关联条件：userId / campaignId 都打在 couponInstance 上
+    const instanceWhere: any = {};
+    if (userId) instanceWhere.userId = userId;
+    if (campaignId) instanceWhere.campaignId = campaignId;
+    if (Object.keys(instanceWhere).length > 0) {
+      where.couponInstance = instanceWhere;
+    }
+
+    // 使用时间区间过滤（createdAt 即为使用时刻，UsageRecord 仅在 confirmCouponUsage 创建）
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate);
+      if (endDate) where.createdAt.lte = new Date(endDate);
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.couponUsageRecord.findMany({
