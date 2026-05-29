@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AppHeader, Screen } from '../src/components/layout';
 import { useToast } from '../src/components/feedback';
-import { AiBadge } from '../src/components/ui';
+// import { AiBadge } from '../src/components/ui'; // AI 偏好部分已注释隐藏，恢复时一并解开
 import { AuthRepo } from '../src/repos';
 import { useAuthStore } from '../src/store';
 import { useTheme } from '../src/theme';
@@ -102,7 +102,8 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
-        {/* AI 偏好 Section — 新增 */}
+        {/* AI 偏好 Section — 已注释隐藏（保留代码以便恢复，恢复时一并解开顶部 AiBadge import） */}
+        {/*
         <Animated.View entering={FadeInDown.duration(300).delay(80)}>
           <View style={[styles.sectionCard, shadow.md, { backgroundColor: colors.ai.soft, borderRadius: radius.lg, marginTop: spacing.lg }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -140,6 +141,7 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
         </Animated.View>
+        */}
 
         {/* 隐私与合规 */}
         <Animated.View entering={FadeInDown.duration(300).delay(160)}>
@@ -160,33 +162,6 @@ export default function SettingsScreen() {
             >
               <MaterialCommunityIcons name="shield-lock-outline" size={18} color={colors.text.secondary} />
               <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>隐私政策</Text>
-              <View style={styles.spacer} />
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push({ pathname: '/privacy', params: { section: 'appendix-collect' } })}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <MaterialCommunityIcons name="clipboard-list-outline" size={18} color={colors.text.secondary} />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>个人信息收集清单</Text>
-              <View style={styles.spacer} />
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push({ pathname: '/privacy', params: { section: 'appendix-sdk' } })}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <MaterialCommunityIcons name="share-variant-outline" size={18} color={colors.text.secondary} />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>第三方 SDK 清单</Text>
-              <View style={styles.spacer} />
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push({ pathname: '/privacy', params: { section: 'appendix-permission' } })}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <MaterialCommunityIcons name="key-variant" size={18} color={colors.text.secondary} />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>应用权限说明</Text>
               <View style={styles.spacer} />
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
             </Pressable>
