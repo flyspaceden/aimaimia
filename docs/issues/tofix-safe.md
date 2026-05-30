@@ -171,7 +171,7 @@
 
 ---
 
-## 🟡 MEDIUM 问题（8 个）
+## 🟡 MEDIUM 问题（9 个）
 
 ### S13: Serializable 事务无重试逻辑
 - **状态**: ✅ 已修复（2026-02-24）
@@ -254,6 +254,23 @@
   4. 管理后台将 `REQUESTED + providerRequestId` 显示为“开票中”，隐藏普通开票/失败操作，仅保留重置入口。
   5. 手工开票 `pdfUrl` 增加平台上传 / OSS URL 白名单校验，避免任意外部链接写入发票记录。
 
+### S23: 退款补偿双调度同秒撞车（write conflict / deadlock）+ 永久失败退款无终态
+- **状态**: ⏳ 未修复（2026-05-30 发现于 staging，按决策「先跑通微信联调、回头单独修」暂缓）
+- **文件**:
+  - `backend/src/modules/after-sale/after-sale-timeout.service.ts:784`（`retryStaleRefunds`，`@Cron('0 */10 * * * *')`）
+  - `backend/src/modules/payment/payment.service.ts:939`（`retryStaleAutoRefunds`，`@Cron('0 */10 * * * *')`）
+  - 撞点：`backend/src/modules/after-sale/after-sale-refund.service.ts:588`（`acquireProviderRetryLeaseInTx` 内 `tx.refund.updateMany` FAILED→REFUNDING）
+- **问题**:
+  1. **双调度同秒撞车**：两个退款补偿 cron 都是 `0 */10 * * * *`（每 10 分钟同一秒触发），且都扫同一批 `status ∈ {FAILED, REFUNDING}` 的退款。同一笔退款被两者同时领取时，Serializable 隔离下 Postgres 判一方 `Transaction failed due to a write conflict or a deadlock`，该轮该方回滚。数据安全 ✅（不会重复退款），但报 ERROR 刷日志。
+  2. **永久失败退款无终态/无重试上限**：staging 上 `afterSaleId=cmp05l40b002et7sh6hwts53a` 的退款因底层支付宝交易不存在（`ACQ.TRADE_NOT_EXIST`）永远退不成功，一直停在 FAILED，于是两个 cron 每 10 分钟反复重试 + 反复撞车，日志无限刷。
+- **影响**: 数据无损（Serializable 阻止了重复退款），但：① 日志被 deadlock + 退款失败刷屏，掩盖真问题；② 永久失败的退款无 max-retry / 终态，补偿任务永不收敛；③ 双调度对同批退款冗余加锁，徒增锁竞争。
+- **建议修复（方向，待确认）**:
+  1. **单一所有权**：退款重试只归一个 cron（建议留 `PaymentService.retryStaleAutoRefunds`），`AfterSaleTimeoutService` 不再直接重试退款；或两者错峰（不同秒/分）。
+  2. **序列化失败视为可重试信号**：`acquireProviderRetryLeaseInTx` 捕获 write-conflict/deadlock 时按「本轮跳过、下轮再来」处理（warn 而非 error），参考 S13。
+  3. **失败上限 + 终态**：自动退款补偿加最大重试次数 / 指数退避，超限翻 FAILED 终态并告警转人工，避免 `ACQ.TRADE_NOT_EXIST` 这类永不成功的单子无限刷。
+  4. **清 staging 脏数据**：把 `cmp05l40b002et7sh6hwts53a` 那笔退款手动置终态，立刻止血日志（治标）。
+- **关联**: S13（Serializable 事务无重试逻辑）、S19（退款数量未在事务内二次校验）
+
 ---
 
 ## 修复统计
@@ -262,12 +279,13 @@
 |------|------|--------|--------|
 | 🔴 CRITICAL | 6 | 6 | 0 |
 | 🟠 HIGH | 8 | 7 | 1 ⏸️ |
-| 🟡 MEDIUM | 8 | 8 | 0 |
-| **合计** | **22** | **21** | **1** |
+| 🟡 MEDIUM | 9 | 8 | 1 ⏳ |
+| **合计** | **23** | **21** | **2** |
 
 ⏸️ S22（红包锁定 atomicity）v1.0 决策延后到 v1.1，cron 已缓解实际影响，详见对应条目。
+⏳ S23（退款补偿双调度撞车 + 永久失败退款无终态）2026-05-30 发现于 staging，按「先跑通微信联调、回头单独修」决策暂缓；数据无损（Serializable 阻止重复退款），主要是日志刷屏 + 永久失败退款不收敛。
 
-全部 22 个安全问题已修复完成（2026-05-15 复核后更新）。
+原 22 个安全问题中 21 个已修复、S22 延后至 v1.1；2026-05-30 新增 S23 待修（详见条目）。
 
 ---
 
