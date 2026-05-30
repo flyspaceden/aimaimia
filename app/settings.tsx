@@ -166,6 +166,15 @@ export default function SettingsScreen() {
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
             </Pressable>
             <Pressable
+              onPress={() => router.push({ pathname: '/privacy', params: { section: 'appendix-sdk' } })}
+              style={[styles.row, { borderBottomColor: colors.border }]}
+            >
+              <MaterialCommunityIcons name="share-variant-outline" size={18} color={colors.text.secondary} />
+              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>第三方 SDK 清单</Text>
+              <View style={styles.spacer} />
+              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
+            </Pressable>
+            <Pressable
               onPress={handleRevokePrivacyConsent}
               style={[styles.row, { borderBottomColor: colors.border }]}
             >
