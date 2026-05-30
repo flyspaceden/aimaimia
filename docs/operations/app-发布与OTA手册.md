@@ -271,13 +271,15 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 | preview | preview | test-api | `staging` | `true` | apk | 测试人员内部分发 |
 | production | production | api（生产） | `production` | `false` | apk（v1.0 暂用） | Google Play / 国内商店上架 |
 
+> **微信支付开关**（2026-05-30 起）：`preview` 档额外注入 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，点亮买家结算页微信入口做 staging 真金联调；`production` 档**不含**此开关，生产微信入口仍关闭，待 staging 联调通过后再单独开 + 重新 build。
+
 **环境区分约定（2026-05-27 起，单包名方案）**：
 
 - 包名只有一个（`com.aimaimai.shop`，android/ios 共用），无法在同一台手机同时装测试和生产版本——这是已上架后单包名方案的硬限制
 - 三档 profile 通过 `EXPO_PUBLIC_ENV` env var 让 App 运行时知道自己是哪个环境，`src/repos/http/config.ts` 导出 `APP_ENV` / `IS_PRODUCTION` 常量供业务代码判断
 - `app/_layout.tsx` 在非生产 build 顶部渲染 22px 红色"测试环境"横条（`src/components/feedback/EnvBanner.tsx`），生产 build 不显示；测试人员一眼分得清装的是哪个版本，避免拿测试 build 当生产 build 反馈 bug
 - **测试设备纪律**：测试团队的手机永远只装 internal distribution 的 preview / development build（带红条），真实用户永远从应用商店下载 production build（无红条）；切换环境 = 卸载重装
-- 微信 / 支付宝回调只有一套（生产环境），preview / development build 的支付链路必须走支付宝沙箱（`EXPO_PUBLIC_ALIPAY_SANDBOX=true` 已在 dev/preview 默认开启），微信支付沙箱能力受限，真金联调必须用生产环境真实小额订单
+- 支付宝回调只有一套（生产），preview / development build 的支付宝链路走沙箱（`EXPO_PUBLIC_ALIPAY_SANDBOX=true`，dev/preview 默认开启）。**微信支付 V3 无沙箱**：2026-05-30 起 staging 联调改为在**测试服务器配真实微信商户凭据**（`notify_url` 指向 `test-api`）+ preview build 开 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，用真账号 0.01 元真金验证（退款也真退回微信钱包）；**生产微信入口**（`production.env` 开关）等 staging 联调通过后再单独开 + 重新 build
 
 ### 最近一次 Build
 
