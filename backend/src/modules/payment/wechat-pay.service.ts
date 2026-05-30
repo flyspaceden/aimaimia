@@ -104,8 +104,13 @@ export class WechatPayService implements OnModuleInit {
     this.privateKey = privateKey;
 
     try {
-      const WxPay = (await import('wechatpay-node-v3')).default;
-      this.client = new (WxPay as any)({
+      // wechatpay-node-v3 是 CommonJS 包：module.exports 本身就是构造函数，没有 .default。
+      // 本项目 tsconfig 是 module=commonjs 且未开 esModuleInterop，编译后的 await import() 不做
+      // interop 包装，运行时 .default === undefined（→ "WxPay is not a constructor"）。
+      // 故按官方 README 的 CJS 形态兼容取构造函数：真包取自身；若未来包改发 ESM 再取 .default。
+      const mod: any = await import('wechatpay-node-v3');
+      const WxPay = (mod?.default ?? mod) as any;
+      this.client = new WxPay({
         appid: appId,
         mchid: mchId,
         publicKey: Buffer.from(merchantCert),   // apiclient_cert.pem（商户证书）

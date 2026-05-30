@@ -16,6 +16,19 @@ jest.mock('wechatpay-node-v3', () => ({
 	  })),
 	}));
 
+// 回归护栏：本服务依赖 wechatpay-node-v3 的「CJS 模块即构造函数」形态（module.exports 本身即构造函数，无 .default）。
+// 之前 onModuleInit 用 `await import(...).default` 取构造函数，但 tsconfig 是 module=commonjs 且未开 esModuleInterop，
+// 编译后的 import() 不做 interop 包装 → 运行时 `.default === undefined` → "WxPay is not a constructor"。
+// 单测 mock 因带 `__esModule + default` 没能复现真包形态，所以测试绿、生产炸。
+// 这里用 requireActual 绕过 mock，直接对「真包」断言导出形态：包升级若改导出结构会先红。
+describe('wechatpay-node-v3 模块导出形态（回归护栏）', () => {
+  it('真包在模块根暴露构造函数（service 用 (mod.default ?? mod) 取它）', () => {
+    const actual = jest.requireActual('wechatpay-node-v3') as any;
+    const Ctor = actual?.default ?? actual;
+    expect(typeof Ctor).toBe('function');
+  });
+});
+
 describe('WechatPayService', () => {
   const validWechatEnv = {
     WECHAT_PAY_APP_ID: 'wxtest',
