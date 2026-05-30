@@ -109,7 +109,8 @@ export default function AccountSecurityScreen() {
     router.replace('/(tabs)/home');
   };
 
-  // 注销账号（直接执行，跳过确认弹窗避免平台兼容问题）
+  // 注销账号 —— 后端 /auth/delete-account 未实现，功能暂下线；按钮与本函数一并注释，上线后取消注释恢复
+  /*
   const handleDeleteAccount = async () => {
     const result = await AuthRepo.deleteAccount();
     if (!result.ok) {
@@ -120,6 +121,7 @@ export default function AccountSecurityScreen() {
     show({ message: '账号已注销', type: 'success' });
     router.replace('/(tabs)/home');
   };
+  */
 
   const phoneMasked = maskPhone(profile?.phone);
   // 绑定状态用 wechatBound（权威字段），昵称仅作展示
@@ -281,13 +283,15 @@ export default function AccountSecurityScreen() {
               </View>
             )}
 
-            {/* 注销账号 */}
+            {/* 注销账号 —— 后端未实现，按钮暂注释隐藏（功能上线后取消注释，并恢复同文件 handleDeleteAccount） */}
+            {/*
             <Pressable onPress={handleDeleteAccount} style={styles.row}>
               <MaterialCommunityIcons name="account-remove-outline" size={20} color={colors.danger} />
               <Text style={[typography.body, { color: colors.danger, marginLeft: spacing.sm }]}>注销账号</Text>
               <View style={styles.spacer} />
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.danger} />
             </Pressable>
+            */}
           </View>
         </Animated.View>
 
@@ -306,7 +310,7 @@ export default function AccountSecurityScreen() {
         <Animated.View entering={FadeInDown.duration(300).delay(240)}>
           <View style={{ marginTop: spacing.lg, paddingHorizontal: 4 }}>
             <Text style={[typography.caption, { color: colors.text.secondary, lineHeight: 20 }]}>
-              为保障账号安全，建议定期修改密码，且不要使用与其他平台相同的密码。注销账号后，所有关联数据将被永久删除。
+              为保障账号安全，建议定期修改密码，且不要使用与其他平台相同的密码。
             </Text>
           </View>
         </Animated.View>
