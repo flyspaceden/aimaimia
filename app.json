@@ -2,7 +2,7 @@
   "expo": {
     "name": "AI爱买买",
     "slug": "ai-aimaimai",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "scheme": "aimaimai",
     "icon": "./logo/ios.png",
     "plugins": [
