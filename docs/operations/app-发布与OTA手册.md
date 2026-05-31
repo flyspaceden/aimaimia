@@ -253,7 +253,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-05-18）
+## 六、当前 App 实际状态（2026-05-30）
 
 ### EAS 配置
 
@@ -261,7 +261,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 - Owner: `flyspaceden`
 - Slug: `ai-aimaimai`
 - Updates URL: `https://u.expo.dev/d76ba8ac-06f3-45d2-b674-afec17737029`
-- Runtime version policy: `appVersion`（当前 0.2.0）
+- Runtime version policy: `appVersion`（当前 0.3.0）
 
 ### 三档 Profile（见 `eas.json`）
 
@@ -281,7 +281,20 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 - **测试设备纪律**：测试团队的手机永远只装 internal distribution 的 preview / development build（带红条），真实用户永远从应用商店下载 production build（无红条）；切换环境 = 卸载重装
 - 支付宝回调只有一套（生产），preview / development build 的支付宝链路走沙箱（`EXPO_PUBLIC_ALIPAY_SANDBOX=true`，dev/preview 默认开启）。**微信支付 V3 无沙箱**：2026-05-30 起 staging 联调改为在**测试服务器配真实微信商户凭据**（`notify_url` 指向 `test-api`）+ preview build 开 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，用真账号 0.01 元真金验证（退款也真退回微信钱包）；**生产微信入口**（`production.env` 开关）等 staging 联调通过后再单独开 + 重新 build
 
-### 最近一次 Build
+### 本机构建验证记录
+
+#### 2026-05-30 本地 preview Android build（未分发）
+
+- 类型：`eas build --profile preview --platform android --local --non-interactive`
+- Profile: preview / Platform: Android / Channel: preview
+- Commit: `6f28d53` + 本地 dirty working tree（新增 `plugins/withAndroidBuildStability.js`，`app.json` 注册该 config plugin）
+- Version: 0.3.0 / VersionCode: 1
+- 本地 APK: `/tmp/aimaimai-eas-artifacts-final/build-1780192620517.apk`（117 MB）
+- 结果：✅ `BUILD SUCCESSFUL in 7m 18s`；修复本机 EAS local build 的两类失败：① Gradle/Maven 下载优先走本机 `~/.gradle/init.gradle` 阿里云镜像，解决 `intellij-core-31.11.0.jar` 并发下载超时；② config plugin 将 `react-native-reanimated@4.1.7` 的 worklets 链接切到 Prefab target，解决 `libworklets.so missing and no known rule to make it`
+- 本机前提：`~/.gradle/gradle.properties` 全局设置了 `org.gradle.parallel=false`、`org.gradle.workers.max=2`、`org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8`。这是用户级 Gradle 配置，会影响本机其他 Gradle 项目；移机复现时必须同步评估。
+- 备注：这是本机验证产物，尚未上传蒲公英，不可作为分发 / 回滚基线。
+
+### 最近一次已分发 Build（当前蒲公英基线）
 
 - ID: `684e3826-1565-484f-809e-082f1a164ffc`
 - Profile: preview / Platform: Android
