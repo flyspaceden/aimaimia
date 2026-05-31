@@ -48,6 +48,7 @@
 ### 安全与合规 (`docs/security/`)
 - `docs/security/security-audit.md` — 全面安全审计文档（认证/资金/API/隐私/基础设施/AI/多商户/监控，12 大维度）
 - `docs/security/电商法.md` — 电商法规参考
+- `docs/legal/爱买买法律文本审核稿.docx` — 隐私政策 + 用户协议的 Word 审核稿（由 `src/content/legal/*.ts` 原样导出 → pandoc 转 docx，**供法律顾问用修订/批注模式审核，权威原文仍是 .ts 源文件**，审核结论改回源文件后需重新导出）
 
 ### 测试 (`docs/testing/`)
 - `docs/testing/2026-04-15-webapp-test-plan.md` — Web 端自动化测试计划 v0.1（管理后台+卖家后台，Playwright，L0-L3 分层，7 条 critical path，5 阶段实施，**Web 端 E2E 测试权威来源**）
@@ -62,7 +63,8 @@
 - `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
 - `docs/operations/app-发布与OTA手册.md` — App 发布与 OTA 操作手册（OTA vs Build 决策表、EAS 命令速查、推送前 checklist、当前 App 状态、回滚流程、测试人员分发，**App 维度操作权威来源**，每次 eas build / update 后必须更新第六章）
 - `docs/operations/商户操作手册.md` — 商户端操作手册（企业入驻 + 登录 + 卖家中心全页面 + 商品/订单/售后/员工/账号安全全流程，**测试阶段商户操作权威来源**）
-- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（12 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 + 启动强校验 + .env.example 缺项 / 第三方回调切换（含 alipay 提现 transfer-notify）/ 前端三端（含 website main 锁）/ 买家 App 切换 / 数据库迁移（含 54 条累计 migration 时序表 + 5 条 🔴 不可回退迁移）/ push main 步骤 / 验证清单（含 WS + 提现 + 真实退款）/ 回滚预案（含 fail-forward 规则）/ 首次切换额外动作（含 PLATFORM_COMPANY/PLATFORM_USER_ID/NORMAL_ROOT_ID 真实常量种子 SQL + WEBHOOK_IP_WHITELIST 查询步骤 + OSS_KEY_PREFIX 软隔离 + 法律合规 privacyPolicy/termsOfService 填实）/ 上线后第一周监控重点，**测试→生产切换权威来源，每次发布必查**）
+- `docs/operations/staging-to-production.md` — 从测试环境（staging）切到生产环境（main）的完整 checklist（12 节：上线前确认 / 环境差异速查 / 后端 .env 逐项对照 + 启动强校验 + .env.example 缺项 / 第三方回调切换（含 alipay 提现 transfer-notify）/ 前端三端（含 website main 锁）/ 买家 App 切换 / 数据库迁移（含 56 条累计 migration 时序表 + 5 条 🔴 不可回退迁移）/ push main 步骤 / 验证清单（含 WS + 提现 + 真实退款）/ 回滚预案（含 fail-forward 规则）/ 首次切换额外动作（含 PLATFORM_COMPANY/PLATFORM_USER_ID/NORMAL_ROOT_ID 真实常量种子 SQL + WEBHOOK_IP_WHITELIST 查询步骤 + OSS_KEY_PREFIX 软隔离 + 法律合规 privacyPolicy/termsOfService 填实）/ 上线后第一周监控重点，**测试→生产切换权威来源，每次发布必查**）
+- `docs/operations/上线当天-runbook.md` — 上线当天逐行执行 checklist（7 阶段：出发前确认 / 推 main 前端部署 / 服务器首次初始化 / **环境·Key 正确性自检（带不泄密的校验命令：三套 JWT 互异、DATA_ENCRYPTION_KEY≠JWT、ALIPAY 证书 md5+私钥配对、绝不留 ALIPAY_PUBLIC_KEY、SF_ENV=PROD+模板后缀、OSS bucket 等）** / 数据 bootstrap 自检（cost 非空）/ 第三方回调连通 / **真金 canary（¥1 支付退款 + ¥10 提现 + 顺丰单）** / 收尾改密监控 + 回滚速查，**首次上线执行权威来源，与 staging-to-production.md 配套**）
 
 ### 参考资料 (`docs/reference/`)
 - `docs/reference/apikey.md` — API 密钥说明
@@ -255,6 +257,12 @@ admin/                  # 管理后台前端
       - `.github/workflows/deploy-website.yml` — 分支路由、触发路径、部署产物、migrate deploy 时机
       - `docs/operations/github操作.md` — 双分支发布流程、紧急场景
       - `docs/operations/版本管理.md` — App 三阶段发布 + OTA
+
+11. **每次 EAS 打包（`eas build`，本地或云端）前必须先确认版本号**：
+    - 打包前先看 `app.json` 的 `expo.version`，向用户复述"本次打包版本 = vX.Y.Z"并确认是否需要先 bump，得到确认再打
+    - **版本号在编译时烧进 APK（versionName），出包后无法修改**——版本打错只能重打（云端重打要消耗有限的构建额度）
+    - `runtimeVersion.policy = "appVersion"`：`version` 一改，runtime 跟着变，**新旧 version 的包互不通 OTA**，bump 前要意识到这层 OTA 边界
+    - 版本号改动**必须 commit 后**才会被 `eas build`（含 `--local`）采用——build 从 git 提交状态打包，只改工作区不提交无效
 
 ### 代码约定
 
