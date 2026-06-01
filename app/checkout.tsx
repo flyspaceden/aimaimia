@@ -94,8 +94,11 @@ export default function CheckoutScreen() {
     [allItems, selectedIds]
   );
   const [refreshing, setRefreshing] = useState(false);
-  // v1.0 仅接通支付宝，默认选支付宝；wechat/bankcard 在 paymentMethods 配置里 available=false 灰掉
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('alipay');
+  // 默认选 paymentMethods 里第一个可用的方式（顺序：微信→支付宝→银行卡）：
+  // 测试包微信 available=true → 默认微信；生产包微信灰掉 → 自动回落支付宝。不可用方式 UI 灰掉
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    () => paymentMethods.find((m) => m.available)?.value ?? 'alipay',
+  );
   const [buyerNote, setBuyerNote] = useState('');
   const [deductionAmount, setDeductionAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);

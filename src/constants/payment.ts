@@ -5,7 +5,7 @@ import { PaymentMethod } from '../types';
  * 支付方式列表
  * available=false 时 UI 灰掉，点击 toast 提示，禁止 setPaymentMethod
  *
- * 当前 v1.0 仅默认开放支付宝（沙箱测试中）：
+ * 排列顺序即页面展示顺序：微信 → 支付宝 → 银行卡；结算页默认选第一个 available 的方式（见 app/checkout.tsx）：
  * - 微信支付：Android 代码链路已接入，需显式开关；iOS 原生配置补齐前继续灰掉
  * - 银行卡/信用卡：未接入网联通道，v1.2 评估
  *
@@ -24,6 +24,13 @@ export const paymentMethods: Array<{
   comingSoon?: string;
 }> = [
   {
+    value: 'wechat',
+    label: '微信支付',
+    description: '微信账户余额或银行卡支付',
+    available: wechatPayAvailable,
+    comingSoon: wechatPayAvailable ? undefined : (Platform.OS === 'ios' ? 'iOS 稍后上线' : '待开通'),
+  },
+  {
     value: 'alipay',
     label: '支付宝',
     description:
@@ -31,13 +38,6 @@ export const paymentMethods: Array<{
         ? '支持快捷支付（沙箱测试中）'
         : '支持快捷支付',
     available: true,
-  },
-  {
-    value: 'wechat',
-    label: '微信支付',
-    description: '微信账户余额或银行卡支付',
-    available: wechatPayAvailable,
-    comingSoon: wechatPayAvailable ? undefined : (Platform.OS === 'ios' ? 'iOS 稍后上线' : '待开通'),
   },
   { value: 'bankcard', label: '银行卡/信用卡', description: '支持储蓄卡与信用卡', available: false, comingSoon: 'v1.2 上线' },
 ];
