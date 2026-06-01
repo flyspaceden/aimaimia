@@ -32,7 +32,7 @@
 | **顺丰生产 API 上线审核** | ✅ | 2026-05-27 丰桥后台 6 个核心 API（下订单/云打印/路由查询/订单结果查询/订单确认取消/订单筛选）+ 2 个推送接口生产环境上线审核全部通过，可走真金真单。剩真机端到端待第一笔生产订单验证 |
 | **顺丰丰桥后台推送配置** | ✅ | 2026-05-26 已在丰桥后台为 RoutePushService + PushOrderState 两个推送接口配置生产 URL（都带 token 段，状态"已上线"）。两推送共享后端同一 endpoint `/sf/callback/:token`，按 body 结构自动分发 |
 | **App 渠道** | ⏳ | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事。**关沙箱开关（`EXPO_PUBLIC_ALIPAY_SANDBOX=false`）属 env 改动必须 Build，不能 OTA** |
-| **微信支付入口** | ⏳ | v1.0 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 留空 → 微信入口灰掉。开启前置：①微信商户 APP 支付权限审核 ②生产凭据 + 证书写 .env ③真金联调 ④改 eas.json 加 env 重新 Build（密码本 §十三 链条已细化） |
+| **微信支付入口** | ⏳ | v1.0 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 留空 → 微信入口灰掉。开启前置：①微信商户 APP 支付权限审核 **✅ 2026-05-29 通过** ②生产凭据 **✅ 已齐**（商户号/APIv3/证书序列号/cert/key，2026-05-24）+ AppID **✅ 已绑** `wxeb8e8dc219da02dd`，**剩写进生产 .env**（部署时）③真金联调 ⬜ ④改 eas.json 加 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true` 重新 Build（仅 Android）⬜。注：notify URL 微信 v3 无后台设置，后端按单传；提现仍仅支付宝（微信商家转账未开通）。详见密码本 §5.2 |
 | **website main 锁** | ✅ | 2026-05-23 commit `8905a6d` 已 revert 临时去掉的状态，恢复 `&& github.ref == 'refs/heads/main'` 锁。当前 `.github/workflows/deploy-website.yml:101`（website 站点）+ line 255（huahai 站点）两个共用物理目录的站点都已上锁，admin/seller/backend 按分支分流不需要锁 |
 | **法律合规文本** | ❌ | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
 | **回滚预案** | ⏳ | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
@@ -59,13 +59,13 @@
 | Website 站点 | 只在 main 推送时部署到 `/www/wwwroot/website/`（main 锁已恢复，详见 §4.2）| `/www/wwwroot/website/` |
 | 数据库 | `testaimaimai` / 用户 `testaimaimai` | `aimaimai` / 用户 `aimaimai` |
 | `NODE_ENV` | `staging` | **`production`** ← 触发 CORS 强校验 + Webhook IP 强校验 + AlipayService 证书加载失败硬抛 |
-| 支付宝 | 沙箱 `openapi-sandbox.dl.alipaydev.com`（公钥模式）| 正式 `https://openapi.alipay.com/gateway.do`（**RSA2 证书模式**）|
+| 支付宝 | ~~沙箱~~ **2026-06-01 已切正式证书模式**（同生产 `openapi.alipay.com` + 同正式 AppID `2021006144601730`，证书在 `certs/alipay/`）；与生产差异只剩 `ALIPAY_NOTIFY_URL` 域名（test-api vs api）+ 开放平台「应用网关」上线日切回 api + 「服务器IP白名单」上线日确认仅生产 ECS IP | 正式 `https://openapi.alipay.com/gateway.do`（**RSA2 证书模式**）|
 | 顺丰 | `SF_ENV=UAT` 走 `SF_API_URL_UAT` 沙箱地址 + `SF_MONTHLY_ACCOUNT_UAT=7551234567` | **`SF_ENV=PROD`** 走 `SF_API_URL` 正式地址 + 真实月结账号 |
 | 顺丰推送签名 | `SF_PUSH_SECRET` 任意 32 位 hex | **生产环境启动期强校验**：未配置则 `SfExpressService.onModuleInit` 抛异常 |
 | 短信 | 真实（华海签名） | 真实（同签名，模板可换可不换）|
 | OSS Bucket | `huahai-aimaimai` | **`huahai-aimaimai-prod`**（2026-05-26 新建独立 bucket + 独立 RAM 子账号 `aimaimai-prod-oss`，详见密码本 §4.3.2）|
 | App `EXPO_PUBLIC_API_BASE_URL` | `https://test-api.ai-maimai.com/api/v1` | `https://api.ai-maimai.com/api/v1` |
-| App 支付宝沙箱开关 | `EXPO_PUBLIC_ALIPAY_SANDBOX=true` | **`false`**（**env 改动必须 Build，不能 OTA**）|
+| App 支付宝沙箱开关 | **`EXPO_PUBLIC_ALIPAY_SANDBOX=false`**（2026-06-01 目标值，配合测试后端真金；**待推 preview OTA 生效**）——preview 链路用 `eas update --branch preview` 翻转即可、**无需 Build**（该 flag 由 eas update 内联进 JS bundle，见 memory `feedback_ota_must_prepend_alipay_sandbox`）| **`false`**（生产 APK 由 eas.json `build.production.env` 在 Build 时烧入）|
 | App OTA Channel | `preview` | `production` |
 
 ### 1.1 staging ↔ prod 共用资源风险表（隐形通道汇总）
