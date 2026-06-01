@@ -89,7 +89,7 @@
 
 ---
 
-## 🟠 HIGH 问题（8 个）
+## 🟠 HIGH 问题（9 个）
 
 ### S07: OTP 验证码可被并发重复使用
 - **状态**: ✅ 已修复（2026-02-24）
@@ -273,19 +273,33 @@
 
 ---
 
+### S24. 售后 REFUNDING 手动重试可能重新发起渠道退款（2026-06-01 新增，已修复）
+- **级别**: 🟠 HIGH
+- **状态**: ✅ 已修复
+- **范围**: 售后退款重试 / 管理后台售后列表 / 微信退款 pending 闭环
+- **发现**: 管理后台允许 `Refund.status=REFUNDING` 的售后退款点击“重试”。旧逻辑在 `AfterSaleRefundService.retryRefund()` 中先调用 `PaymentService.reconcileWechatRefundBeforeRetry()`，但当该方法返回 `false`（例如非微信渠道或无法进入微信查单路径）时会继续调用 `initiateRefund()`。如果渠道退款实际仍在 pending，只是本次查单未闭环，存在重复发起渠道退款的资金风险。
+- **修复**:
+  1. `REFUNDING` 退款重试路径改为**只查单、不重发**：调用 `reconcileWechatRefundBeforeRetry()` 后立即返回，不再落到 `initiateRefund()`。
+  2. 微信 pending 售后退款新增 15s / 45s / 90s 短延迟查单，缩短“渠道已成功但业务仍显示退款中”的窗口；查单仍复用既有金额校验和 `handleRefundSuccess()` 闭环。
+  3. 管理后台把 `REFUNDING` 操作文案从“重试”改为“查单”，确认弹窗明确“不重新发起退款”；`FAILED` 才保留“重试”语义。
+  4. 新增单测锁定：`REFUNDING` reconcile 未处理时不得调用 `initiateRefund()`；pending 后短延迟查单不得重复发起退款。
+- **验证**: `npm test -- after-sale-refund.service.spec.ts --runInBand` 通过；`npx prisma validate` 通过；后端 build 通过。
+
+---
+
 ## 修复统计
 
 | 级别 | 总数 | 已修复 | 未修复 |
 |------|------|--------|--------|
 | 🔴 CRITICAL | 6 | 6 | 0 |
-| 🟠 HIGH | 8 | 7 | 1 ⏸️ |
+| 🟠 HIGH | 9 | 8 | 1 ⏸️ |
 | 🟡 MEDIUM | 9 | 8 | 1 ⏳ |
-| **合计** | **23** | **21** | **2** |
+| **合计** | **24** | **22** | **2** |
 
 ⏸️ S22（红包锁定 atomicity）v1.0 决策延后到 v1.1，cron 已缓解实际影响，详见对应条目。
 ⏳ S23（退款补偿双调度撞车 + 永久失败退款无终态）2026-05-30 发现于 staging，按「先跑通微信联调、回头单独修」决策暂缓；数据无损（Serializable 阻止重复退款），主要是日志刷屏 + 永久失败退款不收敛。
 
-原 22 个安全问题中 21 个已修复、S22 延后至 v1.1；2026-05-30 新增 S23 待修（详见条目）。
+原 22 个安全问题中 21 个已修复、S22 延后至 v1.1；2026-05-30 新增 S23 待修；2026-06-01 新增 S24 并已修复（详见条目）。
 
 ---
 

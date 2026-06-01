@@ -44,6 +44,7 @@ type RefundInitiationResult = {
 @Injectable()
 export class AfterSaleRefundService {
   private readonly logger = new Logger(AfterSaleRefundService.name);
+  private readonly pendingRefundReconcileDelaysMs = [15_000, 45_000, 90_000];
   private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(
@@ -178,6 +179,7 @@ export class AfterSaleRefundService {
     if (result.success) {
       if (result.pending) {
         await this.savePendingProviderRefundId(refund.id, providerRefundId);
+        this.schedulePendingRefundReconcile(refund.id);
       } else {
         await this.handleRefundSuccess(refund.id, providerRefundId);
       }
@@ -512,8 +514,8 @@ export class AfterSaleRefundService {
     );
 
     if (lease.fromStatus === 'REFUNDING') {
-      const handled = await this.paymentService.reconcileWechatRefundBeforeRetry(lease.refund);
-      if (handled) return lease.refund;
+      await this.paymentService.reconcileWechatRefundBeforeRetry(lease.refund);
+      return lease.refund;
     }
 
     const result: RefundInitiationResult = await this.paymentService.initiateRefund(
@@ -525,6 +527,7 @@ export class AfterSaleRefundService {
     if (result.success) {
       if (result.pending) {
         await this.savePendingProviderRefundId(lease.refund.id, providerRefundId);
+        this.schedulePendingRefundReconcile(lease.refund.id);
       } else {
         await this.handleRefundSuccess(lease.refund.id, providerRefundId);
       }
@@ -549,6 +552,43 @@ export class AfterSaleRefundService {
         data: { providerRefundId },
       });
     });
+  }
+
+  private schedulePendingRefundReconcile(refundId: string): void {
+    for (const delayMs of this.pendingRefundReconcileDelaysMs) {
+      const timer = setTimeout(() => {
+        void this.reconcilePendingRefund(refundId, delayMs);
+      }, delayMs);
+      if (typeof (timer as any).unref === 'function') {
+        (timer as any).unref();
+      }
+    }
+  }
+
+  private async reconcilePendingRefund(refundId: string, delayMs: number): Promise<void> {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      select: {
+        id: true,
+        orderId: true,
+        amount: true,
+        status: true,
+        merchantRefundNo: true,
+        paymentId: true,
+        providerRefundId: true,
+      },
+    });
+
+    if (!refund || refund.status !== 'REFUNDING') return;
+
+    try {
+      await this.paymentService.reconcileWechatRefundBeforeRetry(refund);
+    } catch (err: any) {
+      const msg = sanitizeStringForLog(err?.message || 'UNKNOWN', { maxStringLength: 256 });
+      this.logger.warn(
+        `售后 pending 退款短延迟查单失败: refundId=${refundId}, delayMs=${delayMs}, error=${msg}`,
+      );
+    }
   }
 
   private sanitizeProviderRefundId(providerRefundId?: string | null): string | null {

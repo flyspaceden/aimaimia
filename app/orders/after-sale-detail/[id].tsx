@@ -8,7 +8,7 @@
  * - REPLACEMENT_SHIPPED → 确认收货
  * 等等，详见 spec 9.3 状态-操作映射表。
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +32,7 @@ import { OrderRepo } from '../../../src/repos';
 import { AfterSaleRepo } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
+import { isAfterSaleRefundPollingActive, isAfterSaleRefundTerminal } from '../../../src/utils/afterSaleRefundSync';
 import { payWithAlipay } from '../../../src/utils/alipay';
 import { payWithWechat } from '../../../src/utils/wechat-pay';
 import type {
@@ -202,11 +203,20 @@ export default function AfterSaleDetailScreen() {
   // 操作中状态
   const [actionLoading, setActionLoading] = useState(false);
   const actionInFlightRef = useRef(false);
+  const terminalCacheInvalidatedRef = useRef(false);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['after-sale', asId],
     queryFn: () => AfterSaleRepo.getById(asId),
     enabled: isLoggedIn && Boolean(asId),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
+    refetchInterval: (query) => {
+      const result = query.state.data;
+      const current = result?.ok ? result.data : null;
+      return isAfterSaleRefundPollingActive(current) ? 10_000 : false;
+    },
   });
 
   // 刷新关联缓存
@@ -221,6 +231,29 @@ export default function AfterSaleDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
     ]);
   };
+
+  const currentAfterSale = data?.ok ? data.data : null;
+
+  useEffect(() => {
+    terminalCacheInvalidatedRef.current = false;
+  }, [asId]);
+
+  useEffect(() => {
+    if (!currentAfterSale) return;
+
+    if (isAfterSaleRefundTerminal(currentAfterSale) && !terminalCacheInvalidatedRef.current) {
+      terminalCacheInvalidatedRef.current = true;
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['after-sales'] }),
+        queryClient.invalidateQueries({ queryKey: ['orders'] }),
+        queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+        queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
+        queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
+      ]);
+    } else if (!isAfterSaleRefundTerminal(currentAfterSale)) {
+      terminalCacheInvalidatedRef.current = false;
+    }
+  }, [currentAfterSale, queryClient]);
 
   // ─── 通用操作 handler ────────────────────────────────────
   const executeAction = async (

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -32,6 +32,7 @@ dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
 const { Text } = Typography;
+type AdminRefundStatus = NonNullable<AdminAfterSale['refund']>['status'];
 
 // 仲裁结果模板文案
 const ARBITRATION_TEMPLATES = {
@@ -158,6 +159,16 @@ function renderAfterSaleHistory(items?: AdminAfterSale['statusHistory']) {
   );
 }
 
+function isRefundTerminalStatus(status?: AdminRefundStatus | null) {
+  return status === 'REFUNDED' || status === 'FAILED' || status === 'REJECTED';
+}
+
+function isAfterSaleRefundPollingActive(record?: AdminAfterSale | null) {
+  const refundStatus = record?.refund?.status;
+  if (isRefundTerminalStatus(refundStatus)) return false;
+  return record?.status === 'REFUNDING' || refundStatus === 'REFUNDING';
+}
+
 export default function AfterSaleListPage() {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
@@ -176,12 +187,12 @@ export default function AfterSaleListPage() {
   const [companyOptions, setCompanyOptions] = useState<{ label: string; value: string }[]>([]);
 
   // 加载统计和公司列表
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const data = await getAfterSaleStats();
       setStats(data);
     } catch { /* 静默 */ }
-  };
+  }, []);
 
   useEffect(() => {
     loadStats();
@@ -191,7 +202,7 @@ export default function AfterSaleListPage() {
     // 每 15s 轮询统计角标，跟列表 polling 节奏一致
     const timer = setInterval(loadStats, 15_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [loadStats]);
 
   const handleArbitrate = async () => {
     const record = arbitrateModal.record;
@@ -222,16 +233,19 @@ export default function AfterSaleListPage() {
 
   const handleRetryRefund = (record: AdminAfterSale) => {
     if (!record.refund?.id) return;
+    const queryOnly = record.refund.status === 'REFUNDING';
     modal.confirm({
-      title: '确认重试售后退款？',
-      content: `退款单 ${record.refund.merchantRefundNo || record.refund.id} 将重新发起渠道退款，请确认当前状态无重复出款风险。`,
-      okText: '重试退款',
-      okButtonProps: { danger: true },
+      title: queryOnly ? '确认刷新退款状态？' : '确认重试售后退款？',
+      content: queryOnly
+        ? `退款单 ${record.refund.merchantRefundNo || record.refund.id} 当前处理中，本操作只查询渠道状态，不会重新发起退款。`
+        : `退款单 ${record.refund.merchantRefundNo || record.refund.id} 将重新发起渠道退款，请确认当前状态无重复出款风险。`,
+      okText: queryOnly ? '查单' : '重试退款',
+      okButtonProps: { danger: !queryOnly },
       cancelText: '取消',
       onOk: async () => {
         try {
           await retryAfterSaleRefund(record.id, record.refund!.id);
-          message.success('退款重试已提交');
+          message.success(queryOnly ? '退款状态刷新已提交' : '退款重试已提交');
           actionRef.current?.reload();
           loadStats();
         } catch (err) {
@@ -261,6 +275,42 @@ export default function AfterSaleListPage() {
       }
     }
   };
+
+  const modalRecordId = arbitrateModal.record?.id;
+  const modalRefunding = isAfterSaleRefundPollingActive(arbitrateModal.record);
+
+  useEffect(() => {
+    if (!arbitrateModal.visible || !modalRecordId || !modalRefunding) return undefined;
+
+    let disposed = false;
+    let inFlight = false;
+    const refreshDetail = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const detail = await getAfterSale(modalRecordId);
+        if (disposed) return;
+        setArbitrateModal((prev) => {
+          if (!prev.visible || prev.record?.id !== modalRecordId) return prev;
+          return { visible: true, record: detail };
+        });
+        if (!isAfterSaleRefundPollingActive(detail)) {
+          actionRef.current?.reload();
+          loadStats();
+        }
+      } catch {
+        // 详情弹窗轮询失败不打断管理员操作，下一轮继续刷新。
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const timer = window.setInterval(refreshDetail, 15_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [arbitrateModal.visible, modalRecordId, modalRefunding, loadStats]);
 
   const applyTemplate = (text: string) => setArbitrateReason(text);
 
@@ -513,11 +563,11 @@ export default function AfterSaleListPage() {
                 <Button
                   type="link"
                   size="small"
-                  danger
+                  danger={r.refund?.status === 'FAILED'}
                   icon={<SyncOutlined />}
                   onClick={() => handleRetryRefund(r)}
                 >
-                  重试
+                  {r.refund?.status === 'REFUNDING' ? '查单' : '重试'}
                 </Button>
               </PermissionGate>
             )}

@@ -40,6 +40,7 @@ describe('AfterSaleRefundService', () => {
   const prisma = {
     $transaction: jest.fn((cb: any) => cb(tx)),
     refund: {
+      findUnique: jest.fn(),
       findMany: jest.fn(),
     },
   };
@@ -105,6 +106,15 @@ describe('AfterSaleRefundService', () => {
     tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
     tx.productSKU.update.mockResolvedValue({ id: 'sku_001', stock: 12 });
     tx.order.findUnique.mockResolvedValue({ userId: 'user_001' });
+    prisma.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      paymentId: null,
+      providerRefundId: 'provider_pending_001',
+    });
     paymentService.initiateRefund.mockResolvedValue({
       success: true,
       providerRefundId: 'provider_refund_001',
@@ -206,6 +216,63 @@ describe('AfterSaleRefundService', () => {
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'REFUNDED' }),
     }));
+  });
+
+  it('startRefund schedules short reconciliation for pending provider refunds without reissuing refund', async () => {
+    jest.useFakeTimers();
+    try {
+      tx.refund.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({
+          id: 'refund_001',
+          orderId: 'order_001',
+          afterSaleId: 'as_001',
+          amount: 88,
+          status: 'REFUNDING',
+          merchantRefundNo: 'AS-as_001',
+          paymentId: null,
+          providerRefundId: null,
+        });
+      paymentService.initiateRefund.mockResolvedValue({
+        success: true,
+        pending: true,
+        providerRefundId: 'provider_pending_001',
+        message: 'PROCESSING',
+      });
+      paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(true);
+
+      await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+      expect(paymentService.reconcileWechatRefundBeforeRetry).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(15_000);
+
+      expect(prisma.refund.findUnique).toHaveBeenCalledWith({
+        where: { id: 'refund_001' },
+        select: {
+          id: true,
+          orderId: true,
+          amount: true,
+          status: true,
+          merchantRefundNo: true,
+          paymentId: true,
+          providerRefundId: true,
+        },
+      });
+      expect(paymentService.reconcileWechatRefundBeforeRetry).toHaveBeenCalledWith({
+        id: 'refund_001',
+        orderId: 'order_001',
+        amount: 88,
+        status: 'REFUNDING',
+        merchantRefundNo: 'AS-as_001',
+        paymentId: null,
+        providerRefundId: 'provider_pending_001',
+      });
+      expect(paymentService.initiateRefund).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
   });
 
   it('startRefund does not call provider again for an existing REFUNDING refund', async () => {
@@ -862,6 +929,36 @@ describe('AfterSaleRefundService', () => {
     await service.retryRefund('refund_001', {
       type: AfterSaleOperatorType.SYSTEM,
     });
+
+    expect(paymentService.reconcileWechatRefundBeforeRetry).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      merchantRefundNo: 'AS-as_001',
+      paymentId: 'payment_001',
+    }));
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
+  });
+
+  it('retryRefund never reissues a REFUNDING refund when reconciliation does not handle it', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      merchantRefundNo: 'AS-as_001',
+      afterSaleId: 'as_001',
+      paymentId: 'payment_001',
+      providerRefundId: 'provider_pending_001',
+    });
+    paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(false);
+
+    await expect(service.retryRefund('refund_001', {
+      type: AfterSaleOperatorType.SYSTEM,
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'refund_001',
+      status: 'REFUNDING',
+    }));
 
     expect(paymentService.reconcileWechatRefundBeforeRetry).toHaveBeenCalledWith(expect.objectContaining({
       id: 'refund_001',
