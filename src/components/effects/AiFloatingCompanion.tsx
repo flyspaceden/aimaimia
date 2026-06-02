@@ -507,7 +507,7 @@ export function AiFloatingCompanion() {
         userTranscript={voice.userTranscript}
         actionLabel={voice.actionLabel}
         onActionPress={handleVoiceActionPress}
-        onContinueChat={voice.continueChatContext ? handleVoiceContinueChat : undefined}
+        onContinueChat={undefined /* 【AI 多轮对话已下线】原: voice.continueChatContext ? handleVoiceContinueChat : undefined */}
         onDismiss={voice.dismissFeedback}
         clarifyIntent={voice.clarifyIntent}
         onClarifySelect={voice.selectClarify}

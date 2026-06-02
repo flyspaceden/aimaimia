@@ -45,12 +45,13 @@ const TOOL_GRID_BASE = [
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
 ];
 
+// 【AI 多轮对话已下线 — 过华为审查】「AI 小助手」整块已注释，恢复时取消注释即可
 // AI 小助手 3 格
-const AI_TOOLS = [
-  { label: '聊天', icon: 'chat-outline' as const, route: '/ai/chat' },
-  { label: '助手', icon: 'robot-happy-outline' as const, route: '/ai/assistant' },
-  { label: '溯源', icon: 'qrcode-scan' as const, route: '/ai/trace' },
-];
+// const AI_TOOLS = [
+//   { label: '聊天', icon: 'chat-outline' as const, route: '/ai/chat' },
+//   { label: '助手', icon: 'robot-happy-outline' as const, route: '/ai/assistant' },
+//   { label: '溯源', icon: 'qrcode-scan' as const, route: '/ai/trace' },
+// ];
 
 export default function MeScreen() {
   const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
@@ -562,7 +563,7 @@ export default function MeScreen() {
             </View>
           </Animated.View>
 
-          {/* ===== 5F. AI 小助手区 ===== */}
+          {/* ===== 5F. AI 小助手区（【AI 多轮对话已下线】整块已注释，恢复时取消注释即可）=====
           <Animated.View entering={FadeInDown.duration(300).delay(240)} style={[styles.section, { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.lg }, shadow.sm]}>
             <View style={styles.sectionTitleRow}>
               <Text style={[typography.headingSm, { color: colors.text.primary, marginRight: spacing.sm }]}>
@@ -587,6 +588,7 @@ export default function MeScreen() {
               ))}
             </View>
           </Animated.View>
+          */}
         </View>
       </ScrollView>
 

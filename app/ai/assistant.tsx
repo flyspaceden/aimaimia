@@ -3,14 +3,20 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, Vie
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AiBadge, AiCardGlow, AiDivider } from '../../src/components/ui';
 import { AiOrb } from '../../src/components/effects';
 import { useTheme, fitTextProps } from '../../src/theme';
 
+// 【AI 农管家落地页已下线 — 仅服务于多轮聊天页】整页重定向回首页；
+// 原实现完整保留在下方 AiAssistantScreenDisabled，恢复时把 export default 切回即可。
 export default function AiAssistantScreen() {
+  return <Redirect href="/(tabs)/home" />;
+}
+
+function AiAssistantScreenDisabled() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
   const { show } = useToast();
   const router = useRouter();

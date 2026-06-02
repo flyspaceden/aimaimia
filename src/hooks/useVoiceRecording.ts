@@ -174,14 +174,19 @@ export function useVoiceRecording(
       return;
     }
 
-    // chatResponse：后端返回富文本回复 → 跳转聊天页展示（含建议操作按钮）
+    // chatResponse：后端返回富文本回复
+    // 【AI 多轮对话已下线】原先跳 /ai/chat 多轮聊天页展示，现改为「单轮」：
+    // 直接把回复显示在语音浮层里一次，不跳页（符合"只保留单轮语音"的产品决策）。
     if (intent.chatResponse) {
       saveVoiceToStore(intent.transcript, intent.chatResponse.reply);
-      setActionRoute('/ai/chat');
-      setActionParams({
-        initialMessage: intent.chatResponse.reply,
-        suggestedActions: JSON.stringify(intent.chatResponse.suggestedActions),
-      });
+      // 原多轮跳转（已停用，恢复时取消注释并删掉下面两行 inline 显示）：
+      // setActionRoute('/ai/chat');
+      // setActionParams({
+      //   initialMessage: intent.chatResponse.reply,
+      //   suggestedActions: JSON.stringify(intent.chatResponse.suggestedActions),
+      // });
+      setFeedbackText(intent.chatResponse.reply);
+      setFeedbackVisible(true);
       return;
     }
 

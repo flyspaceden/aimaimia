@@ -140,7 +140,8 @@ export default function HomeScreen() {
   const recentSessionsQuery = useQuery({
     queryKey: ['ai-recent-conversations-home', isLoggedIn],
     queryFn: () => AiSessionRepo.listRecentConversations(3),
-    enabled: !USE_MOCK && isLoggedIn,
+    // 【AI 最近对话已下线】停掉拉取，原: enabled: !USE_MOCK && isLoggedIn,
+    enabled: false,
   });
   const remoteRecentConversations = useMemo(() => {
     if (!recentSessionsQuery.data?.ok) return [];
@@ -264,14 +265,15 @@ export default function HomeScreen() {
     }
   }, [voice.needsAuth]);
 
-  // 短按：进入 AI 聊天页
+  // 短按：原进入 AI 多轮聊天页，【AI 多轮对话已下线】——只保留长按语音，短按不再跳页
   const handleShortPress = useCallback(() => {
     if (Date.now() < suppressShortPressUntilRef.current) {
       return;
     }
-    if (!voice.isRecording && !voice.isProcessing) {
-      router.push('/ai/chat');
-    }
+    // 【AI 多轮对话已下线】原跳转（恢复时取消注释）：
+    // if (!voice.isRecording && !voice.isProcessing) {
+    //   router.push('/ai/chat');
+    // }
   }, [voice.isRecording, voice.isProcessing, router]);
 
   // --- 快捷指令点击：也走意图解析路径 ---
@@ -704,8 +706,8 @@ export default function HomeScreen() {
                     {voice.feedbackText}
                   </Text>
                 </View>
-                {/* Phase 2: 继续对话按钮 */}
-                {voice.continueChatContext && !voice.clarifyIntent && (
+                {/* Phase 2: 继续对话按钮 —【AI 多轮对话已下线】用 false && 关闭渲染，恢复时删掉 false && 即可 */}
+                {false && voice.continueChatContext && !voice.clarifyIntent && (
                   <Pressable
                     onPress={() => {
                       const ctx = voice.continueChatContext;
@@ -793,7 +795,7 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              {voice.isRecording ? '松开发送语音' : '点击进入对话 · 长按语音指令'}
+              {voice.isRecording ? '松开发送语音' : '长按光球，说出你想买的'}
             </Text>
           )}
         </Animated.View>
@@ -839,7 +841,8 @@ export default function HomeScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* 最近对话 */}
+        {/* 最近对话 —【AI 多轮对话已下线】用 false && 关闭整块，恢复时删掉 false && ( 和结尾的 ) 即可 */}
+        {false && (
         <Animated.View entering={FadeInDown.duration(300).delay(160)} style={[styles.recentSection, { marginTop: spacing['3xl'] }]}>
           <Text
             style={[
@@ -929,6 +932,7 @@ export default function HomeScreen() {
             </View>
           )}
         </Animated.View>
+        )}
 
         {/* 底部安全留白 */}
         <View style={{ height: spacing['4xl'] }} />

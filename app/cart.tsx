@@ -212,7 +212,8 @@ export default function CartScreen() {
         {/* 未完成订单横幅（无未支付订单时返回 null） */}
         <PendingCheckoutBanner />
         <View style={styles.emptyContainer}>
-          <AiOrb size="small" onPress={() => router.push('/ai/chat')} />
+          {/* 【AI 多轮对话已下线】原 onPress={() => router.push('/ai/chat')} 已移除，光球仅作装饰 */}
+          <AiOrb size="small" />
           <Text style={[typography.title3, { color: colors.text.primary, marginTop: spacing.lg }]}>
             购物车是空的
           </Text>
@@ -226,6 +227,7 @@ export default function CartScreen() {
             >
               <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>去逛逛</Text>
             </Pressable>
+            {/* 【AI 多轮对话已下线】「问问 AI」入口（→/ai/chat）已注释，恢复时取消注释即可
             <Pressable
               onPress={() => router.push('/ai/chat')}
               style={[
@@ -239,6 +241,7 @@ export default function CartScreen() {
             >
               <Text style={[typography.bodyStrong, { color: colors.ai.start }]}>问问 AI</Text>
             </Pressable>
+            */}
           </View>
         </View>
       </Screen>

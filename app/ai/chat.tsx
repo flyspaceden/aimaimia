@@ -15,7 +15,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { AiAssistantRepo, AiSessionRepo } from '../../src/repos';
@@ -29,7 +29,14 @@ import { useAiChatStore, useAuthStore } from '../../src/store';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { AuthModal } from '../../src/components/overlay';
 
+// 【AI 多轮对话已下线 — 过华为审查 / 规避"网络异常"】
+// 整页重定向回首页；原始多轮聊天实现完整保留在下方 AiChatScreenDisabled，
+// 恢复时把 export default 切回 AiChatScreenDisabled 即可。
 export default function AiChatScreen() {
+  return <Redirect href="/(tabs)/home" />;
+}
+
+function AiChatScreenDisabled() {
   const { colors, radius, spacing, typography, isDark } = useTheme();
   const { show } = useToast();
   const inputBottomPadding = useBottomInset(spacing.xs);

@@ -354,7 +354,11 @@ function resolveNavigateIntent(
     case 'search':
       route = '/search'; break;
     case 'ai-chat':
-      route = '/ai/chat'; break;
+      // 【AI 多轮对话已下线】不再跳 /ai/chat，原地给一句单轮反馈
+      // 原实现：route = '/ai/chat'; break;
+      feedback = intent.feedback || '你可以直接长按光球，对我说出需求～';
+      route = null;
+      break;
     default:
       feedback = intent.feedback || '我来帮你打开对应页面。';
       route = null;
