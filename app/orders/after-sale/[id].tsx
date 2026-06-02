@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -43,6 +43,15 @@ const qualityReasons = [
 // ─── 无理由类型常见说明（NO_REASON_RETURN / NO_REASON_EXCHANGE 可选）──
 // 仅作 UX 引导，不发 reasonType；点击后拼到 reason 描述
 const noReasonSuggestions = ['不喜欢', '拍错了', '规格不对', '不想要了', '收到太慢', '其他'];
+type PhotoSource = 'camera' | 'library';
+
+function deriveImageMimeType(asset: ImagePicker.ImagePickerAsset): string {
+  if (asset.mimeType) return asset.mimeType;
+  const ext = asset.uri.split('?')[0].split('.').pop()?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  return 'image/jpeg';
+}
 
 export default function AfterSaleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -71,6 +80,7 @@ export default function AfterSaleScreen() {
   const [note, setNote] = useState('');
   // 提交状态
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   // ─── 订单数据加载 ─────────────────────────────────────
   const { data, isLoading, isFetching, refetch } = useQuery({
@@ -169,49 +179,47 @@ export default function AfterSaleScreen() {
     return '需要寄回，平台生成顺丰面单';
   }, [afterSaleType, selectedOption]);
 
-  // ─── 照片上传（用 ApiClient.upload，自带 401 token 刷新 + 30s 超时）──
-  const handlePickPhotos = async () => {
-    if (photos.length >= 10) {
-      show({ message: '最多上传 10 张照片', type: 'warning' });
-      return;
+  const ensurePhotoPermission = async (source: PhotoSource): Promise<boolean> => {
+    const isCamera = source === 'camera';
+    const perm = isCamera
+      ? await ImagePicker.getCameraPermissionsAsync()
+      : await ImagePicker.getMediaLibraryPermissionsAsync();
+
+    if (perm.status === 'granted') return true;
+
+    const permissionLabel = isCamera ? '相机' : '相册';
+    const featureName = isCamera ? '拍摄售后凭证图片' : '上传售后凭证图片';
+    const purpose = isCamera
+      ? '使用相机拍摄售后申请所需的凭证图片（如商品瑕疵、物流损坏等照片）'
+      : '从您的相册中选择售后申请所需的凭证图片（如商品瑕疵、物流损坏等照片）';
+
+    if (!perm.canAskAgain) {
+      Alert.alert(
+        `需要${permissionLabel}权限`,
+        `${featureName}需要使用${permissionLabel}权限。\n您之前已拒绝授权，请前往系统设置手动开启。`,
+        [
+          { text: '取消', style: 'cancel' },
+          { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
+        ],
+      );
+      return false;
     }
 
-    // 华为合规：调起相册前先以弹窗形式同步告知权限用途
-    // 仅在系统层尚未授权时弹（已授权时直接调起，避免重复打扰）
-    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') {
-      if (!perm.canAskAgain) {
-        // 已永久拒绝：提示前往系统设置
-        Alert.alert(
-          '需要相册权限',
-          '上传售后凭证图片需要使用相册权限。\n您之前已拒绝授权，请前往系统设置手动开启。',
-          [
-            { text: '取消', style: 'cancel' },
-            { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
-          ],
-        );
-        return;
-      }
-      const userAgreed = await showPermissionRationale({
-        permission: 'photoLibrary',
-        featureName: '上传售后凭证图片',
-        purpose: '从您的相册中选择售后申请所需的凭证图片（如商品瑕疵、物流损坏等照片）',
-      });
-      if (!userAgreed) return;
-      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (req.status !== 'granted') return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      selectionLimit: 10 - photos.length,
-      quality: 0.8,
+    const userAgreed = await showPermissionRationale({
+      permission: isCamera ? 'camera' : 'photoLibrary',
+      featureName,
+      purpose,
     });
+    if (!userAgreed) return false;
 
-    if (result.canceled || !result.assets?.length) return;
+    const req = isCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    return req.status === 'granted';
+  };
 
-    const total = result.assets.length;
+  const uploadPickedAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
+    const total = assets.length;
     setUploadProgress({ current: 0, total });
     setUploading(true);
 
@@ -221,14 +229,15 @@ export default function AfterSaleScreen() {
       | { ok: false; error: string; index: number };
 
     const uploadOne = async (
-      asset: (typeof result.assets)[number],
+      asset: ImagePicker.ImagePickerAsset,
       index: number,
     ): Promise<UploadOutcome> => {
       try {
         const formData = new FormData();
-        const filename = asset.uri.split('/').pop() || 'photo.jpg';
+        const filename = asset.fileName || asset.uri.split('/').pop() || 'photo.jpg';
+        const mimeType = deriveImageMimeType(asset);
         // @ts-ignore - React Native FormData 支持 { uri, name, type } 形式
-        formData.append('file', { uri: asset.uri, name: filename, type: 'image/jpeg' });
+        formData.append('file', { uri: asset.uri, name: filename, type: mimeType });
 
         const res = await ApiClient.upload<{ url: string; key: string }>(
           '/upload?folder=after-sale',
@@ -252,7 +261,7 @@ export default function AfterSaleScreen() {
     try {
       // 🚀 并行上传：所有照片同时发，不再等串行
       const outcomes = await Promise.all(
-        result.assets.map((asset, i) => uploadOne(asset, i)),
+        assets.map((asset, i) => uploadOne(asset, i)),
       );
 
       // 保持用户选择顺序（按 index 排序后取 url）
@@ -283,6 +292,44 @@ export default function AfterSaleScreen() {
     }
   };
 
+  // ─── 照片上传（用 ApiClient.upload，自带 401 token 刷新 + 30s 超时）──
+  const handlePickPhotos = async (source: PhotoSource) => {
+    if (photos.length >= 10) {
+      show({ message: '最多上传 10 张照片', type: 'warning' });
+      return;
+    }
+
+    if (!(await ensurePhotoPermission(source))) return;
+
+    const result = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: true,
+          selectionLimit: 10 - photos.length,
+          quality: 0.8,
+        });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    await uploadPickedAssets(result.assets);
+  };
+
+  const handleAddPhotoPress = () => {
+    if (photos.length >= 10) {
+      show({ message: '最多上传 10 张照片', type: 'warning' });
+      return;
+    }
+    Alert.alert('上传售后凭证', '请选择照片来源', [
+      { text: '拍照', onPress: () => { void handlePickPhotos('camera'); } },
+      { text: '从相册选择', onPress: () => { void handlePickPhotos('library'); } },
+      { text: '取消', style: 'cancel' },
+    ]);
+  };
+
   const removePhoto = (index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
@@ -298,13 +345,14 @@ export default function AfterSaleScreen() {
 
   // ─── 提交售后申请 ─────────────────────────────────────
   const handleSubmit = async () => {
-    if (!canSubmit || !selectedItemId || !afterSaleType) return;
+    if (submittingRef.current || !canSubmit || !selectedItemId || !afterSaleType) return;
 
     if (photos.length < 1) {
       show({ message: '请至少上传 1 张照片', type: 'warning' });
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const dto: ApplyAfterSaleDto = {
@@ -348,11 +396,12 @@ export default function AfterSaleScreen() {
 
       // 导航到售后详情页（如已创建则跳转，否则回订单详情）
       if (result.data?.id) {
-        router.replace({ pathname: '/orders/after-sale-detail/[id]' as any, params: { id: result.data.id } });
+        router.replace(`/orders/after-sale-detail/${result.data.id}`);
       } else {
-        router.replace({ pathname: '/orders/[id]', params: { id: orderId } });
+        router.replace(`/orders/${orderId}`);
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -664,7 +713,7 @@ export default function AfterSaleScreen() {
                 ))}
                 {photos.length < 10 && (
                   <Pressable
-                    onPress={handlePickPhotos}
+                    onPress={handleAddPhotoPress}
                     disabled={uploading}
                     style={[
                       styles.photoAdd,

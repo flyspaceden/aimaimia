@@ -1223,7 +1223,7 @@ Tab 栏设计：
 │                             │
 │  ── 上传凭证 ──             │
 │  ┌────┐ ┌────┐ ┌────┐      │
-│  │ +📷 │ │    │ │    │      │ ← 图片上传（最多6张）
+│  │ +📷 │ │    │ │    │      │ ← 图片上传（拍照/相册，最多10张）
 │  └────┘ └────┘ └────┘      │
 │                             │
 │  ┌─────────────────────────┐│
@@ -1233,6 +1233,8 @@ Tab 栏设计：
 ```
 
 实施状态（2026-05-10）：申请售后页改为以后端 `GET /after-sale/orders/:orderId/eligibility` 作为资格真相源，商品可申请项与售后类型只渲染后端 enabled options；四类售后类型（七天无理由退货/换货、质量退货/换货）已对齐类型与标签。售后详情页移除手填退货物流作为新主流程，改为退货运费支付 `POST /after-sale/:id/return-shipping-payment` + 平台顺丰退货面单 `POST /after-sale/:id/return-waybill`，并展示质量售后商家承担运费说明、退款处理中/完成/转人工状态。最终验证时根 `npx tsc -b` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻断，过滤后无买家 App 目录新增 TypeScript 错误；买家端仍待真机验证退货运费支付、顺丰退货面单和售后退款到账。
+
+补充状态（2026-06-02）：上传凭证入口改为先选择来源，支持拍照和从相册选择；拍照走 `launchCameraAsync` 并独立申请相机权限，相册走 `launchImageLibraryAsync` 并保留华为权限说明与设置兜底，上传数量上限与页面逻辑统一为 10 张。提交按钮增加同步 `ref` 防重复提交，成功后直接 `replace` 到售后详情页。售后详情页对金额、图片数组、物流轨迹数组做渲染前归一化，并增加路由级 `ErrorBoundary`，避免后端成功创建售后后详情数据存在空值/字符串金额/异常数组时触发整页白屏。
 
 ---
 
@@ -2274,6 +2276,7 @@ src/components/ai/   → 新增目录
 | Android 底部 gap 回归修复 | `useBottomInset()` 和 TabBar 取消 JS 侧 Android 64dp 推断兜底：只使用系统 safe-area + 调用方 extra，避免 `insets.bottom=0` 的手势导航设备被误判后所有页面底部统一留白；保留全页面底部固定区审查结果，覆盖搜索 FAB、AI/客服输入栏、扫码页底部提示、地址/VIP 滚动留白和通用 BottomSheet；补充纯函数回归测试锁定 zero-inset 不自动补 64 | 2026-05-21 | `src/theme/bottomInset.ts`, `src/theme/responsive.ts`, `src/theme/__tests__/bottomInset.test.ts`, `app/(tabs)/_layout.tsx`, `app/cart.tsx`, `src/components/orders/StickyCTABar.tsx`, `app/search.tsx`, `app/ai/chat.tsx`, `app/cs/index.tsx`, `app/me/scanner.tsx`, `app/me/addresses.tsx`, `app/me/vip.tsx`, `src/components/overlay/AppBottomSheet.tsx` |
 | 发票申请页底部 CTA 局部逃生 | 保持全局 `useBottomInset()` 不做 Android 64dp 推断，避免其他页面再次出现 gap；仅 `app/invoices/request.tsx` 传 `androidMinimumBottomPadding: 64`，同时修正底部栏内按钮 `flex:1` 布局，处理该页在 low/zero bottom inset 真机上确认按钮被系统手势区压到屏幕外的问题；订单详情发票操作链接左对齐，避免右侧 AI 浮层拦截“查看发票”点击；新增回归测试确保例外必须显式传参 | 2026-05-21 | `app/invoices/request.tsx`, `src/components/cards/InvoiceSection.tsx`, `src/theme/bottomInset.ts`, `src/theme/responsive.ts`, `src/theme/__tests__/bottomInset.test.ts` |
 | 售后链路收口 Task 9/12 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API；最终验证记录已同步，真机/沙箱仍需验证退货运费支付、顺丰退货面单和售后退款到账 | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
+| 售后申请拍照与详情白屏兜底 | 申请页上传凭证支持拍照/相册二选一，提交增加同步防重复保护并在成功后直达售后详情；详情页金额、图片、物流轨迹渲染前归一化，路由级 ErrorBoundary 兜底异常数据，避免提交成功后白屏 | 2026-06-02 | `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx`, `src/utils/afterSaleDetailSafety.ts`, `src/utils/__tests__/afterSaleDetailSafety.test.ts` |
 | 发票链路收口 | 我的页增加“我的发票”入口；订单详情接入 `InvoiceSection`，按后端 `invoiceEligible` 判断申请入口，显示 REQUESTED/ISSUED/FAILED/CANCELED 状态；发票列表/详情通过 `expo-web-browser` 打开 PDF，取消申请后刷新发票与订单缓存 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/orders/[id].tsx`, `app/invoices/index.tsx`, `app/invoices/[id].tsx`, `src/components/cards/InvoiceSection.tsx`, `src/types/domain/Invoice.ts`, `src/types/domain/Order.ts`, `src/repos/InvoiceRepo.ts`, `src/repos/OrderRepo.ts` |
 
 ### Phase 进度对照

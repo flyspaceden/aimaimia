@@ -32,6 +32,7 @@ import { OrderRepo } from '../../../src/repos';
 import { AfterSaleRepo } from '../../../src/repos/AfterSaleRepo';
 import { useAuthStore } from '../../../src/store';
 import { useTheme, useBottomInset } from '../../../src/theme';
+import { asStringArray, formatMoneyValue, getTrackingEvents, toFiniteNumber } from '../../../src/utils/afterSaleDetailSafety';
 import { isAfterSaleRefundPollingActive, isAfterSaleRefundTerminal } from '../../../src/utils/afterSaleRefundSync';
 import { payWithAlipay } from '../../../src/utils/alipay';
 import { payWithWechat } from '../../../src/utils/wechat-pay';
@@ -189,6 +190,26 @@ const getTypeColor = (type: AfterSaleType, colors: any): { bg: string; text: str
 
 const BLOCKING_BUYER_SHIPPING_PAYMENT_STATUSES: ReturnShippingPaymentStatus[] = ['UNPAID', 'PENDING', 'FAILED'];
 const WAYBILL_READY_SHIPPING_PAYMENT_STATUSES: ReturnShippingPaymentStatus[] = ['NOT_REQUIRED', 'PAID'];
+
+export function ErrorBoundary({ retry }: { error: Error; retry: () => void }) {
+  const router = useRouter();
+  const { spacing } = useTheme();
+
+  return (
+    <Screen contentStyle={{ flex: 1, paddingHorizontal: spacing.xl }}>
+      <AppHeader title="售后详情" />
+      <ErrorState
+        title="售后详情加载失败"
+        description="页面数据异常，请返回订单详情后刷新重试"
+        actionLabel="返回上一页"
+        onAction={() => {
+          retry();
+          router.back();
+        }}
+      />
+    </Screen>
+  );
+}
 
 export default function AfterSaleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -442,12 +463,21 @@ export default function AfterSaleDetailScreen() {
   const as = data.data;
   const statusColor = getStatusColor(as.status, colors);
   const typeColor = getTypeColor(as.afterSaleType, colors);
+  const statusLabel = afterSaleStatusLabels[as.status] ?? '未知状态';
+  const typeLabel = afterSaleTypeLabels[as.afterSaleType] ?? '售后申请';
   const snapshot = as.orderItem?.productSnapshot;
   const productImage = snapshot?.image ?? snapshot?.images?.[0];
   const productTitle = snapshot?.title ?? '商品';
-  const unitPrice = as.orderItem?.unitPrice ?? 0;
-  const quantity = as.orderItem?.quantity ?? 1;
+  const unitPrice = toFiniteNumber(as.orderItem?.unitPrice);
+  const quantity = toFiniteNumber(as.orderItem?.quantity, 1);
   const companyName = as.orderItem?.company?.name ?? snapshot?.companyName ?? null;
+  const photos = asStringArray(as.photos);
+  const sellerRejectPhotos = asStringArray(as.sellerRejectPhotos);
+  const returnTrackingEvents = getTrackingEvents(as.returnTracking);
+  const sellerReturnTrackingEvents = getTrackingEvents(as.sellerReturnTracking);
+  const replacementTrackingEvents = getTrackingEvents(as.replacementTracking);
+  const hasRefundAmount = as.refundAmount !== null && as.refundAmount !== undefined;
+  const refundAmountText = formatMoneyValue(as.refundAmount);
   const returnShippingPayer = resolveReturnShippingPayer(as);
   const isLegacyManualReturnShipping =
     as.isLegacyManualReturnShipping ?? Boolean(as.returnWaybillNo && !as.returnSfOrderId);
@@ -502,11 +532,11 @@ export default function AfterSaleDetailScreen() {
           >
             <View style={styles.statusRow}>
               <Text style={[typography.headingSm, { color: statusColor }]}>
-                {afterSaleStatusLabels[as.status]}
+                {statusLabel}
               </Text>
               <View style={[styles.typeTag, { backgroundColor: typeColor.bg, borderRadius: radius.sm }]}>
                 <Text style={[typography.captionSm, { color: typeColor.text }]}>
-                  {afterSaleTypeLabels[as.afterSaleType]}
+                  {typeLabel}
                 </Text>
               </View>
             </View>
@@ -544,7 +574,7 @@ export default function AfterSaleDetailScreen() {
                   </Text>
                 )}
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                  ¥{unitPrice.toFixed(2)} x{quantity}
+                  ¥{formatMoneyValue(unitPrice)} x{quantity}
                 </Text>
               </View>
             </View>
@@ -552,14 +582,14 @@ export default function AfterSaleDetailScreen() {
         </Animated.View>
 
         {/* ═══════ C. 凭证照片 ═══════ */}
-        {as.photos && as.photos.length > 0 && (
+        {photos.length > 0 && (
           <Animated.View entering={FadeInDown.duration(300).delay(120)}>
             <View style={[styles.section, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
               <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: spacing.sm }]}>
                 凭证照片
               </Text>
               <View style={styles.photoGrid}>
-                {as.photos.map((url, index) => (
+                {photos.map((url, index) => (
                   <PhotoTile key={index} uri={url} size={80} radius={radius.md} />
                 ))}
               </View>
@@ -574,12 +604,12 @@ export default function AfterSaleDetailScreen() {
               售后原因
             </Text>
             <View style={[styles.infoBlock, { backgroundColor: colors.bgSecondary, borderRadius: radius.md }]}>
-              <InfoRow label="售后类型" value={afterSaleTypeLabels[as.afterSaleType]} />
+              <InfoRow label="售后类型" value={typeLabel} />
               {as.reasonType && (
                 <InfoRow label="问题分类" value={reasonTypeLabels[as.reasonType] ?? as.reasonType} />
               )}
               {as.reason && <InfoRow label="补充说明" value={as.reason} />}
-              <InfoRow label="申请时间" value={as.createdAt} noBorder />
+              <InfoRow label="申请时间" value={String(as.createdAt ?? '-')} noBorder />
             </View>
           </View>
         </Animated.View>
@@ -618,24 +648,24 @@ export default function AfterSaleDetailScreen() {
               ) : null}
 
               {/* 顺丰物流轨迹（买家寄回 / 卖家拒收回寄） */}
-              {as.returnTracking?.events?.length ? (
+              {returnTrackingEvents.length ? (
                 <View style={{ marginTop: spacing.md }}>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
                     物流节点（实时）
                   </Text>
-                  <TrackingTimeline events={as.returnTracking.events} accent={colors.brand.primary} colors={colors} typography={typography} />
+                  <TrackingTimeline events={returnTrackingEvents} accent={colors.brand.primary} colors={colors} typography={typography} />
                 </View>
               ) : as.returnWaybillNo ? (
                 <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
                   暂无物流节点（顺丰可能尚未揽收或推送延迟）
                 </Text>
               ) : null}
-              {as.sellerReturnTracking?.events?.length ? (
+              {sellerReturnTrackingEvents.length ? (
                 <View style={{ marginTop: spacing.md }}>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
                     卖家拒收回寄物流
                   </Text>
-                  <TrackingTimeline events={as.sellerReturnTracking.events} accent={colors.warning ?? '#fa8c16'} colors={colors} typography={typography} />
+                  <TrackingTimeline events={sellerReturnTrackingEvents} accent={colors.warning ?? '#fa8c16'} colors={colors} typography={typography} />
                 </View>
               ) : null}
             </View>
@@ -653,14 +683,14 @@ export default function AfterSaleDetailScreen() {
                 {as.replacementCarrierName ? (
                   <InfoRow label="快递公司" value={as.replacementCarrierName} />
                 ) : null}
-                <InfoRow label="快递单号" value={as.replacementWaybillNo} noBorder={!as.replacementTracking?.events?.length} />
+                <InfoRow label="快递单号" value={as.replacementWaybillNo} noBorder={!replacementTrackingEvents.length} />
               </View>
-              {as.replacementTracking?.events?.length ? (
+              {replacementTrackingEvents.length ? (
                 <View style={{ marginTop: spacing.md }}>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: spacing.sm }]}>
                     物流节点（实时）
                   </Text>
-                  <TrackingTimeline events={as.replacementTracking.events} accent={colors.success ?? '#52c41a'} colors={colors} typography={typography} />
+                  <TrackingTimeline events={replacementTrackingEvents} accent={colors.success ?? '#52c41a'} colors={colors} typography={typography} />
                 </View>
               ) : (
                 <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
@@ -695,13 +725,13 @@ export default function AfterSaleDetailScreen() {
                 </View>
               )}
               {/* 卖家驳回照片 */}
-              {as.sellerRejectPhotos && as.sellerRejectPhotos.length > 0 && (
+              {sellerRejectPhotos.length > 0 && (
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginBottom: 6 }]}>
                     卖家举证照片
                   </Text>
                   <View style={styles.photoGrid}>
-                    {as.sellerRejectPhotos.map((url, index) => (
+                    {sellerRejectPhotos.map((url, index) => (
                       <PhotoTile key={index} uri={url} size={80} radius={radius.md} />
                     ))}
                   </View>
@@ -712,7 +742,7 @@ export default function AfterSaleDetailScreen() {
         )}
 
         {/* ═══════ G. 退款信息 ═══════ */}
-        {as.refundAmount != null && as.afterSaleType !== 'QUALITY_EXCHANGE' && (
+        {hasRefundAmount && as.afterSaleType !== 'QUALITY_EXCHANGE' && (
           <Animated.View entering={FadeInDown.duration(300).delay(360)}>
             <View style={[styles.section, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
               <Text style={[typography.bodyStrong, { color: colors.text.primary, marginBottom: spacing.sm }]}>
@@ -722,7 +752,7 @@ export default function AfterSaleDetailScreen() {
                 <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
                   <Text style={[typography.bodySm, { color: colors.text.secondary }]}>退款金额</Text>
                   <Text style={[typography.headingSm, { color: as.status === 'REFUNDED' ? colors.success : colors.danger }]}>
-                    ¥{as.refundAmount.toFixed(2)}
+                    ¥{refundAmountText}
                   </Text>
                 </View>
                 {refundProgressText ? (
@@ -915,7 +945,7 @@ export default function AfterSaleDetailScreen() {
           <View style={[styles.successBlock, { backgroundColor: 'rgba(46, 125, 50, 0.06)', borderRadius: radius.md }]}>
             <MaterialCommunityIcons name="check-circle" size={24} color={colors.success} />
             <Text style={[typography.bodyStrong, { color: colors.success, marginLeft: spacing.sm }]}>
-              退款已完成 ¥{as.refundAmount?.toFixed(2) ?? '0.00'}
+              退款已完成 ¥{formatMoneyValue(as.refundAmount)}
             </Text>
           </View>
         );
