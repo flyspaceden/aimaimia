@@ -26,7 +26,7 @@ export const paymentMethods: Array<{
   {
     value: 'wechat',
     label: '微信支付',
-    description: '微信账户余额或银行卡支付',
+    description: '', // 临时清空作为 OTA 到达验证标记（确认新 bundle 后可恢复文案）
     available: wechatPayAvailable,
     comingSoon: wechatPayAvailable ? undefined : (Platform.OS === 'ios' ? 'iOS 稍后上线' : '待开通'),
   },
