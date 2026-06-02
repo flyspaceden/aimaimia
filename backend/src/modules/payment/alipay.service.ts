@@ -234,6 +234,12 @@ export class AlipayService implements OnModuleInit {
         // 转账场景名：生产环境强校验（沙箱不校验），缺失报 TRANSFER_SCENE_NAME_BLANK。
         // 必须与支付宝商家中心「资金管理-转账场景」申明的场景一字不差（当前申明：现金营销）。
         transfer_scene_name: '现金营销',
+        // 现金营销场景必报字段（缺失报 INVALID_PARAMETER: transfer_scene_report_infos 不能为空）。
+        // info_type 为该场景固定值「活动名称/奖励说明」（见支付宝「转账场景信息列表」），info_content 为如实描述。
+        transfer_scene_report_infos: [
+          { info_type: '活动名称', info_content: '爱买买消费奖励活动' },
+          { info_type: '奖励说明', info_content: '用户消费及推荐好友获得的分润奖励' },
+        ],
         order_title: '爱买买消费积分提现',
         payee_info: {
           identity: params.payeeAccount,
