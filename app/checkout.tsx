@@ -1145,9 +1145,11 @@ export default function CheckoutScreen() {
                         </Text>
                       )}
                     </View>
-                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                      {method.description}
-                    </Text>
+                    {method.description ? (
+                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                        {method.description}
+                      </Text>
+                    ) : null}
                   </View>
                   <View
                     style={[
