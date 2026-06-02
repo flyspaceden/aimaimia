@@ -231,6 +231,9 @@ export class AlipayService implements OnModuleInit {
         trans_amount: params.amount.toFixed(2),
         product_code: 'TRANS_ACCOUNT_NO_PWD',
         biz_scene: 'DIRECT_TRANSFER',
+        // 转账场景名：生产环境强校验（沙箱不校验），缺失报 TRANSFER_SCENE_NAME_BLANK。
+        // 必须与支付宝商家中心「资金管理-转账场景」申明的场景一字不差（当前申明：现金营销）。
+        transfer_scene_name: '现金营销',
         order_title: '爱买买消费积分提现',
         payee_info: {
           identity: params.payeeAccount,
