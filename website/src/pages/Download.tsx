@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { getApiBaseUrl } from '@/lib/apiBase'
 import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
+import { ANDROID_TEST_DOWNLOAD_URL } from '@/lib/downloadLinks'
 
 const API_BASE = getApiBaseUrl()
 
@@ -86,7 +87,7 @@ export default function Download() {
     if (platform === 'ios') {
       window.location.href = 'https://apps.apple.com/app/id000000000'
     } else if (platform === 'android') {
-      window.location.href = 'https://play.google.com/store/apps/details?id=com.aimaimai.shop'
+      window.location.href = ANDROID_TEST_DOWNLOAD_URL
     }
   }
 
@@ -135,7 +136,7 @@ export default function Download() {
             cursor: 'pointer', boxShadow: '0 4px 20px rgba(46, 125, 50, 0.4)',
           }}
         >
-          {platform === 'ios' ? '前往 App Store 下载' : '前往应用商店下载'}
+          {platform === 'ios' ? '前往 App Store 下载' : '下载安卓测试版'}
         </button>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -155,6 +156,37 @@ export default function Download() {
             marginTop: 16, textAlign: 'center',
           }}>
             用手机扫码下载 App
+          </p>
+        </div>
+      )}
+
+      {platform === 'android' && (
+        <div style={{
+          marginTop: 28,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}>
+          <div style={{
+            padding: 12,
+            borderRadius: 14,
+            backgroundColor: '#fff',
+            boxShadow: '0 8px 28px rgba(0,0,0,0.28)',
+          }}>
+            <QRCodeSVG
+              value={ANDROID_TEST_DOWNLOAD_URL}
+              size={132}
+              fgColor="#36404a"
+              bgColor="#ffffff"
+            />
+          </div>
+          <p style={{
+            fontSize: 13,
+            color: 'rgba(255,255,255,0.58)',
+            margin: '12px 0 0 0',
+            textAlign: 'center',
+          }}>
+            扫码或点击按钮下载安卓测试版
           </p>
         </div>
       )}

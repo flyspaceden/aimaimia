@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>正在处理</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #0a1628; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif; }
+  .wrap { display: flex; align-items: center; justify-content: center; height: 100%; color: rgba(255,255,255,0.3); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap"><p>正在处理...</p></div>
+<script>
+// 与 scripts/resolveLogic.mjs::decideRedirect 行为等价。任何修改都要同步那边的测试用例。
+(function () {
+  // 1) 中文域名 → 强制重定向到英文域，否则跨域 cookie 读不到
+  //    与 website/src/lib/canonicalDomain.ts::redirectToCanonicalDomainIfNeeded 等价
+  var host = location.hostname;
+  if (host.indexOf('xn--ckqa175y') >= 0 || host.indexOf('爱买买') >= 0) {
+    location.replace(location.href.replace(/\/\/([^/]*\.)?(xn--ckqa175y|爱买买)\.com/, '//app.ai-maimai.com'));
+    return;
+  }
+
+  function fallback() { location.href = 'aimaimai://referral?code=none'; }
+
+  // 2) 读 _ddl_id cookie（与 Resolve.tsx::getCookie 等价：先正则提取，再 decodeURIComponent）
+  //    cookie 值若被污染含非法 % 序列（如 'abc%'），decodeURIComponent 会抛 URIError，
+  //    必须 try/catch，否则整段 IIFE 终止 → 页面白屏 → App 端 5s hard cap 才放行
+  var m = document.cookie.match(/(?:^|; )_ddl_id=([^;]*)/);
+  var id = null;
+  if (m) {
+    try { id = decodeURIComponent(m[1]); } catch (e) { fallback(); return; }
+  }
+
+  if (!id) { fallback(); return; }
+
+  // 3) 调 API（3s AbortController 超时；任何错都走 fallback）
+  var ctrl = new AbortController();
+  var timer = setTimeout(function () { ctrl.abort(); }, 3000);
+
+  fetch('__API_BASE__/deferred-link/resolve?cookieId=' + encodeURIComponent(id), { signal: ctrl.signal })
+    .then(function (r) {
+      if (!r.ok) { fallback(); return null; }
+      return r.json();
+    })
+    .then(function (data) {
+      if (!data) return; // 上一步已 fallback
+      var code = data && data.data && data.data.referralCode;
+      if (code) location.href = 'aimaimai://referral?code=' + encodeURIComponent(code);
+      else fallback();
+    })
+    .catch(function () { fallback(); })
+    .finally(function () { clearTimeout(timer); });
+})();
+</script>
+</body>
+</html>

@@ -56,8 +56,8 @@ export default function Footer() {
           </div>
           <div className="flex gap-6">
             <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号</a>
-            <a href="#" className="hover:text-white transition-colors">隐私政策</a>
-            <a href="#" className="hover:text-white transition-colors">服务条款</a>
+            <Link to="/privacy" className="hover:text-white transition-colors">隐私政策</Link>
+            <Link to="/terms" className="hover:text-white transition-colors">服务条款</Link>
           </div>
         </div>
       </div>
