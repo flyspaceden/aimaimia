@@ -173,7 +173,7 @@ export class WithdrawPayoutService implements OnModuleInit {
         withdrawId: created.id,
         ...grossNet,
         status: 'FAILED',
-        message: `提现失败，金额已退回：${transferResult.errorMessage || '渠道处理失败'}`,
+        message: this.mapWithdrawFailureMessage(transferResult.errorCode, transferResult.errorMessage),
       };
     }
 
@@ -184,6 +184,39 @@ export class WithdrawPayoutService implements OnModuleInit {
       status: 'PROCESSING',
       message: '提现处理中，请稍后查看',
     };
+  }
+
+  /**
+   * 把渠道（支付宝）原始失败码翻译成给用户看的人话原因。
+   * - 收款方相关（账号/姓名/未实名，用户可自行修正）：始终显示具体原因。
+   * - 平台侧（余额/额度/付款方状态）：非生产显示具体便于排查，生产对用户软化。
+   * 原始错误码始终记录在提现记录里供管理后台排查（不受此映射影响）。
+   */
+  private mapWithdrawFailureMessage(errorCode?: string, rawMessage?: string): string {
+    const code = (errorCode || '').toUpperCase();
+    const isProd = process.env.NODE_ENV === 'production';
+    const soft = '提现暂时失败，款项已退回，请稍后重试';
+
+    // 收款方相关（用户可自行修正）—— 始终具体
+    if (code.startsWith('PAYEE') || code.includes('CARD_BIN')) {
+      return '支付宝账号或实名姓名有误（或收款账号未实名），请核对后重试';
+    }
+    // 支付宝系统繁忙 —— 提示重试（对用户也合适）
+    if (code === 'SYSTEM_ERROR') {
+      return '支付宝系统繁忙，请稍后重试';
+    }
+    // 平台侧（余额/额度/付款方状态）—— 生产软化，测试具体
+    if (code.includes('BALANCE') || code.includes('PAYCARD')) {
+      return isProd ? soft : '商户账户余额不足 / 付款功能不可用，款项已退回';
+    }
+    if (code.includes('LIMIT')) {
+      return isProd ? soft : '超出当日或单笔提现额度，款项已退回';
+    }
+    if (code.startsWith('PAYER')) {
+      return isProd ? soft : `商户账户状态异常（${code}），款项已退回`;
+    }
+    // 未知 —— 软化；非生产带原始信息便于排查
+    return isProd ? soft : `提现失败，款项已退回（${rawMessage || code || '未知原因'}）`;
   }
 
   async deductBalanceForWithdraw(
