@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { TouchableOpacity as GestureTouchable } from 'react-native-gesture-handler';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -108,7 +108,8 @@ export default function WithdrawScreen() {
       } else if (result.data.status === 'PROCESSING') {
         show({ message: '提现处理中，请稍后查看', type: 'info' });
       } else {
-        show({ message: `提现失败：${result.data.message}`, type: 'error' });
+        // 提现失败：用持久弹窗显示具体原因（后端已映射成人话），不再用一闪而过的 toast
+        Alert.alert('提现失败', result.data.message ?? '提现失败，款项已退回，请稍后重试', [{ text: '知道了' }]);
       }
 
       await Promise.all([

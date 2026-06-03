@@ -50,7 +50,7 @@ interface LedgerDisplayItem {
   desc: string;
   amount: number;
   date: string;
-  type: 'income' | 'expense' | 'frozen' | 'expired';
+  type: 'income' | 'expense' | 'frozen' | 'expired' | 'failed';
   // 冻结专有
   requiredLevel?: number | null;
   remainingDays?: number | null;
@@ -172,6 +172,19 @@ export default function WalletScreen() {
       }
 
       if (isVoided) {
+        // 失败/退回的提现也是 VOIDED，但 refType 仍是 WITHDRAW——必须先分流，
+        // 否则会被误标成"消费返积分·已过期"（提现失败显示 bug 修复）。
+        if (isWithdraw) {
+          items.push({
+            id: entry.id,
+            title: '提现到支付宝',
+            desc: '提现失败，款项已退回',
+            amount: entry.amount,
+            date: entry.createdAt,
+            type: 'failed',
+          });
+          return;
+        }
         items.push({
           id: entry.id,
           title: sellerLabel ?? '消费返积分',
@@ -327,6 +340,7 @@ export default function WalletScreen() {
                   {item.type === 'income' ? '已到账'
                     : item.type === 'frozen' ? '冻结积分'
                     : item.type === 'expense' ? '已完成'
+                    : item.type === 'failed' ? '已退回'
                     : '已过期'}
                 </Text>
               </View>
@@ -385,7 +399,7 @@ export default function WalletScreen() {
                 },
               ]}
             >
-              {item.type === 'expense' ? '' : '+'}{item.amount.toFixed(2)}
+              {item.type === 'expense' || item.type === 'failed' ? '' : '+'}{item.amount.toFixed(2)}
             </Text>
             <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 2 }]}>
               {formatDateTime(item.date)}
