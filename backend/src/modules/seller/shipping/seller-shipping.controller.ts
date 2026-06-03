@@ -95,10 +95,32 @@ export class SellerShippingController {
       orderId,
     );
 
-    // PDF 面单直接返回（不加水印，PDF 水印处理复杂度高）
-    if (printData.waybillUrl.startsWith('data:application/pdf;base64,')) {
-      const base64Data = printData.waybillUrl.replace('data:application/pdf;base64,', '');
-      const pdfBuffer = Buffer.from(base64Data, 'base64');
+    // PDF 面单（OSS URL 或 SF 临时 URL，或历史 base64 兼容）
+    const isPdfBase64 = printData.waybillUrl.startsWith('data:application/pdf;base64,');
+    const isPdfUrl = /\.pdf(\?|$)/i.test(printData.waybillUrl);
+
+    if (isPdfBase64 || isPdfUrl) {
+      let pdfBuffer: Buffer;
+
+      if (isPdfBase64) {
+        // 历史数据兼容：DB 中残留的 base64 dataURL
+        const base64Data = printData.waybillUrl.replace('data:application/pdf;base64,', '');
+        pdfBuffer = Buffer.from(base64Data, 'base64');
+      } else {
+        try {
+          const fetched = await fetchBinaryWithLimit(printData.waybillUrl, {
+            maxBytes: 10 * 1024 * 1024,
+            timeoutMs: 15000,
+            allowedContentTypes: ['application/pdf', 'application/octet-stream'],
+          });
+          pdfBuffer = fetched.buffer;
+        } catch (error) {
+          if (error instanceof RemoteBinaryFetchError) {
+            throw new HttpException(error.message, error.statusCode);
+          }
+          throw new HttpException('面单 PDF 读取失败', HttpStatus.BAD_GATEWAY);
+        }
+      }
 
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Pragma', 'no-cache');
@@ -170,6 +192,8 @@ export class SellerShippingController {
   /**
    * 取消面单
    * DELETE /seller/orders/:orderId/waybill
+   *
+   * Bug 75 联动: OPERATOR 能生面单 / 确认发货后，也应能取消面单（防发错单卡死）
    */
   @SellerAudit({
     action: 'CANCEL_WAYBILL',
@@ -178,6 +202,7 @@ export class SellerShippingController {
     targetIdParam: 'params.orderId',
   })
   @UseGuards(SellerAuthGuard, SellerRoleGuard)
+  @SellerRoles('OWNER', 'MANAGER', 'OPERATOR')
   @Delete(':orderId/waybill')
   cancelWaybill(
     @CurrentSeller('companyId') companyId: string,

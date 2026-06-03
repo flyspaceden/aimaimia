@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Dimensions,
   Image,
   Pressable,
   RefreshControl,
@@ -8,6 +7,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import Animated, {
   FadeInDown,
@@ -34,10 +34,8 @@ import { useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { Product, Company, AppError } from '../../src/types';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const COLUMN_GAP = 10;
 const HORIZONTAL_PADDING = 16;
-const CARD_WIDTH = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2 - COLUMN_GAP) / 2;
 
 // AI 推荐卡片固定宽度和图片高度
 const AI_CARD_WIDTH = 140;
@@ -59,6 +57,13 @@ export default function MuseumScreen() {
   const { colors, radius, spacing, shadow, typography } = useTheme();
   const router = useRouter();
   const { show } = useToast();
+
+  // 窗口宽度跟随旋转/分屏/字体放大实时变化（避免模块顶层 Dimensions.get 锁死）
+  const { width: windowWidth } = useWindowDimensions();
+  // 双列瀑布流单列宽度：屏幕宽减去左右内边距与列间距后均分
+  const itemWidth = (windowWidth - HORIZONTAL_PADDING * 2 - COLUMN_GAP) / 2;
+  // 标签页等分宽度：屏幕宽减去左右内边距后均分
+  const tabWidth = (windowWidth - HORIZONTAL_PADDING * 2) / 2;
 
   // 标签页与视图状态
   const [activeTab, setActiveTab] = useState<'products' | 'companies'>('products');
@@ -216,10 +221,9 @@ export default function MuseumScreen() {
     (tab: 'products' | 'companies') => {
       setActiveTab(tab);
       // 动画移动下划线指示器
-      const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
       tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 200 });
     },
-    [tabIndicatorX],
+    [tabIndicatorX, tabWidth],
   );
 
   // 下拉刷新
@@ -305,6 +309,7 @@ export default function MuseumScreen() {
           <View key={product.id} style={{ marginBottom: COLUMN_GAP }}>
             <ProductCard
               product={product}
+              width={itemWidth}
               imageHeight={imageHeight}
               onPress={(p) => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
               onAdd={(p) => {
@@ -315,7 +320,7 @@ export default function MuseumScreen() {
           </View>
         );
       }),
-    [router, addItem, show],
+    [router, addItem, show, itemWidth],
   );
 
   // 企业卡片渲染
@@ -365,8 +370,6 @@ export default function MuseumScreen() {
   }
 
   // ==================== 固定头部 ====================
-  const tabWidth = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2) / 2;
-
   const StickyHeader = (
     <View style={[styles.stickyHeader, { backgroundColor: colors.background }]}>
       {/* 第一行：标题 + 图标 */}
@@ -940,7 +943,7 @@ export default function MuseumScreen() {
               </Animated.View>
           </View>
 
-          {/* 瀑布流双列 */}
+          {/* 瀑布流双列：列宽锁死为 itemWidth，不依赖 flex 推算，避免内容/图片/百分比宽参与布局产生左右不等 */}
           {allProducts.length > 0 ? (
             <View
               style={{
@@ -949,10 +952,10 @@ export default function MuseumScreen() {
                 paddingBottom: spacing['3xl'],
               }}
             >
-              <View style={{ flex: 1, marginRight: COLUMN_GAP / 2 }}>
+              <View style={{ width: itemWidth, marginRight: COLUMN_GAP / 2 }}>
                 {renderMasonryColumn(leftColumn, 0)}
               </View>
-              <View style={{ flex: 1, marginLeft: COLUMN_GAP / 2 }}>
+              <View style={{ width: itemWidth, marginLeft: COLUMN_GAP / 2 }}>
                 {renderMasonryColumn(rightColumn, 1)}
               </View>
             </View>

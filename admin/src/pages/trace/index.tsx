@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, message, Modal, Form, Input, Popconfirm, Space, Select, Spin } from 'antd';
+import { App, Button, Modal, Form, Input, Popconfirm, Space, Select, Spin } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getTraceBatches, createTraceBatch, updateTraceBatch, deleteTraceBatch } from '@/api/trace';
 import { getCompanies } from '@/api/companies';
@@ -11,6 +11,7 @@ import type { TraceBatch } from '@/types';
 import dayjs from 'dayjs';
 
 export default function TraceListPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<TraceBatch | null>(null);

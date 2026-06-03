@@ -3,10 +3,15 @@ import {
   UnauthorizedException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
+  NotFoundException,
+  HttpException,
+  HttpStatus,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -15,6 +20,11 @@ import {
   AdminLoginByPhoneCodeDto,
   AdminSendCodeDto,
 } from './dto/admin-login.dto';
+import {
+  AdminChangePasswordDto,
+  AdminBindPhoneSmsCodeDto,
+  AdminChangePhoneDto,
+} from './dto/admin-account-security.dto';
 import { AdminRefreshDto } from './dto/admin-refresh.dto';
 import { maskIp } from '../../../common/security/privacy-mask';
 import { CaptchaService } from '../../captcha/captcha.service';
@@ -126,17 +136,14 @@ export class AdminAuthService {
     return this.issueTokens(admin, ip, userAgent);
   }
 
-  /** C18：发送短信验证码（管理员手机登录，需先通过图形验证码） */
-  async sendSmsCode(dto: AdminSendCodeDto) {
-    // 先校验图形验证码（原子 getdel，防止重放 + 拦截脚本刷短信）
-    const captchaOk = await this.captchaService.verify(
-      dto.captchaId,
-      dto.captchaCode,
-    );
-    if (!captchaOk) {
-      throw new UnauthorizedException('验证码错误或已过期');
-    }
-
+  /** 发送短信验证码（管理员手机登录）
+   *
+   * 方案 A（2026-04-19）：去除图形验证码依赖，改用后端严格速率限制保护：
+   * - 单手机号：1 条/分钟、5 条/小时、10 条/日（Serializable 事务防 TOCTOU）
+   * - 单 IP：controller 层 @Throttle 3 条/分钟
+   * - 时序防枚举 1-3s 随机延迟
+   */
+  async sendSmsCode(dto: AdminSendCodeDto, ip?: string) {
     const { phone } = dto;
 
     // 防时序枚举：不论手机号是否存在，都先做随机延迟（1000-3000ms）
@@ -150,6 +157,8 @@ export class AdminAuthService {
       where: { phone },
     });
 
+    let pendingSms: { code: string } | null = null;
+
     // 即使管理员不存在/禁用也返回通用成功，但只在合法时发送短信
     if (admin && admin.status === 'ACTIVE') {
       const smsMock = this.config.get('SMS_MOCK', 'true');
@@ -158,10 +167,65 @@ export class AdminAuthService {
       const codeHash = await bcrypt.hash(code, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-      await this.prisma.smsOtp.create({
-        data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
-      });
+      // Serializable 事务：速率限制 count + OTP 插入原子执行
+      // 防 TOCTOU：两个并发请求同手机号时，后者 count 会包含前者写入，被拒
+      await this.prisma.$transaction(
+        async (tx) => {
+          const now = new Date();
+          const oneMinuteAgo = new Date(now.getTime() - 60_000);
+          const oneHourAgo = new Date(now.getTime() - 3_600_000);
+          const dayStart = new Date(now);
+          dayStart.setHours(0, 0, 0, 0);
 
+          const [perMinute, perHour, perDay] = await Promise.all([
+            tx.smsOtp.count({
+              where: { phone, purpose: 'LOGIN', createdAt: { gte: oneMinuteAgo } },
+            }),
+            tx.smsOtp.count({
+              where: { phone, purpose: 'LOGIN', createdAt: { gte: oneHourAgo } },
+            }),
+            tx.smsOtp.count({
+              where: { phone, purpose: 'LOGIN', createdAt: { gte: dayStart } },
+            }),
+          ]);
+
+          if (perMinute >= 1) {
+            throw new HttpException(
+              '发送过于频繁，请 1 分钟后再试',
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+          if (perHour >= 5) {
+            throw new HttpException(
+              '该手机号 1 小时内发送次数过多，请稍后再试',
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+          if (perDay >= 10) {
+            throw new HttpException(
+              '该手机号今日验证码发送次数已达上限',
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+
+          await tx.smsOtp.create({
+            data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+
+      pendingSms = { code };
+    } else {
+      // 不存在或禁用：记录日志但返回通用成功（不做真实发送）
+      this.logger.warn(
+        `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送`,
+      );
+    }
+
+    // 事务提交后再发实际短信（网络调用不能放事务内）
+    if (pendingSms) {
+      const smsMock = this.config.get('SMS_MOCK', 'true');
       const nodeEnv = this.config.get('NODE_ENV', 'development');
       if (smsMock === 'true') {
         if (nodeEnv === 'production') {
@@ -170,11 +234,11 @@ export class AdminAuthService {
           );
         }
         this.logger.log(
-          `[Admin SMS Mock] 固定验证码=${code}（管理员手机登录）`,
+          `[Admin SMS Mock] 固定验证码=${pendingSms.code}（管理员手机登录）`,
         );
       } else {
         try {
-          await this.aliyunSms.sendVerificationCode(phone, code);
+          await this.aliyunSms.sendVerificationCode(phone, pendingSms.code);
         } catch (err) {
           this.logger.error(
             `[Admin SMS] 验证码发送失败: ${(err as Error)?.message}`,
@@ -182,11 +246,6 @@ export class AdminAuthService {
           );
         }
       }
-    } else {
-      // 不存在或禁用：记录日志但返回通用成功（不做真实发送）
-      this.logger.warn(
-        `[Admin SMS] 手机号无匹配管理员或账号禁用，忽略发送`,
-      );
     }
 
     // 等待 jitter 完成再返回，使真假手机号的响应时间一致
@@ -226,6 +285,28 @@ export class AdminAuthService {
     }
 
     if (!matchedRecord) {
+      // C50 修复：验证码错误时对已绑定管理员的账号递增 loginFailCount
+      // 与 login() L12 修复一致，防止暴力猜测 6 位验证码
+      const adminForLock = await this.prisma.adminUser.findUnique({
+        where: { phone: dto.phone },
+      });
+      if (adminForLock) {
+        await this.prisma.adminUser.update({
+          where: { id: adminForLock.id },
+          data: { loginFailCount: { increment: 1 } },
+        });
+        // 原子判定：loginFailCount >= 5 则锁 30 分钟
+        const locked = await this.prisma.adminUser.updateMany({
+          where: { id: adminForLock.id, loginFailCount: { gte: 5 } },
+          data: {
+            lockedUntil: new Date(Date.now() + 30 * 60 * 1000),
+            loginFailCount: 0,
+          },
+        });
+        if (locked.count > 0) {
+          throw new ForbiddenException('登录失败次数过多，账号已锁定30分钟');
+        }
+      }
       throw new BadRequestException('验证码错误');
     }
 
@@ -251,7 +332,7 @@ export class AdminAuthService {
       throw new UnauthorizedException('手机号未绑定管理员账号');
     }
 
-    // 3. 账号锁定/禁用检查
+    // 3. 账号锁定/禁用检查（锁定可能在 OTP 校验阶段已触发）
     if (admin.lockedUntil && admin.lockedUntil > new Date()) {
       const minutes = Math.ceil(
         (admin.lockedUntil.getTime() - Date.now()) / 60000,
@@ -399,6 +480,7 @@ export class AdminAuthService {
       id: admin.id,
       username: admin.username,
       realName: admin.realName,
+      phone: admin.phone,
       status: admin.status,
       roles,
       permissions,
@@ -406,6 +488,241 @@ export class AdminAuthService {
       lastLoginIp: admin.lastLoginIp,
       lastLoginIpMasked: maskIp(admin.lastLoginIp),
     };
+  }
+
+  // ===================== C40c7 账号安全：修改密码 / 修改手机号 =====================
+
+  /** 修改密码：旧密码 + 新密码（校验后强制失效所有 session，用户需重新登录） */
+  async changePassword(
+    adminUserId: string,
+    dto: AdminChangePasswordDto,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    const admin = await this.prisma.adminUser.findUnique({
+      where: { id: adminUserId },
+    });
+    if (!admin) throw new NotFoundException('管理员不存在');
+
+    const valid = await bcrypt.compare(dto.oldPassword, admin.passwordHash);
+    if (!valid) throw new UnauthorizedException('原密码错误');
+
+    if (dto.oldPassword === dto.newPassword) {
+      throw new BadRequestException('新密码不能与原密码相同');
+    }
+
+    const newHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.adminUser.update({
+      where: { id: adminUserId },
+      data: { passwordHash: newHash },
+    });
+
+    // 改密后所有 session 失效，前端本次请求完成后需重新登录
+    await this.prisma.adminSession.updateMany({
+      where: { adminUserId, expiresAt: { gt: new Date() } },
+      data: { expiresAt: new Date() },
+    });
+
+    await this.prisma.adminAuditLog.create({
+      data: {
+        adminUserId,
+        action: 'UPDATE',
+        module: 'auth',
+        summary: `管理员 ${admin.username} 修改密码`,
+        ip,
+        userAgent,
+        isReversible: false,
+      },
+    });
+
+    return { ok: true };
+  }
+
+  /** 给新手机号发绑定验证码（已登录态调用，purpose=BIND） */
+  async sendBindPhoneSmsCode(
+    dto: AdminBindPhoneSmsCodeDto,
+    adminUserId: string,
+  ) {
+    const { phone } = dto;
+
+    // 新手机号不能已被其他管理员绑定
+    const existing = await this.prisma.adminUser.findUnique({
+      where: { phone },
+    });
+    if (existing && existing.id !== adminUserId) {
+      throw new ConflictException('该手机号已被其他管理员绑定');
+    }
+
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code =
+      smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // Serializable 事务：速率限制 + OTP 插入原子执行（防 TOCTOU）
+    await this.prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const oneMinuteAgo = new Date(now.getTime() - 60_000);
+        const oneHourAgo = new Date(now.getTime() - 3_600_000);
+        const dayStart = new Date(now);
+        dayStart.setHours(0, 0, 0, 0);
+
+        const [perMinute, perHour, perDay] = await Promise.all([
+          tx.smsOtp.count({
+            where: { phone, purpose: 'BIND', createdAt: { gte: oneMinuteAgo } },
+          }),
+          tx.smsOtp.count({
+            where: { phone, purpose: 'BIND', createdAt: { gte: oneHourAgo } },
+          }),
+          tx.smsOtp.count({
+            where: { phone, purpose: 'BIND', createdAt: { gte: dayStart } },
+          }),
+        ]);
+
+        if (perMinute >= 1) {
+          throw new HttpException(
+            '发送过于频繁，请 1 分钟后再试',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+        if (perHour >= 5) {
+          throw new HttpException(
+            '该手机号 1 小时内发送次数过多',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+        if (perDay >= 10) {
+          throw new HttpException(
+            '该手机号今日验证码发送次数已达上限',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+
+        await tx.smsOtp.create({
+          data: { phone, codeHash, purpose: 'BIND', expiresAt },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    if (smsMock === 'true') {
+      this.logger.log(
+        `[Admin Bind SMS Mock] 固定验证码=${code}（目标手机 ${phone}）`,
+      );
+    } else {
+      try {
+        await this.aliyunSms.sendVerificationCode(phone, code);
+      } catch (err) {
+        this.logger.error(
+          `[Admin Bind SMS] 验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
+        );
+      }
+    }
+
+    return { ok: true, message: '验证码已发送' };
+  }
+
+  /** 修改手机号：双重 SMS 验证（原手机 LOGIN + 新手机 BIND）*/
+  async changePhone(
+    adminUserId: string,
+    dto: AdminChangePhoneDto,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    const admin = await this.prisma.adminUser.findUnique({
+      where: { id: adminUserId },
+    });
+    if (!admin) throw new NotFoundException('管理员不存在');
+    if (!admin.phone) {
+      throw new BadRequestException('当前账号未绑定手机号，请联系超管协助设置');
+    }
+    if (admin.phone === dto.newPhone) {
+      throw new BadRequestException('新手机号与原手机号相同');
+    }
+
+    // 原手机验证码：复用已有 /sms/code 端点（purpose=LOGIN）
+    await this.verifyAndConsumeOtp(admin.phone, dto.oldPhoneCode, 'LOGIN');
+
+    // 新手机验证码：由 /bind-phone/sms/code 端点生成（purpose=BIND）
+    await this.verifyAndConsumeOtp(dto.newPhone, dto.newPhoneCode, 'BIND');
+
+    // 再次检查新手机号未被抢占（并发场景下）
+    const existing = await this.prisma.adminUser.findUnique({
+      where: { phone: dto.newPhone },
+    });
+    if (existing && existing.id !== adminUserId) {
+      throw new ConflictException('该手机号已被其他管理员绑定');
+    }
+
+    const oldPhone = admin.phone;
+    await this.prisma.adminUser.update({
+      where: { id: adminUserId },
+      data: { phone: dto.newPhone },
+    });
+
+    // 改手机后所有 session 失效（防止老手机持有者继续登录）
+    await this.prisma.adminSession.updateMany({
+      where: { adminUserId, expiresAt: { gt: new Date() } },
+      data: { expiresAt: new Date() },
+    });
+
+    await this.prisma.adminAuditLog.create({
+      data: {
+        adminUserId,
+        action: 'UPDATE',
+        module: 'auth',
+        summary: `管理员 ${admin.username} 修改手机号 ${oldPhone} → ${dto.newPhone}`,
+        ip,
+        userAgent,
+        isReversible: false,
+      },
+    });
+
+    return { ok: true };
+  }
+
+  /** 校验并消费 OTP（CAS 原子，失败抛 BadRequestException） */
+  private async verifyAndConsumeOtp(
+    phone: string,
+    code: string,
+    purpose: 'LOGIN' | 'BIND',
+  ) {
+    const records = await this.prisma.smsOtp.findMany({
+      where: {
+        phone,
+        purpose,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    const errLabel = purpose === 'BIND' ? '新手机号' : '原手机号';
+    if (records.length === 0) {
+      throw new BadRequestException(`${errLabel}验证码无效或已过期`);
+    }
+
+    let matched: (typeof records)[number] | null = null;
+    for (const r of records) {
+      if (await bcrypt.compare(code, r.codeHash)) {
+        matched = r;
+        break;
+      }
+    }
+    if (!matched) {
+      throw new BadRequestException(`${errLabel}验证码错误`);
+    }
+
+    const cas = await this.prisma.smsOtp.updateMany({
+      where: { id: matched.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (cas.count === 0) {
+      throw new BadRequestException('验证码已被使用，请重新获取');
+    }
   }
 
   // ---- 内部方法 ----

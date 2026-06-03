@@ -1,12 +1,13 @@
 import React, { useCallback } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { InvoiceStatus } from '../../src/types';
 
 // 发票状态标签映射
@@ -34,6 +35,8 @@ export default function InvoiceDetailScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area，避免底部内容贴边。
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['invoice-detail', id],
@@ -43,6 +46,18 @@ export default function InvoiceDetailScreen() {
 
   const invoice = data?.ok ? data.data : null;
   const error = data && !data.ok ? data.error : null;
+
+  const openPdf = useCallback(async (url?: string | null) => {
+    if (!url || !/^https?:\/\//.test(url)) {
+      show({ message: '发票 PDF 地址无效', type: 'error' });
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      show({ message: '无法打开发票 PDF，请稍后重试', type: 'error' });
+    }
+  }, [show]);
 
   // 取消申请
   const handleCancel = useCallback(() => {
@@ -60,6 +75,9 @@ export default function InvoiceDetailScreen() {
           }
           show({ message: '已取消开票申请', type: 'success' });
           queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['invoice-detail', invoice.id] });
+          queryClient.invalidateQueries({ queryKey: ['order', invoice.orderId] });
+          queryClient.invalidateQueries({ queryKey: ['orders'] });
           router.back();
         },
       },
@@ -96,7 +114,7 @@ export default function InvoiceDetailScreen() {
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="发票详情" showBack />
-      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: safeBottom }}>
         {/* 状态卡片 */}
         <View style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
           <View style={styles.row}>
@@ -112,9 +130,22 @@ export default function InvoiceDetailScreen() {
               发票号码：{invoice.invoiceNo}
             </Text>
           )}
+          <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+            申请时间：{invoice.requestedAt || invoice.createdAt}
+          </Text>
           {invoice.issuedAt && (
             <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
               开票时间：{invoice.issuedAt}
+            </Text>
+          )}
+          {invoice.failReason && (
+            <Text style={[typography.caption, { color: colors.danger, marginTop: 4 }]}>
+              失败原因：{invoice.failReason}
+            </Text>
+          )}
+          {invoice.status === 'REQUESTED' && (
+            <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 8 }]}>
+              系统正在自动开票，预计 10 分钟内完成。如长时间未出票，请下拉刷新或联系客服。
             </Text>
           )}
         </View>
@@ -145,7 +176,7 @@ export default function InvoiceDetailScreen() {
         {/* 查看 PDF */}
         {invoice.status === 'ISSUED' && invoice.pdfUrl && (
           <Pressable
-            onPress={() => show({ message: '正在打开发票 PDF...', type: 'success' })}
+            onPress={() => openPdf(invoice.pdfUrl)}
             style={[styles.primaryBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.lg, marginTop: spacing.lg }]}
           >
             <Text style={[typography.body, { color: '#fff', fontWeight: '600', textAlign: 'center' }]}>查看电子发票</Text>

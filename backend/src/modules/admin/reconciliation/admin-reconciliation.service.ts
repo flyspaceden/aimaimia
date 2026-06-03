@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { sanitizeErrorForLog, sanitizeForLog } from '../../../common/logging/log-sanitizer';
 import { TtlCache } from '../../../common/ttl-cache';
@@ -144,6 +145,7 @@ export class AdminReconciliationService {
       rewardChecks,
       withdrawChecks,
       withdrawMappingCheck,
+      deductionMappingCheck,
     ] = await Promise.all([
       this.buildPaymentSummary(window),
       this.buildRefundSummary(window),
@@ -152,6 +154,7 @@ export class AdminReconciliationService {
       this.checkRewardAccountConsistency(),
       this.checkWithdrawLedgerStateConsistency(),
       this.checkWithdrawLedgerMappings(window),
+      this.checkDeductionLedgerMappings(window),
     ]);
 
     const heuristicChecks = this.buildHeuristicChecks({
@@ -165,6 +168,7 @@ export class AdminReconciliationService {
       ...rewardChecks,
       ...withdrawChecks,
       withdrawMappingCheck,
+      deductionMappingCheck,
       ...heuristicChecks,
     ];
     const failedChecks = checks.filter((c) => !c.passed);
@@ -313,13 +317,12 @@ export class AdminReconciliationService {
       where: {
         deletedAt: null,
         createdAt: { gte: window.start, lt: window.end },
-        account: { is: { type: 'VIP_REWARD' } },
       },
       _count: { _all: true },
       _sum: { amount: true },
     });
 
-    const entryMap = this.initStatusMap(['FREEZE', 'RELEASE', 'WITHDRAW', 'VOID', 'ADJUST']);
+    const entryMap = this.initStatusMap(['FREEZE', 'RELEASE', 'WITHDRAW', 'VOID', 'ADJUST', 'DEDUCT']);
     for (const row of rows) {
       entryMap[row.entryType] = {
         count: row._count._all,
@@ -358,8 +361,8 @@ export class AdminReconciliationService {
       }),
     ]);
 
-    const createdMap = this.initStatusMap(['REQUESTED', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
-    const touchedMap = this.initStatusMap(['REQUESTED', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
+    const createdMap = this.initStatusMap(['REQUESTED', 'PROCESSING', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
+    const touchedMap = this.initStatusMap(['REQUESTED', 'PROCESSING', 'APPROVED', 'REJECTED', 'PAID', 'FAILED']);
     for (const row of createdByStatus) {
       createdMap[row.status] = {
         count: row._count._all,
@@ -382,14 +385,14 @@ export class AdminReconciliationService {
   private async checkRewardAccountConsistency(): Promise<ReconciliationCheck[]> {
     const [accountAgg, availableLedgerAgg, frozenLedgerAgg] = await Promise.all([
       this.prisma.rewardAccount.aggregate({
-        where: { type: 'VIP_REWARD' },
+        where: { type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] as any } },
         _sum: { balance: true, frozen: true },
       }),
       this.prisma.rewardLedger.aggregate({
         where: {
           deletedAt: null,
           status: 'AVAILABLE',
-          account: { is: { type: 'VIP_REWARD' } },
+          account: { is: { type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] as any } } },
         },
         _sum: { amount: true },
       }),
@@ -397,7 +400,7 @@ export class AdminReconciliationService {
         where: {
           deletedAt: null,
           status: 'FROZEN',
-          account: { is: { type: 'VIP_REWARD' } },
+          account: { is: { type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] as any } } },
         },
         _sum: { amount: true },
       }),
@@ -425,26 +428,36 @@ export class AdminReconciliationService {
   }
 
   private async checkWithdrawLedgerStateConsistency(): Promise<ReconciliationCheck[]> {
+    const pendingLedgerWhere = {
+      deletedAt: null as null,
+      refType: 'WITHDRAW',
+      status: 'FROZEN' as any,
+    };
+    const withdrawnLedgerWhere = {
+      deletedAt: null as null,
+      refType: 'WITHDRAW',
+      status: 'WITHDRAWN' as any,
+    };
     const [
-      requestedWr,
-      requestedLedger,
+      pendingWr,
+      pendingLedger,
+      pendingLedgerRefs,
       approvedPaidWr,
       withdrawnLedger,
+      withdrawnLedgerRefs,
     ] = await Promise.all([
       this.prisma.withdrawRequest.aggregate({
-        where: { deletedAt: null, status: 'REQUESTED' },
+        where: { deletedAt: null, status: { in: ['REQUESTED', 'PROCESSING'] as any } },
         _count: { _all: true },
         _sum: { amount: true },
       }),
       this.prisma.rewardLedger.aggregate({
-        where: {
-          deletedAt: null,
-          refType: 'WITHDRAW',
-          status: 'FROZEN',
-          account: { is: { type: 'VIP_REWARD' } },
-        },
-        _count: { _all: true },
+        where: pendingLedgerWhere,
         _sum: { amount: true },
+      }),
+      this.prisma.rewardLedger.groupBy({
+        by: ['refId'],
+        where: pendingLedgerWhere,
       }),
       this.prisma.withdrawRequest.aggregate({
         where: { deletedAt: null, status: { in: ['APPROVED', 'PAID'] } },
@@ -452,35 +465,36 @@ export class AdminReconciliationService {
         _sum: { amount: true },
       }),
       this.prisma.rewardLedger.aggregate({
-        where: {
-          deletedAt: null,
-          refType: 'WITHDRAW',
-          status: 'WITHDRAWN',
-          account: { is: { type: 'VIP_REWARD' } },
-        },
-        _count: { _all: true },
+        where: withdrawnLedgerWhere,
         _sum: { amount: true },
       }),
+      this.prisma.rewardLedger.groupBy({
+        by: ['refId'],
+        where: withdrawnLedgerWhere,
+      }),
     ]);
+
+    const pendingLedgerWithdrawCount = pendingLedgerRefs.filter((row) => !!row.refId).length;
+    const withdrawnLedgerWithdrawCount = withdrawnLedgerRefs.filter((row) => !!row.refId).length;
 
     return [
       this.buildCountMatchCheck(
         'withdraw-requested-count-vs-frozen-ledger-count',
-        '待审核提现数量 vs 冻结提现流水数量',
-        requestedWr._count._all,
-        requestedLedger._count._all ?? 0,
+        '待审核/处理中提现数量 vs 冻结提现流水关联提现数量',
+        pendingWr._count._all,
+        pendingLedgerWithdrawCount,
       ),
       this.buildAmountMatchCheck(
         'withdraw-requested-amount-vs-frozen-ledger-amount',
-        '待审核提现金额 vs 冻结提现流水金额',
-        this.money(requestedWr._sum.amount),
-        this.money(requestedLedger._sum.amount),
+        '待审核/处理中提现金额 vs 冻结提现流水金额',
+        this.money(pendingWr._sum.amount),
+        this.money(pendingLedger._sum.amount),
       ),
       this.buildCountMatchCheck(
         'withdraw-approved-paid-count-vs-withdrawn-ledger-count',
-        '已审批/已打款提现数量 vs 已提现流水数量',
+        '已审批/已打款提现数量 vs 已提现流水关联提现数量',
         approvedPaidWr._count._all,
-        withdrawnLedger._count._all ?? 0,
+        withdrawnLedgerWithdrawCount,
       ),
       this.buildAmountMatchCheck(
         'withdraw-approved-paid-amount-vs-withdrawn-ledger-amount',
@@ -556,32 +570,34 @@ export class AdminReconciliationService {
       checkedCount++;
 
       const related = ledgerByWithdrawId.get(wr.id) ?? [];
-      const first = related[0];
-
-      if (related.length !== 1) {
+      if (related.length === 0 || related.length > 2) {
         mismatches.push({
           withdrawId: wr.id,
           status: wr.status,
-          reason: related.length === 0 ? 'missing-ledger' : 'multiple-ledgers',
+          reason: related.length === 0 ? 'missing-ledger' : 'unexpected-ledger-count',
           ledgerCount: related.length,
         });
         continue;
       }
 
-      const amountMatched = this.isAmountEqual(this.money(first.amount), this.money(wr.amount));
-      const statusMatched = expected.ledgerStatuses.includes(first.status);
-      const entryTypeMatched = expected.entryTypes.includes(first.entryType);
+      const ledgerAmount = this.money(
+        related.reduce((sum, ledger) => sum + this.money(ledger.amount), 0),
+      );
+      const amountMatched = this.isAmountEqual(ledgerAmount, this.money(wr.amount));
+      const badStatus = related.find((ledger) => !expected.ledgerStatuses.includes(ledger.status));
+      const badEntryType = related.find((ledger) => !expected.entryTypes.includes(ledger.entryType));
 
-      if (!amountMatched || !statusMatched || !entryTypeMatched) {
+      if (!amountMatched || badStatus || badEntryType) {
         mismatches.push({
           withdrawId: wr.id,
           status: wr.status,
           expectedLedgerStatuses: expected.ledgerStatuses,
           expectedEntryTypes: expected.entryTypes,
-          actualLedgerStatus: first.status,
-          actualEntryType: first.entryType,
+          ledgerCount: related.length,
+          badStatus: badStatus ? { status: badStatus.status, amount: this.money(badStatus.amount) } : null,
+          badEntryType: badEntryType ? { entryType: badEntryType.entryType, amount: this.money(badEntryType.amount) } : null,
           expectedAmount: this.money(wr.amount),
-          actualAmount: this.money(first.amount),
+          actualAmount: ledgerAmount,
         });
       }
     }
@@ -597,6 +613,165 @@ export class AdminReconciliationService {
         skippedCount,
         sampleLimit,
         truncated: totalTouched > sampleLimit,
+        mismatchCount: mismatches.length,
+        examples: mismatches.slice(0, 10),
+      },
+    };
+  }
+
+  private async checkDeductionLedgerMappings(window: DateWindow): Promise<ReconciliationCheck> {
+    const hasDeductionGroupId = await this.hasCheckoutSessionColumn('deductionGroupId');
+    if (!hasDeductionGroupId) {
+      return {
+        key: 'deduct-checkout-session-mapping-window-sample',
+        label: '消费积分抵扣流水与 CheckoutSession 映射检查（窗口内）',
+        severity: 'info',
+        passed: true,
+        details: {
+          checkedCount: 0,
+          note: 'CheckoutSession.deductionGroupId 尚未存在，跳过双轨抵扣专项检查。',
+        },
+      };
+    }
+
+    const sampleLimit = 200;
+    const [totalTouchedRows, sessions] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ count: number | bigint }>>(Prisma.sql`
+        SELECT COUNT(*)::int AS "count"
+        FROM "CheckoutSession"
+        WHERE "deductionGroupId" IS NOT NULL
+          AND (
+            "createdAt" >= ${window.start} AND "createdAt" < ${window.end}
+            OR "updatedAt" >= ${window.start} AND "updatedAt" < ${window.end}
+          )
+      `),
+      this.prisma.$queryRaw<Array<{
+        id: string;
+        status: string;
+        deductionGroupId: string;
+        rewardId: string | null;
+        discountAmount: number;
+      }>>(Prisma.sql`
+        SELECT
+          "id",
+          "status"::text AS "status",
+          "deductionGroupId",
+          "redPackId" AS "rewardId",
+          COALESCE("discountAmount", 0)::float AS "discountAmount"
+        FROM "CheckoutSession"
+        WHERE "deductionGroupId" IS NOT NULL
+          AND (
+            "createdAt" >= ${window.start} AND "createdAt" < ${window.end}
+            OR "updatedAt" >= ${window.start} AND "updatedAt" < ${window.end}
+          )
+        ORDER BY "updatedAt" DESC
+        LIMIT ${sampleLimit}
+      `),
+    ]);
+
+    if (sessions.length === 0) {
+      return {
+        key: 'deduct-checkout-session-mapping-window-sample',
+        label: '消费积分抵扣流水与 CheckoutSession 映射检查（窗口内）',
+        severity: 'info',
+        passed: true,
+        details: {
+          checkedCount: 0,
+          totalTouched: Number(totalTouchedRows[0]?.count ?? 0),
+          sampleLimit,
+        },
+      };
+    }
+
+    const groupIds = Array.from(new Set(sessions.map((s) => s.deductionGroupId)));
+    const ledgers = await this.prisma.$queryRaw<Array<{
+      id: string;
+      amount: number;
+      status: string;
+      entryType: string;
+      refId: string | null;
+      groupId: string | null;
+    }>>(Prisma.sql`
+      SELECT
+        "id",
+        "amount"::float AS "amount",
+        "status"::text AS "status",
+        "entryType"::text AS "entryType",
+        "refId",
+        "meta"->>'groupId' AS "groupId"
+      FROM "RewardLedger"
+      WHERE "deletedAt" IS NULL
+        AND "entryType"::text = 'DEDUCT'
+        AND "meta"->>'groupId' IN (${Prisma.join(groupIds)})
+    `);
+
+    const ledgerByGroupId = new Map<string, typeof ledgers>();
+    for (const ledger of ledgers) {
+      if (!ledger.groupId) continue;
+      const arr = ledgerByGroupId.get(ledger.groupId) ?? [];
+      arr.push(ledger);
+      ledgerByGroupId.set(ledger.groupId, arr);
+    }
+
+    const mismatches: Array<Record<string, unknown>> = [];
+    let checkedCount = 0;
+    let skippedCount = 0;
+
+    for (const session of sessions) {
+      const expected = this.expectedDeductionLedgerStatus(session.status);
+      if (!expected) {
+        skippedCount++;
+        continue;
+      }
+      checkedCount++;
+
+      const related = ledgerByGroupId.get(session.deductionGroupId) ?? [];
+      if (related.length === 0) {
+        mismatches.push({
+          checkoutSessionId: session.id,
+          deductionGroupId: session.deductionGroupId,
+          status: session.status,
+          reason: 'missing-deduct-ledger',
+        });
+        continue;
+      }
+
+      const amount = this.money(related.reduce((sum, ledger) => sum + this.money(ledger.amount), 0));
+      const amountMatched = this.isAmountEqual(amount, this.money(session.discountAmount));
+      const badStatus = related.find((ledger) => !expected.ledgerStatuses.includes(ledger.status));
+      const badEntryType = related.find((ledger) => !expected.entryTypes.includes(ledger.entryType));
+      const primaryRewardMissing = session.rewardId
+        ? !related.some((ledger) => ledger.id === session.rewardId)
+        : false;
+
+      if (!amountMatched || badStatus || badEntryType || primaryRewardMissing) {
+        mismatches.push({
+          checkoutSessionId: session.id,
+          deductionGroupId: session.deductionGroupId,
+          status: session.status,
+          expectedLedgerStatuses: expected.ledgerStatuses,
+          expectedEntryTypes: expected.entryTypes,
+          expectedAmount: this.money(session.discountAmount),
+          actualAmount: amount,
+          ledgerCount: related.length,
+          badStatus: badStatus ? { id: badStatus.id, status: badStatus.status } : null,
+          badEntryType: badEntryType ? { id: badEntryType.id, entryType: badEntryType.entryType } : null,
+          primaryRewardMissing,
+        });
+      }
+    }
+
+    return {
+      key: 'deduct-checkout-session-mapping-window-sample',
+      label: '消费积分抵扣流水与 CheckoutSession 映射检查（窗口内）',
+      severity: mismatches.length > 0 ? 'warn' : 'info',
+      passed: mismatches.length === 0,
+      details: {
+        totalTouched: Number(totalTouchedRows[0]?.count ?? 0),
+        checkedCount,
+        skippedCount,
+        sampleLimit,
+        truncated: Number(totalTouchedRows[0]?.count ?? 0) > sampleLimit,
         mismatchCount: mismatches.length,
         examples: mismatches.slice(0, 10),
       },
@@ -645,15 +820,45 @@ export class AdminReconciliationService {
   private expectedWithdrawLedgerStatus(withdrawStatus: string) {
     switch (withdrawStatus) {
       case 'REQUESTED':
+      case 'PROCESSING':
         return { ledgerStatuses: ['FROZEN'], entryTypes: ['WITHDRAW'] };
       case 'APPROVED':
       case 'PAID':
         return { ledgerStatuses: ['WITHDRAWN'], entryTypes: ['WITHDRAW'] };
       case 'REJECTED':
+      case 'FAILED':
         return { ledgerStatuses: ['VOIDED'], entryTypes: ['VOID'] };
       default:
         return null;
     }
+  }
+
+  private expectedDeductionLedgerStatus(sessionStatus: string) {
+    switch (sessionStatus) {
+      case 'ACTIVE':
+        return { ledgerStatuses: ['RESERVED'], entryTypes: ['DEDUCT'] };
+      case 'PAID':
+      case 'COMPLETED':
+        return { ledgerStatuses: ['VOIDED'], entryTypes: ['DEDUCT'] };
+      case 'FAILED':
+      case 'EXPIRED':
+        return { ledgerStatuses: ['AVAILABLE'], entryTypes: ['DEDUCT'] };
+      default:
+        return null;
+    }
+  }
+
+  private async hasCheckoutSessionColumn(columnName: string): Promise<boolean> {
+    const rows = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'CheckoutSession'
+          AND column_name = ${columnName}
+      ) AS "exists"
+    `);
+    return rows[0]?.exists === true;
   }
 
   private resolveDateWindow(date?: string): DateWindow {

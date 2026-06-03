@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto } from './dto/admin-company.dto';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { CompanyService } from '../../company/company.service';
+import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 
 // AI 搜索字段键名（用于 highlights merge 保护，包含历史字段以防旧数据覆盖）
 const AI_SEARCH_KEYS = [
@@ -51,7 +53,7 @@ export class AdminCompaniesService {
                 nickname: dto.contactName,
               },
             },
-            memberProfile: { create: {} },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
           },
         });
         userId = newUser.id;
@@ -162,9 +164,15 @@ export class AdminCompaniesService {
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('企业不存在');
 
+    // contact 是 Json 列，merge 现有内容以保留未知字段（邮箱/备用电话等未来字段）
+    const data: any = { ...dto };
+    if (dto.contact) {
+      data.contact = { ...((company.contact as Record<string, any>) || {}), ...dto.contact };
+    }
+
     return this.prisma.company.update({
       where: { id },
-      data: dto,
+      data,
     });
   }
 
@@ -239,6 +247,22 @@ export class AdminCompaniesService {
       where: { userId_companyId: { userId: identity.userId, companyId } },
     });
     if (existingStaff) throw new BadRequestException('该用户已在该企业中');
+
+    // 可选昵称：仅在昵称为空或等于手机号（自动默认值）时覆盖，保护买家已设的自定义昵称
+    const nickname = dto.nickname?.trim();
+    if (nickname) {
+      const profile = await this.prisma.userProfile.findUnique({
+        where: { userId: identity.userId },
+        select: { nickname: true },
+      });
+      const current = profile?.nickname?.trim();
+      if (!current || current === dto.phone) {
+        await this.prisma.userProfile.update({
+          where: { userId: identity.userId },
+          data: { nickname },
+        });
+      }
+    }
 
     const created = await this.prisma.companyStaff.create({
       data: {
@@ -415,6 +439,284 @@ export class AdminCompaniesService {
     return this.getCompanyTags(companyId);
   }
 
+  /** C40c8 管理员兜底重置企业员工密码
+   *
+   * 场景：员工忘记密码 + 手机号失联的最后通道。
+   * - 不验旧密码，管理员直接设新密码
+   * - 成功后失效该员工所有 session
+   * - OWNER / MANAGER / OPERATOR 均可被重置
+   */
+  async resetStaffPassword(
+    companyId: string,
+    staffId: string,
+    dto: AdminResetStaffPasswordDto,
+  ) {
+    const staff = await this.prisma.companyStaff.findUnique({
+      where: { id: staffId },
+    });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) {
+      throw new BadRequestException('员工不属于该企业');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+
+    // 事务：同时更新密码 + 失效 session（保证安全一致性）
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyStaff.update({
+        where: { id: staffId },
+        data: { passwordHash },
+      });
+
+      await tx.sellerSession.updateMany({
+        where: { staffId, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
+    });
+
+    return { ok: true };
+  }
+
+  // ===================== C40c9 管理员员工 CRUD + 换 OWNER =====================
+
+  /** 添加员工（经理/运营，不支持创始人） */
+  // ⚠️ 架构债（2026-05-27 识别，v1.0 暂不修）：本方法对 isPlatform=true 的平台公司**不挡**——
+  //    超管能给 PLATFORM_COMPANY 添加员工，配合 seller-auth 不查 isPlatform，可让该手机号
+  //    登录 seller-center 管理平台公司。这与 seller-company.service.ts:254 的 F4
+  //    「平台公司不支持邀请员工」逻辑不一致（仅 seller-center 那条路被挡）。
+  //    上线后若决定走"方案 A 严格分离"，在此处加 `if (company.isPlatform) throw` 收口。
+  async addStaff(companyId: string, dto: AdminAddStaffDto) {
+    if (dto.role === 'OWNER' as any) {
+      throw new BadRequestException('添加员工仅支持经理或运营，创始人请使用「转让创始人」功能');
+    }
+
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('企业不存在');
+
+    const nickname = dto.nickname?.trim() || undefined;
+
+    return this.prisma.$transaction(async (tx) => {
+      // 通过手机号查 User，不存在则自动创建
+      let identity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: dto.phone },
+      });
+
+      let userId: string;
+      if (identity) {
+        userId = identity.userId;
+        // 仅在昵称为空或等于手机号（自动默认值）时用管理员输入的昵称覆盖，避免覆盖买家自设昵称
+        if (nickname) {
+          const profile = await tx.userProfile.findUnique({ where: { userId }, select: { nickname: true } });
+          const current = profile?.nickname?.trim();
+          if (!current || current === dto.phone) {
+            await tx.userProfile.update({ where: { userId }, data: { nickname } });
+          }
+        }
+      } else {
+        const newUser = await tx.user.create({
+          data: {
+            profile: { create: { nickname: nickname || dto.phone } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
+            authIdentities: {
+              create: { provider: 'PHONE', identifier: dto.phone, verified: true },
+            },
+          },
+        });
+        userId = newUser.id;
+      }
+
+      // 不能重复添加
+      const existing = await tx.companyStaff.findUnique({
+        where: { userId_companyId: { userId, companyId } },
+      });
+      if (existing) {
+        throw new BadRequestException('该用户已是本企业员工');
+      }
+
+      const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : null;
+
+      return tx.companyStaff.create({
+        data: {
+          userId,
+          companyId,
+          role: dto.role,
+          status: 'ACTIVE',
+          passwordHash,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              profile: { select: { nickname: true } },
+            },
+          },
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  /** 修改员工角色/状态（OWNER 不可改，走 transfer-owner） */
+  async updateStaff(companyId: string, staffId: string, dto: AdminUpdateStaffDto) {
+    const staff = await this.prisma.companyStaff.findUnique({
+      where: { id: staffId },
+    });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) {
+      throw new BadRequestException('员工不属于该企业');
+    }
+    if (staff.role === 'OWNER') {
+      throw new BadRequestException('创始人不可通过此功能修改，请使用「转让创始人」功能');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.companyStaff.update({
+        where: { id: staffId },
+        data: {
+          ...(dto.role ? { role: dto.role } : {}),
+          ...(dto.status ? { status: dto.status } : {}),
+        },
+      });
+
+      // 禁用员工时强制失效其 session
+      if (dto.status === 'DISABLED') {
+        await tx.sellerSession.updateMany({
+          where: { staffId, expiresAt: { gt: new Date() } },
+          data: { expiresAt: new Date() },
+        });
+      }
+
+      return updated;
+    });
+  }
+
+  /** 移除员工（OWNER 不可移除） */
+  async removeStaff(companyId: string, staffId: string) {
+    const staff = await this.prisma.companyStaff.findUnique({
+      where: { id: staffId },
+    });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) {
+      throw new BadRequestException('员工不属于该企业');
+    }
+    if (staff.role === 'OWNER') {
+      throw new BadRequestException('创始人不可直接移除，请先使用「转让创始人」功能');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 先失效 session 再删除 staff
+      await tx.sellerSession.updateMany({
+        where: { staffId, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
+
+      await tx.companyStaff.delete({ where: { id: staffId } });
+    });
+
+    return { ok: true };
+  }
+
+  /** 换 OWNER（原子事务：老 OWNER 降级/移除 + 新 OWNER 上位） */
+  async transferOwner(companyId: string, dto: AdminTransferOwnerDto) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+    if (!company) throw new NotFoundException('企业不存在');
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. 查找现任 OWNER
+      const oldOwner = await tx.companyStaff.findFirst({
+        where: { companyId, role: 'OWNER' },
+      });
+      if (!oldOwner) {
+        throw new NotFoundException('该企业尚无创始人，请使用「绑定创始人」功能直接绑定');
+      }
+
+      // 2. 通过手机号找 User，不存在则创建
+      let identity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: dto.newOwnerPhone },
+      });
+
+      const nickname = dto.nickname?.trim() || undefined;
+
+      let newOwnerUserId: string;
+      if (identity) {
+        newOwnerUserId = identity.userId;
+        // 老用户：仅在昵称为空或等于手机号（自动默认值）时覆盖，保护买家已设的自定义昵称
+        if (nickname) {
+          const profile = await tx.userProfile.findUnique({
+            where: { userId: newOwnerUserId },
+            select: { nickname: true },
+          });
+          const current = profile?.nickname?.trim();
+          if (!current || current === dto.newOwnerPhone) {
+            await tx.userProfile.update({ where: { userId: newOwnerUserId }, data: { nickname } });
+          }
+        }
+      } else {
+        const newUser = await tx.user.create({
+          data: {
+            profile: { create: { nickname: nickname || dto.newOwnerPhone } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
+            authIdentities: {
+              create: { provider: 'PHONE', identifier: dto.newOwnerPhone, verified: true },
+            },
+          },
+        });
+        newOwnerUserId = newUser.id;
+      }
+
+      // 不能转给自己
+      if (oldOwner.userId === newOwnerUserId) {
+        throw new BadRequestException('新创始人不能是当前创始人本人');
+      }
+
+      // 3. 处理老 OWNER（session 失效 + 根据 oldOwnerAction 降级或移除）
+      await tx.sellerSession.updateMany({
+        where: { staffId: oldOwner.id, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
+
+      if (dto.oldOwnerAction === 'REMOVE') {
+        await tx.companyStaff.delete({ where: { id: oldOwner.id } });
+      } else {
+        // DEMOTE_TO_MANAGER
+        await tx.companyStaff.update({
+          where: { id: oldOwner.id },
+          data: { role: 'MANAGER' },
+        });
+      }
+
+      // 4. 新 OWNER 上位（已是员工则升级；不是则创建）
+      const existingStaff = await tx.companyStaff.findUnique({
+        where: { userId_companyId: { userId: newOwnerUserId, companyId } },
+      });
+
+      let newOwner;
+      if (existingStaff) {
+        newOwner = await tx.companyStaff.update({
+          where: { id: existingStaff.id },
+          data: { role: 'OWNER', status: 'ACTIVE' },
+        });
+      } else {
+        newOwner = await tx.companyStaff.create({
+          data: {
+            userId: newOwnerUserId,
+            companyId,
+            role: 'OWNER',
+            status: 'ACTIVE',
+          },
+        });
+      }
+
+      return {
+        ok: true,
+        oldOwnerId: oldOwner.id,
+        newOwnerId: newOwner.id,
+        oldOwnerAction: dto.oldOwnerAction,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
   /** 审核资质文件 */
   async verifyDocument(companyId: string, documentId: string, dto: AdminVerifyDocumentDto) {
     const doc = await this.prisma.companyDocument.findFirst({
@@ -429,5 +731,211 @@ export class AdminCompaniesService {
         verifyNote: dto.verifyNote,
       },
     });
+  }
+
+  // ===================== 员工昵称 / 手机号直接编辑 =====================
+
+  /** 修改员工昵称（全局生效，影响该 User 在所有企业和买家端的显示） */
+  async updateStaffNickname(companyId: string, staffId: string, dto: AdminUpdateStaffNicknameDto) {
+    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
+
+    const nickname = dto.nickname.trim();
+    if (!nickname) throw new BadRequestException('昵称不能为空');
+
+    await this.prisma.userProfile.upsert({
+      where: { userId: staff.userId },
+      create: { userId: staff.userId, nickname },
+      update: { nickname },
+    });
+
+    return this.prisma.companyStaff.findUnique({
+      where: { id: staffId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            profile: { select: { nickname: true } },
+            authIdentities: {
+              where: { provider: 'PHONE' },
+              select: { identifier: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /** 修改员工手机号（替换 AuthIdentity.identifier；用户下次用新号登录） */
+  async updateStaffPhone(companyId: string, staffId: string, dto: AdminUpdateStaffPhoneDto) {
+    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
+
+    const newPhone = dto.newPhone.trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. 获取当前 PHONE identity
+      const currentIdentity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', userId: staff.userId },
+      });
+      if (!currentIdentity) {
+        throw new BadRequestException('该员工没有手机号身份记录');
+      }
+
+      // 同号直接返回
+      if (currentIdentity.identifier === newPhone) {
+        return { ok: true, unchanged: true };
+      }
+
+      // 2. 检查新号是否已被其它用户占用
+      const conflict = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: newPhone },
+      });
+      if (conflict && conflict.userId !== staff.userId) {
+        throw new BadRequestException('该手机号已被其他用户注册');
+      }
+
+      const oldPhone = currentIdentity.identifier.trim();
+
+      // 3. 更新 AuthIdentity
+      await tx.authIdentity.update({
+        where: { id: currentIdentity.id },
+        data: { identifier: newPhone, verified: true },
+      });
+
+      // 4. 如果当前昵称 = 旧手机号（自动默认值），同步更新为新手机号避免列表错位
+      const profile = await tx.userProfile.findUnique({
+        where: { userId: staff.userId },
+        select: { nickname: true },
+      });
+      if (profile?.nickname?.trim() === oldPhone) {
+        await tx.userProfile.update({
+          where: { userId: staff.userId },
+          data: { nickname: newPhone },
+        });
+      }
+
+      return { ok: true, unchanged: false, oldPhone, newPhone };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  // ===================== 产业基金（INDUSTRY_FUND）查询 =====================
+
+  /**
+   * 查询某商户的产业基金累计/可用/已提现/流水。
+   * 按 RewardLedger.meta.companyId 过滤，覆盖 OWNER 变更前后所有历史流水。
+   */
+  async getIndustryFund(companyId: string, page = 1, pageSize = 20) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true },
+    });
+    if (!company) {
+      throw new NotFoundException('企业不存在');
+    }
+
+    // 当前 OWNER（用于展示，仅作为参考；流水按 companyId 过滤不受换 OWNER 影响）
+    const ownerStaff = await this.prisma.companyStaff.findFirst({
+      where: { companyId, role: 'OWNER', status: 'ACTIVE' },
+      select: {
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            authIdentities: {
+              where: { provider: 'PHONE' },
+              select: { identifier: true },
+              take: 1,
+            },
+            profile: { select: { nickname: true } },
+          },
+        },
+      },
+    });
+
+    const ownerInfo = ownerStaff
+      ? {
+          userId: ownerStaff.userId,
+          nickname: ownerStaff.user?.profile?.nickname || null,
+          phone: maskPhone(
+            ownerStaff.user?.authIdentities?.[0]?.identifier || '',
+          ),
+        }
+      : null;
+
+    // meta.companyId + meta.accountType=INDUSTRY_FUND 双重过滤
+    // （accountType 双重保险：避免提现/调账等可能在同账户上写入的非 INDUSTRY_FUND 流水串入）
+    const baseWhere: Prisma.RewardLedgerWhereInput = {
+      deletedAt: null,
+      AND: [
+        { meta: { path: ['companyId'], equals: companyId } },
+        { meta: { path: ['accountType'], equals: 'INDUSTRY_FUND' } },
+      ],
+    };
+
+    const [releasedAgg, withdrawnAgg, availableAgg, frozenAgg, total] =
+      await Promise.all([
+        // 累计已分配（所有入账）
+        this.prisma.rewardLedger.aggregate({
+          where: { ...baseWhere, entryType: 'RELEASE' },
+          _sum: { amount: true },
+        }),
+        // 已提现（status=WITHDRAWN 表示提现已完成）
+        this.prisma.rewardLedger.aggregate({
+          where: { ...baseWhere, status: 'WITHDRAWN' },
+          _sum: { amount: true },
+        }),
+        // 可用余额
+        this.prisma.rewardLedger.aggregate({
+          where: { ...baseWhere, status: 'AVAILABLE' },
+          _sum: { amount: true },
+        }),
+        // 冻结中（售后退货冻结 + 提现冻结）
+        this.prisma.rewardLedger.aggregate({
+          where: {
+            ...baseWhere,
+            status: { in: ['FROZEN', 'RETURN_FROZEN'] },
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.rewardLedger.count({ where: baseWhere }),
+      ]);
+
+    const items = await this.prisma.rewardLedger.findMany({
+      where: baseWhere,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        userId: true,
+        amount: true,
+        entryType: true,
+        status: true,
+        refType: true,
+        refId: true,
+        meta: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      company,
+      owner: ownerInfo,
+      summary: {
+        totalReleased: releasedAgg._sum.amount ?? 0,
+        totalWithdrawn: withdrawnAgg._sum.amount ?? 0,
+        available: availableAgg._sum.amount ?? 0,
+        frozen: frozenAgg._sum.amount ?? 0,
+        ledgerCount: total,
+      },
+      items,
+      total,
+      page,
+      pageSize,
+    };
   }
 }

@@ -3,17 +3,27 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
+  ServiceUnavailableException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 import { encryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
+import {
+  getPrizeUnavailableReason,
+  getUnavailableReasonText,
+} from '../lottery/prize-availability.util';
+import { WechatPayService } from '../payment/wechat-pay.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -41,6 +51,14 @@ interface SnapshotItem {
   productSnapshot: any;
 }
 
+export interface ExcludedCheckoutItem {
+  cartItemId?: string;
+  skuId: string;
+  reason: string;
+  isPrize: boolean;
+  prizeRecordId?: string | null;
+}
+
 @Injectable()
 export class CheckoutService {
   private readonly logger = new Logger(CheckoutService.name);
@@ -55,6 +73,11 @@ export class CheckoutService {
   private inboxService: any = null; // 由 OrderModule.onModuleInit 注入，启动时校验
   // AlipayService 通过可选注入（支付宝下单用）
   private alipayService: any = null;
+  private wechatPayService: any = null;
+  // PaymentService 通过可选注入（cancel/expire 主动建单后通知商家用）
+  private paymentService: any = null;
+  // RewardDeductionService 通过 setter 注入，避免扩大构造函数循环依赖面
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -86,6 +109,47 @@ export class CheckoutService {
     this.alipayService = service;
   }
 
+  /** 注入微信支付服务（由 OrderModule 在 onModuleInit 时调用） */
+  setWechatPayService(service: any) {
+    this.wechatPayService = service;
+  }
+
+  /** 注入支付服务（cancel/expire 主动建单后通知商家用，由 OrderModule 在 onModuleInit 时调用） */
+  setPaymentService(service: any) {
+    this.paymentService = service;
+  }
+
+  /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
+  }
+
+  private extractWechatAmountFen(queryResult: any): number | null {
+    const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
+    return (
+      typeof rawFen === 'number' &&
+      Number.isInteger(rawFen) &&
+      Number.isSafeInteger(rawFen) &&
+      rawFen >= 0
+    ) ? rawFen : null;
+  }
+
+  private assertWechatAmountMatchesSession(
+    queryResult: any,
+    expectedTotal: number,
+    context: string,
+    sessionId: string,
+  ): void {
+    const claimedFen = this.extractWechatAmountFen(queryResult);
+    const expectedFen = WechatPayService.yuanToFenAmount(expectedTotal, 'expectedTotal');
+    if (claimedFen === null || claimedFen !== expectedFen) {
+      this.logger.error(
+        `${context} 微信金额校验失败：wechatFen=${claimedFen ?? 'N/A'} sessionFen=${expectedFen} sessionId=${sessionId}`,
+      );
+      throw new BadRequestException('支付金额校验失败，请联系客服');
+    }
+  }
+
   // ---------- 公开方法 ----------
 
   /** F1: 创建 CheckoutSession（校验库存+计算总额+预留奖励+返回支付参数） */
@@ -93,6 +157,7 @@ export class CheckoutService {
     if (dto.items.length === 0) {
       throw new BadRequestException('购物车为空，请先添加商品');
     }
+    const excludedItems: ExcludedCheckoutItem[] = [];
 
     const toCheckoutResponse = async (session: {
       id: string;
@@ -120,6 +185,17 @@ export class CheckoutService {
         } catch (err: any) {
           this.logger.error(`生成支付宝支付参数失败: ${err.message}`);
         }
+      } else if (session.paymentChannel === 'WECHAT_PAY' && this.wechatPayService?.isAvailable() && session.merchantOrderNo) {
+        try {
+          const wxParams = await this.wechatPayService.createAppOrder({
+            outTradeNo: session.merchantOrderNo,
+            amount: session.expectedTotal,
+            description: `爱买买订单-${session.merchantOrderNo}`,
+          });
+          paymentParams = { channel: 'wechat', ...wxParams };
+        } catch (err: any) {
+          this.logger.error(`生成微信支付参数失败: ${err.message}`);
+        }
       }
 
       return {
@@ -132,15 +208,17 @@ export class CheckoutService {
         vipDiscountAmount: session.vipDiscountAmount ?? 0,
         totalCouponDiscount: session.totalCouponDiscount ?? 0,
         couponInstanceIds: session.couponInstanceIds ?? [],
+        excludedItems,
         paymentParams,
       };
     };
 
-    // 幂等检查
+    // 幂等检查（按 bizType 过滤，避免与 VIP 订单 idempotencyKey 冲突）
     if (dto.idempotencyKey) {
       const existing = await this.prisma.checkoutSession.findFirst({
         where: {
           userId,
+          bizType: 'NORMAL_GOODS',
           idempotencyKey: dto.idempotencyKey,
         },
       });
@@ -148,6 +226,9 @@ export class CheckoutService {
         return await toCheckoutResponse(existing);
       }
     }
+
+    // Task 18 修正：防重锁挪进 Serializable 事务内执行（见步骤 11），
+    // 避免两个并发请求都通过事务外检查再各自创建 ACTIVE session
 
     // 1. 查询所有 SKU 信息
     const skuIds = dto.items.map((i) => i.skuId);
@@ -222,19 +303,6 @@ export class CheckoutService {
     for (const item of dto.items) {
       const sku = skuMap.get(item.skuId);
       if (!sku) throw new BadRequestException(`商品规格 ${item.skuId} 不存在`);
-      if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
-      if (sku.product.status !== 'ACTIVE') throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
-      // 库存读检查（不扣减），允许低库存通过（R12 超卖容忍由支付回调处理）
-      if (sku.stock <= 0) {
-        this.logger.warn(`R12: SKU ${sku.id} 库存已为 ${sku.stock}，允许继续结算（超卖容忍）`);
-      }
-
-      // 单笔限购校验
-      if (sku.maxPerOrder !== null && item.quantity > sku.maxPerOrder) {
-        throw new BadRequestException(
-          `商品规格「${sku.title}」每单限购 ${sku.maxPerOrder} 件`,
-        );
-      }
 
       const resolvedSkuId = (item as any)._resolvedSkuId || sku.id;
 
@@ -242,13 +310,18 @@ export class CheckoutService {
       let prizeCartItem: (typeof cartPrizeItems)[0] | null = null;
       if (item.cartItemId && cartItemById.has(item.cartItemId)) {
         const candidate = cartItemById.get(item.cartItemId)!;
-        if (candidate.isPrize && !matchedPrizeCartItemIds.has(candidate.id)) {
-          prizeCartItem = candidate;
-          matchedPrizeCartItemIds.add(candidate.id);
+        if (candidate.isPrize) {
+          if (candidate.skuId !== resolvedSkuId) {
+            throw new BadRequestException('购物车项与商品规格不匹配，请刷新购物车后重试');
+          }
+          if (!matchedPrizeCartItemIds.has(candidate.id)) {
+            prizeCartItem = candidate;
+            matchedPrizeCartItemIds.add(candidate.id);
+          }
         }
       }
-      if (!prizeCartItem && cartPrizeBySkuId.has(item.skuId)) {
-        const candidates = cartPrizeBySkuId.get(item.skuId)!;
+      if (!item.cartItemId && !prizeCartItem && cartPrizeBySkuId.has(resolvedSkuId)) {
+        const candidates = cartPrizeBySkuId.get(resolvedSkuId)!;
         for (const c of candidates) {
           if (!matchedPrizeCartItemIds.has(c.id)) {
             prizeCartItem = c;
@@ -256,6 +329,37 @@ export class CheckoutService {
             break;
           }
         }
+      }
+
+      if (sku.status !== 'ACTIVE' || sku.product.status !== 'ACTIVE') {
+        if (prizeCartItem) {
+          excludedItems.push({
+            cartItemId: prizeCartItem.id,
+            skuId: resolvedSkuId,
+            reason: sku.status !== 'ACTIVE' ? '商品规格已下架' : '商品已下架',
+            isPrize: true,
+            prizeRecordId: prizeCartItem.prizeRecordId ?? null,
+          });
+          continue;
+        }
+        if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
+        throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
+      }
+
+      if (!prizeCartItem) {
+        if (sku.stock <= 0) {
+          throw new BadRequestException(`商品「${sku.product.title}」暂无库存，请从购物车移除后再结算`);
+        }
+        if (item.quantity > sku.stock) {
+          throw new BadRequestException(`商品「${sku.product.title}」当前仅剩 ${sku.stock} 件，请调整数量`);
+        }
+      }
+
+      // 单笔限购校验
+      if (sku.maxPerOrder !== null && item.quantity > sku.maxPerOrder) {
+        throw new BadRequestException(
+          `商品规格「${sku.title}」每单限购 ${sku.maxPerOrder} 件`,
+        );
       }
 
       let unitPrice = sku.price;
@@ -272,8 +376,29 @@ export class CheckoutService {
         if (prizeCartItem.prizeRecordId) {
           const lotteryRecord = await this.prisma.lotteryRecord.findUnique({
             where: { id: prizeCartItem.prizeRecordId },
+            include: {
+              prize: {
+                include: {
+                  sku: { include: { product: true } },
+                  product: true,
+                },
+              },
+            },
           });
           if (lotteryRecord) {
+            const unavailableReason = (lotteryRecord as any).prize
+              ? getPrizeUnavailableReason((lotteryRecord as any).prize)
+              : null;
+            if (unavailableReason) {
+              excludedItems.push({
+                cartItemId: prizeCartItem.id,
+                skuId: resolvedSkuId,
+                reason: getUnavailableReasonText(unavailableReason),
+                isPrize: true,
+                prizeRecordId: prizeCartItem.prizeRecordId ?? null,
+              });
+              continue;
+            }
             const validStatuses = ['WON', 'IN_CART'];
             if (!validStatuses.includes(lotteryRecord.status)) {
               throw new BadRequestException(
@@ -389,8 +514,9 @@ export class CheckoutService {
     // 构建 skuId → weightGram 映射
     const skuWeightMap = new Map<string, number>();
     for (const [id, sku] of skuMap.entries()) {
-      skuWeightMap.set(id, (sku as any).weightGram ?? 0);
-      skuWeightMap.set(sku.id, (sku as any).weightGram ?? 0);
+      const weightGram = this.normalizeSkuWeightGram((sku as any).weightGram);
+      skuWeightMap.set(id, weightGram);
+      skuWeightMap.set(sku.id, weightGram);
     }
 
     const companyGroups = [...itemsByCompany.entries()]
@@ -438,14 +564,13 @@ export class CheckoutService {
     const totalGoodsForShipping = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
     const totalWeightForShipping = companyGroups.reduce((s, g) => s + g.totalWeight, 0);
     const isVip = !!vipNode;
-    const totalShippingFee = await this.calculateShippingFee(
-      '__PLATFORM__',
+    const shippingDetail = await this.calculateShippingDetailForCheckout(
       totalGoodsForShipping,
-      undefined,
       regionCode,
       totalWeightForShipping,
       isVip,
     );
+    const totalShippingFee = shippingDetail.fee;
     // 运费统一记录到快照中（每个商品项记录总运费，建单时按比例分配）
     for (const item of snapshotItems) {
       item.groupShippingFee = totalShippingFee;
@@ -492,33 +617,18 @@ export class CheckoutService {
       }
     }
 
-    // 预留奖励前的只读校验（在事务外执行，减少事务持有时间）
-    let rewardLedger: any = null;
-
-    if (dto.rewardId) {
-      // 先读取奖励信息进行校验（只读，不修改状态）
-      const ledger = await this.prisma.rewardLedger.findUnique({
-        where: { id: dto.rewardId },
-      });
-      if (!ledger) {
-        throw new BadRequestException('奖励不存在');
+    // 消费积分抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
+    if (dto.deductionAmount && dto.deductionAmount > 0) {
+      if (!this.rewardDeductionService) {
+        throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
       }
-      if (ledger.userId !== userId) {
-        throw new BadRequestException('奖励不属于当前用户');
+      const maxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
+        userId,
+        totalGoodsAmount,
+      );
+      if (dto.deductionAmount > maxDeduction.maxDeductible) {
+        throw new BadRequestException('抵扣金额超出上限');
       }
-      if (ledger.status !== 'AVAILABLE') {
-        throw new BadRequestException('奖励已被使用');
-      }
-
-      // 最低消费检查（CAS 之前验证，避免预留后再回滚）
-      const minOrderAmount = ledger.amount >= 10 ? ledger.amount * 5 : 0;
-      if (minOrderAmount > 0 && totalGoodsAmount < minOrderAmount) {
-        throw new BadRequestException(
-          `订单金额不满足奖励使用条件（最低 ¥${minOrderAmount}）`,
-        );
-      }
-
-      rewardLedger = ledger;
     }
 
     // 10. 生成 merchantOrderNo（在事务外生成，事务内使用）
@@ -537,28 +647,38 @@ export class CheckoutService {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const session = await this.prisma.$transaction(async (tx) => {
-          // 奖励 CAS 预留（在事务内执行，回滚时自动恢复）
+          // Task 18 修正：防重锁按 bizType 隔离 — 普通商品 session 间互斥；
+          // 不影响 VIP session（用户可以同时有一个普通 + 一个 VIP ACTIVE session）
+          const activeSession = await tx.checkoutSession.findFirst({
+            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() }, bizType: 'NORMAL_GOODS' },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (activeSession && (!dto.idempotencyKey || activeSession.idempotencyKey !== dto.idempotencyKey)) {
+            throw new ConflictException({
+              code: 'PENDING_CHECKOUT_EXISTS',
+              message: '你有未完成的订单，请先完成支付或取消',
+            });
+          }
+
+          // 消费积分抵扣 CAS 预留（在事务内执行，回滚时自动恢复）
           let discountAmount = 0;
           let reservedRewardId: string | null = null;
+          let deductionGroupId: string | null = null;
 
-          if (dto.rewardId && rewardLedger) {
-            const updated = await tx.rewardLedger.updateMany({
-              where: {
-                id: dto.rewardId,
-                userId,
-                status: 'AVAILABLE',
-                entryType: 'RELEASE',
-                refId: null,
-              },
-              data: { status: 'RESERVED' },
-            });
-
-            if (updated.count > 0) {
-              discountAmount = rewardLedger.amount;
-              reservedRewardId = dto.rewardId;
-            } else {
-              // CAS 失败：在校验和 CAS 之间状态已变化（并发竞争）
-              throw new BadRequestException('奖励已被使用（请重试）');
+          if (dto.deductionAmount && dto.deductionAmount > 0) {
+            if (!this.rewardDeductionService) {
+              throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
+            }
+            const reserved = await this.rewardDeductionService.reserveDeduction(
+              tx,
+              userId,
+              totalGoodsAmount,
+              dto.deductionAmount,
+            );
+            if (reserved) {
+              discountAmount = Number((reserved.deductedFromVip + reserved.deductedFromNormal).toFixed(2));
+              reservedRewardId = reserved.primaryLedgerId;
+              deductionGroupId = reserved.groupId;
             }
           }
 
@@ -596,7 +716,12 @@ export class CheckoutService {
           // S12: 前端 expectedTotal 校验（在事务内，失败会自动回滚奖励预留）
           if (dto.expectedTotal !== undefined && dto.expectedTotal !== null) {
             const diff = Math.abs(expectedTotal - dto.expectedTotal);
-            if (diff > 0.01) {
+            const excludedPrizeItems = excludedItems.filter((item) => item.isPrize);
+            const onlyLowerBecausePrizeExcluded =
+              excludedPrizeItems.length > 0 &&
+              excludedPrizeItems.length === excludedItems.length &&
+              expectedTotal <= dto.expectedTotal;
+            if (diff > 0.01 && !onlyLowerBecausePrizeExcluded) {
               // 直接抛异常，事务回滚会自动释放奖励预留
               throw new BadRequestException(
                 `价格已变更：预期 ¥${dto.expectedTotal.toFixed(2)}，实际 ¥${expectedTotal.toFixed(2)}。请刷新后重新结算`,
@@ -605,13 +730,18 @@ export class CheckoutService {
           }
 
           // 创建 CheckoutSession（含平台红包信息）
+          const excludedPrizeItems = excludedItems.filter((item) => item.isPrize);
           const created = await tx.checkoutSession.create({
             data: {
               userId,
               status: 'ACTIVE',
+              bizMeta: excludedPrizeItems.length > 0
+                ? ({ excludedPrizeItems } as unknown as Prisma.InputJsonValue)
+                : undefined,
               itemsSnapshot: snapshotItems as any,
               addressSnapshot: encryptedAddressSnapshot as any,
               rewardId: reservedRewardId && discountAmount > 0 ? reservedRewardId : null,
+              deductionGroupId,
               expectedTotal,
               goodsAmount: totalGoodsAmount,
               shippingFee: totalShippingFee,
@@ -624,8 +754,9 @@ export class CheckoutService {
               merchantOrderNo,
               paymentChannel: paymentChannel as any,
               idempotencyKey: dto.idempotencyKey || null,
+              buyerNote: dto.buyerNote || null,
               expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 分钟过期
-            },
+            } as any,
           });
 
           return created;
@@ -646,10 +777,10 @@ export class CheckoutService {
           );
           continue;
         }
-        // P2002 唯一约束冲突（幂等键重复）
+        // P2002 唯一约束冲突（幂等键重复）— 新唯一约束 (userId, bizType, idempotencyKey)
         if (err?.code === 'P2002' && dto.idempotencyKey) {
           const existing = await this.prisma.checkoutSession.findFirst({
-            where: { userId, idempotencyKey: dto.idempotencyKey },
+            where: { userId, bizType: 'NORMAL_GOODS', idempotencyKey: dto.idempotencyKey },
           });
           if (existing) {
             return await toCheckoutResponse(existing);
@@ -712,6 +843,9 @@ export class CheckoutService {
         };
       }
     }
+
+    // Task 18 修正：防重锁挪进 Serializable 事务内执行（见步骤 9），
+    // 避免两个并发请求都通过事务外检查再各自创建 ACTIVE session
 
     // 3. 校验赠品方案（事务外预检，减少事务持锁时间）
     const giftOption = await this.prisma.vipGiftOption.findUnique({
@@ -793,27 +927,46 @@ export class CheckoutService {
     const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);
 
     // 6. 商品快照（多商品组合）
+    //    Phase 3 Review Fix 1：嵌套 productSnapshot 结构对齐普通 checkout
+    //    下游 getPendingForUser / handlePaymentSuccess 直接将 productSnapshot 落到 OrderItem
     const itemsSnapshot: Array<{
       skuId: string;
       productId: string;
-      title: string;
-      skuTitle: string;
-      image: string | null;
       unitPrice: number;
       quantity: number;
       isPrize: boolean;
       companyId: string;
-    }> = giftOption.items.map((giftItem) => ({
-      skuId: giftItem.sku.id,
-      productId: giftItem.sku.product?.id || '',
-      title: giftItem.sku.product?.title || '',
-      skuTitle: giftItem.sku.title,
-      image: giftItem.sku.product?.media?.[0]?.url ?? null,
-      unitPrice: giftItem.sku.price,
-      quantity: giftItem.quantity,
-      isPrize: false,
-      companyId: PLATFORM_COMPANY_ID,
-    }));
+      productSnapshot: {
+        productId: string;
+        companyId: string;
+        title: string;
+        skuTitle: string;
+        image: string;
+        price: number;
+        isPrize: boolean;
+      };
+    }> = giftOption.items.map((giftItem) => {
+      const sku = giftItem.sku;
+      const product = sku.product;
+      const unitPrice = sku.price;
+      return {
+        skuId: sku.id,
+        productId: product?.id || '',
+        unitPrice,
+        quantity: giftItem.quantity,
+        isPrize: false,
+        companyId: PLATFORM_COMPANY_ID,
+        productSnapshot: {
+          productId: product?.id || '',
+          companyId: PLATFORM_COMPANY_ID,
+          title: product?.title || '',
+          skuTitle: sku.title || '',
+          image: product?.media?.[0]?.url || '',
+          price: unitPrice,
+          isPrize: false,
+        },
+      };
+    });
 
     // 7. bizMeta（VIP 礼包专用元数据）
     const bizMeta = {
@@ -836,101 +989,132 @@ export class CheckoutService {
       : 'WECHAT_PAY';
 
     // 9. Serializable 事务：VIP 状态检查 + 活跃会话检查 + 创建会话（原子操作）
-    const session = await this.prisma.$transaction(async (tx) => {
-      // 事务内校验用户不是 VIP（防止检查到创建之间的竞态）
-      const member = await tx.memberProfile.findUnique({
-        where: { userId },
-      });
-      if (member?.tier === 'VIP') {
-        throw new BadRequestException('您已是 VIP 会员，无需重复购买');
-      }
+    //    Fix 2：与普通 checkout 一致，加 P2034 序列化冲突重试（指数退避）
+    const VIP_MAX_RETRIES = 3;
+    let vipSession: any = null;
+    let vipLastErr: any = null;
+    for (let attempt = 0; attempt < VIP_MAX_RETRIES; attempt++) {
+      try {
+        vipSession = await this.prisma.$transaction(async (tx) => {
+          // Task 18 修正：防重锁按 bizType 隔离 — VIP session 间互斥；
+          // 不影响普通商品 session（跨类型不互斥）
+          const globalActiveSession = await tx.checkoutSession.findFirst({
+            where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() }, bizType: 'VIP_PACKAGE' },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (
+            globalActiveSession &&
+            (!dto.idempotencyKey || globalActiveSession.idempotencyKey !== dto.idempotencyKey)
+          ) {
+            throw new ConflictException({
+              code: 'PENDING_CHECKOUT_EXISTS',
+              message: '你有未完成的订单，请先完成支付或取消',
+            });
+          }
 
-      // 清理并释放当前用户已过期的 VIP 会话，避免过期预留阻塞再次下单
-      const expiredVipSessions = await tx.checkoutSession.findMany({
-        where: {
-          userId,
-          bizType: 'VIP_PACKAGE',
-          status: 'ACTIVE',
-          expiresAt: { lt: new Date() },
-        },
-        select: {
-          id: true,
-          bizType: true,
-          itemsSnapshot: true,
-        },
-      });
-      for (const expiredSession of expiredVipSessions) {
-        await this.releaseVipReservation(tx, expiredSession);
-        await tx.checkoutSession.update({
-          where: { id: expiredSession.id },
-          data: { status: 'EXPIRED' },
+          // 事务内校验用户不是 VIP（防止检查到创建之间的竞态）
+          const member = await tx.memberProfile.findUnique({
+            where: { userId },
+          });
+          if (member?.tier === 'VIP') {
+            throw new BadRequestException('您已是 VIP 会员，无需重复购买');
+          }
+
+          // 清理并释放当前用户已过期的 VIP 会话，避免过期预留阻塞再次下单
+          const expiredVipSessions = await tx.checkoutSession.findMany({
+            where: {
+              userId,
+              bizType: 'VIP_PACKAGE',
+              status: 'ACTIVE',
+              expiresAt: { lt: new Date() },
+            },
+            select: {
+              id: true,
+              bizType: true,
+              itemsSnapshot: true,
+            },
+          });
+          for (const expiredSession of expiredVipSessions) {
+            await this.releaseVipReservation(tx, expiredSession);
+            await tx.checkoutSession.update({
+              where: { id: expiredSession.id },
+              data: { status: 'EXPIRED' },
+            });
+          }
+
+          // 商户订单号
+          const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+          // VIP 会话过期时间（5 分钟）— VIP 不需要"未完成订单"概念，用户取消后可立即重下单；
+          // 5min 仅作为前端 cancel 调用失败时的后端兜底超时
+          const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+          const txSession = await tx.checkoutSession.create({
+            data: {
+              userId,
+              merchantOrderNo,
+              bizType: 'VIP_PACKAGE',
+              bizMeta,
+              itemsSnapshot: itemsSnapshot as any,
+              addressSnapshot: encryptedAddressSnapshot as any,
+              paymentChannel: paymentChannel as any,
+              expectedTotal: vipPrice,
+              goodsAmount: vipPrice,
+              shippingFee: 0,
+              discountAmount: 0,
+              deductionGroupId: null,
+              idempotencyKey: dto.idempotencyKey || null,
+              buyerNote: dto.buyerNote || null,
+              expiresAt,
+            } as any,
+          });
+
+          // 逐项预留库存（CAS 模式，防止超卖）
+          for (const giftItem of giftOption.items) {
+            const reserveResult = await tx.productSKU.updateMany({
+              where: {
+                id: giftItem.sku.id,
+                status: 'ACTIVE',
+                stock: { gte: giftItem.quantity },
+              },
+              data: { stock: { decrement: giftItem.quantity } },
+            });
+            if (reserveResult.count === 0) {
+              throw new BadRequestException(`赠品「${giftItem.sku.title}」库存不足`);
+            }
+
+            await tx.inventoryLedger.create({
+              data: {
+                skuId: giftItem.sku.id,
+                type: 'RESERVE',
+                qty: -giftItem.quantity,
+                refType: 'CHECKOUT_SESSION',
+                refId: txSession.id,
+              },
+            });
+          }
+
+          return txSession;
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
-      }
-
-      // 校验无活跃 VIP 会话（原子保证不会并发创建）
-      const activeVipSession = await tx.checkoutSession.findFirst({
-        where: {
-          userId,
-          bizType: 'VIP_PACKAGE',
-          status: 'ACTIVE',
-        },
-      });
-      if (activeVipSession) {
-        throw new BadRequestException('您有一个进行中的 VIP 购买会话，请完成支付或等待超时');
-      }
-
-      // 商户订单号
-      const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-      // VIP 会话过期时间（30 分钟）
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-
-      const session = await tx.checkoutSession.create({
-        data: {
-          userId,
-          merchantOrderNo,
-          bizType: 'VIP_PACKAGE',
-          bizMeta,
-          itemsSnapshot: itemsSnapshot as any,
-          addressSnapshot: encryptedAddressSnapshot as any,
-          paymentChannel: paymentChannel as any,
-          expectedTotal: vipPrice,
-          goodsAmount: vipPrice,
-          shippingFee: 0,
-          discountAmount: 0,
-          idempotencyKey: dto.idempotencyKey || null,
-          expiresAt,
-        },
-      });
-
-      // 逐项预留库存（CAS 模式，防止超卖）
-      for (const giftItem of giftOption.items) {
-        const reserveResult = await tx.productSKU.updateMany({
-          where: {
-            id: giftItem.sku.id,
-            status: 'ACTIVE',
-            stock: { gte: giftItem.quantity },
-          },
-          data: { stock: { decrement: giftItem.quantity } },
-        });
-        if (reserveResult.count === 0) {
-          throw new BadRequestException(`赠品「${giftItem.sku.title}」库存不足`);
+        break; // 成功跳出重试循环
+      } catch (err: any) {
+        vipLastErr = err;
+        // P2034 序列化冲突 → 指数退避重试
+        if (err?.code === 'P2034' && attempt < VIP_MAX_RETRIES - 1) {
+          this.logger.warn(
+            `VIP checkout createSession 序列化冲突，第 ${attempt + 1}/${VIP_MAX_RETRIES} 次重试`,
+          );
+          await new Promise((r) => setTimeout(r, 50 * Math.pow(2, attempt)));
+          continue;
         }
-
-        await tx.inventoryLedger.create({
-          data: {
-            skuId: giftItem.sku.id,
-            type: 'RESERVE',
-            qty: -giftItem.quantity,
-            refType: 'CHECKOUT_SESSION',
-            refId: session.id,
-          },
-        });
+        throw err; // 非 P2034 或重试用尽
       }
-
-      return session;
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+    }
+    if (!vipSession) {
+      throw vipLastErr ?? new BadRequestException('VIP 结算创建失败，请重试');
+    }
+    const session = vipSession;
 
     this.logger.log(
       `VIP 礼包 CheckoutSession 已创建：sessionId=${session.id}, userId=${userId}, giftOption=${giftOption.title}`,
@@ -948,6 +1132,17 @@ export class CheckoutService {
         paymentParams = { channel: 'alipay', orderStr };
       } catch (err: any) {
         this.logger.error(`VIP 结账生成支付宝参数失败: ${err.message}`);
+      }
+    } else if (paymentChannel === 'WECHAT_PAY' && this.wechatPayService?.isAvailable() && session.merchantOrderNo) {
+      try {
+        const wxParams = await this.wechatPayService.createAppOrder({
+          outTradeNo: session.merchantOrderNo,
+          amount: vipPrice,
+          description: `爱买买VIP礼包-${giftOption.title}`,
+        });
+        paymentParams = { channel: 'wechat', ...wxParams };
+      } catch (err: any) {
+        this.logger.error(`VIP 结账生成微信支付参数失败: ${err.message}`);
       }
     }
 
@@ -973,6 +1168,240 @@ export class CheckoutService {
       throw new BadRequestException(`当前会话状态 ${session.status} 不允许取消`);
     }
 
+    // 资金安全：取消前先查支付宝，避免误删已付款 session
+    // （场景：支付宝侧已 TRADE_SUCCESS 但 notify 还没到，cancel 会让 notify 抵达后被拒绝）
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'ALIPAY' &&
+      this.alipayService?.isAvailable()
+    ) {
+      let queryResult: { tradeStatus: string } | null = null;
+      try {
+        queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `cancelSession 查支付宝异常，拒绝取消（让用户稍后重试）：sessionId=${sessionId}, error=${err.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+      if (
+        queryResult &&
+        (queryResult.tradeStatus === 'TRADE_SUCCESS' ||
+          queryResult.tradeStatus === 'TRADE_FINISHED')
+      ) {
+        // 资金安全：用户取消时检测到已支付 — 主动建单完成支付流程，不能直接拒绝
+        // （场景：notify 永久丢失或大延迟，session 永远 ACTIVE 无法变 PAID）
+        this.logger.warn(
+          `cancelSession 检测到已支付，主动建单：sessionId=${sessionId}, tradeStatus=${queryResult.tradeStatus}`,
+        );
+        try {
+          // 金额校验：支付宝返回 totalAmount 必须等于 session.expectedTotal（防恶意篡改）
+          const claimedAmount = (queryResult as any).totalAmount;
+          if (claimedAmount && claimedAmount !== session.expectedTotal.toFixed(2)) {
+            this.logger.error(
+              `cancelSession 主动建单金额校验失败：alipay=${claimedAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${sessionId}`,
+            );
+            throw new BadRequestException('支付金额校验失败，请联系客服');
+          }
+          const buildResult = await this.handlePaymentSuccess(
+            session.merchantOrderNo,
+            (queryResult as any).tradeNo,
+            new Date().toISOString(),
+          );
+          // 主动建单成功后通知商家（fire-and-forget，不影响主流程）
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'cancel-paid');
+          }
+          throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+        } catch (e: any) {
+          if (e instanceof BadRequestException) throw e;
+          this.logger.error(
+            `cancelSession 主动建单失败，sessionId=${sessionId}：${e.message}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+      }
+      // 其他状态（TRADE_CLOSED / WAIT_BUYER_PAY / 未查到）— 调 alipay.trade.close 关闭支付宝交易，
+      // 防止"先 query 拿到 WAIT_BUYER_PAY → 用户立刻付款 → 我们改 EXPIRED"竞态
+      try {
+        const closeResult = await this.alipayService.closeOrder(session.merchantOrderNo);
+        if (closeResult?.alreadyPaid) {
+          // close 时支付宝告知已支付 — 重新查询并主动建单
+          let queryAfterClose: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+          try {
+            queryAfterClose = await this.alipayService.queryOrder(session.merchantOrderNo);
+          } catch {
+            throw new BadRequestException('支付状态异常，请稍后再试');
+          }
+          if (
+            queryAfterClose &&
+            (queryAfterClose.tradeStatus === 'TRADE_SUCCESS' ||
+              queryAfterClose.tradeStatus === 'TRADE_FINISHED')
+          ) {
+            // 金额校验
+            if (
+              queryAfterClose.totalAmount &&
+              queryAfterClose.totalAmount !== session.expectedTotal.toFixed(2)
+            ) {
+              this.logger.error(
+                `cancelSession close 后金额校验失败：alipay=${queryAfterClose.totalAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${sessionId}`,
+              );
+              throw new BadRequestException('支付金额校验失败，请联系客服');
+            }
+            try {
+              const closePaidResult = await this.handlePaymentSuccess(
+                session.merchantOrderNo,
+                queryAfterClose.tradeNo,
+                new Date().toISOString(),
+              );
+              // 主动建单成功后通知商家（fire-and-forget）
+              if (closePaidResult?.orderIds?.length > 0) {
+                void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'cancel-close-paid');
+              }
+            } catch (buildErr: any) {
+              this.logger.error(
+                `cancelSession close-paid 建单失败，sessionId=${sessionId}：${buildErr.message}`,
+              );
+            }
+            throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+          }
+          throw new BadRequestException('支付状态异常，请稍后再试');
+        }
+        if (closeResult && closeResult.success === false && !closeResult.terminal) {
+          // close 失败（网络/接口异常，非终态）— 不允许 cancel，让用户稍后重试
+          this.logger.warn(
+            `cancelSession close 失败，拒绝取消：sessionId=${sessionId}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭）— 继续走 CAS ACTIVE → EXPIRED
+      } catch (closeErr: any) {
+        if (closeErr instanceof BadRequestException) throw closeErr;
+        this.logger.warn(
+          `cancelSession close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+    }
+
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'WECHAT_PAY'
+    ) {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.warn(
+          `cancelSession 微信支付服务不可用，拒绝取消：sessionId=${sessionId}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      let queryResult: any = null;
+      try {
+        queryResult = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `cancelSession 查微信异常，拒绝取消：sessionId=${sessionId}, error=${err.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      if (!queryResult) {
+        this.logger.warn(
+          `cancelSession 查微信无结果，拒绝取消：sessionId=${sessionId}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      if (queryResult?.tradeState === 'SUCCESS') {
+        this.logger.warn(
+          `cancelSession 检测到微信已支付，主动建单：sessionId=${sessionId}, tradeState=${queryResult.tradeState}`,
+        );
+        if (!queryResult.transactionId) {
+          this.logger.error(`cancelSession 微信成功态缺少交易流水号：sessionId=${sessionId}`);
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+        try {
+          this.assertWechatAmountMatchesSession(
+            queryResult,
+            session.expectedTotal,
+            'cancelSession 主动建单',
+            sessionId,
+          );
+          const buildResult = await this.handlePaymentSuccess(
+            session.merchantOrderNo,
+            queryResult.transactionId,
+            queryResult.paidAt?.toISOString?.() ?? queryResult.paidAt ?? new Date().toISOString(),
+          );
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'cancel-paid-wechat');
+          }
+          throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+        } catch (e: any) {
+          if (e instanceof BadRequestException) throw e;
+          this.logger.error(
+            `cancelSession 微信主动建单失败，sessionId=${sessionId}：${e.message}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
+      }
+
+      let closeResult: any;
+      try {
+        closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
+      } catch (closeErr: any) {
+        this.logger.warn(
+          `cancelSession 微信 close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+
+      if (closeResult?.alreadyPaid) {
+        let queryAfterClose: any = null;
+        try {
+          queryAfterClose = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+        } catch {
+          throw new BadRequestException('支付状态异常，请稍后再试');
+        }
+        if (queryAfterClose?.tradeState === 'SUCCESS') {
+          if (!queryAfterClose.transactionId) {
+            this.logger.error(`cancelSession 微信 close-paid 成功态缺少交易流水号：sessionId=${sessionId}`);
+            throw new BadRequestException('正在确认支付状态，请稍后再试');
+          }
+          try {
+            this.assertWechatAmountMatchesSession(
+              queryAfterClose,
+              session.expectedTotal,
+              'cancelSession close-paid',
+              sessionId,
+            );
+            const closePaidResult = await this.handlePaymentSuccess(
+              session.merchantOrderNo,
+              queryAfterClose.transactionId,
+              queryAfterClose.paidAt?.toISOString?.() ?? queryAfterClose.paidAt ?? new Date().toISOString(),
+            );
+            if (closePaidResult?.orderIds?.length > 0) {
+              void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'cancel-close-paid-wechat');
+            }
+          } catch (buildErr: any) {
+            if (buildErr instanceof BadRequestException) throw buildErr;
+            this.logger.error(
+              `cancelSession 微信 close-paid 建单失败，sessionId=${sessionId}：${buildErr.message}`,
+            );
+            throw new BadRequestException('正在确认支付状态，请稍后再试');
+          }
+          throw new BadRequestException('支付已完成，订单已自动创建，请稍后查看订单');
+        }
+        throw new BadRequestException('支付状态异常，请稍后再试');
+      }
+
+      if (!closeResult || (closeResult.success === false && !closeResult.terminal)) {
+        this.logger.warn(
+          `cancelSession 微信 close 失败，拒绝取消：sessionId=${sessionId}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
+    }
+
     // H8修复：Serializable 隔离级别 + P2034 重试，防止与 handlePaymentSuccess 竞态
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -991,8 +1420,11 @@ export class CheckoutService {
             await this.releaseVipReservation(tx, session);
           }
 
-          // 释放预留奖励
-          if (session.rewardId) {
+          const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+          if (deductionGroupId && this.rewardDeductionService) {
+            await this.rewardDeductionService.releaseDeduction(tx, deductionGroupId);
+          } else if (session.rewardId) {
+            // 兼容旧会话：旧模型只存 primary rewardId。
             await tx.rewardLedger.updateMany({
               where: { id: session.rewardId, status: 'RESERVED' },
               data: { status: 'AVAILABLE', refType: null, refId: null },
@@ -1030,6 +1462,75 @@ export class CheckoutService {
     return { success: true };
   }
 
+  /**
+   * 支付失败/通道异常时释放 CheckoutSession 占用资源。
+   *
+   * 幂等：只有 ACTIVE 会话会被 CAS 标记为 FAILED；非 ACTIVE 直接返回。
+   */
+  async releaseSessionOnFailure(merchantOrderNo: string): Promise<void> {
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const result = await this.prisma.$transaction(async (tx) => {
+          const session = await tx.checkoutSession.findFirst({
+            where: { merchantOrderNo },
+          });
+          if (!session) {
+            return { released: false, reason: 'session_not_found', couponInstanceIds: [] as string[] };
+          }
+
+          const cas = await tx.checkoutSession.updateMany({
+            where: { id: session.id, status: 'ACTIVE' },
+            data: { status: 'FAILED' },
+          });
+          if (cas.count === 0) {
+            return { released: false, reason: 'session_not_active', couponInstanceIds: [] as string[] };
+          }
+
+          const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+          if (deductionGroupId && this.rewardDeductionService) {
+            await this.rewardDeductionService.releaseDeduction(tx, deductionGroupId);
+          } else if (session.rewardId) {
+            // 兼容旧会话：Worker B 移除 PaymentService 旧释放逻辑后，这里兜住历史 rewardId。
+            await tx.rewardLedger.updateMany({
+              where: { id: session.rewardId, status: 'RESERVED' },
+              data: { status: 'AVAILABLE', refType: null, refId: null },
+            });
+          }
+
+          if (session.bizType === 'VIP_PACKAGE') {
+            await this.releaseVipReservationInTx(tx, {
+              id: session.id,
+              bizType: session.bizType,
+              itemsSnapshot: session.itemsSnapshot,
+            });
+          }
+
+          return {
+            released: true,
+            sessionId: session.id,
+            couponInstanceIds: session.couponInstanceIds ?? [],
+          };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+        if (result.released && result.couponInstanceIds.length > 0 && this.couponService) {
+          await this.couponService.releaseCoupons(result.couponInstanceIds).catch((err: any) => {
+            this.logger.error(`释放红包失败（支付失败释放）：sessionId=${result.sessionId}, error=${err.message}`);
+          });
+        }
+        return;
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
+          this.logger.warn(
+            `releaseSessionOnFailure 序列化冲突，第 ${attempt + 1}/${MAX_RETRIES} 次重试`,
+          );
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
   /** F1: 查询结算会话状态（前端轮询） */
   async getSessionStatus(userId: string, sessionId: string) {
     const session = await this.prisma.checkoutSession.findUnique({
@@ -1043,6 +1544,91 @@ export class CheckoutService {
       status: session.status,
       orderIds: session.orders.map((o) => o.id),
       expectedTotal: session.expectedTotal,
+    };
+  }
+
+  /** Task 16: 查询当前用户最新的 ACTIVE CheckoutSession（用于"未完成订单"入口） */
+  async getPendingForUser(userId: string) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+        bizType: { not: 'VIP_PACKAGE' },  // VIP 没有"未完成订单"概念，pending API 不返 VIP session
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!session) return null;
+    const items = (session.itemsSnapshot as any[]) || [];
+    const first = items[0];
+    return {
+      sessionId: session.id,
+      merchantOrderNo: session.merchantOrderNo,
+      expectedTotal: session.expectedTotal,
+      goodsAmount: session.goodsAmount,
+      shippingFee: session.shippingFee,
+      expiresAt: session.expiresAt.toISOString(),
+      itemCount: items.reduce((s, i) => s + (i.quantity || 1), 0),
+      bizType: session.bizType,
+      preview: {
+        firstItemImage: first?.productSnapshot?.image || '',
+        firstItemTitle: first?.productSnapshot?.title || '',
+        extraCount: Math.max(0, items.length - 1),
+      },
+      items: items.map((i) => ({
+        image: i.productSnapshot?.image || '',
+        title: i.productSnapshot?.title || '',
+        skuTitle: i.productSnapshot?.skuTitle || '',
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
+    };
+  }
+
+  /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
+  async resumeSession(userId: string, sessionId: string) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: { id: sessionId, userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+    });
+    if (!session) throw new NotFoundException('订单不存在或已过期');
+    if (!session.merchantOrderNo) throw new BadRequestException('支付参数缺失');
+
+    let paymentParams: Record<string, any> = {};
+    if (session.paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
+      try {
+        const orderStr = await this.alipayService.createAppPayOrder({
+          merchantOrderNo: session.merchantOrderNo,
+          totalAmount: session.expectedTotal,
+          subject: `爱买买订单-${session.merchantOrderNo}`,
+        });
+        paymentParams = { channel: 'alipay', orderStr };
+      } catch (err: any) {
+        this.logger.error(`续付生成支付宝参数失败: ${err.message}`);
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+    } else if (session.paymentChannel === 'WECHAT_PAY') {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.error(`续付生成微信支付参数失败: 微信支付服务未启用`);
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+      try {
+        const wxParams = await this.wechatPayService.createAppOrder({
+          outTradeNo: session.merchantOrderNo,
+          amount: session.expectedTotal,
+          description: `爱买买订单-${session.merchantOrderNo}`,
+        });
+        paymentParams = { channel: 'wechat', ...wxParams };
+      } catch (err: any) {
+        this.logger.error(`续付生成微信支付参数失败: ${err.message}`);
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+    }
+
+    return {
+      sessionId: session.id,
+      merchantOrderNo: session.merchantOrderNo,
+      expectedTotal: session.expectedTotal,
+      paymentParams,
     };
   }
 
@@ -1108,6 +1694,11 @@ export class CheckoutService {
             // 3. 解析快照
             const items = session.itemsSnapshot as unknown as SnapshotItem[];
             const addressSnapshot = session.addressSnapshot;
+            const sessionBizType = (session as any).bizType || 'NORMAL_GOODS';
+            const isVipPackageSession = sessionBizType === 'VIP_PACKAGE';
+            if (isVipPackageSession && (session as any).deductionGroupId) {
+              throw new InternalServerErrorException('VIP 礼包不应有 deductionGroupId，数据异常');
+            }
 
             // 4. 按 companyId 分组
             const itemsByCompany = new Map<string, SnapshotItem[]>();
@@ -1128,14 +1719,20 @@ export class CheckoutService {
               }))
               .sort((a, b) => b.goodsAmount - a.goodsAmount);
 
+            // VIP 礼包支付的是会员资格包，赠品 SKU 价格只用于履约快照，不能反写成订单实付金额。
+            if (isVipPackageSession && companyGroups.length > 0) {
+              const vipGoodsAmount = Number(session.goodsAmount || session.expectedTotal || 0);
+              companyGroups.forEach((group, idx) => {
+                group.goodsAmount = idx === 0 ? vipGoodsAmount : 0;
+              });
+            }
+
             // 5. 运费按商户金额比例分配到各商户订单
             const totalSessionGoodsAmount = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
-            const groupShippingFees: number[] = companyGroups.map((group) => {
-              if (totalSessionGoodsAmount === 0) return 0;
-              return parseFloat(
-                ((group.goodsAmount / totalSessionGoodsAmount) * session.shippingFee).toFixed(2),
-              );
-            });
+            const groupShippingFees = this.allocateShippingFeeByGoodsAmount(
+              companyGroups.map((group) => group.goodsAmount),
+              session.shippingFee,
+            );
 
             // 6. 创建订单（含红包抵扣）
             const createdOrderIds: string[] = [];
@@ -1177,10 +1774,12 @@ export class CheckoutService {
               const groupCouponDiscount = couponDiscountAllocations[idx] || 0;
               const groupVipDiscount = vipDiscountAllocations[idx] || 0;
               const groupTotalDiscount = groupRewardDiscount + groupCouponDiscount;
-              const groupTotal = Math.max(
-                0,
-                group.goodsAmount - groupVipDiscount - groupTotalDiscount + groupShippingFee,
-              );
+              const groupTotal = isVipPackageSession
+                ? (idx === 0 ? Number(session.expectedTotal || group.goodsAmount || 0) : 0)
+                : Math.max(
+                    0,
+                    group.goodsAmount - groupVipDiscount - groupTotalDiscount + groupShippingFee,
+                  );
               const idempotencyKey = `cs:${session.id}:${cartContentHash}:${idx}`;
 
               const order = await tx.order.create({
@@ -1189,7 +1788,7 @@ export class CheckoutService {
                   checkoutSessionId: session.id,
                   status: 'PAID',
                   // 传递业务类型（VIP_PACKAGE / NORMAL_GOODS）
-                  bizType: (session as any).bizType || 'NORMAL_GOODS',
+                  bizType: sessionBizType,
                   bizMeta: (session as any).bizMeta || undefined,
                   totalAmount: groupTotal,
                   goodsAmount: group.goodsAmount,
@@ -1199,6 +1798,7 @@ export class CheckoutService {
                   // 平台红包抵扣金额记录到商户订单
                   totalCouponDiscount: groupCouponDiscount > 0 ? groupCouponDiscount : null,
                   idempotencyKey,
+                  buyerNote: (session as any).buyerNote ?? null,
                   addressSnapshot: addressSnapshot as any,
                   paidAt: paidAt ? new Date(paidAt) : new Date(),
                   items: {
@@ -1216,12 +1816,23 @@ export class CheckoutService {
                 },
               });
 
-              // 奖励关联主订单
-              if (isPrimary && session.rewardId && session.discountAmount > 0) {
-                await tx.rewardLedger.update({
-                  where: { id: session.rewardId },
-                  data: { refType: 'ORDER', refId: order.id },
-                });
+              // 消费积分抵扣关联主订单。新模型按 groupId 关联全部 DEDUCT ledger。
+              if (isPrimary && session.discountAmount > 0) {
+                const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+                if (deductionGroupId) {
+                  await (tx as any).rewardLedger.updateMany({
+                    where: {
+                      entryType: 'DEDUCT',
+                      meta: { path: ['groupId'], equals: deductionGroupId },
+                    },
+                    data: { refType: 'ORDER', refId: order.id },
+                  });
+                } else if (session.rewardId) {
+                  await tx.rewardLedger.update({
+                    where: { id: session.rewardId },
+                    data: { refType: 'ORDER', refId: order.id },
+                  });
+                }
               }
 
               // 记录订单状态历史
@@ -1293,7 +1904,8 @@ export class CheckoutService {
                         type: 'stock_shortage',
                         title: '商品超卖补货提醒',
                         content: `商品「${skuLabel}」超卖 ${oversoldQty} 件，当前库存 ${updatedSku.stock}，请尽快补货。`,
-                        target: { route: '/seller/products', params: {} },
+                        // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
+                        // 卖家应在卖家后台 web 处理库存，将来可考虑发独立卖家通知渠道
                       }).catch(() => {});
                     });
                   }
@@ -1310,8 +1922,11 @@ export class CheckoutService {
               });
             }
 
-            // 8. 奖励：RESERVED → VOIDED
-            if (session.rewardId && session.discountAmount > 0) {
+            // 8. 消费积分抵扣：RESERVED → VOIDED
+            const deductionGroupId = (session as any).deductionGroupId as string | null | undefined;
+            if (deductionGroupId && this.rewardDeductionService) {
+              await this.rewardDeductionService.confirmDeduction(tx, deductionGroupId);
+            } else if (session.rewardId && session.discountAmount > 0) {
               await tx.rewardLedger.updateMany({
                 where: { id: session.rewardId, status: 'RESERVED' },
                 data: { status: 'VOIDED' },
@@ -1319,31 +1934,74 @@ export class CheckoutService {
             }
 
             // 9. C3修复：按 cartItemId 精确删除购物车项（避免误删结算后新增的同 SKU 商品）
-            const allCartItemIds = items
-              .filter((i) => i.cartItemId)
-              .map((i) => i.cartItemId as string);
-            if (allCartItemIds.length > 0) {
+            const excludedPrizeCleanupItems = this.getExcludedPrizeCleanupItems(session as any);
+            const excludedPrizeCartItemIds = excludedPrizeCleanupItems
+              .map((item) => item.cartItemId)
+              .filter((id): id is string => !!id);
+            const excludedPrizeRecordIds = excludedPrizeCleanupItems
+              .map((item) => item.prizeRecordId)
+              .filter((id): id is string => !!id);
+            const allCartItemIds = Array.from(new Set([
+              ...items
+                .filter((i) => i.cartItemId)
+                .map((i) => i.cartItemId as string),
+              ...excludedPrizeCartItemIds,
+            ]));
+            const consumedPrizeRecordIds = Array.from(new Set(
+              items
+                .filter((i) => i.isPrize && i.prizeRecordId)
+                .map((i) => i.prizeRecordId as string),
+            ));
+            const consumedPrizeRecordIdSet = new Set(consumedPrizeRecordIds);
+            const expiredPrizeRecordIds = Array.from(new Set(
+              excludedPrizeRecordIds.filter((id) => !consumedPrizeRecordIdSet.has(id)),
+            ));
+            const cleanupPrizeRecordIds = Array.from(new Set([
+              ...consumedPrizeRecordIds,
+              ...expiredPrizeRecordIds,
+            ]));
+            if (allCartItemIds.length > 0 || cleanupPrizeRecordIds.length > 0) {
               const userCart = await tx.cart.findUnique({
                 where: { userId: session.userId },
               });
               if (userCart) {
+                const deleteConditions: any[] = [];
+                if (allCartItemIds.length > 0) {
+                  deleteConditions.push({ id: { in: allCartItemIds } });
+                }
+                if (cleanupPrizeRecordIds.length > 0) {
+                  deleteConditions.push({
+                    isPrize: true,
+                    prizeRecordId: { in: cleanupPrizeRecordIds },
+                  });
+                }
                 await tx.cartItem.deleteMany({
-                  where: { id: { in: allCartItemIds }, cartId: userCart.id },
+                  where: {
+                    cartId: userCart.id,
+                    OR: deleteConditions,
+                  },
                 });
               }
             }
 
             // 10. 消费 LotteryRecord（IN_CART → CONSUMED）
-            const prizeRecordIds = items
-              .filter((i) => i.isPrize && i.prizeRecordId)
-              .map((i) => i.prizeRecordId as string);
-            if (prizeRecordIds.length > 0) {
+            if (consumedPrizeRecordIds.length > 0) {
               await tx.lotteryRecord.updateMany({
                 where: {
-                  id: { in: prizeRecordIds },
+                  id: { in: consumedPrizeRecordIds },
                   status: { in: ['WON', 'IN_CART'] },
                 },
                 data: { status: 'CONSUMED' },
+              });
+            }
+
+            if (expiredPrizeRecordIds.length > 0) {
+              await tx.lotteryRecord.updateMany({
+                where: {
+                  id: { in: expiredPrizeRecordIds },
+                  status: { in: ['WON', 'IN_CART'] },
+                },
+                data: { status: 'EXPIRED' },
               });
             }
 
@@ -1586,6 +2244,29 @@ export class CheckoutService {
 
   // ---------- 私有方法 ----------
 
+  private getExcludedPrizeCleanupItems(session: {
+    bizMeta?: unknown;
+  }): Array<Pick<ExcludedCheckoutItem, 'cartItemId' | 'skuId' | 'prizeRecordId'>> {
+    const meta = session.bizMeta;
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return [];
+
+    const rawItems = (meta as any).excludedPrizeItems;
+    if (!Array.isArray(rawItems)) return [];
+
+    return rawItems
+      .filter((item) => {
+        if (!item || typeof item !== 'object') return false;
+        if ((item as any).isPrize !== true) return false;
+        return typeof (item as any).cartItemId === 'string' ||
+          typeof (item as any).prizeRecordId === 'string';
+      })
+      .map((item) => ({
+        cartItemId: typeof item.cartItemId === 'string' ? item.cartItemId : undefined,
+        skuId: typeof item.skuId === 'string' ? item.skuId : '',
+        prizeRecordId: typeof item.prizeRecordId === 'string' ? item.prizeRecordId : null,
+      }));
+  }
+
   /**
    * 按容量（通常为各商户商品金额）分摊折扣，保证：
    * 1) 每组折扣不超过自身容量
@@ -1701,6 +2382,19 @@ export class CheckoutService {
       .filter((item) => item.skuId && item.quantity > 0);
   }
 
+  /**
+   * 公开 wrapper：在已有事务内释放 VIP 礼包预留库存（供 PaymentService 等外部调用）
+   *
+   * 仅 bizType === 'VIP_PACKAGE' 的 session 会真正释放，其他类型直接返回。
+   */
+  async releaseVipReservationInTx(
+    tx: Prisma.TransactionClient,
+    session: { id: string; bizType?: string | null; itemsSnapshot?: unknown },
+  ) {
+    if (session.bizType !== 'VIP_PACKAGE') return;
+    await this.releaseVipReservation(tx, session);
+  }
+
   private async releaseVipReservation(
     tx: Prisma.TransactionClient,
     session: { id: string; bizType?: string | null; itemsSnapshot?: unknown },
@@ -1735,6 +2429,91 @@ export class CheckoutService {
     }
   }
 
+  private normalizeSkuWeightGram(weightGram: unknown): number {
+    const normalized = Number(weightGram);
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      return DEFAULT_SKU_WEIGHT_GRAM;
+    }
+    return Math.round(normalized);
+  }
+
+  private allocateShippingFeeByGoodsAmount(
+    goodsAmounts: number[],
+    totalShippingFee: number,
+  ): number[] {
+    const totalFeeCents = Math.max(
+      0,
+      Math.round((Number(totalShippingFee || 0) + Number.EPSILON) * 100),
+    );
+    if (goodsAmounts.length === 0) return [];
+    if (totalFeeCents === 0) return goodsAmounts.map(() => 0);
+
+    const weights = goodsAmounts.map((amount) =>
+      Math.max(0, Math.round((Number(amount || 0) + Number.EPSILON) * 100)),
+    );
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    if (totalWeight === 0) {
+      const allocations = goodsAmounts.map(() => 0);
+      allocations[allocations.length - 1] = totalFeeCents / 100;
+      return allocations;
+    }
+
+    const allocations: number[] = [];
+    let allocatedCents = 0;
+    for (let idx = 0; idx < weights.length; idx++) {
+      const remainingCents = totalFeeCents - allocatedCents;
+      if (idx === weights.length - 1) {
+        allocations.push(remainingCents / 100);
+        break;
+      }
+      const cents = Math.min(
+        remainingCents,
+        Math.round((weights[idx] / totalWeight) * totalFeeCents),
+      );
+      allocations.push(cents / 100);
+      allocatedCents += cents;
+    }
+    return allocations;
+  }
+
+  private async calculateShippingDetailForCheckout(
+    goodsAmount: number,
+    regionCode?: string,
+    totalWeight?: number,
+    isVip?: boolean,
+    tx?: any,
+  ): Promise<{ fee: number }> {
+    const sysConfig = await this.bonusConfig.getSystemConfig();
+    const threshold = isVip
+      ? sysConfig.vipFreeShippingThreshold
+      : sysConfig.normalFreeShippingThreshold;
+
+    // 门槛为 0 表示无条件免运费；订单金额达到门槛也免运费，不触发规则引擎。
+    if (threshold === 0 || goodsAmount >= threshold) {
+      return { fee: 0 };
+    }
+
+    if (this.shippingRuleService?.calculateShippingDetail) {
+      try {
+        const detail = await this.shippingRuleService.calculateShippingDetail(
+          goodsAmount,
+          regionCode,
+          totalWeight,
+          tx,
+        );
+        const fee = Number(detail?.fee);
+        if (Number.isFinite(fee) && fee >= 0) {
+          return { fee };
+        }
+        throw new Error('calculateShippingDetail returned invalid fee');
+      } catch (err: any) {
+        this.logger.warn(`ShippingRule 详情计算失败，降级为默认逻辑: ${err.message}`);
+      }
+    }
+
+    return { fee: sysConfig.defaultShippingFee ?? DEFAULT_BASE_FEE };
+  }
+
   /** 运费计算：平台统一发货，用整单总金额和总重量计算一次，支持 VIP 免运费门槛 */
   private async calculateShippingFee(
     _companyId: string,
@@ -1744,32 +2523,44 @@ export class CheckoutService {
     totalWeight?: number,
     isVip?: boolean,
   ): Promise<number> {
-    // 读取可配置的免运费门槛
-    const sysConfig = await this.bonusConfig.getSystemConfig();
-    const threshold = isVip
-      ? sysConfig.vipFreeShippingThreshold
-      : sysConfig.normalFreeShippingThreshold;
+    const detail = await this.calculateShippingDetailForCheckout(
+      goodsAmount,
+      regionCode,
+      totalWeight,
+      isVip,
+      tx,
+    );
+    return detail.fee;
+  }
 
-    // 门槛为 0 表示无条件免运费；订单金额达到门槛也免运费
-    if (threshold === 0 || goodsAmount >= threshold) {
-      return 0;
+  /**
+   * cancel/expire 主动建单成功后的统一后处理：通知商家、记日志。
+   * 不抛错（fire-and-forget），但失败必记 error 日志方便后续排查。
+   *
+   * @param orderIds 已建单的订单 ID 列表
+   * @param context  调用语境（'cancel-paid' | 'cancel-close-paid' | 'expire-paid' | 'expire-close-paid'），仅用于日志
+   */
+  private async notifyMerchantsAfterCheckoutBuild(
+    orderIds: string[],
+    context: string,
+  ): Promise<void> {
+    if (orderIds.length === 0) return;
+    if (!this.paymentService) {
+      this.logger.warn(
+        `[${context}] 商家通知跳过：paymentService 未注入，orderIds=${orderIds.join(',')}`,
+      );
+      return;
     }
-
-    // 通过 ShippingRule 匹配运费
-    if (this.shippingRuleService) {
-      try {
-        return await this.shippingRuleService.calculateShippingFee(
-          goodsAmount,
-          regionCode,
-          totalWeight,
-          tx,
-        );
-      } catch (err: any) {
-        this.logger.warn(`ShippingRule 计算失败，降级为默认逻辑: ${err.message}`);
-      }
+    try {
+      await this.paymentService.notifyMerchantsForOrders(orderIds);
+      this.logger.log(
+        `[${context}] 商家通知成功：orderIds=${orderIds.join(',')}`,
+      );
+    } catch (err: any) {
+      // 主动建单已经成功，商家通知失败不影响订单状态 — 只记 error 日志
+      this.logger.error(
+        `[${context}] 商家通知失败（不影响订单）：orderIds=${orderIds.join(',')}, error=${err.message}, stack=${err.stack}`,
+      );
     }
-
-    // 降级：使用配置的默认运费
-    return sysConfig.defaultShippingFee ?? DEFAULT_BASE_FEE;
   }
 }

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { Dropdown, message } from 'antd';
+import { Dropdown, App } from 'antd';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import {
   DashboardOutlined,
@@ -15,6 +15,7 @@ import {
   TeamOutlined,
   SafetyCertificateOutlined,
   LogoutOutlined,
+  SafetyOutlined,
   ApartmentOutlined,
   TagsOutlined,
   MessageOutlined,
@@ -42,8 +43,10 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/users', name: '用户管理', permission: PERMISSIONS.USERS_READ },
         { path: '/bonus/members', name: 'VIP 会员' },
         { path: '/bonus/withdrawals', name: '提现审核' },
-        { path: '/bonus/vip-tree', name: 'VIP 奖励树', icon: <ApartmentOutlined /> },
-        { path: '/bonus/normal-tree', name: '普通奖励树', icon: <ApartmentOutlined /> },
+        { path: '/bonus/withdraw-rules', name: '提现规则', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
+        { path: '/bonus/tax-reporting', name: '税务报送', icon: <FileTextOutlined />, permission: PERMISSIONS.BONUS_APPROVE_WITHDRAW },
+        { path: '/bonus/vip-tree', name: 'VIP 奖励可视化', icon: <ApartmentOutlined /> },
+        { path: '/bonus/normal-tree', name: '普通奖励可视化', icon: <ApartmentOutlined /> },
         { path: '/bonus/vip-config', name: 'VIP 系统配置', icon: <SettingOutlined /> },
         { path: '/bonus/normal-config', name: '普通系统配置', icon: <SettingOutlined /> },
         { path: '/vip-gifts', name: '购买VIP赠品', icon: <GiftOutlined />, permission: PERMISSIONS.VIP_GIFT_READ },
@@ -71,6 +74,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       routes: [
         { path: '/orders', name: '订单管理' },
         { path: '/invoices', name: '发票管理', permission: PERMISSIONS.INVOICES_READ },
+        { path: '/invoices/settings', name: '发票设置', permission: PERMISSIONS.INVOICES_ISSUE },
         { path: '/after-sale', name: '售后仲裁', permission: PERMISSIONS.AFTER_SALE_READ },
         { path: '/shipping-rules', name: '运费规则', permission: PERMISSIONS.SHIPPING_READ },
       ],
@@ -104,7 +108,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       icon: <SettingOutlined />,
       routes: [
         { path: '/config', name: '平台设置', icon: <SettingOutlined />, permission: PERMISSIONS.CONFIG_READ },
-        { path: '/config/discovery-filters', name: '发现页筛选', icon: <TagsOutlined />, permission: PERMISSIONS.CONFIG_READ },
+        { path: '/discovery-filters', name: '发现页筛选', icon: <TagsOutlined />, permission: PERMISSIONS.CONFIG_READ },
         { path: '/admin/users', name: '管理员账号', icon: <TeamOutlined />, permission: PERMISSIONS.ADMIN_USERS_READ },
         { path: '/admin/roles', name: '角色权限', icon: <SafetyCertificateOutlined />, permission: PERMISSIONS.ADMIN_ROLES_READ },
         { path: '/audit', name: '审计日志', icon: <AuditOutlined />, permission: PERMISSIONS.AUDIT_READ },
@@ -114,6 +118,7 @@ const menuRoutes: ProLayoutProps['route'] = {
 };
 
 export default function AdminLayout() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const admin = useAuthStore((s) => s.admin);
@@ -155,6 +160,26 @@ export default function AdminLayout() {
     };
   }, [hasPermission]);
 
+  // 计算唯一选中的菜单 key：取与当前 pathname 最长前缀匹配的那一项，
+  // 避免 `/invoices/settings` 同时点亮 `/invoices` 父路径。
+  const selectedKeys = useMemo(() => {
+    const flatten = (routes: MenuRoute[]): string[] => {
+      const acc: string[] = [];
+      routes.forEach((r) => {
+        if (r.path) acc.push(r.path);
+        if (r.routes) acc.push(...flatten(r.routes as MenuRoute[]));
+      });
+      return acc;
+    };
+    const all = flatten(filteredRoute.routes as MenuRoute[]);
+    const matches = all.filter((p) =>
+      p === location.pathname ||
+      (p !== '/' && location.pathname.startsWith(p + '/')),
+    );
+    if (matches.length === 0) return [];
+    return [matches.reduce((longest, p) => (p.length > longest.length ? p : longest), matches[0])];
+  }, [filteredRoute, location.pathname]);
+
   return (
     <ProLayout
       title="爱买买管理后台"
@@ -169,7 +194,11 @@ export default function AdminLayout() {
       collapsed={collapsed}
       onCollapse={setCollapsed}
       route={filteredRoute}
+      // ProLayout 默认按前缀匹配 pathname，会出现父子菜单同时高亮；
+      // 通过 menuProps.selectedKeys 显式指定最长前缀匹配，保证唯一选中。
+      // 同 pathname 不同 search 的兄弟菜单（如 /companies?status=PENDING_AUDIT）仍会一起高亮，属预期。
       location={{ pathname: location.pathname }}
+      menuProps={{ selectedKeys }}
       token={{
         sider: {
           colorMenuBackground: '#001529',
@@ -209,6 +238,13 @@ export default function AdminLayout() {
             menu={{
               items: [
                 {
+                  key: 'account-security',
+                  icon: <SafetyOutlined />,
+                  label: '账号安全',
+                  onClick: () => navigate('/account-security'),
+                },
+                { type: 'divider' },
+                {
                   key: 'logout',
                   icon: <LogoutOutlined />,
                   label: '退出登录',
@@ -223,8 +259,18 @@ export default function AdminLayout() {
       }}
       // 底部
       footerRender={() => (
-        <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12 }}>
-          爱买买管理后台 &copy; 2026
+        <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12, lineHeight: 1.8 }}>
+          <div>爱买买管理后台 &copy; 2026 深圳华海农业科技集团有限公司</div>
+          <div>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#999' }}
+            >
+              粤ICP备2023047684号-5
+            </a>
+          </div>
         </div>
       )}
     >

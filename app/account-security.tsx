@@ -3,13 +3,14 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../src/components/layout';
 import { useToast } from '../src/components/feedback';
 import { AuthRepo, UserRepo } from '../src/repos';
 import { useAuthStore } from '../src/store';
 import { useTheme } from '../src/theme';
 import { logoutAndClearClientState } from '../src/utils/logout';
+import { requestWechatAuth } from '../src/services/wechat';
 
 // 手机号脱敏：138****5678
 const maskPhone = (phone?: string) => {
@@ -17,27 +18,48 @@ const maskPhone = (phone?: string) => {
   return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
 };
 
-// 邮箱脱敏：l****e@example.com
-const maskEmail = (email?: string) => {
-  if (!email) return undefined;
-  const [local, domain] = email.split('@');
-  if (!domain || local.length < 2) return email;
-  return `${local[0]}****${local[local.length - 1]}@${domain}`;
-};
-
 export default function AccountSecurityScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
   const { show } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
 
   // 用户资料
   const { data: profileResult } = useQuery({
-    queryKey: ['profile'],
+    queryKey: ['me-profile'],
     queryFn: () => UserRepo.profile(),
     enabled: isLoggedIn,
   });
   const profile = profileResult?.ok ? profileResult.data : undefined;
+
+  // 微信绑定中态：避免重复点击
+  const [bindingWechat, setBindingWechat] = useState(false);
+
+  // 微信绑定：调起微信 SDK 拿 code → 调后端绑定接口
+  const handleBindWechat = async () => {
+    if (bindingWechat) return;
+    setBindingWechat(true);
+    try {
+      let wxCode: string;
+      try {
+        wxCode = await requestWechatAuth();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '微信授权失败';
+        show({ message: msg, type: 'error' });
+        return;
+      }
+      const r = await UserRepo.bindWechat(wxCode);
+      if (!r.ok) {
+        show({ message: r.error.displayMessage ?? '微信绑定失败', type: 'error' });
+        return;
+      }
+      show({ message: '微信绑定成功', type: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['me-profile'] });
+    } finally {
+      setBindingWechat(false);
+    }
+  };
 
   // 修改密码表单
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -87,7 +109,8 @@ export default function AccountSecurityScreen() {
     router.replace('/(tabs)/home');
   };
 
-  // 注销账号（直接执行，跳过确认弹窗避免平台兼容问题）
+  // 注销账号 —— 后端 /auth/delete-account 未实现，功能暂下线；按钮与本函数一并注释，上线后取消注释恢复
+  /*
   const handleDeleteAccount = async () => {
     const result = await AuthRepo.deleteAccount();
     if (!result.ok) {
@@ -98,15 +121,22 @@ export default function AccountSecurityScreen() {
     show({ message: '账号已注销', type: 'success' });
     router.replace('/(tabs)/home');
   };
+  */
 
   const phoneMasked = maskPhone(profile?.phone);
-  const emailMasked = maskEmail(profile?.email);
-  const wechatName = profile?.wechatNickname;
+  // 绑定状态用 wechatBound（权威字段），昵称仅作展示
+  // 微信已绑但 fetchWechatUserProfile 失败导致 nickname 空时，仍显示"已绑定"
+  const wechatBound = profile?.wechatBound ?? !!profile?.wechatNickname; // 兼容老接口
+  const wechatLabel = profile?.wechatNickname || (wechatBound ? '已绑定' : null);
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="账号与安全" />
-      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
 
         {/* 绑定账号 */}
         <Animated.View entering={FadeInDown.duration(300)}>
@@ -114,7 +144,13 @@ export default function AccountSecurityScreen() {
           <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             {/* 手机号 */}
             <Pressable
-              onPress={() => show({ message: phoneMasked ? '换绑手机号功能即将上线' : '绑定手机号功能即将上线', type: 'info' })}
+              onPress={() => {
+                if (phoneMasked) {
+                  show({ message: '换绑手机号功能即将上线', type: 'info' });
+                  return;
+                }
+                router.push('/bind-phone');
+              }}
               style={[styles.row, { borderBottomColor: colors.border }]}
             >
               <MaterialCommunityIcons name="cellphone" size={20} color={colors.brand.primary} />
@@ -130,35 +166,24 @@ export default function AccountSecurityScreen() {
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} style={{ marginLeft: 6 }} />
             </Pressable>
 
-            {/* 邮箱 */}
-            <Pressable
-              onPress={() => show({ message: emailMasked ? '换绑邮箱功能即将上线' : '绑定邮箱功能即将上线', type: 'info' })}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <MaterialCommunityIcons name="email-outline" size={20} color="#1976D2" />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>邮箱</Text>
-              <View style={styles.spacer} />
-              {emailMasked ? (
-                <View style={[styles.badge, { backgroundColor: '#1976D218' }]}>
-                  <Text style={[typography.caption, { color: '#1976D2' }]}>{emailMasked}</Text>
-                </View>
-              ) : (
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>未绑定</Text>
-              )}
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} style={{ marginLeft: 6 }} />
-            </Pressable>
-
             {/* 微信 */}
             <Pressable
-              onPress={() => show({ message: wechatName ? '换绑微信功能即将上线' : '绑定微信功能即将上线', type: 'info' })}
+              onPress={() => {
+                if (wechatBound) {
+                  show({ message: '换绑微信功能即将上线', type: 'info' });
+                  return;
+                }
+                handleBindWechat();
+              }}
+              disabled={bindingWechat}
               style={styles.row}
             >
               <MaterialCommunityIcons name="wechat" size={20} color="#07C160" />
               <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>微信</Text>
               <View style={styles.spacer} />
-              {wechatName ? (
+              {wechatBound ? (
                 <View style={[styles.badge, { backgroundColor: '#07C16018' }]}>
-                  <Text style={[typography.caption, { color: '#07C160' }]}>{wechatName}</Text>
+                  <Text style={[typography.caption, { color: '#07C160' }]}>{wechatLabel}</Text>
                 </View>
               ) : (
                 <Text style={[typography.caption, { color: colors.text.secondary }]}>未绑定</Text>
@@ -258,13 +283,15 @@ export default function AccountSecurityScreen() {
               </View>
             )}
 
-            {/* 注销账号 */}
+            {/* 注销账号 —— 后端未实现，按钮暂注释隐藏（功能上线后取消注释，并恢复同文件 handleDeleteAccount） */}
+            {/*
             <Pressable onPress={handleDeleteAccount} style={styles.row}>
               <MaterialCommunityIcons name="account-remove-outline" size={20} color={colors.danger} />
               <Text style={[typography.body, { color: colors.danger, marginLeft: spacing.sm }]}>注销账号</Text>
               <View style={styles.spacer} />
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.danger} />
             </Pressable>
+            */}
           </View>
         </Animated.View>
 
@@ -283,7 +310,7 @@ export default function AccountSecurityScreen() {
         <Animated.View entering={FadeInDown.duration(300).delay(240)}>
           <View style={{ marginTop: spacing.lg, paddingHorizontal: 4 }}>
             <Text style={[typography.caption, { color: colors.text.secondary, lineHeight: 20 }]}>
-              为保障账号安全，建议定期修改密码，且不要使用与其他平台相同的密码。注销账号后，所有关联数据将被永久删除。
+              为保障账号安全，建议定期修改密码，且不要使用与其他平台相同的密码。
             </Text>
           </View>
         </Animated.View>

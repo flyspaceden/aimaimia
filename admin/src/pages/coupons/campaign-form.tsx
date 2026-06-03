@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import dayjs from 'dayjs';
 import {
   ProForm,
   ProFormText,
@@ -11,7 +12,7 @@ import {
   ProFormGroup,
 } from '@ant-design/pro-components';
 import type { ProFormInstance } from '@ant-design/pro-components';
-import { Drawer, message, Card, Typography, Space, Button } from 'antd';
+import { App, Drawer, Card, Typography, Space, Button } from 'antd';
 import {
   GiftOutlined,
   DollarOutlined,
@@ -64,6 +65,7 @@ export default function CampaignFormDrawer({
   onClose,
   onSuccess,
 }: CampaignFormDrawerProps) {
+  const { message } = App.useApp();
   const isEdit = !!campaign;
   const formRef = useRef<ProFormInstance | undefined>(undefined);
 
@@ -86,8 +88,8 @@ export default function CampaignFormDrawer({
           totalQuota: campaign.totalQuota,
           maxPerUser: campaign.maxPerUser,
           validDays: campaign.validDays,
-          startAt: campaign.startAt,
-          endAt: campaign.endAt,
+          startAt: campaign.startAt ? dayjs(campaign.startAt) : undefined,
+          endAt: campaign.endAt ? dayjs(campaign.endAt) : undefined,
           triggerConfig_requiredDays:
             (campaign.triggerConfig as Record<string, unknown>)?.requiredDays ??
             (campaign.triggerConfig as Record<string, unknown>)?.checkInDays,
@@ -138,8 +140,8 @@ export default function CampaignFormDrawer({
         totalQuota: values.totalQuota as number,
         maxPerUser: (values.maxPerUser as number) || 1,
         validDays: (values.validDays as number) || 7,
-        startAt: values.startAt as string,
-        endAt: values.endAt as string,
+        startAt: dayjs(values.startAt as string | number | Date | dayjs.Dayjs).toISOString(),
+        endAt: dayjs(values.endAt as string | number | Date | dayjs.Dayjs).toISOString(),
       };
 
       if (isEdit) {
@@ -423,7 +425,18 @@ export default function CampaignFormDrawer({
               name="endAt"
               label="结束时间"
               width="md"
-              rules={[{ required: true, message: '请选择结束时间' }]}
+              dependencies={['startAt']}
+              rules={[
+                { required: true, message: '请选择结束时间' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    const startAt = getFieldValue('startAt');
+                    if (!value || !startAt) return Promise.resolve();
+                    if (dayjs(value).isAfter(dayjs(startAt))) return Promise.resolve();
+                    return Promise.reject(new Error('结束时间必须晚于开始时间'));
+                  },
+                }),
+              ]}
               fieldProps={{ style: { width: '100%' } }}
             />
           </ProFormGroup>

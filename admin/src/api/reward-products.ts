@@ -52,7 +52,7 @@ export interface CreateRewardProductInput {
     cost?: number;
     stock: number;
     skuCode?: string;
-    weightGram?: number;
+    weightGram: number;
   }>;
   media?: Array<{
     type: string;
@@ -77,7 +77,7 @@ export interface CreateSkuInput {
   cost?: number;
   stock: number;
   skuCode?: string;
-  weightGram?: number;
+  weightGram: number;
 }
 
 export interface UpdateSkuInput {

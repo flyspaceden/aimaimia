@@ -83,7 +83,7 @@ ICP证                       █████████████████
 ### 为什么需要
 - 所有用中国大陆服务器的域名必须备案
 - App 备案的前置条件
-- 你的 `api.爱买买.com` 和 `admin.爱买买.com` 等域名都需要
+- 你的 `api.ai-maimai.com` 和 `admin.ai-maimai.com` 等域名都需要
 
 ### 前置条件
 - ✅ 已有营业执照
@@ -121,14 +121,14 @@ ICP证                       █████████████████
 
 ### 你需要备案的域名清单
 ```
-爱买买.com          — 主域名
-api.爱买买.com      — 后端 API
-admin.爱买买.com    — 管理后台
-seller.爱买买.com   — 卖家后台
-www.爱买买.com      — 官网/落地页
+ai-maimai.com          — 主域名
+api.ai-maimai.com      — 后端 API
+admin.ai-maimai.com    — 管理后台
+seller.ai-maimai.com   — 卖家后台
+www.ai-maimai.com      — 官网/落地页
 ```
 
-> 💡 同一个主域名下的子域名只需要做一次备案，填写主域名 `爱买买.com` 即可。
+> 💡 同一个主域名下的子域名只需要做一次备案，填写主域名 `ai-maimai.com` 即可。
 
 ### 费用
 - 备案本身：免费
@@ -216,25 +216,38 @@ www.爱买买.com      — 官网/落地页
    - 路径：控制台 → 备案 → App 备案
 
 3. **填写 App 信息**
-   - App 名称：爱买买
+   - App 名称：AI爱买买
    - App 类型：Android + iOS
-   - App 包名（Android）：`com.aimaimai.app`（你的实际包名）
-   - Bundle ID（iOS）：`com.aimaimai.app`
-   - App 公钥（Android）：从签名证书提取
-   - App SHA-1 签名（Android）：从签名证书提取
+   - App 包名（Android）：`com.aimaimai.shop`
+   - Bundle ID（iOS）：`com.aimaimai.shop`（测试版本：`com.aimaimai.shop.beta`）
+   - App 公钥（Android）：完整 PEM 块，见 `docs/operations/密码本.md` §11.1（约 400 字符，需粘贴 `-----BEGIN PUBLIC KEY-----...-----END PUBLIC KEY-----` 完整内容）
+   - App SHA-1 签名（Android）：`FD:E0:BD:5F:39:6B:07:01:73:E3:53:2E:F2:E5:93:C9:74:99:CC:69`
+   - App MD5 签名（Android，微信开放平台「应用签名」用）：`766bafb6a3b34a678761e4b07e3665c4`
+   - App SHA-256 签名（Android，部分新版备案系统用）：`13:3F:74:69:BF:6F:A7:41:C8:27:52:60:7C:D9:DD:44:25:F8:C0:02:D5:21:26:CB:C2:16:1D:BF:19:04:C8:CE`
    - 所属 ICP 备案号：第二步获得的备案号
    - 服务内容分类：电子商务
 
-4. **获取签名信息**（Android）
+   > 📌 keystore 文件、密码、别名、完整公钥与全套证书指纹见 `docs/operations/密码本.md` 第 11.1 节（已 gitignore，仅本地保留）。
+   >
+   > ⚠️ 注意区分**公钥**与**MD5/SHA-1/SHA-256 指纹**：公钥是几百字符的 PEM 文本块，指纹是 32/40/64 位十六进制哈希。备案系统的「公钥」字段要的是 PEM 全文，不要把 MD5 当公钥填。
+
+4. **获取签名信息**（Android，仅供新 keystore 重生成时参考）
+
+   现有 keystore：项目根目录 `aimaimai-release.keystore`，密码与别名见密码本。
+
    ```bash
-   # 生成签名文件（如果还没有）
+   # 生成签名文件（仅在没有 keystore 时使用 — 现有项目跳过此步！）
    keytool -genkey -v -keystore aimaimai-release.keystore \
-     -alias aimaimai -keyalg RSA -keysize 2048 -validity 10000
-   
-   # 查看 SHA-1
+     -alias aimaimai -keyalg RSA -keysize 2048 -validity 36500
+
+   # 查看 SHA-1 / SHA-256（Java 11+ 默认不再输出 MD5）
    keytool -list -v -keystore aimaimai-release.keystore -alias aimaimai
-   
-   # 查看公钥
+
+   # 单独提取微信开放平台要的 MD5（无冒号小写）
+   keytool -exportcert -keystore aimaimai-release.keystore -alias aimaimai \
+     | openssl dgst -md5
+
+   # 查看公钥（备案部分平台需要）
    keytool -list -rfc -keystore aimaimai-release.keystore -alias aimaimai
    ```
 
@@ -508,8 +521,8 @@ Week 8-10:
 **Q: 没有 ICP 经营许可证能先上架吗？**
 A: 技术上可以先上架（App 备案和 ICP 备案是上架的硬性要求，ICP 证不是上架的直接前置条件）。但作为平台型电商，法律上需要持有 ICP 证才能合规运营。建议先上架，同时加紧办理 ICP 证。
 
-**Q: 中文域名（爱买买.com）备案有问题吗？**
-A: 没有问题，中文域名可以正常备案。但建议同时注册英文域名（如 `aimaimai.com`）作为技术域名使用。
+**Q: 中文域名（爱买买.com）和英文域名（ai-maimai.com）如何取舍？**
+A: 两者都可以备案。主域名建议用英文 `ai-maimai.com`（支付宝、顺丰等第三方平台的回调/网关 URL 不兼容中文 Punycode 域名）。中文域名 `爱买买.com` 已备案，可保留做 301 跳转到英文域名。
 
 **Q: 个人开发者能上架吗？**
 A: Apple App Store 个人开发者可以上架。国内安卓商店对个人开发者限制较多，强烈建议用企业身份。

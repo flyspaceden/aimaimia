@@ -1,10 +1,10 @@
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  Button, Tag, message, Modal, Input, Descriptions, Space, Radio,
-  Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select,
+  App, Button, Tag, Modal, Input, Descriptions, Space, Radio,
+  Image, Divider, Typography, Tooltip, Card, Row, Col, Statistic, Badge, Select, Spin, Timeline,
 } from 'antd';
 import {
   CheckCircleOutlined, CloseCircleOutlined,
@@ -12,12 +12,18 @@ import {
   InboxOutlined, SyncOutlined, AuditOutlined,
   SafetyOutlined,
 } from '@ant-design/icons';
-import { getAfterSales, getAfterSaleStats, arbitrateAfterSale } from '@/api/after-sale';
+import {
+  getAfterSales,
+  getAfterSale,
+  getAfterSaleStats,
+  arbitrateAfterSale,
+  retryAfterSaleRefund,
+} from '@/api/after-sale';
 import type { AdminAfterSale, AfterSaleStatsResponse } from '@/api/after-sale';
 import { getCompanies } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
-import { afterSaleStatusMap, afterSaleTypeMap } from '@/constants/statusMaps';
+import { afterSaleStatusMap, afterSaleTypeMap, refundStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -26,6 +32,7 @@ dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
 const { Text } = Typography;
+type AdminRefundStatus = NonNullable<AdminAfterSale['refund']>['status'];
 
 // 仲裁结果模板文案
 const ARBITRATION_TEMPLATES = {
@@ -52,6 +59,12 @@ const REASON_TYPE_MAP: Record<string, { text: string; color: string }> = {
   SIZE_ISSUE: { text: '规格不符', color: 'cyan' },
   EXPIRED: { text: '临期/过期', color: 'magenta' },
   OTHER: { text: '其他', color: 'default' },
+};
+
+const RETURN_SHIPPING_PAYER_MAP: Record<string, { text: string; color: string }> = {
+  BUYER: { text: '买家承担', color: 'orange' },
+  SELLER: { text: '卖家承担', color: 'blue' },
+  PLATFORM: { text: '平台承担', color: 'green' },
 };
 
 // 状态 Tab 配置
@@ -91,9 +104,76 @@ function formatReasonTag(reasonType?: string, fallbackReason?: string) {
   return fallbackReason || '-';
 }
 
+function formatCurrency(value?: number | null) {
+  return value == null ? '-' : `¥${value.toFixed(2)}`;
+}
+
+function renderStatusTag(map: Record<string, { text: string; color: string }>, value?: string | null) {
+  if (!value) return '-';
+  const entry = map[value];
+  return <Tag color={entry?.color || 'default'}>{entry?.text || value}</Tag>;
+}
+
+function renderReturnShippingPayer(value?: string | null) {
+  if (!value) return '-';
+  const entry = RETURN_SHIPPING_PAYER_MAP[value];
+  return <Tag color={entry?.color || 'default'}>{entry?.text || value}</Tag>;
+}
+
+function formatDateTime(value?: string | null) {
+  return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
+}
+
+function renderRefundHistory(items?: AdminAfterSale['refundHistory']) {
+  if (!items?.length) return <Text type="secondary">-</Text>;
+  return (
+    <Space direction="vertical" size={4}>
+      {items.map((item) => (
+        <Space key={item.id} wrap size={6}>
+          {item.fromStatus ? renderStatusTag(refundStatusMap, item.fromStatus) : <Text type="secondary">创建</Text>}
+          <Text type="secondary">→</Text>
+          {renderStatusTag(refundStatusMap, item.toStatus)}
+          {item.remark ? <Text type="secondary">{item.remark}</Text> : null}
+          <Text type="secondary">{formatDateTime(item.createdAt)}</Text>
+        </Space>
+      ))}
+    </Space>
+  );
+}
+
+function renderAfterSaleHistory(items?: AdminAfterSale['statusHistory']) {
+  if (!items?.length) return <Text type="secondary">-</Text>;
+  return (
+    <Space direction="vertical" size={4}>
+      {items.map((item) => (
+        <Space key={item.id} wrap size={6}>
+          {item.fromStatus ? renderStatusTag(afterSaleStatusMap, item.fromStatus) : <Text type="secondary">创建</Text>}
+          <Text type="secondary">→</Text>
+          {renderStatusTag(afterSaleStatusMap, item.toStatus)}
+          {item.operatorType ? <Tag>{item.operatorType}</Tag> : null}
+          {item.reason ? <Text type="secondary">{item.reason}</Text> : null}
+          <Text type="secondary">{formatDateTime(item.createdAt)}</Text>
+        </Space>
+      ))}
+    </Space>
+  );
+}
+
+function isRefundTerminalStatus(status?: AdminRefundStatus | null) {
+  return status === 'REFUNDED' || status === 'FAILED' || status === 'REJECTED';
+}
+
+function isAfterSaleRefundPollingActive(record?: AdminAfterSale | null) {
+  const refundStatus = record?.refund?.status;
+  if (isRefundTerminalStatus(refundStatus)) return false;
+  return record?.status === 'REFUNDING' || refundStatus === 'REFUNDING';
+}
+
 export default function AfterSaleListPage() {
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
+  const detailRequestRef = useRef(0);
   const [arbitrateModal, setArbitrateModal] = useState<{ visible: boolean; record: AdminAfterSale | null }>({
     visible: false,
     record: null,
@@ -101,24 +181,28 @@ export default function AfterSaleListPage() {
   const [arbitrateAction, setArbitrateAction] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
   const [arbitrateReason, setArbitrateReason] = useState('');
   const [arbitrateLoading, setArbitrateLoading] = useState(false);
+  const [arbitrateDetailLoading, setArbitrateDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('ALL');
   const [stats, setStats] = useState<AfterSaleStatsResponse>({ byStatus: {}, byType: {} });
   const [companyOptions, setCompanyOptions] = useState<{ label: string; value: string }[]>([]);
 
   // 加载统计和公司列表
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const data = await getAfterSaleStats();
       setStats(data);
     } catch { /* 静默 */ }
-  };
+  }, []);
 
   useEffect(() => {
     loadStats();
     getCompanies({ pageSize: 200 })
       .then((res) => setCompanyOptions(res.items.map((c) => ({ label: c.name, value: c.id }))))
       .catch(() => {});
-  }, []);
+    // 每 15s 轮询统计角标，跟列表 polling 节奏一致
+    const timer = setInterval(loadStats, 15_000);
+    return () => clearInterval(timer);
+  }, [loadStats]);
 
   const handleArbitrate = async () => {
     const record = arbitrateModal.record;
@@ -135,6 +219,7 @@ export default function AfterSaleListPage() {
           : '仲裁拒绝 — 维持当前决定',
       );
       setArbitrateModal({ visible: false, record: null });
+      detailRequestRef.current += 1;
       setArbitrateAction('APPROVED');
       setArbitrateReason('');
       actionRef.current?.reload();
@@ -145,6 +230,87 @@ export default function AfterSaleListPage() {
       setArbitrateLoading(false);
     }
   };
+
+  const handleRetryRefund = (record: AdminAfterSale) => {
+    if (!record.refund?.id) return;
+    const queryOnly = record.refund.status === 'REFUNDING';
+    modal.confirm({
+      title: queryOnly ? '确认刷新退款状态？' : '确认重试售后退款？',
+      content: queryOnly
+        ? `退款单 ${record.refund.merchantRefundNo || record.refund.id} 当前处理中，本操作只查询渠道状态，不会重新发起退款。`
+        : `退款单 ${record.refund.merchantRefundNo || record.refund.id} 将重新发起渠道退款，请确认当前状态无重复出款风险。`,
+      okText: queryOnly ? '查单' : '重试退款',
+      okButtonProps: { danger: !queryOnly },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await retryAfterSaleRefund(record.id, record.refund!.id);
+          message.success(queryOnly ? '退款状态刷新已提交' : '退款重试已提交');
+          actionRef.current?.reload();
+          loadStats();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '退款重试失败');
+        }
+      },
+    });
+  };
+
+  const openArbitrateModal = async (record: AdminAfterSale) => {
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setArbitrateModal({ visible: true, record });
+    setArbitrateDetailLoading(true);
+    try {
+      const detail = await getAfterSale(record.id);
+      if (detailRequestRef.current === requestId) {
+        setArbitrateModal({ visible: true, record: detail });
+      }
+    } catch (err) {
+      if (detailRequestRef.current === requestId) {
+        message.error(err instanceof Error ? err.message : '售后详情加载失败，已展示列表数据');
+      }
+    } finally {
+      if (detailRequestRef.current === requestId) {
+        setArbitrateDetailLoading(false);
+      }
+    }
+  };
+
+  const modalRecordId = arbitrateModal.record?.id;
+  const modalRefunding = isAfterSaleRefundPollingActive(arbitrateModal.record);
+
+  useEffect(() => {
+    if (!arbitrateModal.visible || !modalRecordId || !modalRefunding) return undefined;
+
+    let disposed = false;
+    let inFlight = false;
+    const refreshDetail = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const detail = await getAfterSale(modalRecordId);
+        if (disposed) return;
+        setArbitrateModal((prev) => {
+          if (!prev.visible || prev.record?.id !== modalRecordId) return prev;
+          return { visible: true, record: detail };
+        });
+        if (!isAfterSaleRefundPollingActive(detail)) {
+          actionRef.current?.reload();
+          loadStats();
+        }
+      } catch {
+        // 详情弹窗轮询失败不打断管理员操作，下一轮继续刷新。
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const timer = window.setInterval(refreshDetail, 15_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [arbitrateModal.visible, modalRecordId, modalRefunding, loadStats]);
 
   const applyTemplate = (text: string) => setArbitrateReason(text);
 
@@ -320,6 +486,28 @@ export default function AfterSaleListPage() {
       },
     },
     {
+      title: '人工复核',
+      dataIndex: 'manualReviewReason',
+      width: 110,
+      valueType: 'select',
+      valueEnum: {
+        pending: { text: '待复核' },
+      },
+      search: {
+        transform: (value: string) => (value ? { manualReview: value } : {}),
+      },
+      render: (_: unknown, r: AdminAfterSale) => {
+        if (r.manualReviewReason && !r.manualReviewResolvedAt) {
+          return (
+            <Tooltip title={r.manualReviewReason}>
+              <Tag color="volcano">待复核</Tag>
+            </Tooltip>
+          );
+        }
+        return <Text type="secondary">-</Text>;
+      },
+    },
+    {
       title: '申请时间',
       dataIndex: 'createdAt',
       width: 140,
@@ -342,22 +530,48 @@ export default function AfterSaleListPage() {
     },
     {
       title: '操作',
-      width: 80,
+      width: 150,
       fixed: 'right',
       search: false,
       render: (_: unknown, r: AdminAfterSale) => {
         const canArbitrate = ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(r.status);
-        if (!canArbitrate) return null;
+        const canRetryRefund = Boolean(r.refund?.id && ['FAILED', 'REFUNDING'].includes(r.refund.status));
         return (
-          <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
+          <Space size={4}>
+            {/* 详情按钮恒显——任何状态下管理员都能进 Modal 查完整信息 */}
             <Button
               type="link"
               size="small"
-              onClick={() => setArbitrateModal({ visible: true, record: r })}
+              onClick={() => openArbitrateModal(r)}
             >
-              仲裁
+              详情
             </Button>
-          </PermissionGate>
+            {canArbitrate && (
+              <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ color: '#fa8c16' }}
+                  onClick={() => openArbitrateModal(r)}
+                >
+                  仲裁
+                </Button>
+              </PermissionGate>
+            )}
+            {canRetryRefund && (
+              <PermissionGate permission={PERMISSIONS.AFTER_SALE_ARBITRATE}>
+                <Button
+                  type="link"
+                  size="small"
+                  danger={r.refund?.status === 'FAILED'}
+                  icon={<SyncOutlined />}
+                  onClick={() => handleRetryRefund(r)}
+                >
+                  {r.refund?.status === 'REFUNDING' ? '查单' : '重试'}
+                </Button>
+              </PermissionGate>
+            )}
+          </Space>
         );
       },
     },
@@ -432,6 +646,8 @@ export default function AfterSaleListPage() {
         actionRef={actionRef}
         columns={columns}
         rowKey="id"
+        // 每 15s 自动刷新列表，让管理员感知顺丰物流推送/卖家审核/仲裁等远端状态变化
+        polling={15_000}
         toolbar={{
           menu: {
             type: 'tab',
@@ -441,7 +657,7 @@ export default function AfterSaleListPage() {
           },
         }}
         request={async (params) => {
-          const { current, pageSize, id: keyword, companyId, afterSaleType } = params as any;
+          const { current, pageSize, id: keyword, companyId, afterSaleType, manualReview } = params as any;
           const statusFilter = activeTab !== 'ALL' ? activeTab : undefined;
           const res = await getAfterSales({
             page: current,
@@ -450,6 +666,7 @@ export default function AfterSaleListPage() {
             afterSaleType: afterSaleType || undefined,
             keyword: keyword || undefined,
             companyId: companyId || undefined,
+            manualReview: manualReview || undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}
@@ -460,23 +677,38 @@ export default function AfterSaleListPage() {
         dateFormatter="string"
       />
 
-      {/* 仲裁弹窗 */}
+      {/* 售后详情/仲裁弹窗（详情入口恒显，仲裁操作仅对可仲裁状态启用）*/}
       <Modal
-        title="售后仲裁"
+        title={
+          arbitrateModal.record &&
+          ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(arbitrateModal.record.status)
+            ? '售后仲裁'
+            : '售后详情'
+        }
         open={arbitrateModal.visible}
         width={680}
         onCancel={() => {
           setArbitrateModal({ visible: false, record: null });
+          detailRequestRef.current += 1;
+          setArbitrateDetailLoading(false);
           setArbitrateAction('APPROVED');
           setArbitrateReason('');
         }}
         onOk={handleArbitrate}
         confirmLoading={arbitrateLoading}
         okText="确认提交"
+        cancelText="关闭"
+        footer={
+          arbitrateModal.record &&
+          ['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(arbitrateModal.record.status)
+            ? undefined  // 可仲裁：用 antd 默认 footer（取消 + 确认提交）
+            : null        // 非仲裁状态：纯查看，不显示 footer 按钮（用户点 X 关闭）
+        }
         destroyOnClose
       >
-        {modalRecord && (
-          <>
+        <Spin spinning={arbitrateDetailLoading}>
+          {modalRecord && (
+            <>
             {/* 基本信息 */}
             <Descriptions column={2} size="small" style={{ marginBottom: 12 }} title="申请信息">
               <Descriptions.Item label="售后单号">{modalRecord.id}</Descriptions.Item>
@@ -499,6 +731,9 @@ export default function AfterSaleListPage() {
                   {afterSaleStatusMap[modalRecord.status]?.text}
                 </Tag>
               </Descriptions.Item>
+              <Descriptions.Item label="仲裁来源状态">
+                {renderStatusTag(afterSaleStatusMap, modalRecord.arbitrationSourceStatus)}
+              </Descriptions.Item>
               <Descriptions.Item label="售后类型">
                 <Tag color={afterSaleTypeMap[modalRecord.afterSaleType]?.color}>
                   {afterSaleTypeMap[modalRecord.afterSaleType]?.text || modalRecord.afterSaleType}
@@ -508,6 +743,15 @@ export default function AfterSaleListPage() {
                 {modalRecord.refundAmount ? (
                   <Text strong style={{ color: '#cf1322' }}>¥{modalRecord.refundAmount.toFixed(2)}</Text>
                 ) : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="退款状态">
+                {modalRecord.refund ? renderStatusTag(refundStatusMap, modalRecord.refund.status) : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="退货运费承担方">
+                {renderReturnShippingPayer(modalRecord.returnShippingPayer)}
+              </Descriptions.Item>
+              <Descriptions.Item label="退货运费">
+                {formatCurrency(modalRecord.returnShippingFee)}
               </Descriptions.Item>
               <Descriptions.Item label="申请时间">{dayjs(modalRecord.createdAt).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
               <Descriptions.Item label="需要退回">
@@ -522,6 +766,23 @@ export default function AfterSaleListPage() {
                     <Text type="secondary">{modalRecord.reason}</Text>
                   ) : null}
                 </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="人工复核原因" span={2}>
+                {modalRecord.manualReviewReason ? (
+                  <Space direction="vertical" size={2}>
+                    <Text type={modalRecord.manualReviewResolvedAt ? 'secondary' : 'danger'}>
+                      {modalRecord.manualReviewReason}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      发起：{modalRecord.manualReviewRequestedAt
+                        ? dayjs(modalRecord.manualReviewRequestedAt).format('YYYY-MM-DD HH:mm')
+                        : '-'}
+                      {modalRecord.manualReviewResolvedAt
+                        ? ` / 处理：${dayjs(modalRecord.manualReviewResolvedAt).format('YYYY-MM-DD HH:mm')}`
+                        : ''}
+                    </Text>
+                  </Space>
+                ) : '-'}
               </Descriptions.Item>
             </Descriptions>
 
@@ -591,6 +852,94 @@ export default function AfterSaleListPage() {
               )}
             </Descriptions>
 
+            {/* 顺丰物流轨迹（实时查询；推送通道无法路由到售后单，主动查询补充） */}
+            {(modalRecord.returnTracking?.events?.length ||
+              modalRecord.sellerReturnTracking?.events?.length ||
+              modalRecord.replacementTracking?.events?.length) ? (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8, fontWeight: 500 }}>顺丰物流轨迹（实时）</div>
+                {modalRecord.returnTracking?.events?.length ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      买家寄回（{modalRecord.returnWaybillNo}）
+                    </Text>
+                    <Timeline
+                      style={{ marginTop: 8 }}
+                      items={modalRecord.returnTracking.events.map((e: any) => ({
+                        color: 'blue',
+                        children: (
+                          <Space direction="vertical" size={2}>
+                            <Text>{e.message}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {e.time}{e.location ? ` · ${e.location}` : ''}
+                            </Text>
+                          </Space>
+                        ),
+                      }))}
+                    />
+                  </div>
+                ) : null}
+                {modalRecord.replacementTracking?.events?.length ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      卖家发换货（{modalRecord.replacementWaybillNo}）
+                    </Text>
+                    <Timeline
+                      style={{ marginTop: 8 }}
+                      items={modalRecord.replacementTracking.events.map((e: any) => ({
+                        color: 'green',
+                        children: (
+                          <Space direction="vertical" size={2}>
+                            <Text>{e.message}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {e.time}{e.location ? ` · ${e.location}` : ''}
+                            </Text>
+                          </Space>
+                        ),
+                      }))}
+                    />
+                  </div>
+                ) : null}
+                {modalRecord.sellerReturnTracking?.events?.length ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      卖家拒收回寄
+                    </Text>
+                    <Timeline
+                      style={{ marginTop: 8 }}
+                      items={modalRecord.sellerReturnTracking.events.map((e: any) => ({
+                        color: 'orange',
+                        children: (
+                          <Space direction="vertical" size={2}>
+                            <Text>{e.message}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {e.time}{e.location ? ` · ${e.location}` : ''}
+                            </Text>
+                          </Space>
+                        ),
+                      }))}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : (modalRecord.returnWaybillNo || modalRecord.replacementWaybillNo) ? (
+              <div style={{ marginBottom: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  顺丰物流轨迹：暂无路由信息（顺丰可能尚未揽收或推送延迟）
+                </Text>
+              </div>
+            ) : null}
+
+            {/* 退款与售后历史 */}
+            <Descriptions column={1} size="small" style={{ marginBottom: 12 }} title="退款与状态历史">
+              <Descriptions.Item label="退款历史">
+                {renderRefundHistory(modalRecord.refundHistory)}
+              </Descriptions.Item>
+              <Descriptions.Item label="售后状态历史">
+                {renderAfterSaleHistory(modalRecord.statusHistory)}
+              </Descriptions.Item>
+            </Descriptions>
+
             {/* 凭证图片预览 */}
             {modalRecord.photos && modalRecord.photos.length > 0 && (
               <div style={{ marginBottom: 16 }}>
@@ -605,50 +954,56 @@ export default function AfterSaleListPage() {
               </div>
             )}
 
-            <Divider style={{ margin: '12px 0' }} />
+            {/* 仲裁决定区块仅在可仲裁状态展示——其他状态下 Modal 是纯查看 */}
+            {['REQUESTED', 'PENDING_ARBITRATION', 'UNDER_REVIEW'].includes(modalRecord.status) && (
+              <>
+                <Divider style={{ margin: '12px 0' }} />
 
-            {/* 仲裁决定 */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>仲裁决定：</div>
-              <Radio.Group
-                value={arbitrateAction}
-                onChange={(e) => { setArbitrateAction(e.target.value); setArbitrateReason(''); }}
-              >
-                <Radio value="APPROVED">
-                  <Space><CheckCircleOutlined style={{ color: '#52c41a' }} />同意售后</Space>
-                </Radio>
-                <Radio value="REJECTED">
-                  <Space><CloseCircleOutlined style={{ color: '#ff4d4f' }} />拒绝售后</Space>
-                </Radio>
-              </Radio.Group>
-            </div>
-
-            {/* 模板文案 */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ marginBottom: 6, fontSize: 13, color: '#666' }}>快捷模板：</div>
-              <Space wrap size={[8, 6]}>
-                {currentTemplates.map((tpl, idx) => (
-                  <Button
-                    key={idx}
-                    size="small"
-                    type={arbitrateReason === tpl.value ? 'primary' : 'default'}
-                    ghost={arbitrateReason === tpl.value}
-                    onClick={() => applyTemplate(tpl.value)}
+                {/* 仲裁决定 */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>仲裁决定：</div>
+                  <Radio.Group
+                    value={arbitrateAction}
+                    onChange={(e) => { setArbitrateAction(e.target.value); setArbitrateReason(''); }}
                   >
-                    {tpl.label}
-                  </Button>
-                ))}
-              </Space>
-            </div>
+                    <Radio value="APPROVED">
+                      <Space><CheckCircleOutlined style={{ color: '#52c41a' }} />同意售后</Space>
+                    </Radio>
+                    <Radio value="REJECTED">
+                      <Space><CloseCircleOutlined style={{ color: '#ff4d4f' }} />拒绝售后</Space>
+                    </Radio>
+                  </Radio.Group>
+                </div>
 
-            <Input.TextArea
-              rows={3}
-              placeholder="仲裁说明（可选，可点击上方模板快速填入）"
-              value={arbitrateReason}
-              onChange={(e) => setArbitrateReason(e.target.value)}
-            />
-          </>
-        )}
+                {/* 模板文案 */}
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ marginBottom: 6, fontSize: 13, color: '#666' }}>快捷模板：</div>
+                  <Space wrap size={[8, 6]}>
+                    {currentTemplates.map((tpl, idx) => (
+                      <Button
+                        key={idx}
+                        size="small"
+                        type={arbitrateReason === tpl.value ? 'primary' : 'default'}
+                        ghost={arbitrateReason === tpl.value}
+                        onClick={() => applyTemplate(tpl.value)}
+                      >
+                        {tpl.label}
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+
+                <Input.TextArea
+                  rows={3}
+                  placeholder="仲裁说明（可选，可点击上方模板快速填入）"
+                  value={arbitrateReason}
+                  onChange={(e) => setArbitrateReason(e.target.value)}
+                />
+              </>
+            )}
+            </>
+          )}
+        </Spin>
       </Modal>
 
       {/* 行高亮样式 */}

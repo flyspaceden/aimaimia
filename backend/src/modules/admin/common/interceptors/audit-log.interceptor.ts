@@ -123,6 +123,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       TraceBatch: 'traceBatch',
       LotteryPrize: 'lotteryPrize',
       VipGiftOption: 'vipGiftOption',
+      Invoice: 'invoice',
     };
 
     const modelName = modelMap[targetType];

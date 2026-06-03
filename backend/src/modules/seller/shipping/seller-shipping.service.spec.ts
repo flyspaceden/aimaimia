@@ -6,7 +6,9 @@
  */
 
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { SellerShippingService } from './seller-shipping.service';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../../common/constants/shipping.constants';
 
 // mock 加密模块：测试环境下直接透传
 jest.mock('../../../common/security/encryption', () => ({
@@ -62,6 +64,7 @@ function createMocks() {
     order: { findUnique: jest.fn() },
     orderItem: { findMany: jest.fn() },
     shipment: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+    orderShippingCost: { update: jest.fn() },
     company: { findUnique: jest.fn() },
     sellerAuditLog: { create: jest.fn() },
     $executeRaw: jest.fn(), // pg_advisory_xact_lock
@@ -86,17 +89,35 @@ function createMocks() {
   const sfExpress = {
     createOrder: jest.fn(),
     cancelOrder: jest.fn(),
-    printWaybill: jest.fn().mockResolvedValue({ pdfBase64: 'test-pdf-base64' }),
+    printWaybill: jest
+      .fn()
+      .mockResolvedValue({ pdfUrl: 'https://sf-cloud.example.com/p/abc.pdf' }),
   };
 
-  const service = new SellerShippingService(
+  const uploadService = {
+    uploadBuffer: jest.fn().mockResolvedValue({
+      url: 'https://oss.example.com/waybills/uuid.pdf',
+      key: 'waybills/uuid.pdf',
+      size: 12345,
+      mimeType: 'application/pdf',
+    }),
+  };
+
+  const shippingCost = {
+    recordPackage: jest.fn().mockResolvedValue({ id: 'cost_001' }),
+    reconcile: jest.fn(),
+  };
+
+  const service = new (SellerShippingService as any)(
     prisma as any,
     configService as any,
     sellerRiskControl as any,
     sfExpress as any,
-  );
+    uploadService as any,
+    shippingCost as any,
+  ) as SellerShippingService;
 
-  return { service, prisma, sfExpress, sellerRiskControl, configService };
+  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService, shippingCost };
 }
 
 /**
@@ -122,12 +143,12 @@ function setupHappyPath(prisma: any, sfExpress: any, overrides?: {
     {
       companyId,
       quantity: 2,
-      sku: { product: { title: '有机苹果' } },
+      sku: { weightGram: 750, product: { title: '有机苹果' } },
     },
     {
       companyId,
       quantity: 1,
-      sku: { product: { title: '云南普洱茶' } },
+      sku: { weightGram: 500, product: { title: '云南普洱茶' } },
     },
   ]);
 
@@ -185,7 +206,7 @@ describe('generateWaybill — 面单生成', () => {
     expect(result.carrierCode).toBe('SF');
   });
 
-  it('Shipment 记录创建包含 sfOrderId', async () => {
+  it('Shipment 先创建本地生成标记，SF 返回后再持久化 sfOrderId', async () => {
     const { service, prisma, sfExpress } = createMocks();
     setupHappyPath(prisma, sfExpress);
 
@@ -197,11 +218,207 @@ describe('generateWaybill — 面单生成', () => {
         companyId: COMPANY_ID,
         carrierCode: 'SF',
         carrierName: '顺丰速运',
+        waybillNo: null,
+        status: 'INIT',
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'IN_PROGRESS',
+            token: expect.any(String),
+            startedAt: expect.any(String),
+          }),
+        },
+      }),
+    });
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ship-new',
+        waybillNo: null,
+        rawCarrierPayload: {
+          equals: {
+            waybillGeneration: expect.objectContaining({
+              status: 'IN_PROGRESS',
+              token: expect.any(String),
+              startedAt: expect.any(String),
+            }),
+          },
+        },
+      },
+      data: expect.objectContaining({
         waybillNo: 'SF1234567890',
         sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: Prisma.DbNull,
+      }),
+    });
+  });
+
+  it('生成面单成功后记录顺丰包裹成本字段', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(shippingCost.recordPackage).toHaveBeenCalledWith({
+      orderId: ORDER_PAID,
+      packageIndex: 0,
+      companyId: COMPANY_ID,
+      sfOrderId: 'sf-order-abc-123',
+      weightGramSent: 2000,
+    });
+  });
+
+  it('SKU 重量出现小数克时向上取整申报顺丰重量', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    prisma.orderItem.findMany.mockResolvedValue([
+      {
+        companyId: COMPANY_ID,
+        quantity: 1,
+        sku: { weightGram: 1500.5, product: { title: '精品番茄' } },
+      },
+    ]);
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        totalWeight: 1.501,
+      }),
+    );
+    expect(shippingCost.recordPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        weightGramSent: 1501,
+      }),
+    );
+  });
+
+  it('成本记录返回 null 不影响发货返回，Shipment 仍完成持久化', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    shippingCost.recordPackage.mockResolvedValue(null);
+
+    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(result.ok).toBe(true);
+    expect(result.waybillNo).toContain('***');
+    expect(prisma.shipment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: ORDER_PAID,
+        companyId: COMPANY_ID,
         status: 'INIT',
       }),
     });
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ship-new',
+        waybillNo: null,
+        rawCarrierPayload: {
+          equals: {
+            waybillGeneration: expect.objectContaining({
+              status: 'IN_PROGRESS',
+            }),
+          },
+        },
+      },
+      data: expect.objectContaining({
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: Prisma.DbNull,
+      }),
+    });
+    expect(shippingCost.recordPackage).toHaveBeenCalledWith({
+      orderId: ORDER_PAID,
+      packageIndex: 0,
+      companyId: COMPANY_ID,
+      sfOrderId: 'sf-order-abc-123',
+      weightGramSent: 2000,
+    });
+  });
+
+  it('同一订单 3 个商户分别生成顺丰面单时记录 3 条包裹成本', async () => {
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
+    const orderId = 'o-multi-company';
+    const companies = [
+      { companyId: 'c-multi-1', weightGram: 500, quantity: 1, expectedWeight: DEFAULT_SKU_WEIGHT_GRAM },
+      { companyId: 'c-multi-2', weightGram: 750, quantity: 2, expectedWeight: 1500 },
+      { companyId: 'c-multi-3', weightGram: undefined, quantity: 1, expectedWeight: DEFAULT_SKU_WEIGHT_GRAM },
+    ];
+
+    prisma.order.findUnique.mockResolvedValue({
+      id: orderId,
+      status: 'PAID',
+      addressSnapshot: ADDRESS_SNAPSHOT,
+    });
+    prisma.orderItem.findMany.mockImplementation(({ where }: any) => {
+      const company = companies.find((item) => item.companyId === where.companyId);
+      return Promise.resolve(company ? [{
+        companyId: company.companyId,
+        quantity: company.quantity,
+        sku: {
+          weightGram: company.weightGram,
+          product: { title: `商品-${company.companyId}` },
+        },
+      }] : []);
+    });
+    prisma.shipment.findUnique.mockResolvedValue(null);
+    prisma.shipment.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: `ship-${data.companyId}` }),
+    );
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+    prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
+    sfExpress.createOrder.mockImplementation(({ orderId: sfBizNo }: any) =>
+      Promise.resolve({
+        waybillNo: `SF-${sfBizNo}`,
+        sfOrderId: `sf-${sfBizNo}`,
+      }),
+    );
+
+    for (const company of companies) {
+      await service.generateWaybill(company.companyId, STAFF_ID, orderId, 'SF');
+    }
+
+    expect(sfExpress.createOrder).toHaveBeenCalledTimes(3);
+    expect(shippingCost.recordPackage).toHaveBeenCalledTimes(3);
+    companies.forEach((company, index) => {
+      expect(shippingCost.recordPackage).toHaveBeenNthCalledWith(index + 1, {
+        orderId,
+        packageIndex: 0,
+        companyId: company.companyId,
+        sfOrderId: `sf-${orderId}_${company.companyId}`,
+        weightGramSent: company.expectedWeight,
+      });
+    });
+  });
+
+  it('顺丰 createOrder 直到首个 Serializable 事务提交后才调用', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    const events: string[] = [];
+
+    prisma.$transaction.mockImplementation(async (fn: any) => {
+      events.push('tx:start');
+      const result = await fn(prisma);
+      events.push('tx:end');
+      return result;
+    });
+    sfExpress.createOrder.mockImplementation(async () => {
+      events.push('sf:createOrder');
+      return {
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        originCode: '755',
+        destCode: '871',
+      };
+    });
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(events).toEqual([
+      'tx:start',
+      'tx:end',
+      'sf:createOrder',
+      'tx:start',
+      'tx:end',
+    ]);
   });
 
   it('已有面单的订单拒绝重复生成（幂等性）', async () => {
@@ -277,19 +494,18 @@ describe('generateWaybill — 面单生成', () => {
     ).rejects.toThrow('订单不存在');
   });
 
-  it('顺丰 API 失败时回滚（rollbackCreatedWaybill 调用 cancelWaybill）', async () => {
+  it('本地生成标记创建失败时不调用顺丰', async () => {
     const { service, prisma, sfExpress } = createMocks();
     setupHappyPath(prisma, sfExpress);
 
-    // 顺丰创建成功，但后续 shipment.create 失败
     prisma.shipment.create.mockRejectedValue(new Error('DB write error'));
 
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
     ).rejects.toThrow('DB write error');
 
-    // 应该回滚：调用 cancelOrder
-    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf-order-abc-123', 'SF1234567890');
+    expect(sfExpress.createOrder).not.toHaveBeenCalled();
+    expect(sfExpress.cancelOrder).not.toHaveBeenCalled();
   });
 
   it('existingShipment 存在但无 waybillNo 时走 updateMany 而非 create', async () => {
@@ -304,17 +520,38 @@ describe('generateWaybill — 面单生成', () => {
 
     await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
 
-    // 应走 updateMany 而非 create
-    expect(prisma.shipment.updateMany).toHaveBeenCalledWith({
+    // 已有占位记录时，先用 updateMany 写入生成标记，而不是 create
+    expect(prisma.shipment.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: 'ship-existing-no-waybill',
         waybillNo: null,
+      },
+      data: expect.objectContaining({
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'IN_PROGRESS',
+          }),
+        },
+      }),
+    });
+    expect(prisma.shipment.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: 'ship-existing-no-waybill',
+        waybillNo: null,
+        rawCarrierPayload: {
+          equals: {
+            waybillGeneration: expect.objectContaining({
+              status: 'IN_PROGRESS',
+            }),
+          },
+        },
       },
       data: expect.objectContaining({
         waybillNo: 'SF1234567890',
         carrierCode: 'SF',
         carrierName: '顺丰速运',
         sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: Prisma.DbNull,
       }),
     });
     expect(prisma.shipment.create).not.toHaveBeenCalled();
@@ -336,6 +573,27 @@ describe('generateWaybill — 面单生成', () => {
     await expect(
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
     ).rejects.toThrow('该订单已生成面单，请勿重复操作');
+  });
+
+  it('final CAS 输给已持久化同一面单时不取消赢家面单', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+
+    prisma.shipment.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.shipment.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'ship-new',
+        waybillNo: 'SF1234567890',
+        sfOrderId: 'sf-order-abc-123',
+        rawCarrierPayload: null,
+      });
+
+    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(result.ok).toBe(true);
+    expect(result.waybillNo).toContain('***');
+    expect(sfExpress.cancelOrder).not.toHaveBeenCalled();
   });
 
   it('SHIPPED 状态订单也可生成面单', async () => {
@@ -379,7 +637,7 @@ describe('generateWaybill — 面单生成', () => {
 
 describe('cancelWaybill — 面单取消', () => {
   it('正常流程：先调顺丰取消，再清空本地 waybillNo/waybillUrl/sfOrderId', async () => {
-    const { service, prisma, sfExpress } = createMocks();
+    const { service, prisma, sfExpress, shippingCost } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
       id: 'ship-001',
@@ -414,6 +672,8 @@ describe('cancelWaybill — 面单取消', () => {
         sfOrderId: null,
       },
     });
+    expect(shippingCost.reconcile).not.toHaveBeenCalled();
+    expect(prisma.orderShippingCost.update).not.toHaveBeenCalled();
   });
 
   it('未发货（INIT）才允许取消', async () => {
@@ -500,7 +760,7 @@ describe('cancelWaybill — 面单取消', () => {
     ).rejects.toThrow('物流记录不存在');
   });
 
-  it('远端取消失败仍然清空本地（best-effort）', async () => {
+  it('远端取消失败时拒绝并保留本地面单字段', async () => {
     const { service, prisma, sfExpress } = createMocks();
 
     prisma.shipment.findUnique.mockResolvedValue({
@@ -515,12 +775,30 @@ describe('cancelWaybill — 面单取消', () => {
     // 远端取消抛错
     sfExpress.cancelOrder.mockRejectedValue(new Error('远端网络错误'));
 
-    // 但本地清空不应阻塞
-    const result = await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
-    expect(result.ok).toBe(true);
+    await expect(service.cancelWaybill(COMPANY_ID, ORDER_PAID))
+      .rejects.toThrow('远端网络错误');
 
-    // 本地 updateMany 仍然被调用
-    expect(prisma.shipment.updateMany).toHaveBeenCalled();
+    // 本地字段不应在远端取消失败时被清空
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('远端返回 success=false 时拒绝并保留本地面单字段', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+
+    prisma.shipment.findUnique.mockResolvedValue({
+      id: 'ship-001',
+      carrierCode: 'SF',
+      waybillNo: 'SF1234567890',
+      sfOrderId: 'sf-order-abc-123',
+      status: 'INIT',
+    });
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+    sfExpress.cancelOrder.mockResolvedValue({ success: false });
+
+    await expect(service.cancelWaybill(COMPANY_ID, ORDER_PAID))
+      .rejects.toThrow('顺丰取消面单失败');
+
+    expect(prisma.shipment.updateMany).not.toHaveBeenCalled();
   });
 
   it('CAS 保护：并发取消只成功一次（updateMany count=0 → 抛错）', async () => {
@@ -805,6 +1083,7 @@ describe('batchGenerateWaybill — 批量面单', () => {
     ]);
     prisma.shipment.findUnique.mockResolvedValue(null);
     prisma.shipment.create.mockResolvedValue({ id: 'ship-new' });
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
     sfExpress.createOrder.mockResolvedValue({
       waybillNo: 'ZTO5555555555',
@@ -961,6 +1240,177 @@ describe('recordWaybillPrintAccess — 打印审计日志', () => {
 /* ================================================================== */
 
 describe('createCarrierWaybill — 快递面单创建', () => {
+  it('explicit-address helper sends buyer as sender and company as receiver for returns', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFRETURN001',
+      sfOrderId: 'sf-return-order-001',
+    });
+
+    const buyerSender = {
+      name: '李买家',
+      tel: '13900000001',
+      province: '浙江省',
+      city: '杭州市',
+      district: '西湖区',
+      detail: '文三路 100 号',
+    };
+    const companyReceiver = {
+      name: '王售后',
+      tel: '13800000002',
+      province: '云南省',
+      city: '昆明市',
+      district: '盘龙区',
+      detail: '退货仓 1 号',
+    };
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'AS_RETURN_as_001',
+      carrierCode: 'ZTO',
+      sender: buyerSender,
+      receiver: companyReceiver,
+      items: [{ name: '有机苹果', quantity: 2, weightGram: 500 }],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: `AS_RETURN_as_001_${COMPANY_ID}`,
+      sender: buyerSender,
+      receiver: companyReceiver,
+      cargo: '有机苹果',
+      totalWeight: 1,
+      packageCount: 1,
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      carrierCode: 'SF',
+      carrierName: '顺丰速运',
+      waybillNo: 'SFRETURN001',
+      sfOrderId: 'sf-return-order-001',
+      senderInfoSnapshot: buyerSender,
+      receiverInfoSnapshot: companyReceiver,
+    }));
+  });
+
+  it('0 或缺失重量按最小 1kg 传给顺丰', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFMIN001',
+      sfOrderId: 'sf-min-order-001',
+    });
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'MIN_WEIGHT_ORDER',
+      carrierCode: 'SF',
+      sender: {
+        name: '张经理',
+        tel: '13800001001',
+        province: '云南省',
+        city: '玉溪市',
+        district: '红塔区',
+        detail: '高新技术产业园区',
+      },
+      receiver: {
+        name: '林青禾',
+        tel: '13800138000',
+        province: '云南省',
+        city: '昆明市',
+        district: '盘龙区',
+        detail: '翠湖路 88 号',
+      },
+      items: [
+        { name: '缺失重量商品', quantity: 1 } as any,
+        { name: '零重量商品', quantity: 1, weightGram: 0 },
+      ],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 1,
+    }));
+    expect(result.weightGramSent).toBe(1000);
+  });
+
+  it('真实重量按克换算成 kg 传给顺丰', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFREAL001',
+      sfOrderId: 'sf-real-order-001',
+    });
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'REAL_WEIGHT_ORDER',
+      carrierCode: 'SF',
+      sender: {
+        name: '张经理',
+        tel: '13800001001',
+        province: '云南省',
+        city: '玉溪市',
+        district: '红塔区',
+        detail: '高新技术产业园区',
+      },
+      receiver: {
+        name: '林青禾',
+        tel: '13800138000',
+        province: '云南省',
+        city: '昆明市',
+        district: '盘龙区',
+        detail: '翠湖路 88 号',
+      },
+      items: [
+        { name: '有机苹果', quantity: 2, weightGram: 750 },
+        { name: '云南普洱茶', quantity: 1, weightGram: 500 },
+      ],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 2,
+    }));
+    expect(result.weightGramSent).toBe(2000);
+  });
+
+  it('legacy kg 重量按单件重量乘数量后传给顺丰', async () => {
+    const { service, sfExpress } = createMocks();
+
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFLEGACY001',
+      sfOrderId: 'sf-legacy-order-001',
+    });
+
+    const result = await service.createCarrierWaybillWithAddresses({
+      companyId: COMPANY_ID,
+      bizNo: 'LEGACY_WEIGHT_ORDER',
+      carrierCode: 'SF',
+      sender: {
+        name: '张经理',
+        tel: '13800001001',
+        province: '云南省',
+        city: '玉溪市',
+        district: '红塔区',
+        detail: '高新技术产业园区',
+      },
+      receiver: {
+        name: '林青禾',
+        tel: '13800138000',
+        province: '云南省',
+        city: '昆明市',
+        district: '盘龙区',
+        detail: '翠湖路 88 号',
+      },
+      items: [
+        { name: '旧调用商品', quantity: 3, weight: 0.6 },
+      ],
+    });
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 1.8,
+    }));
+    expect(result.weightGramSent).toBe(1800);
+  });
+
   it('正确组装发件人和收件人信息传给顺丰', async () => {
     const { service, prisma, sfExpress } = createMocks();
 
@@ -1072,6 +1522,24 @@ describe('cancelCarrierWaybill — 远端面单取消', () => {
     await expect(
       service.cancelCarrierWaybill('sf-order-abc-123', 'SF1234567890'),
     ).resolves.toBeUndefined();
+  });
+
+  it('strict 取消在远端失败时抛异常，供超时关闭进入人工复核', async () => {
+    const { service, sfExpress } = createMocks();
+    sfExpress.cancelOrder.mockRejectedValue(new Error('网络超时'));
+
+    await expect(
+      service.cancelCarrierWaybillStrict('sf-order-abc-123', 'SF1234567890'),
+    ).rejects.toThrow('网络超时');
+  });
+
+  it('strict 取消在顺丰返回 success=false 时抛异常，供超时关闭进入人工复核', async () => {
+    const { service, sfExpress } = createMocks();
+    sfExpress.cancelOrder.mockResolvedValue({ success: false });
+
+    await expect(
+      service.cancelCarrierWaybillStrict('sf-order-abc-123', 'SF1234567890'),
+    ).rejects.toThrow('顺丰取消面单失败');
   });
 });
 

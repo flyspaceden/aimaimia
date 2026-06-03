@@ -4,12 +4,28 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma, ReturnPolicy } from '@prisma/client';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
 import { SemanticFillService } from '../../product/semantic-fill.service';
-import { CreateProductDto, UpdateProductDto, SkuItemDto } from './seller-products.dto';
+import {
+  CreateProductDto,
+  UpdateProductDto,
+  SkuItemDto,
+  CreateDraftDto,
+  UpdateDraftDto,
+} from './seller-products.dto';
+
+/** 每个商户最多保留的草稿数量 */
+const DRAFT_LIMIT_PER_COMPANY = 5;
+const DRAFT_WEIGHT_PLACEHOLDER_GRAM = 1000;
+const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
+const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
 
 @Injectable()
 export class SellerProductsService {
@@ -21,6 +37,35 @@ export class SellerProductsService {
     private semanticFillService: SemanticFillService,
   ) {}
 
+  private assertPositiveSkuWeights(
+    skus: Array<{ specName?: string; title?: string; weightGram?: number }>,
+  ) {
+    for (const sku of skus) {
+      if (!Number.isInteger(sku.weightGram) || (sku.weightGram ?? 0) <= 0) {
+        throw new BadRequestException(
+          `SKU "${sku.specName ?? sku.title ?? '默认规格'}" 必须填写包装后重量（克）`,
+        );
+      }
+    }
+  }
+
+  private normalizeDraftWeightGram(weightGram?: number) {
+    return Number.isInteger(weightGram) && (weightGram ?? 0) > 0
+      ? weightGram!
+      : DRAFT_WEIGHT_PLACEHOLDER_GRAM;
+  }
+
+  private draftSkuCodeForWeight(weightGram?: number) {
+    return Number.isInteger(weightGram) && (weightGram ?? 0) > 0
+      ? undefined
+      : `${DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX}${randomUUID()}`;
+  }
+
+  private isDraftWeightPlaceholderSkuCode(skuCode?: string | null) {
+    return skuCode === LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE
+      || skuCode?.startsWith(DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX) === true;
+  }
+
   /** 我的商品列表 */
   async findAll(
     companyId: string,
@@ -31,7 +76,12 @@ export class SellerProductsService {
     keyword?: string,
   ) {
     const where: any = { companyId };
-    if (status) where.status = status;
+    if (status) {
+      where.status = status;
+    } else {
+      // 未指定状态时默认排除 DRAFT（草稿只在"草稿"tab 显式请求时返回）
+      where.status = { not: 'DRAFT' };
+    }
     if (auditStatus) where.auditStatus = auditStatus;
     if (keyword) {
       where.OR = [
@@ -117,6 +167,7 @@ export class SellerProductsService {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
+    this.assertPositiveSkuWeights(dto.skus);
 
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
@@ -140,7 +191,7 @@ export class SellerProductsService {
           cost: Math.min(...dto.skus.map((s) => s.cost)),
           categoryId: dto.categoryId,
           returnPolicy: (dto.returnPolicy ?? 'INHERIT') as any,
-          origin: dto.origin,
+          origin: dto.origin as any,
           attributes: dto.attributes,
           aiKeywords: dto.aiKeywords || [],
           flavorTags: dto.flavorTags ?? [],
@@ -258,11 +309,15 @@ export class SellerProductsService {
     const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    if (product.status === 'DRAFT') {
+      throw new BadRequestException('草稿商品请使用草稿更新接口');
+    }
 
     // 事务结果赋值给 updated 变量，以便事务提交后触发异步语义填充
     const updated = await this.prisma.$transaction(async (tx) => {
-      // 编辑已审核通过的商品需重新审核
-      const needReAudit = product.auditStatus === 'APPROVED';
+      // 编辑已审核通过或已驳回的商品需重新进入审核队列；PENDING 状态编辑不计次
+      const needReAudit =
+        product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
 
       const result = await tx.product.update({
         where: { id: productId },
@@ -273,7 +328,7 @@ export class SellerProductsService {
           basePrice: dto.basePrice,
           categoryId: dto.categoryId,
           returnPolicy: dto.returnPolicy as any,
-          origin: dto.origin,
+          origin: dto.origin as any,
           attributes: dto.attributes,
           aiKeywords: dto.aiKeywords,
           flavorTags: dto.flavorTags ?? undefined,
@@ -281,7 +336,12 @@ export class SellerProductsService {
           usageScenarios: dto.usageScenarios ?? undefined,
           dietaryTags: dto.dietaryTags ?? undefined,
           originRegion: dto.originRegion,
-          auditStatus: needReAudit ? 'PENDING' : undefined,
+          // 重新进入审核：状态回 PENDING、清空上轮驳回备注、提交次数 +1
+          ...(needReAudit && {
+            auditStatus: 'PENDING',
+            auditNote: null,
+            submissionCount: { increment: 1 },
+          }),
         },
         include: { skus: true, media: true, tags: { include: { tag: true } } },
       });
@@ -390,6 +450,9 @@ export class SellerProductsService {
     const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    if (product.status === 'DRAFT') {
+      throw new BadRequestException('草稿商品需先提交审核后才能上下架');
+    }
 
     // 上架需审核通过
     if (status === 'ACTIVE' && product.auditStatus !== 'APPROVED') {
@@ -400,6 +463,71 @@ export class SellerProductsService {
       where: { id: productId },
       data: { status },
     });
+  }
+
+  /** 硬删除商品（要求已下架 + 无订单/购物车引用） */
+  async remove(companyId: string, productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      include: { skus: { select: { id: true } } },
+    });
+    if (!product) throw new NotFoundException('商品不存在');
+    if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    // 草稿可直接删除；其他状态必须先下架
+    if (product.status !== 'INACTIVE' && product.status !== 'DRAFT') {
+      throw new BadRequestException('请先下架商品后再删除');
+    }
+
+    const skuIds = product.skus.map((s) => s.id);
+
+    // 预检查 FK 引用，避免违反外键后裸 500
+    const [orderItemCount, cartItemCount, lotteryPrizes, vipGiftItems] = await Promise.all([
+      skuIds.length > 0
+        ? this.prisma.orderItem.count({ where: { skuId: { in: skuIds } } })
+        : Promise.resolve(0),
+      skuIds.length > 0
+        ? this.prisma.cartItem.count({ where: { skuId: { in: skuIds } } })
+        : Promise.resolve(0),
+      this.prisma.lotteryPrize.findMany({
+        where: {
+          OR: [
+            { productId },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { name: true },
+        take: 5,
+      }),
+      skuIds.length > 0
+        ? this.prisma.vipGiftItem.findMany({
+            where: { skuId: { in: skuIds } },
+            select: { giftOption: { select: { title: true } } },
+            take: 5,
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const blockers: string[] = [];
+    if (orderItemCount > 0) blockers.push(`已有 ${orderItemCount} 条订单记录`);
+    if (cartItemCount > 0) blockers.push(`${cartItemCount} 个用户购物车中`);
+    if (lotteryPrizes.length > 0) {
+      blockers.push(`抽奖奖品：${lotteryPrizes.map((p) => p.name).join('、')}`);
+    }
+    if (vipGiftItems.length > 0) {
+      blockers.push(`VIP赠品：${vipGiftItems.map((i) => i.giftOption.title).join('、')}`);
+    }
+    if (blockers.length > 0) {
+      throw new BadRequestException(`无法删除：${blockers.join('；')}。请先清理相关引用后重试。`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // ProductTraceLink 无 Cascade，手动清理
+      await tx.productTraceLink.deleteMany({ where: { productId } });
+      // Product 删除时 SKU/Media/Tag 会自动 Cascade
+      await tx.product.delete({ where: { id: productId } });
+    });
+
+    return { ok: true };
   }
 
   /** 管理 SKU 列表 */
@@ -414,6 +542,11 @@ export class SellerProductsService {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
+    this.assertPositiveSkuWeights(skus);
+
+    // SKU 变更同样触发重新审核（APPROVED/REJECTED 状态下）
+    const needReAudit =
+      product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
 
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
@@ -460,16 +593,24 @@ export class SellerProductsService {
         }
       }
 
-      // 更新商品基准价为最低 SKU 售价
+      // 更新商品基准价为最低 SKU 售价 + 触发重新审核（如需）
       const allActiveSkus = await tx.productSKU.findMany({
         where: { productId, status: 'ACTIVE' },
         select: { price: true },
       });
+      const productUpdateData: Prisma.ProductUncheckedUpdateInput = {};
       if (allActiveSkus.length > 0) {
-        const minPrice = Math.min(...allActiveSkus.map((s) => s.price));
+        productUpdateData.basePrice = Math.min(...allActiveSkus.map((s) => s.price));
+      }
+      if (needReAudit) {
+        productUpdateData.auditStatus = 'PENDING';
+        productUpdateData.auditNote = null;
+        productUpdateData.submissionCount = { increment: 1 };
+      }
+      if (Object.keys(productUpdateData).length > 0) {
         await tx.product.update({
           where: { id: productId },
-          data: { basePrice: minPrice },
+          data: productUpdateData,
         });
       }
 
@@ -487,5 +628,345 @@ export class SellerProductsService {
         where: { productId, status: 'ACTIVE' },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  // ============================================================
+  // 草稿相关
+  // ============================================================
+
+  /**
+   * 创建草稿
+   * 事务内统计并校验商户草稿数量上限，防止并发写入越限。
+   */
+  async createDraft(companyId: string, dto: CreateDraftDto) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const draftCount = await tx.product.count({
+          where: { companyId, status: 'DRAFT' },
+        });
+        if (draftCount >= DRAFT_LIMIT_PER_COMPANY) {
+          throw new ConflictException(
+            `草稿数量已达上限（${DRAFT_LIMIT_PER_COMPANY} 份），请先清理后再保存`,
+          );
+        }
+
+        const product = await tx.product.create({
+          data: {
+            companyId,
+            title: dto.title,
+            subtitle: dto.subtitle,
+            description: dto.description,
+            basePrice: 0, // 草稿占位，提交审核时按成本重新计算
+            cost: null,
+            categoryId: dto.categoryId,
+            returnPolicy: (dto.returnPolicy ?? 'INHERIT') as ReturnPolicy,
+            origin: (dto.origin as any) ?? undefined,
+            attributes: dto.attributes ?? undefined,
+            aiKeywords: dto.aiKeywords ?? [],
+            flavorTags: dto.flavorTags ?? [],
+            seasonalMonths: dto.seasonalMonths ?? [],
+            usageScenarios: dto.usageScenarios ?? [],
+            dietaryTags: dto.dietaryTags ?? [],
+            originRegion: dto.originRegion,
+            status: 'DRAFT',
+            auditStatus: 'PENDING',
+            submissionCount: 0, // 草稿尚未提交过审核
+            skus:
+              dto.skus && dto.skus.length > 0
+                ? {
+                    create: dto.skus.map((s) => ({
+                      title: s.specName ?? '默认规格',
+                      price: 0, // 草稿占位
+                      cost: s.cost ?? 0,
+                      stock: s.stock ?? 0,
+                      skuCode: this.draftSkuCodeForWeight(s.weightGram),
+                      weightGram: this.normalizeDraftWeightGram(s.weightGram),
+                      maxPerOrder: s.maxPerOrder ?? null,
+                    })),
+                  }
+                : undefined,
+            media:
+              dto.mediaUrls && dto.mediaUrls.length > 0
+                ? {
+                    create: dto.mediaUrls.map((url, i) => ({
+                      type: 'IMAGE' as const,
+                      url,
+                      sortOrder: i,
+                    })),
+                  }
+                : undefined,
+          },
+          include: { skus: true, media: true },
+        });
+
+        let tagsCreated = false;
+        if (dto.tagIds && dto.tagIds.length > 0) {
+          const tags = await tx.tag.findMany({
+            where: { id: { in: dto.tagIds }, isActive: true },
+            include: { category: { select: { scope: true } } },
+          });
+          const validTagIds = tags
+            .filter((t) => t.category.scope === 'PRODUCT')
+            .map((t) => t.id);
+          if (validTagIds.length > 0) {
+            await tx.productTag.createMany({
+              data: validTagIds.map((tagId) => ({ productId: product.id, tagId })),
+              skipDuplicates: true,
+            });
+            tagsCreated = true;
+          }
+        }
+
+        // tags 关系是在 product.create 之后才创建的，原 product 对象不含 tags。
+        // 若有 tag 写入，重读一次返回完整对象——前端会把响应直接塞进 React Query
+        // cache 用于后续水合，缺 tags 会导致下次保存把已选标签覆盖为空数组。
+        if (tagsCreated) {
+          return tx.product.findUniqueOrThrow({
+            where: { id: product.id },
+            include: { skus: true, media: true, tags: { include: { tag: true } } },
+          });
+        }
+        return { ...product, tags: [] as Array<unknown> };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  /**
+   * 更新草稿（仅允许 status=DRAFT 的商品）
+   * 全量覆盖写：skus 和 media 传了就整体替换，tagIds 传了就整体替换。
+   */
+  async updateDraft(companyId: string, productId: string, dto: UpdateDraftDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.findUnique({
+        where: { id: productId },
+      });
+      if (!product) throw new NotFoundException('商品不存在');
+      if (product.companyId !== companyId)
+        throw new ForbiddenException('无权操作该商品');
+      if (product.status !== 'DRAFT')
+        throw new BadRequestException('该商品非草稿状态，不能用此接口更新');
+
+      // 全量覆盖：dto 里出现的字段一律落库（含 null / 空数组）；只有 undefined 才视为"未触达"
+      // Prisma 对 Json? 字段直接传 null 会写入 DB null，符合"清空"语义
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateData: any = {};
+      if (dto.title !== undefined) updateData.title = dto.title;
+      if (dto.subtitle !== undefined) updateData.subtitle = dto.subtitle;
+      if (dto.description !== undefined) updateData.description = dto.description;
+      if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
+      if (dto.returnPolicy !== undefined) updateData.returnPolicy = dto.returnPolicy as ReturnPolicy;
+      if (dto.origin !== undefined) updateData.origin = dto.origin === null ? Prisma.JsonNull : dto.origin;
+      if (dto.attributes !== undefined) updateData.attributes = dto.attributes === null ? Prisma.JsonNull : dto.attributes;
+      if (dto.aiKeywords !== undefined) updateData.aiKeywords = dto.aiKeywords;
+      if (dto.flavorTags !== undefined) updateData.flavorTags = dto.flavorTags;
+      if (dto.seasonalMonths !== undefined) updateData.seasonalMonths = dto.seasonalMonths;
+      if (dto.usageScenarios !== undefined) updateData.usageScenarios = dto.usageScenarios;
+      if (dto.dietaryTags !== undefined) updateData.dietaryTags = dto.dietaryTags;
+      if (dto.originRegion !== undefined) updateData.originRegion = dto.originRegion;
+      if (Object.keys(updateData).length > 0) {
+        await tx.product.update({ where: { id: productId }, data: updateData });
+      }
+
+      // skus 全量替换
+      if (dto.skus !== undefined) {
+        await tx.productSKU.deleteMany({ where: { productId } });
+        if (dto.skus.length > 0) {
+          await tx.productSKU.createMany({
+            data: dto.skus.map((s) => ({
+              productId,
+              title: s.specName ?? '默认规格',
+              price: 0,
+              cost: s.cost ?? 0,
+              stock: s.stock ?? 0,
+              skuCode: this.draftSkuCodeForWeight(s.weightGram),
+              weightGram: this.normalizeDraftWeightGram(s.weightGram),
+              maxPerOrder: s.maxPerOrder ?? null,
+            })),
+          });
+        }
+      }
+
+      // media 全量替换
+      if (dto.mediaUrls !== undefined) {
+        await tx.productMedia.deleteMany({ where: { productId } });
+        if (dto.mediaUrls.length > 0) {
+          await tx.productMedia.createMany({
+            data: dto.mediaUrls.map((url, i) => ({
+              productId,
+              type: 'IMAGE' as const,
+              url,
+              sortOrder: i,
+            })),
+          });
+        }
+      }
+
+      // tags 全量替换
+      if (dto.tagIds !== undefined) {
+        await tx.productTag.deleteMany({ where: { productId } });
+        if (dto.tagIds.length > 0) {
+          const tags = await tx.tag.findMany({
+            where: { id: { in: dto.tagIds }, isActive: true },
+            include: { category: { select: { scope: true } } },
+          });
+          const validTagIds = tags
+            .filter((t) => t.category.scope === 'PRODUCT')
+            .map((t) => t.id);
+          if (validTagIds.length > 0) {
+            await tx.productTag.createMany({
+              data: validTagIds.map((tagId) => ({ productId, tagId })),
+              skipDuplicates: true,
+            });
+          }
+        }
+      }
+
+      return tx.product.findUnique({
+        where: { id: productId },
+        include: { skus: true, media: true, tags: { include: { tag: true } } },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  /**
+   * 草稿提交审核
+   * 把草稿当前内容组装成 CreateProductDto 形状 → 手动跑完整校验 → DRAFT 转 INACTIVE + PENDING。
+   */
+  async submitDraft(companyId: string, productId: string) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.findUnique({
+          where: { id: productId },
+          include: { skus: true, media: { orderBy: { sortOrder: 'asc' } }, tags: true },
+        });
+        if (!product) throw new NotFoundException('商品不存在');
+        if (product.companyId !== companyId)
+          throw new ForbiddenException('无权操作该商品');
+        if (product.status !== 'DRAFT')
+          throw new BadRequestException('该商品非草稿状态，不能提交');
+
+        const missingWeightSkuIndex = product.skus.findIndex(
+          (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
+        );
+        if (missingWeightSkuIndex >= 0) {
+          throw new BadRequestException({
+            message: '提交前请补全以下字段：规格(包装后重量（克）)',
+            fieldErrors: [{
+              field: `skus.${missingWeightSkuIndex}.weightGram`,
+              message: '包装后重量（克）必须填写且大于 0',
+            }],
+          });
+        }
+
+        // 组装 CreateProductDto 形状跑全量校验
+        const candidate = {
+          title: product.title,
+          subtitle: product.subtitle ?? undefined,
+          description: product.description ?? '',
+          categoryId: product.categoryId ?? '',
+          returnPolicy: product.returnPolicy,
+          origin: product.origin ?? undefined,
+          tagIds: product.tags.map((t) => t.tagId),
+          skus: product.skus.map((s) => ({
+            specName: s.title,
+            cost: s.cost ?? 0,
+            stock: s.stock,
+            maxPerOrder: s.maxPerOrder ?? undefined,
+            weightGram: s.weightGram,
+          })),
+          attributes: product.attributes ?? undefined,
+          aiKeywords: product.aiKeywords,
+          mediaUrls: product.media.map((m) => m.url),
+          flavorTags: product.flavorTags,
+          seasonalMonths: product.seasonalMonths,
+          usageScenarios: product.usageScenarios,
+          dietaryTags: product.dietaryTags,
+          originRegion: product.originRegion ?? undefined,
+        };
+
+        const dtoInstance = plainToInstance(CreateProductDto, candidate);
+        const errors = await validate(dtoInstance, { whitelist: false });
+        if (errors.length > 0) {
+          // 字段标签：用于 message 拼接 + 前端 fallback 显示
+          const FIELD_LABELS: Record<string, string> = {
+            title: '商品标题',
+            description: '商品描述',
+            categoryId: '商品分类',
+            origin: '产地',
+            skus: '规格',
+            basePrice: '基准价',
+            subtitle: '副标题',
+            returnPolicy: '退货政策',
+          };
+
+          // 展平 class-validator 嵌套错误为 { field, message } 列表
+          const flatten = (
+            nodes: typeof errors,
+            prefix = '',
+          ): Array<{ field: string; message: string }> => {
+            const out: Array<{ field: string; message: string }> = [];
+            for (const node of nodes) {
+              const path = prefix ? `${prefix}.${node.property}` : node.property;
+              const constraints = Object.values(node.constraints ?? {});
+              for (const msg of constraints) {
+                out.push({ field: path, message: String(msg) });
+              }
+              if (node.children && node.children.length > 0) {
+                out.push(...flatten(node.children, path));
+              }
+            }
+            return out;
+          };
+          const fieldErrors = flatten(errors);
+
+          // 拼一条人类可读 message 作为兜底（前端没处理 fieldErrors 时 toast 用）
+          const parts = errors.slice(0, 5).map((e) => {
+            const label = FIELD_LABELS[e.property] || e.property;
+            const msgs = Object.values(e.constraints ?? {});
+            if (msgs.length > 0) return `${label}(${msgs[0]})`;
+            const firstChildMsg = e.children?.[0]?.children?.[0]
+              ? Object.values(e.children[0].children[0].constraints ?? {})[0]
+              : e.children?.[0]
+                ? Object.values(e.children[0].constraints ?? {})[0]
+                : undefined;
+            return firstChildMsg ? `${label}(${firstChildMsg})` : label;
+          });
+          const suffix = errors.length > 5 ? ` 等 ${errors.length} 项` : '';
+          throw new BadRequestException({
+            message: `提交前请补全以下字段：${parts.join('、')}${suffix}`,
+            fieldErrors,
+          });
+        }
+
+        const sysConfig = await this.bonusConfig.getSystemConfig();
+        const markupRate = sysConfig.markupRate;
+
+        // 更新每个 SKU 的 price = cost × markupRate
+        for (const sku of product.skus) {
+          const cost = sku.cost ?? 0;
+          await tx.productSKU.update({
+            where: { id: sku.id },
+            data: { price: +(cost * markupRate).toFixed(2) },
+          });
+        }
+
+        const minCost = Math.min(...product.skus.map((s) => s.cost ?? 0));
+        const basePrice = +(minCost * markupRate).toFixed(2);
+
+        return tx.product.update({
+          where: { id: productId },
+          data: {
+            status: 'INACTIVE',
+            auditStatus: 'PENDING',
+            submissionCount: 1,
+            basePrice,
+            cost: minCost,
+          },
+          include: { skus: true, media: true },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 }

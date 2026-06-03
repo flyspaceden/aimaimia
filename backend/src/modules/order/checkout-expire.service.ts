@@ -3,6 +3,8 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
+import { WechatPayService } from '../payment/wechat-pay.service';
 
 /**
  * F1: CheckoutSession 过期清理
@@ -15,12 +17,62 @@ export class CheckoutExpireService {
 
   // CouponService 通过可选注入（避免循环依赖）
   private couponService: any = null;
+  // AlipayService 通过可选注入（expire 前查支付宝用，避免误删已付款 session）
+  private alipayService: any = null;
+  // WechatPayService 通过可选注入（expire 前查微信并关单，避免误删已付款 session）
+  private wechatPayService: any = null;
+  // CheckoutService 通过可选注入（expire 检测到已支付时主动建单用）
+  private checkoutService: any = null;
+  // PaymentService 通过可选注入（expire 主动建单后通知商家用）
+  private paymentService: any = null;
+  // RewardDeductionService 通过可选注入（释放消费积分抵扣）
+  private rewardDeductionService: RewardDeductionService | null = null;
 
   constructor(private prisma: PrismaService) {}
 
   /** 注入红包服务（由 OrderModule 在 onModuleInit 时调用） */
   setCouponService(service: any) {
     this.couponService = service;
+  }
+
+  /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
+  setAlipayService(service: any) {
+    this.alipayService = service;
+  }
+
+  /** 注入微信支付服务（由 OrderModule 在 onModuleInit 时调用） */
+  setWechatPayService(service: any) {
+    this.wechatPayService = service;
+  }
+
+  /** 注入结算服务（由 OrderModule 在 onModuleInit 时调用） */
+  setCheckoutService(service: any) {
+    this.checkoutService = service;
+  }
+
+  /** 注入支付服务（expire 主动建单后通知商家用，由 OrderModule 在 onModuleInit 时调用） */
+  setPaymentService(service: any) {
+    this.paymentService = service;
+  }
+
+  /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setRewardDeductionService(service: RewardDeductionService) {
+    this.rewardDeductionService = service;
+  }
+
+  private extractWechatAmountFen(queryResult: any): number | null {
+    const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
+    return (
+      typeof rawFen === 'number' &&
+      Number.isInteger(rawFen) &&
+      Number.isSafeInteger(rawFen) &&
+      rawFen >= 0
+    ) ? rawFen : null;
+  }
+
+  private isWechatAmountMatched(queryResult: any, expectedTotal: number): boolean {
+    const claimedFen = this.extractWechatAmountFen(queryResult);
+    return claimedFen !== null && claimedFen === WechatPayService.yuanToFenAmount(expectedTotal, 'expectedTotal');
   }
 
   @Cron('0 * * * * *')
@@ -36,9 +88,13 @@ export class CheckoutExpireService {
       select: {
         id: true,
         rewardId: true,
+        deductionGroupId: true,
         couponInstanceIds: true,
         bizType: true,
         itemsSnapshot: true,
+        merchantOrderNo: true,
+        paymentChannel: true,
+        expectedTotal: true,
       },
       take: 200,
     });
@@ -196,10 +252,262 @@ export class CheckoutExpireService {
   private async expireSession(session: {
     id: string;
     rewardId: string | null;
+    deductionGroupId?: string | null;
     couponInstanceIds: string[];
     bizType: string;
     itemsSnapshot: unknown;
+    merchantOrderNo: string | null;
+    paymentChannel: string | null;
+    expectedTotal: number;
   }) {
+    // 资金安全：查支付宝，已付款则主动建单（不能仅 return — 否则 session 永远 ACTIVE）
+    // expire cron 是被动触发，与 cancelSession 不同 — 异常时不抛错，跳过本次让下次 cron 再试。
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'ALIPAY' &&
+      this.alipayService?.isAvailable()
+    ) {
+      let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+      try {
+        queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession 查支付宝异常，跳过本次 sessionId=${session.id}：${err.message}`,
+        );
+        return;
+      }
+      if (
+        queryResult &&
+        (queryResult.tradeStatus === 'TRADE_SUCCESS' ||
+          queryResult.tradeStatus === 'TRADE_FINISHED')
+      ) {
+        // 资金安全：支付宝侧已成功但 notify 丢失 — 主动建单，避免 session 永远 ACTIVE
+        this.logger.warn(
+          `expireSession 检测到已支付但 session 仍 ACTIVE，主动建单：sessionId=${session.id}, tradeStatus=${queryResult.tradeStatus}`,
+        );
+        if (!this.checkoutService) {
+          this.logger.error(
+            `expireSession 无法主动建单（CheckoutService 未注入），sessionId=${session.id}`,
+          );
+          return;
+        }
+        // 金额校验：支付宝返回的 totalAmount 必须等于 session.expectedTotal（防恶意篡改）
+        if (
+          queryResult.totalAmount &&
+          queryResult.totalAmount !== session.expectedTotal.toFixed(2)
+        ) {
+          this.logger.error(
+            `expireSession 金额校验失败，跳过建单：alipay=${queryResult.totalAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${session.id}`,
+          );
+          return;
+        }
+        try {
+          const buildResult = await this.checkoutService.handlePaymentSuccess(
+            session.merchantOrderNo,
+            queryResult.tradeNo,
+            new Date().toISOString(),
+          );
+          // 主动建单成功后通知商家（fire-and-forget）
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'expire-paid');
+          }
+        } catch (e: any) {
+          // 建单失败（金额不一致、并发已处理等）— 跳过本次，下次 cron 再重试
+          this.logger.error(
+            `expireSession 主动建单失败，sessionId=${session.id}：${e.message}`,
+          );
+        }
+        return; // 不论建单成功与否，都不再走 expire 流程
+      }
+      // 其他状态 — 调 alipay.trade.close 关闭支付宝交易后才能安全 EXPIRED
+      // 防止"先 query 拿到 WAIT_BUYER_PAY → 用户立刻付款 → 我们改 EXPIRED"竞态
+      try {
+        const closeResult = await this.alipayService.closeOrder(session.merchantOrderNo);
+        if (closeResult?.alreadyPaid) {
+          // close 时支付宝告知已支付 — 重新查询并主动建单
+          let queryAfterClose: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+          try {
+            queryAfterClose = await this.alipayService.queryOrder(session.merchantOrderNo);
+          } catch {
+            this.logger.warn(
+              `expireSession close-paid 后再查支付宝失败，跳过本次 sessionId=${session.id}`,
+            );
+            return;
+          }
+          if (
+            queryAfterClose &&
+            (queryAfterClose.tradeStatus === 'TRADE_SUCCESS' ||
+              queryAfterClose.tradeStatus === 'TRADE_FINISHED')
+          ) {
+            if (!this.checkoutService) {
+              this.logger.error(
+                `expireSession close-paid 无法建单（CheckoutService 未注入），sessionId=${session.id}`,
+              );
+              return;
+            }
+            if (
+              queryAfterClose.totalAmount &&
+              queryAfterClose.totalAmount !== session.expectedTotal.toFixed(2)
+            ) {
+              this.logger.error(
+                `expireSession close-paid 金额校验失败：alipay=${queryAfterClose.totalAmount} session=${session.expectedTotal.toFixed(2)} sessionId=${session.id}`,
+              );
+              return;
+            }
+            try {
+              const closePaidResult = await this.checkoutService.handlePaymentSuccess(
+                session.merchantOrderNo,
+                queryAfterClose.tradeNo,
+                new Date().toISOString(),
+              );
+              // 主动建单成功后通知商家（fire-and-forget）
+              if (closePaidResult?.orderIds?.length > 0) {
+                void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'expire-close-paid');
+              }
+            } catch (buildErr: any) {
+              this.logger.error(
+                `expireSession close-paid 建单失败，sessionId=${session.id}：${buildErr.message}`,
+              );
+            }
+          }
+          return; // 不走 expire 流程
+        }
+        if (closeResult && closeResult.success === false && !closeResult.terminal) {
+          // close 失败（非终态）— 跳过本次，下次 cron 再试（避免改 EXPIRED 后用户付款竞态）
+          this.logger.warn(
+            `expireSession close 失败，跳过本次：sessionId=${session.id}`,
+          );
+          return;
+        }
+        // close 成功（success: true，含 terminal: true 表示支付宝侧不存在/已关闭）— 继续走 CAS ACTIVE → EXPIRED
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession close 异常，跳过本次：sessionId=${session.id}, error=${err.message}`,
+        );
+        return;
+      }
+    }
+
+    if (
+      session.merchantOrderNo &&
+      session.paymentChannel === 'WECHAT_PAY'
+    ) {
+      if (!this.wechatPayService?.isAvailable()) {
+        this.logger.warn(`expireSession 微信支付服务不可用，跳过本次 sessionId=${session.id}`);
+        return;
+      }
+
+      let queryResult: any = null;
+      try {
+        queryResult = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession 查微信异常，跳过本次 sessionId=${session.id}：${err.message}`,
+        );
+        return;
+      }
+
+      if (!queryResult) {
+        this.logger.warn(`expireSession 查微信无结果，跳过本次 sessionId=${session.id}`);
+        return;
+      }
+
+      if (queryResult?.tradeState === 'SUCCESS') {
+        if (!this.checkoutService) {
+          this.logger.error(`expireSession 微信已支付但 CheckoutService 未注入，sessionId=${session.id}`);
+          return;
+        }
+        if (!queryResult.transactionId) {
+          this.logger.error(`expireSession 微信成功态缺少交易流水号，跳过建单：sessionId=${session.id}`);
+          return;
+        }
+        if (!this.isWechatAmountMatched(queryResult, session.expectedTotal)) {
+          this.logger.error(
+            `expireSession 微信金额校验失败：wechatFen=${this.extractWechatAmountFen(queryResult) ?? 'N/A'} sessionFen=${WechatPayService.yuanToFenAmount(session.expectedTotal, 'expectedTotal')} sessionId=${session.id}`,
+          );
+          return;
+        }
+        try {
+          const buildResult = await this.checkoutService.handlePaymentSuccess(
+            session.merchantOrderNo,
+            queryResult.transactionId,
+            queryResult.paidAt?.toISOString?.() ?? queryResult.paidAt ?? new Date().toISOString(),
+          );
+          if (buildResult?.orderIds?.length > 0) {
+            void this.notifyMerchantsAfterCheckoutBuild(buildResult.orderIds, 'expire-paid-wechat');
+          }
+        } catch (err: any) {
+          this.logger.error(
+            `expireSession 微信主动建单失败，sessionId=${session.id}：${err.message}`,
+          );
+        }
+        return;
+      }
+
+      let closeResult: any;
+      try {
+        closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
+      } catch (err: any) {
+        this.logger.warn(
+          `expireSession 微信关单异常，跳过本次 sessionId=${session.id}：${err.message}`,
+        );
+        return;
+      }
+
+      if (closeResult?.alreadyPaid) {
+        let queryAfterClose: any = null;
+        try {
+          queryAfterClose = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+        } catch (err: any) {
+          this.logger.warn(
+            `expireSession 微信 close-paid 后再查单异常，跳过本次 sessionId=${session.id}：${err.message}`,
+          );
+          return;
+        }
+
+        if (queryAfterClose?.tradeState === 'SUCCESS') {
+          if (!this.checkoutService) {
+            this.logger.error(`expireSession 微信 close-paid 无法建单（CheckoutService 未注入），sessionId=${session.id}`);
+            return;
+          }
+          if (!queryAfterClose.transactionId) {
+            this.logger.error(`expireSession 微信 close-paid 成功态缺少交易流水号，跳过建单：sessionId=${session.id}`);
+            return;
+          }
+          if (!this.isWechatAmountMatched(queryAfterClose, session.expectedTotal)) {
+            this.logger.error(
+              `expireSession 微信 close-paid 金额校验失败：wechatFen=${this.extractWechatAmountFen(queryAfterClose) ?? 'N/A'} sessionFen=${WechatPayService.yuanToFenAmount(session.expectedTotal, 'expectedTotal')} sessionId=${session.id}`,
+            );
+            return;
+          }
+          try {
+            const closePaidResult = await this.checkoutService.handlePaymentSuccess(
+              session.merchantOrderNo,
+              queryAfterClose.transactionId,
+              queryAfterClose.paidAt?.toISOString?.() ?? queryAfterClose.paidAt ?? new Date().toISOString(),
+            );
+            if (closePaidResult?.orderIds?.length > 0) {
+              void this.notifyMerchantsAfterCheckoutBuild(closePaidResult.orderIds, 'expire-close-paid-wechat');
+            }
+          } catch (err: any) {
+            this.logger.error(
+              `expireSession 微信 close-paid 建单失败，sessionId=${session.id}：${err.message}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `expireSession 微信 close-paid 后未查到 SUCCESS，跳过本次 sessionId=${session.id}`,
+          );
+        }
+        return;
+      }
+
+      if (!closeResult || (closeResult.success === false && !closeResult.terminal)) {
+        this.logger.warn(`expireSession 微信关单失败，跳过本次 sessionId=${session.id}`);
+        return;
+      }
+    }
+
     await this.prisma.$transaction(
       async (tx) => {
         // CAS: 仅 ACTIVE → EXPIRED（防止与支付回调并发竞态）
@@ -244,8 +552,12 @@ export class CheckoutExpireService {
           }
         }
 
-        // 释放预留奖励（RESERVED → AVAILABLE）
-        if (session.rewardId) {
+        // 释放消费积分抵扣（RESERVED → AVAILABLE）
+        if (session.deductionGroupId && this.rewardDeductionService) {
+          await this.rewardDeductionService.releaseDeduction(tx, session.deductionGroupId);
+          this.logger.log(`已释放消费积分抵扣组: groupId=${session.deductionGroupId}`);
+        } else if (session.rewardId) {
+          // 兼容旧会话：旧模型只存 primary rewardId。
           await tx.rewardLedger.updateMany({
             where: { id: session.rewardId, status: 'RESERVED' },
             data: { status: 'AVAILABLE', refType: null, refId: null },
@@ -310,5 +622,35 @@ export class CheckoutExpireService {
         discountAmount: amount / 100,
       };
     });
+  }
+
+  /**
+   * cron expire 主动建单成功后的统一后处理：通知商家、记日志。
+   * 不抛错（fire-and-forget），但失败必记 error 日志方便后续排查。
+   *
+   * @param orderIds 已建单的订单 ID 列表
+   * @param context  调用语境（'expire-paid' | 'expire-close-paid'），仅用于日志
+   */
+  private async notifyMerchantsAfterCheckoutBuild(
+    orderIds: string[],
+    context: string,
+  ): Promise<void> {
+    if (orderIds.length === 0) return;
+    if (!this.paymentService) {
+      this.logger.warn(
+        `[${context}] 商家通知跳过：paymentService 未注入，orderIds=${orderIds.join(',')}`,
+      );
+      return;
+    }
+    try {
+      await this.paymentService.notifyMerchantsForOrders(orderIds);
+      this.logger.log(
+        `[${context}] 商家通知成功：orderIds=${orderIds.join(',')}`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `[${context}] 商家通知失败（不影响订单）：orderIds=${orderIds.join(',')}, error=${err.message}, stack=${err.stack}`,
+      );
+    }
   }
 }

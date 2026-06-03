@@ -1,17 +1,32 @@
 /** 会员等级 */
 export type MemberTier = 'NORMAL' | 'VIP';
 
+/** 已绑定推荐人摘要 */
+export interface ReferralInviterSummary {
+  userId: string;
+  nickname: string | null;
+  maskedPhone: string | null;
+}
+
 /** 会员资料 */
 export interface MemberProfile {
   tier: MemberTier;
-  referralCode: string;
+  referralCode: string | null;
   inviterUserId: string | null;
+  inviter: ReferralInviterSummary | null;
   vipPurchasedAt: string | null;
   normalEligible: boolean;
   vipProgress: {
     selfPurchaseCount: number;
     unlockedLevel: number;
   } | null;
+}
+
+/** 推荐码绑定结果 */
+export interface ReferralBindingResult {
+  success: boolean;
+  inviterUserId: string;
+  inviter: ReferralInviterSummary | null;
 }
 
 /** 奖励钱包 */
@@ -23,6 +38,7 @@ export interface Wallet {
   vip?: { balance: number; frozen: number };
   /** 普通奖励分账户 */
   normal?: { balance: number; frozen: number };
+  industryFund?: { balance: number; frozen: number };
 }
 
 /** 奖励流水条目 */
@@ -35,6 +51,8 @@ export interface WalletLedgerEntry {
   refType: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
+  /** 所属奖励账户类型，用于区分消费积分(VIP_REWARD/NORMAL_REWARD) vs 产业基金(INDUSTRY_FUND) 等 */
+  accountType: string | null;
 }
 
 /** 奖励流水分页 */
@@ -50,6 +68,31 @@ export interface WithdrawRecord {
   channel: string;
   status: string;
   createdAt: string;
+}
+
+/** 提现申请输入（v1.0 无二次验证） */
+export interface WithdrawRequestInput {
+  amount: number;
+  alipayAccount: string;
+  alipayName: string;
+}
+
+/** 提现结果 */
+export interface WithdrawResult {
+  withdrawId: string;
+  grossAmount: number;
+  taxAmount: number;
+  taxRate: number;
+  netAmount: number;
+  status: 'PROCESSING' | 'PAID' | 'FAILED';
+  message: string;
+}
+
+/** 抵扣预览 */
+export interface DeductionPreview {
+  pointsBalance: number;
+  pointsRatio: number;
+  maxDeductible: number;
 }
 
 /** VIP 三叉树节点 */

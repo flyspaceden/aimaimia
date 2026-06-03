@@ -7,9 +7,9 @@ import {
 } from '@ant-design/pro-components';
 import type { ActionType, ProColumns, ProFormInstance } from '@ant-design/pro-components';
 import {
+  App,
   Button,
   Tag,
-  message,
   Modal,
   Tabs,
   Card,
@@ -177,6 +177,7 @@ function SmartProbabilityEditor({
   items: BatchProbItem[];
   onChange: (items: BatchProbItem[]) => void;
 }) {
+  const { message } = App.useApp();
   const unlockedCount = items.filter((d) => !d.locked).length;
 
   // 切换锁定状态
@@ -532,6 +533,7 @@ function PrizeEditDrawer({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [selectedType, setSelectedType] = useState<LotteryPrizeType>(prize.type);
   const [probValue, setProbValue] = useState<number>(prize.probability);
@@ -631,6 +633,7 @@ function PrizeCreateDrawer({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { message } = App.useApp();
   const formRef = useRef<ProFormInstance>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedType, setSelectedType] = useState<LotteryPrizeType | undefined>();
@@ -756,15 +759,17 @@ function PrizeDrawerForm(props: {
 }
 
 function PrizeManagementTab() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [editModal, setEditModal] = useState<{ visible: boolean; prize: Prize | null }>({
     visible: false,
-    prize: null,
-  });
+    rize: null,
+  } as any);
   const [batchModal, setBatchModal] = useState(false);
   const [batchData, setBatchData] = useState<BatchProbItem[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const handleOpenBatchModal = async () => {
     try {
@@ -802,10 +807,20 @@ function PrizeManagementTab() {
   const handleDelete = async (id: string) => {
     try {
       await deletePrize(id);
-      message.success('停用成功');
+      message.success('删除成功');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败');
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     }
   };
 
@@ -902,13 +917,27 @@ function PrizeManagementTab() {
           checked={r.isActive}
           checkedChildren="启用"
           unCheckedChildren="停用"
+          loading={togglingId === r.id}
           onChange={async (checked) => {
             try {
+              setTogglingId(r.id);
               await updatePrize(r.id, { isActive: checked });
               message.success(checked ? '已启用' : '已停用');
               actionRef.current?.reload();
-            } catch {
-              message.error('操作失败');
+            } catch (err) {
+              modal.error({
+                title: checked ? '无法启用' : '无法停用',
+                content: (
+                  <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+                    {err instanceof Error ? err.message : '状态更新失败'}
+                  </div>
+                ),
+                width: 520,
+                centered: true,
+                okText: '知道了',
+              });
+            } finally {
+              setTogglingId(null);
             }
           }}
         />
@@ -941,9 +970,13 @@ function PrizeManagementTab() {
             </Button>
           </PermissionGate>
           <PermissionGate permission={PERMISSIONS.LOTTERY_DELETE}>
-            <Popconfirm title="确认停用该奖品？" onConfirm={() => handleDelete(r.id)}>
+            <Popconfirm
+              title="确认删除该奖品？"
+              description="删除后将从奖池移除并重分配剩余奖品概率，此操作不可恢复。"
+              onConfirm={() => handleDelete(r.id)}
+            >
               <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                停用
+                删除
               </Button>
             </Popconfirm>
           </PermissionGate>

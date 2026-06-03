@@ -10,27 +10,37 @@ import { EmptyState, ErrorState, Skeleton } from '../../src/components/feedback'
 import { AiDivider } from '../../src/components/ui';
 import { BonusRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { WalletLedgerEntry } from '../../src/types';
 
 // 筛选标签
-type FilterKey = 'all' | 'available' | 'frozen' | 'withdraw';
+type FilterKey = 'all' | 'available' | 'frozen' | 'deduct' | 'withdraw';
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'available', label: '已到账' },
-  { key: 'frozen', label: '待解锁' },
+  { key: 'frozen', label: '冻结积分' },
+  { key: 'deduct', label: '消费抵扣' },
   { key: 'withdraw', label: '已提现' },
 ];
 
 // 来源标签映射 — 对用户友好的名称
 const refTypeLabel: Record<string, string> = {
-  ORDER: '消费奖励',
-  REFERRAL: '推荐奖励',
-  VIP_REFERRAL: '推荐奖励',
-  VIP_TREE: '消费奖励',
-  NORMAL_TREE: '消费奖励',
-  NORMAL_BROADCAST: '消费奖励',
-  WITHDRAW: '提现',
+  ORDER: '消费返积分',
+  REFERRAL: '推荐返积分',
+  VIP_REFERRAL: '推荐返积分',
+  VIP_TREE: '消费返积分',
+  NORMAL_TREE: '消费返积分',
+  NORMAL_BROADCAST: '消费返积分',
+  WITHDRAW: '提现到支付宝',
+};
+
+// 卖家侧账户类型 → 友好名称（OWNER 在自己 App 里看到的）
+const sellerAccountLabel: Record<string, string> = {
+  INDUSTRY_FUND: '产业基金',
+  CHARITY_FUND: '慈善基金',
+  TECH_FUND: '科技基金',
+  RESERVE_FUND: '备用金',
+  PLATFORM_PROFIT: '平台利润',
 };
 
 // 统一列表项类型
@@ -40,7 +50,7 @@ interface LedgerDisplayItem {
   desc: string;
   amount: number;
   date: string;
-  type: 'income' | 'expense' | 'frozen' | 'expired';
+  type: 'income' | 'expense' | 'frozen' | 'expired' | 'failed';
   // 冻结专有
   requiredLevel?: number | null;
   remainingDays?: number | null;
@@ -62,6 +72,8 @@ export default function WalletScreen() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   // 钱包余额
   const { data: walletData, isLoading: walletLoading, isFetching, refetch } = useQuery({
@@ -97,15 +109,45 @@ export default function WalletScreen() {
     const frozenFromLedger = new Set<string>();
 
     // 流水记录
-    // 后端 entryType: RELEASE（到账）/ FREEZE（冻结）/ WITHDRAW（提现）/ VOID / ADJUST
+    // 后端 entryType: RELEASE（到账）/ FREEZE（冻结）/ WITHDRAW（提现）/ DEDUCT（抵扣）/ VOID / ADJUST
     ledgerItems.forEach((entry) => {
-      const isIncome = entry.entryType === 'RELEASE';
+      const isDeduct = entry.entryType === 'DEDUCT';
+      const isRefundRestore = entry.refType === 'REFUND_RESTORE';
+      const isIncome = entry.entryType === 'RELEASE' || entry.entryType === 'CREDIT';
       const isFrozen = entry.status === 'FROZEN' || entry.entryType === 'FREEZE';
       const isWithdraw = entry.entryType === 'WITHDRAW' || entry.refType === 'WITHDRAW';
       const isVoided = entry.status === 'VOIDED' || entry.entryType === 'VOID';
       const isAdjust = entry.entryType === 'ADJUST';
-      const title = refTypeLabel[entry.refType ?? ''] ?? (isIncome ? '消费奖励' : isAdjust ? '系统调整' : '支出');
+      // 卖家账户（产业基金等）优先按账户类型命名，避免显示成"消费返积分"
+      const sellerLabel = entry.accountType ? sellerAccountLabel[entry.accountType] : null;
+      const title = sellerLabel ?? refTypeLabel[entry.refType ?? ''] ?? (isIncome ? '消费返积分' : isAdjust ? '系统调整' : '支出');
       const meta = entry.meta as Record<string, unknown> | null;
+
+      if (isDeduct) {
+        const orderNo = typeof meta?.orderNo === 'string' ? meta.orderNo : null;
+        items.push({
+          id: entry.id,
+          title: '消费抵扣',
+          desc: orderNo ? `抵扣订单 ${orderNo}` : '抵扣订单金额',
+          amount: -Math.abs(entry.amount),
+          date: entry.createdAt,
+          type: 'expense',
+        });
+        return;
+      }
+
+      if (isRefundRestore) {
+        const orderNo = typeof meta?.orderNo === 'string' ? meta.orderNo : null;
+        items.push({
+          id: entry.id,
+          title: '退款返还',
+          desc: orderNo ? `订单 ${orderNo} 退款返还积分` : '订单退款返还积分',
+          amount: Math.abs(entry.amount),
+          date: entry.createdAt,
+          type: 'income',
+        });
+        return;
+      }
 
       if (isFrozen && !isWithdraw) {
         // 冻结条目 — 显示解锁条件和倒计时
@@ -118,8 +160,8 @@ export default function WalletScreen() {
         frozenFromLedger.add(entry.id);
         items.push({
           id: entry.id,
-          title: '消费奖励',
-          desc: requiredLevel ? `需消费 ${requiredLevel} 笔解锁` : '待解锁',
+          title: sellerLabel ?? '消费返积分',
+          desc: requiredLevel ? `需消费 ${requiredLevel} 笔解锁` : '冻结中',
           amount: entry.amount,
           date: entry.createdAt,
           type: 'frozen',
@@ -130,9 +172,22 @@ export default function WalletScreen() {
       }
 
       if (isVoided) {
+        // 失败/退回的提现也是 VOIDED，但 refType 仍是 WITHDRAW——必须先分流，
+        // 否则会被误标成"消费返积分·已过期"（提现失败显示 bug 修复）。
+        if (isWithdraw) {
+          items.push({
+            id: entry.id,
+            title: '提现到支付宝',
+            desc: '提现失败，款项已退回',
+            amount: entry.amount,
+            date: entry.createdAt,
+            type: 'failed',
+          });
+          return;
+        }
         items.push({
           id: entry.id,
-          title: '消费奖励',
+          title: sellerLabel ?? '消费返积分',
           desc: '未在有效期内解锁',
           amount: entry.amount,
           date: entry.createdAt,
@@ -143,20 +198,22 @@ export default function WalletScreen() {
 
       let desc = '';
       if (isWithdraw) {
-        desc = '提现至账户';
+        desc = '提现至支付宝';
       } else if (isAdjust) {
         desc = '平台调整';
       } else if (entry.refType === 'REFERRAL' || entry.refType === 'VIP_REFERRAL') {
         desc = '好友开通 VIP';
+      } else if (sellerLabel) {
+        desc = `订单${sellerLabel}`;
       } else {
-        desc = '订单奖励';
+        desc = '订单消费返积分';
       }
 
       items.push({
         id: entry.id,
         title,
         desc,
-        amount: entry.amount,
+        amount: isWithdraw ? -Math.abs(entry.amount) : entry.amount,
         date: entry.createdAt,
         type: isWithdraw ? 'expense' : 'income',
       });
@@ -168,8 +225,8 @@ export default function WalletScreen() {
       .forEach((n) => {
         items.push({
           id: `frozen-${n.id}`,
-          title: '消费奖励',
-          desc: n.requiredLevel ? `需消费 ${n.requiredLevel} 笔解锁` : '待解锁',
+          title: '消费返积分',
+          desc: n.requiredLevel ? `需消费 ${n.requiredLevel} 笔解锁` : '冻结中',
           amount: n.amount,
           date: n.createdAt,
           type: 'frozen',
@@ -191,8 +248,10 @@ export default function WalletScreen() {
         return displayItems.filter((i) => i.type === 'income');
       case 'frozen':
         return displayItems.filter((i) => i.type === 'frozen');
+      case 'deduct':
+        return displayItems.filter((i) => i.title === '消费抵扣');
       case 'withdraw':
-        return displayItems.filter((i) => i.type === 'expense');
+        return displayItems.filter((i) => i.type === 'expense' && i.title !== '消费抵扣');
       default:
         return displayItems;
     }
@@ -279,8 +338,9 @@ export default function WalletScreen() {
                   ]}
                 >
                   {item.type === 'income' ? '已到账'
-                    : item.type === 'frozen' ? '待解锁'
+                    : item.type === 'frozen' ? '冻结积分'
                     : item.type === 'expense' ? '已完成'
+                    : item.type === 'failed' ? '已退回'
                     : '已过期'}
                 </Text>
               </View>
@@ -339,7 +399,7 @@ export default function WalletScreen() {
                 },
               ]}
             >
-              {item.type === 'expense' ? '' : '+'}{item.amount.toFixed(2)}
+              {item.type === 'expense' || item.type === 'failed' ? '' : '+'}{item.amount.toFixed(2)}
             </Text>
             <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 2 }]}>
               {formatDateTime(item.date)}
@@ -352,7 +412,7 @@ export default function WalletScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="奖励钱包" />
+      <AppHeader title="消费积分" />
       {walletLoading ? (
         <View style={{ padding: spacing.xl }}>
           <Skeleton height={200} radius={radius.lg} />
@@ -371,7 +431,7 @@ export default function WalletScreen() {
           keyExtractor={(item) => item.id}
           initialNumToRender={10}
           refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
-          contentContainerStyle={{ paddingBottom: spacing['3xl'] }}
+          contentContainerStyle={{ paddingBottom: safeBottom }}
           ListHeaderComponent={
             <View>
               {/* ===== 渐变余额卡 ===== */}
@@ -382,8 +442,9 @@ export default function WalletScreen() {
                 style={styles.balanceCard}
               >
                 <Animated.View entering={FadeInDown.duration(300)} style={{ paddingHorizontal: spacing.xl }}>
-                  <Text style={styles.balanceLabel}>可用余额（元）</Text>
-                  <Text style={styles.balanceAmount}>
+                  <Text style={styles.balanceLabel}>可用积分（元）</Text>
+                  <Text style={styles.balanceSubLabel}>用于平台商品抵扣 / 可提现至支付宝</Text>
+                  <Text {...priceTextProps} style={styles.balanceAmount}>
                     <Text style={styles.balanceSymbol}>¥</Text>
                     {wallet?.balance.toFixed(2) ?? '0.00'}
                   </Text>
@@ -393,14 +454,14 @@ export default function WalletScreen() {
                       <Text style={[typography.bodyStrong, { color: '#fff' }]}>
                         ¥{wallet?.frozen.toFixed(2) ?? '0.00'}
                       </Text>
-                      <Text style={styles.balanceStatLabel}>待解锁</Text>
+                      <Text style={styles.balanceStatLabel}>冻结积分</Text>
                     </View>
                     <View style={styles.balanceStatDivider} />
                     <View style={styles.balanceStat}>
                       <Text style={[typography.bodyStrong, { color: '#fff' }]}>
                         ¥{wallet?.total.toFixed(2) ?? '0.00'}
                       </Text>
-                      <Text style={styles.balanceStatLabel}>累计收益</Text>
+                      <Text style={styles.balanceStatLabel}>累计获得</Text>
                     </View>
                   </View>
 
@@ -411,7 +472,7 @@ export default function WalletScreen() {
                       end={{ x: 1, y: 0 }}
                       style={[styles.withdrawBtn, { borderRadius: radius.pill }]}
                     >
-                      <Text style={[typography.bodyStrong, { color: '#fff', letterSpacing: 1 }]}>申请提现</Text>
+                      <Text style={[typography.bodyStrong, { color: '#fff' }]}>提现到支付宝</Text>
                     </LinearGradient>
                   </Pressable>
                 </Animated.View>
@@ -465,12 +526,13 @@ export default function WalletScreen() {
             ) : (
               <EmptyState
                 title={
-                  activeFilter === 'frozen' ? '暂无待解锁奖励'
+                  activeFilter === 'frozen' ? '暂无冻结积分'
+                  : activeFilter === 'deduct' ? '暂无消费抵扣'
                   : activeFilter === 'withdraw' ? '暂无提现记录'
-                  : activeFilter === 'available' ? '暂无已到账奖励'
+                  : activeFilter === 'available' ? '暂无已到账积分'
                   : '暂无收支记录'
                 }
-                description="完成消费或推荐好友后即可获得奖励"
+                description="成为 VIP 推荐好友获得消费积分"
               />
             )
           }
@@ -490,6 +552,11 @@ const styles = StyleSheet.create({
   balanceLabel: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.7)',
+  },
+  balanceSubLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 2,
   },
   balanceSymbol: {
     fontSize: 20,
@@ -529,6 +596,7 @@ const styles = StyleSheet.create({
   // 筛选
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingVertical: 14,
     gap: 8,
   },

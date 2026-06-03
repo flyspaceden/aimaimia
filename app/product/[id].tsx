@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -9,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -16,7 +16,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AppHeader, Screen } from '../../src/components/layout';
@@ -26,10 +25,11 @@ import { Price } from '../../src/components/ui/Price';
 import { AiBadge } from '../../src/components/ui/AiBadge';
 import { AiDivider } from '../../src/components/ui/AiDivider';
 import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
+import { AppConfigRepo } from '../../src/repos/AppConfigRepo';
 import { useCartStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
+import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
+import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
+import { getStockStatus, getStockText } from '../../src/utils/stockDisplay';
 
 import type { ProductDetail } from '../../src/types';
 
@@ -47,7 +47,13 @@ export default function ProductDetailScreen() {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
   const { colors, radius, spacing, typography, shadow, gradients, isDark } = useTheme();
   const { show } = useToast();
-  const insets = useSafeAreaInsets();
+  const barBottomPad = useBottomInset(spacing.md);
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactCtaBar = isCompact || isLargeText;
+  const { bottomPadding: contentBottomPad, onBarLayout: handleCtaBarLayout } =
+    useMeasuredBottomBar(compactCtaBar ? 148 : 112, spacing.xl);
+  // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
   const addItem = useCartStore((state) => state.addItem);
   const cartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
   const router = useRouter();
@@ -61,6 +67,12 @@ export default function ProductDetailScreen() {
     queryFn: () => ProductRepo.getById(String(id)),
     enabled: Boolean(id),
     staleTime: 5 * 60_000,
+  });
+
+  const { data: appConfigResult } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: AppConfigRepo.getPublicConfig,
+    staleTime: 1000 * 60 * 60,
   });
 
   // 溯源数据（极少变动，10 分钟长缓存）
@@ -90,6 +102,10 @@ export default function ProductDetailScreen() {
     return skus.find((s) => s.id === activeSkuId);
   }, [activeSkuId, skus]);
   const activeSkuPrice = selectedSku?.price;
+  const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
+  const activeStockStatus = getStockStatus(selectedSku?.stock, lowStockThreshold);
+  const activeStockText = getStockText(selectedSku?.stock, lowStockThreshold);
+  const canBuyActiveSku = activeStockStatus !== 'OUT_OF_STOCK';
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -159,7 +175,7 @@ export default function ProductDetailScreen() {
       />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: contentBottomPad }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* 图片轮播 */}
@@ -249,6 +265,7 @@ export default function ProductDetailScreen() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
                 {skus.map((sku) => {
                   const active = activeSkuId === sku.id;
+                  const stockText = getStockText(sku.stock, lowStockThreshold);
                   return (
                     <Pressable
                       key={sku.id}
@@ -274,9 +291,11 @@ export default function ProductDetailScreen() {
                       <Text style={[typography.captionSm, { color: active ? colors.brand.primary : colors.text.tertiary, marginTop: 2 }]}>
                         ¥{sku.price}
                       </Text>
-                      <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 2 }]}>
-                        库存: {sku.stock}
-                      </Text>
+                      {stockText && (
+                        <Text style={[typography.captionSm, { color: sku.stock <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                          {stockText}
+                        </Text>
+                      )}
                     </Pressable>
                   );
                 })}
@@ -285,6 +304,11 @@ export default function ProductDetailScreen() {
               {selectedSku?.maxPerOrder != null && (
                 <Text style={[typography.captionSm, { color: colors.warning, marginTop: spacing.xs }]}>
                   每单限购 {selectedSku.maxPerOrder} 件
+                </Text>
+              )}
+              {activeStockText && (
+                <Text style={[typography.captionSm, { color: activeStockStatus === 'OUT_OF_STOCK' ? colors.danger : colors.warning, marginTop: spacing.xs }]}>
+                  {activeStockText}
                 </Text>
               )}
             </Animated.View>
@@ -453,12 +477,14 @@ export default function ProductDetailScreen() {
       {/* 底部操作栏 — 毛玻璃 */}
       {Platform.OS === 'ios' ? (
         <BlurView
+          onLayout={handleCtaBarLayout}
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={[
             styles.ctaBar,
+            compactCtaBar && styles.ctaBarCompact,
             {
-              paddingBottom: insets.bottom + spacing.md,
+              paddingBottom: barBottomPad,
               paddingTop: spacing.md,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.border,
@@ -468,6 +494,10 @@ export default function ProductDetailScreen() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
           <Pressable
             onPress={() => {
+              if (!canBuyActiveSku) {
+                show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                return;
+              }
               const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               if (added) {
                 show({ message: '已加入购物车', type: 'success' });
@@ -481,36 +511,47 @@ export default function ProductDetailScreen() {
                 borderWidth: 1.5,
                 borderColor: colors.brand.primary,
               },
+              !canBuyActiveSku && { opacity: 0.5 },
             ]}
           >
             <MaterialCommunityIcons name="cart-plus" size={18} color={colors.brand.primary} style={{ marginRight: 6 }} />
-            <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>加入购物车</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+              加入购物车
+            </Text>
           </Pressable>
           <LinearGradient
             colors={[...gradients.goldGradient]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[styles.ctaButton, { borderRadius: radius.lg, marginLeft: spacing.md }]}
+            style={[styles.ctaButton, { borderRadius: radius.lg }, !compactCtaBar && { marginLeft: spacing.md }]}
           >
             <Pressable
               onPress={() => {
+                if (!canBuyActiveSku) {
+                  show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                  return;
+                }
                 const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
                 if (added) {
                   router.push('/checkout');
                 }
               }}
-              style={styles.ctaInner}
+              style={[styles.ctaInner, !canBuyActiveSku && { opacity: 0.5 }]}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>✦ 立即购买</Text>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                ✦ 立即购买
+              </Text>
             </Pressable>
           </LinearGradient>
         </BlurView>
       ) : (
         <View
+          onLayout={handleCtaBarLayout}
           style={[
             styles.ctaBar,
+            compactCtaBar && styles.ctaBarCompact,
             {
-              paddingBottom: insets.bottom + spacing.md,
+              paddingBottom: barBottomPad,
               paddingTop: spacing.md,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.border,
@@ -520,6 +561,10 @@ export default function ProductDetailScreen() {
         >
           <Pressable
             onPress={() => {
+              if (!canBuyActiveSku) {
+                show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                return;
+              }
               const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               if (added) {
                 show({ message: '已加入购物车', type: 'success' });
@@ -533,27 +578,36 @@ export default function ProductDetailScreen() {
                 borderWidth: 1.5,
                 borderColor: colors.brand.primary,
               },
+              !canBuyActiveSku && { opacity: 0.5 },
             ]}
           >
             <MaterialCommunityIcons name="cart-plus" size={18} color={colors.brand.primary} style={{ marginRight: 6 }} />
-            <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>加入购物车</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+              加入购物车
+            </Text>
           </Pressable>
           <LinearGradient
             colors={[...gradients.goldGradient]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[styles.ctaButton, { borderRadius: radius.lg, marginLeft: spacing.md }]}
+            style={[styles.ctaButton, { borderRadius: radius.lg }, !compactCtaBar && { marginLeft: spacing.md }]}
           >
             <Pressable
               onPress={() => {
+                if (!canBuyActiveSku) {
+                  show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
+                  return;
+                }
                 const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
                 if (added) {
                   router.push('/checkout');
                 }
               }}
-              style={styles.ctaInner}
+              style={[styles.ctaInner, !canBuyActiveSku && { opacity: 0.5 }]}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>✦ 立即购买</Text>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                ✦ 立即购买
+              </Text>
             </Pressable>
           </LinearGradient>
         </View>
@@ -668,8 +722,13 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
   },
+  ctaBarCompact: {
+    flexDirection: 'column',
+    gap: 10,
+  },
   ctaButton: {
     flex: 1,
+    minHeight: 48,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',

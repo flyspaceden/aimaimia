@@ -11,9 +11,15 @@ import {
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
 import { acceptPrivacyConsent } from '../../services/privacyConsent';
+import { LegalDocumentView } from '../legal/LegalDocumentView';
+import { PRIVACY_POLICY } from '../../content/legal/privacyPolicy';
+import { TERMS_OF_SERVICE } from '../../content/legal/termsOfService';
+
+// 弹窗视图模式：同意页 / 隐私政策全文 / 用户协议全文
+type ViewMode = 'consent' | 'privacy' | 'terms';
 
 type Props = {
   open: boolean;
@@ -28,8 +34,8 @@ type Props = {
 // - 未同意前不得进入主功能
 export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
   const { colors, radius, spacing, typography, shadow } = useTheme();
-  const router = useRouter();
   const [declined, setDeclined] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('consent');
 
   const handleAgree = useCallback(async () => {
     await acceptPrivacyConsent();
@@ -52,27 +58,34 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
     // iOS 无法编程退出，保持遮罩阻断
   }, []);
 
+  // 协议链接点击：切换到内嵌全文视图（不跳路由，避免被 Modal 遮挡）
   const openPrivacy = useCallback(() => {
-    router.push('/privacy');
-  }, [router]);
+    setViewMode('privacy');
+  }, []);
 
   const openTerms = useCallback(() => {
-    router.push('/terms');
-  }, [router]);
+    setViewMode('terms');
+  }, []);
+
+  const backToConsent = useCallback(() => {
+    setViewMode('consent');
+  }, []);
 
   if (!open) return null;
 
-  return (
-    <Modal transparent visible={open} animationType="fade" onRequestClose={() => {}}>
-      <View style={styles.backdrop}>
-        <Animated.View
-          entering={FadeIn.duration(250)}
-          style={[
-            styles.card,
-            shadow.lg,
-            { backgroundColor: colors.surface, borderRadius: radius['2xl'] ?? 20 },
-          ]}
-        >
+  // Web 端 React Native <Modal> 渲染异常（遮罩可见但卡片不可交互），改用绝对定位 View
+  const isWeb = Platform.OS === 'web';
+
+  const content = (
+    <View style={[styles.backdrop, isWeb && styles.backdropWeb]}>
+      <Animated.View
+        entering={FadeIn.duration(250)}
+        style={[
+          styles.card,
+          shadow.lg,
+          { backgroundColor: colors.surface, borderRadius: radius['2xl'] ?? 20 },
+        ]}
+      >
           <LinearGradient
             colors={[colors.brand.primary, colors.ai.start, colors.ai.end]}
             start={{ x: 0, y: 0 }}
@@ -86,7 +99,46 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
             ]}
           />
 
-          {declined ? (
+          {viewMode !== 'consent' ? (
+            // 协议全文内嵌阅读模式（不离开 Modal，避免内容被遮挡）
+            <View style={styles.fullReader}>
+              <View style={styles.readerHeader}>
+                <Pressable
+                  onPress={backToConsent}
+                  hitSlop={12}
+                  style={[styles.backBtn, { backgroundColor: colors.bgSecondary }]}
+                >
+                  <MaterialCommunityIcons name="arrow-left" size={18} color={colors.text.secondary} />
+                </Pressable>
+                <Text style={[typography.title3, { color: colors.text.primary, marginLeft: 10 }]}>
+                  {viewMode === 'privacy' ? '隐私政策' : '用户协议'}
+                </Text>
+              </View>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+                showsVerticalScrollIndicator
+              >
+                <LegalDocumentView
+                  document={viewMode === 'privacy' ? PRIVACY_POLICY : TERMS_OF_SERVICE}
+                />
+              </ScrollView>
+              <View style={[styles.readerFooter, { borderTopColor: colors.border }]}>
+                <Pressable onPress={backToConsent}>
+                  <LinearGradient
+                    colors={[colors.brand.primary, colors.brand.primaryLight]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.primaryBtn, { borderRadius: radius.pill }]}
+                  >
+                    <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                      阅读完毕，返回
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            </View>
+          ) : declined ? (
             // 二次确认：再次阅读 或 退出
             <View style={styles.content}>
               <Text style={[typography.title3, { color: colors.text.primary }]}>温馨提示</Text>
@@ -170,7 +222,7 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
                   {'\n'}
                   3. 我们会将订单信息共享给商家和物流公司以完成交易，支付交由持牌支付机构处理，AI 内容会脱敏后提交给合作服务商。
                   {'\n'}
-                  4. 您可以随时在 App 设置中查阅、更正、删除您的信息，撤回同意，或注销账号。
+                  4. 您可以随时在 App 设置中查阅、更正、删除您的信息，撤回同意。
                   {'\n'}
                   5. 我们不会将您的个人信息用于与上述目的无关的用途，也不会在未经您同意的情况下向第三方提供。
                 </Text>
@@ -212,6 +264,13 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
           )}
         </Animated.View>
       </View>
+  );
+
+  if (isWeb) return content;
+
+  return (
+    <Modal transparent visible={open} animationType="fade" onRequestClose={() => {}}>
+      {content}
     </Modal>
   );
 };
@@ -224,10 +283,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
+  backdropWeb: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+  } as any,
   card: {
     width: '100%',
     maxWidth: 360,
+    maxHeight: '88%',
     overflow: 'hidden',
+  },
+  fullReader: {
+    flex: 1,
+    minHeight: 480,
+  },
+  readerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  readerFooter: {
+    padding: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   topStripe: {
     height: 4,

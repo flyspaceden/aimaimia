@@ -40,6 +40,42 @@ export const UserRepo = {
     return ApiClient.patch<UserProfile>('/me', payload);
   },
   /**
+   * 从微信同步头像（拿到 code 后由后端用 code 换 access_token 拉 headimgurl 落库）
+   * - 后端接口：`POST /api/v1/me/sync-wechat-avatar` body: { code }
+   * - Mock 模式下直接返回当前 profile
+   */
+  syncWechatAvatar: async (code: string): Promise<Result<UserProfile>> => {
+    if (USE_MOCK) {
+      profileCache = { ...profileCache, avatar: 'preset://sprout' };
+      return simulateRequest(profileCache, { delay: 320 });
+    }
+    return ApiClient.post<UserProfile>('/me/sync-wechat-avatar', { code });
+  },
+  /**
+   * 发送"绑定手机号"验证码
+   * - 后端接口：`POST /api/v1/me/bind-phone/sms/code` body: { phone }
+   */
+  sendBindPhoneCode: async (phone: string): Promise<Result<{ ok: boolean }>> => {
+    if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 300 });
+    return ApiClient.post<{ ok: boolean }>('/me/bind-phone/sms/code', { phone });
+  },
+  /**
+   * 提交"绑定手机号"
+   * - 后端接口：`POST /api/v1/me/bind-phone` body: { phone, code }
+   */
+  bindPhone: async (payload: { phone: string; code: string }): Promise<Result<{ ok: boolean }>> => {
+    if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 400 });
+    return ApiClient.post<{ ok: boolean }>('/me/bind-phone', payload);
+  },
+  /**
+   * 提交"绑定微信"（前端调起微信 SDK 拿到 code 后传入）
+   * - 后端接口：`POST /api/v1/me/bind-wechat` body: { code }
+   */
+  bindWechat: async (code: string): Promise<Result<{ ok: boolean }>> => {
+    if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 400 });
+    return ApiClient.post<{ ok: boolean }>('/me/bind-wechat', { code });
+  },
+  /**
    * 应用奖励（积分/成长值）
    * - 用途：签到/任务完成后的奖励联动（Demo）
    * - 后端建议：真实场景由后端结算；前端不应直接"加分"

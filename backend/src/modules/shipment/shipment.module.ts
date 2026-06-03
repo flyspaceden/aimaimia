@@ -3,13 +3,18 @@ import { ShipmentController } from './shipment.controller';
 import { ShipmentService } from './shipment.service';
 import { ShipmentMonitorService } from './shipment-monitor.service';
 import { SfExpressService } from './sf-express.service';
-import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
+import { OrderShippingCostService } from './order-shipping-cost.service';
 import { InboxModule } from '../inbox/inbox.module';
 
 @Module({
   imports: [InboxModule],
   controllers: [ShipmentController],
-  providers: [ShipmentService, ShipmentMonitorService, SfExpressService, WebhookIpGuard],
-  exports: [SfExpressService],
+  providers: [
+    ShipmentService,
+    ShipmentMonitorService,
+    SfExpressService,
+    OrderShippingCostService,
+  ],
+  exports: [SfExpressService, OrderShippingCostService],
 })
 export class ShipmentModule {}

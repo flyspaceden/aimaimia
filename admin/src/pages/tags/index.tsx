@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Card, Row, Col, Button, Space, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm } from 'antd';
+import { App, Card, Row, Col, Button, Space, Tag, Modal, Form, Input, Select, Switch, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
@@ -11,7 +11,22 @@ import {
 } from '@/api/tags';
 
 export default function TagManagementPage() {
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
+
+  const showDeleteError = (title: string, err: any) => {
+    modal.error({
+      title,
+      content: (
+        <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+          {err?.message || '删除失败'}
+        </div>
+      ),
+      width: 520,
+      centered: true,
+      okText: '知道了',
+    });
+  };
   const [selectedCategory, setSelectedCategory] = useState<TagCategory | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<TagCategory | null>(null);
@@ -65,7 +80,7 @@ export default function TagManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-tag-categories'] });
       if (selectedCategory?.id === deletedId) setSelectedCategory(null);
     },
-    onError: (e: any) => message.error(e?.message || '删除失败'),
+    onError: (e: any) => showDeleteError('无法删除类别', e),
   });
 
   // ===== Tag mutations =====
@@ -102,7 +117,7 @@ export default function TagManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-tags', selectedCategory?.id] });
       queryClient.invalidateQueries({ queryKey: ['admin-tag-categories'] });
     },
-    onError: (e: any) => message.error(e?.message || '删除失败'),
+    onError: (e: any) => showDeleteError('无法删除标签', e),
   });
 
   // ===== Handlers =====

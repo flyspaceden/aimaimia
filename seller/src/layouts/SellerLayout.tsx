@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { Dropdown, message } from 'antd';
+import { App, Dropdown } from 'antd';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import {
   DashboardOutlined,
@@ -14,6 +14,7 @@ import {
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
+  SafetyOutlined,
   BranchesOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
@@ -69,6 +70,7 @@ const menuRoutes: ProLayoutProps['route'] = {
 };
 
 export default function SellerLayout() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const seller = useAuthStore((s) => s.seller);
@@ -155,6 +157,13 @@ export default function SellerLayout() {
             menu={{
               items: [
                 {
+                  key: 'account-security',
+                  icon: <SafetyOutlined />,
+                  label: '账号安全',
+                  onClick: () => navigate('/account-security'),
+                },
+                { type: 'divider' },
+                {
                   key: 'logout',
                   icon: <LogoutOutlined />,
                   label: '退出登录',
@@ -168,8 +177,18 @@ export default function SellerLayout() {
         ),
       }}
       footerRender={() => (
-        <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12 }}>
-          爱买买卖家中心 &copy; 2026
+        <div style={{ textAlign: 'center', padding: '16px 0', color: '#999', fontSize: 12, lineHeight: 1.8 }}>
+          <div>爱买买卖家中心 &copy; 2026 深圳华海农业科技集团有限公司</div>
+          <div>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#999' }}
+            >
+              粤ICP备2023047684号-5
+            </a>
+          </div>
         </div>
       )}
     >

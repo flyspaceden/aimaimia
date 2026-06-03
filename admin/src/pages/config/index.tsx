@@ -7,6 +7,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Form,
@@ -17,11 +18,9 @@ import {
   Drawer,
   Timeline,
   Tag,
-  Modal,
   Spin,
   Row,
   Col,
-  message,
   Tooltip,
 } from 'antd';
 import {
@@ -69,6 +68,19 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
   { key: 'LOTTERY_DAILY_CHANCES',  label: '每日抽奖次数',     group: 'lottery', type: 'number', min: 1, max: 10, step: 1, suffix: '次', integer: true, defaultValue: 1 },
   // 订单设置
   { key: 'AUTO_CONFIRM_DAYS',      label: '自动确认收货天数', group: 'order', type: 'number', min: 1, max: 30, step: 1, suffix: '天', integer: true },
+  {
+    key: 'LOW_STOCK_DISPLAY_THRESHOLD',
+    label: 'App 低库存展示阈值',
+    group: 'order',
+    type: 'number',
+    min: 0,
+    max: 999,
+    step: 1,
+    suffix: '件',
+    integer: true,
+    description: '库存 1..阈值时 App 展示“仅剩 x 件”；0 表示关闭低库存文案，但无库存仍会禁选',
+    defaultValue: 10,
+  },
 ];
 
 /** 从配置列表中按 key 取原始值 */
@@ -92,6 +104,7 @@ function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
 
 export default function ConfigPage() {
   const queryClient = useQueryClient();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
@@ -128,11 +141,11 @@ export default function ConfigPage() {
 
   // 初始化表单
   useEffect(() => {
-    if (configs.length > 0) {
+    if (!isLoading) {
       form.setFieldsValue(configsToFormValues(configs));
       setDirty(false);
     }
-  }, [configs, form]);
+  }, [configs, form, isLoading]);
 
   // 保存
   const handleSave = useCallback(async () => {
@@ -157,7 +170,8 @@ export default function ConfigPage() {
         // 简单比较
         if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
 
-        const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+        const existingConfig = configs.find((c) => c.key === meta.key);
+        const desc = existingConfig ? extractConfigDescription(existingConfig) : undefined;
         await updateConfig(meta.key, {
           value: { value: newVal, description: desc || meta.description || meta.label },
           changeNote: note,
@@ -212,6 +226,7 @@ export default function ConfigPage() {
       <Form
         form={form}
         layout="vertical"
+        initialValues={configsToFormValues(configs)}
         onValuesChange={() => setDirty(true)}
         requiredMark={false}
       >
@@ -328,7 +343,7 @@ export default function ConfigPage() {
                   key={v.id}
                   version={v}
                   onRollback={() => {
-                    Modal.confirm({
+                    modal.confirm({
                       title: '确认回滚到此版本？',
                       content: '回滚将覆盖当前所有配置，此操作不可撤销',
                       okText: '确认回滚',

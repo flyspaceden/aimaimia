@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, message, Descriptions, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
-import { UploadOutlined, HolderOutlined } from '@ant-design/icons';
+import { App, Card, Descriptions, Image, Spin, List, Tag, Form, Input, Button, Modal, Select, Upload } from 'antd';
+import { UploadOutlined, HolderOutlined, DownloadOutlined, EyeOutlined, FileOutlined } from '@ant-design/icons';
 import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -15,10 +15,21 @@ import { CSS } from '@dnd-kit/utilities';
 import { getCompany, updateCompany, getDocuments, addDocument, getAiSearchProfile, updateAiSearchProfile } from '@/api/company';
 import { getTagCategories, getCompanyTags, updateCompanyTags } from '@/api/tags';
 import useAuthStore from '@/store/useAuthStore';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 import { COMPANY_TYPE_OPTIONS } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// 文件类型判断（基于 URL 扩展名，忽略 query string）
+function getFileExt(url: string): string {
+  const cleanUrl = url.split('?')[0].toLowerCase();
+  const match = cleanUrl.match(/\.([a-z0-9]+)$/);
+  return match ? match[1] : '';
+}
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'];
+const isImageFile = (url: string) => IMAGE_EXTS.includes(getFileExt(url));
+const isPdfFile = (url: string) => getFileExt(url) === 'pdf';
 
 // 资质类型枚举
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -68,6 +79,7 @@ function SortableTagItem({ id, name, onRemove }: { id: string; name: string; onR
 }
 
 export default function CompanySettingsPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const hasRole = useAuthStore((s) => s.hasRole);
   const isOwner = useAuthStore((s) => s.isOwner);
@@ -76,6 +88,8 @@ export default function CompanySettingsPage() {
   const [docForm] = Form.useForm();
   const [docLoading, setDocLoading] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ url: string; title: string } | null>(null);
+  const [downloadingPreview, setDownloadingPreview] = useState(false);
 
   // 企业认证标签有序列表（单独维护，支持拖拽排序）
   const [certTagOrder, setCertTagOrder] = useState<string[]>([]);
@@ -107,6 +121,22 @@ export default function CompanySettingsPage() {
     queryKey: ['seller-company-tags'],
     queryFn: getCompanyTags,
   });
+
+  const handleDownloadPreviewFile = () => {
+    if (!previewFile) return;
+    setDownloadingPreview(true);
+    try {
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.title, API_BASE);
+      triggerBrowserDownload(request.href, request.filename);
+    } catch (err) {
+      message.warning('自动下载失败，已为你打开文件地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('文件下载失败', err);
+    } finally {
+      setTimeout(() => setDownloadingPreview(false), 500);
+    }
+  };
 
   const [aiForm] = Form.useForm();
 
@@ -306,6 +336,8 @@ export default function CompanySettingsPage() {
               name="addressDetail"
               label="详细地址"
               placeholder="如：xxx路xxx号，方便快递员取件"
+              rules={[{ required: true, message: '请填写详细地址（顺丰下单必填）' }]}
+              tooltip="必填。系统调用顺丰自动取号时会作为寄件人地址传给顺丰，缺失会导致下单失败。"
             />
             <ProFormText name="servicePhone" label="客服电话" />
             <ProFormText name="serviceWeChat" label="客服微信" />
@@ -456,7 +488,13 @@ export default function CompanySettingsPage() {
               <List.Item
                 extra={
                   doc.fileUrl && (
-                    <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">查看文件</a>
+                    <Button
+                      type="link"
+                      icon={<EyeOutlined />}
+                      onClick={() => setPreviewFile({ url: doc.fileUrl, title: doc.title })}
+                    >
+                      预览 / 下载
+                    </Button>
                   )
                 }
               >
@@ -513,6 +551,56 @@ export default function CompanySettingsPage() {
             </Upload>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 文件预览 / 下载弹窗 */}
+      <Modal
+        title={previewFile ? `预览：${previewFile.title}` : '预览'}
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {previewFile && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                loading={downloadingPreview}
+                onClick={handleDownloadPreviewFile}
+              >
+                下载到本地
+              </Button>
+            </div>
+            <div style={{ textAlign: 'center', background: '#fafafa', borderRadius: 4, minHeight: 400, padding: 16 }}>
+              {isImageFile(previewFile.url) ? (
+                <Image
+                  src={previewFile.url}
+                  alt={previewFile.title}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+                />
+              ) : isPdfFile(previewFile.url) ? (
+                <>
+                  <iframe
+                    src={previewFile.url}
+                    title={previewFile.title}
+                    style={{ width: '100%', height: '70vh', border: 0, background: '#fff' }}
+                  />
+                  <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 12 }}>
+                    若 PDF 无法显示，请点击上方「下载到本地」查看
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '80px 0', color: '#8c8c8c' }}>
+                  <FileOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+                  <div>该格式不支持在线预览，请点击上方「下载到本地」查看</div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );

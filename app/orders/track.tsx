@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   FadeInDown,
@@ -9,22 +9,15 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
-import { Skeleton } from '../../src/components/feedback';
-import { AiCardGlow } from '../../src/components/ui';
+import { Skeleton, useToast } from '../../src/components/feedback';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
-
-// 保留 mock 作为无 orderId 时的 fallback
-const fallbackTimeline = [
-  { id: 't1', time: '今天 09:20', status: '包裹已揽收', location: '上海转运中心' },
-  { id: 't2', time: '昨天 18:40', status: '已发货', location: '青禾农场仓库' },
-  { id: 't3', time: '昨天 10:10', status: '订单已出库', location: '青禾农场' },
-];
+import { useBottomInset, useTheme } from '../../src/theme';
 
 /** 遮蔽运单号：保留前4后4，中间用星号 */
 function maskTrackingNo(no: string | null | undefined): string {
@@ -32,6 +25,10 @@ function maskTrackingNo(no: string | null | undefined): string {
   if (no.length <= 8) return no;
   return `${no.slice(0, 4)}****${no.slice(-4)}`;
 }
+
+const CARRIER_PHONES: Record<string, string> = {
+  SF: '95338', YTO: '95554', ZTO: '95311', STO: '95543', YD: '95546', JD: '95311', EMS: '11183',
+};
 
 // 当前节点脉动
 function PulsingDot({ color }: { color: string }) {
@@ -110,20 +107,32 @@ function TimelineSection({
 
 export default function OrderTrackScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { orderId } = useLocalSearchParams<{ orderId?: string }>();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area，避免底部内容贴边。
+  const safeBottom = useBottomInset(spacing['3xl']);
   // 多包裹时当前展开的包裹索引集合（默认全部展开）
   const [expandedPkgs, setExpandedPkgs] = useState<Set<number>>(new Set());
 
   // 从 OrderRepo 获取缓存的物流数据（初始加载）
-  const { data: shipmentData, isLoading: shipmentLoading } = useQuery({
+  // 物流页打开 = 用户主动想看最新进度，30s 轮询不停（除非整单已签收/取消/退款由调用方判断）
+  const { data: shipmentData, isLoading: shipmentLoading, refetch: refetchShipment } = useQuery({
     queryKey: ['shipment', orderId],
     queryFn: () => OrderRepo.getShipment(orderId!),
     enabled: isLoggedIn && Boolean(orderId),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
+
+  // 切回前台 / back 回物流页立即刷新
+  useFocusEffect(
+    React.useCallback(() => {
+      refetchShipment();
+    }, [refetchShipment]),
+  );
 
   const shipment = shipmentData?.ok ? shipmentData.data : null;
   const packages = shipment?.shipments || [];
@@ -136,7 +145,7 @@ export default function OrderTrackScreen() {
     }
   }, [isMultiPackage, packages.length]);
 
-  // 将真实物流事件转为 timeline 格式，无数据时 fallback 到 mock
+  // 真实物流事件转 timeline；无数据返回空数组（UI 自行渲染空态，不再显示假数据）
   const timeline = useMemo(() => {
     if (shipment?.events && shipment.events.length > 0) {
       return shipment.events.map((evt) => ({
@@ -146,7 +155,7 @@ export default function OrderTrackScreen() {
         location: evt.location ?? '',
       }));
     }
-    return fallbackTimeline;
+    return [];
   }, [shipment]);
 
   // 各包裹独立的 timeline
@@ -169,9 +178,6 @@ export default function OrderTrackScreen() {
   const statusLabel = shipment
     ? (shipment.status === 'DELIVERED' ? '已送达' : shipment.status === 'IN_TRANSIT' ? '运输中' : shipment.status)
     : '运输中（占位）';
-  const carrierInfo = shipment
-    ? [shipment.carrierName, shipment.trackingNo].filter(Boolean).join(' ')
-    : '';
 
   // 下拉刷新：主动查询快递100获取最新物流数据
   const handleRefresh = async () => {
@@ -206,7 +212,7 @@ export default function OrderTrackScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="物流追踪" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* 头部卡片 */}
@@ -223,22 +229,33 @@ export default function OrderTrackScreen() {
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                 当前状态：{statusLabel}
               </Text>
-              {/* 单包裹显示承运商信息 */}
-              {!isMultiPackage && carrierInfo ? (
-                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                  {carrierInfo}
-                </Text>
+              {/* 单包裹显示承运商信息 + 运单号点击复制 + 快递客服电话 */}
+              {!isMultiPackage && shipment ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+                  <Text style={[typography.caption, { color: colors.text.secondary }]}>{shipment.carrierName}</Text>
+                  {shipment.trackingNo ? (
+                    <Pressable
+                      onPress={async () => {
+                        await Clipboard.setStringAsync(shipment.trackingNo!);
+                        toast.show({ message: '运单号已复制', type: 'success' });
+                      }}
+                      style={{ marginLeft: 6 }}
+                    >
+                      <Text style={[typography.caption, { color: colors.accent.blue }]}>{maskTrackingNo(shipment.trackingNo)} [复制]</Text>
+                    </Pressable>
+                  ) : null}
+                  {CARRIER_PHONES[shipment.carrierCode] ? (
+                    <Pressable onPress={() => Linking.openURL(`tel:${CARRIER_PHONES[shipment.carrierCode]}`)} style={{ marginLeft: 6 }}>
+                      <Text style={[typography.caption, { color: colors.brand.primary }]}>📞 客服</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
               {isMultiPackage ? (
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
                   本订单已拆分为 {packages.length} 个包裹分别发货
                 </Text>
               ) : null}
-              {/* 地图占位区 */}
-              <View style={[styles.mapPlaceholder, { backgroundColor: colors.ai.soft, borderRadius: radius.md }]}>
-                <MaterialCommunityIcons name="map-outline" size={22} color={colors.ai.start} />
-                <Text style={[typography.caption, { color: colors.ai.start, marginLeft: 6 }]}>物流轨迹地图占位</Text>
-              </View>
             </View>
           </View>
         </Animated.View>
@@ -328,26 +345,6 @@ export default function OrderTrackScreen() {
             />
           )}
         </View>
-
-        {/* 产地联动卡 */}
-        <Animated.View entering={FadeInDown.duration(300).delay(300)}>
-          <View style={{ marginTop: spacing.lg }}>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>产地实景联动</Text>
-            <AiCardGlow style={[shadow.md, { marginTop: spacing.sm }]}>
-              <View style={{ padding: 16 }}>
-                <Text style={[typography.body, { color: colors.text.secondary }]}>
-                  未来将展示企业展览馆的产地实景与检验报告（占位）。
-                </Text>
-                <Pressable
-                  onPress={() => router.push('/(tabs)/museum')}
-                  style={[styles.cta, { borderColor: colors.brand.primary, borderRadius: radius.pill }]}
-                >
-                  <Text style={[typography.caption, { color: colors.brand.primary }]}>查看企业展览馆</Text>
-                </Pressable>
-              </View>
-            </AiCardGlow>
-          </View>
-        </Animated.View>
       </ScrollView>
     </Screen>
   );
@@ -356,13 +353,6 @@ export default function OrderTrackScreen() {
 const styles = StyleSheet.create({
   heroCard: {
     padding: 16,
-  },
-  mapPlaceholder: {
-    marginTop: 12,
-    paddingVertical: 18,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
   },
   packageHeader: {
     flexDirection: 'row',
@@ -392,12 +382,5 @@ const styles = StyleSheet.create({
     flex: 1,
     marginTop: 4,
     borderRadius: 1,
-  },
-  cta: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginTop: 10,
   },
 });

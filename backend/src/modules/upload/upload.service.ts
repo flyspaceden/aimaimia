@@ -53,7 +53,10 @@ export class UploadService {
         'OSS 配置不完整，请设置 OSS_REGION / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET / OSS_BUCKET',
       );
     }
-    this.ossClient = new OSS({ region, accessKeyId, accessKeySecret, bucket });
+    // secure: true 让 oss.put() 返回 https:// URL
+    // 否则 Android RN/Expo APK 默认禁 cleartext HTTP，图片会静默加载失败
+    // （存量 http URL 需配套 SQL 迁移：scripts/2026-04-29-migrate-oss-https.sql）
+    this.ossClient = new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true });
     return this.ossClient;
   }
 
@@ -169,6 +172,40 @@ export class UploadService {
   }
 
   /**
+   * 直传 Buffer（用于服务端生成的内部文件，跳过用户上传校验）
+   * 例：顺丰云打印 PDF 持久化、二维码、报表等
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    folder: string,
+    extension: string,
+    mimeType: string,
+  ): Promise<{ url: string; key: string; size: number; mimeType: string }> {
+    const safeFolder = this.normalizeFolder(folder);
+    const ext = extension.startsWith('.') ? extension : `.${extension}`;
+    const key = path.posix.join(safeFolder, `${randomUUID()}${ext}`);
+
+    const useLocalStorage = this.config.get('UPLOAD_LOCAL', 'true');
+
+    if (useLocalStorage === 'true') {
+      const folderPath = path.join(this.uploadDir, safeFolder);
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+      }
+      const filePath = path.join(this.uploadDir, key);
+      fs.writeFileSync(filePath, buffer);
+      const access = this.buildLocalAccessUrl(key);
+      this.logger.log(`Buffer 上传成功：${key}（${(buffer.length / 1024).toFixed(1)}KB）`);
+      return { url: access.url, key, size: buffer.length, mimeType };
+    }
+
+    const oss = this.getOssClient();
+    const result = await oss.put(key, buffer);
+    this.logger.log(`Buffer 上传至 OSS：${key}（${(buffer.length / 1024).toFixed(1)}KB）`);
+    return { url: result.url, key, size: buffer.length, mimeType };
+  }
+
+  /**
    * 批量上传文件
    */
   async uploadFiles(
@@ -261,6 +298,47 @@ export class UploadService {
     return {
       filePath,
       mimeType: this.getMimeFromKey(normalizedKey),
+    };
+  }
+
+  /**
+   * 强制下载本地文件（不依赖 CORS / Content-Disposition 服务器配置）
+   * 调用方负责鉴权，本方法只做路径安全 + 文件存在性校验。
+   */
+  getLocalFileForDownload(key: string): { filePath: string; mimeType: string; basename: string } {
+    const normalizedKey = this.normalizeKey(key);
+    const filePath = this.resolveLocalPath(normalizedKey);
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('文件不存在');
+    }
+    return {
+      filePath,
+      mimeType: this.getMimeFromKey(normalizedKey),
+      basename: path.basename(normalizedKey),
+    };
+  }
+
+  async getFileForDownload(
+    key: string,
+  ): Promise<
+    | { filePath: string; mimeType: string; basename: string }
+    | { stream: NodeJS.ReadableStream; mimeType: string; basename: string }
+  > {
+    const normalizedKey = this.normalizeKey(key);
+    const useLocalStorage = this.config.get('UPLOAD_LOCAL', 'true');
+
+    if (useLocalStorage === 'true') {
+      return this.getLocalFileForDownload(normalizedKey);
+    }
+
+    const oss = this.getOssClient() as unknown as {
+      getStream: (key: string) => Promise<{ stream: NodeJS.ReadableStream }>;
+    };
+    const result = await oss.getStream(normalizedKey);
+    return {
+      stream: result.stream,
+      mimeType: this.getMimeFromKey(normalizedKey),
+      basename: path.basename(normalizedKey),
     };
   }
 

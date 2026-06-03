@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Form, Input, Select, Popconfirm, Space } from 'antd';
+import { App, Button, Tag, Modal, Form, Input, Select, Popconfirm, Space } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { getAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser, resetPassword } from '@/api/users';
@@ -12,6 +12,7 @@ import type { AdminUser } from '@/types';
 import dayjs from 'dayjs';
 
 export default function AdminUsersPage() {
+  const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);

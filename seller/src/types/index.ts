@@ -34,6 +34,8 @@ export interface SellerProfile {
   user: {
     nickname?: string;
     avatarUrl?: string;
+    phone?: string;
+    phoneMasked?: string;
   };
   company: {
     id: string;
@@ -81,6 +83,7 @@ export interface Product {
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
+  submissionCount?: number;
   origin?: { text?: string };
   attributes?: Record<string, string>;
   aiKeywords?: string[];
@@ -102,7 +105,8 @@ export interface ProductSKU {
   cost?: number;
   stock: number;
   maxPerOrder?: number;
-  weightGram?: number;
+  skuCode?: string | null;
+  weightGram: number;
   status: string;
 }
 
@@ -117,9 +121,22 @@ export interface ProductMedia {
 // 订单
 // ============================================================
 
+/** 与后端 Prisma OrderStatus 对齐（付款后建单，无 PENDING_PAYMENT） */
+export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
+
+export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
+
+export interface RefundSummary {
+  id: string;
+  amount: number;
+  status: RefundStatus;
+  reason: string;
+  updatedAt?: string | null;
+}
+
 export interface Order {
   id: string;
-  status: string;
+  status: OrderStatus;
   bizType?: 'NORMAL_GOODS' | 'VIP_PACKAGE';
   totalAmount: number;
   goodsAmount?: number;
@@ -129,6 +146,7 @@ export interface Order {
   regionText: string | null; // 省市区
   items: OrderItem[];
   shipment?: Shipment | null;
+  refundSummary?: RefundSummary | null;
   /** 发票状态（只读，仅订单详情返回） */
   invoiceStatus?: 'REQUESTED' | 'ISSUED' | 'FAILED' | 'CANCELED' | null;
 }
@@ -266,6 +284,7 @@ export interface CompanyStaff {
   joinedAt: string;
   user: {
     profile?: { nickname?: string; avatarUrl?: string };
+    authIdentities?: { identifier: string }[];
   };
 }
 

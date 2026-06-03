@@ -4,7 +4,7 @@ import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
@@ -13,43 +13,50 @@ import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AuthModal } from '../../src/components/overlay';
 import { AvatarFrame } from '../../src/components/ui';
 import { AiBadge } from '../../src/components/ui/AiBadge';
+import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
+import { buildMeReferralToolEntry } from '../../src/utils/referralRelation';
 
-// 订单快捷入口（问题单复用 afterSale 状态，后端 issueFlag 已移除）
-const orderEntries: Array<{ id: OrderStatus; label: string; icon: string }> = [
-  { id: 'pendingPay', label: '待付款', icon: 'credit-card-outline' },
-  { id: 'pendingShip', label: '待发货', icon: 'package-variant' },
-  { id: 'shipping', label: '待收货', icon: 'truck-delivery-outline' },
-  { id: 'afterSale', label: '换货/售后', icon: 'headset' },
-  { id: 'completed', label: '已完成', icon: 'check-circle-outline' },
+// 订单快捷入口
+// 付款后建单架构：无 PENDING_PAYMENT 状态，未完成支付走 CheckoutSession 续付横幅
+// 售后入口为 UI 派生（'afterSaleList' 路由参数），不是真实 OrderStatus
+const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; icon: string }> = [
+  { id: 'PAID', label: '待发货', icon: 'package-variant' },
+  { id: 'SHIPPED', label: '已发货', icon: 'truck-delivery-outline' },
+  { id: 'DELIVERED', label: '待收货', icon: 'inbox-arrow-down-outline' },
+  { id: 'afterSaleList', label: '换货/售后', icon: 'headset' },
+  { id: 'RECEIVED', label: '已完成', icon: 'check-circle-outline' },
 ];
 
 // 工具网格
-const TOOL_GRID = [
+const TOOL_GRID_BASE = [
   { label: '设置', icon: 'cog-outline' as const, route: '/settings' },
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
-  { label: '奖励', icon: 'ticket-percent-outline' as const, route: '/me/wallet' },
   { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
+  { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
 ];
 
+// 【AI 多轮对话已下线 — 过华为审查】「AI 小助手」整块已注释，恢复时取消注释即可
 // AI 小助手 3 格
-const AI_TOOLS = [
-  { label: '聊天', icon: 'chat-outline' as const, route: '/ai/chat' },
-  { label: '助手', icon: 'robot-happy-outline' as const, route: '/ai/assistant' },
-  { label: '溯源', icon: 'qrcode-scan' as const, route: '/ai/trace' },
-];
+// const AI_TOOLS = [
+//   { label: '聊天', icon: 'chat-outline' as const, route: '/ai/chat' },
+//   { label: '助手', icon: 'robot-happy-outline' as const, route: '/ai/assistant' },
+//   { label: '溯源', icon: 'qrcode-scan' as const, route: '/ai/trace' },
+// ];
 
 export default function MeScreen() {
   const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactMe = isCompact || isLargeText;
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -74,18 +81,34 @@ export default function MeScreen() {
   //   queryKey: ['me-checkin'],
   //   queryFn: () => CheckInRepo.getStatus(),
   // });
-  const { data: orderCountData } = useQuery({
+  const { data: orderCountData, refetch: refetchOrderCounts } = useQuery({
     queryKey: ['me-order-counts'],
     queryFn: () => OrderRepo.getStatusCounts(),
     enabled: isLoggedIn,
+    refetchInterval: 60_000, // 60s 轮询（仅角标，比详情页省）
+    refetchOnWindowFocus: true,
   });
+
+  // 切回「我的」tab / 从订单页 back 回来时立即刷新角标
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isLoggedIn) refetchOrderCounts();
+    }, [isLoggedIn, refetchOrderCounts]),
+  );
+  const { data: pendingData } = useQuery({
+    queryKey: ['pending-checkout'],
+    queryFn: () => OrderRepo.getPendingCheckout(),
+    enabled: isLoggedIn,
+    refetchInterval: 30_000,
+  });
+  const pendingSession = pendingData?.ok ? pendingData.data : null;
   const { data: inboxCountData } = useQuery({
     queryKey: ['me-inbox-unread'],
     queryFn: () => InboxRepo.getUnreadCount(),
     enabled: isLoggedIn,
   });
   const { data: walletData } = useQuery({
-    queryKey: ['my-wallet'],
+    queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
     enabled: isLoggedIn,
   });
@@ -104,7 +127,8 @@ export default function MeScreen() {
   const member = memberData?.ok ? memberData.data : null;
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const deepLink = `https://app.xn--ckqa175y.com/r/${referralCode}`;
+  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const toolGrid = useMemo(() => [buildMeReferralToolEntry(member), ...TOOL_GRID_BASE], [member]);
 
   // 复制推荐码
   const handleCopyReferral = async () => {
@@ -135,7 +159,7 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
-      queryClient.invalidateQueries({ queryKey: ['my-wallet'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
     ]);
     setRefreshing(false);
   };
@@ -191,14 +215,22 @@ export default function MeScreen() {
         {/* ===== 5A. 用户卡片 ===== */}
         {!isLoggedIn ? (
           /* 未登录态 */
-          <Animated.View entering={FadeInDown.duration(300)} style={[styles.loginCard, { margin: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg }, shadow.sm]}>
+          <Animated.View
+            entering={FadeInDown.duration(300)}
+            style={[
+              styles.loginCard,
+              compactMe && styles.loginCardCompact,
+              { margin: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg },
+              shadow.sm,
+            ]}
+          >
             <View style={styles.loginInfo}>
               <Text style={[typography.title3, { color: colors.text.primary }]}>登录/注册</Text>
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                 登录后解锁会员权益与订单追踪
               </Text>
             </View>
-            <View style={styles.loginActions}>
+            <View style={[styles.loginActions, compactMe && styles.loginActionsCompact]}>
               <Pressable
                 onPress={() => router.push('/me/scanner')}
                 hitSlop={10}
@@ -210,7 +242,7 @@ export default function MeScreen() {
                 onPress={() => setAuthOpen(true)}
                 style={[styles.loginButton, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
               >
-                <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>立即登录/注册</Text>
+                <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>立即登录/注册</Text>
               </Pressable>
             </View>
           </Animated.View>
@@ -225,14 +257,14 @@ export default function MeScreen() {
             end={{ x: 1, y: 1 }}
             style={[styles.userCard, { margin: spacing.xl, borderRadius: radius.lg }]}
           >
-            <View style={styles.userCardTop}>
+            <View style={[styles.userCardTop, compactMe && styles.userCardTopCompact]}>
               <Pressable onPress={() => router.push('/me/appearance')}>
                 <AvatarFrame uri={profile.avatar} size={64} frame={profile.avatarFrame} />
               </Pressable>
               <View style={styles.userCardInfo}>
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>{greeting}</Text>
-                <View style={styles.nameRow}>
-                  <Text style={[typography.headingSm, { color: colors.text.primary }]}>
+                <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>{greeting}</Text>
+                <View style={[styles.nameRow, compactMe && styles.nameRowCompact]}>
+                  <Text {...fitTextProps} style={[typography.headingSm, { color: colors.text.primary }]}>
                     {profile.name}
                   </Text>
                   {/* VIP 徽章 */}
@@ -248,7 +280,7 @@ export default function MeScreen() {
                       style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
                     >
                       <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
-                      <Text style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                      <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -260,14 +292,14 @@ export default function MeScreen() {
                   style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface }]}
                 >
                   <MaterialCommunityIcons name="qrcode-scan" size={14} color={colors.brand.primary} />
-                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>扫一扫</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>扫一扫</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => router.push('/me/profile')}
                   style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface, marginTop: 6 }]}
                 >
                   <MaterialCommunityIcons name="pencil-outline" size={14} color={colors.text.secondary} />
-                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
                 </Pressable>
               </View>
             </View>
@@ -287,18 +319,43 @@ export default function MeScreen() {
                 <Text style={[typography.captionSm, { color: colors.muted }]}>全部订单 &gt;</Text>
               </Pressable>
             </View>
-            <View style={[styles.orderRow, { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md }, shadow.sm]}>
+            <View
+              style={[
+                styles.orderRow,
+                compactMe && styles.orderRowCompact,
+                { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md },
+                shadow.sm,
+              ]}
+            >
+              {pendingSession ? (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/checkout-pending', params: { sessionId: pendingSession.sessionId } })}
+                  style={[styles.orderItem, compactMe && styles.orderItemCompact]}
+                >
+                  <View style={styles.orderIconWrap}>
+                    <MaterialCommunityIcons name="credit-card-clock-outline" size={22} color="#FF6B35" />
+                  </View>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                    未完成支付
+                  </Text>
+                  <Countdown
+                    expiresAt={pendingSession.expiresAt}
+                    format="mm:ss"
+                    style={{ color: '#FF6B35', fontSize: 10, marginTop: 2, fontWeight: '600' }}
+                  />
+                </Pressable>
+              ) : null}
               {orderEntries.map((entry) => {
                 const count = orderCounts
-                  ? entry.id === 'shipping'
-                    ? (orderCounts.shipping ?? 0) + (orderCounts.delivered ?? 0)
-                    : (orderCounts[entry.id] ?? 0)
+                  ? entry.id === 'afterSaleList'
+                    ? (orderCounts.afterSale ?? 0) // 后端 getStatusCounts 已计算活跃售后订单数
+                    : (orderCounts[entry.id as OrderStatus] ?? 0)
                   : 0;
                 return (
                   <Pressable
                     key={entry.id}
                     onPress={() => requireLogin(() => router.push({ pathname: '/orders', params: { status: entry.id } }))}
-                    style={styles.orderItem}
+                    style={[styles.orderItem, compactMe && styles.orderItemCompact]}
                   >
                     <View style={styles.orderIconWrap}>
                       <MaterialCommunityIcons name={entry.icon as any} size={22} color={colors.brand.primary} />
@@ -310,7 +367,7 @@ export default function MeScreen() {
                         </View>
                       )}
                     </View>
-                    <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
                       {entry.label}
                     </Text>
                   </Pressable>
@@ -320,11 +377,11 @@ export default function MeScreen() {
           </Animated.View>
 
           {/* ===== 5C. 钱包/VIP 双卡片 ===== */}
-          <View style={[styles.dualCards, { marginBottom: spacing.lg }]}>
+          <View style={[styles.dualCards, compactMe && styles.dualCardsCompact, { marginBottom: spacing.lg }]}>
             {/* 钱包卡 */}
             <Pressable
               onPress={() => requireLogin(() => router.push('/me/wallet'))}
-              style={[styles.dualCardItem, { marginRight: spacing.sm }]}
+              style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginRight: spacing.sm }]}
             >
               <LinearGradient
                 colors={[colors.gold.primary, '#E8B730']}
@@ -336,11 +393,11 @@ export default function MeScreen() {
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: spacing.sm }]}>
                   钱包
                 </Text>
-                <Text style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
-                  ¥{walletBalance}
+                <Text {...priceTextProps} style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
+                  ¥{Number(walletBalance ?? 0).toFixed(2)}
                 </Text>
                 <View style={[styles.dualCardCta, { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: radius.pill }]}>
-                  <Text style={[typography.captionSm, { color: '#FFFFFF' }]}>去提现</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: '#FFFFFF' }]}>去提现</Text>
                 </View>
               </LinearGradient>
             </Pressable>
@@ -348,7 +405,7 @@ export default function MeScreen() {
             {/* VIP 卡 */}
             <Pressable
               onPress={handleVipPress}
-              style={[styles.dualCardItem, { marginLeft: spacing.sm }]}
+              style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginLeft: spacing.sm }]}
             >
               <LinearGradient
                 colors={[colors.brand.primary, colors.brand.primaryDark]}
@@ -376,7 +433,7 @@ export default function MeScreen() {
                   </View>
                 </View>
                 <View style={[styles.dualCardCta, { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: radius.pill }]}>
-                  <Text style={[typography.captionSm, { color: '#FFFFFF' }]}>查看权益</Text>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: '#FFFFFF' }]}>查看权益</Text>
                 </View>
               </LinearGradient>
             </Pressable>
@@ -481,7 +538,7 @@ export default function MeScreen() {
               常用工具
             </Text>
             <View style={styles.toolGrid}>
-              {TOOL_GRID.map((tool) => (
+              {toolGrid.map((tool) => (
                 <Pressable
                   key={tool.label}
                   onPress={() => requireLogin(() => router.push(tool.route as any))}
@@ -506,7 +563,7 @@ export default function MeScreen() {
             </View>
           </Animated.View>
 
-          {/* ===== 5F. AI 小助手区 ===== */}
+          {/* ===== 5F. AI 小助手区（【AI 多轮对话已下线】整块已注释，恢复时取消注释即可）=====
           <Animated.View entering={FadeInDown.duration(300).delay(240)} style={[styles.section, { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.lg }, shadow.sm]}>
             <View style={styles.sectionTitleRow}>
               <Text style={[typography.headingSm, { color: colors.text.primary, marginRight: spacing.sm }]}>
@@ -531,6 +588,7 @@ export default function MeScreen() {
               ))}
             </View>
           </Animated.View>
+          */}
         </View>
       </ScrollView>
 
@@ -589,7 +647,7 @@ export default function MeScreen() {
               </View>
 
               {/* 推荐码文字 */}
-              <Text style={styles.referralCodeText}>
+              <Text {...priceTextProps} style={styles.referralCodeText}>
                 {referralCode.split('').join(' ')}
               </Text>
 
@@ -675,7 +733,7 @@ export default function MeScreen() {
                 <View style={[styles.loginPromptIcon, { backgroundColor: 'rgba(255,215,0,0.2)' }]}>
                   <MaterialCommunityIcons name="crown" size={32} color="#FFD700" />
                 </View>
-                <Text style={[typography.title2, { color: '#FFFFFF', marginTop: 16, zIndex: 1 }]}>
+                <Text {...fitTextProps} style={[typography.title2, { color: '#FFFFFF', marginTop: 16, zIndex: 1 }]}>
                   VIP 会员权益
                 </Text>
                 <View style={[styles.vipPerkList, { zIndex: 1 }]}>
@@ -815,6 +873,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  loginCardCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 12,
+  },
   loginInfo: {
     flex: 1,
     marginRight: 12,
@@ -822,6 +885,10 @@ const styles = StyleSheet.create({
   loginActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  loginActionsCompact: {
+    alignSelf: 'stretch',
+    justifyContent: 'space-between',
   },
   scanIconBtn: {
     width: 36,
@@ -844,6 +911,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  userCardTopCompact: {
+    alignItems: 'flex-start',
+  },
   userCardInfo: {
     flex: 1,
     marginLeft: 12,
@@ -853,6 +923,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 4,
+  },
+  nameRowCompact: {
+    flexWrap: 'wrap',
+    gap: 6,
   },
   vipBadge: {
     marginLeft: 8,
@@ -888,10 +962,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
+  orderRowCompact: {
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    rowGap: 12,
+  },
   orderItem: {
     alignItems: 'center',
     paddingVertical: 4,
     flex: 1,
+  },
+  orderItemCompact: {
+    width: '33.333%',
+    flex: 0,
+    minHeight: 68,
   },
   orderIconWrap: {
     position: 'relative',
@@ -917,8 +1001,17 @@ const styles = StyleSheet.create({
   dualCards: {
     flexDirection: 'row',
   },
+  dualCardsCompact: {
+    flexDirection: 'column',
+    gap: 12,
+  },
   dualCardItem: {
     flex: 1,
+  },
+  dualCardItemStacked: {
+    flex: 0,
+    marginLeft: 0,
+    marginRight: 0,
   },
   dualCardGradient: {
     padding: 16,

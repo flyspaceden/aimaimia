@@ -28,3 +28,19 @@ export const toggleProductStatus = (id: string, status: string): Promise<Product
 
 export const updateProductSkus = (id: string, skus: Record<string, unknown>[]): Promise<unknown> =>
   client.put(`/seller/products/${id}/skus`, { skus });
+
+export const deleteProduct = (id: string): Promise<{ ok: boolean }> =>
+  client.delete(`/seller/products/${id}`);
+
+// ============================================================
+// 草稿 API（仅 title 必填，其他字段可选）
+// ============================================================
+
+export const createDraft = (data: Record<string, unknown> & { title: string }): Promise<Product> =>
+  client.post('/seller/products/draft', data);
+
+export const updateDraft = (id: string, data: Record<string, unknown>): Promise<Product> =>
+  client.put(`/seller/products/${id}/draft`, data);
+
+export const submitDraft = (id: string): Promise<Product> =>
+  client.post(`/seller/products/${id}/submit`);

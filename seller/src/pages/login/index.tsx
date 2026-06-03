@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Button, message, Typography, Space, List, Tag, Alert, Tabs } from 'antd';
+import { App, Card, Form, Input, Button, Typography, Space, List, Tag, Alert, Tabs } from 'antd';
 import { MobileOutlined, SafetyCertificateOutlined, ShopOutlined, ClockCircleOutlined, LockOutlined, SafetyOutlined, ReloadOutlined } from '@ant-design/icons';
 import { sendSmsCode, login, loginByPassword, selectCompany, getMe, getCaptcha } from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
@@ -20,6 +20,7 @@ const svgToDataUrl = (svg: string): string => {
 };
 
 export default function LoginPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
@@ -92,26 +93,16 @@ export default function LoginPage() {
     return () => clearTempTokenTimer();
   }, [clearTempTokenTimer]);
 
-  // 发送验证码
+  // 发送验证码（方案 A：只需手机号，后端速率限制保护）
   const handleSendCode = async () => {
     const phone = form.getFieldValue('phone');
-    const captchaCode = form.getFieldValue('captchaCode');
     if (!phone || !/^1\d{10}$/.test(phone)) {
       message.warning('请输入正确的手机号');
       return;
     }
-    if (!captchaId) {
-      message.warning('请先获取图形验证码');
-      void refreshCaptcha();
-      return;
-    }
-    if (!captchaCode || captchaCode.length < 4) {
-      message.warning('请输入图形验证码');
-      return;
-    }
     setCodeSending(true);
     try {
-      await sendSmsCode(phone, captchaId, captchaCode);
+      await sendSmsCode(phone);
       message.success('验证码已发送（开发模式请查看后端控制台）');
       setCountdown(60);
       const timer = setInterval(() => {
@@ -120,14 +111,8 @@ export default function LoginPage() {
           return prev - 1;
         });
       }, 1000);
-      // 图形验证码已被后端原子消费，刷新并清空，便于 60s 后再次重发
-      void refreshCaptcha();
-      form.setFieldValue('captchaCode', '');
     } catch (err) {
       message.error(err instanceof Error ? err.message : '发送失败');
-      // 图形验证码只能用一次，失败后刷新
-      void refreshCaptcha();
-      form.setFieldValue('captchaCode', '');
     } finally {
       setCodeSending(false);
     }
@@ -310,6 +295,19 @@ export default function LoginPage() {
             {tempTokenExpired ? '重新登录' : '返回登录'}
           </Button>
         </Card>
+        <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
+          <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
+          <div>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#666' }}
+            >
+              粤ICP备2023047684号-5
+            </a>
+          </div>
+        </div>
       </div>
     );
   }
@@ -400,8 +398,6 @@ export default function LoginPage() {
                     <Input prefix={<MobileOutlined />} placeholder="手机号" />
                   </Form.Item>
 
-                  {captchaField}
-
                   <Form.Item>
                     <Space.Compact style={{ width: '100%' }}>
                       <Form.Item
@@ -467,6 +463,17 @@ export default function LoginPage() {
                     <Input.Password prefix={<LockOutlined />} placeholder="密码" />
                   </Form.Item>
 
+                  <div style={{ textAlign: 'right', marginTop: -12, marginBottom: 12 }}>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, height: 'auto' }}
+                      onClick={() => navigate('/forgot-password')}
+                    >
+                      忘记密码？
+                    </Button>
+                  </div>
+
                   <Form.Item>
                     <Button
                       type="primary"
@@ -490,6 +497,19 @@ export default function LoginPage() {
           </Text>
         </div>
       </Card>
+      <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
+        <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
+        <div>
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#666' }}
+          >
+            粤ICP备2023047684号-5
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

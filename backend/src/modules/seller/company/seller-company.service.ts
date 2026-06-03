@@ -3,19 +3,29 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, AI_SEARCH_KEYS } from './seller-company.dto';
+import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, UpdateStaffNicknameDto, UpdateStaffPhoneDto, ResetStaffPasswordDto, AI_SEARCH_KEYS } from './seller-company.dto';
 import { maskName, maskPhone } from '../../../common/security/privacy-mask';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
+import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 import { CompanyService } from '../../company/company.service';
+import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 
 @Injectable()
 export class SellerCompanyService {
+  private readonly logger = new Logger(SellerCompanyService.name);
+
   constructor(
     private prisma: PrismaService,
     private companyService: CompanyService,
+    private config: ConfigService,
+    private aliyunSms: AliyunSmsService,
   ) {}
 
   // ===================== 企业信息 =====================
@@ -224,7 +234,16 @@ export class SellerCompanyService {
     return this.prisma.companyStaff.findMany({
       where: { companyId },
       include: {
-        user: { include: { profile: { select: { nickname: true, avatarUrl: true } } } },
+        user: {
+          include: {
+            profile: { select: { nickname: true, avatarUrl: true } },
+            authIdentities: {
+              where: { provider: 'PHONE' },
+              select: { identifier: true },
+              take: 1,
+            },
+          },
+        },
       },
       orderBy: { joinedAt: 'asc' },
     });
@@ -233,6 +252,13 @@ export class SellerCompanyService {
   /** 邀请员工 */
   async inviteStaff(companyId: string, inviterUserId: string, dto: InviteStaffDto) {
     // F4: 禁止向平台公司邀请员工
+    // ⚠️ 架构债（2026-05-27 识别，v1.0 暂不修）：F4 只挡了 seller-center 这一条路径，
+    //    超管走 admin-backend 的 addStaff（admin-companies.service.ts:483）能绕过此检查
+    //    给平台公司加员工，且 seller-auth 登录不查 isPlatform → 平台公司可被 seller-center 登
+    //    上线后若决定收口走"方案 A 严格分离"，要同步补：
+    //    (1) admin-companies.service.ts addStaff/transferOwner 加 isPlatform 检查
+    //    (2) seller-auth 登录排除 isPlatform=true 的 CompanyStaff
+    //    (3) 清理已存在的平台公司员工
     if (companyId === PLATFORM_COMPANY_ID) {
       throw new BadRequestException('平台公司不支持邀请员工');
     }
@@ -252,7 +278,7 @@ export class SellerCompanyService {
       const newUser = await this.prisma.user.create({
         data: {
           profile: { create: { nickname: dto.phone } },
-          memberProfile: { create: {} },
+          memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
           authIdentities: {
             create: {
               provider: 'PHONE',
@@ -277,7 +303,7 @@ export class SellerCompanyService {
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : null;
 
-    return this.prisma.companyStaff.create({
+    const created = await this.prisma.companyStaff.create({
       data: {
         userId: identity.userId,
         companyId,
@@ -289,6 +315,40 @@ export class SellerCompanyService {
         user: { include: { profile: { select: { nickname: true, avatarUrl: true } } } },
       },
     });
+
+    // C40c6：邀请员工时 fire-and-forget 发通知短信（复用现有验证码模板 SMS_501860621）
+    // - 员工看到签名「深圳华海农业科技集团」知道是哪家企业邀请
+    // - 发送的 code 同时写入 SmsOtp(purpose=LOGIN)，员工可直接用它登录（5 分钟有效）
+    // - 失败不阻塞邀请流程
+    void this.sendInviteSms(dto.phone).catch((err) => {
+      this.logger.warn(`[InviteStaff] SMS 发送失败不影响邀请: ${(err as Error)?.message}`);
+    });
+
+    return created;
+  }
+
+  /** 发送邀请短信（内部方法，fire-and-forget） */
+  private async sendInviteSms(phone: string) {
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // 写入 SmsOtp 使该 code 可用于登录
+    await this.prisma.smsOtp.create({
+      data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
+    });
+
+    if (smsMock === 'true') {
+      this.logger.log(
+        `[InviteStaff SMS Mock] 固定 code=${code}（目标 ${maskPhone(phone)}），员工可用此 code 登录`,
+      );
+    } else {
+      await this.aliyunSms.sendVerificationCode(phone, code);
+      this.logger.log(
+        `[InviteStaff SMS] 已发送（目标 ${maskPhone(phone)}），签名【深圳华海农业科技集团】+ code 5 分钟内可登录`,
+      );
+    }
   }
 
   /** 修改员工角色/状态 */
@@ -339,6 +399,99 @@ export class SellerCompanyService {
       });
 
       await tx.companyStaff.delete({ where: { id: staffId } });
+    });
+
+    return { ok: true };
+  }
+
+  // ===================== OWNER 管理员工的昵称 / 手机号 / 密码 =====================
+
+  /** 校验 staff 存在、属于本企业、非 OWNER（这三个操作均不适用于 OWNER） */
+  private async assertStaffEditable(companyId: string, staffId: string) {
+    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new NotFoundException('员工不存在');
+    if (staff.companyId !== companyId) throw new ForbiddenException('无权操作');
+    if (staff.role === 'OWNER') {
+      throw new BadRequestException('创始人请通过账号安全页面自行修改');
+    }
+    return staff;
+  }
+
+  /** OWNER 修改员工昵称（全局生效） */
+  async updateStaffNickname(companyId: string, staffId: string, dto: UpdateStaffNicknameDto) {
+    const staff = await this.assertStaffEditable(companyId, staffId);
+    const nickname = dto.nickname.trim();
+    if (!nickname) throw new BadRequestException('昵称不能为空');
+
+    await this.prisma.userProfile.upsert({
+      where: { userId: staff.userId },
+      create: { userId: staff.userId, nickname },
+      update: { nickname },
+    });
+    return { ok: true, nickname };
+  }
+
+  /** OWNER 修改员工手机号（替换 AuthIdentity.identifier，下次登录用新号） */
+  async updateStaffPhone(companyId: string, staffId: string, dto: UpdateStaffPhoneDto) {
+    const staff = await this.assertStaffEditable(companyId, staffId);
+    const newPhone = dto.newPhone.trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      const currentIdentity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', userId: staff.userId },
+      });
+      if (!currentIdentity) {
+        throw new BadRequestException('该员工没有手机号身份记录');
+      }
+
+      if (currentIdentity.identifier === newPhone) {
+        return { ok: true, unchanged: true };
+      }
+
+      const conflict = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: newPhone },
+      });
+      if (conflict && conflict.userId !== staff.userId) {
+        throw new BadRequestException('该手机号已被其他用户注册');
+      }
+
+      const oldPhone = currentIdentity.identifier.trim();
+
+      await tx.authIdentity.update({
+        where: { id: currentIdentity.id },
+        data: { identifier: newPhone, verified: true },
+      });
+
+      // 如果当前昵称 = 旧手机号（自动默认值），同步更新避免列表错位
+      const profile = await tx.userProfile.findUnique({
+        where: { userId: staff.userId },
+        select: { nickname: true },
+      });
+      if (profile?.nickname?.trim() === oldPhone) {
+        await tx.userProfile.update({
+          where: { userId: staff.userId },
+          data: { nickname: newPhone },
+        });
+      }
+
+      return { ok: true, unchanged: false, oldPhone, newPhone };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  /** OWNER 重置员工密码（bcrypt + 失效所有活跃 session） */
+  async resetStaffPassword(companyId: string, staffId: string, dto: ResetStaffPasswordDto) {
+    const staff = await this.assertStaffEditable(companyId, staffId);
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyStaff.update({
+        where: { id: staff.id },
+        data: { passwordHash },
+      });
+      await tx.sellerSession.updateMany({
+        where: { staffId: staff.id, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
     });
 
     return { ok: true };

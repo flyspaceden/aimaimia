@@ -167,7 +167,7 @@ export class VipUpstreamService {
           type: 'reward_credited',
           title: '分润奖励到账',
           content: `您收到 ${rewardPool.toFixed(2)} 元消费奖励，已到账可提现。`,
-          target: { route: '/wallet' },
+          target: { route: '/me/wallet' },
         }).catch(() => {});
       });
     }
@@ -218,11 +218,11 @@ export class VipUpstreamService {
                a.path || vtn.id
         FROM "VipTreeNode" vtn
         JOIN ancestors a ON vtn.id = a."parentId"
-        WHERE a.depth < ${k}
+        WHERE a.depth < ${k}::int
           AND NOT (vtn.id = ANY(a.path))
       )
       SELECT id, "rootId", "userId", "parentId", level, position, "childrenCount", "createdAt"
-      FROM ancestors WHERE depth = ${k} LIMIT 1
+      FROM ancestors WHERE depth = ${k}::int LIMIT 1
     `;
 
     const result = (ancestors as any[])?.[0];
@@ -239,7 +239,18 @@ export class VipUpstreamService {
 
   /**
    * 释放冻结奖励：当用户 selfPurchaseCount 增加到 newLevel 时，
-   * 释放其名下 meta.requiredLevel <= newLevel 的冻结奖励
+   * 释放其名下 meta.requiredLevel <= newLevel 的冻结奖励。
+   *
+   * ⚠️ VipProgress.unlockedLevel 字段语义提醒：
+   * 仅当本函数 *实际* 释放了至少一笔 VIP_UPSTREAM FROZEN 流水时（line 280
+   * 的 `if (totalReleased > 0)` 分支），unlockedLevel 才会被更新为 newLevel。
+   * 因此该字段不等于"用户已解锁的层级"，而是"上次有冻结奖励真的被释放
+   * 时记录的层级戳"。自购充足、下级始终 AVAILABLE 直接到账的用户，其
+   * unlockedLevel 会永远停留在初始值 0。
+   * 业务上判定"祖先是否解锁第 k 层"使用 selfPurchaseCount，见
+   * processVipUpstream line 113-116。
+   * 前端展示请用 min(selfPurchaseCount, vipMaxLayers) 计算，参见
+   * admin-bonus.service.ts computeUnlockedLevel。
    */
   async unlockFrozenRewards(
     tx: any,
@@ -295,7 +306,7 @@ export class VipUpstreamService {
           type: 'reward_unfrozen',
           title: '奖励已解锁',
           content: `您有 ${totalReleased.toFixed(2)} 元奖励已解锁，可提现。`,
-          target: { route: '/wallet' },
+          target: { route: '/me/wallet' },
         }).catch(() => {});
       });
 

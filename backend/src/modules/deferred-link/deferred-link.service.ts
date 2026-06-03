@@ -10,11 +10,23 @@ export class DeferredLinkService {
   constructor(private prisma: PrismaService) {}
 
   private normalizeUA(ua: string): string {
+    // 目标：让"扫码时浏览器 UA"和"App 启动时 RN WebView UA"在同一台设备上归一化为同一字符串，
+    // 进而 SHA256 一致命中精确匹配。剥离浏览器引擎/版本特征（Safari/WebView 差异），
+    // 保留 OS/设备特征（"iPhone OS 17_2" / "Linux Android 14 Pixel 6"）
     return ua
+      // 微信内置浏览器特征
       .replace(/\s*MicroMessenger\/[\d.]+/i, '')
       .replace(/\s*NetType\/\w+/i, '')
       .replace(/\s*Language\/[\w-]+/i, '')
       .replace(/\s*miniProgram\/[\d.]+/i, '')
+      // 浏览器引擎/版本（Safari Version vs RN WebView 缺失，Chrome 各家厂商版本不同）
+      .replace(/\s*Version\/[\d.]+/i, '')
+      .replace(/\s*Chrome\/[\d.]+/i, '')
+      .replace(/\s*Safari\/[\d.]+/i, '')
+      // Android WebView 多带 Build/UQ1A.xxx 字段，剥掉避免厂商指纹漂移
+      .replace(/\s+Build\/[\w.-]+/i, '')
+      // 折叠剥离后产生的多余空白
+      .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 500);
   }
@@ -32,7 +44,7 @@ export class DeferredLinkService {
     const member = await this.prisma.memberProfile.findUnique({
       where: { referralCode: dto.referralCode },
     });
-    if (!member) {
+    if (!member || member.tier !== 'VIP') {
       throw new BadRequestException('推荐码无效');
     }
 
@@ -91,24 +103,39 @@ export class DeferredLinkService {
     // 事务内原子操作：查找 + 标记已消费
     const record = await this.prisma.$transaction(async (tx) => {
       // 第一优先级：精确指纹匹配
-      const exactMatch = await tx.deferredDeepLink.findFirst({
+      // findMany take 3 兼做"精确指纹多候选监控"——UA 归一化把指纹降级到
+      // OS+设备维度后，同 WiFi+同型号手机+同语言+同屏幕 的精确指纹有概率相同，
+      // 多于 1 条候选时 logger.warn 报警，便于排查"拿错码"场景
+      const exactCandidates = await tx.deferredDeepLink.findMany({
         where: {
           fingerprint,
           matched: false,
           expiresAt: { gt: now },
         },
         orderBy: { createdAt: 'desc' },
+        take: 3,
       });
 
-      if (exactMatch) {
+      if (exactCandidates.length > 1) {
+        this.logger.warn(
+          `[DDL] 精确指纹多候选：fingerprint=${fingerprint.slice(0, 16)}... ` +
+            `count=${exactCandidates.length} picked=${exactCandidates[0].referralCode} ` +
+            `（同设备型号+同 WiFi 多人扫码，归一化后指纹碰撞）`,
+        );
+      }
+
+      if (exactCandidates.length > 0) {
         return tx.deferredDeepLink.update({
-          where: { id: exactMatch.id },
+          where: { id: exactCandidates[0].id },
           data: { matched: true },
         });
       }
 
       // 第二优先级：模糊匹配（同 IP + 相同屏幕信息）
-      const fuzzyMatch = await tx.deferredDeepLink.findFirst({
+      // findMany take 10 兼做"同 IP 多人碰撞监控"——用 findFirst 只能拿到 1 条，
+      // 看不到候选数量；3+ 候选意味着公司/家庭/公共 WiFi 多人扫码下载，
+      // 按 createdAt DESC 取首条可能不是当前用户实际扫的码（设计文档已知权衡）
+      const fuzzyCandidates = await tx.deferredDeepLink.findMany({
         where: {
           ipAddress,
           screenInfo,
@@ -116,11 +143,20 @@ export class DeferredLinkService {
           expiresAt: { gt: now },
         },
         orderBy: { createdAt: 'desc' },
+        take: 10,
       });
 
-      if (fuzzyMatch) {
+      if (fuzzyCandidates.length >= 3) {
+        this.logger.warn(
+          `[DDL] 同 IP+屏幕模糊匹配候选过多：ip=${ipAddress} screen=${screenInfo} ` +
+            `count=${fuzzyCandidates.length} picked=${fuzzyCandidates[0].referralCode} ` +
+            `（可能拿错码，需排查 NAT/公共 WiFi 场景）`,
+        );
+      }
+
+      if (fuzzyCandidates.length > 0) {
         return tx.deferredDeepLink.update({
-          where: { id: fuzzyMatch.id },
+          where: { id: fuzzyCandidates[0].id },
           data: { matched: true },
         });
       }

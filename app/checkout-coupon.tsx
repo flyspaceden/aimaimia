@@ -5,24 +5,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../src/components/layout';
 import { EmptyState, Skeleton } from '../src/components/feedback';
 import { CouponRepo } from '../src/repos';
 import { useAuthStore, useCheckoutStore } from '../src/store';
-import { useTheme } from '../src/theme';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
+import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import type { CheckoutEligibleCoupon } from '../src/types/domain/Coupon';
 
 /**
  * 格式化折扣展示文案
- * - FIXED 类型：¥10
- * - PERCENT 类型：discountValue=20 表示打 8 折（即减 20%）
+ * - FIXED 类型：discountValue 含义=固定抵扣金额（单位：元），如 10.5 表示减 ¥10.50
+ * - PERCENT 类型：discountValue 含义=减扣百分比（20 表示减 20%，即 8 折）
+ * 后端 DTO 同款语义见 backend/src/modules/coupon/dto/
  */
 const formatDiscountLabel = (coupon: CheckoutEligibleCoupon): { symbol: string; value: string } => {
   if (coupon.discountType === 'FIXED') {
-    return { symbol: '¥', value: String(coupon.discountValue) };
+    return { symbol: '¥', value: coupon.discountValue.toFixed(2) };
   }
-  // PERCENT 类型：discountValue 是折扣百分比，如 20 表示减 20%，即打 8 折
+  // PERCENT 类型：discountValue 是减扣百分比，如 20 表示减 20%，即打 8 折
   const zheKou = (100 - coupon.discountValue) / 10;
   return { symbol: '', value: `${zheKou}折` };
 };
@@ -96,10 +97,10 @@ const CouponCard = React.memo(function CouponCard({
         {symbol ? (
           <>
             <Text style={styles.amountSymbol}>{symbol}</Text>
-            <Text style={styles.amountValue}>{value}</Text>
+            <Text {...priceTextProps} style={styles.amountValue}>{value}</Text>
           </>
         ) : (
-          <Text style={[styles.amountValue, { fontSize: 22 }]}>{value}</Text>
+          <Text {...priceTextProps} style={[styles.amountValue, { fontSize: 22 }]}>{value}</Text>
         )}
         {item.minOrderAmount > 0 ? (
           <Text style={styles.amountThreshold}>满¥{item.minOrderAmount}可用</Text>
@@ -159,9 +160,15 @@ const CouponCard = React.memo(function CouponCard({
         )}
       </View>
 
-      {/* 选中指示器（多选复选框样式） */}
-      {!isDisabled && (
-        <View style={styles.checkWrap}>
+      {/* 选中指示器：可选态显示 checkbox，禁用态显示禁用 icon（不显示 checkbox） */}
+      <View style={styles.checkWrap}>
+        {isDisabled ? (
+          <MaterialCommunityIcons
+            name="close-circle-outline"
+            size={20}
+            color={colors.muted}
+          />
+        ) : (
           <View
             style={[
               styles.checkbox,
@@ -176,8 +183,8 @@ const CouponCard = React.memo(function CouponCard({
               <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
             )}
           </View>
-        </View>
-      )}
+        )}
+      </View>
     </Pressable>
   );
 });
@@ -185,7 +192,13 @@ const CouponCard = React.memo(function CouponCard({
 export default function CheckoutCouponScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  // 底部选择栏统一使用系统 safe-area + 视觉间距，避免全局推断导致底部 gap。
+  // R-RS-LF02: 底部栏改用 onLayout 测量实际高度，大字体下自动留够
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactConfirmBar = isCompact || isLargeText;
+  const barBottomPad = useBottomInset(spacing.sm);
+  const { bottomPadding: scrollBottomPad, onBarLayout: handleConfirmBarLayout } =
+    useMeasuredBottomBar(compactConfirmBar ? 140 : 100, spacing.lg);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
 
   // 接收参数：订单金额 + 分类ID列表 + 商家ID列表 + 已选红包（回显）
@@ -229,19 +242,21 @@ export default function CheckoutCouponScreen() {
 
   const allCoupons = data?.ok ? data.data : [];
 
-  // 分离可用和不可用红包
+  // 分离可用和不可用红包（过期红包统一归入不可用，双保险）
   const { eligible, ineligible } = useMemo(() => {
     const elig: CheckoutEligibleCoupon[] = [];
     const inelig: CheckoutEligibleCoupon[] = [];
+    const nowTime = Date.now();
     allCoupons.forEach((coupon) => {
-      if (coupon.eligible) {
+      const isExpired = new Date(coupon.expiresAt).getTime() <= nowTime;
+      if (coupon.eligible && !isExpired) {
         elig.push(coupon);
       } else {
         inelig.push(coupon);
       }
     });
-    // 可用红包按预估抵扣金额降序
-    elig.sort((a, b) => b.estimatedDiscount - a.estimatedDiscount);
+    // 可用红包按预估抵扣金额降序；同金额时按 id 升序作为二级排序键保证稳定性
+    elig.sort((a, b) => b.estimatedDiscount - a.estimatedDiscount || a.id.localeCompare(b.id));
     return { eligible: elig, ineligible: inelig };
   }, [allCoupons]);
 
@@ -274,6 +289,13 @@ export default function CheckoutCouponScreen() {
   }, [eligible, selectedIds]);
 
   const handleSelect = useCallback((coupon: CheckoutEligibleCoupon) => {
+    // 过期红包不可选（双保险：列表已过滤，此处再拦一次）
+    const nowTime = Date.now();
+    const isExpired = new Date(coupon.expiresAt).getTime() <= nowTime;
+    if (isExpired) {
+      Alert.alert('提示', '该红包已过期');
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(coupon.id)) {
@@ -437,7 +459,7 @@ export default function CheckoutCouponScreen() {
             return (item as CheckoutEligibleCoupon).id;
           }}
           initialNumToRender={8}
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 100 }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
           renderItem={({ item, index }: { item: ListItem; index: number }) => {
             // 分组标题
             if ('type' in item && item.type === 'header') {
@@ -463,10 +485,12 @@ export default function CheckoutCouponScreen() {
 
       {/* 底部确认栏 */}
       <View
+        onLayout={handleConfirmBarLayout}
         style={[
           styles.bottomBar,
+          compactConfirmBar && styles.bottomBarCompact,
           {
-            paddingBottom: insets.bottom + spacing.sm,
+            paddingBottom: barBottomPad,
             paddingHorizontal: spacing.xl,
             borderTopColor: colors.border,
             backgroundColor: colors.surface,
@@ -477,16 +501,21 @@ export default function CheckoutCouponScreen() {
           onPress={handleSkip}
           style={{ paddingVertical: 12, paddingHorizontal: spacing.md }}
         >
-          <Text style={[typography.bodySm, { color: colors.text.secondary }]}>不使用红包</Text>
+          <Text {...compactActionTextProps} style={[typography.bodySm, { color: colors.text.secondary }]}>
+            不使用红包
+          </Text>
         </Pressable>
         <LinearGradient
           colors={[...gradients.goldGradient]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={{ borderRadius: radius.pill, overflow: 'hidden' }}
+          style={[
+            { borderRadius: radius.pill, overflow: 'hidden' },
+            compactConfirmBar && { alignSelf: 'stretch' },
+          ]}
         >
           <Pressable onPress={handleConfirm} style={styles.confirmButton}>
-            <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
               {selectedCount > 0
                 ? `确认使用 ${selectedCount} 张 -¥${totalDiscount.toFixed(2)}`
                 : '确认'}
@@ -563,8 +592,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: 12,
   },
+  bottomBarCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
   confirmButton: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

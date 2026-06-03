@@ -1,8 +1,61 @@
 # 快递物流链路实施文档
 
-> **状态**: 顺丰丰桥直连已完成，快递100代码已删除
-> **最后更新**: 2026-04-12
+> **状态**: 顺丰丰桥直连已完成，**2026-05-08 沙箱全流程调测追加修复已完成**，待真机重测与生产部署
+> **最后更新**: 2026-05-08
 > **权威范围**: 快递物流链路的开发进度、顺丰直连改造计划、上线前配置清单
+
+---
+
+## 📌 2026-05-06 真机端到端 staging 验收 ✅
+
+**整套链路打通**：App 真机下单 → admin 自动取号 → SF API 创建运单 → 顺丰沙箱「全流程调测」推送 → 我方 callback 解析 → DB 入库 → App 物流时间线显示 → 买家确认收货 → 分润成功。
+
+### 验证清单
+
+| 环节 | 实证 | 状态 |
+|---|---|---|
+| App 真机下单 + 支付宝沙箱付款 | 订单 cmoudefr0000vt7jxryw00cl6 等 | ✅ |
+| admin 后台「自动取号」 | waybillNo=SF7444703624576 | ✅ |
+| SF URL secret token 鉴权 | `/sf/callback/<32位hex>` + crypto.timingSafeEqual | ✅ |
+| WaybillRoute 推送解析 | `parseWaybillRoutes` opCode 50/30/44/80 | ✅ |
+| OrderState 推送解析 | `parseOrderStates` orderStateCode | ✅ |
+| 时间字段 ISO 兼容 | `safeParseTime` 替换 "YYYY-MM-DD HH:mm:ss" → "T" 分隔 | ✅ |
+| Shipment + TrackingEvent 入库 | Serializable tx + 去重 | ✅ |
+| App 订单详情物流卡片 + 时间线 | `app/orders/track.tsx` 显示「您的快件已签收」 | ✅ |
+| Order.status SHIPPED → DELIVERED | SF push 已签收触发整单 DELIVERED | ✅ |
+| 买家「确认收货」 → RECEIVED | App 详情页底部按钮 → status=RECEIVED | ✅ |
+| 分润 allocateForOrder 成功 | NORMAL_TREE 路径 + 普通树落位 + 上溯第 k 层祖辈 + 5 池入账 | ✅ |
+| Dead letter 自动恢复 | BonusCompensationService cron heal 6 笔历史失败订单 | ✅ |
+
+### 验收期间发现 + 修复的 bug（commits 全在 staging 分支）
+
+| Bug | 影响 | 修复 commit |
+|-----|------|----|
+| AllocationRuleType enum 缺 VIP_PLATFORM_SPLIT | VIP 用户买普通商品收货时分润全失败 | `8d3200f` migration 补齐 |
+| 普通树 assignNormalTreeNodeInline 用 nodeCount 推算位置不容忍空隙 | 普通用户首次入树 P2002 失败 | `243a0f3` 改成扫描真实占用 |
+| admin 详情页运单号空白（只读 trackingNo 不读 waybillNo）| 自动取号订单 admin 看不到面单号 | `7c506f7` + `10518cf` |
+| admin ship Modal 自动取号 10-30 秒无 loading | UX 用户重复点击 | `37e63cd` |
+| sender 地址 detail 缺失 SF 抛 20004 黑盒错误 | 发货失败排查难 | `66836ca` 前置校验 |
+| seller / admin 公司信息详细地址未必填 | 测试环境留下空数据 | `1870327` 表单层必填 |
+| SF 时间格式空格分隔触发 Invalid Date | 推送处理 500 ERR + 重试 | `e4e738f` safeParseTime |
+| SF OrderState 推送 body 不含 WaybillRoute → warn 刷屏 | 沙箱测试看不懂 | `1870327` 双格式分派 |
+| SF 沙箱旧路由样例污染当前订单 | 调度/分配小哥阶段混入 2025 已签收路由，三端误显已送达 | 2026-05-08 本次修复 |
+| SF OrderState「调度失败/等待」文案 | App 时间线语义错误 | 2026-05-08 本次修复：显示「等待调度」 |
+| 单包裹 SHIPPED 聚合成 IN_TRANSIT | 物流页当前状态过早显示运输中 | 2026-05-08 本次修复 |
+| admin 普通订单默认手填发货 | 4 位短单号只写本地 trackingNo，顺丰沙箱无订单 | 2026-05-08 本次修复：默认自动取号 + 后端拒绝短单号 |
+| App OrderCard / StatusHero SHIPPED 显"运输中" | 与 admin"已发货"不一致 | `6eb6d19` 统一为"已发货" |
+| 物流追踪页"产地实景联动"占位卡 | 占位无内容 | `baee231` 删除 |
+| 「我的订单」5 tab 拆出"已发货"独立 tab | 之前 SHIPPED+DELIVERED 合并在「待收货」| `9d8dcfa` |
+| 「我的」tab 订单快捷入口同步 5 项 | 漏改 | `fe34eb2` |
+
+### 待生产部署（推 main 时同步）
+
+- [ ] `prisma migrate deploy` 自动应用 VIP_PLATFORM_SPLIT migration（破坏性低，PG `ALTER TYPE ADD VALUE IF NOT EXISTS`）
+- [ ] 生产 .env 配 `SF_PUSH_SECRET=<32 位 hex>`（与沙箱不同 secret，存密码本）
+- [ ] 顺丰生产推送 URL 改为 `https://api.ai-maimai.com/api/v1/shipments/sf/callback/<生产 token>`
+- [ ] 申请顺丰生产月结账户 + 切换 `SF_MONTHLY_ACCOUNT`
+- [ ] 切回 `SF_ENV=PROD`（之前是 SANDBOX）
+- [ ] 验证：真机下单 → admin 发货 → 实际物流跟踪到 3-5 单签收
 
 ---
 
@@ -245,8 +298,17 @@ Order: DELIVERED → RECEIVED
   - 批量发货
 
 #### ✅ 管理后台运费规则
-- **文件**: `admin/src/pages/...`
-- **功能**: CRUD 运费规则（按地区/金额/重量匹配）
+- **文件**: `admin/src/pages/shipping-rules`
+- **功能**: CRUD 平台统一运费规则；按地区 + 整单重量使用顺丰风格首重/续重公式计价，支持预览、CSV/JSON 批量导入、dry-run 二次确认。
+
+#### ✅ 平台统一运费计价（2026-05-11）
+
+- **业务口径**: 平台统一对接顺丰并承担履约运费；买家侧保持满额包邮，不满额时按平台自定义顺丰风格公式收取运费。商户与平台协商价格不进入代码。
+- **计费方式**: 收货地区匹配 `ShippingRule.regionCodes`，整单商品重量按 SKU `weightGram × quantity` 汇总；公式为首重价 + 续重阶梯价，内部按克/分整数化计算，避免浮点误差。
+- **多商户订单**: 结算时整单只收一次运费；支付回调建单时使用 `CheckoutSession.shippingFee` 锁价，并按各子订单商品金额比例分摊。
+- **缓存与兜底**: 生效规则通过 Redis 缓存 60 秒，规则写操作主动失效；无可用规则或异常时才使用 `DEFAULT_SHIPPING_FEE` 兜底。
+- **顺丰成本**: 卖家生成顺丰面单时传真实包裹重量，并写入 `OrderShippingCost`；顺丰月结真实成本后续回填 `actualCost/reconciledAt` 用于平台对账。
+- **SKU 重量**: 卖家商品、管理端普通商品、管理端奖励商品 SKU 均要求填写重量；历史空值迁移为 1000g。
 
 ### 2.4 环境变量
 
@@ -259,7 +321,7 @@ KUAIDI100_KEY="your-kuaidi100-key"
 KUAIDI100_SECRET="your-kuaidi100-secret"
 KUAIDI100_PARTNER_ID="your-platform-partner-id"
 KUAIDI100_PARTNER_KEY=""
-KUAIDI100_CALLBACK_URL="https://api.爱买买.com/api/v1/shipments/kuaidi100/callback"
+KUAIDI100_CALLBACK_URL="https://api.ai-maimai.com/api/v1/shipments/kuaidi100/callback"
 KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 ```
 
@@ -295,7 +357,7 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 - **类型**: 部署配置
 - **影响**: 物流推送永远收不到，买家看到的物流轨迹永远过时
 - **操作**: 在快递100管理后台"API 接口设置"中填写：
-  - 推送 URL: `https://api.爱买买.com/api/v1/shipments/kuaidi100/callback?token=<KUAIDI100_CALLBACK_TOKEN>`
+  - 推送 URL: `https://api.ai-maimai.com/api/v1/shipments/kuaidi100/callback?token=<KUAIDI100_CALLBACK_TOKEN>`
   - 权限令牌: 同 `KUAIDI100_CALLBACK_TOKEN` 环境变量
 - **工作量**: 0.5 天（含联调测试）
 
@@ -427,7 +489,7 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 
 ### Phase 3: 部署配置（1 天）
 - [ ] Nginx 配置回调端点路由
-- [ ] HTTPS 证书就绪（api.爱买买.com）
+- [ ] HTTPS 证书就绪（api.ai-maimai.com）
 - [ ] `.env` 填写真实快递100凭证
 - [ ] 在快递100后台填写回调URL + token
 - [ ] 测试回调是否能收到（用 curl 模拟推送）
@@ -457,6 +519,10 @@ KUAIDI100_CALLBACK_TOKEN="your-callback-token"
 | 买家主动刷新物流 | `ShipmentService.queryTracking()` | shipment.service.ts |
 | 顺丰推送回调 | `ShipmentController.handleSfCallback()` | shipment.controller.ts |
 | 顺丰 API 封装 | `SfExpressService` | sf-express.service.ts |
+| 平台运费规则管理 | `ShippingRuleService` / `ShippingRuleImportService` | admin/shipping-rule/*.ts |
+| 运费规则管理 UI | `admin/src/pages/shipping-rules` | admin shipping rules page |
+| 结算锁定运费 | `CheckoutService.calculateShippingDetailForCheckout()` | checkout.service.ts |
+| 顺丰包裹成本记录 | `OrderShippingCostService.recordPackage()` | order-shipping-cost.service.ts |
 | 物流异常监控 | `ShipmentMonitorService.checkStaleShipments()` | shipment-monitor.service.ts |
 | 自动确认收货 | `OrderAutoConfirmService.handleAutoConfirm()` | order-auto-confirm.service.ts |
 
@@ -580,7 +646,7 @@ SF_API_URL_UAT="https://bsp-oisp-uat.sf-express.com/std/service"  # UAT 沙箱
 SF_CLIENT_CODE="your-sf-client-code"        # 丰桥分配的开发者编码
 SF_CHECK_WORD="your-sf-check-word"          # 丰桥分配的校验码（密钥）
 SF_MONTHLY_ACCOUNT="your-sf-monthly-account" # 顺丰月结账号（12位数字）
-SF_CALLBACK_URL="https://api.爱买买.com/api/v1/shipments/sf/push"
+SF_CALLBACK_URL="https://api.ai-maimai.com/api/v1/shipments/sf/push"
 SF_ENV="UAT"  # UAT 或 PROD，用于切换沙箱/生产
 ```
 
@@ -834,7 +900,7 @@ A: 不需要单独申请。在调用 `EXP_RECE_CREATE_ORDER` 时传入 `callback
 
 ```nginx
 server {
-    server_name api.爱买买.com;
+    server_name api.ai-maimai.com;
 
     location /api/v1/shipments/sf/push {
         proxy_pass http://127.0.0.1:3000;

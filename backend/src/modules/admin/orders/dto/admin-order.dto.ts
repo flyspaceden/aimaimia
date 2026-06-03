@@ -1,14 +1,29 @@
-import { IsString, IsOptional, IsNumberString, IsNotEmpty, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsNumberString, IsNotEmpty, MaxLength, IsBoolean } from 'class-validator';
 
+/**
+ * 管理后台发货 DTO
+ *
+ * Bug 86: 支持两种发货方式
+ * - useCarrierAuto=true（推荐 VIP_PACKAGE）：调顺丰 SF API 自动取号 + 生成电子面单 + OSS 持久化
+ * - useCarrierAuto=false（默认，兼容现有手填单号链路）：手填快递公司 + 运单号
+ */
 export class AdminShipDto {
-  @IsString()
-  carrierCode: string;
+  @IsOptional()
+  @IsBoolean()
+  useCarrierAuto?: boolean;
 
+  /** 承运商编码；useCarrierAuto=true 时可省略默认 'SF'，false 时必传 */
+  @IsOptional()
   @IsString()
-  carrierName: string;
+  carrierCode?: string;
 
+  @IsOptional()
   @IsString()
-  trackingNo: string;
+  carrierName?: string;
+
+  @IsOptional()
+  @IsString()
+  trackingNo?: string;
 }
 
 /** H16: 取消订单 DTO（替换 @Body('reason')） */

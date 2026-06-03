@@ -5,7 +5,7 @@
  * 防止管理员设置无效或危险的配置值。
  */
 
-export type ConfigValueType = 'number' | 'integer' | 'boolean' | 'json';
+export type ConfigValueType = 'number' | 'integer' | 'boolean' | 'json' | 'string';
 
 export interface ConfigValidationRule {
   /** 值类型 */
@@ -18,6 +18,69 @@ export interface ConfigValidationRule {
   max?: number;
   /** 自定义验证函数，返回错误信息或 null 表示通过 */
   custom?: (value: any) => string | null;
+}
+
+const allowedInvoiceRemarkVars = new Set(['orderId', 'paidAt', 'buyerTitle', 'totalAmount']);
+const invoiceSecretKeyPattern = /(secret|token|privatekey|private_key|cert|password|key)$/i;
+
+function validateEnumString(key: string, value: any, allowed: string[]): string | null {
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    return `${key} 只能是：${allowed.join(' / ')}`;
+  }
+  return null;
+}
+
+function validateInvoiceRemarkTemplate(value: any): string | null {
+  if (typeof value !== 'string') {
+    return 'INVOICE_REMARK_TEMPLATE 的值必须是字符串';
+  }
+  if (value.length > 500) {
+    return 'INVOICE_REMARK_TEMPLATE 不能超过 500 字符';
+  }
+  const matches = value.match(/\{\{([^}]+)\}\}/g) || [];
+  for (const match of matches) {
+    const varName = match.replace('{{', '').replace('}}', '').trim();
+    if (!allowedInvoiceRemarkVars.has(varName)) {
+      return `INVOICE_REMARK_TEMPLATE 只能使用白名单变量：${[...allowedInvoiceRemarkVars].join(', ')}`;
+    }
+  }
+  return null;
+}
+
+function validateInvoiceIssuerProfile(value: any): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return 'INVOICE_ISSUER_PROFILE 的值必须是对象';
+  }
+  for (const key of Object.keys(value)) {
+    if (invoiceSecretKeyPattern.test(key.toLowerCase())) {
+      return 'INVOICE_ISSUER_PROFILE 不允许包含密钥、token、证书或密码字段';
+    }
+  }
+  if (!value.companyName || typeof value.companyName !== 'string') {
+    return 'INVOICE_ISSUER_PROFILE.companyName 必须是非空字符串';
+  }
+  if (!value.taxNo || typeof value.taxNo !== 'string') {
+    return 'INVOICE_ISSUER_PROFILE.taxNo 必须是非空字符串';
+  }
+  const maxLengths: Record<string, number> = {
+    companyName: 100,
+    taxNo: 30,
+    registeredAddress: 200,
+    registeredPhone: 30,
+    bankName: 100,
+    bankAccount: 40,
+    drawer: 50,
+    reviewer: 50,
+    payee: 50,
+  };
+  for (const [key, max] of Object.entries(maxLengths)) {
+    const item = value[key];
+    if (item !== undefined && item !== null) {
+      if (typeof item !== 'string') return `INVOICE_ISSUER_PROFILE.${key} 必须是字符串`;
+      if (item.length > max) return `INVOICE_ISSUER_PROFILE.${key} 不能超过 ${max} 字符`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -206,6 +269,12 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     min: 1,
     max: 90,
   },
+  LOW_STOCK_DISPLAY_THRESHOLD: {
+    type: 'integer',
+    description: 'App 低库存展示阈值（0 表示关闭“仅剩 x 件”展示）',
+    min: 0,
+    max: 999,
+  },
   LOTTERY_ENABLED: {
     type: 'boolean',
     description: '抽奖功能开关',
@@ -239,6 +308,70 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     description: '普通用户免运费门槛（元），0=无条件免运费',
     min: 0,
     max: 10000,
+  },
+
+  // =================== 发票系统配置 ===================
+  INVOICE_PROVIDER_MODE: {
+    type: 'string',
+    description: '发票 Provider 模式',
+    custom: (value: any) => validateEnumString('INVOICE_PROVIDER_MODE', value, ['MOCK']),
+  },
+  INVOICE_AUTO_ISSUE: {
+    type: 'boolean',
+    description: '买家申请发票后自动开票',
+  },
+  INVOICE_AUTO_ISSUE_MAX_ATTEMPTS: {
+    type: 'number',
+    description: '自动开票最大重试次数',
+    min: 1,
+    max: 10,
+  },
+  INVOICE_ALLOW_VIP_PACKAGE: {
+    type: 'boolean',
+    description: 'VIP 礼包是否允许申请发票',
+  },
+  INVOICE_LINE_MODE: {
+    type: 'string',
+    description: '发票商品行生成模式',
+    custom: (value: any) =>
+      validateEnumString('INVOICE_LINE_MODE', value, ['ORDER_ITEMS', 'MERGED_CATEGORY']),
+  },
+  INVOICE_DEFAULT_TAX_RATE: {
+    type: 'number',
+    description: '发票默认税率',
+    min: 0,
+    max: 0.13,
+  },
+  INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE: {
+    type: 'string',
+    description: '发票默认税收分类编码',
+    custom: (value: any) => {
+      if (typeof value !== 'string') return 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE 的值必须是字符串';
+      if (value && !/^[A-Za-z0-9]{6,30}$/.test(value)) {
+        return 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE 必须为空或 6-30 位数字/字母';
+      }
+      return null;
+    },
+  },
+  INVOICE_DEFAULT_GOODS_NAME: {
+    type: 'string',
+    description: '发票合并商品行默认名称',
+    custom: (value: any) => {
+      if (typeof value !== 'string') return 'INVOICE_DEFAULT_GOODS_NAME 的值必须是字符串';
+      if (!value.trim()) return 'INVOICE_DEFAULT_GOODS_NAME 不能为空';
+      if (value.length > 100) return 'INVOICE_DEFAULT_GOODS_NAME 不能超过 100 字符';
+      return null;
+    },
+  },
+  INVOICE_REMARK_TEMPLATE: {
+    type: 'string',
+    description: '发票备注模板',
+    custom: validateInvoiceRemarkTemplate,
+  },
+  INVOICE_ISSUER_PROFILE: {
+    type: 'json',
+    description: '平台开票主体配置',
+    custom: validateInvoiceIssuerProfile,
   },
 
   // =================== 发现页配置 ===================
@@ -314,10 +447,10 @@ export function validateConfigValue(key: string, value: any): string | null {
         return `配置项 ${key}（${rule.description}）的值必须是数字，当前值: ${JSON.stringify(value)}`;
       }
       if (rule.min !== undefined && value < rule.min) {
-        return `配置项 ${key}（${rule.description}）的值不能小于 ${rule.min}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能小于最小值 ${rule.min}，当前值: ${value}`;
       }
       if (rule.max !== undefined && value > rule.max) {
-        return `配置项 ${key}（${rule.description}）的值不能大于 ${rule.max}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能大于最大值 ${rule.max}，当前值: ${value}`;
       }
       break;
     }
@@ -327,10 +460,10 @@ export function validateConfigValue(key: string, value: any): string | null {
         return `配置项 ${key}（${rule.description}）的值必须是整数，当前值: ${JSON.stringify(value)}`;
       }
       if (rule.min !== undefined && value < rule.min) {
-        return `配置项 ${key}（${rule.description}）的值不能小于 ${rule.min}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能小于最小值 ${rule.min}，当前值: ${value}`;
       }
       if (rule.max !== undefined && value > rule.max) {
-        return `配置项 ${key}（${rule.description}）的值不能大于 ${rule.max}，当前值: ${value}`;
+        return `配置项 ${key}（${rule.description}）的值不能大于最大值 ${rule.max}，当前值: ${value}`;
       }
       break;
     }
@@ -338,6 +471,13 @@ export function validateConfigValue(key: string, value: any): string | null {
     case 'boolean': {
       if (typeof value !== 'boolean') {
         return `配置项 ${key}（${rule.description}）的值必须是布尔值（true/false），当前值: ${JSON.stringify(value)}`;
+      }
+      break;
+    }
+
+    case 'string': {
+      if (typeof value !== 'string') {
+        return `配置项 ${key}（${rule.description}）的值必须是字符串，当前值: ${JSON.stringify(value)}`;
       }
       break;
     }

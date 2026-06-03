@@ -45,6 +45,25 @@ export class MerchantApplicationService {
       return { message: '申请已提交，请等待审核' };
     }
 
+    // 4.5 C50 修复：拒绝后 7 天冷却期，防止被拒商户立即刷屏重新提交
+    const REJECT_COOLDOWN_DAYS = 7;
+    const cooldownStart = new Date(Date.now() - REJECT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
+    const recentReject = await this.prisma.merchantApplication.findFirst({
+      where: {
+        phone: dto.phone,
+        status: 'REJECTED',
+        reviewedAt: { gt: cooldownStart },
+      },
+      orderBy: { reviewedAt: 'desc' },
+    });
+    if (recentReject && recentReject.reviewedAt) {
+      const remainingMs = recentReject.reviewedAt.getTime() + REJECT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000 - Date.now();
+      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+      throw new BadRequestException(
+        `您的前次申请未通过，请 ${remainingDays} 天后再试${recentReject.rejectReason ? `（原因：${recentReject.rejectReason}）` : ''}`,
+      );
+    }
+
     // 5. 创建申请
     await this.prisma.merchantApplication.create({
       data: {

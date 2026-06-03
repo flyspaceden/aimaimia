@@ -11,6 +11,25 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+function inferSeedWeightGram(title: string): number {
+  const kgMatch = title.match(/(\d+(?:\.\d+)?)\s*kg/i);
+  if (kgMatch) {
+    return Math.max(1, Math.round(Number(kgMatch[1]) * 1000));
+  }
+
+  const gramMatch = title.match(/(\d+(?:\.\d+)?)\s*g/i);
+  if (gramMatch) {
+    return Math.max(1, Math.round(Number(gramMatch[1])));
+  }
+
+  const jinMatch = title.match(/(\d+(?:\.\d+)?)\s*斤/);
+  if (jinMatch) {
+    return Math.max(1, Math.round(Number(jinMatch[1]) * 500));
+  }
+
+  return 1000;
+}
+
 // =================== 客服模块种子数据 ===================
 async function seedCustomerService() {
   // FAQ 规则
@@ -639,6 +658,7 @@ async function main() {
             price: p.skuPrice,
             cost: p.skuCost, // SKU 成本价（分润优先使用 SKU 级别成本）
             stock: p.stock,
+            weightGram: inferSeedWeightGram(p.skuTitle),
             status: 'ACTIVE',
           },
         },
@@ -1340,6 +1360,7 @@ async function main() {
     { code: 'companies:audit', module: 'companies', action: 'audit', description: '审核企业' },
     { code: 'bonus:read', module: 'bonus', action: 'read', description: '查看会员/奖励' },
     { code: 'bonus:approve_withdraw', module: 'bonus', action: 'approve_withdraw', description: '审批提现' },
+    { code: 'bonus:manage_rules', module: 'bonus', action: 'manage_rules', description: '管理提现与抵扣规则' },
     { code: 'bonus:adjust', module: 'bonus', action: 'adjust', description: '调整奖励' },
     { code: 'coupon:read', module: 'coupon', action: 'read', description: '查看红包活动与记录' },
     { code: 'coupon:manage', module: 'coupon', action: 'manage', description: '管理红包活动与发放' },
@@ -1593,6 +1614,44 @@ async function main() {
     { key: 'BUYER_SHIP_TIMEOUT_DAYS', value: 7, desc: '买家退货寄回超时（天）' },
     { key: 'SELLER_RECEIVE_TIMEOUT_DAYS', value: 7, desc: '卖家签收退货超时（天）' },
     { key: 'BUYER_CONFIRM_TIMEOUT_DAYS', value: 7, desc: '买家确认收货超时（天）' },
+    // --- 发票系统 ---
+    { key: 'INVOICE_PROVIDER_MODE', value: 'MOCK', desc: '发票 Provider 模式' },
+    { key: 'INVOICE_AUTO_ISSUE', value: true, desc: '买家申请发票后自动开票' },
+    { key: 'INVOICE_AUTO_ISSUE_MAX_ATTEMPTS', value: 3, desc: '自动开票最大重试次数' },
+    { key: 'INVOICE_ALLOW_VIP_PACKAGE', value: false, desc: 'VIP 礼包是否允许申请发票' },
+    { key: 'INVOICE_LINE_MODE', value: 'ORDER_ITEMS', desc: '发票商品行生成模式' },
+    { key: 'INVOICE_DEFAULT_TAX_RATE', value: 0, desc: '发票默认税率' },
+    { key: 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE', value: '', desc: '发票默认税收分类编码' },
+    { key: 'INVOICE_DEFAULT_GOODS_NAME', value: '农产品', desc: '发票合并商品行默认名称' },
+    { key: 'INVOICE_REMARK_TEMPLATE', value: '订单号：【订单号】', desc: '发票备注模板' },
+    {
+      key: 'INVOICE_ISSUER_PROFILE',
+      value: {
+        companyName: '爱买买app',
+        taxNo: '',
+        registeredAddress: '',
+        registeredPhone: '',
+        bankName: '',
+        bankAccount: '',
+        drawer: '系统开票',
+        reviewer: '',
+        payee: '',
+      },
+      desc: '平台开票主体配置',
+    },
+    // --- 消费积分双轨配置 ---
+    { key: 'WITHDRAW_TAX_RATE', value: 0.20, desc: '提现代扣个税比例' },
+    { key: 'WITHDRAW_MIN_AMOUNT', value: 10, desc: '提现单笔最低（元）' },
+    { key: 'WITHDRAW_MAX_AMOUNT', value: 10000, desc: '提现单笔最高（元）' },
+    { key: 'WITHDRAW_DAILY_MAX_COUNT', value: 3, desc: '提现每日最多次数' },
+    { key: 'WITHDRAW_COOLDOWN_SECONDS', value: 60, desc: '提现间冷却时间（秒）' },
+    { key: 'WITHDRAW_YEARLY_MAX_AMOUNT', value: 50000, desc: '单用户年累计提现上限（元）' },
+    { key: 'DEDUCTION_RATIO_NORMAL', value: 0.10, desc: '普通用户抵扣比例上限' },
+    { key: 'DEDUCTION_RATIO_VIP', value: 0.15, desc: 'VIP 用户抵扣比例上限' },
+    { key: 'DEDUCTION_MIN_ORDER_AMOUNT', value: 0, desc: '最低订单门槛（元）' },
+    { key: 'DEDUCTION_ALLOW_COUPON_STACK', value: true, desc: '是否允许与平台红包叠加' },
+    { key: 'WITHDRAW_PROVIDER_FEE_AMOUNT', value: 0, desc: '单笔通道手续费（元，v1.0=0）' },
+    { key: 'WITHDRAW_YEARLY_ALERT_THRESHOLD', value: 0.80, desc: '年累计达上限多少时告警（0-1）' },
   ];
 
   for (const rc of ruleConfigs) {
@@ -2678,6 +2737,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -2815,6 +2875,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -3461,16 +3522,17 @@ async function main() {
   // 运费规则（ShippingRule）
   // ============================================================
   const shippingRules = [
-    { id: 'sr-001', name: '全国包邮（满99）', regionCodes: [] as string[], minAmount: 99, maxAmount: null as number | null, fee: 0, priority: 10, isActive: true },
-    { id: 'sr-002', name: '全国标准运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: 99 as number | null, fee: 8, priority: 5, isActive: true },
-    { id: 'sr-003', name: '偏远地区加价（新疆）', regionCodes: ['650000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 15, priority: 20, isActive: true },
-    { id: 'sr-004', name: '偏远地区加价（西藏）', regionCodes: ['540000'], minAmount: null as number | null, maxAmount: null as number | null, fee: 20, priority: 20, isActive: true },
-    { id: 'sr-005', name: '重量超额运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: 5000, maxWeight: null as number | null, fee: 12, priority: 15, isActive: true },
+    { id: 'sr-001', name: '历史规则-全国包邮（满99）', regionCodes: [] as string[], minAmount: 99, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 0, firstWeightKg: 3, firstFee: 0, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 10, isActive: false },
+    { id: 'sr-002', name: '全国标准运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 8, firstWeightKg: 3, firstFee: 8, additionalWeightKg: 1, additionalFee: 1.3, minChargeWeightKg: 1, priority: 5, isActive: true },
+    { id: 'sr-003', name: '偏远地区公式（新疆）', regionCodes: ['650000'], minAmount: null as number | null, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 15, firstWeightKg: 3, firstFee: 15, additionalWeightKg: 1, additionalFee: 5.1, minChargeWeightKg: 1, priority: 20, isActive: true },
+    { id: 'sr-004', name: '偏远地区公式（西藏）', regionCodes: ['540000'], minAmount: null as number | null, maxAmount: null as number | null, minWeight: null as number | null, maxWeight: null as number | null, fee: 20, firstWeightKg: 3, firstFee: 20, additionalWeightKg: 1, additionalFee: 7.1, minChargeWeightKg: 1, priority: 20, isActive: true },
+    { id: 'sr-005', name: '历史规则-重量超额运费', regionCodes: [] as string[], minAmount: null as number | null, maxAmount: null as number | null, minWeight: 5000, maxWeight: null as number | null, fee: 12, firstWeightKg: 3, firstFee: 12, additionalWeightKg: 1, additionalFee: 0, minChargeWeightKg: 1, priority: 15, isActive: false },
   ];
   for (const sr of shippingRules) {
+    const { id, ...shippingRuleData } = sr;
     await prisma.shippingRule.upsert({
-      where: { id: sr.id },
-      update: {},
+      where: { id },
+      update: shippingRuleData,
       create: sr,
     });
   }
@@ -3693,18 +3755,20 @@ async function main() {
   // ============================================================
   // 普通用户树节点 + 进度 + 有效消费记录
   // ============================================================
+  // 注意：rootId 必须与 constants.ts 的 NORMAL_ROOT_ID = 'NORMAL_ROOT' 完全一致
+  //       branchFactor=3 → 每父最多 3 子（position 0/1/2），nt-u010 之前在 position=3 违反约束已删除
+  //       NORMAL_ROOT 根节点 childrenCount=3（与实际匹配，避免 algorithm 漂移）
   const normalTreeNodes = [
-    { id: 'nt-u002', rootId: 'ROOT', userId: 'u-002', parentId: 'NORMAL_ROOT', level: 1, position: 0, childrenCount: 2 },
-    { id: 'nt-u003', rootId: 'ROOT', userId: 'u-003', parentId: 'NORMAL_ROOT', level: 1, position: 1, childrenCount: 1 },
-    { id: 'nt-u004', rootId: 'ROOT', userId: 'u-004', parentId: 'NORMAL_ROOT', level: 1, position: 2, childrenCount: 0 },
-    { id: 'nt-u007', rootId: 'ROOT', userId: 'u-007', parentId: 'nt-u002', level: 2, position: 0, childrenCount: 0 },
-    { id: 'nt-u008', rootId: 'ROOT', userId: 'u-008', parentId: 'nt-u002', level: 2, position: 1, childrenCount: 0 },
-    { id: 'nt-u009', rootId: 'ROOT', userId: 'u-009', parentId: 'nt-u003', level: 2, position: 0, childrenCount: 0 },
-    { id: 'nt-u010', rootId: 'ROOT', userId: 'u-010', parentId: 'NORMAL_ROOT', level: 1, position: 3 as number, childrenCount: 0 },
+    { id: 'nt-u002', rootId: 'NORMAL_ROOT', userId: 'u-002', parentId: 'NORMAL_ROOT', level: 1, position: 0, childrenCount: 2 },
+    { id: 'nt-u003', rootId: 'NORMAL_ROOT', userId: 'u-003', parentId: 'NORMAL_ROOT', level: 1, position: 1, childrenCount: 1 },
+    { id: 'nt-u004', rootId: 'NORMAL_ROOT', userId: 'u-004', parentId: 'NORMAL_ROOT', level: 1, position: 2, childrenCount: 0 },
+    { id: 'nt-u007', rootId: 'NORMAL_ROOT', userId: 'u-007', parentId: 'nt-u002', level: 2, position: 0, childrenCount: 0 },
+    { id: 'nt-u008', rootId: 'NORMAL_ROOT', userId: 'u-008', parentId: 'nt-u002', level: 2, position: 1, childrenCount: 0 },
+    { id: 'nt-u009', rootId: 'NORMAL_ROOT', userId: 'u-009', parentId: 'nt-u003', level: 2, position: 0, childrenCount: 0 },
   ];
 
-  // 先更新根节点 childrenCount
-  await prisma.normalTreeNode.update({ where: { id: 'NORMAL_ROOT' }, data: { childrenCount: 4 } });
+  // 先更新根节点 childrenCount（3 与子节点数量一致）
+  await prisma.normalTreeNode.update({ where: { id: 'NORMAL_ROOT' }, data: { childrenCount: 3 } });
 
   for (const nt of normalTreeNodes) {
     await prisma.normalTreeNode.upsert({
@@ -4259,6 +4323,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -4481,6 +4546,7 @@ async function main() {
             price: s.price,
             cost: s.cost,
             stock: s.stock,
+            weightGram: inferSeedWeightGram(s.title),
             status: 'ACTIVE' as const,
           })),
         },
@@ -4616,6 +4682,7 @@ async function main() {
           price: sku.price,
           cost: sku.cost,
           stock: sku.stock,
+          weightGram: inferSeedWeightGram(sku.title),
           status: 'ACTIVE' as const,
         },
       });

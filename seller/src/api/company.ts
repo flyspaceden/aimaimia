@@ -37,10 +37,23 @@ export const inviteStaff = (
 ): Promise<CompanyStaff> =>
   client.post('/seller/company/staff', { phone, role, ...(password ? { password } : {}) });
 
-// TODO: 后端尚未提供「重置员工登录密码」接口，补充后需在此处新增 resetStaffPassword() 及管理 UI
-
 export const updateStaff = (id: string, data: Record<string, unknown>): Promise<CompanyStaff> =>
   client.put(`/seller/company/staff/${id}`, data);
 
 export const removeStaff = (id: string): Promise<{ ok: boolean }> =>
   client.delete(`/seller/company/staff/${id}`);
+
+/** OWNER 修改员工昵称（全局生效） */
+export const updateStaffNickname = (id: string, nickname: string): Promise<{ ok: boolean; nickname: string }> =>
+  client.put(`/seller/company/staff/${id}/nickname`, { nickname });
+
+/** OWNER 修改员工手机号（替换登录凭证） */
+export const updateStaffPhone = (
+  id: string,
+  newPhone: string,
+): Promise<{ ok: boolean; unchanged?: boolean; oldPhone?: string; newPhone?: string }> =>
+  client.put(`/seller/company/staff/${id}/phone`, { newPhone });
+
+/** OWNER 重置员工密码（会失效该员工所有活跃 session） */
+export const resetStaffPassword = (id: string, newPassword: string): Promise<{ ok: boolean }> =>
+  client.post(`/seller/company/staff/${id}/reset-password`, { newPassword });

@@ -257,6 +257,11 @@ export class AdminUsersService {
 
   /** 删除管理员 */
   async remove(id: string, operatorId: string) {
+    // C50 修复：禁止删除自己（即使是超管也不能删除自己，防止系统陷入无超管状态）
+    if (id === operatorId) {
+      throw new ForbiddenException('不能删除自己的账号');
+    }
+
     const admin = await this.prisma.adminUser.findUnique({
       where: { id },
     });

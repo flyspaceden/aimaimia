@@ -424,9 +424,9 @@ Tab 栏设计：
 /me/addresses     ← 地址管理
 /me/appearance    ← 头像装扮
 /me/following     ← 关注列表
-/me/wallet        ← 奖励钱包
+/me/wallet        ← 消费积分
 /me/redpacks      ← 我的奖励（Tab: 全部/VIP/普通 + 冻结倒计时）
-/me/withdraw      ← 提现
+/me/withdraw      ← 消费积分提现
 /me/bonus-tree    ← VIP 三叉树
 /me/bonus-queue   ← 排队队列
 /me/vip           ← 会员中心
@@ -484,7 +484,7 @@ Tab 栏设计：
 
 ### 5.1 首页 — AI Hub `/(tabs)/home`
 
-首页是纯 AI 入口，不展示商品列表。核心是中央大光球。
+首页是 AI 入口，不展示商品列表。核心是中央大光球。未登录/普通用户在搜索框下方展示 VIP 开通礼包横滑推广位，直接读取后台 `GET /bonus/vip/gift-options` 返回的档位与赠品组合内容；VIP 用户隐藏购买推广，改展示轻量推荐提醒，引导分享自己的推荐码。
 
 ```
 ┌─────────────────────────────┐
@@ -498,6 +498,12 @@ Tab 栏设计：
 │  ┌───────────────────────┐  │
 │  │ 🔍 搜索商品，或问我...   │  │ ← 搜索框（点击跳转搜索页）
 │  └───────────────────────┘  │
+│                             │
+│  ┌──── VIP开通礼包 ────┐    │ ← 非VIP/未登录展示，横滑 399/699/999 档位
+│  │ ¥399 有机茶叶礼盒    │    │    展示后台赠品组合：商品+SKU+数量
+│  │ 高山绿茶×1 + 蜂蜜×2  │    │    点击进入 `/vip/gifts?packageId&giftOptionId`
+│  └─────────────────────┘    │
+│  或：推荐好友开通VIP，有高额奖励 → 去分享 │ ← VIP 且有推荐码时展示
 │                             │
 │         · ·   · ·          │
 │        ╱ ░░░░░░░ ╲         │
@@ -998,12 +1004,6 @@ Tab 栏设计：
 ┌─────────────────────────────┐
 │  ← 购物车(3)                 │
 │                             │
-│  ✦ AI 省钱建议               │ ← AI 提示（如：再买¥12免运费）
-│  ┌─────────────────────────┐│
-│  │ ◉ 再买 ¥12.00 可享免运费  ││ ← AI 卡片（aiSoft 背景）
-│  │   去凑单 >               ││
-│  └─────────────────────────┘│
-│                             │
 │  ☐ 全选              编辑   │
 │                             │
 │  ┌─────────────────────────┐│
@@ -1028,8 +1028,9 @@ Tab 栏设计：
 ```
 
 - 左滑商品行可删除（swipeable）
-- AI 省钱建议：基于当前商品计算满减/免运费差额
+- 免邮差额提示不在购物车展示；进入结算页后使用后端预结算返回的真实运费与免邮差额。
 - 空购物车状态：展示 AI 光球 + 「让脉脉帮你挑点好的？」+ 快捷指令按钮
+- 上下架兜底（2026-05-07）：服务端返回 `unavailableReason` 的商品/奖品显示"已下架/已停发"角标，禁勾选和数量调整，仅保留删除入口；仍锁定且可用的门槛赠品继续按锁定态保留；购物车已选/可选计数统一走 `isSelectableCartItem`
 
 ---
 
@@ -1065,14 +1066,16 @@ Tab 栏设计：
 │  │ 选填备注信息...           ││
 │  └─────────────────────────┘│
 │                             │
-│  ┌─────────────────────────┐│ ← 奖励选择（点击进入奖励页）
-│  │ 🎫 奖励        选择奖励 >││
+│  ┌─────────────────────────┐│ ← 消费积分抵扣（普通商品订单）
+│  │ 消费积分                  ││
+│  │ 可用 ¥128.50，本单最多 ¥14.80││
+│  │ ¥ | 0.00   [清空] [抵扣最大]││
 │  └─────────────────────────┘│
 │                             │
 │  ┌─────────────────────────┐│
 │  │ 商品金额         ¥148.00││
 │  │ 运费               免运费││
-│  │ 奖励抵扣          -¥5.00││ ← 选中奖励后显示
+│  │ 消费积分          -¥5.00││ ← 输入抵扣金额后显示
 │  ├─────────────────────────┤│
 │  │ 合计          ¥143.00   ││ ← 大字金额
 │  └─────────────────────────┘│
@@ -1082,6 +1085,9 @@ Tab 栏设计：
 │  └─────────────────────────┘│
 └─────────────────────────────┘
 ```
+
+- 上下架兜底（2026-05-07）：`previewOrder` 请求补传 `cartItemId`；不可用奖品由服务端返回 `excludedItems[]` 并在结算页提示"已下架奖品已自动从结算中移除"，普通下架商品仍硬错误阻断
+- 消费积分双轨（2026-05-19）：普通商品结算页增加消费积分金额输入，用户可在 `0 ~ min(商品金额 × 抵扣比例, 可用余额)` 内自由输入；普通用户默认 10%，VIP 默认 15%。VIP 礼包链路不展示也不提交消费积分抵扣。平台红包与消费积分可叠加，费用明细分别展示"红包抵扣"和"消费积分"。
 
 ---
 
@@ -1115,6 +1121,8 @@ Tab 栏设计：
 │  [去逛逛]                    │
 └─────────────────────────────┘
 ```
+
+实施状态（2026-05-08）：`RECEIVED` 普通商品订单的“再次购买”已接入真实接口 `POST /orders/:id/repurchase`。列表页会在复购请求期间禁用全部复购按钮，并用同步 ref guard 防止同帧双击重复触发；成功后直接用接口返回的最新购物车 hydrate `useCartStore` 并跳转 `/cart`；部分不可购和价格变动通过 toast 提示。
 
 ---
 
@@ -1155,6 +1163,10 @@ Tab 栏设计：
 │  └────────────┴────────────┘│
 └─────────────────────────────┘
 ```
+
+实施状态（2026-05-08）：详情页底部“再次购买”从占位 toast 改为真实复购。按钮有 `加入中...` loading/disabled 状态，并用同步 ref guard 防止同帧双击重复触发，`repurchasable=false` 时禁用；成功后不额外 `syncFromServer()`，直接使用复购响应里的 `cart` 更新购物车。
+
+实施状态（2026-05-10）：售后链路收口 Task 9 已接入 `afterSaleSummary`。订单详情的“查看售后”在存在 summary 时直达 `/orders/after-sale-detail/[id]`，换货确认改为调用 `AfterSaleRepo.confirmReceive(afterSaleSummary.id)`，不再走旧订单换货确认端点。
 
 ---
 
@@ -1211,7 +1223,7 @@ Tab 栏设计：
 │                             │
 │  ── 上传凭证 ──             │
 │  ┌────┐ ┌────┐ ┌────┐      │
-│  │ +📷 │ │    │ │    │      │ ← 图片上传（最多6张）
+│  │ +📷 │ │    │ │    │      │ ← 图片上传（拍照/相册，最多10张）
 │  └────┘ └────┘ └────┘      │
 │                             │
 │  ┌─────────────────────────┐│
@@ -1219,6 +1231,10 @@ Tab 栏设计：
 │  └─────────────────────────┘│
 └─────────────────────────────┘
 ```
+
+实施状态（2026-05-10）：申请售后页改为以后端 `GET /after-sale/orders/:orderId/eligibility` 作为资格真相源，商品可申请项与售后类型只渲染后端 enabled options；四类售后类型（七天无理由退货/换货、质量退货/换货）已对齐类型与标签。售后详情页移除手填退货物流作为新主流程，改为退货运费支付 `POST /after-sale/:id/return-shipping-payment` + 平台顺丰退货面单 `POST /after-sale/:id/return-waybill`，并展示质量售后商家承担运费说明、退款处理中/完成/转人工状态。最终验证时根 `npx tsc -b` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻断，过滤后无买家 App 目录新增 TypeScript 错误；买家端仍待真机验证退货运费支付、顺丰退货面单和售后退款到账。
+
+补充状态（2026-06-02）：上传凭证入口改为先选择来源，支持拍照和从相册选择；拍照走 `launchCameraAsync` 并独立申请相机权限，相册走 `launchImageLibraryAsync` 并保留华为权限说明与设置兜底，上传数量上限与页面逻辑统一为 10 张。提交按钮增加同步 `ref` 防重复提交，成功后直接 `replace` 到售后详情页。售后详情页对金额、图片数组、物流轨迹数组做渲染前归一化，并增加路由级 `ErrorBoundary`，避免后端成功创建售后后详情数据存在空值/字符串金额/异常数组时触发整页白屏。
 
 ---
 
@@ -1345,11 +1361,11 @@ Tab 栏设计：
 
 ---
 
-### 5.18 奖励钱包 `/me/wallet` ✅
+### 5.18 消费积分钱包 `/me/wallet` ✅
 
 ```
 ┌─────────────────────────────┐
-│  ← 奖励钱包                  │
+│  ← 消费积分                  │
 │                             │
 │  ┌─────────────────────────┐│
 │  │     ¥ 128.50            ││ ← 余额大字（displayLg）
@@ -1358,12 +1374,12 @@ Tab 栏设计：
 │  │  冻结: ¥20.00  累计: ¥148││
 │  │                         ││
 │  │  ┌─────────────────────┐││
-│  │  │     [申请提现]        │││ ← 金色渐变 CTA
+│  │  │   [提现到支付宝]      │││ ← 金色渐变 CTA
 │  │  └─────────────────────┘││
 │  └─────────────────────────┘│
 │                             │
-│  ┌──── VIP ────┐┌── 普通 ──┐│ ← 双子账户卡片（并排 50%）
-│  │👑 VIP 奖励   ││🎁 普通奖励 ││
+│  ┌──── VIP ────┐┌── 普通 ──┐│ ← 内部双账户卡片（并排 50%）
+│  │👑 VIP 积分   ││🎁 普通积分 ││
 │  │¥96.00 可用  ││¥32.50 可用││    VIP: gold.light 背景
 │  │¥15.00 冻结  ││¥5.00 冻结 ││    普通: brand.primarySoft 背景
 │  │查看详情 >   ││查看详情 > ││ ← 跳转 redpacks?tab=vip/normal
@@ -1374,7 +1390,7 @@ Tab 栏设计：
 │  │ ↓ VIP上级奖励    +¥12.30││ ← 收入（primary 色）
 │  │   02-18 14:30           ││
 │  ├─────────────────────────┤│
-│  │ ↑ 提现到微信    -¥50.00 ││ ← 支出（textSecondary 色）
+│  │ ↑ 提现到支付宝  -¥50.00 ││ ← 支出（textSecondary 色）
 │  │   02-17 10:00   处理中   ││
 │  ├─────────────────────────┤│
 │  │ ↓ 普通树分润     +¥5.60 ││ ← 新增来源标签
@@ -1382,6 +1398,8 @@ Tab 栏设计：
 │  └─────────────────────────┘│
 └─────────────────────────────┘
 ```
+
+实施状态（2026-05-19）：钱包页面向用户统一命名为"消费积分"，合并展示 VIP/NORMAL 两个 `RewardAccount` 的可用/冻结/累计余额；内部仍保留双账户与来源标签。流水新增 DEDUCT/VOID/ADJUST 等类型映射，筛选支持"可用/冻结/抵扣/已提现"。
 
 ---
 
@@ -1436,7 +1454,7 @@ Tab 栏设计：
 
 ```
 ┌─────────────────────────────┐
-│  ← 提现                     │
+│  ← 消费积分提现              │
 │                             │
 │  可用余额: ¥68.50           │
 │                             │
@@ -1446,24 +1464,26 @@ Tab 栏设计：
 │  └─────────────────────────┘│
 │  最低 ¥1.00 · 全部提现       │
 │                             │
-│  提现方式                    │
+│  支付宝收款信息              │
 │  ┌─────────────────────────┐│
-│  │ 💚 微信零钱          ◉  ││
-│  │ 💙 支付宝余额        ○  ││
-│  │ 🏦 银行卡            ○  ││
+│  │ 支付宝账号 / 手机号 / 邮箱 ││
+│  │ 支付宝实名认证姓名         ││
 │  └─────────────────────────┘│
 │                             │
-│  预计到账: 1-3 个工作日      │
+│  代扣个税: ¥10.00            │
+│  预计到账: ¥40.00            │
 │                             │
 │  ┌─────────────────────────┐│
 │  │        [确认提现]         ││
 │  └─────────────────────────┘│
 │                             │
 │  ── 提现记录 ──             │
-│  ¥50.00  微信  02-17  处理中 │
+│  ¥50.00  支付宝 02-17  处理中│
 │  ¥20.00  支付宝 02-10 已到账 │
 └─────────────────────────────┘
 ```
+
+实施状态（2026-05-19）：v1.0 仅支持支付宝提现。用户输入提现金额、支付宝账号和实名姓名，页面实时展示平台代扣个税、服务费与预计到账净额；提交时走 `Idempotency-Key` 防重。v1.0 不做短信验证或支付密码，到账状态以后端 `PAID/PROCESSING/FAILED` 为准。
 
 ---
 
@@ -1555,6 +1575,11 @@ Tab 栏设计：
 │  │                         ││
 │  └─────────────────────────┘│
 │                             │
+│  ┌─────────────────────────┐│
+│  │ 推荐关系                 ││ ← 普通用户显示"将加入某推荐人团队"
+│  │ 已绑定推荐人 / 去绑定     ││    VIP 用户显示已加入的团队
+│  └─────────────────────────┘│
+│                             │
 │  ── VIP 权益 ──             │
 │  ┌──────┐ ┌──────┐ ┌──────┐│
 │  │🌳分润树│ │💰高分润│ │👑专属框││ ← 权益图标网格
@@ -1576,6 +1601,12 @@ Tab 栏设计：
 │  └─────────────────────────┘│
 └─────────────────────────────┘
 ```
+
+推荐关系展示规则：
+- `GET /bonus/member` 返回 `inviter` 摘要后，`/me/vip` 在购买前显示"将加入谁的 VIP 团队"；未绑定时显示"购买后将由系统分配"，并提供扫码绑定入口。
+- `我的`Tab 的"常用工具"第一项固定进入 `/me/referral`：VIP 且有推荐码时文案为"我的推荐码"，普通用户/暂无 VIP 推荐码时文案为"推荐关系"。
+- `/me/referral` 对非 VIP 不展示自己的推荐码，只展示已绑定推荐人状态、扫码绑定按钮和 VIP 引导；只有 VIP 才显示专属二维码、复制、分享入口。若后端只有 `inviterUserId`、暂无昵称/手机号摘要，前端仍按已绑定显示，名称兜底为"已绑定用户"。
+- 扫码成功后 `/me/scanner` 使用绑定结果中的 `inviter.nickname / maskedPhone` 提示"已绑定推荐人：xxx"，并刷新 `bonus-member` 缓存。
 
 ---
 
@@ -2188,7 +2219,7 @@ src/components/ai/   → 新增目录
 
 ### Phase 3: 购物链路
 11. 商品详情页（AI 品质评分 + 溯源）
-12. 购物车（AI 省钱建议）
+12. 购物车（毛玻璃结算栏）
 13. 结算页
 14. 搜索页（AI 搜索增强）
 
@@ -2223,13 +2254,30 @@ src/components/ai/   → 新增目录
 | Batch 2D 布局 | AppHeader毛玻璃重写(expo-blur) + Screen渐变背景支持 | 2026-02-19 | `AppHeader.tsx`, `Screen.tsx` |
 | Batch 2E 浮动伴侣 | AiFloatingCompanion全局浮动光球(路由感知/上下文菜单/home隐藏) | 2026-02-19 | `AiFloatingCompanion.tsx`, `effects/index.ts`, `app/_layout.tsx` |
 | Batch 2F 发现页 | museum.tsx全面重写(搜索框+分类横滑+AI推荐区+企业横滑+商品瀑布流+地图) | 2026-02-19 | `app/(tabs)/museum.tsx` |
-| Batch 3 购物链路 | 商品详情(AI品质评分+AI溯源+企业信赖分+入场动画+毛玻璃CTA) + 购物车(毛玻璃结算栏+AI省钱建议) + 结算页(渐变地址卡+毛玻璃底栏) + 搜索(AI摘要卡+Tab切换) | 2026-02-20 | `product/[id].tsx`, `cart.tsx`, `checkout.tsx`, `search.tsx` |
+| Batch 3 购物链路 | 商品详情(AI品质评分+AI溯源+企业信赖分+入场动画+毛玻璃CTA) + 购物车(毛玻璃结算栏) + 结算页(渐变地址卡+毛玻璃底栏+真实免邮差额提示) + 搜索(AI摘要卡+Tab切换) | 2026-02-20 | `product/[id].tsx`, `cart.tsx`, `checkout.tsx`, `search.tsx` |
 | Batch 4 AI功能页 | 聊天(AiChatBubble+打字机+毛玻璃输入栏) + 助手(Hero渐变+AiCardGlow场景卡) + 推荐(渐变进度条+画像卡) + 金融(状态编码卡片+风控评估卡) + 溯源(emoji时间线+脉动节点+AI可信度评分) | 2026-02-20 | `ai/chat.tsx`, `ai/assistant.tsx`, `ai/recommend.tsx`, `ai/finance.tsx`, `ai/trace.tsx` |
 | Batch 5 个人中心 | 14页视觉增强：钱包(渐变余额卡+金色提现按钮+AiDivider) + VIP(金色渐变卡+AiBadge+AiCardGlow+渐变进度条) + 三叉树(脉动节点+渐变连接线+装饰条) + 排队(渐变进度条+装饰条) + 提现(渐变余额+金色CTA) + 订单列表(状态左边框+微渐变芯片) + 订单详情(装饰条+脉动售后时间线+AiDivider) + 物流(脉动节点+渐变连接线+AiCardGlow产地卡) + 售后(微渐变芯片+渐变提交) + 任务(装饰条+渐变进度条+AiDivider+状态左边框) + 设置(AI偏好Section+AiBadge+FadeInDown) + 资料(渐变兴趣标签+渐变保存按钮) + 地址(渐变默认指示+渐变保存) + 关注(卡片化+shadow.md+FadeInDown) | 2026-02-20 | `me/wallet.tsx`, `me/vip.tsx`, `me/bonus-tree.tsx`, `me/bonus-queue.tsx`, `me/withdraw.tsx`, `orders/index.tsx`, `orders/[id].tsx`, `orders/track.tsx`, `orders/after-sale/[id].tsx`, `me/tasks.tsx`, `settings.tsx`, `me/profile.tsx`, `me/addresses.tsx`, `me/following.tsx` |
 | Batch 6 剩余页面 | 10页视觉增强：分类商品(渐变Hero+shadow.md+FadeInDown商品网格) + 企业详情(渐变封面遮罩+Tab微渐变+shadow.md卡片+FadeInDown+渐变CTA) + 拼团详情(渐变进度条+装饰条+shadow.md+FadeInDown成员) + 消息中心(Tab微渐变+shadow.md消息卡+FadeInDown+渐变图标底) + 结算地址(shadow.md+FadeInDown+渐变默认标记) + 用户主页(渐变关注按钮+亲密度渐变进度条+shadow.md+FadeInDown) + 装扮页(渐变预览框+shadow.md框架卡+FadeInDown+渐变选中态) + 推荐占位(渐变空状态) + 关于(shadow.md+FadeInDown+渐变装饰) + 隐私(shadow.md+FadeInDown) | 2026-02-20 | `category/[id].tsx`, `company/[id].tsx`, `group/[id].tsx`, `inbox/index.tsx`, `checkout-address.tsx`, `user/[id].tsx`, `me/appearance.tsx`, `me/recommend.tsx`, `about.tsx`, `privacy.tsx` |
 | Batch 7 全局打磨 | Phase 6 完成：(1)5核心页FadeInDown入场动画(home/museum/me/checkout/search) (2)动画时长300ms统一(bonus-queue/withdraw/chat/assistant) (3)Stack slide_from_right过渡+Tab shift切换 (4)ProductCard React.memo+expo-image cachePolicy/placeholder+6处FlatList性能参数 (5)Tab/ProductCard/QuantityStepper无障碍标签+EmptyState/ErrorState accessibilityRole=alert+hitSlop触控优化 | 2026-02-20 | `home.tsx`, `museum.tsx`, `me.tsx`, `checkout.tsx`, `search.tsx`, `_layout.tsx`, `(tabs)/_layout.tsx`, `ProductCard.tsx`, `QuantityStepper.tsx`, `EmptyState.tsx`, `ErrorState.tsx`, `bonus-queue.tsx`, `withdraw.tsx`, `ai/chat.tsx`, `ai/assistant.tsx`, `category/[id].tsx`, `cart.tsx`, `me/wallet.tsx`, `me/addresses.tsx`, `checkout-address.tsx` |
 | Batch 8 功能补全 | (1)结算页银行卡支付+奖励抵扣(奖励选择页+我的奖励页+价格分解)+用户工具替换装扮为奖励 (2)首页AI光球长按语音意图解析→自动导航(search/product/company/chat) (3)发现页分类芯片→跳转分类页 (4)AuthModal三种方式登录注册(手机号验证码/密码+微信OAuth授权+邮箱验证码)+注册收集昵称密码协议+无滚动自适应高度+后端微信OAuth占位实现+移除Apple登录 | 2026-02-21 | `checkout.tsx`, `checkout-redpack.tsx`, `me/rewards.tsx`, `me.tsx`, `orders/[id].tsx`, `Payment.ts`, `Bonus.ts`, `Order.ts`, `BonusRepo.ts`, `OrderRepo.ts`, `home.tsx`, `Ai.ts`, `AiAssistantRepo.ts`, `museum.tsx`, `AuthModal.tsx`, `AuthRepo.ts`, `Auth.ts`, `auth.service.ts`, `auth.controller.ts`, `send-code.dto.ts` |
 | Batch 10 抽奖转盘 | 抽奖页全面升级：SVG转盘(SpinWheel等分扇区+奖品文字)+指针(WheelPointer摆动动画)+庆祝粒子(Confetti 25粒子爆发重力物理)+5阶段状态机(idle→spinning→decelerating→revealing→result_shown)+快速旋转2s+减速2.5s cubic bezier+中奖AiTypingEffect逐字揭晓+AppBottomSheet结果弹窗+可折叠奖品列表+剩余次数胶囊+金色脉冲按钮+API竞态处理+10s超时保护 | 2026-03-01 | `SpinWheel.tsx`, `WheelPointer.tsx`, `Confetti.tsx`, `effects/index.ts`, `lottery.tsx` |
+| 商品上下架兜底 | 购物车 `unavailableReason` 已下架/已停发角标 + 禁勾选/禁数量调整/仅可删除 + 统一 selectable 计数；结算页补传 `cartItemId`，过滤不可用奖品并提示 `excludedItems[]` | 2026-05-07 | `cart.tsx`, `checkout.tsx`, `useCartStore.ts`, `OrderRepo.ts`, `ServerCart.ts` |
+| 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
+| 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |
+| 库存感知复购与低库存展示 | App 使用平台配置 `LOW_STOCK_DISPLAY_THRESHOLD` 控制“仅剩 x 件”展示；0 库存普通商品不能作为真实购物车项新增，复购仅展示虚拟提示；已有 0 库存购物车项不可选、不可结算、可删除 | 2026-05-18 | `app/product/[id].tsx`, `app/cart.tsx`, `app/checkout.tsx`, `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/store/useCartStore.ts`, `src/utils/stockDisplay.ts`, `src/repos/AppConfigRepo.ts` |
+| 购物车免邮提示收口 | 购物车移除静态"再买免运费"提示；结算页保留后端预结算返回的真实免邮差额提示；预结算返回前显示"计算中"而非本地兜底运费 | 2026-05-12 | `app/cart.tsx`, `app/checkout.tsx`, `src/constants/search.ts` |
+| 首页 VIP 礼包推广 | 非 VIP/未登录首页在搜索框下方展示后台 VIP 档位主推赠品组合，卡片不展示“当前主推/参考价”底栏；点击携带 `packageId`/`giftOptionId` 进入 `/vip/gifts` 并自动定位对应档位和赠品 | 2026-05-14 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts` |
+| 首页 VIP 推荐提醒 | VIP 用户首页在搜索框下方展示"推荐好友开通 VIP，有高额奖励"单行提醒；点击进入 `/me/referral` 分享推荐码 | 2026-05-15 | `app/(tabs)/home.tsx`, `src/utils/vipHomePromo.ts`, `tests/unit/vip-home-promo.test.mjs` |
+| VIP 礼包订单金额展示 | VIP_PACKAGE 订单列表/详情的赠品明细不展示 SKU 单价，统一显示“赠品”；订单实付金额以后端 `totalPrice` 为准，避免把赠品成本价误认为礼包价 | 2026-05-18 | `src/components/cards/OrderItemRow.tsx`, `src/components/cards/OrderCard.tsx`, `src/components/orders/ShopGroup.tsx`, `app/orders/[id].tsx` |
+| 管理后台商品限购配置 | 管理后台普通商品列表展示 SKU 单笔限购；商品详情规格编辑表单支持查看/设置/清空 `maxPerOrder`，与卖家中心限购字段保持一致 | 2026-05-18 | `admin/src/pages/products/index.tsx`, `admin/src/pages/products/edit.tsx`, `admin/src/api/products.ts`, `admin/src/types/index.ts` |
+| 推荐关系展示收口 | 非 VIP 不展示自己的推荐码；推荐码页展示绑定推荐人和扫码入口；我的页常用工具固定提供"推荐关系/我的推荐码"入口；会员中心增加购买前推荐关系确认；扫码成功 toast 显示绑定的推荐人；空摘要但有 `inviterUserId` 时仍按已绑定展示 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/me/referral.tsx`, `app/me/vip.tsx`, `app/me/scanner.tsx`, `src/utils/referralRelation.ts`, `src/types/domain/Bonus.ts`, `src/repos/BonusRepo.ts` |
+| 响应式二轮复核规划 | 真机测试确认大字体 / 显示大小 / Android 虚拟三键 / 手势条不是华为个例；响应式规范扩展为 10 场景矩阵，新增支付成功页 CTA 可达、BackHandler 安全导航、我的页/购物车/结算等高频页大字体降级任务 | 2026-05-18 | `docs/architecture/responsive-design.md`, `docs/issues/tofix-app-frontend.md`, `docs/operations/app-发布与OTA手册.md`, `plan.md` |
+| 大字体 / 虚拟导航二轮适配 | 代码完成，待 10 场景真机矩阵验证：支付成功页已具备滚动逃生、Android 安全返回和 iOS 危险手势禁用；购物车、结算、商品详情、VIP 礼包、未完成订单、订单详情等底部固定栏页面使用实际 bar 高度预留内容底部空间；我的页高频横排区域在大字体 / 紧凑屏下改为换行或堆叠；抽奖结果弹窗可滚动并降级结果视觉 | 2026-05-18 | `app/payment-success.tsx`, `app/lottery.tsx`, `app/(tabs)/me.tsx`, `app/cart.tsx`, `app/checkout.tsx`, `app/product/[id].tsx`, `app/vip/gifts.tsx`, `app/checkout-pending.tsx`, `app/orders/[id].tsx`, `src/components/orders/StickyCTABar.tsx`, `src/hooks/useMeasuredBottomBar.ts` |
+| Android 底部 gap 回归修复 | `useBottomInset()` 和 TabBar 取消 JS 侧 Android 64dp 推断兜底：只使用系统 safe-area + 调用方 extra，避免 `insets.bottom=0` 的手势导航设备被误判后所有页面底部统一留白；保留全页面底部固定区审查结果，覆盖搜索 FAB、AI/客服输入栏、扫码页底部提示、地址/VIP 滚动留白和通用 BottomSheet；补充纯函数回归测试锁定 zero-inset 不自动补 64 | 2026-05-21 | `src/theme/bottomInset.ts`, `src/theme/responsive.ts`, `src/theme/__tests__/bottomInset.test.ts`, `app/(tabs)/_layout.tsx`, `app/cart.tsx`, `src/components/orders/StickyCTABar.tsx`, `app/search.tsx`, `app/ai/chat.tsx`, `app/cs/index.tsx`, `app/me/scanner.tsx`, `app/me/addresses.tsx`, `app/me/vip.tsx`, `src/components/overlay/AppBottomSheet.tsx` |
+| 发票申请页底部 CTA 局部逃生 | 保持全局 `useBottomInset()` 不做 Android 64dp 推断，避免其他页面再次出现 gap；仅 `app/invoices/request.tsx` 传 `androidMinimumBottomPadding: 64`，同时修正底部栏内按钮 `flex:1` 布局，处理该页在 low/zero bottom inset 真机上确认按钮被系统手势区压到屏幕外的问题；订单详情发票操作链接左对齐，避免右侧 AI 浮层拦截“查看发票”点击；新增回归测试确保例外必须显式传参 | 2026-05-21 | `app/invoices/request.tsx`, `src/components/cards/InvoiceSection.tsx`, `src/theme/bottomInset.ts`, `src/theme/responsive.ts`, `src/theme/__tests__/bottomInset.test.ts` |
+| 售后链路收口 Task 9/12 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API；最终验证记录已同步，真机/沙箱仍需验证退货运费支付、顺丰退货面单和售后退款到账 | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
+| 售后申请拍照与详情白屏兜底 | 申请页上传凭证支持拍照/相册二选一，提交增加同步防重复保护并在成功后直达售后详情；详情页金额、图片、物流轨迹渲染前归一化，路由级 ErrorBoundary 兜底异常数据，避免提交成功后白屏 | 2026-06-02 | `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx`, `src/utils/afterSaleDetailSafety.ts`, `src/utils/__tests__/afterSaleDetailSafety.test.ts` |
+| 发票链路收口 | 我的页增加“我的发票”入口；订单详情接入 `InvoiceSection`，按后端 `invoiceEligible` 判断申请入口，显示 REQUESTED/ISSUED/FAILED/CANCELED 状态；发票列表/详情通过 `expo-web-browser` 打开 PDF，取消申请后刷新发票与订单缓存 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/orders/[id].tsx`, `app/invoices/index.tsx`, `app/invoices/[id].tsx`, `src/components/cards/InvoiceSection.tsx`, `src/types/domain/Invoice.ts`, `src/types/domain/Order.ts`, `src/repos/InvoiceRepo.ts`, `src/repos/OrderRepo.ts` |
 
 ### Phase 进度对照
 
@@ -2246,7 +2294,7 @@ src/components/ai/   → 新增目录
 | | 9. ProductCard（AI 标签） | ✅ |
 | | 10. AppHeader / Screen / Tab 栏 | ✅ |
 | **Phase 3** | 11. 商品详情页（AI 品质评分 + 溯源 + 企业信赖分） | ✅ |
-| | 12. 购物车（AI 省钱建议 + 毛玻璃结算栏） | ✅ |
+| | 12. 购物车（毛玻璃结算栏） | ✅ |
 | | 13. 结算页（渐变地址卡 + 毛玻璃底栏） | ✅ |
 | | 14. 搜索页（AI 搜索摘要 + Tab 切换） | ✅ |
 | **Phase 4** | 15. AI 聊天页（AiChatBubble + 打字机 + 毛玻璃输入栏） | ✅ |

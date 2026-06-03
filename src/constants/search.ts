@@ -19,6 +19,3 @@ export const AI_SUGGESTED_SEARCHES = [
   { keyword: '绿色认证茶叶', reason: '猜你感兴趣' },
   { keyword: 'GAP认证农产品', reason: '高品质推荐' },
 ];
-
-// 免运费门槛（购物车省钱建议用）
-export const FREE_SHIPPING_THRESHOLD = 99;

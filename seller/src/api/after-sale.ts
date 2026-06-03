@@ -2,11 +2,29 @@ import client from './client';
 import type { PaginatedData, QueryParams, WaybillResult } from '@/types';
 
 // 售后申请类型
+export type SellerAfterSaleType =
+  | 'NO_REASON_RETURN'
+  | 'NO_REASON_EXCHANGE'
+  | 'QUALITY_RETURN'
+  | 'QUALITY_EXCHANGE';
+
+/** 顺丰物流轨迹（来自 EXP_RECE_SEARCH_ROUTES，已过滤沙箱旧路由污染）*/
+export interface SfTrackingResult {
+  status: string;
+  rawOpCode: string;
+  events: Array<{
+    time: string;
+    message: string;
+    location?: string;
+    opCode?: string;
+  }>;
+}
+
 export interface AfterSale {
   id: string;
   orderId: string;
   orderItemId?: string | null;
-  afterSaleType: 'NO_REASON_RETURN' | 'QUALITY_RETURN' | 'QUALITY_EXCHANGE';
+  afterSaleType: SellerAfterSaleType;
   reasonType?: string;
   reason?: string;
   photos: string[];
@@ -21,7 +39,9 @@ export interface AfterSale {
   // 卖家拒收信息
   sellerRejectReason?: string;
   sellerRejectPhotos?: string[];
+  sellerReturnCarrierName?: string;
   sellerReturnWaybillNo?: string;
+  sellerReturnWaybillUrl?: string;
   // 退货物流
   returnCarrierName?: string;
   returnWaybillNo?: string;
@@ -31,6 +51,10 @@ export interface AfterSale {
   replacementWaybillNo?: string;
   replacementWaybillPrintUrl?: string;
   replacementShipmentId?: string;
+  // 顺丰物流轨迹（实时查询，已过滤沙箱旧路由；requiresReturn=false 时为 null）
+  returnTracking?: SfTrackingResult | null;
+  sellerReturnTracking?: SfTrackingResult | null;
+  replacementTracking?: SfTrackingResult | null;
   createdAt: string;
   buyerAlias: string;
   order?: {
@@ -44,6 +68,15 @@ export interface AfterSale {
     quantity: number;
     unitPrice: number;
   } | null;
+}
+
+export interface AfterSaleTimelineItem {
+  id: string;
+  fromStatus?: string | null;
+  toStatus: string;
+  reason?: string | null;
+  operatorType?: string | null;
+  createdAt: string;
 }
 
 /** 售后列表 */
@@ -77,7 +110,7 @@ export const confirmReceiveReturn = (id: string): Promise<AfterSale> =>
 /** 拒收退货（验收不合格） */
 export const rejectReturn = (
   id: string,
-  data: { reason: string; photos: string[]; returnWaybillNo: string },
+  data: { reason: string; photos: string[] },
 ): Promise<AfterSale> =>
   client.post(`/seller/after-sale/${id}/reject-return`, data);
 
@@ -88,6 +121,17 @@ export const shipAfterSale = (id: string): Promise<AfterSale> =>
 /** 生成换货电子面单 */
 export const generateAfterSaleWaybill = (id: string, carrierCode: string): Promise<WaybillResult> =>
   client.post(`/seller/after-sale/${id}/waybill`, { carrierCode });
+
+/** 生成卖家拒收退货回寄电子面单 */
+export const generateSellerReturnWaybill = (
+  id: string,
+  carrierCode = 'SF',
+): Promise<WaybillResult> =>
+  client.post(`/seller/after-sale/${id}/seller-return-waybill`, { carrierCode });
+
+/** 售后时间线 */
+export const getAfterSaleTimeline = (id: string): Promise<{ items: AfterSaleTimelineItem[] }> =>
+  client.get(`/seller/after-sale/${id}/timeline`);
 
 /** 取消换货电子面单 */
 export const cancelAfterSaleWaybill = (id: string): Promise<{ ok: boolean }> =>

@@ -15,13 +15,25 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
 import { CouponService } from '../coupon/coupon.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { BonusService } from '../bonus/bonus.service';
+import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { AlipayService } from '../payment/alipay.service';
+import { WechatPayService } from '../payment/wechat-pay.service';
+import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { InboxService } from '../inbox/inbox.service';
+import { CartModule } from '../cart/cart.module';
 
 @Module({
-  imports: [BonusModule, ShippingRuleModule, AfterSaleModule, CouponModule, InboxModule, forwardRef(() => PaymentModule)],
+  imports: [
+    BonusModule,
+    ShippingRuleModule,
+    AfterSaleModule,
+    CouponModule,
+    InboxModule,
+    CartModule,
+    forwardRef(() => PaymentModule),
+  ],
   controllers: [OrderController],
   providers: [
     OrderService,
@@ -30,6 +42,7 @@ import { InboxService } from '../inbox/inbox.service';
     OrderAutoConfirmService,
     OrderExpireService,
     BonusCompensationService,
+    RewardDeductionService,
   ],
   exports: [OrderService, CheckoutService],
 })
@@ -75,17 +88,52 @@ export class OrderModule implements OnModuleInit {
       console.warn('[OrderModule] BonusService 未注入，VIP 支付后激活功能不可用');
     }
 
+    const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
+    if (rewardDeductionService) {
+      this.orderService.setRewardDeductionService(rewardDeductionService);
+      this.checkoutService.setRewardDeductionService(rewardDeductionService);
+      this.checkoutExpireService.setRewardDeductionService(rewardDeductionService);
+    } else {
+      console.warn('[OrderModule] RewardDeductionService 未注入，消费积分抵扣不可用');
+    }
+
     // C13修复：InboxService 改硬依赖，确保通知功能可用
     const inboxService = this.moduleRef.get(InboxService, { strict: false });
     if (!inboxService) {
       throw new Error('[OrderModule] InboxService 未注入，站内消息功能不可用，启动中止');
     }
     this.checkoutService.setInboxService(inboxService);
+    this.orderService.setInboxService(inboxService);
 
     // 注入支付宝服务
     const alipayService = this.moduleRef.get(AlipayService, { strict: false });
     if (alipayService) {
       this.checkoutService.setAlipayService(alipayService);
+      this.checkoutExpireService.setAlipayService(alipayService);
+    }
+
+    // 注入微信支付服务
+    const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
+    if (wechatPayService) {
+      this.checkoutService.setWechatPayService(wechatPayService);
+      this.checkoutExpireService.setWechatPayService(wechatPayService);
+    }
+
+    // 注入 CheckoutService 到 ExpireService（expire 检测到已支付时主动建单用）
+    this.checkoutExpireService.setCheckoutService(this.checkoutService);
+
+    // 注入 PaymentService（cancel/expire 主动建单后通知商家用，补 notifySellersForOrders 缺口）
+    const paymentService = this.moduleRef.get(PaymentService, { strict: false });
+    if (paymentService) {
+      this.checkoutService.setPaymentService(paymentService);
+      this.checkoutExpireService.setPaymentService(paymentService);
+      // PAID 未发货取消调 initiateRefund 用
+      this.orderService.setPaymentService(paymentService);
+      if (rewardDeductionService && paymentService.setRewardDeductionService) {
+        paymentService.setRewardDeductionService(rewardDeductionService);
+      }
+    } else {
+      console.warn('[OrderModule] PaymentService 未注入，cancel/expire 主动建单后无法通知商家；PAID 取消退款失败');
     }
   }
 }

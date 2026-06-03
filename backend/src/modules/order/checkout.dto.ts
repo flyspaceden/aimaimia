@@ -49,6 +49,13 @@ export class CheckoutDto {
   @MaxLength(64)
   rewardId?: string;
 
+  /** 消费积分抵扣金额（元），仅普通商品结算可用 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  deductionAmount?: number;
+
   /** 支付渠道: wechat / alipay / bankcard */
   @IsOptional()
   @IsString()
@@ -74,4 +81,10 @@ export class CheckoutDto {
   @IsString({ each: true })
   @ArrayMaxSize(10)
   couponInstanceIds?: string[];
+
+  /** 买家留言（非必填，<= 200 字） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  buyerNote?: string;
 }

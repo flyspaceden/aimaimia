@@ -6,7 +6,7 @@ import {
   Badge,
   Tooltip,
   Spin,
-  message,
+  App,
   Typography,
   Popover,
 } from 'antd';
@@ -541,6 +541,7 @@ function TypingIndicator() {
 // ===== 主组件 =====
 
 export default function CsWorkstationPage() {
+  const { message } = App.useApp();
   // 状态
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [localMessages, setLocalMessages] = useState<Map<string, CsMessage[]>>(new Map());

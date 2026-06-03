@@ -4,7 +4,6 @@ export const mockUserProfile: UserProfile = {
   id: 'u-001',
   name: '林青禾',
   phone: '13812345678',
-  email: 'linqinghe@example.com',
   wechatNickname: '林青禾',
   avatar: 'https://placehold.co/200x200/png',
   level: '生长会员',

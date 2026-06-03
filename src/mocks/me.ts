@@ -10,14 +10,15 @@ export const mockTasks: Task[] = [
     status: 'todo',
     targetRoute: '/settings',
   },
-  {
-    id: 'task-002',
-    title: '首次使用 AI 买买',
-    rewardLabel: '+50 成长值',
-    rewardGrowth: 50,
-    status: 'inProgress',
-    targetRoute: '/ai/chat',
-  },
+  // 【AI 多轮对话已下线】成长任务「首次使用 AI 买买」（→/ai/chat）已注释，恢复时取消注释即可
+  // {
+  //   id: 'task-002',
+  //   title: '首次使用 AI 买买',
+  //   rewardLabel: '+50 成长值',
+  //   rewardGrowth: 50,
+  //   status: 'inProgress',
+  //   targetRoute: '/ai/chat',
+  // },
   {
     id: 'task-003',
     title: '预约一次考察',

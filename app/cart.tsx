@@ -1,29 +1,32 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AppHeader, Screen } from '../src/components/layout';
 import { useToast } from '../src/components/feedback';
 import { QuantityStepper } from '../src/components/inputs';
 import { Price } from '../src/components/ui/Price';
 import { AiBadge } from '../src/components/ui/AiBadge';
-import { AiCardGlow } from '../src/components/ui/AiCardGlow';
 import { AiOrb } from '../src/components/effects/AiOrb';
 import { ProductCard } from '../src/components/cards/ProductCard';
 import { RecommendRepo } from '../src/repos';
+import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
+import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
-import { FREE_SHIPPING_THRESHOLD } from '../src/constants/search';
-import { useTheme } from '../src/theme';
+import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
+import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
+import { getStockText } from '../src/utils/stockDisplay';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// RECOMMEND_CARD_WIDTH 不依赖屏幕宽度（固定 140pt），保留在模块顶层
+// SCREEN_WIDTH 已删除：原本声明但未使用，且模块顶层 Dimensions.get 违反响应式规范
 const RECOMMEND_CARD_WIDTH = 140;
 
 /** 倒计时 hook */
@@ -61,15 +64,42 @@ function ExpiryCountdown({ expiresAt, colors, typography }: { expiresAt: string;
   );
 }
 
+function unavailableText(reason?: string | null) {
+  switch (reason) {
+    case 'SKU_INACTIVE':
+      return '规格已下架';
+    case 'PRODUCT_INACTIVE':
+      return '商品已下架';
+    case 'PRIZE_INACTIVE':
+      return '奖品已停发';
+    case 'SKU_MISSING':
+      return '规格不存在';
+    case 'PRODUCT_MISSING':
+      return '商品不存在';
+    case 'OUT_OF_STOCK':
+      return '无库存';
+    default:
+      return '已下架';
+  }
+}
+
 export default function CartScreen() {
   const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
   const clearVipPackageSelection = useCheckoutStore((s) => s.clearVipPackageSelection);
-  const insets = useSafeAreaInsets();
+  // 底部确认栏统一使用系统 safe-area + 视觉间距，避免全局推断导致底部 gap。
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactRows = isCompact || isLargeText;
+  // 2026-05-20 v5：extra 从 spacing.sm(8) → 4。减少 Xiaomi 手势条上按钮下方的可见空白。
+  const barBottomPad = useBottomInset(4);
+  const { bottomPadding: scrollBottomPad, onBarLayout: handleCheckoutBarLayout } =
+    useMeasuredBottomBar(compactRows ? 148 : 112, spacing.lg);
   const items = useCartStore((s) => s.items);
   const selectedIds = useCartStore((s) => s.selectedIds);
+  const virtualNotices = useCartStore((s) => s.virtualNotices);
+  const clearVirtualNotice = useCartStore((s) => s.clearVirtualNotice);
   const clear = useCartStore((s) => s.clear);
   const updateQty = useCartStore((s) => s.updateQty);
   const removeItem = useCartStore((s) => s.removeItem);
@@ -87,6 +117,13 @@ export default function CartScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+
+  const { data: appConfigResult } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: AppConfigRepo.getPublicConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
 
   // 进入购物车页时从服务端同步（仅登录状态，仅首次挂载）
   useEffect(() => {
@@ -110,10 +147,6 @@ export default function CartScreen() {
   const total = selectedTotal();
   const selCount = selectedCount();
 
-  // 省钱建议
-  const gap = FREE_SHIPPING_THRESHOLD - total;
-  const showSavingTip = gap > 0 && items.length > 0;
-
   // N08修复：删除选中项，cartKey 格式为 productId:skuId 或 productId
   const handleDeleteSelected = () => {
     const keys = [...selectedIds];
@@ -132,6 +165,30 @@ export default function CartScreen() {
     }
   };
 
+  const handleCheckoutPress = () => {
+    if (selCount === 0) {
+      show({ message: '请先选择商品', type: 'info' });
+      return;
+    }
+    if (!isLoggedIn) {
+      setAuthModalOpen(true);
+      return;
+    }
+    const { items: currentItems, selectedIds: currentSelectedIds } = useCartStore.getState();
+    const selectedItems = currentItems.filter((item) => {
+      const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+      return currentSelectedIds.has(key);
+    });
+    const blocked = selectedItems.some((item) => item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
+    if (blocked) {
+      show({ message: '有商品暂无库存，请移除后再结算', type: 'warning' });
+      return;
+    }
+    // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
+    clearVipPackageSelection();
+    router.push('/checkout');
+  };
+
   // 首次加载中
   if (loading && items.length === 0) {
     return (
@@ -148,12 +205,15 @@ export default function CartScreen() {
   }
 
   // 空购物车
-  if (items.length === 0) {
+  if (items.length === 0 && virtualNotices.length === 0) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="购物车" onBack={handleBack} />
+        {/* 未完成订单横幅（无未支付订单时返回 null） */}
+        <PendingCheckoutBanner />
         <View style={styles.emptyContainer}>
-          <AiOrb size="small" onPress={() => router.push('/ai/chat')} />
+          {/* 【AI 多轮对话已下线】原 onPress={() => router.push('/ai/chat')} 已移除，光球仅作装饰 */}
+          <AiOrb size="small" />
           <Text style={[typography.title3, { color: colors.text.primary, marginTop: spacing.lg }]}>
             购物车是空的
           </Text>
@@ -167,6 +227,7 @@ export default function CartScreen() {
             >
               <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>去逛逛</Text>
             </Pressable>
+            {/* 【AI 多轮对话已下线】「问问 AI」入口（→/ai/chat）已注释，恢复时取消注释即可
             <Pressable
               onPress={() => router.push('/ai/chat')}
               style={[
@@ -180,6 +241,7 @@ export default function CartScreen() {
             >
               <Text style={[typography.bodyStrong, { color: colors.ai.start }]}>问问 AI</Text>
             </Pressable>
+            */}
           </View>
         </View>
       </Screen>
@@ -206,28 +268,13 @@ export default function CartScreen() {
         initialNumToRender={6}
         contentContainerStyle={{
           paddingHorizontal: spacing.xl,
-          paddingBottom: insets.bottom + 100,
+          paddingBottom: scrollBottomPad,
           paddingTop: spacing.sm,
         }}
         ListHeaderComponent={
           <>
-            {/* AI 省钱建议卡 */}
-            {showSavingTip && (
-              <AiCardGlow style={{ ...shadow.sm, marginBottom: spacing.md }}>
-                <Pressable
-                  onPress={() => router.push('/(tabs)/home')}
-                  style={{ padding: spacing.md, backgroundColor: colors.ai.soft }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ color: colors.ai.start, fontSize: 16, marginRight: spacing.xs }}>◉</Text>
-                    <Text style={[typography.bodySm, { color: colors.ai.start, flex: 1 }]}>
-                      再买 ¥{gap.toFixed(0)} 可享免运费
-                    </Text>
-                    <Text style={[typography.captionSm, { color: colors.ai.start }]}>去凑单 ›</Text>
-                  </View>
-                </Pressable>
-              </AiCardGlow>
-            )}
+            {/* 未完成订单横幅（无未支付订单时返回 null） */}
+            <PendingCheckoutBanner />
 
             {/* 全选栏 */}
             <View style={[styles.selectBar, { marginBottom: spacing.sm }]}>
@@ -243,9 +290,37 @@ export default function CartScreen() {
                 <Text style={[typography.bodySm, { color: colors.text.primary, marginLeft: spacing.xs }]}>全选</Text>
               </Pressable>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>
-                已选 {items.filter((item) => selectedIds.has(item.skuId ? `${item.productId}:${item.skuId}` : item.productId)).reduce((sum, item) => sum + item.quantity, 0)}/{items.reduce((sum, item) => sum + item.quantity, 0)}
+                已选 {items.filter((item) => isSelectableCartItem(item) && selectedIds.has(item.skuId ? `${item.productId}:${item.skuId}` : item.productId)).reduce((sum, item) => sum + item.quantity, 0)}/{items.filter(isSelectableCartItem).reduce((sum, item) => sum + item.quantity, 0)}
               </Text>
             </View>
+            {virtualNotices.map((notice) => (
+              <View
+                key={notice.skuId}
+                style={[
+                  styles.card,
+                  shadow.sm,
+                  {
+                    borderColor: colors.danger,
+                    borderWidth: 1,
+                    backgroundColor: colors.surface,
+                    borderRadius: radius.lg,
+                    marginBottom: spacing.sm,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={2}>
+                    {notice.title}
+                  </Text>
+                  <Text style={[typography.caption, { color: colors.danger, marginTop: 4 }]}>
+                    {notice.message}
+                  </Text>
+                </View>
+                <Pressable onPress={() => clearVirtualNotice(notice.skuId)} hitSlop={8}>
+                  <MaterialCommunityIcons name="delete-outline" size={20} color={colors.danger} />
+                </Pressable>
+              </View>
+            ))}
           </>
         }
         renderItem={({ item }) => {
@@ -253,28 +328,32 @@ export default function CartScreen() {
           const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
           const selected = selectedIds.has(key);
           const isPrize = item.isPrize === true;
+          const unavailableReason = item.unavailableReason;
+          const isUnavailable = !!unavailableReason;
+          const stockText = getStockText(item.stock, lowStockThreshold);
           const nonPrizeTotal = selectedNonPrizeTotal();
           // 动态计算锁定状态：赠品在非奖品总额达到门槛时自动解锁
-          const isLocked = item.isLocked === true && (!item.threshold || nonPrizeTotal < item.threshold);
+          const isLocked = !isUnavailable && item.isLocked === true && (!item.threshold || nonPrizeTotal < item.threshold);
           const unlockGap = isLocked && item.threshold ? item.threshold - nonPrizeTotal : 0;
           return (
             <View
               style={[
                 styles.card,
+                compactRows && styles.cardCompact,
                 shadow.sm,
                 {
                   backgroundColor: colors.surface,
                   borderRadius: radius.lg,
                   marginBottom: spacing.md,
-                  opacity: isLocked ? 0.5 : 1,
+                  opacity: isLocked || isUnavailable ? 0.5 : 1,
                 },
               ]}
             >
               {/* 复选框 — THRESHOLD_GIFT 和锁定赠品不可勾选，DISCOUNT_BUY 可取消 */}
               {(() => {
                 const isThresholdGift = isPrize && !!item.threshold;
-                const checkboxDisabled = isLocked || isThresholdGift;
-                const isChecked = isLocked ? false : isThresholdGift ? true : selected;
+                const checkboxDisabled = isUnavailable || isLocked || isThresholdGift;
+                const isChecked = isUnavailable || isLocked ? false : isThresholdGift ? true : selected;
                 return (
                   <Pressable
                     onPress={() => !checkboxDisabled && toggleSelect(item.productId, item.skuId)}
@@ -291,11 +370,20 @@ export default function CartScreen() {
               })()}
 
               <View style={{ position: 'relative' }}>
-                <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                <Image
+                  source={{ uri: item.image }}
+                  style={[styles.cover, compactRows && styles.coverCompact, { borderRadius: radius.md }]}
+                  contentFit="cover"
+                />
                 {/* 奖品徽标 */}
                 {isPrize && (
                   <View style={[styles.prizeBadge, { backgroundColor: colors.brand.primary, borderRadius: radius.sm }]}>
                     <Text style={[typography.captionSm, { color: '#fff', fontSize: 10 }]}>奖品</Text>
+                  </View>
+                )}
+                {isUnavailable && (
+                  <View style={[styles.unavailableBadge, { backgroundColor: colors.danger, borderRadius: radius.sm }]}>
+                    <Text style={[typography.captionSm, { color: '#fff', fontSize: 10 }]}>{unavailableText(unavailableReason)}</Text>
                   </View>
                 )}
                 {/* 锁定遮罩 */}
@@ -306,13 +394,27 @@ export default function CartScreen() {
                 )}
               </View>
 
-              <View style={styles.content}>
-                <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={2}>
+              <View style={[styles.content, compactRows && styles.contentCompact]}>
+                <Text
+                  style={[typography.bodyStrong, { color: colors.text.primary }]}
+                  numberOfLines={compactRows ? 3 : 2}
+                  ellipsizeMode="tail"
+                >
                   {item.title}
                 </Text>
+                {stockText && (
+                  <Text style={[typography.captionSm, { color: Number(item.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                    {stockText}
+                  </Text>
+                )}
                 {item.pendingClaim && (
                   <Text style={[typography.captionSm, { color: colors.brand.primary, marginTop: 2 }]}>
                     已加入本地购物车，登录后确认领取
+                  </Text>
+                )}
+                {isUnavailable && (
+                  <Text style={[typography.captionSm, { color: colors.danger, marginTop: 2 }]}>
+                    {unavailableText(unavailableReason)}，仅可移除
                   </Text>
                 )}
                 {/* 锁定赠品提示 */}
@@ -332,9 +434,11 @@ export default function CartScreen() {
                     </Text>
                   )}
                 </View>
-                <View style={styles.metaRow}>
+                <View style={[styles.metaRow, compactRows && styles.metaRowCompact]}>
                   {/* 奖品不可修改数量 */}
-                  {isPrize ? (
+                  {isUnavailable ? (
+                    <Text style={[typography.caption, { color: colors.text.secondary }]}>不可结算</Text>
+                  ) : isPrize ? (
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>x{item.quantity}</Text>
                   ) : (
                     <View>
@@ -351,7 +455,7 @@ export default function CartScreen() {
                     </View>
                   )}
                   {/* 普通商品和未锁定奖品可以删除 */}
-                  {!isLocked && (
+                  {(!isLocked || isUnavailable) && (
                     <Pressable
                       onPress={() => {
                         if (isPrize && item.id) {
@@ -449,21 +553,25 @@ export default function CartScreen() {
       {/* 底部结算栏 — 毛玻璃 */}
       {Platform.OS === 'ios' ? (
         <BlurView
+          onLayout={handleCheckoutBarLayout}
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={[
             styles.checkoutBar,
+            compactRows && styles.checkoutBarCompact,
             {
-              paddingBottom: insets.bottom + spacing.sm,
+              paddingBottom: barBottomPad,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.divider,
             },
           ]}
         >
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
-          <View style={{ flex: 1 }}>
+          <View style={compactRows ? styles.checkoutSummaryCompact : styles.checkoutSummary}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>合计</Text>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>¥{total.toFixed(2)}</Text>
+            <Text {...priceTextProps} style={[typography.title3, { color: colors.text.primary }]}>
+              ¥{total.toFixed(2)}
+            </Text>
           </View>
           <LinearGradient
             colors={[...gradients.goldGradient]}
@@ -472,22 +580,10 @@ export default function CartScreen() {
             style={{ borderRadius: radius.pill, overflow: 'hidden' }}
           >
             <Pressable
-              onPress={() => {
-                if (selCount === 0) {
-                  show({ message: '请先选择商品', type: 'info' });
-                  return;
-                }
-                if (!isLoggedIn) {
-                  setAuthModalOpen(true);
-                  return;
-                }
-                // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
-                clearVipPackageSelection();
-                router.push('/checkout');
-              }}
+              onPress={handleCheckoutPress}
               style={styles.checkoutButton}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                 去结算({selCount})
               </Text>
             </Pressable>
@@ -495,19 +591,23 @@ export default function CartScreen() {
         </BlurView>
       ) : (
         <View
+          onLayout={handleCheckoutBarLayout}
           style={[
             styles.checkoutBar,
+            compactRows && styles.checkoutBarCompact,
             {
-              paddingBottom: insets.bottom + spacing.sm,
+              paddingBottom: barBottomPad,
               paddingHorizontal: spacing.xl,
               borderTopColor: colors.divider,
               backgroundColor: isDark ? 'rgba(6,14,6,0.95)' : 'rgba(250,252,250,0.95)',
             },
           ]}
         >
-          <View style={{ flex: 1 }}>
+          <View style={compactRows ? styles.checkoutSummaryCompact : styles.checkoutSummary}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>合计</Text>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>¥{total.toFixed(2)}</Text>
+            <Text {...priceTextProps} style={[typography.title3, { color: colors.text.primary }]}>
+              ¥{total.toFixed(2)}
+            </Text>
           </View>
           <LinearGradient
             colors={[...gradients.goldGradient]}
@@ -516,22 +616,10 @@ export default function CartScreen() {
             style={{ borderRadius: radius.pill, overflow: 'hidden' }}
           >
             <Pressable
-              onPress={() => {
-                if (selCount === 0) {
-                  show({ message: '请先选择商品', type: 'info' });
-                  return;
-                }
-                if (!isLoggedIn) {
-                  setAuthModalOpen(true);
-                  return;
-                }
-                // 清除可能残留的 VIP 礼包选择，防止普通结算误入 VIP 模式
-                clearVipPackageSelection();
-                router.push('/checkout');
-              }}
+              onPress={handleCheckoutPress}
               style={styles.checkoutButton}
             >
-              <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                 去结算({selCount})
               </Text>
             </Pressable>
@@ -591,20 +679,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
   },
+  cardCompact: {
+    alignItems: 'flex-start',
+  },
   cover: {
     width: 80,
     height: 80,
     marginLeft: 8,
   },
+  coverCompact: {
+    width: 64,
+    height: 64,
+  },
   content: {
     flex: 1,
     marginLeft: 12,
+  },
+  contentCompact: {
+    minWidth: 0,
   },
   metaRow: {
     marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  metaRowCompact: {
+    alignItems: 'flex-start',
+    gap: 8,
   },
   deleteButton: {
     borderWidth: 1,
@@ -625,9 +727,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 12,
   },
+  checkoutBarCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  checkoutSummary: {
+    flex: 1,
+  },
+  checkoutSummaryCompact: {
+    width: '100%',
+  },
   checkoutButton: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   prizeBadge: {
     position: 'absolute',
@@ -635,5 +751,13 @@ const styles = StyleSheet.create({
     left: 4,
     paddingHorizontal: 4,
     paddingVertical: 1,
+  },
+  unavailableBadge: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    bottom: 4,
+    alignItems: 'center',
+    paddingVertical: 2,
   },
 });

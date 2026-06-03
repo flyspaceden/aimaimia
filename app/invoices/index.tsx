@@ -2,12 +2,13 @@ import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Invoice, InvoiceStatus } from '../../src/types';
 
 // 发票状态标签映射
@@ -36,6 +37,8 @@ export default function InvoicesScreen() {
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  // 底部"管理发票抬头"按钮吃系统 safe-area + 视觉间距。
+  const bottomPadding = useBottomInset(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['invoices'],
@@ -45,6 +48,18 @@ export default function InvoicesScreen() {
 
   const listError = data && !data.ok ? data.error : null;
   const invoices = data?.ok ? data.data.items : [];
+
+  const openPdf = useCallback(async (url?: string | null) => {
+    if (!url || !/^https?:\/\//.test(url)) {
+      show({ message: '发票 PDF 地址无效', type: 'error' });
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      show({ message: '无法打开发票 PDF，请稍后重试', type: 'error' });
+    }
+  }, [show]);
 
   // 取消开票申请
   const handleCancel = useCallback(async (invoice: Invoice) => {
@@ -63,6 +78,9 @@ export default function InvoicesScreen() {
           }
           show({ message: '已取消开票申请', type: 'success' });
           queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['invoice-detail', invoice.id] });
+          queryClient.invalidateQueries({ queryKey: ['order', invoice.orderId] });
+          queryClient.invalidateQueries({ queryKey: ['orders'] });
         },
       },
     ]);
@@ -102,15 +120,20 @@ export default function InvoicesScreen() {
           {/* 抬头类型 + 申请时间 */}
           <View style={styles.cardMeta}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>
-              {item.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {item.createdAt}
+              {item.profileSnapshot.type === 'PERSONAL' ? '个人' : '企业'} · {item.requestedAt || item.createdAt}
             </Text>
+            {item.status === 'REQUESTED' && (
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                系统正在自动开票
+              </Text>
+            )}
           </View>
 
           {/* 操作按钮 */}
           <View style={styles.cardFooter}>
             {item.status === 'ISSUED' && item.pdfUrl ? (
               <Pressable
-                onPress={() => show({ message: '正在打开发票...', type: 'success' })}
+                onPress={() => openPdf(item.pdfUrl)}
                 style={[styles.actionBtn, { borderColor: colors.brand.primary, borderRadius: radius.pill }]}
               >
                 <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>查看发票</Text>
@@ -134,7 +157,7 @@ export default function InvoicesScreen() {
         </Pressable>
       </Animated.View>
     );
-  }, [colors, radius, shadow, typography, cancelingId, handleCancel, show, router]);
+  }, [colors, radius, shadow, typography, cancelingId, handleCancel, openPdf, router]);
 
   const keyExtractor = useCallback((item: Invoice) => item.id, []);
 
@@ -158,11 +181,13 @@ export default function InvoicesScreen() {
           />
         </View>
       ) : invoices.length === 0 ? (
-        <View style={{ padding: spacing.xl }}>
+        // flex:1 让空态填满剩余空间，否则底部"管理发票抬头"按钮会贴在空态下方（页面中部）
+        <View style={{ flex: 1, padding: spacing.xl }}>
           <EmptyState title="暂无发票记录" description="完成订单后可申请开票" />
         </View>
       ) : (
         <FlatList
+          style={{ flex: 1 }}
           data={invoices}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
@@ -176,10 +201,17 @@ export default function InvoicesScreen() {
         onPress={() => router.push('/invoices/profiles')}
         style={[
           styles.bottomBtn,
-          { backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: 1 },
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+            borderTopWidth: 1,
+            paddingBottom: 14 + bottomPadding,
+          },
         ]}
       >
-        <Text style={[typography.bodySm, { color: colors.accent.blue }]}>管理发票抬头</Text>
+        <Text {...compactActionTextProps} style={[typography.bodySm, { color: colors.accent.blue }]}>
+          管理发票抬头
+        </Text>
       </Pressable>
     </Screen>
   );

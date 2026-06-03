@@ -248,7 +248,7 @@ async function resolveTransactionIntent(
     case 'track-order': {
       const orderResult = await OrderRepo.list(undefined, { page: 1, pageSize: 20 });
       if (orderResult.ok) {
-        const preferredStatuses = ['shipping', 'delivered', 'completed'] as const;
+        const preferredStatuses = ['SHIPPED', 'DELIVERED', 'RECEIVED'] as const;
         for (const status of preferredStatuses) {
           const order = orderResult.data.items.find((item) => item.status === status);
           if (order) {
@@ -269,13 +269,22 @@ async function resolveTransactionIntent(
       };
     }
     case 'pay': {
-      const pendingPayResult = await OrderRepo.list('pendingPay', { page: 1, pageSize: 1 });
-      const hasPendingPay = pendingPayResult.ok && pendingPayResult.data.items.length > 0;
+      // Phase 3 Review Fix 6：Phase 2 后订单付款前不再创建 Order，改用 CheckoutSession 续付路径
+      const pendingResult = await OrderRepo.getPendingCheckout();
+      const pending = pendingResult.ok ? pendingResult.data : null;
+      if (pending) {
+        return {
+          action: 'navigate',
+          route: '/checkout-pending',
+          params: { sessionId: pending.sessionId },
+          toastText: intent.feedback,
+        };
+      }
       return {
         action: 'navigate',
         route: '/orders',
-        params: hasPendingPay ? { status: 'pendingPay' } : {},
-        toastText: hasPendingPay ? intent.feedback : '暂时没有待付款订单，先带你去订单页看看...',
+        params: {},
+        toastText: '暂时没有待付款订单，先带你去订单页看看...',
       };
     }
     case 'refund':
@@ -291,20 +300,12 @@ async function resolveTransactionIntent(
           toastText: intent.feedback,
         };
       }
-      const afterSaleResult = await OrderRepo.list('afterSale', { page: 1, pageSize: 1 });
-      const afterSaleOrderId = afterSaleResult.ok ? afterSaleResult.data.items[0]?.id : null;
-      if (afterSaleOrderId) {
-        return {
-          action: 'navigate',
-          route: '/orders/[id]',
-          params: { id: afterSaleOrderId },
-          toastText: '先带你去相关订单看看售后进度...',
-        };
-      }
+      // afterSale 为 UI 派生态，无对应 OrderStatus 真值；getLatestIssue 已覆盖售后订单查找
+      // 若上方未命中（无 issueFlag/afterSaleStatus 订单），回退到订单首页让用户自行查看
       return {
         action: 'navigate',
         route: '/orders',
-        params: { status: 'afterSale' },
+        params: { status: 'afterSaleList' },
         toastText: '先带你去售后订单页看看...',
       };
     }
@@ -353,7 +354,11 @@ function resolveNavigateIntent(
     case 'search':
       route = '/search'; break;
     case 'ai-chat':
-      route = '/ai/chat'; break;
+      // 【AI 多轮对话已下线】不再跳 /ai/chat，原地给一句单轮反馈
+      // 原实现：route = '/ai/chat'; break;
+      feedback = intent.feedback || '你可以直接长按光球，对我说出需求～';
+      route = null;
+      break;
     default:
       feedback = intent.feedback || '我来帮你打开对应页面。';
       route = null;

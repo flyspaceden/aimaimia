@@ -37,6 +37,56 @@ const parseErrorMessage = (payload: any, fallback = '请求失败') => {
   return fallback;
 };
 
+/**
+ * 携带业务子错误码的 Axios 错误类
+ *
+ * 调用方需要根据具体错误场景分支时用：
+ *   `if (err instanceof ApiError && err.businessCode === 'CAPTCHA_INVALID') { ... }`
+ * 例如忘记密码页：CAPTCHA_INVALID → 自动刷新图形码；STAFF_PHONE_MISMATCH → 回到选企业步骤
+ */
+export class ApiError extends Error {
+  readonly businessCode?: string;
+  readonly status?: number;
+  /** 字段级校验错误（来自后端表单类接口），形如 [{ field: 'description', message: '至少 10 字' }] */
+  readonly fieldErrors?: Array<{ field: string; message: string }>;
+  constructor(
+    message: string,
+    opts: {
+      businessCode?: string;
+      status?: number;
+      fieldErrors?: Array<{ field: string; message: string }>;
+    } = {},
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.businessCode = opts.businessCode;
+    this.status = opts.status;
+    this.fieldErrors = opts.fieldErrors;
+  }
+}
+
+/** 从后端信封 `{ ok:false, error: { businessCode, ... } }` 中提取业务子错误码 */
+const extractBusinessCode = (payload: any): string | undefined => {
+  const err = payload?.error;
+  if (err && typeof err === 'object' && typeof err.businessCode === 'string') {
+    return err.businessCode;
+  }
+  return undefined;
+};
+
+/** 提取字段级校验错误数组（用于 form.setFields 高亮） */
+const extractFieldErrors = (
+  payload: any,
+): Array<{ field: string; message: string }> | undefined => {
+  const err = payload?.error;
+  if (!err || typeof err !== 'object') return undefined;
+  const list = err.fieldErrors;
+  if (!Array.isArray(list) || list.length === 0) return undefined;
+  return list
+    .filter((e: any) => e && typeof e.field === 'string' && typeof e.message === 'string')
+    .map((e: any) => ({ field: e.field, message: e.message }));
+};
+
 // 请求拦截：附加 seller JWT
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('seller_token');
@@ -82,7 +132,13 @@ client.interceptors.response.use(
     const body = response.data;
     if (body && typeof body === 'object' && 'ok' in body) {
       if (!body.ok) {
-        return Promise.reject(new Error(parseErrorMessage(body, '请求失败')));
+        return Promise.reject(
+          new ApiError(parseErrorMessage(body, '请求失败'), {
+            businessCode: extractBusinessCode(body),
+            fieldErrors: extractFieldErrors(body),
+            status: response.status,
+          }),
+        );
       }
       // [I20] 检查响应中 data 字段是否存在
       if (body.data === undefined) {
@@ -165,8 +221,15 @@ client.interceptors.response.use(
       }
     }
 
-    const msg = parseErrorMessage(error.response?.data, error.message || '网络错误');
-    return Promise.reject(new Error(msg));
+    const payload = error.response?.data;
+    const msg = parseErrorMessage(payload, error.message || '网络错误');
+    return Promise.reject(
+      new ApiError(msg, {
+        businessCode: extractBusinessCode(payload),
+        fieldErrors: extractFieldErrors(payload),
+        status: error.response?.status,
+      }),
+    );
   },
 );
 

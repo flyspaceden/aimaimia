@@ -111,14 +111,15 @@ export class NormalPlatformSplitService {
       // 确保卖家 OWNER 有 INDUSTRY_FUND 账户
       const account = await this.ensureAccount(tx, ownerStaff.userId, 'INDUSTRY_FUND');
 
+      // 入账时进入「售后保护冻结」(RETURN_FROZEN)，详细说明见 vip-platform-split.service.ts:distributeIndustryFund
       await tx.rewardLedger.create({
         data: {
           allocationId,
           accountId: account.id,
           userId: ownerStaff.userId,
-          entryType: 'RELEASE',
+          entryType: 'FREEZE',
           amount,
-          status: 'AVAILABLE',
+          status: 'RETURN_FROZEN',
           refType: 'ORDER',
           refId: orderId,
           meta: {
@@ -131,12 +132,7 @@ export class NormalPlatformSplitService {
         },
       });
 
-      await tx.rewardAccount.update({
-        where: { id: account.id },
-        data: { balance: { increment: amount } },
-      });
-
-      this.logger.log(`产业基金入账：${amount} 元 → 卖家 ${ownerStaff.userId}（公司 ${companyId}）`);
+      this.logger.log(`普通产业基金入账(冻结)：${amount} 元 → 卖家 ${ownerStaff.userId}（公司 ${companyId}），待退货窗口期满后解冻`);
     }
   }
 

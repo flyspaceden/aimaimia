@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Dimensions, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -12,13 +12,13 @@ import { AiBadge, AiCardGlow, AiDivider, Tag } from '../../src/components/ui';
 import { AiOrb } from '../../src/components/effects';
 import { AiFeatureRepo } from '../../src/repos';
 import { useCartStore, useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { AiRecommendTheme, AppError, Product } from '../../src/types';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// CARD_GAP / CARD_PADDING 不依赖 SCREEN_WIDTH，留在模块顶层；
+// CARD_WIDTH 依赖响应式 SCREEN_WIDTH，移入组件函数体内（见下方 useWindowDimensions）
 const CARD_GAP = 12;
 const CARD_PADDING = 20;
-const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
 
 const recommendThemeLabelMap: Record<AiRecommendTheme, string> = {
   hot: '爆款',
@@ -320,6 +320,11 @@ const buildRecommendPlans = (
 
 export default function AiRecommendScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
+  const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
+  // 购物车悬浮按钮位置走系统 safe-area，避免硬编码 bottom 留白。
+  const fabBottom = useBottomInset(40);
   const router = useRouter();
   const { show } = useToast();
   const addItem = useCartStore((state) => state.addItem);
@@ -629,7 +634,7 @@ export default function AiRecommendScreen() {
                         </Text>
                       </View>
                       <View style={[styles.planPricePill, { borderRadius: radius.pill, backgroundColor: colors.ai.soft }]}>
-                        <Text style={[typography.captionSm, { color: colors.ai.start }]}>¥{plan.totalPrice.toFixed(1)}</Text>
+                        <Text {...priceTextProps} style={[typography.captionSm, { color: colors.ai.start }]}>¥{plan.totalPrice.toFixed(1)}</Text>
                       </View>
                     </View>
 
@@ -768,7 +773,7 @@ export default function AiRecommendScreen() {
         style={[
           styles.cartFab,
           shadow.md,
-          { backgroundColor: colors.brand.primary, borderRadius: radius.full },
+          { backgroundColor: colors.brand.primary, borderRadius: radius.full, bottom: fabBottom },
         ]}
       >
         <MaterialCommunityIcons name="cart-outline" size={22} color="#fff" />
@@ -875,7 +880,7 @@ const styles = StyleSheet.create({
   },
   cartFab: {
     position: 'absolute',
-    bottom: 90,
+    // bottom 由组件内 useBottomInset(40) 动态计算。
     left: 20,
     width: 48,
     height: 48,

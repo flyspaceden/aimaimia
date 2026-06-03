@@ -132,6 +132,13 @@ export default function AfterSaleListScreen() {
               },
             ]}
           >
+            {/* 店铺名行（Phase 1 fallback "商家"，Phase 2 后端 join Company 暴露 companyName） */}
+            <View style={[styles.shopRow, { borderBottomColor: colors.border }]}>
+              <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                🏪 {(snapshot as any)?.companyName || '商家'}
+              </Text>
+            </View>
+
             {/* 顶部行：类型标签 + 状态 */}
             <View style={styles.cardHeader}>
               <View style={[styles.typeTag, { backgroundColor: typeColor.bg, borderRadius: radius.sm }]}>
@@ -164,6 +171,11 @@ export default function AfterSaleListScreen() {
                 <Text style={[typography.bodySm, { color: colors.text.primary }]} numberOfLines={2}>
                   {productTitle}
                 </Text>
+                {snapshot?.skuTitle ? (
+                  <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 2 }]} numberOfLines={1}>
+                    规格：{snapshot.skuTitle}
+                  </Text>
+                ) : null}
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                   ¥{unitPrice.toFixed(2)} x{quantity}
                 </Text>
@@ -258,6 +270,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  shopRow: {
+    paddingBottom: 8,
+    marginBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   typeTag: {
     paddingHorizontal: 8,

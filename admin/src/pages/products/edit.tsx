@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Spin,
@@ -11,26 +13,64 @@ import {
   Descriptions,
   Timeline,
   Empty,
-  message,
   Space,
   TreeSelect,
   Select,
   Breadcrumb,
   Collapse,
   Typography,
+  Modal,
+  Image,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined, DownloadOutlined } from '@ant-design/icons';
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
+import { getConfigs } from '@/api/config';
 import { getPublicTagCategories } from '@/api/tags';
-
-const { Text } = Typography;
 import { getTargetAuditLogs } from '@/api/audit';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
-import type { AuditLog } from '@/types';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
+import { extractConfigValue, type AuditLog } from '@/types';
 import dayjs from 'dayjs';
+
+const { Text } = Typography;
+
+const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
+
+function normalizeLowStockThreshold(value: unknown): number {
+  const threshold = Number(value);
+  return Number.isInteger(threshold) && threshold >= 0 && threshold <= 999
+    ? threshold
+    : DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD;
+}
+
+function getStockHint(stockValue: unknown, threshold: number): { type: 'danger' | 'warning'; text: string } | null {
+  if (stockValue === undefined || stockValue === null || stockValue === '') return null;
+  const stock = Number(stockValue);
+  if (!Number.isFinite(stock)) return null;
+  if (stock < 0) {
+    return { type: 'danger', text: '当前为超卖欠货，请填写补货后的可售库存（不能保存负数）' };
+  }
+  if (stock === 0) {
+    return { type: 'danger', text: '无库存，App 端不可购买/不可结算' };
+  }
+  if (threshold > 0 && stock <= threshold) {
+    return { type: 'warning', text: `低库存：App 端显示仅剩 ${stock} 件` };
+  }
+  return null;
+}
+
+function StockHint({ value, threshold }: { value: unknown; threshold: number }) {
+  const hint = getStockHint(value, threshold);
+  if (!hint) return null;
+  return (
+    <Text type={hint.type} style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+      {hint.text}
+    </Text>
+  );
+}
 
 export default function ProductEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +78,27 @@ export default function ProductEditPage() {
   const [form] = Form.useForm();
   const [skuForm] = Form.useForm();
   const queryClient = useQueryClient();
+  const { message } = App.useApp();
+
+  // 商品图片预览（与卖家端商品编辑页一致）
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const handleDownloadImage = () => {
+    if (!previewFile) return;
+    setDownloading(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.name, apiBase);
+      triggerBrowserDownload(request.href, request.filename);
+    } catch (err) {
+      message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('图片下载失败', err);
+    } finally {
+      setTimeout(() => setDownloading(false), 500);
+    }
+  };
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -48,6 +109,16 @@ export default function ProductEditPage() {
     queryFn: () => getProduct(id!),
     enabled: !!id,
   });
+
+  const { data: configRows = [] } = useQuery({
+    queryKey: ['admin', 'configs', 'low-stock-threshold'],
+    queryFn: getConfigs,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockConfig = configRows.find((item) => item.key === 'LOW_STOCK_DISPLAY_THRESHOLD');
+  const lowStockThreshold = normalizeLowStockThreshold(
+    lowStockConfig ? extractConfigValue(lowStockConfig) : undefined,
+  );
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -78,7 +149,18 @@ export default function ProductEditPage() {
 
   const handleSave = async () => {
     try {
-      const values = await form.validateFields();
+      // 同时校验基本信息表单和规格表单，任一失败不提交
+      const [values, skuValues] = await Promise.all([
+        form.validateFields(),
+        skuForm.validateFields(),
+      ]);
+
+      const skus = (skuValues.skus as any[]) || [];
+      if (skus.length === 0) {
+        message.warning('至少保留一条规格');
+        return;
+      }
+
       // 转换产地为 Json 格式
       const { originText: ot, attributes: attrs, ...rest } = values;
       const data: Record<string, any> = { ...rest };
@@ -94,13 +176,32 @@ export default function ProductEditPage() {
             .map((p) => [p.key, p.value]),
         );
       }
+
+      // 先保存基本信息，再保存规格
       await updateProduct(id!, data);
-      message.success('保存成功');
+      await updateProductSkus(id!, skus);
+
+      message.success('保存成功：基本信息与规格均已更新');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
       navigate('/products');
-    } catch (err) {
+    } catch (err: any) {
+      // antd 表单校验错误形如 { errorFields: [{ name, errors }] }
+      if (err && Array.isArray(err.errorFields) && err.errorFields.length > 0) {
+        const first = err.errorFields[0];
+        const fieldName = Array.isArray(first?.name) ? first.name.join('.') : String(first?.name ?? '');
+        const errMsg = first?.errors?.[0] || '请填写必填项';
+        message.error(`保存失败：${fieldName ? fieldName + ' — ' : ''}${errMsg}`);
+        // 滚动到第一个错误字段（两个表单都尝试一次，非目标表单会无操作）
+        try { form.scrollToField(first.name); } catch {}
+        try { skuForm.scrollToField(first.name); } catch {}
+        return;
+      }
+      // API / 网络错误（拦截器已包装为 Error）
       if (err instanceof Error) {
         message.error(err.message || '保存失败');
+        return;
       }
+      message.error('保存失败：未知错误');
     }
   };
 
@@ -138,6 +239,8 @@ export default function ProductEditPage() {
     price: s.price,
     cost: s.cost ?? 0,
     stock: s.stock ?? 0,
+    weightGram: s.weightGram,
+    maxPerOrder: s.maxPerOrder ?? undefined,
   }));
 
   // 保存 SKU
@@ -233,6 +336,14 @@ export default function ProductEditPage() {
           <Descriptions.Item label="产地 / 产区">
             {originText || '-'}
           </Descriptions.Item>
+          <Descriptions.Item label="基础价格（起步价）">
+            <Text strong style={{ color: '#059669', whiteSpace: 'nowrap' }}>
+              ¥{product.basePrice?.toFixed(2) ?? '-'}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+              自动 = 最低规格售价，保存规格后自动刷新
+            </Text>
+          </Descriptions.Item>
           <Descriptions.Item label="创建时间">
             {dayjs(product.createdAt).format('YYYY-MM-DD HH:mm')}
           </Descriptions.Item>
@@ -256,7 +367,6 @@ export default function ProductEditPage() {
             title: product.title,
             subtitle: product.subtitle,
             description: product.description,
-            basePrice: product.basePrice,
             categoryId: product.categoryId,
             originText,
             aiKeywords: product.aiKeywords || [],
@@ -294,18 +404,6 @@ export default function ProductEditPage() {
           </Form.Item>
           <Form.Item label="产地 / 产区" name="originText">
             <Input placeholder="如：黑龙江省五常市" style={{ width: 300 }} />
-          </Form.Item>
-          <Form.Item
-            label="基础价格（元）"
-            name="basePrice"
-            rules={[{ required: true, message: '请输入价格' }]}
-          >
-            <InputNumber
-              min={0}
-              precision={2}
-              style={{ width: 200 }}
-              prefix="¥"
-            />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Collapse
@@ -439,12 +537,23 @@ export default function ProductEditPage() {
             {mediaList.map((img, idx) => (
               <div
                 key={img.id || idx}
+                onClick={() => setPreviewFile({ url: img.url, name: `商品图片-${idx + 1}` })}
                 style={{
                   width: 120,
                   height: 120,
                   borderRadius: 8,
                   overflow: 'hidden',
                   border: '1px solid #e8e8e8',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#1677ff';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(22,119,255,0.18)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#e8e8e8';
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               >
                 <img
@@ -511,13 +620,41 @@ export default function ProductEditPage() {
                     >
                       <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
                     </Form.Item>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <Form.Item
+                        {...field}
+                        label="库存"
+                        name={[field.name, 'stock']}
+                        rules={[
+                          { required: true, message: '请输入库存' },
+                          { type: 'number', min: 0, message: '库存不能为负数' },
+                        ]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <InputNumber min={0} precision={0} style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+                        {({ getFieldValue }) => {
+                          const stock = getFieldValue(['skus', field.name, 'stock']);
+                          return <StockHint value={stock} threshold={lowStockThreshold} />;
+                        }}
+                      </Form.Item>
+                    </div>
                     <Form.Item
                       {...field}
-                      label="库存"
-                      name={[field.name, 'stock']}
-                      rules={[{ required: true, message: '请输入库存' }]}
+                      label="包装后重量（克）"
+                      name={[field.name, 'weightGram']}
+                      rules={[{ required: true, message: '请输入包装后重量' }]}
                     >
-                      <InputNumber style={{ width: 120 }} />
+                      <InputNumber min={1} precision={0} style={{ width: 150 }} placeholder="如：1000" />
+                    </Form.Item>
+                    <Form.Item
+                      {...field}
+                      label="单笔限购"
+                      name={[field.name, 'maxPerOrder']}
+                      rules={[{ type: 'number', min: 1, message: '最少为1' }]}
+                    >
+                      <InputNumber min={1} precision={0} style={{ width: 120 }} placeholder="不限" />
                     </Form.Item>
                     <MinusCircleOutlined
                       style={{ marginTop: 38, color: '#999' }}
@@ -527,7 +664,7 @@ export default function ProductEditPage() {
                 ))}
                 <Button
                   type="dashed"
-                  onClick={() => add({ price: 0, stock: 0, cost: 0 })}
+                  onClick={() => add({ price: 0, stock: 0, cost: 0, maxPerOrder: undefined })}
                   icon={<PlusOutlined />}
                 >
                   添加规格
@@ -579,6 +716,38 @@ export default function ProductEditPage() {
           <Empty description="暂无审核记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Card>
+
+      {/* 商品图片预览弹窗（与卖家端商品编辑页一致） */}
+      <Modal
+        title={previewFile ? `预览：${previewFile.name}` : '预览'}
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {previewFile && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                loading={downloading}
+                onClick={handleDownloadImage}
+              >
+                下载到本地
+              </Button>
+            </div>
+            <div style={{ textAlign: 'center', background: '#fafafa', borderRadius: 4, minHeight: 400, padding: 16 }}>
+              <Image
+                src={previewFile.url}
+                alt={previewFile.name}
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              />
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Image, Space, message, Modal, Input, Badge, Upload } from 'antd';
+import { Tag, Image, Space, Modal, Input, Badge, Upload, App } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -8,14 +8,13 @@ import { useQuery } from '@tanstack/react-query';
 import {
   getAfterSales,
   getAfterSaleStats,
-  reviewAfterSale,
   approveAfterSale,
   rejectAfterSale,
   confirmReceiveReturn,
   rejectReturn,
   type AfterSale,
 } from '@/api/after-sale';
-import { afterSaleStatusMap, afterSaleTypeMap, afterSaleReasonMap } from '@/constants/statusMaps';
+import { afterSaleTypeMap, afterSaleReasonMap, getAfterSaleDisplayStatus } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 // 标签页配置
@@ -27,7 +26,19 @@ const TAB_ITEMS = [
   { key: 'COMPLETED,REFUNDED', label: '已完成' },
 ];
 
+const sellerAfterSaleTypeMap: Record<string, { text: string; color: string }> = {
+  ...afterSaleTypeMap,
+  NO_REASON_EXCHANGE: { text: '七天无理由换货', color: 'purple' },
+};
+
+const isExchangeType = (type: string) =>
+  type === 'QUALITY_EXCHANGE' || type === 'NO_REASON_EXCHANGE';
+
+const isReturnType = (type: string) =>
+  type === 'QUALITY_RETURN' || type === 'NO_REASON_RETURN';
+
 export default function AfterSaleListPage() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType | null>(null);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('');
@@ -36,28 +47,17 @@ export default function AfterSaleListPage() {
   const [rejectReturnModal, setRejectReturnModal] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
   const [returnRejectReason, setReturnRejectReason] = useState('');
   const [returnRejectPhotos, setReturnRejectPhotos] = useState<string[]>([]);
-  const [returnRejectWaybillNo, setReturnRejectWaybillNo] = useState('');
 
-  // 按状态统计
+  // 按状态统计（tab 角标用；跟列表一起 15s 轮询保持一致）
   const { data: stats } = useQuery({
     queryKey: ['after-sale-stats'],
     queryFn: getAfterSaleStats,
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
   });
 
-  const handleReview = async (id: string) => {
-    Modal.confirm({
-      title: '确认开始审核该售后申请？',
-      onOk: async () => {
-        await reviewAfterSale(id);
-        message.success('已进入审核中');
-        actionRef.current?.reload();
-      },
-    });
-  };
-
   const handleApprove = (id: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认通过售后申请？',
       onOk: async () => {
         await approveAfterSale(id);
@@ -84,7 +84,7 @@ export default function AfterSaleListPage() {
   };
 
   const handleConfirmReceive = (id: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认已收到买家退货？',
       content: '确认收到后将进入验收环节',
       onOk: async () => {
@@ -104,21 +104,15 @@ export default function AfterSaleListPage() {
       message.warning('请上传至少一张照片');
       return;
     }
-    if (!returnRejectWaybillNo.trim()) {
-      message.warning('请填写退回运单号');
-      return;
-    }
     try {
       await rejectReturn(rejectReturnModal.id, {
         reason: returnRejectReason,
         photos: returnRejectPhotos,
-        returnWaybillNo: returnRejectWaybillNo,
       });
       message.success('已拒收退货');
       setRejectReturnModal({ open: false, id: '' });
       setReturnRejectReason('');
       setReturnRejectPhotos([]);
-      setReturnRejectWaybillNo('');
       actionRef.current?.reload();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败');
@@ -138,11 +132,12 @@ export default function AfterSaleListPage() {
 
   const columns: ProColumns<AfterSale>[] = [
     {
-      title: 'ID',
+      title: '售后单号',
       dataIndex: 'id',
       width: 80,
       ellipsis: true,
-      search: false,
+      copyable: true,
+      fieldProps: { placeholder: '输入完整或末几位售后单号' },
     },
     {
       title: '售后类型',
@@ -150,10 +145,10 @@ export default function AfterSaleListPage() {
       width: 130,
       valueType: 'select',
       valueEnum: Object.fromEntries(
-        Object.entries(afterSaleTypeMap).map(([k, v]) => [k, { text: v.text }]),
+        Object.entries(sellerAfterSaleTypeMap).map(([k, v]) => [k, { text: v.text }]),
       ),
       render: (_, record) => {
-        const t = afterSaleTypeMap[record.afterSaleType];
+        const t = sellerAfterSaleTypeMap[record.afterSaleType];
         return t ? <Tag color={t.color}>{t.text}</Tag> : record.afterSaleType;
       },
     },
@@ -220,7 +215,7 @@ export default function AfterSaleListPage() {
       width: 120,
       hideInSearch: true,
       render: (_, record) => {
-        const s = afterSaleStatusMap[record.status] || { text: record.status, color: 'default' };
+        const s = getAfterSaleDisplayStatus(record);
         return <Tag color={s.color}>{s.text}</Tag>;
       },
     },
@@ -239,10 +234,7 @@ export default function AfterSaleListPage() {
       render: (_, record) => (
         <Space>
           <a onClick={() => navigate(`/after-sale/${record.id}`)}>详情</a>
-          {record.status === 'REQUESTED' && (
-            <a onClick={() => handleReview(record.id)}>开始审核</a>
-          )}
-          {record.status === 'UNDER_REVIEW' && (
+          {(record.status === 'REQUESTED' || record.status === 'UNDER_REVIEW') && (
             <>
               <a onClick={() => handleApprove(record.id)} style={{ color: '#52c41a' }}>通过</a>
               <a
@@ -256,15 +248,14 @@ export default function AfterSaleListPage() {
           {record.status === 'RETURN_SHIPPING' && (
             <a onClick={() => handleConfirmReceive(record.id)} style={{ color: '#1677ff' }}>确认收到</a>
           )}
-          {record.status === 'RECEIVED_BY_SELLER' && (
+          {record.status === 'RECEIVED_BY_SELLER' && isReturnType(record.afterSaleType) && (
             <>
-              <a onClick={() => handleApprove(record.id)} style={{ color: '#52c41a' }}>验收通过</a>
+              <span style={{ color: '#1677ff' }}>退款处理中</span>
               <a
                 onClick={() => {
                   setRejectReturnModal({ open: true, id: record.id });
                   setReturnRejectReason('');
                   setReturnRejectPhotos([]);
-                  setReturnRejectWaybillNo('');
                 }}
                 style={{ color: '#ff4d4f' }}
               >
@@ -272,8 +263,21 @@ export default function AfterSaleListPage() {
               </a>
             </>
           )}
-          {record.status === 'APPROVED' && record.afterSaleType === 'QUALITY_EXCHANGE' && (
+          {/* 换货发货逻辑：
+              - RECEIVED_BY_SELLER：旧货已到 → 直接去发货
+              - APPROVED + 免寄回：可直接发货
+              - APPROVED + 需寄回：必须等买家寄回，显示灰字提示 */}
+          {record.status === 'RECEIVED_BY_SELLER' && isExchangeType(record.afterSaleType) && (
             <a onClick={() => navigate(`/after-sale/${record.id}`)}>去发货</a>
+          )}
+          {record.status === 'APPROVED' && isExchangeType(record.afterSaleType) && !record.requiresReturn && (
+            <a onClick={() => navigate(`/after-sale/${record.id}`)}>去发货</a>
+          )}
+          {record.status === 'APPROVED' && isExchangeType(record.afterSaleType) && record.requiresReturn && (
+            <span style={{ color: '#999' }}>等待买家寄回</span>
+          )}
+          {record.status === 'SELLER_REJECTED_RETURN' && (
+            <a onClick={() => navigate(`/after-sale/${record.id}`)}>回寄面单</a>
           )}
         </Space>
       ),
@@ -297,6 +301,8 @@ export default function AfterSaleListPage() {
         rowKey="id"
         scroll={{ x: 'max-content' }}
         search={{ labelWidth: 'auto' }}
+        // 每 15s 自动刷新列表，让卖家感知顺丰物流推送/管理员仲裁等远端状态变化
+        polling={15_000}
         toolbar={{
           menu: {
             type: 'tab',
@@ -317,6 +323,7 @@ export default function AfterSaleListPage() {
             pageSize: params.pageSize,
             status: activeTab || params.status || undefined,
             afterSaleType: params.afterSaleType || undefined,
+            id: params.id ? String(params.id).trim() : undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}
@@ -390,14 +397,6 @@ export default function AfterSaleListPage() {
                 </div>
               )}
             </Upload>
-          </div>
-          <div>
-            <div style={{ marginBottom: 4, fontWeight: 500 }}>退回运单号</div>
-            <Input
-              placeholder="请输入将退货寄回买家的运单号"
-              value={returnRejectWaybillNo}
-              onChange={(e) => setReturnRejectWaybillNo(e.target.value)}
-            />
           </div>
         </Space>
       </Modal>

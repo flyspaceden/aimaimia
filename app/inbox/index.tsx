@@ -14,6 +14,36 @@ import { AppError, InboxCategory, InboxMessage, InboxType } from '../../src/type
 
 type InboxTab = 'all' | InboxCategory;
 
+/**
+ * 买家 App 路由白名单（按 app/ 目录实际存在的根路径列出）
+ * 防御层：拦截后端误发的无效路径（如历史 /coupons、/wallet、/seller/* 等），
+ * 避免落入 expo-router 的 +not-found 错误页。
+ *
+ * 增加新页面时记得同步这里（或者改成在 build 时自动生成 app/ 路径列表）。
+ */
+const VALID_ROUTE_PREFIXES = [
+  '/(tabs)',
+  // 个人中心子页面
+  '/me',
+  // 业务模块
+  '/orders', '/product', '/company', '/category',
+  '/cs', '/ai', '/vip', '/group', '/invoices', '/user',
+  // 单文件页面
+  '/about', '/account-security', '/cart',
+  '/checkout', '/checkout-address', '/checkout-coupon',
+  '/coupon-center', '/inbox', '/lottery',
+  '/notification-settings', '/privacy', '/referral',
+  '/search', '/settings', '/terms',
+];
+
+const isValidAppRoute = (route: string | undefined): boolean => {
+  if (!route || typeof route !== 'string') return false;
+  if (!route.startsWith('/')) return false;
+  return VALID_ROUTE_PREFIXES.some(
+    (prefix) => route === prefix || route.startsWith(prefix + '/') || route.startsWith(prefix + '?'),
+  );
+};
+
 const iconMap: Record<InboxType, { name: string; tone: 'brand' | 'accent' | 'neutral' }> = {
   expert_reply: { name: 'comment-question-outline', tone: 'accent' },
   tip_paid: { name: 'gift-outline', tone: 'brand' },
@@ -73,12 +103,24 @@ export default function InboxScreen() {
       await InboxRepo.markRead(message.id);
       refetch();
     }
-    if (message.target?.route) {
-      router.push({ pathname: message.target.route, params: message.target.params });
+    const route = message.target?.route;
+    if (route && isValidAppRoute(route)) {
+      router.push({ pathname: route, params: message.target?.params });
       return;
     }
-    show({ message: '暂无详情跳转', type: 'info' });
+    if (route && !isValidAppRoute(route)) {
+      // 后端误发了无效路径（如历史 /coupons /wallet /seller/* 残留消息）
+      // 不跳转避免落入 +not-found，给用户友好提示
+      show({ message: '该消息暂无可跳转的页面', type: 'info' });
+      return;
+    }
+    // route 未设置：纯信息消息（如卖家通知 41d91c2 改为 info-only）
+    show({ message: '请前往对应业务后台处理', type: 'info' });
   };
+
+  // 判断单条消息是否可点击跳转，用于 chevron 条件渲染
+  const isMessageClickable = (message: InboxMessage): boolean =>
+    isValidAppRoute(message.target?.route);
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -245,7 +287,10 @@ export default function InboxScreen() {
                         {message.createdAt}
                       </Text>
                     </View>
-                    <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
+                    {/* 仅当消息可跳转时显示 chevron，info-only 消息不显示避免误导 */}
+                    {isMessageClickable(message) ? (
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
+                    ) : null}
                   </Pressable>
                 </Animated.View>
               );

@@ -16,6 +16,17 @@ export const updateConfig = (key: string, data: {
 }): Promise<RuleConfig> =>
   client.put(`/admin/config/${key}`, data);
 
+/**
+ * 批量更新配置（原子事务 + 最终态校验）
+ * 用于同时调整多个比例类配置（如 VIP/普通用户六分比例），避免串行提交触发
+ * 中间态校验失败（"总和为 0.99"）。
+ */
+export const batchUpdateConfig = (data: {
+  updates: Array<{ key: string; value: unknown }>;
+  changeNote?: string;
+}): Promise<{ ok: boolean; version: string; updated: number }> =>
+  client.put('/admin/config/batch', data);
+
 /** 配置版本历史 */
 export const getConfigVersions = (params?: PaginationParams): Promise<PaginatedData<ConfigVersion>> =>
   client.get('/admin/config/versions', { params });

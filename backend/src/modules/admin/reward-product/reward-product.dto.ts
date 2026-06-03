@@ -42,11 +42,10 @@ export class RewardProductSkuDto {
   @MaxLength(64, { message: 'SKU 编码不能超过 64 个字符' })
   skuCode?: string;
 
-  @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'SKU 重量必须为数字' })
-  @Min(0, { message: 'SKU 重量不能小于 0' })
-  weightGram?: number;
+  @IsInt({ message: 'SKU 重量必须为整数克' })
+  @Min(1, { message: 'SKU 重量必须大于 0 克' })
+  weightGram: number;
 }
 
 export class RewardProductMediaDto {
@@ -151,11 +150,10 @@ export class CreateRewardProductSkuForUpdateDto {
   @MaxLength(64, { message: 'SKU 编码不能超过 64 个字符' })
   skuCode?: string;
 
-  @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'SKU 重量必须为数字' })
-  @Min(0, { message: 'SKU 重量不能小于 0' })
-  weightGram?: number;
+  @IsInt({ message: 'SKU 重量必须为整数克' })
+  @Min(1, { message: 'SKU 重量必须大于 0 克' })
+  weightGram: number;
 }
 
 /** 更新单个 SKU */
@@ -190,8 +188,8 @@ export class UpdateRewardProductSkuDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'SKU 重量必须为数字' })
-  @Min(0, { message: 'SKU 重量不能小于 0' })
+  @IsInt({ message: 'SKU 重量必须为整数克' })
+  @Min(1, { message: 'SKU 重量必须大于 0 克' })
   weightGram?: number;
 }
 

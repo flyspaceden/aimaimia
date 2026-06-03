@@ -1,12 +1,110 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { InboxService } from '../../inbox/inbox.service';
-import { maskPhone } from '../../../common/security/privacy-mask';
+import { AlipayService } from '../../payment/alipay.service';
+import { WithdrawPayoutService } from '../../bonus/withdraw-payout.service';
+import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
+import {
+  UpdateWithdrawRulesDto,
+  WithdrawRules,
+} from './dto/update-withdraw-rules.dto';
 
 type VipNodeStatus = 'active' | 'silent' | 'frozen' | 'exited';
 
 const NORMAL_TREE_ROOT_VIEW_ID = '__NORMAL_TREE_ROOT__';
+
+const WITHDRAW_RULE_DEFINITIONS: {
+  [K in keyof WithdrawRules]: {
+    key: string;
+    defaultValue: WithdrawRules[K];
+    description: string;
+    min?: number;
+    max?: number;
+    integer?: boolean;
+  };
+} = {
+  withdrawTaxRate: {
+    key: 'WITHDRAW_TAX_RATE',
+    defaultValue: 0.20,
+    description: '提现代扣个税比例',
+    min: 0,
+    max: 0.5,
+  },
+  withdrawMinAmount: {
+    key: 'WITHDRAW_MIN_AMOUNT',
+    defaultValue: 10,
+    description: '提现单笔最低（元）',
+    min: 0,
+  },
+  withdrawMaxAmount: {
+    key: 'WITHDRAW_MAX_AMOUNT',
+    defaultValue: 10000,
+    description: '提现单笔最高（元）',
+    min: 0,
+  },
+  withdrawDailyMaxCount: {
+    key: 'WITHDRAW_DAILY_MAX_COUNT',
+    defaultValue: 3,
+    description: '提现每日最多次数',
+    min: 1,
+    max: 100,
+    integer: true,
+  },
+  withdrawCooldownSeconds: {
+    key: 'WITHDRAW_COOLDOWN_SECONDS',
+    defaultValue: 60,
+    description: '提现间冷却时间（秒）',
+    min: 0,
+    max: 86400,
+    integer: true,
+  },
+  withdrawYearlyMaxAmount: {
+    key: 'WITHDRAW_YEARLY_MAX_AMOUNT',
+    defaultValue: 50000,
+    description: '单用户年累计提现上限（元）',
+    min: 0,
+  },
+  deductionRatioNormal: {
+    key: 'DEDUCTION_RATIO_NORMAL',
+    defaultValue: 0.10,
+    description: '普通用户抵扣比例上限',
+    min: 0,
+    max: 1,
+  },
+  deductionRatioVip: {
+    key: 'DEDUCTION_RATIO_VIP',
+    defaultValue: 0.15,
+    description: 'VIP 用户抵扣比例上限',
+    min: 0,
+    max: 1,
+  },
+  deductionMinOrderAmount: {
+    key: 'DEDUCTION_MIN_ORDER_AMOUNT',
+    defaultValue: 0,
+    description: '最低订单门槛（元）',
+    min: 0,
+  },
+  deductionAllowCouponStack: {
+    key: 'DEDUCTION_ALLOW_COUPON_STACK',
+    defaultValue: true,
+    description: '是否允许与平台红包叠加',
+  },
+  withdrawProviderFeeAmount: {
+    key: 'WITHDRAW_PROVIDER_FEE_AMOUNT',
+    defaultValue: 0,
+    description: '单笔通道手续费（元，v1.0=0）',
+    min: 0,
+  },
+  withdrawYearlyAlertThreshold: {
+    key: 'WITHDRAW_YEARLY_ALERT_THRESHOLD',
+    defaultValue: 0.80,
+    description: '年累计达到上限百分之多少时告警',
+    min: 0,
+    max: 1,
+  },
+};
 
 @Injectable()
 export class AdminBonusService {
@@ -15,15 +113,104 @@ export class AdminBonusService {
   constructor(
     private prisma: PrismaService,
     private inboxService: InboxService,
+    private moduleRef: ModuleRef,
+    private bonusConfig: BonusConfigService,
   ) {}
 
-  /** VIP 会员列表 */
-  async findMembers(page = 1, pageSize = 20, tier?: string) {
-    const skip = (page - 1) * pageSize;
-    const where: any = {};
-    if (tier) where.tier = tier;
+  /**
+   * 计算"已实际解锁的下级分润层级"用于前端展示。
+   *
+   * 背景：VipProgress.unlockedLevel 字段的实际语义是
+   * "上次有 VIP_UPSTREAM FROZEN 流水被释放时记录的层级戳"
+   * （见 vip-upstream.service.ts `unlockFrozenRewards`）。
+   * 如果用户自购充足、下级买东西时永远 AVAILABLE 直接到账、
+   * 从未积累过 FROZEN VIP_UPSTREAM 流水，则该字段永远为 0，
+   * 与"已解锁层级"的直觉语义不符。
+   *
+   * 真正的"已解锁层级"取决于 selfPurchaseCount 与 vipMaxLayers 上限。
+   */
+  private computeUnlockedLevel(selfPurchaseCount: number, vipMaxLayers: number): number {
+    // 防御异常配置（如 vipMaxLayers=0 或负数），避免输出负值
+    const safeMax = Math.max(vipMaxLayers, 0);
+    const safeCount = Math.max(selfPurchaseCount, 0);
+    return Math.min(safeCount, safeMax);
+  }
 
-    const [items, total] = await Promise.all([
+  /**
+   * VIP 会员统计：总数、今日/本周/本月新增。
+   * "新增"按 vipPurchasedAt 计算（成为 VIP 的时间，非 profile 创建时间），
+   * "本周"按周一起算，"本月"按月初 1 号起算。
+   * 时间均用服务器本地时间（与 app-users.getStats 保持一致）。
+   */
+  async getMembersStats() {
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    // 周一为一周开始（getDay: 0=周日, 1=周一, ..., 6=周六）
+    const startOfWeek = new Date(startOfDay);
+    const dayOfWeek = startOfDay.getDay();
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    startOfWeek.setDate(startOfDay.getDate() - daysSinceMonday);
+
+    const startOfMonth = new Date(startOfDay);
+    startOfMonth.setDate(1);
+
+    const vipWhere = { tier: 'VIP' as const };
+    const [totalVips, newToday, newThisWeek, newThisMonth] = await Promise.all([
+      this.prisma.memberProfile.count({ where: vipWhere }),
+      this.prisma.memberProfile.count({
+        where: { ...vipWhere, vipPurchasedAt: { gte: startOfDay } },
+      }),
+      this.prisma.memberProfile.count({
+        where: { ...vipWhere, vipPurchasedAt: { gte: startOfWeek } },
+      }),
+      this.prisma.memberProfile.count({
+        where: { ...vipWhere, vipPurchasedAt: { gte: startOfMonth } },
+      }),
+    ]);
+
+    return { totalVips, newToday, newThisWeek, newThisMonth };
+  }
+
+  /** VIP 会员列表 */
+  async findMembers(
+    page = 1,
+    pageSize = 20,
+    tier?: string,
+    keyword?: string,
+  ) {
+    const skip = (page - 1) * pageSize;
+    const where: Prisma.MemberProfileWhereInput = {};
+    if (tier) where.tier = tier as any;
+
+    const trimmedKeyword = keyword?.trim();
+    if (trimmedKeyword) {
+      where.OR = [
+        { referralCode: { contains: trimmedKeyword, mode: 'insensitive' } },
+        { user: { profile: { nickname: { contains: trimmedKeyword } } } },
+        // 手机号或微信 openId/unionId 任意子串命中
+        {
+          user: {
+            authIdentities: {
+              some: {
+                provider: { in: ['PHONE', 'WECHAT'] },
+                OR: [
+                  { identifier: { contains: trimmedKeyword } },
+                  { unionId: { contains: trimmedKeyword } },
+                ],
+              },
+            },
+          },
+        },
+      ];
+    }
+
+    // 用于计算前端展示的"已解锁层级"上限，
+    // 见 computeUnlockedLevel 注释
+    const config = await this.bonusConfig.getConfig();
+
+    const [profiles, total] = await Promise.all([
       this.prisma.memberProfile.findMany({
         where,
         skip,
@@ -34,6 +221,18 @@ export class AdminBonusService {
             select: {
               id: true,
               profile: { select: { nickname: true } },
+              authIdentities: {
+                // 同时取 PHONE 与 WECHAT，前端先优先展示手机号，
+                // 没手机号的微信登录用户兜底展示微信 openId
+                where: { provider: { in: ['PHONE', 'WECHAT'] } },
+                select: { provider: true, identifier: true, unionId: true },
+              },
+              vipPurchase: {
+                select: { amount: true, packageId: true, status: true },
+              },
+              vipProgress: {
+                select: { selfPurchaseCount: true, unlockedLevel: true },
+              },
             },
           },
         },
@@ -41,14 +240,149 @@ export class AdminBonusService {
       this.prisma.memberProfile.count({ where }),
     ]);
 
+    const userIds = profiles.map((p) => p.userId);
+    const inviterIds = Array.from(
+      new Set(
+        profiles
+          .map((p) => p.inviterUserId)
+          .filter((id): id is string => !!id),
+      ),
+    );
+
+    const [rewardAccounts, treeNodes, inviterProfiles, inviteeVipCounts] =
+      await Promise.all([
+        userIds.length
+          ? this.prisma.rewardAccount.findMany({
+              where: { userId: { in: userIds }, type: 'VIP_REWARD' },
+              select: { userId: true, balance: true, frozen: true },
+            })
+          : Promise.resolve([] as Array<{ userId: string; balance: number; frozen: number }>),
+        userIds.length
+          ? this.prisma.vipTreeNode.findMany({
+              where: { userId: { in: userIds } },
+              select: { userId: true, rootId: true, level: true, position: true },
+            })
+          : Promise.resolve(
+              [] as Array<{
+                userId: string | null;
+                rootId: string;
+                level: number;
+                position: number;
+              }>,
+            ),
+        inviterIds.length
+          ? this.prisma.user.findMany({
+              where: { id: { in: inviterIds } },
+              select: {
+                id: true,
+                profile: { select: { nickname: true } },
+              },
+            })
+          : Promise.resolve(
+              [] as Array<{
+                id: string;
+                profile: { nickname: string | null } | null;
+              }>,
+            ),
+        userIds.length
+          ? this.prisma.memberProfile.groupBy({
+              by: ['inviterUserId'],
+              where: { inviterUserId: { in: userIds }, tier: 'VIP' },
+              _count: { inviterUserId: true },
+            })
+          : Promise.resolve(
+              [] as Array<{
+                inviterUserId: string | null;
+                _count: { inviterUserId: number };
+              }>,
+            ),
+      ]);
+
+    const walletByUser = new Map(
+      rewardAccounts.map((a) => [a.userId, { balance: a.balance, frozen: a.frozen }]),
+    );
+    const treeByUser = new Map(
+      treeNodes
+        .filter((n): n is typeof n & { userId: string } => !!n.userId)
+        .map((n) => [n.userId, { rootId: n.rootId, level: n.level, position: n.position }]),
+    );
+    const inviterByUser = new Map(
+      inviterProfiles.map((u) => [u.id, u.profile?.nickname ?? null]),
+    );
+    const inviteeCountByUser = new Map(
+      inviteeVipCounts
+        .filter((g): g is typeof g & { inviterUserId: string } => !!g.inviterUserId)
+        .map((g) => [g.inviterUserId, g._count.inviterUserId]),
+    );
+
+    const items = profiles.map((p) => {
+      const identities = p.user?.authIdentities ?? [];
+      const phoneIdentity = identities.find((i) => i.provider === 'PHONE');
+      const wechatIdentity = identities.find((i) => i.provider === 'WECHAT');
+      const phone = phoneIdentity?.identifier ?? null;
+      const wechatOpenId = wechatIdentity?.identifier ?? null;
+      const wechatUnionId = wechatIdentity?.unionId ?? null;
+      const wallet = walletByUser.get(p.userId) ?? { balance: 0, frozen: 0 };
+      const tree = treeByUser.get(p.userId) ?? null;
+      const vipPurchase = p.user?.vipPurchase ?? null;
+      const progress = p.user?.vipProgress ?? null;
+      return {
+        id: p.id,
+        userId: p.userId,
+        user: { id: p.userId, profile: { nickname: p.user?.profile?.nickname ?? null } },
+        tier: p.tier,
+        referralCode: p.referralCode,
+        inviterUserId: p.inviterUserId,
+        inviterNickname: p.inviterUserId
+          ? inviterByUser.get(p.inviterUserId) ?? null
+          : null,
+        inviteeVipCount: inviteeCountByUser.get(p.userId) ?? 0,
+        vipPurchasedAt: p.vipPurchasedAt,
+        vipNodeId: p.vipNodeId,
+        normalEligible: p.normalEligible,
+        phone,
+        wechatOpenId,
+        wechatUnionId,
+        wallet,
+        treeRootId: tree?.rootId ?? null,
+        treeLevel: tree?.level ?? null,
+        treePosition: tree?.position ?? null,
+        selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
+        // 不直接返回 progress.unlockedLevel：该字段在数据库里实际是
+        // "上次有 FROZEN VIP_UPSTREAM 被释放时的层级戳"，对自购充足
+        // 的用户永远是 0，会误导后台运营。用 computeUnlockedLevel 修正。
+        unlockedLevel: this.computeUnlockedLevel(
+          progress?.selfPurchaseCount ?? 0,
+          config.vipMaxLayers,
+        ),
+        vipPurchase: vipPurchase
+          ? {
+              amount: vipPurchase.amount,
+              packageId: vipPurchase.packageId,
+              status: vipPurchase.status,
+            }
+          : null,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
+
     return { items, total, page, pageSize };
   }
 
   /** 提现审核列表 */
-  async findWithdrawals(page = 1, pageSize = 20, status?: string) {
+  async findWithdrawals(
+    page = 1,
+    pageSize = 20,
+    status?: string,
+    channel?: string,
+    accountType?: string,
+  ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
     if (status) where.status = status;
+    if (channel) where.channel = channel;
+    if (accountType) where.accountType = accountType;
 
     const [items, total] = await Promise.all([
       this.prisma.withdrawRequest.findMany({
@@ -69,6 +403,433 @@ export class AdminBonusService {
     ]);
 
     return { items, total, page, pageSize };
+  }
+
+  async getWithdrawRules(): Promise<WithdrawRules> {
+    const fields = Object.keys(WITHDRAW_RULE_DEFINITIONS) as Array<keyof WithdrawRules>;
+    const configs = await this.prisma.ruleConfig.findMany({
+      where: { key: { in: fields.map((field) => WITHDRAW_RULE_DEFINITIONS[field].key) } },
+    });
+    const byKey = new Map(configs.map((item) => [item.key, item.value]));
+
+    const rules = {} as WithdrawRules;
+    for (const field of fields) {
+      const def = WITHDRAW_RULE_DEFINITIONS[field];
+      const raw = byKey.has(def.key) ? this.extractConfigValue(byKey.get(def.key)) : def.defaultValue;
+      (rules as any)[field] = this.coerceRuleValue(raw, def.defaultValue);
+    }
+    return rules;
+  }
+
+  async updateWithdrawRules(dto: UpdateWithdrawRulesDto): Promise<WithdrawRules> {
+    const updates = this.normalizeWithdrawRuleUpdates(dto);
+    if (updates.length === 0) {
+      throw new BadRequestException('至少需要提交一个规则字段');
+    }
+    const current = await this.getWithdrawRules();
+    const next = { ...current, ...dto };
+    this.validateWithdrawRules(next);
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const update of updates) {
+        await tx.ruleConfig.upsert({
+          where: { key: update.key },
+          update: { value: update.value as Prisma.InputJsonValue },
+          create: { key: update.key, value: update.value as Prisma.InputJsonValue },
+        });
+      }
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    return this.getWithdrawRules();
+  }
+
+  async getTaxReportSummary(year: number, month: number) {
+    const { start, end } = this.resolveMonthWindow(year, month);
+    const hasTaxAmount = await this.hasWithdrawColumn('taxAmount');
+    const hasNetAmount = await this.hasWithdrawColumn('netAmount');
+    const dateColumn = await this.getWithdrawPaidDateColumn();
+    const taxAmountExpr = hasTaxAmount ? Prisma.sql`COALESCE("taxAmount", 0)` : Prisma.sql`0`;
+    const netAmountExpr = hasNetAmount ? Prisma.sql`COALESCE("netAmount", "amount")` : Prisma.sql`"amount"`;
+
+    const rows = await this.prisma.$queryRaw<Array<{
+      count: number | bigint;
+      grossTotal: number | null;
+      taxTotal: number | null;
+      netTotal: number | null;
+    }>>(Prisma.sql`
+      SELECT
+        COUNT(*)::int AS "count",
+        COALESCE(SUM("amount"), 0)::float AS "grossTotal",
+        COALESCE(SUM(${taxAmountExpr}), 0)::float AS "taxTotal",
+        COALESCE(SUM(${netAmountExpr}), 0)::float AS "netTotal"
+      FROM "WithdrawRequest"
+      WHERE "deletedAt" IS NULL
+        AND "status"::text = 'PAID'
+        AND ${dateColumn} >= ${start}
+        AND ${dateColumn} < ${end}
+    `);
+    const row = rows[0] ?? { count: 0, grossTotal: 0, taxTotal: 0, netTotal: 0 };
+
+    return {
+      year,
+      month,
+      count: Number(row.count ?? 0),
+      grossTotal: this.money(this.toNumber(row.grossTotal)),
+      taxTotal: this.money(this.toNumber(row.taxTotal)),
+      netTotal: this.money(this.toNumber(row.netTotal)),
+    };
+  }
+
+  async getTaxReportDetail(year: number, month: number) {
+    const { start, end } = this.resolveMonthWindow(year, month);
+    const [
+      hasTaxAmount,
+      hasNetAmount,
+      hasTaxRate,
+      hasPaidAt,
+      hasProviderFundOrderId,
+    ] = await Promise.all([
+      this.hasWithdrawColumn('taxAmount'),
+      this.hasWithdrawColumn('netAmount'),
+      this.hasWithdrawColumn('taxRate'),
+      this.hasWithdrawColumn('paidAt'),
+      this.hasWithdrawColumn('providerFundOrderId'),
+    ]);
+    const dateColumn = hasPaidAt ? Prisma.sql`"paidAt"` : Prisma.sql`"updatedAt"`;
+    const taxAmountExpr = hasTaxAmount ? Prisma.sql`COALESCE("taxAmount", 0)` : Prisma.sql`0`;
+    const netAmountExpr = hasNetAmount ? Prisma.sql`COALESCE("netAmount", "amount")` : Prisma.sql`"amount"`;
+    const taxRateExpr = hasTaxRate ? Prisma.sql`COALESCE("taxRate", 0)` : Prisma.sql`0`;
+    const providerFundOrderIdExpr = hasProviderFundOrderId
+      ? Prisma.sql`"providerFundOrderId"`
+      : Prisma.sql`NULL::text`;
+
+    const rows = await this.prisma.$queryRaw<Array<{
+      id: string;
+      userId: string;
+      amount: number;
+      taxAmount: number;
+      netAmount: number;
+      taxRate: number;
+      paidAt: Date | null;
+      providerPayoutId: string | null;
+      providerFundOrderId: string | null;
+    }>>(Prisma.sql`
+      SELECT
+        "id",
+        "userId",
+        "amount"::float AS "amount",
+        ${taxAmountExpr}::float AS "taxAmount",
+        ${netAmountExpr}::float AS "netAmount",
+        ${taxRateExpr}::float AS "taxRate",
+        ${dateColumn} AS "paidAt",
+        "providerPayoutId",
+        ${providerFundOrderIdExpr} AS "providerFundOrderId"
+      FROM "WithdrawRequest"
+      WHERE "deletedAt" IS NULL
+        AND "status"::text = 'PAID'
+        AND ${dateColumn} >= ${start}
+        AND ${dateColumn} < ${end}
+      ORDER BY ${dateColumn} ASC
+    `);
+
+    return rows.map((row) => ({
+      ...row,
+      amount: this.money(row.amount),
+      taxAmount: this.money(row.taxAmount),
+      netAmount: this.money(row.netAmount),
+      taxRate: this.toNumber(row.taxRate),
+      paidAt: row.paidAt?.toISOString() ?? null,
+    }));
+  }
+
+  async generateTaxVoucher(year: number, month: number) {
+    const [summary, detail] = await Promise.all([
+      this.getTaxReportSummary(year, month),
+      this.getTaxReportDetail(year, month),
+    ]);
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    const headers = [
+      '提现单号',
+      '用户ID',
+      '提现总额',
+      '代扣个税',
+      '实际到账',
+      '税率',
+      '到账时间',
+      '支付宝单号',
+      '资金流水号',
+    ];
+    const rows = detail.map((row) => [
+      row.id,
+      row.userId,
+      row.amount.toFixed(2),
+      row.taxAmount.toFixed(2),
+      row.netAmount.toFixed(2),
+      row.taxRate.toString(),
+      row.paidAt ?? '',
+      row.providerPayoutId ?? '',
+      row.providerFundOrderId ?? '',
+    ]);
+    const csv = [
+      `爱买买提现代扣凭证,${ym}`,
+      `提现笔数,${summary.count}`,
+      `提现总额,${summary.grossTotal.toFixed(2)}`,
+      `代扣总额,${summary.taxTotal.toFixed(2)}`,
+      `实际到账,${summary.netTotal.toFixed(2)}`,
+      '',
+      headers.map((cell) => this.csvCell(cell)).join(','),
+      ...rows.map((row) => row.map((cell) => this.csvCell(cell)).join(',')),
+    ].join('\n');
+
+    return {
+      fileName: `tax-voucher-${ym}.csv`,
+      mimeType: 'text/csv;charset=utf-8',
+      content: csv,
+      summary,
+    };
+  }
+
+  async manualQueryWithdrawStatus(withdrawId: string) {
+    const hasOutBizNo = await this.hasWithdrawColumn('outBizNo');
+    const outBizNoExpr = hasOutBizNo ? Prisma.sql`"outBizNo"` : Prisma.sql`NULL::text`;
+    const rows = await this.prisma.$queryRaw<Array<{
+      id: string;
+      status: string;
+      outBizNo: string | null;
+    }>>(Prisma.sql`
+      SELECT "id", "status"::text AS "status", ${outBizNoExpr} AS "outBizNo"
+      FROM "WithdrawRequest"
+      WHERE "id" = ${withdrawId}
+      LIMIT 1
+    `);
+    const withdraw = rows[0];
+    if (!withdraw) throw new NotFoundException('提现记录不存在');
+    if (withdraw.status !== 'PROCESSING') {
+      return {
+        ok: true,
+        message: `当前状态 ${withdraw.status}，无需查询`,
+        newStatus: withdraw.status,
+      };
+    }
+    if (!withdraw.outBizNo) {
+      throw new BadRequestException('提现记录缺 outBizNo，无法查询');
+    }
+
+    const alipayService = this.resolveAlipayService();
+    const queryResult = await alipayService.queryTransfer({ outBizNo: withdraw.outBizNo });
+    await this.markWithdrawQueried(withdrawId);
+
+    if (queryResult.status === 'SUCCESS') {
+      await this.finalizeWithdrawalPaid(withdrawId, {
+        providerOrderId: queryResult.orderId,
+        providerFundOrderId: queryResult.payFundOrderId,
+      });
+      return { ok: true, message: '已确认支付宝转账成功，状态更新为 PAID', newStatus: 'PAID' };
+    }
+    if (queryResult.status === 'FAIL') {
+      await this.finalizeWithdrawalFailed(withdrawId, {
+        errorCode: queryResult.errorCode,
+        errorMessage: queryResult.errorMessage,
+      });
+      return { ok: true, message: '支付宝查询返回失败，已退款', newStatus: 'FAILED' };
+    }
+
+    return {
+      ok: true,
+      message: `支付宝侧仍为 ${queryResult.status ?? 'PROCESSING'}，请稍后再查或等 cron 兜底`,
+      newStatus: 'PROCESSING',
+    };
+  }
+
+  private normalizeWithdrawRuleUpdates(dto: UpdateWithdrawRulesDto) {
+    const updates: Array<{ key: string; value: { value: unknown; description: string } }> = [];
+    const fields = Object.keys(WITHDRAW_RULE_DEFINITIONS) as Array<keyof WithdrawRules>;
+
+    for (const field of fields) {
+      const raw = dto[field];
+      if (raw === undefined || raw === null) continue;
+      const def = WITHDRAW_RULE_DEFINITIONS[field];
+      const value = this.coerceRuleValue(raw, def.defaultValue);
+      if (typeof def.defaultValue === 'number') {
+        const num = value as number;
+        if (!Number.isFinite(num)) {
+          throw new BadRequestException(`${def.key} 必须是有效数字`);
+        }
+        if (def.integer && !Number.isInteger(num)) {
+          throw new BadRequestException(`${def.key} 必须是整数`);
+        }
+        if (def.min !== undefined && num < def.min) {
+          throw new BadRequestException(`${def.key} 不能小于 ${def.min}`);
+        }
+        if (def.max !== undefined && num > def.max) {
+          throw new BadRequestException(`${def.key} 不能大于 ${def.max}`);
+        }
+      }
+      updates.push({
+        key: def.key,
+        value: { value, description: def.description },
+      });
+    }
+
+    const min = updates.find((item) => item.key === 'WITHDRAW_MIN_AMOUNT')?.value.value;
+    const max = updates.find((item) => item.key === 'WITHDRAW_MAX_AMOUNT')?.value.value;
+    if (typeof min === 'number' && typeof max === 'number' && min > max) {
+      throw new BadRequestException('提现单笔最低金额不能大于单笔最高金额');
+    }
+
+    return updates;
+  }
+
+  private validateWithdrawRules(rules: WithdrawRules) {
+    if (rules.withdrawMinAmount > rules.withdrawMaxAmount) {
+      throw new BadRequestException('提现单笔最低金额不能大于单笔最高金额');
+    }
+    if (rules.withdrawProviderFeeAmount >= rules.withdrawMinAmount) {
+      throw new BadRequestException('提现通道手续费必须低于单笔最低提现金额');
+    }
+    if (rules.withdrawTaxRate < 0 || rules.withdrawTaxRate > 0.5) {
+      throw new BadRequestException('提现个税比例必须在 0-0.5 之间');
+    }
+    if (rules.deductionRatioNormal < 0 || rules.deductionRatioNormal > 1) {
+      throw new BadRequestException('普通用户抵扣比例必须在 0-1 之间');
+    }
+    if (rules.deductionRatioVip < 0 || rules.deductionRatioVip > 1) {
+      throw new BadRequestException('VIP 用户抵扣比例必须在 0-1 之间');
+    }
+    if (rules.withdrawYearlyAlertThreshold < 0 || rules.withdrawYearlyAlertThreshold > 1) {
+      throw new BadRequestException('年累计告警阈值必须在 0-1 之间');
+    }
+  }
+
+  private extractConfigValue(raw: unknown) {
+    if (
+      raw !== null &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw) &&
+      'value' in raw
+    ) {
+      return (raw as { value: unknown }).value;
+    }
+    return raw;
+  }
+
+  private coerceRuleValue<T extends WithdrawRules[keyof WithdrawRules]>(
+    value: unknown,
+    fallback: T,
+  ): T {
+    if (typeof fallback === 'boolean') {
+      return (typeof value === 'boolean' ? value : fallback) as T;
+    }
+    const num = typeof value === 'number' ? value : Number(value);
+    return (Number.isFinite(num) ? num : fallback) as T;
+  }
+
+  private resolveMonthWindow(year: number, month: number) {
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new BadRequestException('year 参数非法');
+    }
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new BadRequestException('month 参数非法');
+    }
+    return {
+      start: new Date(year, month - 1, 1),
+      end: new Date(year, month, 1),
+    };
+  }
+
+  private async getWithdrawPaidDateColumn() {
+    return (await this.hasWithdrawColumn('paidAt'))
+      ? Prisma.sql`"paidAt"`
+      : Prisma.sql`"updatedAt"`;
+  }
+
+  private async hasWithdrawColumn(columnName: string): Promise<boolean> {
+    const rows = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'WithdrawRequest'
+          AND column_name = ${columnName}
+      ) AS "exists"
+    `);
+    return rows[0]?.exists === true;
+  }
+
+  private async markWithdrawQueried(withdrawId: string) {
+    const [hasLastQueriedAt, hasQueryAttempts] = await Promise.all([
+      this.hasWithdrawColumn('lastQueriedAt'),
+      this.hasWithdrawColumn('queryAttempts'),
+    ]);
+    const assignments: Prisma.Sql[] = [];
+    if (hasLastQueriedAt) assignments.push(Prisma.sql`"lastQueriedAt" = NOW()`);
+    if (hasQueryAttempts) assignments.push(Prisma.sql`"queryAttempts" = COALESCE("queryAttempts", 0) + 1`);
+    if (assignments.length === 0) return;
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE "WithdrawRequest"
+      SET ${Prisma.join(assignments, ', ')}
+      WHERE "id" = ${withdrawId}
+    `);
+  }
+
+  private async finalizeWithdrawalPaid(
+    withdrawId: string,
+    providerResult: { providerOrderId?: string; providerFundOrderId?: string },
+  ) {
+    await this.resolveWithdrawPayoutService().finalizeWithdrawalPaid(withdrawId, providerResult);
+  }
+
+  private async finalizeWithdrawalFailed(
+    withdrawId: string,
+    providerResult: { errorCode?: string; errorMessage?: string },
+  ) {
+    await this.resolveWithdrawPayoutService().finalizeWithdrawalFailed(withdrawId, providerResult);
+  }
+
+  private resolveAlipayService(): AlipayService & {
+    queryTransfer(params: { outBizNo: string }): Promise<any>;
+  } {
+    try {
+      const service = this.moduleRef.get(AlipayService, { strict: false }) as AlipayService & {
+        queryTransfer?: (params: { outBizNo: string }) => Promise<any>;
+      };
+      if (typeof service?.queryTransfer === 'function') {
+        return service as AlipayService & {
+          queryTransfer(params: { outBizNo: string }): Promise<any>;
+        };
+      }
+    } catch (err) {
+      this.logger.warn(`运行时查找 AlipayService 失败: ${(err as Error)?.message}`);
+    }
+    throw new BadRequestException('支付宝转账查询服务尚未接入，无法手动查询');
+  }
+
+  private resolveWithdrawPayoutService(): WithdrawPayoutService {
+    try {
+      const service = this.moduleRef.get(WithdrawPayoutService, { strict: false });
+      if (service) return service;
+    } catch (err) {
+      this.logger.warn(`运行时查找 WithdrawPayoutService 失败: ${(err as Error)?.message}`);
+    }
+    throw new BadRequestException('提现出款服务尚未接入，无法完成状态同步');
+  }
+
+  private toNumber(value: unknown): number {
+    if (typeof value === 'bigint') return Number(value);
+    if (typeof value === 'number') return value;
+    if (value === null || value === undefined) return 0;
+    return Number(value) || 0;
+  }
+
+  private money(value: number | null | undefined): number {
+    return Number((value ?? 0).toFixed(2));
+  }
+
+  private csvCell(value: unknown): string {
+    return `"${String(value ?? '').replace(/"/g, '""')}"`;
   }
 
   /** 审批提现：扣减冻结金额（实际打款为占位实现） */
@@ -133,7 +894,7 @@ export class AdminBonusService {
       type: 'withdraw_approved',
       title: '提现审核通过',
       content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请已通过，款项将在 1-3 个工作日到账。`,
-      target: { route: '/wallet' },
+      target: { route: '/me/wallet' },
     }).catch((err) => this.logger.warn(`提现通过通知发送失败: ${err?.message}`));
 
     return result;
@@ -141,7 +902,7 @@ export class AdminBonusService {
 
   /** 会员详情 — 聚合钱包、树位置、收支流水、提现记录 */
   async getMemberDetail(userId: string) {
-    const [user, member, progress, account, node] = await Promise.all([
+    const [user, member, progress, accounts, node] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -152,8 +913,9 @@ export class AdminBonusService {
       }),
       this.prisma.memberProfile.findUnique({ where: { userId } }),
       this.prisma.vipProgress.findUnique({ where: { userId } }),
-      this.prisma.rewardAccount.findUnique({
-        where: { userId_type: { userId, type: 'VIP_REWARD' } },
+      // 三个可提现账户合并算余额（与买家 App 端 BonusService.getWallet 一致）
+      this.prisma.rewardAccount.findMany({
+        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
       }),
       this.prisma.vipTreeNode.findUnique({ where: { userId } }),
     ]);
@@ -177,7 +939,7 @@ export class AdminBonusService {
       parentUserId = parentNode?.userId ?? null;
     }
 
-    // 收支流水（最近 20 条）
+    // 收支流水（最近 20 条）—— join account 拿 account.type 让前端区分 VIP奖励/产业基金/普通分润
     const ledgers = await this.prisma.rewardLedger.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -190,6 +952,7 @@ export class AdminBonusService {
         refType: true,
         refId: true,
         createdAt: true,
+        account: { select: { type: true } },
       },
     });
 
@@ -212,25 +975,33 @@ export class AdminBonusService {
       userId: user.id,
       nickname: user.profile?.nickname ?? null,
       avatarUrl: user.profile?.avatarUrl ?? null,
-      phone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
+      phone: user.authIdentities?.[0]?.identifier ?? null,
       tier: member?.tier ?? 'NORMAL',
       referralCode: member?.referralCode ?? null,
       inviterUserId: member?.inviterUserId ?? null,
       vipPurchasedAt: member?.vipPurchasedAt?.toISOString() ?? null,
       wallet: {
-        balance: account?.balance ?? 0,
-        frozen: account?.frozen ?? 0,
+        // 3 个账户合并：VIP_REWARD + NORMAL_REWARD + INDUSTRY_FUND
+        balance: accounts.reduce((s, a) => s + a.balance, 0),
+        frozen: accounts.reduce((s, a) => s + a.frozen, 0),
         totalEarned: earned._sum.amount ?? 0,
       },
-      tree: node ? {
-        level: node.level,
-        position: node.position,
-        parentUserId,
-        childCount,
-        selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
-        unlockedLevel: progress?.unlockedLevel ?? 0,
-        exitedAt: progress?.exitedAt?.toISOString() ?? null,
-      } : null,
+      tree: node ? await (async () => {
+        const config = await this.bonusConfig.getConfig();
+        return {
+          level: node.level,
+          position: node.position,
+          parentUserId,
+          childCount,
+          selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
+          // 见 computeUnlockedLevel 注释：不直接用 progress.unlockedLevel
+          unlockedLevel: this.computeUnlockedLevel(
+            progress?.selfPurchaseCount ?? 0,
+            config.vipMaxLayers,
+          ),
+          exitedAt: progress?.exitedAt?.toISOString() ?? null,
+        };
+      })() : null,
       ledgers,
       withdrawals,
     };
@@ -382,7 +1153,7 @@ export class AdminBonusService {
     return users.map((u) => ({
       userId: u.id,
       nickname: u.profile?.nickname ?? null,
-      phone: maskPhone(u.authIdentities?.[0]?.identifier ?? null),
+      phone: u.authIdentities?.[0]?.identifier ?? null,
       avatarUrl: u.profile?.avatarUrl ?? null,
       tier: u.memberProfile?.tier ?? 'NORMAL',
       treeStatus: this.resolveVipNodeStatus(
@@ -426,7 +1197,7 @@ export class AdminBonusService {
       .map((u) => ({
         userId: u.id,
         nickname: u.profile?.nickname ?? null,
-        phone: maskPhone(u.authIdentities?.[0]?.identifier ?? null),
+        phone: u.authIdentities?.[0]?.identifier ?? null,
         avatarUrl: u.profile?.avatarUrl ?? null,
         tier: u.memberProfile?.tier ?? 'NORMAL',
         treeStatus: this.resolveNormalNodeStatus(
@@ -531,10 +1302,12 @@ export class AdminBonusService {
       : memberProfile?.inviterUserId ? 'REFERRAL' as const
       : 'AUTO_PLACE' as const;
 
+    const config = await this.bonusConfig.getConfig();
+
     return {
       userId,
       nickname: user?.profile?.nickname ?? (isSystem ? userId : null),
-      phone: maskPhone(phone),
+      phone: phone ?? null,
       tier: isSystem ? 'VIP' : (progress ? 'VIP' : 'NORMAL'),
       selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
       totalEarned: earned._sum.amount ?? 0,
@@ -545,7 +1318,11 @@ export class AdminBonusService {
       isSystemNode: isSystem,
       joinedTreeAt: node?.createdAt?.toISOString() ?? null,
       position: node?.position ?? 0,
-      unlockedLevel: progress?.unlockedLevel ?? 0,
+      // 见 computeUnlockedLevel 注释：不直接用 progress.unlockedLevel
+      unlockedLevel: this.computeUnlockedLevel(
+        progress?.selfPurchaseCount ?? 0,
+        config.vipMaxLayers,
+      ),
       exitedAt: progress?.exitedAt?.toISOString() ?? null,
       rootId: node?.rootId ?? null,
       referrerUserId: memberProfile?.inviterUserId ?? null,
@@ -1054,7 +1831,7 @@ export class AdminBonusService {
     return {
       userId,
       nickname: user?.profile?.nickname ?? null,
-      phone: maskPhone(phone),
+      phone: phone ?? null,
       selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
       totalEarned: earned._sum?.amount ?? 0,
       frozenAmount: account?.frozen ?? 0,
@@ -1488,7 +2265,7 @@ export class AdminBonusService {
       type: 'withdraw_rejected',
       title: '提现申请被驳回',
       content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请被驳回${reason ? `，原因：${reason}` : ''}。金额已退回可用余额。`,
-      target: { route: '/wallet' },
+      target: { route: '/me/wallet' },
     }).catch((err) => this.logger.warn(`提现拒绝通知发送失败: ${err?.message}`));
 
     return result;

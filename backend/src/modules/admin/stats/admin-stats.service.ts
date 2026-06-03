@@ -25,7 +25,8 @@ export class AdminStatsService {
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.order.count(),
-      this.prisma.product.count(),
+      // 商品总数排除卖家草稿（运营 dashboard 只关心可上架商品）
+      this.prisma.product.count({ where: { status: { not: 'DRAFT' } } }),
       this.prisma.company.count(),
       this.prisma.order.count({
         where: {

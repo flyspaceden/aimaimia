@@ -4,12 +4,31 @@ import {
   IsOptional,
   IsNumber,
   IsInt,
+  IsPositive,
   IsArray,
+  IsObject,
   ValidateNested,
   Min,
+  MaxLength,
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+/** 产地字段结构（替代 any） */
+export class ProductOriginDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  text: string;
+
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+}
 
 /** 创建 SKU */
 export class CreateSkuDto {
@@ -25,28 +44,31 @@ export class CreateSkuDto {
   @Min(0)
   stock: number;
 
+  @IsInt()
+  @IsPositive()
+  weightGram: number; // 包装后重量（克），用于计算运费和顺丰面单
+
   @IsOptional()
   @IsInt()
   @Min(1)
   maxPerOrder?: number; // 单笔限购，null/不传 = 不限制
-
-  @IsOptional()
-  @IsNumber()
-  weightGram?: number; // 重量(克)
 }
 
 /** 创建商品 */
 export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   title: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   subtitle?: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(5000)
   description: string; // AI 搜索依赖，必填
 
   @IsOptional()
@@ -62,8 +84,10 @@ export class CreateProductDto {
   @IsString()
   returnPolicy?: string; // RETURNABLE / NON_RETURNABLE / INHERIT（默认）
 
-  @IsNotEmpty()
-  origin: any; // JSON { text, lat, lng }，产地必填
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin: ProductOriginDto; // JSON { text, lat, lng }，产地必填
 
   @IsOptional()
   @IsArray()
@@ -114,14 +138,17 @@ export class CreateProductDto {
 export class UpdateProductDto {
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   title?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   subtitle?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
 
   @IsOptional()
@@ -138,7 +165,10 @@ export class UpdateProductDto {
   returnPolicy?: string;
 
   @IsOptional()
-  origin?: any;
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin?: ProductOriginDto;
 
   @IsOptional()
   @IsArray()
@@ -210,9 +240,9 @@ export class SkuItemDto {
   @Min(1)
   maxPerOrder?: number;
 
-  @IsOptional()
-  @IsNumber()
-  weightGram?: number;
+  @IsInt()
+  @IsPositive()
+  weightGram: number; // 包装后重量（克），用于计算运费和顺丰面单
 }
 
 /** 商品状态变更 */
@@ -220,4 +250,188 @@ export class ProductStatusDto {
   @IsString()
   @IsNotEmpty()
   status: 'ACTIVE' | 'INACTIVE';
+}
+
+/** 草稿 SKU（所有字段可选，规格不完整也能存） */
+export class DraftSkuDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  specName?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  cost?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stock?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxPerOrder?: number;
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  weightGram?: number;
+}
+
+/** 创建草稿：仅标题必填 */
+export class CreateDraftDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subtitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin?: ProductOriginDto;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DraftSkuDto)
+  skus?: DraftSkuDto[];
+
+  @IsOptional()
+  attributes?: any;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  aiKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaUrls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  flavorTags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  seasonalMonths?: number[];
+
+  @IsOptional()
+  @IsArray()
+  usageScenarios?: string[];
+
+  @IsOptional()
+  @IsArray()
+  dietaryTags?: string[];
+
+  @IsOptional()
+  @IsString()
+  originRegion?: string;
+}
+
+/** 更新草稿：全部可选（title 若传需非空） */
+export class UpdateDraftDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subtitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  returnPolicy?: string;
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ProductOriginDto)
+  origin?: ProductOriginDto;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DraftSkuDto)
+  skus?: DraftSkuDto[];
+
+  @IsOptional()
+  attributes?: any;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  aiKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaUrls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  flavorTags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  seasonalMonths?: number[];
+
+  @IsOptional()
+  @IsArray()
+  usageScenarios?: string[];
+
+  @IsOptional()
+  @IsArray()
+  dietaryTags?: string[];
+
+  @IsOptional()
+  @IsString()
+  originRegion?: string;
 }

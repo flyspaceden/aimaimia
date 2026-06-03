@@ -1,10 +1,40 @@
 # 发票申请功能 — 需求、预期结果与实现计划
 
-> **文档状态**：Phase 1-4 全部完成 ✅（代码审查已通过，CRITICAL/HIGH 问题已修复）
+> **文档状态**：Phase 1-4 全部完成 ✅；2026-05-15 发票链路收口已完成 ✅
 > **创建日期**：2026-03-12
 > **权威范围**：发票功能的需求定义、技术方案、实施步骤
 
 ---
+
+## 2026-05-15 链路收口补充
+
+本次收口以 `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` 和 `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md` 为实施基线，补齐以下内容：
+
+- **开票内容配置**：管理后台新增 `发票设置`，配置开票主体、商品行模式、默认税率/税收分类编码、合并商品名称、备注模板、Provider 模式、VIP 礼包是否允许申请发票。
+- **Provider 抽象**：后端新增 `InvoiceProvider`/`InvoiceProviderFactory`，当前接入 `MOCK` Provider，可生成 PDF 并通过 `UploadService.uploadBuffer()` 持久化。
+- **一单一票与重申请**：继续保持 `Invoice.orderId @unique`。`REQUESTED/ISSUED` 为活跃记录不可重复申请；`CANCELED/FAILED` 可复用同一 `Invoice` 行重新申请，递增 `requestCount` 并写入状态历史。
+- **状态历史**：新增 `InvoiceStatusHistory`，记录申请、取消、重申请、开票成功、开票失败等状态流转。
+- **并发安全**：买家申请/取消、管理端开票/失败均使用 Serializable 事务，状态转换使用 CAS 条件保护；`providerRequestId != null` 表示 Provider 开票中，买家取消、管理端人工开票、管理端标记失败均不可覆盖。
+- **卡单恢复**：管理后台提供受审计的 Provider 预占重置入口，仅允许超过保护窗口的 `REQUESTED + providerRequestId` 记录重置后重新处理。
+- **PDF URL 安全**：人工开票可上传或粘贴 PDF URL，但后端只接受平台上传域名 / OSS 域名白名单内的 URL。
+- **三端暴露口径**：买家订单列表仅返回 `invoiceStatus`，订单详情返回安全发票摘要；卖家端仅返回 `invoiceStatus`，不暴露抬头、税号、PDF、Provider 原始响应；管理端仅 `invoices:issue` / 超管可查看完整抬头和开票快照，`invoices:read` 详情做敏感字段脱敏。
+- **PDF 打开**：买家 App 已开票记录通过 `expo-web-browser` 打开发票 PDF，不再只显示 toast。
+
+> 下文的原始 Schema 与 Phase 说明保留为历史实现记录；当前以本节与 2026-05-15 spec/plan 为发票链路收口真相源。
+
+## 2026-05-15 自动开票
+
+详见 `docs/superpowers/plans/2026-05-15-invoice-auto-issue.md`。
+
+- **触发**：买家 `requestInvoice` 创建 `REQUESTED` 记录后，事务外 `Promise.resolve().then(...)` 触发 fire-and-forget 调 `AdminInvoicesService.issueInvoice(id, { mode: providerMode }, null)`。HTTP 立即返回 REQUESTED，不等开票完成。
+- **开关**：`INVOICE_AUTO_ISSUE`（默认 `true`）。关闭后回到旧人工触发模式。
+- **失败兜底（软失败）**：单次 Provider 调用失败不降级状态，仅 `failedAttempts++` + 写一条 SYSTEM 状态历史（`action: AUTO_ISSUE_ATTEMPT_FAILED`）。状态留在 REQUESTED 等待 cron 重试。
+- **重试 cron**：`InvoiceAutoIssueRetryService` 每 10 分钟扫一次 `status=REQUESTED + providerRequestId IS NULL + failedAttempts ∈ [1, max-1] + lastAutoIssueAttemptAt 距今 ≥ 10 分钟（或 NULL）`，每批最多 20 条，依次重试。
+- **重试上限**：`INVOICE_AUTO_ISSUE_MAX_ATTEMPTS`（默认 `3`，范围 1-10）。耗尽后调用 `markAutoIssueRetryExhausted`，CAS 翻 FAILED，写「自动开票多次失败，请联系客服或重新申请」failReason，状态历史 `action: AUTO_ISSUE_RETRY_EXHAUSTED`。
+- **状态历史 operatorType**：`'SYSTEM'` 表示 cron / fire-and-forget 触发；`'ADMIN'` 表示管理员人工触发；`'PROVIDER'` 表示 admin 人工 issue 时 Provider 失败；`'BUYER'` 表示买家操作。
+- **买家可见性**：REQUESTED 期间文案「系统正在自动开票，预计 10 分钟内出票，请稍后下拉刷新」；订单详情 `useFocusEffect` 自动 refetch。FAILED 后显示 failReason。中间 failedAttempts 不告知 buyer。
+- **管理端可见性**：列表 + 详情显示 failedAttempts 警示橙 Tag（优先级低于"开票中"）；详情 Descriptions 显示失败次数 + 上次尝试时间；状态历史 Timeline 区分 SYSTEM/ADMIN/PROVIDER/BUYER。
+- **卖家可见性**：维持 `invoiceStatus` only，不暴露 failedAttempts 等任何新字段（spec 测试 `map-order.spec.ts` 防回归）。
 
 ## 一、需求概述
 

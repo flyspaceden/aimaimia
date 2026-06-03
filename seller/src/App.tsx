@@ -6,6 +6,7 @@ import SellerLayout from '@/layouts/SellerLayout';
 
 // N17修复：路由级代码拆分，减小首屏包体
 const LoginPage = lazy(() => import('@/pages/login/index'));
+const ForgotPasswordPage = lazy(() => import('@/pages/forgot-password/index'));
 const DashboardPage = lazy(() => import('@/pages/dashboard/index'));
 const ProductListPage = lazy(() => import('@/pages/products/index'));
 const ProductEditPage = lazy(() => import('@/pages/products/edit'));
@@ -17,6 +18,7 @@ const StaffManagementPage = lazy(() => import('@/pages/company/staff'));
 const TracePage = lazy(() => import('@/pages/trace/index'));
 const AfterSaleListPage = lazy(() => import('@/pages/after-sale/index'));
 const AfterSaleDetailPage = lazy(() => import('@/pages/after-sale/detail'));
+const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -37,6 +39,11 @@ function RequireAuth({ children }: { children: ReactNode }) {
 type StaffRole = 'OWNER' | 'MANAGER' | 'OPERATOR';
 function RequireRole({ roles, children }: { roles: StaffRole[]; children: ReactNode }) {
   const seller = useAuthStore((s) => s.seller);
+  const token = useAuthStore((s) => s.token);
+  // token 存在但 seller profile 未加载完成时显示 loading，避免误 redirect
+  if (token && !seller) {
+    return <Spin style={{ display: 'flex', justifyContent: 'center', marginTop: 120 }} />;
+  }
   if (!seller || !roles.includes(seller.role as StaffRole)) {
     return <Navigate to="/" replace />;
   }
@@ -67,6 +74,16 @@ export default function App() {
             }
           />
 
+          {/* 忘记密码页（未登录访问） */}
+          <Route
+            path="/forgot-password"
+            element={
+              <GuestOnly>
+                <ForgotPasswordPage />
+              </GuestOnly>
+            }
+          />
+
           {/* 卖家后台（需登录） */}
           <Route
             element={
@@ -87,6 +104,7 @@ export default function App() {
             <Route path="company/settings" element={<RequireRole roles={['OWNER', 'MANAGER']}><CompanySettingsPage /></RequireRole>} />
             <Route path="company/staff" element={<RequireRole roles={['OWNER']}><StaffManagementPage /></RequireRole>} />
             <Route path="trace" element={<TracePage />} />
+            <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 
           {/* 兜底 */}

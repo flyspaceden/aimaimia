@@ -1,79 +1,59 @@
-import React, { useEffect } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, {
-  Easing,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import React from 'react';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
-import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
-import { AiDivider } from '../../src/components/ui';
-import { orderStatusLabels } from '../../src/constants/statuses';
+import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
+import { StatusHero } from '../../src/components/orders/StatusHero';
+import { AddressCard } from '../../src/components/orders/AddressCard';
+import { ShopGroup } from '../../src/components/orders/ShopGroup';
+import { AmountSummary } from '../../src/components/orders/AmountSummary';
+import { OrderInfoBlock } from '../../src/components/orders/OrderInfoBlock';
+import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
+import { InvoiceSection } from '../../src/components/cards/InvoiceSection';
 import { OrderRepo } from '../../src/repos';
-import { USE_MOCK } from '../../src/repos/http/config';
-import { useAuthStore } from '../../src/store';
+import { AfterSaleRepo } from '../../src/repos/AfterSaleRepo';
+import { useAuthStore, useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
-import { AppError } from '../../src/types';
-
-const afterSaleLabels: Record<string, string> = {
-  applying: '申请中',
-  reviewing: '审核中',
-  approved: '已同意换货',
-  shipped: '卖家已补发',
-  refunding: '售后处理中',
-  completed: '已完成',
-  rejected: '已驳回',
-  failed: '处理失败',
-};
-
-// 售后当前节点脉动
-function PulsingDot({ color }: { color: string }) {
-  const scale = useSharedValue(1);
-
-  useEffect(() => {
-    scale.value = withRepeat(
-      withTiming(1.4, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true
-    );
-  }, [scale]);
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View
-      style={[
-        styles.afterSaleDot,
-        { backgroundColor: color },
-        pulseStyle,
-      ]}
-    />
-  );
-}
+import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
+import { formatRepurchaseToast } from '../../src/utils';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const orderId = String(id ?? '');
-  const { colors, radius, shadow, spacing, typography } = useTheme();
+  const { colors, radius, spacing, typography } = useTheme();
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const [canceling, setCanceling] = React.useState(false);
+  const [repurchasing, setRepurchasing] = React.useState(false);
+  const [ctaBarHeight, setCtaBarHeight] = React.useState(96);
+  const cancelingRef = React.useRef(false);
+  const repurchasingRef = React.useRef(false);
+  const replaceCartFromServer = useCartStore((s) => s.replaceFromServer);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['order', orderId],
     queryFn: () => OrderRepo.getById(orderId),
     enabled: isLoggedIn && Boolean(orderId),
+    // 进行中的订单 30s 轮询；终态（已完成/已取消/已退款）停止轮询省流量
+    refetchInterval: (query) => {
+      const result = query.state.data;
+      const status = result?.ok ? result.data.status : null;
+      if (!status || ['RECEIVED', 'CANCELED', 'REFUNDED'].includes(status)) return false;
+      return 30_000;
+    },
+    refetchOnWindowFocus: true,
   });
-  const refreshing = isFetching;
+
+  // 切回前台 / 从其他页面 back 回详情时立即刷新
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
   if (isLoading) {
     return (
@@ -81,8 +61,6 @@ export default function OrderDetailScreen() {
         <AppHeader title="订单详情" />
         <View style={{ padding: spacing.xl }}>
           <Skeleton height={160} radius={radius.lg} />
-          <View style={{ height: spacing.md }} />
-          <Skeleton height={200} radius={radius.lg} />
         </View>
       </Screen>
     );
@@ -90,11 +68,11 @@ export default function OrderDetailScreen() {
 
   if (!data || !data.ok) {
     return (
-      <Screen contentStyle={{ flex: 1, paddingHorizontal: spacing.xl }}>
+      <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="订单详情" />
         <ErrorState
-          title="订单加载失败"
-          description={data?.ok === false ? data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
+          title="加载失败"
+          description={data?.ok === false ? data.error.displayMessage ?? '请重试' : '请重试'}
           onAction={refetch}
         />
       </Screen>
@@ -102,435 +80,313 @@ export default function OrderDetailScreen() {
   }
 
   const order = data.data;
-  const afterSaleTimeline = order.afterSaleTimeline ?? [];
-
-  const handlePay = async () => {
-    if (!USE_MOCK) {
-      show({ message: '旧支付入口已停用，请重新下单', type: 'error' });
-      return;
-    }
-    const result = await OrderRepo.payOrder(order.id, order.paymentMethod ?? 'wechat');
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '支付失败', type: 'error' });
-      return;
-    }
-    await queryClient.invalidateQueries({ queryKey: ['orders'] });
-    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-    show({ message: '支付成功', type: 'success' });
-    refetch();
+  const isVip = order.bizType === 'VIP_PACKAGE';
+  const refund = order.refundSummary;
+  const refundTextMap: Record<RefundStatus, (amount: number) => string> = {
+    REQUESTED: () => '退款申请已提交，等待审核',
+    APPROVED: (amount) => `退款已同意，处理中 ¥${amount.toFixed(2)}`,
+    REJECTED: () => '退款申请被拒绝，请联系客服',
+    REFUNDING: (amount) => `退款处理中 ¥${amount.toFixed(2)}，预计 1-3 个工作日到账`,
+    REFUNDED: (amount) => `已原路退回 ¥${amount.toFixed(2)}`,
+    FAILED: () => '退款失败，请联系客服处理',
   };
+  const refundText = refund ? refundTextMap[refund.status]?.(refund.amount) ?? refund.status : null;
 
-  // 确认收货
+  // Phase 2: 后端真实暴露 autoReceiveAt；旧订单仍可能为 null（不显示倒计时，可接受）
+  const autoReceiveAt = order.autoReceiveAt ?? undefined;
+
   const handleConfirmReceive = async () => {
-    const result = await OrderRepo.confirmReceive(order.id);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '确认收货失败', type: 'error' });
-      return;
-    }
+    const r = await OrderRepo.confirmReceive(order.id);
+    if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
     await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
+    // 收货可能触发分润奖励发放（普通树/VIP 树分润），刷新钱包让新积分立即可见
+    await queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] });
+    await queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] });
     show({ message: '已确认收货', type: 'success' });
     refetch();
   };
 
-  // 取消订单
-  const handleCancelOrder = async () => {
-    const result = await OrderRepo.cancelOrder(order.id);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '取消失败', type: 'error' });
-      return;
-    }
-    await queryClient.invalidateQueries({ queryKey: ['orders'] });
-    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-    show({ message: '订单已取消', type: 'success' });
-    refetch();
-  };
-
-  const handleAdvanceAfterSale = async () => {
-    const result = await OrderRepo.advanceAfterSale(order.id);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '更新失败', type: 'error' });
-      return;
-    }
-    await queryClient.invalidateQueries({ queryKey: ['orders'] });
-    await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-    await queryClient.invalidateQueries({ queryKey: ['me-order-issue'] });
-    show({ message: '售后进度已更新', type: 'success' });
-    refetch();
-  };
-
   const handleConfirmReplacement = async () => {
-    const result = await OrderRepo.confirmReplacement(order.id);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '确认换货失败', type: 'error' });
+    const afterSaleId = order.afterSaleSummary?.id;
+    if (!afterSaleId) {
+      show({ message: '未找到售后单，请刷新后重试', type: 'error' });
       return;
     }
+    const r = await AfterSaleRepo.confirmReceive(afterSaleId);
+    if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
     await queryClient.invalidateQueries({ queryKey: ['orders'] });
+    await queryClient.invalidateQueries({ queryKey: ['order', order.id] });
+    await queryClient.invalidateQueries({ queryKey: ['after-sale', afterSaleId] });
+    await queryClient.invalidateQueries({ queryKey: ['after-sales'] });
     await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-    show({ message: '已确认收到换货商品', type: 'success' });
+    show({ message: '已确认收到换货', type: 'success' });
     refetch();
   };
+
+  const executeCancel = async () => {
+    if (cancelingRef.current) return;
+    cancelingRef.current = true;
+    setCanceling(true);
+    try {
+      const r = await OrderRepo.cancelOrder(order.id);
+      if (!r.ok) return show({ message: r.error.displayMessage ?? '失败', type: 'error' });
+      await queryClient.invalidateQueries({ queryKey: ['orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
+      show({ message: '已取消，退款将原路退回', type: 'success' });
+      refetch();
+    } finally {
+      cancelingRef.current = false;
+      setCanceling(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (canceling) return;
+    Alert.alert(
+      '确认取消订单',
+      '取消后将申请原路退款，预计 1-3 个工作日到账。多商户订单会整单取消。',
+      [
+        { text: '再想想', style: 'cancel' },
+        {
+          text: '确认取消',
+          style: 'destructive',
+          onPress: executeCancel,
+        },
+      ],
+    );
+  };
+
+  const handleRepurchase = async () => {
+    if (repurchasingRef.current || order.repurchasable === false) return;
+    repurchasingRef.current = true;
+    setRepurchasing(true);
+    try {
+      const r = await OrderRepo.repurchase(order.id);
+      if (r.ok === false) {
+        show({ message: r.error.displayMessage ?? '再次购买失败', type: 'error' });
+        return;
+      }
+      const result = r.data;
+      replaceCartFromServer(
+        result.cart,
+        result.items.filter((item) => item.status === 'ADDED').map((item) => item.skuId),
+      );
+      const virtualNotices = result.items
+        .filter((item) => item.virtual || item.reason === 'OUT_OF_STOCK_VIRTUAL')
+        .map((item) => ({
+          skuId: item.skuId,
+          title: item.title,
+          message: item.message || '商品暂无库存，未加入购物车',
+        }));
+      useCartStore.getState().setVirtualNotices(virtualNotices);
+      if (virtualNotices.length > 0) {
+        useCartStore.getState().preserveVirtualNoticesOnce();
+      }
+      if (result.addedQuantity <= 0 && virtualNotices.length === 0) {
+        show({ message: '原订单商品当前不可再次购买', type: 'info' });
+        return;
+      }
+      show(formatRepurchaseToast(result));
+      router.push('/cart');
+    } finally {
+      repurchasingRef.current = false;
+      setRepurchasing(false);
+    }
+  };
+
+  // CTA mapping
+  type DetailCTAItem = { label: string; onPress: () => void; disabled?: boolean };
+  let primary: DetailCTAItem | undefined;
+  const secondary: DetailCTAItem[] = [];
+
+  // 付款后建单架构：无 PENDING_PAYMENT；订单存在即至少为 PAID
+  switch (order.status) {
+    case 'PAID':
+      // 已付款待发货 — 仅允许取消（走退款）
+      if (order.bizType !== 'VIP_PACKAGE') {
+        secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel, disabled: canceling });
+      }
+      break;
+    case 'SHIPPED':
+    case 'DELIVERED':
+      primary = { label: '确认收货', onPress: handleConfirmReceive };
+      secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
+      break;
+    case 'RECEIVED':
+      primary = {
+        label: repurchasing ? '加入中...' : '再次购买',
+        onPress: handleRepurchase,
+        disabled: repurchasing || order.repurchasable === false,
+      };
+      break;
+  }
+
+  if (order.afterSaleStatus && order.afterSaleStatus !== 'rejected' && order.afterSaleStatus !== 'failed') {
+    secondary.push({
+      label: '查看售后',
+      onPress: () => {
+        if (order.afterSaleSummary?.id) {
+          router.push(`/orders/after-sale-detail/${order.afterSaleSummary.id}`);
+          return;
+        }
+        router.push('/orders/after-sale');
+      },
+    });
+  }
+
+  // 售后中且换货已发出 → 主操作改为"确认收到换货"
+  if (order.afterSaleStatus === 'shipped') {
+    primary = { label: '确认收到换货', onPress: handleConfirmReplacement };
+  }
+
+  secondary.push({ label: '联系客服', onPress: () => router.push(`/cs?source=ORDER_DETAIL&sourceId=${orderId}`) });
+
+  // 物流摘要（Phase 3 Review Fix 5：优先用 logisticsSummary 跨包裹最新事件，多包裹场景更准确）
+  const shipments = (order as any).shipments as Array<any> | undefined;
+  const summary = (order as any).logisticsSummary as { status?: string; latestEventMessage?: string; latestEventTime?: string } | undefined;
+  const latestEvent = summary?.latestEventMessage
+    ? { message: summary.latestEventMessage, time: summary.latestEventTime ?? '' }
+    : (shipments?.[0]?.trackingEvents?.[0] ?? null);
+  const showLogistics = (['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as OrderStatus[]).includes(order.status);
+
+  // 按 companyId 分组商品
+  const groups = new Map<string, OrderItem[]>();
+  for (const it of order.items) {
+    const k = (it as any).companyId ?? 'unknown';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(it);
+  }
+
+  // Phase 2 后端直接给 order.address.fullAddress 拼好的字段，保留 raw fallback 以兼容旧数据
+  const addr = (order as any).address || (order as any).addressSnapshotMasked;
+  const addrRecipientName = addr?.recipientName || '收件人';
+  const addrPhone = addr?.recipientPhone || addr?.phone || '';
+  const addrFullText = addr?.fullAddress
+    || [addr?.province, addr?.city, addr?.district, addr?.detail].filter(Boolean).join(' ');
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="订单详情" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
+        contentContainerStyle={{ paddingBottom: ctaBarHeight + spacing.lg }}
+        refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
       >
-        {/* VIP 礼包订单标签 */}
-        {order.bizType === 'VIP_PACKAGE' && (
-          <Animated.View entering={FadeInDown.duration(200)}>
-            <View style={[{ backgroundColor: 'rgba(201,169,110,0.12)', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md, flexDirection: 'row', alignItems: 'center' }]}>
-              <Text style={[typography.caption, { color: '#C9A96E', fontWeight: '600' }]}>VIP 开通礼包 · 不支持退款</Text>
-            </View>
-          </Animated.View>
-        )}
+        {/* ① StatusHero */}
+        <StatusHero
+          status={order.status}
+          isVipPackage={isVip}
+          countdownExpiresAt={order.status === 'DELIVERED' && autoReceiveAt ? autoReceiveAt : undefined}
+          countdownPrefix={order.status === 'DELIVERED' ? '还剩' : undefined}
+          subtitle={
+            order.status === 'CANCELED' && refund?.status === 'REFUNDED'
+              ? '订单已取消，退款已原路退回'
+              : order.status === 'CANCELED'
+                ? '订单已取消，退款处理中'
+                : order.status === 'PAID'
+                  ? '商家正在打包，预计 24 小时内发出'
+                  : undefined
+          }
+        />
 
-        {/* 摘要卡片 — 装饰条 + 动画入场 */}
-        <Animated.View entering={FadeInDown.duration(300)}>
-          <View style={[{ borderRadius: radius.lg, overflow: 'hidden' }, shadow.md]}>
-            <LinearGradient
-              colors={order.bizType === 'VIP_PACKAGE' ? ['#C9A96E', '#E8D5A3'] : [colors.brand.primary, colors.ai.start]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 3 }}
+        {refund && refundText ? (
+          <View style={[styles.sectionRow, { backgroundColor: colors.surface }]}>
+            <MaterialCommunityIcons
+              name={refund.status === 'FAILED' || refund.status === 'REJECTED' ? 'alert-circle-outline' : 'cash-refund'}
+              size={18}
+              color={refund.status === 'FAILED' || refund.status === 'REJECTED' ? colors.danger : colors.brand.primary}
             />
-            <View style={[styles.summaryCard, { backgroundColor: colors.surface }]}>
-              <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{order.id}</Text>
-              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                {orderStatusLabels[order.status]} · {order.createdAt}
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={[typography.body, { color: colors.text.primary }]}>{refundText}</Text>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                {refund.reason}
               </Text>
-              {order.logisticsStatus ? (
-                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
-                  物流：{order.logisticsStatus}
-                </Text>
-              ) : null}
-              {order.tracePreview ? (
-                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                  预计送达：{order.tracePreview}
-                </Text>
-              ) : null}
-              {order.afterSaleStatus ? (
-                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                  售后进度：{afterSaleLabels[order.afterSaleStatus] ?? '处理中'}
-                </Text>
-              ) : null}
             </View>
           </View>
-        </Animated.View>
+        ) : null}
 
-        {/* 操作按钮 */}
-        <View style={[styles.actionRow, { borderColor: colors.border }]}>
-          {order.status === 'pendingPay' ? (
-            <>
-              {USE_MOCK ? (
-                <Pressable onPress={handlePay}>
-                  <LinearGradient
-                    colors={[colors.brand.primary, colors.ai.start]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.actionButton, { borderRadius: radius.pill }]}
-                  >
-                    <Text style={[typography.caption, { color: colors.text.inverse }]}>立即支付</Text>
-                  </LinearGradient>
-                </Pressable>
-              ) : (
-                <View
-                  style={[
-                    styles.legacyPayHint,
-                    { borderColor: colors.border, borderRadius: radius.pill, backgroundColor: colors.surface },
-                  ]}
-                >
-                  <Text style={[typography.caption, { color: colors.text.secondary }]}>历史待支付订单请重新下单</Text>
-                </View>
-              )}
-              <Pressable
-                onPress={handleCancelOrder}
-                style={[styles.actionButtonOutline, { borderColor: colors.border, borderRadius: radius.pill }]}
-              >
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>取消订单</Text>
-              </Pressable>
-            </>
-          ) : null}
-          {order.status === 'shipping' || order.status === 'delivered' ? (
-            <>
-              <Pressable onPress={handleConfirmReceive}>
-                <LinearGradient
-                  colors={[colors.brand.primary, colors.ai.start]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.actionButton, { borderRadius: radius.pill }]}
-                >
-                  <Text style={[typography.caption, { color: colors.text.inverse }]}>确认收货</Text>
-                </LinearGradient>
-              </Pressable>
-              <Pressable
-                onPress={() => router.push({ pathname: '/orders/track', params: { orderId: order.id } })}
-                style={[styles.actionButtonOutline, { borderColor: colors.border, borderRadius: radius.pill }]}
-              >
-                <Text style={[typography.caption, { color: colors.text.secondary }]}>查看物流</Text>
-              </Pressable>
-            </>
-          ) : null}
-          {order.bizType !== 'VIP_PACKAGE'
-            && (order.status === 'delivered' || order.status === 'completed')
-            && (!order.afterSaleStatus || order.afterSaleStatus === 'rejected' || order.afterSaleStatus === 'failed') ? (
-            <Pressable
-              onPress={() => router.push({ pathname: '/orders/after-sale/[id]', params: { id: order.id } })}
-              style={[styles.actionButtonOutline, { borderColor: colors.border, borderRadius: radius.pill }]}
-            >
-              <Text style={[typography.caption, { color: colors.text.secondary }]}>申请售后</Text>
-            </Pressable>
-          ) : null}
-          {/* 查看售后记录入口 */}
-          {order.afterSaleStatus && order.afterSaleStatus !== 'rejected' && order.afterSaleStatus !== 'failed' ? (
-            <Pressable
-              onPress={() => router.push('/orders/after-sale')}
-              style={[styles.actionButtonOutline, { borderColor: colors.brand.primary, borderRadius: radius.pill }]}
-            >
-              <Text style={[typography.caption, { color: colors.brand.primary }]}>查看售后</Text>
-            </Pressable>
-          ) : null}
-          {order.status === 'afterSale' && order.afterSaleStatus === 'shipped' ? (
-            <Pressable onPress={handleConfirmReplacement}>
-              <LinearGradient
-                colors={[colors.brand.primary, colors.ai.start]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.actionButton, { borderRadius: radius.pill }]}
-              >
-                <Text style={[typography.caption, { color: colors.text.inverse }]}>确认收到换货</Text>
-              </LinearGradient>
-            </Pressable>
-          ) : null}
-          {/* 联系客服 */}
+        {/* ② Logistics card */}
+        {showLogistics && latestEvent ? (
           <Pressable
-            onPress={() => router.push(`/cs?source=ORDER_DETAIL&sourceId=${orderId}`)}
-            style={[styles.actionButtonOutline, { borderColor: colors.border, borderRadius: radius.pill }]}
+            onPress={() => router.push({ pathname: '/orders/track', params: { orderId: order.id } })}
+            style={[styles.sectionRow, { backgroundColor: colors.surface }]}
           >
-            <Text style={[typography.caption, { color: colors.text.secondary }]}>联系客服</Text>
-          </Pressable>
-        </View>
-
-        {/* 售后时间线 — 脉动当前节点 + 渐变连接线 */}
-        {order.afterSaleStatus ? (
-          <Animated.View entering={FadeInDown.duration(300).delay(80)}>
-            <View style={{ marginTop: spacing.lg }}>
-              <Text style={[typography.title3, { color: colors.text.primary }]}>售后进度</Text>
-              <View style={[styles.afterSaleCard, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
-                {afterSaleTimeline.length === 0 ? (
-                  <Text style={[typography.caption, { color: colors.text.secondary }]}>暂无售后节点</Text>
-                ) : (
-                  afterSaleTimeline.map((step, index) => {
-                    const isCurrent = step.status === order.afterSaleStatus;
-                    return (
-                      <View key={`${step.status}-${index}`} style={styles.afterSaleRow}>
-                        <View style={styles.afterSaleLeft}>
-                          {isCurrent ? (
-                            <PulsingDot color={colors.brand.primary} />
-                          ) : (
-                            <View style={[styles.afterSaleDot, { backgroundColor: colors.border }]} />
-                          )}
-                          {index < afterSaleTimeline.length - 1 ? (
-                            <LinearGradient
-                              colors={[colors.brand.primary, colors.ai.start]}
-                              style={styles.afterSaleLine}
-                            />
-                          ) : null}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{step.title}</Text>
-                          <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                            {step.time}
-                          </Text>
-                          {step.note ? (
-                            <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                              {step.note}
-                            </Text>
-                          ) : null}
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-                {USE_MOCK ? (
-                  <Pressable
-                    onPress={handleAdvanceAfterSale}
-                    style={[styles.afterSaleAction, { borderRadius: radius.pill, borderColor: colors.border }]}
-                  >
-                    <Text style={[typography.caption, { color: colors.text.secondary }]}>模拟推进售后</Text>
-                  </Pressable>
-                ) : null}
-              </View>
+            <MaterialCommunityIcons name="package-variant" size={18} color={colors.brand.primary} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={[typography.body, { color: colors.text.primary }]}>{latestEvent.message}</Text>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>{latestEvent.time}</Text>
             </View>
-          </Animated.View>
+            <Text style={[typography.caption, { color: colors.text.secondary }]}>查看物流 ›</Text>
+          </Pressable>
         ) : null}
 
-        {/* 商品清单 */}
-        <Animated.View entering={FadeInDown.duration(300).delay(160)}>
-          <View style={{ marginTop: spacing.lg }}>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>商品清单</Text>
-            {order.items.length === 0 ? (
-              <View style={{ marginTop: spacing.md }}>
-                <EmptyState title="暂无商品" description="订单中没有商品记录" />
-              </View>
-            ) : (
-              order.items.map((item) => {
-                // 退换政策提示文案
-                const policyHint = item.isPrize
-                  ? '不支持退换'
-                  : order.bizType === 'VIP_PACKAGE'
-                    ? '不支持退换'
-                    : item.isPostReplacement
-                      ? '签收后24小时内如有质量问题可申请售后'
-                      : order.returnWindowExpiresAt && new Date(order.returnWindowExpiresAt) > new Date()
-                        ? '支持7天无理由退换'
-                        : '签收后24小时内如有质量问题可申请售后';
-                const policyColor = (item.isPrize || order.bizType === 'VIP_PACKAGE')
-                  ? colors.muted
-                  : policyHint.includes('7天')
-                    ? colors.brand.primary
-                    : colors.text.tertiary;
-
-                return (
-                  <View
-                    key={item.id}
-                    style={[styles.itemRow, { borderBottomColor: colors.border }]}
-                  >
-                    <View style={styles.itemInfo}>
-                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{item.title}</Text>
-                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                        数量 x{item.quantity}
-                      </Text>
-                      <Text style={[{ fontSize: 11, lineHeight: 16, color: policyColor, marginTop: 2 }]}>
-                        {policyHint}
-                      </Text>
-                    </View>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                      ¥{item.price.toFixed(2)}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
+        {/* ③ Address */}
+        {addr ? (
+          <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md }]}>
+            <AddressCard
+              recipientName={addrRecipientName}
+              recipientPhone={addrPhone}
+              fullAddress={addrFullText}
+            />
           </View>
-        </Animated.View>
+        ) : null}
 
-        {/* 合计行 — AiDivider 分隔 */}
-        <AiDivider style={{ marginTop: spacing.md }} />
-        {order.goodsAmount != null && (
-          <View style={[styles.totalRow, { marginTop: 8, paddingTop: 8 }]}>
-            <Text style={[typography.bodySm, { color: colors.text.secondary }]}>商品金额</Text>
-            <Text style={[typography.bodySm, { color: colors.text.primary }]}>¥{order.goodsAmount.toFixed(2)}</Text>
+        {/* ④ Shop groups + items */}
+        {Array.from(groups.entries()).map(([cid, items]) => (
+          <View key={cid} style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md }]}>
+            <ShopGroup
+              companyName={items[0].companyName || '商家'}
+              items={items}
+              isVipPackage={isVip}
+              showAfterSaleAction={['DELIVERED', 'RECEIVED'].includes(order.status) && !isVip}
+              onItemAfterSale={() => router.push({ pathname: '/orders/after-sale/[id]', params: { id: order.id } })}
+            />
           </View>
-        )}
-        <View style={[styles.totalRow, { marginTop: 8, paddingTop: 8 }]}>
-          <Text style={[typography.bodySm, { color: colors.text.secondary }]}>运费</Text>
-          <Text style={[typography.bodySm, { color: (order.shippingFee ?? 0) === 0 ? colors.brand.primary : colors.text.primary }]}>
-            {(order.shippingFee ?? 0) === 0 ? '免运费' : `¥${(order.shippingFee ?? 0).toFixed(2)}`}
-          </Text>
+        ))}
+
+        {/* ⑤ Amount summary */}
+        <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.md }]}>
+          <AmountSummary
+            goodsAmount={order.goodsAmount ?? 0}
+            shippingFee={order.shippingFee ?? 0}
+            vipDiscountAmount={order.vipDiscountAmount}
+            discountAmount={order.discountAmount}
+            totalCouponDiscount={order.totalCouponDiscount}
+            totalPrice={order.totalPrice}
+          />
         </View>
-        {order.vipDiscountAmount && order.vipDiscountAmount > 0 ? (
-          <View style={[styles.totalRow, { marginTop: 8, paddingTop: 8 }]}>
-            <Text style={[typography.bodySm, { color: colors.text.secondary }]}>VIP折扣</Text>
-            <Text style={[typography.bodySm, { color: colors.brand.primary }]}>-¥{order.vipDiscountAmount.toFixed(2)}</Text>
-          </View>
-        ) : null}
-        {order.discountAmount && order.discountAmount > 0 ? (
-          <View style={[styles.totalRow, { marginTop: 8, paddingTop: 8 }]}>
-            <Text style={[typography.bodySm, { color: colors.text.secondary }]}>红包抵扣</Text>
-            <Text style={[typography.bodySm, { color: colors.danger }]}>-¥{order.discountAmount.toFixed(2)}</Text>
-          </View>
-        ) : null}
-        <View style={[styles.totalRow]}>
-          <Text style={[typography.body, { color: colors.text.secondary }]}>合计</Text>
-          <Text style={[typography.title3, { color: colors.text.primary }]}>¥{order.totalPrice.toFixed(2)}</Text>
+
+        {/* ⑥ Order info */}
+        <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.md }]}>
+          <OrderInfoBlock
+            orderId={order.id}
+            createdAt={order.createdAt}
+            paidAt={order.paidAt}
+            shippedAt={order.shippedAt}
+            deliveredAt={order.deliveredAt}
+            paymentMethod={(order as any).paymentMethod}
+            buyerNote={(order as any).buyerNote}
+            isVipPackage={isVip}
+          />
+        </View>
+
+        <View style={{ paddingHorizontal: spacing.md, paddingTop: spacing.sm }}>
+          <InvoiceSection
+            orderId={order.id}
+            orderStatus={order.status}
+            invoice={order.invoice}
+            invoiceEligible={order.invoiceEligible}
+          />
         </View>
       </ScrollView>
+
+      {/* ⑦ Sticky CTA */}
+      <StickyCTABar primary={primary} secondary={secondary} onHeightChange={setCtaBarHeight} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  summaryCard: {
-    padding: 16,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    marginTop: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-  },
-  actionButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginRight: 10,
-  },
-  actionButtonOutline: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderWidth: 1,
-    marginRight: 10,
-  },
-  legacyPayHint: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderWidth: 1,
-    marginRight: 10,
-    justifyContent: 'center',
-  },
-  afterSaleCard: {
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    marginTop: 12,
-  },
-  afterSaleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  afterSaleLeft: {
-    width: 24,
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  afterSaleDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginTop: 6,
-  },
-  afterSaleLine: {
-    width: 2,
-    flex: 1,
-    marginTop: 4,
-    borderRadius: 1,
-    minHeight: 20,
-  },
-  afterSaleAction: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  itemInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  totalRow: {
-    marginTop: 12,
-    paddingTop: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  section: { padding: 12, marginTop: 8 },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', padding: 12, marginTop: 8 },
 });

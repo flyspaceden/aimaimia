@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Card, Input, message, Tag, Typography, Empty, Spin } from 'antd';
+import { App, Button, Card, Input, Tag, Typography, Empty, Spin } from 'antd';
 import { DeleteOutlined, HolderOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -88,6 +88,7 @@ function SortableFilterItem({
 }
 
 export default function DiscoveryFiltersPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<FilterItem[]>([]);
   const initialized = useRef(false);

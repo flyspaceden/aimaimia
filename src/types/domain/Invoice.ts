@@ -45,15 +45,34 @@ export type InvoiceProfile = {
   updatedAt: string;
 };
 
+/** 发票状态历史 */
+export type InvoiceStatusHistory = {
+  id: string;
+  fromStatus?: InvoiceStatus | null;
+  toStatus: InvoiceStatus;
+  reason?: string | null;
+  operatorType?: 'BUYER' | 'ADMIN' | 'SYSTEM' | 'PROVIDER' | string;
+  createdAt: string;
+};
+
 /** 发票记录 */
 export type Invoice = {
   id: string;
   orderId: string;
   profileSnapshot: InvoiceProfileSnapshot;
   status: InvoiceStatus;
-  invoiceNo?: string;
-  pdfUrl?: string;
-  issuedAt?: string;
+  invoiceNo?: string | null;
+  pdfUrl?: string | null;
+  failReason?: string | null;
+  requestedAt: string;
+  provider?: string | null;
+  providerRequestId?: string | null;
+  statusHistory?: InvoiceStatusHistory[];
+  issuedAt?: string | null;
+  failedAt?: string | null;
+  canceledAt?: string | null;
+  failedAttempts?: number;
+  lastAutoIssueAttemptAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

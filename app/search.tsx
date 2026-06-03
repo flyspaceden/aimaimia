@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -21,13 +21,13 @@ import { ProductCard } from '../src/components/cards/ProductCard';
 import { CompanyRepo, ProductRepo } from '../src/repos';
 import { useCartStore } from '../src/store';
 import { useRecentSearches } from '../src/hooks/useRecentSearches';
-import { useTheme } from '../src/theme';
+import { useBottomInset, useTheme } from '../src/theme';
 import { AiRecommendTheme, AppError } from '../src/types';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// CARD_GAP / CARD_PADDING 不依赖屏幕宽度，留在模块顶层；
+// CARD_WIDTH 依赖响应式 SCREEN_WIDTH，移入组件函数体内（见下方 useWindowDimensions）
 const CARD_GAP = 12;
 const CARD_PADDING = 20;
-const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
 const recommendThemeLabelMap: Record<AiRecommendTheme, string> = {
   hot: '爆款',
   discount: '折扣',
@@ -109,6 +109,13 @@ const buildSearchTokens = (value: string, fromVoice: boolean): string[] => {
 
 export default function SearchScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
+  const CARD_WIDTH = (SCREEN_WIDTH - CARD_PADDING * 2 - CARD_GAP) / 2;
+  // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
+  const safeBottom = useBottomInset(spacing['3xl']);
+  // 购物车悬浮按钮位置同样走底部 inset helper，避免硬编码 bottom 留白。
+  const fabBottom = useBottomInset(40);
   const router = useRouter();
   const {
     q,
@@ -558,7 +565,7 @@ export default function SearchScreen() {
               maxToRenderPerBatch={8}
               windowSize={10}
               columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: CARD_PADDING }}
-              contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing['3xl'] }}
+              contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: safeBottom }}
               renderItem={({ item }) => (
                 <ProductCard
                   product={item}
@@ -583,7 +590,7 @@ export default function SearchScreen() {
             key="company-list"
             data={filteredCompanies}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+            contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
             renderItem={({ item: company }) => (
               <Pressable
                 onPress={() => router.push({ pathname: '/company/[id]', params: { id: company.id } })}
@@ -714,7 +721,7 @@ export default function SearchScreen() {
         style={[
           styles.cartFab,
           shadow.md,
-          { backgroundColor: colors.brand.primary, borderRadius: radius.full },
+          { backgroundColor: colors.brand.primary, borderRadius: radius.full, bottom: fabBottom },
         ]}
       >
         <MaterialCommunityIcons name="cart-outline" size={22} color="#fff" />
@@ -770,7 +777,6 @@ const styles = StyleSheet.create({
   },
   cartFab: {
     position: 'absolute',
-    bottom: 90,
     left: 20,
     width: 48,
     height: 48,

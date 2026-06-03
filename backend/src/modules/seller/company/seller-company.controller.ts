@@ -10,7 +10,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { SellerCompanyService } from './seller-company.service';
-import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, UpdateHighlightsDto, AddDocumentDto, UpdateAiSearchProfileDto } from './seller-company.dto';
+import { UpdateCompanyDto, InviteStaffDto, UpdateStaffDto, UpdateHighlightsDto, AddDocumentDto, UpdateAiSearchProfileDto, UpdateStaffNicknameDto, UpdateStaffPhoneDto, ResetStaffPasswordDto } from './seller-company.dto';
 import { SetCompanyTagsDto } from '../../admin/tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
@@ -159,5 +159,41 @@ export class SellerCompanyController {
     @Param('id') id: string,
   ) {
     return this.companyService.removeStaff(companyId, id);
+  }
+
+  /** OWNER 修改员工昵称 */
+  @SellerAudit({ action: 'UPDATE_STAFF_NICKNAME', module: 'company', targetType: 'CompanyStaff', targetIdParam: 'params.id' })
+  @SellerRoles('OWNER')
+  @Put('staff/:id/nickname')
+  updateStaffNickname(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateStaffNicknameDto,
+  ) {
+    return this.companyService.updateStaffNickname(companyId, id, dto);
+  }
+
+  /** OWNER 修改员工手机号 */
+  @SellerAudit({ action: 'UPDATE_STAFF_PHONE', module: 'company', targetType: 'CompanyStaff', targetIdParam: 'params.id' })
+  @SellerRoles('OWNER')
+  @Put('staff/:id/phone')
+  updateStaffPhone(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateStaffPhoneDto,
+  ) {
+    return this.companyService.updateStaffPhone(companyId, id, dto);
+  }
+
+  /** OWNER 重置员工密码 */
+  @SellerAudit({ action: 'RESET_STAFF_PASSWORD', module: 'company', targetType: 'CompanyStaff', targetIdParam: 'params.id' })
+  @SellerRoles('OWNER')
+  @Post('staff/:id/reset-password')
+  resetStaffPassword(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') id: string,
+    @Body() dto: ResetStaffPasswordDto,
+  ) {
+    return this.companyService.resetStaffPassword(companyId, id, dto);
   }
 }

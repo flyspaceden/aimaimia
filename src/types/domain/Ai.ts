@@ -124,6 +124,19 @@ export type AiVoiceSortIntent = 'default' | 'recommended' | 'hot' | 'discount' |
 export type AiVoiceCompanyType = 'farm' | 'company' | 'cooperative' | 'base' | 'factory' | 'store';
 
 export type AiVoiceIntentType = 'search' | 'company' | 'chat' | 'navigate' | 'transaction' | 'recommend' | 'clarify';
+
+/**
+ * 语音意图的"交易槽位"，刻画用户用自然语言表达的订单关注点。
+ *
+ * ⚠️ 与 OrderStatus（schema 大写枚举 PAID/SHIPPED/...）是两个独立概念：
+ * - 这里 'shipping' = 用户说"查物流"的语义意图，对应后端 SHIPPED+DELIVERED 集合
+ * - 'pendingPay' = "查待付款"的意图，Phase 2 后实际路由到 CheckoutSession 续付页
+ * - 'pendingShip' = "查待发货"，对应后端 PAID
+ * - 'afterSale' = "查售后"，对应活跃 AfterSaleRequest
+ *
+ * 当前 navigateByIntent 仅用 `transaction.action` 路由，本字段是 runtime 死字段，
+ * 仅在 mock/调试 transcript 出现，请勿与 OrderStatus 混用。
+ */
 export type AiVoiceTransactionStatus = 'pendingPay' | 'pendingShip' | 'shipping' | 'afterSale';
 
 export type AiVoiceDemandSlots = {

@@ -28,6 +28,24 @@ async function bootstrap() {
   });
   const isProduction = process.env.NODE_ENV === 'production';
 
+  // 数据加密密钥（PII AES-256-GCM）：生产必须独立配置，否则拒绝启动。
+  // 原因：encryption.ts 的 deriveKey() 兜底链为 DATA_ENCRYPTION_KEY → JWT_SECRET → 弱默认；
+  // 若缺失会静默改用 JWT_SECRET 派生密钥，一旦日后轮换 JWT_SECRET 或补配独立 key，
+  // 已加密的 PII（发票银行信息/税号、提现账号、地址快照、卖家虚拟号）将永久无法解密。
+  if (isProduction) {
+    const dataEncryptionKey = process.env.DATA_ENCRYPTION_KEY;
+    if (!dataEncryptionKey) {
+      throw new Error(
+        '生产环境必须配置独立的 DATA_ENCRYPTION_KEY（缺失=静默复用 JWT_SECRET 派生密钥，丢失/变更将导致已加密 PII 永久解不开）',
+      );
+    }
+    if (dataEncryptionKey === process.env.JWT_SECRET) {
+      throw new Error(
+        'DATA_ENCRYPTION_KEY 不能与 JWT_SECRET 相同（否则 JWT 泄露=加密密钥同步泄露，且失去独立轮换能力）',
+      );
+    }
+  }
+
   // 请求关联 ID（便于安全审计/问题排查）
   app.use(requestIdMiddleware);
 
@@ -37,9 +55,20 @@ async function bootstrap() {
   }
 
   // 静态文件服务：本地开发默认公开访问；启用私有签名模式时关闭直出
+  // 注意：app.enableCors() 只对 /api/v1/* 生效，静态资源需要在这里单独
+  // 加 CORS 响应头——否则前端用 <img> 加载没问题（图片标签不走 CORS），
+  // 但用 fetch() 下载会被浏览器拦截。这里允许任意来源 GET（图片本身已是
+  // 公开资源：URL 嵌在商品详情/订单详情/审核页里多端共享）。
   const uploadLocalPrivate = process.env.UPLOAD_LOCAL_PRIVATE === 'true';
   if (!uploadLocalPrivate) {
-    app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+    app.useStaticAssets(join(process.cwd(), 'uploads'), {
+      prefix: '/uploads/',
+      setHeaders: (res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      },
+    });
   }
 
   // HTTP 安全头（API 安全基线）

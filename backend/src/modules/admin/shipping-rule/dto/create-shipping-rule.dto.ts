@@ -1,9 +1,11 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   MaxLength,
   Min,
@@ -53,8 +55,37 @@ export class CreateShippingRuleDto {
   @Min(0, { message: 'fee 不能小于 0' })
   fee: number;
 
+  @Type(() => Number)
+  @IsNumber({}, { message: 'firstWeightKg 必须为数字' })
+  @IsPositive({ message: 'firstWeightKg 必须大于 0' })
+  firstWeightKg: number;
+
+  @Type(() => Number)
+  @IsNumber({}, { message: 'firstFee 必须为数字' })
+  @IsPositive({ message: 'firstFee 必须大于 0' })
+  firstFee: number;
+
+  @Type(() => Number)
+  @IsNumber({}, { message: 'additionalWeightKg 必须为数字' })
+  @IsPositive({ message: 'additionalWeightKg 必须大于 0' })
+  additionalWeightKg: number;
+
+  @Type(() => Number)
+  @IsNumber({}, { message: 'additionalFee 必须为数字' })
+  @Min(0, { message: 'additionalFee 不能小于 0' })
+  additionalFee: number;
+
+  @Type(() => Number)
+  @IsNumber({}, { message: 'minChargeWeightKg 必须为数字' })
+  @Min(0, { message: 'minChargeWeightKg 不能小于 0' })
+  minChargeWeightKg: number;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: 'priority 必须为数字' })
   priority?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'isActive 必须为布尔值' })
+  isActive?: boolean;
 }

@@ -1,13 +1,14 @@
 /**
  * 普通用户系统参数配置页
  *
- * 三个业务分组：普通树结构 / 奖励设置 / 利润六分比例
+ * 三个业务分组：普通结构 / 奖励设置 / 利润六分比例
  * 支持实时校验、版本历史抽屉、变更说明
- * 增强功能：业务说明、推荐模板、恢复默认值、变更影响提示
+ * 增强功能：推荐模板、恢复默认值、变更影响提示
  */
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Form,
@@ -19,13 +20,11 @@ import {
   Drawer,
   Timeline,
   Tag,
-  Modal,
   Spin,
   Alert,
   Row,
   Col,
   Divider,
-  message,
   Tooltip,
 } from 'antd';
 import {
@@ -42,7 +41,7 @@ import {
   UndoOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { getConfigs, updateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
+import { getConfigs, batchUpdateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -70,10 +69,10 @@ interface ConfigMeta {
 }
 
 const CONFIG_SCHEMA: ConfigMeta[] = [
-  // 普通树结构
+  // 普通结构
   {
     key: 'NORMAL_BRANCH_FACTOR',
-    label: '普通树分叉数',
+    label: '分组分叉数',
     group: 'tree',
     type: 'number',
     min: 2,
@@ -81,7 +80,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     step: 1,
     suffix: '叉',
     integer: true,
-    description: '普通树每个节点的最大子节点数',
+    description: '普通用户每个节点的最大子节点数',
     defaultValue: 3,
   },
   {
@@ -94,7 +93,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     step: 1,
     suffix: '层',
     integer: true,
-    description: '普通奖励上溯分润最大层级深度',
+    description: '普通奖励上溯最大层级深度',
     defaultValue: 15,
   },
 
@@ -205,13 +204,6 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
   return acc;
 }, {} as Record<string, number>);
 
-// 业务说明文案
-const GROUP_DESCRIPTIONS = {
-  tree: '普通用户奖励树决定了奖励如何在用户之间传递。分叉数控制每个节点最多可以有几个下级，最大分配层数决定一笔订单的奖励最多向上分配几层。调整这些参数会影响普通用户奖励分配的广度和深度。',
-  reward: '冻结天数控制普通用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
-  ratio: '利润六分比例决定了普通用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/16/16/8/8/2），该比例经过业务验证，能保证平台可持续运营。',
-} as const;
-
 /** 从配置列表中按 key 取原始值 */
 function getVal(configs: RuleConfig[], key: string): unknown {
   const c = configs.find((r) => r.key === key);
@@ -236,6 +228,7 @@ const fmtPercent = (v: number) => `${(v * 100).toFixed(0)}%`;
 
 export default function NormalConfigPage() {
   const queryClient = useQueryClient();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
@@ -286,28 +279,34 @@ export default function NormalConfigPage() {
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
 
-  // 实际执行保存逻辑
+  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发六分比例总和 ≠ 1.0）
   const doSave = useCallback(async () => {
     const values = form.getFieldsValue(true);
 
+    // 收集有变更的项
+    const updates: Array<{ key: string; value: unknown }> = [];
+    for (const meta of CONFIG_SCHEMA) {
+      const oldVal = getVal(configs, meta.key);
+      const newVal = values[meta.key];
+      if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
+      const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+      updates.push({
+        key: meta.key,
+        value: { value: newVal, description: desc || meta.description || meta.label },
+      });
+    }
+
+    if (updates.length === 0) {
+      message.info('没有检测到配置变更');
+      return;
+    }
+
     setSaving(true);
-
     try {
-      // 逐项提交有变更的配置
-      const note = changeNote || '更新普通用户系统配置';
-      for (const meta of CONFIG_SCHEMA) {
-        const oldVal = getVal(configs, meta.key);
-        const newVal = values[meta.key];
-
-        // 简单比较
-        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
-
-        const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
-        await updateConfig(meta.key, {
-          value: { value: newVal, description: desc || meta.description || meta.label },
-          changeNote: note,
-        });
-      }
+      await batchUpdateConfig({
+        updates,
+        changeNote: changeNote || '更新普通用户系统配置',
+      });
 
       message.success('配置保存成功');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
@@ -318,7 +317,7 @@ export default function NormalConfigPage() {
     } finally {
       setSaving(false);
     }
-  }, [form, configs, changeNote, queryClient]);
+  }, [form, configs, changeNote, queryClient, message]);
 
   // 保存（带变更影响提示）
   const handleSave = useCallback(async () => {
@@ -375,16 +374,16 @@ export default function NormalConfigPage() {
 
     const impacts: string[] = [];
     if (hasRatioChange) {
-      impacts.push('修改分润比例将影响后续所有新订单的普通用户奖励分配金额');
+      impacts.push('修改奖励分配比例将影响后续所有新订单的普通用户奖励分配金额');
     }
     if (hasTreeChange) {
-      impacts.push('修改树结构参数将影响新用户的节点分配和奖励传递层级');
+      impacts.push('修改结构参数将影响新用户的分配和奖励传递层级');
     }
     if (hasRewardChange) {
       impacts.push('修改奖励设置将影响后续新产生的奖励冻结和过期时间');
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: '确认保存配置变更？',
       icon: <ExclamationCircleOutlined />,
       content: (
@@ -426,7 +425,7 @@ export default function NormalConfigPage() {
 
   // 应用推荐模板（六分比例）
   const handleApplyTemplate = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '应用推荐模板',
       icon: <ThunderboltOutlined style={{ color: '#2E7D32' }} />,
       content: (
@@ -454,7 +453,7 @@ export default function NormalConfigPage() {
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '恢复默认值',
       icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
       content: (
@@ -499,9 +498,9 @@ export default function NormalConfigPage() {
       {/* 顶部标题栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>普通用户系统配置</Title>
+          <Title level={4} style={{ margin: 0 }}>普通系统配置</Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            管理普通用户奖励树结构、冻结/过期参数与利润六分比例（独立于 VIP 体系）
+            管理普通用户奖励结构、冻结/过期参数与利润六分比例（独立于 VIP 体系）
           </Text>
         </div>
         <Space>
@@ -529,7 +528,7 @@ export default function NormalConfigPage() {
         requiredMark={false}
       >
         <Row gutter={[16, 16]}>
-          {/* ====== 普通树结构 ====== */}
+          {/* ====== 普通结构 ====== */}
           <Col xs={24} lg={12}>
             <Card
               bordered={false}
@@ -538,17 +537,10 @@ export default function NormalConfigPage() {
               title={
                 <Space>
                   <ApartmentOutlined style={{ color: '#2E7D32', fontSize: 18 }} />
-                  <Text strong style={{ fontSize: 15 }}>普通树结构</Text>
+                  <Text strong style={{ fontSize: 15 }}>普通结构</Text>
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.tree}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
               {CONFIG_SCHEMA.filter((m) => m.group === 'tree').map((meta) => (
                 <NumberField key={meta.key} meta={meta} />
               ))}
@@ -568,13 +560,6 @@ export default function NormalConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.reward}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
               {CONFIG_SCHEMA.filter((m) => m.group === 'reward').map((meta) => (
                 <NumberField key={meta.key} meta={meta} />
               ))}
@@ -615,14 +600,6 @@ export default function NormalConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.ratio}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
-
               <Divider style={{ margin: '0 0 12px' }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>以下六项须合计 = 100%（50/16/16/8/8/2）</Text>
               </Divider>
@@ -651,7 +628,7 @@ export default function NormalConfigPage() {
             <Card bordered={false} style={{ borderRadius: 12, background: '#fafafa' }}>
               <Alert
                 message="变更影响提示"
-                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分润比例将直接影响后续所有新订单的普通用户奖励分配金额，请谨慎操作。"
+                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分配比例将直接影响后续所有新订单的普通用户奖励分配金额，请谨慎操作。"
                 type="warning"
                 showIcon
                 style={{ marginBottom: 16, borderRadius: 8 }}
@@ -719,7 +696,7 @@ export default function NormalConfigPage() {
                   key={v.id}
                   version={v}
                   onRollback={() => {
-                    Modal.confirm({
+                    modal.confirm({
                       title: '确认回滚到此版本？',
                       content: '回滚将覆盖当前所有配置，此操作不可撤销',
                       okText: '确认回滚',

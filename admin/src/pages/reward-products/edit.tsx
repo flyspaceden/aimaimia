@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Spin,
@@ -13,7 +14,6 @@ import {
   Table,
   Space,
   Breadcrumb,
-  message,
   Popconfirm,
   Modal,
   Tag,
@@ -53,6 +53,11 @@ import { PERMISSIONS } from '@/constants/permissions';
 
 const { Text } = Typography;
 
+const rewardSkuWeightRules = [
+  { required: true, message: '请输入重量' },
+  { type: 'number' as const, min: 1, message: '重量必须大于 0 克' },
+];
+
 // 奖励商品状态映射
 const statusOptions = [
   { label: '上架', value: 'ACTIVE' },
@@ -78,10 +83,11 @@ interface SkuFormValues {
   cost: number;
   price: number;
   stock: number;
-  weightGram?: number;
+  weightGram: number;
 }
 
 export default function RewardProductEditPage() {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -210,7 +216,7 @@ export default function RewardProductEditPage() {
           cost,
           price,
           stock: Math.floor(Number(values.stock)),
-          weightGram: values.weightGram != null ? Number(values.weightGram) : undefined,
+          weightGram: Number(values.weightGram),
         });
       }
 
@@ -238,7 +244,7 @@ export default function RewardProductEditPage() {
       cost: typeof sku.cost === 'number' ? sku.cost : 0,
       price: sku.price,
       stock: sku.stock,
-      weightGram: sku.weightGram || undefined,
+      weightGram: sku.weightGram ?? undefined,
     });
     setSkuModal({ visible: true, sku });
   };
@@ -264,7 +270,7 @@ export default function RewardProductEditPage() {
             cost,
             price,
             stock: Math.floor(Number(values.stock)),
-            weightGram: values.weightGram != null ? Number(values.weightGram) : undefined,
+            weightGram: Number(values.weightGram),
           },
         });
       } else {
@@ -274,7 +280,7 @@ export default function RewardProductEditPage() {
           cost,
           price,
           stock: Math.floor(Number(values.stock)),
-          weightGram: values.weightGram != null ? Number(values.weightGram) : undefined,
+          weightGram: Number(values.weightGram),
         });
       }
     } catch {
@@ -513,7 +519,7 @@ export default function RewardProductEditPage() {
             cost: defaultSku ? (typeof defaultSku.cost === 'number' ? defaultSku.cost : undefined) : undefined,
             price: defaultSku ? defaultSku.price : undefined,
             stock: defaultSku ? defaultSku.stock : undefined,
-            weightGram: defaultSku?.weightGram || undefined,
+            weightGram: defaultSku?.weightGram ?? undefined,
           }}
         >
           <Form.Item
@@ -616,12 +622,16 @@ export default function RewardProductEditPage() {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="重量（克）" name="weightGram">
+                  <Form.Item
+                    label="重量（克）"
+                    name="weightGram"
+                    rules={rewardSkuWeightRules}
+                  >
                     <InputNumber
-                      min={0}
+                      min={1}
                       precision={0}
                       style={{ width: '100%' }}
-                      placeholder="选填"
+                      placeholder="如：1000"
                     />
                   </Form.Item>
                 </Col>
@@ -789,12 +799,16 @@ export default function RewardProductEditPage() {
             />
           </Form.Item>
 
-          <Form.Item label="重量（克）" name="weightGram">
+          <Form.Item
+            label="重量（克）"
+            name="weightGram"
+            rules={rewardSkuWeightRules}
+          >
             <InputNumber
-              min={0}
+              min={1}
               precision={0}
               style={{ width: '100%' }}
-              placeholder="选填"
+              placeholder="如：1000"
             />
           </Form.Item>
         </Form>

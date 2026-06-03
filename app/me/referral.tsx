@@ -13,8 +13,9 @@ import { AiBadge, AiDivider } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
+import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
 // 推荐码展示页
 export default function ReferralScreen() {
@@ -22,6 +23,9 @@ export default function ReferralScreen() {
   const router = useRouter();
   const { show } = useToast();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  // 非 VIP 分支底部双按钮（"扫描推荐码" / "了解 VIP"）需要吃 safe area，
+  // 否则在华为/Honor/小米 3 键虚拟键设备上会被系统按钮挡住
+  const bottomPadding = useBottomInset(0);
 
   const { data, isLoading } = useQuery({
     queryKey: ['bonus-member'],
@@ -32,16 +36,26 @@ export default function ReferralScreen() {
   const member = data?.ok ? data.data : null;
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const deepLink = `https://app.xn--ckqa175y.com/r/${referralCode}`;
+  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const inviterLabel = getReferralInviterLabel(member);
+  const hasInviter = hasBoundReferralInviter(member);
 
   // 复制推荐码
   const handleCopy = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可复制的推荐码', type: 'info' });
+      return;
+    }
     await Clipboard.setStringAsync(referralCode);
     show({ message: '推荐码已复制', type: 'success' });
   };
 
   // 分享推荐码
   const handleShare = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可分享的推荐码', type: 'info' });
+      return;
+    }
     try {
       const result = await Share.share({
         message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册，双方都能获得红包奖励！${deepLink}`,
@@ -82,19 +96,52 @@ export default function ReferralScreen() {
           <Skeleton height={140} radius={radius.lg} />
         </View>
       ) : !isVip ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl }}>
-          <MaterialCommunityIcons name="crown-outline" size={64} color={colors.muted} />
-          <Text style={[typography.headingSm, { color: colors.text.primary, marginTop: spacing.md }]}>
-            仅限 VIP 会员
-          </Text>
-          <Text style={[typography.body, { color: colors.text.secondary, marginTop: spacing.sm, textAlign: 'center' }]}>
-            成为 VIP 会员后即可获得专属推荐码，邀请好友双方获得奖励
-          </Text>
+        <View style={[styles.nonVipContainer, { padding: spacing.xl, paddingBottom: spacing.xl + bottomPadding }]}>
+          <Animated.View
+            entering={FadeInDown.duration(400)}
+            style={[styles.bindingCard, shadow.sm, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg }]}
+          >
+            <View style={[styles.bindingIcon, { backgroundColor: hasInviter ? colors.brand.primarySoft : colors.background }]}>
+              <MaterialCommunityIcons
+                name={hasInviter ? 'account-heart-outline' : 'qrcode-scan'}
+                size={30}
+                color={hasInviter ? colors.brand.primary : colors.muted}
+              />
+            </View>
+            <Text style={[typography.headingSm, { color: colors.text.primary, marginTop: spacing.md, textAlign: 'center' }]}>
+              {hasInviter ? '已绑定推荐人' : '尚未绑定推荐人'}
+            </Text>
+            {hasInviter ? (
+              <>
+                <Text style={[typography.bodyStrong, { color: colors.brand.primary, marginTop: spacing.sm, textAlign: 'center' }]}>
+                  {inviterLabel}
+                </Text>
+                <Text style={[typography.bodySm, { color: colors.text.secondary, marginTop: spacing.xs, textAlign: 'center' }]}>
+                  购买 VIP 后将加入该推荐人的 VIP 团队
+                </Text>
+              </>
+            ) : null}
+          </Animated.View>
+
+          <View style={styles.nonVipActions}>
+            <Pressable
+              onPress={() => router.push('/me/scanner')}
+              style={[styles.primaryBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
+            >
+              <MaterialCommunityIcons name="qrcode-scan" size={17} color="#FFFFFF" />
+              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: '#FFFFFF', marginLeft: 6 }]}>
+                扫描推荐码
+              </Text>
+            </Pressable>
+          </View>
+
           <Pressable
             onPress={() => router.push('/me/vip')}
-            style={{ marginTop: spacing.lg, backgroundColor: colors.brand.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: radius.pill }}
+            style={[styles.secondaryBtn, { borderColor: colors.border, borderRadius: radius.pill }]}
           >
-            <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>了解 VIP</Text>
+            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>
+              了解 VIP
+            </Text>
           </Pressable>
         </View>
       ) : (
@@ -212,6 +259,40 @@ export default function ReferralScreen() {
 }
 
 const styles = StyleSheet.create({
+  nonVipContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  bindingCard: {
+    borderWidth: 1,
+    padding: 22,
+    alignItems: 'center',
+  },
+  bindingIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nonVipActions: {
+    marginTop: 18,
+  },
+  primaryBtn: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  secondaryBtn: {
+    minHeight: 48,
+    marginTop: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
   heroCard: {
     padding: 24,
     alignItems: 'center',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Button, message, Modal, Form, Input, Switch, Space, Tag, Popconfirm, Table, Spin, Tooltip, Select } from 'antd';
+import { App, Button, Modal, Form, Input, Switch, Space, Tag, Popconfirm, Table, Spin, Tooltip, Select } from 'antd';
 import { PlusOutlined, DeleteOutlined, ApartmentOutlined, HolderOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons';
 import { returnPolicyMap } from '@/constants/statusMaps';
 import type { ColumnsType } from 'antd/es/table';
@@ -108,6 +108,7 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function CategoriesPage() {
+  const { message, modal } = App.useApp();
   const [flatList, setFlatList] = useState<AdminCategory[]>([]);
   const [displayRows, setDisplayRows] = useState<DisplayRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -271,7 +272,17 @@ export default function CategoriesPage() {
       message.success('分类已删除');
       loadData();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      modal.error({
+        title: '无法删除分类',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
     }
   };
 
@@ -398,7 +409,8 @@ export default function CategoriesPage() {
                 options={[
                   { label: '7天无理由退换', value: 'RETURNABLE' },
                   { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
-                  { label: '同上级', value: 'INHERIT' },
+                  // 顶级分类（无父级）不展示"同上级"，无可继承对象
+                  ...(record.parentId ? [{ label: '同上级', value: 'INHERIT' }] : []),
                 ]}
               />
               {isInherit && (
@@ -535,13 +547,15 @@ export default function CategoriesPage() {
           <Form.Item
             name="returnPolicy"
             label="退货政策"
-            initialValue="INHERIT"
+            // 顶级分类默认「7天无理由退换」；子分类默认「继承上级」
+            initialValue={parentCategory ? 'INHERIT' : 'RETURNABLE'}
           >
             <Select
               options={[
-                { label: '继承上级', value: 'INHERIT' },
                 { label: '7天无理由退换', value: 'RETURNABLE' },
                 { label: '仅质量问题可退（如生鲜）', value: 'NON_RETURNABLE' },
+                // 顶级分类没有上级可继承，不展示"继承上级"选项
+                ...(parentCategory ? [{ label: '继承上级', value: 'INHERIT' }] : []),
               ]}
             />
           </Form.Item>

@@ -17,6 +17,8 @@ const UserListPage = lazy(() => import('@/pages/users/index'));
 const UserDetailPage = lazy(() => import('@/pages/users/detail'));
 const MemberListPage = lazy(() => import('@/pages/bonus/members'));
 const WithdrawalListPage = lazy(() => import('@/pages/bonus/withdrawals'));
+const WithdrawRulesPage = lazy(() => import('@/pages/bonus/withdraw-rules'));
+const TaxReportingPage = lazy(() => import('@/pages/bonus/tax-reporting'));
 const TraceListPage = lazy(() => import('@/pages/trace/index'));
 const ConfigPage = lazy(() => import('@/pages/config/index'));
 const AuditLogPage = lazy(() => import('@/pages/audit/index'));
@@ -42,6 +44,7 @@ const VipGiftsPage = lazy(() => import('@/pages/vip-gifts/index'));
 const CategoriesPage = lazy(() => import('@/pages/categories/index'));
 const InvoiceListPage = lazy(() => import('@/pages/invoices/index'));
 const InvoiceDetailPage = lazy(() => import('@/pages/invoices/detail'));
+const InvoiceSettingsPage = lazy(() => import('@/pages/invoices/settings'));
 const TagManagementPage = lazy(() => import('@/pages/tags/index'));
 const DiscoveryFiltersPage = lazy(() => import('@/pages/config/discovery-filters'));
 const CsWorkstationPage = lazy(() => import('@/pages/cs/workstation'));
@@ -50,6 +53,7 @@ const CsFaqPage = lazy(() => import('@/pages/cs/faq'));
 const CsQuickEntriesPage = lazy(() => import('@/pages/cs/quick-entries'));
 const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
 const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
+const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -111,6 +115,8 @@ export default function App() {
             <Route path="bonus/members" element={<MemberListPage />} />
             <Route path="bonus/members/:userId" element={<MemberDetailPage />} />
             <Route path="bonus/withdrawals" element={<WithdrawalListPage />} />
+            <Route path="bonus/withdraw-rules" element={<WithdrawRulesPage />} />
+            <Route path="bonus/tax-reporting" element={<TaxReportingPage />} />
             <Route path="bonus/vip-tree" element={<VipTreePage />} />
             <Route path="bonus/broadcast-window" element={<BroadcastWindowPage />} />
             <Route path="bonus/normal-tree" element={<NormalTreePage />} />
@@ -123,6 +129,7 @@ export default function App() {
             <Route path="coupons/usage" element={<CouponUsagePage />} />
             <Route path="coupons/stats" element={<CouponStatsPage />} />
             <Route path="invoices" element={<InvoiceListPage />} />
+            <Route path="invoices/settings" element={<InvoiceSettingsPage />} />
             <Route path="invoices/:id" element={<InvoiceDetailPage />} />
             <Route path="after-sale" element={<AfterSaleListPage />} />
             <Route path="lottery" element={<LotteryPage />} />
@@ -132,7 +139,7 @@ export default function App() {
             <Route path="tags" element={<TagManagementPage />} />
             <Route path="trace" element={<TraceListPage />} />
             <Route path="config" element={<ConfigPage />} />
-            <Route path="config/discovery-filters" element={<DiscoveryFiltersPage />} />
+            <Route path="discovery-filters" element={<DiscoveryFiltersPage />} />
             <Route path="cs/workstation" element={<CsWorkstationPage />} />
             <Route path="cs/tickets" element={<CsTicketsPage />} />
             <Route path="cs/faq" element={<CsFaqPage />} />
@@ -142,6 +149,7 @@ export default function App() {
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/roles" element={<RolesPage />} />
+            <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 
           {/* 兜底 */}

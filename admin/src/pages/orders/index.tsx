@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Modal, Form, Input, Space, Card, Row, Col, Select, Statistic, Badge, Typography, Tooltip } from 'antd';
+import { App, Button, Tag, Modal, Form, Input, Space, Card, Row, Col, Select, Statistic, Badge, Typography, Tooltip, Switch, Alert } from 'antd';
 import {
   EyeOutlined,
   SendOutlined,
@@ -20,6 +20,7 @@ import type { Order, OrderStatsMap } from '@/types';
 import {
   orderStatusMap as statusMap,
   paymentChannelMap,
+  refundStatusMap,
 } from '@/constants/statusMaps';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
@@ -47,6 +48,7 @@ const STAT_CARDS = [
 ];
 
 export default function OrderListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [shipModalOpen, setShipModalOpen] = useState(false);
@@ -78,14 +80,46 @@ export default function OrderListPage() {
       .catch(() => {});
   }, []);
 
-  const handleShip = async (values: { carrierCode: string; carrierName: string; trackingNo: string }) => {
+  // 页面回到前台立即拉一次（弥补 polling 30s 的等待）
+  // app 端付款 → 后端建单后，管理员从其他 tab 切回来瞬间就能看到新单
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        actionRef.current?.reload();
+        loadStats();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
+  const [shipLoading, setShipLoading] = useState(false);
+  const handleShip = async (values: {
+    useCarrierAuto?: boolean;
+    carrierCode: string;
+    carrierName?: string;
+    trackingNo?: string;
+  }) => {
     if (!currentOrder) return;
-    await shipOrder(currentOrder.id, values);
-    message.success('发货成功');
-    setShipModalOpen(false);
-    shipForm.resetFields();
-    actionRef.current?.reload();
-    loadStats();
+    setShipLoading(true);
+    try {
+      const result = await shipOrder(currentOrder.id, values);
+      message.success(
+        values.useCarrierAuto && result.waybillNo
+          ? `发货成功（顺丰运单号：${result.waybillNo}）`
+          : values.useCarrierAuto
+            ? '发货成功（已生成顺丰电子面单）'
+            : '发货成功',
+      );
+      setShipModalOpen(false);
+      shipForm.resetFields();
+      actionRef.current?.reload();
+      loadStats();
+    } catch (err: any) {
+      message.error(`发货失败: ${err?.response?.data?.error?.displayMessage || err?.message || '未知错误'}`);
+    } finally {
+      setShipLoading(false);
+    }
   };
 
   // 待发货行高亮
@@ -214,9 +248,17 @@ export default function OrderListPage() {
       hideInSearch: true,
       render: (_: unknown, r: Order) => {
         const s = statusMap[r.status];
+        const refundStatus = r.refundSummary ? refundStatusMap[r.refundSummary.status] : null;
+        const orderText = s?.text;
+        const refundText = refundStatus?.text || r.refundSummary?.status;
+        // 订单主状态和退款流水状态文字一致时（例如 REFUNDED + REFUNDED）只显示一个，避免冗余
+        const showRefundTag = Boolean(r.refundSummary) && refundText !== orderText;
         return (
           <span>
-            <Tag color={s?.color}>{s?.text}</Tag>
+            <Tag color={s?.color}>{orderText}</Tag>
+            {showRefundTag && (
+              <Tag color={refundStatus?.color}>{refundText}</Tag>
+            )}
             {r.bizType === 'VIP_PACKAGE' && (
               <Tag color="#C9A96E" style={{ marginTop: 2 }}>VIP礼包</Tag>
             )}
@@ -253,23 +295,29 @@ export default function OrderListPage() {
           >
             详情
           </Button>
-          {record.bizType !== 'VIP_PACKAGE' && (
-            <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
-              {record.status === 'PAID' && (
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<SendOutlined />}
-                  onClick={() => {
-                    setCurrentOrder(record);
-                    setShipModalOpen(true);
-                  }}
-                >
-                  发货
-                </Button>
-              )}
-            </PermissionGate>
-          )}
+          {/* Bug 86: VIP_PACKAGE 也允许在管理后台发货（默认 useCarrierAuto） */}
+          <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
+            {record.status === 'PAID' && (
+              <Button
+                type="link"
+                size="small"
+                icon={<SendOutlined />}
+                onClick={() => {
+                  setCurrentOrder(record);
+                  // 默认走自动取号，手填仅作为显式备用模式；否则不会在顺丰沙箱创建订单。
+                  shipForm.resetFields();
+                  shipForm.setFieldsValue({
+                    useCarrierAuto: true,
+                    carrierCode: 'SF',
+                    carrierName: '顺丰速运',
+                  });
+                  setShipModalOpen(true);
+                }}
+              >
+                发货
+              </Button>
+            )}
+          </PermissionGate>
         </Space>
       ),
     },
@@ -337,6 +385,8 @@ export default function OrderListPage() {
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
+        // 30s 自动轮询，配合 visibilitychange 回前台立即拉，覆盖 app 端付款后管理员需要手动刷新的场景
+        polling={30_000}
         toolbar={{
           menu: {
             type: 'tab',
@@ -378,23 +428,71 @@ export default function OrderListPage() {
         dateFormatter="string"
       />
 
-      {/* 发货弹窗 */}
+      {/* 发货弹窗 — Bug 86 支持「自动取号」与「手填运单号」两种模式 */}
       <Modal
         title="发货"
         open={shipModalOpen}
         onCancel={() => setShipModalOpen(false)}
         onOk={() => shipForm.submit()}
         destroyOnClose
+        width={520}
+        confirmLoading={shipLoading}
+        okText={shipLoading ? '处理中...' : '确定'}
+        maskClosable={!shipLoading}
+        closable={!shipLoading}
       >
         <Form form={shipForm} layout="vertical" onFinish={handleShip}>
-          <Form.Item name="carrierName" label="快递公司" rules={[{ required: true, message: '请输入快递公司' }]}>
-            <Input placeholder="如：顺丰速运" />
+          <Form.Item
+            name="useCarrierAuto"
+            label="发货方式"
+            valuePropName="checked"
+            extra="默认调用顺丰丰桥自动取号；关闭后只保存手填运单号，不会创建顺丰沙箱订单"
+          >
+            <Switch checkedChildren="顺丰自动取号" unCheckedChildren="手填备用" />
           </Form.Item>
-          <Form.Item name="carrierCode" label="快递编码" rules={[{ required: true, message: '请输入快递编码' }]}>
-            <Input placeholder="如：SF" />
-          </Form.Item>
-          <Form.Item name="trackingNo" label="运单号" rules={[{ required: true, message: '请输入运单号' }]}>
-            <Input placeholder="请输入运单号" />
+
+          <Form.Item shouldUpdate noStyle>
+            {() => {
+              const isAuto = !!shipForm.getFieldValue('useCarrierAuto');
+              return isAuto ? (
+                <>
+                  <Alert
+                    style={{ marginBottom: 12 }}
+                    type="info"
+                    showIcon
+                    message="自动取号模式"
+                    description="将由系统调用顺丰 API 创建运单 + 生成电子面单 PDF 上传至 OSS。无需手填运单号。"
+                  />
+                  <Form.Item name="carrierCode" hidden initialValue="SF">
+                    <Input />
+                  </Form.Item>
+                </>
+              ) : (
+                <>
+                  <Form.Item
+                    name="carrierName"
+                    label="快递公司"
+                    rules={[{ required: true, message: '请输入快递公司' }]}
+                  >
+                    <Input placeholder="如：顺丰速运" />
+                  </Form.Item>
+                  <Form.Item
+                    name="carrierCode"
+                    label="快递编码"
+                    rules={[{ required: true, message: '请输入快递编码' }]}
+                  >
+                    <Input placeholder="如：SF" />
+                  </Form.Item>
+                  <Form.Item
+                    name="trackingNo"
+                    label="运单号"
+                    rules={[{ required: true, message: '请输入运单号' }]}
+                  >
+                    <Input placeholder="请输入运单号" />
+                  </Form.Item>
+                </>
+              );
+            }}
           </Form.Item>
         </Form>
       </Modal>

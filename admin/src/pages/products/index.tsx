@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  Button, Tag, message, Modal, Space, Switch, Input, Badge,
-  Descriptions, Card, Row, Col, Select, Statistic, Typography, Image,
+  App, Button, Tag, Modal, Space, Switch, Input, Badge, Popconfirm,
+  Descriptions, Card, Row, Col, Select, Statistic, Tooltip, Typography, Image,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -16,10 +17,11 @@ import {
   ClockCircleOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons';
-import { getProducts, getProductStats, auditProduct } from '@/api/products';
+import { getProducts, getProductStats, auditProduct, deleteProduct } from '@/api/products';
 import { getCompanies } from '@/api/companies';
+import { getConfigs } from '@/api/config';
 import PermissionGate from '@/components/PermissionGate';
-import type { Product } from '@/types';
+import { extractConfigValue, type Product, type ProductSKU } from '@/types';
 import {
   productStatusMap as statusMap,
   auditStatusMap,
@@ -30,6 +32,21 @@ import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
+
+function getStockSummary(product: Product, threshold: number) {
+  const skus = product.skus ?? [];
+  const total = skus.reduce((sum, sku) => sum + (sku.stock ?? 0), 0);
+  const minSku = skus.reduce<ProductSKU | undefined>((min, sku) => {
+    if (!min) return sku;
+    return (sku.stock ?? 0) < (min.stock ?? 0) ? sku : min;
+  }, undefined);
+  const owedSkus = skus.filter((sku) => (sku.stock ?? 0) < 0);
+  const zeroCount = skus.filter((sku) => (sku.stock ?? 0) === 0).length;
+  const lowCount = threshold > 0
+    ? skus.filter((sku) => (sku.stock ?? 0) > 0 && (sku.stock ?? 0) <= threshold).length
+    : 0;
+  return { total, minSku, owedSkus, zeroCount, lowCount };
+}
 
 // 状态 Tab 配置
 const STATUS_TABS = [
@@ -50,6 +67,7 @@ const STAT_CARDS = [
 ];
 
 export default function ProductListPage() {
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
@@ -59,6 +77,17 @@ export default function ProductListPage() {
   const [activeTab, setActiveTab] = useState('ALL');
   const [stats, setStats] = useState<Record<string, number>>({});
   const [companyOptions, setCompanyOptions] = useState<{ label: string; value: string }[]>([]);
+
+  const { data: configRows = [] } = useQuery({
+    queryKey: ['admin', 'configs', 'low-stock-threshold'],
+    queryFn: getConfigs,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = (() => {
+    const row = configRows.find((item) => item.key === 'LOW_STOCK_DISPLAY_THRESHOLD');
+    const value = Number(row ? extractConfigValue(row) : 10);
+    return Number.isInteger(value) && value >= 0 && value <= 999 ? value : 10;
+  })();
 
   // 加载统计数据
   const loadStats = async () => {
@@ -70,9 +99,27 @@ export default function ProductListPage() {
     }
   };
 
-  // 加载公司列表
+  // 加载公司列表 + 轮询 stats + 页面重新可见时刷新
   useEffect(() => {
     loadStats();
+
+    // 15 秒轮询一次 stats + 列表（跨用户实时感知：卖家新增 / 其他管理员审核）
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadStats();
+        actionRef.current?.reload();
+      }
+    }, 30000);
+
+    // 页面切回前台时立即刷新
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadStats();
+        actionRef.current?.reload();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     getCompanies({ pageSize: 200 })
       .then((res) => {
         setCompanyOptions(
@@ -80,6 +127,11 @@ export default function ProductListPage() {
         );
       })
       .catch(() => {});
+
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const handleToggleStatus = async (record: Product) => {
@@ -89,6 +141,27 @@ export default function ProductListPage() {
     message.success(`已${newStatus === 'ACTIVE' ? '上架' : '下架'}`);
     actionRef.current?.reload();
     loadStats();
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteProduct(id);
+      message.success('删除成功');
+      actionRef.current?.reload();
+      loadStats();
+    } catch (err) {
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    }
   };
 
   const handleAudit = async (auditStatus: 'APPROVED' | 'REJECTED') => {
@@ -146,13 +219,23 @@ export default function ProductListPage() {
       width: 200,
     },
     {
-      title: '价格',
-      dataIndex: 'basePrice',
-      width: 100,
+      title: '售价',
+      dataIndex: 'price',
+      width: 120,
       search: false,
-      render: (_: unknown, r: Product) => (
-        <Text strong style={{ color: '#059669' }}>¥{r.basePrice.toFixed(2)}</Text>
-      ),
+      render: (_: unknown, r: Product) => {
+        const prices = r.skus?.map((sku) => sku.price).filter((p): p is number => p != null && p > 0) ?? [];
+        if (prices.length === 0) {
+          return <Text strong style={{ color: '#059669' }}>¥{r.basePrice.toFixed(2)}</Text>;
+        }
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        return (
+          <Text strong style={{ color: '#059669' }}>
+            {min === max ? `¥${min.toFixed(2)}` : `¥${min.toFixed(2)}~${max.toFixed(2)}`}
+          </Text>
+        );
+      },
     },
     {
       title: '成本价',
@@ -231,32 +314,78 @@ export default function ProductListPage() {
       width: 80,
       search: false,
       render: (_: unknown, r: Product) => {
-        const total = r.skus?.reduce((sum, sku) => sum + (sku.stock ?? 0), 0) ?? 0;
+        const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
+        const hasOwed = (minSku?.stock ?? 0) < 0;
+        const owedText = owedSkus
+          .map((sku) => `${sku.title || sku.id}: 欠货 ${Math.abs(sku.stock ?? 0)} 件`)
+          .join('\n');
         return (
-          <Text type={total <= 0 ? 'danger' : total < 10 ? 'warning' : undefined}>
-            {total}
-          </Text>
+          <Space direction="vertical" size={0}>
+            <Text type={hasOwed || zeroCount > 0 ? 'danger' : lowCount > 0 ? 'warning' : undefined}>
+              {total}
+            </Text>
+            {hasOwed && (
+              <Tooltip title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{owedText}</pre>}>
+                <Text type="danger" style={{ fontSize: 12 }}>
+                  {owedSkus.length} 个规格欠货
+                </Text>
+              </Tooltip>
+            )}
+            {zeroCount > 0 && <Text type="danger" style={{ fontSize: 12 }}>{zeroCount} 个规格无库存</Text>}
+            {lowCount > 0 && <Text type="warning" style={{ fontSize: 12 }}>{lowCount} 个规格低库存</Text>}
+          </Space>
         );
+      },
+    },
+    {
+      title: '单笔限购',
+      dataIndex: 'skus',
+      width: 90,
+      search: false,
+      render: (_: unknown, r: Product) => {
+        const limits = (r.skus ?? []).map((sku) => sku.maxPerOrder).filter((v): v is number => v != null);
+        if (limits.length === 0) return <Text type="secondary">不限</Text>;
+        const min = Math.min(...limits);
+        const max = Math.max(...limits);
+        return <Text>{min === max ? `${min} 件` : `${min}~${max} 件`}</Text>;
       },
     },
     {
       title: '状态',
       dataIndex: 'status',
-      width: 80,
+      width: 90,
       hideInSearch: true, // Tab 已做筛选
-      render: (_: unknown, r: Product) => {
-        const s = statusMap[r.status];
-        return <Tag color={s?.color}>{s?.text}</Tag>;
-      },
+      render: (_: unknown, r: Product) => (
+        // 状态列直接用 Switch 做状态指示 + 切换（checked 绿色=已上架，uncheck 灰色=已下架）
+        <PermissionGate
+          permission={PERMISSIONS.PRODUCTS_UPDATE}
+          fallback={<Tag color={statusMap[r.status]?.color}>{statusMap[r.status]?.text}</Tag>}
+        >
+          <Switch
+            checked={r.status === 'ACTIVE'}
+            checkedChildren="上架"
+            unCheckedChildren="下架"
+            onChange={() => handleToggleStatus(r)}
+            size="small"
+          />
+        </PermissionGate>
+      ),
     },
     {
       title: '审核',
       dataIndex: 'auditStatus',
-      width: 80,
+      width: 130,
       hideInSearch: true, // Tab 已做筛选
       render: (_: unknown, r: Product) => {
         const s = auditStatusMap[r.auditStatus];
-        return <Tag color={s?.color}>{s?.text}</Tag>;
+        return (
+          <Space size={4} wrap>
+            <Tag color={s?.color}>{s?.text}</Tag>
+            {(r.submissionCount ?? 1) > 1 && (
+              <Tag color="orange">第 {r.submissionCount} 次</Tag>
+            )}
+          </Space>
+        );
       },
     },
     {
@@ -284,11 +413,11 @@ export default function ProductListPage() {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 140,
       fixed: 'right',
       search: false,
       render: (_: unknown, record: Product) => (
-        <Space size={0}>
+        <Space size="small">
           <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
             <Button
               type="link"
@@ -298,15 +427,6 @@ export default function ProductListPage() {
             >
               编辑
             </Button>
-          </PermissionGate>
-          <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
-            <Switch
-              checked={record.status === 'ACTIVE'}
-              checkedChildren="上"
-              unCheckedChildren="下"
-              onChange={() => handleToggleStatus(record)}
-              size="small"
-            />
           </PermissionGate>
           <PermissionGate permission={PERMISSIONS.PRODUCTS_AUDIT}>
             {record.auditStatus === 'PENDING' && (
@@ -320,6 +440,22 @@ export default function ProductListPage() {
               >
                 审核
               </Button>
+            )}
+          </PermissionGate>
+          <PermissionGate permission={PERMISSIONS.PRODUCTS_DELETE}>
+            {record.status === 'INACTIVE' && (
+              <Popconfirm
+                title="确认删除该商品？"
+                description="删除后不可恢复，关联的 SKU、图片将一并移除。"
+                okText="确认删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => handleDelete(record.id)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
             )}
           </PermissionGate>
         </Space>
@@ -396,10 +532,12 @@ export default function ProductListPage() {
             items: tabItems,
             onChange: (key) => {
               setActiveTab(key as string);
-              actionRef.current?.reload();
+              // ProTable 会因为下方 params.tab 变化自动重新 request，无需手动 reload
+              // 手动 reload 会在 setState 尚未应用前触发旧闭包，导致"切换不生效"
             },
           },
         }}
+        params={{ tab: activeTab }}
         request={async (params) => {
           const {
             current,
@@ -442,7 +580,14 @@ export default function ProductListPage() {
 
       {/* 审核弹窗 */}
       <Modal
-        title="商品审核"
+        title={
+          <Space>
+            <span>商品审核</span>
+            {currentProduct && (currentProduct.submissionCount ?? 1) > 1 && (
+              <Tag color="orange">第 {currentProduct.submissionCount} 次提交</Tag>
+            )}
+          </Space>
+        }
         open={auditModalOpen}
         width={560}
         onCancel={() => { setAuditModalOpen(false); setAuditNote(''); }}

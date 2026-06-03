@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PLATFORM_USER_ID, getAccountTypeForScheme } from '../bonus/engine/constants';
+import { PLATFORM_USER_ID, getAccountTypeForLedger } from '../bonus/engine/constants';
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
@@ -108,9 +108,9 @@ export class AfterSaleRewardService {
                 continue;
               }
 
-              // 3. 扣减用户账户余额
-              const scheme = (ledger.meta as any)?.scheme;
-              const accountType = getAccountTypeForScheme(scheme);
+              // 3. 扣减用户账户余额（兼容 INDUSTRY_FUND/CHARITY_FUND 等，meta.accountType 优先）
+              const accountType = getAccountTypeForLedger(ledger.meta);
+              const scheme = (ledger.meta as any)?.scheme; // 仅用于审计 meta，accountType 走 getAccountTypeForLedger
 
               if (originalStatus === 'AVAILABLE') {
                 // 已释放的奖励：扣减 balance

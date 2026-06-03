@@ -32,7 +32,7 @@ type ListableProduct = {
   basePrice?: number;
   media?: Array<{ url: string }>;
   tags?: Array<{ tag?: { name?: string | null } }>;
-  skus?: Array<{ id: string; price: number; stock?: number | null }>;
+  skus?: Array<{ id: string; price: number; stock?: number | null; maxPerOrder?: number | null }>;
   category?: { id: string; name: string } | null;
   companyId?: string;
   // 语义搜索字段（Task 7 新增）
@@ -134,7 +134,11 @@ export class ProductService {
     const include = {
       media: { where: { type: 'IMAGE' as const }, orderBy: { sortOrder: 'asc' as const }, take: 1 },
       tags: { include: { tag: true } },
-      skus: { where: { status: 'ACTIVE' as const }, take: 1 },
+      skus: {
+        where: { status: 'ACTIVE' as const },
+        orderBy: { price: 'asc' as const },
+        select: { id: true, price: true, stock: true, maxPerOrder: true },
+      },
       category: { select: { id: true, name: true } },
       company: { select: { id: true, name: true } },
     };
@@ -316,6 +320,11 @@ export class ProductService {
       throw new NotFoundException('商品已下架');
     }
     if ((product as any).auditStatus !== 'APPROVED') {
+      throw new NotFoundException('商品已下架');
+    }
+    // M1: 卖家下架（status=INACTIVE）的商品，深链/旧链接进来时直接 404
+    // 避免"详情页能进、加购才报错"的 UX 不一致
+    if (product.status !== 'ACTIVE') {
       throw new NotFoundException('商品已下架');
     }
 
@@ -868,9 +877,25 @@ export class ProductService {
   /** 列表项映射（精简） */
   private mapToListItem(product: any) {
     const firstImage = product.media?.[0]?.url || '';
-    const firstSku = product.skus?.[0];
+    const activeSkus: Array<{ id: string; price: number; stock?: number | null; maxPerOrder?: number | null }> =
+      product.skus || [];
+    const firstSku = activeSkus[0];
     const origin = product.origin as any;
     const tagNames = (product.tags || []).map((pt: any) => pt.tag?.name).filter(Boolean);
+
+    // 聚合库存：所有 ACTIVE SKU 库存之和（用于卡片「仅剩 x 件」展示）
+    const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+
+    // 聚合单笔限购：仅当所有 ACTIVE SKU 都设了 maxPerOrder（> 0）时取 min；否则 null（卡片不展示限购）
+    let maxPerOrder: number | null = null;
+    if (activeSkus.length > 0) {
+      const limits = activeSkus.map((s) =>
+        s.maxPerOrder != null && s.maxPerOrder > 0 ? s.maxPerOrder : null,
+      );
+      if (limits.every((v) => v != null)) {
+        maxPerOrder = Math.min(...(limits as number[]));
+      }
+    }
 
     return {
       id: product.id,
@@ -887,6 +912,8 @@ export class ProductService {
       companyId: product.companyId,
       companyName: product.company?.name || undefined,
       rating: undefined,
+      stock,
+      maxPerOrder,
     };
   }
 

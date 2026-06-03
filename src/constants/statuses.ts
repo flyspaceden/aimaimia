@@ -1,13 +1,12 @@
 import { BookingStatus, GroupStatus, OrderStatus, AfterSaleDetailStatus, AfterSaleType } from '../types';
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
-  pendingPay: '待付款',
-  pendingShip: '待发货',
-  shipping: '运输中',
-  delivered: '待收货',
-  afterSale: '换货/售后',
-  completed: '已完成',
-  canceled: '已取消',
+  PAID: '待发货',
+  SHIPPED: '已发货',
+  DELIVERED: '已送达',
+  RECEIVED: '已收货',
+  CANCELED: '已取消',
+  REFUNDED: '已退款',
 };
 
 export const bookingStatusLabels: Record<BookingStatus, string> = {
@@ -48,6 +47,7 @@ export const afterSaleStatusLabels: Record<AfterSaleDetailStatus, string> = {
 
 export const afterSaleTypeLabels: Record<AfterSaleType, string> = {
   NO_REASON_RETURN: '七天无理由退货',
+  NO_REASON_EXCHANGE: '七天无理由换货',
   QUALITY_RETURN: '质量问题退货',
   QUALITY_EXCHANGE: '质量问题换货',
 };

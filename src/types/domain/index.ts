@@ -29,3 +29,4 @@ export * from './Coupon';
 export * from './Category';
 export * from './Invoice';
 export * from './CustomerService';
+export * from './Checkout';

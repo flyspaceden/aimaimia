@@ -6,10 +6,10 @@ import { CreateVipPackageDto, UpdateVipPackageDto } from './vip-package.dto';
 export class VipPackageService {
   constructor(private prisma: PrismaService) {}
 
-  /** 查询所有 VIP 档位，按 sortOrder/price 升序 */
+  /** 查询所有 VIP 档位，按价格升序（sortOrder 仅作同价打平） */
   async findAll() {
     return this.prisma.vipPackage.findMany({
-      orderBy: [{ sortOrder: 'asc' }, { price: 'asc' }],
+      orderBy: [{ price: 'asc' }, { sortOrder: 'asc' }],
       include: {
         _count: { select: { giftOptions: true } },
       },

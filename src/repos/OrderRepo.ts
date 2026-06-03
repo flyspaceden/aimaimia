@@ -15,6 +15,7 @@
  * - `GET  /api/v1/orders/status-counts` → 状态角标统计
  * - `GET  /api/v1/orders/latest-issue` → 最近异常订单
  * - `GET  /api/v1/orders/{id}` → 订单详情
+ * - `POST /api/v1/orders/{id}/repurchase` → 再次购买：可复购商品加入购物车
  * - `POST /api/v1/orders/{id}/receive` → 确认收货
  * - `POST /api/v1/orders/{id}/cancel` → 取消订单
  * - `POST /api/v1/replacements/orders/{orderId}` → 申请换货
@@ -25,13 +26,55 @@
  * - `POST /api/v1/orders/batch-pay` → 旧合并支付（改用 checkout）
  */
 import { mockOrders } from '../mocks';
-import { Order, OrderItem, OrderStatus, PaginationResult, PaymentMethod, ShipmentDetail, Result, err } from '../types';
+import {
+  Order,
+  OrderItem,
+  OrderStatus,
+  PaginationResult,
+  PaymentMethod,
+  ShipmentDetail,
+  Result,
+  err,
+  PendingCheckout,
+  RepurchaseResult,
+  ReturnShippingPaymentStatus,
+} from '../types';
 import { createAppError, simulateRequest } from './helpers';
+import { CartRepo } from './CartRepo';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
 import { normalizePagination } from './http/pagination';
+import { getMockInvoiceForOrder } from './InvoiceRepo';
 
 let orderStore = [...mockOrders];
+
+const withMockInvoiceStatus = (order: Order): Order => {
+  const invoice = getMockInvoiceForOrder(order.id);
+  return {
+    ...order,
+    invoiceStatus: invoice?.status ?? null,
+    invoiceEligible: order.status === 'RECEIVED' && !invoice,
+  };
+};
+
+const withMockInvoiceDetail = (order: Order): Order => {
+  const invoice = getMockInvoiceForOrder(order.id);
+  return {
+    ...withMockInvoiceStatus(order),
+    invoice: invoice
+      ? {
+          id: invoice.id,
+          status: invoice.status,
+          invoiceNo: invoice.invoiceNo,
+          pdfUrl: invoice.pdfUrl,
+          requestedAt: invoice.requestedAt,
+          issuedAt: invoice.issuedAt,
+          failReason: invoice.failReason,
+          profileSnapshot: invoice.profileSnapshot,
+        }
+      : null,
+  };
+};
 
 const buildOrderTotal = (items: OrderItem[]) =>
   items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -84,6 +127,9 @@ export interface PreviewOrderGroup {
 
 export interface PreviewOrderResult {
   groups: PreviewOrderGroup[];
+  pointsBalance: number;
+  pointsRatio: number;
+  maxDeductible: number;
   summary: {
     totalGoodsAmount: number;
     totalShippingFee: number;
@@ -93,7 +139,36 @@ export interface PreviewOrderResult {
     freeShippingThreshold?: number;   // 当前用户适用的免运费门槛
     amountToFreeShipping?: number;    // 还差多少免运费（0=已免运费）
   };
+  excludedItems?: Array<{
+    cartItemId?: string;
+    skuId: string;
+    reason: string;
+    isPrize?: boolean;
+    prizeRecordId?: string | null;
+  }>;
 }
+
+export interface AlipayPaymentParams {
+  channel: 'alipay';
+  orderStr: string;
+}
+
+export interface WechatPaymentParams {
+  channel: 'wechat';
+  appId: string;
+  partnerId: string;
+  timestamp: string;
+  nonceStr: string;
+  prepayId: string;
+  packageVal: string;
+  signType: string;
+  paySign: string;
+}
+
+export type CheckoutPaymentParams =
+  | AlipayPaymentParams
+  | WechatPaymentParams
+  | Record<string, never>;
 
 /** F1: CheckoutSession 响应类型 */
 export interface CheckoutSessionResult {
@@ -104,12 +179,13 @@ export interface CheckoutSessionResult {
   shippingFee: number;
   discountAmount: number;
   vipDiscountAmount?: number;
-  paymentParams?: Record<string, unknown>;
+  excludedItems?: PreviewOrderResult['excludedItems'];
+  paymentParams?: CheckoutPaymentParams;
 }
 
 /** F1: CheckoutSession 状态 */
 export interface CheckoutSessionStatus {
-  status: 'ACTIVE' | 'PAID' | 'COMPLETED' | 'EXPIRED' | 'FAILED';
+  status: 'ACTIVE' | 'PAID' | 'COMPLETED' | 'EXPIRED' | 'FAILED' | Exclude<ReturnShippingPaymentStatus, 'NOT_REQUIRED'>;
   sessionId?: string;
   orderIds?: string[];
   orderId?: string;
@@ -159,15 +235,18 @@ export const OrderRepo = {
     paymentChannel?: string;
     idempotencyKey?: string;
     expectedTotal?: number;
+    deductionAmount?: number;
+    buyerNote?: string;
   }): Promise<Result<CheckoutSessionResult>> => {
     if (USE_MOCK) {
+      const deductionAmount = Math.max(0, payload.deductionAmount ?? 0);
       return simulateRequest({
         sessionId: `cs-${Date.now()}`,
         merchantOrderNo: `MO-${Date.now()}`,
-        expectedTotal: 100,
+        expectedTotal: payload.expectedTotal ?? Number(Math.max(0, 100 - deductionAmount).toFixed(2)),
         goodsAmount: 92,
         shippingFee: 8,
-        discountAmount: 0,
+        discountAmount: deductionAmount,
       }, { delay: 300 });
     }
     return ApiClient.post<CheckoutSessionResult>('/orders/checkout', payload);
@@ -185,6 +264,7 @@ export const OrderRepo = {
     paymentChannel?: string;
     idempotencyKey?: string;
     expectedTotal?: number;
+    buyerNote?: string;
   }): Promise<Result<CheckoutSessionResult>> => {
     if (USE_MOCK) {
       return simulateRequest({
@@ -213,6 +293,74 @@ export const OrderRepo = {
       }, { delay: 200 });
     }
     return ApiClient.get<CheckoutSessionStatus>(`/orders/checkout/${sessionId}/status`);
+  },
+
+  /**
+   * P5 第三轮：App 端主动查询支付宝订单状态（不等 notify 异步通知）
+   * - 后端接口：`POST /api/v1/orders/checkout/{sessionId}/active-query`
+   * - App 调起支付宝 SDK 返回后立刻调用，让后端去支付宝主动查询真实状态
+   * - 如果支付宝已 TRADE_SUCCESS → 立即建单 + 返回 COMPLETED + orderIds
+   * - 如果还在 WAIT_BUYER_PAY / 中间态 → 返回当前 session 状态，让前端 polling 兜底
+   * - 解决沙箱 notify 慢/丢失导致的"已扣款但订单未生成"问题
+   *
+   * 返回 confirmedBy 字段说明状态来源：
+   * - 'already-completed' / 'terminal-state' / 'no-merchant-order-no'
+   * - 'query-error' / 'not-found' / `alipay-${tradeStatus.toLowerCase()}`
+   * - 'active-query-success'（关键：成功建单，前端可直接跳成功页停止 polling）
+   */
+  activeQueryPayment: async (
+    sessionId: string,
+  ): Promise<
+    Result<
+      CheckoutSessionStatus & {
+        confirmedBy: string;
+      }
+    >
+  > => {
+    if (USE_MOCK) {
+      return simulateRequest(
+        {
+          sessionId,
+          status: 'COMPLETED' as const,
+          orderIds: [`o-${Date.now()}`],
+          expectedTotal: 100,
+          confirmedBy: 'active-query-success',
+        },
+        { delay: 200 },
+      );
+    }
+    return ApiClient.post<CheckoutSessionStatus & { confirmedBy: string }>(
+      `/orders/checkout/${sessionId}/active-query`,
+    );
+  },
+
+  /**
+   * 获取当前用户最新一条 ACTIVE CheckoutSession（未完成订单）
+   * - 后端接口：GET /api/v1/orders/checkout/me/pending
+   * - 返回 null 表示没有未完成订单
+   */
+  getPendingCheckout: async (): Promise<Result<PendingCheckout | null>> => {
+    if (USE_MOCK) {
+      return simulateRequest<PendingCheckout | null>(null, { delay: 200 });
+    }
+    return ApiClient.get<PendingCheckout | null>('/orders/checkout/me/pending');
+  },
+
+  /**
+   * 续付未完成订单（重新生成支付参数）
+   * - 后端接口：POST /api/v1/orders/checkout/:sessionId/resume
+   * - 返回新的 paymentParams（含支付宝 orderStr 或微信 prepay 参数）
+   */
+  resumeCheckout: async (sessionId: string): Promise<Result<{
+    sessionId: string;
+    merchantOrderNo: string | null;
+    expectedTotal: number;
+    paymentParams: CheckoutPaymentParams;
+  }>> => {
+    if (USE_MOCK) {
+      return simulateRequest({ sessionId, merchantOrderNo: 'MO-mock', expectedTotal: 100, paymentParams: { channel: 'alipay', orderStr: 'mock-order-str' } }, { delay: 300 });
+    }
+    return ApiClient.post(`/orders/checkout/${sessionId}/resume`, {});
   },
 
   /**
@@ -248,7 +396,7 @@ export const OrderRepo = {
    * - 后端接口：`POST /api/v1/orders/preview`
    */
   previewOrder: async (payload: {
-    items: OrderItem[];
+    items: Array<OrderItem & { cartItemId?: string }>;
     addressId?: string;
     couponInstanceIds?: string[];
   }): Promise<Result<PreviewOrderResult>> => {
@@ -257,6 +405,9 @@ export const OrderRepo = {
       const items = payload.items;
       const goodsAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
       const shippingFee = goodsAmount >= 99 ? 0 : 8;
+      const pointsBalance = 236.80;
+      const pointsRatio = 0.10;
+      const maxDeductible = Number(Math.min(pointsBalance, goodsAmount * pointsRatio).toFixed(2));
       return simulateRequest({
         groups: [{
           companyId: 'mock-company',
@@ -266,6 +417,9 @@ export const OrderRepo = {
           shippingFee,
           discountAmount: 0,
         }],
+        pointsBalance,
+        pointsRatio,
+        maxDeductible,
         summary: {
           totalGoodsAmount: goodsAmount,
           totalShippingFee: shippingFee,
@@ -282,6 +436,7 @@ export const OrderRepo = {
       items: payload.items.map((item) => ({
         skuId: item.skuId || item.productId,
         quantity: item.quantity,
+        cartItemId: item.cartItemId ?? item.id,
       })),
       addressId: payload.addressId,
       couponInstanceIds: payload.couponInstanceIds,
@@ -297,7 +452,8 @@ export const OrderRepo = {
     if (USE_MOCK) {
       // 订单列表：支持按状态筛选，Mock 模式返回全量数据（无分页）
       const orders = status ? orderStore.filter((order) => order.status === status) : orderStore;
-      return simulateRequest({ items: orders, total: orders.length, page: 1, pageSize: orders.length });
+      const items = orders.map(withMockInvoiceStatus);
+      return simulateRequest({ items, total: items.length, page: 1, pageSize: items.length });
     }
 
     // 后端返回分页格式 { items, total, page, pageSize }，通过 normalizePagination 转换
@@ -313,18 +469,21 @@ export const OrderRepo = {
    * 订单状态角标统计
    * - 用途：我的页"待付款/待发货/待收货/退款售后"角标
    * - 后端接口：`GET /api/v1/orders/status-counts`
+   * - 返回字段含 `afterSale`（活跃售后订单数，派生态）
    */
-  getStatusCounts: async (): Promise<Result<Record<OrderStatus, number>>> => {
+  getStatusCounts: async (): Promise<
+    Result<Record<OrderStatus, number> & { afterSale: number }>
+  > => {
     if (USE_MOCK) {
       // 订单状态角标统计（复杂业务逻辑需中文注释）
-      const counts: Record<OrderStatus, number> = {
-        pendingPay: 0,
-        pendingShip: 0,
-        shipping: 0,
-        delivered: 0,
+      const counts: Record<OrderStatus, number> & { afterSale: number } = {
+        PAID: 0,
+        SHIPPED: 0,
+        DELIVERED: 0,
+        RECEIVED: 0,
+        CANCELED: 0,
+        REFUNDED: 0,
         afterSale: 0,
-        completed: 0,
-        canceled: 0,
       };
       orderStore.forEach((order) => {
         counts[order.status] = (counts[order.status] ?? 0) + 1;
@@ -332,7 +491,9 @@ export const OrderRepo = {
       return simulateRequest(counts);
     }
 
-    return ApiClient.get<Record<OrderStatus, number>>('/orders/status-counts');
+    return ApiClient.get<Record<OrderStatus, number> & { afterSale: number }>(
+      '/orders/status-counts',
+    );
   },
   /**
    * 最近异常订单
@@ -342,7 +503,7 @@ export const OrderRepo = {
   getLatestIssue: async (): Promise<Result<Order | null>> => {
     if (USE_MOCK) {
       // 最近异常订单：用于售后入口直达（复杂业务逻辑需中文注释）
-      const issue = orderStore.find((order) => order.issueFlag || order.status === 'afterSale') ?? null;
+      const issue = orderStore.find((order) => order.issueFlag || order.afterSaleStatus != null) ?? null;
       return simulateRequest(issue);
     }
 
@@ -359,10 +520,77 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${id}`, '订单未找到'));
       }
-      return simulateRequest(order);
+      return simulateRequest(withMockInvoiceDetail(order));
     }
 
     return ApiClient.get<Order>(`/orders/${id}`);
+  },
+  /**
+   * 再次购买
+   * - 后端接口：`POST /api/v1/orders/{id}/repurchase`
+   * - 成功时返回最新 ServerCart，调用方应直接 hydrate useCartStore
+   */
+  repurchase: async (orderId: string): Promise<Result<RepurchaseResult>> => {
+    if (USE_MOCK) {
+      const order = orderStore.find((item) => item.id === orderId);
+      if (!order) {
+        return err(createAppError('NOT_FOUND', '订单未找到', '订单未找到'));
+      }
+      if (order.status !== 'RECEIVED' || order.bizType === 'VIP_PACKAGE') {
+        return err(createAppError('INVALID', '当前订单不支持再次购买', '当前订单不支持再次购买'));
+      }
+
+      const items: RepurchaseResult['items'] = [];
+      let addedQuantity = 0;
+      let skippedQuantity = 0;
+      for (const item of order.items) {
+        if (item.isPrize) {
+          skippedQuantity += item.quantity;
+          items.push({
+            orderItemId: item.id,
+            skuId: item.skuId ?? item.productId,
+            title: item.title,
+            quantity: item.quantity,
+            status: 'SKIPPED',
+            reason: 'PRIZE_ITEM',
+            message: '奖品不支持再次购买',
+          });
+          continue;
+        }
+        const skuId = item.skuId ?? item.productId;
+        const cartResult = await CartRepo.addItem(skuId, item.quantity, {
+          id: item.productId,
+          title: item.title,
+          image: item.image,
+          price: item.price,
+        });
+        if (!cartResult.ok) return cartResult as unknown as Result<RepurchaseResult>;
+        addedQuantity += item.quantity;
+        items.push({
+          orderItemId: item.id,
+          skuId,
+          title: item.title,
+          quantity: item.quantity,
+          status: 'ADDED',
+          priceChanged: false,
+          originalPrice: item.price,
+          currentPrice: item.price,
+        });
+      }
+      const cart = await CartRepo.get();
+      if (!cart.ok) return cart as unknown as Result<RepurchaseResult>;
+      return simulateRequest({
+        addedItemCount: items.filter((item) => item.status === 'ADDED').length,
+        addedQuantity,
+        skippedItemCount: items.filter((item) => item.status === 'SKIPPED').length,
+        skippedQuantity,
+        priceChangedCount: 0,
+        cart: cart.data,
+        items,
+      }, { delay: 260, failRate: 0 });
+    }
+
+    return ApiClient.post<RepurchaseResult>(`/orders/${orderId}/repurchase`);
   },
   /**
    * @deprecated F1 已停用 — 后端 POST /orders 已返回 410 Gone
@@ -394,7 +622,7 @@ export const OrderRepo = {
       const discountAmount = payload.redPackAmount ?? 0;
       const newOrder: Order = {
         id: `o-${Date.now()}`,
-        status: 'pendingPay',
+        status: 'PAID',
         totalPrice: Math.max(0, subtotal + shippingFee - discountAmount),
         discountAmount: discountAmount > 0 ? discountAmount : undefined,
         createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
@@ -432,10 +660,8 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
       }
-      if (order.status !== 'pendingPay') {
-        return err(createAppError('INVALID', '订单状态不可支付', '当前无法支付'));
-      }
-      order.status = 'pendingShip';
+      // 付款后建单架构：订单一旦存在即为已付款，此 deprecated mock 仅用于兼容旧调用
+      order.status = 'PAID';
       order.paymentMethod = paymentMethod;
       return simulateRequest(order, { delay: 240 });
     }
@@ -452,11 +678,11 @@ export const OrderRepo = {
    */
   batchPayOrders: async (orderIds: string[], paymentMethod: PaymentMethod): Promise<Result<{ success: boolean; orderIds: string[] }>> => {
     if (USE_MOCK) {
-      // Mock 模式：逐个标记为已支付
+      // 付款后建单架构：订单存在即已付款；此 deprecated mock 保留 paymentMethod 同步
       for (const oid of orderIds) {
         const order = orderStore.find((item) => item.id === oid);
-        if (order && order.status === 'pendingPay') {
-          order.status = 'pendingShip';
+        if (order) {
+          order.status = 'PAID';
           order.paymentMethod = paymentMethod;
         }
       }
@@ -487,7 +713,7 @@ export const OrderRepo = {
       if (order.afterSaleStatus) {
         return err(createAppError('INVALID', '售后已申请', '请勿重复提交'));
       }
-      order.status = 'afterSale';
+      // afterSale 是 UI 派生态（issueFlag + afterSaleStatus），不修改 order.status 真实值
       order.issueFlag = true;
       order.afterSaleStatus = 'applying';
       order.afterSaleReason = payload.reasonType === 'OTHER'
@@ -527,10 +753,10 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
       }
-      if (order.status !== 'shipping') {
+      if (order.status !== 'SHIPPED' && order.status !== 'DELIVERED') {
         return err(createAppError('INVALID', '订单状态不可确认收货', '当前无法确认收货'));
       }
-      order.status = 'completed';
+      order.status = 'RECEIVED';
       return simulateRequest(order, { delay: 240 });
     }
 
@@ -577,8 +803,9 @@ export const OrderRepo = {
       if (!order) {
         return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
       }
-      if (order.status !== 'pendingPay') {
-        return err(createAppError('INVALID', '仅待付款订单可取消', '当前无法取消'));
+      // 付款后建单：仅"已付款待发货 (PAID)"订单允许取消（走退款流程）
+      if (order.status !== 'PAID') {
+        return err(createAppError('INVALID', '当前订单状态不可取消', '当前无法取消'));
       }
       orderStore = orderStore.filter((item) => item.id !== orderId);
       return simulateRequest(order, { delay: 240 });
@@ -607,7 +834,7 @@ export const OrderRepo = {
     if (USE_MOCK) {
       // Mock 模式返回模拟物流数据
       const order = orderStore.find((item) => item.id === orderId);
-      if (!order || (order.status !== 'shipping' && order.status !== 'delivered' && order.status !== 'completed')) {
+      if (!order || (order.status !== 'SHIPPED' && order.status !== 'DELIVERED' && order.status !== 'RECEIVED')) {
         return simulateRequest(null);
       }
       return simulateRequest({
@@ -615,9 +842,9 @@ export const OrderRepo = {
         carrierCode: 'SF',
         carrierName: '顺丰速运',
         trackingNo: `SF${Date.now().toString().slice(-10)}`,
-        status: order.status === 'shipping' ? 'IN_TRANSIT' : 'DELIVERED',
+        status: order.status === 'SHIPPED' ? 'IN_TRANSIT' : 'DELIVERED',
         shippedAt: order.createdAt,
-        deliveredAt: order.status === 'completed' ? order.createdAt : null,
+        deliveredAt: order.status === 'RECEIVED' ? order.createdAt : null,
         events: [
           { id: 'e-1', occurredAt: order.createdAt, message: '快递已揽收', location: '上海市浦东新区' },
           { id: 'e-2', occurredAt: order.createdAt, message: '运输中', location: '上海转运中心' },
@@ -651,17 +878,24 @@ export const OrderRepo = {
       applying: 'reviewing',
       reviewing: 'approved',
       approved: 'shipped',
+      arbitrating: 'arbitrating',
+      returnShipping: 'sellerReceived',
+      sellerReceived: 'refunding',
+      sellerRejected: 'arbitrating',
       shipped: 'completed',
       refunding: 'completed',
+      refunded: 'completed',
       completed: 'completed',
       rejected: 'rejected',
       failed: 'failed',
+      closed: 'closed',
+      canceled: 'canceled',
     };
     const nextStatus = nextMap[order.afterSaleStatus];
     order.afterSaleStatus = nextStatus;
     order.afterSaleTimeline = buildAfterSaleTimeline(nextStatus);
     if (nextStatus === 'completed') {
-      order.status = 'completed';
+      order.status = 'RECEIVED';
       order.issueFlag = false;
     }
     return simulateRequest(order, { delay: 240 });

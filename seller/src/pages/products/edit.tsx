@@ -1,34 +1,99 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Button, message, Space, InputNumber, Input, Form,
+  App, Card, Button, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
   Breadcrumb, Select, Collapse, Switch, Row, Col,
+  Modal, Image,
 } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
-  SaveOutlined,
+  SaveOutlined, CloudUploadOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '@/api/client';
 import {
   getProduct,
   createProduct,
   updateProduct,
   updateProductSkus,
   getCategories,
+  createDraft,
+  updateDraft,
+  submitDraft,
   type CategoryNode,
 } from '@/api/products';
-import { getMarkupRate } from '@/api/config';
+import { getMarkupRate, getPublicAppConfig } from '@/api/config';
 import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
+import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
+const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
+const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
+
+function normalizeLowStockThreshold(value: unknown): number {
+  const threshold = Number(value);
+  return Number.isInteger(threshold) && threshold >= 0 && threshold <= 999
+    ? threshold
+    : DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD;
+}
+
+function getStockHint(stockValue: unknown, threshold: number): { type: 'danger' | 'warning'; text: string } | null {
+  if (stockValue === undefined || stockValue === null || stockValue === '') return null;
+  const stock = Number(stockValue);
+  if (!Number.isFinite(stock)) return null;
+  if (stock < 0) {
+    return { type: 'danger', text: '当前为超卖欠货，请填写补货后的可售库存（不能保存负数）' };
+  }
+  if (stock === 0) {
+    return { type: 'danger', text: '无库存，App 端不可购买/不可结算' };
+  }
+  if (threshold > 0 && stock <= threshold) {
+    return { type: 'warning', text: `低库存：App 端显示仅剩 ${stock} 件` };
+  }
+  return null;
+}
+
+function StockHint({ value, threshold }: { value: unknown; threshold: number }) {
+  const hint = getStockHint(value, threshold);
+  if (!hint) return null;
+  return (
+    <Text type={hint.type} style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+      {hint.text}
+    </Text>
+  );
+}
+
+function isDraftWeightPlaceholderSkuCode(skuCode?: string | null) {
+  return skuCode === LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE
+    || skuCode?.startsWith(DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX) === true;
+}
+
+function hydrateDraftWeightGram(sku: { skuCode?: string | null; weightGram?: number }) {
+  return isDraftWeightPlaceholderSkuCode(sku.skuCode) ? undefined : sku.weightGram;
+}
+
+// 轻量 debounce（避免引入 lodash 类型依赖）
+function makeDebounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const debounced = (...args: Args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+  debounced.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
+}
 
 // 将扁平分类列表转为 TreeSelect 需要的树形结构
 interface TreeNode { title: string; value: string; children: TreeNode[] }
@@ -134,7 +199,7 @@ function AiSearchOptimizationContent() {
 // ============================================================
 // 共享：多规格行列表
 // ============================================================
-function MultiSpecRows({ markupRate }: { markupRate: number }) {
+function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; lowStockThreshold: number }) {
   return (
     <Form.List name="skus" initialValue={[{ specName: '', stock: 0 }]}>
       {(fields, { add, remove }) => (
@@ -190,7 +255,7 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                     }}
                   </Form.Item>
                 </Col>
-                <Col span={3}>
+                <Col xs={24} sm={12} md={6} lg={3}>
                   <Form.Item
                     {...field}
                     name={[field.name, 'stock']}
@@ -202,6 +267,12 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                     style={{ marginBottom: 0 }}
                   >
                     <InputNumber placeholder="数量" min={0} precision={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+                    {({ getFieldValue }) => {
+                      const stock = getFieldValue(['skus', field.name, 'stock']);
+                      return <StockHint value={stock} threshold={lowStockThreshold} />;
+                    }}
                   </Form.Item>
                 </Col>
                 <Col span={3}>
@@ -221,10 +292,15 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
                   <Form.Item
                     {...field}
                     name={[field.name, 'weightGram']}
-                    label="重量"
+                    label="包装后重量（克）"
+                    tooltip="包装后重量（克），用于计算运费和顺丰面单。"
+                    rules={[
+                      { required: true, message: '请输入包装后重量（克）' },
+                      { type: 'number', min: 1, message: '包装后重量必须大于 0 克' },
+                    ]}
                     style={{ marginBottom: 0 }}
                   >
-                    <InputNumber placeholder="克" min={0} style={{ width: '100%' }} addonAfter="g" />
+                    <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                   </Form.Item>
                 </Col>
                 <Col span={1} style={{ textAlign: 'center', paddingTop: 28 }}>
@@ -249,6 +325,9 @@ function MultiSpecRows({ markupRate }: { markupRate: number }) {
 
 // ============================================================
 // 共享：图片上传区块
+// 自定义 onPreview：antd Upload 默认是 window.open(file.url) 直接跳新标签，
+// 但 OSS / 上传服务的 URL 可能受 referer / 鉴权限制导致新标签瞬关；
+// 改为弹 Modal + antd <Image>（带缩放/旋转/全屏交互）。
 // ============================================================
 function ImageUploadSection({
   fileList,
@@ -259,6 +338,37 @@ function ImageUploadSection({
   setFileList: (list: UploadFile[]) => void;
   token: string | null;
 }) {
+  const { message } = App.useApp();
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const handlePreview = (file: UploadFile) => {
+    const response = file.response as { url?: string; data?: { url?: string } } | undefined;
+    const url = file.url
+      || file.thumbUrl
+      || response?.data?.url
+      || response?.url;
+    if (!url) return;
+    setPreviewFile({ url, name: file.name || '商品图片' });
+  };
+
+  const handleDownload = () => {
+    if (!previewFile) return;
+    setDownloading(true);
+    try {
+      const request = buildUploadDownloadRequest(previewFile.url, previewFile.name, API_BASE);
+      triggerBrowserDownload(request.href, request.filename);
+    } catch (err) {
+      message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
+      window.open(previewFile.url, '_blank', 'noopener');
+      // eslint-disable-next-line no-console
+      console.error('图片下载失败', err);
+    } finally {
+      // 浏览器接管下载流程，无需等待回调
+      setTimeout(() => setDownloading(false), 500);
+    }
+  };
+
   return (
     <>
       <Upload
@@ -268,6 +378,7 @@ function ImageUploadSection({
         listType="picture-card"
         fileList={fileList}
         onChange={({ fileList: newList }) => setFileList(newList)}
+        onPreview={handlePreview}
         multiple
         maxCount={9}
         accept="image/*"
@@ -280,6 +391,37 @@ function ImageUploadSection({
         )}
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
+
+      <Modal
+        title={previewFile ? `预览：${previewFile.name}` : '预览'}
+        open={!!previewFile}
+        onCancel={() => setPreviewFile(null)}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {previewFile && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                loading={downloading}
+                onClick={handleDownload}
+              >
+                下载到本地
+              </Button>
+            </div>
+            <div style={{ textAlign: 'center', background: '#fafafa', borderRadius: 4, minHeight: 400, padding: 16 }}>
+              <Image
+                src={previewFile.url}
+                alt={previewFile.name}
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              />
+            </div>
+          </>
+        )}
+      </Modal>
     </>
   );
 }
@@ -404,12 +546,12 @@ function buildPayload(
 
 // ============================================================
 // 入口：根据有无 ID 分发到 编辑 / 创建 组件
+// DRAFT 商品转发到创建页（双按钮 + 自动保存 UI）
 // ============================================================
 export default function ProductEditPage() {
   const { id } = useParams<{ id: string }>();
-  const isEdit = !!id;
 
-  if (isEdit) {
+  if (id) {
     return <ProductEditForm id={id} />;
   }
   return <ProductCreateForm />;
@@ -419,6 +561,7 @@ export default function ProductEditPage() {
 // 编辑模式：卡片式直接编辑
 // ============================================================
 function ProductEditForm({ id }: { id: string }) {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const token = useAuthStore((s) => s.token);
@@ -450,6 +593,13 @@ function ProductEditForm({ id }: { id: string }) {
     queryFn: getMarkupRate,
   });
   const markupRate = configData?.markupRate ?? 1.3;
+
+  const { data: appConfig } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: getPublicAppConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = normalizeLowStockThreshold(appConfig?.lowStockDisplayThreshold);
 
   // 商品标签选项（从标签池加载）
   const { data: productCategories = [] } = useQuery({
@@ -574,6 +724,11 @@ function ProductEditForm({ id }: { id: string }) {
 
   if (!product) return null;
 
+  // 草稿商品复用创建页 UI（双按钮 + 自动保存）
+  if (product.status === 'DRAFT') {
+    return <ProductCreateForm draftInitialId={product.id} />;
+  }
+
   const status = productStatusMap[product.status];
   const auditStatus = auditStatusMap[product.auditStatus];
 
@@ -620,6 +775,11 @@ function ProductEditForm({ id }: { id: string }) {
             </Descriptions.Item>
             <Descriptions.Item label="审核状态">
               <Tag color={auditStatus?.color}>{auditStatus?.text}</Tag>
+              {(product.submissionCount ?? 1) > 1 && (
+                <Tag color="orange" style={{ marginLeft: 4 }}>
+                  第 {product.submissionCount} 次提交
+                </Tag>
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="商品分类">
               {product.category?.name || '-'}
@@ -680,7 +840,11 @@ function ProductEditForm({ id }: { id: string }) {
           >
             <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
           </Form.Item>
-          <Form.Item label="产地 / 产区（选填）" name="originText">
+          <Form.Item
+            label="产地 / 产区"
+            name="originText"
+            rules={[{ required: true, message: '请输入产地 / 产区' }]}
+          >
             <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
           </Form.Item>
         </Card>
@@ -761,7 +925,7 @@ function ProductEditForm({ id }: { id: string }) {
                   }}
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item
                   label="库存"
                   name="singleStock"
@@ -772,10 +936,23 @@ function ProductEditForm({ id }: { id: string }) {
                 >
                   <InputNumber placeholder="数量" min={0} precision={0} style={{ width: '100%' }} />
                 </Form.Item>
+                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
+                  {({ getFieldValue }) => (
+                    <StockHint value={getFieldValue('singleStock')} threshold={lowStockThreshold} />
+                  )}
+                </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item label="重量" name="singleWeightGram">
-                  <InputNumber placeholder="克" min={0} style={{ width: '100%' }} addonAfter="g" />
+                <Form.Item
+                  label="包装后重量（克）"
+                  name="singleWeightGram"
+                  tooltip="包装后重量（克），用于计算运费和顺丰面单。"
+                  rules={[
+                    { required: true, message: '请输入包装后重量（克）' },
+                    { type: 'number', min: 1, message: '包装后重量必须大于 0 克' },
+                  ]}
+                >
+                  <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                 </Form.Item>
               </Col>
               <Col span={5}>
@@ -786,7 +963,7 @@ function ProductEditForm({ id }: { id: string }) {
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} />
+            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
           )}
         </Card>
 
@@ -814,19 +991,46 @@ function ProductEditForm({ id }: { id: string }) {
 }
 
 // ============================================================
-// 创建模式：单页表单（不再使用 StepsForm）
+// 创建模式：单页表单 + 草稿持久化
+// draftInitialId 存在时视为"继续编辑草稿"
 // ============================================================
-function ProductCreateForm() {
+function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {}) {
+  const { message } = App.useApp();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const token = useAuthStore((s) => s.token);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [multiSpec, setMultiSpec] = useState(false);
 
-  // 监听表单变化以跟踪未保存更改
-  Form.useWatch([], form);
-  useUnsavedChanges(form.isFieldsTouched());
+  // 草稿状态
+  const [draftId, setDraftId] = useState<string | null>(draftInitialId ?? null);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [draftLimitReached, setDraftLimitReached] = useState(false);
+  // 自上次保存后是否有改动；驱动未保存提醒。
+  // 不用 form.isFieldsTouched() 因为它只增不减，保存成功后无法复位。
+  const [dirtySinceSave, setDirtySinceSave] = useState(false);
+  // 防止表单从草稿填入时触发自动保存 / dirty 标记
+  const hydratingRef = useRef(false);
+
+  // 监听表单变化以驱动自动保存
+  const watchedValues = Form.useWatch([], form);
+  useUnsavedChanges(dirtySinceSave);
+
+  // 包装 setFileList：图片增删也要标 dirty（fileList 不在 Form 内，onValuesChange 收不到）
+  const updateFileList = useCallback((newList: UploadFile[]) => {
+    setFileList(newList);
+    if (!hydratingRef.current) setDirtySinceSave(true);
+  }, []);
+
+  // 加载草稿（若有 draftInitialId）
+  const { data: draftProduct } = useQuery({
+    queryKey: ['seller-product', draftInitialId],
+    queryFn: () => getProduct(draftInitialId!),
+    enabled: !!draftInitialId,
+  });
 
   // 加载分类树
   const { data: categories } = useQuery({
@@ -842,6 +1046,13 @@ function ProductCreateForm() {
   });
   const markupRate = configData?.markupRate ?? 1.3;
 
+  const { data: appConfig } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: getPublicAppConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = normalizeLowStockThreshold(appConfig?.lowStockDisplayThreshold);
+
   // 商品标签选项（从标签池加载）
   const { data: productCategories = [] } = useQuery({
     queryKey: ['tag-categories-product'],
@@ -850,32 +1061,316 @@ function ProductCreateForm() {
   const productTagOptions = productCategories
     .flatMap(cat => cat.tags.map(t => ({ value: t.id, label: t.name })));
 
+  // 草稿加载后回填表单（仅执行一次）
+  useEffect(() => {
+    if (!draftProduct) return;
+    hydratingRef.current = true;
+
+    const isMulti = (draftProduct.skus?.length ?? 0) > 1;
+    setMultiSpec(isMulti);
+
+    const originText = typeof draftProduct.origin === 'object' && draftProduct.origin
+      ? (draftProduct.origin as Record<string, string>).text || ''
+      : ((draftProduct as unknown as Record<string, unknown>).originRegion as string | undefined) || '';
+
+    const attrPairs = draftProduct.attributes && typeof draftProduct.attributes === 'object'
+      ? Object.entries(draftProduct.attributes as Record<string, string>)
+          .filter(([key]) => key !== 'semanticMeta')
+          .map(([key, value]) => ({ key, value }))
+      : [];
+
+    const firstSku = draftProduct.skus?.[0];
+
+    form.setFieldsValue({
+      title: draftProduct.title,
+      subtitle: draftProduct.subtitle,
+      description: draftProduct.description,
+      categoryId: draftProduct.categoryId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      returnPolicy: (draftProduct as any).returnPolicy || 'INHERIT',
+      originText,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tagIds: draftProduct.tags?.map((t: any) => t.tag?.id || t.tagId) || [],
+      aiKeywords: (draftProduct.aiKeywords || []).join(','),
+      attributes: attrPairs.length > 0 ? attrPairs : [],
+      ...(!isMulti && firstSku ? {
+        singleCost: firstSku.cost || undefined,
+        singleStock: firstSku.stock,
+        singleWeightGram: hydrateDraftWeightGram(firstSku),
+        singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
+      } : {}),
+      ...(isMulti ? {
+        skus: draftProduct.skus.map((s) => ({
+          id: s.id,
+          specName: s.title,
+          cost: s.cost,
+          stock: s.stock,
+          weightGram: hydrateDraftWeightGram(s),
+          maxPerOrder: s.maxPerOrder,
+        })),
+      } : {}),
+      flavorTags: (draftProduct as unknown as Record<string, unknown>).flavorTags,
+      seasonalMonths: (draftProduct as unknown as Record<string, unknown>).seasonalMonths,
+      usageScenarios: (draftProduct as unknown as Record<string, unknown>).usageScenarios,
+      dietaryTags: (draftProduct as unknown as Record<string, unknown>).dietaryTags,
+    });
+
+    if (draftProduct.media?.length > 0) {
+      setFileList(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        draftProduct.media.map((m: any, i: number) => ({
+          uid: m.id || `-${i}`,
+          name: `图片${i + 1}`,
+          status: 'done' as const,
+          url: m.url,
+        })),
+      );
+    }
+
+    // 记录上次保存时间为草稿的 updatedAt
+    if (draftProduct.updatedAt) {
+      setLastSavedAt(new Date(draftProduct.updatedAt));
+    }
+
+    // 水合结束后下一个 tick 重置标志，避免阻断后续用户交互
+    setTimeout(() => { hydratingRef.current = false; }, 0);
+  }, [draftProduct, form]);
+
+  // 构造草稿 payload（全量覆盖：表单当前状态 = 库里下次状态）
+  // 数组始终发（空数组也发，让后端清空对应表）；字符串清空发空串；对象 / json 字段清空发 null。
+  const numOrUndef = (v: unknown): number | undefined =>
+    v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
+
+  const buildDraftPayload = useCallback((): Record<string, unknown> & { title?: string } => {
+    const values = form.getFieldsValue();
+
+    // SKU：保留 form 里的全部行（含只填了规格名的、空行），后端 DraftSkuDto 全字段可选
+    let skuList: Array<Record<string, unknown>> = [];
+    if (multiSpec) {
+      skuList = (values.skus as Array<Record<string, unknown>>) || [];
+    } else {
+      const { singleCost, singleStock, singleWeightGram, singleMaxPerOrder } = values;
+      const hasAnySingle =
+        singleCost !== undefined && singleCost !== null && singleCost !== ''
+        || singleStock !== undefined && singleStock !== null && singleStock !== ''
+        || singleWeightGram !== undefined && singleWeightGram !== null && singleWeightGram !== ''
+        || singleMaxPerOrder !== undefined && singleMaxPerOrder !== null && singleMaxPerOrder !== '';
+      if (hasAnySingle) {
+        skuList = [{
+          specName: '默认规格',
+          cost: singleCost,
+          stock: singleStock,
+          weightGram: singleWeightGram,
+          maxPerOrder: singleMaxPerOrder,
+        }];
+      }
+    }
+    const skus = skuList.map((s) => ({
+      id: (s.id as string | undefined) || undefined,
+      specName: (s.specName as string | undefined) || undefined,
+      cost: numOrUndef(s.cost),
+      stock: numOrUndef(s.stock),
+      weightGram: numOrUndef(s.weightGram),
+      maxPerOrder: numOrUndef(s.maxPerOrder),
+    }));
+
+    // 自定义属性：始终发对象（清空发 {}）
+    const attrPairs = (values.attributes as Array<{ key: string; value: string }> | undefined) || [];
+    const attributes = Object.fromEntries(
+      attrPairs.filter((p) => p.key).map((p) => [p.key, p.value]),
+    );
+
+    // 媒体：始终发数组（清空发 []）
+    const mediaUrls = fileList
+      .filter((f) => f.status === 'done')
+      .map((f) => {
+        const response = f.response as { url?: string; data?: { url?: string } } | undefined;
+        return f.url || response?.data?.url || response?.url;
+      })
+      .filter(Boolean) as string[];
+
+    const aiKeywords = typeof values.aiKeywords === 'string'
+      ? values.aiKeywords.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : [];
+
+    const originText = (values.originText as string | undefined) ?? '';
+
+    return {
+      title: (values.title as string | undefined) || undefined,
+      subtitle: (values.subtitle as string | undefined) ?? '',
+      description: (values.description as string | undefined) ?? '',
+      categoryId: (values.categoryId as string | undefined) || null,
+      returnPolicy: (values.returnPolicy as string | undefined) || 'INHERIT',
+      // origin 是 Json? 字段：清空时发 null（后端 update 显式置 null）
+      origin: originText ? { text: originText } : null,
+      tagIds: (values.tagIds as string[] | undefined) ?? [],
+      aiKeywords,
+      attributes,
+      mediaUrls,
+      flavorTags: (values.flavorTags as string[] | undefined) ?? [],
+      seasonalMonths: (values.seasonalMonths as number[] | undefined) ?? [],
+      usageScenarios: (values.usageScenarios as string[] | undefined) ?? [],
+      dietaryTags: (values.dietaryTags as string[] | undefined) ?? [],
+      originRegion: originText || null,
+      skus,
+    };
+  }, [form, fileList, multiSpec]);
+
+  const handleSaveDraft = useCallback(async (silent = false) => {
+    if (draftLimitReached && !draftId) {
+      if (!silent) message.error('草稿数量已达上限（5 份），请先删除不再需要的草稿');
+      return;
+    }
+    const payload = buildDraftPayload();
+    if (!payload.title) {
+      if (!silent) message.warning('请先填写商品标题，才能保存草稿');
+      return;
+    }
+    setDraftSaving(true);
+    try {
+      if (draftId) {
+        await updateDraft(draftId, payload);
+      } else {
+        const created = await createDraft(payload as Record<string, unknown> & { title: string });
+        setDraftId(created.id);
+        // 用 React Router navigate 替代 history.replaceState：直接 replaceState 只改地址栏，
+        // React Router 内部 location 不同步，SellerLayout 的 useLocation() 拿到的还是
+        // /products/create，导致菜单高亮等行为偏离。先把 product 数据预热到 React Query
+        // cache，使 navigate 触发的 unmount/mount 后，新的 ProductCreateForm（由 ProductEditForm
+        // 检测 DRAFT 状态后转发而来）能立即从 cache 命中，水合 form values（来自 createDraft 的
+        // 响应即保存时的快照），用户感知一致。仅 fileList 中 status='uploading' 的项会丢失，
+        // 边界情况，用户可重传。
+        queryClient.setQueryData(['seller-product', created.id], created);
+        navigate(`/products/${created.id}/edit`, { replace: true });
+      }
+      setLastSavedAt(new Date());
+      // 保存成功后清 dirty，避免离开页面仍弹未保存提醒
+      setDirtySinceSave(false);
+      if (!silent) message.success('草稿已保存');
+    } catch (err: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = err as any;
+      const status = e?.response?.status ?? e?.status;
+      const msg = e?.response?.data?.message || e?.message || '保存草稿失败';
+      if (status === 409) {
+        setDraftLimitReached(true);
+        message.error(msg);
+      } else if (!silent) {
+        message.error(msg);
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn('自动保存草稿失败', err);
+      }
+    } finally {
+      setDraftSaving(false);
+    }
+  }, [draftId, draftLimitReached, buildDraftPayload, message, navigate, queryClient]);
+
+  // 30 秒 debounce 自动保存（表单 dirty 才触发）
+  const debouncedAutoSave = useMemo(
+    () => makeDebounce(() => handleSaveDraft(true), 30_000),
+    [handleSaveDraft],
+  );
+
+  useEffect(() => {
+    if (hydratingRef.current) return;
+    if (!dirtySinceSave) return; // 已保存到最新状态就不再触发自动保存
+    debouncedAutoSave();
+    return () => debouncedAutoSave.cancel();
+  }, [watchedValues, fileList, debouncedAutoSave, dirtySinceSave]);
+
+  // 卸载时取消未执行的 debounce
+  useEffect(() => () => { debouncedAutoSave.cancel(); }, [debouncedAutoSave]);
+
+  // 把后端字段路径（如 "skus.0.specName" / "origin"）映射到前端 form name 路径
+  const mapBackendFieldToForm = useCallback(
+    (path: string): (string | number)[] | null => {
+      // origin → 前端用 originText 单输入
+      if (path === 'origin' || path.startsWith('origin.')) return ['originText'];
+      // skus 整体错误（如最少 1 项）→ 单规格映射到 singleCost，多规格无单一字段
+      if (path === 'skus') return multiSpec ? null : ['singleCost'];
+      // skus.<idx>.<field>
+      const m = /^skus\.(\d+)\.(\w+)$/.exec(path);
+      if (m) {
+        const idx = Number(m[1]);
+        const field = m[2];
+        if (multiSpec) return ['skus', idx, field];
+        // 单规格模式：只有 idx=0 有意义
+        if (idx === 0) {
+          const map: Record<string, string> = {
+            cost: 'singleCost',
+            stock: 'singleStock',
+            weightGram: 'singleWeightGram',
+            maxPerOrder: 'singleMaxPerOrder',
+          };
+          return map[field] ? [map[field]] : null;
+        }
+        return null;
+      }
+      // 顶层简单字段同名直传
+      const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'categoryId', 'returnPolicy']);
+      if (TOP_LEVEL.has(path)) return [path];
+      return null;
+    },
+    [multiSpec],
+  );
+
   const handleSubmit = async () => {
     setLoading(true);
     try {
       const values = await form.validateFields();
 
-      // 构造 SKU 列表
-      let skuList: Array<Record<string, unknown>>;
-      if (multiSpec) {
-        skuList = values.skus as Array<Record<string, unknown>>;
+      if (draftId) {
+        // 草稿分支：用 buildDraftPayload（全量覆盖语义），否则被清空的字段会被
+        // buildPayload 压成 undefined，updateDraft 跳过更新，旧值留库被一起提交。
+        await updateDraft(draftId, buildDraftPayload());
+        await submitDraft(draftId);
       } else {
-        skuList = [{
-          specName: '默认规格',
-          cost: values.singleCost,
-          stock: values.singleStock,
-          weightGram: values.singleWeightGram,
-          maxPerOrder: values.singleMaxPerOrder,
-        }];
+        // 全新商品创建：用 buildPayload（含自动定价 basePrice 计算）
+        let skuList: Array<Record<string, unknown>>;
+        if (multiSpec) {
+          skuList = values.skus as Array<Record<string, unknown>>;
+        } else {
+          skuList = [{
+            specName: '默认规格',
+            cost: values.singleCost,
+            stock: values.singleStock,
+            weightGram: values.singleWeightGram,
+            maxPerOrder: values.singleMaxPerOrder,
+          }];
+        }
+        const payload = buildPayload(values, skuList, markupRate, fileList);
+        await createProduct(payload);
       }
-
-      const payload = buildPayload(values, skuList, markupRate, fileList);
-      await createProduct(payload);
-      message.success('商品已创建，等待管理员审核');
+      // 提交成功 → 清 dirty 防止跳转时弹未保存提醒
+      setDirtySinceSave(false);
+      message.success('商品已提交，等待管理员审核');
       navigate('/products');
     } catch (err) {
+      // 后端字段级错误：高亮表单 + 滚动到第一个错误
+      if (err instanceof ApiError && err.fieldErrors && err.fieldErrors.length > 0) {
+        const firstHighlightable: string | null = (() => {
+          const fieldsToSet: Array<{ name: (string | number)[]; errors: string[] }> = [];
+          let firstName: string | null = null;
+          for (const fe of err.fieldErrors) {
+            const name = mapBackendFieldToForm(fe.field);
+            if (!name) continue;
+            fieldsToSet.push({ name, errors: [fe.message] });
+            if (!firstName) firstName = name.join('.');
+          }
+          if (fieldsToSet.length > 0) form.setFields(fieldsToSet);
+          return firstName;
+        })();
+        message.error(err.message || '提交失败');
+        if (firstHighlightable) {
+          // antd Form.scrollToField 接收 namePath
+          const namePath = firstHighlightable.split('.').map((s) => /^\d+$/.test(s) ? Number(s) : s);
+          form.scrollToField(namePath, { behavior: 'smooth', block: 'center' });
+        }
+        return;
+      }
       if (err instanceof Error) {
-        message.error(err.message || '创建失败');
+        message.error(err.message || '提交失败');
       }
     } finally {
       setLoading(false);
@@ -900,20 +1395,41 @@ function ProductCreateForm() {
           items={[
             { title: <a onClick={() => navigate('/')}>首页</a> },
             { title: <a onClick={() => navigate('/products')}>商品管理</a> },
-            { title: '创建商品' },
+            { title: draftId ? '继续编辑草稿' : '创建商品' },
           ]}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')}>
             返回列表
           </Button>
-          <Button type="primary" icon={<SaveOutlined />} onClick={handleSubmit} loading={loading} size="large">
-            提交审核
-          </Button>
+          <Space>
+            {lastSavedAt && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                最后保存于 {dayjs(lastSavedAt).format('HH:mm:ss')}
+              </Text>
+            )}
+            <Button
+              icon={<CloudUploadOutlined />}
+              onClick={() => handleSaveDraft(false)}
+              loading={draftSaving}
+              disabled={draftLimitReached && !draftId}
+            >
+              保存草稿
+            </Button>
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleSubmit} loading={loading} size="large">
+              提交审核
+            </Button>
+          </Space>
         </div>
       </div>
 
-      <Form form={form} layout="vertical">
+      <Form
+        form={form}
+        layout="vertical"
+        onValuesChange={() => {
+          if (!hydratingRef.current) setDirtySinceSave(true);
+        }}
+      >
         {/* 1. 基本信息 */}
         <Card title="基本信息" style={{ marginBottom: 16 }}>
           <Form.Item
@@ -956,14 +1472,18 @@ function ProductCreateForm() {
           >
             <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
           </Form.Item>
-          <Form.Item label="产地 / 产区（选填）" name="originText">
+          <Form.Item
+            label="产地 / 产区"
+            name="originText"
+            rules={[{ required: true, message: '请输入产地 / 产区' }]}
+          >
             <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
           </Form.Item>
         </Card>
 
         {/* 2. 商品图片 */}
         <Card title="商品图片" style={{ marginBottom: 16 }}>
-          <ImageUploadSection fileList={fileList} setFileList={setFileList} token={token} />
+          <ImageUploadSection fileList={fileList} setFileList={updateFileList} token={token} />
         </Card>
 
         {/* 3. 价格与库存 */}
@@ -1035,7 +1555,7 @@ function ProductCreateForm() {
                   }}
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item
                   label="库存"
                   name="singleStock"
@@ -1046,10 +1566,23 @@ function ProductCreateForm() {
                 >
                   <InputNumber placeholder="数量" min={0} precision={0} style={{ width: '100%' }} />
                 </Form.Item>
+                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.singleStock !== cur.singleStock}>
+                  {({ getFieldValue }) => (
+                    <StockHint value={getFieldValue('singleStock')} threshold={lowStockThreshold} />
+                  )}
+                </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item label="重量" name="singleWeightGram">
-                  <InputNumber placeholder="克" min={0} style={{ width: '100%' }} addonAfter="g" />
+                <Form.Item
+                  label="包装后重量（克）"
+                  name="singleWeightGram"
+                  tooltip="包装后重量（克），用于计算运费和顺丰面单。"
+                  rules={[
+                    { required: true, message: '请输入包装后重量（克）' },
+                    { type: 'number', min: 1, message: '包装后重量必须大于 0 克' },
+                  ]}
+                >
+                  <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                 </Form.Item>
               </Col>
               <Col span={5}>
@@ -1060,7 +1593,7 @@ function ProductCreateForm() {
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} />
+            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
           )}
         </Card>
 

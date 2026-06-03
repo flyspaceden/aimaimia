@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,14 +21,15 @@ import * as ImagePicker from 'expo-image-picker';
 import { AppHeader, Screen } from '../../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../../src/components/feedback';
 import { OrderRepo } from '../../../src/repos';
-import { AfterSaleRepo, ApplyAfterSaleDto } from '../../../src/repos/AfterSaleRepo';
+import { AfterSaleEligibilityOption, AfterSaleRepo, ApplyAfterSaleDto } from '../../../src/repos/AfterSaleRepo';
+import { ApiClient } from '../../../src/repos/http/ApiClient';
 import { useAuthStore } from '../../../src/store';
-import { useTheme } from '../../../src/theme';
-import { API_BASE_URL } from '../../../src/repos/http/config';
+import { useTheme, useBottomInset } from '../../../src/theme';
 import { afterSaleTypeLabels } from '../../../src/constants/statuses';
+import { showPermissionRationale } from '../../../src/components/overlay/PermissionRationaleModal';
 import type { AfterSaleType, OrderItem } from '../../../src/types/domain/Order';
 
-// ─── 质量问题原因选项 ───────────────────────────────────
+// ─── 质量问题原因选项（QUALITY_RETURN / QUALITY_EXCHANGE 必选）─────
 const qualityReasons = [
   { label: '质量问题', value: 'QUALITY_ISSUE' as const },
   { label: '发错商品', value: 'WRONG_ITEM' as const },
@@ -37,18 +40,28 @@ const qualityReasons = [
   { label: '其他', value: 'OTHER' as const },
 ];
 
-// ─── 无需寄回的金额阈值（元） ─────────────────────────────
-const NO_RETURN_THRESHOLD = 30;
+// ─── 无理由类型常见说明（NO_REASON_RETURN / NO_REASON_EXCHANGE 可选）──
+// 仅作 UX 引导，不发 reasonType；点击后拼到 reason 描述
+const noReasonSuggestions = ['不喜欢', '拍错了', '规格不对', '不想要了', '收到太慢', '其他'];
+type PhotoSource = 'camera' | 'library';
+
+function deriveImageMimeType(asset: ImagePicker.ImagePickerAsset): string {
+  if (asset.mimeType) return asset.mimeType;
+  const ext = asset.uri.split('?')[0].split('.').pop()?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  return 'image/jpeg';
+}
 
 export default function AfterSaleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const orderId = String(id ?? '');
   const { colors, radius, shadow, spacing, typography } = useTheme();
+  const scrollBottomPad = useBottomInset(spacing['3xl']);
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
-  const accessToken = useAuthStore((state) => state.accessToken);
 
   // ─── 表单状态 ─────────────────────────────────────────
   // Step 1: 商品选择（单选）
@@ -58,11 +71,16 @@ export default function AfterSaleScreen() {
   // Step 3: 照片
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  // Step 4: 原因（仅质量问题类型需要）
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  // Step 4: 原因
+  // 质量类：reasonType（必选，默认第一个）+ 描述
+  // 无理由类：常见说明 chips（多选可选）+ 描述
   const [selectedReason, setSelectedReason] = useState<(typeof qualityReasons)[number]>(qualityReasons[0]);
+  const [selectedNoReasonTags, setSelectedNoReasonTags] = useState<string[]>([]);
   const [note, setNote] = useState('');
   // 提交状态
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   // ─── 订单数据加载 ─────────────────────────────────────
   const { data, isLoading, isFetching, refetch } = useQuery({
@@ -70,8 +88,14 @@ export default function AfterSaleScreen() {
     queryFn: () => OrderRepo.getById(orderId),
     enabled: isLoggedIn && Boolean(orderId),
   });
-  const refreshing = isFetching;
+  const eligibilityQuery = useQuery({
+    queryKey: ['after-sale-eligibility', orderId],
+    queryFn: () => AfterSaleRepo.getEligibility(orderId),
+    enabled: isLoggedIn && Boolean(orderId),
+  });
+  const refreshing = isFetching || eligibilityQuery.isFetching;
   const order = data?.ok ? data.data : null;
+  const eligibility = eligibilityQuery.data?.ok ? eligibilityQuery.data.data : null;
 
   // ─── 选中的商品 ───────────────────────────────────────
   const selectedItem: OrderItem | null = useMemo(() => {
@@ -79,27 +103,26 @@ export default function AfterSaleScreen() {
     return order.items.find((i) => i.id === selectedItemId) ?? null;
   }, [order, selectedItemId]);
 
-  // ─── 可用的售后类型（基于选中商品动态计算） ───────────────
-  const availableTypes = useMemo((): AfterSaleType[] => {
-    if (!order || !selectedItem) return [];
-    const types: AfterSaleType[] = [];
-    const now = new Date();
+  const selectedEligibilityItem = useMemo(() => {
+    if (!eligibility || !selectedItemId) return null;
+    return eligibility.items.find((item) => item.orderItemId === selectedItemId) ?? null;
+  }, [eligibility, selectedItemId]);
 
-    // 无理由退货：需在退货窗口内且非换货后的商品
-    if (order.returnWindowExpiresAt) {
-      const expiresAt = new Date(order.returnWindowExpiresAt);
-      if (expiresAt > now && !selectedItem.isPostReplacement) {
-        types.push('NO_REASON_RETURN');
-      }
+  // ─── 可用的售后类型（以后端 eligibility 为准） ─────────────
+  const enabledOptions = useMemo(
+    () => selectedEligibilityItem?.options.filter((option) => option.enabled) ?? [],
+    [selectedEligibilityItem],
+  );
+  const selectedOption = useMemo(
+    () => enabledOptions.find((option) => option.afterSaleType === afterSaleType) ?? null,
+    [enabledOptions, afterSaleType],
+  );
+
+  useEffect(() => {
+    if (afterSaleType && !enabledOptions.some((option) => option.afterSaleType === afterSaleType)) {
+      setAfterSaleType(null);
     }
-
-    // 质量问题退货/换货：在售后时间窗口内都可选择
-    // 这里简化逻辑：已签收的订单在售后窗口期内均可申请
-    types.push('QUALITY_RETURN');
-    types.push('QUALITY_EXCHANGE');
-
-    return types;
-  }, [order, selectedItem]);
+  }, [afterSaleType, enabledOptions]);
 
   // 当选中商品变化时，重置售后类型
   const handleSelectItem = (itemId: string) => {
@@ -108,81 +131,203 @@ export default function AfterSaleScreen() {
     setAfterSaleType(null);
   };
 
-  // ─── 是否需要填写原因（质量问题类型需要） ─────────────────
-  const needsReason = afterSaleType === 'QUALITY_RETURN' || afterSaleType === 'QUALITY_EXCHANGE';
+  // ─── 售后类型分组：质量类必选 reasonType；无理由类可选填说明 ─────
+  const isQualityType = afterSaleType === 'QUALITY_RETURN' || afterSaleType === 'QUALITY_EXCHANGE';
+  const isNoReasonType = afterSaleType === 'NO_REASON_RETURN' || afterSaleType === 'NO_REASON_EXCHANGE';
+  // 是否要展示第 4 步「原因/说明」卡片：选了类型就展示
+  const showReasonStep = Boolean(afterSaleType);
 
   // ─── 预估退款金额（仅退货类型） ────────────────────────────
   const estimatedRefund = useMemo(() => {
+    if (selectedOption?.estimatedRefundAmount != null) return selectedOption.estimatedRefundAmount;
     if (!selectedItem || !afterSaleType) return 0;
     if (afterSaleType === 'QUALITY_EXCHANGE') return 0; // 换货无退款
     const itemTotal = selectedItem.price * selectedItem.quantity;
-    // 按比例分摊红包抵扣
-    if (order?.discountAmount && order.goodsAmount && order.goodsAmount > 0) {
+    // 按比例分摊所有买家实付抵扣，保持与后端 calculateRefundAmount 一致
+    const totalDiscount =
+      (order?.discountAmount ?? 0) +
+      (order?.totalCouponDiscount ?? 0) +
+      (order?.vipDiscountAmount ?? 0);
+    const isFullRefund = (order?.items.filter((item) => !item.isPrize).length ?? 0) === 1;
+    const shippingRefund =
+      isFullRefund && afterSaleType !== 'NO_REASON_RETURN'
+        ? (order?.shippingFee ?? 0)
+        : 0;
+    if (totalDiscount > 0 && order?.goodsAmount && order.goodsAmount > 0) {
       const ratio = itemTotal / order.goodsAmount;
-      const couponShare = order.discountAmount * ratio;
-      return Math.max(0, itemTotal - couponShare);
+      const discountShare = Math.min(order.goodsAmount, totalDiscount) * ratio;
+      return Math.max(0, itemTotal - discountShare) + shippingRefund;
     }
-    return itemTotal;
-  }, [selectedItem, afterSaleType, order]);
+    return itemTotal + shippingRefund;
+  }, [selectedItem, afterSaleType, order, selectedOption]);
 
   // ─── 退货运费说明 ─────────────────────────────────────
   const shippingInfo = useMemo(() => {
-    if (!afterSaleType || !selectedItem) return '';
-    if (afterSaleType === 'NO_REASON_RETURN') {
-      return '需要寄回，运费由您承担';
+    if (!afterSaleType || !selectedOption) return '';
+    if (!selectedOption.requiresReturn) return '无需寄回';
+    const feeText = selectedOption.estimatedReturnShippingFee
+      ? ` ¥${selectedOption.estimatedReturnShippingFee.toFixed(2)}`
+      : '';
+    if (selectedOption.returnShippingPayer === 'BUYER') {
+      return selectedOption.requiresBuyerShippingPayment
+        ? `需要寄回，退货运费需先支付${feeText}`
+        : `需要寄回，退货运费由您承担${feeText}`;
     }
-    // 质量问题退货/换货
-    const itemTotal = selectedItem.price * selectedItem.quantity;
-    if (itemTotal > NO_RETURN_THRESHOLD) {
-      return '需要寄回，运费到付（平台承担）';
+    if (selectedOption.returnShippingPayer === 'SELLER') {
+      return '需要寄回，平台生成顺丰面单，运费由商家承担';
     }
-    return '无需寄回';
-  }, [afterSaleType, selectedItem]);
+    return '需要寄回，平台生成顺丰面单';
+  }, [afterSaleType, selectedOption]);
 
-  // ─── 照片上传（复用原有逻辑） ─────────────────────────────
-  const handlePickPhotos = async () => {
+  const ensurePhotoPermission = async (source: PhotoSource): Promise<boolean> => {
+    const isCamera = source === 'camera';
+    const perm = isCamera
+      ? await ImagePicker.getCameraPermissionsAsync()
+      : await ImagePicker.getMediaLibraryPermissionsAsync();
+
+    if (perm.status === 'granted') return true;
+
+    const permissionLabel = isCamera ? '相机' : '相册';
+    const featureName = isCamera ? '拍摄售后凭证图片' : '上传售后凭证图片';
+    const purpose = isCamera
+      ? '使用相机拍摄售后申请所需的凭证图片（如商品瑕疵、物流损坏等照片）'
+      : '从您的相册中选择售后申请所需的凭证图片（如商品瑕疵、物流损坏等照片）';
+
+    if (!perm.canAskAgain) {
+      Alert.alert(
+        `需要${permissionLabel}权限`,
+        `${featureName}需要使用${permissionLabel}权限。\n您之前已拒绝授权，请前往系统设置手动开启。`,
+        [
+          { text: '取消', style: 'cancel' },
+          { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
+        ],
+      );
+      return false;
+    }
+
+    const userAgreed = await showPermissionRationale({
+      permission: isCamera ? 'camera' : 'photoLibrary',
+      featureName,
+      purpose,
+    });
+    if (!userAgreed) return false;
+
+    const req = isCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    return req.status === 'granted';
+  };
+
+  const uploadPickedAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
+    const total = assets.length;
+    setUploadProgress({ current: 0, total });
+    setUploading(true);
+
+    // 单张上传任务（结果用 discriminated union 包装，永不 reject）
+    type UploadOutcome =
+      | { ok: true; url: string; index: number }
+      | { ok: false; error: string; index: number };
+
+    const uploadOne = async (
+      asset: ImagePicker.ImagePickerAsset,
+      index: number,
+    ): Promise<UploadOutcome> => {
+      try {
+        const formData = new FormData();
+        const filename = asset.fileName || asset.uri.split('/').pop() || 'photo.jpg';
+        const mimeType = deriveImageMimeType(asset);
+        // @ts-ignore - React Native FormData 支持 { uri, name, type } 形式
+        formData.append('file', { uri: asset.uri, name: filename, type: mimeType });
+
+        const res = await ApiClient.upload<{ url: string; key: string }>(
+          '/upload?folder=after-sale',
+          formData,
+        );
+        if (res.ok && res.data?.url) {
+          return { ok: true, url: res.data.url, index };
+        }
+        const error = res.ok
+          ? '上传响应缺少 url'
+          : (res.error.displayMessage ?? res.error.message ?? '上传失败');
+        return { ok: false, error, index };
+      } catch (err: any) {
+        return { ok: false, error: err?.message ?? '网络异常', index };
+      } finally {
+        // 用 functional 更新避免并发回调互相覆盖
+        setUploadProgress((prev) => ({ ...prev, current: prev.current + 1 }));
+      }
+    };
+
+    try {
+      // 🚀 并行上传：所有照片同时发，不再等串行
+      const outcomes = await Promise.all(
+        assets.map((asset, i) => uploadOne(asset, i)),
+      );
+
+      // 保持用户选择顺序（按 index 排序后取 url）
+      const successUrls = outcomes
+        .filter((o): o is { ok: true; url: string; index: number } => o.ok)
+        .sort((a, b) => a.index - b.index)
+        .map((o) => o.url);
+      const failures = outcomes.filter(
+        (o): o is { ok: false; error: string; index: number } => !o.ok,
+      );
+
+      if (successUrls.length > 0) {
+        setPhotos((prev) => [...prev, ...successUrls].slice(0, 10));
+      }
+      if (failures.length > 0) {
+        const lastError = failures[failures.length - 1].error;
+        show({
+          message:
+            successUrls.length > 0
+              ? `${successUrls.length} 张已上传，${failures.length} 张失败：${lastError}`
+              : `照片上传失败：${lastError}`,
+          type: 'error',
+        });
+      }
+    } finally {
+      setUploading(false);
+      setUploadProgress({ current: 0, total: 0 });
+    }
+  };
+
+  // ─── 照片上传（用 ApiClient.upload，自带 401 token 刷新 + 30s 超时）──
+  const handlePickPhotos = async (source: PhotoSource) => {
     if (photos.length >= 10) {
       show({ message: '最多上传 10 张照片', type: 'warning' });
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      selectionLimit: 10 - photos.length,
-      quality: 0.8,
-    });
+    if (!(await ensurePhotoPermission(source))) return;
+
+    const result = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: true,
+          selectionLimit: 10 - photos.length,
+          quality: 0.8,
+        });
 
     if (result.canceled || !result.assets?.length) return;
 
-    setUploading(true);
-    try {
-      const newUrls: string[] = [];
-      for (const asset of result.assets) {
-        const formData = new FormData();
-        const uri = asset.uri;
-        const filename = uri.split('/').pop() || 'photo.jpg';
-        // @ts-ignore - React Native FormData accepts this format
-        formData.append('file', { uri, name: filename, type: 'image/jpeg' });
+    await uploadPickedAssets(result.assets);
+  };
 
-        const response = await fetch(`${API_BASE_URL}/upload?folder=after-sale`, {
-          method: 'POST',
-          body: formData,
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-        });
-        const json = await response.json();
-        if (json.ok && json.data?.url) {
-          newUrls.push(json.data.url);
-        } else {
-          show({ message: '部分照片上传失败', type: 'error' });
-        }
-      }
-      setPhotos((prev) => [...prev, ...newUrls].slice(0, 10));
-    } catch {
-      show({ message: '照片上传失败', type: 'error' });
-    } finally {
-      setUploading(false);
+  const handleAddPhotoPress = () => {
+    if (photos.length >= 10) {
+      show({ message: '最多上传 10 张照片', type: 'warning' });
+      return;
     }
+    Alert.alert('上传售后凭证', '请选择照片来源', [
+      { text: '拍照', onPress: () => { void handlePickPhotos('camera'); } },
+      { text: '从相册选择', onPress: () => { void handlePickPhotos('library'); } },
+      { text: '取消', style: 'cancel' },
+    ]);
   };
 
   const removePhoto = (index: number) => {
@@ -200,13 +345,14 @@ export default function AfterSaleScreen() {
 
   // ─── 提交售后申请 ─────────────────────────────────────
   const handleSubmit = async () => {
-    if (!canSubmit || !selectedItemId || !afterSaleType) return;
+    if (submittingRef.current || !canSubmit || !selectedItemId || !afterSaleType) return;
 
     if (photos.length < 1) {
       show({ message: '请至少上传 1 张照片', type: 'warning' });
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const dto: ApplyAfterSaleDto = {
@@ -215,10 +361,16 @@ export default function AfterSaleScreen() {
         photos,
       };
 
-      // 质量问题类型附加原因
-      if (needsReason) {
+      // 质量类：reasonType 必发 + reason 可选描述
+      // 无理由类：仅发 reason（chip 标签 + 描述拼接，无 reasonType）
+      if (isQualityType) {
         dto.reasonType = selectedReason.value;
         dto.reason = note.trim() || undefined;
+      } else if (isNoReasonType) {
+        const tagsText = selectedNoReasonTags.length > 0 ? selectedNoReasonTags.join('、') : '';
+        const noteText = note.trim();
+        const merged = [tagsText, noteText].filter(Boolean).join('；');
+        dto.reason = merged || undefined;
       }
 
       const result = await AfterSaleRepo.apply(orderId, dto);
@@ -228,29 +380,34 @@ export default function AfterSaleScreen() {
         return;
       }
 
-      // 刷新相关查询缓存
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['order', orderId] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-issue'] });
-      await queryClient.invalidateQueries({ queryKey: ['after-sales'] });
+      // 标记相关 query 为 stale，但**不立即触发 refetch**——
+      // refetchType: 'none' 让 React Query 只 mark stale，等下次组件挂载/聚焦时再拉。
+      // 之前 6 个 await invalidate 串行 refetch + 同时跳详情页起新 query →
+      // 弱网下并发 7+ 请求 + 跳转 race，体感"白屏死机"。
+      queryClient.invalidateQueries({ queryKey: ['orders'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['order', orderId], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['me-order-counts'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['me-order-issue'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['after-sales'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['after-sale-eligibility', orderId], refetchType: 'none' });
 
       const typeLabel = afterSaleTypeLabels[afterSaleType];
       show({ message: `${typeLabel}申请已提交`, type: 'success' });
 
       // 导航到售后详情页（如已创建则跳转，否则回订单详情）
       if (result.data?.id) {
-        router.replace({ pathname: '/orders/after-sale-detail/[id]' as any, params: { id: result.data.id } });
+        router.replace(`/orders/after-sale-detail/${result.data.id}`);
       } else {
-        router.replace({ pathname: '/orders/[id]', params: { id: orderId } });
+        router.replace(`/orders/${orderId}`);
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   // ─── 加载态 ───────────────────────────────────────────
-  if (isLoading) {
+  if (isLoading || eligibilityQuery.isLoading) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="申请售后" />
@@ -266,14 +423,23 @@ export default function AfterSaleScreen() {
   }
 
   // ─── 错误态 ───────────────────────────────────────────
-  if (!data || !data.ok) {
+  if (!data || !data.ok || !eligibilityQuery.data || !eligibilityQuery.data.ok) {
+    const errorMessage =
+      data?.ok === false
+        ? data.error.displayMessage ?? '请稍后重试'
+        : eligibilityQuery.data?.ok === false
+          ? eligibilityQuery.data.error.displayMessage ?? '请稍后重试'
+          : '请稍后重试';
     return (
       <Screen contentStyle={{ flex: 1, paddingHorizontal: spacing.xl }}>
         <AppHeader title="申请售后" />
         <ErrorState
           title="订单加载失败"
-          description={data?.ok === false ? data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
-          onAction={refetch}
+          description={errorMessage}
+          onAction={() => {
+            refetch();
+            eligibilityQuery.refetch();
+          }}
         />
       </Screen>
     );
@@ -290,15 +456,22 @@ export default function AfterSaleScreen() {
   }
 
   // 可选择的商品（过滤掉奖品）
-  const selectableItems = order!.items.filter((item) => !item.isPrize);
+  const eligibilityItemIds = new Set(eligibility!.items.map((item) => item.orderItemId));
+  const selectableItems = order!.items.filter((item) => !item.isPrize && eligibilityItemIds.has(item.id));
+  const unavailableItems = order!.items.filter((item) => !item.isPrize && !eligibilityItemIds.has(item.id));
   const prizeItems = order!.items.filter((item) => item.isPrize);
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title="申请售后" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
+          refetch();
+          eligibilityQuery.refetch();
+        }} />}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {/* ═══════ Step 1: 选择商品（单选） ═══════ */}
         <Animated.View entering={FadeInDown.duration(300)}>
@@ -315,9 +488,9 @@ export default function AfterSaleScreen() {
               每次仅可选择一件商品申请售后
             </Text>
 
-            {selectableItems.length === 0 && prizeItems.length === 0 ? (
+            {selectableItems.length === 0 && prizeItems.length === 0 && unavailableItems.length === 0 ? (
               <View style={{ marginTop: spacing.sm }}>
-                <EmptyState title="暂无商品" description="订单中没有商品记录" />
+                <EmptyState title="暂无可售后商品" description={eligibility!.disabledReason ?? '订单中没有可申请售后的商品'} />
               </View>
             ) : (
               <>
@@ -370,6 +543,38 @@ export default function AfterSaleScreen() {
                   );
                 })}
 
+                {/* 后端判定不可申请的普通商品 */}
+                {unavailableItems.map((item) => (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.itemRow,
+                      {
+                        marginTop: spacing.md,
+                        opacity: 0.45,
+                        borderRadius: radius.md,
+                        padding: spacing.sm,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.radioBtn,
+                        { borderColor: colors.border, backgroundColor: colors.bgSecondary, borderRadius: 11 },
+                      ]}
+                    />
+                    <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <Text style={[typography.bodySm, { color: colors.text.tertiary }]} numberOfLines={2}>
+                        {item.title}
+                      </Text>
+                      <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 4 }]}>
+                        已有售后或暂不支持申请
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+
                 {/* 奖品商品（禁用，附提示） */}
                 {prizeItems.map((item) => (
                   <View
@@ -419,21 +624,25 @@ export default function AfterSaleScreen() {
                 </Text>
               </View>
 
-              {availableTypes.length === 0 ? (
+              {enabledOptions.length === 0 ? (
                 <View style={{ marginTop: spacing.md, padding: spacing.md, backgroundColor: colors.bgSecondary, borderRadius: radius.md }}>
                   <Text style={[typography.bodySm, { color: colors.text.secondary, textAlign: 'center' }]}>
-                    该商品已超过售后申请期限
+                    {selectedEligibilityItem?.options.find((option) => option.disabledReason)?.disabledReason
+                      ?? eligibility!.disabledReason
+                      ?? '该商品暂无可申请的售后类型'}
                   </Text>
                 </View>
               ) : (
-                <View style={[styles.typeRow, { marginTop: spacing.md }]}>
-                  {availableTypes.map((type) => {
+                <View style={styles.typeGrid}>
+                  {enabledOptions.map((option: AfterSaleEligibilityOption) => {
+                    const type = option.afterSaleType;
                     const active = afterSaleType === type;
                     const label = afterSaleTypeLabels[type];
-                    // 为不同类型显示图标
                     const iconName =
                       type === 'NO_REASON_RETURN'
                         ? 'undo-variant'
+                        : type === 'NO_REASON_EXCHANGE'
+                          ? 'swap-horizontal'
                         : type === 'QUALITY_RETURN'
                           ? 'cash-refund'
                           : 'swap-horizontal';
@@ -442,7 +651,7 @@ export default function AfterSaleScreen() {
                         key={type}
                         onPress={() => setAfterSaleType(type)}
                         style={[
-                          styles.typeCard,
+                          styles.typeGridCard,
                           {
                             borderRadius: radius.lg,
                             borderWidth: 1.5,
@@ -465,6 +674,7 @@ export default function AfterSaleScreen() {
                               textAlign: 'center',
                             },
                           ]}
+                          numberOfLines={2}
                         >
                           {label}
                         </Text>
@@ -503,7 +713,7 @@ export default function AfterSaleScreen() {
                 ))}
                 {photos.length < 10 && (
                   <Pressable
-                    onPress={handlePickPhotos}
+                    onPress={handleAddPhotoPress}
                     disabled={uploading}
                     style={[
                       styles.photoAdd,
@@ -527,8 +737,8 @@ export default function AfterSaleScreen() {
           </Animated.View>
         )}
 
-        {/* ═══════ Step 4: 原因选择（仅质量问题类型） ═══════ */}
-        {afterSaleType && needsReason && (
+        {/* ═══════ Step 4: 原因/说明（双模：质量类 vs 无理由类） ═══════ */}
+        {showReasonStep && (
           <Animated.View entering={FadeInDown.duration(300).delay(180)}>
             <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
               <View style={styles.stepHeader}>
@@ -536,52 +746,105 @@ export default function AfterSaleScreen() {
                   <Text style={[typography.captionSm, { color: colors.text.inverse }]}>4</Text>
                 </View>
                 <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: spacing.sm }]}>
-                  问题原因
+                  {isQualityType ? '具体问题' : '申请说明'}
                 </Text>
               </View>
-              <View style={styles.reasonRow}>
-                {qualityReasons.map((reason) => {
-                  const active = reason.value === selectedReason.value;
-                  return (
-                    <Pressable
-                      key={reason.value}
-                      onPress={() => setSelectedReason(reason)}
-                      style={[styles.reasonChip, { borderRadius: radius.pill, overflow: 'hidden' }]}
-                    >
-                      {active ? (
-                        <LinearGradient
-                          colors={[colors.brand.primarySoft, colors.ai.soft]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={[styles.reasonChipInner, { borderRadius: radius.pill }]}
-                        >
-                          <Text style={[typography.caption, { color: colors.brand.primary }]}>{reason.label}</Text>
-                        </LinearGradient>
-                      ) : (
-                        <View
-                          style={[
-                            styles.reasonChipInner,
-                            { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill },
-                          ]}
-                        >
-                          <Text style={[typography.caption, { color: colors.text.secondary }]}>{reason.label}</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4, marginLeft: 30 }]}>
+                {isQualityType ? '请选择主要问题 · 必选' : '选择常见原因或描述 · 可选'}
+              </Text>
+
+              {/* 质量类：单选 reasonType chip */}
+              {isQualityType && (
+                <View style={styles.reasonRow}>
+                  {qualityReasons.map((reason) => {
+                    const active = reason.value === selectedReason.value;
+                    return (
+                      <Pressable
+                        key={reason.value}
+                        onPress={() => setSelectedReason(reason)}
+                        style={[styles.reasonChip, { borderRadius: radius.pill, overflow: 'hidden' }]}
+                      >
+                        {active ? (
+                          <LinearGradient
+                            colors={[colors.brand.primarySoft, colors.ai.soft]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={[styles.reasonChipInner, { borderRadius: radius.pill }]}
+                          >
+                            <Text style={[typography.caption, { color: colors.brand.primary }]}>{reason.label}</Text>
+                          </LinearGradient>
+                        ) : (
+                          <View
+                            style={[
+                              styles.reasonChipInner,
+                              { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill },
+                            ]}
+                          >
+                            <Text style={[typography.caption, { color: colors.text.secondary }]}>{reason.label}</Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* 无理由类：多选可选标签 */}
+              {isNoReasonType && (
+                <View style={styles.reasonRow}>
+                  {noReasonSuggestions.map((tag) => {
+                    const active = selectedNoReasonTags.includes(tag);
+                    const toggle = () => {
+                      setSelectedNoReasonTags((prev) =>
+                        prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+                      );
+                    };
+                    return (
+                      <Pressable
+                        key={tag}
+                        onPress={toggle}
+                        style={[styles.reasonChip, { borderRadius: radius.pill, overflow: 'hidden' }]}
+                      >
+                        {active ? (
+                          <LinearGradient
+                            colors={[colors.brand.primarySoft, colors.ai.soft]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={[styles.reasonChipInner, { borderRadius: radius.pill }]}
+                          >
+                            <Text style={[typography.caption, { color: colors.brand.primary }]}>{tag}</Text>
+                          </LinearGradient>
+                        ) : (
+                          <View
+                            style={[
+                              styles.reasonChipInner,
+                              { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill },
+                            ]}
+                          >
+                            <Text style={[typography.caption, { color: colors.text.secondary }]}>{tag}</Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm, marginLeft: 30 }]}>
-                补充说明（仅"其他"时建议填写）
+                {isQualityType ? '详细描述（推荐填写以加快处理）' : '可补充说明'}
               </Text>
               <TextInput
                 value={note}
                 onChangeText={setNote}
-                placeholder="补充说明有助于更快处理"
+                placeholder={
+                  isQualityType
+                    ? '例如：开箱发现包装破损、有异味、规格小一码'
+                    : '可补充说明'
+                }
                 placeholderTextColor={colors.muted}
                 style={[
                   styles.textarea,
-                  { borderColor: colors.border, color: colors.text.primary, borderRadius: radius.md, marginLeft: 0 },
+                  { borderColor: colors.border, color: colors.text.primary, borderRadius: radius.md, marginLeft: 30 },
                 ]}
                 multiline
               />
@@ -595,9 +858,7 @@ export default function AfterSaleScreen() {
             <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
               <View style={styles.stepHeader}>
                 <View style={[styles.stepBadge, { backgroundColor: colors.brand.primary }]}>
-                  <Text style={[typography.captionSm, { color: colors.text.inverse }]}>
-                    {needsReason ? '5' : '4'}
-                  </Text>
+                  <Text style={[typography.captionSm, { color: colors.text.inverse }]}>5</Text>
                 </View>
                 <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: spacing.sm }]}>
                   确认信息
@@ -660,6 +921,28 @@ export default function AfterSaleScreen() {
           </Animated.View>
         )}
       </ScrollView>
+
+      {/* ═══════ 上传中全屏遮罩（阻止用户点其他按钮） ═══════ */}
+      {uploading && (
+        <View style={styles.uploadOverlay} pointerEvents="auto">
+          <View style={[styles.uploadModal, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+            <ActivityIndicator size="large" color={colors.brand.primary} />
+            <Text style={[typography.bodyStrong, { color: colors.text.primary, marginTop: spacing.md }]}>
+              {uploadProgress.total > 1
+                ? `正在并发上传 ${uploadProgress.total} 张照片`
+                : '正在上传照片'}
+            </Text>
+            <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+              {uploadProgress.total > 0
+                ? `已完成 ${uploadProgress.current}/${uploadProgress.total}`
+                : '准备中...'}
+            </Text>
+            <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
+              请勿关闭页面
+            </Text>
+          </View>
+        </View>
+      )}
     </Screen>
   );
 }
@@ -700,19 +983,21 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
   },
-  typeRow: {
+  typeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'space-between',
+    marginTop: 12,
     marginLeft: 30,
   },
-  typeCard: {
-    flex: 1,
-    minWidth: 90,
-    paddingVertical: 14,
+  typeGridCard: {
+    width: '48%',
+    paddingVertical: 16,
     paddingHorizontal: 8,
+    marginBottom: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 80,
   },
   photoGrid: {
     flexDirection: 'row',
@@ -782,5 +1067,27 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 4,
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+    elevation: 10,
+  },
+  uploadModal: {
+    paddingHorizontal: 32,
+    paddingVertical: 28,
+    minWidth: 200,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
   },
 });

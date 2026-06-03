@@ -1,8 +1,8 @@
 /**
- * 普通奖励树页面
+ * 普通奖励可视化页面
  *
- * 薄包装层，使用共享 TreeViewer 组件，传入普通树配置
- * 包含特有的绿色渐变横幅和平台根节点入口卡片
+ * 薄包装层，使用共享 TreeViewer 组件，传入普通配置
+ * 包含特有的绿色渐变横幅和全局入口卡片
  */
 import { Typography, Tag } from 'antd';
 import { ApartmentOutlined } from '@ant-design/icons';
@@ -18,7 +18,7 @@ import { NormalRootEntryCard } from './components/RootEntryCards';
 const { Title } = Typography;
 const THEME_COLOR = '#2E7D32';
 
-/** 普通树顶部绿色横幅 */
+/** 普通页面顶部绿色横幅 */
 const NormalTreeBanner = (
   <div
     style={{
@@ -33,7 +33,7 @@ const NormalTreeBanner = (
   >
     <ApartmentOutlined style={{ fontSize: 18, color: '#fff' }} />
     <Title level={5} style={{ margin: 0, color: '#fff', letterSpacing: 1 }}>
-      普通奖励体系
+      普通奖励可视化
     </Title>
     <Tag
       style={{
@@ -43,7 +43,7 @@ const NormalTreeBanner = (
         fontSize: 11,
       }}
     >
-      NORMAL REWARD TREE
+      NORMAL REWARDS
     </Tag>
   </div>
 );
@@ -53,12 +53,11 @@ export default function NormalTreePage() {
     <TreeViewer
       treeType="normal"
       themeColor={THEME_COLOR}
-      title="普通分润树"
-      subtitle="入树规则：首笔有效消费后自动入树，按轮询平衡方式落位 | 奖励规则：第 k 次有效消费，上溯到第 k 层祖辈"
+      title="普通奖励可视化"
       searchApi={searchNormalTreeUsers}
       contextApi={getNormalTreeContext}
       childrenApi={getNormalTreeChildren}
-      emptyText="搜索用户或点击平台根节点以查看普通奖励树"
+      emptyText="搜索用户或选择入口以查看普通奖励分布"
       banner={NormalTreeBanner}
       renderRootEntry={(onNavigate) => (
         <NormalRootEntryCard

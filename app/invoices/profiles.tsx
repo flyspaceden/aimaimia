@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { AppError, InvoiceProfile } from '../../src/types';
 
 export default function InvoiceProfilesScreen() {
@@ -17,6 +17,8 @@ export default function InvoiceProfilesScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  // 底部按钮吃系统 safe-area + 视觉间距。
+  const bottomPadding = useBottomInset(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['invoice-profiles'],
@@ -122,11 +124,13 @@ export default function InvoiceProfilesScreen() {
           />
         </View>
       ) : profiles.length === 0 ? (
-        <View style={{ padding: spacing.xl }}>
+        // flex:1 让空态填满剩余空间，否则底部"新建抬头"按钮会贴在空态下方（页面中部）
+        <View style={{ flex: 1, padding: spacing.xl }}>
           <EmptyState title="暂无发票抬头" description="添加抬头后可快速申请开票" />
         </View>
       ) : (
         <FlatList
+          style={{ flex: 1 }}
           data={profiles}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
@@ -141,9 +145,18 @@ export default function InvoiceProfilesScreen() {
           colors={[colors.brand.primary, colors.ai.start]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.bottomBtn, { borderTopColor: colors.border, borderTopWidth: 1 }]}
+          style={[
+            styles.bottomBtn,
+            {
+              borderTopColor: colors.border,
+              borderTopWidth: 1,
+              paddingBottom: 14 + bottomPadding,
+            },
+          ]}
         >
-          <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>新建抬头</Text>
+          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+            新建抬头
+          </Text>
         </LinearGradient>
       </Pressable>
     </Screen>
@@ -166,6 +179,8 @@ const styles = StyleSheet.create({
   },
   bottomBtn: {
     alignItems: 'center',
-    paddingVertical: 14,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingTop: 14,
   },
 });

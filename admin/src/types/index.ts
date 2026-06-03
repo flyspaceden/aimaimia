@@ -92,6 +92,7 @@ export interface AdminProfile {
   id: string;
   username: string;
   realName: string | null;
+  phone?: string | null;
   /** 后端返回角色名字符串数组，如 ["超级管理员"] */
   roles: string[];
   permissions: string[];
@@ -224,10 +225,12 @@ export interface ProductSKU {
   title: string;
   price: number;
   stock: number;
+  weightGram: number;
   attrs: Record<string, unknown> | null;
   cost?: number | null;
   status?: string;
   skuCode?: string | null;
+  maxPerOrder?: number | null;
 }
 
 export interface Product {
@@ -244,6 +247,7 @@ export interface Product {
   status: ProductStatus;
   auditStatus: ProductAuditStatus;
   auditNote: string | null;
+  submissionCount?: number;
   companyId: string;
   company?: { id: string; name: string; status?: CompanyStatus };
   images: { url: string }[];
@@ -299,8 +303,11 @@ export interface Order {
     companyId?: string;
     carrierCode?: string;
     carrierName?: string;
+    waybillNo?: string;
+    waybillNoMasked?: string;
     trackingNo?: string;
     trackingNoMasked?: string;
+    sfOrderId?: string | null;
     status?: string;
     shippedAt?: string | null;
   } | null;
@@ -309,12 +316,34 @@ export interface Order {
     companyId?: string;
     carrierCode?: string;
     carrierName?: string;
+    waybillNo?: string;
+    waybillNoMasked?: string;
     trackingNo?: string;
     trackingNoMasked?: string;
+    sfOrderId?: string | null;
     status?: string;
     shippedAt?: string | null;
   }>;
+  refundSummary?: Refund | null;
+  refunds?: Refund[];
   bizType?: string;
+  buyerNote?: string | null;
+  totalCouponDiscount?: number | null;
+  vipDiscountAmount?: number | null;
+  goodsAmount?: number;
+  shippedAt?: string | null;
+  deliveredAt?: string | null;
+  receivedAt?: string | null;
+  autoReceiveAt?: string | null;
+  returnWindowExpiresAt?: string | null;
+  statusHistory?: Array<{
+    id: string;
+    fromStatus: string;
+    toStatus: string;
+    reason?: string | null;
+    meta?: Record<string, unknown> | null;
+    createdAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -422,6 +451,8 @@ export interface Refund {
   amount: number;
   status: RefundStatus;
   reason: string;
+  merchantRefundNo?: string;
+  providerRefundId?: string | null;
   createdAt: string;
   updatedAt: string;
   order?: Order;
@@ -442,15 +473,35 @@ export interface BonusMember {
   tier: 'NORMAL' | 'VIP';
   referralCode: string | null;
   inviterUserId: string | null;
+  /** 邀请人昵称（findMembers 接口拼接） */
+  inviterNickname: string | null;
+  /** 该会员邀请的 VIP 人数 */
+  inviteeVipCount: number;
   vipPurchasedAt: string | null;
   vipNodeId: string | null;
   normalEligible: boolean;
-  /** 钱包信息（列表接口可选返回） */
-  wallet?: { balance: number; frozen: number };
-  /** 奖励树层级 */
-  treeLevel?: number;
-  /** 自购次数 */
-  selfPurchaseCount?: number;
+  /** 手机号（明文，仅 admin 后台可见） */
+  phone: string | null;
+  /** 微信 openId（手机号缺失时兜底标识，多用于纯微信登录用户） */
+  wechatOpenId: string | null;
+  /** 微信 unionId（跨应用统一，可能为空） */
+  wechatUnionId: string | null;
+  /** VIP 奖励账户钱包 */
+  wallet: { balance: number; frozen: number };
+  /** VIP 三叉树位置 */
+  treeRootId: string | null;
+  treeLevel: number | null;
+  treePosition: number | null;
+  /** VIP 自购次数（决定解锁第几层下级分润） */
+  selfPurchaseCount: number;
+  /** 当前已解锁的下级层级（上限 15） */
+  unlockedLevel: number;
+  /** VIP 礼包购买快照 */
+  vipPurchase: {
+    amount: number;
+    packageId: string | null;
+    status: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -487,6 +538,7 @@ export interface BonusMemberDetail {
     refType: string | null;
     refId: string | null;
     createdAt: string;
+    account: { type: string } | null;
   }[];
   withdrawals: {
     id: string;
@@ -509,7 +561,7 @@ export interface BonusStats {
   vipRate: number;
 }
 
-export type WithdrawStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'PAID' | 'FAILED';
+export type WithdrawStatus = 'REQUESTED' | 'PROCESSING' | 'APPROVED' | 'REJECTED' | 'PAID' | 'FAILED';
 
 export type WithdrawChannel = 'WECHAT' | 'ALIPAY' | 'BANKCARD';
 
@@ -518,6 +570,16 @@ export interface WithdrawRequest {
   userId: string;
   user?: { id: string; profile?: { nickname: string | null } | null };
   amount: number;
+  taxAmount?: number | null;
+  netAmount?: number | null;
+  taxRate?: number | null;
+  outBizNo?: string | null;
+  providerPayoutId?: string | null;
+  providerFundOrderId?: string | null;
+  providerStatus?: string | null;
+  providerErrorCode?: string | null;
+  providerErrorMessage?: string | null;
+  paidAt?: string | null;
   status: WithdrawStatus;
   channel: WithdrawChannel | string;
   /** 后端字段名为 accountSnapshot，包含脱敏账户信息 { name, account } */

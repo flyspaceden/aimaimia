@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-05-10 售后链路收口安全检查
+
+- **状态**: ✅ 已收口，待真机/沙箱联调验证
+- **售后退款幂等**: 退款单号统一使用 `AS-${afterSaleId}`，创建与状态推进在 Serializable 事务内执行，seller/admin/timeout 均走统一 `AfterSaleRefundService`。
+- **买家退货运费支付幂等**: 支付单号使用 `AS_SHIP_PAY_${afterSaleId}`，支付回调与主动查询复用同一校验路径，防止重复支付写回。
+- **买家退货运费退款幂等**: 已支付退货运费在面单未揽收且售后关闭时使用 `AS_SHIP_REFUND_${afterSaleId}` 原路退回，先 CAS 置 `REFUNDING`，再写回 `REFUNDED/FAILED`。
+- **退货面单幂等**: 买家退货面单使用 `AS_RETURN_${afterSaleId}`，重复生成返回既有面单，不重复向顺丰下单。
+- **拒收回寄面单幂等**: 卖家拒收回寄面单使用 `AS_REJECT_RETURN_${afterSaleId}`，拒收回寄与仲裁路径分离，避免重复回寄。
+- **退款双向一致性巡检**: 每日扫描 `Refund.afterSaleId` 与 `AfterSaleRequest.refundId` 的错链/孤儿/重复关系，发现异常写管理端告警，人工处理前不静默修正资金状态。
+
 ## 问题严重程度说明
 
 | 级别 | 含义 | 要求 |
@@ -79,7 +89,7 @@
 
 ---
 
-## 🟠 HIGH 问题（6 个）
+## 🟠 HIGH 问题（9 个）
 
 ### S07: OTP 验证码可被并发重复使用
 - **状态**: ✅ 已修复（2026-02-24）
@@ -120,6 +130,7 @@
   2. 新增价格变更检测：比对 preview 返回的 `unitPrice` 与购物车的 `price`，差异时 toast 提示「部分商品价格已变更，请确认最新金额」
   3. 下架商品由 previewOrder 后端抛出 400 错误（后端侧已具备）
 - **补齐（2026-02-25）**: `app/checkout.tsx` 已新增 `previewOrder` 失败时的显式 toast 提示（并做去重，避免重复弹出）。
+- **补齐（2026-05-07）**: 商品/SKU 下架级联问题按 `docs/issues/app-tofix4.md` 修正：购物车项返回 `unavailableReason`，普通下架商品仍在结算 preview 硬拦截；下架奖品先识别为奖品后软排除到 `excludedItems[]`，并允许用户删除/清空时退出 stuck 状态。外审补强：软排除奖品写入 `CheckoutSession.bizMeta.excludedPrizeItems`，支付成功时一并删除 cartItem 并将对应 LotteryRecord 转 `EXPIRED`；孤立 prizeRecordId 视为不可用奖品。
 
 ### S12: 前端价格预览与实际下单不一致
 - **状态**: ✅ 已修复（2026-02-24）
@@ -131,9 +142,36 @@
   3. 后端 `createFromCart` 事务内先计算所有子订单实际合计，与 `expectedTotal` 比对
   4. 差异超过 ¥0.01 时拒绝下单，返回「价格已变更」错误提示新金额
 
+### S22: 红包锁定与 CheckoutSession 创建非原子（v1.1 待重构）
+- **状态**: ⏸️ **v1.0 决策延后**（2026-05-28 识别 + cron 缓解）
+- **文件**: `backend/src/modules/order/checkout.service.ts:604-617` + `backend/src/modules/coupon/coupon.service.ts` (validateAndReserveCoupons)
+- **问题**: 红包预留与订单 CheckoutSession 创建跨两个独立 Serializable 事务执行：
+  1. 第一个事务（line 604）调 `couponService.validateAndReserveCoupons()` 把 `CouponInstance.status` CAS 改为 `RESERVED`
+  2. 中间执行业务逻辑（计算订单金额等）
+  3. 第二个事务（line 649）`prisma.$transaction()` 创建 CheckoutSession
+  4. 第二个事务失败 → catch（line 792）释放红包；进程崩溃 → **僵尸 RESERVED 记录**
+- **设计意图**：红包预留应该与订单链路原子绑定，违反则有 race window 暴露在 ACID 之外
+- **v1.0 缓解措施**：2026-05-28 在 `coupon.service.ts` 加 `cronRecoverStuckReservations`（每 5 min 扫 `status=RESERVED AND updatedAt < now-10min`，按关联 Order 状态自动 confirm/release），把僵尸记录恢复时间从"永久卡死"压到"最多 15 分钟内自动恢复"。
+- **剩余风险**（cron 缓解后还有的）：
+  1. 中间 race window 期间，并发用户看到 RESERVED 红包不可领（**几百毫秒级，UX 影响微乎其微**）
+  2. 架构上违反"红包预留必须在订单链路内"原则（**代码 smell，非业务 bug**）
+- **v1.1 重构方案**: 把 `validateAndReserveCoupons` 改成接受 `tx` 参数，或在 `checkout.service.ts` inline coupon CAS 直接写进 session 事务。**触及资金核心路径，重构有回归风险，先在 v1.1 集中处理。**
+- **决策记录**: 2026-05-28 用户明确选择 v1.0 跳过重构（cron 已缓解 + 改动风险大于收益）
+
+### S21: 顺丰沙箱旧路由事件污染当前订单状态
+- **状态**: ✅ 已修复（2026-05-08）
+- **文件**: `backend/src/modules/shipment/shipment.service.ts` + `backend/src/modules/shipment/sf-express.service.ts`
+- **问题**: 顺丰沙箱「全流程调测」会把早于当前面单生成时间的历史路由样例一并推送或查询返回；其中包含已签收/已放门口等终态文案时，当前订单可能被错误推进到 `DELIVERED`，并开始退货窗口倒计时。
+- **修复内容**:
+  1. `handleCallback()` / `queryTracking()` 按 `Shipment.shippedAt ?? Shipment.createdAt - 1h` 过滤旧路由事件，全旧事件批次直接跳过状态更新和轨迹写入；选 `shippedAt` 优先是因为它是真正的"发货时刻"，与"发货前的事件不可信"的语义对齐
+  2. 丢弃旧事件后不再信任原始 `DELIVERED/EXCEPTION` 终态，避免旧终态污染当前状态机
+  3. OrderState 仅作为调度补充事件，保持 `SHIPPED`，不推进为运输中或已送达；常见 SF 黑话文案规范化（调度失败/等待 → 等待调度、调度成功/收派员信息 → 已派单 等）
+  4. 状态更新仍在 Serializable 事务内执行，Order `SHIPPED → DELIVERED` 保持 CAS 来源状态限制
+  5. **窗口期保护**（审计 HIGH）：`Shipment.status='INIT' && shippedAt=null` 时（卖家已生成面单但未点确认发货），SF 推真实路由仅写轨迹不推进 Shipment/Order，防止抢跑 `seller-orders.service.ts:321` 的 CAS where status=INIT 卡死卖家发货
+
 ---
 
-## 🟡 MEDIUM 问题（8 个）
+## 🟡 MEDIUM 问题（9 个）
 
 ### S13: Serializable 事务无重试逻辑
 - **状态**: ✅ 已修复（2026-02-24）
@@ -201,6 +239,52 @@
   3. 无模板或查询失败时 fallback 到默认值（满 99 免运费，基础运费 8 元）
   4. `previewOrder` 和 `createFromCart` 均调用该方法
 
+### S21: 发票 Provider 预占期间管理端可覆盖状态
+- **状态**: ✅ 已修复（2026-05-15）
+- **文件**:
+  - `backend/src/modules/admin/invoices/admin-invoices.service.ts`
+  - `backend/src/modules/admin/invoices/admin-invoices.controller.ts`
+  - `admin/src/pages/invoices/index.tsx`
+  - `admin/src/pages/invoices/detail.tsx`
+- **问题**: 自动/Mock 开票先 CAS 预占 `providerRequestId` 再事务外调用 Provider。预占成功后、Provider finalize 前，管理端“标记失败”或“人工开票”原本只校验 `status=REQUESTED`，可能覆盖飞行中的 Provider 调用，导致上游已开票但本地状态被改写。
+- **修复内容**:
+  1. `failInvoice()` 和手工开票 CAS 均增加 `providerRequestId: null`，预检时对开票中记录返回冲突。
+  2. 新增 `resetProviderReservation()`，仅允许超过保护窗口的 `REQUESTED + providerRequestId` 记录被管理员审计重置。
+  3. 管理端读权限只返回脱敏抬头和开票快照，完整电话、邮箱、银行账号、地址等仅对 `invoices:issue` / 超管返回。
+  4. 管理后台将 `REQUESTED + providerRequestId` 显示为“开票中”，隐藏普通开票/失败操作，仅保留重置入口。
+  5. 手工开票 `pdfUrl` 增加平台上传 / OSS URL 白名单校验，避免任意外部链接写入发票记录。
+
+### S23: 退款补偿双调度同秒撞车（write conflict / deadlock）+ 永久失败退款无终态
+- **状态**: ⏳ 未修复（2026-05-30 发现于 staging，按决策「先跑通微信联调、回头单独修」暂缓）
+- **文件**:
+  - `backend/src/modules/after-sale/after-sale-timeout.service.ts:784`（`retryStaleRefunds`，`@Cron('0 */10 * * * *')`）
+  - `backend/src/modules/payment/payment.service.ts:939`（`retryStaleAutoRefunds`，`@Cron('0 */10 * * * *')`）
+  - 撞点：`backend/src/modules/after-sale/after-sale-refund.service.ts:588`（`acquireProviderRetryLeaseInTx` 内 `tx.refund.updateMany` FAILED→REFUNDING）
+- **问题**:
+  1. **双调度同秒撞车**：两个退款补偿 cron 都是 `0 */10 * * * *`（每 10 分钟同一秒触发），且都扫同一批 `status ∈ {FAILED, REFUNDING}` 的退款。同一笔退款被两者同时领取时，Serializable 隔离下 Postgres 判一方 `Transaction failed due to a write conflict or a deadlock`，该轮该方回滚。数据安全 ✅（不会重复退款），但报 ERROR 刷日志。
+  2. **永久失败退款无终态/无重试上限**：staging 上 `afterSaleId=cmp05l40b002et7sh6hwts53a` 的退款因底层支付宝交易不存在（`ACQ.TRADE_NOT_EXIST`）永远退不成功，一直停在 FAILED，于是两个 cron 每 10 分钟反复重试 + 反复撞车，日志无限刷。
+- **影响**: 数据无损（Serializable 阻止了重复退款），但：① 日志被 deadlock + 退款失败刷屏，掩盖真问题；② 永久失败的退款无 max-retry / 终态，补偿任务永不收敛；③ 双调度对同批退款冗余加锁，徒增锁竞争。
+- **建议修复（方向，待确认）**:
+  1. **单一所有权**：退款重试只归一个 cron（建议留 `PaymentService.retryStaleAutoRefunds`），`AfterSaleTimeoutService` 不再直接重试退款；或两者错峰（不同秒/分）。
+  2. **序列化失败视为可重试信号**：`acquireProviderRetryLeaseInTx` 捕获 write-conflict/deadlock 时按「本轮跳过、下轮再来」处理（warn 而非 error），参考 S13。
+  3. **失败上限 + 终态**：自动退款补偿加最大重试次数 / 指数退避，超限翻 FAILED 终态并告警转人工，避免 `ACQ.TRADE_NOT_EXIST` 这类永不成功的单子无限刷。
+  4. **清 staging 脏数据**：把 `cmp05l40b002et7sh6hwts53a` 那笔退款手动置终态，立刻止血日志（治标）。
+- **关联**: S13（Serializable 事务无重试逻辑）、S19（退款数量未在事务内二次校验）
+
+---
+
+### S24. 售后 REFUNDING 手动重试可能重新发起渠道退款（2026-06-01 新增，已修复）
+- **级别**: 🟠 HIGH
+- **状态**: ✅ 已修复
+- **范围**: 售后退款重试 / 管理后台售后列表 / 微信退款 pending 闭环
+- **发现**: 管理后台允许 `Refund.status=REFUNDING` 的售后退款点击“重试”。旧逻辑在 `AfterSaleRefundService.retryRefund()` 中先调用 `PaymentService.reconcileWechatRefundBeforeRetry()`，但当该方法返回 `false`（例如非微信渠道或无法进入微信查单路径）时会继续调用 `initiateRefund()`。如果渠道退款实际仍在 pending，只是本次查单未闭环，存在重复发起渠道退款的资金风险。
+- **修复**:
+  1. `REFUNDING` 退款重试路径改为**只查单、不重发**：调用 `reconcileWechatRefundBeforeRetry()` 后立即返回，不再落到 `initiateRefund()`。
+  2. 微信 pending 售后退款新增 15s / 45s / 90s 短延迟查单，缩短“渠道已成功但业务仍显示退款中”的窗口；查单仍复用既有金额校验和 `handleRefundSuccess()` 闭环。
+  3. 管理后台把 `REFUNDING` 操作文案从“重试”改为“查单”，确认弹窗明确“不重新发起退款”；`FAILED` 才保留“重试”语义。
+  4. 新增单测锁定：`REFUNDING` reconcile 未处理时不得调用 `initiateRefund()`；pending 后短延迟查单不得重复发起退款。
+- **验证**: `npm test -- after-sale-refund.service.spec.ts --runInBand` 通过；`npx prisma validate` 通过；后端 build 通过。
+
 ---
 
 ## 修复统计
@@ -208,11 +292,14 @@
 | 级别 | 总数 | 已修复 | 未修复 |
 |------|------|--------|--------|
 | 🔴 CRITICAL | 6 | 6 | 0 |
-| 🟠 HIGH | 6 | 6 | 0 |
-| 🟡 MEDIUM | 8 | 8 | 0 |
-| **合计** | **20** | **20** | **0** |
+| 🟠 HIGH | 9 | 8 | 1 ⏸️ |
+| 🟡 MEDIUM | 9 | 8 | 1 ⏳ |
+| **合计** | **24** | **22** | **2** |
 
-全部 20 个安全问题已修复完成（2026-02-25 复核后更新）。
+⏸️ S22（红包锁定 atomicity）v1.0 决策延后到 v1.1，cron 已缓解实际影响，详见对应条目。
+⏳ S23（退款补偿双调度撞车 + 永久失败退款无终态）2026-05-30 发现于 staging，按「先跑通微信联调、回头单独修」决策暂缓；数据无损（Serializable 阻止重复退款），主要是日志刷屏 + 永久失败退款不收敛。
+
+原 22 个安全问题中 21 个已修复、S22 延后至 v1.1；2026-05-30 新增 S23 待修；2026-06-01 新增 S24 并已修复（详见条目）。
 
 ---
 
@@ -258,3 +345,13 @@
 | N05 | 奖品超发 | 🔴 HIGH | dailyLimit/totalLimit 原子检查，wonCount 并发递增需 CAS 保护 | ⬜ Phase C |
 | N06 | 换货申请重复提交 | 🟡 LOW | 同一订单/商品项的换货申请幂等校验 | ⬜ Phase E |
 | N07 | 自动定价绕过 | 🟡 MEDIUM | 后端强制校验 price = cost × markupRate，拒绝前端传入的 price | ⬜ Phase D |
+
+---
+
+## 2026-05-25 账号身份绑定（方案 A）安全检查
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| B01 | **AuthIdentity 唯一约束在 NULL 上失效** | 🟠 HIGH | Schema `@@unique([provider, identifier, appId])` 在 `appId=null` 时 PostgreSQL `NULLS DISTINCT` 让两条 `(WECHAT, openId, NULL)` 不冲突，P2002 不触发。当前所有微信身份 `appId=null`，意味着登录注册/绑定的 schema 层防并发是**纸面约束**。本次 `bindPhone`/`bindWechat` 已用 Serializable 事务在应用层兜底，但根治需改 migration（候选：`@@unique([provider, identifier])` 移除 appId、或 partial index `WHERE appId IS NULL` 等价处理）。**注意：修这个 schema 会影响 `loginWithWeChat`、`register`、`loginByPhone` 的并发行为，需要整组回归** | ⬜ 单独开 PR |
+| B02 | 绑定身份成功后不清 session | 🟡 LOW | 与卖家端 `changePhone` 不同：本次是**新增身份**而非修改现有身份，当前 session 应保持有效。已在代码注释中说明决策。无需修复，仅记录避免后续误改 | ✅ 设计内 |
+| B03 | sendBindPhoneCode 不应泄露占用信息 | 🟠 HIGH | 发码端点若预检"目标号已被占"并拒绝，会成为攻击者枚举注册号的渠道。已修：sendBindPhoneCode 只检查当前账号是否已绑，占用判断推迟到 bindPhone（OTP 消费后） | ✅ 已修 |

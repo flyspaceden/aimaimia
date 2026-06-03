@@ -60,6 +60,10 @@ export type CompanyProduct = {
   unit: string;
   origin: string;
   categoryName: string;
+  /** 商品总剩余库存（所有 ACTIVE SKU 库存之和） */
+  stock?: number;
+  /** 单笔限购：仅当所有 ACTIVE SKU 都设了 maxPerOrder 时返回 min，否则 null */
+  maxPerOrder?: number | null;
 };
 
 export type CompanyProductsResponse = {

@@ -1,10 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert } from 'antd';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { getOrder } from '@/api/orders';
-import type { OrderItem } from '@/types';
-import { orderStatusMap } from '@/constants/statusMaps';
+import { getOrder, retryRefund } from '@/api/orders';
+import PermissionGate from '@/components/PermissionGate';
+import type { OrderItem, Refund } from '@/types';
+import { PERMISSIONS } from '@/constants/permissions';
+import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 // 订单生命周期状态步骤
@@ -14,6 +16,17 @@ const statusSteps = [
   { key: 'DELIVERED', title: '已送达' },
   { key: 'RECEIVED', title: '已收货' },
 ];
+
+// 支付方式枚举 → 中文显示（key 与后端 PaymentChannel enum 对齐）
+const paymentChannelLabel: Record<string, string> = {
+  ALIPAY: '支付宝',
+  WECHAT_PAY: '微信支付',
+  UNIONPAY: '银联支付',
+  AGGREGATOR: '聚合支付',
+};
+
+const formatDateTime = (value?: string | null) =>
+  value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
 
 const itemColumns = [
   {
@@ -62,8 +75,10 @@ const itemColumns = [
 ];
 
 export default function OrderDetailPage() {
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['admin', 'order', id],
@@ -98,11 +113,83 @@ export default function OrderDetailPage() {
   const isCanceled = order.status === 'CANCELED';
   const isRefunded = order.status === 'REFUNDED';
 
-  // 优惠金额计算（总金额 - 实付金额）
+  // 金额拆分：分润奖励 / 平台红包 / VIP 折扣 三笔独立优惠
   const totalAmount = order.totalAmount ?? 0;
   const paymentAmount = order.paymentAmount ?? totalAmount;
-  const discountAmount = totalAmount - paymentAmount;
-  const hasDiscount = discountAmount > 0;
+  const rewardDiscount = order.discountAmount ?? 0;          // 分润奖励抵扣
+  const couponDiscount = order.totalCouponDiscount ?? 0;     // 平台红包抵扣
+  const vipDiscount = order.vipDiscountAmount ?? 0;          // VIP 折扣（平台补贴）
+  const totalDiscount = rewardDiscount + couponDiscount + vipDiscount;
+  const hasDiscount = totalDiscount > 0;
+  // 取首个 shipment 的发货时间作为订单维度的 shippedAt（1 Order = 1 Company）
+  const shippedAt = order.shippedAt || shipments[0]?.shippedAt || null;
+  // 终态时间：从 statusHistory 找 CANCELED / REFUNDED 跃迁；没有就 fallback 到 updatedAt
+  const terminalTime = (() => {
+    if (isCanceled) {
+      const entry = order.statusHistory?.find((h) => h.toStatus === 'CANCELED');
+      return entry?.createdAt || order.updatedAt;
+    }
+    if (isRefunded) {
+      const entry = order.statusHistory?.find((h) => h.toStatus === 'REFUNDED');
+      return entry?.createdAt || order.refunds?.[0]?.createdAt || order.updatedAt;
+    }
+    return null;
+  })();
+  // 退款进行中（订单未 REFUNDED 但有 REFUNDING 退款单）—— 主线末尾追加橙色提示
+  const refundInProgress =
+    !isRefunded && (order.refunds?.some((r) => r.status === 'REFUNDING') ?? false);
+
+  // 主线节点：根据状态裁剪 + 终态节点
+  type TimelineNode = {
+    label: string;
+    time?: string | null;
+    status: 'finish' | 'wait' | 'error' | 'process';
+  };
+  const timelineNodes: TimelineNode[] = (() => {
+    const reached = (t?: string | null) => (t ? 'finish' : 'wait') as 'finish' | 'wait';
+    if (isCanceled) {
+      // 取消：保留下单 + 支付（支付前取消支付节点也用 wait）+ 已取消
+      return [
+        { label: '下单', time: order.createdAt, status: 'finish' },
+        { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+        { label: '已取消', time: terminalTime, status: 'error' },
+      ];
+    }
+    const main: TimelineNode[] = [
+      { label: '下单', time: order.createdAt, status: 'finish' },
+      { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+      { label: '发货', time: shippedAt, status: reached(shippedAt) },
+      { label: '送达', time: order.deliveredAt, status: reached(order.deliveredAt) },
+      { label: '收货', time: order.receivedAt, status: reached(order.receivedAt) },
+    ];
+    if (isRefunded) {
+      main.push({ label: '已退款', time: terminalTime, status: 'error' });
+    } else if (refundInProgress) {
+      main.push({ label: '退款处理中', time: undefined, status: 'process' });
+    }
+    return main;
+  })();
+
+  // 退货窗口剩余天数（用于提示标签）
+  const returnWindowInfo = (() => {
+    if (!order.returnWindowExpiresAt) return null;
+    if (order.bizType === 'VIP_PACKAGE') return null; // VIP 礼包不退
+    const expiresAt = dayjs(order.returnWindowExpiresAt);
+    const now = dayjs();
+    const expired = expiresAt.isBefore(now);
+    const daysLeft = expiresAt.diff(now, 'day');
+    return { expiresAt: order.returnWindowExpiresAt, expired, daysLeft };
+  })();
+
+  // 预计自动收货（仅未收货 + 未到期时提示，已收货后不再有意义）
+  const autoReceiveInfo = (() => {
+    if (!order.autoReceiveAt) return null;
+    if (order.receivedAt) return null;
+    if (isCanceled || isRefunded) return null;
+    const at = dayjs(order.autoReceiveAt);
+    if (at.isBefore(dayjs())) return null; // 已过期（按理已自动确认）
+    return order.autoReceiveAt;
+  })();
   const buildTreeLink = (path: '/bonus/vip-tree' | '/bonus/normal-tree') => {
     const params = new URLSearchParams({
       userId: order.userId,
@@ -110,6 +197,23 @@ export default function OrderDetailPage() {
       sourceLabel: '订单详情',
     });
     return `${path}?${params.toString()}`;
+  };
+  const handleRetryRefund = (refund: Refund) => {
+    modal.confirm({
+      title: '确认重试退款？',
+      content: `将按原退款单号重试退款 ¥${refund.amount.toFixed(2)}，不会新建退款单。`,
+      okText: '重试退款',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await retryRefund(order.id, refund.id);
+          message.success('已提交退款重试');
+          queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] });
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '退款重试失败');
+        }
+      },
+    });
   };
 
   return (
@@ -189,15 +293,35 @@ export default function OrderDetailPage() {
           <Descriptions.Item label="实付金额">¥{paymentAmount.toFixed(2)}</Descriptions.Item>
           {/* 优惠金额（仅在有优惠时显示） */}
           {hasDiscount && (
-            <Descriptions.Item label="优惠金额">
-              <span style={{ color: '#f5222d' }}>-¥{discountAmount.toFixed(2)}</span>
+            <Descriptions.Item label="优惠合计">
+              <span style={{ color: '#f5222d' }}>-¥{totalDiscount.toFixed(2)}</span>
+            </Descriptions.Item>
+          )}
+          {/* 优惠拆分：分润奖励 / 平台红包 / VIP 折扣 各自独立显示，便于对账 */}
+          {rewardDiscount > 0 && (
+            <Descriptions.Item label="分润奖励抵扣">
+              <span style={{ color: '#f5222d' }}>-¥{rewardDiscount.toFixed(2)}</span>
+            </Descriptions.Item>
+          )}
+          {couponDiscount > 0 && (
+            <Descriptions.Item label="平台红包抵扣">
+              <span style={{ color: '#f5222d' }}>-¥{couponDiscount.toFixed(2)}</span>
+            </Descriptions.Item>
+          )}
+          {vipDiscount > 0 && (
+            <Descriptions.Item label="VIP 折扣">
+              <span style={{ color: '#f5222d' }}>-¥{vipDiscount.toFixed(2)}</span>
             </Descriptions.Item>
           )}
           {/* 运费（如果存在） */}
           {order.shippingFee != null && (
             <Descriptions.Item label="运费">¥{Number(order.shippingFee).toFixed(2)}</Descriptions.Item>
           )}
-          <Descriptions.Item label="下单时间">{dayjs(order.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
+          <Descriptions.Item label="下单时间">{formatDateTime(order.createdAt)}</Descriptions.Item>
+          {/* 买家留言（结算页填写，<= 200 字） */}
+          {order.buyerNote && (
+            <Descriptions.Item label="买家留言" span={3}>{order.buyerNote}</Descriptions.Item>
+          )}
           {/* 备注（如果存在） */}
           {order.remark && (
             <Descriptions.Item label="备注" span={3}>{order.remark}</Descriptions.Item>
@@ -205,16 +329,156 @@ export default function OrderDetailPage() {
         </Descriptions>
       </Card>
 
+      {/* 时间线（关键时间节点，售后争议时一目了然） */}
+      <Card title="时间线" style={{ marginBottom: 16 }}>
+        <Steps
+          size="small"
+          labelPlacement="vertical"
+          items={timelineNodes.map((node) => ({
+            title: node.label,
+            description: (
+              <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#888' }}>
+                {node.time ? formatDateTime(node.time) : '—'}
+              </span>
+            ),
+            status: node.status,
+          }))}
+        />
+
+        {/* Deadline 区：退货窗口 + 预计自动收货（不混在主线节点里） */}
+        {(returnWindowInfo || autoReceiveInfo) && (
+          <div
+            style={{
+              marginTop: 24,
+              paddingTop: 16,
+              borderTop: '1px dashed #f0f0f0',
+              display: 'flex',
+              gap: 32,
+              flexWrap: 'wrap',
+              fontSize: 13,
+            }}
+          >
+            {returnWindowInfo && (
+              <div>
+                <span style={{ color: '#888', marginRight: 8 }}>退货窗口截止：</span>
+                <span style={{ fontFamily: 'monospace', marginRight: 8 }}>
+                  {formatDateTime(returnWindowInfo.expiresAt)}
+                </span>
+                {returnWindowInfo.expired ? (
+                  <Tag color="default">已过期</Tag>
+                ) : (
+                  <Tag color="orange">还剩 {returnWindowInfo.daysLeft} 天</Tag>
+                )}
+              </div>
+            )}
+            {autoReceiveInfo && (
+              <div>
+                <span style={{ color: '#888', marginRight: 8 }}>预计自动收货：</span>
+                <span style={{ fontFamily: 'monospace' }}>
+                  {formatDateTime(autoReceiveInfo)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
       {/* 支付信息 */}
       <Card title="支付信息" style={{ marginBottom: 16 }}>
         <Descriptions bordered column={{ xs: 1, sm: 2 }}>
-          <Descriptions.Item label="支付方式">{order.paymentMethod || '-'}</Descriptions.Item>
-          <Descriptions.Item label="支付时间">
-            {order.paidAt ? dayjs(order.paidAt).format('YYYY-MM-DD HH:mm:ss') : '-'}
+          <Descriptions.Item label="支付方式">
+            {order.paymentMethod
+              ? (paymentChannelLabel[order.paymentMethod] || order.paymentMethod)
+              : '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="交易号">{order.transactionId || '-'}</Descriptions.Item>
+          <Descriptions.Item label="支付时间">{formatDateTime(order.paidAt)}</Descriptions.Item>
+          <Descriptions.Item label="交易号" span={2}>
+            {order.transactionId
+              ? (
+                <Typography.Text copyable={{ text: order.transactionId }} style={{ fontFamily: 'monospace' }}>
+                  {order.transactionId}
+                </Typography.Text>
+              )
+              : '-'}
+          </Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {order.refunds?.length ? (
+        <Card title="退款信息" style={{ marginBottom: 16 }}>
+          <Table<Refund>
+            rowKey="id"
+            pagination={false}
+            size="small"
+            dataSource={order.refunds}
+            expandable={{
+              expandedRowRender: (refund) => (
+                refund.statusHistory?.length ? (
+                  <Table
+                    rowKey="createdAt"
+                    size="small"
+                    pagination={false}
+                    dataSource={refund.statusHistory}
+                    columns={[
+                      { title: '原状态', dataIndex: 'fromStatus', render: (value: string | null) => value || '-' },
+                      { title: '目标状态', dataIndex: 'toStatus' },
+                      { title: '备注', dataIndex: 'remark', render: (value: string | null) => value || '-' },
+                      { title: '操作人', dataIndex: 'operatorId', render: (value: string | null) => value || 'SYSTEM' },
+                      {
+                        title: '时间',
+                        dataIndex: 'createdAt',
+                        render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Typography.Text type="secondary">暂无退款状态历史</Typography.Text>
+                )
+              ),
+            }}
+            columns={[
+              {
+                title: '退款单号',
+                dataIndex: 'merchantRefundNo',
+                render: (value: string | undefined) => value ? (
+                  <Typography.Text copyable={{ text: value }} style={{ fontFamily: 'monospace' }}>
+                    {value}
+                  </Typography.Text>
+                ) : '-',
+              },
+              { title: '金额', dataIndex: 'amount', render: (value: number) => `¥${value.toFixed(2)}` },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                render: (value: string) => (
+                  <Tag color={refundStatusMap[value]?.color}>
+                    {refundStatusMap[value]?.text || value}
+                  </Tag>
+                ),
+              },
+              { title: '原因', dataIndex: 'reason' },
+              {
+                title: '更新时间',
+                dataIndex: 'updatedAt',
+                render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
+              },
+              {
+                title: '操作',
+                key: 'action',
+                render: (_: unknown, refund) => (
+                  ['FAILED', 'REFUNDING'].includes(refund.status) ? (
+                    <PermissionGate permission={PERMISSIONS.ORDERS_REFUND}>
+                      <Button size="small" danger onClick={() => handleRetryRefund(refund)}>
+                        重试退款
+                      </Button>
+                    </PermissionGate>
+                  ) : null
+                ),
+              },
+            ]}
+          />
+        </Card>
+      ) : null}
 
       {/* 商品明细 */}
       <Card title="商品明细" style={{ marginBottom: 16 }}>
@@ -239,11 +503,81 @@ export default function OrderDetailPage() {
             columns={[
               { title: '包裹', render: (_value, _record, index) => `包裹 ${index + 1}` },
               { title: '快递公司', dataIndex: 'carrierName', render: (value: string | undefined) => value || '-' },
-              { title: '运单号', render: (_value, record) => record.trackingNoMasked || record.trackingNo || '-' },
+              {
+                title: '运单号',
+                render: (_value, record) => {
+                  // admin 是信任用户，显示完整运单号 + 一键复制（不 mask）
+                  const no = record.waybillNo || record.trackingNo;
+                  if (!no) return '-';
+                  return (
+                    <Typography.Text copyable={{ text: no }} style={{ fontFamily: 'monospace' }}>
+                      {no}
+                    </Typography.Text>
+                  );
+                },
+              },
+              {
+                // 顺丰下单时传给 SF 的客户订单号（${bizNo}_${companyId}），调
+                // EXP_RECE_UPDATE_ORDER / SEARCH_ORDER_RESP 时填这个，不是 Order.id
+                title: '顺丰订单号',
+                render: (_value, record) => {
+                  const sfOrderId = record.sfOrderId;
+                  if (!sfOrderId) return '-';
+                  return (
+                    <Typography.Text copyable={{ text: sfOrderId }} style={{ fontFamily: 'monospace' }}>
+                      {sfOrderId}
+                    </Typography.Text>
+                  );
+                },
+              },
               {
                 title: '状态',
                 dataIndex: 'status',
                 render: (value: string | undefined) => value || '-',
+              },
+            ]}
+          />
+        </Card>
+      )}
+
+      {/* 状态历史（订单生命周期审计） */}
+      {order.statusHistory && order.statusHistory.length > 0 && (
+        <Card title="状态历史" style={{ marginBottom: 16 }}>
+          <Table
+            rowKey="id"
+            pagination={false}
+            size="small"
+            dataSource={order.statusHistory}
+            columns={[
+              {
+                title: '原状态',
+                dataIndex: 'fromStatus',
+                width: 120,
+                render: (value: string | null) => {
+                  if (!value) return '-';
+                  const s = orderStatusMap[value];
+                  return s ? <Tag color={s.color}>{s.text}</Tag> : value;
+                },
+              },
+              {
+                title: '目标状态',
+                dataIndex: 'toStatus',
+                width: 120,
+                render: (value: string) => {
+                  const s = orderStatusMap[value];
+                  return s ? <Tag color={s.color}>{s.text}</Tag> : value;
+                },
+              },
+              {
+                title: '原因',
+                dataIndex: 'reason',
+                render: (value: string | null) => value || '-',
+              },
+              {
+                title: '时间',
+                dataIndex: 'createdAt',
+                width: 180,
+                render: (value: string) => formatDateTime(value),
               },
             ]}
           />

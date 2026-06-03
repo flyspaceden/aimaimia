@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -15,8 +15,6 @@ interface FloatingParticlesProps {
   color?: string;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 // 单个粒子数据
 interface ParticleConfig {
   x: number;
@@ -29,11 +27,11 @@ interface ParticleConfig {
   driftY: number;
 }
 
-// 生成随机粒子配置
-function generateParticles(count: number): ParticleConfig[] {
+// 生成随机粒子配置（屏幕尺寸通过参数传入，避免在模块顶层使用 Dimensions.get）
+function generateParticles(count: number, screenWidth: number, screenHeight: number): ParticleConfig[] {
   return Array.from({ length: count }, () => ({
-    x: Math.random() * SCREEN_WIDTH,
-    y: Math.random() * SCREEN_HEIGHT,
+    x: Math.random() * screenWidth,
+    y: Math.random() * screenHeight,
     size: 3 + Math.random() * 4, // 3-7pt
     opacity: 0.08 + Math.random() * 0.07, // 0.08-0.15
     duration: 6000 + Math.random() * 2000, // 6-8s
@@ -138,7 +136,12 @@ export function FloatingParticles({
   count = 18,
   color = '#2F8F4E',
 }: FloatingParticlesProps) {
-  const particles = useMemo(() => generateParticles(count), [count]);
+  // 响应式屏幕尺寸（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
+  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
+  const particles = useMemo(
+    () => generateParticles(count, SCREEN_WIDTH, SCREEN_HEIGHT),
+    [count, SCREEN_WIDTH, SCREEN_HEIGHT],
+  );
 
   return (
     <View style={styles.container} pointerEvents="none">

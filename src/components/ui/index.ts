@@ -4,6 +4,8 @@ export * from './Price';
 export * from './IconButton';
 export * from './LikeButton';
 export * from './AvatarFrame';
+export * from './DefaultAvatar';
+export * from './UserAvatar';
 export * from './AiBadge';
 export * from './AiDivider';
 export * from './AiCardGlow';

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  App,
   Card,
   Form,
   Input,
   Button,
-  message,
   Typography,
   Tag,
   Tabs,
@@ -40,7 +40,6 @@ interface PasswordLoginForm {
 interface PhoneLoginForm {
   phone: string;
   code: string;
-  captchaCode: string;
 }
 
 // 环境标识：根据 VITE_APP_ENV 或 Vite 内置 MODE 判断
@@ -98,6 +97,7 @@ const svgToDataUrl = (svg: string): string => {
 };
 
 export default function LoginPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
@@ -191,30 +191,22 @@ export default function LoginPage() {
     }
   };
 
-  /** 发送短信验证码（需先通过图形验证码） */
+  /** 发送短信验证码（方案 A：只需手机号，后端速率限制保护） */
   const handleSendSms = async () => {
     try {
-      const values = await phoneForm.validateFields(['phone', 'captchaCode']);
-      if (!captchaId) {
-        message.error('请先获取图形验证码');
-        return;
-      }
+      const values = await phoneForm.validateFields(['phone']);
       setSmsSending(true);
-      await sendSmsCode(values.phone, captchaId, values.captchaCode);
+      await sendSmsCode(values.phone);
       message.success('验证码已发送');
       startCountdown();
-      // 图形验证码单次有效，发送后立即刷新并清空输入
-      void refreshCaptcha();
-      phoneForm.setFieldValue('captchaCode', '');
     } catch (err: any) {
       if (err?.errorFields) {
-        // 表单校验错误，由 antd 显示
+        // 表单校验错误：显式 toast 提示（仅靠字段下方小红字容易被忽略）
+        const firstMsg = err.errorFields?.[0]?.errors?.[0] || '请填写完整信息';
+        message.warning(firstMsg);
         return;
       }
       message.error(getLoginErrorMessage(err));
-      // 图形验证码校验失败时刷新验证码
-      void refreshCaptcha();
-      phoneForm.setFieldValue('captchaCode', '');
     } finally {
       setSmsSending(false);
     }
@@ -368,6 +360,17 @@ export default function LoginPage() {
                       登录
                     </Button>
                   </Form.Item>
+
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      color: '#999',
+                      fontSize: 12,
+                      marginTop: 12,
+                    }}
+                  >
+                    忘记密码请联系超级管理员重置
+                  </div>
                 </Form>
               ),
             },
@@ -396,56 +399,6 @@ export default function LoginPage() {
                       placeholder="手机号"
                       maxLength={11}
                     />
-                  </Form.Item>
-
-                  <Form.Item>
-                    <Space.Compact style={{ width: '100%' }}>
-                      <Form.Item
-                        name="captchaCode"
-                        noStyle
-                        rules={[
-                          { required: true, message: '请输入图形验证码' },
-                          { min: 4, max: 6, message: '验证码长度 4-6 位' },
-                        ]}
-                      >
-                        <Input
-                          prefix={<SafetyOutlined />}
-                          placeholder="图形验证码"
-                          autoComplete="off"
-                        />
-                      </Form.Item>
-                      <div
-                        onClick={() => !captchaLoading && refreshCaptcha()}
-                        title="点击刷新验证码"
-                        style={{
-                          height: 40,
-                          minWidth: 120,
-                          border: '1px solid #d9d9d9',
-                          borderLeft: 'none',
-                          borderRadius: '0 6px 6px 0',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: '#fafafa',
-                          cursor: captchaLoading ? 'wait' : 'pointer',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {captchaSvg ? (
-                          <img
-                            src={svgToDataUrl(captchaSvg)}
-                            alt="captcha"
-                            style={{
-                              height: '100%',
-                              width: '100%',
-                              objectFit: 'contain',
-                            }}
-                          />
-                        ) : (
-                          <ReloadOutlined spin={captchaLoading} />
-                        )}
-                      </div>
-                    </Space.Compact>
                   </Form.Item>
 
                   <Form.Item
@@ -491,6 +444,19 @@ export default function LoginPage() {
           ]}
         />
       </Card>
+      <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
+        <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
+        <div>
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#666' }}
+          >
+            粤ICP备2023047684号-5
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

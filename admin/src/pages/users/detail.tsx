@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Breadcrumb, Card, Row, Col, Statistic, Descriptions, Tabs, Tag, Avatar,
-  Button, Space, Table, Spin, Result, Empty, Modal, Input, message, Typography,
+  App, Breadcrumb, Card, Row, Col, Statistic, Descriptions, Tabs, Tag, Avatar,
+  Button, Space, Table, Spin, Result, Empty, Modal, Input, Typography,
 } from 'antd';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -17,7 +17,7 @@ import { getOrders } from '@/api/orders';
 import { getMemberDetail } from '@/api/bonus';
 import { getInstances } from '@/api/coupon';
 import type { AppUserDetail, Order, BonusMemberDetail } from '@/types';
-import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap } from '@/constants/statusMaps';
+import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap, rewardAccountTypeMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
@@ -37,6 +37,7 @@ const genderMap: Record<string, string> = {
 };
 
 export default function UserDetailPage() {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -198,9 +199,33 @@ export default function UserDetailPage() {
             size="small"
             pagination={false}
             columns={[
-              { title: '类型', dataIndex: 'entryType', width: 80, render: (v: string) => v === 'CREDIT' ? <Tag color="green">收入</Tag> : <Tag color="red">支出</Tag> },
+              {
+                title: '账户', dataIndex: ['account', 'type'], width: 110,
+                render: (v: string | undefined) => {
+                  if (!v) return '-';
+                  const m = rewardAccountTypeMap[v];
+                  return <Tag color={m?.color || 'default'}>{m?.text || v}</Tag>;
+                },
+              },
+              {
+                title: '类型', dataIndex: 'entryType', width: 80,
+                render: (v: string) => {
+                  const m = rewardEntryTypeMap[v];
+                  return <Tag color={m?.color || 'default'}>{m?.text || v}</Tag>;
+                },
+              },
               { title: '金额', dataIndex: 'amount', width: 100, render: (v: number) => `¥${v.toFixed(2)}` },
-              { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+              {
+                title: '状态', dataIndex: 'status', width: 80,
+                render: (v: string) => {
+                  const m = rewardLedgerStatusMap[v];
+                  return <Tag color={m?.color || 'default'}>{m?.text || v}</Tag>;
+                },
+              },
+              {
+                title: '关联类型', dataIndex: 'refType', width: 100,
+                render: (v: string | null) => (v ? (rewardRefTypeMap[v] || v) : '-'),
+              },
               { title: '时间', dataIndex: 'createdAt', width: 160, render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm') },
             ]}
           />

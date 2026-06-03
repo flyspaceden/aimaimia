@@ -1,20 +1,27 @@
-import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, message, Space, Popconfirm, Card, InputNumber, Descriptions, Alert, Select, Badge, Row, Col, Spin, Tooltip, Typography } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, WarningOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { App, Button, Tag, Space, Popconfirm, Card, InputNumber, Alert, Row, Col, Spin, Tooltip, Typography, Switch } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, WarningOutlined, SaveOutlined, InfoCircleOutlined, UploadOutlined } from '@ant-design/icons';
 import {
-  getShippingRules,
+  listRules,
   createShippingRule,
   updateShippingRule,
   deleteShippingRule,
-  previewShipping,
 } from '@/api/shipping-rules';
-import type { ShippingRule, ShippingPreview } from '@/api/shipping-rules';
+import type { ShippingRule } from '@/api/shipping-rules';
 import { getConfigs, updateConfig } from '@/api/config';
 import { extractConfigValue } from '@/types';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
+import ImportDialog from './components/ImportDialog';
+import PreviewPanel from './components/PreviewPanel';
+import {
+  SHIPPING_REGION_OPTIONS,
+  formatRuleRegionCodes,
+  normalizeRuleRegionCodesForForm,
+  normalizeSelectedRegionCodes,
+} from './regions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -26,103 +33,33 @@ const getRuleStatusMeta = (isActive: boolean) => (
     : { text: '停用', color: 'default' }
 );
 
-// 中国省份/直辖市地区编码映射（用于预览区域选择器）
-const REGION_OPTIONS: { label: string; value: string }[] = [
-  { label: '北京', value: '11' },
-  { label: '天津', value: '12' },
-  { label: '河北', value: '13' },
-  { label: '山西', value: '14' },
-  { label: '内蒙古', value: '15' },
-  { label: '辽宁', value: '21' },
-  { label: '吉林', value: '22' },
-  { label: '黑龙江', value: '23' },
-  { label: '上海', value: '31' },
-  { label: '江苏', value: '32' },
-  { label: '浙江', value: '33' },
-  { label: '安徽', value: '34' },
-  { label: '福建', value: '35' },
-  { label: '江西', value: '36' },
-  { label: '山东', value: '37' },
-  { label: '河南', value: '41' },
-  { label: '湖北', value: '42' },
-  { label: '湖南', value: '43' },
-  { label: '广东', value: '44' },
-  { label: '广西', value: '45' },
-  { label: '海南', value: '46' },
-  { label: '重庆', value: '50' },
-  { label: '四川', value: '51' },
-  { label: '贵州', value: '52' },
-  { label: '云南', value: '53' },
-  { label: '西藏', value: '54' },
-  { label: '陕西', value: '61' },
-  { label: '甘肃', value: '62' },
-  { label: '青海', value: '63' },
-  { label: '宁夏', value: '64' },
-  { label: '新疆', value: '65' },
-];
-
-// 地区编码→名称映射
-const REGION_NAME_MAP: Record<string, string> = {};
-REGION_OPTIONS.forEach((r) => { REGION_NAME_MAP[r.value] = r.label; });
-
-// 优先级等级颜色映射
-const getPriorityStyle = (priority: number, maxPriority: number) => {
-  if (maxPriority <= 0) return { color: '#999', bg: 'transparent' };
-  const ratio = priority / maxPriority;
-  if (ratio >= 0.8) return { color: '#f5222d', bg: '#fff1f0' };  // 高优先
-  if (ratio >= 0.5) return { color: '#fa8c16', bg: '#fff7e6' };  // 中优先
-  if (ratio > 0) return { color: '#1890ff', bg: '#e6f7ff' };     // 低优先
-  return { color: '#999', bg: 'transparent' };                     // 默认
-};
-
 interface ShippingRuleFormValues {
   name: string;
-  regionCodesText?: string;
-  minAmount?: number;
-  maxAmount?: number;
-  minWeight?: number;
-  maxWeight?: number;
-  fee: number;
-  priority?: number;
+  regionCodes?: string[];
+  firstWeightKg: number;
+  firstFee: number;
+  additionalWeightKg: number;
+  additionalFee: number;
+  minChargeWeightKg: number;
   isActive?: boolean;
 }
-
-const formatRange = (min?: number | null, max?: number | null, unit = '') => {
-  const minText = typeof min === 'number' ? `${min}${unit}` : undefined;
-  const maxText = typeof max === 'number' ? `${max}${unit}` : undefined;
-  if (!minText && !maxText) return '不限';
-  if (minText && maxText) return `[${minText}, ${maxText})`;
-  if (minText) return `>= ${minText}`;
-  return `< ${maxText}`;
-};
-
-/** 检测两个数值区间是否重叠（null/undefined 视为无限） */
-const rangesOverlap = (
-  aMin?: number | null,
-  aMax?: number | null,
-  bMin?: number | null,
-  bMax?: number | null,
-): boolean => {
-  const aLo = aMin ?? -Infinity;
-  const aHi = aMax ?? Infinity;
-  const bLo = bMin ?? -Infinity;
-  const bHi = bMax ?? Infinity;
-  return aLo < bHi && bLo < aHi;
-};
 
 /** 检测两个地区列表是否有交集（空数组视为"全国"，与任何地区交叉） */
 const regionsOverlap = (a: string[], b: string[]): boolean => {
   if (a.length === 0 || b.length === 0) return true; // 全国与任何地区交叉
-  const setA = new Set(a);
-  return b.some((code) => setA.has(code));
+  const provincePrefixes = new Set(normalizeRuleRegionCodesForForm(a));
+  return normalizeRuleRegionCodesForForm(b).some((prefix) => provincePrefixes.has(prefix));
 };
 
 export default function ShippingRulesPage() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ visible: boolean; rule: ShippingRule | null }>({
     visible: false,
     rule: null,
   });
+  const [importOpen, setImportOpen] = useState(false);
 
   // 免运费门槛配置
   const [thresholdLoading, setThresholdLoading] = useState(true);
@@ -162,26 +99,9 @@ export default function ShippingRulesPage() {
   // 缓存所有已加载规则，用于冲突检测
   const [allRules, setAllRules] = useState<ShippingRule[]>([]);
 
-  // 运费预览状态
-  const [previewGoodsAmount, setPreviewGoodsAmount] = useState<number>(100);
-  const [previewRegionCode, setPreviewRegionCode] = useState<string>('');
-  const [previewWeight, setPreviewWeight] = useState<number>(1);
-  const [previewResult, setPreviewResult] = useState<ShippingPreview | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-
-  // 计算当前规则列表中的最大优先级（用于优先级高亮）
-  const maxPriority = useMemo(() => {
-    if (allRules.length === 0) return 0;
-    return Math.max(...allRules.map((r) => r.priority));
-  }, [allRules]);
-
   // 冲突检测：给定当前编辑的规则，找到与之条件重叠的其他规则
   const detectConflicts = useCallback((formRule: {
     regionCodes: string[];
-    minAmount?: number;
-    maxAmount?: number;
-    minWeight?: number;
-    maxWeight?: number;
   }, editingId?: string): ShippingRule[] => {
     return allRules.filter((existing) => {
       // 排除自身
@@ -190,10 +110,6 @@ export default function ShippingRulesPage() {
       if (!existing.isActive) return false;
       // 检测地区重叠
       if (!regionsOverlap(formRule.regionCodes, existing.regionCodes)) return false;
-      // 检测金额区间重叠
-      if (!rangesOverlap(formRule.minAmount, formRule.maxAmount, existing.minAmount, existing.maxAmount)) return false;
-      // 检测重量区间重叠
-      if (!rangesOverlap(formRule.minWeight, formRule.maxWeight, existing.minWeight, existing.maxWeight)) return false;
       return true;
     });
   }, [allRules]);
@@ -203,18 +119,9 @@ export default function ShippingRulesPage() {
 
   // 表单值变化时重新检测冲突
   const handleFormValuesChange = useCallback((_: unknown, allValues: ShippingRuleFormValues) => {
-    const regionCodes = (allValues.regionCodesText || '')
-      .split(/[,\n，]/)
-      .map((v) => v.trim())
-      .filter(Boolean);
+    const regionCodes = normalizeSelectedRegionCodes(allValues.regionCodes);
     const conflicts = detectConflicts(
-      {
-        regionCodes,
-        minAmount: allValues.minAmount,
-        maxAmount: allValues.maxAmount,
-        minWeight: allValues.minWeight,
-        maxWeight: allValues.maxWeight,
-      },
+      { regionCodes },
       editModal.rule?.id,
     );
     setFormConflicts(conflicts);
@@ -226,37 +133,47 @@ export default function ShippingRulesPage() {
       message.success('删除成功');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
-    }
-  };
-
-  const handlePreview = async () => {
-    setPreviewLoading(true);
-    try {
-      const result = await previewShipping({
-        goodsAmount: previewGoodsAmount,
-        regionCode: previewRegionCode || undefined,
-        totalWeight: previewWeight,
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
       });
-      setPreviewResult(result);
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '预览失败');
-      setPreviewResult(null);
-    } finally {
-      setPreviewLoading(false);
     }
   };
 
-  // 将地区编码列表格式化为可读名称
-  const formatRegionCodes = (codes: string[]): string => {
-    if (codes.length === 0) return '全国';
-    return codes.map((c) => REGION_NAME_MAP[c] || c).join(', ');
+  const handleStatusToggle = async (id: string, checked: boolean) => {
+    try {
+      setTogglingId(id);
+      await updateShippingRule(id, { isActive: checked });
+      message.success(checked ? '已启用' : '已停用');
+      actionRef.current?.reload();
+    } catch (err) {
+      modal.error({
+        title: checked ? '无法启用' : '无法停用',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '状态更新失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   const columns: ProColumns<ShippingRule>[] = [
     {
       title: '#',
-      dataIndex: 'priorityRank',
+      dataIndex: 'rowIndex',
       width: 50,
       search: false,
       render: (_: unknown, _r: ShippingRule, index: number) => (
@@ -269,69 +186,66 @@ export default function ShippingRulesPage() {
       dataIndex: 'regionCodes',
       width: 200,
       search: false,
-      render: (_: unknown, r: ShippingRule) => formatRegionCodes(r.regionCodes),
+      render: (_: unknown, r: ShippingRule) => formatRuleRegionCodes(r.regionCodes),
     },
     {
-      title: '金额区间',
-      dataIndex: 'amountRange',
-      width: 180,
-      search: false,
-      render: (_: unknown, r: ShippingRule) => formatRange(r.minAmount, r.maxAmount, '元'),
-    },
-    {
-      title: '重量区间',
-      dataIndex: 'weightRange',
-      width: 180,
-      search: false,
-      render: (_: unknown, r: ShippingRule) => formatRange(r.minWeight, r.maxWeight, 'kg'),
-    },
-    {
-      title: '运费',
-      dataIndex: 'fee',
-      width: 100,
-      search: false,
-      render: (_: unknown, r: ShippingRule) => `¥${r.fee.toFixed(2)}`,
-    },
-    {
-      title: '优先级',
-      dataIndex: 'priority',
+      title: '首重重量',
+      dataIndex: 'firstWeightKg',
       width: 110,
       search: false,
-      sorter: (a: ShippingRule, b: ShippingRule) => a.priority - b.priority,
-      defaultSortOrder: 'descend',
-      render: (_: unknown, r: ShippingRule) => {
-        const style = getPriorityStyle(r.priority, maxPriority);
-        return (
-          <Badge
-            count={r.priority}
-            showZero
-            style={{
-              backgroundColor: style.bg,
-              color: style.color,
-              border: `1px solid ${style.color}`,
-              fontWeight: 600,
-              boxShadow: 'none',
-            }}
-          />
-        );
-      },
+      render: (_: unknown, r: ShippingRule) => `${r.firstWeightKg ?? 3}kg`,
+    },
+    {
+      title: '首重价',
+      dataIndex: 'firstFee',
+      width: 110,
+      search: false,
+      render: (_: unknown, r: ShippingRule) => `¥${Number(r.firstFee ?? r.fee ?? 0).toFixed(2)}`,
+    },
+    {
+      title: '续重单位',
+      dataIndex: 'additionalWeightKg',
+      width: 110,
+      search: false,
+      render: (_: unknown, r: ShippingRule) => `${r.additionalWeightKg ?? 1}kg`,
+    },
+    {
+      title: '续重价',
+      dataIndex: 'additionalFee',
+      width: 110,
+      search: false,
+      render: (_: unknown, r: ShippingRule) => `¥${Number(r.additionalFee ?? 0).toFixed(2)}`,
     },
     {
       title: '状态',
       dataIndex: 'isActive',
-      width: 80,
+      width: 110,
       search: false,
       render: (_: unknown, r: ShippingRule) => {
         const s = getRuleStatusMeta(r.isActive);
-        return <Tag color={s.color}>{s.text}</Tag>;
+        return (
+          <PermissionGate
+            permission={PERMISSIONS.SHIPPING_UPDATE}
+            fallback={<Tag color={s.color}>{s.text}</Tag>}
+          >
+            <Switch
+              size="small"
+              checkedChildren="启用"
+              unCheckedChildren="停用"
+              checked={r.isActive}
+              loading={togglingId === r.id}
+              onChange={(checked) => handleStatusToggle(r.id, checked)}
+            />
+          </PermissionGate>
+        );
       },
     },
     {
-      title: '创建时间',
-      dataIndex: 'createdAt',
+      title: '更新时间',
+      dataIndex: 'updatedAt',
       width: 160,
       search: false,
-      render: (_: unknown, r: ShippingRule) => dayjs(r.createdAt).format('YYYY-MM-DD HH:mm'),
+      render: (_: unknown, r: ShippingRule) => dayjs(r.updatedAt).format('YYYY-MM-DD HH:mm'),
     },
     {
       title: '操作',
@@ -442,7 +356,7 @@ export default function ShippingRulesPage() {
         columns={columns}
         rowKey="id"
         request={async (params) => {
-          const res = await getShippingRules({
+          const res = await listRules({
             page: params.current || 1,
             pageSize: params.pageSize || 100, // 加载更多规则用于冲突检测
           });
@@ -453,12 +367,14 @@ export default function ShippingRulesPage() {
         search={false}
         rowClassName={(record) => {
           if (!record.isActive) return 'shipping-rule-row-inactive';
-          const style = getPriorityStyle(record.priority, maxPriority);
-          if (style.color === '#f5222d') return 'shipping-rule-row-high';
-          if (style.color === '#fa8c16') return 'shipping-rule-row-medium';
           return '';
         }}
         toolBarRender={() => [
+          <PermissionGate key="import" permission={PERMISSIONS.SHIPPING_UPDATE}>
+            <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
+              批量导入
+            </Button>
+          </PermissionGate>,
           <PermissionGate key="add" permission={PERMISSIONS.SHIPPING_CREATE}>
             <Button
               type="primary"
@@ -474,95 +390,15 @@ export default function ShippingRulesPage() {
         ]}
       />
 
-      {/* 运费预览测试 */}
-      <Card title="运费预览测试" style={{ marginTop: 16 }}>
-        <Space wrap style={{ marginBottom: 16 }}>
-          <div>
-            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>商品总金额（元）</div>
-            <InputNumber
-              value={previewGoodsAmount}
-              onChange={(v) => setPreviewGoodsAmount(v ?? 0)}
-              min={0}
-              step={10}
-              precision={2}
-              style={{ width: 160 }}
-            />
-          </div>
-          <div>
-            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>省份/地区</div>
-            <Select
-              value={previewRegionCode || undefined}
-              onChange={(v) => setPreviewRegionCode(v || '')}
-              placeholder="选择省份"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              options={REGION_OPTIONS}
-              style={{ width: 160 }}
-            />
-          </div>
-          <div>
-            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>总重量（kg）</div>
-            <InputNumber
-              value={previewWeight}
-              onChange={(v) => setPreviewWeight(v ?? 0)}
-              min={0}
-              step={0.5}
-              precision={2}
-              style={{ width: 160 }}
-            />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
-            <Button
-              type="primary"
-              icon={<SearchOutlined />}
-              loading={previewLoading}
-              onClick={handlePreview}
-              style={{ marginTop: 20 }}
-            >
-              测试
-            </Button>
-          </div>
-        </Space>
+      <PreviewPanel />
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onSuccess={() => actionRef.current?.reload()}
+      />
 
-        {previewResult && (
-          <Descriptions bordered size="small" column={3}>
-            <Descriptions.Item label="运费">
-              <span style={{ fontSize: 18, fontWeight: 600, color: '#1890ff' }}>
-                ¥{previewResult.fee.toFixed(2)}
-              </span>
-            </Descriptions.Item>
-            <Descriptions.Item label="输入金额">
-              ¥{previewResult.input.goodsAmount.toFixed(2)}
-            </Descriptions.Item>
-            <Descriptions.Item label="地区">
-              {previewResult.input.regionCode
-                ? `${REGION_NAME_MAP[previewResult.input.regionCode] || previewResult.input.regionCode}（${previewResult.input.regionCode}）`
-                : '未指定'}
-            </Descriptions.Item>
-            <Descriptions.Item label="输入重量">
-              {typeof previewResult.input.totalWeight === 'number'
-                ? `${previewResult.input.totalWeight.toFixed(2)}kg`
-                : '未指定'}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Card>
-
-      {/* 内联样式：优先级行高亮 */}
+      {/* 内联样式：停用规则弱化 */}
       <style>{`
-        .shipping-rule-row-high {
-          background-color: #fff1f0 !important;
-        }
-        .shipping-rule-row-high:hover > td {
-          background-color: #ffccc7 !important;
-        }
-        .shipping-rule-row-medium {
-          background-color: #fff7e6 !important;
-        }
-        .shipping-rule-row-medium:hover > td {
-          background-color: #ffe7ba !important;
-        }
         .shipping-rule-row-inactive {
           opacity: 0.5;
         }
@@ -574,16 +410,18 @@ export default function ShippingRulesPage() {
         open={editModal.visible}
         initialValues={editModal.rule ? {
           name: editModal.rule.name,
-          regionCodesText: editModal.rule.regionCodes.join(','),
-          minAmount: editModal.rule.minAmount ?? undefined,
-          maxAmount: editModal.rule.maxAmount ?? undefined,
-          minWeight: editModal.rule.minWeight ?? undefined,
-          maxWeight: editModal.rule.maxWeight ?? undefined,
-          fee: editModal.rule.fee,
-          priority: editModal.rule.priority,
+          regionCodes: normalizeRuleRegionCodesForForm(editModal.rule.regionCodes),
+          firstWeightKg: editModal.rule.firstWeightKg ?? 3,
+          firstFee: editModal.rule.firstFee ?? editModal.rule.fee,
+          additionalWeightKg: editModal.rule.additionalWeightKg ?? 1,
+          additionalFee: editModal.rule.additionalFee ?? 0,
+          minChargeWeightKg: editModal.rule.minChargeWeightKg ?? 1,
           isActive: editModal.rule.isActive,
         } : {
-          priority: 0,
+          firstWeightKg: 3,
+          additionalWeightKg: 1,
+          additionalFee: 0,
+          minChargeWeightKg: 1,
           isActive: true,
         }}
         modalProps={{
@@ -595,29 +433,35 @@ export default function ShippingRulesPage() {
         }}
         onValuesChange={handleFormValuesChange}
         onFinish={async (values: ShippingRuleFormValues) => {
-          if (values.minAmount != null && values.maxAmount != null && values.minAmount >= values.maxAmount) {
-            message.error('金额下限必须小于上限');
+          if (values.firstWeightKg <= 0) {
+            message.error('首重重量必须大于 0');
             return false;
           }
-          if (values.minWeight != null && values.maxWeight != null && values.minWeight >= values.maxWeight) {
-            message.error('重量下限必须小于上限');
+          if (values.firstFee <= 0) {
+            message.error('首重价必须大于 0');
+            return false;
+          }
+          if (values.additionalWeightKg <= 0) {
+            message.error('续重单位必须大于 0');
+            return false;
+          }
+          if (values.additionalFee < 0 || values.minChargeWeightKg < 0) {
+            message.error('续重价和最小计费重量不能小于 0');
             return false;
           }
 
-          const regionCodes = (values.regionCodesText || '')
-            .split(/[,\n，]/)
-            .map((v) => v.trim())
-            .filter(Boolean);
+          const regionCodes = normalizeSelectedRegionCodes(values.regionCodes);
 
           const payload = {
             name: values.name,
             regionCodes,
-            minAmount: values.minAmount ?? undefined,
-            maxAmount: values.maxAmount ?? undefined,
-            minWeight: values.minWeight ?? undefined,
-            maxWeight: values.maxWeight ?? undefined,
-            fee: values.fee,
-            priority: values.priority ?? 0,
+            fee: values.firstFee,
+            firstWeightKg: values.firstWeightKg,
+            firstFee: values.firstFee,
+            additionalWeightKg: values.additionalWeightKg,
+            additionalFee: values.additionalFee,
+            minChargeWeightKg: values.minChargeWeightKg,
+            isActive: values.isActive ?? true,
           };
 
           try {
@@ -655,14 +499,13 @@ export default function ShippingRulesPage() {
                   <div key={c.id} style={{ marginBottom: 4 }}>
                     <strong>{c.name}</strong>
                     {' — '}
-                    地区: {formatRegionCodes(c.regionCodes)}，
-                    金额: {formatRange(c.minAmount, c.maxAmount, '元')}，
-                    重量: {formatRange(c.minWeight, c.maxWeight, 'kg')}，
-                    优先级: {c.priority}
+                    地区: {formatRuleRegionCodes(c.regionCodes)}，
+                    首重: {c.firstWeightKg ?? 3}kg / ¥{Number(c.firstFee ?? c.fee ?? 0).toFixed(2)}，
+                    续重: {c.additionalWeightKg ?? 1}kg / ¥{Number(c.additionalFee ?? 0).toFixed(2)}
                   </div>
                 ))}
                 <div style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
-                  冲突规则将按优先级数值从高到低命中，请确认优先级设置正确。
+                  地区范围重叠会影响最终命中规则；建议停用或删除重复地区规则。
                 </div>
               </div>
             }
@@ -674,51 +517,55 @@ export default function ShippingRulesPage() {
           rules={[{ required: true, message: '请输入规则名称' }]}
           placeholder="如：华南小件、全国默认运费"
         />
-        <ProFormText
-          name="regionCodesText"
-          label="地区编码列表"
-          placeholder="如：44,45,46（逗号分隔，留空=全国）"
+        <ProFormSelect
+          name="regionCodes"
+          label="适用地区"
+          extra="不选择表示全国规则。这里使用行政区划省级归属，不是邮政编码。"
+          placeholder="选择省份/自治区/直辖市"
+          options={SHIPPING_REGION_OPTIONS}
+          fieldProps={{
+            mode: 'multiple',
+            allowClear: true,
+            showSearch: true,
+            optionFilterProp: 'label',
+            maxTagCount: 'responsive',
+          }}
         />
         <ProFormDigit
-          name="minAmount"
-          label="金额下限（元）"
-          min={0}
-          fieldProps={{ step: 1, precision: 2 }}
-          extra="留空表示不限制"
+          name="firstWeightKg"
+          label="首重重量（kg）"
+          min={0.01}
+          fieldProps={{ step: 0.5, precision: 2 }}
+          rules={[{ required: true, message: '请输入首重重量' }]}
         />
         <ProFormDigit
-          name="maxAmount"
-          label="金额上限（元）"
-          min={0}
-          fieldProps={{ step: 1, precision: 2 }}
-          extra="开区间上限（留空表示不限制）"
+          name="firstFee"
+          label="首重价（元）"
+          min={0.01}
+          fieldProps={{ step: 0.5, precision: 2 }}
+          rules={[{ required: true, message: '请输入首重价' }]}
+          extra="将同步写入 fee 兼容字段"
         />
         <ProFormDigit
-          name="minWeight"
-          label="重量下限（kg）"
+          name="additionalWeightKg"
+          label="续重单位（kg）"
+          min={0.01}
+          fieldProps={{ step: 0.5, precision: 2 }}
+          rules={[{ required: true, message: '请输入续重单位' }]}
+        />
+        <ProFormDigit
+          name="additionalFee"
+          label="续重价（元）"
           min={0}
           fieldProps={{ step: 0.5, precision: 2 }}
-          extra="留空表示不限制"
+          rules={[{ required: true, message: '请输入续重价' }]}
         />
         <ProFormDigit
-          name="maxWeight"
-          label="重量上限（kg）"
+          name="minChargeWeightKg"
+          label="最小计费重量（kg）"
           min={0}
           fieldProps={{ step: 0.5, precision: 2 }}
-          extra="开区间上限（留空表示不限制）"
-        />
-        <ProFormDigit
-          name="fee"
-          label="运费（元）"
-          min={0}
-          fieldProps={{ step: 0.5, precision: 2 }}
-          rules={[{ required: true, message: '请输入运费' }]}
-        />
-        <ProFormDigit
-          name="priority"
-          label="优先级"
-          fieldProps={{ precision: 0 }}
-          extra="数值越大优先级越高"
+          rules={[{ required: true, message: '请输入最小计费重量' }]}
         />
         <ProFormSelect
           name="isActive"

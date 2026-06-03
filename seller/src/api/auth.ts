@@ -5,13 +5,11 @@ import type { LoginResponse, SelectCompanyResponse, SellerProfile } from '@/type
 export const getCaptcha = (): Promise<{ captchaId: string; svg: string }> =>
   client.get('/seller/auth/captcha');
 
-/** 发送验证码（需通过图形验证码校验） */
+/** 发送验证码（方案 A：无图形码，靠后端速率限制保护） */
 export const sendSmsCode = (
   phone: string,
-  captchaId: string,
-  captchaCode: string,
 ): Promise<{ ok: boolean }> =>
-  client.post('/seller/auth/sms/code', { phone, captchaId, captchaCode });
+  client.post('/seller/auth/sms/code', { phone });
 
 /** 手机号 + 验证码登录 */
 export const login = (phone: string, code: string): Promise<LoginResponse | SelectCompanyResponse> =>
@@ -41,3 +39,30 @@ export const logout = (): Promise<void> =>
 /** 获取当前卖家信息 */
 export const getMe = (): Promise<SellerProfile> =>
   client.get('/seller/auth/me');
+
+// ===================== C40c7 账号安全 =====================
+
+/** 修改密码（仅当前 staff 的 passwordHash） */
+export const changePassword = (data: {
+  oldPassword: string;
+  newPassword: string;
+}): Promise<{ ok: boolean }> =>
+  client.post('/seller/auth/change-password', data);
+
+/** 给新手机号发绑定验证码（已登录态） */
+export const sendBindPhoneSmsCode = (
+  phone: string,
+): Promise<{ ok: boolean; message?: string }> =>
+  client.post('/seller/auth/bind-phone/sms/code', { phone });
+
+/** 修改手机号（双重 SMS 验证，影响 User 名下所有企业 staff） */
+export const changePhone = (data: {
+  oldPhoneCode: string;
+  newPhone: string;
+  newPhoneCode: string;
+}): Promise<{ ok: boolean }> =>
+  client.post('/seller/auth/change-phone', data);
+
+/** 修改昵称（自助，无需 SMS；影响该 User 在所有企业 staff 和买家端的显示） */
+export const changeNickname = (nickname: string): Promise<{ ok: boolean; nickname: string }> =>
+  client.post('/seller/auth/change-nickname', { nickname });

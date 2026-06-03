@@ -47,6 +47,17 @@ export class SellerOrdersService {
     return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   }
 
+  private mapRefundSummary(refund?: any) {
+    if (!refund) return null;
+    return {
+      id: refund.id,
+      amount: refund.amount,
+      status: refund.status,
+      reason: refund.reason,
+      updatedAt: refund.updatedAt?.toISOString?.() ?? refund.updatedAt ?? null,
+    };
+  }
+
   /**
    * 批量查询买家匿名编号
    * 从 BuyerAlias 表按 userId + companyId 查询，返回 Map<userId, alias>
@@ -107,6 +118,20 @@ export class SellerOrdersService {
             where: { companyId },
             take: 1,
           },
+          refunds: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              amount: true,
+              status: true,
+              reason: true,
+              updatedAt: true,
+            },
+          },
+          invoice: {
+            select: { status: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
@@ -165,6 +190,8 @@ export class SellerOrdersService {
                 shippedAt: shipment.shippedAt,
               }
             : null,
+          invoiceStatus: (order as any).invoice?.status || null,
+          refundSummary: this.mapRefundSummary((order as any).refunds?.[0]),
         };
       }),
       total,
@@ -191,6 +218,17 @@ export class SellerOrdersService {
         // 发票状态（仅状态，不含抬头详情，保护买家隐私）
         invoice: {
           select: { id: true, status: true },
+        },
+        refunds: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            reason: true,
+            updatedAt: true,
+          },
         },
       },
     });
@@ -258,6 +296,7 @@ export class SellerOrdersService {
         : null,
       // 发票状态（只读，不含买家抬头详情）
       invoiceStatus: order.invoice?.status || null,
+      refundSummary: this.mapRefundSummary(order.refunds?.[0]),
     };
   }
 
@@ -324,12 +363,26 @@ export class SellerOrdersService {
 
       const maskedWaybillNo = maskTrackingNo(freshShipment.waybillNo);
 
+      const shippedAt = new Date();
       await tx.shipment.update({
         where: { id: freshShipment.id },
         data: {
           trackingNo: freshShipment.waybillNo,
           status: 'IN_TRANSIT',
-          shippedAt: new Date(),
+          shippedAt,
+        },
+      });
+
+      // 写入初始物流轨迹事件——确保 App 物流页有可见节点
+      // 顺丰 SF 真实揽件推送会带 opCode=50，那条事件晚几小时甚至几天才到
+      // 中间这段空白由"卖家已发货，等待快递员揽件"占位
+      await tx.shipmentTrackingEvent.create({
+        data: {
+          shipmentId: freshShipment.id,
+          occurredAt: shippedAt,
+          message: '卖家已发货，等待快递员揽件',
+          location: null,
+          statusCode: 'SHIPPED',
         },
       });
 

@@ -14,8 +14,10 @@ import { useRouter } from 'expo-router';
 import { Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AppBottomSheet } from '../../src/components/overlay';
+import { showPermissionRationale } from '../../src/components/overlay/PermissionRationaleModal';
 import { BonusRepo } from '../../src/repos';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
+import { getReferralInviterLabel } from '../../src/utils/referralRelation';
 
 const SCAN_BOX_SIZE = 250;
 const CORNER_SIZE = 24;
@@ -24,11 +26,23 @@ const CORNER_WIDTH = 3;
 // 二维码扫描页
 export default function ScannerScreen() {
   const { colors, radius, spacing, typography } = useTheme();
+  const bottomAreaPadding = useBottomInset(32);
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
 
   const [permission, requestPermission] = useCameraPermissions();
+
+  // 华为合规：申请相机权限前先以弹窗形式同步告知权限用途
+  const handleRequestCameraPermission = useCallback(async () => {
+    const userAgreed = await showPermissionRationale({
+      permission: 'camera',
+      featureName: '扫描推荐码二维码',
+      purpose: '使用相机扫描他人分享的推荐码二维码，以快速绑定推荐关系',
+    });
+    if (!userAgreed) return;
+    await requestPermission();
+  }, [requestPermission]);
   const [scanned, setScanned] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -54,7 +68,11 @@ export default function ScannerScreen() {
     mutationFn: (code: string) => BonusRepo.useReferralCode(code),
     onSuccess: (result) => {
       if (result.ok) {
-        show({ message: '推荐码绑定成功！', type: 'success' });
+        const inviterName = getReferralInviterLabel(result.data);
+        show({
+          message: inviterName ? `已绑定推荐人：${inviterName}` : '推荐码绑定成功！',
+          type: 'success',
+        });
         queryClient.invalidateQueries({ queryKey: ['bonus-member'] });
         router.back();
       } else {
@@ -70,9 +88,9 @@ export default function ScannerScreen() {
 
   // 从扫描结果中解析推荐码
   const parseReferralCode = (data: string): string | null => {
-    // 支持 URL 格式: https://app.xn--ckqa175y.com/r/CODE
-    const urlMatch = data.match(/app\.xn--ckqa175y\.com\/r\/([A-Za-z0-9]{8})/);
-    if (urlMatch) return urlMatch[1].toUpperCase();
+    // 支持 URL 格式: https://app.ai-maimai.com/r/CODE（兼容旧域名 app.xn--ckqa175y.com）
+    const urlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/r\/([A-Za-z0-9]{8})/);
+    if (urlMatch) return urlMatch[2].toUpperCase();
     // 纯文本 8 位码
     const codeMatch = data.match(/^[A-Za-z0-9]{8}$/);
     if (codeMatch) return data.toUpperCase();
@@ -119,7 +137,7 @@ export default function ScannerScreen() {
             扫描推荐码二维码需要使用相机，请授权相机访问权限
           </Text>
           <Pressable
-            onPress={requestPermission}
+            onPress={handleRequestCameraPermission}
             style={[styles.permissionBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill, marginTop: spacing.xl }]}
           >
             <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>授权相机</Text>
@@ -190,7 +208,7 @@ export default function ScannerScreen() {
         </View>
 
         {/* 底部提示 */}
-        <View style={styles.bottomArea}>
+        <View style={[styles.bottomArea, { paddingBottom: bottomAreaPadding }]}>
           <Text style={[typography.bodySm, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
             将推荐码二维码放入框内
           </Text>
@@ -338,7 +356,7 @@ const styles = StyleSheet.create({
   },
   // 底部区域
   bottomArea: {
-    paddingVertical: 32,
+    paddingTop: 32,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   // 手动输入

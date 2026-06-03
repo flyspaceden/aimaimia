@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Post,
+  Delete,
   Param,
   Body,
   Query,
@@ -93,6 +94,19 @@ export class AdminProductsController {
     @Body() dto: ToggleProductStatusDto,
   ) {
     return this.productsService.toggleStatus(id, dto.status);
+  }
+
+  @Delete(':id')
+  @RequirePermission('products:delete')
+  @AuditLog({
+    action: 'DELETE',
+    module: 'products',
+    targetType: 'Product',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  remove(@Param('id') id: string) {
+    return this.productsService.remove(id);
   }
 
   @Post(':id/audit')

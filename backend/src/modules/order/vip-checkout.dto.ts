@@ -46,4 +46,10 @@ export class VipCheckoutDto {
   @IsNumber()
   @Min(0)
   expectedTotal?: number;
+
+  /** 买家留言（非必填，<= 200 字） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  buyerNote?: string;
 }

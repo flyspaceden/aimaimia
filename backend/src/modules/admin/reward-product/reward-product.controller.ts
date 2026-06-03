@@ -82,7 +82,7 @@ export class RewardProductController {
     return this.rewardProductService.update(id, dto);
   }
 
-  /** 下架奖励商品 */
+  /** 删除奖励商品（硬删除） */
   @Delete(':id')
   @RequirePermission('reward_products:delete')
   @AuditLog({
@@ -90,7 +90,7 @@ export class RewardProductController {
     module: 'reward_products',
     targetType: 'Product',
     targetIdParam: 'params.id',
-    isReversible: true,
+    isReversible: false,
   })
   remove(@Param('id') id: string) {
     return this.rewardProductService.remove(id);

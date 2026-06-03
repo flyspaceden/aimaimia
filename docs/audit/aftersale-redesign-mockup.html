@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>申请售后页面 · 修改方案对比</title>
+<style>
+:root {
+  --brand: #2E7D32;
+  --brand-soft: #E6F4E7;
+  --bg: #F5F6F5;
+  --surface: #FFFFFF;
+  --text: #1A1A1A;
+  --text-2: #6B7280;
+  --text-3: #9CA3AF;
+  --border: #E5E7EB;
+  --danger: #DC2626;
+  --shadow: 0 4px 12px rgba(0,0,0,0.05);
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 32px 24px 64px;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  color: var(--text);
+  min-height: 100vh;
+}
+.page-header {
+  max-width: 1400px;
+  margin: 0 auto 32px;
+  text-align: center;
+}
+.page-header h1 { margin: 0 0 8px; font-size: 26px; font-weight: 700; }
+.page-header p { margin: 0; color: var(--text-2); font-size: 13px; }
+
+.section {
+  max-width: 1400px;
+  margin: 0 auto 56px;
+}
+.section-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  padding-left: 12px;
+  border-left: 4px solid var(--brand);
+}
+.section-desc {
+  font-size: 13px;
+  color: var(--text-2);
+  margin: 0 0 20px 16px;
+}
+
+.row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.phone {
+  width: 360px;
+  background: #fff;
+  border-radius: 32px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+  overflow: hidden;
+  border: 8px solid #1f2937;
+  flex-shrink: 0;
+}
+.phone-status {
+  height: 28px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  font-size: 11px;
+  color: #1f2937;
+}
+.phone-header {
+  height: 44px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.phone-header::before {
+  content: '‹';
+  position: absolute;
+  left: 16px;
+  font-size: 22px;
+  color: var(--text);
+}
+.phone-body {
+  padding: 16px;
+  background: var(--bg);
+  min-height: 600px;
+}
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-badge {
+  width: 22px; height: 22px;
+  background: var(--brand);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+}
+.step-title { font-size: 15px; font-weight: 600; }
+.step-sub { font-size: 12px; color: var(--text-2); margin-left: 30px; margin-top: 4px; }
+
+/* --- A1: list row --- */
+.type-list { margin-top: 12px; }
+.type-list-row {
+  display: flex; align-items: center;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  transition: all 0.2s;
+}
+.type-list-row.active {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.type-list-icon {
+  width: 36px; height: 36px;
+  background: rgba(46,125,50,0.08);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin-right: 12px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.type-list-info { flex: 1; min-width: 0; }
+.type-list-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.type-list-desc { font-size: 11.5px; color: var(--text-2); margin-top: 2px; line-height: 1.4; }
+.type-list-radio {
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.type-list-row.active .type-list-radio {
+  border-color: var(--brand);
+  background: var(--brand);
+  position: relative;
+}
+.type-list-row.active .type-list-radio::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px; height: 6px;
+  background: #fff;
+  border-radius: 50%;
+}
+.type-list-row.active .type-list-name { color: var(--brand); }
+
+/* --- A2: 2x2 grid --- */
+.type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-left: 30px;
+  margin-top: 12px;
+}
+.type-grid-card {
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--surface);
+  transition: all 0.2s;
+}
+.type-grid-card.active {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.type-grid-icon {
+  font-size: 22px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.type-grid-card.active .type-grid-icon { color: var(--brand); }
+.type-grid-name {
+  font-size: 13px;
+  text-align: center;
+  color: var(--text);
+  line-height: 1.35;
+}
+.type-grid-card.active .type-grid-name { color: var(--brand); font-weight: 600; }
+
+/* --- 现状 broken layout --- */
+.broken-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: 30px;
+  margin-top: 12px;
+}
+.broken-card {
+  flex: 1 1 90px;
+  min-width: 90px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--surface);
+}
+.broken-card.overflow {
+  flex: 1 1 100%;
+  width: 100%;
+  border-color: var(--danger);
+  position: relative;
+}
+.broken-card.overflow::before {
+  content: '⚠ 撑满';
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: var(--danger);
+}
+
+/* --- chips --- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; margin-left: 30px; }
+.chip {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--surface);
+  transition: all 0.15s;
+}
+.chip.active {
+  background: linear-gradient(90deg, #E6F4E7, #DCFCE7);
+  color: var(--brand);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+.textarea {
+  margin-top: 8px;
+  margin-left: 30px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 56px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-family: inherit;
+  background: var(--surface);
+  width: calc(100% - 30px);
+  line-height: 1.5;
+}
+
+.label {
+  margin-left: 30px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.caption {
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  margin-top: 16px;
+  margin-bottom: 4px;
+  color: var(--brand);
+}
+.caption.bad { color: var(--danger); }
+.caption-sub {
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-2);
+  max-width: 360px;
+}
+
+.legend {
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 24px 28px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.legend h2 { margin: 0 0 16px; font-size: 18px; }
+.legend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.legend-table th, .legend-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.legend-table th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+.legend-recommend {
+  background: #f0fdf4;
+}
+.legend-recommend td { font-weight: 500; color: var(--brand); }
+.tag-good { color: #16a34a; }
+.tag-bad { color: var(--danger); }
+.tag-warn { color: #ca8a04; }
+
+.note-box {
+  max-width: 1100px;
+  margin: 24px auto 0;
+  padding: 16px 20px;
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>申请售后页面 · 修改方案对比</h1>
+  <p>移动端效果模拟 · 看完告诉我选哪个 · 360 dp 屏宽</p>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- Section 1: Step 2 layout -->
+<!-- ═══════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">①  第 2 步「选择售后类型」layout 对比</div>
+  <p class="section-desc">问题：现状中第 4 张卡片飞出 card 边界。两个修复方向对比。</p>
+
+  <div class="row">
+    <!-- 现状 -->
+    <div>
+      <div class="phone">
+        <div class="phone-status"><span>12:21</span><span>● ▮▮ 84%</span></div>
+        <div class="phone-header">申请售后</div>
+        <div class="phone-body">
+          <div class="card">
+            <div class="step-header">
+              <div class="step-badge">2</div>
+              <div class="step-title">选择售后类型</div>
+            </div>
+            <div class="broken-grid">
+              <div class="broken-card"><div class="type-grid-icon">↶</div><div class="type-grid-name">七天无理由<br>退货</div></div>
+              <div class="broken-card"><div class="type-grid-icon">⇄</div><div class="type-grid-name">七天无理由<br>换货</div></div>
+              <div class="broken-card"><div class="type-grid-icon">📷</div><div class="type-grid-name">质量问题<br>退货</div></div>
+              <div class="broken-card overflow"><div class="type-grid-icon">⇄</div><div class="type-grid-name">质量问题换货</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="caption bad">现状（有 bug）</div>
+      <div class="caption-sub">第 4 张换行后 flex:1 撑满，视觉飞出边界</div>
+    </div>
+
+    <!-- A1 list row -->
+    <div>
+      <div class="phone">
+        <div class="phone-status"><span>12:21</span><span>● ▮▮ 84%</span></div>
+        <div class="phone-header">申请售后</div>
+        <div class="phone-body">
+          <div class="card">
+            <div class="step-header">
+              <div class="step-badge">2</div>
+              <div class="step-title">选择售后类型</div>
+            </div>
+            <div class="type-list">
+              <div class="type-list-row active">
+                <div class="type-list-icon">↶</div>
+                <div class="type-list-info">
+                  <div class="type-list-name">七天无理由退货</div>
+                  <div class="type-list-desc">退款原路返回 · 退货运费需先支付</div>
+                </div>
+                <div class="type-list-radio"></div>
+              </div>
+              <div class="type-list-row">
+                <div class="type-list-icon">⇄</div>
+                <div class="type-list-info">
+                  <div class="type-list-name">七天无理由换货</div>
+                  <div class="type-list-desc">同款换货 · 退货运费由您承担</div>
+                </div>
+                <div class="type-list-radio"></div>
+              </div>
+              <div class="type-list-row">
+                <div class="type-list-icon">💵</div>
+                <div class="type-list-info">
+                  <div class="type-list-name">质量问题退货</div>
+                  <div class="type-list-desc">退款原路返回 · 平台顺丰面单 · 商家承担运费</div>
+                </div>
+                <div class="type-list-radio"></div>
+              </div>
+              <div class="type-list-row">
+                <div class="type-list-icon">⇄</div>
+                <div class="type-list-info">
+                  <div class="type-list-name">质量问题换货</div>
+                  <div class="type-list-desc">同款换货 · 平台顺丰面单 · 商家承担运费</div>
+                </div>
+                <div class="type-list-radio"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">A1：list row（推荐）</div>
+      <div class="caption-sub">每张全宽，附带规则说明，让买家选之前就看清运费/退款规则</div>
+    </div>
+
+    <!-- A2 2x2 grid -->
+    <div>
+      <div class="phone">
+        <div class="phone-status"><span>12:21</span><span>● ▮▮ 84%</span></div>
+        <div class="phone-header">申请售后</div>
+        <div class="phone-body">
+          <div class="card">
+            <div class="step-header">
+              <div class="step-badge">2</div>
+              <div class="step-title">选择售后类型</div>
+            </div>
+            <div class="type-grid">
+              <div class="type-grid-card active"><div class="type-grid-icon">↶</div><div class="type-grid-name">七天无理由<br>退货</div></div>
+              <div class="type-grid-card"><div class="type-grid-icon">⇄</div><div class="type-grid-name">七天无理由<br>换货</div></div>
+              <div class="type-grid-card"><div class="type-grid-icon">💵</div><div class="type-grid-name">质量问题<br>退货</div></div>
+              <div class="type-grid-card"><div class="type-grid-icon">⇄</div><div class="type-grid-name">质量问题<br>换货</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">A2：2×2 grid</div>
+      <div class="caption-sub">紧凑省空间但只有图标+名字</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- Section 2: Step 4 reason redesign -->
+<!-- ═══════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">② 第 4 步「问题原因」改造</div>
+  <p class="section-desc">质量类标题改名 + 无理由类新增整个步骤（之前没有）。</p>
+
+  <div class="row">
+    <!-- 质量类 -->
+    <div>
+      <div class="phone">
+        <div class="phone-status"><span>12:21</span><span>● ▮▮ 84%</span></div>
+        <div class="phone-header">申请售后</div>
+        <div class="phone-body">
+          <div class="card">
+            <div class="step-header">
+              <div class="step-badge">4</div>
+              <div class="step-title">具体问题</div>
+            </div>
+            <div class="step-sub">请选择主要问题 · 必选</div>
+            <div class="chips">
+              <div class="chip active">运输损坏</div>
+              <div class="chip">质量问题</div>
+              <div class="chip">发错商品</div>
+              <div class="chip">与描述不符</div>
+              <div class="chip">规格不符</div>
+              <div class="chip">临期/过期</div>
+              <div class="chip">其他</div>
+            </div>
+            <div class="label">详细描述（推荐填写）</div>
+            <div class="textarea">开箱发现快递盒被压扁，里面袋子有破口，绿豆撒了一些...</div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">质量类（修订）</div>
+      <div class="caption-sub">QUALITY_RETURN · QUALITY_EXCHANGE<br>后端发 reasonType + reason</div>
+    </div>
+
+    <!-- 无理由类 -->
+    <div>
+      <div class="phone">
+        <div class="phone-status"><span>12:21</span><span>● ▮▮ 84%</span></div>
+        <div class="phone-header">申请售后</div>
+        <div class="phone-body">
+          <div class="card">
+            <div class="step-header">
+              <div class="step-badge">4</div>
+              <div class="step-title">申请说明</div>
+            </div>
+            <div class="step-sub">选择常见原因或描述 · 可选</div>
+            <div class="chips">
+              <div class="chip">不喜欢</div>
+              <div class="chip">拍错了</div>
+              <div class="chip active">规格不对</div>
+              <div class="chip">不想要了</div>
+              <div class="chip">收到太慢</div>
+              <div class="chip">其他</div>
+            </div>
+            <div class="label">可补充说明</div>
+            <div class="textarea">买的是 500g 装，看商品图我以为是大包装...</div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">无理由类（新增）</div>
+      <div class="caption-sub">NO_REASON_RETURN · NO_REASON_EXCHANGE<br>后端只发 reason（chip + 描述合并）</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- Decision matrix -->
+<!-- ═══════════════════════════════════════ -->
+<div class="legend">
+  <h2>决策矩阵 · Step 2 layout</h2>
+  <table class="legend-table">
+    <tr>
+      <th width="20%">维度</th>
+      <th width="40%">A1：list row</th>
+      <th width="40%">A2：2×2 grid</th>
+    </tr>
+    <tr>
+      <td>布局稳定性</td>
+      <td><span class="tag-good">✅ 1/2/3/4 张都对齐</span></td>
+      <td><span class="tag-warn">⚠️ 3 张时第 4 格空</span></td>
+    </tr>
+    <tr>
+      <td>信息密度</td>
+      <td><span class="tag-good">✅ 可显示规则说明（运费谁付/是否寄回）</span></td>
+      <td><span class="tag-bad">❌ 只有图标 + 名字</span></td>
+    </tr>
+    <tr>
+      <td>垂直空间占用</td>
+      <td>~280 px（4 张）</td>
+      <td>~180 px（4 张）</td>
+    </tr>
+    <tr>
+      <td>未来扩展</td>
+      <td><span class="tag-good">✅ 加新类型零成本</span></td>
+      <td><span class="tag-warn">⚠️ 5+ 张要重排</span></td>
+    </tr>
+    <tr>
+      <td>用户决策成本</td>
+      <td><span class="tag-good">✅ 看到规则才选</span></td>
+      <td><span class="tag-bad">❌ 只看名字易选错</span></td>
+    </tr>
+    <tr class="legend-recommend">
+      <td><strong>推荐</strong></td>
+      <td colspan="2"><strong>A1（list row）</strong>—— 售后场景信息稠密度高，让买家在选择前看清楚每个类型的规则差异（运费/寄回/先付款），减少后续退申请的纠纷</td>
+    </tr>
+  </table>
+</div>
+
+<div class="note-box">
+  <strong>📋 还需要你拍板的几件事：</strong><br>
+  ① <strong>Step 2 布局：A1 还是 A2？</strong><br>
+  ② <strong>无理由类的 6 个 chip 文案合理吗？</strong>（不喜欢 / 拍错了 / 规格不对 / 不想要了 / 收到太慢 / 其他）需要加 / 减 / 改吗？<br>
+  ③ <strong>质量类 reasonType 当前默认选了"质量问题"</strong>——要不要改成"必须用户主动点一下才能提交"？<br>
+  ④ <strong>顺手修详情页的照片显示？</strong>还是只修申请页的照片上传？<br>
+  <br>
+  挑完跟我说，我就在 staging 改文件 → 跑 tsc -b → 确认后 commit + push + OTA。
+</div>
+
+</body>
+</html>

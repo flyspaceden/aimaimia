@@ -1,0 +1,86 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main, dev, staging]
+  push:
+    branches: [dev]
+
+env:
+  NODE_ENV: test
+  CAPTCHA_BYPASS_TOKEN: etest1
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aimaimai_test
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aimaimai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            admin/package-lock.json
+            seller/package-lock.json
+            tests/package-lock.json
+
+      # 并行安装依赖
+      - name: Install dependencies
+        run: |
+          cd backend && npm ci &
+          cd admin && npm ci &
+          cd seller && npm ci &
+          cd tests && npm ci &
+          wait
+
+      # Playwright 浏览器
+      - name: Install Playwright browsers
+        run: cd tests && npx playwright install chromium --with-deps
+
+      # 数据库 schema + seed
+      - name: Setup database
+        run: |
+          cd backend
+          npx prisma db push --skip-generate
+          npx prisma generate
+          npx prisma db seed
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      # 跑测试（playwright 自动启动 backend + admin + seller）
+      - name: Run E2E tests
+        run: cd tests && npx playwright test --reporter=html,github
+        env:
+          SKIP_DB_RESET: "true"
+          PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: "CI automated test"
+
+      # 上传报告和失败截图
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            tests/test-results/
+            tests/playwright-report/
+          retention-days: 7

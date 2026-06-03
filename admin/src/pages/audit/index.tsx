@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { Button, Tag, Drawer, message } from 'antd';
+import { App, Button, Tag, Drawer } from 'antd';
 import { EyeOutlined, UndoOutlined } from '@ant-design/icons';
 import { getAuditLogs, getAuditLog } from '@/api/audit';
 import { rollbackAuditLog } from '@/api/audit';
@@ -38,6 +38,7 @@ function getTargetUrl(targetType: string | null, targetId: string | null): strin
 }
 
 export default function AuditLogPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const actionRef = useRef<ActionType>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);

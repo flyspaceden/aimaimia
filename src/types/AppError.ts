@@ -18,4 +18,13 @@ export type AppError = {
   message: string;
   displayMessage?: string;
   retryable?: boolean;
+  /**
+   * 业务子错误码（service 层 throw new BadRequestException({ code: 'CUSTOM_CODE', ... }) 时由后端
+   * AppExceptionFilter 透传）。前端需要"根据具体业务场景分支"时读这个字段，如：
+   * - 'CAPTCHA_INVALID' → 自动刷新图形验证码
+   * - 'PHONE_NOT_REGISTERED' → 提示去注册
+   * - 'OTP_INVALID' / 'OTP_EXPIRED' / 'OTP_USED' → 回到发送步骤
+   * 通用错误分支仍读 code（5 枚举值）
+   */
+  businessCode?: string;
 };

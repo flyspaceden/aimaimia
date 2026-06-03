@@ -8,7 +8,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InvoiceRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { AppError, InvoiceProfile } from '../../src/types';
 
 export default function InvoiceRequestScreen() {
@@ -21,6 +21,9 @@ export default function InvoiceRequestScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // 仅此页保留 Android bottom minimum：这台真机其他页面已正常贴底，
+  // 但发票申请底部 CTA 在 low/zero inset 时仍需要避开系统手势区。
+  const bottomPadding = useBottomInset(16, { androidMinimumBottomPadding: 64 });
 
   // 加载用户的发票抬头列表
   const { data, isLoading, refetch } = useQuery({
@@ -142,7 +145,10 @@ export default function InvoiceRequestScreen() {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
+          {/* style={{ flex: 1 }} 必须显式声明：否则 ScrollView 取自然内容高度，
+              当 profiles 为空（仅 EmptyState）时高度只有 ~100dp，下面的底部栏
+              就紧贴在 ScrollView 后面（页面中间），看起来像 "按钮跑出屏幕"。 */}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
             {/* 提示 */}
             <Text style={[typography.bodySm, { color: colors.text.secondary, marginBottom: spacing.lg }]}>
               请选择发票抬头，确认后将为订单 {params.orderId?.slice(0, 10)}... 申请开票
@@ -167,11 +173,21 @@ export default function InvoiceRequestScreen() {
           </ScrollView>
 
           {/* 底部确认按钮 */}
-          <View style={[styles.bottomBar, { borderTopColor: colors.border, borderTopWidth: 1, backgroundColor: colors.surface }]}>
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                borderTopColor: colors.border,
+                borderTopWidth: 1,
+                backgroundColor: colors.surface,
+                paddingBottom: bottomPadding,
+              },
+            ]}
+          >
             <Pressable
               onPress={handleSubmit}
               disabled={!selectedId || submitting}
-              style={{ flex: 1 }}
+              style={{ alignSelf: 'stretch' }}
             >
               <LinearGradient
                 colors={!selectedId || submitting ? [colors.border, colors.border] : [colors.brand.primary, colors.ai.start]}
@@ -179,10 +195,13 @@ export default function InvoiceRequestScreen() {
                 end={{ x: 1, y: 0 }}
                 style={[styles.confirmBtn, { borderRadius: radius.pill }]}
               >
-                <Text style={[
-                  typography.bodyStrong,
-                  { color: !selectedId || submitting ? colors.text.secondary : colors.text.inverse },
-                ]}>
+                <Text
+                  {...compactActionTextProps}
+                  style={[
+                    typography.bodyStrong,
+                    { color: !selectedId || submitting ? colors.text.secondary : colors.text.inverse },
+                  ]}
+                >
                   {submitting ? '提交中...' : '确认申请'}
                 </Text>
               </LinearGradient>
@@ -228,10 +247,14 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   bottomBar: {
-    padding: 16,
+    flexShrink: 0,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   confirmBtn: {
+    minHeight: 48,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 12,
   },
 });

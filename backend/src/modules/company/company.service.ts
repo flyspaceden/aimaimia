@@ -173,7 +173,12 @@ export class CompanyService {
         orderBy: { createdAt: 'desc' },
         include: {
           media: { take: 1, orderBy: { sortOrder: 'asc' } },
-          skus: { take: 1, orderBy: { price: 'asc' } },
+          // 取全部 ACTIVE SKU，供卡片聚合库存 / 单笔限购展示
+          skus: {
+            where: { status: 'ACTIVE' },
+            orderBy: { price: 'asc' },
+            select: { id: true, price: true, stock: true, maxPerOrder: true },
+          },
           category: { select: { name: true } },
           tags: { include: { tag: true } },
         },
@@ -198,17 +203,33 @@ export class CompanyService {
       .filter(Boolean) as string[];
 
     return {
-      items: items.map((p) => ({
-        id: p.id,
-        title: p.title,
-        price: p.skus[0]?.price ?? 0,
-        image: p.media[0]?.url ?? '',
-        defaultSkuId: p.skus[0]?.id ?? '',
-        tags: p.tags.map((pt) => pt.tag.name),
-        unit: (p.attributes as any)?.unit ?? '',
-        origin: (p.origin as any)?.text ?? p.originRegion ?? '',
-        categoryName: p.category?.name ?? '',
-      })),
+      items: items.map((p) => {
+        const activeSkus = p.skus || [];
+        // 聚合库存 + 单笔限购（口径同 ProductService.mapToListItem）
+        const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+        let maxPerOrder: number | null = null;
+        if (activeSkus.length > 0) {
+          const limits = activeSkus.map((s) =>
+            s.maxPerOrder != null && s.maxPerOrder > 0 ? s.maxPerOrder : null,
+          );
+          if (limits.every((v) => v != null)) {
+            maxPerOrder = Math.min(...(limits as number[]));
+          }
+        }
+        return {
+          id: p.id,
+          title: p.title,
+          price: activeSkus[0]?.price ?? 0,
+          image: p.media[0]?.url ?? '',
+          defaultSkuId: activeSkus[0]?.id ?? '',
+          tags: p.tags.map((pt) => pt.tag.name),
+          unit: (p.attributes as any)?.unit ?? '',
+          origin: (p.origin as any)?.text ?? p.originRegion ?? '',
+          categoryName: p.category?.name ?? '',
+          stock,
+          maxPerOrder,
+        };
+      }),
       total,
       page,
       pageSize,

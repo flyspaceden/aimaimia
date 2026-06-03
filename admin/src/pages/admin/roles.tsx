@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Table, Button, Modal, Form, Input, Checkbox, message, Tag, Popconfirm, Space, Divider, Row, Col } from 'antd';
+import { App, Card, Table, Button, Modal, Form, Input, Checkbox, Tag, Popconfirm, Space, Divider, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons';
 import { getRoles, getPermissions, createRole, updateRole, deleteRole } from '@/api/roles';
 import PermissionGate from '@/components/PermissionGate';
@@ -72,6 +72,7 @@ function ModuleSelectAll({
 }
 
 export default function RolesPage() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<AdminRole | null>(null);

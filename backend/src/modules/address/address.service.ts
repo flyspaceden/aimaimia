@@ -171,7 +171,9 @@ export class AddressService {
       receiverNameMasked: maskName(a.recipientName),
       phone: a.phone,
       phoneMasked: maskPhone(a.phone),
-      province: region.province,
+      regionCode: a.regionCode || '',  // 行政区划标准编码（6 位）
+      regionText: a.regionText || '',  // "北京市/北京市/东城区"
+      province: region.province,       // @deprecated 兼容字段，由 regionText 拆出
       city: region.city,
       district: region.district,
       detail: a.detail,

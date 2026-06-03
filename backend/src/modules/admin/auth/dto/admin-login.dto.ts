@@ -23,14 +23,6 @@ export class AdminSendCodeDto {
   @IsString()
   @Matches(/^1\d{10}$/, { message: '手机号格式不正确' })
   phone: string;
-
-  @IsString()
-  @MaxLength(64)
-  captchaId: string;
-
-  @IsString()
-  @Length(4, 6)
-  captchaCode: string;
 }
 
 export class AdminLoginByPhoneCodeDto {

@@ -25,6 +25,8 @@ interface AuthState {
   setAuth: (token: string, refreshToken: string, seller: SellerProfile) => void;
   /** 清除认证信息 */
   clearAuth: () => void;
+  /** 更新当前登录 staff 的昵称（自助改昵称后同步本地，UI 立即刷新） */
+  setSellerNickname: (nickname: string) => void;
   /** 检查角色权限 */
   hasRole: (...roles: StaffRole[]) => boolean;
   /** 是否企业主 */
@@ -48,6 +50,12 @@ const useAuthStore = create<AuthState>()(
         localStorage.removeItem('seller_token');
         localStorage.removeItem('seller_refresh_token');
         set({ token: null, refreshToken: null, seller: null });
+      },
+
+      setSellerNickname: (nickname) => {
+        const { seller } = get();
+        if (!seller) return;
+        set({ seller: { ...seller, user: { ...seller.user, nickname } } });
       },
 
       hasRole: (...roles) => {

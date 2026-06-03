@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
+  NotFoundException,
   Logger,
   HttpException,
   HttpStatus,
@@ -10,15 +11,18 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, SmsPurpose } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
 import { randomBytes, createHash, randomInt } from 'crypto';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { AliyunSmsService } from '../../common/sms/aliyun-sms.service';
+import { CaptchaService } from '../captcha/captcha.service';
+import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 
 @Injectable()
 export class AuthService {
@@ -29,6 +33,28 @@ export class AuthService {
   private static readonly PASSWORD_LOGIN_MAX_FAILS = 5;
   private static readonly PASSWORD_LOGIN_LOCK_WINDOW_MS = 15 * 60 * 1000;
 
+  /**
+   * 按 SMS purpose 隔离的发送限流配额
+   * - 登录/绑定：沿用 1/分钟 + 10/天（成本敏感型，全天量控）
+   * - 忘记密码（BUYER_RESET/SELLER_RESET）：1/分钟 + 5/小时（按 spec 设计，抵御短期爆破）
+   */
+  private static readonly OTP_RATE_LIMITS: Record<
+    SmsPurpose,
+    { perMinute: number; windowCount: number; windowSec: number }
+  > = {
+    LOGIN:        { perMinute: 1, windowCount: 10, windowSec: 86_400 },
+    BIND:         { perMinute: 1, windowCount: 10, windowSec: 86_400 },
+    RESET:        { perMinute: 1, windowCount: 5,  windowSec: 3_600  }, // 枚举占位，当前无代码使用
+    BUYER_RESET:  { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+    SELLER_RESET: { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+  };
+
+  /**
+   * 密码重置事件的 LoginEvent.meta.action 标记
+   * 两处 LoginEvent readers（登录限流 / 密码锁）必须排除此 action，避免混淆语义
+   */
+  private static readonly PASSWORD_RESET_EVENT_ACTION = 'PASSWORD_RESET_VIA_SMS';
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
@@ -36,6 +62,7 @@ export class AuthService {
     private redisCoord: RedisCoordinatorService,
     private couponEngine: CouponEngineService,
     private aliyunSms: AliyunSmsService,
+    private captcha: CaptchaService,
   ) {}
 
   /** 发送短信验证码 */
@@ -47,7 +74,7 @@ export class AuthService {
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 分钟有效
 
-    await this.createOtpWithRateLimit(phone, codeHash, expiresAt);
+    await this.createOtpWithRateLimit(phone, codeHash, expiresAt, SmsPurpose.LOGIN);
 
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     if (smsMock === 'true') {
@@ -89,7 +116,7 @@ export class AuthService {
     if (existing) throw new BadRequestException('该手机号已注册');
 
     // 注册必须验证手机号（防止冒领）
-    await this.verifyCode(dto.phone, dto.code);
+    await this.verifyCode(dto.phone, dto.code, SmsPurpose.LOGIN);
 
     // 创建 User + UserProfile + AuthIdentity + MemberProfile（事务）
     const user = await this.prisma.user.create({
@@ -98,7 +125,7 @@ export class AuthService {
           create: { nickname: dto.name || '新用户' },
         },
         memberProfile: {
-          create: {},
+          create: { referralCode: await pickUniqueReferralCode(this.prisma) },
         },
         authIdentities: {
           create: {
@@ -121,6 +148,188 @@ export class AuthService {
     });
 
     return result;
+  }
+
+  /**
+   * 忘记密码 — 发送重置验证码
+   * 流程：图形验证码 → 查账号存在性 → 限流 → 发送短信（purpose=BUYER_RESET）
+   * IP 维度限流由 controller 的 @Throttle 承载，service 层仅处理手机号维度限流
+   */
+  async sendForgotPasswordCode(dto: SendForgotPasswordCodeDto) {
+    // 1. 图形验证码校验（verify 内部原子 getdel，防重放）
+    const captchaOk = await this.captcha.verify(dto.captchaId, dto.captchaCode);
+    if (!captchaOk) {
+      throw new BadRequestException({ code: 'CAPTCHA_INVALID', message: '图形验证码错误或已过期' });
+    }
+
+    // 2. 查询账号是否已注册（产品决策：明确返回"未注册"，UX 优先）
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: { provider: 'PHONE', identifier: dto.phone },
+    });
+    if (!identity) {
+      throw new NotFoundException({ code: 'PHONE_NOT_REGISTERED', message: '该手机号未注册' });
+    }
+
+    // 3. 生成验证码 + 限流 + 写入 OTP（purpose=BUYER_RESET，与登录 scope 隔离）
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 分钟有效
+
+    await this.createOtpWithRateLimit(dto.phone, codeHash, expiresAt, SmsPurpose.BUYER_RESET);
+
+    const nodeEnv = this.config.get('NODE_ENV', 'development');
+    if (smsMock === 'true') {
+      if (nodeEnv === 'production') {
+        this.logger.warn('[SMS] 生产环境仍使用 Mock 短信（忘记密码），请设置 SMS_MOCK=false');
+      }
+      this.logger.log(`[SMS Mock] 忘记密码验证码=${code}（目标=${this.maskContact(dto.phone)}）`);
+    } else {
+      try {
+        await this.aliyunSms.sendVerificationCode(dto.phone, code);
+        this.logger.log(`[SMS] 忘记密码验证码已发送（目标=${this.maskContact(dto.phone)}）`);
+      } catch (err) {
+        this.logger.error(
+          `[SMS] 忘记密码验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
+        );
+      }
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * 忘记密码 — 提交新密码
+   * Serializable 事务内：验证 OTP(CAS 消费) → 写入新密码 → LoginEvent 审计
+   */
+  async resetForgotPassword(dto: ResetForgotPasswordDto, ip?: string, userAgent?: string) {
+    // 密码复杂度二次校验（防 DTO 绕过）
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/.test(dto.newPassword)) {
+      throw new BadRequestException({
+        code: 'PASSWORD_FORMAT_INVALID',
+        message: '密码至少 6 位且必须包含大写字母、小写字母和数字',
+      });
+    }
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        // 1. 验证 OTP（CAS 消费，purpose=BUYER_RESET）
+        await this.verifyResetOtpInTx(tx, dto.phone, dto.code, SmsPurpose.BUYER_RESET, 'buyer');
+
+        // 2. 查询买家身份
+        const identity = await tx.authIdentity.findFirst({
+          where: { provider: 'PHONE', identifier: dto.phone },
+        });
+        if (!identity) {
+          throw new BadRequestException({ code: 'PHONE_NOT_REGISTERED', message: '该手机号未注册' });
+        }
+
+        // 3. 更新 passwordHash（保留 meta 其他字段）
+        // 防御性处理：meta 理论上是 Prisma.JsonValue，可能为 null / 对象 / 数组 / 原始值
+        // 现有代码路径只会写入对象或 null，这里显式守卫避免 spread 非对象值崩溃
+        const newHash = await bcrypt.hash(dto.newPassword, 10);
+        const rawMeta = identity.meta;
+        const prevMeta: Prisma.JsonObject =
+          rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)
+            ? (rawMeta as Prisma.JsonObject)
+            : {};
+        await tx.authIdentity.update({
+          where: { id: identity.id },
+          data: { meta: { ...prevMeta, passwordHash: newHash } },
+        });
+
+        // A8-H1：忘记密码后立刻失效该用户所有活跃 session（access + refresh）
+        // 买家 refresh token TTL 30 天，若被偷需立即踢下线，否则旧设备最长 30 天仍可继续操作
+        await tx.session.updateMany({
+          where: { userId: identity.userId, status: 'ACTIVE' },
+          data: { status: 'REVOKED', expiresAt: new Date() },
+        });
+
+        // 4. 审计日志（复用现有 LoginEvent，meta.action 区分）
+        // 注意：登录限流 / 密码锁的 readers 会按 meta.action 排除此事件，action 值必须与
+        // AuthService.PASSWORD_RESET_EVENT_ACTION 常量一致，防止拼写漂移导致污染重现
+        await tx.loginEvent.create({
+          data: {
+            userId: identity.userId,
+            provider: 'PHONE',
+            phone: dto.phone,
+            success: true,
+            ip: ip ?? null,
+            userAgent: userAgent ?? null,
+            meta: { action: AuthService.PASSWORD_RESET_EVENT_ACTION, scope: 'BUYER' },
+          },
+        });
+
+        return { success: true };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  /**
+   * 忘记密码场景下的 OTP 校验（事务内版本）
+   * - 按 purpose 过滤，防跨 scope 串用
+   * - 失败计数走 Redis（3 次/5 分钟），超限后作废该 scope 下所有未使用 OTP
+   * - 成功后 CAS 消费
+   */
+  private async verifyResetOtpInTx(
+    tx: Prisma.TransactionClient,
+    phone: string,
+    code: string,
+    purpose: SmsPurpose,
+    scope: 'buyer' | 'seller',
+  ) {
+    const records = await tx.smsOtp.findMany({
+      where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    if (records.length === 0) {
+      throw new BadRequestException({ code: 'OTP_EXPIRED', message: '验证码无效或已过期' });
+    }
+
+    let matched: (typeof records)[number] | null = null;
+    for (const r of records) {
+      if (await bcrypt.compare(code, r.codeHash)) {
+        matched = r;
+        break;
+      }
+    }
+
+    if (!matched) {
+      // Redis 失败计数（无 Redis 时 result=null，降级到 OTP 自然过期 5 分钟）
+      //
+      // consumeFixedWindow 语义：每次调用 INCR，首次 EXPIRE；返回值 count 包含当次调用
+      //   - 第 1 次错误：count=1（OTP 仍可用，用户可再试）
+      //   - 第 2 次错误：count=2（OTP 仍可用）
+      //   - 第 3 次错误：count=3 → 触发作废（用户本次收到 OTP_INVALID，此后所有 OTP 均失效）
+      //   - 第 4+ 次：count>=3，作废再次执行（updateMany 幂等，cost 可忽略）
+      //
+      // 实际语义 = "允许输错 2 次，第 3 次错误即锁死"，符合 spec "3 次输错作废"
+      const result = await this.redisCoord.consumeFixedWindow(
+        `reset:fail:${scope}:${phone}`,
+        3,
+        300,
+      );
+      if (result && result.count >= 3) {
+        await tx.smsOtp.updateMany({
+          where: { phone, purpose, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+      }
+      throw new BadRequestException({ code: 'OTP_INVALID', message: '验证码错误' });
+    }
+
+    // CAS 原子消费
+    const cas = await tx.smsOtp.updateMany({
+      where: { id: matched.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (cas.count === 0) {
+      throw new BadRequestException({ code: 'OTP_USED', message: '验证码已被使用，请重新获取' });
+    }
   }
 
   /** S10修复：刷新 Token — CAS 原子撤销，防止并发重复刷新 */
@@ -196,6 +405,7 @@ export class AuthService {
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     let openId: string;
     let unionId: string;
+    let accessToken: string | null = null;
 
     if (wechatMock === 'true') {
       if (nodeEnv === 'production') {
@@ -231,6 +441,7 @@ export class AuthService {
 
       openId = tokenData.openid;
       unionId = tokenData.unionid || '';
+      accessToken = tokenData.access_token || null;
 
       this.logger.log(
         `[WeChat] 授权成功（openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
@@ -247,14 +458,18 @@ export class AuthService {
       return this.issueTokens(identity.userId, 'wechat');
     }
 
+    // 首次微信登录：尽量用 snsapi_userinfo 拿真实昵称/头像/性别/城市；失败
+    // 则 fallback 到 "微信" + openId 尾段（6 位），保证有辨识度
+    const profileData = await this.fetchWechatUserProfile(accessToken, openId);
+
     // 首次微信登录，自动创建用户 + UserProfile + AuthIdentity + MemberProfile
     const user = await this.prisma.user.create({
       data: {
         profile: {
-          create: { nickname: '微信用户' },
+          create: profileData,
         },
         memberProfile: {
-          create: {},
+          create: { referralCode: await pickUniqueReferralCode(this.prisma) },
         },
         authIdentities: {
           create: {
@@ -275,9 +490,112 @@ export class AuthService {
     return this.issueTokens(user.id, 'wechat');
   }
 
+  /**
+   * 用 wechat code 换取微信用户公开资料（openId + headimgurl + nickname）
+   * 不创建用户、不签 Token。给"绑定微信后回填头像"等已登录态场景用
+   *
+   * @returns 失败抛 BadRequestException；mock 模式下返回稳定的派生 openId 但 avatarUrl 为 undefined
+   */
+  async exchangeCodeForWechatProfile(code: string): Promise<{
+    openId: string;
+    unionId: string;
+    nickname: string;
+    avatarUrl?: string;
+  }> {
+    const wechatMock = this.config.get('WECHAT_MOCK', 'true');
+    let openId: string;
+    let unionId: string;
+    let accessToken: string | null = null;
+
+    if (wechatMock === 'true') {
+      openId = createHash('sha256').update(`wx_openid_${code}`).digest('hex').slice(0, 28);
+      unionId = createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28);
+    } else {
+      const appId = this.config.getOrThrow<string>('WECHAT_APP_ID');
+      const appSecret = this.config.getOrThrow<string>('WECHAT_APP_SECRET');
+      const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${appId}&secret=${appSecret}&code=${code}&grant_type=authorization_code`;
+      const tokenRes = await fetch(tokenUrl);
+      const tokenData = (await tokenRes.json()) as {
+        access_token?: string;
+        openid?: string;
+        unionid?: string;
+        errcode?: number;
+        errmsg?: string;
+      };
+      if (tokenData.errcode || !tokenData.openid) {
+        this.logger.error(`[WeChat] token 换取失败: errcode=${tokenData.errcode}, errmsg=${tokenData.errmsg}`);
+        throw new BadRequestException(`微信授权失败：${tokenData.errmsg || '未知错误'}`);
+      }
+      openId = tokenData.openid;
+      unionId = tokenData.unionid || '';
+      accessToken = tokenData.access_token || null;
+    }
+
+    const profile = await this.fetchWechatUserProfile(accessToken, openId);
+    return { openId, unionId, nickname: profile.nickname, avatarUrl: profile.avatarUrl };
+  }
+
   /** Apple 登录（占位） */
   async loginWithApple() {
     throw new BadRequestException('Apple 登录暂未开放');
+  }
+
+  /**
+   * 用 access_token + openId 调 /sns/userinfo 拿微信用户资料。
+   * 拿不到就用 "微信" + openId 尾段 6 位做 fallback 昵称，保证有辨识度。
+   * 任何失败都不抛异常（不阻塞登录）。
+   */
+  private async fetchWechatUserProfile(
+    accessToken: string | null,
+    openId: string,
+  ): Promise<{
+    nickname: string;
+    avatarUrl?: string;
+    gender?: 'UNKNOWN' | 'MALE' | 'FEMALE';
+    city?: string;
+  }> {
+    const fallbackNickname = `微信${openId.slice(-6)}`;
+
+    if (!accessToken) {
+      // Mock 模式或 token 缺失，直接用 fallback（至少有辨识度）
+      return { nickname: fallbackNickname };
+    }
+
+    try {
+      const url = `https://api.weixin.qq.com/sns/userinfo?access_token=${encodeURIComponent(accessToken)}&openid=${encodeURIComponent(openId)}&lang=zh_CN`;
+      const res = await fetch(url);
+      const data = (await res.json()) as {
+        nickname?: string;
+        headimgurl?: string;
+        sex?: 0 | 1 | 2;
+        city?: string;
+        errcode?: number;
+        errmsg?: string;
+      };
+
+      if (data.errcode || !data.nickname) {
+        this.logger.warn(
+          `[WeChat] userinfo 拉取失败或昵称为空: errcode=${data.errcode}, errmsg=${data.errmsg}`,
+        );
+        return { nickname: fallbackNickname };
+      }
+
+      const genderMap: Record<number, 'UNKNOWN' | 'MALE' | 'FEMALE'> = {
+        0: 'UNKNOWN',
+        1: 'MALE',
+        2: 'FEMALE',
+      };
+
+      return {
+        nickname: data.nickname,
+        avatarUrl: data.headimgurl || undefined,
+        gender: data.sex != null ? genderMap[data.sex] : undefined,
+        city: data.city || undefined,
+      };
+    } catch (err: any) {
+      this.logger.warn(`[WeChat] userinfo 拉取异常: ${err?.message}`);
+      return { nickname: fallbackNickname };
+    }
   }
 
   // ---- 内部方法 ----
@@ -290,7 +608,7 @@ export class AuthService {
     if (mode === 'code') {
       // 验证码模式：如果用户不存在，自动注册
       try {
-        await this.verifyCode(phone, code);
+        await this.verifyCode(phone, code, SmsPurpose.LOGIN);
       } catch (err) {
         await this.recordLoginAttempt('PHONE', phone, 'code', false, identity?.userId);
         throw err;
@@ -299,7 +617,7 @@ export class AuthService {
         const newUser = await this.prisma.user.create({
           data: {
             profile: { create: { nickname: '新用户' } },
-            memberProfile: { create: {} },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
             authIdentities: {
               create: { provider: 'PHONE', identifier: phone, verified: true },
             },
@@ -333,14 +651,19 @@ export class AuthService {
     }
   }
 
-  /** S07修复：验证码校验 — 原子 CAS 消费，防止并发重复使用 */
-  private async verifyCode(target: string, code?: string) {
+  /**
+   * S07修复：验证码校验 — 原子 CAS 消费，防止并发重复使用
+   * purpose 改为必填参数（2026-04-23 忘记密码功能），强制调用方显式声明 scope，
+   * 防止跨 purpose 串用（例如 RESET 验证码被误用于 LOGIN）。
+   */
+  private async verifyCode(target: string, code: string | undefined, purpose: SmsPurpose) {
     if (!code) throw new BadRequestException('请输入验证码');
 
-    // 查找最近一条未使用且未过期的验证码
+    // 查找最近一条未使用且未过期的验证码（强过滤 purpose）
     const records = await this.prisma.smsOtp.findMany({
       where: {
         phone: target,
+        purpose,
         usedAt: null,
         expiresAt: { gt: new Date() },
       },
@@ -461,32 +784,35 @@ export class AuthService {
     target: string,
     codeHash: string,
     expiresAt: Date,
+    purpose: SmsPurpose,
   ) {
     const normalized = this.normalizeIdentifier(target);
-    const targetKey = this.hashKey(normalized);
+    const targetKey = this.hashKey(`${purpose}:${normalized}`);
+    const limits = AuthService.OTP_RATE_LIMITS[purpose];
 
     const minute = await this.redisCoord.consumeFixedWindow(
       `rl:otp:target:${targetKey}:1m`,
-      AuthService.OTP_SEND_PER_TARGET_PER_MINUTE,
+      limits.perMinute,
       60,
     );
     if (minute && !minute.allowed) {
       throw new HttpException('发送过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const day = await this.redisCoord.consumeFixedWindow(
-      `rl:otp:target:${targetKey}:1d`,
-      AuthService.OTP_SEND_PER_TARGET_PER_DAY,
-      24 * 60 * 60,
+    // 窗口 key 用 purpose + 窗口长度双重隔离，避免不同 purpose 切换窗口长度后 key 冲突
+    const window = await this.redisCoord.consumeFixedWindow(
+      `rl:otp:target:${targetKey}:${limits.windowSec}s`,
+      limits.windowCount,
+      limits.windowSec,
     );
-    if (day && !day.allowed) {
-      throw new HttpException('今日验证码发送次数已达上限', HttpStatus.TOO_MANY_REQUESTS);
+    if (window && !window.allowed) {
+      throw new HttpException('验证码发送次数已达上限，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     // Redis 已接管限流时，直接写验证码记录
-    if (minute || day) {
+    if (minute || window) {
       await this.prisma.smsOtp.create({
-        data: { phone: target, codeHash, purpose: 'LOGIN', expiresAt },
+        data: { phone: target, codeHash, purpose, expiresAt },
       });
       return;
     }
@@ -498,35 +824,34 @@ export class AuthService {
         await this.prisma.$transaction(async (tx) => {
           const now = new Date();
           const oneMinuteAgo = new Date(now.getTime() - 60_000);
-          const dayStart = new Date(now);
-          dayStart.setHours(0, 0, 0, 0);
+          const windowStart = new Date(now.getTime() - limits.windowSec * 1000);
 
-          const [perMinute, perDay] = await Promise.all([
+          const [perMinute, perWindow] = await Promise.all([
             tx.smsOtp.count({
               where: {
                 phone: target,
-                purpose: 'LOGIN',
+                purpose,
                 createdAt: { gte: oneMinuteAgo },
               },
             }),
             tx.smsOtp.count({
               where: {
                 phone: target,
-                purpose: 'LOGIN',
-                createdAt: { gte: dayStart },
+                purpose,
+                createdAt: { gte: windowStart },
               },
             }),
           ]);
 
-          if (perMinute >= AuthService.OTP_SEND_PER_TARGET_PER_MINUTE) {
+          if (perMinute >= limits.perMinute) {
             throw new HttpException('发送过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
           }
-          if (perDay >= AuthService.OTP_SEND_PER_TARGET_PER_DAY) {
-            throw new HttpException('今日验证码发送次数已达上限', HttpStatus.TOO_MANY_REQUESTS);
+          if (perWindow >= limits.windowCount) {
+            throw new HttpException('验证码发送次数已达上限，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
           }
 
           await tx.smsOtp.create({
-            data: { phone: target, codeHash, purpose: 'LOGIN', expiresAt },
+            data: { phone: target, codeHash, purpose, expiresAt },
           });
         }, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -569,6 +894,8 @@ export class AuthService {
         provider,
         phone: identifier,
         createdAt: { gte: oneMinuteAgo },
+        // 排除密码重置事件：LoginEvent 被复用为审计 sink，但登录限流只算真实登录尝试
+        NOT: { meta: { path: ['action'], equals: AuthService.PASSWORD_RESET_EVENT_ACTION } },
       },
     });
     if (count >= AuthService.LOGIN_ATTEMPT_PER_TARGET_PER_MINUTE) {
@@ -599,6 +926,8 @@ export class AuthService {
         phone: identifier,
         success: true,
         createdAt: { gte: windowStart },
+        // 排除密码重置事件：SMS 重置不是"成功登录"，不该重置密码失败锁窗口
+        NOT: { meta: { path: ['action'], equals: AuthService.PASSWORD_RESET_EVENT_ACTION } },
       },
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
@@ -699,5 +1028,159 @@ export class AuthService {
 
   private hashKey(value: string) {
     return createHash('sha256').update(value).digest('hex').slice(0, 24);
+  }
+
+  // ============ 账号身份绑定（买家 App "账号与安全" 页用） ============
+  //
+  // 设计：方案 A — 只允许"空位绑定"，不允许换绑/解绑。
+  // - 当前账号已绑过该 provider → 拒绝
+  // - 该 identifier 已被其他账号占用 → 拒绝（提示文案不暴露被占账号信息）
+  // - 否则原子 create AuthIdentity；P2002 兜底防并发抢占
+
+  /** 发送"绑定手机号"验证码（purpose=BIND，需登录态）
+   *
+   * 安全口径：本端点不预检"目标号是否已被占用"，因为发码结果会泄露"号码是否已注册"，
+   * 攻击者可通过批量发码探测用户名单。占用检查统一放到 bindPhone（OTP 消费后做），
+   * 失败文案"该手机号已被其他账号绑定"只在用户主动尝试绑定时才暴露。
+   */
+  async sendBindPhoneCode(userId: string, phone: string) {
+    // 当前账号若已绑手机号，直接拒（不允许换绑，前端按钮在已绑状态下也不应允许进入此流程）
+    const own = await this.prisma.authIdentity.findFirst({
+      where: { userId, provider: 'PHONE' },
+    });
+    if (own) {
+      throw new BadRequestException('当前账号已绑定手机号');
+    }
+
+    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.createOtpWithRateLimit(phone, codeHash, expiresAt, SmsPurpose.BIND);
+
+    const nodeEnv = this.config.get('NODE_ENV', 'development');
+    if (smsMock === 'true') {
+      if (nodeEnv === 'production') {
+        this.logger.warn('[SMS] 生产环境仍使用 Mock 短信（绑定手机号），请设置 SMS_MOCK=false');
+      }
+      this.logger.log(`[SMS Mock] 绑定手机号验证码=${code}（目标=${this.maskContact(phone)}）`);
+    } else {
+      try {
+        await this.aliyunSms.sendVerificationCode(phone, code);
+        this.logger.log(`[SMS] 绑定手机号验证码已发送（目标=${this.maskContact(phone)}）`);
+      } catch (err) {
+        this.logger.error(
+          `[SMS] 绑定手机号验证码发送失败: ${(err as Error)?.message}`,
+          (err as Error)?.stack,
+        );
+      }
+    }
+    return { ok: true };
+  }
+
+  /** 提交"绑定手机号"：校验 OTP + 防占用 + 写 AuthIdentity
+   *
+   * 注：本次新增身份不影响当前 session（不同于 changePhone 是修改现有身份）。
+   */
+  async bindPhone(userId: string, phone: string, code: string) {
+    // 1. 校验 OTP（事务外，purpose=BIND，CAS 原子消费）。失败抛错，不消耗后续事务资源。
+    //    OTP 一旦消费成功就标记 usedAt，下面事务若 P2034 重试不会重复消费。
+    await this.verifyCode(phone, code, SmsPurpose.BIND);
+
+    // 2. 写入用 Serializable 事务包裹 findFirst+create，闭合并发抢占窗口。
+    //    背景：schema `@@unique([provider, identifier, appId])` 在 appId=null 时 PG
+    //    NULLS DISTINCT 会让 P2002 不触发，所以应用层必须用事务隔离兜底。
+    //    P2034（Serializable 冲突）允许 1 次退避重试，与 bonus-allocation 同模式。
+    const MAX_RETRIES = 1;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const own = await tx.authIdentity.findFirst({
+            where: { userId, provider: 'PHONE' },
+          });
+          if (own) {
+            throw new BadRequestException('当前账号已绑定手机号');
+          }
+          const taken = await tx.authIdentity.findFirst({
+            where: { provider: 'PHONE', identifier: phone },
+          });
+          if (taken) {
+            throw new BadRequestException('该手机号已被其他账号绑定，请使用该手机号直接登录');
+          }
+          await tx.authIdentity.create({
+            data: { userId, provider: 'PHONE', identifier: phone, verified: true },
+          });
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+        break;
+      } catch (err: any) {
+        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+        if (isPrismaError && err.code === 'P2002') {
+          throw new BadRequestException('该手机号已被其他账号绑定，请使用该手机号直接登录');
+        }
+        if (isPrismaError && err.code === 'P2034' && attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    this.logger.log(`[BindPhone] userId=${userId} 已绑定手机号 ${this.maskContact(phone)}`);
+    return { ok: true };
+  }
+
+  /** 提交"绑定微信"：code 换 openId + 防占用 + 写 AuthIdentity
+   *
+   * 注：本次新增身份不影响当前 session（不同于 changePhone 是修改现有身份）。
+   * 微信 code 由微信侧保证一次性，重复 code 会被 exchangeCodeForWechatProfile 抛错；
+   * 因此 P2034 重试只重跑事务体（findFirst+create），不重复调微信换 openId 接口。
+   */
+  async bindWechat(userId: string, code: string) {
+    // 1. 先 code 换 openId（事务外，外部 HTTP 调用不进事务）
+    const wechatProfile = await this.exchangeCodeForWechatProfile(code);
+    const { openId, unionId } = wechatProfile;
+
+    // 2. Serializable 事务：findFirst+create 原子化；P2034 退避重试 1 次（同 bindPhone）
+    const MAX_RETRIES = 1;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const own = await tx.authIdentity.findFirst({
+            where: { userId, provider: 'WECHAT' },
+          });
+          if (own) {
+            throw new BadRequestException('当前账号已绑定微信');
+          }
+          const taken = await tx.authIdentity.findFirst({
+            where: { provider: 'WECHAT', identifier: openId },
+          });
+          if (taken) {
+            throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
+          }
+          await tx.authIdentity.create({
+            data: { userId, provider: 'WECHAT', identifier: openId, verified: true, meta: { unionId } },
+          });
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+        break;
+      } catch (err: any) {
+        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+        if (isPrismaError && err.code === 'P2002') {
+          throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
+        }
+        if (isPrismaError && err.code === 'P2034' && attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    this.logger.log(`[BindWechat] userId=${userId} 已绑定微信 openId=${this.maskOpaqueId(openId)}`);
+    return { ok: true };
   }
 }

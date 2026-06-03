@@ -288,7 +288,7 @@ export class CouponEngineService {
             type: 'coupon_expired',
             title: '红包已过期',
             content: '您有红包已过期失效，请关注有效期及时使用。',
-            target: { route: '/coupons' },
+            target: { route: '/me/coupons' },
           }).catch(() => {});
         }
       } else {
@@ -481,7 +481,7 @@ export class CouponEngineService {
             type: 'coupon_granted',
             title: '红包到账',
             content: `您收到一张${campaign.discountType === 'FIXED' ? campaign.discountValue.toFixed(2) + '元' : campaign.discountValue + '折'}红包，快去使用吧！`,
-            target: { route: '/coupons' },
+            target: { route: '/me/coupons' },
           }).catch(() => {});
         });
 

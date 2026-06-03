@@ -35,6 +35,7 @@ export class AdminAfterSaleController {
     @Query('afterSaleType') afterSaleType?: string,
     @Query('companyId') companyId?: string,
     @Query('keyword') keyword?: string,
+    @Query('manualReview') manualReview?: string,
   ) {
     return this.afterSaleService.findAll(
       page ? parseInt(page) : 1,
@@ -43,6 +44,7 @@ export class AdminAfterSaleController {
       afterSaleType,
       companyId,
       keyword,
+      manualReview,
     );
   }
 
@@ -51,6 +53,13 @@ export class AdminAfterSaleController {
   @RequirePermission('after-sale:read')
   getStats() {
     return this.afterSaleService.getStats();
+  }
+
+  /** 售后状态时间线 */
+  @Get(':id/timeline')
+  @RequirePermission('after-sale:read')
+  getTimeline(@Param('id') id: string) {
+    return this.afterSaleService.getTimeline(id);
   }
 
   /** 售后详情 */
@@ -76,5 +85,23 @@ export class AdminAfterSaleController {
     @CurrentAdmin('sub') adminUserId: string,
   ) {
     return this.afterSaleService.arbitrate(id, dto, adminUserId);
+  }
+
+  /** 人工重试售后退款 */
+  @Post(':id/refunds/:refundId/retry')
+  @RequirePermission('after-sale:arbitrate')
+  @AuditLog({
+    action: 'REFUND',
+    module: 'after-sale',
+    targetType: 'AfterSaleRefund',
+    targetIdParam: 'params.refundId',
+    isReversible: false,
+  })
+  retryRefund(
+    @Param('id') id: string,
+    @Param('refundId') refundId: string,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.afterSaleService.retryRefund(id, refundId, adminUserId);
   }
 }

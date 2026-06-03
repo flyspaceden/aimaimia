@@ -1,0 +1,2 @@
+export const GRAMS_PER_KG = 1000;
+export const DEFAULT_SKU_WEIGHT_GRAM = GRAMS_PER_KG;

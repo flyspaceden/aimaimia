@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
+  App,
   Avatar,
   Button,
   Card,
   Descriptions,
-  message,
-  Modal,
   Space,
   Spin,
   Steps,
@@ -34,8 +33,9 @@ import {
   cancelWaybill,
   bindVirtualCall,
 } from '@/api/orders';
-import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
+import { toAbsoluteApiUrl } from '@/utils/api-url';
 import dayjs from 'dayjs';
 
 // 根据订单状态和物流状态计算进度步骤
@@ -59,6 +59,7 @@ function getOrderStep(order: {
 }
 
 export default function OrderDetailPage() {
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -103,7 +104,7 @@ export default function OrderDetailPage() {
   };
 
   const handleCancelWaybill = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认取消面单？',
       content: '取消后需重新生成面单',
       onOk: async () => {
@@ -122,7 +123,7 @@ export default function OrderDetailPage() {
     setCallingBuyer(true);
     try {
       const result = await bindVirtualCall(id!);
-      Modal.info({
+      modal.info({
         title: '联系买家',
         content: (
           <div>
@@ -147,6 +148,7 @@ export default function OrderDetailPage() {
   }
 
   const status = orderStatusMap[order.status];
+  const refundStatus = order.refundSummary ? refundStatusMap[order.refundSummary.status] : null;
   const canCallBuyer =
     ['PAID', 'SHIPPED'].includes(order.status) && hasRole('OWNER', 'MANAGER');
   const canManageShipment =
@@ -268,6 +270,16 @@ export default function OrderDetailPage() {
         />
       )}
 
+      {order.refundSummary && (
+        <Alert
+          message={`退款${refundStatus?.text || order.refundSummary.status}`}
+          description={`金额 ¥${order.refundSummary.amount.toFixed(2)}，原因：${order.refundSummary.reason}`}
+          type={order.refundSummary.status === 'FAILED' ? 'error' : 'info'}
+          showIcon
+          style={{ marginBottom: 16, borderRadius: 8 }}
+        />
+      )}
+
       {/* 发货操作区 — 待发货状态醒目展示 */}
       {canManageShipment && (
         <Card
@@ -311,14 +323,10 @@ export default function OrderDetailPage() {
                 <Button
                   icon={<PrinterOutlined />}
                   size="large"
-                  onClick={() =>
-                    order.shipment?.waybillPrintUrl &&
-                    window.open(
-                      order.shipment.waybillPrintUrl,
-                      '_blank',
-                      'noopener,noreferrer',
-                    )
-                  }
+                  onClick={() => {
+                    const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
+                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
                 >
                   打印面单
                 </Button>
@@ -473,14 +481,10 @@ export default function OrderDetailPage() {
                     type="link"
                     size="small"
                     icon={<PrinterOutlined />}
-                    onClick={() =>
-                      order.shipment?.waybillPrintUrl &&
-                      window.open(
-                        order.shipment.waybillPrintUrl,
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
+                    onClick={() => {
+                      const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
+                      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                    }}
                   >
                     打印
                   </Button>

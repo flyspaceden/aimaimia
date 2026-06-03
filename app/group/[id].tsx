@@ -9,7 +9,7 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { bookingStatusLabels, groupStatusLabels, identityOptions, paymentMethods } from '../../src/constants';
 import { BookingRepo, CompanyRepo, GroupRepo } from '../../src/repos';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Booking, Group, PaymentMethod } from '../../src/types';
 
 export default function GroupDetailScreen() {
@@ -18,6 +18,8 @@ export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('wechat');
   const [refreshing, setRefreshing] = useState(false);
+  // R-RS07: ScrollView paddingBottom 吃系统 safe-area，避免底部内容贴边。
+  const safeBottom = useBottomInset(spacing['3xl']);
 
   const groupId = Array.isArray(id) ? id[0] : id;
   const { data: groupResult, isLoading, refetch } = useQuery({
@@ -132,7 +134,7 @@ export default function GroupDetailScreen() {
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="考察团详情" />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: safeBottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         <Animated.View entering={FadeInDown.duration(300)} style={[styles.panel, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden' }]}>

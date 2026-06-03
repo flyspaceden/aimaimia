@@ -27,12 +27,15 @@ export const refundStatusMap: Record<string, { text: string; color: string }> = 
   REQUESTED: { text: '待处理', color: 'warning' },
   APPROVED: { text: '已同意', color: 'green' },
   REJECTED: { text: '已拒绝', color: 'error' },
-  REFUNDED: { text: '已退款', color: 'default' },
+  REFUNDING: { text: '退款中', color: 'processing' },
+  REFUNDED: { text: '已退款', color: 'success' },
+  FAILED: { text: '退款失败', color: 'error' },
 };
 
-// 物流状态
+// 物流状态（与 backend Prisma ShipmentStatus 枚举严格对齐）
 export const shipmentStatusMap: Record<string, { text: string; color: string }> = {
   INIT: { text: '待发货', color: 'default' },
+  SHIPPED: { text: '已发货', color: 'processing' },
   IN_TRANSIT: { text: '运输中', color: 'processing' },
   DELIVERED: { text: '已送达', color: 'green' },
   EXCEPTION: { text: '异常', color: 'error' },
@@ -73,6 +76,24 @@ export const afterSaleStatusMap: Record<string, { text: string; color: string }>
   CLOSED: { text: '已关闭', color: 'default' },
   CANCELED: { text: '已取消', color: 'default' },
 };
+
+/**
+ * 售后状态显示 helper
+ * APPROVED + requiresReturn=true 时单独区分"等待买家寄回"——
+ * 否则卖家容易误以为可以发货/操作。
+ */
+export function getAfterSaleDisplayStatus(record: {
+  status: string;
+  requiresReturn?: boolean;
+}): { text: string; color: string } {
+  if (
+    record.status === 'APPROVED' &&
+    record.requiresReturn === true
+  ) {
+    return { text: '等待买家寄回', color: 'gold' };
+  }
+  return afterSaleStatusMap[record.status] || { text: record.status, color: 'default' };
+}
 
 // 售后类型
 export const afterSaleTypeMap: Record<string, { text: string; color: string }> = {

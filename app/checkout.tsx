@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,28 +7,53 @@ import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppHeader, Screen } from '../src/components/layout';
 import { AuthModal } from '../src/components/overlay';
 import { EmptyState, useToast } from '../src/components/feedback';
 import { AiDivider } from '../src/components/ui/AiDivider';
 import { GiftCoverImage } from '../src/components/cards';
+import { OrderItemRow } from '../src/components/cards/OrderItemRow';
+import { Countdown } from '../src/components/ui/Countdown';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
-import { AddressRepo, BonusRepo, OrderRepo, UserRepo } from '../src/repos';
+import type { PendingCheckout } from '../src/types/domain/Checkout';
+import { AddressRepo, OrderRepo, UserRepo } from '../src/repos';
+import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { payWithAlipay } from '../src/utils/alipay';
+import { hasCompleteWechatPayPayload, payWithWechat } from '../src/utils/wechat-pay';
+import { getStockText } from '../src/utils/stockDisplay';
 import { AfterSaleRepo } from '../src/repos/AfterSaleRepo';
 import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
-import { useTheme } from '../src/theme';
+import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
+import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
 import type { VipPackageSelection } from '../src/store/useCheckoutStore';
+
+const normalizeMoneyInput = (value: string) => {
+  const cleaned = value.replace(/[^\d.]/g, '');
+  const parts = cleaned.split('.');
+  const integerPart = parts[0] ?? '';
+  const decimalPart = parts.length > 1 ? parts.slice(1).join('').slice(0, 2) : undefined;
+  return decimalPart === undefined ? integerPart : `${integerPart}.${decimalPart}`;
+};
+
+const parseMoneyInput = (value: string) => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatMoneyInput = (value: number) => (value > 0 ? value.toFixed(2) : '');
 
 export default function CheckoutScreen() {
   const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const insets = useSafeAreaInsets();
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactSubmitBar = isCompact || isLargeText;
+  const barBottomPad = useBottomInset(spacing.sm);
+  const { bottomPadding: scrollBottomPad, onBarLayout: handleBottomBarLayout } =
+    useMeasuredBottomBar(compactSubmitBar ? 150 : 112, spacing.lg);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
   // 从 checkout store 读取子页面选择结果（地址、红包、VIP 套餐）
@@ -46,15 +71,36 @@ export default function CheckoutScreen() {
   const syncFromServer = useCartStore((state) => state.syncFromServer);
   // N08修复：使用 cartKey 匹配选中项（支持同商品不同 SKU）
   const selectedItems = useMemo(
-    () => allItems.filter((item) => {
-      const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
-      return selectedIds.has(key);
-    }),
+    () => {
+      const selectedRaw = allItems.filter((item) => {
+        const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+        return selectedIds.has(key) && !item.unavailableReason;
+      });
+      const selectedNonPrizeTotal = selectedRaw
+        .filter((item) => !item.isPrize)
+        .reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+      return allItems.filter((item) => {
+        if (item.unavailableReason) return false;
+        const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+        const selected = selectedIds.has(key);
+        const isThresholdGift = item.isPrize === true && !!item.threshold;
+        const dynamicLocked = item.isLocked === true && (!item.threshold || selectedNonPrizeTotal < item.threshold);
+        if (dynamicLocked) return false;
+        if (isThresholdGift) return selectedNonPrizeTotal >= (item.threshold ?? 0);
+        return selected;
+      });
+    },
     [allItems, selectedIds]
   );
   const [refreshing, setRefreshing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('wechat');
-  const [remark, setRemark] = useState('');
+  // 默认选 paymentMethods 里第一个可用的方式（顺序：微信→支付宝→银行卡）：
+  // 测试包微信 available=true → 默认微信；生产包微信灰掉 → 自动回落支付宝。不可用方式 UI 灰掉
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    () => paymentMethods.find((m) => m.available)?.value ?? 'alipay',
+  );
+  const [buyerNote, setBuyerNote] = useState('');
+  const [deductionAmount, setDeductionAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   // 退换货政策协议弹窗状态
@@ -63,10 +109,20 @@ export default function CheckoutScreen() {
   const [policyAgreeing, setPolicyAgreeing] = useState(false);
   // 记录本次会话内是否已同意（避免弹窗后再次弹窗）
   const [localAgreed, setLocalAgreed] = useState(false);
+  // 同意标记的 ref 镜像：解决闭包陷阱——pendingCheckoutRef 缓存的旧 handleCheckout 闭包
+  // 内部 hasAgreedReturnPolicy 是渲染时的常量值（false），导致同意后再次进入 ensurePolicyAgreed
+  // 仍判 false → 弹窗死循环。用 ref 保证旧闭包重入时能读到最新 agreed 状态
+  const agreedRef = useRef(false);
   // 待执行的结算函数（同意政策后触发）
   const pendingCheckoutRef = useRef<(() => void) | null>(null);
+  // 409 防重弹窗：展示已存在的 ACTIVE Session 摘要 + 三个操作按钮
+  const [pendingModal, setPendingModal] = useState<PendingCheckout | null>(null);
+  // 记录"取消旧订单后要重新跑哪个结算入口"（普通 vs VIP）
+  const pendingRetryRef = useRef<(() => Promise<void>) | null>(null);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
-  const idempotencyKeyRef = useRef(`ik_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  // 按 bizType 拆分：schema 唯一约束是 (userId, idempotencyKey)，普通+VIP 共用会撞约束
+  const normalIdempotencyKeyRef = useRef(`ik_normal_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  const vipIdempotencyKeyRef = useRef(`ik_vip_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
 
   // 进入结算页时从服务端同步购物车
   React.useEffect(() => {
@@ -95,8 +151,9 @@ export default function CheckoutScreen() {
     return Array.from(ids);
   }, [cartItems]);
 
-  const previewSignature = cartItems.map((i) => `${i.skuId || i.productId}:${i.quantity}`).join(',');
+  const previewSignature = cartItems.map((i) => `${i.id || ''}:${i.skuId || i.productId}:${i.quantity}`).join(',');
   const previewErrorToastKeyRef = useRef<string>('');
+  const previewExcludedToastKeyRef = useRef<string>('');
 
   // 地址数据
   const { data: addressData } = useQuery({
@@ -117,6 +174,13 @@ export default function CheckoutScreen() {
   });
   const hasAgreedReturnPolicy = localAgreed || (profileData?.ok ? profileData.data.hasAgreedReturnPolicy : false);
 
+  const { data: appConfigResult } = useQuery({
+    queryKey: ['app-config'],
+    queryFn: AppConfigRepo.getPublicConfig,
+    staleTime: 1000 * 60 * 60,
+  });
+  const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
+
   // N09修复：调用预结算接口获取服务端计算结果
   const { data: previewData, isError: previewError, isLoading: previewLoading } = useQuery({
     queryKey: ['order-preview', previewSignature, parsedCouponIds, selectedAddress?.id],
@@ -129,6 +193,7 @@ export default function CheckoutScreen() {
         image: item.image,
         price: item.price,
         quantity: item.quantity,
+        cartItemId: item.id,
       })),
       addressId: selectedAddress?.id,
       couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
@@ -149,6 +214,14 @@ export default function CheckoutScreen() {
     show({ message, type: 'error' });
     previewErrorToastKeyRef.current = toastKey;
   }, [previewData, previewSignature, parsedCouponIds, show]);
+
+  React.useEffect(() => {
+    if (!preview?.excludedItems?.length) return;
+    const toastKey = preview.excludedItems.map((item) => `${item.cartItemId || ''}:${item.skuId}:${item.reason}`).join('|');
+    if (previewExcludedToastKeyRef.current === toastKey) return;
+    show({ message: '已下架奖品已自动从结算中移除', type: 'warning' });
+    previewExcludedToastKeyRef.current = toastKey;
+  }, [preview?.excludedItems, show]);
 
   // S11修复：比对服务端价格与购物车价格，发现差异时提示用户
   const [priceWarningShown, setPriceWarningShown] = useState(false);
@@ -171,14 +244,50 @@ export default function CheckoutScreen() {
     }
   }, [preview]);
 
-  // N09修复：优先使用服务端返回值，fallback 到本地计算
+  // N09修复：优先使用服务端返回值；预结算返回前不展示本地假运费
   const total = preview?.summary.totalGoodsAmount ?? localGoodsTotal;
-  const shippingFee = preview?.summary.totalShippingFee ?? (localGoodsTotal >= 99 ? 0 : 8);
+  const shippingFee = preview?.summary.totalShippingFee ?? 0;
   const serverDiscount = preview?.summary.totalDiscount ?? 0;
   const vipDiscount = preview?.summary.vipDiscount ?? 0;
   const finalTotal = preview
     ? Number(preview.summary.totalPayable.toFixed(2))
-    : Number(Math.max(0, localGoodsTotal + shippingFee - couponDiscount).toFixed(2));
+    : Number(Math.max(0, localGoodsTotal - couponDiscount).toFixed(2));
+  const previewMaxDeductible = !isVipMode && preview ? Math.max(0, preview.maxDeductible ?? 0) : 0;
+  const maxDeductible = !isVipMode && preview ? Number(Math.min(previewMaxDeductible, finalTotal).toFixed(2)) : 0;
+  const pointsBalance = !isVipMode && preview ? Number(Math.max(0, preview.pointsBalance ?? 0).toFixed(2)) : 0;
+  const pointsRatio = !isVipMode && preview ? preview.pointsRatio ?? 0 : 0;
+  const requestedDeductionAmount = parseMoneyInput(deductionAmount);
+  const appliedDeductionAmount = !isVipMode
+    ? Number(Math.min(requestedDeductionAmount, maxDeductible, finalTotal).toFixed(2))
+    : 0;
+  const payableAfterDeduction = !isVipMode
+    ? Number(Math.max(0, finalTotal - appliedDeductionAmount).toFixed(2))
+    : finalTotal;
+  const shippingFeeText = preview
+    ? (shippingFee === 0 ? '免运费' : `¥${shippingFee.toFixed(2)}`)
+    : (previewFailed ? '校验失败' : '计算中...');
+
+  React.useEffect(() => {
+    if (isVipMode) {
+      if (deductionAmount) setDeductionAmount('');
+      return;
+    }
+    const current = parseMoneyInput(deductionAmount);
+    if (current > maxDeductible) {
+      setDeductionAmount(formatMoneyInput(maxDeductible));
+    }
+  }, [deductionAmount, isVipMode, maxDeductible]);
+
+  const handleDeductionChange = (value: string) => {
+    const normalized = normalizeMoneyInput(value);
+    const next = parseMoneyInput(normalized);
+    if (next > maxDeductible) {
+      show({ message: `最多可抵扣 ¥${maxDeductible.toFixed(2)}`, type: 'warning' });
+      setDeductionAmount(formatMoneyInput(maxDeductible));
+      return;
+    }
+    setDeductionAmount(normalized);
+  };
 
   const orderItems = useMemo(
     () =>
@@ -191,6 +300,8 @@ export default function CheckoutScreen() {
         image: item.image,
         price: item.price,
         quantity: item.quantity,
+        stock: item.stock,
+        cartItemId: item.id,
       })),
     [cartItems]
   );
@@ -238,9 +349,13 @@ export default function CheckoutScreen() {
       const result = await AfterSaleRepo.agreePolicy();
       if (!result.ok) {
         show({ message: '确认失败，请重试', type: 'error' });
+        // 防御性清 ref：避免下次成功时调到旧闭包（虽然旧闭包同样会被新弹窗覆盖，
+        // 但这里清掉更显式，符合"失败即清理"原则）
+        pendingCheckoutRef.current = null;
         return;
       }
       setLocalAgreed(true);
+      agreedRef.current = true; // 同步写 ref 让旧闭包重入时能读到最新值
       setPolicyModalVisible(false);
       setPolicyChecked(false);
       await queryClient.invalidateQueries({ queryKey: ['me-profile'] });
@@ -256,11 +371,146 @@ export default function CheckoutScreen() {
   };
 
   // 政策拦截：首次结算时弹窗
+  // 必须同时检查 agreedRef.current（解决闭包陷阱：旧闭包里的 hasAgreedReturnPolicy 永远是渲染时的快照值）
   const ensurePolicyAgreed = (onProceed: () => void): boolean => {
-    if (hasAgreedReturnPolicy) return true;
+    if (hasAgreedReturnPolicy || agreedRef.current) return true;
     pendingCheckoutRef.current = onProceed;
     setPolicyModalVisible(true);
     return false;
+  };
+
+  /**
+   * P5 第三轮支付确认 + 跳转的统一逻辑
+   * （普通结算 + VIP 礼包共用，避免 4 处重复代码）
+   *
+   * 流程图（详见 docs/issues/app-tpfix1.md P5 第三轮）：
+   *   1. 立刻 active-query → COMPLETED 直接跳成功页（沙箱场景秒到）
+   *   2. 未 COMPLETED → polling 兜底（90 次 × 2s = 180 秒）
+   *   3. 期间发现 EXPIRED/FAILED → 明确提示
+   *   4. 仍未完成 → 软提示"支付处理中，请稍后在订单列表查看"（不报失败）
+   *   5. 成功 → router.replace('/payment-success', params)
+   */
+  const confirmPaymentAndNavigate = async (args: {
+    sessionId: string;
+    merchantOrderNo: string;
+    amount: number;
+    isVip: boolean;
+    paymentMethod: PaymentMethod;
+  }) => {
+    const { sessionId, merchantOrderNo, amount, isVip, paymentMethod: successPaymentMethod } = args;
+
+    show({ message: '支付确认中...', type: 'info' });
+
+    let completed = false;
+    let orderIds: string[] = [];
+
+    /**
+     * 处理 active-query 返回结果
+     * @returns 'completed' | 'terminal-failure' | 'continue-poll'
+     *
+     * F2 修复：业务错误（INVALID/FORBIDDEN/NOT_FOUND）应停止并提示，而非沉默继续轮询。
+     * - 金额不一致后端抛 BadRequestException → code='INVALID' → 直接提示停止
+     * - 网络错误 / 服务器异常 → 继续 polling 兜底
+     */
+    const handleActiveQuery = async (): Promise<'completed' | 'terminal-failure' | 'continue-poll'> => {
+      const r = await OrderRepo.activeQueryPayment(sessionId);
+      if (r.ok) {
+        const { status, orderIds: ids } = r.data;
+        if (status === 'COMPLETED') {
+          completed = true;
+          orderIds = ids ?? [];
+          return 'completed';
+        }
+        if (status === 'EXPIRED' || status === 'FAILED') {
+          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
+          return 'terminal-failure';
+        }
+        // ACTIVE/PAID/中间态 → 继续 polling
+        return 'continue-poll';
+      }
+      // F2: 业务错误立即终止（区分网络错误）
+      const code = r.error.code;
+      if (code === 'INVALID' || code === 'FORBIDDEN' || code === 'NOT_FOUND') {
+        show({
+          message: r.error.displayMessage ?? '支付确认失败，请联系客服',
+          type: 'error',
+        });
+        return 'terminal-failure';
+      }
+      // NETWORK / UNKNOWN → 继续 polling 兜底
+      return 'continue-poll';
+    };
+
+    // 1. 立刻主动查询（沙箱 notify 慢/丢失时直接救场）
+    const initialOutcome = await handleActiveQuery();
+    if (initialOutcome === 'terminal-failure') return;
+
+    // 2. polling 兜底（90 次 × 2 秒 = 180 秒，应对沙箱 notify 长尾）
+    //    F1 修复：每 5 轮再调一次 active-query，避免首次 query 错过窗口期后只能等 notify
+    if (!completed) {
+      const MAX_POLLS = 90;
+      const POLL_INTERVAL = 2000;
+      const ACTIVE_QUERY_EVERY = 5;
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+
+        // 每 5 轮（约 10 秒）再触发一次后端 active-query 重查支付宝真实状态
+        if (i > 0 && i % ACTIVE_QUERY_EVERY === 0) {
+          const outcome = await handleActiveQuery();
+          if (outcome === 'completed') break;
+          if (outcome === 'terminal-failure') return;
+        }
+
+        // 普通本地 session 状态轮询（看 notify 路径有没有更新 session）
+        const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
+        if (!statusResult.ok) continue;
+        const { status, orderIds: ids } = statusResult.data;
+        if (status === 'COMPLETED') {
+          completed = true;
+          orderIds = ids ?? [];
+          break;
+        }
+        if (status === 'EXPIRED' || status === 'FAILED') {
+          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
+          return;
+        }
+      }
+    }
+
+    // 3. 仍未完成 → 软提示而非"失败"（钱可能已扣，避免用户重复支付）
+    if (!completed) {
+      show({ message: '支付处理中，请稍后在订单列表查看', type: 'warning' });
+      return;
+    }
+
+    // 4. 成功：刷新缓存 + 清空购物车/VIP 选择 + 跳支付成功页
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-order-issue'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),    // 抵扣后钱包余额变化
+      queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),    // 钱包流水变化
+      ...(isVip ? [queryClient.invalidateQueries({ queryKey: ['bonus-member'] })] : []),
+    ]);
+    if (isVip) {
+      clearVipPackageSelection();
+    } else {
+      clearCheckedItems();
+    }
+    resetCheckoutStore();
+
+    router.replace({
+      pathname: '/payment-success',
+      params: {
+        sessionId,
+        totalOrderNo: merchantOrderNo,
+        amount: amount.toFixed(2),
+        firstOrderId: orderIds[0] ?? '',
+        orderCount: String(Math.max(1, orderIds.length)),
+        isVip: isVip ? '1' : '0',
+        paymentMethod: successPaymentMethod,
+      },
+    });
   };
 
   const handleCheckout = async () => {
@@ -268,8 +518,26 @@ export default function CheckoutScreen() {
       show({ message: '价格校验中，请稍候再提交', type: 'warning' });
       return;
     }
+    if (!preview || previewFailed) {
+      show({ message: '价格校验失败，请刷新后重试', type: 'error' });
+      return;
+    }
+    const blocked = allItems.some((item) => {
+      const key = item.skuId ? `${item.productId}:${item.skuId}` : item.productId;
+      return selectedIds.has(key) && (item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
+    }) || cartItems.some((item) => item.unavailableReason === 'OUT_OF_STOCK' || Number(item.stock ?? 1) <= 0);
+    if (blocked) {
+      show({ message: '有商品暂无库存，请返回购物车处理', type: 'warning' });
+      return;
+    }
     if (!selectedAddress) {
       show({ message: '请先选择收货地址', type: 'warning' });
+      return;
+    }
+    const deductionToSubmit = Number(parseMoneyInput(deductionAmount).toFixed(2));
+    if (deductionToSubmit > maxDeductible) {
+      show({ message: `最多可抵扣 ¥${maxDeductible.toFixed(2)}`, type: 'warning' });
+      setDeductionAmount(formatMoneyInput(maxDeductible));
       return;
     }
     // 退换货政策拦截：未同意则弹窗，同意后自动重新触发
@@ -287,78 +555,121 @@ export default function CheckoutScreen() {
         addressId: selectedAddress.id,
         couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
         paymentChannel: paymentMethod,
-        idempotencyKey: idempotencyKeyRef.current,
-        expectedTotal: preview ? preview.summary.totalPayable : undefined,
+        idempotencyKey: normalIdempotencyKeyRef.current,
+        expectedTotal: payableAfterDeduction,
+        deductionAmount: deductionToSubmit,
+        buyerNote: buyerNote.trim() || undefined,
       });
       if (!sessionResult.ok) {
+        // 409 防重锁拦截：拿 Session 摘要弹 Modal，让用户决定取消旧/续付/关闭
+        if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
+          const pending = await OrderRepo.getPendingCheckout();
+          if (pending.ok && pending.data) {
+            pendingRetryRef.current = handleCheckout;
+            setPendingModal(pending.data);
+          } else {
+            show({ message: '订单状态异常，请重试', type: 'error' });
+          }
+          return;
+        }
         show({ message: sessionResult.error.displayMessage ?? '下单失败', type: 'error' });
         return;
       }
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // 支付宝渠道：调用原生 SDK 支付
+      // 支付分流：先调起渠道支付，然后统一交给 confirmPaymentAndNavigate 走 active-query + polling
+      // 流程图（详见 docs/issues/app-tpfix1.md P5 第三轮）：
+      //   - 6001 用户取消 → 保留 session，跳未完成订单续付页
+      //   - 其他 (9000/8000/6004/4000/空/微信 errCode) → 不依赖 SDK resultStatus，进 active-query
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
-          // 原生模块不可用（Expo Go），回退到模拟支付
-          const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
-          if (!payResult.ok) {
-            show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          // 原生模块不可用：dev 走 simulate，release 直接拒
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
             await OrderRepo.cancelCheckoutSession(sessionId);
             return;
           }
-        } else if (!alipayResult.success) {
-          const msg = alipayResult.resultStatus === '6001' ? '已取消支付' : '支付失败，请重试';
-          show({ message: msg, type: alipayResult.resultStatus === '6001' ? 'warning' : 'error' });
-          if (alipayResult.resultStatus === '6001') {
+        } else if (alipayResult.resultStatus === '6001') {
+          // 用户取消支付 — 保留 Session ACTIVE，跳到 /checkout-pending 让用户决定续付或主动取消
+          // （不再立即 cancelCheckoutSession；30 分钟后 Cron 自然过期）
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          return;
+        } else if (alipayResult.memo === 'TIMEOUT') {
+          // SDK 90s 无响应（通常支付宝被系统拦截没起来）：不 cancel session，
+          // 提示用户 + 走 active-query + polling 兜底（用户仍可能在支付宝里完成支付）
+          show({
+            message: '支付宝未响应，请确认是否已安装支付宝并允许应用启动它，正在为你确认支付结果…',
+            type: 'warning',
+            duration: 4000,
+          });
+        }
+        // 9000/8000/6004/4000/空字符串/TIMEOUT 等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
+      } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
+        const wechatResult = await payWithWechat(paymentParams);
+        if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
             await OrderRepo.cancelCheckoutSession(sessionId);
+            return;
           }
+        } else if (wechatResult.resultStatus === '6001') {
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          return;
+        } else if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
+          show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         }
-        // 支付成功或处理中：继续轮询
-      } else {
-        // 非支付宝渠道 / 开发环境：模拟支付回调
+        // errCode=0 / 其他错误码：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
+      } else if (paymentMethod === 'alipay') {
+        // 用户选了支付宝但后端没生成 orderStr → 后端 SDK 初始化失败/凭据错
+        show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (paymentMethod === 'wechat') {
+        show({ message: '微信支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (__DEV__) {
+        // 非支付宝（且 Expo Go 开发环境）：模拟支付回调
         const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
         if (!payResult.ok) {
-          show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
           await OrderRepo.cancelCheckoutSession(sessionId);
           return;
         }
-      }
-
-      // 轮询会话状态，等待后端处理完成
-      const MAX_POLLS = 30;
-      const POLL_INTERVAL = 2000;
-      let completed = false;
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-        const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
-        if (!statusResult.ok) continue;
-
-        const { status } = statusResult.data;
-        if (status === 'COMPLETED') {
-          completed = true;
-          break;
-        }
-        if (status === 'EXPIRED' || status === 'FAILED') {
-          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
-          return;
-        }
-      }
-
-      if (!completed) {
-        show({ message: '支付处理超时，请在订单列表中查看状态', type: 'warning' });
+      } else {
+        // release 防御：UI 已灰掉非支付宝渠道，正常用户走不到这分支
+        show({ message: '当前支付方式暂未开通，请使用支付宝', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
-      await queryClient.invalidateQueries({ queryKey: ['me-order-issue'] });
-      // 仅清除已结算的购物车项
-      clearCheckedItems();
-      resetCheckoutStore();
-      show({ message: '支付成功，订单已生成', type: 'success' });
+      // 进入支付确认流程（active-query → polling fallback → 跳成功页）
+      // F4: 用后端权威 expectedTotal 而非前端 finalTotal（前端计算可能与服务端有微小差异）
+      await confirmPaymentAndNavigate({
+        sessionId,
+        merchantOrderNo,
+        amount: sessionResult.data.expectedTotal,
+        isVip: false,
+        paymentMethod,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -390,78 +701,162 @@ export default function CheckoutScreen() {
         giftOptionId: vipPackageSelection.giftOptionId,
         addressId: selectedAddress.id,
         paymentChannel: paymentMethod,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: vipIdempotencyKeyRef.current,
         expectedTotal: vipPackageSelection.price,
+        buyerNote: buyerNote.trim() || undefined,
       });
       if (!sessionResult.ok) {
+        // VIP 409 防重锁拦截：VIP 不复用 Modal — VIP 没有"续付"语义，
+        // 直接 toast 提示等 5min 后端兜底超时即可
+        if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
+          // 区分挡道的是 VIP 自己 vs 普通商品订单
+          // 注：getPendingCheckout 现在只返 NORMAL_GOODS（后端 Fix 4 过滤），
+          //    返 null 表示 VIP-vs-VIP 自撞，返 data 表示有普通商品在挡道
+          const pending = await OrderRepo.getPendingCheckout();
+          if (pending.ok && pending.data) {
+            // 普通商品 session 挡道 — 提示用户先处理
+            Alert.alert(
+              '你有未完成的购物订单',
+              '需要先完成支付或取消，才能购买 VIP',
+              [
+                { text: '稍后', style: 'cancel' },
+                {
+                  text: '去处理',
+                  onPress: () => router.push({ pathname: '/checkout-pending', params: { sessionId: pending.data!.sessionId } }),
+                },
+              ],
+            );
+          } else {
+            // VIP-vs-VIP 自撞（orphan VIP session 5min 内）— 提示等待
+            show({ message: '支付未完成，请 5 分钟后重试', type: 'warning', duration: 4000 });
+          }
+          return;
+        }
         show({ message: sessionResult.error.displayMessage ?? 'VIP 下单失败', type: 'error' });
         return;
       }
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
-      // 支付宝渠道：调用原生 SDK 支付
+      // VIP 分支复用主结算支付分流；取消支付时额外做 active-query 防止 SDK 误报
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
-          const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
-          if (!payResult.ok) {
-            show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
             await OrderRepo.cancelCheckoutSession(sessionId);
             return;
           }
-        } else if (!alipayResult.success) {
-          const msg = alipayResult.resultStatus === '6001' ? '已取消支付' : '支付失败，请重试';
-          show({ message: msg, type: alipayResult.resultStatus === '6001' ? 'warning' : 'error' });
-          if (alipayResult.resultStatus === '6001') {
-            await OrderRepo.cancelCheckoutSession(sessionId);
+        } else if (alipayResult.resultStatus === '6001') {
+          // VIP 6001 二次确认：识别"SDK 返 6001 但实际已付款"的误报场景
+          // 关键：active-query 仅用来识别 COMPLETED；其他状态（中间态/query-error）一律不 cancel，
+          //      让 5min 后端 cron 兜底处理。这样既识别误报又避免误删已付 session 的资金事故。
+          const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (activeR.ok && activeR.data.status === 'COMPLETED') {
+            // 实际已付款 — 走成功路径
+            clearVipPackageSelection();
+            resetCheckoutStore();
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['orders'] }),
+              queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),   // 抵扣后钱包余额变化
+              queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
+            ]);
+            show({ message: '支付成功', type: 'success' });
+            router.replace('/orders');
+            return;
           }
+          // 未确认 COMPLETED — 不 cancel，让后端 cron 兜底
+          show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
+          router.replace('/vip/gifts');
+          return;
+        } else if (alipayResult.memo === 'TIMEOUT') {
+          // SDK 90s 无响应：与主结算分支一致，不 cancel session，让 active-query 兜底
+          show({
+            message: '支付宝未响应，请确认是否已安装支付宝并允许应用启动它，正在为你确认支付结果…',
+            type: 'warning',
+            duration: 4000,
+          });
+        }
+        // 其他状态（9000/8000/6004/4000/空/TIMEOUT）→ 进 active-query
+      } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
+        const wechatResult = await payWithWechat(paymentParams);
+        if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
+          if (__DEV__) {
+            const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!payResult.ok) {
+              show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
+              await OrderRepo.cancelCheckoutSession(sessionId);
+              return;
+            }
+          } else {
+            show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+            await OrderRepo.cancelCheckoutSession(sessionId);
+            return;
+          }
+        } else if (wechatResult.resultStatus === '6001') {
+          const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (activeR.ok && activeR.data.status === 'COMPLETED') {
+            clearVipPackageSelection();
+            resetCheckoutStore();
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['orders'] }),
+              queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
+              queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
+            ]);
+            show({ message: '支付成功', type: 'success' });
+            router.replace('/orders');
+            return;
+          }
+          show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
+          router.replace('/vip/gifts');
+          return;
+        } else if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
+          show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         }
-      } else {
+        // errCode=0 / 其他错误码 → 进 active-query
+      } else if (paymentMethod === 'alipay') {
+        show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (paymentMethod === 'wechat') {
+        show({ message: '微信支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
+        return;
+      } else if (__DEV__) {
         const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
         if (!payResult.ok) {
-          show({ message: '支付触发失败，请稍后重试', type: 'error' });
+          show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
           await OrderRepo.cancelCheckoutSession(sessionId);
           return;
         }
-      }
-
-      // 轮询会话状态
-      const MAX_POLLS = 30;
-      const POLL_INTERVAL = 2000;
-      let completed = false;
-      for (let i = 0; i < MAX_POLLS; i++) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-        const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
-        if (!statusResult.ok) continue;
-        const { status } = statusResult.data;
-        if (status === 'COMPLETED') {
-          completed = true;
-          break;
-        }
-        if (status === 'EXPIRED' || status === 'FAILED') {
-          show({ message: status === 'EXPIRED' ? '支付超时，请重试' : '支付失败', type: 'error' });
-          return;
-        }
-      }
-
-      if (!completed) {
-        show({ message: '支付处理超时，请在订单列表中查看状态', type: 'warning' });
+      } else {
+        show({ message: '当前支付方式暂未开通，请使用支付宝', type: 'error' });
+        await OrderRepo.cancelCheckoutSession(sessionId);
         return;
       }
 
-      // VIP 成功：刷新会员状态和订单
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['orders'] }),
-        queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
-        queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
-      ]);
-      clearVipPackageSelection();
-      resetCheckoutStore();
-      show({ message: 'VIP 开通成功！赠品订单已生成', type: 'success' });
-      // 跳转到 VIP 成功页或 VIP 页面
-      router.replace('/me/vip');
+      // 进入支付确认流程（VIP 模式）
+      // F4: 用后端权威 expectedTotal 而非前端 vipPackageSelection.price
+      await confirmPaymentAndNavigate({
+        sessionId,
+        merchantOrderNo,
+        amount: sessionResult.data.expectedTotal,
+        isVip: true,
+        paymentMethod,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -476,11 +871,13 @@ export default function CheckoutScreen() {
 
   // VIP 模式下的显示金额
   const vipTotal = vipPackageSelection?.price ?? 0;
-  const displayTotal = isVipMode ? vipTotal : finalTotal;
+  const displayTotalText = isVipMode
+    ? `¥${vipTotal.toFixed(2)}`
+    : (preview ? `¥${payableAfterDeduction.toFixed(2)}` : (previewFailed ? '校验失败' : '计算中...'));
   const hasContent = isVipMode || cartItems.length > 0;
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title={isVipMode ? 'VIP 礼包结算' : '确认订单'} onBack={() => {
         if (router.canGoBack()) {
           router.back();
@@ -494,8 +891,10 @@ export default function CheckoutScreen() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + 100 }}
+          contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* 收货地址 */}
           <Animated.View entering={FadeInDown.duration(300)}>
@@ -622,22 +1021,31 @@ export default function CheckoutScreen() {
                 </View>
                 <AiDivider />
                 {/* 商品列表 */}
-                {group.items.map((item, ii) => (
-                  <View key={`${item.skuId}-${ii}`} style={styles.itemRow}>
-                    <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
-                    <View style={{ flex: 1, marginLeft: spacing.md }}>
-                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                        x{item.quantity}
+                {group.items.map((item, ii) => {
+                  const cartItem = cartItems.find((candidate) => (candidate.skuId ?? candidate.productId) === item.skuId);
+                  const stockText = getStockText(cartItem?.stock, lowStockThreshold);
+                  return (
+                    <View key={`${item.skuId}-${ii}`} style={styles.itemRow}>
+                      <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                      <View style={{ flex: 1, marginLeft: spacing.md }}>
+                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        {stockText && (
+                          <Text style={[typography.captionSm, { color: Number(cartItem?.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                            {stockText}
+                          </Text>
+                        )}
+                        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                          x{item.quantity}
+                        </Text>
+                      </View>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                        ¥{(item.unitPrice * item.quantity).toFixed(2)}
                       </Text>
                     </View>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                      ¥{(item.unitPrice * item.quantity).toFixed(2)}
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
                 {/* 商户小计 */}
                 <View style={[styles.merchantSubtotal, { borderTopColor: colors.divider, marginTop: 12 }]}>
                   <View style={styles.merchantSubtotalRow}>
@@ -657,22 +1065,30 @@ export default function CheckoutScreen() {
                 </Text>
                 <AiDivider style={{ flex: 1 }} />
               </View>
-              {orderItems.map((item) => (
-                <View key={item.id} style={styles.itemRow}>
-                  <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
-                  <View style={{ flex: 1, marginLeft: spacing.md }}>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                      x{item.quantity}
+              {orderItems.map((item) => {
+                const stockText = getStockText(item.stock, lowStockThreshold);
+                return (
+                  <View key={item.id} style={styles.itemRow}>
+                    <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {stockText && (
+                        <Text style={[typography.captionSm, { color: Number(item.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                          {stockText}
+                        </Text>
+                      )}
+                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                        x{item.quantity}
+                      </Text>
+                    </View>
+                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                      ¥{(item.price * item.quantity).toFixed(2)}
                     </Text>
                   </View>
-                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                    ¥{(item.price * item.quantity).toFixed(2)}
-                  </Text>
-                </View>
-              ))}
+                );
+              })}
             </Animated.View>
           ) : null}
 
@@ -688,15 +1104,27 @@ export default function CheckoutScreen() {
             {paymentMethods.map((method) => {
               const active = paymentMethod === method.value;
               const iconInfo = paymentIcons[method.value];
+              const disabled = method.available === false;
               return (
                 <Pressable
                   key={method.value}
-                  onPress={() => setPaymentMethod(method.value)}
+                  onPress={() => {
+                    if (disabled) {
+                      // 未接入渠道：toast 提示并阻止选中（避免后端走 simulatePayment 失败）
+                      show({
+                        message: `${method.label}${method.comingSoon ? `（${method.comingSoon}）` : ''}暂未开通，请使用支付宝`,
+                        type: 'info',
+                      });
+                      return;
+                    }
+                    setPaymentMethod(method.value);
+                  }}
                   style={[
                     styles.payRow,
                     {
                       borderColor: active ? colors.brand.primary : colors.border,
                       borderRadius: radius.lg,
+                      opacity: disabled ? 0.45 : 1,
                     },
                   ]}
                 >
@@ -709,10 +1137,19 @@ export default function CheckoutScreen() {
                     />
                   )}
                   <View style={{ flex: 1 }}>
-                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{method.label}</Text>
-                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                      {method.description}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{method.label}</Text>
+                      {disabled && method.comingSoon && (
+                        <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 6 }]}>
+                          · {method.comingSoon}
+                        </Text>
+                      )}
+                    </View>
+                    {method.description ? (
+                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                        {method.description}
+                      </Text>
+                    ) : null}
                   </View>
                   <View
                     style={[
@@ -728,22 +1165,22 @@ export default function CheckoutScreen() {
             })}
           </Animated.View>
 
-          {/* 订单备注（VIP 模式隐藏） */}
-          {!isVipMode && (
+          {/* 买家留言（普通 + VIP 都展示） */}
           <View style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             <View style={styles.sectionTitle}>
               <AiDivider style={{ flex: 1 }} />
               <Text style={[typography.captionSm, { color: colors.text.secondary, marginHorizontal: spacing.sm }]}>
-                订单备注
+                买家留言（非必填，给商家的话）
               </Text>
               <AiDivider style={{ flex: 1 }} />
             </View>
             <TextInput
-              value={remark}
-              onChangeText={setRemark}
-              placeholder="选填：可备注特殊要求"
+              value={buyerNote}
+              onChangeText={(t) => setBuyerNote(t.slice(0, 200))}
+              placeholder="例如：尽快发货 / 不要冰品"
               placeholderTextColor={colors.muted}
               multiline
+              maxLength={200}
               style={[
                 styles.remarkInput,
                 typography.bodySm,
@@ -754,8 +1191,10 @@ export default function CheckoutScreen() {
                 },
               ]}
             />
+            <Text style={[typography.caption, { color: colors.text.tertiary, textAlign: 'right', marginTop: 4 }]}>
+              {buyerNote.length}/200
+            </Text>
           </View>
-          )}
 
           {/* 红包选择（VIP 模式隐藏） */}
           {!isVipMode && (
@@ -793,6 +1232,63 @@ export default function CheckoutScreen() {
           </Animated.View>
           )}
 
+          {/* 消费积分抵扣（VIP 模式禁用） */}
+          {!isVipMode && preview && maxDeductible > 0 ? (
+            <Animated.View entering={FadeInDown.duration(300).delay(220)} style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brand.primarySoft, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md }}>
+                  <MaterialCommunityIcons name="cash-multiple" size={18} color={colors.brand.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>消费积分</Text>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                    可用 ¥{pointsBalance.toFixed(2)}，本单最多抵扣 ¥{maxDeductible.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={[styles.deductionInputRow, { borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bgSecondary }]}>
+                <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>¥</Text>
+                <TextInput
+                  value={deductionAmount}
+                  onChangeText={handleDeductionChange}
+                  editable={maxDeductible > 0}
+                  placeholder="0.00"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="decimal-pad"
+                  style={[styles.deductionInput, typography.bodyStrong, { color: colors.text.primary }]}
+                />
+                <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
+                  最高{Math.round(pointsRatio * 100)}%
+                </Text>
+              </View>
+
+              <View style={styles.deductionActionRow}>
+                <Pressable
+                  onPress={() => setDeductionAmount('')}
+                  style={[styles.deductionAction, { borderColor: colors.border, borderRadius: radius.pill }]}
+                >
+                  <Text style={[typography.caption, { color: colors.text.secondary }]}>不使用</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setDeductionAmount(formatMoneyInput(maxDeductible))}
+                  disabled={maxDeductible <= 0}
+                  style={[
+                    styles.deductionAction,
+                    {
+                      borderColor: colors.brand.primary,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.brand.primarySoft,
+                      opacity: maxDeductible > 0 ? 1 : 0.5,
+                    },
+                  ]}
+                >
+                  <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>抵扣最大</Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          ) : null}
+
           {/* 价格明细 */}
           <View style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             {isVipMode ? (
@@ -823,10 +1319,10 @@ export default function CheckoutScreen() {
                 <View style={styles.priceRow}>
                   <Text style={[typography.bodySm, { color: colors.text.secondary }]}>运费</Text>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[typography.bodySm, { color: shippingFee === 0 ? colors.brand.primary : colors.text.primary }]}>
-                      {shippingFee === 0 ? '免运费' : `¥${shippingFee.toFixed(2)}`}
+                    <Text style={[typography.bodySm, { color: preview && shippingFee === 0 ? colors.brand.primary : colors.text.primary }]}>
+                      {shippingFeeText}
                     </Text>
-                    {shippingFee > 0 && preview?.summary.amountToFreeShipping != null && preview.summary.amountToFreeShipping > 0 && (
+                    {preview && shippingFee > 0 && preview.summary.amountToFreeShipping != null && preview.summary.amountToFreeShipping > 0 && (
                       <Text style={[typography.caption, { color: colors.brand.primary, marginTop: 2, fontSize: 11 }]}>
                         再买¥{preview.summary.amountToFreeShipping.toFixed(2)}可免运费
                       </Text>
@@ -845,10 +1341,16 @@ export default function CheckoutScreen() {
                     <Text style={[typography.bodySm, { color: colors.danger }]}>-¥{(serverDiscount || couponDiscount).toFixed(2)}</Text>
                   </View>
                 )}
+                {appliedDeductionAmount > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={[typography.bodySm, { color: colors.text.secondary }]}>消费积分</Text>
+                    <Text style={[typography.bodySm, { color: colors.danger }]}>-¥{appliedDeductionAmount.toFixed(2)}</Text>
+                  </View>
+                )}
                 <View style={[styles.divider, { backgroundColor: colors.divider }]} />
                 <View style={styles.priceRow}>
                   <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>合计</Text>
-                  <Text style={[typography.title2, { color: colors.text.primary }]}>¥{finalTotal.toFixed(2)}</Text>
+                  <Text style={[typography.title2, { color: colors.text.primary }]}>¥{payableAfterDeduction.toFixed(2)}</Text>
                 </View>
               </>
             )}
@@ -860,21 +1362,28 @@ export default function CheckoutScreen() {
       {hasContent && (
         Platform.OS === 'ios' ? (
           <BlurView
+            onLayout={handleBottomBarLayout}
             intensity={80}
             tint={isDark ? 'dark' : 'light'}
             style={[
               styles.bottomBar,
+              compactSubmitBar && styles.bottomBarCompact,
               {
-                paddingBottom: insets.bottom + spacing.sm,
+                paddingBottom: barBottomPad,
                 paddingHorizontal: spacing.xl,
                 borderTopColor: colors.border,
               },
             ]}
           >
             <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
-            <View style={{ flex: 1 }}>
+            <View style={compactSubmitBar ? styles.bottomSummaryCompact : styles.bottomSummary}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>应付金额</Text>
-              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>¥{displayTotal.toFixed(2)}</Text>
+              <Text
+                {...priceTextProps}
+                style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}
+              >
+                {displayTotalText}
+              </Text>
             </View>
             <LinearGradient
               colors={[...gradients.goldGradient]}
@@ -884,32 +1393,39 @@ export default function CheckoutScreen() {
             >
               {isVipMode ? (
                 <Pressable onPress={handleVipCheckout} disabled={submitting} style={[styles.submitButton, submitting && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                     {submitting ? '开通中...' : !isLoggedIn ? '登录后继续' : '✦ 开通 VIP'}
                   </Text>
                 </Pressable>
               ) : (
                 <Pressable onPress={handleCheckout} disabled={submitting || previewFailed || previewPending} style={[styles.submitButton, (submitting || previewFailed || previewPending) && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
                 </Pressable>
               )}
             </LinearGradient>
           </BlurView>
         ) : (
           <View
+            onLayout={handleBottomBarLayout}
             style={[
               styles.bottomBar,
+              compactSubmitBar && styles.bottomBarCompact,
               {
-                paddingBottom: insets.bottom + spacing.sm,
+                paddingBottom: barBottomPad,
                 paddingHorizontal: spacing.xl,
                 borderTopColor: colors.border,
                 backgroundColor: isDark ? 'rgba(6,14,6,0.95)' : 'rgba(250,252,250,0.95)',
               },
             ]}
           >
-            <View style={{ flex: 1 }}>
+            <View style={compactSubmitBar ? styles.bottomSummaryCompact : styles.bottomSummary}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>应付金额</Text>
-              <Text style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}>¥{displayTotal.toFixed(2)}</Text>
+              <Text
+                {...priceTextProps}
+                style={[typography.title3, { color: isVipMode ? '#C9A96E' : colors.text.primary }]}
+              >
+                {displayTotalText}
+              </Text>
             </View>
             <LinearGradient
               colors={[...gradients.goldGradient]}
@@ -919,11 +1435,11 @@ export default function CheckoutScreen() {
             >
               {isVipMode ? (
                 <Pressable onPress={handleVipCheckout} disabled={submitting} style={[styles.submitButton, submitting && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '开通中...' : '✦ 开通 VIP'}</Text>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '开通中...' : '✦ 开通 VIP'}</Text>
                 </Pressable>
               ) : (
                 <Pressable onPress={handleCheckout} disabled={submitting || previewFailed || previewPending} style={[styles.submitButton, (submitting || previewFailed || previewPending) && { opacity: 0.6 }]}>
-                  <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
+                  <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
                 </Pressable>
               )}
             </LinearGradient>
@@ -1029,6 +1545,105 @@ export default function CheckoutScreen() {
         </View>
       </Modal>
 
+      {/* 409 防重 Modal：展示已存在 Session 摘要 + 三按钮（取消旧 / 去支付 / 关闭） */}
+      {pendingModal ? (
+        <Modal transparent animationType="fade" visible>
+          <Pressable
+            onPress={() => {
+              setPendingModal(null);
+              pendingRetryRef.current = null;
+            }}
+            style={pendingModalStyles.backdrop}
+          >
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={[pendingModalStyles.card, { backgroundColor: colors.surface, borderRadius: radius.xl }]}
+            >
+              <View style={pendingModalStyles.header}>
+                <Text style={[typography.title3, { color: colors.text.primary }]}>你有一个未完成的订单</Text>
+                <Countdown
+                  expiresAt={pendingModal.expiresAt}
+                  style={[typography.caption, { color: '#FF6B35', fontWeight: '600' }]}
+                />
+              </View>
+
+              <ScrollView style={{ maxHeight: 280 }}>
+                {pendingModal.items.map((it, i) => (
+                  <OrderItemRow
+                    key={i}
+                    image={it.image}
+                    title={it.title}
+                    skuTitle={it.skuTitle}
+                    unitPrice={it.unitPrice}
+                    quantity={it.quantity}
+                  />
+                ))}
+              </ScrollView>
+
+              <View style={[pendingModalStyles.totalRow, { borderTopColor: colors.border }]}>
+                <Text style={[typography.caption, { color: colors.text.secondary }]}>共 {pendingModal.itemCount} 件</Text>
+                <Text style={[typography.bodyStrong, { color: '#FF6B35' }]}>实付 ¥{pendingModal.expectedTotal.toFixed(2)}</Text>
+              </View>
+
+              <Pressable
+                onPress={async () => {
+                  const oldSessionId = pendingModal.sessionId;
+                  const retry = pendingRetryRef.current;
+                  const c = await OrderRepo.cancelCheckoutSession(oldSessionId);
+                  if (!c.ok) {
+                    // cancelSession 可能在取消时发现已支付并主动建单（返"支付已完成，订单已自动创建…"）
+                    // 透后端真实 message，并刷新订单列表 + 跳过去
+                    const errMsg = c.error.displayMessage ?? '取消旧订单失败';
+                    show({ message: errMsg, type: 'error', duration: 4000 });
+                    // 如果是"已自动建单"场景，刷新缓存并跳订单列表
+                    if (errMsg.includes('已自动创建') || errMsg.includes('支付已完成')) {
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ['orders'] }),
+                        queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
+                        queryClient.invalidateQueries({ queryKey: ['pending-checkout'] }),
+                      ]);
+                      setPendingModal(null);
+                      pendingRetryRef.current = null;
+                      router.replace('/orders');
+                    }
+                    return;
+                  }
+                  setPendingModal(null);
+                  pendingRetryRef.current = null;
+                  // 重试当前提交订单流程（普通走 handleCheckout，VIP 走 handleVipCheckout）
+                  if (retry) await retry();
+                }}
+                style={[pendingModalStyles.btnPrimary, { backgroundColor: colors.brand.primary }]}
+              >
+                <Text style={{ color: '#fff', fontWeight: '600' }}>取消旧订单，重新下这单</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  const sessionId = pendingModal.sessionId;
+                  setPendingModal(null);
+                  pendingRetryRef.current = null;
+                  router.push({ pathname: '/checkout-pending', params: { sessionId } });
+                }}
+                style={[pendingModalStyles.btnSecondary, { borderColor: colors.border }]}
+              >
+                <Text style={{ color: colors.text.secondary }}>先去支付这单</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setPendingModal(null);
+                  pendingRetryRef.current = null;
+                }}
+                style={pendingModalStyles.btnText}
+              >
+                <Text style={{ color: colors.text.tertiary }}>关闭</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+
       <AuthModal
         open={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -1075,6 +1690,30 @@ const styles = StyleSheet.create({
     minHeight: 60,
     textAlignVertical: 'top',
   },
+  deductionInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  deductionInput: {
+    flex: 1,
+    marginLeft: 6,
+    paddingVertical: 0,
+  },
+  deductionActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  deductionAction: {
+    flex: 1,
+    alignItems: 'center',
+    borderWidth: 1,
+    paddingVertical: 8,
+  },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1094,9 +1733,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 12,
   },
+  bottomBarCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  bottomSummary: {
+    flex: 1,
+  },
+  bottomSummaryCompact: {
+    width: '100%',
+  },
   submitButton: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   merchantSubtotal: {
     borderTopWidth: 1,
@@ -1155,4 +1808,15 @@ const policyStyles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4,
   },
+});
+
+// 409 防重弹窗样式（与退换货政策弹窗复用同款半透明遮罩）
+const pendingModalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
+  card: { width: '100%', padding: 16, gap: 8 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
+  btnPrimary: { padding: 12, borderRadius: 18, alignItems: 'center', marginTop: 12 },
+  btnSecondary: { padding: 12, borderRadius: 18, alignItems: 'center', borderWidth: 1, marginTop: 8 },
+  btnText: { padding: 8, alignItems: 'center', marginTop: 4 },
 });

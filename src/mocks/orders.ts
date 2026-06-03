@@ -3,7 +3,7 @@ import { Order } from '../types';
 export const mockOrders: Order[] = [
   {
     id: 'o-001',
-    status: 'pendingPay',
+    status: 'PAID',
     totalPrice: 79.6,
     createdAt: '2024-12-02 11:20',
     paymentMethod: 'wechat',
@@ -28,7 +28,7 @@ export const mockOrders: Order[] = [
   },
   {
     id: 'o-002',
-    status: 'pendingShip',
+    status: 'PAID',
     totalPrice: 128,
     createdAt: '2024-11-25 09:40',
     items: [
@@ -44,7 +44,7 @@ export const mockOrders: Order[] = [
   },
   {
     id: 'o-003',
-    status: 'shipping',
+    status: 'SHIPPED',
     totalPrice: 56.8,
     createdAt: '2024-11-28 15:10',
     logisticsStatus: '广州转运中心 → 上海分拨',
@@ -62,7 +62,7 @@ export const mockOrders: Order[] = [
   },
   {
     id: 'o-004',
-    status: 'afterSale',
+    status: 'PAID',
     issueFlag: true,
     afterSaleStatus: 'reviewing',
     afterSaleReason: '商品破损',

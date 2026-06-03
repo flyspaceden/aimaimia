@@ -46,10 +46,11 @@ export const userStatusMap: Record<string, StatusEntry> = {
 // 提现状态
 export const withdrawalStatusMap: Record<string, StatusEntry> = {
   REQUESTED: { text: '待审核', color: 'orange' },
-  APPROVED: { text: '已批准', color: 'green' },
+  PROCESSING: { text: '处理中', color: 'processing' },
+  APPROVED: { text: '已批准', color: 'cyan' },
   REJECTED: { text: '已拒绝', color: 'red' },
-  PAID: { text: '已打款', color: 'blue' },
-  FAILED: { text: '打款失败', color: 'volcano' },
+  PAID: { text: '已到账', color: 'green' },
+  FAILED: { text: '失败', color: 'red' },
 };
 
 // 会员等级颜色
@@ -127,6 +128,16 @@ export const orderAfterSaleStatusMap: Record<string, StatusEntry> = {
   CANCELED: { text: '已取消', color: 'default' },
 };
 
+// 退款状态
+export const refundStatusMap: Record<string, StatusEntry> = {
+  REQUESTED: { text: '待处理', color: 'orange' },
+  APPROVED: { text: '已同意', color: 'green' },
+  REJECTED: { text: '已拒绝', color: 'red' },
+  REFUNDING: { text: '退款中', color: 'blue' },
+  REFUNDED: { text: '已退款', color: 'green' },
+  FAILED: { text: '退款失败', color: 'red' },
+};
+
 // 统一售后申请状态（AfterSaleStatus 枚举，14 状态）
 export const afterSaleStatusMap: Record<string, StatusEntry> = {
   REQUESTED: { text: '待处理', color: 'orange' },
@@ -148,6 +159,7 @@ export const afterSaleStatusMap: Record<string, StatusEntry> = {
 // 统一售后类型（AfterSaleType 枚举）
 export const afterSaleTypeMap: Record<string, StatusEntry> = {
   NO_REASON_RETURN: { text: '七天无理由退货', color: 'blue' },
+  NO_REASON_EXCHANGE: { text: '七天无理由换货', color: 'cyan' },
   QUALITY_RETURN: { text: '质量问题退货', color: 'orange' },
   QUALITY_EXCHANGE: { text: '质量问题换货', color: 'purple' },
 };
@@ -166,10 +178,17 @@ export const withdrawChannelMap: Record<string, StatusEntry> = {
   BANKCARD: { text: '银行卡', color: 'orange' },
 };
 
-// 奖励账户类型
+// 奖励账户类型（schema.prisma RewardAccountType）
 export const rewardAccountTypeMap: Record<string, StatusEntry> = {
-  VIP_REWARD: { text: 'VIP奖励', color: 'gold' },
-  NORMAL_REWARD: { text: '普通奖励', color: 'cyan' },
+  VIP_REWARD: { text: 'VIP 奖励', color: 'blue' },
+  NORMAL_REWARD: { text: '普通分润', color: 'default' },
+  INDUSTRY_FUND: { text: '产业基金', color: 'gold' },
+  PLATFORM_PROFIT: { text: '平台利润', color: 'purple' },
+  CHARITY_FUND: { text: '慈善基金', color: 'magenta' },
+  TECH_FUND: { text: '科技基金', color: 'cyan' },
+  RESERVE_FUND: { text: '备用金', color: 'orange' },
+  POINTS: { text: '积分', color: 'default' },
+  FUND_POOL: { text: '资金池', color: 'default' },
 };
 
 // 审计日志操作类型颜色
@@ -186,4 +205,36 @@ export const auditActionColors: Record<string, string> = {
   SHIP: 'cyan',
   CONFIG_CHANGE: 'purple',
   ROLLBACK: 'gold',
+};
+
+// 奖励流水类型（schema.prisma RewardEntryType）
+export const rewardEntryTypeMap: Record<string, StatusEntry> = {
+  FREEZE: { text: '冻结', color: 'orange' },
+  RELEASE: { text: '释放', color: 'green' },
+  WITHDRAW: { text: '提现', color: 'blue' },
+  VOID: { text: '作废', color: 'default' },
+  ADJUST: { text: '调账', color: 'purple' },
+  DEDUCT: { text: '抵扣', color: 'magenta' },
+};
+
+// 奖励流水状态（schema.prisma RewardLedgerStatus）
+export const rewardLedgerStatusMap: Record<string, StatusEntry> = {
+  AVAILABLE: { text: '可用', color: 'green' },
+  FROZEN: { text: '冻结', color: 'orange' },
+  WITHDRAWN: { text: '已提现', color: 'blue' },
+  VOIDED: { text: '已作废', color: 'default' },
+  RESERVED: { text: '预留', color: 'cyan' },
+  RETURN_FROZEN: { text: '售后冻结', color: 'gold' },
+};
+
+// 奖励流水关联类型（RewardLedger.refType，由业务代码写入，非 Prisma enum）
+export const rewardRefTypeMap: Record<string, string> = {
+  ORDER: '订单',
+  CHECKOUT: '下单',
+  CHECKOUT_SESSION: '结算',
+  WITHDRAW: '提现',
+  AFTER_SALE: '售后',
+  REFUND_RESTORE: '退款回填',
+  FREEZE_EXPIRE: '冻结过期',
+  VIP_REFERRAL: 'VIP 推荐奖励',
 };

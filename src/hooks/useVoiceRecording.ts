@@ -1,6 +1,6 @@
 // src/hooks/useVoiceRecording.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { Audio } from 'expo-av';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAiChatStore } from '../store/useAiChatStore';
@@ -13,6 +13,7 @@ import { resolveIntent, IntentResult } from '../utils/navigateByIntent';
 import { buildVoiceCartConfirmation } from '../utils/voiceCartConfirmation';
 import type { AiVoiceIntent } from '../types/domain/Ai';
 import { USE_MOCK } from '../repos/http/config';
+import { showPermissionRationale } from '../components/overlay/PermissionRationaleModal';
 
 export type UseVoiceRecordingOptions = {
   /** 当前页面标识，传给 parseVoiceIntent（首页传 'home'，全局浮窗传实际路径） */
@@ -173,14 +174,19 @@ export function useVoiceRecording(
       return;
     }
 
-    // chatResponse：后端返回富文本回复 → 跳转聊天页展示（含建议操作按钮）
+    // chatResponse：后端返回富文本回复
+    // 【AI 多轮对话已下线】原先跳 /ai/chat 多轮聊天页展示，现改为「单轮」：
+    // 直接把回复显示在语音浮层里一次，不跳页（符合"只保留单轮语音"的产品决策）。
     if (intent.chatResponse) {
       saveVoiceToStore(intent.transcript, intent.chatResponse.reply);
-      setActionRoute('/ai/chat');
-      setActionParams({
-        initialMessage: intent.chatResponse.reply,
-        suggestedActions: JSON.stringify(intent.chatResponse.suggestedActions),
-      });
+      // 原多轮跳转（已停用，恢复时取消注释并删掉下面两行 inline 显示）：
+      // setActionRoute('/ai/chat');
+      // setActionParams({
+      //   initialMessage: intent.chatResponse.reply,
+      //   suggestedActions: JSON.stringify(intent.chatResponse.suggestedActions),
+      // });
+      setFeedbackText(intent.chatResponse.reply);
+      setFeedbackVisible(true);
       return;
     }
 
@@ -284,10 +290,29 @@ export function useVoiceRecording(
         recordingRef.current = null;
       }
 
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('需要麦克风权限', '请在设置中允许麦克风访问');
-        return;
+      // 华为合规：申请系统麦克风权限前先以弹窗形式同步告知用途
+      // 已授权时直接复用，避免每次按住都弹 rationale
+      const current = await Audio.getPermissionsAsync();
+      if (!current.granted) {
+        if (!current.canAskAgain) {
+          Alert.alert(
+            '需要麦克风权限',
+            'AI 语音助手需要使用麦克风权限。\n您之前已拒绝授权，请前往系统设置手动开启。',
+            [
+              { text: '取消', style: 'cancel' },
+              { text: '去设置', onPress: () => { Linking.openSettings().catch(() => {}); } },
+            ],
+          );
+          return;
+        }
+        const userAgreed = await showPermissionRationale({
+          permission: 'microphone',
+          featureName: 'AI 语音助手',
+          purpose: '采集您的语音指令并转换为文字，以便 AI 助手识别您的搜索/导航/购物需求',
+        });
+        if (!userAgreed) return;
+        const perm = await Audio.requestPermissionsAsync();
+        if (!perm.granted) return;
       }
 
       // 权限获取后检查：用户可能在等待权限弹窗时已松手
@@ -304,13 +329,16 @@ export function useVoiceRecording(
       const recording = new Audio.Recording();
       await recording.prepareToRecordAsync({
         isMeteringEnabled: false,
+        // Android 改用 m4a + MPEG_4 + AAC（之前用 .wav + outputFormat:0 + audioEncoder:0
+        // 即 MediaRecorder DEFAULT，实际并不产 WAV，会产出 3GPP/AMR 等格式，
+        // 后端按 wav 喂阿里云 ASR 必识别为空 → "未能识别到语音内容"）
         android: {
-          extension: '.wav',
-          outputFormat: 0,
-          audioEncoder: 0,
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
           sampleRate: 16000,
           numberOfChannels: 1,
-          bitRate: 256000,
+          bitRate: 64000,
         },
         ios: {
           extension: '.wav',

@@ -1,12 +1,14 @@
 import { Controller, Get, Post, Body, Param, Query, GoneException } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CheckoutService } from './checkout.service';
+import { PaymentService } from '../payment/payment.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { AfterSaleDto } from './dto/after-sale.dto';
 import { AfterSaleService } from '../after-sale/after-sale.service';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('orders')
 export class OrderController {
@@ -14,6 +16,7 @@ export class OrderController {
     private orderService: OrderService,
     private checkoutService: CheckoutService,
     private afterSaleService: AfterSaleService,
+    private paymentService: PaymentService,
   ) {}
 
   // ===== F1: 新结算流程 =====
@@ -52,6 +55,38 @@ export class OrderController {
     @Param('sessionId') sessionId: string,
   ) {
     return this.checkoutService.getSessionStatus(userId, sessionId);
+  }
+
+  /** Task 16: 查询当前用户最新的 ACTIVE CheckoutSession（"未完成订单"入口） */
+  @Get('checkout/me/pending')
+  getMyPendingCheckout(@CurrentUser('sub') userId: string) {
+    return this.checkoutService.getPendingForUser(userId);
+  }
+
+  /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
+  @Post('checkout/:sessionId/resume')
+  resumeCheckout(
+    @CurrentUser('sub') userId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.checkoutService.resumeSession(userId, sessionId);
+  }
+
+  /**
+   * P5 第三轮：App 端主动查询支付订单状态（不等 notify）
+   *
+   * App 调起支付 SDK 后立即调用此接口，让后端按 CheckoutSession 支付渠道主动查询：
+   * - 查到成功态 → 立刻建单 + session COMPLETED
+   * - 未支付 / 中间态 / 异常 → 返回当前状态，让前端 polling 兜底
+   *
+   * 解决沙箱 notify 慢/丢失导致的"已扣款但订单未生成"问题
+   */
+  @Post('checkout/:sessionId/active-query')
+  activeQueryCheckout(
+    @CurrentUser('sub') userId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.paymentService.confirmCheckout(sessionId, userId);
   }
 
   // ===== 已有接口 =====
@@ -100,6 +135,15 @@ export class OrderController {
   @Get('latest-issue')
   getLatestIssue(@CurrentUser('sub') userId: string) {
     return this.orderService.getLatestIssue(userId);
+  }
+
+  @Post(':id/repurchase')
+  @Throttle({ user: { ttl: 60000, limit: 10 } })
+  repurchase(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.orderService.repurchase(id, userId);
   }
 
   @Get(':id')

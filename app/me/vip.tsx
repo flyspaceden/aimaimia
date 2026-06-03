@@ -13,25 +13,31 @@ import { Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AiBadge } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
+import { GoldShimmerLine } from '../../src/components/effects/GoldShimmerLine';
+import { GoldShineSweep } from '../../src/components/effects/GoldShineSweep';
+import { GoldBgGlows } from '../../src/components/effects/GoldBgGlows';
 import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
+import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
-// VIP 专属空间色彩（与 gifts 页一致）
+// VIP 专属空间色彩 · 轻金 v1（与 gifts 页一致）
+// 背景从深墨绿黑换成暖香槟金，文字翻转为深棕，金色加深为深金 #B8860B + 亮金 #FFD700
+// warmWhite 语义已变为"文字主色"（金底上视觉为深棕），key 名保留避免大范围改动
 const VIP_COLORS = {
-  bgStart: '#0A1F1A',
-  bgMid: '#0F1A14',
-  bgEnd: '#0D0D0D',
-  goldPrimary: '#C9A96E',
-  goldLight: '#E8D5A3',
-  goldDim: 'rgba(201,169,110,0.6)',
-  warmWhite: '#F5F0E8',
-  subtleGray: '#8A8578',
-  cardBg: 'rgba(255,255,255,0.06)',
-  cardBorder: 'rgba(201,169,110,0.2)',
-  divider: 'rgba(201,169,110,0.12)',
-  highlightBg: 'rgba(201,169,110,0.08)',
+  bgStart: '#FFFDF5',
+  bgMid: '#FAF0CC',
+  bgEnd: '#EAD78F',
+  goldPrimary: '#B8860B',
+  goldLight: '#FFD700',
+  goldDim: 'rgba(184,134,11,0.6)',
+  warmWhite: '#3D2E1A',
+  subtleGray: '#5D4A2C',
+  cardBg: 'rgba(255,255,255,0.5)',
+  cardBorder: 'rgba(184,134,11,0.35)',
+  divider: 'rgba(184,134,11,0.25)',
+  highlightBg: 'rgba(184,134,11,0.12)',
 };
 
 // VIP 专属权益数据
@@ -84,6 +90,7 @@ export default function VipScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const scrollBottomPadding = useBottomInset(40);
   const { show } = useToast();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [qrVisible, setQrVisible] = useState(false);
@@ -106,7 +113,7 @@ export default function VipScreen() {
 
   // VIP 用户额外查询：钱包
   const { data: walletData } = useQuery({
-    queryKey: ['my-wallet'],
+    queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
     enabled: isLoggedIn && isVip,
   });
@@ -114,15 +121,25 @@ export default function VipScreen() {
   const wallet = walletData?.ok ? walletData.data : null;
 
   // 推荐码 & 深度链接
-  const referralCode = member?.referralCode ?? '';
-  const deepLink = `https://app.xn--ckqa175y.com/r/${referralCode}`;
+  const referralCode = isVip ? (member?.referralCode ?? '') : '';
+  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const inviterLabel = getReferralInviterLabel(member);
+  const hasInviter = hasBoundReferralInviter(member);
 
   const handleCopyReferral = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可复制的推荐码', type: 'info' });
+      return;
+    }
     await Clipboard.setStringAsync(referralCode);
     show({ message: '推荐码已复制', type: 'success' });
   };
 
   const handleShareReferral = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可分享的推荐码', type: 'info' });
+      return;
+    }
     try {
       await Share.share({
         message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册，双方都能获得红包奖励！${deepLink}`,
@@ -170,6 +187,9 @@ export default function VipScreen() {
       colors={[VIP_COLORS.bgStart, VIP_COLORS.bgMid, VIP_COLORS.bgEnd]}
       style={styles.container}
     >
+      {/* 背景金箔光斑（柔焦圆斑，pointerEvents none） */}
+      <GoldBgGlows />
+
       {/* 自定义导航栏 */}
       <View style={[styles.navbar, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backButton}>
@@ -180,7 +200,7 @@ export default function VipScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: scrollBottomPadding }}
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} tintColor={VIP_COLORS.goldPrimary} />}
         showsVerticalScrollIndicator={false}
       >
@@ -188,13 +208,8 @@ export default function VipScreen() {
         {member ? (
           <Animated.View entering={FadeInDown.duration(400).delay(100)} style={styles.section}>
             <View style={styles.identityCard}>
-              {/* 金色顶部装饰线 */}
-              <LinearGradient
-                colors={[VIP_COLORS.goldPrimary, VIP_COLORS.goldLight, VIP_COLORS.goldPrimary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.cardTopLine}
-              />
+              {/* 金色顶部装饰线（shimmer 流光金线） */}
+              <GoldShimmerLine height={3} />
               <View style={styles.identityContent}>
                 <View style={styles.identityLeft}>
                   {/* 皇冠图标 */}
@@ -202,7 +217,7 @@ export default function VipScreen() {
                     <MaterialCommunityIcons name="crown" size={24} color={VIP_COLORS.goldPrimary} />
                   </View>
                   <View style={{ marginLeft: 14, flex: 1 }}>
-                    <Text style={styles.identityTitle}>VIP 会员</Text>
+                    <Text style={styles.identityTitle}>{isVip ? 'VIP 会员' : '普通会员'}</Text>
                     {member.vipPurchasedAt ? (
                       <Text style={styles.identityDate}>
                         {formatDate(member.vipPurchasedAt)} 加入
@@ -212,11 +227,43 @@ export default function VipScreen() {
                 </View>
 
                 {/* 二维码图标 */}
-                <Pressable onPress={() => setQrVisible(true)} style={styles.qrIconBox}>
-                  <MaterialCommunityIcons name="qrcode" size={22} color={VIP_COLORS.goldPrimary} />
-                </Pressable>
+                {referralCode ? (
+                  <Pressable onPress={() => setQrVisible(true)} style={styles.qrIconBox}>
+                    <MaterialCommunityIcons name="qrcode" size={22} color={VIP_COLORS.goldPrimary} />
+                  </Pressable>
+                ) : null}
               </View>
 
+            </View>
+          </Animated.View>
+        ) : null}
+
+        {/* ===== 2. 推荐关系确认 ===== */}
+        {member ? (
+          <Animated.View entering={FadeInDown.duration(400).delay(180)} style={styles.section}>
+            <View style={styles.relationCard}>
+              <View style={styles.relationHeader}>
+                <View style={styles.relationIcon}>
+                  <MaterialCommunityIcons
+                    name={hasInviter ? 'account-heart-outline' : 'account-question-outline'}
+                    size={20}
+                    color={VIP_COLORS.goldPrimary}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.relationTitle}>推荐关系</Text>
+                  <Text style={styles.relationDesc}>
+                    {hasInviter
+                      ? `${isVip ? '已加入' : '购买 VIP 后将加入'} ${inviterLabel} 的 VIP 团队`
+                      : '尚未绑定推荐人，购买后将由系统分配'}
+                  </Text>
+                </View>
+                {!isVip ? (
+                  <Pressable onPress={() => router.push('/me/scanner')} style={styles.relationAction}>
+                    <Text style={styles.relationActionText}>去绑定</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           </Animated.View>
         ) : null}
@@ -234,26 +281,26 @@ export default function VipScreen() {
               </View>
               <View style={styles.earningsGrid}>
                 <View style={styles.earningsItem}>
-                  <Text style={styles.earningsAmount}>¥{wallet.balance.toFixed(2)}</Text>
+                  <Text {...priceTextProps} style={styles.earningsAmount}>¥{wallet.balance.toFixed(2)}</Text>
                   <Text style={styles.earningsLabel}>可用余额</Text>
                 </View>
                 <View style={[styles.earningsDivider]} />
                 <View style={styles.earningsItem}>
-                  <Text style={[styles.earningsAmount, { color: VIP_COLORS.subtleGray }]}>
+                  <Text {...priceTextProps} style={[styles.earningsAmount, { color: VIP_COLORS.subtleGray }]}>
                     ¥{wallet.frozen.toFixed(2)}
                   </Text>
                   <Text style={styles.earningsLabel}>冻结中</Text>
                 </View>
                 <View style={[styles.earningsDivider]} />
                 <View style={styles.earningsItem}>
-                  <Text style={[styles.earningsAmount, { color: VIP_COLORS.goldLight }]}>
+                  <Text {...priceTextProps} style={[styles.earningsAmount, { color: VIP_COLORS.goldLight }]}>
                     ¥{wallet.total.toFixed(2)}
                   </Text>
                   <Text style={styles.earningsLabel}>累计收益</Text>
                 </View>
               </View>
-              {/* VIP/普通分项 */}
-              {wallet.vip || wallet.normal ? (
+              {/* VIP/普通/产业基金 分项 */}
+              {wallet.vip || wallet.normal || wallet.industryFund ? (
                 <View style={styles.walletBreakdown}>
                   {wallet.vip ? (
                     <View style={styles.breakdownItem}>
@@ -265,6 +312,12 @@ export default function VipScreen() {
                     <View style={styles.breakdownItem}>
                       <View style={[styles.breakdownDot, { backgroundColor: '#4CAF50' }]} />
                       <Text style={styles.breakdownText}>普通奖励 ¥{wallet.normal.balance.toFixed(2)}</Text>
+                    </View>
+                  ) : null}
+                  {wallet.industryFund ? (
+                    <View style={styles.breakdownItem}>
+                      <View style={[styles.breakdownDot, { backgroundColor: '#D4A943' }]} />
+                      <Text style={styles.breakdownText}>产业基金 ¥{wallet.industryFund.balance.toFixed(2)}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -349,31 +402,35 @@ export default function VipScreen() {
         </Animated.View>
 
         {/* ===== 7. 邀请好友入口 ===== */}
-        <Animated.View entering={FadeInDown.duration(400).delay(800)} style={[styles.section, { marginBottom: 0 }]}>
-          <Pressable
-            onPress={() => member && setQrVisible(true)}
-            style={styles.inviteCard}
-          >
-            <LinearGradient
-              colors={[VIP_COLORS.goldPrimary, VIP_COLORS.goldLight]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.inviteGradient}
+        {referralCode ? (
+          <Animated.View entering={FadeInDown.duration(400).delay(800)} style={[styles.section, { marginBottom: 0 }]}>
+            <Pressable
+              onPress={() => setQrVisible(true)}
+              style={styles.inviteCard}
             >
-              <View style={styles.inviteContent}>
-                <View>
-                  <Text style={styles.inviteTitle}>邀请好友成为 VIP</Text>
-                  <Text style={styles.inviteDesc}>好友成功开通，您即得现金奖励</Text>
+              <LinearGradient
+                colors={[VIP_COLORS.goldPrimary, VIP_COLORS.goldLight]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.inviteGradient}
+              >
+                {/* 流光扫光（在 gradient 之上，content 之下） */}
+                <GoldShineSweep width={90} duration={3500} travel={420} />
+                <View style={styles.inviteContent}>
+                  <View>
+                    <Text style={styles.inviteTitle}>邀请好友成为 VIP</Text>
+                    <Text style={styles.inviteDesc}>好友成功开通，您即得现金奖励</Text>
+                  </View>
+                  <MaterialCommunityIcons name="qrcode" size={28} color="rgba(26,18,7,0.4)" />
                 </View>
-                <MaterialCommunityIcons name="qrcode" size={28} color="rgba(26,18,7,0.4)" />
-              </View>
-            </LinearGradient>
-          </Pressable>
-        </Animated.View>
+              </LinearGradient>
+            </Pressable>
+          </Animated.View>
+        ) : null}
       </ScrollView>
 
       {/* 推荐码浮层（与"我的"页面一致） */}
-      <Modal transparent visible={qrVisible} animationType="fade" onRequestClose={() => setQrVisible(false)}>
+      <Modal transparent visible={qrVisible && !!referralCode} animationType="fade" onRequestClose={() => setQrVisible(false)}>
         {Platform.OS === 'ios' ? (
           <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill}>
             <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
@@ -416,7 +473,7 @@ export default function VipScreen() {
                 )}
               </View>
 
-              <Text style={styles.qrCodeText}>
+              <Text {...priceTextProps} style={styles.qrCodeText}>
                 {referralCode.split('').join(' ')}
               </Text>
 
@@ -496,9 +553,6 @@ const styles = StyleSheet.create({
     borderColor: VIP_COLORS.cardBorder,
     overflow: 'hidden',
   },
-  cardTopLine: {
-    height: 2,
-  },
   identityContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -515,11 +569,17 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(201,169,110,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(201,169,110,0.3)',
+    backgroundColor: 'rgba(255,215,0,0.18)',
+    borderWidth: 1.5,
+    borderColor: VIP_COLORS.goldPrimary,
     justifyContent: 'center',
     alignItems: 'center',
+    // 金光发光环（静态）
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 6,
   },
   identityTitle: {
     fontSize: 18,
@@ -536,9 +596,56 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(201,169,110,0.12)',
+    backgroundColor: 'rgba(184,134,11,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // 推荐关系
+  relationCard: {
+    backgroundColor: VIP_COLORS.highlightBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: VIP_COLORS.cardBorder,
+    padding: 14,
+  },
+  relationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  relationIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(184,134,11,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  relationTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: VIP_COLORS.warmWhite,
+  },
+  relationDesc: {
+    fontSize: 12,
+    color: VIP_COLORS.subtleGray,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  relationAction: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(184,134,11,0.16)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  relationActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: VIP_COLORS.goldPrimary,
   },
 
   // 收益概览
@@ -627,7 +734,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: 'rgba(201,169,110,0.1)',
+    backgroundColor: 'rgba(184,134,11,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -646,7 +753,7 @@ const styles = StyleSheet.create({
     color: VIP_COLORS.warmWhite,
   },
   benefitHighlight: {
-    backgroundColor: 'rgba(201,169,110,0.15)',
+    backgroundColor: 'rgba(184,134,11,0.15)',
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -664,7 +771,7 @@ const styles = StyleSheet.create({
   },
   benefitCompare: {
     fontSize: 11,
-    color: 'rgba(201,169,110,0.5)',
+    color: 'rgba(184,134,11,0.5)',
     marginTop: 3,
   },
 
@@ -689,7 +796,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(201,169,110,0.15)',
+    backgroundColor: 'rgba(184,134,11,0.15)',
     borderWidth: 1,
     borderColor: VIP_COLORS.goldPrimary,
     justifyContent: 'center',

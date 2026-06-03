@@ -8,6 +8,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { InvoiceStatus } from '@prisma/client';
 
 const MAX_BATCH_ORDER_ITEMS = 50;
 
@@ -34,4 +35,9 @@ export class BatchShipDto {
   @ValidateNested({ each: true })
   @Type(() => BatchShipItemDto)
   items: BatchShipItemDto[];
+}
+
+/** 卖家端订单只允许暴露发票状态，不返回抬头、税号、PDF 等隐私字段 */
+export interface SellerOrderInvoiceStatusDto {
+  invoiceStatus?: InvoiceStatus | null;
 }

@@ -2,9 +2,9 @@ import { useCallback, useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
+  App,
   Button,
   Tag,
-  message,
   Space,
   Switch,
   Image,
@@ -293,8 +293,23 @@ function DragHandle({ id }: { id: string }) {
 }
 
 export default function VipGiftsPage() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const queryClient = useQueryClient();
+
+  const showDeleteError = (title: string, err: any) => {
+    modal.error({
+      title,
+      content: (
+        <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+          {err instanceof Error ? err.message : err?.message || '删除失败'}
+        </div>
+      ),
+      width: 520,
+      centered: true,
+      okText: '知道了',
+    });
+  };
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<VipGiftOption | null>(null);
   const [form] = Form.useForm();
@@ -331,7 +346,7 @@ export default function VipGiftsPage() {
   const deletePkgMutation = useMutation({
     mutationFn: deleteVipPackage,
     onSuccess: () => { message.success('档位已删除'); refetchPackages(); },
-    onError: (err: Error) => message.error(err.message),
+    onError: (err: Error) => showDeleteError('无法删除档位', err),
   });
 
   const [pkgModalOpen, setPkgModalOpen] = useState(false);
@@ -574,7 +589,7 @@ export default function VipGiftsPage() {
       actionRef.current?.reload();
       queryClient.invalidateQueries({ queryKey: ['vip-gift-options'] });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      showDeleteError('无法删除赠品方案', err);
     }
   };
 
@@ -701,6 +716,14 @@ export default function VipGiftsPage() {
   const watchedItems = Form.useWatch('items', form) || [];
   const watchedCoverMode = Form.useWatch('coverMode', form);
 
+  // VIP 档位表单：实时计算奖励绝对金额
+  const watchedPkgPrice = Form.useWatch('price', pkgForm);
+  const watchedPkgRate = Form.useWatch('referralBonusRate', pkgForm);
+  const watchedPkgBonus =
+    typeof watchedPkgPrice === 'number' && typeof watchedPkgRate === 'number'
+      ? (watchedPkgPrice * watchedPkgRate) / 100
+      : null;
+
   // 计算总价统计（使用 fieldKeysRef 将 index 映射回 field.key 以查找 rowStates）
   const calculateSummary = () => {
     let totalQty = 0;
@@ -818,7 +841,12 @@ export default function VipGiftsPage() {
               <div style={{ textAlign: 'center' }}>
                 <Text strong style={{ fontSize: 24, color: '#C9A96E' }}>¥{pkg.price}</Text>
                 <div style={{ marginTop: 4 }}>
-                  <Tag>奖励 {(pkg.referralBonusRate * 100).toFixed(0)}%</Tag>
+                  <Tag>
+                    奖励 {(pkg.referralBonusRate * 100).toFixed(0)}%
+                    <span style={{ color: '#8c8c8c', marginLeft: 4 }}>
+                      (¥{(pkg.price * pkg.referralBonusRate).toFixed(2)})
+                    </span>
+                  </Tag>
                 </div>
                 <div style={{ marginTop: 4 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
@@ -1119,7 +1147,20 @@ export default function VipGiftsPage() {
           <Form.Item name="price" label="价格" rules={[{ required: true, message: '请输入价格' }]}>
             <InputNumber min={0.01} max={99999} precision={2} addonAfter="元" style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="referralBonusRate" label="推荐奖励比例" rules={[{ required: true, message: '请输入比例' }]}>
+          <Form.Item
+            name="referralBonusRate"
+            label="推荐奖励比例"
+            rules={[{ required: true, message: '请输入比例' }]}
+            extra={
+              watchedPkgBonus !== null ? (
+                <span style={{ color: '#C9A96E' }}>
+                  推荐人每单可得奖励：<Text strong style={{ color: '#C9A96E' }}>¥{watchedPkgBonus.toFixed(2)}</Text>
+                </span>
+              ) : (
+                '填入价格和比例后自动计算'
+              )
+            }
+          >
             <InputNumber min={0} max={100} precision={1} addonAfter="%" style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="status" label="状态">

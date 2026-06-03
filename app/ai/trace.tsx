@@ -17,7 +17,7 @@ import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components
 import { AiBadge, AiCardGlow, AiDivider, Tag } from '../../src/components/ui';
 import { AiOrb } from '../../src/components/effects';
 import { AiFeatureRepo } from '../../src/repos';
-import { useTheme } from '../../src/theme';
+import { useTheme, priceTextProps } from '../../src/theme';
 import { AppError, AiTraceStepStatus } from '../../src/types';
 
 // 节点 emoji 映射（按顺序分配给步骤）
@@ -157,7 +157,7 @@ export default function AiTraceScreen() {
                     <AiBadge variant="score" />
                   </View>
                   <View style={styles.scoreRow}>
-                    <Text style={[styles.scoreNumber, { color: colors.ai.start }]}>96</Text>
+                    <Text {...priceTextProps} style={[styles.scoreNumber, { color: colors.ai.start }]}>96</Text>
                     <Text style={[typography.title3, { color: colors.text.secondary }]}>/100</Text>
                   </View>
                   {/* 渐变进度条 */}

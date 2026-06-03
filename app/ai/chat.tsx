@@ -15,12 +15,11 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { AiAssistantRepo, AiSessionRepo } from '../../src/repos';
-import { useTheme } from '../../src/theme';
+import { useBottomInset, useTheme } from '../../src/theme';
 import { AuthSession, AiChatMessage, AiChatMessageExtended, AiSuggestedAction } from '../../src/types';
 import { useToast } from '../../src/components/feedback';
 import { AiChatBubble } from '../../src/components/ui/AiChatBubble';
@@ -30,10 +29,17 @@ import { useAiChatStore, useAuthStore } from '../../src/store';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { AuthModal } from '../../src/components/overlay';
 
+// 【AI 多轮对话已下线 — 过华为审查 / 规避"网络异常"】
+// 整页重定向回首页；原始多轮聊天实现完整保留在下方 AiChatScreenDisabled，
+// 恢复时把 export default 切回 AiChatScreenDisabled 即可。
 export default function AiChatScreen() {
+  return <Redirect href="/(tabs)/home" />;
+}
+
+function AiChatScreenDisabled() {
   const { colors, radius, spacing, typography, isDark } = useTheme();
   const { show } = useToast();
-  const insets = useSafeAreaInsets();
+  const inputBottomPadding = useBottomInset(spacing.xs);
   const router = useRouter();
   const { prompt, sessionId: paramSessionId, initialTranscript, initialReply, initialMessage, suggestedActions: suggestedActionsStr } = useLocalSearchParams<{
     prompt?: string;
@@ -534,7 +540,7 @@ export default function AiChatScreen() {
             style={[
               styles.inputBarFlow,
               {
-                paddingBottom: keyboardHeight > 0 ? spacing.xs : insets.bottom || spacing.xs,
+                paddingBottom: keyboardHeight > 0 ? spacing.xs : inputBottomPadding,
                 borderTopColor: colors.border,
               },
             ]}
@@ -546,7 +552,7 @@ export default function AiChatScreen() {
             style={[
               styles.inputBarFlow,
               {
-                paddingBottom: keyboardHeight > 0 ? spacing.xs : insets.bottom || spacing.xs,
+                paddingBottom: keyboardHeight > 0 ? spacing.xs : inputBottomPadding,
                 borderTopColor: colors.border,
                 backgroundColor: isDark ? 'rgba(6,14,6,0.95)' : 'rgba(250,252,250,0.95)',
               },

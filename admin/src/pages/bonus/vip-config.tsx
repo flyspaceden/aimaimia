@@ -3,11 +3,12 @@
  *
  * 三个业务分组：VIP 利润六分比例 / VIP 基础设置 / 奖励有效期
  * 支持实时校验、推荐模板、版本历史抽屉、变更说明
- * 增强功能：业务说明、恢复默认值、变更影响提示
+ * 增强功能：恢复默认值、变更影响提示
  */
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Button,
   Form,
@@ -19,13 +20,11 @@ import {
   Drawer,
   Timeline,
   Tag,
-  Modal,
   Spin,
   Alert,
   Row,
   Col,
   Divider,
-  message,
   Tooltip,
 } from 'antd';
 import {
@@ -42,7 +41,7 @@ import {
   UndoOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { getConfigs, updateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
+import { getConfigs, batchUpdateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -88,18 +87,18 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     max: 50,
     suffix: '层',
     integer: true,
-    description: 'VIP 奖励上溯分润最大层级深度',
+    description: 'VIP 奖励上溯最大层级深度',
   },
   {
     key: 'VIP_BRANCH_FACTOR',
-    label: '三叉树分叉数',
+    label: '分组分叉数',
     group: 'vip',
     type: 'number',
     min: 2,
     max: 5,
     suffix: '叉',
     integer: true,
-    description: 'VIP 三叉树每个节点的最大子节点数',
+    description: 'VIP 每个节点的最大子节点数',
   },
 
   // VIP 冻结设置
@@ -141,13 +140,6 @@ const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) =>
   return acc;
 }, {} as Record<string, number>);
 
-// 业务说明文案
-const GROUP_DESCRIPTIONS = {
-  ratio: 'VIP利润六分比例决定了VIP用户每笔消费产生的利润如何分配到各个资金池。六项必须合计等于100%。推荐使用标准模板（50/30/10/2/2/6）。',
-  vip: 'VIP基础设置控制奖励树结构参数。调整这些参数会影响VIP系统的奖励分配广度。VIP 档位价格和推荐奖励比例在「购买VIP赠品」页面管理。',
-  expiry: '冻结天数控制VIP用户未解锁奖励的有效期。冻结期内奖励需满足消费条件解锁，超过冻结天数仍未解锁的奖励将归平台所有。已到账奖励不会过期。',
-} as const;
-
 /** 从配置列表中按 key 取原始值 */
 function getVal(configs: RuleConfig[], key: string): unknown {
   const c = configs.find((r) => r.key === key);
@@ -172,6 +164,7 @@ const fmtPercent = (v: number) => `${(v * 100).toFixed(0)}%`;
 
 export default function VipConfigPage() {
   const queryClient = useQueryClient();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
@@ -222,28 +215,34 @@ export default function VipConfigPage() {
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
 
-  // 实际执行保存逻辑
+  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发六分比例总和 ≠ 1.0）
   const doSave = useCallback(async () => {
     const values = form.getFieldsValue(true);
 
+    // 收集有变更的项
+    const updates: Array<{ key: string; value: unknown }> = [];
+    for (const meta of CONFIG_SCHEMA) {
+      const oldVal = getVal(configs, meta.key);
+      const newVal = values[meta.key];
+      if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
+      const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+      updates.push({
+        key: meta.key,
+        value: { value: newVal, description: desc || meta.description || meta.label },
+      });
+    }
+
+    if (updates.length === 0) {
+      message.info('没有检测到配置变更');
+      return;
+    }
+
     setSaving(true);
-
     try {
-      // 逐项提交有变更的配置
-      const note = changeNote || '更新 VIP 系统配置';
-      for (const meta of CONFIG_SCHEMA) {
-        const oldVal = getVal(configs, meta.key);
-        const newVal = values[meta.key];
-
-        // 简单比较
-        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
-
-        const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
-        await updateConfig(meta.key, {
-          value: { value: newVal, description: desc || meta.description || meta.label },
-          changeNote: note,
-        });
-      }
+      await batchUpdateConfig({
+        updates,
+        changeNote: changeNote || '更新 VIP 系统配置',
+      });
 
       message.success('配置保存成功');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
@@ -254,7 +253,7 @@ export default function VipConfigPage() {
     } finally {
       setSaving(false);
     }
-  }, [form, configs, changeNote, queryClient]);
+  }, [form, configs, changeNote, queryClient, message]);
 
   // 保存（带变更影响提示）
   const handleSave = useCallback(async () => {
@@ -311,16 +310,16 @@ export default function VipConfigPage() {
 
     const impacts: string[] = [];
     if (hasRatioChange) {
-      impacts.push('修改分润比例将影响后续所有新订单的VIP用户奖励分配金额');
+      impacts.push('修改奖励分配比例将影响后续所有新订单的 VIP 用户奖励分配金额');
     }
     if (hasVipChange) {
-      impacts.push('修改VIP基础设置将影响奖励树结构参数');
+      impacts.push('修改 VIP 基础设置将影响奖励结构参数');
     }
     if (hasExpiryChange) {
       impacts.push('修改冻结天数将影响后续新产生的奖励冻结过期时间');
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: '确认保存配置变更？',
       icon: <ExclamationCircleOutlined />,
       content: (
@@ -362,7 +361,7 @@ export default function VipConfigPage() {
 
   // 应用推荐模板（六分比例）
   const handleApplyTemplate = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '应用推荐模板',
       icon: <ThunderboltOutlined style={{ color: '#1E40AF' }} />,
       content: (
@@ -390,7 +389,7 @@ export default function VipConfigPage() {
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '恢复默认值',
       icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
       content: (
@@ -437,7 +436,7 @@ export default function VipConfigPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>VIP 系统配置</Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            管理 VIP 奖励体系的分润比例、基础设置与有效期参数（独立于普通用户体系）
+            管理 VIP 奖励体系的分配比例、基础设置与有效期参数（独立于普通用户体系）
           </Text>
         </div>
         <Space>
@@ -499,14 +498,6 @@ export default function VipConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.ratio}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
-
               <Divider style={{ margin: '0 0 12px' }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>以下六项须合计 = 100%（50/30/10/2/2/6）</Text>
               </Divider>
@@ -543,13 +534,6 @@ export default function VipConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.vip}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
               {CONFIG_SCHEMA.filter((m) => m.group === 'vip').map((meta) => (
                 <NumberField key={meta.key} meta={meta} />
               ))}
@@ -569,13 +553,6 @@ export default function VipConfigPage() {
                 </Space>
               }
             >
-              <Alert
-                message="业务说明"
-                description={GROUP_DESCRIPTIONS.expiry}
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-              />
               {CONFIG_SCHEMA.filter((m) => m.group === 'expiry').map((meta) => (
                 <NumberField key={meta.key} meta={meta} />
               ))}
@@ -587,7 +564,7 @@ export default function VipConfigPage() {
             <Card bordered={false} style={{ borderRadius: 12, background: '#fafafa' }}>
               <Alert
                 message="变更影响提示"
-                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分润比例将直接影响后续所有新订单的VIP用户奖励分配金额，请谨慎操作。"
+                description="修改配置后仅对后续新产生的数据生效，不会追溯影响已有的订单和奖励记录。修改分配比例将直接影响后续所有新订单的 VIP 用户奖励分配金额，请谨慎操作。"
                 type="warning"
                 showIcon
                 style={{ marginBottom: 16, borderRadius: 8 }}
@@ -655,7 +632,7 @@ export default function VipConfigPage() {
                   key={v.id}
                   version={v}
                   onRollback={() => {
-                    Modal.confirm({
+                    modal.confirm({
                       title: '确认回滚到此版本？',
                       content: '回滚将覆盖当前所有配置，此操作不可撤销',
                       okText: '确认回滚',

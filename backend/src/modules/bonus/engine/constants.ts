@@ -20,8 +20,19 @@ export const MAX_BFS_ITERATIONS = 100000000;
  */
 export const MAX_TREE_DEPTH = 20;
 
-/** L8: 系统根节点搜索上限 */
-export const MAX_ROOT_NODES = 20;
+/**
+ * L8: 系统根节点搜索上限（A1-A_${10+MAX_ROOT_NODES}）
+ *
+ * 业务设计：A1-A10 + A11+ 全部是 userId=null 的虚拟平台节点（树的骨架），
+ *           真实 VIP 用户都挂在它们底下。当 A1-A10 直接子位全满（每个 3 个），
+ *           代码会自动创建 A11、A12... 继续容纳无推荐人的新 VIP。
+ *
+ * 实际意义：每个根节点能容纳 3 个直接子节点（无推荐人挂载点），所以这个常量
+ *           直接决定"无推荐人 VIP"的硬上限 = (10 + MAX_ROOT_NODES) × 3。
+ *           当前 1000 → 上限约 3030 个无推荐人 VIP，远超 v1.0 预期规模，
+ *           实际上等同于"无业务上限"，仅作防无限循环的安全闸。
+ */
+export const MAX_ROOT_NODES = 1000;
 
 /** 平台公司 ID（用于奖励商品和抽奖奖品） */
 export const PLATFORM_COMPANY_ID = 'PLATFORM_COMPANY';
@@ -48,7 +59,32 @@ export const DEAD_LETTER_REASON = '分润分配失败（死信记录）';
 /** 售后退货保护冻结状态（订单确认收货后 7 天内不可见） */
 export const RETURN_FREEZE_STATUS = 'RETURN_FROZEN';
 
-/** 根据 scheme 判断应使用的 RewardAccount 类型 */
+/** 所有 RewardAccount 类型字面量（与 schema.prisma RewardAccountType enum 对齐） */
+export type RewardAccountTypeStr =
+  | 'VIP_REWARD'
+  | 'NORMAL_REWARD'
+  | 'POINTS'
+  | 'FUND_POOL'
+  | 'PLATFORM_PROFIT'
+  | 'INDUSTRY_FUND'
+  | 'CHARITY_FUND'
+  | 'TECH_FUND'
+  | 'RESERVE_FUND';
+
+/**
+ * 根据 ledger.meta 判断应使用的 RewardAccount 类型。
+ * 优先用 meta.accountType（新代码明确写入，覆盖 INDUSTRY_FUND/CHARITY_FUND 等）；
+ * 没有时按 scheme 名兜底（兼容历史 VIP_UPSTREAM/NORMAL_TREE 等只写 scheme 的 ledger）。
+ */
+export function getAccountTypeForLedger(meta: any): RewardAccountTypeStr {
+  if (meta?.accountType) {
+    return meta.accountType as RewardAccountTypeStr;
+  }
+  const scheme = meta?.scheme;
+  return (NORMAL_SCHEMES as readonly string[]).includes(scheme) ? 'NORMAL_REWARD' : 'VIP_REWARD';
+}
+
+/** @deprecated 用 getAccountTypeForLedger(meta) 替代，本函数只考虑 scheme 名不能区分 INDUSTRY_FUND */
 export function getAccountTypeForScheme(scheme: string): 'VIP_REWARD' | 'NORMAL_REWARD' {
   return (NORMAL_SCHEMES as readonly string[]).includes(scheme) ? 'NORMAL_REWARD' : 'VIP_REWARD';
 }

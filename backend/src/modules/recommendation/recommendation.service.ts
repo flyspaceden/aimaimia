@@ -17,7 +17,13 @@ export class RecommendationService {
       include: {
         media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
         tags: { include: { tag: true } },
-        skus: { where: { status: 'ACTIVE' }, take: 1 },
+        // 与 ProductService.list 保持一致：取全部 ACTIVE SKU + price/stock/maxPerOrder，
+        // 供卡片展示「仅剩 x 件」「限购 x 件」
+        skus: {
+          where: { status: 'ACTIVE' },
+          orderBy: { price: 'asc' },
+          select: { id: true, price: true, stock: true, maxPerOrder: true },
+        },
       },
     });
 
@@ -32,9 +38,22 @@ export class RecommendationService {
 
     return products.map((p, i) => {
       const firstImage = p.media?.[0]?.url || '';
-      const firstSku = p.skus?.[0];
+      const activeSkus = p.skus || [];
+      const firstSku = activeSkus[0];
       const tagNames = (p.tags || []).map((pt: any) => pt.tag?.name).filter(Boolean);
       const origin = p.origin as any;
+
+      // 聚合库存 + 单笔限购（口径同 ProductService.mapToListItem）
+      const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+      let maxPerOrder: number | null = null;
+      if (activeSkus.length > 0) {
+        const limits = activeSkus.map((s) =>
+          s.maxPerOrder != null && s.maxPerOrder > 0 ? s.maxPerOrder : null,
+        );
+        if (limits.every((v) => v != null)) {
+          maxPerOrder = Math.min(...(limits as number[]));
+        }
+      }
 
       return {
         id: `rec-${p.id}`,
@@ -48,6 +67,8 @@ export class RecommendationService {
           image: firstImage,
           tags: tagNames.length > 0 ? tagNames : p.aiKeywords || [],
           companyId: p.companyId,
+          stock,
+          maxPerOrder,
         },
         reason: reasons[i % reasons.length],
       };

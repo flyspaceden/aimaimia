@@ -31,11 +31,6 @@ export class RejectReturnDto {
   @ArrayMinSize(1, { message: 'photos 至少包含 1 张照片' })
   @IsString({ each: true, message: 'photos 每项必须为字符串' })
   photos: string[];
-
-  @IsString({ message: 'returnWaybillNo 必须为字符串' })
-  @IsNotEmpty({ message: 'returnWaybillNo 不能为空' })
-  @MaxLength(50, { message: 'returnWaybillNo 不能超过 50 个字符' })
-  returnWaybillNo: string;
 }
 
 export class GenerateWaybillDto {
@@ -43,4 +38,11 @@ export class GenerateWaybillDto {
   @IsNotEmpty({ message: 'carrierCode 不能为空' })
   @MaxLength(16, { message: 'carrierCode 不能超过 16 个字符' })
   carrierCode: string;
+}
+
+export class GenerateSellerReturnWaybillDto {
+  @IsOptional()
+  @IsString({ message: 'carrierCode 必须为字符串' })
+  @MaxLength(16, { message: 'carrierCode 不能超过 16 个字符' })
+  carrierCode?: string;
 }

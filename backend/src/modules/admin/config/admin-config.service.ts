@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
-import { UpdateConfigDto } from './dto/admin-config.dto';
+import { UpdateConfigDto, BatchUpdateConfigDto } from './dto/admin-config.dto';
 import { validateConfigValue } from './config-validation';
 import { createHash } from 'crypto';
 
@@ -81,6 +81,78 @@ export class AdminConfigService {
       this.bonusConfig.invalidateCache();
 
       return { ok: true, version };
+    });
+  }
+
+  /**
+   * 批量更新配置（原子事务 + 最终态一次性校验）
+   *
+   * 为什么要这个接口：单项 update 会触发 validateRatioUpdate，用"DB 旧值 + 单项新值"
+   * 校验总和。当用户同时调整多个比例（如 VIP 平台 50→49 + 奖励 30→31），串行调用
+   * 就会在第一项提交时因其他项仍是旧值导致总和 ≠ 1.0 被拦截。批量接口把所有
+   * updates 先合并成目标快照，再校验比例总和，最后在单个事务里 upsert 全部项。
+   */
+  async batchUpdate(dto: BatchUpdateConfigDto, adminUserId: string) {
+    const { updates, changeNote } = dto;
+
+    // 1. 逐项校验值类型和范围（不涉及跨项约束）
+    for (const u of updates) {
+      const rawValue = u.value;
+      const actualValue =
+        rawValue !== null &&
+        typeof rawValue === 'object' &&
+        !Array.isArray(rawValue) &&
+        'value' in rawValue
+          ? rawValue.value
+          : rawValue;
+      const err = validateConfigValue(u.key, actualValue);
+      if (err) {
+        throw new BadRequestException(`[${u.key}] ${err}`);
+      }
+    }
+
+    // 2. 构建目标快照：以当前 DB 为基线，全部 updates 叠加
+    const allConfigs = await this.prisma.ruleConfig.findMany();
+    const snapshot: Record<string, any> = {};
+    for (const c of allConfigs) {
+      snapshot[c.key] = c.value;
+    }
+    for (const u of updates) {
+      snapshot[u.key] = u.value;
+    }
+
+    // 3. 对目标快照做跨项约束校验（VIP + 普通用户六分比例总和 = 1.0）
+    this.bonusConfig.validateSnapshotRatios(snapshot);
+
+    // 4. 事务内批量 upsert + 版本快照
+    return this.prisma.$transaction(async (tx) => {
+      for (const u of updates) {
+        await tx.ruleConfig.upsert({
+          where: { key: u.key },
+          update: { value: u.value },
+          create: { key: u.key, value: u.value },
+        });
+      }
+
+      const version = createHash('md5')
+        .update(JSON.stringify(snapshot) + Date.now())
+        .digest('hex')
+        .slice(0, 12);
+
+      await tx.ruleVersion.create({
+        data: {
+          version,
+          snapshot,
+          createdByAdminId: adminUserId,
+          changeNote:
+            changeNote ||
+            `批量更新 ${updates.length} 个配置项：${updates.map((u) => u.key).join(', ')}`,
+        },
+      });
+
+      this.bonusConfig.invalidateCache();
+
+      return { ok: true, version, updated: updates.length };
     });
   }
 

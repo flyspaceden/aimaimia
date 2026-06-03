@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  App,
   Card,
   Descriptions,
   Table,
@@ -13,12 +14,34 @@ import {
   Modal,
   Form,
   Input,
-  message,
+  Timeline,
+  Alert,
+  Typography,
+  Upload,
 } from 'antd';
-import { ArrowLeftOutlined, FileTextOutlined, CloseCircleOutlined } from '@ant-design/icons';
-import { getInvoiceDetail, issueInvoice, failInvoice } from '@/api/invoices';
+import {
+  ArrowLeftOutlined,
+  FileTextOutlined,
+  CloseCircleOutlined,
+  ThunderboltOutlined,
+  HistoryOutlined,
+  InboxOutlined,
+  SyncOutlined,
+} from '@ant-design/icons';
+import {
+  getInvoiceDetail,
+  issueInvoice,
+  failInvoice,
+  resetInvoiceProviderReservation,
+} from '@/api/invoices';
 import type { InvoiceOrderItem } from '@/api/invoices';
+import PermissionGate from '@/components/PermissionGate';
+import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
+
+const { Text } = Typography;
+const { Dragger } = Upload;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // 发票状态映射
 const invoiceStatusMap: Record<string, { text: string; color: string }> = {
@@ -32,6 +55,14 @@ const invoiceStatusMap: Record<string, { text: string; color: string }> = {
 const titleTypeMap: Record<string, string> = {
   PERSONAL: '个人',
   COMPANY: '企业',
+};
+
+// 操作人类型映射
+const OPERATOR_TYPE_LABEL: Record<string, string> = {
+  BUYER: '买家',
+  ADMIN: '管理员',
+  SYSTEM: '系统自动',
+  PROVIDER: '开票服务',
 };
 
 // 订单商品列定义
@@ -91,7 +122,42 @@ const itemColumns = [
   },
 ];
 
+const snapshotLineColumns = [
+  { title: '名称', dataIndex: 'name', key: 'name' },
+  {
+    title: '数量',
+    dataIndex: 'quantity',
+    key: 'quantity',
+    width: 90,
+  },
+  {
+    title: '单价',
+    dataIndex: 'unitPrice',
+    key: 'unitPrice',
+    width: 110,
+    render: (v: number | null) => (v != null ? `¥${Number(v).toFixed(2)}` : '-'),
+  },
+  {
+    title: '金额',
+    dataIndex: 'amount',
+    key: 'amount',
+    width: 120,
+    render: (v: number | null) => (v != null ? `¥${Number(v).toFixed(2)}` : '-'),
+  },
+  {
+    title: '税率',
+    dataIndex: 'taxRate',
+    key: 'taxRate',
+    width: 100,
+    render: (v: number | null) => (v != null ? `${(Number(v) * 100).toFixed(2)}%` : '-'),
+  },
+];
+
+const formatTime = (value?: string | null) =>
+  value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
+
 export default function InvoiceDetailPage() {
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -110,10 +176,18 @@ export default function InvoiceDetailPage() {
     enabled: !!id,
   });
 
-  // 开票操作
+  // 自动开票
+  const handleAutoIssue = async () => {
+    if (!invoice) return;
+    await issueInvoice(invoice.id, { mode: 'MOCK' });
+    message.success('自动开票成功');
+    queryClient.invalidateQueries({ queryKey: ['admin', 'invoice', id] });
+  };
+
+  // 人工开票
   const handleIssue = async (values: { invoiceNo: string; pdfUrl: string }) => {
     if (!invoice) return;
-    await issueInvoice(invoice.id, values);
+    await issueInvoice(invoice.id, { mode: 'MANUAL', ...values });
     message.success('开票成功');
     setIssueModalOpen(false);
     issueForm.resetFields();
@@ -128,6 +202,23 @@ export default function InvoiceDetailPage() {
     setFailModalOpen(false);
     failForm.resetFields();
     queryClient.invalidateQueries({ queryKey: ['admin', 'invoice', id] });
+  };
+
+  // 重置卡住的 Provider 预占
+  const handleResetProviderReservation = () => {
+    if (!invoice) return;
+    modal.confirm({
+      title: '重置开票任务',
+      content: '仅用于处理长时间卡住的开票任务。重置后可重新自动开票、人工开票或标记失败。',
+      okText: '重置',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await resetInvoiceProviderReservation(invoice.id);
+        message.success('开票任务已重置');
+        queryClient.invalidateQueries({ queryKey: ['admin', 'invoice', id] });
+      },
+    });
   };
 
   if (isLoading) {
@@ -152,6 +243,11 @@ export default function InvoiceDetailPage() {
   const status = invoiceStatusMap[invoice.status];
   const profile = invoice.profileSnapshot || ({} as any);
   const order = invoice.order;
+  const snapshot = invoice.invoiceContentSnapshot || null;
+  const snapshotBuyer = snapshot?.buyer || {};
+  const snapshotIssuer = snapshot?.issuer || {};
+  const snapshotLines = Array.isArray(snapshot?.lines) ? snapshot.lines : [];
+  const isProviderInProgress = invoice.status === 'REQUESTED' && !!invoice.providerRequestId;
 
   return (
     <div style={{ padding: 24 }}>
@@ -173,33 +269,77 @@ export default function InvoiceDetailPage() {
         style={{ marginBottom: 16 }}
         extra={
           invoice.status === 'REQUESTED' && (
-            <Space>
-              <Button
-                type="primary"
-                icon={<FileTextOutlined />}
-                onClick={() => setIssueModalOpen(true)}
-              >
-                开票
-              </Button>
-              <Button
-                danger
-                icon={<CloseCircleOutlined />}
-                onClick={() => setFailModalOpen(true)}
-              >
-                标记失败
-              </Button>
-            </Space>
+            <PermissionGate permission={PERMISSIONS.INVOICES_ISSUE}>
+              <Space>
+                {isProviderInProgress ? (
+                  <Button
+                    danger
+                    icon={<SyncOutlined />}
+                    onClick={handleResetProviderReservation}
+                  >
+                    重置开票任务
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      type="primary"
+                      icon={<ThunderboltOutlined />}
+                      onClick={handleAutoIssue}
+                    >
+                      自动开票
+                    </Button>
+                    <Button
+                      icon={<FileTextOutlined />}
+                      onClick={() => setIssueModalOpen(true)}
+                    >
+                      人工开票
+                    </Button>
+                    <Button
+                      danger
+                      icon={<CloseCircleOutlined />}
+                      onClick={() => setFailModalOpen(true)}
+                    >
+                      标记失败
+                    </Button>
+                  </>
+                )}
+              </Space>
+            </PermissionGate>
           )
         }
       >
+        {isProviderInProgress && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="开票任务处理中"
+            description="Provider 请求已预占，普通开票和失败标记已锁定。若任务长时间未完成，可重置后重新处理。"
+          />
+        )}
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }}>
           <Descriptions.Item label="发票ID">{invoice.id}</Descriptions.Item>
           <Descriptions.Item label="状态">
-            <Tag color={status?.color}>{status?.text || invoice.status}</Tag>
+            <Tag color={isProviderInProgress ? 'processing' : status?.color}>
+              {isProviderInProgress ? '开票中' : status?.text || invoice.status}
+            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="申请时间">
-            {dayjs(invoice.createdAt).format('YYYY-MM-DD HH:mm:ss')}
+            {formatTime(invoice.requestedAt || invoice.createdAt)}
           </Descriptions.Item>
+          <Descriptions.Item label="Provider">{invoice.provider || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Provider请求号" span={2}>
+            {invoice.providerRequestId || '-'}
+          </Descriptions.Item>
+          {invoice.failedAttempts > 0 && (
+            <Descriptions.Item label="自动开票失败次数" span={3}>
+              <Text type="warning">
+                {invoice.failedAttempts} 次
+                {invoice.lastAutoIssueAttemptAt &&
+                  `（上次 ${dayjs(invoice.lastAutoIssueAttemptAt).format('YYYY-MM-DD HH:mm:ss')}）`}
+              </Text>
+            </Descriptions.Item>
+          )}
           {invoice.invoiceNo && (
             <Descriptions.Item label="发票号码">{invoice.invoiceNo}</Descriptions.Item>
           )}
@@ -212,7 +352,17 @@ export default function InvoiceDetailPage() {
           )}
           {invoice.issuedAt && (
             <Descriptions.Item label="开票时间">
-              {dayjs(invoice.issuedAt).format('YYYY-MM-DD HH:mm:ss')}
+              {formatTime(invoice.issuedAt)}
+            </Descriptions.Item>
+          )}
+          {invoice.failedAt && (
+            <Descriptions.Item label="失败时间">
+              {formatTime(invoice.failedAt)}
+            </Descriptions.Item>
+          )}
+          {invoice.canceledAt && (
+            <Descriptions.Item label="取消时间">
+              {formatTime(invoice.canceledAt)}
             </Descriptions.Item>
           )}
           {invoice.failReason && (
@@ -301,9 +451,87 @@ export default function InvoiceDetailPage() {
         </Card>
       )}
 
-      {/* 开票弹窗 */}
+      {/* 最终开票内容快照 */}
+      <Card
+        title={snapshot ? '最终开票内容快照' : '开票内容预览'}
+        style={{ marginBottom: 16 }}
+      >
+        {!snapshot && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="当前仅为预览"
+            description="待开票记录尚未生成最终快照，实际开票内容以执行开票时的配置为准。"
+          />
+        )}
+        <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }} style={{ marginBottom: 16 }}>
+          <Descriptions.Item label="购买方名称" span={2}>
+            {snapshot ? snapshotBuyer.title || '-' : profile.title || '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="购买方类型">
+            {titleTypeMap[(snapshot ? snapshotBuyer.type : profile.type) as string] || (snapshot ? snapshotBuyer.type : profile.type) || '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="销售方名称" span={2}>
+            {snapshot ? snapshotIssuer.companyName || '-' : '以发票设置为准'}
+          </Descriptions.Item>
+          <Descriptions.Item label="订单号">{order?.orderNo || order?.id || '-'}</Descriptions.Item>
+          <Descriptions.Item label="备注" span={3}>
+            {snapshot?.remark || '以发票设置模板为准'}
+          </Descriptions.Item>
+        </Descriptions>
+        <Table
+          columns={snapshotLineColumns}
+          dataSource={snapshot ? snapshotLines : (order?.items || []).map((item) => ({
+            name: [item.productTitle, item.skuName].filter(Boolean).join(' '),
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: item.totalPrice ?? item.unitPrice * item.quantity,
+            taxRate: null,
+          }))}
+          rowKey={(_, index) => String(index)}
+          pagination={false}
+          size="small"
+          scroll={{ x: 640 }}
+        />
+      </Card>
+
+      {/* 状态历史 */}
+      {invoice.statusHistory && invoice.statusHistory.length > 0 && (
+        <Card
+          title={
+            <Space>
+              <HistoryOutlined />
+              <span>状态历史</span>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Timeline
+            items={invoice.statusHistory.map((item) => ({
+              color: invoiceStatusMap[item.toStatus]?.color || 'blue',
+              children: (
+                <Space direction="vertical" size={2}>
+                  <Text strong>
+                    {(item.fromStatus ? `${invoiceStatusMap[item.fromStatus]?.text || item.fromStatus} → ` : '')}
+                    {invoiceStatusMap[item.toStatus]?.text || item.toStatus}
+                  </Text>
+                  <Text type="secondary">
+                    {formatTime(item.createdAt)}
+                    {item.operatorType &&
+                      `  ·  ${OPERATOR_TYPE_LABEL[item.operatorType] || item.operatorType}`}
+                  </Text>
+                  {item.reason && <Text type="danger">{item.reason}</Text>}
+                </Space>
+              ),
+            }))}
+          />
+        </Card>
+      )}
+
+      {/* 人工开票弹窗 */}
       <Modal
-        title="开票"
+        title="人工开票"
         open={issueModalOpen}
         onCancel={() => {
           setIssueModalOpen(false);
@@ -319,6 +547,35 @@ export default function InvoiceDetailPage() {
             rules={[{ required: true, message: '请输入发票号码' }]}
           >
             <Input placeholder="请输入发票号码" />
+          </Form.Item>
+          <Form.Item label="上传发票 PDF">
+            <Dragger
+              name="file"
+              maxCount={1}
+              accept="application/pdf"
+              action={`${API_BASE}/upload?folder=invoices/manual`}
+              headers={{ Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}` }}
+              beforeUpload={(file) => {
+                const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+                if (!isPdf) {
+                  message.error('仅支持 PDF 文件');
+                  return Upload.LIST_IGNORE;
+                }
+                return true;
+              }}
+              onChange={({ file }) => {
+                if (file.status !== 'done') return;
+                const url = file.response?.data?.url || file.response?.url;
+                if (url) {
+                  issueForm.setFieldValue('pdfUrl', url);
+                  message.success('PDF 已上传');
+                }
+              }}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">点击或拖拽上传 PDF</p>
+              <p className="ant-upload-hint">也可以直接在下方粘贴已有 PDF 地址</p>
+            </Dragger>
           </Form.Item>
           <Form.Item
             name="pdfUrl"

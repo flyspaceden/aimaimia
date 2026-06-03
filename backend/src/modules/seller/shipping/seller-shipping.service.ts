@@ -7,13 +7,51 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
+import { OrderShippingCostService } from '../../shipment/order-shipping-cost.service';
 import { maskIp, maskTrackingNo } from '../../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
+import { UploadService } from '../../upload/upload.service';
+import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
+import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
+
+export type CarrierWaybillAddress = {
+  name: string;
+  tel: string;
+  province: string;
+  city: string;
+  district: string;
+  detail: string;
+};
+
+export type CarrierWaybillItem = {
+  name: string;
+  quantity: number;
+  weightGram?: number;
+  weight?: number;
+};
+
+type WaybillGenerationMarker = {
+  waybillGeneration: {
+    status: 'IN_PROGRESS';
+    token: string;
+    startedAt: string;
+  };
+};
+
+type WaybillGenerationContext = {
+  orderId: string;
+  companyId: string;
+  shipmentId: string;
+  marker: WaybillGenerationMarker;
+  addressSnapshot: unknown;
+  items: CarrierWaybillItem[];
+  carrierCode: string;
+};
 
 @Injectable()
 export class SellerShippingService {
@@ -21,12 +59,15 @@ export class SellerShippingService {
   private readonly apiPrefix: string;
   private readonly hmacSecret: string;
   private static readonly WAYBILL_LOCK_NAMESPACE = 'seller-waybill-order';
+  private static readonly WAYBILL_GENERATION_MARKER_TTL_MS = 15 * 60 * 1000;
 
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
     private sellerRiskControl: SellerRiskControlService,
     private sfExpress: SfExpressService,
+    private uploadService: UploadService,
+    private shippingCost: OrderShippingCostService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -143,123 +184,306 @@ export class SellerShippingService {
     orderId: string,
     carrierCode: string,
   ) {
-    let createdWaybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null = null;
-
     // 只支持顺丰
     carrierCode = 'SF';
 
+    const context = await this.reserveWaybillGeneration(
+      companyId,
+      orderId,
+      carrierCode,
+    );
+
+    let waybillResult: Awaited<ReturnType<SellerShippingService['createCarrierWaybill']>>;
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        await this.acquireWaybillGenerationLock(
-          tx,
-          `${companyId}:${orderId}`,
-        );
-
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-        });
-
-        if (!order) {
-          throw new NotFoundException('订单不存在');
-        }
-
-        const orderItems = await tx.orderItem.findMany({
-          where: { orderId, companyId },
-          select: {
-            companyId: true,
-            quantity: true,
-            sku: { select: { product: { select: { title: true } } } },
-          },
-        });
-
-        this.assertCompanyCanAccessOrder(companyId, orderItems);
-
-        if (order.status !== 'PAID' && order.status !== 'SHIPPED') {
-          throw new BadRequestException('只有已付款或部分已发货订单可生成面单');
-        }
-
-        const existingShipment = await tx.shipment.findUnique({
-          where: {
-            orderId_companyId: {
-              orderId,
-              companyId,
-            },
-          },
-        });
-
-        if (existingShipment?.waybillNo) {
-          throw new BadRequestException('该订单已生成面单，请勿重复操作');
-        }
-
-        const items = orderItems.map((item) => ({
-          name: item.sku?.product?.title || '商品',
-          quantity: item.quantity,
-        }));
-
-        const waybillResult = await this.createCarrierWaybill(
-          companyId,
-          orderId,
-          carrierCode,
-          order.addressSnapshot,
-          items,
-        );
-        createdWaybill = {
-          carrierCode: waybillResult.carrierCode,
-          waybillNo: waybillResult.waybillNo,
-          sfOrderId: waybillResult.sfOrderId,
-        };
-
-        if (existingShipment) {
-          const cas = await tx.shipment.updateMany({
-            where: {
-              id: existingShipment.id,
-              waybillNo: null,
-            },
-            data: {
-              waybillNo: waybillResult.waybillNo,
-              waybillUrl: waybillResult.waybillUrl,
-              carrierCode: waybillResult.carrierCode,
-              carrierName: waybillResult.carrierName,
-              sfOrderId: waybillResult.sfOrderId,
-            },
-          });
-
-          if (cas.count === 0) {
-            throw new BadRequestException('该订单已生成面单，请勿重复操作');
-          }
-        } else {
-          await tx.shipment.create({
-            data: {
-              orderId,
-              companyId,
-              carrierCode: waybillResult.carrierCode,
-              carrierName: waybillResult.carrierName,
-              waybillNo: waybillResult.waybillNo,
-              waybillUrl: waybillResult.waybillUrl,
-              sfOrderId: waybillResult.sfOrderId,
-              status: 'INIT',
-              senderInfoSnapshot: waybillResult.senderInfoSnapshot as Prisma.InputJsonValue,
-              receiverInfoSnapshot: waybillResult.receiverInfoSnapshot as Prisma.InputJsonValue,
-            },
-          });
-        }
-
-        this.logger.log(
-          `面单生成成功: orderId=${orderId}, carrierCode=${carrierCode}, waybillNo=${waybillResult.waybillNo}`,
-        );
-
-        return {
-          ok: true,
-          waybillNo: this.maskWaybillNo(waybillResult.waybillNo),
-          waybillPrintUrl: this.getWaybillPrintUrl(companyId, orderId, staffId),
-          carrierCode: waybillResult.carrierCode,
-          carrierName: waybillResult.carrierName,
-        };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      waybillResult = await this.createCarrierWaybill(
+        companyId,
+        orderId,
+        carrierCode,
+        context.addressSnapshot,
+        context.items,
+      );
     } catch (error) {
-      await this.rollbackCreatedWaybill(createdWaybill);
+      await this.clearWaybillGenerationMarker(context);
       throw error;
     }
+
+    await this.persistGeneratedWaybill(context, waybillResult);
+    await this.shippingCost.recordPackage({
+      orderId: context.orderId,
+      packageIndex: 0,
+      companyId: context.companyId,
+      sfOrderId: waybillResult.sfOrderId,
+      weightGramSent: waybillResult.weightGramSent,
+    });
+
+    this.logger.log(
+      `面单生成成功: orderId=${orderId}, carrierCode=${carrierCode}, waybillNo=${waybillResult.waybillNo}`,
+    );
+
+    return {
+      ok: true,
+      waybillNo: this.maskWaybillNo(waybillResult.waybillNo),
+      waybillPrintUrl: this.getWaybillPrintUrl(companyId, orderId, staffId),
+      carrierCode: waybillResult.carrierCode,
+      carrierName: waybillResult.carrierName,
+    };
+  }
+
+  private async reserveWaybillGeneration(
+    companyId: string,
+    orderId: string,
+    carrierCode: string,
+  ): Promise<WaybillGenerationContext> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.acquireWaybillGenerationLock(
+        tx,
+        `${companyId}:${orderId}`,
+      );
+
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+      });
+
+      if (!order) {
+        throw new NotFoundException('订单不存在');
+      }
+
+      const orderItems = await tx.orderItem.findMany({
+        where: { orderId, companyId },
+        select: {
+          companyId: true,
+          quantity: true,
+          sku: {
+            select: {
+              weightGram: true,
+              product: { select: { title: true } },
+            },
+          },
+        },
+      });
+
+      this.assertCompanyCanAccessOrder(companyId, orderItems);
+
+      if (order.status !== 'PAID' && order.status !== 'SHIPPED') {
+        throw new BadRequestException('只有已付款或部分已发货订单可生成面单');
+      }
+
+      const existingShipment = await tx.shipment.findUnique({
+        where: {
+          orderId_companyId: {
+            orderId,
+            companyId,
+          },
+        },
+      });
+
+      if (existingShipment?.waybillNo) {
+        throw new BadRequestException('该订单已生成面单，请勿重复操作');
+      }
+
+      if (this.hasActiveWaybillGenerationMarker(existingShipment?.rawCarrierPayload)) {
+        throw new BadRequestException('该订单面单正在生成，请稍后重试');
+      }
+
+      const marker = this.createWaybillGenerationMarker();
+      const items = orderItems.map((item) => ({
+        name: item.sku?.product?.title || '商品',
+        quantity: item.quantity,
+        weightGram: this.normalizeReserveItemWeightGram(item.sku?.weightGram),
+      }));
+
+      let shipmentId: string;
+      if (existingShipment) {
+        const cas = await tx.shipment.updateMany({
+          where: {
+            id: existingShipment.id,
+            waybillNo: null,
+          },
+          data: {
+            carrierCode,
+            carrierName: '顺丰速运',
+            rawCarrierPayload: marker as Prisma.InputJsonValue,
+          },
+        });
+
+        if (cas.count === 0) {
+          throw new BadRequestException('该订单已生成面单，请勿重复操作');
+        }
+        shipmentId = existingShipment.id;
+      } else {
+        const shipment = await tx.shipment.create({
+          data: {
+            orderId,
+            companyId,
+            carrierCode,
+            carrierName: '顺丰速运',
+            waybillNo: null,
+            status: 'INIT',
+            rawCarrierPayload: marker as Prisma.InputJsonValue,
+          },
+        });
+        shipmentId = shipment.id;
+      }
+
+      return {
+        orderId,
+        companyId,
+        shipmentId,
+        marker,
+        addressSnapshot: order.addressSnapshot,
+        items,
+        carrierCode,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  private async persistGeneratedWaybill(
+    context: WaybillGenerationContext,
+    waybillResult: Awaited<ReturnType<SellerShippingService['createCarrierWaybill']>>,
+  ): Promise<void> {
+    const cas = await this.prisma.$transaction(
+      (tx) => tx.shipment.updateMany({
+        where: {
+          id: context.shipmentId,
+          waybillNo: null,
+          rawCarrierPayload: {
+            equals: context.marker as Prisma.InputJsonValue,
+          },
+        },
+        data: {
+          waybillNo: waybillResult.waybillNo,
+          waybillUrl: waybillResult.waybillUrl,
+          carrierCode: waybillResult.carrierCode,
+          carrierName: waybillResult.carrierName,
+          sfOrderId: waybillResult.sfOrderId,
+          senderInfoSnapshot: waybillResult.senderInfoSnapshot as Prisma.InputJsonValue,
+          receiverInfoSnapshot: waybillResult.receiverInfoSnapshot as Prisma.InputJsonValue,
+          rawCarrierPayload: Prisma.DbNull,
+        },
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    if (cas.count > 0) return;
+
+    const current = await this.prisma.shipment.findUnique({
+      where: { id: context.shipmentId },
+      select: {
+        waybillNo: true,
+        sfOrderId: true,
+        rawCarrierPayload: true,
+      },
+    });
+
+    if (current?.waybillNo === waybillResult.waybillNo) {
+      return;
+    }
+
+    await this.compensateFailedWaybillPersist(context, waybillResult);
+    throw new BadRequestException('该订单面单状态已变更，请刷新后重试');
+  }
+
+  private async compensateFailedWaybillPersist(
+    context: WaybillGenerationContext,
+    waybillResult: Awaited<ReturnType<SellerShippingService['createCarrierWaybill']>>,
+  ): Promise<void> {
+    try {
+      await this.cancelCarrierWaybillStrict(
+        waybillResult.sfOrderId ?? '',
+        waybillResult.waybillNo,
+      );
+      await this.clearWaybillGenerationMarker(context);
+    } catch (err: any) {
+      this.logger.warn(`面单生成最终持久化失败，且远端取消失败: ${err.message}`);
+      await this.markWaybillGenerationFailed(context, waybillResult, err);
+    }
+  }
+
+  private createWaybillGenerationMarker(): WaybillGenerationMarker {
+    return {
+      waybillGeneration: {
+        status: 'IN_PROGRESS',
+        token: randomUUID(),
+        startedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  private hasActiveWaybillGenerationMarker(rawCarrierPayload: unknown): boolean {
+    const marker = this.getWaybillGenerationMarker(rawCarrierPayload);
+    if (!marker || marker.status !== 'IN_PROGRESS') return false;
+
+    const startedAt = Date.parse(marker.startedAt ?? '');
+    if (Number.isNaN(startedAt)) return true;
+
+    return Date.now() - startedAt < SellerShippingService.WAYBILL_GENERATION_MARKER_TTL_MS;
+  }
+
+  private getWaybillGenerationMarker(rawCarrierPayload: unknown): {
+    status?: string;
+    token?: string;
+    startedAt?: string;
+  } | null {
+    if (!rawCarrierPayload || typeof rawCarrierPayload !== 'object') return null;
+    const payload = rawCarrierPayload as { waybillGeneration?: unknown };
+    if (!payload.waybillGeneration || typeof payload.waybillGeneration !== 'object') {
+      return null;
+    }
+    return payload.waybillGeneration as {
+      status?: string;
+      token?: string;
+      startedAt?: string;
+    };
+  }
+
+  private async clearWaybillGenerationMarker(
+    context: WaybillGenerationContext,
+  ): Promise<void> {
+    await this.prisma.$transaction(
+      (tx) => tx.shipment.updateMany({
+        where: {
+          id: context.shipmentId,
+          waybillNo: null,
+          rawCarrierPayload: {
+            equals: context.marker as Prisma.InputJsonValue,
+          },
+        },
+        data: { rawCarrierPayload: Prisma.DbNull },
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  private async markWaybillGenerationFailed(
+    context: WaybillGenerationContext,
+    waybillResult: Awaited<ReturnType<SellerShippingService['createCarrierWaybill']>>,
+    error: Error,
+  ): Promise<void> {
+    await this.prisma.$transaction(
+      (tx) => tx.shipment.updateMany({
+        where: {
+          id: context.shipmentId,
+          waybillNo: null,
+          rawCarrierPayload: {
+            equals: context.marker as Prisma.InputJsonValue,
+          },
+        },
+        data: {
+          rawCarrierPayload: {
+            waybillGeneration: {
+              ...context.marker.waybillGeneration,
+              status: 'FAILED',
+              failedAt: new Date().toISOString(),
+              failureReason: 'FINAL_PERSIST_CANCEL_FAILED',
+              remoteWaybillNo: waybillResult.waybillNo,
+              remoteSfOrderId: waybillResult.sfOrderId ?? null,
+              error: error.message,
+            },
+          } as Prisma.InputJsonValue,
+        },
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   /**
@@ -393,7 +617,7 @@ export class SellerShippingService {
     orderId: string,
     carrierCode: string,
     addressSnapshot: unknown,
-    items: Array<{ name: string; quantity: number; weight?: number }>,
+    items: CarrierWaybillItem[],
   ) {
     const senderInfo = await this.getSenderInfo(companyId);
 
@@ -405,12 +629,10 @@ export class SellerShippingService {
     }
 
     const recipientInfo = this.parseAddressSnapshot(addressSnapshot);
-    const cargo = items.map((i) => i.name).join(', ');
-    const totalWeight = items.reduce((sum, i) => sum + (i.weight || 0), 0);
-
-    // 使用 orderId_companyId 作为顺丰 orderId，确保幂等性
-    const orderResult = await this.sfExpress.createOrder({
-      orderId: `${orderId}_${companyId}`,
+    const result = await this.createCarrierWaybillWithAddresses({
+      companyId,
+      bizNo: orderId,
+      carrierCode,
       sender: {
         name: senderInfo.senderName,
         tel: senderInfo.senderPhone,
@@ -427,16 +649,69 @@ export class SellerShippingService {
         district: recipientInfo.district,
         detail: recipientInfo.detail,
       },
+      items,
+    });
+
+    return {
+      ...result,
+      senderInfoSnapshot: senderInfo,
+      receiverInfoSnapshot: recipientInfo,
+    };
+  }
+
+  async createCarrierWaybillWithAddresses(input: {
+    companyId: string;
+    bizNo: string;
+    orderId?: string;
+    carrierCode: string;
+    sender: CarrierWaybillAddress;
+    receiver: CarrierWaybillAddress;
+    items: CarrierWaybillItem[];
+  }) {
+    const companyId = input.companyId;
+    const bizNo = input.bizNo || input.orderId;
+    if (!bizNo) {
+      throw new BadRequestException('面单业务单号缺失');
+    }
+
+    const cargo = input.items.map((i) => i.name).join(', ');
+    const totalWeightGram = this.calculateTotalWeightGram(input.items);
+    const weightGramSent = Math.max(totalWeightGram, DEFAULT_SKU_WEIGHT_GRAM);
+    const totalWeightKg = Math.max(totalWeightGram / GRAMS_PER_KG, 1);
+
+    // 使用 bizNo_companyId 作为顺丰 orderId，确保幂等性
+    const orderResult = await this.sfExpress.createOrder({
+      orderId: `${bizNo}_${companyId}`,
+      sender: input.sender,
+      receiver: input.receiver,
       cargo,
-      totalWeight: totalWeight > 0 ? totalWeight : undefined,
+      totalWeight: totalWeightKg,
       packageCount: 1,
     });
 
-    // 获取面单 PDF
+    // 获取面单 PDF：顺丰返回临时 URL（1-2h 过期） → 下载 → 持久化到 OSS
+    // OSS 失败不能回退 SF 临时 URL（写进 DB 是"定时炸弹"），留空让卖家点"重新打印"重试
     let waybillUrl = '';
     try {
       const printResult = await this.sfExpress.printWaybill(orderResult.waybillNo);
-      waybillUrl = `data:application/pdf;base64,${printResult.pdfBase64}`;
+      try {
+        const fetched = await fetchBinaryWithLimit(printResult.pdfUrl, {
+          maxBytes: 10 * 1024 * 1024,
+          timeoutMs: 15000,
+          allowedContentTypes: ['application/pdf', 'application/octet-stream'],
+        });
+        const uploaded = await this.uploadService.uploadBuffer(
+          fetched.buffer,
+          'waybills',
+          '.pdf',
+          'application/pdf',
+        );
+        waybillUrl = uploaded.url;
+      } catch (persistErr: any) {
+        this.logger.error(
+          `面单 PDF OSS 持久化失败（waybillUrl 留空，卖家需点"重新打印"）: bizNo=${bizNo}, waybillNo=${orderResult.waybillNo}, err=${persistErr.message}`,
+        );
+      }
     } catch (err: any) {
       this.logger.warn(`面单打印失败（不阻塞发货）: ${err.message}`);
     }
@@ -447,9 +722,36 @@ export class SellerShippingService {
       waybillNo: orderResult.waybillNo,
       waybillUrl,
       sfOrderId: orderResult.sfOrderId,
-      senderInfoSnapshot: senderInfo,
-      receiverInfoSnapshot: recipientInfo,
+      weightGramSent,
+      senderInfoSnapshot: input.sender,
+      receiverInfoSnapshot: input.receiver,
     };
+  }
+
+  private normalizeReserveItemWeightGram(weightGram: unknown): number {
+    const normalized = Number(weightGram);
+    return Number.isFinite(normalized) && normalized > 0
+      ? Math.ceil(normalized)
+      : DEFAULT_SKU_WEIGHT_GRAM;
+  }
+
+  private calculateTotalWeightGram(items: CarrierWaybillItem[]): number {
+    return items.reduce((sum, item) => {
+      const quantity = Number.isFinite(Number(item.quantity)) && item.quantity > 0
+        ? item.quantity
+        : 0;
+      const weightGram = Number(item.weightGram);
+      if (Number.isFinite(weightGram) && weightGram > 0) {
+        return sum + Math.ceil(weightGram) * quantity;
+      }
+
+      const legacyWeightKg = Number(item.weight);
+      if (Number.isFinite(legacyWeightKg) && legacyWeightKg > 0) {
+        return sum + Math.round(legacyWeightKg * GRAMS_PER_KG) * quantity;
+      }
+
+      return sum;
+    }, 0);
   }
 
   async cancelCarrierWaybill(sfOrderId: string, waybillNo: string) {
@@ -458,9 +760,20 @@ export class SellerShippingService {
       return;
     }
     try {
-      await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
+      await this.cancelCarrierWaybillStrict(sfOrderId, waybillNo);
     } catch (err: any) {
       this.logger.warn(`取消面单调用顺丰失败（不阻塞本地清除）: ${err.message}`);
+    }
+  }
+
+  async cancelCarrierWaybillStrict(sfOrderId: string, waybillNo: string) {
+    if (!sfOrderId && !waybillNo) {
+      this.logger.warn('取消面单跳过: 缺少顺丰订单ID和运单号');
+      return;
+    }
+    const result = await this.sfExpress.cancelOrder(sfOrderId, waybillNo);
+    if (result?.success === false) {
+      throw new Error('顺丰取消面单失败');
     }
   }
 
@@ -511,8 +824,8 @@ export class SellerShippingService {
       throw new BadRequestException('已发货的订单不可取消面单');
     }
 
-    // 2. 先调顺丰取消（best-effort）
-    await this.cancelCarrierWaybill(shipment.sfOrderId ?? '', shipment.waybillNo);
+    // 2. 用户主动取消必须严格确认远端取消成功，失败时保留本地面单字段
+    await this.cancelCarrierWaybillStrict(shipment.sfOrderId ?? '', shipment.waybillNo);
 
     // 3. 远端取消后，清空本地记录
     await this.prisma.$transaction(async (tx) => {
@@ -556,12 +869,5 @@ export class SellerShippingService {
         hashtext(${resourceKey})
       )
     `;
-  }
-
-  private async rollbackCreatedWaybill(
-    waybill: { carrierCode: string; waybillNo: string; sfOrderId?: string } | null,
-  ) {
-    if (!waybill) return;
-    await this.cancelCarrierWaybill(waybill.sfOrderId ?? '', waybill.waybillNo);
   }
 }

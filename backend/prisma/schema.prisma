@@ -36,7 +36,9 @@ enum AuthProvider {
 enum SmsPurpose {
   LOGIN
   BIND
-  RESET
+  RESET          // 保留占位，当前代码未使用
+  BUYER_RESET    // 买家 App 忘记密码专用 scope
+  SELLER_RESET   // 卖家后台忘记密码专用 scope
 }
 
 enum SessionStatus {
@@ -348,6 +350,7 @@ enum RewardEntryType {
   WITHDRAW
   VOID
   ADJUST
+  DEDUCT
 }
 
 enum RewardLedgerStatus {
@@ -367,6 +370,7 @@ enum WithdrawChannel {
 
 enum WithdrawStatus {
   REQUESTED
+  PROCESSING
   APPROVED
   REJECTED
   PAID
@@ -405,6 +409,7 @@ enum ReplacementStatus {
 // --- 统一售后系统枚举 ---
 enum AfterSaleType {
   NO_REASON_RETURN   // 七天无理由退货退款
+  NO_REASON_EXCHANGE // 七天无理由换货
   QUALITY_RETURN     // 质量问题退货退款
   QUALITY_EXCHANGE   // 质量问题换货
 }
@@ -424,6 +429,29 @@ enum AfterSaleStatus {
   COMPLETED            // 售后完成
   CLOSED               // 系统关闭（超时等）
   CANCELED             // 用户主动取消
+}
+
+enum ReturnShippingPayer {
+  BUYER
+  SELLER
+  PLATFORM
+}
+
+enum AfterSaleOperatorType {
+  BUYER
+  SELLER_STAFF
+  ADMIN
+  SYSTEM
+}
+
+enum AfterSaleShippingPaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  FAILED
+  REFUNDING
+  REFUNDED
+  CLOSED
 }
 
 enum ReturnPolicy {
@@ -1117,6 +1145,7 @@ model Product {
   status             ProductStatus      @default(DRAFT)
   auditStatus        ProductAuditStatus @default(PENDING)
   auditNote          String?
+  submissionCount    Int                @default(1) // 当前审核提交次数（REJECTED/APPROVED 后卖家编辑重新提交时 +1）
   basePrice          Float // 基础价格（元）
   cost               Float? // 成本价（元）
   currency           String             @default("CNY")
@@ -1156,7 +1185,7 @@ model ProductSKU {
   cost       Float     @default(0) // 成本价（元），卖家商品必填，平台/抽奖商品由后台设置
   stock        Int       @default(0)
   maxPerOrder  Int?      // 单笔订单限购数量，null = 不限制
-  weightGram Int?
+  weightGram Int
   barcode    String?
   status     SkuStatus @default(ACTIVE)
   createdAt  DateTime  @default(now())
@@ -1203,6 +1232,9 @@ model InventoryLedger {
   createdAt DateTime      @default(now())
 
   @@index([skuId]) // M5: 外键索引，加速库存流水查询
+  // 退货退款回填幂等依赖手写部分唯一索引，Prisma schema 暂不能表达：
+  // InventoryLedger_after_sale_release_once_idx(refType, refId)
+  // WHERE type='RELEASE' AND refType='AFTER_SALE' AND refId IS NOT NULL
 }
 
 // ============================================================
@@ -1310,6 +1342,7 @@ model CartItem {
   expiresAt     DateTime?                    // F3: 奖品过期时间，非奖品为 null
 
   @@index([cartId, skuId]) // 替换 @@unique：奖品项可能与普通项 SKU 相同
+  @@index([cartId, isPrize, isSelected])
   @@index([expiresAt])     // F3: 过期清理查询优化
 }
 
@@ -1325,6 +1358,7 @@ model CheckoutSession {
   itemsSnapshot   Json                  // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
   addressSnapshot Json                  // 完整地址快照
   rewardId        String?  @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
+  deductionGroupId String?              // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
   expectedTotal   Float                 // 服务端计算的应付总额
   goodsAmount     Float                 // 商品金额
   shippingFee     Float                 // 运费
@@ -1344,6 +1378,8 @@ model CheckoutSession {
   // 幂等
   idempotencyKey  String?
 
+  buyerNote       String?  @db.VarChar(200)   // 买家留言（结算页填写，<= 200 字）
+
   expiresAt       DateTime              // ACTIVE 会话 30 分钟后过期
   paidAt          DateTime?
   createdAt       DateTime @default(now())
@@ -1353,7 +1389,7 @@ model CheckoutSession {
 
   @@index([userId, status])
   @@index([status, createdAt])
-  @@unique([userId, idempotencyKey])
+  @@unique([userId, bizType, idempotencyKey])
   @@index([merchantOrderNo])
   @@index([expiresAt, status])
 }
@@ -1374,6 +1410,7 @@ model Order {
   checkoutSessionId String?
   checkoutSession   CheckoutSession? @relation(fields: [checkoutSessionId], references: [id])
   idempotencyKey  String?     @unique // 幂等键，防止重复创建订单
+  buyerNote       String?     @db.VarChar(200)   // 由 CheckoutSession.buyerNote 在 handlePaymentSuccess 时透传
   paidAt                  DateTime?
   receivedAt              DateTime?
   autoReceiveAt           DateTime?
@@ -1391,6 +1428,7 @@ model Order {
   shipments          Shipment[]
   invoice            Invoice?
   paymentGroupItems  PaymentGroupItem[]
+  shippingCosts      OrderShippingCost[]
 
   // I 域关系
   vipPurchase        VipPurchase?
@@ -1506,6 +1544,7 @@ model Refund {
   id               String       @id @default(cuid())
   orderId          String
   order            Order        @relation(fields: [orderId], references: [id], onDelete: Restrict) // H17/M6: 防止删除有退款记录的订单
+  afterSaleId      String?      @unique
   paymentId        String?
   amount           Float // 退款金额（元）
   status           RefundStatus @default(REQUESTED)
@@ -1521,6 +1560,8 @@ model Refund {
   statusHistory RefundStatusHistory[]
   // H02修复：商品行级退款明细
   items RefundItem[]
+  afterSaleByAfterSaleId     AfterSaleRequest?  @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
+  afterSaleRequestsByRefundId AfterSaleRequest[] @relation("AfterSaleRefundByRefundId")
 
   @@index([orderId])
 }
@@ -1562,8 +1603,12 @@ model Shipment {
   company              Company        @relation(fields: [companyId], references: [id])
   carrierCode          String // SF/JDL/ZTO/...
   carrierName          String
+  // 物流单号字段语义（Bug 14 — Phase 4 可考虑彻底合并）：
+  // - waybillNo: 主字段，自动取号链路（顺丰 SF API）返回的运单号；SF 推送 mailno 与此对齐
+  // - trackingNo: 备用字段，手填运单号场景（管理后台 ship 接口、历史数据迁移）
+  // 读取时一律 OR 兼容；写入时 SF 自动取号写 waybillNo，手填写 trackingNo
   trackingNo           String?
-  waybillNo            String? // 快递面单号（快递API返回）
+  waybillNo            String?
   waybillUrl           String? // 面单图片 URL（存 OSS）
   status               ShipmentStatus @default(INIT)
   shippedAt            DateTime?
@@ -1628,19 +1673,48 @@ model InvoiceProfile {
 }
 
 model Invoice {
-  id              String        @id @default(cuid())
-  orderId         String        @unique
-  order           Order         @relation(fields: [orderId], references: [id])
-  profileSnapshot Json          // 开票时发票抬头快照
-  status          InvoiceStatus @default(REQUESTED)
-  invoiceNo       String?       // 发票号码
-  pdfUrl          String?       // 电子发票 PDF 地址
-  failReason      String?       // 开票失败原因
-  issuedAt        DateTime?     // 开票时间
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                     String        @id @default(cuid())
+  orderId                String        @unique
+  order                  Order         @relation(fields: [orderId], references: [id])
+  profileSnapshot        Json          // 开票时发票抬头快照
+  status                 InvoiceStatus @default(REQUESTED)
+  invoiceNo              String?       // 发票号码
+  pdfUrl                 String?       // 电子发票 PDF 地址
+  failReason             String?       // 开票失败原因
+  provider               String?
+  providerRequestId      String?
+  providerRaw            Json?
+  invoiceContentSnapshot Json?
+  requestCount           Int           @default(1)
+  failedAttempts         Int           @default(0)
+  lastAutoIssueAttemptAt DateTime?
+  requestedAt            DateTime      @default(now())
+  issuedAt               DateTime?     // 开票时间
+  failedAt               DateTime?
+  canceledAt             DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  statusHistory          InvoiceStatusHistory[]
 
   @@index([status])
+  @@index([providerRequestId])
+  @@index([status, failedAttempts, lastAutoIssueAttemptAt])
+}
+
+model InvoiceStatusHistory {
+  id           String         @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  fromStatus   InvoiceStatus?
+  toStatus     InvoiceStatus
+  reason       String?
+  operatorId   String?
+  operatorType String?
+  metadata     Json?
+  createdAt    DateTime       @default(now())
+
+  @@index([invoiceId, createdAt])
 }
 
 // ============================================================
@@ -1796,7 +1870,20 @@ model VipProgress {
   userId            String    @unique
   user              User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   selfPurchaseCount Int       @default(0)
-  unlockedLevel     Int       @default(0) // <=15，CHECK 约束(0-15)在 seed.ts 中通过 raw SQL 添加
+  // ⚠️ 字段实际语义 ≠ 字面"已解锁层级"。
+  // 仅当 unlockFrozenRewards 实际释放了 VIP_UPSTREAM FROZEN 流水时才会被更新；
+  // 自购充足、下级始终 AVAILABLE 直接到账的用户会永远停留在 0。
+  //
+  // 例：u-001 自购达 15 次（selfPurchaseCount=15），下级买东西时永远
+  //     ancestorSelfCount >= k → 直接 AVAILABLE，从未产生 FROZEN，
+  //     因此 unlockedLevel 永远是 0，与"已解锁 15 层"的直觉相反。
+  //
+  // 业务判定"祖先是否解锁第 k 层"用 selfPurchaseCount，见
+  // vip-upstream.service.ts line 113-116。
+  // 前端展示请用 min(selfPurchaseCount, vipMaxLayers) 计算，见
+  // admin-bonus.service.ts computeUnlockedLevel。
+  // CHECK 约束 (0-15) 在 seed.ts 中通过 raw SQL 添加。
+  unlockedLevel     Int       @default(0)
   exitedAt          DateTime?
   updatedAt         DateTime  @updatedAt
 }
@@ -1904,18 +1991,36 @@ model WithdrawRequest {
   id               String          @id @default(cuid())
   userId           String
   user             User            @relation(fields: [userId], references: [id])
-  amount           Float // 提现金额（元）
+  amount           Float // grossAmount 申请金额（元，保留旧字段名）
   channel          WithdrawChannel
-  accountSnapshot  Json? // 脱敏/加密
-  accountType      String          @default("VIP_REWARD") // VIP_REWARD 或 NORMAL_REWARD
-  status           WithdrawStatus  @default(REQUESTED)
-  rejectReason     String?         // 拒绝原因
+  accountSnapshot  Json? // 加密存 { account, name }
+  accountType      String          @default("VIP_REWARD")
+  status           WithdrawStatus  @default(PROCESSING)
+  providerPayoutId String?
+  taxAmount             Float      @default(0)
+  netAmount             Float      @default(0)
+  taxRate               Float      @default(0.20)
+  providerFeeAmount     Float      @default(0)
+  outBizNo              String?    @unique
+  clientIdempotencyKey  String?    @unique
+  providerFundOrderId   String?
+  providerStatus        String?
+  providerErrorCode     String?
+  providerErrorMessage  String?
+  paidAt                DateTime?
+  lastQueriedAt         DateTime?
+  queryAttempts         Int        @default(0)
+  rejectReason     String?
   reviewerAdminId  String?
   reviewerAdmin    AdminUser?      @relation(fields: [reviewerAdminId], references: [id])
-  providerPayoutId String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
-  deletedAt        DateTime?       // 软删除标记
+  deletedAt        DateTime?
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([providerFundOrderId])
+  @@index([userId, createdAt])
 }
 
 // ============================================================
@@ -2122,18 +2227,45 @@ model LotteryRecord {
 
 // --- J6: 平台统一运费规则（替代商户 ShippingTemplate） ---
 model ShippingRule {
-  id           String   @id @default(cuid())
-  name         String   // 规则名称
-  regionCodes  String[] // 适用地区行政区划码列表（省级，空=全国）
-  minAmount    Float?   // 订单金额下限（含）
-  maxAmount    Float?   // 订单金额上限（不含，null=无上限）
-  minWeight    Int?     // 商品总重量下限(克)
-  maxWeight    Int?     // 商品总重量上限(克)
-  fee          Float    // 运费金额
-  priority     Int      @default(0) // 优先级（高优先级先匹配）
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  name               String   // 规则名称
+  regionCodes        String[] // 适用地区行政区划码列表（省级，空=全国）
+  minAmount          Float?   // 订单金额下限（含）
+  maxAmount          Float?   // 订单金额上限（不含，null=无上限）
+  minWeight          Int?     // 商品总重量下限(克)
+  maxWeight          Int?     // 商品总重量上限(克)
+  fee                Float    @default(0) // 兼容旧字段：保留一版用于回滚兜底
+  firstWeightKg      Float    @default(3)
+  firstFee           Float
+  additionalWeightKg Float    @default(1)
+  additionalFee      Float
+  minChargeWeightKg  Float    @default(1)
+  priority           Int      @default(0) // 优先级（高优先级先匹配）
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([isActive, priority])
+}
+
+model OrderShippingCost {
+  id              String   @id @default(cuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  packageIndex    Int
+  companyId       String?
+  sfOrderId       String   @unique
+  weightGramSent  Int
+  estimatedCost   Float?
+  actualCost      Float?
+  reconciledAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([companyId, createdAt])
+  @@index([reconciledAt])
+  @@map("order_shipping_costs")
 }
 
 // --- J7: 换货请求（替代退款 Refund） ---
@@ -2152,15 +2284,38 @@ model AfterSaleRequest {
   status                AfterSaleStatus   @default(REQUESTED)
   isPostReplacement     Boolean           @default(false) // 换货后二次售后标记
   arbitrationSource     String?           // 仲裁来源（如"买家申请"/"系统自动"）
+  arbitrationSourceStatus AfterSaleStatus?
+  targetSkuId           String?           // 换货目标 SKU
+  targetQuantity        Int?              // 换货目标数量
   requiresReturn        Boolean           @default(false) // 是否需要买家退回商品
   // 买家退货物流
+  returnCarrierCode     String?           // 退货快递公司编码
   returnCarrierName     String?           // 退货快递公司
   returnWaybillNo       String?           // 退货快递单号
+  returnWaybillUrl      String?           // 退货运单查询链接
+  returnSfOrderId       String?           // 退货面单顺丰订单 ID
+  returnLabelUrl        String?           // 退货面单 URL
+  returnShippingFee     Float?            // 退货运费金额
+  returnShippingPayer   ReturnShippingPayer?
+  returnShippingPaidAt  DateTime?
+  returnShippingFeeDeducted Boolean       @default(false)
   returnShippedAt       DateTime?         // 买家寄出退货时间
   // 卖家验收退货
   sellerRejectReason    String?           // 卖家拒收退货理由
   sellerRejectPhotos    String[]          @default([]) // 卖家拒收退货照片
+  sellerReturnCarrierCode String?         // 卖家回寄快递公司编码
+  sellerReturnCarrierName String?         // 卖家回寄快递公司
   sellerReturnWaybillNo String?           // 卖家退回快递单号（拒收退货时回寄）
+  sellerReturnWaybillUrl String?          // 卖家回寄运单查询链接
+  sellerReturnSfOrderId String?           // 卖家回寄顺丰订单 ID
+  // 顺丰物流轨迹（推送进来时落库；售后单号不在 Shipment 表，所以单独存这里）
+  // 结构：[{ time, message, location?, opCode?, statusCode? }, ...] 按 acceptTime 升序
+  // 写入：handleSfCallback 收到推送 → 按 trackingNo 命中 returnWaybillNo/replacementWaybillNo
+  //   /sellerReturnWaybillNo 之一 → 过滤沙箱旧路由 → append 到对应字段（去重 by time+opCode）
+  // 读取：admin/seller findById 优先用这里，没有再 fallback 到主动查询 SEARCH_ROUTES
+  returnTrackingEvents       Json?
+  replacementTrackingEvents  Json?
+  sellerReturnTrackingEvents Json?
   // 退款信息
   refundAmount          Float?            // 退款金额（元）
   refundId              String?           // 关联退款记录 ID
@@ -2170,6 +2325,9 @@ model AfterSaleRequest {
   reviewedAt            DateTime?
   approvedAt            DateTime?         // 审批通过时间
   sellerReceivedAt      DateTime?         // 卖家签收退货时间
+  manualReviewReason    String?
+  manualReviewRequestedAt DateTime?
+  manualReviewResolvedAt  DateTime?
   // 换货发货（沿用原字段）
   replacementCarrierCode String?
   replacementCarrierName String?
@@ -2180,11 +2338,51 @@ model AfterSaleRequest {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   virtualCallBindings   VirtualCallBinding[] @relation("ReplacementVirtualCallBindings")
+  statusHistory         AfterSaleStatusHistory[]
+  shippingPayment       AfterSaleShippingPayment?
+  refundByRefundId      Refund?           @relation("AfterSaleRefundByRefundId", fields: [refundId], references: [id])
+  refundByAfterSaleId   Refund?           @relation("AfterSaleRefundByAfterSaleId")
 
   @@map("after_sale_request")
   @@index([orderId])
+  @@index([refundId])
   @@index([userId, status])
   @@index([status, createdAt])
+}
+
+model AfterSaleStatusHistory {
+  id           String                 @id @default(cuid())
+  afterSaleId  String
+  afterSale    AfterSaleRequest       @relation(fields: [afterSaleId], references: [id], onDelete: Cascade)
+  fromStatus   AfterSaleStatus?
+  toStatus     AfterSaleStatus
+  reason       String?
+  operatorType AfterSaleOperatorType?
+  operatorId   String?
+  meta         Json?
+  createdAt    DateTime               @default(now())
+
+  @@index([afterSaleId, createdAt])
+  @@map("after_sale_status_history")
+}
+
+model AfterSaleShippingPayment {
+  id                String                         @id @default(cuid())
+  afterSaleId       String                         @unique
+  afterSale         AfterSaleRequest               @relation(fields: [afterSaleId], references: [id], onDelete: Cascade)
+  amount            Float
+  status            AfterSaleShippingPaymentStatus @default(UNPAID)
+  merchantPaymentNo String                         @unique
+  providerPaymentNo String?
+  provider          String                         @default("ALIPAY")
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  failureReason     String?
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+
+  @@index([status, createdAt])
+  @@map("after_sale_shipping_payments")
 }
 
 // ============================================================

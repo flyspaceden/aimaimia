@@ -24,13 +24,17 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../src/components/layout';
+import { VipHomePromoCarousel } from '../../src/components/data';
 import { AuthModal } from '../../src/components/overlay';
+import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
 import { FloatingParticles, AiOrb } from '../../src/components/effects';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
+import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
+import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
+import { buildVipReferralHomePrompt, type VipHomePromoCard } from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -136,7 +140,8 @@ export default function HomeScreen() {
   const recentSessionsQuery = useQuery({
     queryKey: ['ai-recent-conversations-home', isLoggedIn],
     queryFn: () => AiSessionRepo.listRecentConversations(3),
-    enabled: !USE_MOCK && isLoggedIn,
+    // 【AI 最近对话已下线】停掉拉取，原: enabled: !USE_MOCK && isLoggedIn,
+    enabled: false,
   });
   const remoteRecentConversations = useMemo(() => {
     if (!recentSessionsQuery.data?.ok) return [];
@@ -163,6 +168,22 @@ export default function HomeScreen() {
   });
   const lotteryStatus = lotteryStatusData?.ok ? lotteryStatusData.data : null;
   const hasLotteryChance = !!(lotteryStatus && !lotteryStatus.hasDrawn);
+
+  // VIP 首页广告：未登录/普通用户展示，VIP 用户隐藏
+  const { data: memberData } = useQuery({
+    queryKey: ['bonus-member'],
+    queryFn: () => BonusRepo.getMember(),
+    enabled: isLoggedIn,
+  });
+  const member = memberData?.ok ? memberData.data : null;
+  const shouldShowVipPromo = !isLoggedIn || member?.tier === 'NORMAL';
+  const vipReferralPrompt = buildVipReferralHomePrompt(member);
+  const { data: vipGiftOptionsData } = useQuery({
+    queryKey: ['vip-gift-options'],
+    queryFn: () => BonusRepo.getVipGiftOptions(),
+    enabled: shouldShowVipPromo,
+  });
+  const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
 
   // 跨零点自动刷新抽奖状态
   useEffect(() => {
@@ -244,14 +265,15 @@ export default function HomeScreen() {
     }
   }, [voice.needsAuth]);
 
-  // 短按：进入 AI 聊天页
+  // 短按：原进入 AI 多轮聊天页，【AI 多轮对话已下线】——只保留长按语音，短按不再跳页
   const handleShortPress = useCallback(() => {
     if (Date.now() < suppressShortPressUntilRef.current) {
       return;
     }
-    if (!voice.isRecording && !voice.isProcessing) {
-      router.push('/ai/chat');
-    }
+    // 【AI 多轮对话已下线】原跳转（恢复时取消注释）：
+    // if (!voice.isRecording && !voice.isProcessing) {
+    //   router.push('/ai/chat');
+    // }
   }, [voice.isRecording, voice.isProcessing, router]);
 
   // --- 快捷指令点击：也走意图解析路径 ---
@@ -261,6 +283,20 @@ export default function HomeScreen() {
     },
     [router]
   );
+
+  const handleVipPromoPress = useCallback((card: VipHomePromoCard) => {
+    router.push({
+      pathname: '/vip/gifts',
+      params: {
+        packageId: card.packageId,
+        giftOptionId: card.giftOptionId,
+      },
+    });
+  }, [router]);
+
+  const handleVipReferralPress = useCallback(() => {
+    router.push('/me/referral');
+  }, [router]);
 
   // --- 录音按钮动画 ---
   const recordHaloScale = useSharedValue(1);
@@ -426,10 +462,14 @@ export default function HomeScreen() {
           />
         }
       >
+        {/* 未完成订单横幅（无未支付订单时返回 null） */}
+        <PendingCheckoutBanner />
+
         {/* 问候语区域 */}
         <View style={[styles.greetingRow, { marginTop: spacing['3xl'] }]}>
           <View style={styles.greetingArea}>
             <Text
+              {...fitTextProps}
               style={[
                 typography.displaySm,
                 { color: colors.text.primary },
@@ -507,6 +547,42 @@ export default function HomeScreen() {
           </Animated.View>
         )}
 
+        {shouldShowVipPromo ? (
+          <Animated.View entering={FadeInDown.duration(300).delay(40)}>
+            <VipHomePromoCarousel
+              packages={vipPackages}
+              onPressCard={handleVipPromoPress}
+            />
+          </Animated.View>
+        ) : null}
+
+        {vipReferralPrompt ? (
+          <Animated.View entering={FadeInDown.duration(300).delay(40)}>
+            <Pressable
+              onPress={handleVipReferralPress}
+              accessibilityRole="button"
+              accessibilityLabel={`${vipReferralPrompt.title}，${vipReferralPrompt.actionLabel}`}
+              style={[
+                styles.vipReferralStrip,
+                {
+                  marginTop: spacing.lg,
+                  borderRadius: radius.pill,
+                  borderColor: 'rgba(201,169,110,0.28)',
+                },
+                shadow.sm,
+              ]}
+            >
+              <MaterialCommunityIcons name="crown-outline" size={16} color="#F5E6B8" />
+              <Text style={styles.vipReferralText} numberOfLines={1}>
+                {vipReferralPrompt.title}
+              </Text>
+              <View style={styles.vipReferralCta}>
+                <Text style={styles.vipReferralCtaText}>{vipReferralPrompt.actionLabel}</Text>
+              </View>
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
         {/* AI光球 + 抽奖按钮区域 */}
         <Animated.View entering={FadeInDown.duration(300)}>
           {hasLotteryChance ? (
@@ -548,8 +624,8 @@ export default function HomeScreen() {
                     </>
                   ) : (
                     <>
-                      <Text style={styles.pairedAiTitle}>AI</Text>
-                      <Text style={[styles.pairedAiSub, { color: colors.text.inverse }]}>买买</Text>
+                      <Text {...priceTextProps} style={styles.pairedAiTitle}>AI</Text>
+                      <Text {...priceTextProps} style={[styles.pairedAiSub, { color: colors.text.inverse }]}>买买</Text>
                     </>
                   )}
                 </Pressable>
@@ -630,8 +706,8 @@ export default function HomeScreen() {
                     {voice.feedbackText}
                   </Text>
                 </View>
-                {/* Phase 2: 继续对话按钮 */}
-                {voice.continueChatContext && !voice.clarifyIntent && (
+                {/* Phase 2: 继续对话按钮 —【AI 多轮对话已下线】用 false && 关闭渲染，恢复时删掉 false && 即可 */}
+                {false && voice.continueChatContext && !voice.clarifyIntent && (
                   <Pressable
                     onPress={() => {
                       const ctx = voice.continueChatContext;
@@ -719,7 +795,7 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              {voice.isRecording ? '松开发送语音' : '点击进入对话 · 长按语音指令'}
+              {voice.isRecording ? '松开发送语音' : '长按光球，说出你想买的'}
             </Text>
           )}
         </Animated.View>
@@ -765,7 +841,8 @@ export default function HomeScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* 最近对话 */}
+        {/* 最近对话 —【AI 多轮对话已下线】用 false && 关闭整块，恢复时删掉 false && ( 和结尾的 ) 即可 */}
+        {false && (
         <Animated.View entering={FadeInDown.duration(300).delay(160)} style={[styles.recentSection, { marginTop: spacing['3xl'] }]}>
           <Text
             style={[
@@ -850,11 +927,12 @@ export default function HomeScreen() {
           ) : (
             <View style={[styles.emptyState, { paddingVertical: spacing['3xl'] }]}>
               <Text style={[typography.bodySm, { color: colors.muted, textAlign: 'center' }]}>
-                和脉脉聊聊，发现更多好物
+                和爱买买聊聊，发现更多好物
               </Text>
             </View>
           )}
         </Animated.View>
+        )}
 
         {/* 底部安全留白 */}
         <View style={{ height: spacing['4xl'] }} />
@@ -963,6 +1041,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  vipReferralStrip: {
+    height: 36,
+    paddingLeft: 12,
+    paddingRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    backgroundColor: '#0F1F17',
+  },
+  vipReferralText: {
+    flex: 1,
+    marginLeft: 8,
+    color: '#F5E6B8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  vipReferralCta: {
+    height: 26,
+    paddingHorizontal: 10,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5E6B8',
+  },
+  vipReferralCtaText: {
+    color: '#13231A',
+    fontSize: 11,
+    fontWeight: '800',
   },
   lotteryInline: {
     alignItems: 'center',

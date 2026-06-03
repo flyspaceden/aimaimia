@@ -1,10 +1,10 @@
-import { useRef, useState, type Key } from 'react';
+import { useEffect, useRef, useState, type Key } from 'react';
 import {
+  App,
   Avatar,
   Badge,
   Button,
   Card,
-  message,
   Modal,
   Space,
   Statistic,
@@ -25,13 +25,14 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { toAbsoluteApiUrl } from '@/utils/api-url';
 import {
   batchGenerateWaybill,
   batchShipOrders,
   getOrders,
 } from '@/api/orders';
 import { getOverview } from '@/api/analytics';
-import { orderStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
 
@@ -71,6 +72,7 @@ function shortOrderId(id: string): string {
 }
 
 export default function OrderListPage() {
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
@@ -90,6 +92,20 @@ export default function OrderListPage() {
     orderStatusTabs.find((tab) => tab.key === activeOrderStatusTab)?.status || '';
   const canBatchManage = useAuthStore((s) => s.hasRole('OWNER', 'MANAGER'));
   const selectedOrders = orders.filter((order) => selectedRowKeys.includes(order.id));
+
+  // 页面回到前台立即拉一次（弥补 polling 30s 的等待）
+  // 买家 app 付款 → 后端建单后，卖家从其他 tab 切回来瞬间就能看到新单 + tab counts 同步刷新
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        actionRef.current?.reload();
+        queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
+        queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [queryClient]);
   const pendingWaybillOrders = selectedOrders.filter(isWaybillPending);
   const printableOrders = selectedOrders.filter((order) => order.shipment?.waybillPrintUrl);
   const shippableOrders = selectedOrders.filter(canBatchShip);
@@ -142,7 +158,7 @@ export default function OrderListPage() {
       return;
     }
 
-    Modal.info({
+    modal.info({
       title: `${title}完成`,
       width: 640,
       content: (
@@ -192,7 +208,7 @@ export default function OrderListPage() {
       return;
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: `确认批量发货 ${shippableOrders.length} 个订单？`,
       content: '批量发货会逐单执行，失败的订单会保留错误原因。',
       onOk: async () => {
@@ -223,7 +239,7 @@ export default function OrderListPage() {
     }
 
     const urls = printableOrders
-      .map((order) => order.shipment?.waybillPrintUrl)
+      .map((order) => toAbsoluteApiUrl(order.shipment?.waybillPrintUrl))
       .filter((url): url is string => Boolean(url));
 
     const printWindow = window.open('', '_blank', 'noopener,noreferrer');
@@ -232,13 +248,14 @@ export default function OrderListPage() {
       return;
     }
 
+    // PDF 用 iframe 渲染（顺丰电子面单是 PDF，<img> 无法显示）
     const pages = printableOrders
       .map((order, index) => {
         const url = urls[index];
         return `
           <section class="page">
             <header>订单 ${escapeHtml(order.id)}</header>
-            <img src="${escapeHtml(url)}" alt="waybill-${escapeHtml(order.id)}" />
+            <iframe src="${escapeHtml(url)}" title="waybill-${escapeHtml(order.id)}"></iframe>
           </section>
         `;
       })
@@ -253,12 +270,12 @@ export default function OrderListPage() {
             .page { page-break-after: always; padding: 16px; background: #fff; }
             .page:last-child { page-break-after: auto; }
             header { margin-bottom: 12px; font-size: 14px; color: #666; }
-            img { width: 100%; height: auto; display: block; border: 1px solid #eee; }
+            iframe { width: 100%; height: 90vh; display: block; border: 1px solid #eee; background: #fff; }
             @media print {
               body { background: #fff; }
               .page { padding: 0; }
               header { display: none; }
-              img { border: 0; }
+              iframe { border: 0; height: 100vh; }
             }
           </style>
         </head>
@@ -266,9 +283,10 @@ export default function OrderListPage() {
       </html>
     `);
     printWindow.document.close();
+    // PDF iframe 加载需更长时间，延迟触发打印
     printWindow.onload = () => {
       printWindow.focus();
-      printWindow.print();
+      setTimeout(() => printWindow.print(), 800);
     };
   };
 
@@ -417,7 +435,19 @@ export default function OrderListPage() {
       search: false,
       render: (_, r) => {
         const s = orderStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        const refundStatus = r.refundSummary ? refundStatusMap[r.refundSummary.status] : null;
+        const orderText = s?.text || r.status;
+        const refundText = refundStatus?.text || r.refundSummary?.status;
+        // 订单主状态和退款流水状态文字一致时（例如 REFUNDED + REFUNDED）只显示一个，避免冗余
+        const showRefundTag = Boolean(r.refundSummary) && refundText !== orderText;
+        return (
+          <Space size={4} wrap>
+            <Tag color={s?.color}>{orderText}</Tag>
+            {showRefundTag && (
+              <Tag color={refundStatus?.color}>{refundText}</Tag>
+            )}
+          </Space>
+        );
       },
     },
     {
@@ -550,6 +580,8 @@ export default function OrderListPage() {
         tableAlertRender={false}
         rowClassName={(record) => record.status === 'PAID' ? 'row-pending-ship' : ''}
         params={{ statusScope: activeOrderStatusTab }}
+        // 30s 自动轮询，配合 visibilitychange 回前台立即拉，覆盖买家 app 付款后卖家需要手动刷新的场景
+        polling={30_000}
         request={async (params) => {
           const res = await getOrders({
             page: params.current || 1,

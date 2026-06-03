@@ -14,8 +14,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../theme';
+import { useBottomInset, useTheme } from '../../theme';
 import { useVoiceRecording } from '../../hooks/useVoiceRecording';
 import { useAuthStore } from '../../store/useAuthStore';
 import { VoiceOverlay } from '../overlay/VoiceOverlay';
@@ -121,7 +120,9 @@ export function AiFloatingCompanion() {
   const router = useRouter();
   const pathname = usePathname();
   const segments = useSegments();
-  const insets = useSafeAreaInsets();
+  // useBottomInset 只使用系统 safe-area。传 0 表示不加额外 extra；
+  // 额外 96dp 由 80 tab + 16 视觉间距给出。
+  const safeBottom = useBottomInset(0);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   // ── 语音录音 ──
@@ -477,7 +478,7 @@ export function AiFloatingCompanion() {
   const isHomeTab = segArr[0] === '(tabs)' && (segArr[1] === 'home' || segArr[1] === undefined);
   if (isHomeTab) return null;
 
-  const bottomOffset = insets.bottom + 80 + 16;
+  const bottomOffset = safeBottom + 80 + 16;
 
   return (
     <View style={[styles.wrapper, { bottom: bottomOffset, right: 0 }]} pointerEvents="box-none">
@@ -506,7 +507,7 @@ export function AiFloatingCompanion() {
         userTranscript={voice.userTranscript}
         actionLabel={voice.actionLabel}
         onActionPress={handleVoiceActionPress}
-        onContinueChat={voice.continueChatContext ? handleVoiceContinueChat : undefined}
+        onContinueChat={undefined /* 【AI 多轮对话已下线】原: voice.continueChatContext ? handleVoiceContinueChat : undefined */}
         onDismiss={voice.dismissFeedback}
         clarifyIntent={voice.clarifyIntent}
         onClarifySelect={voice.selectClarify}

@@ -8,5 +8,6 @@ import { BonusModule } from '../bonus/bonus.module';
   imports: [BonusModule],
   controllers: [CartController],
   providers: [CartService, PrizeExpireService],
+  exports: [CartService],
 })
 export class CartModule {}

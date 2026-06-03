@@ -10,7 +10,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminConfigService } from './admin-config.service';
-import { UpdateConfigDto } from './dto/admin-config.dto';
+import { UpdateConfigDto, BatchUpdateConfigDto } from './dto/admin-config.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -62,6 +62,20 @@ export class AdminConfigController {
     @CurrentAdmin('sub') adminUserId: string,
   ) {
     return this.configService.rollbackToVersion(id, adminUserId);
+  }
+
+  @Put('batch')
+  @RequirePermission('config:update')
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'config',
+    isReversible: true,
+  })
+  batchUpdate(
+    @Body() dto: BatchUpdateConfigDto,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.configService.batchUpdate(dto, adminUserId);
   }
 
   @Get(':key')

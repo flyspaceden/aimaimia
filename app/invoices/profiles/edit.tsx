@@ -10,7 +10,7 @@ import { AppHeader, Screen } from '../../../src/components/layout';
 import { Skeleton, useToast } from '../../../src/components/feedback';
 import { InvoiceRepo } from '../../../src/repos';
 import { useAuthStore } from '../../../src/store';
-import { useTheme } from '../../../src/theme';
+import { compactActionTextProps, useBottomInset, useTheme } from '../../../src/theme';
 import { InvoiceType } from '../../../src/types';
 
 // 手机号正则（与后端 DTO 一致）
@@ -53,6 +53,8 @@ export default function InvoiceProfileEditScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const isEdit = !!params.id;
+  // ScrollView 底部留白吃 safe area，保证"保存"按钮在小屏 + 虚拟键设备上完整可见
+  const scrollBottomPad = useBottomInset(40);
 
   const [invoiceType, setInvoiceType] = useState<InvoiceType>('PERSONAL');
 
@@ -186,9 +188,13 @@ export default function InvoiceProfileEditScreen() {
   }
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
       <AppHeader title={isEdit ? '编辑抬头' : '新建抬头'} />
-      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {/* 类型切换 */}
         <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
           <Text style={[typography.bodySm, { color: colors.text.primary, marginBottom: 10 }]}>发票类型</Text>
@@ -271,7 +277,10 @@ export default function InvoiceProfileEditScreen() {
             end={{ x: 1, y: 0 }}
             style={[styles.submitBtn, { borderRadius: radius.pill }]}
           >
-            <Text style={[typography.bodyStrong, { color: formState.isSubmitting ? colors.text.secondary : colors.text.inverse }]}>
+            <Text
+              {...compactActionTextProps}
+              style={[typography.bodyStrong, { color: formState.isSubmitting ? colors.text.secondary : colors.text.inverse }]}
+            >
               {formState.isSubmitting ? '保存中...' : '保存'}
             </Text>
           </LinearGradient>

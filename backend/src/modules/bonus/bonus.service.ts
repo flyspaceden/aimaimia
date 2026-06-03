@@ -2,9 +2,11 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ConflictExc
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
-import { MIN_WITHDRAW_AMOUNT, MAX_DAILY_WITHDRAWALS, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
+import { MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { InboxService } from '../inbox/inbox.service';
+import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
+import { maskPhone } from '../../common/security/privacy-mask';
 
 @Injectable()
 export class BonusService {
@@ -19,31 +21,90 @@ export class BonusService {
 
   // ========== 会员信息 ==========
 
+  private async buildInviterSummary(userId?: string | null) {
+    if (!userId) return null;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          profile: { select: { nickname: true } },
+          authIdentities: {
+            where: { provider: 'PHONE', verified: true },
+            select: { identifier: true },
+            orderBy: { createdAt: 'asc' },
+            take: 1,
+          },
+        },
+      });
+      if (!user) return null;
+
+      return {
+        userId: user.id,
+        nickname: user.profile?.nickname ?? null,
+        maskedPhone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
+      };
+    } catch (err: any) {
+      this.logger.warn(`查询推荐人摘要失败：userId=${userId}, error=${err?.message ?? err}`);
+      return null;
+    }
+  }
+
   /** 获取会员信息 */
   async getMemberProfile(userId: string) {
     let member = await this.prisma.memberProfile.findUnique({ where: { userId } });
     if (!member) {
-      // 自动创建
+      // 普通用户允许先绑定推荐人/查看会员状态，但自己的推荐码只在成为 VIP 时生成并展示。
       member = await this.prisma.memberProfile.create({
         data: {
           userId,
-          referralCode: this.generateReferralCode(),
         },
       });
+    } else if (member.tier === 'VIP' && !member.referralCode) {
+      // 历史遗留兜底：VIP member 存在但 referralCode 为 NULL 时补上。普通会员不补码，
+      // 否则会和"非 VIP 没有可用推荐码"的业务口径冲突。
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          member = await this.prisma.memberProfile.update({
+            where: { userId },
+            data: { referralCode: await pickUniqueReferralCode(this.prisma) },
+          });
+          break;
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!member.referralCode) {
+        this.logger.warn(`getMemberProfile VIP lazy 补码失败：userId=${userId}，5 次均遇 @unique 冲突`);
+      }
     }
 
     const vipProgress = await this.prisma.vipProgress.findUnique({ where: { userId } });
+    const inviter = await this.buildInviterSummary(member.inviterUserId);
+    const config = await this.bonusConfig.getConfig();
 
     return {
       tier: member.tier,
-      referralCode: member.referralCode,
+      referralCode: member.tier === 'VIP' ? member.referralCode : null,
       inviterUserId: member.inviterUserId,
+      inviter,
       vipPurchasedAt: member.vipPurchasedAt?.toISOString() || null,
       normalEligible: member.normalEligible,
       vipProgress: vipProgress
         ? {
             selfPurchaseCount: vipProgress.selfPurchaseCount,
-            unlockedLevel: vipProgress.unlockedLevel,
+            // 不直接返回 vipProgress.unlockedLevel：该字段在数据库里实际是
+            // "上次有 FROZEN VIP_UPSTREAM 被释放时的层级戳"，对自购充足
+            // 的用户永远是 0，与"已解锁层级"的直觉相反。
+            // 真正可展示的"已解锁层级"应按 min(selfPurchaseCount, vipMaxLayers)
+            // 计算，见 schema.prisma VipProgress.unlockedLevel 注释。
+            unlockedLevel: Math.min(
+              Math.max(vipProgress.selfPurchaseCount, 0),
+              Math.max(config.vipMaxLayers, 0),
+            ),
           }
         : null,
     };
@@ -55,6 +116,9 @@ export class BonusService {
       where: { referralCode: code },
     });
     if (!inviter) throw new BadRequestException('推荐码无效');
+    // 只有 VIP 才能作为推荐人。历史普通用户可能已持有 referralCode，后端仍必须拒绝，
+    // 避免被抓包绕过 UI 后绑定到无法承接 VIP 树的普通用户。
+    if (inviter.tier !== 'VIP') throw new BadRequestException('推荐码无效');
     if (inviter.userId === userId) throw new BadRequestException('不能使用自己的推荐码');
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -97,7 +161,6 @@ export class BonusService {
         create: {
           userId,
           inviterUserId: inviter.userId,
-          referralCode: this.generateReferralCode(),
         },
         update: { inviterUserId: inviter.userId },
       });
@@ -120,7 +183,11 @@ export class BonusService {
         });
     }
 
-    return { success: true, inviterUserId: result.inviterUserId };
+    return {
+      success: true,
+      inviterUserId: result.inviterUserId,
+      inviter: await this.buildInviterSummary(result.inviterUserId),
+    };
   }
 
   /**
@@ -218,13 +285,20 @@ export class BonusService {
       retrying = prepareResult.retrying;
 
       await this.prisma.$transaction(async (tx) => {
+        // CAS 期望状态必须与 prepare tx 已写入的状态对齐：
+        // - retrying=true 时 prepare tx 已把 FAILED 改成 RETRYING（L189-202），
+        //   所以 CAS 期望 RETRYING，把它推进到 ACTIVATING。
+        // - retrying=false 时 prepare tx 让状态停留在 PENDING，
+        //   所以 CAS 期望 PENDING，同样推进到 ACTIVATING。
+        // 历史 bug：retrying 分支期望 FAILED 导致 CAS 永远命中 0 行，
+        // 重试路径永远跳过授奖代码块（推荐人永远拿不到 VIP 推荐奖）。
         const casResult = await tx.vipPurchase.updateMany({
           where: {
             id: vipPurchaseId!,
-            activationStatus: { in: retrying ? ['FAILED'] : ['PENDING'] },
+            activationStatus: { in: retrying ? ['RETRYING'] : ['PENDING'] },
           },
           data: {
-            activationStatus: retrying ? 'RETRYING' : 'ACTIVATING',
+            activationStatus: 'ACTIVATING',
             activationError: null,
           },
         });
@@ -253,18 +327,24 @@ export class BonusService {
         }
 
         // 更新会员等级
+        // 防御历史遗留：member 存在但 referralCode 为 NULL（早期注册路径漏写）
+        // 借此次 VIP 激活顺手补上，避免会员中心"我的专属推荐码"显示为空
+        const updateData: Prisma.MemberProfileUpdateInput = {
+          tier: 'VIP',
+          vipPurchasedAt: new Date(),
+        };
+        if (member && !member.referralCode) {
+          updateData.referralCode = await pickUniqueReferralCode(tx);
+        }
         const updatedMember = await tx.memberProfile.upsert({
           where: { userId },
           create: {
             userId,
             tier: 'VIP',
             vipPurchasedAt: new Date(),
-            referralCode: this.generateReferralCode(),
+            referralCode: await pickUniqueReferralCode(tx),
           },
-          update: {
-            tier: 'VIP',
-            vipPurchasedAt: new Date(),
-          },
+          update: updateData,
         });
 
         // 创建 VIP 进度
@@ -343,7 +423,7 @@ export class BonusService {
   async getVipGiftOptions() {
     const packages = await this.prisma.vipPackage.findMany({
       where: { status: 'ACTIVE' },
-      orderBy: [{ sortOrder: 'asc' }, { price: 'asc' }],
+      orderBy: [{ price: 'asc' }, { sortOrder: 'asc' }],
       select: {
         id: true,
         price: true,
@@ -432,27 +512,34 @@ export class BonusService {
 
   // ========== 奖励钱包 ==========
 
-  /** 获取奖励钱包（合并 VIP + 普通奖励账户） */
+  /** 获取奖励钱包（合并 VIP + 普通 + 产业基金账户） */
   async getWallet(userId: string) {
     const accounts = await this.prisma.rewardAccount.findMany({
-      where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] } },
+      where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
     });
 
     const vip = accounts.find((a) => a.type === 'VIP_REWARD');
     const normal = accounts.find((a) => a.type === 'NORMAL_REWARD');
+    const industry = accounts.find((a) => a.type === 'INDUSTRY_FUND');
 
     const vipBalance = vip?.balance ?? 0;
     const vipFrozen = vip?.frozen ?? 0;
     const normalBalance = normal?.balance ?? 0;
     const normalFrozen = normal?.frozen ?? 0;
+    const industryBalance = industry?.balance ?? 0;
+    const industryFrozen = industry?.frozen ?? 0;
 
     return {
-      balance: vipBalance + normalBalance,
-      frozen: vipFrozen + normalFrozen,
-      total: vipBalance + vipFrozen + normalBalance + normalFrozen,
+      balance: vipBalance + normalBalance + industryBalance,
+      frozen: vipFrozen + normalFrozen + industryFrozen,
+      total:
+        vipBalance + vipFrozen +
+        normalBalance + normalFrozen +
+        industryBalance + industryFrozen,
       // 分账户明细
       vip: { balance: vipBalance, frozen: vipFrozen },
       normal: { balance: normalBalance, frozen: normalFrozen },
+      industryFund: { balance: industryBalance, frozen: industryFrozen },
     };
   }
 
@@ -466,6 +553,7 @@ export class BonusService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
+        include: { account: { select: { type: true } } },
       }),
       this.prisma.rewardLedger.count({ where: { userId, status: { not: 'RETURN_FROZEN' } } }),
     ]);
@@ -479,121 +567,9 @@ export class BonusService {
         refType: l.refType,
         meta: l.meta,
         createdAt: l.createdAt.toISOString(),
+        accountType: l.account?.type ?? null,
       })),
       nextPage: skip + pageSize < total ? page + 1 : undefined,
-    };
-  }
-
-  /** 申请提现（支持 VIP VIP_REWARD 和普通 NORMAL_REWARD 账户） */
-  async requestWithdraw(userId: string, dto: { amount: number; channel: string; accountType?: 'VIP_REWARD' | 'NORMAL_REWARD' }) {
-    if (dto.amount <= 0) throw new BadRequestException('提现金额必须大于 0');
-    // L7修复：最小提现金额限制
-    if (dto.amount < MIN_WITHDRAW_AMOUNT) {
-      throw new BadRequestException(`最小提现金额为 ${MIN_WITHDRAW_AMOUNT} 元`);
-    }
-
-    // 确定提现账户类型：客户端可指定，默认自动选择余额充足的账户
-    const validTypes: readonly string[] = ['VIP_REWARD', 'NORMAL_REWARD'];
-    let targetType: string;
-
-    if (dto.accountType && validTypes.includes(dto.accountType)) {
-      targetType = dto.accountType;
-    } else {
-      // 自动选择：优先 VIP 账户，不足则尝试普通账户
-      const accounts = await this.prisma.rewardAccount.findMany({
-        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] as any } },
-      });
-      const vipAcc = accounts.find((a) => a.type === 'VIP_REWARD');
-      const normalAcc = accounts.find((a) => a.type === 'NORMAL_REWARD');
-
-      if (vipAcc && Math.round(vipAcc.balance * 100) >= Math.round(dto.amount * 100)) {
-        targetType = 'VIP_REWARD';
-      } else if (normalAcc && Math.round(normalAcc.balance * 100) >= Math.round(dto.amount * 100)) {
-        targetType = 'NORMAL_REWARD';
-      } else {
-        throw new BadRequestException('余额不足');
-      }
-    }
-
-    const account = await this.prisma.rewardAccount.findUnique({
-      where: { userId_type: { userId, type: targetType as any } },
-    });
-    // L03修复：转换为分（整数）比较，避免浮点精度问题
-    if (!account || Math.round(account.balance * 100) < Math.round(dto.amount * 100)) {
-      throw new BadRequestException('余额不足');
-    }
-
-    const channelMap: Record<string, string> = {
-      wechat: 'WECHAT',
-      alipay: 'ALIPAY',
-      bankcard: 'BANKCARD',
-    };
-
-    // M09 修复：提现余额扣减使用 Serializable 隔离级别，防止并发提现超额
-    const request = await this.prisma.$transaction(async (tx) => {
-      // L7修复：每日提现次数限制（移入事务内，防止并发绕过）
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayCount = await tx.withdrawRequest.count({
-        where: { userId, createdAt: { gte: todayStart } },
-      });
-      if (todayCount >= MAX_DAILY_WITHDRAWALS) {
-        throw new BadRequestException(`每日最多提现 ${MAX_DAILY_WITHDRAWALS} 次`);
-      }
-
-      // 事务内重新检查余额，防止并发扣减
-      const freshAccount = await tx.rewardAccount.findUnique({
-        where: { id: account.id },
-      });
-      // L03修复：事务内同样使用整数比较，避免浮点精度问题
-      if (!freshAccount || Math.round(freshAccount.balance * 100) < Math.round(dto.amount * 100)) {
-        throw new BadRequestException('余额不足');
-      }
-
-      // 冻结金额
-      await tx.rewardAccount.update({
-        where: { id: account.id },
-        data: {
-          balance: { decrement: dto.amount },
-          frozen: { increment: dto.amount },
-        },
-      });
-
-      const wr = await tx.withdrawRequest.create({
-        data: {
-          userId,
-          amount: dto.amount,
-          channel: (channelMap[dto.channel] || 'WECHAT') as any,
-          status: 'REQUESTED',
-          accountType: targetType, // 记录提现账户类型，审批/拒绝时使用
-        },
-      });
-
-      // P0-4: 创建提现流水记录
-      await tx.rewardLedger.create({
-        data: {
-          accountId: account.id,
-          userId,
-          entryType: 'WITHDRAW',
-          amount: dto.amount,
-          status: 'FROZEN',
-          refType: 'WITHDRAW',
-          refId: wr.id,
-          meta: { scheme: 'WITHDRAW', channel: dto.channel, accountType: targetType },
-        },
-      });
-
-      return wr;
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
-
-    return {
-      id: request.id,
-      amount: request.amount,
-      channel: request.channel,
-      status: request.status,
-      createdAt: request.createdAt.toISOString(),
     };
   }
 
@@ -1029,7 +1005,7 @@ export class BonusService {
         type: 'vip_referral_bonus',
         title: 'VIP 推荐奖励到账',
         content: `您推荐的好友购买了 VIP，您获得 ${amount.toFixed(2)} 元推荐奖励。`,
-        target: { route: '/wallet' },
+        target: { route: '/me/wallet' },
       }).catch(() => {});
     });
   }
@@ -1037,12 +1013,12 @@ export class BonusService {
   // ========== 私有方法 ==========
 
   /**
-   * 三叉树 BFS 插入（C31a 修复版）
+   * VIP 三叉树推荐子树落位
    *
-   * 有推荐人：在推荐人节点下 BFS 滑落插入，永远停留在推荐人子树内；
-   *           若 BFS 返回 null 视为系统异常直接抛出，严禁降级到系统节点。
-   * 无推荐人：遍历 A1→A2→...→A10 找第一个有空位的系统节点，
-   *           A1-A10 全满则创建 A11, A12, ... 直到 MAX_ROOT_NODES 上限。
+   * 有推荐人：在推荐人节点直连满后，按层选择当前层 childrenCount 最小节点插入；
+   *           若子树搜索返回 null 视为系统异常直接抛出，严禁降级到系统节点。
+   * 无推荐人：从 A1 起依次 找/建 第一个有空位（childrenCount<3）的系统根节点，
+   *           连续编号无空洞（A3 满则建 A4，依此类推），上限 10 + MAX_ROOT_NODES。
    */
   private async assignVipTreeNode(tx: any, userId: string) {
     const member = await tx.memberProfile.findUnique({ where: { userId } });
@@ -1078,8 +1054,8 @@ export class BonusService {
         parentNode = inviterNode;
         rootId = inviterNode.rootId;
       } else {
-        // 推荐人已满，BFS 在推荐人子树内滑落
-        const found = await this.bfsInSubtree(tx, inviterNode.id);
+        // 推荐人已满，在推荐人子树内按层找当前层最空节点滑落
+        const found = await this.findLeastLoadedNodeByLevelInSubtree(tx, inviterNode.id);
         if (!found) {
           // 子树找不到空位 —— 按业务树无底设计，这是异常而非"降级"的理由
           throw new InternalServerErrorException(
@@ -1090,44 +1066,30 @@ export class BonusService {
         rootId = inviterNode.rootId;
       }
     } else {
-      // ===== 无推荐人：遍历系统节点 A1-A10 =====
-      for (let i = 1; i <= 10; i++) {
+      // ===== 无推荐人：从 A1 起，依次 找/建 第一个未满（childrenCount<3）的系统根节点 =====
+      // 连续编号、无空洞：A1 满→A2，A2 满→A3，A3 满→自动建 A4，依此类推。
+      // 系统根节点为虚拟"平台节点"（userId=null），无推荐人 VIP 直接挂在其下，上溯分润归平台。
+      // 上限沿用 L8 修复：10 + MAX_ROOT_NODES，硬上限 = (10 + MAX_ROOT_NODES) × 3 个无推荐人 VIP。
+      const maxIdx = 10 + MAX_ROOT_NODES;
+      for (let i = 1; i <= maxIdx; i++) {
         const sysRootId = `A${i}`;
-        const sysNode = await tx.vipTreeNode.findFirst({
+        let sysNode = await tx.vipTreeNode.findFirst({
           where: { rootId: sysRootId, level: 0 },
         });
-        if (sysNode && sysNode.childrenCount < 3) {
+        if (!sysNode) {
+          // 当前编号根节点不存在 → 自动创建（无推荐人树无底设计）
+          sysNode = await tx.vipTreeNode.create({
+            data: { rootId: sysRootId, userId: null, level: 0, position: 0 },
+          });
+        }
+        if (sysNode.childrenCount < 3) {
           parentNode = sysNode;
           rootId = sysRootId;
           break;
         }
       }
-
-      // A1-A10 全满 → 找 A11, A12, ...（L8修复：上限 MAX_ROOT_NODES 防止无限循环）
       if (!parentNode) {
-        let nextIdx = 11;
-        const maxIdx = 10 + MAX_ROOT_NODES;
-        while (nextIdx <= maxIdx) {
-          const sysRootId = `A${nextIdx}`;
-          let sysNode = await tx.vipTreeNode.findFirst({
-            where: { rootId: sysRootId, level: 0 },
-          });
-          if (!sysNode) {
-            // 创建新系统根节点
-            sysNode = await tx.vipTreeNode.create({
-              data: { rootId: sysRootId, userId: null, level: 0, position: 0 },
-            });
-          }
-          if (sysNode.childrenCount < 3) {
-            parentNode = sysNode;
-            rootId = sysRootId;
-            break;
-          }
-          nextIdx++;
-        }
-        if (!parentNode) {
-          throw new BadRequestException('系统节点已达上限，无法分配VIP位置');
-        }
+        throw new BadRequestException('系统节点已达上限，无法分配VIP位置');
       }
     }
 
@@ -1158,46 +1120,56 @@ export class BonusService {
   }
 
   /**
-   * 在指定节点的子树内 BFS，找到第一个 childrenCount < 3 的节点
+   * 在指定节点的子树内按层查找最空节点
+   *
+   * 规则：
+   * - 每次只比较同一层节点
+   * - 当前层存在未满节点时，选择 childrenCount 最小者
+   * - childrenCount 相同则沿用树顺序（父节点顺序 + position asc）
+   * - 当前层全满才进入下一层
+   *
    * 若子树已满，返回 null（C31a：调用方应视为系统异常抛出，不再降级到系统节点）
    *
    * 注：按业务设计三叉树无底，不对深度做限制；仅保留迭代次数上限作为保险丝，
    * 防止数据循环引用等异常造成死循环。
    */
-  private async bfsInSubtree(tx: any, startNodeId: string): Promise<any | null> {
-    const queue: string[] = [startNodeId];
+  private async findLeastLoadedNodeByLevelInSubtree(tx: any, startNodeId: string): Promise<any | null> {
+    let currentLevelParentIds: string[] = [startNodeId];
     let iterations = 0;
 
-    while (queue.length > 0) {
-      if (++iterations > MAX_BFS_ITERATIONS) {
-        this.logger.warn(`BFS 遍历超过 ${MAX_BFS_ITERATIONS} 次迭代，中止搜索（startNodeId=${startNodeId}）`);
+    while (currentLevelParentIds.length > 0) {
+      if ((iterations += currentLevelParentIds.length) > MAX_BFS_ITERATIONS) {
+        this.logger.warn(`VIP 子树落位遍历超过 ${MAX_BFS_ITERATIONS} 次迭代，中止搜索（startNodeId=${startNodeId}）`);
         break;
       }
-      const currentId = queue.shift()!;
 
-      const children = await tx.vipTreeNode.findMany({
-        where: { parentId: currentId },
+      const parentOrder = new Map(currentLevelParentIds.map((id, index) => [id, index]));
+      const levelNodes = await tx.vipTreeNode.findMany({
+        where: { parentId: { in: currentLevelParentIds } },
         orderBy: { position: 'asc' },
       });
 
-      for (const child of children) {
-        if (child.childrenCount < 3) {
-          return child;
+      levelNodes.sort((a: any, b: any) => {
+        const parentA = parentOrder.get(a.parentId) ?? Number.MAX_SAFE_INTEGER;
+        const parentB = parentOrder.get(b.parentId) ?? Number.MAX_SAFE_INTEGER;
+        if (parentA !== parentB) return parentA - parentB;
+        if (a.position !== b.position) return a.position - b.position;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+
+      let best: any | null = null;
+      for (const node of levelNodes) {
+        if (node.childrenCount >= 3) continue;
+        if (!best || node.childrenCount < best.childrenCount) {
+          best = node;
         }
-        queue.push(child.id);
       }
+
+      if (best) return best;
+      currentLevelParentIds = levelNodes.map((node: any) => node.id);
     }
 
     return null;
   }
 
-  /** 生成推荐码 */
-  private generateReferralCode(): string {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
-  }
 }

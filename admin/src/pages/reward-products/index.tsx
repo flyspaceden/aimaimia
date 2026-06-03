@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
-  Button, Tag, message, Space, Popconfirm, Switch, Tooltip, Drawer,
+  App, Button, Tag, Space, Popconfirm, Switch, Tooltip, Drawer,
   Upload, Card, Form, Input, InputNumber, Row, Col, Typography, Result, Image,
   Avatar, Table,
 } from 'antd';
@@ -17,6 +17,7 @@ import {
   getRewardProducts,
   createRewardProduct,
   deleteRewardProduct,
+  updateRewardProduct,
 } from '@/api/reward-products';
 import type { RewardProduct, RewardProductSku } from '@/api/reward-products';
 import PermissionGate from '@/components/PermissionGate';
@@ -29,6 +30,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // 库存预警阈值
 const LOW_STOCK_THRESHOLD = 10;
+
+const rewardSkuWeightRules = [
+  { required: true, message: '请输入重量' },
+  { type: 'number' as const, min: 1, message: '重量必须大于 0 克' },
+];
 
 // 奖励商品状态映射
 const rewardProductStatusMap: Record<string, { text: string; color: string }> = {
@@ -51,10 +57,11 @@ interface SkuRow {
   cost: number | undefined;
   price: number | undefined;
   stock: number | undefined;
-  weightGram?: number;
+  weightGram: number | undefined;
 }
 
 export default function RewardProductsPage() {
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const navigate = useNavigate();
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
@@ -63,6 +70,7 @@ export default function RewardProductsPage() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [multiSku, setMultiSku] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [createForm] = Form.useForm();
 
@@ -72,7 +80,40 @@ export default function RewardProductsPage() {
       message.success('删除成功');
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      modal.error({
+        title: '无法删除',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '删除失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    }
+  };
+
+  const handleStatusToggle = async (id: string, checked: boolean) => {
+    try {
+      setTogglingId(id);
+      await updateRewardProduct(id, { status: checked ? 'ACTIVE' : 'INACTIVE' });
+      message.success(checked ? '已上架' : '已下架');
+      actionRef.current?.reload();
+    } catch (err) {
+      modal.error({
+        title: checked ? '无法上架' : '无法下架',
+        content: (
+          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
+            {err instanceof Error ? err.message : '状态更新失败'}
+          </div>
+        ),
+        width: 520,
+        centered: true,
+        okText: '知道了',
+      });
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -130,7 +171,7 @@ export default function RewardProductsPage() {
           cost: Number(sku.cost),
           price: Number(sku.price),
           stock: Math.floor(Number(sku.stock ?? 0)),
-          weightGram: sku.weightGram ? Number(sku.weightGram) : undefined,
+          weightGram: Number(sku.weightGram),
         }));
 
         await createRewardProduct({
@@ -146,7 +187,7 @@ export default function RewardProductsPage() {
         const cost = Number(values.cost);
         const price = Number(values.price);
         const stock = Math.floor(Number(values.stock ?? 0));
-        const weightGram = values.weightGram ? Number(values.weightGram) : undefined;
+        const weightGram = Number(values.weightGram);
 
         await createRewardProduct({
           title: values.title,
@@ -321,16 +362,29 @@ export default function RewardProductsPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 80,
+      width: 110,
       valueType: 'select',
       valueEnum: {
         ACTIVE: { text: '上架', status: 'Success' },
         INACTIVE: { text: '下架', status: 'Default' },
-        DRAFT: { text: '草稿', status: 'Processing' },
       },
       render: (_: unknown, r: RewardProduct) => {
         const s = rewardProductStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        return (
+          <PermissionGate
+            permission={PERMISSIONS.REWARD_PRODUCTS_UPDATE}
+            fallback={<Tag color={s?.color}>{s?.text || r.status}</Tag>}
+          >
+            <Switch
+              size="small"
+              checkedChildren="上架"
+              unCheckedChildren="下架"
+              checked={r.status === 'ACTIVE'}
+              loading={togglingId === r.id}
+              onChange={(checked) => handleStatusToggle(r.id, checked)}
+            />
+          </PermissionGate>
+        );
       },
     },
     {
@@ -644,12 +698,16 @@ export default function RewardProductsPage() {
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="weightGram" label="重量（克）">
+                      <Form.Item
+                        name="weightGram"
+                        label="重量（克）"
+                        rules={rewardSkuWeightRules}
+                      >
                         <InputNumber
-                          min={0}
+                          min={1}
                           precision={0}
                           style={{ width: '100%' }}
-                          placeholder="选填"
+                          placeholder="如：1000"
                         />
                       </Form.Item>
                     </Col>
@@ -737,12 +795,13 @@ export default function RewardProductsPage() {
                                 {...restField}
                                 name={[name, 'weightGram']}
                                 label="重量（克）"
+                                rules={rewardSkuWeightRules}
                               >
                                 <InputNumber
-                                  min={0}
+                                  min={1}
                                   precision={0}
                                   style={{ width: '100%' }}
-                                  placeholder="选填"
+                                  placeholder="1000"
                                 />
                               </Form.Item>
                             </Col>

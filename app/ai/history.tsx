@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { useTheme } from '../../src/theme';
@@ -28,7 +28,13 @@ function formatTime(iso: string): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
+// 【AI 对话历史已下线 — 仅服务于多轮聊天页】整页重定向回首页；
+// 原实现完整保留在下方 AiHistoryScreenDisabled，恢复时把 export default 切回即可。
 export default function AiHistoryScreen() {
+  return <Redirect href="/(tabs)/home" />;
+}
+
+function AiHistoryScreenDisabled() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
   const router = useRouter();
   const [authModalOpen, setAuthModalOpen] = useState(false);

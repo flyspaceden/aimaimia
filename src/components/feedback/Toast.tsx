@@ -1,7 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../theme';
+import { useBottomInset, useTheme } from '../../theme';
 
 type ToastType = 'info' | 'success' | 'error' | 'warning';
 
@@ -84,7 +83,8 @@ type ToastViewportProps = {
 
 const ToastViewport = ({ toast }: ToastViewportProps) => {
   const { colors, spacing, radius, typography, shadow } = useTheme();
-  const insets = useSafeAreaInsets();
+  // useBottomInset 只使用系统 safe-area + 视觉间距，避免全局推断导致底部 gap。
+  const bottomOffset = useBottomInset(spacing.lg);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(16)).current;
 
@@ -122,7 +122,7 @@ const ToastViewport = ({ toast }: ToastViewportProps) => {
   };
 
   return (
-    <View pointerEvents="none" style={[styles.container, { bottom: insets.bottom + spacing.lg }]}>
+    <View pointerEvents="none" style={[styles.container, { bottom: bottomOffset }]}>
       <Animated.View
         style={[
           styles.toast,
