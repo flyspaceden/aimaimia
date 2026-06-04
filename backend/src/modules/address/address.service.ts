@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
@@ -16,7 +16,7 @@ export class AddressService {
   /** 用户地址列表 */
   async list(userId: string) {
     const addresses = await this.prisma.address.findMany({
-      where: { userId },
+      where: { userId, deletedAt: null },
       orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
     });
 
@@ -39,13 +39,13 @@ export class AddressService {
     // 如果设为默认，先取消其他默认
     if (dto.isDefault) {
       await this.prisma.address.updateMany({
-        where: { userId, isDefault: true },
+        where: { userId, isDefault: true, deletedAt: null },
         data: { isDefault: false },
       });
     }
 
     // 如果是第一个地址，自动设为默认
-    const count = await this.prisma.address.count({ where: { userId } });
+    const count = await this.prisma.address.count({ where: { userId, deletedAt: null } });
     const isDefault = dto.isDefault || count === 0;
 
     const address = await this.prisma.address.create({
@@ -81,13 +81,13 @@ export class AddressService {
 
     if (dto.isDefault) {
       await this.prisma.address.updateMany({
-        where: { userId, isDefault: true, id: { not: addressId } },
+        where: { userId, isDefault: true, deletedAt: null, id: { not: addressId } },
         data: { isDefault: false },
       });
     }
 
     const updated = await this.prisma.address.update({
-      where: { id: addressId },
+      where: { id: addressId, userId, deletedAt: null },
       data: {
         ...(recipientName !== undefined && { recipientName }),
         ...(dto.phone !== undefined && { phone: dto.phone }),
@@ -104,20 +104,25 @@ export class AddressService {
 
   /** 删除地址 */
   async remove(userId: string, addressId: string) {
-    await this.ensureOwnership(userId, addressId);
+    const address = await this.ensureOwnership(userId, addressId);
 
-    await this.prisma.address.delete({ where: { id: addressId } });
-
-    // 如果删除的是默认地址，把最新的一条设为默认
-    const remaining = await this.prisma.address.findFirst({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
+    await this.prisma.address.update({
+      where: { id: addressId, userId, deletedAt: null },
+      data: { deletedAt: new Date(), isDefault: false },
     });
-    if (remaining && !(await this.prisma.address.findFirst({ where: { userId, isDefault: true } }))) {
-      await this.prisma.address.update({
-        where: { id: remaining.id },
-        data: { isDefault: true },
+
+    // 如果删除的是默认地址，把最新的一条未删除地址设为默认
+    if (address.isDefault) {
+      const nextDefault = await this.prisma.address.findFirst({
+        where: { userId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
       });
+      if (nextDefault) {
+        await this.prisma.address.update({
+          where: { id: nextDefault.id, userId, deletedAt: null },
+          data: { isDefault: true },
+        });
+      }
     }
 
     // 返回 undefined，ResultWrapper 会包装为 { ok: true, data: null }
@@ -130,25 +135,28 @@ export class AddressService {
 
     await this.prisma.$transaction([
       this.prisma.address.updateMany({
-        where: { userId, isDefault: true },
+        where: { userId, isDefault: true, deletedAt: null },
         data: { isDefault: false },
       }),
       this.prisma.address.update({
-        where: { id: addressId },
+        where: { id: addressId, userId, deletedAt: null },
         data: { isDefault: true },
       }),
     ]);
 
     // 返回更新后的地址
-    const updated = await this.prisma.address.findUnique({ where: { id: addressId } });
+    const updated = await this.prisma.address.findFirst({
+      where: { id: addressId, userId, deletedAt: null },
+    });
     return this.formatAddress(updated);
   }
 
   /** 确认地址归属 */
   private async ensureOwnership(userId: string, addressId: string) {
-    const address = await this.prisma.address.findUnique({ where: { id: addressId } });
+    const address = await this.prisma.address.findFirst({
+      where: { id: addressId, userId, deletedAt: null },
+    });
     if (!address) throw new NotFoundException('地址不存在');
-    if (address.userId !== userId) throw new ForbiddenException('无权操作此地址');
     return address;
   }
 
