@@ -70,7 +70,7 @@ npm ci
 npx prisma generate
 npx prisma migrate deploy        # 56 条，对照 §6.4 确认无意外
 npm run build
-pm2 start dist/main.js --name aimaimai-api-prod -- --env=production
+pm2 start dist/src/main.js --name aimaimai-api-prod -- --env=production   # ⚠️ 是 dist/src/main.js（tsconfig 含 test/prisma → 产物嵌套在 dist/src/，不是 dist/main.js）
 pm2 save
 ```
 
@@ -91,6 +91,8 @@ pm2 save
 grep -E '^NODE_ENV=production$'  .env && echo "✓ NODE_ENV" || echo "✗ NODE_ENV 必须=production"
 grep -E '^PORT=3000$'            .env && echo "✓ PORT 3000" || echo "✗ PORT 必须=3000"
 grep -E '^TRUST_PROXY=1'         .env && echo "✓ TRUST_PROXY=1" || echo "✗ 反代后必须 TRUST_PROXY=1（否则 Webhook IP 校验拒所有回调）"
+grep -E '^LOTTERY_CLAIM_SECRET=.+' .env && echo "✓ LOTTERY_CLAIM_SECRET" || echo "✗ 缺 LOTTERY_CLAIM_SECRET（生产无条件必填，cart/lottery 启动即崩 — 2026-06-04 踩过）"
+grep -E '^UPLOAD_SIGN_SECRET=.+'   .env && echo "✓ UPLOAD_SIGN_SECRET" || echo "✗ 缺 UPLOAD_SIGN_SECRET（UPLOAD_LOCAL_PRIVATE=true 时必填）"
 ```
 
 ### 3.2 三套 JWT secret：都存在、互不相同、不复用 staging
@@ -173,8 +175,9 @@ grep -Eq '^WECHAT_APP_ID=.+' .env && echo "✓ 微信登录 AppID 在" || echo "
 ```bash
 git -C /www/wwwroot/aimaimai-prod-src rev-parse --short HEAD   # 应等于本次发布的 main SHA
 git -C /www/wwwroot/aimaimai-prod-src status -s                # 应 clean
-curl -s http://127.0.0.1:3000/api/v1/health                    # {"status":"ok"}
-curl -s https://api.ai-maimai.com/api/v1/health                # 走 Nginx 端到端
+# ⚠️ 本项目无 /health 路由；用公开端点 /products 验活（返回 {"ok":true,...}）
+curl -s http://127.0.0.1:3000/api/v1/products                  # {"ok":true,"data":{"items":[],...}}
+curl -s https://api.ai-maimai.com/api/v1/products              # 走 Nginx 端到端
 ```
 
 - [ ] 代码 SHA = 本次发布版本，工作区 clean
