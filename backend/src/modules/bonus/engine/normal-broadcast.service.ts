@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { UserStatus } from '@prisma/client';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID } from './constants';
 import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
@@ -73,6 +74,19 @@ export class NormalBroadcastService {
       const ben = beneficiaries[i];
       const isLast = i === beneficiaries.length - 1;
       const amount = isLast ? perAmount + remainder : perAmount;
+
+      // 账号注销保护：受益人已注销（status≠ACTIVE 或 deletionExecutedAt≠null）→
+      // 跳过该受益人，其这一份额并入平台账户，绝不写入已注销用户的 RewardAccount。
+      // 单笔金额独立路由，守恒不受影响（remainder 仍归最后一位，无论其是否注销）。
+      const activeRecipient = await this.resolveActiveRewardRecipient(tx, ben.userId);
+      if (!activeRecipient) {
+        this.logger.log(
+          `广播受益人 ${ben.userId} 已注销/非活跃，其 ${amount} 元份额归平台`,
+        );
+        await this.creditToPlatform(tx, allocationId, orderId, amount, bucketKey, 'DELETED_BENEFICIARY');
+        totalDistributed += amount;
+        continue;
+      }
 
       // 确保受益者有 RewardAccount
       const account = await this.ensureRewardAccount(tx, ben.userId);
@@ -200,13 +214,17 @@ export class NormalBroadcastService {
     return account;
   }
 
-  /** P1-5: 空桶 rewardPool 归入平台利润账户 */
+  /**
+   * P1-5: rewardPool（或单笔受益份额）归入平台利润账户
+   * @param variant 'EMPTY_BUCKET'=空桶无受益人；'DELETED_BENEFICIARY'=受益人已注销
+   */
   private async creditToPlatform(
     tx: any,
     allocationId: string,
     orderId: string,
     rewardPool: number,
     bucketKey: string,
+    variant: 'EMPTY_BUCKET' | 'DELETED_BENEFICIARY' = 'EMPTY_BUCKET',
   ) {
     let account = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
@@ -217,6 +235,7 @@ export class NormalBroadcastService {
       });
     }
 
+    const isDeleted = variant === 'DELETED_BENEFICIARY';
     await tx.rewardLedger.create({
       data: {
         allocationId,
@@ -228,8 +247,8 @@ export class NormalBroadcastService {
         refType: 'ORDER',
         refId: orderId,
         meta: {
-          scheme: 'NORMAL_BROADCAST_EMPTY',
-          reason: '空桶无受益人，rewardPool 归平台',
+          scheme: isDeleted ? 'NORMAL_BROADCAST_FALLBACK' : 'NORMAL_BROADCAST_EMPTY',
+          reason: isDeleted ? 'DELETED_UPSTREAM_RECIPIENT' : '空桶无受益人，rewardPool 归平台',
           bucketKey,
         },
       },
@@ -239,6 +258,25 @@ export class NormalBroadcastService {
       where: { id: account.id },
       data: { balance: { increment: rewardPool } },
     });
+  }
+
+  /**
+   * 账号注销资金安全：解析"可接收分润"的有效收款人。
+   * 在事务内读取目标 User 的 status / deletionExecutedAt：
+   * 用户不存在 / status≠ACTIVE / deletionExecutedAt 非空 → null（份额归平台），否则返回 userId。
+   */
+  private async resolveActiveRewardRecipient(
+    tx: any,
+    userId: string,
+  ): Promise<string | null> {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deletionExecutedAt: true },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+      return null;
+    }
+    return userId;
   }
 
   /** 截断到分（2 位小数，舍弃后续位数） */

@@ -355,3 +355,13 @@
 | B01 | **AuthIdentity 唯一约束在 NULL 上失效** | 🟠 HIGH | Schema `@@unique([provider, identifier, appId])` 在 `appId=null` 时 PostgreSQL `NULLS DISTINCT` 让两条 `(WECHAT, openId, NULL)` 不冲突，P2002 不触发。当前所有微信身份 `appId=null`，意味着登录注册/绑定的 schema 层防并发是**纸面约束**。本次 `bindPhone`/`bindWechat` 已用 Serializable 事务在应用层兜底，但根治需改 migration（候选：`@@unique([provider, identifier])` 移除 appId、或 partial index `WHERE appId IS NULL` 等价处理）。**注意：修这个 schema 会影响 `loginWithWeChat`、`register`、`loginByPhone` 的并发行为，需要整组回归** | ⬜ 单独开 PR |
 | B02 | 绑定身份成功后不清 session | 🟡 LOW | 与卖家端 `changePhone` 不同：本次是**新增身份**而非修改现有身份，当前 session 应保持有效。已在代码注释中说明决策。无需修复，仅记录避免后续误改 | ✅ 设计内 |
 | B03 | sendBindPhoneCode 不应泄露占用信息 | 🟠 HIGH | 发码端点若预检"目标号已被占"并拒绝，会成为攻击者枚举注册号的渠道。已修：sendBindPhoneCode 只检查当前账号是否已绑，占用判断推迟到 bindPhone（OTP 消费后） | ✅ 已修 |
+
+---
+
+## 2026-06-04 账号注销（即时）分润资金安全（Task 5）
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| D01 | **分润上溯给已注销祖辈入账** | 🔴 CRITICAL | 即时注销后用户节点保留在 VIP/普通树里（不剔除、不重排）。若不拦截，下游订单的分润上溯会把份额写进已注销用户的 RewardAccount，事实上把"已清零归平台"的资产又凭空发回去。已修：`vip-upstream` / `normal-upstream` 的 `distribute` 在确认祖先 `userId` 非空（非系统节点）后、入账前调用 `resolveActiveRewardRecipient(tx, ancestorUserId)`（事务内读 `User.status`/`deletionExecutedAt`），为 null 则走现有平台留存通道 `creditToPlatform(reason='DELETED_UPSTREAM_RECIPIENT')`，绝不碰已注销用户账户。读状态用事务 client `tx`，与分配同处 Serializable 快照，无 TOCTOU 缝隙 | ✅ 已修 |
+| D02 | 已注销份额导致利润不守恒 | 🔴 HIGH | 跳过注销祖辈后份额若丢失，则 100% 利润分配出现缺口。已修：跳过的整笔 `rewardPool` 全额进 PLATFORM_PROFIT 留存账户（一条可审计 ledger，金额方向 +），返回 `no_ancestor`，总和仍 = 应分配利润。单测覆盖守恒断言 | ✅ 已修 |
+| D03 | 遗留 NORMAL_BROADCAST 队列残留注销受益人 | 🟡 LOW | `NORMAL_BROADCAST` 仅对迁移日期（2026-02-28）前旧订单生效，新订单不再进入；但桶队列里仍可能残留已注销用户。已补强：广播循环内对每位受益人 `resolveActiveRewardRecipient`，注销者其单笔份额（含 remainder 仍按原规则归最后一位）路由到平台 `creditToPlatform(variant='DELETED_BENEFICIARY')`，`totalDistributed` 照计，守恒不变 | ✅ 已修 |

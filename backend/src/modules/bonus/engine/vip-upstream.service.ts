@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID } from './constants';
@@ -103,6 +103,25 @@ export class VipUpstreamService {
         effectiveIndex,
         ancestorNodeId: ancestor.id,
       });
+      await this.unlockFrozenRewards(tx, userId, newSelfPurchaseCount);
+      return { result: 'no_ancestor', ancestorUserId: null };
+    }
+
+    // 账号注销保护：祖先 User 已注销（status≠ACTIVE 或 deletionExecutedAt≠null）→
+    // 跳过该节点，其应得份额并入平台账户，绝不写入已注销用户的 RewardAccount。
+    // 节点保留在树里（不剔除、不重排），仅资金路由到平台留存通道。
+    const activeRecipient = await this.resolveActiveRewardRecipient(tx, ancestorUserId);
+    if (!activeRecipient) {
+      this.logger.log(
+        `第 ${effectiveIndex} 个祖先 ${ancestorUserId} 已注销/非活跃，rewardPool ${rewardPool} 元归平台`,
+      );
+      await this.creditToPlatform(tx, allocationId, orderId, rewardPool, 'DELETED_UPSTREAM_RECIPIENT', {
+        sourceUserId: userId,
+        effectiveIndex,
+        ancestorNodeId: ancestor.id,
+        skippedAncestorUserId: ancestorUserId,
+      });
+      // 买家自身解锁检查仍需进行（与系统节点/无祖先路径一致）
       await this.unlockFrozenRewards(tx, userId, newSelfPurchaseCount);
       return { result: 'no_ancestor', ancestorUserId: null };
     }
@@ -459,6 +478,31 @@ export class VipUpstreamService {
     });
 
     this.logger.log(`VIP 奖励归平台：${amount} 元，原因=${reason}`);
+  }
+
+  /**
+   * 账号注销资金安全：解析"可接收分润"的有效收款人。
+   *
+   * 在分润事务内（tx）读取目标 User 的 status / deletionExecutedAt：
+   * - 用户不存在、status≠ACTIVE（BANNED/DELETED）、或 deletionExecutedAt 非空 → 返回 null
+   *   （调用方据此把份额路由到平台留存通道，绝不写入该用户账户）
+   * - 否则返回 userId，正常入账
+   *
+   * 必须在事务 client（tx）内调用，保证读到的状态与本次分配同处一个 Serializable 快照，
+   * 避免"事务外读状态、事务内已注销"的 TOCTOU 缝隙。
+   */
+  private async resolveActiveRewardRecipient(
+    tx: any,
+    userId: string,
+  ): Promise<string | null> {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deletionExecutedAt: true },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+      return null;
+    }
+    return userId;
   }
 
   /** 确保用户有 VIP_REWARD 类型的 RewardAccount */
