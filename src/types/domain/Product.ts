@@ -25,6 +25,8 @@ export type Product = {
   stock?: number;
   /** 单笔限购：仅当所有 ACTIVE SKU 都设了 maxPerOrder 时返回 min，否则 null */
   maxPerOrder?: number | null;
+  /** 多规格差价：≥2 个 ACTIVE SKU 且价格不同时为 true，此时列表 price 为最低价，卡片应显示「起」 */
+  priceFrom?: boolean;
 };
 
 /** 商品详情（后端 GET /products/:id 返回的完整数据） */
