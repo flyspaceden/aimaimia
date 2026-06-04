@@ -37,20 +37,12 @@ import { Product, Company, AppError } from '../../src/types';
 const COLUMN_GAP = 10;
 const HORIZONTAL_PADDING = 16;
 
-// AI 推荐卡片固定宽度和图片高度
+// 脉脉精选横滑卡片固定宽度和图片高度
 const AI_CARD_WIDTH = 140;
 const AI_IMAGE_HEIGHT = 110;
 
 // 瀑布流图片高度循环
 const IMAGE_HEIGHTS = [130, 90, 110, 140, 95, 120];
-
-// Mock AI 推荐数据
-const AI_RECOMMENDATIONS = [
-  { productIndex: 0, reason: '当季有机蔬菜，产地直供价格实惠', monthlySales: 2340 },
-  { productIndex: 1, reason: 'AI 分析用户偏好，好评率 98%', monthlySales: 1856 },
-  { productIndex: 2, reason: '低碳种植认证，新鲜度评分 4.9', monthlySales: 1520 },
-  { productIndex: 3, reason: '限时产地直供，比市场价低 30%', monthlySales: 980 },
-];
 
 
 export default function MuseumScreen() {
@@ -88,7 +80,7 @@ export default function MuseumScreen() {
     transform: [{ translateY: cardTranslateY.value }],
   }));
 
-  // AI 推荐横滑提示动画（首次加载左移提示可滚动）
+  // 脉脉精选横滑提示动画（首次加载左移提示可滚动）
   const scrollHintX = useSharedValue(0);
   useEffect(() => {
     scrollHintX.value = withSequence(
@@ -204,15 +196,8 @@ export default function MuseumScreen() {
     return firstPage.ok ? firstPage.data.items : [];
   }, [companiesQuery.data]);
 
-  // AI 推荐商品（从商品列表前几项生成）
-  const aiProducts = useMemo(() => {
-    if (allProducts.length === 0) return [];
-    return AI_RECOMMENDATIONS.map((rec) => ({
-      product: allProducts[rec.productIndex % allProducts.length],
-      reason: rec.reason,
-      monthlySales: rec.monthlySales,
-    })).filter((item) => item.product);
-  }, [allProducts]);
+  // 脉脉精选商品：直接取真实商品列表前 6 项（不再使用任何虚构理由/销量）
+  const aiProducts = useMemo(() => allProducts.slice(0, 6), [allProducts]);
 
   // ==================== 事件处理 ====================
 
@@ -860,7 +845,7 @@ export default function MuseumScreen() {
                 </ScrollView>
               </Animated.View>
 
-              {/* 脉脉精选区 — 横滑 */}
+              {/* 脉脉精选区 — 横滑（真实商品数据，无虚构理由/销量） */}
               {aiProducts.length > 0 && (
                 <Animated.View entering={FadeInDown.duration(300).delay(80)} style={{ marginTop: spacing.lg }}>
                   <View
@@ -888,18 +873,17 @@ export default function MuseumScreen() {
                         paddingBottom: spacing.sm,
                       }}
                     >
-                      {aiProducts.map((item, index) => (
+                      {aiProducts.map((product, index) => (
                         <View
-                          key={item.product.id + '-ai-' + index}
+                          key={product.id + '-ai-' + index}
                           style={{ width: AI_CARD_WIDTH, marginRight: spacing.md }}
                         >
                           <ProductCard
-                            product={item.product}
+                            product={product}
                             width={AI_CARD_WIDTH}
                             imageHeight={AI_IMAGE_HEIGHT}
                             aiRecommend
-                            aiReason={item.reason}
-                            monthlySales={item.monthlySales}
+                            monthlySales={product.monthlySales}
                             onPress={(p) =>
                               router.push({ pathname: '/product/[id]', params: { id: p.id } })
                             }
@@ -924,7 +908,6 @@ export default function MuseumScreen() {
                 }}
               />
 
-              {/* 热门商品标题 */}
               {/* 热门商品标题 */}
               <Animated.View entering={FadeInDown.duration(300).delay(160)}>
                 <Text
