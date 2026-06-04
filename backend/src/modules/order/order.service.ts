@@ -1214,9 +1214,10 @@ export class OrderService {
         where: { id: dto.addressId, userId, deletedAt: null },
         select: { regionCode: true },
       });
-      if (address) {
-        regionCode = address.regionCode;
+      if (!address) {
+        throw new BadRequestException('请选择有效的收货地址');
       }
+      regionCode = address.regionCode;
     }
 
     // 按 companyId 分组

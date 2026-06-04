@@ -311,7 +311,7 @@ describe('OrderService.previewOrder shipping weight', () => {
     );
   });
 
-  it('does not use regionCode from a soft-deleted address', async () => {
+  it('rejects a soft-deleted address when addressId is explicitly provided', async () => {
     const sku = {
       id: 'sku-real',
       productId: 'product-1',
@@ -362,16 +362,10 @@ describe('OrderService.previewOrder shipping weight', () => {
     const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
     service.setShippingRuleService(shippingRuleService);
 
-    await service.previewOrder('user1', {
+    await expect(service.previewOrder('user1', {
       items: [{ skuId: 'sku-real', quantity: 2 }],
       addressId: 'addr1',
-    } as any);
-
-    expect(shippingRuleService.calculateShippingFee).toHaveBeenCalledWith(
-      40,
-      undefined,
-      DEFAULT_SKU_WEIGHT_GRAM * 2,
-      undefined,
-    );
+    } as any)).rejects.toThrow('请选择有效的收货地址');
+    expect(shippingRuleService.calculateShippingFee).not.toHaveBeenCalled();
   });
 });
