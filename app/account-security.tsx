@@ -109,20 +109,6 @@ export default function AccountSecurityScreen() {
     router.replace('/(tabs)/home');
   };
 
-  // 注销账号 —— 后端 /auth/delete-account 未实现，功能暂下线；按钮与本函数一并注释，上线后取消注释恢复
-  /*
-  const handleDeleteAccount = async () => {
-    const result = await AuthRepo.deleteAccount();
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '注销失败', type: 'error' });
-      return;
-    }
-    logoutAndClearClientState();
-    show({ message: '账号已注销', type: 'success' });
-    router.replace('/(tabs)/home');
-  };
-  */
-
   const phoneMasked = maskPhone(profile?.phone);
   // 绑定状态用 wechatBound（权威字段），昵称仅作展示
   // 微信已绑但 fetchWechatUserProfile 失败导致 nickname 空时，仍显示"已绑定"
@@ -283,15 +269,23 @@ export default function AccountSecurityScreen() {
               </View>
             )}
 
-            {/* 注销账号 —— 后端未实现，按钮暂注释隐藏（功能上线后取消注释，并恢复同文件 handleDeleteAccount） */}
-            {/*
-            <Pressable onPress={handleDeleteAccount} style={styles.row}>
+            {/* 注销账号（危险操作）：立即注销且不可恢复，跳转独立注销流程页 */}
+            <Pressable
+              onPress={() => router.push('/me/deletion')}
+              style={styles.row}
+              accessibilityRole="button"
+              accessibilityLabel="注销账号，立即注销且不可恢复"
+            >
               <MaterialCommunityIcons name="account-remove-outline" size={20} color={colors.danger} />
-              <Text style={[typography.body, { color: colors.danger, marginLeft: spacing.sm }]}>注销账号</Text>
+              <View style={{ marginLeft: spacing.sm }}>
+                <Text style={[typography.body, { color: colors.danger }]}>注销账号</Text>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                  立即注销且不可恢复
+                </Text>
+              </View>
               <View style={styles.spacer} />
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.danger} />
             </Pressable>
-            */}
           </View>
         </Animated.View>
 
