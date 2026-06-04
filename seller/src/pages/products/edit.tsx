@@ -856,19 +856,6 @@ function ProductEditForm({ id }: { id: string }) {
               style={{ width: 300 }}
             />
           </Form.Item>
-          <Form.Item
-            label="计量单位"
-            name="unit"
-            rules={[{ required: true, message: '请选择计量单位' }]}
-          >
-            <Select
-              placeholder="请选择计量单位"
-              options={unitOptions}
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 300 }}
-            />
-          </Form.Item>
           <Form.Item label="退货政策" name="returnPolicy" initialValue="INHERIT">
             <Select style={{ width: 300 }} options={[
               { label: '默认（跟随分类设置）', value: 'INHERIT' },
@@ -905,7 +892,24 @@ function ProductEditForm({ id }: { id: string }) {
           title="价格与库存"
           style={{ marginBottom: 16 }}
           extra={
-            <Space>
+            <Space size="middle">
+              <Space size={4}>
+                <Text type="secondary">计量单位</Text>
+                <Form.Item
+                  name="unit"
+                  noStyle
+                  rules={[{ required: true, message: '请选择计量单位' }]}
+                >
+                  <Select
+                    size="small"
+                    placeholder="单位"
+                    options={unitOptions}
+                    showSearch
+                    optionFilterProp="label"
+                    style={{ width: 120 }}
+                  />
+                </Form.Item>
+              </Space>
               <Text type="secondary">多规格商品</Text>
               <Switch
                 checked={multiSpec}
@@ -1514,20 +1518,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
               style={{ width: 300 }}
             />
           </Form.Item>
-          <Form.Item
-            label="计量单位"
-            name="unit"
-            initialValue={DEFAULT_PRODUCT_UNIT}
-            rules={[{ required: true, message: '请选择计量单位' }]}
-          >
-            <Select
-              placeholder="请选择计量单位"
-              options={unitOptions}
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 300 }}
-            />
-          </Form.Item>
           <Form.Item label="退货政策" name="returnPolicy" initialValue="INHERIT">
             <Select style={{ width: 300 }} options={[
               { label: '默认（跟随分类设置）', value: 'INHERIT' },
@@ -1564,7 +1554,25 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           title="价格与库存"
           style={{ marginBottom: 16 }}
           extra={
-            <Space>
+            <Space size="middle">
+              <Space size={4}>
+                <Text type="secondary">计量单位</Text>
+                <Form.Item
+                  name="unit"
+                  noStyle
+                  initialValue={DEFAULT_PRODUCT_UNIT}
+                  rules={[{ required: true, message: '请选择计量单位' }]}
+                >
+                  <Select
+                    size="small"
+                    placeholder="单位"
+                    options={unitOptions}
+                    showSearch
+                    optionFilterProp="label"
+                    style={{ width: 120 }}
+                  />
+                </Form.Item>
+              </Space>
               <Text type="secondary">多规格商品</Text>
               <Switch
                 checked={multiSpec}

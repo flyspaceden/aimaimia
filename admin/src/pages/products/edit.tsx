@@ -416,20 +416,6 @@ export default function ProductEditPage() {
               style={{ width: 300 }}
             />
           </Form.Item>
-          <Form.Item
-            label="计量单位"
-            name="unit"
-            tooltip="买家端价格展示的计量单位，如「斤」「件」「箱」。选项来自「单位管理」中已启用的单位。"
-            rules={[{ required: true, message: '请选择计量单位' }]}
-          >
-            <Select
-              options={unitOptions}
-              placeholder="请选择计量单位"
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 300 }}
-            />
-          </Form.Item>
           <Form.Item label="商品描述" name="description" rules={[{ required: true, message: '请输入描述' }]}>
             <Input.TextArea rows={4} placeholder="请输入商品描述" />
           </Form.Item>
@@ -607,11 +593,32 @@ export default function ProductEditPage() {
         title="商品规格（不同包装/重量/口味等销售单元）"
         style={{ marginBottom: 16 }}
         extra={
-          <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
-            <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveSkus}>
-              保存规格
-            </Button>
-          </PermissionGate>
+          <Space>
+            {/* 计量单位：与「基本信息」共用同一 form 实例（form），保证仍随基本信息一起提交 */}
+            <Form form={form} component={false}>
+              <Form.Item
+                label="计量单位"
+                name="unit"
+                tooltip="买家端价格展示的计量单位，如「斤」「件」「箱」。选项来自「单位管理」中已启用的单位。"
+                rules={[{ required: true, message: '请选择计量单位' }]}
+                style={{ marginBottom: 0 }}
+              >
+                <Select
+                  size="small"
+                  options={unitOptions}
+                  placeholder="请选择计量单位"
+                  showSearch
+                  optionFilterProp="label"
+                  style={{ width: 140 }}
+                />
+              </Form.Item>
+            </Form>
+            <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
+              <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveSkus}>
+                保存规格
+              </Button>
+            </PermissionGate>
+          </Space>
         }
       >
         <Form form={skuForm} layout="vertical" initialValues={{ skus: skuList }}>
