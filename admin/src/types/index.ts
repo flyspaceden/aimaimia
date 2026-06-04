@@ -244,6 +244,7 @@ export interface Product {
   origin: Record<string, any> | null;
   attributes: Record<string, any> | null;
   aiKeywords: string[];
+  unit?: string | null;
   status: ProductStatus;
   auditStatus: ProductAuditStatus;
   auditNote: string | null;

@@ -132,6 +132,12 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   originRegion?: string;
+
+  /** 计量单位（如 斤/千克/只/件），不传则后端默认 '斤' */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
 }
 
 /** 编辑商品 */
@@ -207,6 +213,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   originRegion?: string;
+
+  /** 计量单位（如 斤/千克/只/件），不传则保持原值 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
 }
 
 /** 更新 SKU 列表 */

@@ -55,7 +55,7 @@ export class AdminProductsService {
         include: {
           company: { select: { id: true, name: true, status: true } },
           category: { select: { id: true, name: true, returnPolicy: true, parentId: true } },
-          skus: { select: { id: true, price: true, cost: true, stock: true, maxPerOrder: true } },
+          skus: { where: { status: 'ACTIVE' }, select: { id: true, price: true, cost: true, stock: true, maxPerOrder: true } },
           media: { select: { url: true }, take: 1 },
         },
       }),
@@ -125,7 +125,7 @@ export class AdminProductsService {
       include: {
         company: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
-        skus: true,
+        skus: { where: { status: 'ACTIVE' } },
         media: true,
         tags: { include: { tag: true } },
       },

@@ -94,7 +94,7 @@ export class SellerProductsService {
       this.prisma.product.findMany({
         where,
         include: {
-          skus: true,
+          skus: { where: { status: 'ACTIVE' } },
           media: { orderBy: { sortOrder: 'asc' } },
           tags: { include: { tag: true } },
           category: { select: { id: true, name: true, path: true, returnPolicy: true, parentId: true } },
@@ -146,7 +146,7 @@ export class SellerProductsService {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
       include: {
-        skus: true,
+        skus: { where: { status: 'ACTIVE' } },
         media: { orderBy: { sortOrder: 'asc' } },
         tags: { include: { tag: true } },
         category: { select: { id: true, name: true, path: true } },
@@ -190,6 +190,8 @@ export class SellerProductsService {
           basePrice: dto.basePrice ?? Math.min(...skuPrices),
           cost: Math.min(...dto.skus.map((s) => s.cost)),
           categoryId: dto.categoryId,
+          // 计量单位：DTO 提供则写入，否则交由 DB 默认值 '斤'
+          ...(dto.unit !== undefined && { unit: dto.unit }),
           returnPolicy: (dto.returnPolicy ?? 'INHERIT') as any,
           origin: dto.origin as any,
           attributes: dto.attributes,
@@ -327,6 +329,8 @@ export class SellerProductsService {
           description: dto.description,
           basePrice: dto.basePrice,
           categoryId: dto.categoryId,
+          // 计量单位：DTO 提供则更新，否则保持原值（undefined 不写）
+          ...(dto.unit !== undefined && { unit: dto.unit }),
           returnPolicy: dto.returnPolicy as any,
           origin: dto.origin as any,
           attributes: dto.attributes,
@@ -343,7 +347,7 @@ export class SellerProductsService {
             submissionCount: { increment: 1 },
           }),
         },
-        include: { skus: true, media: true, tags: { include: { tag: true } } },
+        include: { skus: { where: { status: 'ACTIVE' } }, media: true, tags: { include: { tag: true } } },
       });
 
       // 更新媒体

@@ -1149,6 +1149,7 @@ model Product {
   basePrice          Float // 基础价格（元）
   cost               Float? // 成本价（元）
   currency           String             @default("CNY")
+  unit               String             @default("斤") // 售卖单位（斤/只/瓶/箱…），下拉选项由 ProductUnit 字典维护
   origin             Json? // 产地/坐标/行政区划
   attributes         Json? // 自定义属性
   aiKeywords         String[]           @default([])
@@ -1173,6 +1174,17 @@ model Product {
 
   @@index([companyId, status, createdAt]) // 卖家商品列表查询
   @@index([status, createdAt]) // 买家商品列表按状态+时间过滤
+}
+
+/// 商品计量单位字典（管理后台维护，卖家/管理端商品表单下拉选项来源）
+/// 商品存的是单位文字本身（Product.unit），停用/删除字典项不影响已用该单位的商品
+model ProductUnit {
+  id        String   @id @default(cuid())
+  name      String   @unique // 单位名称，如 斤/只/瓶/箱
+  sortOrder Int      @default(0) // 排序，越小越靠前
+  isActive  Boolean  @default(true) // 是否启用（停用后不出现在下拉）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ProductSKU {
