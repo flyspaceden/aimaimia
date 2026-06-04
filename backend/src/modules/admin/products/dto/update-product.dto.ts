@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsEnum, IsArray, IsObject, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsEnum, IsArray, IsObject, IsIn, MaxLength } from 'class-validator';
 import { ProductStatus, ProductAuditStatus } from '@prisma/client';
 
 export class AdminUpdateProductDto {
@@ -21,6 +21,12 @@ export class AdminUpdateProductDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+
+  /** 计量单位（如 斤/千克/只/件），不传则保持原值 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
 
   @IsOptional()
   @IsString()

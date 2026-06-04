@@ -26,6 +26,7 @@ import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, Syn
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
 import { getConfigs } from '@/api/config';
 import { getPublicTagCategories } from '@/api/tags';
+import { getPublicProductUnits } from '@/api/productUnits';
 import { getTargetAuditLogs } from '@/api/audit';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
@@ -132,6 +133,14 @@ export default function ProductEditPage() {
   const productTagOptions = productTagCategories
     .flatMap((cat: any) => (cat.tags || []).map((t: any) => ({ value: t.id, label: t.name })));
 
+  // 商品单位（仅启用项）—— 供「计量单位」下拉使用
+  const { data: productUnits = [] } = useQuery({
+    queryKey: ['public-product-units'],
+    queryFn: getPublicProductUnits,
+    staleTime: 1000 * 60 * 5,
+  });
+  const productUnitOptions = productUnits.map((u) => ({ value: u.name, label: u.name }));
+
   // 获取该商品的审计日志
   const { data: auditLogs, isLoading: auditLoading } = useQuery({
     queryKey: ['admin', 'product-audit-logs', id],
@@ -231,6 +240,12 @@ export default function ProductEditPage() {
     : [];
 
   const initialTagIds = (product as any).tags?.map((t: any) => t.tag?.id || t.tagId) || [];
+
+  // 计量单位下拉选项：启用单位 + 当前值（防止当前单位已停用/不在列表时被静默丢弃）
+  const currentUnit = product.unit || '斤';
+  const unitOptions = productUnitOptions.some((o) => o.value === currentUnit)
+    ? productUnitOptions
+    : [{ value: currentUnit, label: currentUnit }, ...productUnitOptions];
 
   // 商品规格初始值（供 Form.List 使用）
   const skuList = (((product as unknown as Record<string, unknown>).skus as Array<Record<string, any>>) || []).map((s) => ({
@@ -368,6 +383,8 @@ export default function ProductEditPage() {
             subtitle: product.subtitle,
             description: product.description,
             categoryId: product.categoryId,
+            // 计量单位：缺省回退「斤」
+            unit: product.unit || '斤',
             originText,
             aiKeywords: product.aiKeywords || [],
             attributes: attrPairs,
@@ -396,6 +413,20 @@ export default function ProductEditPage() {
               placeholder="选择分类"
               allowClear
               treeDefaultExpandAll
+              style={{ width: 300 }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="计量单位"
+            name="unit"
+            tooltip="买家端价格展示的计量单位，如「斤」「件」「箱」。选项来自「单位管理」中已启用的单位。"
+            rules={[{ required: true, message: '请选择计量单位' }]}
+          >
+            <Select
+              options={unitOptions}
+              placeholder="请选择计量单位"
+              showSearch
+              optionFilterProp="label"
               style={{ width: 300 }}
             />
           </Form.Item>

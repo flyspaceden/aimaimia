@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ProductModule } from './modules/product/product.module';
+import { ProductUnitModule } from './modules/product-unit/product-unit.module';
 import { CompanyModule } from './modules/company/company.module';
 import { UserModule } from './modules/user/user.module';
 import { OrderModule } from './modules/order/order.module';
@@ -63,6 +64,7 @@ import { EmailModule } from './common/email/email.module';
     AppConfigModule,
     AuthModule,
     ProductModule,
+    ProductUnitModule,
     CompanyModule,
     UserModule,
     OrderModule,

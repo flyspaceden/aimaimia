@@ -25,6 +25,7 @@ import {
   type CategoryNode,
 } from '@/api/products';
 import { getMarkupRate, getPublicAppConfig } from '@/api/config';
+import { getProductUnits } from '@/api/productUnits';
 import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
@@ -36,6 +37,25 @@ const { Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
+/** 新建商品时的默认计量单位 */
+const DEFAULT_PRODUCT_UNIT = '斤';
+
+/**
+ * 计量单位下拉选项。
+ * 把启用字典里的单位转成 { label, value }（label=value=name）。
+ * 若 currentUnit 不在启用列表里（例如管理员事后停用了该单位），仍把它兜底加进去，
+ * 避免编辑/草稿水合时旧单位被静默清空。
+ */
+function buildUnitOptions(
+  units: Array<{ name: string }> | undefined,
+  currentUnit?: string,
+): Array<{ label: string; value: string }> {
+  const options = (units || []).map((u) => ({ label: u.name, value: u.name }));
+  if (currentUnit && !options.some((o) => o.value === currentUnit)) {
+    options.unshift({ label: currentUnit, value: currentUnit });
+  }
+  return options;
+}
 const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
 const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
 
@@ -528,6 +548,7 @@ function buildPayload(
     subtitle: values.subtitle || undefined,
     description: values.description,
     basePrice,
+    unit: (values.unit as string | undefined) || undefined,
     categoryId: values.categoryId,
     returnPolicy: values.returnPolicy || 'INHERIT',
     origin: values.originText ? { text: values.originText } : undefined,
@@ -609,6 +630,17 @@ function ProductEditForm({ id }: { id: string }) {
   const productTagOptions = productCategories
     .flatMap(cat => cat.tags.map(t => ({ value: t.id, label: t.name })));
 
+  // 计量单位字典（启用项，已排序）
+  const { data: productUnits } = useQuery({
+    queryKey: ['product-units'],
+    queryFn: getProductUnits,
+  });
+  // 编辑态：若商品当前单位被管理员事后停用，仍兜底加入选项，避免静默丢失
+  const unitOptions = useMemo(
+    () => buildUnitOptions(productUnits, product?.unit),
+    [productUnits, product?.unit],
+  );
+
   // 商品数据加载后填充表单并判断是否多规格
   useEffect(() => {
     if (!product) return;
@@ -633,6 +665,7 @@ function ProductEditForm({ id }: { id: string }) {
       title: product.title,
       subtitle: product.subtitle,
       description: product.description,
+      unit: product.unit || DEFAULT_PRODUCT_UNIT,
       categoryId: product.categoryId,
       returnPolicy: (product as any).returnPolicy || 'INHERIT',
       originText,
@@ -820,6 +853,19 @@ function ProductEditForm({ id }: { id: string }) {
               allowClear
               showSearch
               treeNodeFilterProp="title"
+              style={{ width: 300 }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="计量单位"
+            name="unit"
+            rules={[{ required: true, message: '请选择计量单位' }]}
+          >
+            <Select
+              placeholder="请选择计量单位"
+              options={unitOptions}
+              showSearch
+              optionFilterProp="label"
               style={{ width: 300 }}
             />
           </Form.Item>
@@ -1061,6 +1107,17 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   const productTagOptions = productCategories
     .flatMap(cat => cat.tags.map(t => ({ value: t.id, label: t.name })));
 
+  // 计量单位字典（启用项，已排序）
+  const { data: productUnits } = useQuery({
+    queryKey: ['product-units'],
+    queryFn: getProductUnits,
+  });
+  // 草稿可能携带一个事后被停用的单位，兜底加入选项避免静默丢失
+  const unitOptions = useMemo(
+    () => buildUnitOptions(productUnits, draftProduct?.unit),
+    [productUnits, draftProduct?.unit],
+  );
+
   // 草稿加载后回填表单（仅执行一次）
   useEffect(() => {
     if (!draftProduct) return;
@@ -1085,6 +1142,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       title: draftProduct.title,
       subtitle: draftProduct.subtitle,
       description: draftProduct.description,
+      unit: draftProduct.unit || DEFAULT_PRODUCT_UNIT,
       categoryId: draftProduct.categoryId,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       returnPolicy: (draftProduct as any).returnPolicy || 'INHERIT',
@@ -1199,6 +1257,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       title: (values.title as string | undefined) || undefined,
       subtitle: (values.subtitle as string | undefined) ?? '',
       description: (values.description as string | undefined) ?? '',
+      unit: (values.unit as string | undefined) || DEFAULT_PRODUCT_UNIT,
       categoryId: (values.categoryId as string | undefined) || null,
       returnPolicy: (values.returnPolicy as string | undefined) || 'INHERIT',
       // origin 是 Json? 字段：清空时发 null（后端 update 显式置 null）
@@ -1308,7 +1367,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         return null;
       }
       // 顶层简单字段同名直传
-      const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'categoryId', 'returnPolicy']);
+      const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'unit', 'categoryId', 'returnPolicy']);
       if (TOP_LEVEL.has(path)) return [path];
       return null;
     },
@@ -1452,6 +1511,20 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
               allowClear
               showSearch
               treeNodeFilterProp="title"
+              style={{ width: 300 }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="计量单位"
+            name="unit"
+            initialValue={DEFAULT_PRODUCT_UNIT}
+            rules={[{ required: true, message: '请选择计量单位' }]}
+          >
+            <Select
+              placeholder="请选择计量单位"
+              options={unitOptions}
+              showSearch
+              optionFilterProp="label"
               style={{ width: 300 }}
             />
           </Form.Item>

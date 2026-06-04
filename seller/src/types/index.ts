@@ -80,6 +80,7 @@ export interface Product {
   subtitle?: string;
   description?: string;
   basePrice: number;
+  unit?: string;
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
