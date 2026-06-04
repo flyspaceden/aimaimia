@@ -109,13 +109,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: website/package-lock.json
 
-      # ⚠️ 过渡方案（2026-04-22）：website 暴露在 main 但 backend 仅部署到 staging 服务器（port 3001 = test-api），
-      # 生产 api.ai-maimai.com 无上游 → 502。把 website build 固定指向 test-api 让公网验证码等功能可用。
-      # 部署生产 backend 后必须改回：VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
-      # 收尾 checklist 见 plan.md C40。
+      # 2026-06-04：生产 backend 已上线，website build 恢复动态 api_base（main→api.ai-maimai.com / staging→test-api）。
+      # 历史：2026-04-22 生产 backend 未上线、生产 api 502 时曾临时写死指向 test-api，现已恢复（plan.md C40）。
       - name: Build website
         env:
-          VITE_API_BASE_URL: https://test-api.ai-maimai.com/api/v1
+          VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
           VITE_APP_ENV: ${{ needs.detect-changes.outputs.env_name }}
         run: |
           cd website
