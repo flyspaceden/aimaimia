@@ -34,3 +34,4 @@ export * from './CategoryRepo';
 export * from './InvoiceRepo';
 export * from './AfterSaleRepo';
 export * from './CsRepo';
+export * from './AccountDeletionRepo';

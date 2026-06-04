@@ -60,11 +60,7 @@ export const AuthRepo = {
     if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 400 });
     return ApiClient.post<{ ok: boolean }>('/auth/change-password', payload);
   },
-  // 注销账号
-  deleteAccount: async (): Promise<Result<{ ok: boolean }>> => {
-    if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 600 });
-    return ApiClient.post<{ ok: boolean }>('/auth/delete-account');
-  },
+  // 注销账号：旧的 /auth/delete-account 端点已废弃，改用 AccountDeletionRepo（/me/deletion/*）
   // 获取图形验证码（用于忘记密码流程的 send-code 前置防刷）
   getCaptcha: async (): Promise<Result<{ captchaId: string; svg: string }>> => {
     if (USE_MOCK) {
