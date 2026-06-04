@@ -879,9 +879,17 @@ export class ProductService {
     const firstImage = product.media?.[0]?.url || '';
     const activeSkus: Array<{ id: string; price: number; stock?: number | null; maxPerOrder?: number | null }> =
       product.skus || [];
-    const firstSku = activeSkus[0];
     const origin = product.origin as any;
     const tagNames = (product.tags || []).map((pt: any) => pt.tag?.name).filter(Boolean);
+
+    // 价格区间：取所有 ACTIVE SKU 的真实最低/最高价（列表查询不保证按价格排序，不能假设 activeSkus[0] 最便宜）
+    const prices = activeSkus.map((s) => s.price).filter((p) => typeof p === 'number');
+    const minPrice = prices.length ? Math.min(...prices) : product.basePrice;
+    const maxPrice = prices.length ? Math.max(...prices) : product.basePrice;
+    // 最便宜的 SKU（卡片快捷加购加这一个）；价格相等取第一个匹配
+    const cheapestSku = activeSkus.find((s) => s.price === minPrice);
+    // 多规格且价格存在差异时，App 展示「起」
+    const priceFrom = activeSkus.length > 1 && maxPrice > minPrice;
 
     // 聚合库存：所有 ACTIVE SKU 库存之和（用于卡片「仅剩 x 件」展示）
     const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
@@ -900,8 +908,9 @@ export class ProductService {
     return {
       id: product.id,
       title: product.title,
-      price: firstSku?.price ?? product.basePrice,
-      defaultSkuId: firstSku?.id ?? null,
+      price: minPrice,
+      defaultSkuId: cheapestSku?.id ?? null,
+      priceFrom,
       unit: product.unit || '斤',
       origin: origin?.text || origin?.name || '',
       image: firstImage,
