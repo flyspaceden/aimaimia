@@ -148,7 +148,12 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
         }),
       },
       user: {
-        findUnique: jest.fn().mockRejectedValue(new Error('connection timeout')),
+        findUnique: jest
+          .fn()
+          // 1. 事务内校验推荐人 User 状态 → 正常可用
+          .mockResolvedValueOnce({ status: 'ACTIVE', deletionExecutedAt: null })
+          // 2. buildInviterSummary 查询失败
+          .mockRejectedValueOnce(new Error('connection timeout')),
       },
       $transaction: jest.fn(),
     };
@@ -370,11 +375,16 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
         create: jest.fn().mockResolvedValue({}),
       },
       user: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'vip-user',
-          profile: { nickname: '李四' },
-          authIdentities: [{ identifier: '13900001111' }],
-        }),
+        findUnique: jest
+          .fn()
+          // 1. 事务内校验推荐人 User 状态 → 正常可用
+          .mockResolvedValueOnce({ status: 'ACTIVE', deletionExecutedAt: null })
+          // 2. buildInviterSummary 查询脱敏摘要
+          .mockResolvedValueOnce({
+            id: 'vip-user',
+            profile: { nickname: '李四' },
+            authIdentities: [{ identifier: '13900001111' }],
+          }),
       },
       $transaction: jest.fn(),
     };
@@ -598,5 +608,121 @@ describe('BonusService.assignVipTreeNode — VIP 推荐人子树落位', () => {
         position: 1,
       }),
     });
+  });
+});
+
+/**
+ * 账号注销 Task 4：已注销 / 非正常状态的 VIP 推荐人不能再被新用户绑定。
+ * 历史推荐树/链路保留不动，仅让推荐码对"新绑定"失效。
+ */
+describe('BonusService.useReferralCode — 已注销推荐人防护', () => {
+  function makeTxRunner(prismaMock: any) {
+    return async (cb: any) => cb(prismaMock);
+  }
+
+  function buildBindingMock(inviterUser: any) {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest
+          .fn()
+          // 1. service 入口查 inviter（VIP）
+          .mockResolvedValueOnce({
+            userId: 'vip-inviter',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
+          })
+          // 2. 事务内查 currentMember（被推荐人当前状态）
+          .mockResolvedValueOnce({
+            userId: 'invitee-z',
+            tier: 'NORMAL',
+          }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      referralLink: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      user: {
+        // 事务内校验推荐人 User 状态
+        findUnique: jest.fn().mockResolvedValue(inviterUser),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    return prismaMock;
+  }
+
+  function buildService(prismaMock: any) {
+    return new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      { handleTrigger: jest.fn() } as any,
+      {} as any,
+    );
+  }
+
+  it('推荐人已注销（deletionExecutedAt 非空）时拒绝绑定，且不写入推荐链路', async () => {
+    const prismaMock = buildBindingMock({
+      status: 'DELETED',
+      deletionExecutedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+    const service = buildService(prismaMock);
+
+    await expect(
+      service.useReferralCode('invitee-z', 'VIPCODE1'),
+    ).rejects.toThrow('推荐人账号不可用');
+
+    expect(prismaMock.referralLink.create).not.toHaveBeenCalled();
+    expect(prismaMock.referralLink.update).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+  });
+
+  it('推荐人状态非 ACTIVE（如 BANNED）时拒绝绑定', async () => {
+    const prismaMock = buildBindingMock({
+      status: 'BANNED',
+      deletionExecutedAt: null,
+    });
+    const service = buildService(prismaMock);
+
+    await expect(
+      service.useReferralCode('invitee-z', 'VIPCODE1'),
+    ).rejects.toThrow('推荐人账号不可用');
+
+    expect(prismaMock.referralLink.create).not.toHaveBeenCalled();
+  });
+
+  it('已注销推荐人冻结状态仅作用于新绑定，不触碰其历史下级树节点', async () => {
+    const prismaMock = buildBindingMock({
+      status: 'DELETED',
+      deletionExecutedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+    // 注入会被误改的"历史树节点"操作 mock，断言它们从未被调用
+    prismaMock.vipTreeNode = {
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    };
+    prismaMock.normalTreeNode = {
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    };
+    const service = buildService(prismaMock);
+
+    await expect(
+      service.useReferralCode('invitee-z', 'VIPCODE1'),
+    ).rejects.toThrow('推荐人账号不可用');
+
+    expect(prismaMock.vipTreeNode.delete).not.toHaveBeenCalled();
+    expect(prismaMock.vipTreeNode.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.vipTreeNode.update).not.toHaveBeenCalled();
+    expect(prismaMock.vipTreeNode.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.normalTreeNode.delete).not.toHaveBeenCalled();
+    expect(prismaMock.normalTreeNode.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.normalTreeNode.update).not.toHaveBeenCalled();
+    expect(prismaMock.normalTreeNode.updateMany).not.toHaveBeenCalled();
   });
 });

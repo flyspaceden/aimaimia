@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException, InternalServerErrorException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
 import { MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
@@ -128,6 +128,22 @@ export class BonusService {
       });
       if (currentMember?.tier === 'VIP') {
         throw new BadRequestException('已加入 VIP 团队，无法更换推荐人');
+      }
+
+      // 已注销 / 非正常状态的推荐人不能再被新用户绑定（账号注销 Task 4）。
+      // 历史推荐树/链路保留不动，仅让推荐码对"新绑定"失效。在 Serializable
+      // 事务内读取，与注销流程（同样 Serializable 写 status/deletionExecutedAt）
+      // 串行化，避免"先查到 ACTIVE、绑定时已注销"的 TOCTOU 缝隙。
+      const inviterUser = await tx.user.findUnique({
+        where: { id: inviter.userId },
+        select: { status: true, deletionExecutedAt: true },
+      });
+      if (
+        !inviterUser ||
+        inviterUser.status !== UserStatus.ACTIVE ||
+        inviterUser.deletionExecutedAt
+      ) {
+        throw new BadRequestException('推荐人账号不可用');
       }
 
       const existing = await tx.referralLink.findUnique({
