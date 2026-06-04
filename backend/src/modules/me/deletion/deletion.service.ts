@@ -71,12 +71,18 @@ type CleanupSnapshot = {
   maskedWechatOpenId: string | null;
 };
 
+type DeletionEvidenceContext = {
+  ip?: string;
+  userAgent?: string;
+};
+
 @Injectable()
 export class DeletionService {
   private readonly logger = new Logger(DeletionService.name);
   private static readonly OTP_PER_MINUTE = 1;
   private static readonly OTP_PER_HOUR = 5;
   private static readonly OTP_WINDOW_SECONDS = 3_600;
+  private static readonly EXECUTE_MAX_RETRIES = 3;
   private static readonly DELETION_CONFIRM_TEXT = '确认注销';
   private static readonly NOTICE_VERSION = 'account-deletion-immediate-2026-06-04';
 
@@ -229,23 +235,36 @@ export class DeletionService {
     return { ok: true };
   }
 
-  async execute(userId: string, dto: ExecuteDeletionDto) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`AD-${userId}`}))`;
+  async execute(userId: string, dto: ExecuteDeletionDto, ip?: string, userAgent?: string) {
+    const evidence: DeletionEvidenceContext = { ip, userAgent };
+    for (let attempt = 0; attempt < DeletionService.EXECUTE_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`AD-${userId}`}))`;
 
-        const blockers = await this.getBlockers(userId, tx);
-        if (blockers.length > 0) {
-          throw new ConflictException({ code: 'ACCOUNT_DELETION_BLOCKED', blockers });
+            const blockers = await this.getBlockers(userId, tx);
+            if (blockers.length > 0) {
+              throw new ConflictException({ code: 'ACCOUNT_DELETION_BLOCKED', blockers });
+            }
+
+            await this.verifyDeletionConfirmation(tx, userId, dto);
+            await this.executeIrreversibleCleanup(tx, userId, dto, evidence);
+
+            return { ok: true, message: '账号已注销' };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (err) {
+        if (this.isSerializableConflict(err) && attempt < DeletionService.EXECUTE_MAX_RETRIES - 1) {
+          await this.sleep(50 + Math.floor(Math.random() * 50) + attempt * 50);
+          continue;
         }
+        throw err;
+      }
+    }
 
-        await this.verifyDeletionConfirmation(tx, userId, dto);
-        await this.executeIrreversibleCleanup(tx, userId, dto);
-
-        return { ok: true, message: '账号已注销' };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+    throw new Error('账号注销事务重试异常结束');
   }
 
   private async getBlockers(
@@ -363,8 +382,9 @@ export class DeletionService {
     tx: Prisma.TransactionClient,
     userId: string,
     dto: ExecuteDeletionDto,
+    evidence: DeletionEvidenceContext = {},
   ) {
-    const cleanup = await this.buildCleanupSnapshot(tx, userId, dto);
+    const cleanup = await this.buildCleanupSnapshot(tx, userId, dto, evidence);
 
     await tx.rewardAccount.updateMany({
       where: { userId },
@@ -481,12 +501,16 @@ export class DeletionService {
         provider: cleanup.primaryIdentity?.provider ?? AuthProvider.PHONE,
         phone: cleanup.maskedPhone,
         wechatOpenId: cleanup.maskedWechatOpenId,
+        ip: evidence.ip ?? null,
+        userAgent: evidence.userAgent ?? null,
         success: true,
         meta: {
           action: 'DELETION_EXECUTED',
           deletionExecutedAt: new Date().toISOString(),
           confirmationMethod: dto.confirmationMethod,
           noticeVersion: DeletionService.NOTICE_VERSION,
+          ip: evidence.ip ?? null,
+          userAgent: evidence.userAgent ?? null,
           snapshot: cleanup.deletionMeta.snapshot,
         },
       },
@@ -497,6 +521,7 @@ export class DeletionService {
     tx: Prisma.TransactionClient,
     userId: string,
     dto: ExecuteDeletionDto,
+    evidence: DeletionEvidenceContext = {},
   ): Promise<CleanupSnapshot> {
     const [
       profile,
@@ -592,6 +617,8 @@ export class DeletionService {
       termsVersion: DeletionService.NOTICE_VERSION,
       privacyVersion: DeletionService.NOTICE_VERSION,
       confirmedAt: new Date().toISOString(),
+      ip: evidence.ip ?? null,
+      userAgent: evidence.userAgent ?? null,
       identities: identities.map((identity) => ({
         provider: identity.provider,
         appId: identity.appId,
@@ -799,5 +826,13 @@ export class DeletionService {
 
   private hashKey(value: string) {
     return createHash('sha256').update(value).digest('hex').slice(0, 24);
+  }
+
+  private isSerializableConflict(err: unknown) {
+    return !!err && typeof err === 'object' && (err as { code?: string }).code === 'P2034';
+  }
+
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

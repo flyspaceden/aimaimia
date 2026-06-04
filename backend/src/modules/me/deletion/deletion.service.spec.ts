@@ -22,6 +22,8 @@ import { DeletionService } from './deletion.service';
 
 const now = new Date('2026-06-04T16:00:00.000Z');
 const userId = 'user-1';
+const requestIp = '203.0.113.10';
+const requestUserAgent = 'AimBuy/54.0 Android';
 
 function phoneIdentity(identifier = '13800001234') {
   return {
@@ -148,6 +150,13 @@ function executeDto(overrides: Partial<ExecuteDeletionDto> = {}): ExecuteDeletio
     acknowledgedNotice: true,
     ...overrides,
   } as ExecuteDeletionDto;
+}
+
+function prismaError(code: string) {
+  return new Prisma.PrismaClientKnownRequestError('Prisma transaction error', {
+    code,
+    clientVersion: 'test-client',
+  });
 }
 
 async function expectAccountDeletionBlocked(
@@ -565,6 +574,70 @@ describe('DeletionService.execute', () => {
         }),
       }),
     });
+  });
+
+  it('writes IP and User-Agent into deletionMeta and LoginEvent evidence', async () => {
+    const prisma = makeTx();
+    const { service } = makeService({ prisma });
+
+    await (service.execute as any)(userId, executeDto(), requestIp, requestUserAgent);
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: userId },
+      data: {
+        deletionMeta: expect.objectContaining({
+          ip: requestIp,
+          userAgent: requestUserAgent,
+        }),
+      },
+    });
+    expect(prisma.loginEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId,
+        ip: requestIp,
+        userAgent: requestUserAgent,
+        meta: expect.objectContaining({
+          action: 'DELETION_EXECUTED',
+          ip: requestIp,
+          userAgent: requestUserAgent,
+        }),
+      }),
+    });
+  });
+
+  it('retries a Serializable transaction after Prisma P2034 and eventually succeeds', async () => {
+    jest.useRealTimers();
+    const prisma = makeTx();
+    prisma.$transaction = jest
+      .fn()
+      .mockRejectedValueOnce(prismaError('P2034'))
+      .mockImplementation(async (cb: any, _options?: any) => cb(prisma));
+    const { service } = makeService({ prisma });
+
+    await expect(service.execute(userId, executeDto())).resolves.toEqual({
+      ok: true,
+      message: '账号已注销',
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: userId },
+      data: {
+        status: UserStatus.DELETED,
+        deletionExecutedAt: expect.any(Date),
+        deletionConfirmMethod: AccountDeletionConfirmMethod.WECHAT_MODAL,
+      },
+    });
+  });
+
+  it('does not retry non-P2034 transaction errors', async () => {
+    const prisma = makeTx();
+    const error = prismaError('P2002');
+    prisma.$transaction = jest.fn().mockRejectedValue(error);
+    const { service } = makeService({ prisma });
+
+    await expect(service.execute(userId, executeDto())).rejects.toBe(error);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });
 
