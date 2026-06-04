@@ -331,7 +331,8 @@ export default function ProductDetailScreen() {
             </Animated.View>
           )}
 
-          {/* AI 溯源区 */}
+          {/* AI 溯源区 —— 功能未上线，暂时隐藏（保留实现，恢复时删掉外层 {false && (...)} 包裹即可）*/}
+          {false && (
           <Animated.View entering={FadeInDown.duration(300).delay(300)}>
             <View style={[styles.traceSection, { backgroundColor: colors.ai.soft, borderRadius: radius.xl, marginTop: spacing.xl }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg }}>
@@ -403,6 +404,7 @@ export default function ProductDetailScreen() {
               </Pressable>
             </View>
           </Animated.View>
+          )}
 
           {/* 企业卡片 — 增强版 */}
           {company && (
