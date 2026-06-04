@@ -432,6 +432,7 @@ Tab 栏设计：
 /me/vip           ← 会员中心
 /me/tasks         ← 任务中心
 /me/recommend     ← 为你推荐
+/me/deletion      ← 账号注销（即时生效·三步同页）
 
 /inbox            ← 收件箱
 
@@ -1994,6 +1995,23 @@ AI 功能场景选择页。
 │  └─────────────────────────┘│
 └─────────────────────────────┘
 ```
+
+补充（2026-06-04）：「账号与安全」区底部新增 danger 色「注销账号」入口，点击进入 `/me/deletion`。
+
+---
+
+### 5.34.1 账号注销 `/me/deletion` ✅
+
+> 状态：已完成（2026-06-04，即时注销版）。权威设计：`docs/superpowers/specs/2026-06-04-account-deletion-immediate-design.md`；法律文本已同步至 `src/content/legal/privacyPolicy.ts`（§4.3）与 `termsOfService.ts`（§六）。
+
+- **入口**：`/settings` →「账号与安全」→「注销账号」（danger 色文字）。
+- **数据来源**：`AccountDeletionRepo`（`src/repos/AccountDeletionRepo.ts`）三接口 —— `preview`（`GET /me/deletion/preview` 返回 blocker + 资产快照 + 核验方式 `SMS|WECHAT_MODAL` + `maskedPhone`）、`sendCode`（`POST /me/deletion/sms-code`）、`execute`（`POST /me/deletion/execute`）。
+- **三态**：加载用 `Skeleton`，请求失败用 `ErrorState`（可重试），`preview` 成功后进入三步状态机。
+- **三步同页（Step 状态机）**：
+  - Step 1 须知 + blocker + 资产展示 + 勾选同意：完整可滚动《账号注销须知》；存在 blocker（OWNER / 支付中 / 提现中 / 非 ACTIVE）时红色阻断并禁用提交；无 blocker 展示各项资产 + ⚠️「全部清零作废（含可提现余额）」；已付款订单 / 进行中售后仅告知不阻断；`☐ 我已阅读并同意`。
+  - Step 2 身份核验：绑手机号 → 短信验证码（60s 倒计时，`sendCode`）；仅微信 → 手动输入「确认注销」四字；附「提交后立即注销且不可恢复」提示。
+  - Step 3 成功页：「✅ 账号已注销」→「退出 App」→ 清本地 token / 回登录页。
+- **特性**：无横幅、无冷静期、无撤销入口；注销即时生效不可恢复（与后端实现一致）。
 
 ---
 
