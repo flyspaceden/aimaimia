@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { App, Card, Button, Space, Tag, Modal, Form, Input, InputNumber, Switch, Popconfirm } from 'antd';
+import { App, Card, Button, Space, Tag, Modal, Form, Input, InputNumber, Switch } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
@@ -147,13 +147,24 @@ export default function ProductUnitsPage() {
       dataIndex: 'isActive',
       width: 120,
       render: (_, r) => (
-        <Tag color={r.isActive ? 'green' : 'default'}>{r.isActive ? '启用' : '停用'}</Tag>
+        <PermissionGate
+          permission={PERMISSIONS.PRODUCTS_UPDATE}
+          fallback={<Tag color={r.isActive ? 'green' : 'default'}>{r.isActive ? '启用' : '停用'}</Tag>}
+        >
+          <Switch
+            checked={r.isActive}
+            checkedChildren="启用"
+            unCheckedChildren="停用"
+            loading={toggleMut.isPending && toggleMut.variables?.id === r.id}
+            onChange={(checked) => toggleMut.mutate({ id: r.id, isActive: checked })}
+          />
+        </PermissionGate>
       ),
     },
     {
       title: '操作',
       key: 'action',
-      width: 240,
+      width: 160,
       render: (_, record) => (
         <PermissionGate
           permission={PERMISSIONS.PRODUCTS_UPDATE}
@@ -163,12 +174,6 @@ export default function ProductUnitsPage() {
             <a onClick={() => openModal(record)}>
               <EditOutlined /> 编辑
             </a>
-            <Popconfirm
-              title={record.isActive ? '确认停用此单位？' : '确认启用此单位？'}
-              onConfirm={() => toggleMut.mutate({ id: record.id, isActive: !record.isActive })}
-            >
-              <a>{record.isActive ? '停用' : '启用'}</a>
-            </Popconfirm>
             <a style={{ color: '#ff4d4f' }} onClick={() => handleDelete(record)}>
               <DeleteOutlined /> 删除
             </a>
