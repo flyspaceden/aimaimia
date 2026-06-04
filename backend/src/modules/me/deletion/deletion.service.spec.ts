@@ -150,6 +150,22 @@ function executeDto(overrides: Partial<ExecuteDeletionDto> = {}): ExecuteDeletio
   } as ExecuteDeletionDto;
 }
 
+async function expectAccountDeletionBlocked(
+  promise: Promise<unknown>,
+  expectedBlocker: Record<string, unknown>,
+) {
+  try {
+    await promise;
+    throw new Error('Expected ACCOUNT_DELETION_BLOCKED conflict');
+  } catch (err) {
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'ACCOUNT_DELETION_BLOCKED',
+      blockers: [expect.objectContaining(expectedBlocker)],
+    });
+  }
+}
+
 describe('DeletionService.preview blockers', () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(now);
@@ -311,6 +327,79 @@ describe('DeletionService.execute', () => {
       expect.any(Function),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns USER_NOT_ACTIVE blocker payload for an already deleted account', async () => {
+    const prisma = makeTx();
+    prisma.user.findUnique.mockResolvedValue({
+      status: UserStatus.DELETED,
+      deletionExecutedAt: now,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({
+      id: userId,
+      status: UserStatus.DELETED,
+      deletionExecutedAt: now,
+      authIdentities: [phoneIdentity()],
+    });
+    const { service } = makeService({ prisma });
+
+    await expectAccountDeletionBlocked(
+      service.execute(userId, executeDto()),
+      {
+        code: 'USER_NOT_ACTIVE',
+        message: '账号状态不支持注销',
+        count: 1,
+      },
+    );
+
+    expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns USER_NOT_ACTIVE blocker payload for a non-active account', async () => {
+    const prisma = makeTx();
+    prisma.user.findUnique.mockResolvedValue({
+      status: UserStatus.BANNED,
+      deletionExecutedAt: null,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({
+      id: userId,
+      status: UserStatus.BANNED,
+      deletionExecutedAt: null,
+      authIdentities: [phoneIdentity()],
+    });
+    const { service } = makeService({ prisma });
+
+    await expectAccountDeletionBlocked(
+      service.execute(userId, executeDto()),
+      {
+        code: 'USER_NOT_ACTIVE',
+        message: '账号状态不支持注销',
+        count: 1,
+      },
+    );
+
+    expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns USER_NOT_ACTIVE blocker payload for a missing account', async () => {
+    const prisma = makeTx();
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.findUniqueOrThrow.mockRejectedValue(new Error('No User found'));
+    const { service } = makeService({ prisma });
+
+    await expectAccountDeletionBlocked(
+      service.execute(userId, executeDto()),
+      {
+        code: 'USER_NOT_ACTIVE',
+        message: '账号状态不支持注销',
+        count: 1,
+      },
+    );
+
+    expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
     expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
   });
 

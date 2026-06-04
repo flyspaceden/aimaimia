@@ -234,22 +234,6 @@ export class DeletionService {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`AD-${userId}`}))`;
 
-        const user = await tx.user.findUniqueOrThrow({
-          where: { id: userId },
-          select: {
-            id: true,
-            status: true,
-            deletionExecutedAt: true,
-            authIdentities: {
-              select: { id: true, provider: true, identifier: true, appId: true, verified: true },
-            },
-          },
-        });
-
-        if (user.status === UserStatus.DELETED || user.deletionExecutedAt) {
-          throw new ConflictException('账号已注销');
-        }
-
         const blockers = await this.getBlockers(userId, tx);
         if (blockers.length > 0) {
           throw new ConflictException({ code: 'ACCOUNT_DELETION_BLOCKED', blockers });
