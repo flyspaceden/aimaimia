@@ -123,12 +123,41 @@ describe('AddressService soft delete behavior', () => {
     const nextDefault = makeAddress({ id: 'addr-next', isDefault: false });
     prisma.address.findFirst
       .mockResolvedValueOnce(removedDefault)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(nextDefault);
     prisma.address.update.mockResolvedValue({});
 
     await service.remove('user-1', 'addr-default');
 
     expect(prisma.address.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { userId: 'user-1', isDefault: true, deletedAt: null },
+    });
+    expect(prisma.address.findFirst).toHaveBeenNthCalledWith(3, {
+      where: { userId: 'user-1', deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(prisma.address.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'addr-next', userId: 'user-1', deletedAt: null },
+      data: { isDefault: true },
+    });
+  });
+
+  it('recovers a missing active default after removing a non-default address', async () => {
+    const { service, prisma } = createMocks();
+    const removedAddress = makeAddress({ id: 'addr-removed', isDefault: false });
+    const nextDefault = makeAddress({ id: 'addr-next', isDefault: false });
+    prisma.address.findFirst
+      .mockResolvedValueOnce(removedAddress)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(nextDefault);
+    prisma.address.update.mockResolvedValue({});
+
+    await service.remove('user-1', 'addr-removed');
+
+    expect(prisma.address.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { userId: 'user-1', isDefault: true, deletedAt: null },
+    });
+    expect(prisma.address.findFirst).toHaveBeenNthCalledWith(3, {
       where: { userId: 'user-1', deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });

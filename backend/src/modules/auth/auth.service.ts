@@ -36,7 +36,7 @@ export class AuthService {
   /**
    * 按 SMS purpose 隔离的发送限流配额
    * - 登录/绑定：沿用 1/分钟 + 10/天（成本敏感型，全天量控）
-   * - 忘记密码（BUYER_RESET/SELLER_RESET）：1/分钟 + 5/小时（按 spec 设计，抵御短期爆破）
+   * - 忘记密码/账号注销（BUYER_RESET/SELLER_RESET/DELETION）：1/分钟 + 5/小时（按 spec 设计，抵御短期爆破）
    */
   private static readonly OTP_RATE_LIMITS: Record<
     SmsPurpose,
@@ -47,6 +47,7 @@ export class AuthService {
     RESET:        { perMinute: 1, windowCount: 5,  windowSec: 3_600  }, // 枚举占位，当前无代码使用
     BUYER_RESET:  { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
     SELLER_RESET: { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+    DELETION:     { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
   };
 
   /**

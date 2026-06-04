@@ -166,6 +166,66 @@ describe('CheckoutService WECHAT_PAY payment params', () => {
     expect(result.paymentParams).toEqual({ channel: 'wechat', prepayId: 'wx-prepay', nonceStr: 'nonce' });
   });
 
+  it('rejects a soft-deleted address before creating VIP checkout session', async () => {
+    const giftOption = {
+      id: 'gift-1',
+      packageId: 'pkg-1',
+      status: 'ACTIVE',
+      title: '尊享礼包',
+      coverMode: 'GRID',
+      coverUrl: null,
+      badge: null,
+      items: [{
+        quantity: 1,
+        sortOrder: 0,
+        sku: {
+          id: 'sku-gift',
+          title: '赠品规格',
+          price: 99,
+          stock: 10,
+          status: 'ACTIVE',
+          product: {
+            id: 'product-gift',
+            title: '赠品',
+            companyId: PLATFORM_COMPANY_ID,
+            status: 'ACTIVE',
+            media: [],
+          },
+        },
+      }],
+    };
+    const deletedAddress = {
+      id: 'address-1',
+      userId: 'user-1',
+      regionText: '北京市/北京市/朝阳区',
+      regionCode: 'CN-BJ-CY',
+      recipientName: '张三',
+      phone: '13800000000',
+      detail: '街道一号',
+      deletedAt: new Date('2026-06-04T12:00:00.000Z'),
+    };
+    const prisma: any = {
+      vipPackage: { findUnique: jest.fn().mockResolvedValue({ id: 'pkg-1', status: 'ACTIVE', price: 399, referralBonusRate: 0.1 }) },
+      checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      vipGiftOption: { findUnique: jest.fn().mockResolvedValue(giftOption) },
+      address: {
+        findUnique: jest.fn(async (args: any) => (
+          args.where.deletedAt === null ? null : deletedAddress
+        )),
+      },
+      $transaction: jest.fn().mockRejectedValue(new Error('vip transaction should not run')),
+    };
+    const service = new CheckoutService(prisma, makeBonusConfig() as any);
+
+    await expect(service.checkoutVipPackage('user-1', {
+      packageId: 'pkg-1',
+      giftOptionId: 'gift-1',
+      addressId: 'address-1',
+      paymentChannel: 'wechat',
+    } as any)).rejects.toThrow('收货地址无效');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('creates WECHAT_PAY APP params when resuming checkout sessions', async () => {
     const prisma: any = {
       checkoutSession: {

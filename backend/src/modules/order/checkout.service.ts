@@ -482,8 +482,10 @@ export class CheckoutService {
     let addressSnapshot: any = null;
     let regionCode: string | undefined;
     if (dto.addressId) {
-      const address = await this.prisma.address.findUnique({ where: { id: dto.addressId } });
-      if (address && address.userId === userId) {
+      const address = await this.prisma.address.findUnique({
+        where: { id: dto.addressId, userId, deletedAt: null },
+      });
+      if (address) {
         regionCode = address.regionCode;
         const region = parseChineseAddress(address.regionText);
         addressSnapshot = {
@@ -908,9 +910,9 @@ export class CheckoutService {
 
     // 5. 地址快照
     const address = await this.prisma.address.findUnique({
-      where: { id: dto.addressId },
+      where: { id: dto.addressId, userId, deletedAt: null },
     });
-    if (!address || address.userId !== userId) {
+    if (!address) {
       throw new BadRequestException('收货地址无效');
     }
     const region = parseChineseAddress(address.regionText);

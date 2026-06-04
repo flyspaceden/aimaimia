@@ -104,15 +104,17 @@ export class AddressService {
 
   /** 删除地址 */
   async remove(userId: string, addressId: string) {
-    const address = await this.ensureOwnership(userId, addressId);
+    await this.ensureOwnership(userId, addressId);
 
     await this.prisma.address.update({
       where: { id: addressId, userId, deletedAt: null },
       data: { deletedAt: new Date(), isDefault: false },
     });
 
-    // 如果删除的是默认地址，把最新的一条未删除地址设为默认
-    if (address.isDefault) {
+    const activeDefault = await this.prisma.address.findFirst({
+      where: { userId, isDefault: true, deletedAt: null },
+    });
+    if (!activeDefault) {
       const nextDefault = await this.prisma.address.findFirst({
         where: { userId, deletedAt: null },
         orderBy: { createdAt: 'desc' },

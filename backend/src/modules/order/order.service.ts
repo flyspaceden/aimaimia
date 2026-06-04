@@ -1211,10 +1211,10 @@ export class OrderService {
     let regionCode: string | undefined;
     if (dto.addressId) {
       const address = await this.prisma.address.findUnique({
-        where: { id: dto.addressId },
-        select: { userId: true, regionCode: true },
+        where: { id: dto.addressId, userId, deletedAt: null },
+        select: { regionCode: true },
       });
-      if (address && address.userId === userId) {
+      if (address) {
         regionCode = address.regionCode;
       }
     }
