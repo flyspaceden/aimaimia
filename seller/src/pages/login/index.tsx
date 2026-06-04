@@ -491,11 +491,14 @@ export default function LoginPage() {
           ]}
         />
 
-        <div style={{ textAlign: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            测试手机号：13800001001（陈澄源/澄源生态）、13800001002（李青禾/青禾智慧）
-          </Text>
-        </div>
+        {/* 测试手机号提示：仅非生产显示（本地 dev 或 test-api 测试环境），生产隐藏 */}
+        {(import.meta.env.DEV || import.meta.env.VITE_API_BASE_URL?.includes('test-')) && (
+          <div style={{ textAlign: 'center' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              测试手机号：13800001001（陈澄源/澄源生态）、13800001002（李青禾/青禾智慧）
+            </Text>
+          </div>
+        )}
       </Card>
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
         <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
