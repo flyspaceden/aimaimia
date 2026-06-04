@@ -95,17 +95,26 @@ export default function ProductDetailScreen() {
   // 派生数据（必须在所有 early return 之前，保证 hooks 调用顺序稳定）
   const detail = product as unknown as ProductDetail | null;
   const skus = detail?.skus || [];
-  const activeSkuId = selectedSkuId || skus[0]?.id;
+  // 多规格价格口径：≥2 个 SKU 视为多规格；价差用于决定头图价是否带「起」
+  const hasMulti = skus.length > 1;
+  const minPrice = skus.length ? Math.min(...skus.map((s) => s.price)) : 0;
+  const maxPrice = skus.length ? Math.max(...skus.map((s) => s.price)) : 0;
+  const pricesVary = maxPrice > minPrice;
+  // 默认选中：单规格自动选中；多规格不预选（等待用户点选）
+  const activeSkuId = selectedSkuId || (skus.length === 1 ? skus[0]?.id : undefined);
   // N08修复：从选中 SKU 获取实际价格，传入购物车避免使用商品默认价格
   const selectedSku = useMemo(() => {
     if (!activeSkuId || !skus.length) return undefined;
     return skus.find((s) => s.id === activeSkuId);
   }, [activeSkuId, skus]);
   const activeSkuPrice = selectedSku?.price;
+  // 多规格必须先选规格才能加购/购买；单规格已自动选中视为已选
+  const needsSkuSelection = skus.length > 0 && !selectedSku;
   const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
   const activeStockStatus = getStockStatus(selectedSku?.stock, lowStockThreshold);
   const activeStockText = getStockText(selectedSku?.stock, lowStockThreshold);
-  const canBuyActiveSku = activeStockStatus !== 'OUT_OF_STOCK';
+  // 未选规格时不以库存判定按钮置灰（库存随规格而定），由 needsSkuSelection 守门
+  const canBuyActiveSku = selectedSku ? activeStockStatus !== 'OUT_OF_STOCK' : true;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -147,6 +156,14 @@ export default function ProductDetailScreen() {
       </Screen>
     );
   }
+
+  // 头图价：已选规格 → 该规格精确价无「起」；多规格未选 → 最低价 + 价差时带「起」；其余 → 商品默认价无「起」
+  const headlinePriceValue = selectedSku
+    ? selectedSku.price
+    : hasMulti
+      ? minPrice
+      : product!.price;
+  const headlinePriceFrom = !selectedSku && hasMulti && pricesVary;
 
   const images = detail?.images?.length ? detail.images.map((m) => m.url) : (product?.image ? [product.image] : []);
   const trace = traceData?.ok ? traceData.data : null;
@@ -219,7 +236,7 @@ export default function ProductDetailScreen() {
           <Animated.View entering={FadeInDown.duration(300).delay(150)}>
             <View style={[styles.priceSection, { backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.sm }]}>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Price value={product!.price} unit={product!.unit} strikeValue={product!.strikePrice} />
+                <Price value={headlinePriceValue} unit={product!.unit} strikeValue={product!.strikePrice} from={headlinePriceFrom} />
               </View>
               <View style={[styles.statsRow, { marginTop: spacing.sm }]}>
                 {(product!.monthlySales ?? 0) > 0 && (
@@ -494,6 +511,10 @@ export default function ProductDetailScreen() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(6,14,6,0.6)' : 'rgba(250,252,250,0.6)' }]} />
           <Pressable
             onPress={() => {
+              if (needsSkuSelection) {
+                show({ message: '请选择规格', type: 'info' });
+                return;
+              }
               if (!canBuyActiveSku) {
                 show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
                 return;
@@ -527,6 +548,10 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
+                if (needsSkuSelection) {
+                  show({ message: '请选择规格', type: 'info' });
+                  return;
+                }
                 if (!canBuyActiveSku) {
                   show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
                   return;
@@ -561,6 +586,10 @@ export default function ProductDetailScreen() {
         >
           <Pressable
             onPress={() => {
+              if (needsSkuSelection) {
+                show({ message: '请选择规格', type: 'info' });
+                return;
+              }
               if (!canBuyActiveSku) {
                 show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
                 return;
@@ -594,6 +623,10 @@ export default function ProductDetailScreen() {
           >
             <Pressable
               onPress={() => {
+                if (needsSkuSelection) {
+                  show({ message: '请选择规格', type: 'info' });
+                  return;
+                }
                 if (!canBuyActiveSku) {
                   show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
                   return;
