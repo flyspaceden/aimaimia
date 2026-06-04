@@ -158,7 +158,7 @@ LoginEvent.create({
 | 资产 | 现有模型 | 注销处置 |
 |---|---|---|
 | 消费积分 / 分润可提现余额 | RewardAccount | 所有账户 `balance/frozen=0`，写 `RewardLedger(VOID/VOIDED)` 记录放弃明细 |
-| 提现中金额 | WithdrawRequest + RewardLedger(WITHDRAW/FROZEN) | **阻止注销**：存在 `PROCESSING/APPROVED` 时 preview/execute 返回 blocker |
+| 提现中金额 | WithdrawRequest + RewardLedger(WITHDRAW/FROZEN) | **阻止注销**：存在任一在途提现 `REQUESTED/PROCESSING/APPROVED` 时 preview/execute 返回 blocker（含 REQUESTED 是资金安全加固：放行会清零仍待出款的 RewardAccount，导致提现孤儿/双花） |
 | 平台红包 / 优惠券 | CouponInstance | `AVAILABLE/RESERVED` → `REVOKED`；`USED/EXPIRED/REVOKED` 历史不改 |
 | 消费积分抵扣预留 | CheckoutSession + RewardLedger(DEDUCT/RESERVED) | **阻止注销**：存在支付中 CheckoutSession 时不进入清零 |
 | 抽奖中奖名额 | LotteryRecord | `WON/IN_CART` → `EXPIRED`；`CONSUMED/EXPIRED/NO_PRIZE` 历史不改 |
@@ -177,7 +177,7 @@ LoginEvent.create({
 | `USER_NOT_ACTIVE` | `User.status != ACTIVE OR deletionExecutedAt != null` | 账号状态不支持注销 |
 | `ACTIVE_CHECKOUT_EXISTS` | `CheckoutSession.status IN (ACTIVE, PAID)` | 您有正在支付或确认中的订单，请先完成或取消 |
 | `PENDING_PAYMENT_EXISTS` | `Payment.status IN (INIT, PENDING)` 或 `PaymentGroup.status IN (INIT, PENDING)` | 您有支付处理中记录，请稍后再试 |
-| `WITHDRAW_PROCESSING_EXISTS` | `WithdrawRequest.status IN (PROCESSING, APPROVED)` | 您有提现处理中记录，请到账或失败后再注销 |
+| `WITHDRAW_PROCESSING_EXISTS` | `WithdrawRequest.status IN (REQUESTED, PROCESSING, APPROVED)`（任一在途提现） | 您有提现处理中记录，请到账或失败后再注销 |
 
 已付款订单、已创建订单、已进入售后的事项不作为 blocker：它们继续按订单/售后链路履约，注销只终止账号登录和新增操作。
 
