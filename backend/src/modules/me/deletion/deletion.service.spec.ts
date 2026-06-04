@@ -17,6 +17,7 @@ import {
   WithdrawStatus,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { validate } from 'class-validator';
 import { AccountDeletionConfirmMethod, ExecuteDeletionDto } from './dto/deletion.dto';
 import { DeletionService } from './deletion.service';
 
@@ -279,8 +280,25 @@ describe('DeletionService.preview blockers', () => {
     expect(prisma.withdrawRequest.count).toHaveBeenCalledWith({
       where: {
         userId,
-        status: { in: [WithdrawStatus.PROCESSING, WithdrawStatus.APPROVED] },
+        status: { in: [WithdrawStatus.REQUESTED, WithdrawStatus.PROCESSING, WithdrawStatus.APPROVED] },
       },
+    });
+  });
+
+  it('returns WITHDRAW_PROCESSING_EXISTS for a requested withdrawal and keeps pending amount consistent', async () => {
+    const prisma = makeTx();
+    prisma.withdrawRequest.count.mockResolvedValue(1);
+    prisma.withdrawRequest.aggregate.mockResolvedValue({ _sum: { amount: 25 } });
+    const { service } = makeService({ prisma });
+
+    const result = await service.preview(userId);
+
+    expect(result.canDelete).toBe(false);
+    expect(result.assets.pendingWithdrawAmount).toBe(25);
+    expect(result.blockers).toContainEqual({
+      code: 'WITHDRAW_PROCESSING_EXISTS',
+      message: '您有提现处理中记录，请到账或失败后再注销',
+      count: 1,
     });
   });
 
@@ -412,6 +430,24 @@ describe('DeletionService.execute', () => {
     expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
   });
 
+  it('blocks execute when a requested withdrawal exists', async () => {
+    const prisma = makeTx();
+    prisma.withdrawRequest.count.mockResolvedValue(1);
+    const { service } = makeService({ prisma });
+
+    await expectAccountDeletionBlocked(
+      service.execute(userId, executeDto()),
+      {
+        code: 'WITHDRAW_PROCESSING_EXISTS',
+        message: '您有提现处理中记录，请到账或失败后再注销',
+        count: 1,
+      },
+    );
+
+    expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+  });
+
   it('rejects a wrong SMS deletion code', async () => {
     const prisma = makeTx();
     prisma.smsOtp.findMany.mockResolvedValue([
@@ -436,6 +472,51 @@ describe('DeletionService.execute', () => {
 
     expect(prisma.smsOtp.updateMany).not.toHaveBeenCalled();
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid SMS deletion code, consumes the OTP, and deletes the account', async () => {
+    const prisma = makeTx();
+    prisma.smsOtp.findMany.mockResolvedValue([
+      {
+        id: 'otp-1',
+        phone: '13800001234',
+        purpose: SmsPurpose.DELETION,
+        codeHash: await bcrypt.hash('654321', 10),
+        expiresAt: new Date(now.getTime() + 60_000),
+        usedAt: null,
+      },
+    ]);
+    const { service } = makeService({ prisma });
+
+    const result = await service.execute(userId, executeDto({
+      confirmationMethod: AccountDeletionConfirmMethod.SMS,
+      smsCode: '654321',
+      modalConfirmText: undefined,
+    }));
+
+    expect(result).toEqual({ ok: true, message: '账号已注销' });
+    expect(prisma.smsOtp.updateMany).toHaveBeenCalledWith({
+      where: { id: 'otp-1', usedAt: null },
+      data: { usedAt: now },
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: userId },
+      data: {
+        status: UserStatus.DELETED,
+        deletionExecutedAt: now,
+        deletionConfirmMethod: AccountDeletionConfirmMethod.SMS,
+      },
+    });
+  });
+
+  it('rejects WeChat modal execution when no verified WeChat identity exists', async () => {
+    const prisma = makeTx();
+    prisma.authIdentity.findFirst.mockResolvedValue(null);
+    const { service } = makeService({ prisma });
+
+    await expect(service.execute(userId, executeDto())).rejects.toThrow(BadRequestException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
   });
 
   it('accepts the exact WeChat modal confirmation text', async () => {
@@ -639,6 +720,30 @@ describe('DeletionService.execute', () => {
     await expect(service.execute(userId, executeDto())).rejects.toBe(error);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects when acknowledgedNotice is not true even without relying on DTO validation', async () => {
+    const prisma = makeTx();
+    const { service } = makeService({ prisma });
+
+    await expect(service.execute(userId, executeDto({
+      acknowledgedNotice: false as true,
+    }))).rejects.toThrow(BadRequestException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('ExecuteDeletionDto validation', () => {
+  it('requires acknowledgedNotice to be exactly true', async () => {
+    const dto = Object.assign(new ExecuteDeletionDto(), {
+      confirmationMethod: AccountDeletionConfirmMethod.WECHAT_MODAL,
+      modalConfirmText: '确认注销',
+      acknowledgedNotice: false,
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.some((error) => error.property === 'acknowledgedNotice')).toBe(true);
+  });
 });
 
 describe('DeletionService.sendCode', () => {
@@ -700,5 +805,41 @@ describe('DeletionService.sendCode', () => {
 
     await expect(service.sendCode(userId)).rejects.toThrow(HttpException);
     expect(prisma.smsOtp.create).not.toHaveBeenCalled();
+  });
+
+  it('retries deletion OTP DB fallback when the Serializable transaction hits P2034', async () => {
+    jest.useRealTimers();
+    const prisma = makeTx();
+    prisma.$transaction = jest
+      .fn()
+      .mockRejectedValueOnce(prismaError('P2034'))
+      .mockImplementation(async (cb: any, _options?: any) => cb(prisma));
+    const { service } = makeService({
+      prisma,
+      redis: { consumeFixedWindow: jest.fn().mockResolvedValue(null) },
+    });
+
+    await expect(service.sendCode(userId)).resolves.toEqual({ ok: true });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.smsOtp.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        phone: '13800001234',
+        purpose: SmsPurpose.DELETION,
+      }),
+    });
+  });
+
+  it('does not retry non-P2034 deletion OTP DB fallback errors', async () => {
+    const prisma = makeTx();
+    const error = prismaError('P2002');
+    prisma.$transaction = jest.fn().mockRejectedValue(error);
+    const { service } = makeService({
+      prisma,
+      redis: { consumeFixedWindow: jest.fn().mockResolvedValue(null) },
+    });
+
+    await expect(service.sendCode(userId)).rejects.toBe(error);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

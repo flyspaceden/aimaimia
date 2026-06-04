@@ -82,9 +82,15 @@ export class DeletionService {
   private static readonly OTP_PER_MINUTE = 1;
   private static readonly OTP_PER_HOUR = 5;
   private static readonly OTP_WINDOW_SECONDS = 3_600;
+  private static readonly OTP_DB_FALLBACK_MAX_RETRIES = 3;
   private static readonly EXECUTE_MAX_RETRIES = 3;
   private static readonly DELETION_CONFIRM_TEXT = '确认注销';
   private static readonly NOTICE_VERSION = 'account-deletion-immediate-2026-06-04';
+  private static readonly BLOCKING_WITHDRAW_STATUSES = [
+    WithdrawStatus.REQUESTED,
+    WithdrawStatus.PROCESSING,
+    WithdrawStatus.APPROVED,
+  ];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -130,9 +136,7 @@ export class DeletionService {
       this.prisma.withdrawRequest.aggregate({
         where: {
           userId,
-          status: {
-            in: [WithdrawStatus.REQUESTED, WithdrawStatus.PROCESSING, WithdrawStatus.APPROVED],
-          },
+          status: { in: DeletionService.BLOCKING_WITHDRAW_STATUSES },
         },
         _sum: { amount: true },
       }),
@@ -298,7 +302,7 @@ export class DeletionService {
         where: { userId, status: { in: [PaymentStatus.INIT, PaymentStatus.PENDING] } },
       }),
       tx.withdrawRequest.count({
-        where: { userId, status: { in: [WithdrawStatus.PROCESSING, WithdrawStatus.APPROVED] } },
+        where: { userId, status: { in: DeletionService.BLOCKING_WITHDRAW_STATUSES } },
       }),
     ]);
 
@@ -560,9 +564,7 @@ export class DeletionService {
       tx.withdrawRequest.aggregate({
         where: {
           userId,
-          status: {
-            in: [WithdrawStatus.REQUESTED, WithdrawStatus.PROCESSING, WithdrawStatus.APPROVED],
-          },
+          status: { in: DeletionService.BLOCKING_WITHDRAW_STATUSES },
         },
         _sum: { amount: true },
       }),
@@ -756,34 +758,45 @@ export class DeletionService {
       return;
     }
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        const now = new Date();
-        const oneMinuteAgo = new Date(now.getTime() - 60_000);
-        const windowStart = new Date(now.getTime() - DeletionService.OTP_WINDOW_SECONDS * 1000);
+    for (let attempt = 0; attempt < DeletionService.OTP_DB_FALLBACK_MAX_RETRIES; attempt++) {
+      try {
+        await this.prisma.$transaction(
+          async (tx) => {
+            const now = new Date();
+            const oneMinuteAgo = new Date(now.getTime() - 60_000);
+            const windowStart = new Date(now.getTime() - DeletionService.OTP_WINDOW_SECONDS * 1000);
 
-        const [perMinute, perWindow] = await Promise.all([
-          tx.smsOtp.count({
-            where: { phone: target, purpose, createdAt: { gte: oneMinuteAgo } },
-          }),
-          tx.smsOtp.count({
-            where: { phone: target, purpose, createdAt: { gte: windowStart } },
-          }),
-        ]);
+            const [perMinute, perWindow] = await Promise.all([
+              tx.smsOtp.count({
+                where: { phone: target, purpose, createdAt: { gte: oneMinuteAgo } },
+              }),
+              tx.smsOtp.count({
+                where: { phone: target, purpose, createdAt: { gte: windowStart } },
+              }),
+            ]);
 
-        if (perMinute >= DeletionService.OTP_PER_MINUTE) {
-          throw new HttpException('发送过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
+            if (perMinute >= DeletionService.OTP_PER_MINUTE) {
+              throw new HttpException('发送过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
+            }
+            if (perWindow >= DeletionService.OTP_PER_HOUR) {
+              throw new HttpException('验证码发送次数已达上限，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
+            }
+
+            await tx.smsOtp.create({
+              data: { phone: target, codeHash, purpose, expiresAt },
+            });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+        return;
+      } catch (err) {
+        if (this.isSerializableConflict(err) && attempt < DeletionService.OTP_DB_FALLBACK_MAX_RETRIES - 1) {
+          await this.sleep(50 + Math.floor(Math.random() * 50) + attempt * 50);
+          continue;
         }
-        if (perWindow >= DeletionService.OTP_PER_HOUR) {
-          throw new HttpException('验证码发送次数已达上限，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
-        }
-
-        await tx.smsOtp.create({
-          data: { phone: target, codeHash, purpose, expiresAt },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+        throw err;
+      }
+    }
   }
 
   private getPhoneIdentity(tx: Prisma.TransactionClient | PrismaService, userId: string) {
