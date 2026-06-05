@@ -15,6 +15,10 @@ import { LegalDocument } from './types';
 //   其余虚拟资产（含钱包可提现余额）提交即视为自愿放弃、清零归平台、不予退还或兑现。
 //   注销相关章节：§3.1(3) 积分注销失效、§四 标题及 4.2(1)/4.2(4) 留存口径、§4.3 账号注销专项规则、§八 未成年人查询删除及账号注销。
 //   ⚠️ 与本版【实现真实行为】一致：不存在 30 天冷静期、不存在撤销注销入口；如需修订请以上方 spec 为准。
+//
+// 2026-06-05 局部更新（依《AI爱买买APP隐私政策2026-6-5.docx》）：§十 联系方式改为 客服电话 0755-28509232 + 邮箱 zwf@huahainongke.com；
+//   §2.2 新增「（5）相机权限：仅主动触发、不后台静默读写」；附录删除「讯飞开放平台 ASR」（未使用）。
+//   其余条款（账号注销资产作废披露、SDK 清单、投诉举报渠道 12321/12377/12315）按真实功能/上架要求保留不变；version/生效日未 bump（避免重弹同意）。
 
 export const PRIVACY_POLICY: LegalDocument = {
   title: 'AI爱买买APP隐私政策',
@@ -51,6 +55,7 @@ export const PRIVACY_POLICY: LegalDocument = {
         { type: 'bullet', text: '（2）麦克风权限：用于语音咨询、语音评价、语音客服交互，优化用户服务沟通体验。' },
         { type: 'bullet', text: '（3）定位权限：用于就近商品推荐、收货地址智能匹配、本地电商服务适配、同城推广活动适配。' },
         { type: 'bullet', text: '（4）消息推送权限：用于订单状态更新、积分变动提醒、推广奖励到账、售后进度、合规活动通知推送，您可随时关闭该授权。' },
+        { type: 'bullet', text: '（5）相机权限：仅在用户主动触发"选择图片""拍照""下载面单"等操作时调用，不会在后台静默读写。' },
         { type: 'note', text: '2.3 敏感个人信息处理规则' },
         { type: 'strong', text: '针对生物特征、金融账户、精准行踪等敏感个人信息，我们严格执行逐项单独授权、专款专用、限时留存规则，不批量、不捆绑授权。若业务、积分、推广场景确需收集，将单独告知收集用途、范围、留存期限，经用户主动确认后收集，仅用于约定场景，超范围处理需再次获取用户授权。' },
         { type: 'note', text: '2.4 信息合法使用范围' },
@@ -157,8 +162,8 @@ export const PRIVACY_POLICY: LegalDocument = {
       blocks: [
         { type: 'p', text: '隐私咨询、权益异议、投诉反馈、合规对接渠道：' },
         { type: 'bullet', text: '运营主体：深圳华海农业科技集团有限公司' },
-        { type: 'bullet', text: '个人信息保护负责人邮箱：zengweifeng3@163.com' },
-        { type: 'bullet', text: '客服电话：13923710623（工作日 9:00–18:00）' },
+        { type: 'bullet', text: '个人信息保护负责人邮箱：zwf@huahainongke.com' },
+        { type: 'bullet', text: '客服电话：0755-28509232（工作日 9:00–18:00）' },
         { type: 'bullet', text: 'App 内在线客服：我的 > 设置 > 在线客服' },
         { type: 'p', text: '响应时效：所有隐私、积分、推广权益相关诉求，我们将在 1-3 个工作日内完成核实、处理与回复。' },
         { type: 'p', text: '若您对我们的处理结果不满意，可向主管部门投诉举报：' },
@@ -195,7 +200,6 @@ export const PRIVACY_POLICY: LegalDocument = {
         { type: 'note', text: '地图与位置类' },
         { type: 'bullet', text: '高德地图开放平台（高德软件有限公司）— 用途：地址解析、POI 搜索、地图展示；共享字段：经纬度、地址文本；隐私政策：https://lbs.amap.com/pages/privacy/' },
         { type: 'note', text: '语音与 AI 类' },
-        { type: 'bullet', text: '讯飞开放平台 ASR（科大讯飞股份有限公司）— 用途：语音识别；共享字段：语音音频数据；隐私政策：https://www.xfyun.cn/doc/policy/privacy.html' },
         { type: 'bullet', text: '大语言模型服务（供应商待定）— 用途：AI 客服、意图识别、智能搜索；共享字段：脱敏后的文本对话' },
         { type: 'note', text: '物流类' },
         { type: 'bullet', text: '顺丰开放平台（顺丰速运有限公司）— 用途：物流下单、运单查询；共享字段：收件人姓名、脱敏手机号、地址' },
