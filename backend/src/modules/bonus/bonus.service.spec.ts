@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { BonusService } from './bonus.service';
+import { PLATFORM_USER_ID } from './engine/constants';
 
 describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
   function buildService(prismaMock: any) {
@@ -231,7 +232,7 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             orderId: 'order-1',
             activationStatus: 'ACTIVATING',
             referralBonusRate: 0.15,
-            amount: 399,
+            amount: 400,
           }),
         // prepare tx 把 FAILED 改成 RETRYING
         update: jest.fn().mockResolvedValue({
@@ -261,7 +262,7 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       'invitee-1',
       'order-1',
       'gift-1',
-      399,
+      400,
       { title: 'VIP 礼包' },
       'pkg-1',
       0.15,
@@ -290,7 +291,7 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             orderId: 'order-2',
             activationStatus: 'ACTIVATING',
             referralBonusRate: 0.15,
-            amount: 399,
+            amount: 400,
           }),
         create: jest.fn().mockResolvedValue({
           id: 'vp-2',
@@ -463,6 +464,117 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
 
     // CAS 命中 0 行后，inner tx 应直接 return，不再去查 memberProfile
     expect(prismaMock.memberProfile.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('历史推荐人已注销时，VIP 直推奖励归平台且不写入推荐人账户', async () => {
+    const ledgerCreateMock = jest.fn().mockResolvedValue({});
+    const accountUpdateMock = jest.fn().mockResolvedValue({});
+    const prismaMock: any = {
+      vipPurchase: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'vp-deleted-inviter',
+            userId: 'invitee-deleted-inviter',
+            orderId: 'order-deleted-inviter',
+            activationStatus: 'ACTIVATING',
+            referralBonusRate: 0.15,
+            amount: 400,
+          }),
+        create: jest.fn().mockResolvedValue({
+          id: 'vp-deleted-inviter',
+          activationStatus: 'PENDING',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'invitee-deleted-inviter',
+          tier: 'NORMAL',
+          inviterUserId: 'inviter-deleted',
+          referralCode: null,
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({
+          userId: 'invitee-deleted-inviter',
+          tier: 'VIP',
+          inviterUserId: 'inviter-deleted',
+          referralCode: 'NEWVIP01',
+        }),
+      },
+      vipProgress: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      normalProgress: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: 'DELETED',
+          deletionExecutedAt: new Date('2026-06-01T00:00:00.000Z'),
+        }),
+      },
+      rewardAccount: {
+        upsert: jest.fn().mockResolvedValue({ id: 'acct-inviter-deleted' }),
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'acct-platform-profit' }),
+        update: accountUpdateMock,
+      },
+      rewardLedger: {
+        create: ledgerCreateMock,
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const inboxService = { send: jest.fn().mockResolvedValue(undefined) };
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      inboxService as any,
+    );
+    jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+
+    await service.activateVipAfterPayment(
+      'invitee-deleted-inviter',
+      'order-deleted-inviter',
+      'gift-1',
+      400,
+      { title: 'VIP 礼包' },
+      'pkg-1',
+      0.15,
+    );
+
+    expect(ledgerCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'acct-platform-profit',
+        userId: PLATFORM_USER_ID,
+        entryType: 'RELEASE',
+        amount: 60,
+        status: 'AVAILABLE',
+        refType: 'VIP_REFERRAL',
+        refId: 'vp-deleted-inviter',
+        meta: expect.objectContaining({
+          scheme: 'VIP_REFERRAL_FALLBACK',
+          reason: 'DELETED_DIRECT_REFERRAL_RECIPIENT',
+          sourceUserId: 'invitee-deleted-inviter',
+          skippedInviterUserId: 'inviter-deleted',
+        }),
+      }),
+    });
+    expect(ledgerCreateMock).not.toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'inviter-deleted',
+        refType: 'VIP_REFERRAL',
+      }),
+    });
+    expect(accountUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'acct-platform-profit' },
+      data: { balance: { increment: 60 } },
+    });
+    expect(inboxService.send).not.toHaveBeenCalled();
   });
 });
 

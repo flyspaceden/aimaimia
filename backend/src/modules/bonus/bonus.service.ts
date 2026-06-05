@@ -2,7 +2,13 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ConflictExc
 import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService, BonusConfig } from './engine/bonus-config.service';
-import { MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, MAX_ROOT_NODES, NORMAL_ROOT_ID } from './engine/constants';
+import {
+  MAX_BFS_ITERATIONS,
+  MAX_TREE_DEPTH,
+  MAX_ROOT_NODES,
+  NORMAL_ROOT_ID,
+  PLATFORM_USER_ID,
+} from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { InboxService } from '../inbox/inbox.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
@@ -978,10 +984,25 @@ export class BonusService {
     amount: number,
     vipPurchaseId: string,
   ) {
+    const activeRecipient = await this.resolveActiveRewardRecipient(tx, inviterUserId);
+    if (!activeRecipient) {
+      await this.creditVipReferralBonusToPlatform(
+        tx,
+        inviterUserId,
+        inviteeUserId,
+        amount,
+        vipPurchaseId,
+      );
+      this.logger.log(
+        `VIP 推荐奖励归平台：推荐人 ${inviterUserId} 已注销/非活跃，金额 ${amount} 元（被推荐人 ${inviteeUserId}）`,
+      );
+      return;
+    }
+
     // 查找或创建推荐人的奖励账户
     const account = await tx.rewardAccount.upsert({
-      where: { userId_type: { userId: inviterUserId, type: 'VIP_REWARD' } },
-      create: { userId: inviterUserId, type: 'VIP_REWARD', balance: 0, frozen: 0 },
+      where: { userId_type: { userId: activeRecipient, type: 'VIP_REWARD' } },
+      create: { userId: activeRecipient, type: 'VIP_REWARD', balance: 0, frozen: 0 },
       update: {},
     });
 
@@ -989,7 +1010,7 @@ export class BonusService {
     await tx.rewardLedger.create({
       data: {
         accountId: account.id,
-        userId: inviterUserId,
+        userId: activeRecipient,
         entryType: 'RELEASE',
         amount,
         status: 'AVAILABLE',
@@ -1010,19 +1031,70 @@ export class BonusService {
     });
 
     this.logger.log(
-      `VIP 推荐奖励：推荐人 ${inviterUserId} 获得 ${amount} 元（被推荐人 ${inviteeUserId} 购买 VIP）`,
+      `VIP 推荐奖励：推荐人 ${activeRecipient} 获得 ${amount} 元（被推荐人 ${inviteeUserId} 购买 VIP）`,
     );
 
     // C12: VIP 邀请奖励通知
     setImmediate(() => {
       this.inboxService.send({
-        userId: inviterUserId,
+        userId: activeRecipient,
         category: 'transaction',
         type: 'vip_referral_bonus',
         title: 'VIP 推荐奖励到账',
         content: `您推荐的好友购买了 VIP，您获得 ${amount.toFixed(2)} 元推荐奖励。`,
         target: { route: '/me/wallet' },
       }).catch(() => {});
+    });
+  }
+
+  private async resolveActiveRewardRecipient(tx: any, userId: string): Promise<string | null> {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deletionExecutedAt: true },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+      return null;
+    }
+    return userId;
+  }
+
+  private async creditVipReferralBonusToPlatform(
+    tx: any,
+    skippedInviterUserId: string,
+    inviteeUserId: string,
+    amount: number,
+    vipPurchaseId: string,
+  ) {
+    let account = await tx.rewardAccount.findUnique({
+      where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
+    });
+    if (!account) {
+      account = await tx.rewardAccount.create({
+        data: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' },
+      });
+    }
+
+    await tx.rewardLedger.create({
+      data: {
+        accountId: account.id,
+        userId: PLATFORM_USER_ID,
+        entryType: 'RELEASE',
+        amount,
+        status: 'AVAILABLE',
+        refType: 'VIP_REFERRAL',
+        refId: vipPurchaseId,
+        meta: {
+          scheme: 'VIP_REFERRAL_FALLBACK',
+          reason: 'DELETED_DIRECT_REFERRAL_RECIPIENT',
+          sourceUserId: inviteeUserId,
+          skippedInviterUserId,
+        },
+      },
+    });
+
+    await tx.rewardAccount.update({
+      where: { id: account.id },
+      data: { balance: { increment: amount } },
     });
   }
 
