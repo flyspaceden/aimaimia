@@ -54,7 +54,8 @@ const NOTICE_SECTIONS: Array<{ title: string; paragraphs: string[] }> = [
       '1. 消费积分、分润奖励、钱包或余额类权益（含可提现部分）；',
       '2. 平台红包与已绑定未使用的优惠券；',
       '3. 抽奖中奖名额、购物车中的奖品权益；',
-      '4. 待发放、冻结中或可提现的分润奖励。',
+      '4. VIP 会员权益、推荐码展示与分享权益；',
+      '5. 待发放、冻结中或可提现的分润奖励。',
       '提交注销即视为您自愿放弃上述全部资产（包括本可提现的余额），平台不予退还或补偿。',
       '如您有正在支付或确认中的订单、支付处理中记录、提现处理中记录，平台将暂不受理注销，请先完成、取消或等待处理结束后再提交。',
     ],
@@ -88,7 +89,7 @@ const NOTICE_SECTIONS: Array<{ title: string; paragraphs: string[] }> = [
 /** 作废警示要点（资产卡下方醒目展示，覆盖 spec 关键处置口径） */
 const VOID_WARNINGS: string[] = [
   '账号一经注销立即生效、不可恢复',
-  '消费积分、冻结/可提现分润、平台红包、抽奖名额全部清零作废',
+  '消费积分、冻结/可提现分润、平台红包、VIP 权益、抽奖名额全部清零作废',
   '订单、支付、退款、发票、售后记录依法保留并继续处理',
   '手机号 / 微信可重新注册，但已作废权益不会迁回',
 ];
@@ -109,7 +110,7 @@ const formatMoney = (v: number): string => `¥${(v ?? 0).toFixed(2)}`;
 
 // ==================== 主页面 ====================
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2;
 
 export default function AccountDeletionScreen() {
   const { colors, radius, shadow, spacing, typography } = useTheme();
@@ -129,7 +130,7 @@ export default function AccountDeletionScreen() {
   // Repo 返回 Result<T>：业务层 ok=false 也要当错误态处理
   const isErrored = previewQuery.isError || (previewQuery.data && !previewQuery.data.ok);
 
-  // 步骤状态机：1 须知+资产+同意 / 2 身份核验 / 3 成功
+  // 步骤状态机：1 须知+资产+同意 / 2 身份核验；成功后立即清本地态并回首页
   const [step, setStep] = useState<Step>(1);
   // Step 1：勾选同意
   const [agreed, setAgreed] = useState(false);
@@ -209,11 +210,7 @@ export default function AccountDeletionScreen() {
       show({ message: msg, type: 'error' });
       return;
     }
-    setStep(3);
-  };
-
-  // Step 3：退出 App → 清本地态 → 回首页
-  const handleExitApp = () => {
+    show({ message: '账号已注销', type: 'success' });
     logoutAndClearClientState();
     router.replace('/(tabs)/home');
   };
@@ -324,42 +321,6 @@ export default function AccountDeletionScreen() {
           >
             <Text style={[typography.bodyStrong, { color: colors.text.tertiary }]} {...compactActionTextProps}>
               暂不能注销
-            </Text>
-          </Pressable>,
-        )}
-      </Screen>
-    );
-  }
-
-  // ---------- Step 3：成功页 ----------
-  if (step === 3) {
-    return (
-      <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="注销账号" showBack={false} />
-        <View style={styles.centerFill} accessibilityRole="alert">
-          <Animated.View entering={FadeInDown.duration(280)} style={styles.successWrap}>
-            <View style={[styles.successIcon, { backgroundColor: colors.success + '18' }]}>
-              <MaterialCommunityIcons name="check-circle" size={56} color={colors.success} />
-            </View>
-            <Text style={[typography.title2, { color: colors.text.primary, marginTop: spacing.lg }]}>
-              账号已注销
-            </Text>
-            <Text
-              style={[typography.body, { color: colors.text.secondary, marginTop: spacing.sm, textAlign: 'center' }]}
-            >
-              您的账号已成功注销并立即生效。感谢您一路以来的陪伴。
-            </Text>
-          </Animated.View>
-        </View>
-        {renderBottomBar(
-          <Pressable
-            onPress={handleExitApp}
-            style={[styles.primaryBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
-            accessibilityRole="button"
-            accessibilityLabel="退出 App"
-          >
-            <Text style={[typography.bodyStrong, { color: colors.text.onPrimary }]} {...compactActionTextProps}>
-              退出 App
             </Text>
           </Pressable>,
         )}
@@ -512,6 +473,7 @@ export default function AccountDeletionScreen() {
     { label: '钱包 / 可提现余额', value: formatMoney(assets.withdrawableRewards) },
     { label: '消费积分', value: `${assets.points}` },
     { label: '平台红包', value: `${assets.coupons} 张` },
+    { label: 'VIP 权益', value: '立即终止' },
     { label: '冻结分润', value: formatMoney(assets.frozenRewards) },
     { label: '抽奖名额', value: `${assets.lotteryQuota}` },
   ];
@@ -770,18 +732,6 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // ---- 成功页 ----
-  successWrap: {
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  successIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
