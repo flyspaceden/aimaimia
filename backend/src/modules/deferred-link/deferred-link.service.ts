@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { UserStatus } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -43,9 +44,14 @@ export class DeferredLinkService {
   ): Promise<{ cookieId: string }> {
     const member = await this.prisma.memberProfile.findUnique({
       where: { referralCode: dto.referralCode },
+      include: { user: { select: { status: true, deletionExecutedAt: true } } },
     });
     if (!member || member.tier !== 'VIP') {
       throw new BadRequestException('推荐码无效');
+    }
+    // 已注销 / 非正常状态的推荐人不能再生成延迟深链（账号注销 Task 4）。
+    if (member.user.status !== UserStatus.ACTIVE || member.user.deletionExecutedAt) {
+      throw new BadRequestException('推荐人账号不可用');
     }
 
     const screenInfo = `${dto.screenWidth}x${dto.screenHeight}`;
@@ -74,7 +80,7 @@ export class DeferredLinkService {
     }
 
     const now = new Date();
-    // 事务内原子操作：查找 + 标记已消费
+    // 事务内原子操作：查找 + 标记已消费 + 校验推荐人仍可用
     const record = await this.prisma.$transaction(async (tx) => {
       const found = await tx.deferredDeepLink.findUnique({
         where: { cookieId },
@@ -82,10 +88,17 @@ export class DeferredLinkService {
       if (!found || found.matched || found.expiresAt < now) {
         return null;
       }
-      return tx.deferredDeepLink.update({
+      const consumed = await tx.deferredDeepLink.update({
         where: { id: found.id },
         data: { matched: true },
       });
+
+      // DeferredDeepLink 只持久化了 referralCode 字符串，落地到 App 后才用它换绑推荐人。
+      // 推荐人若在此期间注销 / 被封禁，推荐码对"新绑定"应失效（账号注销 Task 4）：
+      // 链路照常消费（不复用），但不再向 App 返回可用推荐码。
+      return (await this.isReferralCodeBindable(tx, consumed.referralCode))
+        ? consumed
+        : null;
     });
 
     return { referralCode: record?.referralCode ?? null };
@@ -125,10 +138,13 @@ export class DeferredLinkService {
       }
 
       if (exactCandidates.length > 0) {
-        return tx.deferredDeepLink.update({
+        const consumed = await tx.deferredDeepLink.update({
           where: { id: exactCandidates[0].id },
           data: { matched: true },
         });
+        return (await this.isReferralCodeBindable(tx, consumed.referralCode))
+          ? consumed
+          : null;
       }
 
       // 第二优先级：模糊匹配（同 IP + 相同屏幕信息）
@@ -155,16 +171,37 @@ export class DeferredLinkService {
       }
 
       if (fuzzyCandidates.length > 0) {
-        return tx.deferredDeepLink.update({
+        const consumed = await tx.deferredDeepLink.update({
           where: { id: fuzzyCandidates[0].id },
           data: { matched: true },
         });
+        return (await this.isReferralCodeBindable(tx, consumed.referralCode))
+          ? consumed
+          : null;
       }
 
       return null;
     });
 
     return { referralCode: record?.referralCode ?? null };
+  }
+
+  /**
+   * 校验推荐码当前是否仍可用于"新绑定"：必须是存在的 VIP 会员，
+   * 且其 User 处于 ACTIVE 且未注销（账号注销 Task 4）。
+   * 历史推荐树/链路不受影响，这里只拦截"把新人绑到已注销推荐人"。
+   */
+  private async isReferralCodeBindable(tx: any, referralCode: string): Promise<boolean> {
+    const member = await tx.memberProfile.findUnique({
+      where: { referralCode },
+      include: { user: { select: { status: true, deletionExecutedAt: true } } },
+    });
+    return (
+      !!member &&
+      member.tier === 'VIP' &&
+      member.user.status === UserStatus.ACTIVE &&
+      !member.user.deletionExecutedAt
+    );
   }
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)

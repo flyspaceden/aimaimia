@@ -310,4 +310,62 @@ describe('OrderService.previewOrder shipping weight', () => {
       undefined,
     );
   });
+
+  it('rejects a soft-deleted address when addressId is explicitly provided', async () => {
+    const sku = {
+      id: 'sku-real',
+      productId: 'product-1',
+      title: '普通 SKU',
+      price: 20,
+      stock: 10,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: undefined,
+      product: {
+        id: 'product-1',
+        title: '普通商品',
+        status: 'ACTIVE',
+        companyId: 'merchant-company',
+        company: { name: '普通商户' },
+        media: [],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([sku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: {
+        findUnique: jest.fn(async (args: any) => (
+          args.where.deletedAt === null
+            ? null
+            : {
+                userId: 'user1',
+                regionCode: '110000',
+                deletedAt: new Date('2026-06-04T12:00:00.000Z'),
+              }
+        )),
+      },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 99,
+        vipFreeShippingThreshold: 99,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingFee: jest.fn().mockResolvedValue(8),
+    };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    await expect(service.previewOrder('user1', {
+      items: [{ skuId: 'sku-real', quantity: 2 }],
+      addressId: 'addr1',
+    } as any)).rejects.toThrow('请选择有效的收货地址');
+    expect(shippingRuleService.calculateShippingFee).not.toHaveBeenCalled();
+  });
 });

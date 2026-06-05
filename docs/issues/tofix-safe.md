@@ -355,3 +355,15 @@
 | B01 | **AuthIdentity 唯一约束在 NULL 上失效** | 🟠 HIGH | Schema `@@unique([provider, identifier, appId])` 在 `appId=null` 时 PostgreSQL `NULLS DISTINCT` 让两条 `(WECHAT, openId, NULL)` 不冲突，P2002 不触发。当前所有微信身份 `appId=null`，意味着登录注册/绑定的 schema 层防并发是**纸面约束**。本次 `bindPhone`/`bindWechat` 已用 Serializable 事务在应用层兜底，但根治需改 migration（候选：`@@unique([provider, identifier])` 移除 appId、或 partial index `WHERE appId IS NULL` 等价处理）。**注意：修这个 schema 会影响 `loginWithWeChat`、`register`、`loginByPhone` 的并发行为，需要整组回归** | ⬜ 单独开 PR |
 | B02 | 绑定身份成功后不清 session | 🟡 LOW | 与卖家端 `changePhone` 不同：本次是**新增身份**而非修改现有身份，当前 session 应保持有效。已在代码注释中说明决策。无需修复，仅记录避免后续误改 | ✅ 设计内 |
 | B03 | sendBindPhoneCode 不应泄露占用信息 | 🟠 HIGH | 发码端点若预检"目标号已被占"并拒绝，会成为攻击者枚举注册号的渠道。已修：sendBindPhoneCode 只检查当前账号是否已绑，占用判断推迟到 bindPhone（OTP 消费后） | ✅ 已修 |
+
+---
+
+## 2026-06-04 账号注销（即时）分润资金安全（Task 5）
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| D01 | **分润上溯/直推给已注销用户入账** | 🔴 CRITICAL | 即时注销后用户节点保留在 VIP/普通树里（不剔除、不重排）。若不拦截，下游订单的分润上溯或历史下级购买 VIP 的直推奖励会写进已注销用户的 RewardAccount，事实上把"已清零归平台"的资产又发回去。已修：`vip-upstream` / `normal-upstream` / `normal-broadcast` 入账前调用 `resolveActiveRewardRecipient(tx, userId)`；`BonusService.grantVipReferralBonus()` 也在同一 Serializable 激活事务内读取推荐人 `User.status`/`deletionExecutedAt`。为 null 则走平台留存通道，绝不碰已注销用户账户。 | ✅ 已修 |
+| D02 | 已注销份额/遗留流水导致利润或资产复活 | 🔴 HIGH | 跳过注销用户份额若丢失，则 100% 利润分配出现缺口；注销前已有 `AVAILABLE/FROZEN/RETURN_FROZEN` ledger 若继续保留，后续 cron/退款状态机可能把资产转回账号。已修：跳过份额全额进入 PLATFORM_PROFIT 留存账户并写可审计 ledger；注销事务内将该用户既有可逆 RewardLedger 统一置为 `VOIDED/VOID`，再清零 RewardAccount，防止 `freeze-expire`/退款回滚继续处理。单测覆盖守恒、直推归平台、旧 ledger 作废断言。 | ✅ 已修 |
+| D03 | 遗留 NORMAL_BROADCAST 队列残留注销受益人 | 🟡 LOW | `NORMAL_BROADCAST` 仅对迁移日期（2026-02-28）前旧订单生效，新订单不再进入；但桶队列里仍可能残留已注销用户。已补强：广播循环内对每位受益人 `resolveActiveRewardRecipient`，注销者其单笔份额（含 remainder 仍按原规则归最后一位）路由到平台 `creditToPlatform(variant='DELETED_BENEFICIARY')`，`totalDistributed` 照计，守恒不变 | ✅ 已修 |
+| D04 | 注销成功后 App 残留请求 403 不自动登出 | 🟡 LOW | 已修：`app/me/deletion.tsx` 在 execute 成功后立即调用 `logoutAndClearClientState()` 并 `router.replace('/(tabs)/home')`，不再等待用户点击成功页按钮；仍不在 `ApiClient` 做全局 403 登出，避免误伤正常权限 403。 | ✅ 已修 |
+| D05 | 地址软删 `deletedAt` 过滤靠人工逐查询添加 | 🟡 LOW | 现状：`address.service.ts` 全部 17 处面向用户查询均已加 `deletedAt: null`（已审查确认无遗漏）。隐患：Prisma 无全局 soft-delete where 约束，未来新增地址查询易漏过滤导致读到已注销用户的已删地址。建议：PR 检查项/封装统一查询 helper | ⏳ 待办（防护） |

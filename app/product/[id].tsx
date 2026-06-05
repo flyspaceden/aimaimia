@@ -24,9 +24,10 @@ import { Tag } from '../../src/components/ui/Tag';
 import { Price } from '../../src/components/ui/Price';
 import { AiBadge } from '../../src/components/ui/AiBadge';
 import { AiDivider } from '../../src/components/ui/AiDivider';
+import { AuthModal } from '../../src/components/overlay';
 import { ProductRepo, TraceRepo, CompanyRepo } from '../../src/repos';
 import { AppConfigRepo } from '../../src/repos/AppConfigRepo';
-import { useCartStore } from '../../src/store';
+import { useAuthStore, useCartStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 import { getStockStatus, getStockText } from '../../src/utils/stockDisplay';
@@ -60,6 +61,8 @@ export default function ProductDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
   const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
 
   // 商品数据（静态数据，5 分钟长缓存）
   const { data, isLoading, refetch } = useQuery({
@@ -126,6 +129,29 @@ export default function ProductDetailScreen() {
     const offset = e.nativeEvent.contentOffset.x;
     const idx = Math.round(offset / SCREEN_WIDTH);
     setImageIndex(idx);
+  };
+
+  // 立即购买：未登录先弹登录，登录成功后再走下单；已登录直接下单
+  const proceedBuyNow = () => {
+    if (needsSkuSelection) {
+      show({ message: '请选择规格', type: 'info' });
+      return;
+    }
+    if (!canBuyActiveSku) {
+      show({ message: '商品暂无库存，无法购买', type: 'info' });
+      return;
+    }
+    const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+    if (added) {
+      router.push('/checkout');
+    }
+  };
+  const handleBuyNow = () => {
+    if (!isLoggedIn) {
+      setAuthModalOpen(true);
+      return;
+    }
+    proceedBuyNow();
   };
 
   // 加载态
@@ -331,7 +357,8 @@ export default function ProductDetailScreen() {
             </Animated.View>
           )}
 
-          {/* AI 溯源区 */}
+          {/* AI 溯源区 —— 功能未上线，暂时隐藏（保留实现，恢复时删掉外层 {false && (...)} 包裹即可）*/}
+          {false && (
           <Animated.View entering={FadeInDown.duration(300).delay(300)}>
             <View style={[styles.traceSection, { backgroundColor: colors.ai.soft, borderRadius: radius.xl, marginTop: spacing.xl }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg }}>
@@ -403,6 +430,7 @@ export default function ProductDetailScreen() {
               </Pressable>
             </View>
           </Animated.View>
+          )}
 
           {/* 企业卡片 — 增强版 */}
           {company && (
@@ -547,20 +575,7 @@ export default function ProductDetailScreen() {
             style={[styles.ctaButton, { borderRadius: radius.lg }, !compactCtaBar && { marginLeft: spacing.md }]}
           >
             <Pressable
-              onPress={() => {
-                if (needsSkuSelection) {
-                  show({ message: '请选择规格', type: 'info' });
-                  return;
-                }
-                if (!canBuyActiveSku) {
-                  show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
-                  return;
-                }
-                const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
-                if (added) {
-                  router.push('/checkout');
-                }
-              }}
+              onPress={handleBuyNow}
               style={[styles.ctaInner, !canBuyActiveSku && { opacity: 0.5 }]}
             >
               <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
@@ -622,20 +637,7 @@ export default function ProductDetailScreen() {
             style={[styles.ctaButton, { borderRadius: radius.lg }, !compactCtaBar && { marginLeft: spacing.md }]}
           >
             <Pressable
-              onPress={() => {
-                if (needsSkuSelection) {
-                  show({ message: '请选择规格', type: 'info' });
-                  return;
-                }
-                if (!canBuyActiveSku) {
-                  show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
-                  return;
-                }
-                const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
-                if (added) {
-                  router.push('/checkout');
-                }
-              }}
+              onPress={handleBuyNow}
               style={[styles.ctaInner, !canBuyActiveSku && { opacity: 0.5 }]}
             >
               <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
@@ -645,6 +647,15 @@ export default function ProductDetailScreen() {
           </LinearGradient>
         </View>
       )}
+
+      <AuthModal
+        open={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={() => {
+          setAuthModalOpen(false);
+          proceedBuyNow();
+        }}
+      />
     </Screen>
   );
 }

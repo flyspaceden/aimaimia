@@ -34,7 +34,7 @@ export class SellerAuthService {
 
   /**
    * 按 SMS purpose 隔离的发送限流配额（与买家端 auth.service.ts 的 OTP_RATE_LIMITS 保持一致）
-   * 登录/绑定：1/分 + 10/天；忘记密码：1/分 + 5/小时（按 spec）
+   * 登录/绑定：1/分 + 10/天；忘记密码/账号注销：1/分 + 5/小时（按 spec）
    */
   private static readonly OTP_RATE_LIMITS: Record<
     SmsPurpose,
@@ -45,6 +45,7 @@ export class SellerAuthService {
     RESET:        { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
     BUYER_RESET:  { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
     SELLER_RESET: { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+    DELETION:     { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
   };
 
   /** 密码重置事件的 LoginEvent.meta.action 标记，与买家端保持同名 */

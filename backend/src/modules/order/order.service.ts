@@ -1211,12 +1211,13 @@ export class OrderService {
     let regionCode: string | undefined;
     if (dto.addressId) {
       const address = await this.prisma.address.findUnique({
-        where: { id: dto.addressId },
-        select: { userId: true, regionCode: true },
+        where: { id: dto.addressId, userId, deletedAt: null },
+        select: { regionCode: true },
       });
-      if (address && address.userId === userId) {
-        regionCode = address.regionCode;
+      if (!address) {
+        throw new BadRequestException('请选择有效的收货地址');
       }
+      regionCode = address.regionCode;
     }
 
     // 按 companyId 分组

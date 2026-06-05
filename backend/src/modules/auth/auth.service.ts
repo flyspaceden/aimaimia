@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
+  ForbiddenException,
   NotFoundException,
   Logger,
   HttpException,
@@ -11,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma, SmsPurpose } from '@prisma/client';
+import { Prisma, SmsPurpose, UserStatus } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
@@ -36,7 +37,7 @@ export class AuthService {
   /**
    * 按 SMS purpose 隔离的发送限流配额
    * - 登录/绑定：沿用 1/分钟 + 10/天（成本敏感型，全天量控）
-   * - 忘记密码（BUYER_RESET/SELLER_RESET）：1/分钟 + 5/小时（按 spec 设计，抵御短期爆破）
+   * - 忘记密码/账号注销（BUYER_RESET/SELLER_RESET/DELETION）：1/分钟 + 5/小时（按 spec 设计，抵御短期爆破）
    */
   private static readonly OTP_RATE_LIMITS: Record<
     SmsPurpose,
@@ -47,6 +48,7 @@ export class AuthService {
     RESET:        { perMinute: 1, windowCount: 5,  windowSec: 3_600  }, // 枚举占位，当前无代码使用
     BUYER_RESET:  { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
     SELLER_RESET: { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
+    DELETION:     { perMinute: 1, windowCount: 5,  windowSec: 3_600  },
   };
 
   /**
@@ -451,9 +453,14 @@ export class AuthService {
     // 查找是否已有微信绑定的身份
     const identity = await this.prisma.authIdentity.findFirst({
       where: { provider: 'WECHAT', identifier: openId },
+      include: { user: { select: { status: true } } },
     });
 
     if (identity) {
+      // 账号注销护栏：非 ACTIVE 账号不签发 Session（DELETED 正常已 tombstone 不会命中，防御性兜底）
+      if (identity.user.status !== UserStatus.ACTIVE) {
+        throw new ForbiddenException('账号不可用');
+      }
       // 已绑定用户，直接签发 Token
       return this.issueTokens(identity.userId, 'wechat');
     }
@@ -603,7 +610,15 @@ export class AuthService {
   private async loginByPhone(phone: string, mode: string, code?: string, password?: string) {
     const identity = await this.prisma.authIdentity.findFirst({
       where: { provider: 'PHONE', identifier: phone },
+      include: { user: { select: { status: true } } },
     });
+
+    // 账号注销护栏：通过身份找到用户后，非 ACTIVE（含 DELETED/BANNED）一律不签发 Session。
+    // 正常情况下注销会把 identifier 改写成 tombstone，此处不会命中；本守卫为防御性兜底
+    // （注销执行与 tombstone 写入之间的并发窗口、或异常态用户复用真实号登录）。
+    if (identity && identity.user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('账号不可用');
+    }
 
     if (mode === 'code') {
       // 验证码模式：如果用户不存在，自动注册
@@ -703,6 +718,8 @@ export class AuthService {
     loginMethod: string,
     inheritedAbsoluteExpiresAt?: Date | null,
   ) {
+    await this.assertActiveUserForSessionIssue(userId);
+
     const expiresIn = this.config.get('JWT_EXPIRES_IN', '15m');
 
     // 生成 refresh token 并存储哈希
@@ -750,6 +767,16 @@ export class AuthService {
   /** SHA-256 哈希（用于 token 存储） */
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private async assertActiveUserForSessionIssue(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deletionExecutedAt: true },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+      throw new ForbiddenException('账号已注销或不可用，不能签发新的登录会话');
+    }
   }
 
   private parseExpiry(expiresIn: string): number {
@@ -1030,6 +1057,21 @@ export class AuthService {
     return createHash('sha256').update(value).digest('hex').slice(0, 24);
   }
 
+  /**
+   * 账号注销护栏：任何登录态身份变更（绑定手机号/微信、未来的解绑/改密等）写操作前必须先断言账号仍 ACTIVE。
+   * 已注销用户在 30 天冷静期内可能仍持有未失效的旧 JWT（或撤销前抢发的请求），
+   * 必须在此拒绝其修改登录身份，防止"复活"已释放的手机号/微信归属。
+   */
+  private async assertActiveUserForIdentityMutation(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deletionExecutedAt: true },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+      throw new ForbiddenException('账号已注销，不能修改登录身份');
+    }
+  }
+
   // ============ 账号身份绑定（买家 App "账号与安全" 页用） ============
   //
   // 设计：方案 A — 只允许"空位绑定"，不允许换绑/解绑。
@@ -1044,6 +1086,9 @@ export class AuthService {
    * 失败文案"该手机号已被其他账号绑定"只在用户主动尝试绑定时才暴露。
    */
   async sendBindPhoneCode(userId: string, phone: string) {
+    // 账号注销护栏：已注销账号不得进入任何身份绑定流程（含发码）
+    await this.assertActiveUserForIdentityMutation(userId);
+
     // 当前账号若已绑手机号，直接拒（不允许换绑，前端按钮在已绑状态下也不应允许进入此流程）
     const own = await this.prisma.authIdentity.findFirst({
       where: { userId, provider: 'PHONE' },
@@ -1084,6 +1129,9 @@ export class AuthService {
    * 注：本次新增身份不影响当前 session（不同于 changePhone 是修改现有身份）。
    */
   async bindPhone(userId: string, phone: string, code: string) {
+    // 账号注销护栏：已注销账号不得绑定/修改登录身份
+    await this.assertActiveUserForIdentityMutation(userId);
+
     // 1. 校验 OTP（事务外，purpose=BIND，CAS 原子消费）。失败抛错，不消耗后续事务资源。
     //    OTP 一旦消费成功就标记 usedAt，下面事务若 P2034 重试不会重复消费。
     await this.verifyCode(phone, code, SmsPurpose.BIND);
@@ -1139,6 +1187,9 @@ export class AuthService {
    * 因此 P2034 重试只重跑事务体（findFirst+create），不重复调微信换 openId 接口。
    */
   async bindWechat(userId: string, code: string) {
+    // 账号注销护栏：已注销账号不得绑定/修改登录身份
+    await this.assertActiveUserForIdentityMutation(userId);
+
     // 1. 先 code 换 openId（事务外，外部 HTTP 调用不进事务）
     const wechatProfile = await this.exchangeCodeForWechatProfile(code);
     const { openId, unionId } = wechatProfile;

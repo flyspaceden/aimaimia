@@ -30,3 +30,4 @@ export * from './Category';
 export * from './Invoice';
 export * from './CustomerService';
 export * from './Checkout';
+export * from './AccountDeletion';

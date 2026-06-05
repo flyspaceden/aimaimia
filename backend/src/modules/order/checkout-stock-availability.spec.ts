@@ -112,4 +112,19 @@ describe('CheckoutService stock availability', () => {
     } as any)).rejects.toThrow('商品「龙虾」当前仅剩 1 件，请调整数量');
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+
+  it('rejects a soft-deleted address before creating checkout session', async () => {
+    const { service, prisma } = createService(10);
+    prisma.address.findUnique.mockImplementation(async (args: any) => (
+      args.where.deletedAt === null
+        ? null
+        : { ...validAddress(), deletedAt: new Date('2026-06-04T12:00:00.000Z') }
+    ));
+
+    await expect(service.checkout('user1', {
+      items: [{ skuId: 'sku-1', quantity: 1, cartItemId: 'ci1' }],
+      addressId: 'a1',
+    } as any)).rejects.toThrow('请选择有效的收货地址');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });
