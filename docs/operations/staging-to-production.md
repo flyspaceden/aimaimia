@@ -155,7 +155,7 @@
 | `INVOICE_PDF_ALLOWED_URL_PREFIXES` | 默认走 OSS / UPLOAD_BASE_URL | 同左（如手工开票要上传 PDF 到第三方 CDN，在此列前缀白名单）|
 | `INVOICE_PROVIDER_RESET_AFTER_MINUTES` | `10` | `10`（Provider 开票预占超过 N 分钟后管理端才能重置）|
 | `SF_ENV` | `UAT` | **`PROD`** |
-| `SF_API_URL` | `https://bsp-oisp.sf-express.com/std/service`（生产地址，仅当 `SF_ENV=PROD` 时使用）| 同左 |
+| `SF_API_URL` | `https://sfapi.sf-express.com/std/service`（生产地址，仅当 `SF_ENV=PROD` 时使用；⚠️ **不是** `bsp-oisp.sf-express.com`，那个域名 `/std/service` 已废弃返回 404，2026-06-05 踩坑修正，详见密码本 §7）| 同左 |
 | `SF_API_URL_UAT` | `https://sfapi-sbox.sf-express.com/std/service`（沙箱，仅 `SF_ENV=UAT` 使用） | 留空或同左（生产不读）|
 | `SF_CLIENT_CODE` / `SF_CHECK_WORD` | UAT 凭据（`HHNYKCL5OWXM` 等） | **生产凭据**（顺丰商务下发的正式 clientCode / checkWord，与 UAT 完全不同）|
 | `SF_MONTHLY_ACCOUNT_UAT` | `7551234567`（顺丰统一沙箱卡）| 留空或同左（生产不读）|

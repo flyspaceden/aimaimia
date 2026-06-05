@@ -450,17 +450,8 @@ export default function ProductDetailScreen() {
                     contentFit="cover"
                   />
                   <View style={{ flex: 1, marginLeft: spacing.md }}>
+                    {/* 店铺名（评分/认证/年限那行原是写死假数据，已删，2026-06-05） */}
                     <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{company.name}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                      <MaterialCommunityIcons name="star" size={14} color={colors.gold.primary} />
-                      <Text style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 3 }]}>
-                        4.8
-                      </Text>
-                      <View style={[styles.companyDot, { backgroundColor: colors.text.tertiary }]} />
-                      <Text style={[typography.captionSm, { color: colors.text.secondary }]}>有机认证</Text>
-                      <View style={[styles.companyDot, { backgroundColor: colors.text.tertiary }]} />
-                      <Text style={[typography.captionSm, { color: colors.text.secondary }]}>5年</Text>
-                    </View>
                   </View>
                   <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.tertiary} />
                 </View>
