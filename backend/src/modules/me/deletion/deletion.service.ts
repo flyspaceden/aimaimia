@@ -350,8 +350,9 @@ export class DeletionService {
       throw new BadRequestException({ code: 'ACCOUNT_DELETION_NOTICE_REQUIRED', message: '请先确认注销须知' });
     }
 
+    const phoneIdentity = await this.getPhoneIdentity(tx, userId);
+
     if (dto.confirmationMethod === AccountDeletionConfirmMethod.SMS) {
-      const phoneIdentity = await this.getPhoneIdentity(tx, userId);
       if (!phoneIdentity) {
         throw new BadRequestException({
           code: 'ACCOUNT_DELETION_SMS_UNAVAILABLE',
@@ -363,6 +364,12 @@ export class DeletionService {
     }
 
     if (dto.confirmationMethod === AccountDeletionConfirmMethod.WECHAT_MODAL) {
+      if (phoneIdentity) {
+        throw new BadRequestException({
+          code: 'ACCOUNT_DELETION_SMS_REQUIRED',
+          message: '当前账号已绑定手机号，请使用短信验证码确认注销',
+        });
+      }
       if (dto.modalConfirmText !== DeletionService.DELETION_CONFIRM_TEXT) {
         throw new BadRequestException({ code: 'WECHAT_CONFIRM_TEXT_INVALID', message: '请输入“确认注销”' });
       }
@@ -389,6 +396,23 @@ export class DeletionService {
     evidence: DeletionEvidenceContext = {},
   ) {
     const cleanup = await this.buildCleanupSnapshot(tx, userId, dto, evidence);
+
+    await tx.rewardLedger.updateMany({
+      where: {
+        userId,
+        status: {
+          in: [
+            RewardLedgerStatus.AVAILABLE,
+            RewardLedgerStatus.FROZEN,
+            RewardLedgerStatus.RETURN_FROZEN,
+          ],
+        },
+      },
+      data: {
+        status: RewardLedgerStatus.VOIDED,
+        entryType: RewardEntryType.VOID,
+      },
+    });
 
     await tx.rewardAccount.updateMany({
       where: { userId },

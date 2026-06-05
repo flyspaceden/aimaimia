@@ -83,7 +83,10 @@ function makeTx(overrides: Record<string, any> = {}) {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
-    rewardLedger: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    rewardLedger: {
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     lotteryRecord: {
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
@@ -151,6 +154,52 @@ function executeDto(overrides: Partial<ExecuteDeletionDto> = {}): ExecuteDeletio
     acknowledgedNotice: true,
     ...overrides,
   } as ExecuteDeletionDto;
+}
+
+function smsExecuteDto(code = '654321'): ExecuteDeletionDto {
+  return executeDto({
+    confirmationMethod: AccountDeletionConfirmMethod.SMS,
+    smsCode: code,
+    modalConfirmText: undefined,
+  });
+}
+
+function mockWechatOnlyDeletion(prisma: any) {
+  prisma.user.findUniqueOrThrow.mockResolvedValue({
+    id: userId,
+    status: UserStatus.ACTIVE,
+    deletionExecutedAt: null,
+    authIdentities: [wechatIdentity()],
+  });
+  prisma.authIdentity.findFirst.mockImplementation(({ where }: any) => {
+    if (where.provider === AuthProvider.PHONE) return Promise.resolve(null);
+    if (where.provider === AuthProvider.WECHAT) return Promise.resolve({ id: 'identity-wechat' });
+    return Promise.resolve(null);
+  });
+}
+
+async function mockSmsDeletion(prisma: any, code = '654321') {
+  prisma.user.findUniqueOrThrow.mockResolvedValue({
+    id: userId,
+    status: UserStatus.ACTIVE,
+    deletionExecutedAt: null,
+    authIdentities: [phoneIdentity(), wechatIdentity()],
+  });
+  prisma.authIdentity.findFirst.mockImplementation(({ where }: any) => {
+    if (where.provider === AuthProvider.PHONE) return Promise.resolve(phoneIdentity());
+    if (where.provider === AuthProvider.WECHAT) return Promise.resolve({ id: 'identity-wechat' });
+    return Promise.resolve(null);
+  });
+  prisma.smsOtp.findMany.mockResolvedValue([
+    {
+      id: 'otp-1',
+      phone: '13800001234',
+      purpose: SmsPurpose.DELETION,
+      codeHash: await bcrypt.hash(code, 10),
+      expiresAt: new Date(now.getTime() + 60_000),
+      usedAt: null,
+    },
+  ]);
 }
 
 function prismaError(code: string) {
@@ -519,15 +568,24 @@ describe('DeletionService.execute', () => {
     expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
   });
 
+  it('rejects WeChat modal execution when the account has a verified phone identity', async () => {
+    const prisma = makeTx();
+    prisma.authIdentity.findFirst.mockImplementation(({ where }: any) => {
+      if (where.provider === AuthProvider.PHONE) return Promise.resolve(phoneIdentity());
+      if (where.provider === AuthProvider.WECHAT) return Promise.resolve({ id: 'identity-wechat' });
+      return Promise.resolve(null);
+    });
+    const { service } = makeService({ prisma });
+
+    await expect(service.execute(userId, executeDto())).rejects.toThrow(BadRequestException);
+    expect(prisma.smsOtp.updateMany).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+  });
+
   it('accepts the exact WeChat modal confirmation text', async () => {
     const prisma = makeTx();
-    prisma.user.findUniqueOrThrow.mockResolvedValue({
-      id: userId,
-      status: UserStatus.ACTIVE,
-      deletionExecutedAt: null,
-      authIdentities: [wechatIdentity()],
-    });
-    prisma.authIdentity.findFirst.mockResolvedValue({ id: 'identity-wechat' });
+    mockWechatOnlyDeletion(prisma);
     const { service } = makeService({ prisma });
 
     const result = await service.execute(userId, executeDto());
@@ -545,6 +603,7 @@ describe('DeletionService.execute', () => {
 
   it('zeroes reward balances and voids unused coupons', async () => {
     const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
     prisma.rewardAccount.findMany.mockResolvedValue([
       { id: 'reward-vip', userId, type: 'VIP_REWARD', balance: 12, frozen: 3 },
       { id: 'reward-normal', userId, type: 'NORMAL_REWARD', balance: 4, frozen: 0 },
@@ -589,11 +648,37 @@ describe('DeletionService.execute', () => {
     });
   });
 
-  it('rewrites phone and WeChat identity identifiers through a tombstone raw SQL update', async () => {
+  it('voids existing reversible reward ledgers so cron/refund flows cannot revive assets after deletion', async () => {
     const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
     const { service } = makeService({ prisma });
 
     await service.execute(userId, executeDto());
+
+    expect(prisma.rewardLedger.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId,
+        status: {
+          in: [
+            RewardLedgerStatus.AVAILABLE,
+            RewardLedgerStatus.FROZEN,
+            RewardLedgerStatus.RETURN_FROZEN,
+          ],
+        },
+      },
+      data: {
+        status: RewardLedgerStatus.VOIDED,
+        entryType: RewardEntryType.VOID,
+      },
+    });
+  });
+
+  it('rewrites phone and WeChat identity identifiers through a tombstone raw SQL update', async () => {
+    const prisma = makeTx();
+    await mockSmsDeletion(prisma);
+    const { service } = makeService({ prisma });
+
+    await service.execute(userId, smsExecuteDto());
 
     const sqlCalls = prisma.$executeRaw.mock.calls.map((call: any[]) => String(call[0]));
     expect(sqlCalls.some((sql: string) => sql.includes('UPDATE "AuthIdentity"'))).toBe(true);
@@ -603,6 +688,7 @@ describe('DeletionService.execute', () => {
 
   it('writes the pre-cleanup snapshot into deletionMeta', async () => {
     const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
     prisma.userProfile.findUnique.mockResolvedValue({ points: 88 });
     prisma.rewardAccount.findMany.mockResolvedValue([
       { id: 'reward-vip', userId, type: 'VIP_REWARD', balance: 12, frozen: 3 },
@@ -635,9 +721,10 @@ describe('DeletionService.execute', () => {
 
   it('creates a deletion audit LoginEvent', async () => {
     const prisma = makeTx();
+    await mockSmsDeletion(prisma);
     const { service } = makeService({ prisma });
 
-    await service.execute(userId, executeDto());
+    await service.execute(userId, smsExecuteDto());
 
     expect(prisma.session.updateMany).toHaveBeenCalledWith({
       where: { userId, status: SessionStatus.ACTIVE },
@@ -651,7 +738,7 @@ describe('DeletionService.execute', () => {
         phone: '138****1234',
         meta: expect.objectContaining({
           action: 'DELETION_EXECUTED',
-          confirmationMethod: AccountDeletionConfirmMethod.WECHAT_MODAL,
+          confirmationMethod: AccountDeletionConfirmMethod.SMS,
         }),
       }),
     });
@@ -659,6 +746,7 @@ describe('DeletionService.execute', () => {
 
   it('writes IP and User-Agent into deletionMeta and LoginEvent evidence', async () => {
     const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
     const { service } = makeService({ prisma });
 
     await (service.execute as any)(userId, executeDto(), requestIp, requestUserAgent);
@@ -689,6 +777,7 @@ describe('DeletionService.execute', () => {
   it('retries a Serializable transaction after Prisma P2034 and eventually succeeds', async () => {
     jest.useRealTimers();
     const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
     prisma.$transaction = jest
       .fn()
       .mockRejectedValueOnce(prismaError('P2034'))
