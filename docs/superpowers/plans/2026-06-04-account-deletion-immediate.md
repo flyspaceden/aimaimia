@@ -908,12 +908,12 @@ Only account-deletion implementation files and required documentation are change
 
 ## Self-Review Checklist
 
-- [ ] Every blocker from the spec has an implementation task and a test target.
-- [ ] Asset forfeiture is irreversible and transaction-scoped.
-- [ ] Payment, payout, refund, after-sale, invoice, and audit data are retained.
-- [ ] Phone and WeChat release are implemented by tombstoning `AuthIdentity.identifier` values.
-- [ ] Deleted accounts cannot authenticate with old JWTs.
-- [ ] Deleted upstream reward recipients are skipped.
-- [ ] Buyer App copy states immediate deletion and irreversible forfeiture.
-- [ ] Legal text matches the backend behavior.
-- [ ] `AGENTS.md` registers the spec and this plan.
+- [x] Every blocker from the spec has an implementation task and a test target.
+- [x] Asset forfeiture is irreversible and transaction-scoped.
+- [x] Payment, payout, refund, after-sale, invoice, and audit data are retained.
+- [x] Phone and WeChat release are implemented by tombstoning `AuthIdentity.identifier` values.
+- [x] Deleted accounts cannot authenticate with old JWTs.
+- [x] Deleted upstream reward recipients are skipped.
+- [x] Buyer App copy states immediate deletion and irreversible forfeiture.
+- [x] Legal text matches the backend behavior.
+- [x] `AGENTS.md` registers the spec and this plan.

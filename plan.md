@@ -1359,8 +1359,8 @@
 > **触发**: 华为应用商店审核要求账号注销为必备合规项；个保法 §47 + 工信部 15 工作日内完成。**即时注销版**：取消 30 天冷静期，提交即时、不可撤销；除已付款订单继续履约 + 进行中售后继续受理外，其余虚拟资产（含钱包可提现现金）提交即视为自愿放弃、清零归平台。
 > **权威源**: `docs/superpowers/specs/2026-06-04-account-deletion-immediate-design.md`（替代已 superseded 的 `2026-05-26-account-deletion-design.md`）
 
-- [x] **AD-后端**（Task 1-5）后端注销链路：`me/deletion/` 模块（preview/sms-code/execute 三接口）；Serializable 事务 + advisory lock `AD-${userId}`；双重 blocker 校验（OWNER / 支付中 CheckoutSession+Payment / 提现中 WithdrawRequest）；资产清零作废 + `RewardLedger(VOID/VOIDED)` 平台归属；身份核验（SMS `SmsPurpose.DELETION` / 仅微信四字）；个人资料软删 + AuthIdentity 释放（手机号/微信可重新注册）+ 强制登出；法定保留订单3年/发票5年/登录日志6个月；鉴权拦 DELETED + 推荐码失效
-- [x] **AD-App**（Task 6-7）买家 App 注销链路：`app/me/deletion.tsx`（三步同页：须知+blocker+资产+勾选 / 身份核验 / 成功页，三态 Skeleton+ErrorState）；`src/repos/AccountDeletionRepo.ts`（preview/sendCode/execute）；`app/account-security.tsx` / `app/settings.tsx`「注销账号」入口；无横幅/无冷静期/无撤销
+- [x] **AD-后端**（Task 1-5）后端注销链路：`me/deletion/` 模块（preview/sms-code/execute 三接口）；Serializable 事务 + advisory lock `AD-${userId}`；双重 blocker 校验（OWNER / 支付中 CheckoutSession+Payment / 提现中 WithdrawRequest）；资产清零作废 + 既有 `RewardLedger(AVAILABLE/FROZEN/RETURN_FROZEN)` 作废为 `VOIDED/VOID` + 平台归属审计；身份核验（有手机号强制 SMS `SmsPurpose.DELETION` / 仅微信四字）；个人资料软删 + AuthIdentity 释放（手机号/微信可重新注册）+ 强制登出；法定保留订单3年/发票5年/登录日志6个月；鉴权/refresh 拦 DELETED + 推荐码/历史 VIP 直推奖励对已注销用户失效并归平台
+- [x] **AD-App**（Task 6-7）买家 App 注销链路：`app/me/deletion.tsx`（须知+blocker+资产+勾选 / 身份核验 / 成功后立即清本地态并回首页，三态 Skeleton+ErrorState）；`src/repos/AccountDeletionRepo.ts`（preview/sendCode/execute）；`app/account-security.tsx` / `app/settings.tsx`「注销账号」入口；无横幅/无冷静期/无撤销；确认页明确提示 VIP 权益清零作废
 - [x] **AD-法律+文档**（Task 8，2026-06-04）法律文本与产品文档同步：`src/content/legal/privacyPolicy.ts` §4.3 + §四标题/3.1(3)/4.2 + §八；`src/content/legal/termsOfService.ts` §六（即时注销+可提现现金作废书面披露）+ 后续节序号顺延 + §5.2/§10.3 恢复；`docs/architecture/frontend.md` 登记 `/me/deletion`；本条 plan.md
-- [ ] **AD-发布** 待 EAS 重新 `eas build`（法律文本属合规改动，OTA 过不了商店审核，必须重新进包）后更新 `docs/operations/app-发布与OTA手册.md` 第六章；网站法律副本 `website/src/content/legal/*` 需按 App 基准对齐（见下方"网站对齐"）
-- [ ] **AD-网站对齐** `website/src/content/legal/privacyPolicy.ts` / `termsOfService.ts` 仍是注销"未上线"旧版（含与即时注销冲突的"需先处理完所有未完成订单"措辞），需以 App 为基准 cp 对齐后重新部署 main
+- [ ] **AD-发布** 待 EAS 重新 `eas build`（法律文本属合规改动，OTA 过不了商店审核，必须重新进包）后更新 `docs/operations/app-发布与OTA手册.md` 第六章
+- [x] **AD-网站对齐**（2026-06-04）`website/src/content/legal/privacyPolicy.ts` / `termsOfService.ts` 已按 App 即时注销版法律文本同步，移除"注销未上线"旧口径；仍需随官网发布流程重新部署 main
