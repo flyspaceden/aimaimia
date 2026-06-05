@@ -718,6 +718,8 @@ export class AuthService {
     loginMethod: string,
     inheritedAbsoluteExpiresAt?: Date | null,
   ) {
+    await this.assertActiveUserForSessionIssue(userId);
+
     const expiresIn = this.config.get('JWT_EXPIRES_IN', '15m');
 
     // 生成 refresh token 并存储哈希
@@ -765,6 +767,16 @@ export class AuthService {
   /** SHA-256 哈希（用于 token 存储） */
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private async assertActiveUserForSessionIssue(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deletionExecutedAt: true },
+    });
+    if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+      throw new ForbiddenException('账号已注销或不可用，不能签发新的登录会话');
+    }
   }
 
   private parseExpiry(expiresIn: string): number {

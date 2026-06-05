@@ -43,6 +43,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
     session: {
       create: jest.fn().mockResolvedValue({ id: 'session-new' }),
       update: jest.fn().mockResolvedValue({ id: 'session-new' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       findFirst: jest.fn().mockResolvedValue(null),
     },
     $transaction: jest.fn(async (cb: any) => cb(base)),
@@ -239,5 +240,31 @@ describe('AuthService — 登录路径拒绝非 ACTIVE 用户（防御性兜底�
       service.login({ phone: PHONE, mode: 'code', code: '123456' } as any),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.session.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService — refresh 路径拒绝已注销用户', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('refresh token 对应用户已注销时不能签发新 Session', async () => {
+    const prisma = makePrisma();
+    prisma.session.updateMany.mockResolvedValue({ count: 1 });
+    prisma.session.findFirst.mockResolvedValue({
+      id: 'session-old',
+      userId: 'deleted-user',
+      absoluteExpiresAt: null,
+    });
+    prisma.user.findUnique.mockResolvedValue({
+      status: UserStatus.DELETED,
+      deletionExecutedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+    const { service } = makeService(prisma);
+
+    await expect(service.refresh({ refreshToken: 'refresh-token' } as any)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+
+    expect(prisma.session.create).not.toHaveBeenCalled();
+    expect(prisma.session.update).not.toHaveBeenCalled();
   });
 });
