@@ -325,7 +325,11 @@ export default function OrderDetailPage() {
                   size="large"
                   onClick={() => {
                     const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                    if (url) {
+                      window.open(url, '_blank', 'noopener,noreferrer');
+                    } else {
+                      message.warning('面单文件暂无（生成时下载可能失败），请点「取消面单」后重新生成');
+                    }
                   }}
                 >
                   打印面单
@@ -483,7 +487,11 @@ export default function OrderDetailPage() {
                     icon={<PrinterOutlined />}
                     onClick={() => {
                       const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-                      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                      if (url) {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                      } else {
+                        message.warning('面单文件暂无，请重新生成面单后再打印');
+                      }
                     }}
                   >
                     打印
