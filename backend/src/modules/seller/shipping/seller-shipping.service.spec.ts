@@ -1435,7 +1435,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
     );
   });
 
-  it('多商品货物名称以逗号拼接', async () => {
+  it('多商品货物名称用「首品名 等N件」摘要（避免顺丰 cargoDesc 超 20 字）', async () => {
     const { service, prisma, sfExpress } = createMocks();
 
     prisma.company.findUnique.mockResolvedValue(COMPANY_INFO);
@@ -1457,7 +1457,7 @@ describe('createCarrierWaybill — 快递面单创建', () => {
 
     expect(sfExpress.createOrder).toHaveBeenCalledWith(
       expect.objectContaining({
-        cargo: '有机苹果, 云南普洱茶',
+        cargo: '有机苹果 等2件',
       }),
     );
   });
