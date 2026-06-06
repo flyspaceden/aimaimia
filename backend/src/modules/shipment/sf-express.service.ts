@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { maskPhone } from '../../common/security/privacy-mask';
 
 // ─── 类型定义 ───────────────────────────────────────────────
 
@@ -728,6 +729,8 @@ export class SfExpressService {
         time: String(s.lastTime ?? s.bookTime ?? s.createTm ?? ''),
         message: this.normalizeOrderStateMessage(
           String(s.orderStateDesc ?? s.orderStateCode ?? ''),
+          // OrderState 推送的揽收员信息在独立字段 empPhone（手机号）/ empCode（工号）
+          String(s.empPhone ?? '').trim(),
         ),
         location: undefined,
         opCode: String(s.orderStateCode ?? ''),
@@ -740,19 +743,33 @@ export class SfExpressService {
     return payloads;
   }
 
-  private normalizeOrderStateMessage(message: string): string {
+  /**
+   * 把顺丰 OrderState 内部调度状态转成买家能看懂的中性文案（不暴露"下错单需转单"等内部黑话）。
+   * @param courierPhone OrderState 推送 empPhone（揽收员手机号），调度成功时脱敏展示
+   */
+  private normalizeOrderStateMessage(message: string, courierPhone?: string): string {
     const trimmed = message.trim();
-    if (trimmed.includes('调度失败') && trimmed.includes('等待')) {
-      return '等待调度';
-    }
-    if (trimmed.includes('调度成功') && trimmed.includes('收派员')) {
-      return '已派单（含快递员信息）';
-    }
+    // 调度成功 = 顺丰已接单并派给收派员；脱敏展示揽收员电话（有则带，无则给中性话）
     if (trimmed.includes('调度成功')) {
-      return '已派单';
+      const masked = courierPhone ? maskPhone(courierPhone) : null;
+      return masked ? `顺丰已接单·揽收员 ${masked}` : '顺丰已接单，安排揽收中';
     }
-    if (trimmed === '已下单' || trimmed === '订单已接收') {
-      return '订单已受理';
+    // 调度失败 / 等待调度 / 下错单需转单 等内部流程 → 统一中性"处理中"，不向买家暴露黑话
+    if (
+      trimmed.includes('调度失败') ||
+      trimmed.includes('等待') ||
+      trimmed.includes('转单') ||
+      trimmed.includes('下错单')
+    ) {
+      return '顺丰处理中，等待揽收';
+    }
+    // 下单已接收 / 已下单 / 订单已接收 → 统一"顺丰已接单"
+    if (
+      trimmed.includes('已接收') ||
+      trimmed === '已下单' ||
+      trimmed.includes('订单已')
+    ) {
+      return '顺丰已接单';
     }
     return trimmed;
   }
