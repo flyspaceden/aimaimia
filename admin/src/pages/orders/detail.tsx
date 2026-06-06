@@ -6,7 +6,7 @@ import { getOrder, retryRefund } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
 import type { OrderItem, Refund } from '@/types';
 import { PERMISSIONS } from '@/constants/permissions';
-import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
 
 // 订单生命周期状态步骤
@@ -533,7 +533,10 @@ export default function OrderDetailPage() {
               {
                 title: '状态',
                 dataIndex: 'status',
-                render: (value: string | undefined) => value || '-',
+                render: (value: string | undefined) => {
+                  const s = value ? shipmentStatusMap[value] : undefined;
+                  return s ? <Tag color={s.color}>{s.text}</Tag> : value || '-';
+                },
               },
             ]}
           />

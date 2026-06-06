@@ -27,6 +27,15 @@ export const orderStatusMap: Record<string, StatusEntry> = {
   REFUNDED: { text: '已退款', color: 'red' },
 };
 
+// 物流状态（与 backend Prisma ShipmentStatus 枚举对齐）
+export const shipmentStatusMap: Record<string, StatusEntry> = {
+  INIT: { text: '待发货', color: 'default' },
+  SHIPPED: { text: '已发货', color: 'cyan' },
+  IN_TRANSIT: { text: '运输中', color: 'processing' },
+  DELIVERED: { text: '已送达', color: 'green' },
+  EXCEPTION: { text: '异常', color: 'red' },
+};
+
 // 企业状态
 export const companyStatusMap: Record<string, StatusEntry> = {
   PENDING: { text: '待审核', color: 'orange' },
