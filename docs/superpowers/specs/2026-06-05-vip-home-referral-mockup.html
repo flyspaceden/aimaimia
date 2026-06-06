@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIP 首页推荐专区 · 方案对比 Mockup</title>
+<style>
+  :root {
+    --brand: #2E7D32;
+    --brand-dark: #1B5E20;
+    --brand-soft: rgba(46, 125, 50, 0.08);
+    --gold-deep: #B8860B;
+    --gold: #C9A96E;
+    --gold-light: #F5E6B8;
+    --bg-app: #F1F6EF;
+    --text-primary: #1C2A1C;
+    --text-secondary: #5C6B5C;
+    --text-tertiary: #93A193;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    background: #E9EDE7;
+    color: var(--text-primary);
+    padding: 32px 24px 64px;
+  }
+  .page-header { max-width: 1320px; margin: 0 auto 28px; }
+  .page-header h1 { font-size: 22px; font-weight: 800; color: var(--brand-dark); }
+  .page-header p { font-size: 14px; color: var(--text-secondary); margin-top: 6px; line-height: 1.6; }
+  .compare-row {
+    display: flex; flex-wrap: wrap; gap: 36px; justify-content: center;
+    max-width: 1380px; margin: 0 auto;
+  }
+  .variant { width: 392px; }
+  .variant-label { text-align: center; margin-bottom: 14px; }
+  .variant-label .tag {
+    display: inline-block; font-size: 13px; font-weight: 700; color: #fff;
+    background: var(--brand); border-radius: 999px; padding: 4px 14px;
+  }
+  .variant-label .tag.gold { background: var(--gold-deep); }
+  .variant-label h2 { font-size: 16px; font-weight: 800; margin-top: 8px; }
+  .variant-label p { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.55; }
+
+  /* ============ 手机框架 ============ */
+  .phone {
+    width: 392px; border-radius: 44px; background: #111; padding: 10px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.18);
+  }
+  .screen {
+    border-radius: 36px; overflow: hidden; background: var(--bg-app);
+    height: 800px; display: flex; flex-direction: column; position: relative;
+  }
+  .statusbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 24px 4px; font-size: 13px; font-weight: 600; color: var(--text-primary);
+  }
+  .screen-body { flex: 1; overflow: hidden; padding: 0 18px; }
+
+  .greeting-row { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 10px; }
+  .greeting { font-size: 30px; font-weight: 800; color: var(--brand-dark); letter-spacing: 1px; }
+  .greeting .leaf { font-size: 22px; }
+  .greeting-sub { font-size: 15px; color: var(--text-secondary); margin-top: 4px; }
+  .cart-icon { padding-top: 8px; color: var(--brand-dark); }
+
+  .search-bar {
+    margin-top: 14px; background: #fff; border-radius: 999px;
+    display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+    box-shadow: 0 2px 10px rgba(46,125,50,0.07); color: var(--text-tertiary); font-size: 15px;
+  }
+  .search-bar svg { flex-shrink: 0; }
+  .search-bar .mic { margin-left: auto; color: var(--brand); }
+
+  /* ============ 通用：礼包跑马灯 ============ */
+  .marquee-section { margin-top: 14px; }
+  .marquee-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+  }
+  .marquee-title { display: flex; align-items: center; gap: 6px; font-size: 14.5px; font-weight: 700; }
+  .marquee-title svg { color: var(--brand); }
+  .marquee-meta { font-size: 11.5px; color: var(--text-secondary); }
+  .marquee-viewport { overflow: hidden; margin: 0 -18px; padding-left: 18px; }
+  .marquee-track { display: flex; gap: 8px; width: max-content; animation: scroll 16s linear infinite; }
+  .marquee-viewport:hover .marquee-track { animation-play-state: paused; }
+  @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  @media (prefers-reduced-motion: reduce) { .marquee-track { animation: none; } }
+
+  .gift-card {
+    width: 212px; height: 168px; border-radius: 16px; padding: 12px;
+    background: linear-gradient(135deg, #FFFDF5, #FFF8E1, #FFF1C8);
+    border: 1.2px solid var(--brand); position: relative; overflow: hidden;
+    cursor: pointer; flex-shrink: 0;
+    transition: box-shadow 0.2s;
+  }
+  .gift-card:hover { box-shadow: 0 6px 18px rgba(184,134,11,0.22); }
+  .gift-card .glow {
+    position: absolute; right: -38px; bottom: -42px; width: 132px; height: 132px;
+    border-radius: 50%; background: rgba(212,160,23,0.10);
+  }
+  .gift-card-head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .gift-price { font-size: 21px; font-weight: 800; color: var(--gold-deep); line-height: 1.1; }
+  .gift-price-label { font-size: 10.5px; color: var(--text-secondary); margin-top: 2px; }
+  .gift-icon {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--brand);
+    background: var(--brand-soft); display: flex; align-items: center; justify-content: center;
+    color: var(--brand);
+  }
+  .gift-title-row { display: flex; align-items: center; margin-top: 9px; gap: 8px; }
+  .gift-title { font-size: 14px; font-weight: 700; color: var(--brand-dark); flex: 1; }
+  .gift-badge {
+    font-size: 9.5px; font-weight: 600; color: var(--brand-dark);
+    border: 1px solid var(--brand); background: var(--brand-soft);
+    border-radius: 999px; padding: 2px 7px; white-space: nowrap;
+  }
+  .gift-sub { font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.45; }
+  .gift-items { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; }
+  .gift-item { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-primary); }
+  .gift-item .dot { width: 4px; height: 4px; border-radius: 2px; background: var(--brand); flex-shrink: 0; }
+
+  /* ============ 方案 A / C：一体化推荐专区 ============ */
+  .vip-zone {
+    margin-top: 16px; border-radius: 20px; overflow: hidden;
+    border: 1px solid rgba(201,169,110,0.45);
+    background: #FFFEFA;
+    box-shadow: 0 4px 16px rgba(184,134,11,0.10);
+  }
+  .vip-zone-head {
+    background: linear-gradient(120deg, #1E2B1E 0%, #2A3A28 55%, #3D4A2E 100%);
+    padding: 14px 16px; display: flex; align-items: center; gap: 12px; position: relative; overflow: hidden;
+  }
+  .vip-zone-head::after {
+    content: ''; position: absolute; right: -30px; top: -40px; width: 120px; height: 120px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(245,230,184,0.18), transparent 70%);
+  }
+  .vip-zone-head .crown { color: var(--gold-light); flex-shrink: 0; }
+  .vip-zone-head-text { flex: 1; min-width: 0; }
+  .vip-zone-title { font-size: 15px; font-weight: 800; color: var(--gold-light); letter-spacing: 0.5px; }
+  .vip-zone-sub { font-size: 11.5px; color: rgba(245,230,184,0.75); margin-top: 3px; }
+  .vip-stat {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
+    font-size: 11px; color: #FFE9A8; font-weight: 700;
+    background: rgba(245,230,184,0.12); border: 1px solid rgba(245,230,184,0.3);
+    border-radius: 999px; padding: 2px 9px;
+  }
+  .share-btn {
+    flex-shrink: 0; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #F5E6B8, #E8CD8A);
+    color: #4A3A10; font-size: 13px; font-weight: 800;
+    border-radius: 999px; padding: 9px 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    transition: filter 0.2s;
+  }
+  .share-btn:hover { filter: brightness(1.06); }
+  .vip-zone .marquee-section { margin: 12px 0 0; padding: 0 14px; }
+  .vip-zone .marquee-viewport { margin: 0 -14px; padding-left: 14px; }
+  .vip-zone-foot {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 11px; margin-top: 12px; cursor: pointer;
+    border-top: 1px solid rgba(201,169,110,0.25);
+    font-size: 12.5px; font-weight: 600; color: var(--gold-deep);
+    transition: background 0.2s;
+  }
+  .vip-zone-foot:hover { background: rgba(245,230,184,0.25); }
+
+  /* ============ 方案 B：分离横幅 ============ */
+  .referral-strip {
+    margin-top: 14px; display: flex; align-items: center; gap: 8px;
+    background: linear-gradient(120deg, #1E2B1E, #2A3A28);
+    border: 1px solid rgba(201,169,110,0.28); border-radius: 999px;
+    padding: 10px 14px; cursor: pointer;
+  }
+  .referral-strip .crown { color: var(--gold-light); flex-shrink: 0; }
+  .referral-strip-text { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--gold-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .referral-strip-cta {
+    background: linear-gradient(135deg, #F5E6B8, #E8CD8A); color: #4A3A10;
+    font-size: 12px; font-weight: 800; border-radius: 999px; padding: 6px 13px;
+  }
+
+  /* ============ AI 光球区（背景示意） ============ */
+  .orbs { display: flex; justify-content: center; gap: 18px; margin-top: 22px; }
+  .orb {
+    width: 108px; height: 108px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; box-shadow: 0 10px 26px rgba(0,0,0,0.12);
+  }
+  .orb.green { background: radial-gradient(circle at 35% 30%, #43A047, #2E7D32 70%); }
+  .orb.orange { background: radial-gradient(circle at 35% 30%, #FB8C00, #EF6C00 70%); position: relative; }
+  .orb .t1 { font-size: 22px; }
+  .orb .t2 { font-size: 15px; margin-top: 2px; }
+  .orb-hint { text-align: center; font-size: 13px; color: var(--brand); margin-top: 14px; }
+
+  .tabbar {
+    display: flex; justify-content: space-around; align-items: center;
+    background: #fff; padding: 12px 0 22px; border-top: 1px solid #EAEFE8;
+  }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; color: var(--text-tertiary); }
+  .tab.active { color: var(--brand-dark); font-weight: 700; }
+  .tab .ico { width: 22px; height: 22px; border-radius: 50%; border: 2px solid currentColor; }
+  .tab.active .ico { background: var(--brand); border-color: rgba(46,125,50,0.25); }
+
+  .notes {
+    margin-top: 16px; background: #fff; border-radius: 14px; padding: 14px 16px;
+    font-size: 12.5px; color: var(--text-secondary); line-height: 1.7;
+    border: 1px solid #E2E8E0;
+  }
+  .notes b { color: var(--text-primary); }
+  .notes ul { padding-left: 18px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>VIP 用户首页 · 推荐专区方案对比</h1>
+  <p>三个方案均只在 <b>tier === 'VIP'</b> 时生效；未登录 / 普通用户首页保持现状不变。礼包卡片完全复用现有 <b>VipHomePromoCarousel</b> 的视觉（米金渐变 + 绿描边），所有「开通」字样在 VIP 视角下替换为「推荐 / 分享」语境，避免误以为要再次购买。</p>
+</div>
+
+<div class="compare-row">
+
+  <!-- ================= 方案 A ================= -->
+  <div class="variant">
+    <div class="variant-label">
+      <span class="tag gold">方案 A · 推荐</span>
+      <h2>一体化推荐专区</h2>
+      <p>激励头 + 礼包跑马灯 + 权益入口收进一张卡，推荐动机和弹药一眼全有</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="statusbar"><span>20:53</span><span>5G&nbsp;&nbsp;100%</span></div>
+      <div class="screen-body">
+        <div class="greeting-row">
+          <div>
+            <div class="greeting">晚上好 <span class="leaf">🌿</span></div>
+            <div class="greeting-sub">今天想吃点什么？</div>
+          </div>
+          <div class="cart-icon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.4 11h10.2l2-8H6.2"/></svg>
+          </div>
+        </div>
+        <div class="search-bar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          搜索商品，或问我...
+          <svg class="mic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </div>
+
+        <!-- 一体化推荐专区 -->
+        <div class="vip-zone">
+          <div class="vip-zone-head">
+            <svg class="crown" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h18v2H3v-2Zm0-9 4.5 3L12 5l4.5 6L21 8l-1.5 7h-15L3 8Z"/></svg>
+            <div class="vip-zone-head-text">
+              <div class="vip-zone-title">推荐好友开通 VIP</div>
+              <div class="vip-zone-sub">好友得礼包，您得现金奖励</div>
+            </div>
+            <button class="share-btn">立即分享</button>
+          </div>
+          <div class="marquee-section">
+            <div class="marquee-header">
+              <div class="marquee-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M3 12h18M12 8v13M12 8s-1.5-5-4.5-5S4 6.5 7 8m5 0s1.5-5 4.5-5S20 6.5 17 8"/></svg>
+                好友开通可得礼包
+              </div>
+              <span class="marquee-meta">3 个档位</span>
+            </div>
+            <div class="marquee-viewport">
+              <div class="marquee-track" id="trackA"></div>
+            </div>
+          </div>
+          <div class="vip-zone-foot">
+            查看完整礼包与 VIP 权益
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 6 6 6-6 6"/></svg>
+          </div>
+        </div>
+
+        <div class="orbs">
+          <div class="orb green"><span class="t1">AI</span><span class="t2">买买</span></div>
+          <div class="orb orange">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="1.5"/><path d="M3 12h18M12 8v13"/></svg>
+            <span class="t2">抽奖</span>
+          </div>
+        </div>
+        <div class="orb-hint">长按光球，说出你想买的</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active"><div class="ico"></div>首页</div>
+        <div class="tab"><div class="ico"></div>发现</div>
+        <div class="tab"><div class="ico"></div>我的</div>
+      </div>
+    </div></div>
+    <div class="notes">
+      <b>交互逻辑：</b>
+      <ul>
+        <li><b>立即分享</b> → 跳 /me/referral（二维码，面对面让朋友扫）</li>
+        <li><b>点礼包卡片 / 查看完整权益</b> → 跳 /vip/gifts 浏览模式（解除现在的"您已是VIP"拦截，底部按钮换成"分享给好友开通"）</li>
+        <li>替代原来的金色横幅，不再单独显示</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 方案 B ================= -->
+  <div class="variant">
+    <div class="variant-label">
+      <span class="tag">方案 B</span>
+      <h2>轻改版（横幅 + 跑马灯分离）</h2>
+      <p>保留现有金色横幅不动，只把礼包跑马灯对 VIP 恢复显示并换文案</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="statusbar"><span>20:53</span><span>5G&nbsp;&nbsp;100%</span></div>
+      <div class="screen-body">
+        <div class="greeting-row">
+          <div>
+            <div class="greeting">晚上好 <span class="leaf">🌿</span></div>
+            <div class="greeting-sub">今天想吃点什么？</div>
+          </div>
+          <div class="cart-icon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.4 11h10.2l2-8H6.2"/></svg>
+          </div>
+        </div>
+        <div class="search-bar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          搜索商品，或问我...
+          <svg class="mic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </div>
+
+        <!-- 跑马灯（独立，文案换） -->
+        <div class="marquee-section" style="margin-top:16px;">
+          <div class="marquee-header">
+            <div class="marquee-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h18v2H3v-2Zm0-9 4.5 3L12 5l4.5 6L21 8l-1.5 7h-15L3 8Z"/></svg>
+              好友开通可得礼包
+            </div>
+            <span class="marquee-meta">3 个档位</span>
+          </div>
+          <div class="marquee-viewport">
+            <div class="marquee-track" id="trackB"></div>
+          </div>
+        </div>
+
+        <!-- 现有横幅原样保留 -->
+        <div class="referral-strip">
+          <svg class="crown" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h18v2H3v-2Zm0-9 4.5 3L12 5l4.5 6L21 8l-1.5 7h-15L3 8Z"/></svg>
+          <span class="referral-strip-text">推荐好友开通 VIP，有高额奖励</span>
+          <span class="referral-strip-cta">去分享</span>
+        </div>
+
+        <div class="orbs">
+          <div class="orb green"><span class="t1">AI</span><span class="t2">买买</span></div>
+          <div class="orb orange">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="1.5"/><path d="M3 12h18M12 8v13"/></svg>
+            <span class="t2">抽奖</span>
+          </div>
+        </div>
+        <div class="orb-hint">长按光球，说出你想买的</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active"><div class="ico"></div>首页</div>
+        <div class="tab"><div class="ico"></div>发现</div>
+        <div class="tab"><div class="ico"></div>我的</div>
+      </div>
+    </div></div>
+    <div class="notes">
+      <b>交互逻辑：</b>
+      <ul>
+        <li>改动最小：跑马灯恢复显示 + 标题换「好友开通可得礼包」</li>
+        <li>横幅与跑马灯是两个分离的块，推荐氛围弱一些</li>
+        <li>点卡片同样跳 /vip/gifts 浏览模式</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 方案 C ================= -->
+  <div class="variant">
+    <div class="variant-label">
+      <span class="tag">方案 C</span>
+      <h2>一体化 + 收益数字</h2>
+      <p>在方案 A 基础上，激励头展示真实累计奖励（&gt;0 才显示），激励感最强</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="statusbar"><span>20:53</span><span>5G&nbsp;&nbsp;100%</span></div>
+      <div class="screen-body">
+        <div class="greeting-row">
+          <div>
+            <div class="greeting">晚上好 <span class="leaf">🌿</span></div>
+            <div class="greeting-sub">今天想吃点什么？</div>
+          </div>
+          <div class="cart-icon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.4 11h10.2l2-8H6.2"/></svg>
+          </div>
+        </div>
+        <div class="search-bar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          搜索商品，或问我...
+          <svg class="mic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </div>
+
+        <!-- 一体化推荐专区 + 收益 -->
+        <div class="vip-zone">
+          <div class="vip-zone-head">
+            <svg class="crown" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h18v2H3v-2Zm0-9 4.5 3L12 5l4.5 6L21 8l-1.5 7h-15L3 8Z"/></svg>
+            <div class="vip-zone-head-text">
+              <div class="vip-zone-title">推荐好友开通 VIP</div>
+              <div class="vip-zone-sub">好友得礼包，您得现金奖励</div>
+              <span class="vip-stat">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 6v6c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6l-8-4Z"/></svg>
+                累计奖励 ¥1,280
+              </span>
+            </div>
+            <button class="share-btn">立即分享</button>
+          </div>
+          <div class="marquee-section">
+            <div class="marquee-header">
+              <div class="marquee-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M3 12h18M12 8v13M12 8s-1.5-5-4.5-5S4 6.5 7 8m5 0s1.5-5 4.5-5S20 6.5 17 8"/></svg>
+                好友开通可得礼包
+              </div>
+              <span class="marquee-meta">3 个档位</span>
+            </div>
+            <div class="marquee-viewport">
+              <div class="marquee-track" id="trackC"></div>
+            </div>
+          </div>
+          <div class="vip-zone-foot">
+            查看完整礼包与 VIP 权益
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 6 6 6-6 6"/></svg>
+          </div>
+        </div>
+
+        <div class="orbs">
+          <div class="orb green"><span class="t1">AI</span><span class="t2">买买</span></div>
+          <div class="orb orange">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="1.5"/><path d="M3 12h18M12 8v13"/></svg>
+            <span class="t2">抽奖</span>
+          </div>
+        </div>
+        <div class="orb-hint">长按光球，说出你想买的</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active"><div class="ico"></div>首页</div>
+        <div class="tab"><div class="ico"></div>发现</div>
+        <div class="tab"><div class="ico"></div>我的</div>
+      </div>
+    </div></div>
+    <div class="notes">
+      <b>交互逻辑：</b>
+      <ul>
+        <li>同方案 A，激励头多一个「累计奖励 ¥X」徽章（复用 /bonus/wallet 现有接口）</li>
+        <li>奖励为 0 的新 VIP 自动隐藏徽章，避免「¥0」泄气</li>
+        <li>代价：首页多一个接口请求</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // 礼包卡片数据（与真实 VipHomePromoCarousel 结构一致）
+  const cards = [
+    { price: '¥399', title: '高山臻选礼', badge: '热门', sub: '开通即得，顺丰包邮到家', items: ['高山绿茶 250g ×1', '野生土蜂蜜 500g ×1'] },
+    { price: '¥599', title: '丰收家宴礼', badge: '限量', sub: '当季直采，礼盒装更体面', items: ['五常大米 5kg ×1', '有机五谷杂粮 ×2'] },
+    { price: '¥899', title: '山珍尊享礼', badge: null, sub: '深山好货，送礼自用两相宜', items: ['椴木干香菇礼盒 ×1', '秋木耳 200g ×2 等 3 款'] },
+  ];
+  function giftCard(c) {
+    return `<div class="gift-card">
+      <div class="glow"></div>
+      <div class="gift-card-head">
+        <div><div class="gift-price">${c.price}</div><div class="gift-price-label">VIP 礼包</div></div>
+        <div class="gift-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M3 12h18M12 8v13M12 8s-1.5-5-4.5-5S4 6.5 7 8m5 0s1.5-5 4.5-5S20 6.5 17 8"/></svg></div>
+      </div>
+      <div class="gift-title-row"><span class="gift-title">${c.title}</span>${c.badge ? `<span class="gift-badge">${c.badge}</span>` : ''}</div>
+      <div class="gift-sub">${c.sub}</div>
+      <div class="gift-items">${c.items.map(i => `<div class="gift-item"><span class="dot"></span>${i}</div>`).join('')}</div>
+    </div>`;
+  }
+  // 复制一份卡组实现无缝循环（与 App 真实实现一致）
+  const html = cards.map(giftCard).join('') + cards.map(giftCard).join('');
+  for (const id of ['trackA', 'trackB', 'trackC']) {
+    document.getElementById(id).innerHTML = html;
+  }
+</script>
+</body>
+</html>
