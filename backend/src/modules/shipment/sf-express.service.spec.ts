@@ -251,6 +251,47 @@ describe('SfExpressService', () => {
       expect(url).toBe('https://sfapi-sbox.sf-express.com/std/service');
     });
 
+    it('cargoDesc 超 20 字时兜底截断到 20 字（防"cargoDesc字符长度不允许超过20"）', async () => {
+      const svc = createService();
+      mockFetch.mockResolvedValueOnce(
+        sfSuccess({
+          orderId: 'SF_ORDER_002',
+          waybillNoInfoList: [{ waybillNo: 'SF9999999999' }],
+        }),
+      );
+
+      const longCargo = '龙虾, 苏丹鱼-忘不了鱼, 一夜埕金线鱼, 海参, 鲍鱼, 大闸蟹';
+      await svc.createOrder({ ...baseParams, cargo: longCargo });
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = new URLSearchParams(options.body as string);
+      const msgData = JSON.parse(body.get('msgData') as string);
+      expect(msgData.cargoDesc).toBe(longCargo.slice(0, 20));
+      expect(msgData.cargoDesc.length).toBeLessThanOrEqual(20);
+    });
+
+    it('收件人必传字段为空时抛清晰中文错误、且不调用顺丰', async () => {
+      const svc = createService();
+      await expect(
+        svc.createOrder({
+          ...baseParams,
+          receiver: { ...RECEIVER, tel: '' },
+        }),
+      ).rejects.toThrow('收件人信息不完整');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('发件人详细地址为空时抛清晰中文错误、且不调用顺丰', async () => {
+      const svc = createService();
+      await expect(
+        svc.createOrder({
+          ...baseParams,
+          sender: { ...SENDER, detail: '   ' },
+        }),
+      ).rejects.toThrow('发件人信息不完整');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it('API 业务错误时抛 BadRequestException', async () => {
       const svc = createService();
       mockFetch.mockResolvedValueOnce(

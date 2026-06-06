@@ -187,9 +187,11 @@ export class SfExpressService {
 
   constructor(private configService: ConfigService) {
     this.sfEnv = this.configService.get<string>('SF_ENV', 'UAT');
+    // 生产正式地址默认值：sfapi.sf-express.com（与沙箱 sfapi-sbox 对称）。
+    // ⚠️ 历史默认 bsp-oisp.sf-express.com 的 /std/service 已废弃返回 404，勿改回（2026-06-05）。
     this.apiUrl = this.configService.get<string>(
       'SF_API_URL',
-      'https://bsp-oisp.sf-express.com/std/service',
+      'https://sfapi.sf-express.com/std/service',
     );
     this.apiUrlUat = this.configService.get<string>(
       'SF_API_URL_UAT',
@@ -388,6 +390,30 @@ export class SfExpressService {
   // ─── 下单取号 ─────────────────────────────────────────
 
   /**
+   * 发顺丰下单前的必传字段预检：联系人姓名/电话/省/市/详细地址任一为空，
+   * 顺丰都会拒「必传参数不可为空」。在此提前抛出可执行的中文错误，避免用户
+   * 只看到顺丰天书错误码（保护管理端/卖家端/退货链路所有调用方）。
+   * 注：county(区县) 对直辖市或部分地址可能为空，顺丰可接受，故不强制。
+   */
+  private assertContactComplete(
+    role: '发件人' | '收件人',
+    c: SfCreateOrderParams['sender'] | undefined,
+  ): void {
+    const missing: string[] = [];
+    if (!c?.name?.trim()) missing.push('姓名');
+    if (!c?.tel?.trim()) missing.push('联系电话');
+    if (!c?.province?.trim()) missing.push('省份');
+    if (!c?.city?.trim()) missing.push('城市');
+    if (!c?.detail?.trim()) missing.push('详细地址');
+    if (missing.length > 0) {
+      const hint = role === '发件人' ? '商家发货地址/联系电话' : '收货地址';
+      throw new BadRequestException(
+        `${role}信息不完整：缺少${missing.join('、')}，无法生成顺丰面单（请检查${hint}）`,
+      );
+    }
+  }
+
+  /**
    * 创建顺丰运单（下单取号）
    * 调用 EXP_RECE_CREATE_ORDER
    */
@@ -410,6 +436,15 @@ export class SfExpressService {
       throw new BadRequestException('顺丰丰桥服务未配置');
     }
 
+    // 必传字段预检：空的姓名/电话/省/市/详细地址会被顺丰拒，提前给可执行提示
+    this.assertContactComplete('发件人', params.sender);
+    this.assertContactComplete('收件人', params.receiver);
+
+    // 顺丰 cargoDesc 硬限制：最长 20 字符，超长（多商品订单商品名拼接）会报
+    // "顺丰API错误: cargoDesc字符长度不允许超过20"。统一在此兜底截断，
+    // 保护所有调用方（管理端 admin-orders / 卖家端 seller-shipping）不论怎么拼都不会超限。
+    const cargoDesc = (params.cargo || '农产品').slice(0, 20);
+
     // Bug 3: routeLabelForUpdate 不是 EXP_RECE_CREATE_ORDER 的合法字段，
     // 推送通过丰桥后台「订阅服务 → 路由订阅」配置回调地址，不在下单参数里传
     const msgData = {
@@ -421,7 +456,7 @@ export class SfExpressService {
       isReturnRoutelabel: params.isReturnRoutelabel ?? 1,
       parcelQty: params.packageCount ?? 1,
       totalWeight: params.totalWeight ?? 1,
-      cargoDesc: params.cargo || '农产品',
+      cargoDesc,
       contactInfoList: [
         {
           contactType: 1, // 寄件人

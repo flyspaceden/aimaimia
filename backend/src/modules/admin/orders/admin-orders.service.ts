@@ -814,10 +814,11 @@ export class AdminOrdersService {
     const totalWeightGram = this.calculateAdminShipTotalWeightGram(items);
     const weightGramSent = Math.max(totalWeightGram, DEFAULT_SKU_WEIGHT_GRAM);
     const totalWeightKg = Number((weightGramSent / GRAMS_PER_KG).toFixed(3));
-    const cargoDesc = items
-      .map((i) => i.sku?.product?.title || '商品')
-      .slice(0, 3)
-      .join(', ');
+    // 顺丰 cargoDesc ≤20 字：多商品订单用「首品名 等N件」摘要（与卖家端一致），避免超限
+    // （共享层 SfExpressService.createOrder 还会再兜底截断 20 字）
+    const firstItemTitle = items[0]?.sku?.product?.title || '商品';
+    const cargoDesc =
+      items.length > 1 ? `${firstItemTitle} 等${items.length}件` : firstItemTitle;
 
     // 4. 调 SF createOrder
     const orderResult = await this.sfExpress.createOrder({

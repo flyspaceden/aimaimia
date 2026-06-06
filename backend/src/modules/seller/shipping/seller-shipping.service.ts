@@ -674,7 +674,13 @@ export class SellerShippingService {
       throw new BadRequestException('面单业务单号缺失');
     }
 
-    const cargo = input.items.map((i) => i.name).join(', ');
+    // 顺丰 cargoDesc ≤20 字：多商品订单用「首品名 等N件」摘要，避免拼接全部商品名超限
+    // （共享层 SfExpressService.createOrder 还会再兜底截断 20 字）
+    const firstItemName = input.items[0]?.name || '商品';
+    const cargo =
+      input.items.length > 1
+        ? `${firstItemName} 等${input.items.length}件`
+        : firstItemName;
     const totalWeightGram = this.calculateTotalWeightGram(input.items);
     const weightGramSent = Math.max(totalWeightGram, DEFAULT_SKU_WEIGHT_GRAM);
     const totalWeightKg = Math.max(totalWeightGram / GRAMS_PER_KG, 1);
