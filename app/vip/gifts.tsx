@@ -365,6 +365,8 @@ export default function VipGiftsScreen() {
 
   // 选中赠品并进入结账
   const handleCheckout = useCallback(() => {
+    // VIP 浏览模式物理隔离：任何路径不得写入结算选择
+    if (isVip) return;
     if (selectedIndex === null || !currentPackage) return;
     const selected = giftOptions[selectedIndex];
     if (!selected || !selected.available) return;
@@ -383,38 +385,15 @@ export default function VipGiftsScreen() {
 
     // 进入结账页（结账页会处理登录判断）
     router.push('/checkout');
-  }, [selectedIndex, giftOptions, currentPackage, setVipPackageSelection, router]);
+  }, [isVip, selectedIndex, giftOptions, currentPackage, setVipPackageSelection, router]);
 
-  // 已是 VIP — 显示提示页
-  if (isLoggedIn && isVip) {
-    return (
-      <LinearGradient
-        colors={[VIP.bgStart, VIP.bgEnd]}
-        style={[styles.container, { paddingTop: insets.top }]}
-      >
-        <StatusBar style="dark" />
-        <GoldParticles screenWidth={SCREEN_WIDTH} />
-        <View style={styles.vipAlreadyContainer}>
-          <MaterialCommunityIcons name="crown" size={64} color={VIP.goldPrimary} />
-          <Text style={styles.vipAlreadyTitle}>您已是 VIP 会员</Text>
-          <Text style={styles.vipAlreadySubtitle}>尊享全部 VIP 权益</Text>
-          <Pressable
-            onPress={() => router.push('/me/vip')}
-            style={styles.vipAlreadyButton}
-          >
-            <LinearGradient
-              colors={[VIP.goldPrimary, VIP.goldLight]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.vipAlreadyButtonGradient}
-            >
-              <Text style={styles.vipAlreadyButtonText}>查看我的 VIP</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
-      </LinearGradient>
-    );
-  }
+  // VIP 浏览模式：分享给好友开通（跳推荐码页，面对面扫码最顺）
+  const handleShareToFriend = useCallback(() => {
+    router.push('/me/referral');
+  }, [router]);
+
+  // VIP 浏览模式 CTA 恒可点（分享不依赖选中赠品）；非 VIP 需先选赠品
+  const ctaEnabled = isVip || selectedIndex !== null;
 
   // 加载态
   if (isLoading) {
@@ -466,6 +445,14 @@ export default function VipGiftsScreen() {
           <Text style={styles.subTitle}>所有礼遇，仅为 VIP 准备</Text>
         </Animated.View>
 
+        {/* VIP 浏览模式提示条：明确"这不是让你再买"，是给好友看的 */}
+        {isVip ? (
+          <Animated.View entering={FadeInDown.delay(150).duration(500)} style={styles.vipBrowseBar}>
+            <MaterialCommunityIcons name="crown" size={16} color={VIP.goldPrimary} />
+            <Text style={styles.vipBrowseText}>您已是 VIP 会员 · 以下为礼包内容，可展示给好友</Text>
+          </Animated.View>
+        ) : null}
+
         {/* 价格档位选择 */}
         {packages.length > 0 && (
           <Animated.View entering={FadeInDown.delay(150).duration(500)} style={styles.priceTabs}>
@@ -503,8 +490,8 @@ export default function VipGiftsScreen() {
           </Animated.View>
         )}
 
-        {/* 推荐人提示条（无推荐人时显示） */}
-        {(!isLoggedIn || (member && !member.inviterUserId)) ? (
+        {/* 推荐人提示条（无推荐人且非 VIP 时显示） */}
+        {!isVip && (!isLoggedIn || (member && !member.inviterUserId)) ? (
           <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.referralBar}>
             <View style={styles.referralBorder} />
             <Text style={styles.referralText}>扫描好友邀请码，绑定专属推荐人</Text>
@@ -605,40 +592,42 @@ export default function VipGiftsScreen() {
         <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
         <View style={[styles.bottomBarContent, compactBottomBar && styles.bottomBarContentCompact]}>
           <View style={[styles.bottomPriceSection, compactBottomBar && styles.bottomPriceSectionCompact]}>
-            <Text style={styles.bottomLabel}>开通 VIP</Text>
+            <Text style={styles.bottomLabel}>{isVip ? 'VIP 礼包' : '开通 VIP'}</Text>
             <Text {...priceTextProps} style={styles.bottomPrice}>¥{vipPrice}</Text>
           </View>
           <Pressable
-            onPress={handleCheckout}
-            disabled={selectedIndex === null}
+            onPress={isVip ? handleShareToFriend : handleCheckout}
+            disabled={!ctaEnabled}
             style={({ pressed }) => [
               styles.checkoutButton,
-              selectedIndex === null && styles.checkoutButtonDisabled,
-              pressed && selectedIndex !== null && styles.checkoutButtonPressed,
+              !ctaEnabled && styles.checkoutButtonDisabled,
+              pressed && ctaEnabled && styles.checkoutButtonPressed,
             ]}
           >
             <LinearGradient
-              colors={selectedIndex !== null ? [VIP.goldPrimary, VIP.goldLight] : ['#999', '#777']}
+              colors={ctaEnabled ? [VIP.goldPrimary, VIP.goldLight] : ['#999', '#777']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.checkoutButtonGradient}
             >
-              {selectedIndex !== null ? (
+              {ctaEnabled ? (
                 <GoldShineSweep width={80} duration={3500} travel={300} />
               ) : null}
               <Text
                 {...compactActionTextProps}
                 style={[
                   styles.checkoutButtonText,
-                  selectedIndex === null && styles.checkoutButtonTextDisabled,
+                  !ctaEnabled && styles.checkoutButtonTextDisabled,
                 ]}
               >
-                立即开通
+                {isVip ? '分享给好友开通' : '立即开通'}
               </Text>
             </LinearGradient>
           </Pressable>
         </View>
-        <Text style={styles.bottomHint}>包邮 · 支付即开通 VIP</Text>
+        <Text style={styles.bottomHint}>
+          {isVip ? '好友支付即开通 VIP · 您可获得推荐奖励' : '包邮 · 支付即开通 VIP'}
+        </Text>
       </View>
     </LinearGradient>
   );
@@ -1011,38 +1000,26 @@ const styles = StyleSheet.create({
   checkoutButtonTextDisabled: {
     color: '#888',
   },
-  // 已是 VIP
-  vipAlreadyContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  // VIP 浏览模式提示条
+  vipBrowseBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: 24,
+    marginBottom: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: VIP.referralBg,
+    borderWidth: 1,
+    borderColor: VIP.cardBorder,
+    borderRadius: 8,
   },
-  vipAlreadyTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: VIP.goldPrimary,
-    marginTop: 20,
-  },
-  vipAlreadySubtitle: {
-    fontSize: 14,
+  vipBrowseText: {
+    fontSize: 13,
     color: VIP.warmWhite,
-    marginTop: 8,
-  },
-  vipAlreadyButton: {
-    marginTop: 32,
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  vipAlreadyButtonGradient: {
-    paddingHorizontal: 36,
-    paddingVertical: 14,
-    borderRadius: 24,
-  },
-  vipAlreadyButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1207',
+    fontWeight: '600',
+    flexShrink: 1,
   },
   // 加载态
   loadingContainer: {

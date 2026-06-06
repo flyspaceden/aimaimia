@@ -102,3 +102,25 @@ export function buildVipReferralHomePrompt(member: MemberLike | null | undefined
     targetPath: '/me/referral',
   };
 }
+
+export type VipPromoMode = 'purchase' | 'referral';
+
+export type VipPromoCarouselCopy = {
+  title: string;
+  cardActionHint: string;
+};
+
+// 首页礼包跑马灯文案按身份分流：
+// purchase = 非 VIP 购买语境（默认）；referral = VIP 推荐语境（主语是"好友"，避免"再买一次"误解）
+export function getVipPromoCarouselCopy(mode: VipPromoMode): VipPromoCarouselCopy {
+  if (mode === 'referral') {
+    return {
+      title: '好友开通可得礼包',
+      cardActionHint: '点击查看礼包详情，可分享给好友',
+    };
+  }
+  return {
+    title: 'VIP 开通礼包',
+    cardActionHint: '点击查看赠品详情',
+  };
+}

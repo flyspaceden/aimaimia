@@ -113,6 +113,7 @@
 - `docs/superpowers/specs/2026-06-04-account-deletion-immediate-design.md` — 账号注销设计方案（**即时注销版，账号注销功能开发权威来源**）：提交即时生效不可撤销（取消 30 天冷静期/cron/cancel）/ 已付款订单继续履约不退款、进行中售后继续受理（退款走原通道）/ 全部资产含可提现现金作废归平台（用户书面接受法律风险）/ VIP 节点保留分润归平台 / OWNER 须先转让 / 绑手机号短信验证 + 仅微信弹窗输入"确认注销" / 个人资料软删 + AuthIdentity 改 `deleted:${userId}` 释放手机号 / 法定保留订单3年发票5年日志6月 / `SmsPurpose.DELETION` + `RewardEntryType.DELETION_BURN` / 单 Serializable 事务 + advisory lock `AD-${userId}` / 3 个 API（preview/sms-code/execute）/ App `me/deletion.tsx` 三步同页无横幅
 - `docs/superpowers/specs/2026-05-26-account-deletion-design.md` — 账号注销设计方案（**SUPERSEDED，2026-06-04 被即时注销版替代，仅历史留档**：原 30 天冷静期 + cron 执行 + 可撤销方案）
 - `docs/superpowers/specs/2026-06-05-vip-home-referral-promo-design.md` — VIP 首页礼包推荐展示设计方案（方案 B 轻改版：礼包跑马灯对 VIP 恢复显示并换「好友开通可得」语境 + `/vip/gifts` 解除 VIP 拦截改浏览模式 + 购买链路物理隔离，纯前端 3 文件，**VIP 首页推荐展示权威来源**；配套视觉稿 `2026-06-05-vip-home-referral-mockup.html`）
+- `docs/superpowers/plans/2026-06-06-vip-home-referral-promo.md` — VIP 首页礼包推荐展示实施计划（6 任务 27 步：文案纯函数+单测 / 跑马灯 mode prop / 首页放开显示 / 礼包页浏览模式 / 全量验证 / 文档同步，**2026-06-06 代码全部完成，待真机验收+OTA**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
 - `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
