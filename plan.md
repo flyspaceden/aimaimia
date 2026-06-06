@@ -1364,3 +1364,17 @@
 - [x] **AD-法律+文档**（Task 8，2026-06-04）法律文本与产品文档同步：`src/content/legal/privacyPolicy.ts` §4.3 + §四标题/3.1(3)/4.2 + §八；`src/content/legal/termsOfService.ts` §六（即时注销+可提现现金作废书面披露）+ 后续节序号顺延 + §5.2/§10.3 恢复；`docs/architecture/frontend.md` 登记 `/me/deletion`；本条 plan.md
 - [ ] **AD-发布** 待 EAS 重新 `eas build`（法律文本属合规改动，OTA 过不了商店审核，必须重新进包）后更新 `docs/operations/app-发布与OTA手册.md` 第六章
 - [x] **AD-网站对齐**（2026-06-04）`website/src/content/legal/privacyPolicy.ts` / `termsOfService.ts` 已按 App 即时注销版法律文本同步，移除"注销未上线"旧口径；仍需随官网发布流程重新部署 main
+
+---
+
+## 👑 VIP 首页礼包推荐展示（2026-06-06 新增，方案 B 轻改版）
+
+> **触发**: VIP 用户首页原先隐藏礼包跑马灯、`/vip/gifts` 被硬拦截，导致 VIP 面对面推荐好友时无内容可展示。
+> **权威源**: `docs/superpowers/specs/2026-06-05-vip-home-referral-promo-design.md` + `docs/superpowers/plans/2026-06-06-vip-home-referral-promo.md`
+
+- [x] **VR01** 文案纯函数 `getVipPromoCarouselCopy`（purchase/referral 双语境）+ jest 单测（7bd463f + 2461270）
+- [x] **VR02** `VipHomePromoCarousel` 加 `mode` prop，仅替换标题与无障碍文案，默认 purchase 零破坏（eaec2f5）
+- [x] **VR03** 首页跑马灯对所有用户显示，VIP 传 referral（标题「好友开通可得礼包」），金色横幅保留（f5bf2f5）
+- [x] **VR04** `/vip/gifts` 解除 VIP 拦截改浏览模式：顶部提示条 + CTA「分享给好友开通」跳 `/me/referral` + handleCheckout VIP 守卫物理隔离（7f86670）
+- [x] **VR05** 全量验证：jest 41/41 + tsc 零错误
+- [ ] **VR06** 真机验收（VIP 首页跑马灯/礼包页浏览/分享跳转/非 VIP 回归四项）+ 发 OTA（纯 JS 改动可 OTA，发布前过响应式 checklist）

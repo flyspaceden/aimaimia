@@ -485,7 +485,7 @@ Tab 栏设计：
 
 ### 5.1 首页 — AI Hub `/(tabs)/home`
 
-首页是 AI 入口，不展示商品列表。核心是中央大光球。未登录/普通用户在搜索框下方展示 VIP 开通礼包横滑推广位，直接读取后台 `GET /bonus/vip/gift-options` 返回的档位与赠品组合内容；VIP 用户隐藏购买推广，改展示轻量推荐提醒，引导分享自己的推荐码。
+首页是 AI 入口，不展示商品列表。核心是中央大光球。所有用户在搜索框下方均展示 VIP 礼包横滑推广位（读取公开接口 `GET /bonus/vip/gift-options`）：未登录/普通用户为购买语境（标题「VIP 开通礼包」）；VIP 用户切推荐语境（标题「好友开通可得礼包」，作为推荐弹药），其下方另保留"推荐好友开通 VIP"单行提醒引导分享推荐码。VIP 点礼包卡片进入 `/vip/gifts` 浏览模式（不可购买，底部 CTA 为「分享给好友开通」）。
 
 ```
 ┌─────────────────────────────┐
@@ -2286,6 +2286,7 @@ src/components/ai/   → 新增目录
 | 购物车免邮提示收口 | 购物车移除静态"再买免运费"提示；结算页保留后端预结算返回的真实免邮差额提示；预结算返回前显示"计算中"而非本地兜底运费 | 2026-05-12 | `app/cart.tsx`, `app/checkout.tsx`, `src/constants/search.ts` |
 | 首页 VIP 礼包推广 | 非 VIP/未登录首页在搜索框下方展示后台 VIP 档位主推赠品组合，卡片不展示“当前主推/参考价”底栏；点击携带 `packageId`/`giftOptionId` 进入 `/vip/gifts` 并自动定位对应档位和赠品 | 2026-05-14 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts` |
 | 首页 VIP 推荐提醒 | VIP 用户首页在搜索框下方展示"推荐好友开通 VIP，有高额奖励"单行提醒；点击进入 `/me/referral` 分享推荐码 | 2026-05-15 | `app/(tabs)/home.tsx`, `src/utils/vipHomePromo.ts`, `tests/unit/vip-home-promo.test.mjs` |
+| VIP 首页礼包推荐展示 | 礼包跑马灯对 VIP 恢复显示并切推荐语境（标题「好友开通可得礼包」，`getVipPromoCarouselCopy` 纯函数分流文案）；`/vip/gifts` 解除 VIP 硬拦截改浏览模式：顶部"您已是 VIP"提示条 + 底部 CTA「分享给好友开通」跳 `/me/referral` + `handleCheckout` VIP 守卫物理隔离购买链路；非 VIP 行为不变 | 2026-06-06 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts`, `src/utils/__tests__/vipHomePromo.test.ts` |
 | VIP 礼包订单金额展示 | VIP_PACKAGE 订单列表/详情的赠品明细不展示 SKU 单价，统一显示“赠品”；订单实付金额以后端 `totalPrice` 为准，避免把赠品成本价误认为礼包价 | 2026-05-18 | `src/components/cards/OrderItemRow.tsx`, `src/components/cards/OrderCard.tsx`, `src/components/orders/ShopGroup.tsx`, `app/orders/[id].tsx` |
 | 管理后台商品限购配置 | 管理后台普通商品列表展示 SKU 单笔限购；商品详情规格编辑表单支持查看/设置/清空 `maxPerOrder`，与卖家中心限购字段保持一致 | 2026-05-18 | `admin/src/pages/products/index.tsx`, `admin/src/pages/products/edit.tsx`, `admin/src/api/products.ts`, `admin/src/types/index.ts` |
 | 推荐关系展示收口 | 非 VIP 不展示自己的推荐码；推荐码页展示绑定推荐人和扫码入口；我的页常用工具固定提供"推荐关系/我的推荐码"入口；会员中心增加购买前推荐关系确认；扫码成功 toast 显示绑定的推荐人；空摘要但有 `inviterUserId` 时仍按已绑定展示 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/me/referral.tsx`, `app/me/vip.tsx`, `app/me/scanner.tsx`, `src/utils/referralRelation.ts`, `src/types/domain/Bonus.ts`, `src/repos/BonusRepo.ts` |
