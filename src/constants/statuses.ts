@@ -9,6 +9,15 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   REFUNDED: '已退款',
 };
 
+// 物流状态标签（与 backend Prisma ShipmentStatus 枚举对齐；未知值回退原文）
+export const shipmentStatusLabels: Record<string, string> = {
+  INIT: '待发货',
+  SHIPPED: '已发货',
+  IN_TRANSIT: '运输中',
+  DELIVERED: '已送达',
+  EXCEPTION: '异常',
+};
+
 export const bookingStatusLabels: Record<BookingStatus, string> = {
   pending: '待审核',
   approved: '已通过',

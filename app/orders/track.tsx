@@ -18,6 +18,7 @@ import { Skeleton, useToast } from '../../src/components/feedback';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
+import { shipmentStatusLabels } from '../../src/constants/statuses';
 
 /** 遮蔽运单号：保留前4后4，中间用星号 */
 function maskTrackingNo(no: string | null | undefined): string {
@@ -151,7 +152,7 @@ export default function OrderTrackScreen() {
       return shipment.events.map((evt) => ({
         id: evt.id,
         time: evt.occurredAt,
-        status: evt.message,
+        status: evt.message || '物流更新',
         location: evt.location ?? '',
       }));
     }
@@ -176,8 +177,8 @@ export default function OrderTrackScreen() {
   // 订单显示标题和状态
   const orderTitle = orderId ? `订单#${orderId.slice(-8)}` : '订单#20250112';
   const statusLabel = shipment
-    ? (shipment.status === 'DELIVERED' ? '已送达' : shipment.status === 'IN_TRANSIT' ? '运输中' : shipment.status)
-    : '运输中（占位）';
+    ? (shipmentStatusLabels[shipment.status] ?? shipment.status)
+    : '暂无物流信息';
 
   // 下拉刷新：主动查询快递100获取最新物流数据
   const handleRefresh = async () => {
@@ -274,8 +275,7 @@ export default function OrderTrackScreen() {
             packages.map((pkg, pkgIndex) => {
               const isExpanded = expandedPkgs.has(pkgIndex);
               const pkgTimeline = packageTimelines[pkgIndex] || [];
-              const statusText = pkg.status === 'DELIVERED' ? '已送达'
-                : pkg.status === 'IN_TRANSIT' ? '运输中' : pkg.status;
+              const statusText = shipmentStatusLabels[pkg.status] ?? pkg.status;
 
               return (
                 <Animated.View
@@ -333,7 +333,7 @@ export default function OrderTrackScreen() {
                 </Animated.View>
               );
             })
-          ) : (
+          ) : timeline.length > 0 ? (
             /* 单包裹：保持原有的混合时间线 */
             <TimelineSection
               items={timeline}
@@ -343,6 +343,15 @@ export default function OrderTrackScreen() {
               radius={radius}
               shadow={shadow}
             />
+          ) : (
+            <Text
+              style={[
+                typography.caption,
+                { color: colors.text.tertiary, textAlign: 'center', marginTop: spacing.md },
+              ]}
+            >
+              暂无物流信息
+            </Text>
           )}
         </View>
       </ScrollView>
