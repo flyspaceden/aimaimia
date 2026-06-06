@@ -1,3 +1,7 @@
+declare const describe: (name: string, fn: () => void) => void;
+declare const it: (name: string, fn: () => void) => void;
+declare const expect: any;
+
 import { getVipPromoCarouselCopy } from '../vipHomePromo';
 
 describe('getVipPromoCarouselCopy', () => {
