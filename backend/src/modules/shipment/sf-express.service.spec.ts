@@ -545,7 +545,7 @@ describe('SfExpressService', () => {
       expect(result[0].trackingNo).toBe('SF1');
     });
 
-    it('OrderState 调度等待文案规范化为“等待调度”，且不推进为运输中', () => {
+    it('OrderState 调度失败/等待 → 中性“顺丰处理中，等待揽收”，且不推进为运输中', () => {
       const svc = createService();
       const result = svc.parsePushPayload({
         Body: {
@@ -563,10 +563,10 @@ describe('SfExpressService', () => {
       expect(result).toHaveLength(1);
       expect(result[0].trackingNo).toBe('SF7444703630995');
       expect(result[0].status).toBe('SHIPPED');
-      expect(result[0].events[0].message).toBe('等待调度');
+      expect(result[0].events[0].message).toBe('顺丰处理中，等待揽收');
     });
 
-    it('OrderState 调度成功/收派员信息 → “已派单（含快递员信息）”', () => {
+    it('OrderState 调度成功 + empPhone → “顺丰已接单·揽收员 138****5678”（脱敏）', () => {
       const svc = createService();
       const result = svc.parsePushPayload({
         Body: {
@@ -575,16 +575,17 @@ describe('SfExpressService', () => {
               waybillNo: 'SF1',
               orderStateCode: '04-002',
               orderStateDesc: '调度成功/收派员信息',
+              empPhone: '13812345678',
               lastTime: '2026-05-08T01:54:55.000Z',
             },
           ],
         },
       });
-      expect(result[0].events[0].message).toBe('已派单（含快递员信息）');
+      expect(result[0].events[0].message).toBe('顺丰已接单·揽收员 138****5678');
       expect(result[0].status).toBe('SHIPPED');
     });
 
-    it('OrderState 单纯调度成功 → “已派单”；已下单/订单已接收 → “订单已受理”；其它原样', () => {
+    it('OrderState 调度成功(无empPhone) → “顺丰已接单，安排揽收中”；已下单/订单已接收 → “顺丰已接单”；其它原样', () => {
       const svc = createService();
       const result = svc.parsePushPayload({
         Body: {
@@ -599,9 +600,9 @@ describe('SfExpressService', () => {
       const byTrack = Object.fromEntries(
         result.map((p) => [p.trackingNo, p.events[0].message]),
       );
-      expect(byTrack['A']).toBe('已派单');
-      expect(byTrack['B']).toBe('订单已受理');
-      expect(byTrack['C']).toBe('订单已受理');
+      expect(byTrack['A']).toBe('顺丰已接单，安排揽收中');
+      expect(byTrack['B']).toBe('顺丰已接单');
+      expect(byTrack['C']).toBe('顺丰已接单');
       expect(byTrack['D']).toBe('其他自定义状态');
     });
   });

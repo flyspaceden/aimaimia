@@ -253,7 +253,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-05-30）
+## 六、当前 App 实际状态（2026-06-06）
 
 ### EAS 配置
 
@@ -313,7 +313,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `a9b24b6d-a344-4fc1-8690-704d9b758fc4` | 售后申请页真机 bug 修复：①上传凭证入口支持拍照/相册二选一，拍照独立申请相机权限；②提交按钮加同步防重复保护，成功后直达售后详情；③售后详情页对金额、图片数组、物流轨迹数组做渲染前归一化，并加路由级 ErrorBoundary，避免后端已创建售后但详情异常数据导致白屏 | **当前生效** ✅，commit `46ef1e7`（2026-06-02），App 端纯 JS/TS 无原生改动；Android update `019e8624-9923-783c-9fcd-ff9c7dafece3`，iOS update `019e8624-9923-723b-b8be-802f8ea61c46`；带 `EXPO_PUBLIC_ENV=staging` + `EXPO_PUBLIC_ALIPAY_SANDBOX=false`（支付宝真实链路）+ `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`（微信真实链路入口打开） |
+| `c2fd73ad-0cd0-42ae-8d0d-aca7d23956e4` | 下线 AI 多轮对话页（过华为审查 + 规避"网络异常"）：`app/ai/chat.tsx`+`assistant.tsx`+`history.tsx` 默认导出改 `<Redirect href="/(tabs)/home" />`（原实现保留为 `*ScreenDisabled`，恢复时切回 export default）；`app/(tabs)/home.tsx` 短按光球不再进聊天页 + 隐藏「继续对话」「最近对话」（`false &&`）+ 最近对话 query `enabled:false`；`src/hooks/useVoiceRecording.ts` 聊天类回复从跳 `/ai/chat` 改为浮层内联**单轮**显示（`setFeedbackText`+`setFeedbackVisible`）；`AiFloatingCompanion.tsx` `onContinueChat={undefined}`；`cart.tsx` 两入口 / `me.tsx`「AI 小助手」块 / `mocks/me.ts` task-002 / `navigateByIntent.ts` ai-chat→原地反馈，全部注释或不跳页。**保留单轮语音**：首页长按语音 + 全局浮球 + 语音搜索/推荐/跳页/结账 + 溯源/AI推荐/金融页 + 后端 AI 模块均不动 | **当前生效** ✅，commit `db3d7be`（2026-06-02），纯 JS/TS 无原生改动、无顶层副作用/白屏风险、无后端依赖；`tsc -b` 通过 + 独立审查 SHIP；Android update `019e86cc-de81-779b-8f86-6e79929b780f`，iOS update `019e86cc-de81-706d-941d-c5750b646518`；带全 5 个 `EXPO_PUBLIC_*`（`ENV=staging`+`USE_MOCK=false`+`API_BASE_URL=test`+`ALIPAY_SANDBOX=true`+`WECHAT_PAY_AVAILABLE=true`）。⚠️ 多轮 `sendMessage` 后端接口仍在、前端已无入口；背景根因是后端 `chatWithContext` 调 Qwen 10s 超时（`backend/.../ai.service.ts:3789`） |
+| `a9b24b6d-a344-4fc1-8690-704d9b758fc4` | 售后申请页真机 bug 修复：①上传凭证入口支持拍照/相册二选一，拍照独立申请相机权限；②提交按钮加同步防重复保护，成功后直达售后详情；③售后详情页对金额、图片数组、物流轨迹数组做渲染前归一化，并加路由级 ErrorBoundary，避免后端已创建售后但详情异常数据导致白屏 | 已被 `c2fd73ad-0cd0-42ae-8d0d-aca7d23956e4` 覆盖，commit `46ef1e7`（2026-06-02），App 端纯 JS/TS 无原生改动；Android update `019e8624-9923-783c-9fcd-ff9c7dafece3`，iOS update `019e8624-9923-723b-b8be-802f8ea61c46`；带 `EXPO_PUBLIC_ENV=staging` + `EXPO_PUBLIC_ALIPAY_SANDBOX=false`（支付宝真实链路）+ `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`（微信真实链路入口打开） |
 | `ce03bc35-13a4-42b6-8a29-d6e303b3156a` | 售后退款状态同步修复：①买家 App 售后详情在 `REFUNDING` 时 10s 轮询，进入 `REFUNDED/FAILED/REJECTED` 后停止并刷新订单/钱包/售后缓存；②新增 `afterSaleRefundSync` 纯函数与单测，统一退款中/终态判断；③配套后端售后退款 pending 短延迟查单 + 管理后台详情弹窗 15s 查单随 staging commit 自动部署 | 已被 `a9b24b6d-a344-4fc1-8690-704d9b758fc4` 覆盖；commit `6ebae51`（2026-06-01），App 端纯 JS/TS 无原生改动；后端/admin 依赖同 commit 的 staging 部署完成后生效；Android update `019e8186-1ddb-7784-bee7-b558b4ca42dd`，iOS update `019e8186-1ddb-71e0-93e7-c9ddc3d698c3`；带 `EXPO_PUBLIC_ENV=staging` + `EXPO_PUBLIC_ALIPAY_SANDBOX=true` + `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true` |
 | `e382b130-844e-4340-ae59-5141359239d7` | 法律文本上架合规一批：①`src/content/legal/termsOfService.ts`+`privacyPolicy.ts` 整篇替换为法务定稿《AI爱买买APP用户协议/隐私政策》正文（标题改 AI爱买买APP、生效 2026-05-30、version 维持 v1.0 测试期不触发重弹同意）②账号注销功能未上线：用户协议 §六整章、隐私 §4.3 及各处顺带提及全部改注释保留（文件头附恢复清单）③隐私恢复《第三方 SDK 与服务共享清单》附录 + `app/settings.tsx` 加回「第三方 SDK 清单」入口 ④`app/account-security.tsx` 注销按钮+handler 注释隐藏（后端 `/auth/delete-account` 未实现，生产点击 404）+ `PrivacyConsentModal.tsx` 同意弹窗去掉"或注销账号" | 已被 `ce03bc35-13a4-42b6-8a29-d6e303b3156a` 覆盖；commits `ec91c44`+`06783b0`+`3cbf3fd`（2026-05-30），纯 JS/TS 无原生改动，无后端依赖；Android update `019e7a7d-728b-73cf-96d1-9785eb372af6`，iOS update `019e7a7d-728b-7df6-9700-792c4a7066f0`；带 `EXPO_PUBLIC_ENV=staging` + `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
 | `258312d7-6861-4d18-acf2-fc1fed9926c4` | 设置页清理：①`app/settings.tsx` AI 偏好 Section 整段用 JSX 块注释隐藏（保留代码以便恢复，连带注释 `AiBadge` import）②隐私与合规删除「个人信息收集清单 / 第三方 SDK 清单 / 应用权限说明」三个入口（仅去掉设置页跳转入口，`src/content/legal/privacyPolicy.ts` 的 appendix 内容与 `/privacy` 页渲染保留不动） | 已被 `e382b130-844e-4340-ae59-5141359239d7` 覆盖；commit `58eec67`（2026-05-29），纯 JS/TS 无原生改动，无后端依赖；Android update `019e74b7-b6b0-76a0-b6c6-b38b72e9eb1c`，iOS update `019e74b7-b6b0-767e-90dd-625a24a3ff5a`；带 `EXPO_PUBLIC_ENV=staging` + `EXPO_PUBLIC_ALIPAY_SANDBOX=true` |
@@ -375,7 +376,13 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### Production Branch
 
-**还没创建**（v1.0 未上架）。第一次推时跑 `eas update --branch production` 会自动创建。
+**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前 runtime **1.0.1**（2026-06-05 本地打包的 v1.0.1 APK，账号注销已烧进包；本地打包不进 `eas build:list`）。**生产 OTA 必须目标 runtime 1.0.1**——1.0.1 / 1.0.0 / 0.2.0 三代 runtime 互不通 OTA。
+
+生产 OTA 完整历史（第 1-9 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
+
+最近一条（2026-06-06）：Group `5afd821a-a0ca-4cd6-a25a-e40c5dc1d997`，runtime 1.0.1，commit `922671b`（main `8c34154`）——VIP 首页礼包推荐展示：跑马灯对 VIP 恢复显示切推荐语境「好友开通可得礼包」+ `/vip/gifts` 解除 VIP 拦截改浏览模式（提示条/「分享给好友开通」/购买链路物理隔离）；Android `019e9b44-aa3c-7555-bebc-4f1dc840900a` / iOS `019e9b44-aa3c-7767-b7dc-96d8d4515875`；带全 5 个生产 EXPO_PUBLIC_*（ENV=production / USE_MOCK=false / API_BASE_URL=https://api.ai-maimai.com/api/v1 / ALIPAY_SANDBOX=false / WECHAT_PAY_AVAILABLE=true）；纯 JS/TS 无原生改动。
+
+> ⚠️ Preview channel 测试机仍在 runtime **0.3.0**（v1.0 版本号 bump 后未再发 preview OTA，直接 `eas update --branch preview` 会目标 1.0.1 而 0.3.0 测试机收不到）；给测试机发 OTA 前先确认其 runtime。
 
 ---
 

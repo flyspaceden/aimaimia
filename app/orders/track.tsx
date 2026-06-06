@@ -27,6 +27,31 @@ function maskTrackingNo(no: string | null | undefined): string {
   return `${no.slice(0, 4)}****${no.slice(-4)}`;
 }
 
+/**
+ * 顺丰 OrderState 会把同一状态带不同时间戳重复推送 → 按「文案+地点」折叠为最新一条，
+ * 再按时间倒序；message 为空兜底「物流更新」。同时清掉已堆积的历史重复节点。
+ */
+function dedupTimelineEvents(
+  evts: { id: string; occurredAt: string; message: string; location?: string }[],
+) {
+  const byKey = new Map<string, (typeof evts)[number]>();
+  for (const evt of evts) {
+    const key = `${evt.message ?? ''}|${evt.location ?? ''}`;
+    const prev = byKey.get(key);
+    if (!prev || new Date(evt.occurredAt).getTime() > new Date(prev.occurredAt).getTime()) {
+      byKey.set(key, evt);
+    }
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+    .map((evt) => ({
+      id: evt.id,
+      time: evt.occurredAt,
+      status: evt.message || '物流更新',
+      location: evt.location ?? '',
+    }));
+}
+
 const CARRIER_PHONES: Record<string, string> = {
   SF: '95338', YTO: '95554', ZTO: '95311', STO: '95543', YD: '95546', JD: '95311', EMS: '11183',
 };
@@ -146,33 +171,17 @@ export default function OrderTrackScreen() {
     }
   }, [isMultiPackage, packages.length]);
 
-  // 真实物流事件转 timeline；无数据返回空数组（UI 自行渲染空态，不再显示假数据）
-  const timeline = useMemo(() => {
-    if (shipment?.events && shipment.events.length > 0) {
-      return shipment.events.map((evt) => ({
-        id: evt.id,
-        time: evt.occurredAt,
-        status: evt.message || '物流更新',
-        location: evt.location ?? '',
-      }));
-    }
-    return [];
-  }, [shipment]);
+  // 真实物流事件转 timeline；去重折叠重复推送；无数据返回空数组（UI 自行渲染空态）
+  const timeline = useMemo(
+    () => dedupTimelineEvents(shipment?.events ?? []),
+    [shipment],
+  );
 
-  // 各包裹独立的 timeline
-  const packageTimelines = useMemo(() => {
-    return packages.map((pkg) => {
-      if (pkg.events && pkg.events.length > 0) {
-        return pkg.events.map((evt) => ({
-          id: evt.id,
-          time: evt.occurredAt,
-          status: evt.message,
-          location: evt.location ?? '',
-        }));
-      }
-      return [];
-    });
-  }, [packages]);
+  // 各包裹独立的 timeline（同样去重折叠）
+  const packageTimelines = useMemo(
+    () => packages.map((pkg) => dedupTimelineEvents(pkg.events ?? [])),
+    [packages],
+  );
 
   // 订单显示标题和状态
   const orderTitle = orderId ? `订单#${orderId.slice(-8)}` : '订单#20250112';
