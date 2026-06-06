@@ -4,11 +4,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../theme';
 import type { VipPackage } from '../../types/domain/Bonus';
-import { buildVipHomePromoCards, type VipHomePromoCard } from '../../utils/vipHomePromo';
+import {
+  buildVipHomePromoCards,
+  getVipPromoCarouselCopy,
+  type VipHomePromoCard,
+  type VipPromoMode,
+} from '../../utils/vipHomePromo';
 
 type VipHomePromoCarouselProps = {
   packages: VipPackage[];
   onPressCard: (card: VipHomePromoCard) => void;
+  // purchase = 非 VIP 购买语境（默认，现有调用零破坏）；referral = VIP 推荐语境，仅替换标题与无障碍文案
+  mode?: VipPromoMode;
 };
 
 // 每秒平移多少 dp，太大眼花、太小停滞，28dp/s 在 240dp 卡上等价一张约 8.5s 走完
@@ -18,10 +25,11 @@ const SCROLL_SPEED_DP_PER_SEC = 28;
 const MAX_ITEM_LINES = 2;
 
 // 首页非 VIP 礼包广告位：连续顺滑滚动的跑马灯（复制一份卡片实现无缝循环）
-export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCarouselProps) {
+export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' }: VipHomePromoCarouselProps) {
   const { colors, spacing, radius, typography, shadow } = useTheme();
   const { width, isLargeText } = useResponsiveLayout();
   const cards = useMemo(() => buildVipHomePromoCards(packages), [packages]);
+  const copy = getVipPromoCarouselCopy(mode);
 
   // 大字体/紧凑屏下卡片适度收窄，避免内文拥挤
   const cardWidth = isLargeText
@@ -99,7 +107,7 @@ export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCaro
         <View style={styles.headerTitleRow}>
           <MaterialCommunityIcons name="crown-outline" size={16} color={colors.brand.primary} />
           <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: 6 }]}>
-            VIP 开通礼包
+            {copy.title}
           </Text>
         </View>
         <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
@@ -121,7 +129,7 @@ export function VipHomePromoCarousel({ packages, onPressCard }: VipHomePromoCaro
               onPressIn={handlePressIn}
               onPressOut={handlePressOut}
               accessibilityRole="button"
-              accessibilityLabel={`${card.price}元 VIP 礼包，${card.title}，点击查看赠品详情`}
+              accessibilityLabel={`${card.price}元 VIP 礼包，${card.title}，${copy.cardActionHint}`}
               style={[styles.cardPressable, { width: cardWidth, marginRight: 8 }]}
             >
               <LinearGradient
