@@ -34,7 +34,7 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
 import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
-import { buildVipReferralHomePrompt, type VipHomePromoCard } from '../../src/utils/vipHomePromo';
+import { buildVipReferralHomePrompt, type VipHomePromoCard, type VipPromoMode } from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -169,19 +169,18 @@ export default function HomeScreen() {
   const lotteryStatus = lotteryStatusData?.ok ? lotteryStatusData.data : null;
   const hasLotteryChance = !!(lotteryStatus && !lotteryStatus.hasDrawn);
 
-  // VIP 首页广告：未登录/普通用户展示，VIP 用户隐藏
+  // VIP 首页礼包展示：非 VIP 为购买语境；VIP 切推荐语境（好友开通可得），作为推荐弹药
   const { data: memberData } = useQuery({
     queryKey: ['bonus-member'],
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
   const member = memberData?.ok ? memberData.data : null;
-  const shouldShowVipPromo = !isLoggedIn || member?.tier === 'NORMAL';
+  const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipReferralPrompt = buildVipReferralHomePrompt(member);
   const { data: vipGiftOptionsData } = useQuery({
     queryKey: ['vip-gift-options'],
     queryFn: () => BonusRepo.getVipGiftOptions(),
-    enabled: shouldShowVipPromo,
   });
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
 
@@ -547,14 +546,13 @@ export default function HomeScreen() {
           </Animated.View>
         )}
 
-        {shouldShowVipPromo ? (
-          <Animated.View entering={FadeInDown.duration(300).delay(40)}>
-            <VipHomePromoCarousel
-              packages={vipPackages}
-              onPressCard={handleVipPromoPress}
-            />
-          </Animated.View>
-        ) : null}
+        <Animated.View entering={FadeInDown.duration(300).delay(40)}>
+          <VipHomePromoCarousel
+            packages={vipPackages}
+            onPressCard={handleVipPromoPress}
+            mode={vipPromoMode}
+          />
+        </Animated.View>
 
         {vipReferralPrompt ? (
           <Animated.View entering={FadeInDown.duration(300).delay(40)}>
