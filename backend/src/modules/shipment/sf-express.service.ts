@@ -30,6 +30,7 @@ export interface SfCreateOrderParams {
   payMethod?: number; // 1=寄方付（默认）
   expressTypeId?: number; // 1=顺丰标快（默认），2=顺丰特惠
   isReturnRoutelabel?: number; // 1=返回电子面单路由标签
+  isDocall?: number; // 1=通知顺丰收派员上门取件（默认 1）；0=不通知。顺丰默认 0，不传则下单有运单号但无人上门
 }
 
 /** 顺丰下单返回 */
@@ -454,6 +455,9 @@ export class SfExpressService {
       payMethod: params.payMethod ?? 1,
       expressTypeId: params.expressTypeId ?? 1,
       isReturnRoutelabel: params.isReturnRoutelabel ?? 1,
+      // 关键：isDocall=1 才会「下call」通知顺丰收派员上门取件（顺丰默认 0=不通知，
+      // 导致下单成功有运单号、但无人上门）。官方丰桥文档 EXP_RECE_CREATE_ORDER 确认。
+      isDocall: params.isDocall ?? 1,
       parcelQty: params.packageCount ?? 1,
       totalWeight: params.totalWeight ?? 1,
       cargoDesc,

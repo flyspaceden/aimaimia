@@ -270,6 +270,21 @@ describe('SfExpressService', () => {
       expect(msgData.cargoDesc.length).toBeLessThanOrEqual(20);
     });
 
+    it('下单默认带 isDocall=1（通知顺丰收派员上门取件）', async () => {
+      const svc = createService();
+      mockFetch.mockResolvedValueOnce(
+        sfSuccess({
+          orderId: 'SF_ORDER_003',
+          waybillNoInfoList: [{ waybillNo: 'SF1111111111' }],
+        }),
+      );
+      await svc.createOrder(baseParams);
+      const [, options] = mockFetch.mock.calls[0];
+      const body = new URLSearchParams(options.body as string);
+      const msgData = JSON.parse(body.get('msgData') as string);
+      expect(msgData.isDocall).toBe(1);
+    });
+
     it('收件人必传字段为空时抛清晰中文错误、且不调用顺丰', async () => {
       const svc = createService();
       await expect(
