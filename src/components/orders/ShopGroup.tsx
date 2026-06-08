@@ -33,7 +33,7 @@ export function ShopGroup({ companyName, items, isVipPackage, onContactSeller, s
           skuTitle={item.skuTitle}
           unitPrice={item.price}
           quantity={item.quantity}
-          priceLabel={isVipPackage ? '赠品' : undefined}
+          priceLabel={isVipPackage ? 'VIP礼包' : undefined}
           showAfterSaleAction={showAfterSaleAction && !item.isPrize}
           onAfterSale={() => onItemAfterSale?.(item)}
         />

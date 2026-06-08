@@ -985,7 +985,7 @@ export default function CheckoutScreen() {
                       {vipPackageSelection.title}
                     </Text>
                     <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                      VIP 专属赠品 x1
+                      VIP礼包 x1
                     </Text>
                   </View>
                   <Text style={[typography.bodyStrong, { color: '#C9A96E' }]}>
