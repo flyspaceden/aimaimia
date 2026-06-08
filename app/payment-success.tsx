@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../src/components/layout';
+import { OrderNoReveal } from '../src/components/orders/OrderNoReveal';
 import { compactActionTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../src/theme';
 
 /**
@@ -233,20 +234,11 @@ export default function PaymentSuccessScreen() {
 
             <View style={[styles.metaRow, { marginTop: spacing.sm }]}>
               <Text style={[typography.captionSm, { color: colors.text.secondary }]}>总订单号</Text>
-              <Text
-                style={[
-                  typography.captionSm,
-                  {
-                    color: colors.text.primary,
-                    fontFamily: 'monospace',
-                    maxWidth: '60%',
-                  },
-                ]}
-                numberOfLines={1}
-                ellipsizeMode="middle"
-              >
-                {totalOrderNo}
-              </Text>
+              <OrderNoReveal
+                orderNo={totalOrderNo}
+                textStyle={[typography.captionSm, { color: colors.text.primary }]}
+                style={{ maxWidth: '60%' }}
+              />
             </View>
 
             <View style={[styles.metaRow, { marginTop: spacing.sm }]}>

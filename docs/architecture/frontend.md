@@ -2297,6 +2297,7 @@ src/components/ai/   → 新增目录
 | 售后链路收口 Task 9/12 | 买家 App 类型、售后资格、退货运费支付、顺丰退货面单、订单详情直达售后详情和换货确认接入统一 after-sale API；最终验证记录已同步，真机/沙箱仍需验证退货运费支付、顺丰退货面单和售后退款到账 | 2026-05-10 | `src/types/domain/Order.ts`, `src/constants/statuses.ts`, `src/repos/AfterSaleRepo.ts`, `src/repos/OrderRepo.ts`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
 | 售后申请拍照与详情白屏兜底 | 申请页上传凭证支持拍照/相册二选一，提交增加同步防重复保护并在成功后直达售后详情；详情页金额、图片、物流轨迹渲染前归一化，路由级 ErrorBoundary 兜底异常数据，避免提交成功后白屏 | 2026-06-02 | `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx`, `src/utils/afterSaleDetailSafety.ts`, `src/utils/__tests__/afterSaleDetailSafety.test.ts` |
 | 发票链路收口 | 我的页增加“我的发票”入口；订单详情接入 `InvoiceSection`，按后端 `invoiceEligible` 判断申请入口，显示 REQUESTED/ISSUED/FAILED/CANCELED 状态；发票列表/详情通过 `expo-web-browser` 打开 PDF，取消申请后刷新发票与订单缓存 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/orders/[id].tsx`, `app/invoices/index.tsx`, `app/invoices/[id].tsx`, `src/components/cards/InvoiceSection.tsx`, `src/types/domain/Invoice.ts`, `src/types/domain/Order.ts`, `src/repos/InvoiceRepo.ts`, `src/repos/OrderRepo.ts` |
+| 订单号脱敏展示+展开+复制 | 抽共享组件 `OrderNoReveal`：默认显示订单号后 6 位（`…` 前缀等宽字），眼睛图标在收起↔展开完整订单号间切换，复制按钮始终复制完整订单号+toast「已复制」；接入订单详情页订单号行（替换原完整号+复制 pill）/ 支付成功页总订单号 / 物流追踪页头部新增订单号行，物流页标题后 8 位→后 6 位统一 | 2026-06-08 | `src/components/orders/OrderNoReveal.tsx`, `src/components/orders/OrderInfoBlock.tsx`, `app/payment-success.tsx`, `app/orders/track.tsx` |
 
 ### Phase 进度对照
 
@@ -2355,3 +2356,4 @@ src/components/ai/   → 新增目录
 | SpinWheel | `src/components/effects/SpinWheel.tsx` | SVG等分扇形转盘，奖品类型→颜色映射，SharedValue旋转控制 |
 | WheelPointer | `src/components/effects/WheelPointer.tsx` | 金色倒三角指针，旋转时±3°摆动模拟物理弹片 |
 | Confetti | `src/components/effects/Confetti.tsx` | 25粒子庆祝爆发，随机方向弹射+重力下落+淡出，设计令牌颜色 |
+| OrderNoReveal | `src/components/orders/OrderNoReveal.tsx` | 订单号脱敏展示：默认后6位(`…`前缀等宽)+眼睛展开完整号+复制全号(toast)，Pressable hitSlop 触控热区+accessibilityLabel，订单详情/支付成功/物流追踪三页复用 |
