@@ -380,7 +380,9 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 生产 OTA 完整历史（第 1-9 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
 
-最近一条（2026-06-08）：VIP 礼包标签改名「赠品」→「VIP礼包」+ 订单标签金黄配色（commit `0e1fb47` / main `cdc7e27`）。**首次双发 1.0.1 + 1.0.2**（应需求「ota1.0.1+1.0.2」）：runtime 1.0.1 Group `40cd4659-ab66-4862-bfea-d19d41f7b84d`（送达华为真实生产用户，临时改 `app.json` version→1.0.1 发、发完 `git checkout` 还原 1.0.2）；runtime 1.0.2 Group `f119a77f-bf0a-409c-a666-96389d6147c8`（当前零设备在跑、送达 0 台，为 1.0.2 上架后一致性预置）。两条均带全 5 个生产 EXPO_PUBLIC_*（ENV=production / USE_MOCK=false / API_BASE_URL=https://api.ai-maimai.com/api/v1 / ALIPAY_SANDBOX=false / WECHAT_PAY_AVAILABLE=true）；纯 JS/TS 无原生改动。完整历史见 memory `project_app_release_status.md`。
+最近一条（2026-06-08，第 13 条）：订单号脱敏展示+眼睛展开+复制（共享组件 `OrderNoReveal`，接入订单详情/支付成功/物流追踪三页，commit `7e4d16f` / main `832b178`）。**双发 1.0.1 + 1.0.2**：runtime 1.0.1 Group `ee5dc8eb-b393-4c04-8ccc-51296b656ebc`（送达华为真实生产用户，临时改 `app.json` version→1.0.1 发、`git checkout` 还原 1.0.2）；runtime 1.0.2 Group `5f872560-9320-4329-b192-8a326a6fd379`（零设备、预置）。两条均带全 5 个生产 EXPO_PUBLIC_*（ENV=production / USE_MOCK=false / API_BASE_URL=https://api.ai-maimai.com/api/v1 / ALIPAY_SANDBOX=false / WECHAT_PAY_AVAILABLE=true）；纯 JS/TS 无原生改动。
+
+上一条（2026-06-08，第 12 条）：VIP 礼包标签改名「赠品」→「VIP礼包」+ 订单标签金黄配色（commit `0e1fb47` / main `cdc7e27`）。双发 runtime 1.0.1 Group `40cd4659-ab66-4862-bfea-d19d41f7b84d` / runtime 1.0.2 Group `f119a77f-bf0a-409c-a666-96389d6147c8`。完整历史见 memory `project_app_release_status.md`。
 
 > ⚠️ Preview channel 测试机仍在 runtime **0.3.0**（v1.0 版本号 bump 后未再发 preview OTA，直接 `eas update --branch preview` 会目标 1.0.1 而 0.3.0 测试机收不到）；给测试机发 OTA 前先确认其 runtime。
 
