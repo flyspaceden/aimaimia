@@ -16,13 +16,16 @@ interface SpinWheelProps {
   size?: number;
 }
 
-// 奖品类型 → 双色方案（主色 + 浅色交替，营造节庆视觉层次）
-// 文字颜色确保 WCAG AA 对比度 ≥ 4.5:1
+// 奖品类型 → 双色方案（主色 + 浅色，相邻扇区主/浅交替营造节庆视觉层次）
+// key 取后端 LotteryPrizeType 枚举值（DISCOUNT_BUY / THRESHOLD_GIFT / NO_PRIZE）
+// 文字颜色确保 WCAG AA 对比度 ≥ 4.5:1（均实测 ≥ 5:1）
 const SEGMENT_THEMES: Record<string, { main: string; alt: string; text: string }> = {
-  RED_PACK: { main: '#E8A000', alt: '#FFD54F', text: '#4A2800' },
-  COUPON: { main: '#2E7D32', alt: '#43A047', text: '#FFFFFF' },
-  PRODUCT: { main: '#C62828', alt: '#D32F2F', text: '#FFFFFF' },
-  NONE: { main: '#F0DBA0', alt: '#FFF3D0', text: '#5A4520' },
+  // 实物大奖（低价购高价商品）：喜庆正红，最抓眼球
+  DISCOUNT_BUY: { main: '#C62828', alt: '#D32F2F', text: '#FFFFFF' },
+  // 满额赠礼：丰收金，富贵有礼感
+  THRESHOLD_GIFT: { main: '#E8A000', alt: '#FFCA28', text: '#4A2800' },
+  // 谢谢参与：低饱和米色，视觉上自然弱化
+  NO_PRIZE: { main: '#EDE3C8', alt: '#F7EFD8', text: '#4A3815' },
 };
 const DEFAULT_THEME = { main: '#F0DBA0', alt: '#FFF3D0', text: '#5A4520' };
 

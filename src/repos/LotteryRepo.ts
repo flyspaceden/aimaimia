@@ -83,10 +83,11 @@ export const LotteryRepo = {
         won,
         prize: won
           ? {
-              id: 'prize-1',
-              name: '5元红包',
+              // id 须与 getPrizes() 列表中的某一项一致，否则转盘 findIndex 落空停到 index 0
+              id: 'p-1',
+              name: '1元购水果',
               type: 'DISCOUNT_BUY',
-              probability: 0.3,
+              probability: 0.25,
               expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
             }
           : undefined,
@@ -213,11 +214,13 @@ export const LotteryRepo = {
   /** 奖品列表 */
   getPrizes: async (): Promise<Result<LotteryPrize[]>> => {
     if (USE_MOCK) {
+      // type 须取后端 LotteryPrizeType 枚举值（DISCOUNT_BUY / THRESHOLD_GIFT / NO_PRIZE）
+      // 含两个 DISCOUNT_BUY 用于验证相邻同类型扇区的主/浅色区分
       return simulateRequest([
-        { id: 'p-1', name: '5元红包', type: 'DISCOUNT_BUY', probability: 0.3, image: '' },
-        { id: 'p-2', name: '免邮券', type: 'COUPON', probability: 0.2, image: '' },
-        { id: 'p-3', name: '精品水果', type: 'PRODUCT', probability: 0.05, image: '' },
-        { id: 'p-4', name: '谢谢参与', type: 'NONE', probability: 0.45, image: '' },
+        { id: 'p-1', name: '1元购水果', type: 'DISCOUNT_BUY', probability: 0.25, image: '' },
+        { id: 'p-2', name: '满99赠好礼', type: 'THRESHOLD_GIFT', probability: 0.25, image: '' },
+        { id: 'p-3', name: '海产鱿鱼', type: 'DISCOUNT_BUY', probability: 0.05, image: '' },
+        { id: 'p-4', name: '谢谢参与', type: 'NO_PRIZE', probability: 0.45, image: '' },
       ]);
     }
     return ApiClient.get<LotteryPrize[]>('/lottery/prizes');

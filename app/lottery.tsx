@@ -37,18 +37,19 @@ function calcTargetAngle(prizeIndex: number, totalPrizes: number, currentRotatio
   return target;
 }
 
-// 奖品类型对应的色点颜色
+// 奖品类型对应的色点颜色（与转盘扇区配色语义一致，type 取后端 LotteryPrizeType 枚举值）
 function getPrizeDotColor(type: string, colors: ColorScheme): string {
   switch (type) {
-    case 'RED_PACK':
-      return colors.gold.primary;
-    case 'COUPON':
-      return colors.brand.primaryLight;
-    case 'PRODUCT':
+    case 'DISCOUNT_BUY':
+      // 实物大奖：喜庆红
       return colors.danger;
-    case 'NONE':
+    case 'THRESHOLD_GIFT':
+      // 满额赠礼：丰收金
+      return colors.gold.primary;
+    case 'NO_PRIZE':
     default:
-      return colors.bgSecondary;
+      // 谢谢参与：低饱和灰，视觉弱化
+      return colors.text.tertiary;
   }
 }
 
@@ -222,10 +223,17 @@ export default function LotteryScreen() {
     let targetIndex = 0;
     if (result.won && result.prize) {
       const idx = currentPrizes.findIndex((p) => p.id === result.prize?.id);
-      if (idx >= 0) targetIndex = idx;
+      if (idx >= 0) {
+        targetIndex = idx;
+      } else {
+        // 兜底：中奖但奖品不在转盘列表（极端竞态/被可用性过滤）——落到首个真实奖品扇区，
+        // 避免停在"谢谢参与"扇区与"恭喜获得"弹窗自相矛盾
+        const firstPrizeIdx = currentPrizes.findIndex((p) => p.type !== 'NO_PRIZE');
+        targetIndex = firstPrizeIdx >= 0 ? firstPrizeIdx : 0;
+      }
     } else {
-      // 未中奖：停在"谢谢参与"扇区
-      const noneIdx = currentPrizes.findIndex((p) => p.type === 'NONE');
+      // 未中奖：停在"谢谢参与"扇区（后端枚举为 NO_PRIZE，曾误写 'NONE' 导致永远匹配不到→回退到列表最后一个真实奖品扇区）
+      const noneIdx = currentPrizes.findIndex((p) => p.type === 'NO_PRIZE');
       targetIndex = noneIdx >= 0 ? noneIdx : currentPrizes.length - 1;
     }
 
