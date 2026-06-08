@@ -1378,3 +1378,17 @@
 - [x] **VR04** `/vip/gifts` 解除 VIP 拦截改浏览模式：顶部提示条 + CTA「分享给好友开通」跳 `/me/referral` + handleCheckout VIP 守卫物理隔离（7f86670）
 - [x] **VR05** 全量验证：jest 41/41 + tsc 零错误
 - [ ] **VR06** 真机验收（VIP 首页跑马灯/礼包页浏览/分享跳转/非 VIP 回归四项）+ 发 OTA（纯 JS 改动可 OTA，发布前过响应式 checklist）
+
+---
+
+## 🧾 订单号脱敏展示 + 展开 + 复制（2026-06-08 新增）
+
+> **触发**: 订单号是长 cuid，App 多处只展示后几位/中间省略；用户要「默认后几位 + 眼睛展开完整号 + 复制按钮」。
+> **方案**: 抽共享组件 `OrderNoReveal`，三页复用，默认后 6 位。
+
+- [x] **ON01** 共享组件 `OrderNoReveal`（`src/components/orders/OrderNoReveal.tsx`）：默认后 6 位（`…`前缀等宽）、眼睛 `eye-outline`/`eye-off-outline` 切换、复制 `content-copy` 始终复制完整号+toast「已复制」、Pressable hitSlop 触控热区+accessibilityLabel、空态/短号兜底
+- [x] **ON02** 订单详情页 `OrderInfoBlock` 订单号行接入（替换原完整号+复制 pill，清理死代码 Clipboard/useToast/copyBtn）
+- [x] **ON03** 支付成功页 `payment-success` 总订单号接入（窄空间 maxWidth 60%）
+- [x] **ON04** 物流追踪页 `track` 头部新增订单号行 + 标题后 8 位→后 6 位统一
+- [x] **ON05** tsc -b 通过 + 独立审查（采纳触控热区放大/空态无障碍/重复样式清理；甄别并驳回导入路径误报）
+- [ ] **ON06** 真机验收（三页展开/收起/复制 toast）+ 发 OTA（纯 JS 可 OTA）

@@ -15,6 +15,7 @@ import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { Skeleton, useToast } from '../../src/components/feedback';
+import { OrderNoReveal } from '../../src/components/orders/OrderNoReveal';
 import { OrderRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
@@ -184,7 +185,7 @@ export default function OrderTrackScreen() {
   );
 
   // 订单显示标题和状态
-  const orderTitle = orderId ? `订单#${orderId.slice(-8)}` : '订单#20250112';
+  const orderTitle = orderId ? `订单#${orderId.slice(-6)}` : '订单#20250112';
   const statusLabel = shipment
     ? (shipmentStatusLabels[shipment.status] ?? shipment.status)
     : '暂无物流信息';
@@ -239,6 +240,15 @@ export default function OrderTrackScreen() {
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                 当前状态：{statusLabel}
               </Text>
+              {orderId ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginRight: 6 }]}>订单号</Text>
+                  <OrderNoReveal
+                    orderNo={orderId}
+                    textStyle={[typography.caption, { color: colors.text.primary, fontFamily: 'monospace' }]}
+                  />
+                </View>
+              ) : null}
               {/* 单包裹显示承运商信息 + 运单号点击复制 + 快递客服电话 */}
               {!isMultiPackage && shipment ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>

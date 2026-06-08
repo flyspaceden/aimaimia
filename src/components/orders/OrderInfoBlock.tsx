@@ -1,8 +1,7 @@
 import React from 'react';
-import * as Clipboard from 'expo-clipboard';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../../theme';
-import { useToast } from '../feedback';
+import { OrderNoReveal } from './OrderNoReveal';
 
 interface Props {
   orderId: string;
@@ -33,13 +32,7 @@ function formatTime(value?: string) {
 }
 
 export function OrderInfoBlock({ orderId, createdAt, paidAt, shippedAt, deliveredAt, paymentMethod, buyerNote, isVipPackage, onApplyInvoice }: Props) {
-  const { colors, radius, typography } = useTheme();
-  const { show } = useToast();
-
-  const handleCopy = async () => {
-    await Clipboard.setStringAsync(orderId);
-    show({ message: '已复制', type: 'success' });
-  };
+  const { colors, typography } = useTheme();
 
   const Row = ({ label, value, action }: { label: string; value: React.ReactNode; action?: React.ReactNode }) => {
     const valueIsText = typeof value === 'string' || typeof value === 'number';
@@ -60,11 +53,7 @@ export function OrderInfoBlock({ orderId, createdAt, paidAt, shippedAt, delivere
 
   return (
     <View>
-      <Row label="订单号" value={orderId} action={
-        <Pressable onPress={handleCopy} style={[styles.copyBtn, { backgroundColor: colors.muted, borderRadius: radius.sm }]}>
-          <Text style={[typography.caption, { color: colors.text.secondary, fontSize: 10 }]}>复制</Text>
-        </Pressable>
-      } />
+      <Row label="订单号" value={<OrderNoReveal orderNo={orderId} />} />
       <Row label="下单时间" value={formatTime(createdAt)} />
       {paidAt ? <Row label="付款时间" value={formatTime(paidAt)} /> : null}
       {shippedAt ? <Row label="发货时间" value={formatTime(shippedAt)} /> : null}
@@ -92,7 +81,6 @@ export function OrderInfoBlock({ orderId, createdAt, paidAt, shippedAt, delivere
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  copyBtn: { paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6 },
   noteBlock: {
     marginTop: 8,
     paddingTop: 8,
