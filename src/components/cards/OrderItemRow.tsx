@@ -41,7 +41,7 @@ export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, pric
           ) : null}
         </View>
       </View>
-      <Text style={[typography.bodyStrong, { color: priceLabel ? colors.brand.primary : colors.text.primary }]}>
+      <Text style={[typography.bodyStrong, { color: priceLabel ? colors.gold.primary : colors.text.primary }]}>
         {priceLabel ?? `¥${unitPrice.toFixed(2)}`}
       </Text>
     </View>

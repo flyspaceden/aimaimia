@@ -67,7 +67,7 @@ export function OrderCard({
           skuTitle={item.skuTitle}
           unitPrice={item.price}
           quantity={item.quantity}
-          priceLabel={isVipPackage ? '赠品' : undefined}
+          priceLabel={isVipPackage ? 'VIP礼包' : undefined}
         />
       ))}
 
