@@ -41,7 +41,7 @@ export default function DownloadModal({ open, onClose }: Props) {
         {/* 下载二维码 */}
         <div className="w-52 h-52 mx-auto bg-light-surface rounded-card flex items-center justify-center mb-6 border border-light-soft p-4">
           <QRCodeSVG
-            value={`${window.location.origin}/aimaimia/download`}
+            value={`${window.location.origin}/download`}
             size={176}
             fgColor="#1a2744"
             bgColor="#f8f9fa"
