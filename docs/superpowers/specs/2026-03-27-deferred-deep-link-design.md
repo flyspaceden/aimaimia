@@ -2,6 +2,17 @@
 
 > 推荐码从扫码到注册的全链路无感知传递
 
+> **⚠️ 2026-06-09 架构变更：Cookie 路径已移除，改为剪贴板口令优先**
+>
+> 真机实测 Cookie 路径双重失败：① App 冷启动弹 Custom Tab（用户视角"莫名其妙进浏览器"）；② 落地页所在浏览器（如华为浏览器）与 Custom Tab（Chrome）cookie 罐不互通，基本读不到。现行架构：
+>
+> 1. **剪贴板口令（首选）**：落地页在用户点「下载」时把推荐链接 `https://app.ai-maimai.com/r/{CODE}` 静默写入剪贴板（`website/src/lib/referralClipboard.ts`），App 首启在隐私同意后静默读取（`readReferralCodeFromClipboard`，只认 URL 格式防误绑），48h 窗口内每次冷启动可重试。**不再弹任何浏览器**。
+> 2. **指纹匹配（兜底）**：原 fingerprint 路径不变。
+> 3. **可见兜底**：落地页大字显示邀请码（点击复制）；App 内「扫一扫 → 手动输入推荐码」（`app/me/scanner.tsx`）。
+> 4. 落地页二维码（android 视图）：有推荐码时指向推荐链接本身而非下载链接，朋友扫屏幕推荐关系自动跟随。
+>
+> 网站 `/resolve` 页与后端 `POST /deferred-link/resolve` **保留**（兼容未升级 OTA 的旧 bundle）；后端 create/match 接口不变。本文档中 Cookie 相关描述仅作历史参考。
+
 ## 1. 需求概述
 
 用户扫描推荐人的推荐码 QR 后，无论是否已安装 App，全程无感知地建立推荐绑定关系：
