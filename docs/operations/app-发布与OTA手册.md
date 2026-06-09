@@ -380,9 +380,9 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 生产 OTA 完整历史（第 1-9 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
 
-最近一条（2026-06-08，第 13 条）：订单号脱敏展示+眼睛展开+复制（共享组件 `OrderNoReveal`，接入订单详情/支付成功/物流追踪三页，commit `7e4d16f` / main `832b178`）。**双发 1.0.1 + 1.0.2**：runtime 1.0.1 Group `ee5dc8eb-b393-4c04-8ccc-51296b656ebc`（送达华为真实生产用户，临时改 `app.json` version→1.0.1 发、`git checkout` 还原 1.0.2）；runtime 1.0.2 Group `5f872560-9320-4329-b192-8a326a6fd379`（零设备、预置）。两条均带全 5 个生产 EXPO_PUBLIC_*（ENV=production / USE_MOCK=false / API_BASE_URL=https://api.ai-maimai.com/api/v1 / ALIPAY_SANDBOX=false / WECHAT_PAY_AVAILABLE=true）；纯 JS/TS 无原生改动。
+最近一条（2026-06-09，第 14 条）：推荐码剪贴板口令替代 Cookie 弹浏览器（commit `bd1a844` / main merge `92317dc`）——`performDeferredLinkCheck` 改剪贴板优先（`readReferralCodeFromClipboard`，只认推荐链接 URL 格式防误绑）→ 指纹兜底，删除 WebBrowser Custom Tab 路径（首启不再闪网页）；配套 website 同 merge 上线（落地页点下载写剪贴板 + 邀请码大字卡片 + 二维码指向推荐链接堵漏）。**双发 1.0.2 + 1.0.1**：runtime 1.0.2 Group `67379e56-5699-4fd4-a737-dcab79da6936`（小米商店 1.0.2 用户）；runtime 1.0.1 Group `7fb5f823-676e-4c3a-bbae-076e0dac5e06`（华为商店用户，临时 sed `app.json` version→1.0.1 发、sed 还原 1.0.2）。两条均带全 5 个生产 EXPO_PUBLIC_*；纯 JS/TS（expo-clipboard 原生模块 1.0.0 起就在包内），双轮对抗审查通过。⚠️ 后续：隐私政策需补「剪贴板读取」披露（plan.md CB08）；商店新用户首启仍跑内嵌旧 bundle（会弹一次浏览器），1.0.3 进商店才根治（CB09）。
 
-上一条（2026-06-08，第 12 条）：VIP 礼包标签改名「赠品」→「VIP礼包」+ 订单标签金黄配色（commit `0e1fb47` / main `cdc7e27`）。双发 runtime 1.0.1 Group `40cd4659-ab66-4862-bfea-d19d41f7b84d` / runtime 1.0.2 Group `f119a77f-bf0a-409c-a666-96389d6147c8`。完整历史见 memory `project_app_release_status.md`。
+上一条（2026-06-08，第 13 条）：订单号脱敏展示+眼睛展开+复制（`OrderNoReveal` 三页接入，commit `7e4d16f` / main `832b178`）。双发 runtime 1.0.1 Group `ee5dc8eb-b393-4c04-8ccc-51296b656ebc` / runtime 1.0.2 Group `5f872560-9320-4329-b192-8a326a6fd379`。完整历史见 memory `project_app_release_status.md`。
 
 > ⚠️ Preview channel 测试机仍在 runtime **0.3.0**（v1.0 版本号 bump 后未再发 preview OTA，直接 `eas update --branch preview` 会目标 1.0.1 而 0.3.0 测试机收不到）；给测试机发 OTA 前先确认其 runtime。
 
