@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { getApiBaseUrl } from '@/lib/apiBase'
 import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
 import { ANDROID_TEST_DOWNLOAD_URL, pickAndroidDownloadUrl } from '@/lib/downloadLinks'
+import { buildReferralClipboardText, copyTextToClipboard } from '@/lib/referralClipboard'
 
 const API_BASE = getApiBaseUrl()
 
@@ -40,8 +41,11 @@ export default function Download() {
 
   const { code } = useParams<{ code?: string }>()
   const [showWechatGuide, setShowWechatGuide] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
   const platform = detectPlatform()
   const wechat = isWechat()
+  // 合法的 8 位推荐码（统一大写）；非推荐落地（/download）为 null
+  const referralCode = code && isValidReferralCode(code) ? code.toUpperCase() : null
 
   useEffect(() => {
     if (!code || !isValidReferralCode(code)) return
@@ -79,11 +83,29 @@ export default function Download() {
     }
   }, [wechat])
 
-  const handleDownload = () => {
+  // 把推荐口令写进剪贴板（必须发生在用户点击手势内，浏览器才放行）。
+  // App 首启会静默读剪贴板自动绑定——这是推荐关系传递的首选路径，与下载渠道无关
+  const copyReferralToken = async (): Promise<boolean> => {
+    if (!referralCode) return false
+    const ok = await copyTextToClipboard(buildReferralClipboardText(referralCode))
+    if (ok) setCodeCopied(true)
+    return ok
+  }
+
+  const handleCopyCode = async () => {
+    const ok = await copyReferralToken()
+    if (!ok && referralCode) {
+      window.alert(`复制失败，请记下邀请码：${referralCode}，下载后在 App 内手动输入`)
+    }
+  }
+
+  const handleDownload = async () => {
     if (wechat) {
       setShowWechatGuide(true)
       return
     }
+    // 跳走前抢先复制推荐口令（失败也不拦下载，还有指纹匹配 + 手动输入兜底）
+    await copyReferralToken()
     if (platform === 'ios') {
       // iOS 版尚未上架 App Store，给提示而非跳死链
       window.alert('iOS 版即将上线，请使用安卓手机扫码下载')
@@ -162,6 +184,40 @@ export default function Download() {
         </div>
       )}
 
+      {/* 邀请码卡片：剪贴板被禁（微信内置浏览器等）或被覆盖时的可见兜底 */}
+      {referralCode && platform !== 'desktop' && (
+        <div
+          onClick={handleCopyCode}
+          style={{
+            marginTop: 20,
+            padding: '12px 28px',
+            borderRadius: 14,
+            background: 'rgba(255,255,255,0.08)',
+            border: '1px dashed rgba(255,255,255,0.35)',
+            cursor: 'pointer',
+            textAlign: 'center',
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+            我的邀请码
+          </p>
+          <p style={{
+            margin: '6px 0 0 0', fontSize: 26, fontWeight: 700,
+            letterSpacing: 6, color: '#fff', fontFamily: 'monospace',
+          }}>
+            {referralCode}
+          </p>
+          <p style={{
+            margin: '8px 0 0 0', fontSize: 12,
+            color: codeCopied ? '#66BB6A' : 'rgba(255,255,255,0.5)',
+          }}>
+            {codeCopied
+              ? '✓ 已复制，下载打开 App 后自动识别'
+              : '点击复制 · 下载打开 App 后自动识别'}
+          </p>
+        </div>
+      )}
+
       {platform === 'android' && (
         <div style={{
           marginTop: 28,
@@ -175,8 +231,10 @@ export default function Download() {
             backgroundColor: '#fff',
             boxShadow: '0 8px 28px rgba(0,0,0,0.28)',
           }}>
+            {/* 有推荐码：二维码必须指向推荐链接本身，朋友扫屏幕也能把推荐关系带走；
+                无推荐码（/download）：直接指向 OneLink 下载 */}
             <QRCodeSVG
-              value={ANDROID_TEST_DOWNLOAD_URL}
+              value={referralCode ? buildReferralClipboardText(referralCode) : ANDROID_TEST_DOWNLOAD_URL}
               size={132}
               fgColor="#36404a"
               bgColor="#ffffff"
@@ -188,7 +246,7 @@ export default function Download() {
             margin: '12px 0 0 0',
             textAlign: 'center',
           }}>
-            扫码或点击按钮下载安卓版
+            {referralCode ? '朋友扫这个码，推荐关系自动跟随' : '扫码或点击按钮下载安卓版'}
           </p>
         </div>
       )}

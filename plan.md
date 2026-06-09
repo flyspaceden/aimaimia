@@ -1392,3 +1392,20 @@
 - [x] **ON04** 物流追踪页 `track` 头部新增订单号行 + 标题后 8 位→后 6 位统一
 - [x] **ON05** tsc -b 通过 + 独立审查（采纳触控热区放大/空态无障碍/重复样式清理；甄别并驳回导入路径误报）
 - [ ] **ON06** 真机验收（三页展开/收起/复制 toast）+ 发 OTA（纯 JS 可 OTA）
+
+---
+
+## 📋 推荐码剪贴板口令（2026-06-09 新增，替代 Cookie 路径）
+
+> **触发**: 真机实测新手机扫 VIP 推荐码→下载→打开后推荐关系没绑上；且首启莫名弹浏览器（= Cookie 路径弹 Custom Tab 读 /resolve，跨 cookie 罐基本读不到，UX+成功率双输）。
+> **权威源**: `docs/superpowers/specs/2026-03-27-deferred-deep-link-design.md`（顶部 2026-06-09 架构变更注记）
+
+- [x] **CB01** website 新建 `src/lib/referralClipboard.ts`：`buildReferralClipboardText`（口令=推荐链接本身）+ `copyTextToClipboard`（Clipboard API + execCommand 兜底）+ 跨端契约单测 2 case
+- [x] **CB02** 落地页 `Download.tsx`：点「下载安卓版」先静默写剪贴板再跳商店（手势内调用）；新增邀请码大字卡片（点击复制+已复制反馈，微信被禁剪贴板时的可见兜底）
+- [x] **CB03** 落地页二维码堵漏：有推荐码时指向推荐链接本身（朋友扫屏幕推荐关系跟随），纯 /download 页保持 OneLink 不变
+- [x] **CB04** App `deferredLink.ts`：删 Cookie 路径（shouldAttemptCookiePath/markCookiePathAttempted），新增 `readReferralCodeFromClipboard`（只认 URL 格式防误绑），gate 改名 `shouldAttemptDeferredMatch`（剪贴板+指纹共用 48h 窗口）
+- [x] **CB05** App `_layout.tsx`：`performDeferredLinkCheck` 重写为剪贴板优先→指纹兜底，移除 WebBrowser 弹浏览器逻辑（首启不再闪网页）；剪贴板读取严格 gate 在隐私同意后（合规）
+- [x] **CB06** 验证：website 测试 5/5 + tsc -b 零错误 + App tsc 零错误 + 独立审查全绿（无 Critical/High）
+- [ ] **CB07** 真机验收：扫推荐码→落地页点下载（看「已复制」）→装 App→首启自动绑定；website 推送 + App 发 production OTA（expo-clipboard 已在 1.0.2 原生包，纯 JS 可 OTA）
+- [ ] **CB08** ⚠️ 隐私政策补充「剪贴板读取」披露（App 首启读剪贴板识别邀请口令，商店合规检测点）——法律文本审核稿同步
+- [ ] **CB09** 下次打 1.0.3 APK 时新链路进内嵌 bundle（商店新用户首启即生效，不依赖 OTA 第二次启动才命中）；华为商店仍是 1.0.1（runtime 不同收不到本 OTA），更新华为包时一并覆盖

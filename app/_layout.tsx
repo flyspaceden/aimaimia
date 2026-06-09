@@ -6,7 +6,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider } from '../src/theme';
 import { ToastProvider, EnvBanner } from '../src/components/feedback';
 import { AiFloatingCompanion } from '../src/components/effects';
@@ -21,11 +20,10 @@ import {
   setPendingReferralCode,
   clearPendingReferralCode,
   getPendingReferralCode,
-  shouldAttemptCookiePath,
-  markCookiePathAttempted,
-  shouldAttemptFingerprintPath,
+  shouldAttemptDeferredMatch,
   recordDDLAttempt,
   markDDLResolved,
+  readReferralCodeFromClipboard,
   matchByFingerprint,
 } from '../src/services/deferredLink';
 import { needsPrivacyConsent } from '../src/services/privacyConsent';
@@ -37,8 +35,6 @@ import { needsPrivacyConsent } from '../src/services/privacyConsent';
 // 详见 docs/architecture/responsive-design.md §3.4
 (Text as any).defaultProps = (Text as any).defaultProps || {};
 (Text as any).defaultProps.maxFontSizeMultiplier = 1.2;
-
-const APP_DOMAIN = 'app.ai-maimai.com';
 
 async function handleReferralCode(code: string) {
   const { isLoggedIn } = useAuthStore.getState();
@@ -67,48 +63,23 @@ function handleIncomingURL(url: string | null) {
 }
 
 async function performDeferredLinkCheck() {
-  // 两条路径独立 gate：cookie 一次性消费（浏览器状态静态，重试无意义且打扰用户），
-  // fingerprint 48h 内可重试（API 调用，网络瞬断/IP 变化等场景重试有救）
-  const wantCookie = await shouldAttemptCookiePath();
-  const wantFingerprint = await shouldAttemptFingerprintPath();
-  if (!wantCookie && !wantFingerprint) return;
+  // 两条静默路径共用 48h 重试窗口（剪贴板本地读 / 指纹一次 API 调用，
+  // 都零打扰零成本，窗口内每次冷启动可重试，OTA 没赶上首启也有救）。
+  // 历史：曾有 cookie 路径（WebBrowser 弹 Custom Tab 读 /resolve），因冷启动
+  // 闪浏览器吓用户 + 跨 cookie 罐基本读不到，2026-06 移除。
+  if (!(await shouldAttemptDeferredMatch())) return;
 
   let resolved = false;
   try {
-    if (wantCookie) {
-      try {
-        const resolveUrl = `https://${APP_DOMAIN}/resolve`;
-        const result = await Promise.race([
-          WebBrowser.openAuthSessionAsync(resolveUrl, 'aimaimai://referral'),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
-        ]);
-
-        if (
-          result &&
-          typeof result === 'object' &&
-          'type' in result &&
-          result.type === 'success' &&
-          'url' in result &&
-          typeof result.url === 'string'
-        ) {
-          const code = extractReferralCodeFromURL(result.url);
-          if (code && code !== 'none') {
-            await handleReferralCode(code);
-            resolved = true;
-          }
-        }
-
-        // 如果超时，确保关闭浏览器会话
-        if (!result) {
-          WebBrowser.dismissBrowser().catch(() => {});
-        }
-      } finally {
-        // 一次性消费——无论成功失败，下次冷启动不再开浏览器
-        await markCookiePathAttempted();
-      }
+    // 路径 1（首选）：剪贴板口令——落地页点「下载」时写入的推荐链接
+    const clipboardCode = await readReferralCodeFromClipboard();
+    if (clipboardCode && clipboardCode !== 'none') {
+      await handleReferralCode(clipboardCode);
+      resolved = true;
     }
 
-    if (!resolved && wantFingerprint) {
+    // 路径 2（兜底）：设备指纹匹配
+    if (!resolved) {
       const code = await matchByFingerprint();
       if (code) {
         await handleReferralCode(code);
@@ -216,9 +187,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (consentState !== 'granted') return;
-    // 延迟到 splash 动画（app/index.tsx, ~2.4s）结束后再触发 DDL，避免
-    // WebBrowser.openAuthSessionAsync 拉起 Custom Tab 打断首屏动画 + 回跳
-    // 落到 unmatched 路由（历史 bug：首启闪网页 + no router 页）。
+    // 延迟到 splash 动画（app/index.tsx, ~2.4s）结束后再触发 DDL：
+    // 剪贴板读取要求 App 已持有窗口焦点（Android 10+ 限制），且让启动期
+    // 网络/导航先就绪再发指纹匹配请求，更稳。
     const timer = setTimeout(() => {
       performDeferredLinkCheck().catch((err) => {
         if (__DEV__) {
