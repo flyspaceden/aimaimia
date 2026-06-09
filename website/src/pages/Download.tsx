@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { getApiBaseUrl } from '@/lib/apiBase'
 import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
-import { ANDROID_TEST_DOWNLOAD_URL } from '@/lib/downloadLinks'
+import { ANDROID_TEST_DOWNLOAD_URL, pickAndroidDownloadUrl } from '@/lib/downloadLinks'
 
 const API_BASE = getApiBaseUrl()
 
@@ -85,9 +85,11 @@ export default function Download() {
       return
     }
     if (platform === 'ios') {
-      window.location.href = 'https://apps.apple.com/app/id000000000'
+      // iOS 版尚未上架 App Store，给提示而非跳死链
+      window.alert('iOS 版即将上线，请使用安卓手机扫码下载')
     } else if (platform === 'android') {
-      window.location.href = ANDROID_TEST_DOWNLOAD_URL
+      // 华为机 → 华为商店；其余 → 小米 OneLink（小米机进小米商店 / 其它机直下 APK）
+      window.location.href = pickAndroidDownloadUrl(navigator.userAgent)
     }
   }
 
@@ -136,7 +138,7 @@ export default function Download() {
             cursor: 'pointer', boxShadow: '0 4px 20px rgba(46, 125, 50, 0.4)',
           }}
         >
-          {platform === 'ios' ? '前往 App Store 下载' : '下载安卓测试版'}
+          {platform === 'ios' ? 'iOS 版即将上线' : '下载安卓版'}
         </button>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -186,7 +188,7 @@ export default function Download() {
             margin: '12px 0 0 0',
             textAlign: 'center',
           }}>
-            扫码或点击按钮下载安卓测试版
+            扫码或点击按钮下载安卓版
           </p>
         </div>
       )}
