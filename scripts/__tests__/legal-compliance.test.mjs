@@ -18,7 +18,7 @@ test('app and website legal source files stay byte-for-byte aligned', () => {
 test('privacy policy discloses clipboard referral-link reads', () => {
   const privacy = read(appPrivacyPath);
 
-  assert.match(privacy, /version:\s*'v1\.0\.1'/);
+  assert.match(privacy, /version:\s*'v1\.0\.2'/);
   assert.match(privacy, /剪贴板读取/);
   assert.match(privacy, /点击下载/);
   assert.match(privacy, /推荐链接/);
@@ -36,6 +36,24 @@ test('legal text matches reward dual-track semantics', () => {
   assert.match(combined, /普通商品订单/);
   assert.match(combined, /VIP 礼包禁止/);
   assert.match(combined, /代扣/);
+});
+
+test('privacy policy discloses OPPO-required payment SDK metadata', () => {
+  const privacy = read(appPrivacyPath);
+
+  assert.match(privacy, /SDK名称：APP支付客户端SDK/);
+  assert.match(privacy, /开发者：支付宝\(杭州\)信息技术有限公司/);
+  assert.match(privacy, /收集信息范围：设备信息、网络信息、支付订单信息/);
+  assert.match(privacy, /目的：完成支付宝 App 支付、订单退款、消费积分提现到账能力/);
+  assert.match(privacy, /https:\/\/opendocs\.alipay\.com\/open\/54\/01g6qm#%E6%94%AF%E4%BB%98%E5%AE%9D%20App%20%E6%94%AF%E4%BB%98%E5%AE%A2%E6%88%B7%E7%AB%AF%20SDK%20%E9%9A%90%E7%A7%81%E6%94%BF%E7%AD%96/);
+  assert.match(privacy, /SDK名称：微信OpenSDK Android/);
+  assert.match(privacy, /开发者：深圳市腾讯计算机系统有限公司/);
+  assert.match(privacy, /收集信息范围：设备信息、网络信息、微信账号授权信息、支付订单信息/);
+  assert.match(privacy, /目的：完成微信授权登录、微信 App 支付及相关支付结果回调能力/);
+  assert.match(privacy, /https:\/\/support\.weixin\.qq\.com\/cgi-bin\/mmsupportacctnodeweb-bin\/pages\/RYiYJkLOrQwu0nb8/);
+  assert.doesNotMatch(privacy, /SDK 名称：@uiw\/react-native-alipay/);
+  assert.doesNotMatch(privacy, /支付宝（中国）网络技术有限公司/);
+  assert.doesNotMatch(privacy, /微信开放平台 SDK（腾讯公司）/);
 });
 
 test('huahai corporate site exposes the same legal pages', () => {
@@ -72,7 +90,7 @@ test('legal review docx includes current privacy policy disclosure', () => {
   );
 
   assert.match(markdown, /AI爱买买APP隐私政策/);
-  assert.match(markdown, /版本 v1\.0\.1/);
+  assert.match(markdown, /版本 v1\.0\.2/);
   assert.match(markdown, /剪贴板读取/);
   assert.match(markdown, /不会保存或上传剪贴板原文/);
   assert.match(markdown, /支付宝提现/);
