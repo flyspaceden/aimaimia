@@ -1409,3 +1409,4 @@
 - [ ] **CB07** 真机验收：扫推荐码→落地页点下载（看「已复制」）→装 App→首启自动绑定；website 推送 + App 发 production OTA（expo-clipboard 已在 1.0.2 原生包，纯 JS 可 OTA）
 - [x] **CB08**（2026-06-10）隐私政策补充「剪贴板读取」披露：`src/content/legal/privacyPolicy.ts` + `website/src/content/legal/privacyPolicy.ts` 同步升级至 `v1.0.1`（触发 App 重新同意）；`docs/legal/爱买买法律文本审核稿.docx` 已重新导出；`huahai-corporate-site/privacy.html` / `terms.html` 已加入同版法律文本与页脚入口
 - [x] **CB09**（2026-06-09）商店新装包内嵌 bundle 收口：已重新打出 `apk/正式版/prod-1.0.3-privacy-20260609-221718.apk`（versionName 1.0.3 / versionCode 6 / runtime 1.0.3），内嵌隐私 `v1.0.1` 与「剪贴板读取」披露，可用于商店新用户首启直接看到新版隐私政策；旧 `prod-1.0.3.apk`（versionCode 5）早于 CB08，不再作为对外分发首选。华为商店仍是 1.0.1（runtime 不同收不到 1.0.2/1.0.3 OTA），更新华为包时一并覆盖。
+- [x] **CB10**（2026-06-10）OPPO SDK 公示整改：隐私政策升级至 `v1.0.2`，附录按 OPPO 审核要求精确公示 `APP支付客户端SDK`（开发者：支付宝(杭州)信息技术有限公司）与 `微信OpenSDK Android`（开发者：深圳市腾讯计算机系统有限公司）的 SDK 名称、开发者、收集信息范围、目的和隐私政策链接；App/爱买买官网/华海官网/Word 审核稿已同步，`npm test` 增加硬性防回归断言。

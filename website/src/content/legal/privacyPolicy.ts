@@ -22,10 +22,13 @@ import { LegalDocument } from './types';
 //
 // 2026-06-10 局部更新（CB08）：§2.2 新增「（6）剪贴板读取」披露，用于 App 首启在用户同意隐私政策后识别官网/邀请页点击下载或复制得到的推荐链接。
 //   该变更新增个人信息处理场景，version bump 至 v1.0.1，触发 App 重新弹出隐私同意。
+//
+// 2026-06-10 局部更新（OPPO 审核整改）：附录「支付类 / 账号登录类」按全国 SDK 管理服务平台登记口径，
+//   将支付宝与微信 SDK 名称、开发者、收集信息范围、目的和隐私政策链接改为审核要求的精确公示信息；version bump 至 v1.0.2。
 
 export const PRIVACY_POLICY: LegalDocument = {
   title: 'AI爱买买APP隐私政策',
-  version: 'v1.0.1',
+  version: 'v1.0.2',
   publishedAt: '2026-05-30',
   effectiveAt: '2026-06-10',
   summary: [
@@ -190,11 +193,9 @@ export const PRIVACY_POLICY: LegalDocument = {
           type: 'strong',
           text: '以下是本 App 集成或拟集成的第三方 SDK 和服务清单。我们会根据您实际使用的功能触发相应 SDK，并对所有第三方 SDK 的个人信息处理活动进行监督。',
         },
-        { type: 'note', text: '支付类' },
-        { type: 'bullet', text: '微信支付（微信开放平台，腾讯公司）— 用途：完成订单支付；共享字段：订单号、金额；隐私政策：https://www.tenpay.com/v3/helpcenter/low/privacy.shtml' },
-        { type: 'bullet', text: '支付宝支付（支付宝（中国）网络技术有限公司）— 用途：完成订单支付、分润提现；共享字段：订单号、金额、收款账户；SDK 名称：@uiw/react-native-alipay；隐私政策：https://render.alipay.com/p/c/k2cx0tg8' },
-        { type: 'note', text: '账号登录类' },
-        { type: 'bullet', text: '微信开放平台 SDK（腾讯公司）— 用途：微信授权登录；共享字段：OpenID、UnionID、昵称、头像；隐私政策：https://privacy.qq.com/' },
+        { type: 'note', text: '支付与账号登录类' },
+        { type: 'bullet', text: 'SDK名称：APP支付客户端SDK；开发者：支付宝(杭州)信息技术有限公司；收集信息范围：设备信息、网络信息、支付订单信息；目的：完成支付宝 App 支付、订单退款、消费积分提现到账能力；SDK隐私政策链接：https://opendocs.alipay.com/open/54/01g6qm#%E6%94%AF%E4%BB%98%E5%AE%9D%20App%20%E6%94%AF%E4%BB%98%E5%AE%A2%E6%88%B7%E7%AB%AF%20SDK%20%E9%9A%90%E7%A7%81%E6%94%BF%E7%AD%96' },
+        { type: 'bullet', text: 'SDK名称：微信OpenSDK Android；开发者：深圳市腾讯计算机系统有限公司；收集信息范围：设备信息、网络信息、微信账号授权信息、支付订单信息；目的：完成微信授权登录、微信 App 支付及相关支付结果回调能力；SDK隐私政策链接：https://support.weixin.qq.com/cgi-bin/mmsupportacctnodeweb-bin/pages/RYiYJkLOrQwu0nb8' },
         { type: 'note', text: '短信与验证类' },
         { type: 'bullet', text: '阿里云短信服务（阿里云计算有限公司）— 用途：下发短信验证码；共享字段：手机号、验证码；隐私政策：https://terms.aliyun.com/legal-agreement/terms/suit_bu1_ali_cloud/suit_bu1_ali_cloud202112071754_83380.html' },
         { type: 'note', text: '存储与基础设施' },
