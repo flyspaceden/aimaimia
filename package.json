@@ -8,7 +8,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "deploy": "npx expo export -p web && npx eas-cli@latest deploy",
-    "test": "jest"
+    "test": "jest --passWithNoTests && npm run test:legal",
+    "test:legal": "node --test scripts/__tests__/*.test.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
