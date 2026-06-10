@@ -1407,5 +1407,5 @@
 - [x] **CB05** App `_layout.tsx`：`performDeferredLinkCheck` 重写为剪贴板优先→指纹兜底，移除 WebBrowser 弹浏览器逻辑（首启不再闪网页）；剪贴板读取严格 gate 在隐私同意后（合规）
 - [x] **CB06** 验证：website 测试 5/5 + tsc -b 零错误 + App tsc 零错误 + 独立审查全绿（无 Critical/High）
 - [ ] **CB07** 真机验收：扫推荐码→落地页点下载（看「已复制」）→装 App→首启自动绑定；website 推送 + App 发 production OTA（expo-clipboard 已在 1.0.2 原生包，纯 JS 可 OTA）
-- [ ] **CB08** ⚠️ 隐私政策补充「剪贴板读取」披露（App 首启读剪贴板识别邀请口令，商店合规检测点）——法律文本审核稿同步
-- [ ] **CB09** 下次打 1.0.3 APK 时新链路进内嵌 bundle（商店新用户首启即生效，不依赖 OTA 第二次启动才命中）；华为商店仍是 1.0.1（runtime 不同收不到本 OTA），更新华为包时一并覆盖
+- [x] **CB08**（2026-06-10）隐私政策补充「剪贴板读取」披露：`src/content/legal/privacyPolicy.ts` + `website/src/content/legal/privacyPolicy.ts` 同步升级至 `v1.0.1`（触发 App 重新同意）；`docs/legal/爱买买法律文本审核稿.docx` 已重新导出；`huahai-corporate-site/privacy.html` / `terms.html` 已加入同版法律文本与页脚入口
+- [x] **CB09**（2026-06-09）商店新装包内嵌 bundle 收口：已重新打出 `apk/正式版/prod-1.0.3-privacy-20260609-221718.apk`（versionName 1.0.3 / versionCode 6 / runtime 1.0.3），内嵌隐私 `v1.0.1` 与「剪贴板读取」披露，可用于商店新用户首启直接看到新版隐私政策；旧 `prod-1.0.3.apk`（versionCode 5）早于 CB08，不再作为对外分发首选。华为商店仍是 1.0.1（runtime 不同收不到 1.0.2/1.0.3 OTA），更新华为包时一并覆盖。

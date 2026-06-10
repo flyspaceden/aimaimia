@@ -58,11 +58,15 @@ App 上线必须**手动**走 EAS：要么推 OTA（覆盖 JS 改动），要么
 
 ```bash
 # 推 preview 环境（给测试人员用；2026-06-02 起支付宝/微信都走真实链路）
-EXPO_PUBLIC_ENV=staging EXPO_PUBLIC_ALIPAY_SANDBOX=false EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true \
+EXPO_PUBLIC_ENV=staging EXPO_PUBLIC_USE_MOCK=false \
+EXPO_PUBLIC_API_BASE_URL=https://test-api.ai-maimai.com/api/v1 \
+EXPO_PUBLIC_ALIPAY_SANDBOX=false EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true \
   eas update --branch preview --message "修复xxx / 加xxx功能"
 
 # 推 production 环境（线上正式版）
-EXPO_PUBLIC_ENV=production EXPO_PUBLIC_ALIPAY_SANDBOX=false \
+EXPO_PUBLIC_ENV=production EXPO_PUBLIC_USE_MOCK=false \
+EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1 \
+EXPO_PUBLIC_ALIPAY_SANDBOX=false EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true \
   eas update --branch production --message "修复xxx"
 
 # 不建议同时推 preview + production：env 不同，先 preview 验，再 production
@@ -72,7 +76,10 @@ EXPO_PUBLIC_ENV=production EXPO_PUBLIC_ALIPAY_SANDBOX=false \
 
 | Env Var | 不带前缀的后果 |
 |---------|---------------|
+| `EXPO_PUBLIC_USE_MOCK` | 可能 fallback 到 Mock / 本地开发逻辑，生产 bundle 行为不可控 |
+| `EXPO_PUBLIC_API_BASE_URL` | API 目标可能 fallback 到开发/测试默认值，生产 OTA 可能打到错误后端 |
 | `EXPO_PUBLIC_ALIPAY_SANDBOX` | 真机付款显示"商家订单参数异常"（详见 memory `feedback_ota_must_prepend_alipay_sandbox.md`） |
+| `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` | 微信支付入口依赖该开关；漏带会导致 Android 入口关闭 |
 | `EXPO_PUBLIC_ENV`（2026-05-27 P0 起） | `APP_ENV` fallback 到 `'development'`，红条文案显示"开发环境"而非"测试环境/生产环境"；非生产 build 仍能看到红条但文案细节不对 |
 
 OTA env 和 build env 是**完全分离**的：build 时 `eas.json` 的 env 烧进 native APK + 当时的 JS bundle；OTA 时只看 `eas update` 命令前缀的 env，不会自动从 `eas.json` 读取。
@@ -253,7 +260,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-06-06）
+## 六、当前 App 实际状态（2026-06-10）
 
 ### EAS 配置
 
@@ -261,17 +268,17 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 - Owner: `flyspaceden`
 - Slug: `ai-aimaimai`
 - Updates URL: `https://u.expo.dev/d76ba8ac-06f3-45d2-b674-afec17737029`
-- Runtime version policy: `appVersion`（当前 0.3.0）
+- Runtime version policy: `appVersion`（当前 `app.json` 为 1.0.3；runtime 随 App version 变化）
 
 ### 三档 Profile（见 `eas.json`）
 
-| Profile | Channel | API URL | `EXPO_PUBLIC_ENV` | `EXPO_PUBLIC_ALIPAY_SANDBOX` | 包格式 | 用途 |
-|---|---|---|---|---|---|---|
-| development | development | test-api | `development` | `true` | dev-client | 开发调试 |
-| preview | preview | test-api | `staging` | `true` | apk | 测试人员内部分发 |
-| production | production | api（生产） | `production` | `false` | apk（v1.0 暂用） | Google Play / 国内商店上架 |
+| Profile | Channel | API URL | `EXPO_PUBLIC_ENV` | `EXPO_PUBLIC_ALIPAY_SANDBOX` | `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` | 包格式 | 用途 |
+|---|---|---|---|---|---|---|---|
+| development | development | test-api | `development` | `true` | 未配置（等同关闭） | dev-client | 开发调试 |
+| preview | preview | test-api | `staging` | `true` | `true` | apk | 测试人员内部分发 |
+| production | production | api（生产） | `production` | `false` | `true` | apk（v1.0 暂用） | Google Play / 国内商店上架 |
 
-> **微信支付开关**（2026-05-30 起）：`preview` 档额外注入 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，点亮买家结算页微信入口做 staging 真金联调；`production` 档**不含**此开关，生产微信入口仍关闭，待 staging 联调通过后再单独开 + 重新 build。
+> **微信支付开关**（2026-06-09 当前配置）：`preview` 与 `production` 档均注入 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`。买家端 `src/constants/payment.ts` 仍额外限制 `Platform.OS === 'android'`，因此 iOS 入口继续灰掉；Android production APK 会展示微信支付入口。若业务决定生产暂缓微信入口，必须先关闭 production profile 的该 env 并重新 build（否则新装用户首启内嵌 bundle 仍会看到入口）。
 
 **环境区分约定（2026-05-27 起，单包名方案）**：
 
@@ -279,9 +286,34 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 - 三档 profile 通过 `EXPO_PUBLIC_ENV` env var 让 App 运行时知道自己是哪个环境，`src/repos/http/config.ts` 导出 `APP_ENV` / `IS_PRODUCTION` 常量供业务代码判断
 - `app/_layout.tsx` 在非生产 build 顶部渲染 22px 红色"测试环境"横条（`src/components/feedback/EnvBanner.tsx`），生产 build 不显示；测试人员一眼分得清装的是哪个版本，避免拿测试 build 当生产 build 反馈 bug
 - **测试设备纪律**：测试团队的手机永远只装 internal distribution 的 preview / development build（带红条），真实用户永远从应用商店下载 production build（无红条）；切换环境 = 卸载重装
-- 支付宝回调只有一套（生产），preview / development build 的支付宝链路走沙箱（`EXPO_PUBLIC_ALIPAY_SANDBOX=true`，dev/preview 默认开启）。**微信支付 V3 无沙箱**：2026-05-30 起 staging 联调改为在**测试服务器配真实微信商户凭据**（`notify_url` 指向 `test-api`）+ preview build 开 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，用真账号 0.01 元真金验证（退款也真退回微信钱包）；**生产微信入口**（`production.env` 开关）等 staging 联调通过后再单独开 + 重新 build
+- 支付宝回调只有一套（生产），preview / development build 的支付宝链路走沙箱（`EXPO_PUBLIC_ALIPAY_SANDBOX=true`，dev/preview 默认开启）。**微信支付 V3 无沙箱**：2026-05-30 起 staging 联调改为在**测试服务器配真实微信商户凭据**（`notify_url` 指向 `test-api`）+ preview build 开 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，用真账号 0.01 元真金验证（退款也真退回微信钱包）；2026-06-09 当前 production build 也已注入 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`，分发前必须确认生产微信商户凭据、回调和真金退款链路已经具备上线条件
 
 ### 本机构建验证记录
+
+#### 2026-06-09 本地 production Android rebuild（1.0.3，CB08 隐私政策内嵌包，待分发/提审）
+
+- 类型：`eas build --profile production --platform android --local --non-interactive --output "$(pwd)/apk/正式版/prod-1.0.3-privacy-20260609-221718.apk"`
+- Profile: production / Platform: Android / Channel: production
+- Commit: `2e73c21` + 本地 dirty working tree（本地构建按当前工作区打包；包含 `app.json` 版本号 1.0.3、隐私政策 `v1.0.1`、剪贴板读取披露和用户协议积分/提现口径更新）
+- Version: 1.0.3 / VersionCode: 6 / RuntimeVersion: 1.0.3
+- 本地 APK: `apk/正式版/prod-1.0.3-privacy-20260609-221718.apk`（117 MB）；`apk/aimaimai-latest.apk` 已同步为同一文件
+- SHA-256: `0af3a9f2fb446bedffc83ae48ae2947f22c229d5bd174b45168ef4100c511364`
+- 结果：✅ `BUILD SUCCESSFUL in 8m 29s`；`aapt dump badging` 反查 `versionName='1.0.3'` / `versionCode='6'`；`apksigner verify --verbose --print-certs` 通过（v2 签名，证书 MD5 `766bafb6a3b34a678761e4b07e3665c4`）；AndroidManifest 确认 channel 为 `production`，`expo_runtime_version` resource 为 `1.0.3`；Hermes bytecode dump 确认内嵌 bundle 含隐私版本 `v1.0.1` 与推荐链接格式 `https://app.ai-maimai.com/r/`
+- 构建前验证：✅ `npm run test:legal`（7/7）、✅ `npx tsc -b --noEmit`、✅ `NODE_ENV=production ... npx expo export --platform android`
+- 构建环境：`EXPO_PUBLIC_ENV=production`、`EXPO_PUBLIC_USE_MOCK=false`、`EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1`、`EXPO_PUBLIC_ALIPAY_SANDBOX=false`、`EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`
+- 注意：`expo doctor` 在 EAS local 流程中仍有 2 个既有告警（支付/微信原生库 RN Directory 元数据、Expo SDK 54 patch 版本落后）；Gradle release build、APK 签名、版本反查和内嵌 bundle 关键字反查均已通过。Gradle 另提示本次后 daemon 会因 Metaspace 达阈值停止，属于本机构建性能提示，不影响本 APK 产物。
+
+#### 2026-06-09 本地 production Android build（1.0.3，待分发/提审）
+
+- 类型：`eas build --profile production --platform android --local --non-interactive --output "$(pwd)/apk/正式版/prod-1.0.3.apk"`
+- Profile: production / Platform: Android / Channel: production
+- Commit: `2e73c21` + 本地 dirty working tree（本地构建按当前工作区打包；至少包含 `app.json` 版本号 1.0.3 以及用户未提交的法律文案相关改动）
+- Version: 1.0.3 / VersionCode: 5 / RuntimeVersion: 1.0.3
+- 本地 APK: `apk/正式版/prod-1.0.3.apk`（117 MB）；当时 `apk/aimaimai-latest.apk` 已同步为同一文件，2026-06-09 22:26 起 latest 已改指向上方 CB08 privacy rebuild 包
+- SHA-256: `076d9989f1ab71e8b623af266953db3302b65680e5389b729defebe5d19a6a23`
+- 结果：✅ `BUILD SUCCESSFUL in 9m 9s`；`aapt dump badging` 反查 `versionName='1.0.3'` / `versionCode='5'`；`apksigner verify --verbose --print-certs` 通过（v2 签名，证书 MD5 `766bafb6a3b34a678761e4b07e3665c4`）；AndroidManifest 确认 channel 为 `production`，`expo_runtime_version` resource 为 `1.0.3`
+- 构建环境：`EXPO_PUBLIC_ENV=production`、`EXPO_PUBLIC_USE_MOCK=false`、`EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1`、`EXPO_PUBLIC_ALIPAY_SANDBOX=false`、`EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`
+- 注意：`expo doctor` 在 EAS local 流程中有 2 个既有告警（支付/微信原生库 RN Directory 元数据、Expo SDK 54 patch 版本落后），但 Gradle release build、APK 签名和版本反查均已通过。下一轮依赖维护时再评估 `npx expo install --check`。
 
 #### 2026-05-30 本地 preview Android build（未分发）
 
@@ -376,11 +408,11 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### Production Branch
 
-**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前 runtime **1.0.1**（2026-06-05 本地打包的 v1.0.1 APK，账号注销已烧进包；本地打包不进 `eas build:list`）。**生产 OTA 必须目标 runtime 1.0.1**——1.0.1 / 1.0.0 / 0.2.0 三代 runtime 互不通 OTA。
+**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前存在 runtime **1.0.1**（华为等旧包用户）与 **1.0.2**（小米 1.0.2 包用户）；2026-06-09 已本地重新生成 1.0.3 production APK（`prod-1.0.3-privacy-20260609-221718.apk`，versionCode 6，内嵌隐私政策 `v1.0.1`），但尚未上传/分发。**生产 OTA 必须按目标 runtime 分发**——1.0.3 / 1.0.2 / 1.0.1 / 1.0.0 / 0.2.0 互不通 OTA。
 
-生产 OTA 完整历史（第 1-9 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
+生产 OTA 完整历史（第 1-14 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
 
-最近一条（2026-06-09，第 14 条）：推荐码剪贴板口令替代 Cookie 弹浏览器（commit `bd1a844` / main merge `92317dc`）——`performDeferredLinkCheck` 改剪贴板优先（`readReferralCodeFromClipboard`，只认推荐链接 URL 格式防误绑）→ 指纹兜底，删除 WebBrowser Custom Tab 路径（首启不再闪网页）；配套 website 同 merge 上线（落地页点下载写剪贴板 + 邀请码大字卡片 + 二维码指向推荐链接堵漏）。**双发 1.0.2 + 1.0.1**：runtime 1.0.2 Group `67379e56-5699-4fd4-a737-dcab79da6936`（小米商店 1.0.2 用户）；runtime 1.0.1 Group `7fb5f823-676e-4c3a-bbae-076e0dac5e06`（华为商店用户，临时 sed `app.json` version→1.0.1 发、sed 还原 1.0.2）。两条均带全 5 个生产 EXPO_PUBLIC_*；纯 JS/TS（expo-clipboard 原生模块 1.0.0 起就在包内），双轮对抗审查通过。⚠️ 后续：隐私政策需补「剪贴板读取」披露（plan.md CB08）；商店新用户首启仍跑内嵌旧 bundle（会弹一次浏览器），1.0.3 进商店才根治（CB09）。
+最近一条（2026-06-09，第 14 条）：推荐码剪贴板口令替代 Cookie 弹浏览器（commit `bd1a844` / main merge `92317dc`）——`performDeferredLinkCheck` 改剪贴板优先（`readReferralCodeFromClipboard`，只认推荐链接 URL 格式防误绑）→ 指纹兜底，删除 WebBrowser Custom Tab 路径（首启不再闪网页）；配套 website 同 merge 上线（落地页点下载写剪贴板 + 邀请码大字卡片 + 二维码指向推荐链接堵漏）。**双发 1.0.2 + 1.0.1**：runtime 1.0.2 Group `67379e56-5699-4fd4-a737-dcab79da6936`（小米商店 1.0.2 用户）；runtime 1.0.1 Group `7fb5f823-676e-4c3a-bbae-076e0dac5e06`（华为商店用户，临时 sed `app.json` version→1.0.1 发、sed 还原 1.0.2）。两条均带全 5 个生产 EXPO_PUBLIC_*；纯 JS/TS（expo-clipboard 原生模块 1.0.0 起就在包内），双轮对抗审查通过。✅ 2026-06-10 源码已补隐私政策「剪贴板读取」披露并升级隐私版本 `v1.0.1`；2026-06-09 22:17 已重新打出 `prod-1.0.3-privacy-20260609-221718.apk`（versionCode 6，内嵌 CB08），可用于商店新用户首启直接看到新版隐私政策。旧 `prod-1.0.3.apk`（versionCode 5）早于 CB08 法律文本补丁，不再作为对外分发首选；已安装用户仍需等对应 runtime 的 App OTA 生效。
 
 上一条（2026-06-08，第 13 条）：订单号脱敏展示+眼睛展开+复制（`OrderNoReveal` 三页接入，commit `7e4d16f` / main `832b178`）。双发 runtime 1.0.1 Group `ee5dc8eb-b393-4c04-8ccc-51296b656ebc` / runtime 1.0.2 Group `5f872560-9320-4329-b192-8a326a6fd379`。完整历史见 memory `project_app_release_status.md`。
 

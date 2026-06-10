@@ -2015,16 +2015,19 @@ AI 功能场景选择页。
 
 ---
 
-### 5.35 隐私政策 `/privacy`
+### 5.35 隐私政策 `/privacy` ✅
+
+> 状态：已完成并同步至当前合规文本（2026-06-10，隐私政策 `v1.0.1`）。页面读取 `src/content/legal/privacyPolicy.ts`，首启同意弹窗同源；爱买买官网 `website/src/content/legal/privacyPolicy.ts` 与 App 逐字一致；华海官网 `huahai-corporate-site/privacy.html` 由同源脚本生成。CB08 已补「剪贴板读取」披露：仅在用户同意隐私政策后读取剪贴板，只解析平台官方推荐链接格式，未命中时不保存或上传剪贴板原文。
 
 ```
 ┌─────────────────────────────┐
 │  ← 隐私政策                  │
 │                             │
-│  爱买买隐私政策                │ ← headingLg 标题
-│  更新日期: 2026-02-18        │
+│  AI爱买买APP隐私政策           │ ← headingLg 标题
+│  版本: v1.0.1                │
+│  生效日期: 2026-06-10        │
 │                             │
-│  (长文本内容，分段落展示)     │ ← 标准 Markdown 渲染
+│  (结构化法律文本分段展示)     │ ← LegalDocumentView 渲染
 │  使用 bodyLg 字号            │
 │  段落间距 lg                 │
 │  子标题用 headingSm           │
