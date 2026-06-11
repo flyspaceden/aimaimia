@@ -81,6 +81,24 @@ test('VIP purchase flow prominently exposes membership service agreement', () =>
   assert.match(checkout, /请先阅读并同意《会员服务协议》/);
 });
 
+test('settings screen does not expose unfinished help and customer service entries', () => {
+  const settings = read('app/settings.tsx');
+
+  assert.doesNotMatch(settings, /帮助与客服/);
+  assert.doesNotMatch(settings, /在线客服即将上线/);
+  assert.doesNotMatch(settings, /帮助与反馈待接入/);
+});
+
+test('privacy policy does not disclose removed in-app online support path', () => {
+  const privacy = read(appPrivacyPath);
+  const huahaiPrivacy = read('huahai-corporate-site/privacy.html');
+
+  assert.match(privacy, /个人信息保护负责人邮箱：zwf@huahainongke\.com/);
+  assert.match(privacy, /客服电话：0755-28509232/);
+  assert.doesNotMatch(privacy, /App 内在线客服：我的 > 设置 > 在线客服/);
+  assert.doesNotMatch(huahaiPrivacy, /App 内在线客服：我的 &gt; 设置 &gt; 在线客服/);
+});
+
 test('huahai corporate site exposes the same legal pages', () => {
   assert.equal(existsSync('huahai-corporate-site/privacy.html'), true);
   assert.equal(existsSync('huahai-corporate-site/terms.html'), true);

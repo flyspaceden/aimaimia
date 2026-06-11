@@ -192,34 +192,9 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
-        {/* 帮助与客服 */}
-        <Animated.View entering={FadeInDown.duration(300).delay(240)}>
-          <View style={[styles.sectionCard, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }]}>
-            <Text style={[typography.title3, { color: colors.text.primary }]}>帮助与客服</Text>
-            <Pressable
-              onPress={() => show({ message: '在线客服即将上线', type: 'info' })}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <MaterialCommunityIcons name="headset" size={18} color={colors.text.secondary} />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>在线客服</Text>
-              <View style={styles.spacer} />
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
-            </Pressable>
-            <Pressable
-              onPress={() => show({ message: '帮助与反馈待接入', type: 'info' })}
-              style={styles.row}
-            >
-              <MaterialCommunityIcons name="lifebuoy" size={18} color={colors.text.secondary} />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>帮助与反馈</Text>
-              <View style={styles.spacer} />
-              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
-            </Pressable>
-          </View>
-        </Animated.View>
-
         {/* 退出登录 */}
         {isLoggedIn && (
-          <Animated.View entering={FadeInDown.duration(300).delay(320)}>
+          <Animated.View entering={FadeInDown.duration(300).delay(240)}>
             <Pressable
               onPress={handleLogout}
               style={[styles.logoutButton, { marginTop: spacing.xl, borderColor: colors.danger, borderRadius: radius.lg }]}
@@ -247,13 +222,6 @@ const styles = StyleSheet.create({
   },
   spacer: {
     flex: 1,
-  },
-  helpCard: {
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   logoutButton: {
     borderWidth: 1,
