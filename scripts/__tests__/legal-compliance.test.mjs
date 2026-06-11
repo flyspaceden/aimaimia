@@ -56,6 +56,31 @@ test('privacy policy discloses OPPO-required payment SDK metadata', () => {
   assert.doesNotMatch(privacy, /微信开放平台 SDK（腾讯公司）/);
 });
 
+test('VIP purchase flow prominently exposes membership service agreement', () => {
+  const agreementPath = 'src/content/legal/memberServiceAgreement.ts';
+  const agreementRoutePath = 'app/member-service-agreement.tsx';
+  const vipGiftsPath = 'app/vip/gifts.tsx';
+  const checkoutPath = 'app/checkout.tsx';
+
+  assert.equal(existsSync(agreementPath), true);
+  assert.equal(existsSync(agreementRoutePath), true);
+
+  const agreement = read(agreementPath);
+  const route = read(agreementRoutePath);
+  const vipGifts = read(vipGiftsPath);
+  const checkout = read(checkoutPath);
+
+  assert.match(agreement, /会员服务协议/);
+  assert.match(agreement, /VIP/);
+  assert.match(route, /会员服务协议/);
+  assert.match(route, /MEMBER_SERVICE_AGREEMENT/);
+  assert.match(vipGifts, /会员服务协议/);
+  assert.match(vipGifts, /member-service-agreement/);
+  assert.match(checkout, /会员服务协议/);
+  assert.match(checkout, /member-service-agreement/);
+  assert.match(checkout, /请先阅读并同意《会员服务协议》/);
+});
+
 test('huahai corporate site exposes the same legal pages', () => {
   assert.equal(existsSync('huahai-corporate-site/privacy.html'), true);
   assert.equal(existsSync('huahai-corporate-site/terms.html'), true);

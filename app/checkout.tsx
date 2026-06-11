@@ -101,6 +101,7 @@ export default function CheckoutScreen() {
   );
   const [buyerNote, setBuyerNote] = useState('');
   const [deductionAmount, setDeductionAmount] = useState('');
+  const [memberAgreementAccepted, setMemberAgreementAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   // 退换货政策协议弹窗状态
@@ -319,6 +320,10 @@ export default function CheckoutScreen() {
       return;
     }
     router.push('/checkout-address');
+  };
+
+  const handleMemberAgreementPress = () => {
+    router.push('/member-service-agreement');
   };
 
   const handleVipAuthSuccess = async (session: AuthSession) => {
@@ -686,6 +691,10 @@ export default function CheckoutScreen() {
       setAuthModalOpen(true);
       return;
     }
+    if (!memberAgreementAccepted) {
+      show({ message: '请先阅读并同意《会员服务协议》', type: 'warning' });
+      return;
+    }
     if (!selectedAddress) {
       show({ message: '请先选择收货地址', type: 'warning' });
       router.push('/checkout-address');
@@ -875,6 +884,7 @@ export default function CheckoutScreen() {
     ? `¥${vipTotal.toFixed(2)}`
     : (preview ? `¥${payableAfterDeduction.toFixed(2)}` : (previewFailed ? '校验失败' : '计算中...'));
   const hasContent = isVipMode || cartItems.length > 0;
+  const vipSubmitNeedsAgreement = isVipMode && isLoggedIn && !memberAgreementAccepted;
 
   return (
     <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
@@ -1001,6 +1011,58 @@ export default function CheckoutScreen() {
                   <View style={[styles.merchantSubtotalRow, { marginTop: 4 }]}>
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>此订单不计入消费分润首单</Text>
                   </View>
+                </View>
+              </Animated.View>
+
+              {/* 会员服务协议：付费会员支付前醒目提示 */}
+              <Animated.View
+                entering={FadeInDown.duration(300).delay(100)}
+                style={[
+                  styles.memberAgreementCard,
+                  shadow.sm,
+                  {
+                    backgroundColor: '#FFFDF3',
+                    borderColor: memberAgreementAccepted ? '#C9A96E' : '#E8D9A6',
+                    borderRadius: radius.lg,
+                  },
+                ]}
+              >
+                <View style={styles.memberAgreementHeader}>
+                  <View style={[styles.memberAgreementIcon, { backgroundColor: '#FFF3C4' }]}>
+                    <MaterialCommunityIcons name="file-document-check-outline" size={18} color="#C9A96E" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>会员服务协议</Text>
+                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 3, lineHeight: 18 }]}>
+                      开通前请确认会员权益、支付、退款及推荐奖励规则
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.memberAgreementCheckRow}>
+                  <Pressable
+                    onPress={() => setMemberAgreementAccepted((accepted) => !accepted)}
+                    style={styles.memberAgreementToggle}
+                    hitSlop={8}
+                  >
+                    <View
+                      style={[
+                        styles.memberAgreementCheckbox,
+                        {
+                          borderColor: memberAgreementAccepted ? '#C9A96E' : colors.border,
+                          backgroundColor: memberAgreementAccepted ? '#C9A96E' : 'transparent',
+                          borderRadius: radius.sm,
+                        },
+                      ]}
+                    >
+                      {memberAgreementAccepted ? (
+                        <MaterialCommunityIcons name="check" size={14} color={colors.text.inverse} />
+                      ) : null}
+                    </View>
+                    <Text style={[typography.bodySm, { color: colors.text.secondary }]}>我已阅读并同意</Text>
+                  </Pressable>
+                  <Pressable onPress={handleMemberAgreementPress} hitSlop={8}>
+                    <Text style={[typography.bodySm, styles.memberAgreementLink]}>《会员服务协议》</Text>
+                  </Pressable>
                 </View>
               </Animated.View>
             </>
@@ -1392,7 +1454,11 @@ export default function CheckoutScreen() {
               style={{ borderRadius: radius.pill, overflow: 'hidden' }}
             >
               {isVipMode ? (
-                <Pressable onPress={handleVipCheckout} disabled={submitting} style={[styles.submitButton, submitting && { opacity: 0.6 }]}>
+                <Pressable
+                  onPress={handleVipCheckout}
+                  disabled={submitting}
+                  style={[styles.submitButton, (submitting || vipSubmitNeedsAgreement) && { opacity: 0.6 }]}
+                >
                   <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
                     {submitting ? '开通中...' : !isLoggedIn ? '登录后继续' : '✦ 开通 VIP'}
                   </Text>
@@ -1434,7 +1500,11 @@ export default function CheckoutScreen() {
               style={{ borderRadius: radius.pill, overflow: 'hidden' }}
             >
               {isVipMode ? (
-                <Pressable onPress={handleVipCheckout} disabled={submitting} style={[styles.submitButton, submitting && { opacity: 0.6 }]}>
+                <Pressable
+                  onPress={handleVipCheckout}
+                  disabled={submitting}
+                  style={[styles.submitButton, (submitting || vipSubmitNeedsAgreement) && { opacity: 0.6 }]}
+                >
                   <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '开通中...' : '✦ 开通 VIP'}</Text>
                 </Pressable>
               ) : (
@@ -1678,6 +1748,50 @@ const styles = StyleSheet.create({
     marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  memberAgreementCard: {
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  memberAgreementHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  memberAgreementIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  memberAgreementCheckRow: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  memberAgreementToggle: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 4,
+    flexShrink: 1,
+  },
+  memberAgreementCheckbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  memberAgreementLink: {
+    color: '#B8860B',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   radio: {
     width: 18,

@@ -266,7 +266,7 @@ export default function VipGiftsScreen() {
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compactBottomBar = isCompact || isLargeText;
   const { bottomPadding: contentBottomPad, onBarLayout: handleBottomBarLayout } =
-    useMeasuredBottomBar(compactBottomBar ? 156 : 124, 24);
+    useMeasuredBottomBar(compactBottomBar ? 184 : 150, 24);
   const { show } = useToast();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const setVipPackageSelection = useCheckoutStore((s) => s.setVipPackageSelection);
@@ -390,6 +390,10 @@ export default function VipGiftsScreen() {
   // VIP 浏览模式：分享给好友开通（跳推荐码页，面对面扫码最顺）
   const handleShareToFriend = useCallback(() => {
     router.push('/me/referral');
+  }, [router]);
+
+  const handleMemberAgreementPress = useCallback(() => {
+    router.push('/member-service-agreement');
   }, [router]);
 
   // VIP 浏览模式 CTA 恒可点（分享不依赖选中赠品）；非 VIP 需先选赠品
@@ -628,6 +632,14 @@ export default function VipGiftsScreen() {
         <Text style={styles.bottomHint}>
           {isVip ? '好友支付即开通 VIP · 您可获得推荐奖励' : '包邮 · 支付即开通 VIP'}
         </Text>
+        {!isVip ? (
+          <View style={styles.memberAgreementPrompt}>
+            <Text style={styles.memberAgreementText}>开通前请阅读并同意</Text>
+            <Pressable onPress={handleMemberAgreementPress} hitSlop={8}>
+              <Text style={styles.memberAgreementLink}>《会员服务协议》</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     </LinearGradient>
   );
@@ -975,6 +987,24 @@ const styles = StyleSheet.create({
     color: VIP.subtleGray,
     marginTop: 6,
     textAlign: 'center',
+  },
+  memberAgreementPrompt: {
+    minHeight: 24,
+    marginTop: 6,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  memberAgreementText: {
+    fontSize: 12,
+    color: VIP.warmWhite,
+  },
+  memberAgreementLink: {
+    fontSize: 12,
+    color: VIP.goldPrimary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   checkoutButton: {
     borderRadius: 24,
