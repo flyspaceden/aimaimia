@@ -74,7 +74,7 @@ export default function AboutScreen() {
           <Text style={[typography.title3, { color: colors.text.primary }]}>联系我们</Text>
           <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             <View style={{ padding: 16 }}>
-              <Text style={[typography.body, { color: colors.text.secondary }]}>邮箱：zenghaifeng13@163.com</Text>
+              <Text style={[typography.body, { color: colors.text.secondary }]}>邮箱：zwf@huahainongke.com</Text>
             </View>
           </View>
         </Animated.View>
