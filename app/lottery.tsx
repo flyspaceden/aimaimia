@@ -485,8 +485,10 @@ export default function LotteryScreen() {
                   ]}
                 />
                 <Text
-                  style={[typography.body, { color: colors.text.primary, flex: 1 }]}
-                  numberOfLines={1}
+                  style={[
+                    typography.body,
+                    { color: colors.text.primary, flex: 1, lineHeight: 21 },
+                  ]}
                 >
                   {p.name}
                 </Text>
