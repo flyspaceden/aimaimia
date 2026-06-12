@@ -89,6 +89,13 @@ test('settings screen does not expose unfinished help and customer service entri
   assert.doesNotMatch(settings, /帮助与反馈待接入/);
 });
 
+test('about screen exposes current company contact email', () => {
+  const about = read('app/about.tsx');
+
+  assert.match(about, /邮箱：zwf@huahainongke\.com/);
+  assert.doesNotMatch(about, /zenghaifeng13@163\.com/);
+});
+
 test('privacy policy does not disclose removed in-app online support path', () => {
   const privacy = read(appPrivacyPath);
   const huahaiPrivacy = read('huahai-corporate-site/privacy.html');

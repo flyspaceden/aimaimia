@@ -836,7 +836,7 @@
     - [ ] `CORS_ORIGINS=https://admin.ai-maimai.com,https://seller.ai-maimai.com,https://ai-maimai.com,https://www.ai-maimai.com,https://xn--ckqa175y.com,https://www.xn--ckqa175y.com,https://app.xn--ckqa175y.com,https://admin.xn--ckqa175y.com,https://seller.xn--ckqa175y.com`（去掉 test-* 和 localhost；必须含中文域名 Punycode `xn--ckqa175y.com`，否则中文域名被拦）
     - [ ] 数据库 URL 改 `aimaimai` 库 + 生产密码
   - **代码层切换**:
-    - [ ] App `app/about.tsx` 删除版本信息里的 "(Mock)" 字样
+    - [x] App `app/about.tsx` 删除版本信息里的 "(Mock)" 字样，并同步关于页联系邮箱为 `zwf@huahainongke.com`
     - [ ] `backend/src/modules/captcha/captcha.service.ts` NODE_ENV=test bypass 不影响生产
     - [ ] `backend/src/modules/shipment/sf-express.service.ts` NODE_ENV=test mock 不影响生产
   - **第三方平台后台改地址**:

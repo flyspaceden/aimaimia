@@ -290,6 +290,20 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### 本机构建验证记录
 
+#### 2026-06-11 本地 production Android rebuild（1.0.3，抽奖转盘展示修复内嵌包，待分发/提审）
+
+- 类型：`eas build --profile production --platform android --local --non-interactive --output "$(pwd)/apk/正式版/prod-1.0.3-lottery-20260611-222117.apk"`
+- Profile: production / Platform: Android / Channel: production
+- Commit: `86f5017`（`fix(lottery): 完善抽奖展示和未中奖统计`；main 已通过 `b3e0a8d` merge 发布，同内容。App 内嵌本次抽奖转盘奖品名完整展示 + 奖品实例调色板；后端“谢谢参与”统计修复需服务器部署生效，不属于 APK 内嵌逻辑）
+- Version: 1.0.3 / VersionCode: 9 / RuntimeVersion: 1.0.3
+- 本地 APK: `apk/正式版/prod-1.0.3-lottery-20260611-222117.apk`（117 MB）；`apk/aimaimai-latest.apk` 已同步为同一文件
+- SHA-256: `599630a4ed09fabd79d2a68da9f4044a8c45ae18065b04b81ce48d30d96c96e3`
+- 结果：✅ `BUILD SUCCESSFUL in 7m 43s`；`aapt dump badging` 反查 `versionName='1.0.3'` / `versionCode='9'`；`apksigner verify --verbose --print-certs` 通过（v2 签名，证书 MD5 `766bafb6a3b34a678761e4b07e3665c4`）；AndroidManifest 确认 channel 为 `production`，`expo_runtime_version` resource 为 `1.0.3`；APK 内嵌 bundle 二进制搜索确认含本次转盘实例调色板新色值 `#1565C0`
+- 64 位校验：✅ `aapt dump badging` 反查 `native-code: 'arm64-v8a' 'armeabi-v7a' 'x86' 'x86_64'`；APK 内 `arm64-v8a` / `armeabi-v7a` / `x86` / `x86_64` 均为 26 个 `.so`，可满足 vivo 等渠道 64 位要求
+- 构建前验证：✅ `npm run test:legal`（13/13）、✅ `cd backend && npm test -- admin-lottery.service.spec.ts --runInBand`（2/2）、✅ `npx tsc -b --noEmit`、✅ `NODE_ENV=production npx expo export --platform android`
+- 构建环境：`EXPO_PUBLIC_ENV=production`、`EXPO_PUBLIC_USE_MOCK=false`、`EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1`、`EXPO_PUBLIC_ALIPAY_SANDBOX=false`、`EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`
+- 注意：本次源码基于已推送的 `origin/staging` commit `86f5017` 构建，构建产物输出到 `apk/正式版/`；`expo doctor` 在 EAS local 流程中仍有既有告警（支付/微信原生库 RN Directory 元数据、Expo SDK 54 patch 版本落后、npm audit 若干漏洞）；Gradle release build、APK 签名、版本反查、64 位 ABI 和转盘 bundle 特征反查均已通过。Gradle 另提示本次后 daemon 会因 Metaspace 达阈值停止，属于本机构建性能提示，不影响本 APK 产物。
+
 #### 2026-06-10 本地 production Android rebuild（1.0.3，会员服务协议内嵌包，待分发/提审）
 
 - 类型：`eas build --profile production --platform android --local --non-interactive --output "$(pwd)/apk/正式版/prod-1.0.3-member-agreement-20260610-230843.apk"`
@@ -436,11 +450,11 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### Production Branch
 
-**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前存在 runtime **1.0.1**（华为等旧包用户）与 **1.0.2**（小米 1.0.2 包用户）；2026-06-10 已本地重新生成 1.0.3 production APK（`prod-1.0.3-member-agreement-20260610-230843.apk`，versionCode 8，内嵌隐私政策 `v1.0.2` OPPO SDK 精确公示 + 新增会员服务协议），但尚未上传/分发。2026-06-10 源码已按 OPPO 审核整改升级隐私政策 `v1.0.2`（支付宝/微信 SDK 精确公示），并已发 OPPO SDK 公示版 production OTA 到 runtime **1.0.3**；同日晚继续按 OPPO 付费会员审核要求发 runtime **1.0.3** production OTA，新增独立《会员服务协议》页面，并在 VIP 礼包选择页 / VIP 结算支付页醒目提示且支付前强制勾选。runtime 1.0.1 / 1.0.2 用户收不到本次 1.0.3 OTA，若这些旧包也要同步隐私政策或会员服务协议，必须按对应 runtime 另发 OTA 或分发新版 APK。**生产 OTA 必须按目标 runtime 分发**——1.0.3 / 1.0.2 / 1.0.1 / 1.0.0 / 0.2.0 互不通 OTA。
+**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前存在 runtime **1.0.1**（华为等旧包用户）与 **1.0.2**（小米 1.0.2 包用户）；2026-06-11 已本地重新生成 1.0.3 production APK（`prod-1.0.3-lottery-20260611-222117.apk`，versionCode 9，内嵌隐私政策 `v1.0.2` OPPO SDK 精确公示 + 会员服务协议 + 抽奖转盘奖品名完整展示 / 奖品实例配色修复），但尚未上传/分发；`apk/aimaimai-latest.apk` 已同步为该包。2026-06-10 源码已按 OPPO 审核整改升级隐私政策 `v1.0.2`（支付宝/微信 SDK 精确公示），并已发 OPPO SDK 公示版 production OTA 到 runtime **1.0.3**；同日晚继续按 OPPO 付费会员审核要求发 runtime **1.0.3** production OTA，新增独立《会员服务协议》页面，并在 VIP 礼包选择页 / VIP 结算支付页醒目提示且支付前强制勾选。runtime 1.0.1 / 1.0.2 用户收不到本次 1.0.3 OTA，若这些旧包也要同步隐私政策、会员服务协议或抽奖转盘展示修复，必须按对应 runtime 另发 OTA 或分发新版 APK。**生产 OTA 必须按目标 runtime 分发**——1.0.3 / 1.0.2 / 1.0.1 / 1.0.0 / 0.2.0 互不通 OTA。
 
 生产 OTA 完整历史（第 1-16 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
 
-最近一条（2026-06-10，第 16 条）：OPPO 付费会员审核整改（commit `5ef92d9` / main merge `6a1256c`）——新增独立 `AI爱买买APP会员服务协议` 法律文本与 `/member-service-agreement` 页面；VIP 礼包选择页底部新增「开通前请阅读并同意《会员服务协议》」；VIP 礼包结算支付页新增醒目的「会员服务协议」卡片与勾选项，未勾选时阻止创建 VIP 支付会话并提示「请先阅读并同意《会员服务协议》」；新增 legal 测试锁定会员协议入口。runtime 1.0.3 production OTA：Group `707d721e-141c-4acb-9830-35d1db96c24e`，Android update `019eb4b0-8945-7603-830d-950aad81f3dd`，iOS update `019eb4b0-8945-7531-9d1a-b7c8260dfccc`；EAS Dashboard `https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/707d721e-141c-4acb-9830-35d1db96c24e`；命令带全 5 个生产 EXPO_PUBLIC_*（ENV=production + USE_MOCK=false + API_BASE_URL=api + ALIPAY_SANDBOX=false + WECHAT_PAY_AVAILABLE=true）。本次 OTA 输出 commit 为 `6a1256c*`，星号来自临时 main worktree 为避免干扰本机 APK 构建而挂载的未跟踪 `node_modules` symlink；实际源码 commit 与远端 main 均为 `6a1256c`。⚠️ 本次 OTA 只覆盖 runtime 1.0.3；商店新包若要首启无网/5s 内也稳定看到会员协议提示，应使用 `prod-1.0.3-member-agreement-20260610-230843.apk`（versionCode 8）或基于本次 commit 后源码重新打包。
+最近一条（2026-06-10，第 16 条）：OPPO 付费会员审核整改（commit `5ef92d9` / main merge `6a1256c`）——新增独立 `AI爱买买APP会员服务协议` 法律文本与 `/member-service-agreement` 页面；VIP 礼包选择页底部新增「开通前请阅读并同意《会员服务协议》」；VIP 礼包结算支付页新增醒目的「会员服务协议」卡片与勾选项，未勾选时阻止创建 VIP 支付会话并提示「请先阅读并同意《会员服务协议》」；新增 legal 测试锁定会员协议入口。runtime 1.0.3 production OTA：Group `707d721e-141c-4acb-9830-35d1db96c24e`，Android update `019eb4b0-8945-7603-830d-950aad81f3dd`，iOS update `019eb4b0-8945-7531-9d1a-b7c8260dfccc`；EAS Dashboard `https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/707d721e-141c-4acb-9830-35d1db96c24e`；命令带全 5 个生产 EXPO_PUBLIC_*（ENV=production + USE_MOCK=false + API_BASE_URL=api + ALIPAY_SANDBOX=false + WECHAT_PAY_AVAILABLE=true）。本次 OTA 输出 commit 为 `6a1256c*`，星号来自临时 main worktree 为避免干扰本机 APK 构建而挂载的未跟踪 `node_modules` symlink；实际源码 commit 与远端 main 均为 `6a1256c`。⚠️ 本次 OTA 只覆盖 runtime 1.0.3；2026-06-11 商店新包首选 `prod-1.0.3-lottery-20260611-222117.apk`（versionCode 9），该包在会员协议包基础上继续内嵌抽奖转盘奖品名完整展示和奖品实例配色修复。
 
 上一条（2026-06-10，第 15 条）：OPPO SDK 隐私政策公示整改（commit `1857ee8` / main merge `11dd1ba`）——隐私政策升级 `v1.0.2`，附录按 OPPO 审核要求精确公示 `APP支付客户端SDK`（开发者：支付宝(杭州)信息技术有限公司）与 `微信OpenSDK Android`（开发者：深圳市腾讯计算机系统有限公司）的 SDK 名称、开发者、收集信息范围、目的和 SDK 隐私政策链接；同步 App / 爱买买官网 / 华海官网 / Word 审核稿；新增 legal 测试防回归。runtime 1.0.3 production OTA：Group `d605d047-aca2-4018-b8b4-b4c9d93e0754`，Android update `019eb2f9-adab-7c65-b6b8-9b32fd220fca`，iOS update `019eb2f9-adab-77c5-bd5d-18c6be7aaf17`；命令带全 5 个生产 EXPO_PUBLIC_*（ENV=production + USE_MOCK=false + API_BASE_URL=api + ALIPAY_SANDBOX=false + WECHAT_PAY_AVAILABLE=true）。✅ 2026-06-10 23:18 已重新打出 `prod-1.0.3-member-agreement-20260610-230843.apk`（versionCode 8，内嵌隐私 `v1.0.2` + 会员服务协议），可用于商店新用户首启直接看到 OPPO SDK 公示版隐私政策，并在 VIP 开通路径看到会员服务协议；旧 `prod-1.0.3-privacy-v102-20260610-153840.apk`（versionCode 7，未含会员服务协议）、`prod-1.0.3-privacy-20260609-221718.apk`（versionCode 6，内嵌 `v1.0.1`）和 `prod-1.0.3.apk`（versionCode 5，早于 CB08 法律文本补丁）不再作为对外分发首选。
 
