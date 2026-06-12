@@ -588,7 +588,7 @@ Tab 栏设计：
 │         ▽ 指针               │  WheelPointer（固定不旋转）
 │    ┌──────────┐              │
 │    │  转盘区域  │              │  SpinWheel（280×280 SVG）
-│    │  4扇区等分 │              │  扇区颜色按奖品类型映射
+│    │  4扇区等分 │              │  扇区颜色按奖品实例分配，名称分行完整展示
 │    └──────────┘              │
 │     ✨ Confetti              │  Confetti（中奖粒子爆发层）
 │                              │
@@ -619,7 +619,7 @@ Tab 栏设计：
 - 中奖：🎁 大图标 + AiTypingEffect 奖品名 + "奖品已自动发放" + 金色"太棒了!"按钮
 - 未中奖：😊 图标 + "谢谢参与，明天再来" + 普通"好的"按钮
 
-**扇区颜色映射**：RED_PACK → `gold.primary`，COUPON → `brand.primaryLight`，PRODUCT → `danger`，NONE → `bgSecondary`
+**扇区展示**：奖品名在转盘内按字符数自动分 1-4 行完整展示，不再固定截断；扇区背景色从高对比调色板按奖品 `type + id + index` 稳定分配，同一类型的不同奖品不会固定成同一种背景色。
 
 #### 边界情况
 - API < 2s 返回：存 ref 等待快速旋转阶段完成再减速
@@ -2127,7 +2127,7 @@ AI 功能场景选择页。
 | `VoiceInputOverlay` | 语音输入覆盖层（光球 + 波形） | P0 |
 | `TraceChain` | 溯源链可视化组件 | P1 |
 | `ParticleField` | 背景粒子场（首页专用） | P1 |
-| `SpinWheel` | SVG 转盘（等分扇形+奖品文字，SharedValue 旋转） | P0 ✅ |
+| `SpinWheel` | SVG 转盘（等分扇形+完整奖品名分行+奖品实例调色板，SharedValue 旋转） | P0 ✅ |
 | `WheelPointer` | 转盘指针（金色倒三角+旋转时摆动） | P0 ✅ |
 | `Confetti` | 庆祝粒子爆发（25粒子+重力物理+淡出） | P0 ✅ |
 
@@ -2358,7 +2358,7 @@ src/components/ai/   → 新增目录
 | AiTypingEffect | `src/components/effects/AiTypingEffect.tsx` | 打字机文字动画，50ms/字符逐字显示+闪烁光标 |
 | AiLoadingIndicator | `src/components/effects/AiLoadingIndicator.tsx` | AI思考态：mini AiOrb + 3个脉动圆点 |
 | AiChatBubble | `src/components/ui/AiChatBubble.tsx` | AI聊天气泡：AiCardGlow包裹+mini Orb头像+打字机效果 |
-| SpinWheel | `src/components/effects/SpinWheel.tsx` | SVG等分扇形转盘，奖品类型→颜色映射，SharedValue旋转控制 |
+| SpinWheel | `src/components/effects/SpinWheel.tsx` | SVG等分扇形转盘，奖品名分行完整展示，奖品实例调色板分配背景色，SharedValue旋转控制 |
 | WheelPointer | `src/components/effects/WheelPointer.tsx` | 金色倒三角指针，旋转时±3°摆动模拟物理弹片 |
 | Confetti | `src/components/effects/Confetti.tsx` | 25粒子庆祝爆发，随机方向弹射+重力下落+淡出，设计令牌颜色 |
 | OrderNoReveal | `src/components/orders/OrderNoReveal.tsx` | 订单号脱敏展示：默认后6位(`…`前缀等宽)+眼睛展开完整号+复制全号(toast)，Pressable hitSlop 触控热区+accessibilityLabel，订单详情/支付成功/物流追踪三页复用 |

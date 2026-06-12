@@ -53,7 +53,25 @@ export class AdminLotteryService {
       this.prisma.lotteryPrize.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    const hasNoPrizeRow = items.some((item) => item.type === LotteryPrizeType.NO_PRIZE);
+    if (!hasNoPrizeRow) {
+      return { items, total, page, pageSize };
+    }
+
+    const noPrizeDrawCount = await this.prisma.lotteryRecord.count({
+      where: { result: 'NO_PRIZE' },
+    });
+
+    return {
+      items: items.map((item) =>
+        item.type === LotteryPrizeType.NO_PRIZE
+          ? { ...item, wonCount: noPrizeDrawCount }
+          : item,
+      ),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /** 新增奖品 */
@@ -347,7 +365,7 @@ export class AdminLotteryService {
     const chinaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
     const today = chinaTime.toISOString().slice(0, 10);
 
-    const [todayTotal, todayWon, prizeStats, allPrizes] = await Promise.all([
+    const [todayTotal, todayWon, todayNoPrize, totalNoPrize, prizeStats, allPrizes] = await Promise.all([
       // 今日总抽奖数
       this.prisma.lotteryRecord.count({
         where: { drawDate: today },
@@ -355,6 +373,14 @@ export class AdminLotteryService {
       // 今日中奖数
       this.prisma.lotteryRecord.count({
         where: { drawDate: today, result: 'WON' },
+      }),
+      // 今日未中奖数（用于「谢谢参与」行展示）
+      this.prisma.lotteryRecord.count({
+        where: { drawDate: today, result: 'NO_PRIZE' },
+      }),
+      // 累计未中奖数（用于「谢谢参与」行展示）
+      this.prisma.lotteryRecord.count({
+        where: { result: 'NO_PRIZE' },
       }),
       // 今日各奖品中奖数
       this.prisma.lotteryRecord.groupBy({
@@ -381,15 +407,18 @@ export class AdminLotteryService {
       prizeStats.map((s) => [s.prizeId, s._count.id]),
     );
 
-    const prizeDetails = allPrizes.map((p) => ({
-      id: p.id,
-      name: p.name,
-      type: p.type,
-      todayWon: prizeStatsMap.get(p.id) || 0,
-      totalWon: p.wonCount,
-      totalLimit: p.totalLimit,
-      dailyLimit: p.dailyLimit,
-    }));
+    const prizeDetails = allPrizes.map((p) => {
+      const isNoPrize = p.type === LotteryPrizeType.NO_PRIZE;
+      return {
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        todayWon: isNoPrize ? todayNoPrize : prizeStatsMap.get(p.id) || 0,
+        totalWon: isNoPrize ? totalNoPrize : p.wonCount,
+        totalLimit: p.totalLimit,
+        dailyLimit: p.dailyLimit,
+      };
+    });
 
     return {
       today: {

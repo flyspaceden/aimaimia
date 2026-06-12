@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
-import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, G, Path, Text as SvgText, TSpan } from 'react-native-svg';
 import { useTheme } from '../../theme';
 
 export interface SpinWheelPrize {
@@ -16,21 +16,38 @@ interface SpinWheelProps {
   size?: number;
 }
 
-// 奖品类型 → 双色方案（主色 + 浅色，相邻扇区主/浅交替营造节庆视觉层次）
-// key 取后端 LotteryPrizeType 枚举值（DISCOUNT_BUY / THRESHOLD_GIFT / NO_PRIZE）
-// 文字颜色确保 WCAG AA 对比度 ≥ 4.5:1（均实测 ≥ 5:1）
-const SEGMENT_THEMES: Record<string, { main: string; alt: string; text: string }> = {
-  // 实物大奖（低价购高价商品）：喜庆正红，最抓眼球
-  DISCOUNT_BUY: { main: '#C62828', alt: '#D32F2F', text: '#FFFFFF' },
-  // 满额赠礼：丰收金，富贵有礼感
-  THRESHOLD_GIFT: { main: '#E8A000', alt: '#FFCA28', text: '#4A2800' },
-  // 谢谢参与：低饱和米色，视觉上自然弱化
-  NO_PRIZE: { main: '#EDE3C8', alt: '#F7EFD8', text: '#4A3815' },
+type SegmentTheme = {
+  background: string;
+  text: string;
 };
-const DEFAULT_THEME = { main: '#F0DBA0', alt: '#FFF3D0', text: '#5A4520' };
 
-function getSegmentTheme(type: string) {
-  return SEGMENT_THEMES[type] || DEFAULT_THEME;
+// 奖品实例调色板：同一类型的不同奖品也会获得不同背景色，避免按类型固定成同色块。
+// 文字颜色随背景预设，保证转盘上有足够对比度。
+const SEGMENT_PALETTE: SegmentTheme[] = [
+  { background: '#C62828', text: '#FFFFFF' },
+  { background: '#E8A000', text: '#3A2600' },
+  { background: '#2E7D32', text: '#FFFFFF' },
+  { background: '#1565C0', text: '#FFFFFF' },
+  { background: '#7B1FA2', text: '#FFFFFF' },
+  { background: '#00838F', text: '#FFFFFF' },
+  { background: '#AD1457', text: '#FFFFFF' },
+  { background: '#6D4C41', text: '#FFFFFF' },
+  { background: '#EF6C00', text: '#FFFFFF' },
+  { background: '#455A64', text: '#FFFFFF' },
+];
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (const char of value) {
+    hash = (hash << 5) - hash + char.charCodeAt(0);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getSegmentTheme(type: string, index: number, id: string): SegmentTheme {
+  const key = `${type}:${id}:${index}`;
+  return SEGMENT_PALETTE[hashString(key) % SEGMENT_PALETTE.length];
 }
 
 // 将角度转换为弧度
@@ -38,10 +55,27 @@ function degToRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
-// 截断文字以适应扇区
-function truncateText(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen - 1) + '…';
+function buildWheelLabelLines(text: string): string[] {
+  const normalized = text.trim();
+  if (!normalized) return [''];
+
+  const chars = Array.from(normalized);
+  if (chars.length <= 4) return [normalized];
+
+  const lineCount = chars.length <= 8 ? 2 : chars.length <= 12 ? 3 : 4;
+  const charsPerLine = Math.ceil(chars.length / lineCount);
+  const lines: string[] = [];
+  for (let i = 0; i < chars.length; i += charsPerLine) {
+    lines.push(chars.slice(i, i + charsPerLine).join(''));
+  }
+  return lines;
+}
+
+function getWheelLabelFontSize(text: string, totalPrizes: number): number {
+  const length = Array.from(text.trim()).length;
+  if (length <= 4 && totalPrizes <= 5) return 13;
+  if (length <= 8) return totalPrizes >= 6 ? 10 : 11;
+  return totalPrizes >= 6 ? 8 : 9;
 }
 
 // 生成扇形SVG路径
@@ -73,22 +107,26 @@ export function SpinWheel({ prizes, rotation, size = 280 }: SpinWheelProps) {
       const startAngle = i * segAngle;
       const endAngle = startAngle + segAngle;
       const midAngle = startAngle + segAngle / 2;
-      const textR = outerR * 0.6;
+      const textR = outerR * 0.62;
       const textRad = degToRad(midAngle - 90);
       const textX = half + textR * Math.cos(textRad);
       const textY = half + textR * Math.sin(textRad);
-      const theme = getSegmentTheme(prize.type);
-      // 交替使用主色和浅色，增加视觉丰富度
-      const fill = i % 2 === 0 ? theme.main : theme.alt;
+      const theme = getSegmentTheme(prize.type, i, prize.id);
+      const labelLines = buildWheelLabelLines(prize.name);
+      const fontSize = getWheelLabelFontSize(prize.name, prizes.length);
+      const lineHeight = fontSize + 2;
       return {
         prize,
         path: describeArc(half, half, outerR, startAngle, endAngle),
-        fill,
+        fill: theme.background,
         textColor: theme.text,
         textX,
         textY,
         textRotation: midAngle,
-        label: truncateText(prize.name, 5),
+        labelLines,
+        fontSize,
+        lineHeight,
+        labelYOffset: -((labelLines.length - 1) * lineHeight) / 2,
       };
     });
   }, [prizes, half, outerR]);
@@ -130,16 +168,24 @@ export function SpinWheel({ prizes, rotation, size = 280 }: SpinWheelProps) {
               {/* 奖品文字 */}
               <SvgText
                 x={seg.textX}
-                y={seg.textY}
+                y={seg.textY + seg.labelYOffset}
                 fill={seg.textColor}
-                fontSize={13}
+                fontSize={seg.fontSize}
                 fontWeight="700"
                 textAnchor="middle"
                 alignmentBaseline="central"
                 rotation={seg.textRotation}
                 origin={`${seg.textX}, ${seg.textY}`}
               >
-                {seg.label}
+                {seg.labelLines.map((line, lineIndex) => (
+                  <TSpan
+                    key={`${seg.prize.id}-line-${lineIndex}`}
+                    x={seg.textX}
+                    dy={lineIndex === 0 ? 0 : seg.lineHeight}
+                  >
+                    {line}
+                  </TSpan>
+                ))}
               </SvgText>
             </G>
           ))}
