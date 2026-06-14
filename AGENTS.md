@@ -113,6 +113,7 @@
 - `docs/superpowers/plans/2026-05-23-wechat-pay-integration.md` — 微信支付接入实施计划（WechatPayService 全套含 createAppOrder/refund/queryRefund/parseNotify/queryOrder/closeOrder / 退款 pending 二态 / raw body 验签的 wechat notify / confirmCheckout channel dispatch / cancel/expire 关单 / 售后退货运费支付与退款微信全链路 / 未发货取消退款 pending 闭环 / Android WXPayEntryActivity / App checkout 普通+VIP+续付+Pending Banner+售后详情 / admin 订单详情中文标签 / available 开关和隐私政策条件触发，**微信支付接入实施排程，支付宝行为不变 + 资金链路安全 + Android-only v1.0**）
 - `docs/superpowers/specs/2026-06-04-account-deletion-immediate-design.md` — 账号注销即时版设计方案（注销前阻止企业负责人、支付中结算、支付处理中、提现处理中和非 ACTIVE 账号；已付款订单/售后继续履约并依法保留，注销后立即不可恢复，消费积分/红包/VIP/抽奖权益作废，手机号/微信登录标识释放，订单/支付/退款/发票/审计依法保留，**账号注销功能权威来源**）
 - `docs/superpowers/plans/2026-06-04-account-deletion-immediate.md` — 账号注销即时版实施计划（Schema/后端注销模块/AuthIdentity 释放/JWT 拦截/推荐与分润保护/买家 App 注销页/法律文本/验证清单，**账号注销实施排程**）
+- `docs/superpowers/specs/2026-06-14-digital-asset-cumulative-spend-design.md` — 数字资产累计消费设计方案（独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户+流水；确认收货后按商品实付金额入账，退款/退货成功扣回，VIP 礼包计入，历史 `RECEIVED` 订单回填；买家 App 数字资产中心雏形 + 管理后台完整数字资产管理页，**数字资产累计消费权威来源**）
 - `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
@@ -151,6 +152,7 @@
 | VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
 | 卖家商品草稿 | 复用 `ProductStatus.DRAFT` 持久化未完成商品，每商户 **5 份**上限，最低门槛**标题必填**，30 秒 debounce 自动保存；DRAFT 在卖家默认列表/管理审核/商品总数统计/买家查询中全部排除；提交审核时手动跑 `CreateProductDto` 全量校验 |
 | 微信支付集成 | **支付宝行为不变 + 微信并列分支 + Android-only（v1.0）**：新增 `WechatPayService` 并列于 `AlipayService`，覆盖 APP 下单、主动查单、关单、退款、查退款、支付/退款通知验签解密；`PaymentService.confirmCheckout` 按 channel 派发；取消/过期 CheckoutSession 对 WECHAT_PAY 先查单再关单，已支付则主动建单；售后退款和退货运费支付按原订单 channel dispatch。微信路径由 `WechatPayService.isAvailable()` 守门；买家端入口由 `src/constants/payment.ts` 读取 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 且仅 Android 打开。2026-06-09 当前 `eas.json` preview / production 均为 `true`，因此 production Android APK 会展示微信支付入口；iOS 仍灰掉 |
+| 数字资产累计消费 | **独立于 Reward 消费积分、Coupon 平台红包、普通/VIP 分润计数**。第一版仅记录“累计消费金额”：确认收货后按商品实付金额（不含运费，扣除消费积分/平台红包/VIP 折扣）入账，退款/退货成功扣回，VIP 礼包计入；用 `DigitalAssetAccount` + `DigitalAssetLedger` 账户流水建模，未来资产价值/等级/股权/期权/工资/兑换规则另起设计 |
 
 ## 技术栈
 
