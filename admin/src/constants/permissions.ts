@@ -32,6 +32,12 @@ export const PERMISSIONS = {
   BONUS_APPROVE_WITHDRAW: 'bonus:approve_withdraw',
   BONUS_MANAGE_RULES: 'bonus:manage_rules',
 
+  // 数字资产
+  DIGITAL_ASSETS_READ: 'digital_assets:read',
+  DIGITAL_ASSETS_ADJUST: 'digital_assets:adjust',
+  DIGITAL_ASSETS_EXPORT: 'digital_assets:export',
+  DIGITAL_ASSETS_SETTINGS: 'digital_assets:settings',
+
   // 溯源
   TRACE_READ: 'trace:read',
   TRACE_CREATE: 'trace:create',

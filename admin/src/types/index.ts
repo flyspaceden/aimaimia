@@ -112,6 +112,7 @@ export type AuditAction =
   | 'REFUND'
   | 'SHIP'
   | 'CONFIG_CHANGE'
+  | 'EXPORT'
   | 'ROLLBACK';
 
 export interface AuditLog {
@@ -206,6 +207,97 @@ export interface AppUserDetail {
   }>;
   createdAt: string;
   updatedAt: string;
+}
+
+// ========== 数字资产 ==========
+
+export type DigitalAssetLedgerType =
+  | 'ORDER_RECEIVED'
+  | 'REFUND_REVERSAL'
+  | 'ADMIN_ADJUSTMENT'
+  | 'BACKFILL';
+
+export type DigitalAssetLedgerDirection = 'CREDIT' | 'DEBIT';
+
+export interface DigitalAssetOverview {
+  accountCount: number;
+  totalCumulativeSpendAmount: number;
+  todayCreditAmount: number;
+  todayDebitAmount: number;
+}
+
+export interface DigitalAssetAccountQueryParams extends PaginationParams {
+  keyword?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface DigitalAssetLedgerQueryParams extends PaginationParams {
+  type?: DigitalAssetLedgerType;
+}
+
+export interface DigitalAssetAccountRow {
+  id: string;
+  userId: string;
+  cumulativeSpendAmount: number;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    nickname: string | null;
+    avatarUrl: string | null;
+    phone: string | null;
+    status: string | null;
+  };
+}
+
+export interface DigitalAssetModuleInfo {
+  key: 'assetValue' | 'level' | 'benefits' | 'equity';
+  title: string;
+  enabled?: boolean;
+  status?: 'COMING_SOON';
+  description: string;
+}
+
+export interface DigitalAssetAccountDetail {
+  user: {
+    id: string;
+    nickname: string | null;
+    avatarUrl: string | null;
+    phone: string | null;
+    status: string;
+  };
+  account: {
+    id: string | null;
+    cumulativeSpendAmount: number;
+    updatedAt: string | null;
+  };
+  modules: DigitalAssetModuleInfo[];
+}
+
+export interface DigitalAssetLedger {
+  id: string;
+  type: DigitalAssetLedgerType;
+  direction: DigitalAssetLedgerDirection;
+  amount: number;
+  balanceAfter: number;
+  title: string;
+  description?: string;
+  orderId?: string;
+  createdAt: string;
+}
+
+export interface DigitalAssetAdjustPayload {
+  direction: DigitalAssetLedgerDirection;
+  amount: number;
+  reason: string;
+  clientIdempotencyKey?: string;
+}
+
+export interface DigitalAssetSettings {
+  modules: DigitalAssetModuleInfo[];
 }
 
 // ========== 商品 ==========

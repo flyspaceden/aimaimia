@@ -16,10 +16,12 @@ import { getAppUser, toggleAppUserBan } from '@/api/app-users';
 import { getOrders } from '@/api/orders';
 import { getMemberDetail } from '@/api/bonus';
 import { getInstances } from '@/api/coupon';
+import { getDigitalAssetAccount } from '@/api/digital-assets';
 import type { AppUserDetail, Order, BonusMemberDetail } from '@/types';
 import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap, rewardAccountTypeMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
+import { usePermission } from '@/hooks/usePermission';
 import dayjs from 'dayjs';
 
 // 认证方式映射
@@ -41,6 +43,7 @@ export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { hasPermission } = usePermission();
 
   // 封禁弹窗
   const [banModal, setBanModal] = useState<{ open: boolean; reason: string }>({ open: false, reason: '' });
@@ -59,6 +62,12 @@ export default function UserDetailPage() {
     queryKey: ['admin', 'member-detail', id],
     queryFn: () => getMemberDetail(id!),
     enabled: !!id && activeTab === 'rewards',
+  });
+
+  const { data: digitalAsset } = useQuery({
+    queryKey: ['admin', 'digital-assets', 'account', id],
+    queryFn: () => getDigitalAssetAccount(id!),
+    enabled: !!id && hasPermission(PERMISSIONS.DIGITAL_ASSETS_READ),
   });
 
   // 封禁处理
@@ -315,6 +324,31 @@ export default function UserDetailPage() {
           </Col>
         </Row>
       </Card>
+
+      <PermissionGate permission={PERMISSIONS.DIGITAL_ASSETS_READ}>
+        <Card style={{ marginBottom: 16 }}>
+          <Row align="middle" gutter={16}>
+            <Col span={8}>
+              <Statistic
+                title="累计消费数字资产"
+                value={digitalAsset?.account?.cumulativeSpendAmount ?? 0}
+                precision={2}
+                prefix={<><WalletOutlined /> ¥</>}
+              />
+            </Col>
+            <Col span={10}>
+              <Space wrap>
+                {(digitalAsset?.modules ?? []).map((item) => (
+                  <Tag key={item.key} color="default">{item.title} · 待开放</Tag>
+                ))}
+              </Space>
+            </Col>
+            <Col span={6} style={{ textAlign: 'right' }}>
+              <Button onClick={() => navigate('/digital-assets')}>查看数字资产台账</Button>
+            </Col>
+          </Row>
+        </Card>
+      </PermissionGate>
 
       {/* Tabs */}
       <Card>
