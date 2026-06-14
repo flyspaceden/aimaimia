@@ -114,6 +114,7 @@
 - `docs/superpowers/specs/2026-06-04-account-deletion-immediate-design.md` — 账号注销即时版设计方案（注销前阻止企业负责人、支付中结算、支付处理中、提现处理中和非 ACTIVE 账号；已付款订单/售后继续履约并依法保留，注销后立即不可恢复，消费积分/红包/VIP/抽奖权益作废，手机号/微信登录标识释放，订单/支付/退款/发票/审计依法保留，**账号注销功能权威来源**）
 - `docs/superpowers/plans/2026-06-04-account-deletion-immediate.md` — 账号注销即时版实施计划（Schema/后端注销模块/AuthIdentity 释放/JWT 拦截/推荐与分润保护/买家 App 注销页/法律文本/验证清单，**账号注销实施排程**）
 - `docs/superpowers/specs/2026-06-14-digital-asset-cumulative-spend-design.md` — 数字资产累计消费设计方案（独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户+流水；确认收货后按商品实付金额入账，退款/退货成功扣回，VIP 礼包计入，历史 `RECEIVED` 订单回填；买家 App 数字资产中心雏形 + 管理后台完整数字资产管理页，**数字资产累计消费权威来源**）
+- `docs/superpowers/plans/2026-06-14-digital-asset-cumulative-spend.md` — 数字资产累计消费实施计划（Schema/核心记账服务/订单与退款接入/历史回填/买家 App 数字资产中心/管理后台数字资产页/安全验证拆分，**数字资产累计消费实施排程**）
 - `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
