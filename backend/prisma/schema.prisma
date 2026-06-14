@@ -232,6 +232,18 @@ enum RefundStatus {
   FAILED
 }
 
+enum DigitalAssetLedgerType {
+  ORDER_RECEIVED
+  REFUND_REVERSAL
+  ADMIN_ADJUSTMENT
+  BACKFILL
+}
+
+enum DigitalAssetLedgerDirection {
+  CREDIT
+  DEBIT
+}
+
 enum ShipmentStatus {
   INIT
   SHIPPED
@@ -507,6 +519,7 @@ enum AuditAction {
   SHIP
   CONFIG_CHANGE
   ROLLBACK
+  EXPORT
 }
 
 // --- 保留模块 ---
@@ -623,6 +636,10 @@ model User {
   rewardLedgers      RewardLedger[]
   normalQueueMembers NormalQueueMember[] // @deprecated 废弃：滑动窗口
   withdrawRequests   WithdrawRequest[]
+
+  // 数字资产累计消费（独立于 Reward/Coupon/分润）
+  digitalAssetAccount DigitalAssetAccount?
+  digitalAssetLedgers DigitalAssetLedger[]
 
   // J 域关系（普通用户系统改造）
   normalProgress       NormalProgress?
@@ -818,6 +835,7 @@ model AdminUser {
   ruleVersions   RuleVersion[]
   reviewedWithdraws WithdrawRequest[]
   reviewTasks       ReviewTask[]
+  digitalAssetLedgers DigitalAssetLedger[]
 }
 
 model AdminRole {
@@ -1465,6 +1483,7 @@ model Order {
   // K 域关系（平台红包）
   couponUsageRecords  CouponUsageRecord[]  @relation("OrderCouponUsage")
   totalCouponDiscount Float?               // 平台红包总抵扣金额
+  digitalAssetLedgers DigitalAssetLedger[]
 
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
@@ -1491,6 +1510,7 @@ model OrderItem {
   // H02修复：关联退款明细行
   refundItems          RefundItem[]
   afterSaleRequests    AfterSaleRequest[]
+  digitalAssetLedgers  DigitalAssetLedger[]
 
   @@index([orderId]) // 订单商品项查询
 }
@@ -1583,6 +1603,7 @@ model Refund {
   items RefundItem[]
   afterSaleByAfterSaleId     AfterSaleRequest?  @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
   afterSaleRequestsByRefundId AfterSaleRequest[] @relation("AfterSaleRefundByRefundId")
+  digitalAssetLedgers         DigitalAssetLedger[]
 
   @@index([orderId])
 }
@@ -1982,6 +2003,55 @@ model RewardLedger {
   @@index([allocationId]) // M5: 外键索引，加速分配关联的流水查询
 }
 
+// 数字资产累计消费账户（第一版仅记录累计消费金额，不定义兑换/股权/期权规则）
+model DigitalAssetAccount {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cumulativeSpendAmount Float    @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  ledgers DigitalAssetLedger[]
+
+  @@index([cumulativeSpendAmount])
+  @@index([updatedAt])
+}
+
+model DigitalAssetLedger {
+  id             String                       @id @default(cuid())
+  accountId      String
+  account        DigitalAssetAccount          @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  userId         String
+  user           User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type           DigitalAssetLedgerType
+  direction      DigitalAssetLedgerDirection
+  amount         Float
+  balanceAfter   Float
+  orderId        String?
+  order          Order?                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItemId    String?
+  orderItem      OrderItem?                   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  refundId       String?
+  refund         Refund?                      @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  afterSaleId    String?
+  afterSale      AfterSaleRequest?            @relation(fields: [afterSaleId], references: [id], onDelete: Restrict)
+  adminUserId    String?
+  adminUser      AdminUser?                   @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  reason         String?
+  idempotencyKey String                       @unique
+  meta           Json?
+  createdAt      DateTime                     @default(now())
+
+  @@index([userId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([refundId])
+  @@index([afterSaleId])
+  @@index([adminUserId, createdAt])
+}
+
 /// @deprecated 废弃：滑动窗口分桶，由 NormalTreeNode + 普通树分配替代。保留用于历史数据查询
 model NormalBucket {
   id          String   @id @default(cuid())
@@ -2363,6 +2433,7 @@ model AfterSaleRequest {
   shippingPayment       AfterSaleShippingPayment?
   refundByRefundId      Refund?           @relation("AfterSaleRefundByRefundId", fields: [refundId], references: [id])
   refundByAfterSaleId   Refund?           @relation("AfterSaleRefundByAfterSaleId")
+  digitalAssetLedgers   DigitalAssetLedger[]
 
   @@map("after_sale_request")
   @@index([orderId])

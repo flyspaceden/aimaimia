@@ -1399,6 +1399,10 @@ async function main() {
     { code: 'replacements:arbitrate', module: 'replacements', action: 'arbitrate', description: '换货管理-仲裁' },
     { code: 'categories:read', module: 'categories', action: 'read', description: '分类管理-查看' },
     { code: 'categories:manage', module: 'categories', action: 'manage', description: '分类管理-增删改' },
+    { code: 'digital_assets:read', module: 'digital_assets', action: 'read', description: '数字资产-查看' },
+    { code: 'digital_assets:adjust', module: 'digital_assets', action: 'adjust', description: '数字资产-手动调整' },
+    { code: 'digital_assets:export', module: 'digital_assets', action: 'export', description: '数字资产-导出' },
+    { code: 'digital_assets:settings', module: 'digital_assets', action: 'settings', description: '数字资产-规则占位配置' },
   ];
 
   const permissionRecords: Record<string, string> = {};
