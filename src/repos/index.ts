@@ -35,3 +35,4 @@ export * from './InvoiceRepo';
 export * from './AfterSaleRepo';
 export * from './CsRepo';
 export * from './AccountDeletionRepo';
+export * from './DigitalAssetRepo';

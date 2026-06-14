@@ -873,6 +873,31 @@ Invoice
 - meta (jsonb) — 必含：scheme、sourceUserId、bucketKey、vipIndex、ancestorUserId、locked、calcSnapshot
 - createdAt
 
+## I9.5 DigitalAssetAccount / DigitalAssetLedger（累计消费数字资产）
+- DigitalAssetAccount
+  - id (uuid, PK)
+  - userId (uuid unique FK User)
+  - cumulativeSpendAmount (float default 0) — 当前累计消费金额
+  - createdAt, updatedAt
+- DigitalAssetLedger
+  - id (uuid, PK)
+  - accountId (uuid FK DigitalAssetAccount)
+  - userId (uuid FK User)
+  - orderId (uuid nullable FK Order)
+  - orderItemId (uuid nullable FK OrderItem)
+  - refundId (uuid nullable FK Refund)
+  - afterSaleId (uuid nullable FK AfterSaleRequest)
+  - adminUserId (uuid nullable FK AdminUser)
+  - type (enum: ORDER_RECEIVED/REFUND_REVERSAL/ADMIN_ADJUSTMENT/BACKFILL)
+  - direction (enum: CREDIT/DEBIT)
+  - amount (float) — 正数，方向由 direction 决定
+  - balanceAfter (float)
+  - idempotencyKey (text unique)
+  - description (text nullable)
+  - meta (jsonb nullable) — 金额口径、行级分摊、退款来源、回填批次等审计快照
+  - createdAt
+- 口径：确认收货后按商品实付金额累计，不含运费，扣除消费积分、平台红包、VIP 折扣；退款/退货成功后按原入账行可审计扣回。该体系独立于 Reward 消费积分、Coupon 平台红包和普通/VIP 分润计数，未来股权/期权/工资/兑换规则另起设计。
+
 ## I10. NormalBucket
 - id (uuid, PK)
 - bucketKey (text unique)
@@ -933,6 +958,8 @@ Invoice
 - AllocationRuleType: NORMAL_BROADCAST(@deprecated), NORMAL_TREE, VIP_UPSTREAM, VIP_PLATFORM_SPLIT, PLATFORM_SPLIT, ZERO_PROFIT
 - RewardEntryType: FREEZE, RELEASE, WITHDRAW, VOID, ADJUST
 - RewardStatus: FROZEN, AVAILABLE, WITHDRAWN, VOIDED
+- DigitalAssetLedgerType: ORDER_RECEIVED, REFUND_REVERSAL, ADMIN_ADJUSTMENT, BACKFILL
+- DigitalAssetLedgerDirection: CREDIT, DEBIT
 
 - LotteryPrizeType: DISCOUNT_BUY, THRESHOLD_GIFT, NO_PRIZE
 - LotteryResult: WON, NO_PRIZE
@@ -962,6 +989,11 @@ Invoice
 
 - RewardAllocation(unique idempotencyKey)
 - RewardLedger(userId, status, createdAt)
+- DigitalAssetAccount(unique userId)
+- DigitalAssetLedger(unique idempotencyKey)
+- DigitalAssetLedger(userId, createdAt)
+- DigitalAssetLedger(orderId)
+- DigitalAssetLedger(refundId)
 - ReviewTask(status, createdAt)
 
 ---
@@ -981,6 +1013,8 @@ Invoice
 | MemberProfile | userId | User | 防止删除有会员记录的用户 |
 | VipProgress | userId | User | 防止删除有 VIP 进度的用户 |
 | RewardAllocation | orderId | Order | 防止删除有分配记录的订单 |
+| DigitalAssetAccount | userId | User | 防止删除有累计消费账户的用户 |
+| DigitalAssetLedger | userId/accountId/orderId/refundId | User/DigitalAssetAccount/Order/Refund | 防止删除累计消费流水依赖的审计对象 |
 
 ## 5.6 新增外键索引（v3.0 性能优化）
 
@@ -1002,5 +1036,6 @@ Invoice
 - 允许绑定：同一 User 可同时绑定 PHONE + WECHAT
 - 支付/退款/物流回调：落 rawPayload（脱敏），以 providerTxnId/providerRefundId/事件唯一键幂等
 - 奖励发放：写 RewardAllocation（幂等）→ 写 RewardLedger（冻结）→ 签收释放/解锁释放 → 退款作废与重算
+- 数字资产累计消费：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger 并同步 cumulativeSpendAmount；确认收货入账，退款/退货成功扣回，历史数据先 dry-run 再执行回填。
 
 ---

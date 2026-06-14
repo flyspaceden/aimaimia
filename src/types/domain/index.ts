@@ -31,3 +31,4 @@ export * from './Invoice';
 export * from './CustomerService';
 export * from './Checkout';
 export * from './AccountDeletion';
+export * from './DigitalAsset';

@@ -22,6 +22,7 @@ import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.se
 import { CartService } from '../cart/cart.service';
 import { RepurchaseResult, RepurchaseResultItem, RepurchaseSkipReason } from './repurchase.types';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -92,6 +93,8 @@ export class OrderService {
   private inboxService: any = null;
   // RewardDeductionService 通过 setter 注入（预览消费积分可抵扣上限）
   private rewardDeductionService: RewardDeductionService | null = null;
+  // DigitalAssetService 通过 setter 注入（确认收货后累计消费金额）
+  private digitalAssetService: DigitalAssetService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -129,6 +132,11 @@ export class OrderService {
   /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  /** 注入数字资产服务（由 OrderModule 在 onModuleInit 时调用） */
+  setDigitalAssetService(service: DigitalAssetService) {
+    this.digitalAssetService = service;
   }
 
   private earliestShippedAt(shipments?: any[]): string | null {
@@ -1545,6 +1553,8 @@ export class OrderService {
     };
     attemptBonus(1).catch(() => {});
 
+    this.creditDigitalAssetAfterReceive(orderId);
+
     // Phase F: 红包触发事件（fire-and-forget，不阻塞确认收货流程）
     if (this.couponEngineService && updated) {
       const orderUserId = updated.userId;
@@ -1574,6 +1584,57 @@ export class OrderService {
     }
 
     return this.mapOrder(updated);
+  }
+
+  private creditDigitalAssetAfterReceive(orderId: string) {
+    this.digitalAssetService?.creditOrderReceived(orderId, 'ORDER_RECEIVED').catch((err: any) => {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        JSON.stringify({
+          event: 'DIGITAL_ASSET_CREDIT_DEAD_LETTER',
+          orderId,
+          error: safeErr.message,
+          stack: safeErr.stack,
+          failedAt: new Date().toISOString(),
+        }),
+      );
+      Promise.resolve(this.prisma.orderStatusHistory.create({
+        data: {
+          orderId,
+          fromStatus: 'RECEIVED',
+          toStatus: 'RECEIVED',
+          reason: '数字资产累计失败',
+          meta: {
+            deadLetter: true,
+            event: 'DIGITAL_ASSET_CREDIT_DEAD_LETTER',
+            error: safeErr.message,
+            failedAt: new Date().toISOString(),
+          },
+        },
+      })).catch((dlErr: any) => {
+        this.logger.error(
+          `数字资产死信记录写入失败: orderId=${orderId}; error=${JSON.stringify(sanitizeForLog(dlErr))}`,
+        );
+      });
+    });
+  }
+
+  private async reverseDigitalAssetAfterRefund(refundId: string): Promise<void> {
+    if (!this.digitalAssetService) return;
+    try {
+      await this.digitalAssetService.reverseRefund(refundId);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        JSON.stringify({
+          event: 'DIGITAL_ASSET_REFUND_REVERSE_DEAD_LETTER',
+          refundId,
+          error: safeErr.message,
+          stack: safeErr.stack,
+          failedAt: new Date().toISOString(),
+        }),
+      );
+    }
   }
 
   /** 取消订单（N07修复：CAS 原子状态更新，防止与支付回调并发竞态） */
@@ -1858,6 +1919,7 @@ export class OrderService {
           }, {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           });
+          await this.reverseDigitalAssetAfterRefund(refundData.refundId);
         } else {
           this.logger.warn(
             `退款发起失败，cron 将重试: refundId=${refundData.refundId}, msg=${result?.message ?? 'unknown'}`,
@@ -2154,6 +2216,7 @@ export class OrderService {
             }, {
               isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
             });
+            await this.reverseDigitalAssetAfterRefund(r.refundId);
             successfulRefundOrderIds.add(r.orderId);
           } else {
             this.logger.warn(

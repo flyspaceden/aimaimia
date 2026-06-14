@@ -20,6 +20,7 @@ import {
   TagsOutlined,
   MessageOutlined,
   AppstoreOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -39,17 +40,18 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/user-bonus',
       name: '用户与奖励',
       icon: <UserOutlined />,
-      permission: PERMISSIONS.BONUS_READ,
+      permissionAny: [PERMISSIONS.BONUS_READ, PERMISSIONS.DIGITAL_ASSETS_READ],
       routes: [
         { path: '/users', name: '用户管理', permission: PERMISSIONS.USERS_READ },
-        { path: '/bonus/members', name: 'VIP 会员' },
-        { path: '/bonus/withdrawals', name: '提现审核' },
+        { path: '/digital-assets', name: '数字资产', icon: <WalletOutlined />, permission: PERMISSIONS.DIGITAL_ASSETS_READ },
+        { path: '/bonus/members', name: 'VIP 会员', permission: PERMISSIONS.BONUS_READ },
+        { path: '/bonus/withdrawals', name: '提现审核', permission: PERMISSIONS.BONUS_READ },
         { path: '/bonus/withdraw-rules', name: '提现规则', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
         { path: '/bonus/tax-reporting', name: '税务报送', icon: <FileTextOutlined />, permission: PERMISSIONS.BONUS_APPROVE_WITHDRAW },
-        { path: '/bonus/vip-tree', name: 'VIP 奖励可视化', icon: <ApartmentOutlined /> },
-        { path: '/bonus/normal-tree', name: '普通奖励可视化', icon: <ApartmentOutlined /> },
-        { path: '/bonus/vip-config', name: 'VIP 系统配置', icon: <SettingOutlined /> },
-        { path: '/bonus/normal-config', name: '普通系统配置', icon: <SettingOutlined /> },
+        { path: '/bonus/vip-tree', name: 'VIP 奖励可视化', icon: <ApartmentOutlined />, permission: PERMISSIONS.BONUS_READ },
+        { path: '/bonus/normal-tree', name: '普通奖励可视化', icon: <ApartmentOutlined />, permission: PERMISSIONS.BONUS_READ },
+        { path: '/bonus/vip-config', name: 'VIP 系统配置', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
+        { path: '/bonus/normal-config', name: '普通系统配置', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
         { path: '/vip-gifts', name: '购买VIP赠品', icon: <GiftOutlined />, permission: PERMISSIONS.VIP_GIFT_READ },
       ],
     },
@@ -145,8 +147,11 @@ export default function AdminLayout() {
     const filterMenuByPermission = (routes: MenuRoute[] | undefined): MenuRoute[] => {
       if (!routes) return [];
       return routes.reduce<MenuRoute[]>((acc, route) => {
-        const perm = (route as MenuRoute & { permission?: string }).permission;
+        const routeWithPermission = route as MenuRoute & { permission?: string; permissionAny?: string[] };
+        const perm = routeWithPermission.permission;
+        const permissionAny = routeWithPermission.permissionAny;
         if (perm && !hasPermission(perm)) return acc;
+        if (permissionAny?.length && !permissionAny.some(hasPermission)) return acc;
         const filtered = { ...route };
         if (route.routes) {
           filtered.routes = filterMenuByPermission(route.routes);

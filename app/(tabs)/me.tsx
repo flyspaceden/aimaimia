@@ -41,6 +41,7 @@ const TOOL_GRID_BASE = [
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
   { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
+  { label: '数字资产', icon: 'diamond-stone' as const, route: '/me/digital-assets' },
   { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
 ];

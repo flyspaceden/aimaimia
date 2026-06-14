@@ -18,6 +18,8 @@ import { ShipmentModule } from '../shipment/shipment.module';
 import { ShippingRuleModule } from '../admin/shipping-rule/shipping-rule.module';
 import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
+import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { RewardDeductionService } from '../bonus/reward-deduction.service';
     SellerShippingModule,
     ShipmentModule,
     ShippingRuleModule,
+    DigitalAssetModule,
   ],
   controllers: [AfterSaleController],
   providers: [
@@ -72,6 +75,10 @@ export class AfterSaleModule implements OnModuleInit {
     const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
     if (rewardDeductionService) {
       this.afterSaleRefundService.setRewardDeductionService(rewardDeductionService);
+    }
+    const digitalAssetService = this.moduleRef.get(DigitalAssetService, { strict: false });
+    if (digitalAssetService) {
+      this.afterSaleRefundService.setDigitalAssetService(digitalAssetService);
     }
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {

@@ -55,6 +55,7 @@ const CsQuickEntriesPage = lazy(() => import('@/pages/cs/quick-entries'));
 const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
 const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
+const DigitalAssetsPage = lazy(() => import('@/pages/digital-assets/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -114,6 +115,7 @@ export default function App() {
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="users" element={<UserListPage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
+            <Route path="digital-assets" element={<DigitalAssetsPage />} />
             <Route path="bonus/members" element={<MemberListPage />} />
             <Route path="bonus/members/:userId" element={<MemberDetailPage />} />
             <Route path="bonus/withdrawals" element={<WithdrawalListPage />} />

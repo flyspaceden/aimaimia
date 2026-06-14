@@ -367,3 +367,16 @@
 | D03 | 遗留 NORMAL_BROADCAST 队列残留注销受益人 | 🟡 LOW | `NORMAL_BROADCAST` 仅对迁移日期（2026-02-28）前旧订单生效，新订单不再进入；但桶队列里仍可能残留已注销用户。已补强：广播循环内对每位受益人 `resolveActiveRewardRecipient`，注销者其单笔份额（含 remainder 仍按原规则归最后一位）路由到平台 `creditToPlatform(variant='DELETED_BENEFICIARY')`，`totalDistributed` 照计，守恒不变 | ✅ 已修 |
 | D04 | 注销成功后 App 残留请求 403 不自动登出 | 🟡 LOW | 已修：`app/me/deletion.tsx` 在 execute 成功后立即调用 `logoutAndClearClientState()` 并 `router.replace('/(tabs)/home')`，不再等待用户点击成功页按钮；仍不在 `ApiClient` 做全局 403 登出，避免误伤正常权限 403。 | ✅ 已修 |
 | D05 | 地址软删 `deletedAt` 过滤靠人工逐查询添加 | 🟡 LOW | 现状：`address.service.ts` 全部 17 处面向用户查询均已加 `deletedAt: null`（已审查确认无遗漏）。隐患：Prisma 无全局 soft-delete where 约束，未来新增地址查询易漏过滤导致读到已注销用户的已删地址。建议：PR 检查项/封装统一查询 helper | ⏳ 待办（防护） |
+
+---
+
+## 2026-06-14 数字资产累计消费资金安全检查
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| DA01 | 累计消费重复入账或扣成负数 | 🔴 HIGH | 数字资产账户写入统一收口到 `DigitalAssetService`；所有 credit/debit/adjust/backfill 写入均在 Serializable 事务内完成；`DigitalAssetLedger.idempotencyKey` 唯一约束保证重复确认收货、重复退款通知和重复回填不会重复变更账户；扣回和负向调整会检查 `cumulativeSpendAmount - amount >= 0`。 | ✅ 已检查 |
+| DA02 | 订单/退款主链路被数字资产失败阻断 | 🟠 MEDIUM | 确认收货、自动确认收货、售后退款成功和未发货取消退款成功后异步调用数字资产记账；记账失败只写 error log，不回滚订单/退款终态，避免衍生资产系统影响履约和资金退款主链路。后续如需要可补偿扫描失败日志对应订单。 | ✅ 已检查 |
+| DA03 | 后台人工调整滥用 | 🔴 HIGH | 调整接口要求 `digital_assets:adjust` 权限，并额外校验管理员角色名为“超级管理员”；所有调整写 `DigitalAssetLedger`，带 `adminUserId`、description 和 `AdminAuditLog`，禁止直接改账户值。 | ✅ 已检查 |
+| DA04 | 未来股权/期权/工资规则被提前写入 | 🟠 MEDIUM | 第一版设置接口只允许资产/等级/兑换/股权期权模块占位配置，DTO/service 会拒绝 `conversionRate`、`equityRatio`、`salaryRate`、`optionRatio` 等实际兑换字段；买家端文案只展示“累计消费金额”，不承诺可提现、可兑换或已获得权益。 | ✅ 已检查 |
+| DA05 | 历史回填误写或重复回填 | 🟠 MEDIUM | 回填脚本默认 dry-run，必须显式传 `--execute` 才写库；执行时仍走 `DigitalAssetService` 幂等键，回填后再次运行会跳过已存在流水。 | ✅ 已检查 |
+| DA06 | 整单/无明细部分退款重复扣回 | 🔴 HIGH | 审查发现无 `RefundItem` 明细的部分退款 fallback 分支会把同一 `refund.amount` 逐行复用，导致本应扣回 30 元时可能按多行扩大扣回。已修：fallback 分支维护 `remainingRequested`，每行扣回后同步递减，显式 0 元商品退款直接跳过；新增 `reverseRefund without item rows caps the whole refund amount once across allocations` 与 `explicit zero product amount does not debit the whole order` 回归测试。 | ✅ 已修 |
