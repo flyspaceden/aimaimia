@@ -23,8 +23,8 @@
 
 - [x] **数字资产累计消费底座**（2026-06-14 新增并完成）
   - **来源**: 用户要求先记录每个用户的累计消费，未来再基于规则设计数字资产、等级、股权/期权/工资/兑换等系统
-  - **实际做了**: 新增独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户流水；确认收货入账、退款/售后成功扣回、历史 dry-run/execute 回填；买家 App 我的页新增“数字资产”入口和 `/me/digital-assets` 累计消费金额页面；管理后台新增数字资产管理页、导出、详情、超管调整和用户详情卡片；明确该体系独立于 Reward 消费积分、Coupon 平台红包和分润计数
-  - **验证**: `backend npx prisma validate`、数字资产/订单/售后/退款/回填/Admin API Jest 9 suites / 91 tests、`backend npm run build`、根目录 `npx tsc -b`、`admin npm run build` 通过
+  - **实际做了**: 新增独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户流水；确认收货入账、退款/售后成功扣回、历史 dry-run/execute 回填；买家 App 我的页新增“数字资产”入口和 `/me/digital-assets` 累计消费金额页面；管理后台新增数字资产管理页、导出、详情、超管调整和用户详情卡片；明确该体系独立于 Reward 消费积分、Coupon 平台红包和分润计数；审查修复无明细部分退款重复扣回风险
+  - **验证**: `backend npx prisma validate`、数字资产/订单/售后/退款/回填/Admin API Jest 9 suites / 93 tests、`backend npm run build`、根目录 `npx tsc -b`、`admin npm run build` 通过
 
 - [x] **管理后台抽奖“谢谢参与”次数统计修复**（2026-06-11 新增并完成）
   - **来源**: 管理后台抽奖管理中“谢谢参与”的“已中次数”显示为 0，但实际已有多次未中奖抽奖记录

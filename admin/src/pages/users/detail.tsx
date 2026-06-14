@@ -330,7 +330,7 @@ export default function UserDetailPage() {
           <Row align="middle" gutter={16}>
             <Col span={8}>
               <Statistic
-                title="累计消费数字资产"
+                title="累计消费金额"
                 value={digitalAsset?.account?.cumulativeSpendAmount ?? 0}
                 precision={2}
                 prefix={<><WalletOutlined /> ¥</>}

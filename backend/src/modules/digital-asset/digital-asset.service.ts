@@ -404,24 +404,29 @@ export class DigitalAssetService {
     }
 
     let orderRemaining = params.orderRemainingAmount;
+    const rawRefundAmount = afterSale?.refundAmount ?? refund?.amount;
     const requestedAmount = calculateRefundProductAmount({
-      refundAmount: afterSale?.refundAmount ?? refund?.amount ?? orderRemaining,
+      refundAmount: rawRefundAmount ?? orderRemaining,
       returnShippingFee: afterSale?.returnShippingFee,
       shippingPaymentRefundAmount: afterSale?.shippingPayment?.status === 'REFUNDED'
         ? afterSale.shippingPayment.amount
         : 0,
     });
+    if (requestedAmount <= 0) return [];
+
+    let remainingRequested = requestedAmount;
     const reversedItems = [];
     for (const allocation of itemAllocations) {
       const alreadyReversedAmount = alreadyReversedByItem.get(allocation.orderItemId) ?? 0;
       const lineRemaining = roundMoney(allocation.assetAmount - alreadyReversedAmount);
       const reversedAmount = clampReversalAmount({
-        requestedAmount: requestedAmount === 0 ? lineRemaining : requestedAmount,
+        requestedAmount: remainingRequested,
         lineRemainingAmount: lineRemaining,
         orderRemainingAmount: orderRemaining,
       });
       if (reversedAmount <= 0) continue;
       orderRemaining = roundMoney(orderRemaining - reversedAmount);
+      remainingRequested = roundMoney(remainingRequested - reversedAmount);
       reversedItems.push({
         orderItemId: allocation.orderItemId,
         quantity: allocation.quantity,
@@ -429,7 +434,7 @@ export class DigitalAssetService {
         alreadyReversedAmount,
         reversedAmount,
       });
-      if (orderRemaining <= 0) break;
+      if (orderRemaining <= 0 || remainingRequested <= 0) break;
     }
     return reversedItems;
   }

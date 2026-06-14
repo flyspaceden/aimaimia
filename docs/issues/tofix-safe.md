@@ -379,3 +379,4 @@
 | DA03 | 后台人工调整滥用 | 🔴 HIGH | 调整接口要求 `digital_assets:adjust` 权限，并额外校验管理员角色名为“超级管理员”；所有调整写 `DigitalAssetLedger`，带 `adminUserId`、description 和 `AdminAuditLog`，禁止直接改账户值。 | ✅ 已检查 |
 | DA04 | 未来股权/期权/工资规则被提前写入 | 🟠 MEDIUM | 第一版设置接口只允许资产/等级/兑换/股权期权模块占位配置，DTO/service 会拒绝 `conversionRate`、`equityRatio`、`salaryRate`、`optionRatio` 等实际兑换字段；买家端文案只展示“累计消费金额”，不承诺可提现、可兑换或已获得权益。 | ✅ 已检查 |
 | DA05 | 历史回填误写或重复回填 | 🟠 MEDIUM | 回填脚本默认 dry-run，必须显式传 `--execute` 才写库；执行时仍走 `DigitalAssetService` 幂等键，回填后再次运行会跳过已存在流水。 | ✅ 已检查 |
+| DA06 | 整单/无明细部分退款重复扣回 | 🔴 HIGH | 审查发现无 `RefundItem` 明细的部分退款 fallback 分支会把同一 `refund.amount` 逐行复用，导致本应扣回 30 元时可能按多行扩大扣回。已修：fallback 分支维护 `remainingRequested`，每行扣回后同步递减，显式 0 元商品退款直接跳过；新增 `reverseRefund without item rows caps the whole refund amount once across allocations` 与 `explicit zero product amount does not debit the whole order` 回归测试。 | ✅ 已修 |

@@ -247,7 +247,7 @@ export default function DigitalAssetsPage() {
               </Space>
               <Statistic
                 style={{ marginTop: 16 }}
-                title="累计消费数字资产"
+                title="累计消费金额"
                 value={detail.account.cumulativeSpendAmount}
                 precision={2}
                 prefix={<><WalletOutlined /> ¥</>}

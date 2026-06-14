@@ -251,6 +251,81 @@ describe('DigitalAssetService', () => {
     ]);
   });
 
+  it('reverseRefund without item rows caps the whole refund amount once across allocations', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{ id: 'account-1', userId: 'user-1', cumulativeSpendAmount: 100 }],
+      orders: [receivedOrder],
+      refunds: [{ id: 'refund-1', orderId: 'order-1', afterSaleId: null, amount: 30, items: [] }],
+      ledgers: [{
+        id: 'ledger-credit',
+        accountId: 'account-1',
+        userId: 'user-1',
+        direction: 'CREDIT',
+        type: 'ORDER_RECEIVED',
+        amount: 100,
+        balanceAfter: 100,
+        orderId: 'order-1',
+        idempotencyKey: 'order:order-1:cumulative-spend-credit',
+        meta: {
+          itemAllocations: [
+            { orderItemId: 'item-1', skuId: 'sku-1', quantity: 1, grossAmount: 60, assetAmount: 50 },
+            { orderItemId: 'item-2', skuId: 'sku-2', quantity: 1, grossAmount: 60, assetAmount: 50 },
+          ],
+        },
+      }],
+    });
+
+    await service.reverseRefund('refund-1');
+
+    expect(data.accounts[0].cumulativeSpendAmount).toBe(70);
+    expect(data.ledgers[1]).toMatchObject({
+      type: 'REFUND_REVERSAL',
+      direction: 'DEBIT',
+      amount: 30,
+      balanceAfter: 70,
+      refundId: 'refund-1',
+    });
+    expect(data.ledgers[1].meta.reversedItems).toEqual([
+      {
+        orderItemId: 'item-1',
+        quantity: 1,
+        originalAssetAmount: 50,
+        alreadyReversedAmount: 0,
+        reversedAmount: 30,
+      },
+    ]);
+  });
+
+  it('reverseRefund with explicit zero product amount does not debit the whole order', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{ id: 'account-1', userId: 'user-1', cumulativeSpendAmount: 100 }],
+      orders: [receivedOrder],
+      refunds: [{ id: 'refund-1', orderId: 'order-1', afterSaleId: null, amount: 0, items: [] }],
+      ledgers: [{
+        id: 'ledger-credit',
+        accountId: 'account-1',
+        userId: 'user-1',
+        direction: 'CREDIT',
+        type: 'ORDER_RECEIVED',
+        amount: 100,
+        balanceAfter: 100,
+        orderId: 'order-1',
+        idempotencyKey: 'order:order-1:cumulative-spend-credit',
+        meta: {
+          itemAllocations: [
+            { orderItemId: 'item-1', skuId: 'sku-1', quantity: 1, grossAmount: 60, assetAmount: 50 },
+            { orderItemId: 'item-2', skuId: 'sku-2', quantity: 1, grossAmount: 60, assetAmount: 50 },
+          ],
+        },
+      }],
+    });
+
+    await service.reverseRefund('refund-1');
+
+    expect(data.accounts[0].cumulativeSpendAmount).toBe(100);
+    expect(data.ledgers).toHaveLength(1);
+  });
+
   it('reverseAfterSale delegates to reverseRefund when refundId exists', async () => {
     const { service } = makeHarness({
       afterSales: [{ id: 'after-sale-1', refundId: 'refund-1' }],

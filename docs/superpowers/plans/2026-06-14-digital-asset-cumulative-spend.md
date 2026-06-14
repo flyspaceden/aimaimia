@@ -31,7 +31,8 @@
 - [x] Buyer App added “数字资产” entry under 我的页 and `/me/digital-assets`, using wording “累计消费金额”.
 - [x] Admin frontend added `/digital-assets`, menu/route/permissions, CSV export, detail drawer, adjustment modal, and user detail card.
 - [x] Documentation synced: `docs/architecture/data-system.md`, `docs/architecture/frontend.md`, `docs/architecture/admin-frontend.md`, `docs/issues/tofix-safe.md`, `plan.md`.
-- [x] Verification: `backend npx prisma validate`, targeted backend Jest 9 suites / 91 tests, `backend npm run build`, root `npx tsc -b`, and `admin npm run build` passed.
+- [x] Review fix: whole-order/no-item partial refund reversal now decrements the remaining requested refund amount across allocations and skips explicit zero product refunds, preventing over-reversal.
+- [x] Verification: `backend npx prisma validate`, targeted backend Jest 9 suites / 93 tests, `backend npm run build`, root `npx tsc -b`, and `admin npm run build` passed.
 
 ## File Structure Map
 
