@@ -63,7 +63,7 @@ export class AuditLogInterceptor implements NestInterceptor {
                 await this.prisma.adminAuditLog.create({
                   data: {
                     adminUserId: admin.sub,
-                    action: meta.action,
+                    action: meta.action as any,
                     module: meta.module,
                     targetType: meta.targetType,
                     targetId,
@@ -182,6 +182,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       REFUND: '退款',
       SHIP: '发货',
       CONFIG_CHANGE: '配置变更',
+      EXPORT: '导出',
       ROLLBACK: '回滚',
       LOGIN: '登录',
       LOGOUT: '登出',

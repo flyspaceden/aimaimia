@@ -25,6 +25,7 @@ import { AdminMerchantApplicationsModule } from './merchant-applications/admin-m
 import { AdminTagsModule } from './tags/admin-tags.module';
 import { AdminAfterSaleModule } from './after-sale/admin-after-sale.module';
 import { AdminProductUnitsModule } from './product-units/admin-product-units.module';
+import { AdminDigitalAssetModule } from './digital-asset/admin-digital-asset.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { AdminProductUnitsModule } from './product-units/admin-product-units.mod
     AdminTagsModule,
     AdminAfterSaleModule,
     AdminProductUnitsModule,
+    AdminDigitalAssetModule,
   ],
 })
 export class AdminModule {}

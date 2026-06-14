@@ -4,7 +4,7 @@ import { AuditAction } from '@prisma/client';
 export const AUDIT_ACTION_KEY = 'auditAction';
 
 export interface AuditActionMeta {
-  action: AuditAction;
+  action: AuditAction | 'EXPORT';
   module: string;
   targetType?: string;
   /** 从请求参数中提取 targetId 的路径，如 'params.id' */
