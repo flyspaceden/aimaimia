@@ -1074,3 +1074,11 @@
 | 发票详情 | 展示 Provider、Provider 请求号、状态历史时间线、最终开票内容快照；`failedAttempts > 0` 时 Descriptions 显示失败次数 + 上次尝试时间；状态历史 Timeline 区分 SYSTEM/ADMIN/PROVIDER/BUYER 操作者；无快照时展示预览并提示以开票时配置为准；支持 Mock 自动开票与人工开票；开票中记录隐藏普通操作并提供受后端保护窗口限制的重置入口；只有 `invoices:issue` / 超管可获得完整抬头和快照，读权限详情由后端脱敏 | `admin/src/pages/invoices/detail.tsx` |
 | 发票设置 | 新增配置页，管理开票主体、商品行模式、默认税率、税收分类编码、合并商品名称、备注模板、Provider 模式、VIP 礼包开票开关、自动开票开关（默认 ON）、自动开票最大重试次数（1-10，默认 3） | `admin/src/pages/invoices/settings.tsx` |
 | 菜单/路由 | 在“交易与售后”下增加“发票设置”；新增 `/invoices/settings` 路由，权限使用 `invoices:issue` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx` |
+
+### 2026-06-14 数字资产累计消费
+
+| 页面 | 完成内容 | 文件 |
+|------|----------|------|
+| 数字资产管理 | 新增 `/digital-assets` 页面，展示账户总数、累计消费总额、今日入账、今日扣回；支持用户搜索、方向/类型筛选、最小/最大金额筛选、账户列表、CSV 导出、账户详情 Drawer、流水列表和超级管理员手动调整 | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
+| 用户详情 | 在用户详情页增加数字资产卡片；有 `digital_assets:read` 权限时展示累计消费金额、最后更新时间、未来模块占位，并提供跳转到数字资产管理页的入口 | `admin/src/pages/users/detail.tsx` |
+| 菜单/路由/权限 | 在“用户与奖励”下新增“数字资产”菜单；新增 `digital_assets:read/adjust/export/settings` 前端权限常量；角色页模块名称展示为“数字资产”；菜单父级支持 `permissionAny`，避免只有数字资产权限的管理员看不到父菜单 | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts`, `admin/src/pages/admin/roles.tsx` |

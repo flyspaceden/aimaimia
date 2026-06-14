@@ -20,6 +20,19 @@
 - Safety checklist: `docs/issues/tofix-safe.md`
 - Project task board: `plan.md`
 
+## Execution Status (2026-06-14)
+
+- [x] Spec and plan registered in `AGENTS.md`; digital asset decision added as an independent system separate from Reward, Coupon, and referral/revenue-share counters.
+- [x] Prisma schema, migration, and seed permissions added for `DigitalAssetAccount`, `DigitalAssetLedger`, `DigitalAssetLedgerType`, `DigitalAssetLedgerDirection`, and `digital_assets:*`.
+- [x] Core backend module implemented with `DigitalAssetService`, buyer `/me/digital-assets` APIs, Serializable account mutations, unique ledger idempotency keys, and placeholder-only settings.
+- [x] Order confirmation, auto confirmation, after-sale refund success, and direct auto-refund success paths wired to credit/debit digital asset ledgers without blocking the primary order/refund state transitions.
+- [x] Historical backfill script added as dry-run by default with explicit `--execute` write mode.
+- [x] Admin APIs added for overview, accounts, export, settings, account detail, ledger list, and super-admin adjustment.
+- [x] Buyer App added “数字资产” entry under 我的页 and `/me/digital-assets`, using wording “累计消费金额”.
+- [x] Admin frontend added `/digital-assets`, menu/route/permissions, CSV export, detail drawer, adjustment modal, and user detail card.
+- [x] Documentation synced: `docs/architecture/data-system.md`, `docs/architecture/frontend.md`, `docs/architecture/admin-frontend.md`, `docs/issues/tofix-safe.md`, `plan.md`.
+- [x] Verification: `backend npx prisma validate`, targeted backend Jest 9 suites / 91 tests, `backend npm run build`, root `npx tsc -b`, and `admin npm run build` passed.
+
 ## File Structure Map
 
 ### Backend Schema And Seed

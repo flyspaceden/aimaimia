@@ -126,7 +126,7 @@ export default function DigitalAssetsScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.summaryCard, { borderRadius: radius.xl }]}
       >
-        <Text style={styles.summaryLabel}>累计消费数字资产</Text>
+        <Text style={styles.summaryLabel}>累计消费金额</Text>
         <Text {...priceTextProps} style={styles.summaryAmount}>
           ¥{(summary?.cumulativeSpendAmount ?? 0).toFixed(2)}
         </Text>
@@ -149,7 +149,7 @@ export default function DigitalAssetsScreen() {
         <AppHeader title="数字资产" />
         <EmptyState
           title="请先登录"
-          description="登录后查看累计消费数字资产"
+          description="登录后查看累计消费金额"
           actionLabel="返回我的"
           onAction={() => router.back()}
         />
