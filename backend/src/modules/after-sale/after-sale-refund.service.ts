@@ -19,7 +19,8 @@ import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { InboxService } from '../inbox/inbox.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
-import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
@@ -46,6 +47,7 @@ export class AfterSaleRefundService {
   private readonly logger = new Logger(AfterSaleRefundService.name);
   private readonly pendingRefundReconcileDelaysMs = [15_000, 45_000, 90_000];
   private rewardDeductionService: RewardDeductionService | null = null;
+  private digitalAssetService: DigitalAssetService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -57,6 +59,10 @@ export class AfterSaleRefundService {
 
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  setDigitalAssetService(service: DigitalAssetService) {
+    this.digitalAssetService = service;
   }
 
   async createOrGetRefund(afterSaleId: string): Promise<Refund> {
@@ -329,6 +335,7 @@ export class AfterSaleRefundService {
 
     if (!completed) return;
 
+    await this.reverseDigitalAssetAfterRefund(refundId);
     await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
     await this.afterSaleRewardService.checkAndMarkOrderRefunded(completed.orderId);
     await this.inboxService.send({
@@ -339,6 +346,19 @@ export class AfterSaleRefundService {
       content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回${completed.refundDestination}。`,
       target: { route: '/orders' },
     }).catch(() => {});
+  }
+
+  private async reverseDigitalAssetAfterRefund(refundId: string): Promise<void> {
+    if (!this.digitalAssetService) return;
+    try {
+      await this.digitalAssetService.reverseRefund(refundId);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        `售后退款数字资产扣减失败: refundId=${refundId}, error=${safeErr.message}`,
+        safeErr.stack,
+      );
+    }
   }
 
   private formatRefundDestination(channel?: string | null): string {

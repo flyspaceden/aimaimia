@@ -23,6 +23,8 @@ import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { InboxService } from '../inbox/inbox.service';
 import { CartModule } from '../cart/cart.module';
+import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { CartModule } from '../cart/cart.module';
     CouponModule,
     InboxModule,
     CartModule,
+    DigitalAssetModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -52,6 +55,7 @@ export class OrderModule implements OnModuleInit {
     private orderService: OrderService,
     private checkoutService: CheckoutService,
     private checkoutExpireService: CheckoutExpireService,
+    private orderAutoConfirmService: OrderAutoConfirmService,
   ) {}
 
   onModuleInit() {
@@ -95,6 +99,14 @@ export class OrderModule implements OnModuleInit {
       this.checkoutExpireService.setRewardDeductionService(rewardDeductionService);
     } else {
       console.warn('[OrderModule] RewardDeductionService 未注入，消费积分抵扣不可用');
+    }
+
+    const digitalAssetService = this.moduleRef.get(DigitalAssetService, { strict: false });
+    if (digitalAssetService) {
+      this.orderService.setDigitalAssetService(digitalAssetService);
+      this.orderAutoConfirmService.setDigitalAssetService(digitalAssetService);
+    } else {
+      console.warn('[OrderModule] DigitalAssetService 未注入，数字资产累计消费不可用');
     }
 
     // C13修复：InboxService 改硬依赖，确保通知功能可用

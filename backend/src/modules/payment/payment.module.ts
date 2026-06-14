@@ -7,9 +7,10 @@ import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
 import { OrderModule } from '../order/order.module';
 import { CouponModule } from '../coupon/coupon.module';
 import { InboxModule } from '../inbox/inbox.module';
+import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 
 @Module({
-  imports: [forwardRef(() => OrderModule), CouponModule, InboxModule],
+  imports: [forwardRef(() => OrderModule), CouponModule, InboxModule, DigitalAssetModule],
   controllers: [PaymentController],
   providers: [PaymentService, AlipayService, WechatPayService, WebhookIpGuard],
   exports: [PaymentService, AlipayService, WechatPayService],

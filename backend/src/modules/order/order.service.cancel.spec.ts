@@ -168,6 +168,10 @@ describe('OrderService cancel PAID orders', () => {
       refundDeduction: jest.fn(),
     };
     service.setRewardDeductionService(rewardDeductionService as any);
+    const digitalAssetService = {
+      reverseRefund: jest.fn().mockResolvedValue(undefined),
+    };
+    service.setDigitalAssetService(digitalAssetService as any);
 
     await service.cancelOrder('o1', 'u1');
 
@@ -201,6 +205,7 @@ describe('OrderService cancel PAID orders', () => {
       deductionGroupId: 'DG-1',
       isFinalRefund: true,
     }));
+    expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r1');
     expect(bonusAllocation.allocateForOrder).not.toHaveBeenCalled();
   });
 
@@ -526,6 +531,10 @@ describe('OrderService cancel PAID orders', () => {
       refundDeduction: jest.fn(),
     };
     service.setRewardDeductionService(rewardDeductionService as any);
+    const digitalAssetService = {
+      reverseRefund: jest.fn().mockResolvedValue(undefined),
+    };
+    service.setDigitalAssetService(digitalAssetService as any);
 
     await (service as any).cancelEntireSessionUnshipped('cs-pending', 'u1');
 
@@ -563,5 +572,7 @@ describe('OrderService cancel PAID orders', () => {
       orderId: 'o-session-1',
       isFinalRefund: false,
     }));
+    expect(digitalAssetService.reverseRefund).toHaveBeenCalledTimes(1);
+    expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r-session-1');
   });
 });

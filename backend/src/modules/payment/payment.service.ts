@@ -12,6 +12,7 @@ import { InboxService } from '../inbox/inbox.service';
 import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
 import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
 import type { RewardDeductionService } from '../bonus/reward-deduction.service';
+import type { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { WechatPayService } from './wechat-pay.service';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class PaymentService {
   private afterSaleRefundService: AfterSaleRefundService | null = null;
   private afterSaleShippingPaymentService: AfterSaleShippingPaymentService | null = null;
   private rewardDeductionService: RewardDeductionService | null = null;
+  private digitalAssetService: DigitalAssetService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -33,7 +35,10 @@ export class PaymentService {
     @Optional() private couponService?: CouponService,
     @Optional() private inboxService?: InboxService,
     @Optional() private wechatPayService?: WechatPayService,
-  ) {}
+    @Optional() digitalAssetService?: DigitalAssetService,
+  ) {
+    this.digitalAssetService = digitalAssetService ?? null;
+  }
 
   setAfterSaleRefundService(service: AfterSaleRefundService) {
     this.afterSaleRefundService = service;
@@ -45,6 +50,10 @@ export class PaymentService {
 
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  setDigitalAssetService(service: DigitalAssetService) {
+    this.digitalAssetService = service;
   }
 
   /**
@@ -1745,7 +1754,7 @@ export class PaymentService {
     operatorId?: string | null;
   }): Promise<boolean> {
     const { refundId, fromStatuses, toStatus, remark, providerRefundId, rawNotifyPayload, operatorId } = params;
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const current = await tx.refund.findUnique({
         where: { id: refundId },
         select: { id: true, status: true },
@@ -1775,6 +1784,21 @@ export class PaymentService {
       }
       return true;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    if (updated && toStatus === 'REFUNDED') {
+      await this.reverseDigitalAssetAfterAutoRefund(refundId);
+    }
+    return updated;
+  }
+
+  private async reverseDigitalAssetAfterAutoRefund(refundId: string): Promise<void> {
+    if (!this.digitalAssetService) return;
+    try {
+      await this.digitalAssetService.reverseRefund(refundId);
+    } catch (err: any) {
+      const msg = sanitizeStringForLog(err?.message || 'UNKNOWN', { maxStringLength: 256 });
+      this.logger.error(`自动退款数字资产扣减失败: refundId=${refundId}, error=${msg}`);
+    }
   }
 
   private async updateAutoRefundRecord(params: {

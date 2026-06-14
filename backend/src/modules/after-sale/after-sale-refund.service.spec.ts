@@ -404,6 +404,62 @@ describe('AfterSaleRefundService', () => {
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 
+  it('handleRefundSuccess reverses digital asset cumulative spend after refund closes', async () => {
+    const digitalAssetService = {
+      reverseRefund: jest.fn().mockResolvedValue(undefined),
+    };
+    service.setDigitalAssetService(digitalAssetService as any);
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('refund_001');
+  });
+
+  it('handleRefundSuccess does not fail when digital asset reversal fails', async () => {
+    const digitalAssetService = {
+      reverseRefund: jest.fn().mockRejectedValue(new Error('digital asset down')),
+    };
+    service.setDigitalAssetService(digitalAssetService as any);
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
+    });
+
+    await expect(service.handleRefundSuccess('refund_001', 'provider_refund_001'))
+      .resolves.toBeUndefined();
+
+    expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('refund_001');
+    expect(inboxService.send).toHaveBeenCalled();
+  });
+
   it('handleRefundSuccess restocks returned normal items exactly once when returned-goods refund succeeds', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',

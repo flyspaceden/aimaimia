@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BonusAllocationService } from '../bonus/engine/bonus-allocation.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 
 /**
  * 自动确认收货定时任务
@@ -13,11 +14,16 @@ import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 @Injectable()
 export class OrderAutoConfirmService {
   private readonly logger = new Logger(OrderAutoConfirmService.name);
+  private digitalAssetService: DigitalAssetService | null = null;
 
   constructor(
     private prisma: PrismaService,
     private bonusAllocation: BonusAllocationService,
   ) {}
+
+  setDigitalAssetService(service: DigitalAssetService) {
+    this.digitalAssetService = service;
+  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async handleAutoConfirm() {
@@ -122,6 +128,28 @@ export class OrderAutoConfirmService {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`订单 ${orderId} 分润分配失败: ${safeErr.message}`, safeErr.stack);
     });
+    this.creditDigitalAssetAfterReceive(orderId);
     this.logger.log(`订单 ${orderId} 已自动确认收货`);
+  }
+
+  private creditDigitalAssetAfterReceive(orderId: string) {
+    this.digitalAssetService?.creditOrderReceived(orderId, 'ORDER_RECEIVED').catch((err) => {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(`订单 ${orderId} 数字资产累计失败: ${safeErr.message}`, safeErr.stack);
+      Promise.resolve(this.prisma.orderStatusHistory.create({
+        data: {
+          orderId,
+          fromStatus: 'RECEIVED',
+          toStatus: 'RECEIVED',
+          reason: '数字资产累计失败',
+          meta: {
+            deadLetter: true,
+            event: 'DIGITAL_ASSET_CREDIT_DEAD_LETTER',
+            error: safeErr.message,
+            failedAt: new Date().toISOString(),
+          },
+        },
+      })).catch(() => undefined);
+    });
   }
 }
