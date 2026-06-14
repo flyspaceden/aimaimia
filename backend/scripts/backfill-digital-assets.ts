@@ -27,7 +27,7 @@ export function buildReceivedOrderBackfillWhere() {
     deletedAt: null,
     digitalAssetLedgers: {
       none: {
-        type: 'CUMULATIVE_SPEND_CREDIT',
+        type: { in: ['ORDER_RECEIVED', 'BACKFILL'] },
         direction: 'CREDIT',
       },
     },

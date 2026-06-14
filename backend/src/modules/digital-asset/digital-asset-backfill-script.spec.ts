@@ -24,7 +24,7 @@ describe('digital asset backfill script helpers', () => {
       deletedAt: null,
       digitalAssetLedgers: {
         none: {
-          type: 'CUMULATIVE_SPEND_CREDIT',
+          type: { in: ['ORDER_RECEIVED', 'BACKFILL'] },
           direction: 'CREDIT',
         },
       },
