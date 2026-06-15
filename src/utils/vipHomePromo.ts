@@ -85,7 +85,7 @@ export function buildVipReferralHomePrompt(member: MemberLike | null | undefined
   if (member?.tier !== 'VIP' || !member.referralCode?.trim()) return null;
 
   return {
-    title: '推荐好友开通 VIP，有高额奖励',
+    title: '推荐好友开通 VIP',
     actionLabel: '去分享',
     targetPath: '/me/referral',
   };

@@ -99,19 +99,7 @@ export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' 
   if (cards.length === 0) return null;
 
   return (
-    <View style={{ marginTop: spacing.lg }}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerTitleRow}>
-          <MaterialCommunityIcons name="crown-outline" size={16} color={colors.brand.primary} />
-          <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: 6 }]}>
-            {copy.title}
-          </Text>
-        </View>
-        <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-          {cards.length} 个档位可选
-        </Text>
-      </View>
-
+    <View style={{ marginTop: spacing.md }}>
       <View
         style={[
           styles.marqueeViewport,
@@ -194,16 +182,6 @@ export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' 
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   marqueeViewport: {
     overflow: 'hidden',
   },
