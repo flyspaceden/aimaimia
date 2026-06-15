@@ -764,6 +764,8 @@ Tab 栏设计：
 
 个人中心，信息密度高但层次清晰。
 
+- `/me` 身份卡头像右侧显示买家公开编号 `buyerNo`（`AIMM` + 14 位数字），替代原成长等级展示位；编号旁提供复制按钮，复制成功提示「用户编号已复制」。若后端暂未返回编号，显示「用户编号生成中」，不得展示内部 `User.id`。
+
 ```
 ┌─────────────────────────────┐
 │ ○ 状态栏                     │
@@ -2305,6 +2307,7 @@ src/components/ai/   → 新增目录
 | 售后申请拍照与详情白屏兜底 | 申请页上传凭证支持拍照/相册二选一，提交增加同步防重复保护并在成功后直达售后详情；详情页金额、图片、物流轨迹渲染前归一化，路由级 ErrorBoundary 兜底异常数据，避免提交成功后白屏 | 2026-06-02 | `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx`, `src/utils/afterSaleDetailSafety.ts`, `src/utils/__tests__/afterSaleDetailSafety.test.ts` |
 | 发票链路收口 | 我的页增加“我的发票”入口；订单详情接入 `InvoiceSection`，按后端 `invoiceEligible` 判断申请入口，显示 REQUESTED/ISSUED/FAILED/CANCELED 状态；发票列表/详情通过 `expo-web-browser` 打开 PDF，取消申请后刷新发票与订单缓存 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/orders/[id].tsx`, `app/invoices/index.tsx`, `app/invoices/[id].tsx`, `src/components/cards/InvoiceSection.tsx`, `src/types/domain/Invoice.ts`, `src/types/domain/Order.ts`, `src/repos/InvoiceRepo.ts`, `src/repos/OrderRepo.ts` |
 | 数字资产中心 | 我的页常用工具新增“数字资产”入口；新增 `/me/digital-assets` 页面，展示“累计消费金额”、未来资产/等级/兑换/股权期权模块占位和资产流水；通过 `DigitalAssetRepo` 调用 `/me/digital-assets/summary` 与 `/me/digital-assets/ledgers`，使用 React Query 刷新，金额文本使用 `priceTextProps`，列表底部使用 `useBottomInset` 适配安全区 | 2026-06-14 | `app/(tabs)/me.tsx`, `app/me/digital-assets.tsx`, `src/types/domain/DigitalAsset.ts`, `src/types/domain/index.ts`, `src/repos/DigitalAssetRepo.ts`, `src/repos/index.ts` |
+| 买家公开编号 | 我的页身份卡头像右侧显示 `buyerNo`（`AIMM` + 14 位数字）并支持点击复制；替代原成长等级展示位，后端暂未返回时展示“用户编号生成中”，不暴露内部 `User.id` | 2026-06-15 | `app/(tabs)/me.tsx`, `src/types/domain/UserProfile.ts`, `src/mocks/userProfile.ts` |
 | 订单号脱敏展示+展开+复制 | 抽共享组件 `OrderNoReveal`：默认显示订单号后 6 位（`…` 前缀等宽字），眼睛图标在收起↔展开完整订单号间切换，复制按钮始终复制完整订单号+toast「已复制」；接入订单详情页订单号行（替换原完整号+复制 pill）/ 支付成功页总订单号 / 物流追踪页头部新增订单号行，物流页标题后 8 位→后 6 位统一 | 2026-06-08 | `src/components/orders/OrderNoReveal.tsx`, `src/components/orders/OrderInfoBlock.tsx`, `app/payment-success.tsx`, `app/orders/track.tsx` |
 
 ### Phase 进度对照

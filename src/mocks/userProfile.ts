@@ -2,6 +2,7 @@ import { UserProfile } from '../types';
 
 export const mockUserProfile: UserProfile = {
   id: 'u-001',
+  buyerNo: 'AIMM00000000000001',
   name: '林青禾',
   phone: '13812345678',
   wechatNickname: '林青禾',
