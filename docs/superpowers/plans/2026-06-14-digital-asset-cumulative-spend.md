@@ -33,6 +33,7 @@
 - [x] Documentation synced: `docs/architecture/data-system.md`, `docs/architecture/frontend.md`, `docs/architecture/admin-frontend.md`, `docs/issues/tofix-safe.md`, `plan.md`.
 - [x] Review fix: whole-order/no-item partial refund reversal now decrements the remaining requested refund amount across allocations and skips explicit zero product refunds, preventing over-reversal.
 - [x] Verification: `backend npx prisma validate`, targeted backend Jest 9 suites / 93 tests, `backend npm run build`, root `npx tsc -b`, and `admin npm run build` passed.
+- [x] Production backfill completed: `main` commit `6135ad3` deployed to `aimaimai-api-prod`; dry-run found 2 received historical orders; `--execute` credited 2 ledgers into 1 account; post-check candidate count is 0 and cumulative spend total is 443.95.
 
 ## File Structure Map
 
