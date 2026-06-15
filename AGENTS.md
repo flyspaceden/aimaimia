@@ -116,6 +116,7 @@
 - `docs/superpowers/specs/2026-06-14-digital-asset-cumulative-spend-design.md` — 数字资产累计消费设计方案（独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户+流水；确认收货后按商品实付金额入账，退款/退货成功扣回，VIP 礼包计入，历史 `RECEIVED` 订单回填；买家 App 数字资产中心雏形 + 管理后台完整数字资产管理页，**数字资产累计消费权威来源**）
 - `docs/superpowers/plans/2026-06-14-digital-asset-cumulative-spend.md` — 数字资产累计消费实施计划（Schema/核心记账服务/订单与退款接入/历史回填/买家 App 数字资产中心/管理后台数字资产页/安全验证拆分，**数字资产累计消费实施排程**）
 - `docs/superpowers/specs/2026-06-15-buyer-public-id-design.md` — 买家公开编号设计方案（新增 `buyerNo=AIMM+14位数字`，保留内部 `User.id`；历史买家按注册时间回填；App 我的页展示复制；管理后台/卖家中心展示、复制和搜索，**买家公开编号权威来源**）
+- `docs/superpowers/plans/2026-06-15-buyer-public-id.md` — 买家公开编号实施计划（Schema/sequence/回填脚本、买家 Auth 接入、App 我的页复制按钮、管理后台全页展示搜索、卖家中心隐私边界内展示搜索、验证与发布文档，**买家公开编号实施排程**）
 - `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
