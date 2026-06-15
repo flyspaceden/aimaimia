@@ -26,6 +26,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
         .fn()
         .mockResolvedValue({ status: UserStatus.ACTIVE, deletionExecutedAt: null }),
       create: jest.fn().mockResolvedValue({ id: 'new-user' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     authIdentity: {
       // 默认无任何身份命中（注册/登录的"号码未占用"基线）
@@ -40,12 +41,19 @@ function makePrisma(overrides: Record<string, any> = {}) {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    loginEvent: {
+      create: jest.fn().mockResolvedValue({ id: 'login-event-new' }),
+      count: jest.fn().mockResolvedValue(0),
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     session: {
       create: jest.fn().mockResolvedValue({ id: 'session-new' }),
       update: jest.fn().mockResolvedValue({ id: 'session-new' }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       findFirst: jest.fn().mockResolvedValue(null),
     },
+    $queryRaw: jest.fn().mockResolvedValue([{ nextval: BigInt(1) }]),
     $transaction: jest.fn(async (cb: any) => cb(base)),
   };
   Object.assign(base, overrides);
@@ -266,5 +274,75 @@ describe('AuthService — refresh 路径拒绝已注销用户', () => {
 
     expect(prisma.session.create).not.toHaveBeenCalled();
     expect(prisma.session.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService — buyerNo generation', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('generates buyerNo during phone registration', async () => {
+    const prisma = makePrisma({
+      $queryRaw: jest.fn().mockResolvedValue([{ nextval: BigInt(1) }]),
+    });
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    const { service } = makeService(prisma);
+
+    await service.register({ phone: PHONE, code: '123456', name: '新用户' } as any);
+
+    expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ buyerNo: 'AIMM00000000000001' }),
+    }));
+  });
+
+  it('generates buyerNo during SMS auto-registration', async () => {
+    const prisma = makePrisma({
+      $queryRaw: jest.fn().mockResolvedValue([{ nextval: BigInt(2) }]),
+    });
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    const { service } = makeService(prisma);
+
+    await service.login({ phone: PHONE, mode: 'code', code: '123456' } as any);
+
+    expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ buyerNo: 'AIMM00000000000002' }),
+    }));
+  });
+
+  it('backfills buyerNo when an existing seller-created user logs into buyer app', async () => {
+    const prisma = makePrisma({
+      $queryRaw: jest.fn().mockResolvedValue([{ nextval: BigInt(3) }]),
+      user: {
+        findUnique: jest.fn((args: any) => {
+          if (args?.select?.buyerNo) return Promise.resolve({ buyerNo: null });
+          return Promise.resolve({ status: UserStatus.ACTIVE, deletionExecutedAt: null });
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    });
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    prisma.authIdentity.findFirst.mockResolvedValue({
+      id: 'identity-phone',
+      userId: 'seller-then-buyer',
+      provider: 'PHONE',
+      identifier: PHONE,
+      user: { status: UserStatus.ACTIVE },
+    });
+    const { service } = makeService(prisma);
+
+    await service.login({ phone: PHONE, mode: 'code', code: '123456' } as any);
+
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 'seller-then-buyer', buyerNo: null },
+      data: { buyerNo: 'AIMM00000000000003' },
+    });
   });
 });
