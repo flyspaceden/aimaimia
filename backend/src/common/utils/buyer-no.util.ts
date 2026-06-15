@@ -40,14 +40,14 @@ export function isBuyerNo(value: string | null | undefined): boolean {
 
 export async function acquireBuyerNoSequenceLock(tx: BuyerNoLockTx): Promise<void> {
   await tx.$executeRaw`
-    SELECT pg_advisory_xact_lock(${BUYER_NO_LOCK_NAMESPACE}, ${BUYER_NO_LOCK_KEY})
+    SELECT pg_advisory_xact_lock(${BUYER_NO_LOCK_NAMESPACE}::int, ${BUYER_NO_LOCK_KEY}::int)
   `;
 }
 
 export async function nextBuyerNo(tx: BuyerNoSequenceTx): Promise<string> {
   const rows = await tx.$queryRaw<Array<{ nextval: bigint | number | string }>>`
     WITH buyer_no_lock AS (
-      SELECT pg_advisory_xact_lock(${BUYER_NO_LOCK_NAMESPACE}, ${BUYER_NO_LOCK_KEY})
+      SELECT pg_advisory_xact_lock(${BUYER_NO_LOCK_NAMESPACE}::int, ${BUYER_NO_LOCK_KEY}::int)
     )
     SELECT nextval('buyer_no_seq') AS nextval
     FROM buyer_no_lock

@@ -193,13 +193,6 @@ export default function MeScreen() {
   //   refetchCheckIn();
   // };
 
-  const greeting = useMemo(() => {
-    if (!profile) return '欢迎回来';
-    const hour = new Date().getHours();
-    const period = hour < 11 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
-    return `${period}，${profile.name}`;
-  }, [profile]);
-
   // 未登录拦截：普通入口弹登录提示，VIP 入口弹权益弹窗
   const isAuthed = isLoggedIn;
   const requireLogin = (action: () => void) => {
@@ -272,9 +265,12 @@ export default function MeScreen() {
                 <AvatarFrame uri={profile.avatar} size={64} frame={profile.avatarFrame} />
               </Pressable>
               <View style={styles.userCardInfo}>
-                <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>{greeting}</Text>
-                <View style={[styles.nameRow, compactMe && styles.nameRowCompact]}>
-                  <Text {...fitTextProps} style={[typography.headingSm, { color: colors.text.primary }]}>
+                <View style={styles.profileIdentityStack}>
+                  <Text
+                    {...fitTextProps}
+                    numberOfLines={compactMe ? 2 : 1}
+                    style={[typography.headingSm, styles.profileNameText, { color: colors.text.primary }]}
+                  >
                     {profile.name}
                   </Text>
                   <Pressable
@@ -289,7 +285,7 @@ export default function MeScreen() {
                       minimumFontScale={0.72}
                       style={[typography.captionSm, { color: colors.gold.primary, fontFamily: monoFamily }]}
                     >
-                      {profile.buyerNo || '用户编号生成中'}
+                      {profile.buyerNo ? `ID: ${profile.buyerNo}` : 'ID: 用户编号生成中'}
                     </Text>
                     <MaterialCommunityIcons
                       name="content-copy"
@@ -321,7 +317,7 @@ export default function MeScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => router.push('/me/profile')}
-                  style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface, marginTop: 6 }]}
+                  style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface }]}
                 >
                   <MaterialCommunityIcons name="pencil-outline" size={14} color={colors.text.secondary} />
                   <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
@@ -825,7 +821,7 @@ const styles = StyleSheet.create({
   referralChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 8,
+    alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
@@ -942,33 +938,35 @@ const styles = StyleSheet.create({
   userCardInfo: {
     flex: 1,
     marginLeft: 12,
-    marginRight: 8,
+    marginRight: 10,
+    minWidth: 0,
   },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
+  profileIdentityStack: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 7,
   },
-  nameRowCompact: {
-    flexWrap: 'wrap',
-    gap: 6,
+  profileNameText: {
+    alignSelf: 'stretch',
   },
   buyerNoChip: {
-    maxWidth: 176,
-    minHeight: 24,
-    marginLeft: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    maxWidth: '100%',
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     flexDirection: 'row',
     alignItems: 'center',
   },
   userCardActions: {
     alignItems: 'flex-end',
+    gap: 8,
   },
   actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    minWidth: 86,
+    justifyContent: 'center',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
