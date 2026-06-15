@@ -43,6 +43,18 @@ import type { VipTreeNodeView, TreeRelatedOrder, TreeRewardRecord } from '@/type
 
 const { Text } = Typography;
 
+function internalIdLabel(userId: string | null | undefined) {
+  return userId ? `内部ID: …${userId.slice(-8)}` : '非买家账号';
+}
+
+function primaryUserLabel(user: {
+  userId?: string | null;
+  buyerNo?: string | null;
+  nickname?: string | null;
+}) {
+  return user.nickname || user.buyerNo || internalIdLabel(user.userId);
+}
+
 // ---------- 常量映射 ----------
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
@@ -257,7 +269,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Text strong style={{ fontSize: 16 }}>
-                {node.nickname || node.userId}
+                {primaryUserLabel(node)}
               </Text>
               <Tag color={st.color}>{st.text}</Tag>
               {node.isSystemNode && <Tag color="gold">系统节点</Tag>}
@@ -563,7 +575,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                       {p.isSource ? '消' : p.isTarget ? '收' : i}
                     </div>
                     <div style={{ flex: 1, fontSize: 12 }}>
-                      <Text strong>{p.nickname || p.userId}</Text>
+                      <Text strong>{primaryUserLabel(p)}</Text>
                       {p.buyerNo && <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>{p.buyerNo}</Text>}
                       <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>L{p.level}</Text>
                     </div>
