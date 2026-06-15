@@ -22,6 +22,7 @@ import {
 } from '@ant-design/icons';
 import { getMemberDetail } from '@/api/bonus';
 import type { BonusMemberDetail } from '@/types';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import dayjs from 'dayjs';
 
 // 流水类型映射（与 schema.prisma RewardEntryType 枚举对齐）
@@ -249,7 +250,13 @@ export default function MemberDetailPage() {
       <Divider orientation="left">基础信息</Divider>
       <Card style={{ marginBottom: 24 }}>
         <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} bordered size="small">
-          <Descriptions.Item label="用户 ID">{d.userId}</Descriptions.Item>
+          <Descriptions.Item label="买家身份">
+            <BuyerIdentityText
+              buyerNo={d.buyerNo}
+              userId={d.userId}
+              nickname={d.nickname || d.phone || '-'}
+            />
+          </Descriptions.Item>
           <Descriptions.Item label="昵称">{d.nickname ?? '-'}</Descriptions.Item>
           <Descriptions.Item label="手机号">{d.phone ?? '-'}</Descriptions.Item>
           {d.avatarUrl && (

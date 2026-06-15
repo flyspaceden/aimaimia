@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tag, Image, Space, Modal, Input, Badge, Upload, App } from 'antd';
+import { Tag, Image, Space, Modal, Input, Badge, Upload, App, Typography } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -179,8 +179,28 @@ export default function AfterSaleListPage() {
     {
       title: '买家',
       dataIndex: 'buyerAlias',
-      width: 100,
+      width: 160,
       search: false,
+      render: (_, record) => (
+        <Space direction="vertical" size={0}>
+          <span>{record.buyerAlias}</span>
+          {record.buyerNo && (
+            <Typography.Text
+              type="secondary"
+              copyable={{ text: record.buyerNo, tooltips: ['复制用户编号', '已复制'] }}
+              style={{ fontSize: 12, fontFamily: 'monospace' }}
+            >
+              {record.buyerNo}
+            </Typography.Text>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '用户编号',
+      dataIndex: 'buyerNo',
+      hideInTable: true,
+      fieldProps: { placeholder: '输入 AIMM 用户编号' },
     },
     {
       title: '金额',
@@ -324,6 +344,7 @@ export default function AfterSaleListPage() {
             status: activeTab || params.status || undefined,
             afterSaleType: params.afterSaleType || undefined,
             id: params.id ? String(params.id).trim() : undefined,
+            buyerNo: params.buyerNo ? String(params.buyerNo).trim() : undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}

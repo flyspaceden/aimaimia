@@ -14,6 +14,7 @@ import {
 } from './dto/admin-digital-asset.dto';
 import { SUPER_ADMIN_ROLE } from '../common/constants';
 import { maskPhone } from '../../../common/security/privacy-mask';
+import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
 const ALLOWED_SETTING_FIELDS = new Set(['key', 'title', 'enabled', 'description']);
@@ -83,8 +84,9 @@ export class AdminDigitalAssetService {
   }
 
   async getAccount(userId: string) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma as any, userId);
     const user = await (this.prisma as any).user.findUnique({
-      where: { id: userId },
+      where: { id: resolvedUserId },
       include: {
         profile: { select: { nickname: true, avatarUrl: true } },
         authIdentities: {
@@ -96,10 +98,11 @@ export class AdminDigitalAssetService {
       },
     }) as any;
     if (!user) throw new NotFoundException('用户不存在');
-    const summary = await this.digitalAssetService.getSummary(userId);
+    const summary = await this.digitalAssetService.getSummary(resolvedUserId);
     return {
       user: {
         id: user.id,
+        buyerNo: user.buyerNo ?? null,
         nickname: user.profile?.nickname ?? null,
         avatarUrl: user.profile?.avatarUrl ?? null,
         phone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
@@ -114,23 +117,25 @@ export class AdminDigitalAssetService {
     };
   }
 
-  listLedgers(userId: string, query: AdminDigitalAssetLedgerQueryDto) {
-    return this.digitalAssetService.listLedgers(userId, query);
+  async listLedgers(userId: string, query: AdminDigitalAssetLedgerQueryDto) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma as any, userId);
+    return this.digitalAssetService.listLedgers(resolvedUserId, query);
   }
 
   async adjustAccount(userId: string, dto: AdminAdjustDigitalAssetDto, admin: any) {
     if (!admin?.roles?.includes(SUPER_ADMIN_ROLE)) {
       throw new ForbiddenException('只有超级管理员可以手动调整数字资产');
     }
+    const resolvedUserId = await resolveBuyerUserId(this.prisma as any, userId);
     await this.digitalAssetService.adjustByAdmin({
-      targetUserId: userId,
+      targetUserId: resolvedUserId,
       adminUserId: admin.sub,
       direction: dto.direction,
       amount: dto.amount,
       reason: dto.reason,
       clientIdempotencyKey: dto.clientIdempotencyKey,
     });
-    return this.getAccount(userId);
+    return this.getAccount(resolvedUserId);
   }
 
   async exportAccounts(query: AdminDigitalAssetAccountQueryDto): Promise<string> {
@@ -142,8 +147,9 @@ export class AdminDigitalAssetService {
       include: this.accountInclude(),
     });
     const rows = [
-      ['用户ID', '昵称', '手机号', '累计消费', '账户更新时间'],
+      ['买家编号', '用户ID', '昵称', '手机号', '累计消费', '账户更新时间'],
       ...items.map((item: any) => [
+        item.user?.buyerNo ?? '',
         item.userId,
         item.user?.profile?.nickname ?? '',
         maskPhone(item.user?.authIdentities?.[0]?.identifier ?? null) ?? '',
@@ -188,9 +194,11 @@ export class AdminDigitalAssetService {
       if (query.endDate) where.createdAt.lte = new Date(`${query.endDate}T23:59:59`);
     }
     if (query.keyword) {
+      const normalizedKeyword = normalizeBuyerNo(query.keyword);
       where.user = {
         OR: [
           { id: query.keyword },
+          { buyerNo: normalizedKeyword },
           { profile: { nickname: { contains: query.keyword, mode: 'insensitive' } } },
           { authIdentities: { some: { provider: 'PHONE', identifier: { contains: query.keyword } } } },
         ],
@@ -204,6 +212,7 @@ export class AdminDigitalAssetService {
       user: {
         select: {
           id: true,
+          buyerNo: true,
           status: true,
           profile: { select: { nickname: true, avatarUrl: true } },
           authIdentities: {
@@ -225,6 +234,7 @@ export class AdminDigitalAssetService {
       updatedAt: item.updatedAt,
       user: {
         id: item.user?.id ?? item.userId,
+        buyerNo: item.user?.buyerNo ?? null,
         nickname: item.user?.profile?.nickname ?? null,
         avatarUrl: item.user?.profile?.avatarUrl ?? null,
         phone: maskPhone(item.user?.authIdentities?.[0]?.identifier ?? null),

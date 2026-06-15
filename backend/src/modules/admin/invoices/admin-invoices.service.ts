@@ -21,6 +21,7 @@ import {
   InvoiceIssuerProfile,
   InvoiceLineItem,
 } from './provider/invoice-provider.interface';
+import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 
 type TxClient = Omit<
   PrismaService,
@@ -133,9 +134,11 @@ export class AdminInvoicesService {
 
     if (query.status) where.status = query.status;
     if (query.keyword) {
+      const normalizedKeyword = normalizeBuyerNo(query.keyword);
       where.OR = [
         { invoiceNo: { contains: query.keyword } },
         { order: { id: query.keyword } },
+        { order: { user: { buyerNo: normalizedKeyword } } },
         { profileSnapshot: { path: ['title'], string_contains: query.keyword } },
       ];
     }
@@ -161,6 +164,7 @@ export class AdminInvoicesService {
               user: {
                 select: {
                   id: true,
+                  buyerNo: true,
                   profile: { select: { nickname: true } },
                 },
               },
@@ -196,6 +200,7 @@ export class AdminInvoicesService {
             createdAt: order.createdAt,
             user: {
               id: order.user?.id,
+              buyerNo: order.user?.buyerNo ?? null,
               nickname: order.user?.profile?.nickname || '未知用户',
             },
           } : null,
@@ -224,6 +229,7 @@ export class AdminInvoicesService {
             user: {
               select: {
                 id: true,
+                buyerNo: true,
                 profile: { select: { nickname: true } },
               },
             },
@@ -261,6 +267,7 @@ export class AdminInvoicesService {
         createdAt: order.createdAt,
         user: {
           id: order.user?.id,
+          buyerNo: order.user?.buyerNo ?? null,
           nickname: order.user?.profile?.nickname || '未知用户',
         },
         items: order.items.map((item) => {

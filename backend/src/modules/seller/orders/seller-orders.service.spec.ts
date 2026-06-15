@@ -7,8 +7,13 @@ describe('SellerOrdersService invoice privacy', () => {
 
   beforeEach(() => {
     prisma = {
-      order: { findUnique: jest.fn() },
+      order: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        findUnique: jest.fn(),
+      },
       buyerAlias: { findMany: jest.fn() },
+      user: { findMany: jest.fn().mockResolvedValue([]) },
     };
     service = new SellerOrdersService(
       prisma,
@@ -68,6 +73,75 @@ describe('SellerOrdersService invoice privacy', () => {
     expect(serialized).not.toContain('91440300MAEXAMPLE');
     expect(serialized).not.toContain('13800000000');
     expect(serialized).not.toContain('buyer@example.com');
+  });
+
+  it('returns buyer public id without leaking internal user id', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      userId: 'buyer-1',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      shippingFee: 0,
+      createdAt: new Date('2026-05-15T12:00:00.000Z'),
+      addressSnapshot: { province: '广东省', city: '深圳市' },
+      invoice: null,
+      refunds: [],
+      shipments: [],
+      items: [{
+        id: 'item-1',
+        companyId: 'company-1',
+        unitPrice: 50,
+        quantity: 2,
+        isPrize: false,
+        prizeType: null,
+        sku: {
+          product: {
+            title: '苹果',
+            media: [],
+          },
+        },
+      }],
+    });
+    prisma.buyerAlias.findMany.mockResolvedValue([{ userId: 'buyer-1', alias: '买家001' }]);
+    prisma.user.findMany.mockResolvedValue([{ id: 'buyer-1', buyerNo: 'AIMM00000000000001' }]);
+
+    const out = await service.findById('company-1', 'staff-1', 'order-1');
+    const serialized = JSON.stringify(out);
+
+    expect(out.buyerAlias).toBe('买家001');
+    expect((out as any).buyerNo).toBe('AIMM00000000000001');
+    expect(serialized).not.toContain('buyer-1');
+  });
+
+  it('filters order list by buyer public id inside company scope', async () => {
+    prisma.order.findMany.mockResolvedValue([]);
+    prisma.order.count.mockResolvedValue(0);
+    prisma.buyerAlias.findMany.mockResolvedValue([]);
+
+    await (service.findAll as any)(
+      'company-1',
+      1,
+      20,
+      undefined,
+      undefined,
+      'AIMM00000000000001',
+      'staff-1',
+    );
+
+    expect(prisma.order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          items: { some: { companyId: 'company-1' } },
+          user: { buyerNo: 'AIMM00000000000001' },
+        }),
+      }),
+    );
+    expect(prisma.order.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        items: { some: { companyId: 'company-1' } },
+        user: { buyerNo: 'AIMM00000000000001' },
+      }),
+    });
   });
 
   it('denies access when the order has no company items', async () => {

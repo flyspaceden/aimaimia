@@ -42,7 +42,7 @@
 - Create: `backend/scripts/backfill-buyer-no.ts`
 - Modify: `backend/package.json`
 
-- [ ] **Step 1: Write the failing utility tests**
+- [x] **Step 1: Write the failing utility tests**
 
 Create `backend/src/common/utils/buyer-no.util.spec.ts`:
 
@@ -100,7 +100,7 @@ describe('buyer-no.util', () => {
 });
 ```
 
-- [ ] **Step 2: Run the failing utility tests**
+- [x] **Step 2: Run the failing utility tests**
 
 Run:
 
@@ -111,7 +111,7 @@ npx jest src/common/utils/buyer-no.util.spec.ts --runInBand
 
 Expected: FAIL with module not found for `./buyer-no.util`.
 
-- [ ] **Step 3: Implement buyer number utility**
+- [x] **Step 3: Implement buyer number utility**
 
 Create `backend/src/common/utils/buyer-no.util.ts`:
 
@@ -169,7 +169,7 @@ export async function resolveBuyerUserId<T extends BuyerNoTx>(
 }
 ```
 
-- [ ] **Step 4: Add schema field and migration**
+- [x] **Step 4: Add schema field and migration**
 
 Modify `backend/prisma/schema.prisma` in `model User`:
 
@@ -197,7 +197,7 @@ CREATE SEQUENCE IF NOT EXISTS buyer_no_seq
   NO CYCLE;
 ```
 
-- [ ] **Step 5: Write historical backfill script**
+- [x] **Step 5: Write historical backfill script**
 
 Create `backend/scripts/backfill-buyer-no.ts`:
 
@@ -303,7 +303,7 @@ Modify `backend/package.json`:
 
 Keep existing scripts and add the new key next to `digital-asset:backfill`.
 
-- [ ] **Step 6: Run schema and utility verification**
+- [x] **Step 6: Run schema and utility verification**
 
 Run:
 
@@ -316,7 +316,7 @@ npx ts-node scripts/backfill-buyer-no.ts --dry-run
 
 Expected: `prisma validate` exits 0, Jest PASS, dry-run prints `dryRun=true`.
 
-- [ ] **Step 7: Commit Task 1**
+- [x] **Step 7: Commit Task 1**
 
 ```bash
 git add backend/prisma/schema.prisma backend/prisma/migrations/20260615010000_add_buyer_no/migration.sql backend/src/common/utils/buyer-no.util.ts backend/src/common/utils/buyer-no.util.spec.ts backend/scripts/backfill-buyer-no.ts backend/package.json
@@ -333,7 +333,7 @@ git commit -m "feat(backend): add buyer public id schema"
 - Modify: `backend/src/modules/user/user.service.ts`
 - Create: `backend/src/modules/user/user.service.spec.ts`
 
-- [ ] **Step 1: Write failing AuthService tests**
+- [x] **Step 1: Write failing AuthService tests**
 
 Append to `backend/src/modules/auth/auth.service.spec.ts`:
 
@@ -408,7 +408,7 @@ describe('AuthService — buyerNo generation', () => {
 });
 ```
 
-- [ ] **Step 2: Write failing UserService test**
+- [x] **Step 2: Write failing UserService test**
 
 Create `backend/src/modules/user/user.service.spec.ts`:
 
@@ -466,7 +466,7 @@ describe('UserService buyerNo contract', () => {
 });
 ```
 
-- [ ] **Step 3: Run failing backend contract tests**
+- [x] **Step 3: Run failing backend contract tests**
 
 Run:
 
@@ -477,7 +477,7 @@ npx jest src/modules/auth/auth.service.spec.ts src/modules/user/user.service.spe
 
 Expected: FAIL because `buyerNo` is not generated or returned.
 
-- [ ] **Step 4: Implement AuthService buyerNo generation**
+- [x] **Step 4: Implement AuthService buyerNo generation**
 
 Modify imports in `backend/src/modules/auth/auth.service.ts`:
 
@@ -537,7 +537,7 @@ Before issuing tokens for existing buyer-login identities, call `ensureBuyerNoFo
 
 Apply that for existing SMS login, existing password login after password succeeds, and existing WeChat login before `issueTokens`.
 
-- [ ] **Step 5: Return buyerNo from `/me`**
+- [x] **Step 5: Return buyerNo from `/me`**
 
 Modify `backend/src/modules/user/user.service.ts` select/include to read `buyerNo`:
 
@@ -556,7 +556,7 @@ The existing include already returns scalar fields; add to return object:
 
 Place it after `id: user.id`.
 
-- [ ] **Step 6: Run backend contract tests**
+- [x] **Step 6: Run backend contract tests**
 
 Run:
 
@@ -567,7 +567,7 @@ npx jest src/modules/auth/auth.service.spec.ts src/modules/user/user.service.spe
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
 ```bash
 git add backend/src/modules/auth/auth.service.ts backend/src/modules/auth/auth.service.spec.ts backend/src/modules/user/user.service.ts backend/src/modules/user/user.service.spec.ts
@@ -585,7 +585,7 @@ git commit -m "feat(backend): generate buyer public ids"
 - Modify: `docs/architecture/frontend.md`
 - Modify: `plan.md`
 
-- [ ] **Step 1: Add frontend type and mock**
+- [x] **Step 1: Add frontend type and mock**
 
 Modify `src/types/domain/UserProfile.ts`:
 
@@ -605,7 +605,7 @@ export const mockUserProfile: UserProfile = {
   name: '林青禾',
 ```
 
-- [ ] **Step 2: Add buyerNo copy handler**
+- [x] **Step 2: Add buyerNo copy handler**
 
 In `app/(tabs)/me.tsx`, add after `handleCopyReferral`:
 
@@ -620,7 +620,7 @@ In `app/(tabs)/me.tsx`, add after `handleCopyReferral`:
   };
 ```
 
-- [ ] **Step 3: Replace level badge with buyer number chip**
+- [x] **Step 3: Replace level badge with buyer number chip**
 
 Replace the `vipBadge` block in `app/(tabs)/me.tsx` that renders `{profile.level}` with:
 
@@ -663,7 +663,7 @@ Add style:
 
 Keep `vipBadge` style only if another block still uses it; otherwise remove unused `vipBadge`.
 
-- [ ] **Step 4: Run App type/test verification**
+- [x] **Step 4: Run App type/test verification**
 
 Run:
 
@@ -674,7 +674,7 @@ npm test -- --runInBand
 
 Expected: TypeScript exits 0; Jest/legal tests exit 0.
 
-- [ ] **Step 5: Update frontend docs**
+- [x] **Step 5: Update frontend docs**
 
 Append to the relevant `/me` section in `docs/architecture/frontend.md`:
 
@@ -688,7 +688,7 @@ Update `plan.md` with a checked line under the current frontend/admin batch:
 - [x] 买家公开编号：App「我的」页展示并复制 `buyerNo`，管理后台/卖家中心改造进入实施批次。
 ```
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add src/types/domain/UserProfile.ts src/mocks/userProfile.ts "app/(tabs)/me.tsx" docs/architecture/frontend.md plan.md
@@ -727,7 +727,7 @@ git commit -m "feat(app): show buyer public id on me page"
 - Modify: `admin/src/pages/bonus/components/NodeDetail.tsx`
 - Modify: `admin/src/pages/digital-assets/index.tsx`
 
-- [ ] **Step 1: Write failing AdminAppUsersService tests**
+- [x] **Step 1: Write failing AdminAppUsersService tests**
 
 Create `backend/src/modules/admin/app-users/admin-app-users.service.spec.ts`:
 
@@ -793,7 +793,7 @@ describe('AdminAppUsersService buyerNo', () => {
 });
 ```
 
-- [ ] **Step 2: Run failing admin service test**
+- [x] **Step 2: Run failing admin service test**
 
 Run:
 
@@ -804,7 +804,7 @@ npx jest src/modules/admin/app-users/admin-app-users.service.spec.ts --runInBand
 
 Expected: FAIL because admin app user responses do not contain `buyerNo`.
 
-- [ ] **Step 3: Add buyerNo to Admin app users**
+- [x] **Step 3: Add buyerNo to Admin app users**
 
 In `backend/src/modules/admin/app-users/admin-app-users.service.ts`:
 
@@ -838,7 +838,7 @@ Add to detail return:
       buyerNo: user.buyerNo || null,
 ```
 
-- [ ] **Step 4: Add buyerNo to Admin orders and query**
+- [x] **Step 4: Add buyerNo to Admin orders and query**
 
 In `backend/src/modules/admin/orders/admin-orders.service.ts`, import helpers:
 
@@ -872,7 +872,7 @@ Add `buyerNo: true` to user selects and mapped user:
             buyerNo: o.user?.buyerNo || null,
 ```
 
-- [ ] **Step 5: Add buyerNo to remaining Admin backend services**
+- [x] **Step 5: Add buyerNo to remaining Admin backend services**
 
 Apply the same pattern:
 
@@ -907,7 +907,7 @@ const internalUserId = await resolveBuyerUserId(this.prisma, userId);
 
 Use `internalUserId` only in Prisma `where` clauses.
 
-- [ ] **Step 6: Add shared Admin identity display component**
+- [x] **Step 6: Add shared Admin identity display component**
 
 Create `admin/src/components/BuyerIdentityText.tsx`:
 
@@ -946,7 +946,7 @@ export default function BuyerIdentityText({ buyerNo, userId, compact }: BuyerIde
 }
 ```
 
-- [ ] **Step 7: Update Admin frontend types**
+- [x] **Step 7: Update Admin frontend types**
 
 In `admin/src/types/index.ts`, add `buyerNo?: string | null` to every buyer-bearing type:
 
@@ -974,7 +974,7 @@ For bonus tree node types, add:
 buyerNo?: string | null;
 ```
 
-- [ ] **Step 8: Update Admin pages to render buyerNo**
+- [x] **Step 8: Update Admin pages to render buyerNo**
 
 Use `BuyerIdentityText` in these pages:
 
@@ -1010,7 +1010,7 @@ Apply to:
 - `admin/src/pages/bonus/components/NodeDetail.tsx`
 - `admin/src/pages/digital-assets/index.tsx`
 
-- [ ] **Step 9: Run Admin verification**
+- [x] **Step 9: Run Admin verification**
 
 Run:
 
@@ -1023,7 +1023,7 @@ npm run build
 
 Expected: backend Jest suites PASS; admin TypeScript and Vite build PASS.
 
-- [ ] **Step 10: Commit Task 4**
+- [x] **Step 10: Commit Task 4**
 
 ```bash
 git add backend/src/modules/admin admin/src/components/BuyerIdentityText.tsx admin/src/types/index.ts admin/src/pages
@@ -1051,7 +1051,7 @@ git commit -m "feat(admin): expose buyer public ids"
 - Modify: `docs/architecture/seller.md`
 - Modify: `plan.md`
 
-- [ ] **Step 1: Write failing seller order tests**
+- [x] **Step 1: Write failing seller order tests**
 
 Append to `backend/src/modules/seller/orders/seller-orders.service.spec.ts`:
 
@@ -1081,7 +1081,7 @@ it('returns buyerNo without exposing internal userId in seller order detail', as
 });
 ```
 
-- [ ] **Step 2: Add seller backend buyerNo map and search**
+- [x] **Step 2: Add seller backend buyerNo map and search**
 
 In `backend/src/modules/seller/orders/seller-orders.service.ts`, import:
 
@@ -1135,7 +1135,7 @@ In detail, use:
 const buyerNoMap = await this.getBuyerNoMap([order.userId]);
 ```
 
-- [ ] **Step 3: Wire seller order controller query**
+- [x] **Step 3: Wire seller order controller query**
 
 In `backend/src/modules/seller/orders/seller-orders.controller.ts`, add query param:
 
@@ -1149,7 +1149,7 @@ Pass to service:
       buyerNo,
 ```
 
-- [ ] **Step 4: Add seller after-sale buyerNo support**
+- [x] **Step 4: Add seller after-sale buyerNo support**
 
 In `backend/src/modules/seller/after-sale/seller-after-sale.service.ts`, add the same `getBuyerNoMap` helper and `buyerNo?: string` parameter. Filter within merchant scope:
 
@@ -1183,7 +1183,7 @@ buyerNo: buyer?.buyerNo || null,
 
 In `backend/src/modules/seller/after-sale/seller-after-sale.controller.ts`, add `@Query('buyerNo') buyerNo?: string` and pass it to `findAll`.
 
-- [ ] **Step 5: Update seller frontend types and pages**
+- [x] **Step 5: Update seller frontend types and pages**
 
 In `seller/src/types/index.ts`, add to `Order`:
 
@@ -1235,7 +1235,7 @@ In `seller/src/pages/orders/detail.tsx`, replace buyer description:
 
 Apply the same list/detail rendering to `seller/src/pages/after-sale/index.tsx` and `seller/src/pages/after-sale/detail.tsx`.
 
-- [ ] **Step 6: Run seller verification**
+- [x] **Step 6: Run seller verification**
 
 Run:
 
@@ -1248,18 +1248,18 @@ npm run build
 
 Expected: seller backend specs PASS; seller TypeScript and Vite build PASS.
 
-- [ ] **Step 7: Update seller docs and commit**
+- [x] **Step 7: Update seller docs and commit**
 
 Append to `docs/architecture/seller.md`:
 
 ```md
-- 卖家中心订单/售后列表与详情展示买家公开编号 `buyerNo`（`AIMM` + 14 位数字），保留店铺维度 `buyerAlias`，不展示内部 `User.id`，不额外暴露买家手机号或实名信息。卖家可用 `buyerNo` 搜索本商户相关订单/售后，后端仍先执行商户数据权限过滤。
+- 卖家中心订单/售后列表与详情展示买家公开编号 `buyerNo`（`AIMM` + 14 位数字），保留店铺维度 `buyerAlias`，不展示内部 `User.id`，不额外暴露买家手机号或实名信息。卖家可用 `buyerNo` 搜索本商户相关订单/售后/物流记录，后端仍先执行商户数据权限过滤。
 ```
 
 Update `plan.md`:
 
 ```md
-- [x] 买家公开编号：卖家中心订单/售后展示和搜索 `buyerNo`，不暴露内部 `User.id`。
+- [x] 买家公开编号：卖家中心订单/售后/物流接口展示和搜索 `buyerNo`，不暴露内部 `User.id`。
 ```
 
 Commit:
@@ -1278,7 +1278,7 @@ git commit -m "feat(seller): show buyer public ids"
 - Modify: `AGENTS.md` if implementation changes any final architecture wording
 - Modify: `docs/superpowers/plans/2026-06-15-buyer-public-id.md` checkboxes as tasks complete
 
-- [ ] **Step 1: Run static audit for raw userId display**
+- [x] **Step 1: Run static audit for raw userId display**
 
 Run:
 
@@ -1288,7 +1288,7 @@ rg -n "用户ID|用户 ID|userId|内部ID|ID:" admin/src/pages admin/src/compone
 
 Expected: every buyer-facing occurrence either displays `buyerNo`, labels raw `User.id` as internal ID in Admin only, or is an internal API/type reference.
 
-- [ ] **Step 2: Run full backend validation**
+- [x] **Step 2: Run full backend validation**
 
 Run:
 
@@ -1301,7 +1301,7 @@ npm run build
 
 Expected: Prisma schema valid, all backend tests pass, Nest build exits 0.
 
-- [ ] **Step 3: Run frontend builds**
+- [x] **Step 3: Run frontend builds**
 
 Run:
 
@@ -1316,6 +1316,8 @@ Expected: App TypeScript and tests pass; Admin build passes; Seller build passes
 
 - [ ] **Step 4: Manual smoke checklist**
 
+> Code-level verification is complete in this branch. Manual smoke against local seeded data or staging remains pending because no running API/data environment was used in this session.
+
 Use local API or seeded data to verify:
 
 ```text
@@ -1329,7 +1331,7 @@ Use local API or seeded data to verify:
 8. Seller UI shows buyerAlias plus buyerNo and never shows internal User.id.
 ```
 
-- [ ] **Step 5: Update OTA/release handoff docs**
+- [x] **Step 5: Update OTA/release handoff docs**
 
 Append to `docs/operations/app-发布与OTA手册.md` Chapter 6 current app state:
 
@@ -1337,7 +1339,7 @@ Append to `docs/operations/app-发布与OTA手册.md` Chapter 6 current app stat
 - 买家公开编号 `buyerNo` 已接入：App「我的」页展示并复制 `AIMM` + 14 位编号；后端新增 `User.buyerNo` 和 `buyer_no_seq`；管理后台/卖家中心支持展示与搜索。此改动包含数据库 migration 和后端接口变更，首次上线必须走服务端部署与数据库迁移；App 展示文案后续微调可 OTA。
 ```
 
-- [ ] **Step 6: Commit final docs**
+- [x] **Step 6: Commit final docs**
 
 ```bash
 git add docs/operations/app-发布与OTA手册.md AGENTS.md docs/superpowers/plans/2026-06-15-buyer-public-id.md

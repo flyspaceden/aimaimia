@@ -18,7 +18,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:studio": "prisma studio",
-    "digital-asset:backfill": "ts-node scripts/backfill-digital-assets.ts"
+    "digital-asset:backfill": "ts-node scripts/backfill-digital-assets.ts",
+    "buyer-no:backfill": "ts-node scripts/backfill-buyer-no.ts"
   },
   "dependencies": {
     "@alicloud/dysmsapi20170525": "^4.5.0",

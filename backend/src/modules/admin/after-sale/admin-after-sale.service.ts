@@ -14,6 +14,7 @@ import { SfExpressService } from '../../shipment/sf-express.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
+import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 import {
   filterContactInfo,
   maskPhone,
@@ -103,9 +104,11 @@ export class AdminAfterSaleService {
       where.orderItem = { companyId };
     }
     if (keyword) {
+      const normalizedKeyword = normalizeBuyerNo(keyword);
       where.OR = [
         { id: keyword },
         { orderId: keyword },
+        { user: { buyerNo: normalizedKeyword } },
       ];
     }
     if (manualReview === 'pending') {
@@ -155,6 +158,7 @@ export class AdminAfterSaleService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
               authIdentities: {
                 where: { provider: 'PHONE' },
@@ -224,6 +228,7 @@ export class AdminAfterSaleService {
         user: {
           select: {
             id: true,
+            buyerNo: true,
             profile: { select: { nickname: true } },
             authIdentities: {
               where: { provider: 'PHONE' },
@@ -333,6 +338,7 @@ export class AdminAfterSaleService {
       company: request.orderItem?.sku?.product?.company || null,
       user: {
         id: request.user?.id,
+        buyerNo: request.user?.buyerNo ?? null,
         nickname: request.user?.profile?.nickname,
         phone: maskPhone(phone),
       },
@@ -675,6 +681,7 @@ export class AdminAfterSaleService {
       company: r.orderItem?.sku?.product?.company || null,
       user: {
         id: r.user?.id,
+        buyerNo: r.user?.buyerNo ?? null,
         nickname: r.user?.profile?.nickname,
         phone: maskPhone(phone),
       },

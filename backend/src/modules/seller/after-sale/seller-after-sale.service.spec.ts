@@ -135,6 +135,52 @@ function makeService(tx: any) {
 }
 
 describe('SellerAfterSaleService exchange waybills', () => {
+  it('filters after-sale list by buyer public id inside company scope', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      buyerAlias: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      user: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const { service } = makeService(tx);
+
+    await (service.findAll as any)(
+      companyId,
+      1,
+      20,
+      undefined,
+      undefined,
+      staffId,
+      undefined,
+      'aimm00000000000002',
+    );
+
+    expect(tx.afterSaleRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          user: { buyerNo: 'AIMM00000000000002' },
+          OR: expect.arrayContaining([
+            { orderItem: { is: { companyId } } },
+          ]),
+        }),
+      }),
+    );
+    expect(tx.afterSaleRequest.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        user: { buyerNo: 'AIMM00000000000002' },
+        OR: expect.arrayContaining([
+          { orderItem: { is: { companyId } } },
+        ]),
+      }),
+    });
+  });
+
   it('generates a replacement waybill for NO_REASON_EXCHANGE in APPROVED status', async () => {
     const tx = {
       $executeRaw: jest.fn(),
@@ -581,17 +627,24 @@ describe('SellerAfterSaleService.findById seller return waybill fields', () => {
       buyerAlias: {
         findUnique: jest.fn().mockResolvedValue({ alias: '买家A' }),
       },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ buyerNo: 'AIMM00000000000002' }),
+      },
     };
     const { service } = makeService(tx);
 
     const result = await service.findById(companyId, afterSaleId, staffId);
+    const serialized = JSON.stringify(result);
 
     expect(result).toMatchObject({
       sellerReturnCarrierName: '顺丰速运',
       sellerReturnWaybillUrl: 'https://example.com/reject-waybill.pdf',
       sellerRejectReason: '商品不符合退回标准',
+      buyerAlias: '买家A',
+      buyerNo: 'AIMM00000000000002',
     });
     expect(result.sellerReturnWaybillNo).toBeTruthy();
+    expect(serialized).not.toContain('buyer-1');
   });
 });
 

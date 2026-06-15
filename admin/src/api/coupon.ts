@@ -53,7 +53,8 @@ export interface CouponInstance {
   campaignId: string;
   campaign?: { id: string; name: string };
   userId: string;
-  user?: { id: string; profile?: { nickname: string | null } | null };
+  buyerNo?: string | null;
+  user?: { id: string; buyerNo?: string | null; profile?: { nickname: string | null } | null };
   status: CouponInstanceStatus;
   discountType: CouponDiscountType;
   discountValue: number;
@@ -74,7 +75,7 @@ export interface CouponUsageRecord {
   couponInstance?: {
     id: string;
     campaign?: { id: string; name: string };
-    user?: { id: string; profile?: { nickname: string | null } | null };
+    user?: { id: string; buyerNo?: string | null; profile?: { nickname: string | null } | null };
   };
   orderId: string;
   order?: { id: string; orderNo: string };

@@ -23,11 +23,13 @@ export class SellerShipmentsController {
     @CurrentSeller('companyId') companyId: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('buyerNo') buyerNo?: string,
   ) {
     return this.shipmentsService.findAll(
       companyId,
       page ? parseInt(page) : 1,
       pageSize ? parseInt(pageSize) : 20,
+      buyerNo,
     );
   }
 

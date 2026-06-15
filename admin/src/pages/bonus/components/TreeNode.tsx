@@ -12,7 +12,7 @@
  *
  * 交互增强：
  * - 悬浮显示 🎯 按钮，点击以此节点为中心展开
- * - 右键上下文菜单（以此为中心 / 复制用户 ID）
+ * - 右键上下文菜单（以此为中心 / 复制买家编号或内部ID）
  * - +N 子节点提示（未展开时显示）
  */
 import React, { useState } from 'react';
@@ -35,6 +35,14 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; border: string;
   frozen:  { color: '#cf1322', bg: '#fff1f0', border: '#ffa39e', label: '冻结' },
   exited:  { color: '#531dab', bg: '#f9f0ff', border: '#d3adf7', label: '已出局' },
 };
+
+function internalIdLabel(userId: string) {
+  return `内部ID: …${userId.slice(-8)}`;
+}
+
+function primaryNodeLabel(node: VipTreeNodeView) {
+  return node.nickname || node.buyerNo || internalIdLabel(node.userId);
+}
 
 interface TreeNodeCardProps {
   node: VipTreeNodeView;
@@ -104,13 +112,13 @@ const TreeNodeCard: React.FC<TreeNodeCardProps> = ({
   // 右键上下文菜单
   const contextMenuItems: MenuProps['items'] = [
     onCenterNode ? { key: 'center', icon: <AimOutlined />, label: '以此为中心' } : null,
-    { key: 'copy', icon: <CopyOutlined />, label: '复制用户 ID' },
+    { key: 'copy', icon: <CopyOutlined />, label: node.buyerNo ? '复制买家编号' : '复制内部ID' },
   ].filter(Boolean) as MenuProps['items'];
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'center') onCenterNode?.(node);
     if (key === 'copy') {
-      navigator.clipboard.writeText(node.userId);
+      navigator.clipboard.writeText(node.buyerNo || node.userId);
     }
   };
 
@@ -118,7 +126,8 @@ const TreeNodeCard: React.FC<TreeNodeCardProps> = ({
     <Tooltip
       title={
         <div style={{ fontSize: 12 }}>
-          <div>ID: {node.userId}</div>
+          <div>买家编号: {node.buyerNo || '-'}</div>
+          <div>内部ID: {node.userId}</div>
           {node.phone && <div>手机: {node.phone}</div>}
           <div>层级: L{node.level}</div>
         </div>
@@ -219,7 +228,7 @@ const TreeNodeCard: React.FC<TreeNodeCardProps> = ({
                 whiteSpace: 'nowrap',
               }}
             >
-              {node.nickname || node.userId}
+              {primaryNodeLabel(node)}
             </span>
             {node.isSystemNode ? (
               <Tag color="gold" style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 4px' }}>
