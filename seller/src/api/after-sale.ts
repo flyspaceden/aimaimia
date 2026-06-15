@@ -57,6 +57,7 @@ export interface AfterSale {
   replacementTracking?: SfTrackingResult | null;
   createdAt: string;
   buyerAlias: string;
+  buyerNo?: string | null;
   order?: {
     id: string;
     status: string;

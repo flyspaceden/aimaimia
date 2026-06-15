@@ -294,7 +294,20 @@ export default function AfterSaleDetailPage() {
           <Descriptions.Item label="售后类型">
             {typeInfo ? <Tag color={typeInfo.color}>{typeInfo.text}</Tag> : afterSale.afterSaleType}
           </Descriptions.Item>
-          <Descriptions.Item label="买家">{afterSale.buyerAlias}</Descriptions.Item>
+          <Descriptions.Item label="买家">
+            <Space direction="vertical" size={0}>
+              <span>{afterSale.buyerAlias}</span>
+              {afterSale.buyerNo && (
+                <Typography.Text
+                  type="secondary"
+                  copyable={{ text: afterSale.buyerNo, tooltips: ['复制用户编号', '已复制'] }}
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  {afterSale.buyerNo}
+                </Typography.Text>
+              )}
+            </Space>
+          </Descriptions.Item>
           <Descriptions.Item label="申请时间">
             {dayjs(afterSale.createdAt).format('YYYY-MM-DD HH:mm')}
           </Descriptions.Item>
