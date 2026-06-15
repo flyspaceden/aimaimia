@@ -34,7 +34,7 @@ export interface DrawRecord {
   drawDate: string;
   createdAt: string;
   status?: string;
-  user?: { profile?: { nickname?: string } };
+  user?: { id?: string; buyerNo?: string | null; profile?: { nickname?: string } };
   prize?: {
     id: string;
     name: string;

@@ -4,6 +4,7 @@ import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, A
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { getOrder, retryRefund } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type { OrderItem, Refund } from '@/types';
 import { PERMISSIONS } from '@/constants/permissions';
 import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
@@ -274,7 +275,14 @@ export default function OrderDetailPage() {
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }}>
           <Descriptions.Item label="订单号">{order.orderNo}</Descriptions.Item>
           <Descriptions.Item label="状态"><Tag color={status?.color}>{status?.text}</Tag></Descriptions.Item>
-          <Descriptions.Item label="用户">{order.user?.phone || order.userId}</Descriptions.Item>
+          <Descriptions.Item label="用户">
+            <BuyerIdentityText
+              buyerNo={order.user?.buyerNo}
+              userId={order.user?.id || order.userId}
+              nickname={order.user?.nickname || order.user?.phone || '-'}
+              compact
+            />
+          </Descriptions.Item>
           <Descriptions.Item label="奖励树" span={3}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button size="small" onClick={() => navigate(buildTreeLink('/bonus/vip-tree'))}>

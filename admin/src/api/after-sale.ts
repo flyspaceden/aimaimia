@@ -109,6 +109,7 @@ export interface AdminAfterSale {
   };
   user?: {
     id: string;
+    buyerNo?: string | null;
     nickname?: string;
     phone?: string;
   };

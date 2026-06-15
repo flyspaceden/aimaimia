@@ -16,6 +16,7 @@ import {
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
+import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 
 @Injectable()
 export class AdminOrdersService {
@@ -67,9 +68,11 @@ export class AdminOrdersService {
     const where: any = {};
     if (query.status) where.status = query.status;
     if (query.keyword) {
+      const normalizedKeyword = normalizeBuyerNo(query.keyword);
       // 同时搜索订单号和用户手机号
       where.OR = [
         { id: query.keyword },
+        { user: { buyerNo: normalizedKeyword } },
         {
           user: {
             authIdentities: {
@@ -83,7 +86,7 @@ export class AdminOrdersService {
       ];
     }
     if (query.userId) {
-      where.userId = query.userId;
+      where.userId = await resolveBuyerUserId(this.prisma, query.userId);
     }
     if (query.startDate || query.endDate) {
       where.createdAt = {};
@@ -109,6 +112,7 @@ export class AdminOrdersService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
               authIdentities: {
                 where: { provider: 'PHONE' },
@@ -221,6 +225,7 @@ export class AdminOrdersService {
         user: {
           select: {
             id: true,
+            buyerNo: true,
             profile: { select: { nickname: true, avatarUrl: true } },
             authIdentities: {
               where: { provider: 'PHONE' },

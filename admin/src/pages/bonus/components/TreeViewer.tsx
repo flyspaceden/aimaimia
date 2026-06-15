@@ -114,6 +114,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export interface TreeSearchResult {
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   phone: string | null;
   avatarUrl?: string | null;
@@ -646,6 +647,7 @@ export default function TreeViewer({
       searchResults.map((u) => ({
         value: u.nickname || u.userId,
         userId: u.userId,
+        buyerNo: u.buyerNo,
         nickname: u.nickname,
         phone: u.phone,
         avatarUrl: u.avatarUrl,
@@ -685,7 +687,7 @@ export default function TreeViewer({
                 })()}
               </div>
               <Text type="secondary" style={{ fontSize: 11 }}>
-                {u.phone || u.userId}
+                {u.buyerNo || u.phone || u.userId}
               </Text>
             </div>
           </div>

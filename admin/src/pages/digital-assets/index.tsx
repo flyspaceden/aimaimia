@@ -36,6 +36,7 @@ import {
   getDigitalAssetOverview,
 } from '@/api/digital-assets';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { PERMISSIONS } from '@/constants/permissions';
 import { usePermission } from '@/hooks/usePermission';
 import type {
@@ -115,12 +116,14 @@ export default function DigitalAssetsPage() {
       render: (_: unknown, record) => (
         <Space>
           <Avatar src={record.user.avatarUrl} icon={<UserOutlined />} />
-          <div>
-            <Button type="link" style={{ padding: 0 }} onClick={() => setSelectedUserId(record.userId)}>
-              {record.user.nickname || record.user.phone || record.userId}
-            </Button>
-            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{record.userId}</div>
-          </div>
+          <Button type="link" style={{ padding: 0, height: 'auto', textAlign: 'left' }} onClick={() => setSelectedUserId(record.userId)}>
+            <BuyerIdentityText
+              buyerNo={record.user.buyerNo}
+              userId={record.userId}
+              nickname={record.user.nickname || record.user.phone || '-'}
+              compact
+            />
+          </Button>
         </Space>
       ),
     },
@@ -238,12 +241,11 @@ export default function DigitalAssetsPage() {
             <Card size="small">
               <Space align="center">
                 <Avatar src={detail.user.avatarUrl} icon={<UserOutlined />} size={48} />
-                <div>
-                  <Typography.Title level={5} style={{ margin: 0 }}>
-                    {detail.user.nickname || detail.user.phone || detail.user.id}
-                  </Typography.Title>
-                  <Typography.Text type="secondary">{detail.user.id}</Typography.Text>
-                </div>
+                <BuyerIdentityText
+                  buyerNo={detail.user.buyerNo}
+                  userId={detail.user.id}
+                  nickname={detail.user.nickname || detail.user.phone || '-'}
+                />
               </Space>
               <Statistic
                 style={{ marginTop: 16 }}

@@ -16,6 +16,7 @@ import {
 import { getOrders, getOrderStats, shipOrder } from '@/api/orders';
 import { getCompanies } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type { Order, OrderStatsMap } from '@/types';
 import {
   orderStatusMap as statusMap,
@@ -185,14 +186,12 @@ export default function OrderListPage() {
       width: 120,
       search: false,
       render: (_: unknown, r: Order) => (
-        <span>
-          {r.user?.nickname && (
-            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-              {r.user.nickname}
-            </Text>
-          )}
-          <Text>{r.user?.phone || '-'}</Text>
-        </span>
+        <BuyerIdentityText
+          buyerNo={r.user?.buyerNo}
+          userId={r.user?.id || r.userId}
+          nickname={r.user?.nickname || r.user?.phone || '-'}
+          compact
+        />
       ),
     },
     {

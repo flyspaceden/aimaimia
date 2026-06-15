@@ -104,13 +104,13 @@ const TreeNodeCard: React.FC<TreeNodeCardProps> = ({
   // 右键上下文菜单
   const contextMenuItems: MenuProps['items'] = [
     onCenterNode ? { key: 'center', icon: <AimOutlined />, label: '以此为中心' } : null,
-    { key: 'copy', icon: <CopyOutlined />, label: '复制用户 ID' },
+    { key: 'copy', icon: <CopyOutlined />, label: node.buyerNo ? '复制买家编号' : '复制用户 ID' },
   ].filter(Boolean) as MenuProps['items'];
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'center') onCenterNode?.(node);
     if (key === 'copy') {
-      navigator.clipboard.writeText(node.userId);
+      navigator.clipboard.writeText(node.buyerNo || node.userId);
     }
   };
 
@@ -118,7 +118,8 @@ const TreeNodeCard: React.FC<TreeNodeCardProps> = ({
     <Tooltip
       title={
         <div style={{ fontSize: 12 }}>
-          <div>ID: {node.userId}</div>
+          <div>买家编号: {node.buyerNo || '-'}</div>
+          <div>内部ID: {node.userId}</div>
           {node.phone && <div>手机: {node.phone}</div>}
           <div>层级: L{node.level}</div>
         </div>

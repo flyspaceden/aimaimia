@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { maskContact, maskPhone } from '../../../common/security/privacy-mask';
+import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 
 @Injectable()
 export class AdminAppUsersService {
@@ -22,6 +23,7 @@ export class AdminAppUsersService {
 
     // 关键词搜索：手机号（AuthIdentity）或昵称（UserProfile）
     if (keyword) {
+      const normalizedKeyword = normalizeBuyerNo(keyword);
       where.OR = [
         {
           authIdentities: {
@@ -32,6 +34,7 @@ export class AdminAppUsersService {
           profile: { nickname: { contains: keyword, mode: 'insensitive' } },
         },
         { id: keyword },
+        { buyerNo: normalizedKeyword },
       ];
     }
 
@@ -77,6 +80,7 @@ export class AdminAppUsersService {
     return {
       items: items.map((user) => ({
         id: user.id,
+        buyerNo: user.buyerNo,
         phone: maskPhone(user.authIdentities[0]?.identifier || null),
         nickname: user.profile?.nickname || null,
         avatarUrl: user.profile?.avatarUrl || null,
@@ -108,8 +112,9 @@ export class AdminAppUsersService {
 
   /** App 用户详情 */
   async findById(id: string) {
+    const resolvedId = await resolveBuyerUserId(this.prisma, id);
     const user = await this.prisma.user.findUnique({
-      where: { id },
+      where: { id: resolvedId },
       include: {
         profile: true,
         authIdentities: {
@@ -132,6 +137,7 @@ export class AdminAppUsersService {
 
     return {
       id: user.id,
+      buyerNo: user.buyerNo,
       phone,
       phoneMasked: maskPhone(phone),
       nickname: user.profile?.nickname || null,
@@ -159,11 +165,12 @@ export class AdminAppUsersService {
 
   /** 封禁/解封 App 用户 */
   async toggleBan(id: string, status: 'ACTIVE' | 'BANNED') {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const resolvedId = await resolveBuyerUserId(this.prisma, id);
+    const user = await this.prisma.user.findUnique({ where: { id: resolvedId } });
     if (!user) throw new NotFoundException('用户不存在');
 
     return this.prisma.user.update({
-      where: { id },
+      where: { id: resolvedId },
       data: { status },
     });
   }

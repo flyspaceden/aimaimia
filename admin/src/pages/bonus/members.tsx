@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMembers, getVipMembersStats } from '@/api/bonus';
 import type { BonusMember } from '@/types';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import dayjs from 'dayjs';
 
 const STAT_CARDS = [
@@ -28,17 +29,18 @@ export default function MemberListPage() {
 
   const columns: ProColumns<BonusMember>[] = [
     {
-      title: '用户 ID',
+      title: '买家编号',
       dataIndex: 'userId',
-      width: 140,
+      width: 190,
       search: false,
       ellipsis: true,
       render: (_, r) => (
-        <Tooltip title={r.userId}>
-          <Typography.Text copyable={{ text: r.userId }} style={{ fontSize: 12 }}>
-            …{r.userId.slice(-8)}
-          </Typography.Text>
-        </Tooltip>
+        <BuyerIdentityText
+          buyerNo={r.buyerNo || r.user?.buyerNo}
+          userId={r.userId}
+          nickname={r.user?.profile?.nickname || '-'}
+          compact
+        />
       ),
     },
     {

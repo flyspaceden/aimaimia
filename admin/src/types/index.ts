@@ -167,6 +167,7 @@ export type AppUserStatus = 'ACTIVE' | 'BANNED' | 'DELETED';
 
 export interface AppUser {
   id: string;
+  buyerNo: string | null;
   phone: string | null;
   nickname: string | null;
   avatarUrl: string | null;
@@ -185,6 +186,7 @@ export interface AppUserStats {
 
 export interface AppUserDetail {
   id: string;
+  buyerNo: string | null;
   phone: string | null;
   phoneMasked: string | null;
   nickname: string | null;
@@ -246,6 +248,7 @@ export interface DigitalAssetAccountRow {
   updatedAt: string;
   user: {
     id: string;
+    buyerNo: string | null;
     nickname: string | null;
     avatarUrl: string | null;
     phone: string | null;
@@ -264,6 +267,7 @@ export interface DigitalAssetModuleInfo {
 export interface DigitalAssetAccountDetail {
   user: {
     id: string;
+    buyerNo: string | null;
     nickname: string | null;
     avatarUrl: string | null;
     phone: string | null;
@@ -376,7 +380,7 @@ export interface Order {
   id: string;
   orderNo: string;
   userId: string;
-  user?: { phone: string; nickname: string | null };
+  user?: { id?: string; buyerNo?: string | null; phone: string; phoneMasked?: string | null; nickname: string | null };
   company?: { id: string; name: string } | null;
   status: OrderStatus;
   totalAmount: number;
@@ -562,7 +566,8 @@ export interface Refund {
 export interface BonusMember {
   id: string;
   userId: string;
-  user?: { id: string; profile?: { nickname: string | null } | null };
+  buyerNo?: string | null;
+  user?: { id: string; buyerNo?: string | null; profile?: { nickname: string | null } | null };
   tier: 'NORMAL' | 'VIP';
   referralCode: string | null;
   inviterUserId: string | null;
@@ -602,6 +607,7 @@ export interface BonusMember {
 /** 会员详情（getMemberDetail 返回） */
 export interface BonusMemberDetail {
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   avatarUrl: string | null;
   phone: string | null;
@@ -661,7 +667,7 @@ export type WithdrawChannel = 'WECHAT' | 'ALIPAY' | 'BANKCARD';
 export interface WithdrawRequest {
   id: string;
   userId: string;
-  user?: { id: string; profile?: { nickname: string | null } | null };
+  user?: { id: string; buyerNo?: string | null; profile?: { nickname: string | null } | null };
   amount: number;
   taxAmount?: number | null;
   netAmount?: number | null;
@@ -694,6 +700,7 @@ export type VipNodeStatus = 'active' | 'silent' | 'frozen' | 'exited';
 
 export interface VipTreeNodeView {
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   phone: string | null;
   tier: 'NORMAL' | 'VIP';
@@ -713,6 +720,7 @@ export interface VipTreeNodeView {
 
   // Phase 4: VIP 特有字段
   referrerUserId?: string | null;
+  referrerBuyerNo?: string | null;
   referrerNickname?: string | null;
   entryMode?: 'REFERRAL' | 'AUTO_PLACE' | 'SYSTEM';
   exitedAt?: string | null;
@@ -727,7 +735,7 @@ export interface VipTreeNodeView {
 }
 
 export interface VipTreeContextResponse {
-  breadcrumb: Array<{ userId: string | null; nickname: string | null; level: number }>;
+  breadcrumb: Array<{ userId: string | null; buyerNo?: string | null; nickname: string | null; level: number }>;
   parent: VipTreeNodeView | null;
   current: VipTreeNodeView;
   children: VipTreeNodeView[];
@@ -766,6 +774,7 @@ export interface TreeRewardRecord {
   refType: string | null;
   refId: string | null;
   sourceUserId: string | null;
+  sourceBuyerNo?: string | null;
   sourceNickname: string | null;
   layer: number | null;
   createdAt: string;
@@ -774,6 +783,7 @@ export interface TreeRewardRecord {
 export interface TreeRelatedOrder {
   orderId: string;
   sourceUserId: string | null;
+  sourceBuyerNo?: string | null;
   sourceNickname: string | null;
   totalReward: number;
   entryCount: number;
@@ -787,6 +797,7 @@ export interface TreeRelatedOrder {
 
 export interface PathExplainNode {
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   level: number;
   isSource: boolean;
@@ -796,6 +807,7 @@ export interface PathExplainNode {
 export interface PathExplainResponse {
   /** 消费用户 */
   sourceUserId: string | null;
+  sourceBuyerNo?: string | null;
   sourceNickname: string | null;
   /** 第 k 次有效消费 */
   consumptionIndex: number | null;
@@ -807,6 +819,7 @@ export interface PathExplainResponse {
   entryType: string;
   /** 接收者 */
   recipientUserId: string;
+  recipientBuyerNo?: string | null;
   recipientNickname: string | null;
   /** 路径节点（从消费者到接收者） */
   path: PathExplainNode[];
@@ -826,6 +839,7 @@ export interface BroadcastBucketInfo {
 export interface BroadcastWindowOrder {
   orderId: string;
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   amount: number;
   rewardDistributed: number;
@@ -840,6 +854,7 @@ export interface BroadcastWindowResponse {
 
 export interface BroadcastDistribution {
   recipientId: string;
+  recipientBuyerNo?: string | null;
   recipientName: string | null;
   amount: number;
   orderIndex: number;
@@ -847,7 +862,7 @@ export interface BroadcastDistribution {
 }
 
 export interface BroadcastDistributionResponse {
-  order: { id: string; amount: number; buyerName: string | null };
+  order: { id: string; amount: number; buyerNo?: string | null; buyerName: string | null };
   distributions: BroadcastDistribution[];
 }
 

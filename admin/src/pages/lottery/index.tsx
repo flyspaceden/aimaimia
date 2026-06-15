@@ -57,6 +57,7 @@ import {
 import type { Prize, DrawRecord, LotteryStats, LotteryPrizeType } from '@/api/lottery';
 import PermissionGate from '@/components/PermissionGate';
 import RewardProductPicker from '@/components/RewardProductPicker';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -1077,11 +1078,17 @@ function DrawRecordsTab() {
     { title: '记录ID', dataIndex: 'id', ellipsis: true, width: 180, copyable: true },
     {
       title: '用户',
-      width: 120,
+      width: 180,
       search: false,
-      render: (_: unknown, r: DrawRecord) => r.user?.profile?.nickname || r.userId,
+      render: (_: unknown, r: DrawRecord) => (
+        <BuyerIdentityText
+          buyerNo={r.user?.buyerNo}
+          userId={r.userId}
+          nickname={r.user?.profile?.nickname || '-'}
+          compact
+        />
+      ),
     },
-    { title: '用户ID', dataIndex: 'userId', width: 180, ellipsis: true },
     {
       title: '奖品',
       width: 220,

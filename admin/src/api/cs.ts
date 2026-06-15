@@ -13,7 +13,7 @@ export interface CsSession {
   agentJoinedAt: string | null;
   closedAt: string | null;
   createdAt: string;
-  user: { id: string; profile: { nickname: string | null; avatarUrl: string | null } | null };
+  user: { id: string; buyerNo?: string | null; profile: { nickname: string | null; avatarUrl: string | null } | null };
   messages: CsMessage[];
   ticket: { id: string; category: string; priority: string } | null;
 }
@@ -40,7 +40,7 @@ export interface CsTicket {
   relatedOrderId: string | null;
   resolvedBy: string | null;
   createdAt: string;
-  user: { id: string; profile: { nickname: string | null } | null };
+  user: { id: string; buyerNo?: string | null; profile: { nickname: string | null } | null };
   sessions: { id: string; status: string; createdAt: string }[];
 }
 

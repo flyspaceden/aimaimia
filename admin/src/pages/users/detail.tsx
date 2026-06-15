@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App, Breadcrumb, Card, Row, Col, Statistic, Descriptions, Tabs, Tag, Avatar,
-  Button, Space, Table, Spin, Result, Empty, Modal, Input, Typography,
+  Button, Space, Table, Spin, Result, Empty, Modal, Input,
 } from 'antd';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -20,6 +20,7 @@ import { getDigitalAssetAccount } from '@/api/digital-assets';
 import type { AppUserDetail, Order, BonusMemberDetail } from '@/types';
 import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap, rewardAccountTypeMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { PERMISSIONS } from '@/constants/permissions';
 import { usePermission } from '@/hooks/usePermission';
 import dayjs from 'dayjs';
@@ -128,10 +129,12 @@ export default function UserDetailPage() {
       label: '基本信息',
       children: (
         <Descriptions bordered column={2} size="small">
-          <Descriptions.Item label="用户 ID">
-            <Space>
-              <Typography.Text copyable={{ text: user.id }}>{user.id}</Typography.Text>
-            </Space>
+          <Descriptions.Item label="买家身份">
+            <BuyerIdentityText
+              buyerNo={user.buyerNo}
+              userId={user.id}
+              nickname={user.nickname || user.phone || '-'}
+            />
           </Descriptions.Item>
           <Descriptions.Item label="手机号">{user.phone || '-'}</Descriptions.Item>
           <Descriptions.Item label="昵称">{user.nickname || '-'}</Descriptions.Item>
@@ -306,7 +309,14 @@ export default function UserDetailPage() {
               </Tag>
               <Tag color={statusMap[user.status]?.color}>{statusMap[user.status]?.text}</Tag>
             </Space>
-            <div style={{ color: 'rgba(0,0,0,0.45)', marginTop: 4 }}>ID: {user.id}</div>
+            <div style={{ marginTop: 4 }}>
+              <BuyerIdentityText
+                buyerNo={user.buyerNo}
+                userId={user.id}
+                phone={user.phone || undefined}
+                compact
+              />
+            </div>
           </Col>
         </Row>
         <Row gutter={16} style={{ marginTop: 16 }}>

@@ -12,6 +12,7 @@ import {
   CreateLotteryPrizeDto,
   UpdateLotteryPrizeDto,
 } from './admin-lottery.dto';
+import { resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 
 @Injectable()
 export class AdminLotteryService {
@@ -310,7 +311,7 @@ export class AdminLotteryService {
   async findRecords(page = 1, pageSize = 20, userId?: string, result?: string) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
-    if (userId) where.userId = userId;
+    if (userId) where.userId = await resolveBuyerUserId(this.prisma, userId);
     if (result) where.result = result;
 
     const [items, total] = await Promise.all([
@@ -342,6 +343,7 @@ export class AdminLotteryService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
               authIdentities: {
                 where: { provider: 'PHONE' },
