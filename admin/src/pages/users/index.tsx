@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton, Tooltip, Typography } from 'antd';
+import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton } from 'antd';
 import {
   UserOutlined,
   EyeOutlined,
@@ -14,6 +14,7 @@ import { getAppUsers, getAppUserStats, toggleAppUserBan } from '@/api/app-users'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type { AppUser } from '@/types';
 import { userStatusMap as statusMap, memberTierColors } from '@/constants/statusMaps';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -73,17 +74,12 @@ export default function UserListPage() {
       render: (_: unknown, r: AppUser) => (
         <Space>
           <Avatar src={r.avatarUrl} icon={<UserOutlined />} size="small" />
-          <div>
-            <div>{r.nickname || r.phone || '-'}</div>
-            <Tooltip title={r.id}>
-              <Typography.Text
-                copyable={{ text: r.id }}
-                style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}
-              >
-                …{r.id.slice(-8)}
-              </Typography.Text>
-            </Tooltip>
-          </div>
+          <BuyerIdentityText
+            buyerNo={r.buyerNo}
+            userId={r.id}
+            nickname={r.nickname || r.phone || '-'}
+            compact
+          />
         </Space>
       ),
     },

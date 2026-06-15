@@ -22,6 +22,7 @@ import {
 import type { AdminAfterSale, AfterSaleStatsResponse } from '@/api/after-sale';
 import { getCompanies } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { PERMISSIONS } from '@/constants/permissions';
 import { afterSaleStatusMap, afterSaleTypeMap, refundStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
@@ -366,10 +367,12 @@ export default function AfterSaleListPage() {
         const nickname = r.user?.nickname;
         const phone = r.user?.phone;
         return (
-          <div>
-            <div>{nickname || '-'}</div>
-            {phone && <Text type="secondary" style={{ fontSize: 12 }}>{phone}</Text>}
-          </div>
+          <BuyerIdentityText
+            buyerNo={r.user?.buyerNo}
+            userId={r.user?.id}
+            nickname={nickname || phone || '-'}
+            compact
+          />
         );
       },
     },
@@ -717,9 +720,12 @@ export default function AfterSaleListPage() {
                   {modalRecord.orderId}
                 </a>
               </Descriptions.Item>
-              <Descriptions.Item label="买家昵称">{modalRecord.user?.nickname || '-'}</Descriptions.Item>
-              <Descriptions.Item label="买家手机">
-                {modalRecord.user?.phone || '-'}
+              <Descriptions.Item label="买家身份" span={2}>
+                <BuyerIdentityText
+                  buyerNo={modalRecord.user?.buyerNo}
+                  userId={modalRecord.user?.id}
+                  nickname={modalRecord.user?.nickname || modalRecord.user?.phone || '-'}
+                />
               </Descriptions.Item>
               <Descriptions.Item label="商户">
                 {modalRecord.company ? (

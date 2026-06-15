@@ -61,6 +61,7 @@ import TreeMinimap from './TreeMinimap';
 
 interface SearchHistoryItem {
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   timestamp: number;
 }
@@ -86,11 +87,17 @@ function saveHistory(treeType: string, kind: 'search' | 'browse', items: SearchH
   } catch { /* localStorage 不可用时静默忽略 */ }
 }
 
-function addToHistory(treeType: string, kind: 'search' | 'browse', userId: string, nickname: string | null) {
+function addToHistory(
+  treeType: string,
+  kind: 'search' | 'browse',
+  userId: string,
+  nickname: string | null,
+  buyerNo?: string | null,
+) {
   const list = loadHistory(treeType, kind);
   // 去重：如果已存在则移到最前面
   const filtered = list.filter((item) => item.userId !== userId);
-  filtered.unshift({ userId, nickname, timestamp: Date.now() });
+  filtered.unshift({ userId, buyerNo: buyerNo ?? null, nickname, timestamp: Date.now() });
   saveHistory(treeType, kind, filtered);
 }
 
@@ -110,10 +117,23 @@ const SOURCE_LABELS: Record<string, string> = {
   withdrawal: '提现审核',
 };
 
+function internalIdLabel(userId: string | null | undefined) {
+  return userId ? `内部ID: …${userId.slice(-8)}` : '非买家账号';
+}
+
+function primaryUserLabel(user: {
+  userId?: string | null;
+  buyerNo?: string | null;
+  nickname?: string | null;
+}) {
+  return user.nickname || user.buyerNo || internalIdLabel(user.userId);
+}
+
 // ============ 搜索结果类型 ============
 
 export interface TreeSearchResult {
   userId: string;
+  buyerNo?: string | null;
   nickname: string | null;
   phone: string | null;
   avatarUrl?: string | null;
@@ -378,17 +398,17 @@ export default function TreeViewer({
           hasVipNode: option.hasVipNode,
           hasNormalNode: option.hasNormalNode,
         });
-        setSearchText(option.nickname || option.userId);
+        setSearchText(primaryUserLabel(option));
         message.warning(treeType === 'vip' ? '该用户尚未收录到 VIP 奖励数据' : '该用户尚未收录到普通奖励数据');
         return;
       }
       setCenteredUserId(option.userId);
       setUnavailableTarget(null);
       setSelectedNode(null);
-      setSearchText(option.nickname || option.userId);
+      setSearchText(primaryUserLabel(option));
       updateUrl(option.userId, treeDepth, 'locate');
       // 记录搜索历史
-      addToHistory(treeType, 'search', option.userId, option.nickname);
+      addToHistory(treeType, 'search', option.userId, option.nickname, option.buyerNo);
       setSearchHistory(loadHistory(treeType, 'search'));
     },
     [treeDepth, treeType, updateUrl],
@@ -400,10 +420,10 @@ export default function TreeViewer({
       setCenteredUserId(node.userId);
       setUnavailableTarget(null);
       setSelectedNode(null);
-      setSearchText(node.nickname || node.userId);
+      setSearchText(primaryUserLabel(node));
       updateUrl(node.userId, treeDepth, 'locate');
       // 记录浏览历史
-      addToHistory(treeType, 'browse', node.userId, node.nickname);
+      addToHistory(treeType, 'browse', node.userId, node.nickname, node.buyerNo);
       setBrowseHistory(loadHistory(treeType, 'browse'));
     },
     [treeDepth, treeType, updateUrl],
@@ -411,11 +431,11 @@ export default function TreeViewer({
 
   // 面包屑点击
   const handleBreadcrumbClick = useCallback(
-    (userId: string, nickname: string | null) => {
+    (userId: string, nickname: string | null, buyerNo?: string | null) => {
       setCenteredUserId(userId);
       setUnavailableTarget(null);
       setSelectedNode(null);
-      setSearchText(nickname || userId);
+      setSearchText(primaryUserLabel({ userId, nickname, buyerNo }));
       updateUrl(userId, treeDepth, 'locate');
     },
     [treeDepth, updateUrl],
@@ -441,7 +461,7 @@ export default function TreeViewer({
     setCenteredUserId(root.userId);
     setUnavailableTarget(null);
     setSelectedNode(null);
-    setSearchText(root.nickname || root.userId);
+    setSearchText(primaryUserLabel(root));
     updateUrl(root.userId, treeDepth, 'locate');
   }, [treeData, treeDepth, treeType, updateUrl]);
 
@@ -644,8 +664,9 @@ export default function TreeViewer({
   const searchOptions = useMemo(
     () =>
       searchResults.map((u) => ({
-        value: u.nickname || u.userId,
+        value: primaryUserLabel(u),
         userId: u.userId,
+        buyerNo: u.buyerNo,
         nickname: u.nickname,
         phone: u.phone,
         avatarUrl: u.avatarUrl,
@@ -659,7 +680,7 @@ export default function TreeViewer({
             <Avatar src={u.avatarUrl} icon={<UserOutlined />} size={28} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <span style={{ fontWeight: 500 }}>{u.nickname || u.userId}</span>
+                <span style={{ fontWeight: 500 }}>{primaryUserLabel(u)}</span>
                 <Tag color={u.tier === 'VIP' ? 'gold' : 'default'} style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
                   {u.tier}
                 </Tag>
@@ -685,7 +706,7 @@ export default function TreeViewer({
                 })()}
               </div>
               <Text type="secondary" style={{ fontSize: 11 }}>
-                {u.phone || u.userId}
+                {u.buyerNo || u.phone || internalIdLabel(u.userId)}
               </Text>
             </div>
           </div>
@@ -724,15 +745,16 @@ export default function TreeViewer({
           </div>
         ),
         options: searchHistory.slice(0, 5).map((item) => ({
-          value: item.nickname || item.userId,
+          value: primaryUserLabel(item),
           userId: item.userId,
+          buyerNo: item.buyerNo,
           nickname: item.nickname,
           label: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <ClockCircleOutlined style={{ color: '#bfbfbf', fontSize: 11 }} />
-              <span>{item.nickname || item.userId}</span>
+              <span>{primaryUserLabel(item)}</span>
               <Text type="secondary" style={{ fontSize: 10 }}>
-                {item.userId.slice(0, 8)}
+                {item.buyerNo || internalIdLabel(item.userId)}
               </Text>
             </div>
           ),
@@ -754,15 +776,16 @@ export default function TreeViewer({
           </div>
         ),
         options: browseHistory.slice(0, 5).map((item) => ({
-          value: item.nickname || item.userId,
+          value: primaryUserLabel(item),
           userId: item.userId,
+          buyerNo: item.buyerNo,
           nickname: item.nickname,
           label: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <UserOutlined style={{ color: themeColor, fontSize: 11 }} />
-              <span>{item.nickname || item.userId}</span>
+              <span>{primaryUserLabel(item)}</span>
               <Text type="secondary" style={{ fontSize: 10 }}>
-                {item.userId.slice(0, 8)}
+                {item.buyerNo || internalIdLabel(item.userId)}
               </Text>
             </div>
           ),
@@ -1089,8 +1112,8 @@ export default function TreeViewer({
               items={[
                 ...treeData.breadcrumb.map((b) => ({
                   title: b.userId ? (
-                    <a onClick={() => handleBreadcrumbClick(b.userId!, b.nickname)} style={{ cursor: 'pointer' }}>
-                      {b.nickname || b.userId}
+                    <a onClick={() => handleBreadcrumbClick(b.userId!, b.nickname, b.buyerNo)} style={{ cursor: 'pointer' }}>
+                      {primaryUserLabel(b)}
                       <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
                         L{b.level}
                       </Text>
@@ -1114,7 +1137,7 @@ export default function TreeViewer({
                 {
                   title: (
                     <Text strong style={{ color: themeColor }}>
-                      {treeData.current.nickname || treeData.current.userId}
+                      {primaryUserLabel(treeData.current)}
                     </Text>
                   ),
                 },
@@ -1193,7 +1216,7 @@ export default function TreeViewer({
                 {unavailableTarget ? (
                   <Result
                     status="warning"
-                    title={`${unavailableTarget.nickname || unavailableTarget.userId} 尚未被收录`}
+                    title={`${primaryUserLabel(unavailableTarget)} 尚未被收录`}
                     subTitle="可以先查看整体概览，或等待该用户产生消费数据后再定位。"
                     extra={[
                       <Button
@@ -1228,7 +1251,7 @@ export default function TreeViewer({
                         {emptyText}
                       </Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        {rootEntryElement ? '点击上方入口卡片，或在搜索框中输入用户信息' : '在搜索框中输入昵称、手机号或用户 ID'}
+                        {rootEntryElement ? '点击上方入口卡片，或在搜索框中输入用户信息' : '在搜索框中输入昵称、手机号或用户编号'}
                       </Text>
                     </div>
                   </>
@@ -1247,11 +1270,11 @@ export default function TreeViewer({
                           onClick={() => {
                             setCenteredUserId(item.userId);
                             setUnavailableTarget(null);
-                            setSearchText(item.nickname || item.userId);
+                            setSearchText(primaryUserLabel(item));
                             updateUrl(item.userId, treeDepth, 'locate');
                           }}
                         >
-                          {item.nickname || item.userId.slice(0, 8)}
+                          {primaryUserLabel(item)}
                         </Tag>
                       ))}
                     </div>
@@ -1494,7 +1517,7 @@ export default function TreeViewer({
 
       {isCompactLayout && (
         <Drawer
-          title={selectedNode ? selectedNode.nickname || selectedNode.userId : '节点详情'}
+          title={selectedNode ? primaryUserLabel(selectedNode) : '节点详情'}
           placement="right"
           open={detailDrawerOpen}
           onClose={() => setDetailDrawerOpen(false)}

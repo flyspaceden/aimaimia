@@ -33,6 +33,7 @@ export class SellerOrdersController {
     @Query('pageSize') pageSize?: string,
     @Query('status') status?: string,
     @Query('bizType') bizType?: string,
+    @Query('buyerNo') buyerNo?: string,
   ) {
     return this.ordersService.findAll(
       companyId,
@@ -40,6 +41,7 @@ export class SellerOrdersController {
       pageSize ? parseInt(pageSize) : 20,
       status,
       bizType,
+      buyerNo,
       staffId,
     );
   }

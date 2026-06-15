@@ -15,6 +15,7 @@ import {
 } from '../../../common/security/privacy-mask';
 import { SellerShippingService } from '../shipping/seller-shipping.service';
 import { InboxService } from '../../inbox/inbox.service';
+import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 
 @Injectable()
 export class SellerOrdersService {
@@ -74,6 +75,17 @@ export class SellerOrdersService {
     return new Map(aliases.map((a) => [a.userId, a.alias]));
   }
 
+  private async getBuyerNoMap(
+    userIds: string[],
+  ): Promise<Map<string, string | null>> {
+    if (userIds.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, buyerNo: true },
+    });
+    return new Map(users.map((user) => [user.id, user.buyerNo]));
+  }
+
   /** 我的订单列表（通过 OrderItem.companyId 关联） */
   async findAll(
     companyId: string,
@@ -81,6 +93,7 @@ export class SellerOrdersService {
     pageSize: number,
     status?: string,
     bizType?: string,
+    buyerNo?: string,
     staffId?: string,
   ) {
     const where: any = {
@@ -104,6 +117,10 @@ export class SellerOrdersService {
     } else if (bizType === 'NORMAL_GOODS') {
       where.bizType = 'NORMAL_GOODS';
       where.AND.push({ NOT: { items: { some: { companyId, isPrize: true } } } });
+    }
+    const buyerNoQuery = buyerNo?.trim();
+    if (buyerNoQuery) {
+      where.user = { buyerNo: normalizeBuyerNo(buyerNoQuery) };
     }
 
     const [items, total] = await Promise.all([
@@ -142,7 +159,10 @@ export class SellerOrdersService {
 
     // 批量查询买家匿名编号
     const userIds = [...new Set(items.map((o) => o.userId))];
-    const aliasMap = await this.getBuyerAliasMap(userIds, companyId);
+    const [aliasMap, buyerNoMap] = await Promise.all([
+      this.getBuyerAliasMap(userIds, companyId),
+      this.getBuyerNoMap(userIds),
+    ]);
 
     return {
       items: items.map((order) => {
@@ -164,6 +184,7 @@ export class SellerOrdersService {
           shippingFee: shipment ? order.shippingFee : 0,
           createdDate: order.createdAt.toISOString().slice(0, 10), // YYYY-MM-DD
           buyerAlias: aliasMap.get(order.userId) || '买家',
+          buyerNo: buyerNoMap.get(order.userId) || null,
           regionText: extractRegionText(order.addressSnapshot),
           items: order.items.map((item) => ({
             id: item.id,
@@ -239,7 +260,10 @@ export class SellerOrdersService {
     if (order.items.length === 0) throw new ForbiddenException('无权访问该订单');
 
     // 查询买家匿名编号
-    const aliasMap = await this.getBuyerAliasMap([order.userId], companyId);
+    const [aliasMap, buyerNoMap] = await Promise.all([
+      this.getBuyerAliasMap([order.userId], companyId),
+      this.getBuyerNoMap([order.userId]),
+    ]);
     const shipment = this.getCompanyShipment(
       order.shipments as Array<{
         companyId?: string | null;
@@ -265,6 +289,7 @@ export class SellerOrdersService {
       shippingFee: shipment ? order.shippingFee : 0,
       createdDate: order.createdAt.toISOString().slice(0, 10),
       buyerAlias: aliasMap.get(order.userId) || '买家',
+      buyerNo: buyerNoMap.get(order.userId) || null,
       regionText: extractRegionText(order.addressSnapshot),
       items: order.items.map((item) => ({
         id: item.id,

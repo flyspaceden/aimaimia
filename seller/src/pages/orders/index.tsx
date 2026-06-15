@@ -410,11 +410,28 @@ export default function OrderListPage() {
     {
       title: '买家',
       dataIndex: 'buyerAlias',
-      width: 90,
+      width: 160,
       search: false,
       render: (_, r) => (
-        <span style={{ fontSize: 13 }}>{r.buyerAlias}</span>
+        <Space direction="vertical" size={0}>
+          <span style={{ fontSize: 13 }}>{r.buyerAlias}</span>
+          {r.buyerNo && (
+            <Typography.Text
+              type="secondary"
+              copyable={{ text: r.buyerNo, tooltips: ['复制用户编号', '已复制'] }}
+              style={{ fontSize: 12, fontFamily: 'monospace' }}
+            >
+              {r.buyerNo}
+            </Typography.Text>
+          )}
+        </Space>
       ),
+    },
+    {
+      title: '用户编号',
+      dataIndex: 'buyerNo',
+      hideInTable: true,
+      fieldProps: { placeholder: '输入 AIMM 用户编号' },
     },
     {
       title: '金额',
@@ -588,6 +605,7 @@ export default function OrderListPage() {
             pageSize: params.pageSize || 20,
             status: currentStatusFilter,
             bizType: params.bizType || '',
+            buyerNo: params.buyerNo ? String(params.buyerNo).trim() : undefined,
           });
           setOrders(res.items);
           return { data: res.items, total: res.total, success: true };

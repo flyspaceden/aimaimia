@@ -137,6 +137,15 @@ export default function MeScreen() {
     show({ message: '推荐码已复制', type: 'success' });
   };
 
+  const handleCopyBuyerNo = async () => {
+    if (!profile?.buyerNo) {
+      show({ message: '用户编号生成中', type: 'info' });
+      return;
+    }
+    await Clipboard.setStringAsync(profile.buyerNo);
+    show({ message: '用户编号已复制', type: 'success' });
+  };
+
   // 分享推荐码
   const handleShareReferral = async () => {
     try {
@@ -268,12 +277,27 @@ export default function MeScreen() {
                   <Text {...fitTextProps} style={[typography.headingSm, { color: colors.text.primary }]}>
                     {profile.name}
                   </Text>
-                  {/* VIP 徽章 */}
-                  <View style={[styles.vipBadge, { backgroundColor: colors.gold.light }]}>
-                    <Text style={[typography.captionSm, { color: colors.gold.primary }]}>
-                      {profile.level}
+                  <Pressable
+                    onPress={handleCopyBuyerNo}
+                    style={[styles.buyerNoChip, { backgroundColor: colors.gold.light, borderRadius: radius.pill }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="复制用户编号"
+                  >
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.72}
+                      style={[typography.captionSm, { color: colors.gold.primary, fontFamily: monoFamily }]}
+                    >
+                      {profile.buyerNo || '用户编号生成中'}
                     </Text>
-                  </View>
+                    <MaterialCommunityIcons
+                      name="content-copy"
+                      size={13}
+                      color={colors.gold.primary}
+                      style={{ marginLeft: 4 }}
+                    />
+                  </Pressable>
                   {/* 推荐码按钮 */}
                   {referralCode ? (
                     <Pressable
@@ -929,11 +953,14 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
   },
-  vipBadge: {
+  buyerNoChip: {
+    maxWidth: 176,
+    minHeight: 24,
     marginLeft: 8,
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
+    paddingVertical: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   userCardActions: {
     alignItems: 'flex-end',

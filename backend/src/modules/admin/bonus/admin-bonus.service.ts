@@ -10,6 +10,7 @@ import {
   UpdateWithdrawRulesDto,
   WithdrawRules,
 } from './dto/update-withdraw-rules.dto';
+import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 
 type VipNodeStatus = 'active' | 'silent' | 'frozen' | 'exited';
 
@@ -186,8 +187,10 @@ export class AdminBonusService {
 
     const trimmedKeyword = keyword?.trim();
     if (trimmedKeyword) {
+      const normalizedKeyword = normalizeBuyerNo(trimmedKeyword);
       where.OR = [
         { referralCode: { contains: trimmedKeyword, mode: 'insensitive' } },
+        { user: { buyerNo: normalizedKeyword } },
         { user: { profile: { nickname: { contains: trimmedKeyword } } } },
         // 手机号或微信 openId/unionId 任意子串命中
         {
@@ -220,6 +223,7 @@ export class AdminBonusService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
               authIdentities: {
                 // 同时取 PHONE 与 WECHAT，前端先优先展示手机号，
@@ -275,6 +279,7 @@ export class AdminBonusService {
               where: { id: { in: inviterIds } },
               select: {
                 id: true,
+                buyerNo: true,
                 profile: { select: { nickname: true } },
               },
             })
@@ -329,7 +334,8 @@ export class AdminBonusService {
       return {
         id: p.id,
         userId: p.userId,
-        user: { id: p.userId, profile: { nickname: p.user?.profile?.nickname ?? null } },
+        buyerNo: p.user?.buyerNo ?? null,
+        user: { id: p.userId, buyerNo: p.user?.buyerNo ?? null, profile: { nickname: p.user?.profile?.nickname ?? null } },
         tier: p.tier,
         referralCode: p.referralCode,
         inviterUserId: p.inviterUserId,
@@ -394,6 +400,7 @@ export class AdminBonusService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
             },
           },
@@ -902,28 +909,30 @@ export class AdminBonusService {
 
   /** 会员详情 — 聚合钱包、树位置、收支流水、提现记录 */
   async getMemberDetail(userId: string) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, userId);
     const [user, member, progress, accounts, node] = await Promise.all([
       this.prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: resolvedUserId },
         select: {
           id: true,
+          buyerNo: true,
           profile: { select: { nickname: true, avatarUrl: true } },
           authIdentities: { where: { provider: 'PHONE' }, select: { identifier: true }, take: 1 },
         },
       }),
-      this.prisma.memberProfile.findUnique({ where: { userId } }),
-      this.prisma.vipProgress.findUnique({ where: { userId } }),
+      this.prisma.memberProfile.findUnique({ where: { userId: resolvedUserId } }),
+      this.prisma.vipProgress.findUnique({ where: { userId: resolvedUserId } }),
       // 三个可提现账户合并算余额（与买家 App 端 BonusService.getWallet 一致）
       this.prisma.rewardAccount.findMany({
-        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
+        where: { userId: resolvedUserId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
       }),
-      this.prisma.vipTreeNode.findUnique({ where: { userId } }),
+      this.prisma.vipTreeNode.findUnique({ where: { userId: resolvedUserId } }),
     ]);
     if (!user) throw new NotFoundException('用户不存在');
 
     // 累计收入
     const earned = await this.prisma.rewardLedger.aggregate({
-      where: { userId, status: { in: ['AVAILABLE', 'WITHDRAWN'] } },
+      where: { userId: resolvedUserId, status: { in: ['AVAILABLE', 'WITHDRAWN'] } },
       _sum: { amount: true },
     });
 
@@ -941,7 +950,7 @@ export class AdminBonusService {
 
     // 收支流水（最近 20 条）—— join account 拿 account.type 让前端区分 VIP奖励/产业基金/普通分润
     const ledgers = await this.prisma.rewardLedger.findMany({
-      where: { userId },
+      where: { userId: resolvedUserId },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: {
@@ -958,7 +967,7 @@ export class AdminBonusService {
 
     // 提现记录（最近 10 条）
     const withdrawals = await this.prisma.withdrawRequest.findMany({
-      where: { userId },
+      where: { userId: resolvedUserId },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: {
@@ -973,6 +982,7 @@ export class AdminBonusService {
 
     return {
       userId: user.id,
+      buyerNo: user.buyerNo ?? null,
       nickname: user.profile?.nickname ?? null,
       avatarUrl: user.profile?.avatarUrl ?? null,
       phone: user.authIdentities?.[0]?.identifier ?? null,
@@ -1011,14 +1021,15 @@ export class AdminBonusService {
 
   /** 获取以指定用户为中心的 VIP 树上下文（面包屑 + 父节点 + 当前 + 子节点） */
   async getVipTreeContext(userId: string, descendantDepth = 1) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, userId);
     // 查找用户的树节点
     let node = await this.prisma.vipTreeNode.findUnique({
-      where: { userId },
+      where: { userId: resolvedUserId },
     });
     // 支持通过节点 ID 访问系统根节点（userId 为 null）
     if (!node) {
       node = await this.prisma.vipTreeNode.findUnique({
-        where: { id: userId },
+        where: { id: resolvedUserId },
       });
     }
     if (!node) throw new NotFoundException('该用户不在 VIP 树中');
@@ -1027,7 +1038,7 @@ export class AdminBonusService {
     const isSystemRoot = node.userId === null;
 
     // 构建面包屑（从当前节点沿 parentId 向上遍历至根）
-    const breadcrumb: Array<{ userId: string; nickname: string | null; level: number }> = [];
+    const breadcrumb: Array<{ userId: string; buyerNo: string | null; nickname: string | null; level: number }> = [];
     let cur = node;
     // H7修复：增加环路保护（visited Set + 最大跳数），避免脏数据导致无限循环
     const visitedNodeIds = new Set<string>([node.id]);
@@ -1046,10 +1057,11 @@ export class AdminBonusService {
       // 查昵称
       const parentUser = await this.prisma.user.findUnique({
         where: { id: parent.userId },
-        select: { profile: { select: { nickname: true } } },
+        select: { buyerNo: true, profile: { select: { nickname: true } } },
       });
       breadcrumb.unshift({
         userId: parent.userId,
+        buyerNo: parentUser?.buyerNo ?? null,
         nickname: parentUser?.profile?.nickname ?? parent.userId,
         level: parent.level,
       });
@@ -1061,6 +1073,7 @@ export class AdminBonusService {
     const currentView = isSystemRoot
       ? {
           userId: node.id,
+          buyerNo: null,
           nickname: node.rootId ?? node.id,
           phone: null,
           tier: 'VIP' as const,
@@ -1102,7 +1115,8 @@ export class AdminBonusService {
 
   /** 懒加载子节点 */
   async getVipTreeChildren(nodeUserId: string) {
-    const node = await this.prisma.vipTreeNode.findUnique({ where: { userId: nodeUserId } });
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, nodeUserId);
+    const node = await this.prisma.vipTreeNode.findUnique({ where: { userId: resolvedUserId } });
     if (!node) throw new NotFoundException('节点不存在');
 
     const childNodes = await this.prisma.vipTreeNode.findMany({
@@ -1119,10 +1133,12 @@ export class AdminBonusService {
   /** 搜索用户（用于 VIP 树搜索框） */
   async searchUsers(keyword: string, limit = 10) {
     // 搜索手机号、用户ID 或昵称
+    const normalizedKeyword = normalizeBuyerNo(keyword);
     const users = await this.prisma.user.findMany({
       where: {
         OR: [
           { id: { contains: keyword } },
+          { buyerNo: normalizedKeyword },
           { authIdentities: { some: { provider: 'PHONE', identifier: { contains: keyword } } } },
           { profile: { nickname: { contains: keyword } } },
         ],
@@ -1130,6 +1146,7 @@ export class AdminBonusService {
       take: limit,
       select: {
         id: true,
+        buyerNo: true,
         profile: { select: { nickname: true, avatarUrl: true } },
         authIdentities: { where: { provider: 'PHONE' }, select: { identifier: true }, take: 1 },
         memberProfile: { select: { tier: true, vipNodeId: true } },
@@ -1152,6 +1169,7 @@ export class AdminBonusService {
 
     return users.map((u) => ({
       userId: u.id,
+      buyerNo: u.buyerNo ?? null,
       nickname: u.profile?.nickname ?? null,
       phone: u.authIdentities?.[0]?.identifier ?? null,
       avatarUrl: u.profile?.avatarUrl ?? null,
@@ -1168,10 +1186,12 @@ export class AdminBonusService {
 
   /** 搜索普通树用户（返回所有用户，标注是否已入普通树） */
   async searchNormalTreeUsers(keyword: string, limit = 10) {
+    const normalizedKeyword = normalizeBuyerNo(keyword);
     const users = await this.prisma.user.findMany({
       where: {
         OR: [
           { id: { contains: keyword } },
+          { buyerNo: normalizedKeyword },
           { authIdentities: { some: { provider: 'PHONE', identifier: { contains: keyword } } } },
           { profile: { nickname: { contains: keyword } } },
         ],
@@ -1179,6 +1199,7 @@ export class AdminBonusService {
       take: Math.max(limit * 3, limit),
       select: {
         id: true,
+        buyerNo: true,
         profile: { select: { nickname: true, avatarUrl: true } },
         authIdentities: { where: { provider: 'PHONE' }, select: { identifier: true }, take: 1 },
         memberProfile: { select: { tier: true, normalTreeNodeId: true } },
@@ -1196,6 +1217,7 @@ export class AdminBonusService {
       .slice(0, limit)
       .map((u) => ({
         userId: u.id,
+        buyerNo: u.buyerNo ?? null,
         nickname: u.profile?.nickname ?? null,
         phone: u.authIdentities?.[0]?.identifier ?? null,
         avatarUrl: u.profile?.avatarUrl ?? null,
@@ -1243,6 +1265,7 @@ export class AdminBonusService {
         where: { id: userId },
         select: {
           id: true,
+          buyerNo: true,
           profile: { select: { nickname: true } },
           authIdentities: { where: { provider: 'PHONE' }, select: { identifier: true }, take: 1 },
         },
@@ -1263,12 +1286,14 @@ export class AdminBonusService {
 
     // 查询推荐人昵称
     let referrerNickname: string | null = null;
+    let referrerBuyerNo: string | null = null;
     if (memberProfile?.inviterUserId) {
       const referrer = await this.prisma.user.findUnique({
         where: { id: memberProfile.inviterUserId },
-        select: { profile: { select: { nickname: true } } },
+        select: { buyerNo: true, profile: { select: { nickname: true } } },
       });
       referrerNickname = referrer?.profile?.nickname ?? null;
+      referrerBuyerNo = referrer?.buyerNo ?? null;
     }
 
     // 计算累计收入（AVAILABLE + WITHDRAWN 的 ledger 总额）
@@ -1306,6 +1331,7 @@ export class AdminBonusService {
 
     return {
       userId,
+      buyerNo: user?.buyerNo ?? null,
       nickname: user?.profile?.nickname ?? (isSystem ? userId : null),
       phone: phone ?? null,
       tier: isSystem ? 'VIP' : (progress ? 'VIP' : 'NORMAL'),
@@ -1326,6 +1352,7 @@ export class AdminBonusService {
       exitedAt: progress?.exitedAt?.toISOString() ?? null,
       rootId: node?.rootId ?? null,
       referrerUserId: memberProfile?.inviterUserId ?? null,
+      referrerBuyerNo,
       referrerNickname,
       entryMode,
     };
@@ -1541,7 +1568,7 @@ export class AdminBonusService {
         take: pageSize,
         include: {
           order: { select: { totalAmount: true } },
-          user: { select: { id: true, profile: { select: { nickname: true } } } },
+          user: { select: { id: true, buyerNo: true, profile: { select: { nickname: true } } } },
         },
       }),
       this.prisma.normalQueueMember.count({ where: { bucketId: bucket.id, active: true } }),
@@ -1578,6 +1605,7 @@ export class AdminBonusService {
       windowOrders: members.map((m) => ({
         orderId: m.orderId,
         userId: m.userId,
+        buyerNo: m.user?.buyerNo ?? null,
         nickname: m.user?.profile?.nickname ?? null,
         amount: m.order?.totalAmount ?? 0,
         rewardDistributed: rewardMap.get(m.orderId) ?? 0,
@@ -1595,7 +1623,7 @@ export class AdminBonusService {
         id: true,
         totalAmount: true,
         userId: true,
-        user: { select: { profile: { select: { nickname: true } } } },
+        user: { select: { buyerNo: true, profile: { select: { nickname: true } } } },
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
@@ -1616,18 +1644,21 @@ export class AdminBonusService {
     const userIds = [...new Set(ledgers.map((l) => l.userId))];
     const users = await this.prisma.user.findMany({
       where: { id: { in: userIds } },
-      select: { id: true, profile: { select: { nickname: true } } },
+      select: { id: true, buyerNo: true, profile: { select: { nickname: true } } },
     });
     const userMap = new Map(users.map((u) => [u.id, u.profile?.nickname ?? null]));
+    const buyerNoMap = new Map(users.map((u) => [u.id, u.buyerNo ?? null]));
 
     return {
       order: {
         id: order.id,
         amount: order.totalAmount,
+        buyerNo: order.user?.buyerNo ?? null,
         buyerName: order.user?.profile?.nickname ?? null,
       },
       distributions: ledgers.map((l, i) => ({
         recipientId: l.userId,
+        recipientBuyerNo: buyerNoMap.get(l.userId) ?? null,
         recipientName: userMap.get(l.userId) ?? null,
         amount: l.amount,
         orderIndex: i + 1,
@@ -1643,14 +1674,15 @@ export class AdminBonusService {
     if (userId === NORMAL_TREE_ROOT_VIEW_ID) {
       return this.getNormalPlatformRootContext(descendantDepth);
     }
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, userId);
 
     const node = await this.prisma.normalTreeNode.findUnique({
-      where: { userId },
+      where: { userId: resolvedUserId },
     });
     if (!node) throw new NotFoundException('该用户不在普通树中');
 
     // 面包屑
-    const breadcrumb: Array<{ userId: string | null; nickname: string | null; level: number }> = [];
+    const breadcrumb: Array<{ userId: string | null; buyerNo: string | null; nickname: string | null; level: number }> = [];
     let cur = node;
     const visitedNodeIds = new Set<string>([node.id]);
     let hops = 0;
@@ -1663,15 +1695,16 @@ export class AdminBonusService {
       if (!parent) break;
       // 系统根节点（userId=null）
       if (!parent.userId) {
-        breadcrumb.unshift({ userId: null, nickname: '系统根节点', level: parent.level });
+        breadcrumb.unshift({ userId: null, buyerNo: null, nickname: '系统根节点', level: parent.level });
         break;
       }
       const parentUser = await this.prisma.user.findUnique({
         where: { id: parent.userId },
-        select: { profile: { select: { nickname: true } } },
+        select: { buyerNo: true, profile: { select: { nickname: true } } },
       });
       breadcrumb.unshift({
         userId: parent.userId,
+        buyerNo: parentUser?.buyerNo ?? null,
         nickname: parentUser?.profile?.nickname ?? parent.userId,
         level: parent.level,
       });
@@ -1719,7 +1752,8 @@ export class AdminBonusService {
       };
     }
 
-    const node = await this.prisma.normalTreeNode.findUnique({ where: { userId: nodeUserId } });
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, nodeUserId);
+    const node = await this.prisma.normalTreeNode.findUnique({ where: { userId: resolvedUserId } });
     if (!node) throw new NotFoundException('节点不存在');
 
     const childNodes = await this.prisma.normalTreeNode.findMany({
@@ -1755,6 +1789,7 @@ export class AdminBonusService {
       parent: null,
       current: {
         userId: NORMAL_TREE_ROOT_VIEW_ID,
+        buyerNo: null,
         nickname: '平台根节点',
         phone: null,
         tier: 'NORMAL' as const,
@@ -1786,6 +1821,7 @@ export class AdminBonusService {
         where: { id: userId },
         select: {
           id: true,
+          buyerNo: true,
           profile: { select: { nickname: true } },
           authIdentities: { where: { provider: 'PHONE' }, select: { identifier: true }, take: 1 },
         },
@@ -1830,6 +1866,7 @@ export class AdminBonusService {
 
     return {
       userId,
+      buyerNo: user?.buyerNo ?? null,
       nickname: user?.profile?.nickname ?? null,
       phone: phone ?? null,
       selfPurchaseCount: progress?.selfPurchaseCount ?? 0,
@@ -1903,10 +1940,11 @@ export class AdminBonusService {
     pageSize = 20,
   ) {
     const skip = (page - 1) * pageSize;
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, userId);
 
     // Find the user's reward account
     const account = await this.prisma.rewardAccount.findUnique({
-      where: { userId_type: { userId, type: accountType } },
+      where: { userId_type: { userId: resolvedUserId, type: accountType } },
     });
 
     if (!account) {
@@ -1946,10 +1984,11 @@ export class AdminBonusService {
     const sourceUsers = sourceUserIds.size > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: [...sourceUserIds] } },
-          select: { id: true, profile: { select: { nickname: true } } },
+          select: { id: true, buyerNo: true, profile: { select: { nickname: true } } },
         })
       : [];
     const nicknameMap = new Map(sourceUsers.map((u) => [u.id, u.profile?.nickname ?? null]));
+    const buyerNoMap = new Map(sourceUsers.map((u) => [u.id, u.buyerNo ?? null]));
 
     const items = ledgers.map((l) => {
       const meta = l.meta as any;
@@ -1961,6 +2000,7 @@ export class AdminBonusService {
         refType: l.refType,
         refId: l.refId,
         sourceUserId: meta?.sourceUserId ?? null,
+        sourceBuyerNo: meta?.sourceUserId ? (buyerNoMap.get(meta.sourceUserId) ?? null) : null,
         sourceNickname: meta?.sourceUserId ? (nicknameMap.get(meta.sourceUserId) ?? null) : null,
         layer: meta?.layer ?? meta?.level ?? null,
         createdAt: l.createdAt.toISOString(),
@@ -1976,8 +2016,9 @@ export class AdminBonusService {
     page = 1,
     pageSize = 20,
   ) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, userId);
     const account = await this.prisma.rewardAccount.findUnique({
-      where: { userId_type: { userId, type: accountType } },
+      where: { userId_type: { userId: resolvedUserId, type: accountType } },
     });
     if (!account) {
       return { items: [], total: 0, page, pageSize };
@@ -2011,14 +2052,16 @@ export class AdminBonusService {
     const sourceUsers = sourceUserIds.size > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: [...sourceUserIds] } },
-          select: { id: true, profile: { select: { nickname: true } } },
+          select: { id: true, buyerNo: true, profile: { select: { nickname: true } } },
         })
       : [];
     const nicknameMap = new Map(sourceUsers.map((u) => [u.id, u.profile?.nickname ?? null]));
+    const buyerNoMap = new Map(sourceUsers.map((u) => [u.id, u.buyerNo ?? null]));
 
     const grouped = new Map<string, {
       orderId: string;
       sourceUserId: string | null;
+      sourceBuyerNo: string | null;
       sourceNickname: string | null;
       totalReward: number;
       entryCount: number;
@@ -2036,6 +2079,7 @@ export class AdminBonusService {
         grouped.set(ledger.refId, {
           orderId: ledger.refId,
           sourceUserId: meta?.sourceUserId ?? null,
+          sourceBuyerNo: meta?.sourceUserId ? (buyerNoMap.get(meta.sourceUserId) ?? null) : null,
           sourceNickname: meta?.sourceUserId ? (nicknameMap.get(meta.sourceUserId) ?? null) : null,
           totalReward: ledger.amount,
           entryCount: 1,
@@ -2069,9 +2113,10 @@ export class AdminBonusService {
     ledgerId: string,
     accountType: 'VIP_REWARD' | 'NORMAL_REWARD',
   ) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma, userId);
     // 1. Find the ledger entry（校验归属）
     const ledger = await this.prisma.rewardLedger.findFirst({
-      where: { id: ledgerId, userId },
+      where: { id: ledgerId, userId: resolvedUserId },
     });
     if (!ledger) throw new NotFoundException('奖励记录不存在');
 
@@ -2082,24 +2127,28 @@ export class AdminBonusService {
 
     // 3. Look up source user nickname
     let sourceNickname: string | null = null;
+    let sourceBuyerNo: string | null = null;
     if (sourceUserId) {
       const sourceUser = await this.prisma.user.findUnique({
         where: { id: sourceUserId },
-        select: { profile: { select: { nickname: true } } },
+        select: { buyerNo: true, profile: { select: { nickname: true } } },
       });
       sourceNickname = sourceUser?.profile?.nickname ?? null;
+      sourceBuyerNo = sourceUser?.buyerNo ?? null;
     }
 
     // 4. Look up recipient nickname
     const recipientUser = await this.prisma.user.findUnique({
       where: { id: ledger.userId },
-      select: { profile: { select: { nickname: true } } },
+      select: { buyerNo: true, profile: { select: { nickname: true } } },
     });
     const recipientNickname = recipientUser?.profile?.nickname ?? null;
+    const recipientBuyerNo = recipientUser?.buyerNo ?? null;
 
     // 5. Build path from source to recipient by traversing the tree
     const path: Array<{
       userId: string;
+      buyerNo: string | null;
       nickname: string | null;
       level: number;
       isSource: boolean;
@@ -2115,6 +2164,7 @@ export class AdminBonusService {
         // Add source node to path
         path.push({
           userId: sourceUserId,
+          buyerNo: sourceBuyerNo,
           nickname: sourceNickname,
           level: sourceNode.level,
           isSource: true,
@@ -2139,12 +2189,13 @@ export class AdminBonusService {
 
           const parentUser = await this.prisma.user.findUnique({
             where: { id: parent.userId },
-            select: { profile: { select: { nickname: true } } },
+            select: { buyerNo: true, profile: { select: { nickname: true } } },
           });
 
           const isTarget = parent.userId === ledger.userId;
           path.push({
             userId: parent.userId,
+            buyerNo: parentUser?.buyerNo ?? null,
             nickname: parentUser?.profile?.nickname ?? null,
             level: parent.level,
             isSource: false,
@@ -2181,12 +2232,14 @@ export class AdminBonusService {
 
     return {
       sourceUserId,
+      sourceBuyerNo,
       sourceNickname,
       consumptionIndex: layer,
       rewardAmount: ledger.amount,
       rewardStatus: ledger.status,
       entryType: ledger.entryType,
       recipientUserId: ledger.userId,
+      recipientBuyerNo,
       recipientNickname,
       path,
       hitResult,

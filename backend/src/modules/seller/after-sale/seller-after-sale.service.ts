@@ -26,6 +26,7 @@ import { SfExpressService } from '../../shipment/sf-express.service';
 import { InboxService } from '../../inbox/inbox.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../../common/constants/shipping.constants';
+import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
@@ -109,6 +110,17 @@ export class SellerAfterSaleService {
     return new Map(aliases.map((a) => [a.userId, a.alias]));
   }
 
+  private async getBuyerNoMap(
+    userIds: string[],
+  ): Promise<Map<string, string | null>> {
+    if (userIds.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, buyerNo: true },
+    });
+    return new Map(users.map((user) => [user.id, user.buyerNo]));
+  }
+
   // ========== 列表查询 ==========
 
   /** 我公司的售后申请列表（排除 isPostReplacement=true，这类直接进平台仲裁） */
@@ -120,6 +132,7 @@ export class SellerAfterSaleService {
     afterSaleType?: string,
     staffId?: string,
     id?: string,
+    buyerNo?: string,
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {
@@ -162,6 +175,11 @@ export class SellerAfterSaleService {
       where.afterSaleType = afterSaleType;
     }
 
+    const buyerNoQuery = buyerNo?.trim();
+    if (buyerNoQuery) {
+      where.user = { buyerNo: normalizeBuyerNo(buyerNoQuery) };
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.afterSaleRequest.findMany({
         where,
@@ -185,7 +203,10 @@ export class SellerAfterSaleService {
 
     // 批量查询买家匿名编号
     const userIds = [...new Set(items.map((r) => r.userId))];
-    const aliasMap = await this.getBuyerAliasMap(userIds, companyId);
+    const [aliasMap, buyerNoMap] = await Promise.all([
+      this.getBuyerAliasMap(userIds, companyId),
+      this.getBuyerNoMap(userIds),
+    ]);
 
     return {
       items: items.map((r) => ({
@@ -217,6 +238,7 @@ export class SellerAfterSaleService {
             : undefined,
         createdAt: r.createdAt,
         buyerAlias: aliasMap.get(r.userId) || '买家',
+        buyerNo: buyerNoMap.get(r.userId) || null,
         order: r.order,
         orderItem: r.orderItem,
       })),
@@ -256,12 +278,18 @@ export class SellerAfterSaleService {
     this.assertCompanyOwnsRequest(companyId, request as any);
 
     // 查询买家匿名编号
-    const alias = await this.prisma.buyerAlias.findUnique({
-      where: {
-        userId_companyId: { userId: request.userId, companyId },
-      },
-      select: { alias: true },
-    });
+    const [alias, buyer] = await Promise.all([
+      this.prisma.buyerAlias.findUnique({
+        where: {
+          userId_companyId: { userId: request.userId, companyId },
+        },
+        select: { alias: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: request.userId },
+        select: { buyerNo: true },
+      }),
+    ]);
 
     // 物流轨迹（仅 requiresReturn=true 时查）：优先用 DB 里推送落库的（callback
     // fallback 写入），没有再 fallback 到主动查询 SEARCH_ROUTES
@@ -370,6 +398,7 @@ export class SellerAfterSaleService {
       replacementShipmentId: request.replacementShipmentId,
       createdAt: request.createdAt,
       buyerAlias: alias?.alias || '买家',
+      buyerNo: buyer?.buyerNo || null,
       order: request.order
         ? {
             id: request.order.id,

@@ -24,6 +24,7 @@ import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { AliyunSmsService } from '../../common/sms/aliyun-sms.service';
 import { CaptchaService } from '../captcha/captcha.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
+import { nextBuyerNo } from '../../common/utils/buyer-no.util';
 
 @Injectable()
 export class AuthService {
@@ -123,6 +124,7 @@ export class AuthService {
     // 创建 User + UserProfile + AuthIdentity + MemberProfile（事务）
     const user = await this.prisma.user.create({
       data: {
+        buyerNo: await nextBuyerNo(this.prisma),
         profile: {
           create: { nickname: dto.name || '新用户' },
         },
@@ -462,6 +464,7 @@ export class AuthService {
         throw new ForbiddenException('账号不可用');
       }
       // 已绑定用户，直接签发 Token
+      await this.ensureBuyerNoForBuyer(identity.userId);
       return this.issueTokens(identity.userId, 'wechat');
     }
 
@@ -472,6 +475,7 @@ export class AuthService {
     // 首次微信登录，自动创建用户 + UserProfile + AuthIdentity + MemberProfile
     const user = await this.prisma.user.create({
       data: {
+        buyerNo: await nextBuyerNo(this.prisma),
         profile: {
           create: profileData,
         },
@@ -607,6 +611,27 @@ export class AuthService {
 
   // ---- 内部方法 ----
 
+  private async ensureBuyerNoForBuyer(userId: string): Promise<string | null> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { buyerNo: true },
+    });
+    if (existing?.buyerNo) return existing.buyerNo;
+
+    const buyerNo = await nextBuyerNo(this.prisma);
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, buyerNo: null },
+      data: { buyerNo },
+    });
+    if (updated.count > 0) return buyerNo;
+
+    const raced = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { buyerNo: true },
+    });
+    return raced?.buyerNo ?? null;
+  }
+
   private async loginByPhone(phone: string, mode: string, code?: string, password?: string) {
     const identity = await this.prisma.authIdentity.findFirst({
       where: { provider: 'PHONE', identifier: phone },
@@ -631,6 +656,7 @@ export class AuthService {
       if (!identity) {
         const newUser = await this.prisma.user.create({
           data: {
+            buyerNo: await nextBuyerNo(this.prisma),
             profile: { create: { nickname: '新用户' } },
             memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
             authIdentities: {
@@ -646,6 +672,7 @@ export class AuthService {
         return this.issueTokens(newUser.id, 'phone');
       }
       await this.recordLoginAttempt('PHONE', phone, 'code', true, identity.userId);
+      await this.ensureBuyerNoForBuyer(identity.userId);
       return this.issueTokens(identity.userId, 'phone');
     } else {
       // 密码模式
@@ -662,6 +689,7 @@ export class AuthService {
         throw new UnauthorizedException('密码错误');
       }
       await this.recordLoginAttempt('PHONE', phone, 'password', true, identity.userId);
+      await this.ensureBuyerNoForBuyer(identity.userId);
       return this.issueTokens(identity.userId, 'phone');
     }
   }

@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CouponEngineService } from './coupon-engine.service';
 import { TriggerShareDto } from './dto/trigger-share.dto';
 import { TriggerReviewDto } from './dto/trigger-review.dto';
+import { resolveBuyerUserId } from '../../common/utils/buyer-no.util';
 
 /**
  * 平台红包核心服务
@@ -987,6 +988,7 @@ export class CouponService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
             },
           },
@@ -999,6 +1001,7 @@ export class CouponService {
       items: items.map((inst) => ({
         id: inst.id,
         userId: inst.userId,
+        buyerNo: inst.user?.buyerNo ?? null,
         userName: inst.user.profile?.nickname || inst.userId.slice(0, 8),
         status: inst.status,
         discountType: inst.discountType,
@@ -1041,6 +1044,7 @@ export class CouponService {
               user: {
                 select: {
                   id: true,
+                  buyerNo: true,
                   profile: { select: { nickname: true } },
                 },
               },
@@ -1065,6 +1069,7 @@ export class CouponService {
         id: r.id,
         couponInstanceId: r.couponInstanceId,
         userId: r.couponInstance?.userId,
+        buyerNo: r.couponInstance?.user?.buyerNo ?? null,
         userName:
           r.couponInstance?.user?.profile?.nickname ||
           r.couponInstance?.userId?.slice(0, 8),
@@ -1090,10 +1095,11 @@ export class CouponService {
   }) {
     const { page = 1, pageSize = 20, status, userId, campaignId } = pagination;
     const skip = (page - 1) * pageSize;
+    const resolvedUserId = userId ? await resolveBuyerUserId(this.prisma, userId) : undefined;
 
     const where: any = {};
     if (status) where.status = status;
-    if (userId) where.userId = userId;
+    if (resolvedUserId) where.userId = resolvedUserId;
     if (campaignId) where.campaignId = campaignId;
 
     const [items, total] = await Promise.all([
@@ -1107,6 +1113,7 @@ export class CouponService {
           user: {
             select: {
               id: true,
+              buyerNo: true,
               profile: { select: { nickname: true } },
             },
           },
@@ -1161,13 +1168,14 @@ export class CouponService {
       endDate,
     } = pagination;
     const skip = (page - 1) * pageSize;
+    const resolvedUserId = userId ? await resolveBuyerUserId(this.prisma, userId) : undefined;
 
     const where: any = {};
     if (orderId) where.orderId = orderId;
 
     // couponInstance 关联条件：userId / campaignId 都打在 couponInstance 上
     const instanceWhere: any = {};
-    if (userId) instanceWhere.userId = userId;
+    if (resolvedUserId) instanceWhere.userId = resolvedUserId;
     if (campaignId) instanceWhere.campaignId = campaignId;
     if (Object.keys(instanceWhere).length > 0) {
       where.couponInstance = instanceWhere;
@@ -1194,6 +1202,7 @@ export class CouponService {
               user: {
                 select: {
                   id: true,
+                  buyerNo: true,
                   profile: { select: { nickname: true } },
                 },
               },
@@ -1234,6 +1243,9 @@ export class CouponService {
     userIds: string[],
     adminId: string,
   ) {
+    const resolvedUserIds = Array.from(
+      new Set(await Promise.all(userIds.map((userId) => resolveBuyerUserId(this.prisma, userId)))),
+    );
     return this.prisma.$transaction(
       async (tx) => {
         const now = new Date();
@@ -1250,7 +1262,7 @@ export class CouponService {
         }
 
         // 校验配额
-        const requiredQuota = userIds.length;
+        const requiredQuota = resolvedUserIds.length;
         if (campaign.issuedCount + requiredQuota > campaign.totalQuota) {
           throw new BadRequestException(
             `配额不足：剩余 ${campaign.totalQuota - campaign.issuedCount}，需要 ${requiredQuota}`,
@@ -1262,7 +1274,7 @@ export class CouponService {
           by: ['userId'],
           where: {
             campaignId,
-            userId: { in: userIds },
+            userId: { in: resolvedUserIds },
           },
           _count: { id: true },
         });
@@ -1273,7 +1285,7 @@ export class CouponService {
         const skippedUsers: string[] = [];
         const issuedUsers: string[] = [];
 
-        for (const userId of userIds) {
+        for (const userId of resolvedUserIds) {
           const userCount = countMap.get(userId) || 0;
           if (userCount >= campaign.maxPerUser) {
             skippedUsers.push(userId);

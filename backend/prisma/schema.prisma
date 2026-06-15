@@ -599,6 +599,7 @@ enum CouponInstanceStatus {
 
 model User {
   id                     String     @id @default(cuid())
+  buyerNo                String?    @unique
   status                 UserStatus @default(ACTIVE)
   hasAgreedReturnPolicy  Boolean    @default(false) // 是否已同意退货政策
   deletionExecutedAt     DateTime?

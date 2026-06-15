@@ -144,6 +144,7 @@ export interface Order {
   shippingFee?: number;
   createdDate: string; // YYYY-MM-DD（非 createdAt 时间戳）
   buyerAlias: string; // 匿名编号
+  buyerNo?: string | null; // 买家公开编号（AIMM + 14位数字）
   regionText: string | null; // 省市区
   items: OrderItem[];
   shipment?: Shipment | null;

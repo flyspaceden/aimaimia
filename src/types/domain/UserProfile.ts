@@ -10,6 +10,7 @@ export type Gender = 'MALE' | 'FEMALE' | 'UNKNOWN';
 
 export type UserProfile = {
   id: string;
+  buyerNo?: string | null;
   name: string;
   phone?: string;
   /** 微信是否已绑定（绑定状态权威判定字段，与昵称解耦） */

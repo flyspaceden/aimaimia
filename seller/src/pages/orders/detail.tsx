@@ -363,7 +363,20 @@ export default function OrderDetailPage() {
             </Typography.Text>
           </Descriptions.Item>
           <Descriptions.Item label="下单日期">{order.createdDate}</Descriptions.Item>
-          <Descriptions.Item label="买家">{order.buyerAlias}</Descriptions.Item>
+          <Descriptions.Item label="买家">
+            <Space direction="vertical" size={0}>
+              <span>{order.buyerAlias}</span>
+              {order.buyerNo && (
+                <Typography.Text
+                  type="secondary"
+                  copyable={{ text: order.buyerNo, tooltips: ['复制用户编号', '已复制'] }}
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  {order.buyerNo}
+                </Typography.Text>
+              )}
+            </Space>
+          </Descriptions.Item>
           <Descriptions.Item label="地区">{order.regionText || '-'}</Descriptions.Item>
           <Descriptions.Item label="发票状态">
             {order.invoiceStatus === 'REQUESTED' && <Tag color="orange">已申请</Tag>}

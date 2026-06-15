@@ -35,6 +35,7 @@ export class UserService {
 
     return {
       id: user.id,
+      buyerNo: user.buyerNo,
       name: profile.nickname || '新用户',
       phone: phoneIdentity?.identifier,
       // wechatBound 是绑定状态判定字段（昵称仅作展示）

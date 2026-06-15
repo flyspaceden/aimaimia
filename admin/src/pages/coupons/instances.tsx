@@ -7,6 +7,7 @@ import { getInstances, revokeInstance } from '@/api/coupon';
 import type { CouponInstance } from '@/api/coupon';
 import { couponInstanceStatusMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
@@ -34,16 +35,16 @@ export default function InstanceListPage() {
   const columns: ProColumns<CouponInstance>[] = [
     {
       title: '用户',
-      width: 140,
+      width: 190,
       search: false,
-      render: (_: unknown, r: CouponInstance) =>
-        r.user?.profile?.nickname || r.userId,
-    },
-    {
-      title: '用户ID',
-      dataIndex: 'userId',
-      width: 180,
-      ellipsis: true,
+      render: (_: unknown, r: CouponInstance) => (
+        <BuyerIdentityText
+          buyerNo={r.buyerNo || r.user?.buyerNo}
+          userId={r.userId}
+          nickname={r.user?.profile?.nickname || '-'}
+          compact
+        />
+      ),
     },
     {
       title: '活动名称',

@@ -7,7 +7,6 @@ import {
   Tooltip,
   Spin,
   App,
-  Typography,
   Popover,
 } from 'antd';
 import {
@@ -31,6 +30,7 @@ import {
   type CsSession,
   type CsMessage,
 } from '@/api/cs';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -38,7 +38,6 @@ import 'dayjs/locale/zh-cn';
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
-const { Text } = Typography;
 const { TextArea } = Input;
 
 // 品牌色
@@ -1589,18 +1588,20 @@ export default function CsWorkstationPage() {
                     >
                       注册用户
                     </span>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                      ID: {activeSession.userId?.slice(0, 8)}
+                    <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>
+                      {activeSession.user?.buyerNo || `…${activeSession.userId?.slice(-8)}`}
                     </span>
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                  <span style={{ color: '#94a3b8' }}>用户 ID</span>
-                  <Text copyable={{ text: activeSession.userId }} style={{ fontSize: 12 }}>
-                    {activeSession.userId?.slice(0, 12)}...
-                  </Text>
+                  <span style={{ color: '#94a3b8' }}>买家身份</span>
+                  <BuyerIdentityText
+                    buyerNo={activeSession.user?.buyerNo}
+                    userId={activeSession.userId}
+                    compact
+                  />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                   <span style={{ color: '#94a3b8' }}>会话来源</span>

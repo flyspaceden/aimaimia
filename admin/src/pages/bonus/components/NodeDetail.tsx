@@ -28,6 +28,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import {
@@ -41,6 +42,18 @@ import {
 import type { VipTreeNodeView, TreeRelatedOrder, TreeRewardRecord } from '@/types';
 
 const { Text } = Typography;
+
+function internalIdLabel(userId: string | null | undefined) {
+  return userId ? `内部ID: …${userId.slice(-8)}` : '非买家账号';
+}
+
+function primaryUserLabel(user: {
+  userId?: string | null;
+  buyerNo?: string | null;
+  nickname?: string | null;
+}) {
+  return user.nickname || user.buyerNo || internalIdLabel(user.userId);
+}
 
 // ---------- 常量映射 ----------
 
@@ -168,7 +181,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
       width: 80,
       ellipsis: true,
       render: (_: string | null, row: TreeRewardRecord) =>
-        row.sourceNickname || row.sourceUserId || '-',
+        row.sourceNickname || row.sourceBuyerNo || row.sourceUserId || '-',
     },
     {
       title: '层级',
@@ -256,14 +269,21 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Text strong style={{ fontSize: 16 }}>
-                {node.nickname || node.userId}
+                {primaryUserLabel(node)}
               </Text>
               <Tag color={st.color}>{st.text}</Tag>
               {node.isSystemNode && <Tag color="gold">系统节点</Tag>}
             </div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {node.phone || `ID: ${node.userId}`} · L{node.level}
-            </Text>
+            <div style={{ marginTop: 2 }}>
+              <BuyerIdentityText
+                buyerNo={node.buyerNo}
+                userId={node.userId}
+                phone={node.phone || undefined}
+                compact
+                showInternalId={false}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}> · L{node.level}</Text>
+            </div>
           </div>
         </div>
       </Card>
@@ -341,11 +361,15 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         styles={{ header: { fontSize: 13, fontWeight: 600, borderBottom: '1px solid #f0f0f0' } }}
       >
         <Descriptions column={1} size="small" labelStyle={{ color: '#8c8c8c', width: 80 }}>
-          <Descriptions.Item label="用户 ID">
+          <Descriptions.Item label="买家身份">
             {node.isSystemNode ? (
               <Text style={{ fontSize: 12 }}>全局视图节点</Text>
             ) : (
-              <Text copyable style={{ fontSize: 12 }}>{node.userId}</Text>
+              <BuyerIdentityText
+                buyerNo={node.buyerNo}
+                userId={node.userId}
+                nickname={node.nickname || node.phone || '-'}
+              />
             )}
           </Descriptions.Item>
           <Descriptions.Item label="VIP 等级">
@@ -474,7 +498,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
             <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div>
                 <Text type="secondary">消费用户：</Text>
-                <Text strong>{pathData.sourceNickname || pathData.sourceUserId || '未知'}</Text>
+                <Text strong>{pathData.sourceNickname || pathData.sourceBuyerNo || pathData.sourceUserId || '未知'}</Text>
               </div>
               <div>
                 <Text type="secondary">第 </Text>
@@ -551,7 +575,8 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                       {p.isSource ? '消' : p.isTarget ? '收' : i}
                     </div>
                     <div style={{ flex: 1, fontSize: 12 }}>
-                      <Text strong>{p.nickname || p.userId}</Text>
+                      <Text strong>{primaryUserLabel(p)}</Text>
+                      {p.buyerNo && <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>{p.buyerNo}</Text>}
                       <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>L{p.level}</Text>
                     </div>
                     {p.isSource && <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>消费者</Tag>}
@@ -621,7 +646,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
         {
           title: '来源用户',
           dataIndex: 'sourceNickname',
-          render: (_: string | null, row: TreeRelatedOrder) => row.sourceNickname || row.sourceUserId || '-',
+          render: (_: string | null, row: TreeRelatedOrder) => row.sourceNickname || row.sourceBuyerNo || row.sourceUserId || '-',
         },
         {
           title: '累计奖励',
