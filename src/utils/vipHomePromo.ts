@@ -47,33 +47,21 @@ export type VipReferralHomePrompt = {
 
 type BuildOptions = {
   maxCards?: number;
-  maxItemLines?: number;
 };
-
-function formatGiftItem(item: VipGiftItemLike) {
-  const skuTitle = item.skuTitle?.trim();
-  const name = skuTitle ? `${item.productTitle} ${skuTitle}` : item.productTitle;
-  return `${name} ×${item.quantity}`;
-}
 
 export function buildVipHomePromoCards(
   packages: VipPackageLike[],
   options: BuildOptions = {},
 ): VipHomePromoCard[] {
   const maxCards = options.maxCards ?? 3;
-  const maxItemLines = options.maxItemLines ?? 2;
 
   return packages
     .map((pkg) => {
       const gift = pkg.giftOptions.find((item) => item.available);
       if (!gift) return null;
 
-      const allItemLines = gift.items.map(formatGiftItem);
-      const itemLines = allItemLines.slice(0, maxItemLines);
-      const hasMoreItems = allItemLines.length > itemLines.length;
-      const itemSummary = itemLines.join(' + ');
-      const subtitle = gift.subtitle?.trim()
-        || (itemSummary ? `${itemSummary}${hasMoreItems ? '等' : ''}` : '开通 VIP 即可选择该档位赠品');
+      const subtitle = gift.subtitle?.trim() || '精选礼包组合';
+      const itemLines: string[] = [];
 
       return {
         packageId: pkg.id,
@@ -86,7 +74,7 @@ export function buildVipHomePromoCards(
         giftCount: pkg.giftOptions.length,
         available: gift.available,
         itemLines,
-        hasMoreItems,
+        hasMoreItems: false,
       };
     })
     .filter((item): item is VipHomePromoCard => item !== null)

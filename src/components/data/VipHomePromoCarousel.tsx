@@ -21,9 +21,6 @@ type VipHomePromoCarouselProps = {
 // 每秒平移多少 dp，太大眼花、太小停滞，28dp/s 在 240dp 卡上等价一张约 8.5s 走完
 const SCROLL_SPEED_DP_PER_SEC = 28;
 
-// itemLines 最多显示几行，超过的在第二行末尾以「等 N 款」收口，保证所有卡片高度一致
-const MAX_ITEM_LINES = 2;
-
 // 首页非 VIP 礼包广告位：连续顺滑滚动的跑马灯（复制一份卡片实现无缝循环）
 export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' }: VipHomePromoCarouselProps) {
   const { colors, spacing, radius, typography, shadow } = useTheme();
@@ -187,37 +184,6 @@ export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' 
                 <Text style={[styles.subtitle, { color: colors.text.secondary }]} numberOfLines={2}>
                   {card.subtitle}
                 </Text>
-
-                <View style={styles.itemsBox}>
-                  {card.itemLines.length > 0 ? (
-                    card.itemLines.slice(0, MAX_ITEM_LINES).map((line, lineIndex, arr) => {
-                      const isLastVisible = lineIndex === arr.length - 1;
-                      const hasOverflow = card.itemLines.length > MAX_ITEM_LINES;
-                      const displayText =
-                        isLastVisible && hasOverflow
-                          ? `${line} 等 ${card.itemLines.length} 款`
-                          : line;
-                      return (
-                        <View
-                          key={`${card.packageId}-${card.giftOptionId}-${index}-line-${lineIndex}`}
-                          style={styles.itemLine}
-                        >
-                          <View style={[styles.itemDot, { backgroundColor: colors.brand.primary }]} />
-                          <Text
-                            style={[styles.itemText, { color: colors.text.primary }]}
-                            numberOfLines={1}
-                          >
-                            {displayText}
-                          </Text>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <Text style={[styles.emptyItemsText, { color: colors.text.tertiary }]}>
-                      开通后选择该档位赠品
-                    </Text>
-                  )}
-                </View>
               </LinearGradient>
             </Pressable>
           ))}
@@ -246,10 +212,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   cardPressable: {
-    height: 188,
+    height: 154,
   },
   card: {
-    height: 188,
+    height: 154,
     padding: 14,
     overflow: 'hidden',
     borderWidth: 1.2,
@@ -311,30 +277,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   subtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 5,
-  },
-  itemsBox: {
-    marginTop: 8,
-    gap: 4,
-  },
-  itemLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  itemDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginRight: 6,
-  },
-  itemText: {
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  emptyItemsText: {
-    fontSize: 11,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 7,
   },
 });

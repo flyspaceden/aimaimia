@@ -493,16 +493,16 @@ Tab 栏设计：
 │                             │
 │  · · ·    · ·     ·  · ·   │ ← 背景漂浮粒子（极低透明度）
 │                             │
-│  早上好，青禾 🌿              │ ← 问候语（根据时段变化）
-│  今天想吃点什么？             │ ← AI 引导语（每次不同）
+│  消费者就是生产力，            │ ← 首页品牌标语
+│  是社会价值的创造者。          │
 │                             │
 │  ┌───────────────────────┐  │
 │  │ 🔍 搜索商品，或问我...   │  │ ← 搜索框（点击跳转搜索页）
 │  └───────────────────────┘  │
 │                             │
 │  ┌──── VIP开通礼包 ────┐    │ ← 非VIP/未登录展示，横滑 399/699/999 档位
-│  │ ¥399 有机茶叶礼盒    │    │    展示后台赠品组合：商品+SKU+数量
-│  │ 高山绿茶×1 + 蜂蜜×2  │    │    点击进入 `/vip/gifts?packageId&giftOptionId`
+│  │ ¥399 有机茶叶礼盒    │    │    只展示价格、标题、副标题等主要信息
+│  │ 精选高山绿茶礼盒      │    │    点击进入 `/vip/gifts?packageId&giftOptionId`
 │  └─────────────────────┘    │
 │  或：推荐好友开通VIP，有高额奖励 → 去分享 │ ← VIP 且有推荐码时展示
 │                             │
@@ -517,10 +517,8 @@ Tab 栏设计：
 │                             │
 │      按住说话，松开发送       │ ← 提示文字（AI accent 色）
 │                             │
-│  ┌──────┐ ┌──────┐ ┌──────┐│
-│  │帮我找 │ │当季推 │ │健康食 ││ ← AI 快捷指令气泡
-│  │有机蔬菜│ │荐水果 │ │谱搭配 ││   （3-6个，可横滑，内容动态）
-│  └──────┘ └──────┘ └──────┘│
+│  让每个人创造一个属于自己的世界 │ ← 品牌使命文案
+│  为全世界创造一个共生的未来     │
 │                             │
 │  ── 最近对话 ──              │ ← 最近 AI 对话记录（最多3条）
 │                             │
@@ -542,19 +540,13 @@ Tab 栏设计：
 
 #### 设计细节
 
-- **问候语**：根据时段变化（早上好/下午好/晚上好），使用 `displaySm` 字号
-- **AI 引导语**：每次打开随机显示不同的 AI 引导语，如：
-  - 「今天想吃点什么？」
-  - 「有什么可以帮你的？」
-  - 「看看今天有什么新鲜的？」
-  - 「说出你想要的，我帮你找」
+- **首页品牌标语**：固定展示「消费者就是生产力，是社会价值的创造者。」，替代原时段问候和随机 AI 引导语；使用深绿色、加粗、两行内自然换行，右侧保留购物车入口
 - **搜索框**：胶囊形，背景 `surface`，点击后跳转独立搜索页
+- **VIP 礼包卡片**：首页只展示价格、礼包标题和简短副标题，不展示 SKU、规格、数量等赠品明细；需要看明细时点击进入 `/vip/gifts`
 - **大光球**：页面核心，占据视觉中心约 40% 的区域
   - 球内文字 **"AI"** 超大（36pt，fontWeight 800），**"买买"** 小字（16pt）紧贴其下
   - 整体上大下小排列，"AI" 占据球体视觉主体，强烈凸显 AI 身份
-- **快捷指令气泡**：胶囊形标签，背景 `surface`，边框 `border`，文字 `textPrimary`
-  - 内容由后端返回（基于用户历史和季节推荐）
-  - 点击后直接将指令发给 AI，跳转 AI 聊天页
+- **品牌使命文案**：AI 光球提示下方固定展示两行居中文案「让每个人创造一个属于自己的世界 / 为全世界创造一个共生的未来」，替代原快捷指令横滑气泡
 - **最近对话**：展示最近 2-3 条 AI 对话摘要
   - 左侧小光球图标（aiAccent 色）
   - 点击恢复该对话上下文
@@ -567,8 +559,7 @@ Tab 栏设计：
 | 长按光球 | 进入语音输入模式，光球放大 + Listening 动效 |
 | 松开光球 | 发送语音，光球进入 Thinking → Responding |
 | 轻触光球 | 跳转 AI 聊天页面（文字输入模式） |
-| 上滑光球 | 展开更多快捷指令 |
-| 下拉页面 | 刷新 AI 引导语和快捷指令 |
+| 下拉页面 | 刷新抽奖状态 |
 
 ---
 
@@ -2291,7 +2282,8 @@ src/components/ai/   → 新增目录
 | 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |
 | 库存感知复购与低库存展示 | App 使用平台配置 `LOW_STOCK_DISPLAY_THRESHOLD` 控制“仅剩 x 件”展示；0 库存普通商品不能作为真实购物车项新增，复购仅展示虚拟提示；已有 0 库存购物车项不可选、不可结算、可删除 | 2026-05-18 | `app/product/[id].tsx`, `app/cart.tsx`, `app/checkout.tsx`, `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/store/useCartStore.ts`, `src/utils/stockDisplay.ts`, `src/repos/AppConfigRepo.ts` |
 | 购物车免邮提示收口 | 购物车移除静态"再买免运费"提示；结算页保留后端预结算返回的真实免邮差额提示；预结算返回前显示"计算中"而非本地兜底运费 | 2026-05-12 | `app/cart.tsx`, `app/checkout.tsx`, `src/constants/search.ts` |
-| 首页 VIP 礼包推广 | 非 VIP/未登录首页在搜索框下方展示后台 VIP 档位主推赠品组合，卡片不展示“当前主推/参考价”底栏；点击携带 `packageId`/`giftOptionId` 进入 `/vip/gifts` 并自动定位对应档位和赠品 | 2026-05-14 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts` |
+| 首页 VIP 礼包推广 | 非 VIP/未登录首页在搜索框下方展示后台 VIP 档位主推赠品组合，卡片不展示“当前主推/参考价”底栏，也不展示 SKU/规格/数量明细；点击携带 `packageId`/`giftOptionId` 进入 `/vip/gifts` 并自动定位对应档位和赠品 | 2026-05-14 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts` |
+| 首页顶部品牌标语 | 首页顶部移除时段问候和随机 AI 引导语，固定展示「消费者就是生产力，是社会价值的创造者。」；AI 光球下方移除快捷指令气泡，改为两行品牌使命文案；新增纯函数常量测试防止旧文案回归 | 2026-06-15 | `app/(tabs)/home.tsx`, `src/utils/homeHero.ts`, `src/utils/__tests__/homeHero.test.ts` |
 | 首页 VIP 推荐提醒 | VIP 用户首页在搜索框下方展示"推荐好友开通 VIP，有高额奖励"单行提醒；点击进入 `/me/referral` 分享推荐码 | 2026-05-15 | `app/(tabs)/home.tsx`, `src/utils/vipHomePromo.ts`, `tests/unit/vip-home-promo.test.mjs` |
 | VIP 首页礼包推荐展示 | 礼包跑马灯对 VIP 恢复显示并切推荐语境（标题「好友开通可得礼包」，`getVipPromoCarouselCopy` 纯函数分流文案）；`/vip/gifts` 解除 VIP 硬拦截改浏览模式：顶部"您已是 VIP"提示条 + 底部 CTA「分享给好友开通」跳 `/me/referral` + `handleCheckout` VIP 守卫物理隔离购买链路；非 VIP 行为不变 | 2026-06-06 | `app/(tabs)/home.tsx`, `app/vip/gifts.tsx`, `src/components/data/VipHomePromoCarousel.tsx`, `src/utils/vipHomePromo.ts`, `src/utils/__tests__/vipHomePromo.test.ts` |
 | VIP 礼包订单金额展示 | VIP_PACKAGE 订单列表/详情的赠品明细不展示 SKU 单价，统一显示“赠品”；订单实付金额以后端 `totalPrice` 为准，避免把赠品成本价误认为礼包价 | 2026-05-18 | `src/components/cards/OrderItemRow.tsx`, `src/components/cards/OrderCard.tsx`, `src/components/orders/ShopGroup.tsx`, `app/orders/[id].tsx` |

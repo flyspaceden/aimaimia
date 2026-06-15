@@ -42,7 +42,7 @@ test('builds VIP home promo cards from package gift combinations', () => {
       totalPrice: 128,
       giftCount: 1,
       available: true,
-      itemLines: ['高山绿茶 250g装 ×1', '铁观音 200g装 ×1'],
+      itemLines: [],
       hasMoreItems: false,
     },
   ])
@@ -86,13 +86,13 @@ test('uses the first available gift option and excludes packages without availab
         },
       ],
     },
-  ], { maxItemLines: 2 })
+  ])
 
   assert.equal(cards.length, 1)
   assert.equal(cards[0].giftOptionId, 'gift-honey')
-  assert.equal(cards[0].subtitle, '百花蜜 500g ×2 + 蜂巢蜜试吃装 ×1等')
-  assert.deepEqual(cards[0].itemLines, ['百花蜜 500g ×2', '蜂巢蜜试吃装 ×1'])
-  assert.equal(cards[0].hasMoreItems, true)
+  assert.equal(cards[0].subtitle, '精选礼包组合')
+  assert.deepEqual(cards[0].itemLines, [])
+  assert.equal(cards[0].hasMoreItems, false)
   assert.equal(cards[0].giftCount, 2)
 })
 

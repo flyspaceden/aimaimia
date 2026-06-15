@@ -32,41 +32,12 @@ import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
 import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
-import { useTheme, fitTextProps, priceTextProps } from '../../src/theme';
+import { useTheme, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
+import { HOME_HERO_STATEMENT, HOME_MISSION_LINES } from '../../src/utils/homeHero';
 import { buildVipReferralHomePrompt, type VipHomePromoCard, type VipPromoMode } from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
-
-// 时段问候语
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 6) return '夜深了';
-  if (hour < 12) return '早上好';
-  if (hour < 14) return '中午好';
-  if (hour < 18) return '下午好';
-  return '晚上好';
-}
-
-// AI 引导语池
-const AI_GUIDE_PHRASES = [
-  '今天想吃点什么？',
-  '有什么可以帮你的？',
-  '看看今天有什么新鲜的？',
-  '说出你想要的，我帮你找',
-  '想试试当季好物吗？',
-  '让我帮你挑选健康食材',
-];
-
-// 快捷指令数据
-const QUICK_COMMANDS = [
-  { label: '帮我找有机蔬菜', icon: 'leaf' as const },
-  { label: '当季推荐水果', icon: 'fruit-watermelon' as const },
-  { label: '健康食谱搭配', icon: 'food-apple-outline' as const },
-  { label: '附近农场直供', icon: 'map-marker-radius-outline' as const },
-  { label: '今日特惠', icon: 'tag-outline' as const },
-  { label: '溯源查询', icon: 'qrcode-scan' as const },
-];
 
 /** 格式化相对时间 */
 function formatRelativeTime(iso: string): string {
@@ -107,7 +78,6 @@ export default function HomeScreen() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const setLoggedIn = useAuthStore((s) => s.setLoggedIn);
   const [refreshing, setRefreshing] = useState(false);
-  const [guidePhrase, setGuidePhrase] = useState('');
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
   // 语音录制 hook
@@ -192,25 +162,12 @@ export default function HomeScreen() {
     return () => clearTimeout(timer);
   }, [queryClient, isLoggedIn]);
 
-  // 随机选择 AI 引导语
-  const pickGuidePhrase = useCallback(() => {
-    const idx = Math.floor(Math.random() * AI_GUIDE_PHRASES.length);
-    setGuidePhrase(AI_GUIDE_PHRASES[idx]);
-  }, []);
-
-  useEffect(() => {
-    pickGuidePhrase();
-  }, [pickGuidePhrase]);
-
-  // 下拉刷新：更换引导语 + 刷新抽奖状态
+  // 下拉刷新：刷新抽奖状态
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    pickGuidePhrase();
     queryClient.invalidateQueries({ queryKey: ['lottery-today'] });
     setTimeout(() => setRefreshing(false), 600);
-  }, [pickGuidePhrase, queryClient]);
-
-  const greeting = useMemo(() => getGreeting(), []);
+  }, [queryClient]);
 
   // --- 语音交互处理器 ---
 
@@ -274,14 +231,6 @@ export default function HomeScreen() {
     //   router.push('/ai/chat');
     // }
   }, [voice.isRecording, voice.isProcessing, router]);
-
-  // --- 快捷指令点击：也走意图解析路径 ---
-  const handleQuickCommand = useCallback(
-    (label: string) => {
-      router.push({ pathname: '/search', params: { q: label } });
-    },
-    [router]
-  );
 
   const handleVipPromoPress = useCallback((card: VipHomePromoCard) => {
     router.push({
@@ -464,25 +413,16 @@ export default function HomeScreen() {
         {/* 未完成订单横幅（无未支付订单时返回 null） */}
         <PendingCheckoutBanner />
 
-        {/* 问候语区域 */}
+        {/* 首页品牌标语区域 */}
         <View style={[styles.greetingRow, { marginTop: spacing['3xl'] }]}>
           <View style={styles.greetingArea}>
             <Text
-              {...fitTextProps}
               style={[
-                typography.displaySm,
-                { color: colors.text.primary },
+                styles.heroStatement,
+                { color: colors.brand.primaryDark },
               ]}
             >
-              {greeting} 🌿
-            </Text>
-            <Text
-              style={[
-                typography.bodyLg,
-                { color: colors.text.secondary, marginTop: spacing.xs },
-              ]}
-            >
-              {guidePhrase}
+              {HOME_HERO_STATEMENT}
             </Text>
           </View>
           <Pressable
@@ -798,45 +738,16 @@ export default function HomeScreen() {
           )}
         </Animated.View>
 
-        {/* 快捷指令气泡 */}
+        {/* 品牌使命文案 */}
         <Animated.View entering={FadeInDown.duration(300).delay(80)}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[
-              styles.quickCommandsContent,
-              { gap: spacing.sm },
-            ]}
-            style={[styles.quickCommands, { marginTop: spacing['2xl'] }]}
-          >
-            {QUICK_COMMANDS.map((cmd) => (
-              <Pressable
-                key={cmd.label}
-                onPress={() => handleQuickCommand(cmd.label)}
-                hitSlop={10}
-                style={[
-                  styles.commandBubble,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                    borderRadius: radius.pill,
-                    paddingHorizontal: spacing.lg,
-                    paddingVertical: spacing.sm,
-                  },
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name={cmd.icon}
-                  size={14}
-                  color={colors.ai.start}
-                  style={{ marginRight: spacing.xs }}
-                />
-                <Text style={[typography.bodySm, { color: colors.text.primary }]}>
-                  {cmd.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          <View style={[styles.missionBlock, { marginTop: spacing['2xl'] }]}>
+            <Text style={[styles.missionText, { color: colors.brand.primaryDark }]}>
+              {HOME_MISSION_LINES[0]}
+            </Text>
+            <Text style={[styles.missionText, styles.missionTextSecondary, { color: colors.text.secondary }]}>
+              {HOME_MISSION_LINES[1]}
+            </Text>
+          </View>
         </Animated.View>
 
         {/* 最近对话 —【AI 多轮对话已下线】用 false && 关闭整块，恢复时删掉 false && ( 和结尾的 ) 即可 */}
@@ -964,6 +875,13 @@ const styles = StyleSheet.create({
   greetingArea: {
     flex: 1,
     alignItems: 'flex-start',
+    paddingRight: 12,
+  },
+  heroStatement: {
+    fontSize: 25,
+    lineHeight: 32,
+    fontWeight: '800',
+    letterSpacing: 0,
   },
   cartBtn: {
     width: 40,
@@ -988,17 +906,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-  quickCommands: {
-    flexGrow: 0,
-    marginHorizontal: -20, // 溢出父级 padding 实现满屏横滑
-  },
-  quickCommandsContent: {
-    paddingHorizontal: 20,
-  },
-  commandBubble: {
-    flexDirection: 'row',
+  missionBlock: {
     alignItems: 'center',
-    borderWidth: 1,
+    paddingHorizontal: 12,
+  },
+  missionText: {
+    fontSize: 17,
+    lineHeight: 25,
+    fontWeight: '700',
+    letterSpacing: 0,
+    textAlign: 'center',
+  },
+  missionTextSecondary: {
+    marginTop: 2,
+    fontSize: 15,
+    fontWeight: '600',
   },
   pairedRow: {
     flexDirection: 'row',
