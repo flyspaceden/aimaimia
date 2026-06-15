@@ -1,5 +1,6 @@
 import {
   BUYER_NO_REGEX,
+  acquireBuyerNoSequenceLock,
   formatBuyerNo,
   isBuyerNo,
   nextBuyerNo,
@@ -37,7 +38,24 @@ describe('buyer-no.util', () => {
     await expect(nextBuyerNo(tx)).resolves.toBe('AIMM00000000000042');
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(querySql[0]).toContain('pg_advisory_xact_lock');
+    expect(querySql[0]).toContain('::int');
     expect(querySql[0]).toContain("nextval('buyer_no_seq')");
+  });
+
+  it('casts advisory lock keys to int for PostgreSQL two-argument lock overload', async () => {
+    const executeSql: string[] = [];
+    const tx = {
+      $executeRaw: jest.fn((strings: TemplateStringsArray) => {
+        executeSql.push(strings.join(' '));
+        return Promise.resolve(1);
+      }),
+    } as any;
+
+    await acquireBuyerNoSequenceLock(tx);
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(executeSql[0]).toContain('pg_advisory_xact_lock');
+    expect(executeSql[0]).toContain('::int');
   });
 
   it('resolves AIMM input to internal User.id and leaves internal ids unchanged', async () => {
