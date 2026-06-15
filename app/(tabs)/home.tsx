@@ -440,52 +440,6 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* 搜索框（胶囊形，点击跳转搜索页） */}
-        <Pressable
-          onPress={() => router.push('/search')}
-          style={[
-            styles.searchBar,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              borderRadius: radius.pill,
-              marginTop: spacing.xl,
-              paddingHorizontal: spacing.lg,
-              paddingVertical: spacing.md,
-            },
-            shadow.sm,
-          ]}
-        >
-          <MaterialCommunityIcons
-            name="magnify"
-            size={20}
-            color={colors.muted}
-          />
-          <Text
-            style={[
-              typography.bodyLg,
-              { color: colors.muted, marginLeft: spacing.sm, flex: 1 },
-            ]}
-          >
-            搜索商品，或问我...
-          </Text>
-          <MaterialCommunityIcons
-            name="microphone-outline"
-            size={20}
-            color={colors.ai.start}
-          />
-        </Pressable>
-
-        {/* 今日已抽完提示 — 搜索框下方 */}
-        {lotteryStatus && lotteryStatus.hasDrawn && (
-          <Animated.View entering={FadeIn.duration(300)} style={[styles.drawnHint, { marginTop: spacing.sm }]}>
-            <MaterialCommunityIcons name="gift-open-outline" size={14} color={colors.muted} />
-            <Text style={[typography.captionSm, { color: colors.muted, marginLeft: spacing.xxs }]}>
-              今日已抽奖，请明天再来
-            </Text>
-          </Animated.View>
-        )}
-
         <Animated.View entering={FadeInDown.duration(300).delay(40)}>
           <VipHomePromoCarousel
             packages={vipPackages}
@@ -749,6 +703,52 @@ export default function HomeScreen() {
             </Text>
           </View>
         </Animated.View>
+
+        {/* 搜索框（胶囊形，点击跳转搜索页） */}
+        <Pressable
+          onPress={() => router.push('/search')}
+          style={[
+            styles.searchBar,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderRadius: radius.pill,
+              marginTop: spacing.xl,
+              paddingHorizontal: spacing.lg,
+              paddingVertical: spacing.md,
+            },
+            shadow.sm,
+          ]}
+        >
+          <MaterialCommunityIcons
+            name="magnify"
+            size={20}
+            color={colors.muted}
+          />
+          <Text
+            style={[
+              typography.bodyLg,
+              { color: colors.muted, marginLeft: spacing.sm, flex: 1 },
+            ]}
+          >
+            搜索商品，或问我...
+          </Text>
+          <MaterialCommunityIcons
+            name="microphone-outline"
+            size={20}
+            color={colors.ai.start}
+          />
+        </Pressable>
+
+        {/* 今日已抽完提示 — 搜索框下方 */}
+        {lotteryStatus && lotteryStatus.hasDrawn && (
+          <Animated.View entering={FadeIn.duration(300)} style={[styles.drawnHint, { marginTop: spacing.sm }]}>
+            <MaterialCommunityIcons name="gift-open-outline" size={14} color={colors.muted} />
+            <Text style={[typography.captionSm, { color: colors.muted, marginLeft: spacing.xxs }]}>
+              今日已抽奖，请明天再来
+            </Text>
+          </Animated.View>
+        )}
 
         {/* 最近对话 —【AI 多轮对话已下线】用 false && 关闭整块，恢复时删掉 false && ( 和结尾的 ) 即可 */}
         {false && (
