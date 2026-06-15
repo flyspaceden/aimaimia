@@ -429,7 +429,7 @@ export default function MeScreen() {
                       · 更多奖励
                     </Text>
                     <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)', marginTop: 3 }]}>
-                      · 免运费
+                      · 减免运费权益
                     </Text>
                   </View>
                 </View>
