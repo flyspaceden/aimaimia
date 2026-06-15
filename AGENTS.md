@@ -115,6 +115,7 @@
 - `docs/superpowers/plans/2026-06-04-account-deletion-immediate.md` — 账号注销即时版实施计划（Schema/后端注销模块/AuthIdentity 释放/JWT 拦截/推荐与分润保护/买家 App 注销页/法律文本/验证清单，**账号注销实施排程**）
 - `docs/superpowers/specs/2026-06-14-digital-asset-cumulative-spend-design.md` — 数字资产累计消费设计方案（独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户+流水；确认收货后按商品实付金额入账，退款/退货成功扣回，VIP 礼包计入，历史 `RECEIVED` 订单回填；买家 App 数字资产中心雏形 + 管理后台完整数字资产管理页，**数字资产累计消费权威来源**）
 - `docs/superpowers/plans/2026-06-14-digital-asset-cumulative-spend.md` — 数字资产累计消费实施计划（Schema/核心记账服务/订单与退款接入/历史回填/买家 App 数字资产中心/管理后台数字资产页/安全验证拆分，**数字资产累计消费实施排程**）
+- `docs/superpowers/specs/2026-06-15-buyer-public-id-design.md` — 买家公开编号设计方案（新增 `buyerNo=AIMM+14位数字`，保留内部 `User.id`；历史买家按注册时间回填；App 我的页展示复制；管理后台/卖家中心展示、复制和搜索，**买家公开编号权威来源**）
 - `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
@@ -134,6 +135,7 @@
 |------|------|
 | 消费积分（Reward）vs 平台红包（Coupon） | **两套完全独立的系统，严禁混淆**。消费积分（Reward 体系：`RewardAccount`/`RewardLedger`/`VIP_REWARD`/`NORMAL_REWARD`）在 v1.0 支持两条轨道：支付宝提现 + 普通商品订单部分抵扣；平台红包（Coupon 体系：`CouponCampaign`/`CouponInstance`）仍是独立优惠券系统，可与消费积分抵扣叠加。VIP 礼包禁止使用消费积分抵扣 |
 | 金额单位 | **Float / 元**（Prisma Schema 与前端一致，非 data-system.md 的 Int/分） |
+| 买家公开编号 | 内部 `User.id` 保持 `cuid()` 主键不变；买家业务展示/复制/搜索统一使用 `buyerNo = AIMM + 14 位数字`，仅买家用户生成，纯卖家员工和管理员账号不生成；管理后台/卖家中心输入 `AIMM...` 时后端解析到内部 `User.id` 后再复用原权限校验 |
 | 推荐码归属 | **只有 VIP 拥有可展示、可分享、可被延迟深链接收的推荐码**。普通用户可绑定推荐人，但 `GET /bonus/member` 对普通用户返回 `referralCode=null`，历史普通码后端按无效码拒绝 |
 | VIP 三叉树根节点 | **A1–A10 十个高管**，每棵独立子树；有推荐人时落在推荐人子树内，推荐人直连满后按层选择当前层 `childrenCount` 最小节点落位，同数按树顺序 |
 | 管理端认证隔离 | 独立 JWT Secret（`ADMIN_JWT_SECRET`）、独立 Passport Strategy（`admin-jwt`）、独立 Guard |
