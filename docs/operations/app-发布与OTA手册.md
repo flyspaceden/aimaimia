@@ -260,7 +260,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-06-14）
+## 六、当前 App 实际状态（2026-06-15）
 
 ### EAS 配置
 
@@ -279,6 +279,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 | production | production | api（生产） | `production` | `false` | `true` | apk（v1.0 暂用） | Google Play / 国内商店上架 |
 
 > **微信支付开关**（2026-06-09 当前配置）：`preview` 与 `production` 档均注入 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`。买家端 `src/constants/payment.ts` 仍额外限制 `Platform.OS === 'android'`，因此 iOS 入口继续灰掉；Android production APK 会展示微信支付入口。若业务决定生产暂缓微信入口，必须先关闭 production profile 的该 env 并重新 build（否则新装用户首启内嵌 bundle 仍会看到入口）。
+
+> **买家公开编号**（2026-06-15 待发布）：`buyerNo` 已接入，App「我的」页展示并复制 `AIMM` + 14 位编号；后端新增 `User.buyerNo` 和 `buyer_no_seq`；管理后台/卖家中心支持展示与搜索。此改动包含数据库 migration 和后端接口变更，首次上线必须走服务端部署与数据库迁移；App 展示文案后续微调可 OTA。
 
 **环境区分约定（2026-05-27 起，单包名方案）**：
 
