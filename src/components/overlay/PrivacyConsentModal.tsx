@@ -212,20 +212,23 @@ export const PrivacyConsentModal = ({ open, onAgree }: Props) => {
                 </Text>
                 <Text
                   style={[
-                    typography.bodySm,
-                    { color: colors.text.secondary, marginTop: 8, lineHeight: 20 },
+                    typography.captionSm,
+                    { color: colors.text.tertiary, marginTop: 8, lineHeight: 18 },
                   ]}
                 >
-                  1. 我们会在您使用注册登录、下单支付、物流配送、客服咨询、AI 助手等功能时，在征得您同意的前提下收集必要的个人信息。
-                  {'\n'}
-                  2. 敏感个人信息（如手机号、身份证号、人脸图像、精确位置、支付信息）会单独告知并获取您的同意，仅用于身份核验、交易履约和法定义务。
-                  {'\n'}
-                  3. 我们会将订单信息共享给商家和物流公司以完成交易，支付交由持牌支付机构处理，AI 内容会脱敏后提交给合作服务商。
-                  {'\n'}
-                  4. 您可以随时在 App 设置中查阅、更正、删除您的信息，撤回同意。
-                  {'\n'}
-                  5. 我们不会将您的个人信息用于与上述目的无关的用途，也不会在未经您同意的情况下向第三方提供。
+                  隐私政策版本：{PRIVACY_POLICY.version} · 生效日期：{PRIVACY_POLICY.effectiveAt}
                 </Text>
+                {PRIVACY_POLICY.summary.map((line, index) => (
+                  <Text
+                    key={`${PRIVACY_POLICY.version}-${index}`}
+                    style={[
+                      typography.bodySm,
+                      { color: colors.text.secondary, marginTop: 8, lineHeight: 20 },
+                    ]}
+                  >
+                    {index + 1}. {line}
+                  </Text>
+                ))}
                 <Text
                   style={[
                     typography.captionSm,

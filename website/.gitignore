@@ -4,3 +4,9 @@ dist
 
 # 由 scripts/build-resolve.mjs 在 prebuild 钩子生成，不入仓
 public/resolve/
+
+# 由 scripts/build-legal-static.mjs 在 prebuild 钩子生成，不入仓
+public/privacy/
+public/privacy.html
+public/terms/
+public/terms.html
