@@ -41,9 +41,6 @@ function renderBlock(block) {
 function renderLegalPage(doc, kind) {
   const title = escapeHtml(doc.title);
   const summary = doc.summary.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n        ');
-  const toc = doc.sections
-    .map((section) => `<a href="#${escapeHtml(section.id)}">${escapeHtml(section.title)}</a>`)
-    .join('\n          ');
   const sections = doc.sections
     .map(
       (section) => `<section id="${escapeHtml(section.id)}">
@@ -69,7 +66,6 @@ function renderLegalPage(doc, kind) {
     h3 { margin: 24px 0 12px; font-size: 17px; }
     p { line-height: 1.8; margin: 0 0 12px; }
     a { color: #0f7a4b; text-decoration: none; }
-    nav { display: grid; gap: 8px; margin: 24px 0; padding: 20px; background: white; border: 1px solid #d7e2dc; border-radius: 8px; }
     section { background: white; border: 1px solid #d7e2dc; border-radius: 8px; padding: 24px; margin-bottom: 20px; }
     .meta { opacity: .86; }
     .summary { background: white; border: 1px solid #d7e2dc; border-radius: 8px; padding: 24px; }
@@ -89,9 +85,6 @@ function renderLegalPage(doc, kind) {
       <div class="summary">
         ${summary}
       </div>
-      <nav aria-label="${kind === 'privacy' ? '隐私政策' : '用户协议'}目录">
-          ${toc}
-      </nav>
       ${sections}
     </article>
     <footer>
