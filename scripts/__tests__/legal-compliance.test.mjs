@@ -56,6 +56,40 @@ test('privacy policy discloses OPPO-required payment SDK metadata', () => {
   assert.doesNotMatch(privacy, /微信开放平台 SDK（腾讯公司）/);
 });
 
+test('privacy consent modal summary stays sourced from the privacy policy document', () => {
+  const modal = read('src/components/overlay/PrivacyConsentModal.tsx');
+
+  assert.match(modal, /PRIVACY_POLICY\.summary\.map/);
+  assert.match(modal, /PRIVACY_POLICY\.version/);
+  assert.match(modal, /PRIVACY_POLICY\.effectiveAt/);
+  assert.doesNotMatch(modal, /身份证号/);
+  assert.doesNotMatch(modal, /人脸图像/);
+  assert.doesNotMatch(modal, /精确位置/);
+  assert.doesNotMatch(modal, /AI 内容会脱敏后提交给合作服务商/);
+});
+
+test('website build generates crawler-readable static legal pages', () => {
+  const websitePackageJson = JSON.parse(read('website/package.json'));
+
+  assert.equal(existsSync('website/scripts/build-legal-static.mjs'), true);
+  assert.match(websitePackageJson.scripts.prebuild, /build-legal-static\.mjs/);
+
+  execFileSync('node', ['website/scripts/build-legal-static.mjs'], { encoding: 'utf8' });
+
+  const staticPrivacy = read('website/public/privacy/index.html');
+  const staticPrivacyAlias = read('website/public/privacy.html');
+
+  for (const html of [staticPrivacy, staticPrivacyAlias]) {
+    assert.match(html, /AI爱买买APP隐私政策/);
+    assert.match(html, /版本：v1\.0\.2/);
+    assert.match(html, /生效日期：2026-06-10/);
+    assert.match(html, /剪贴板读取/);
+    assert.match(html, /APP支付客户端SDK/);
+    assert.match(html, /微信OpenSDK Android/);
+    assert.doesNotMatch(html, /<div id="root"><\/div>/);
+  }
+});
+
 test('VIP purchase flow prominently exposes membership service agreement', () => {
   const agreementPath = 'src/content/legal/memberServiceAgreement.ts';
   const agreementRoutePath = 'app/member-service-agreement.tsx';

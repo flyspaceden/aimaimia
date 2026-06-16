@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/build-resolve.mjs",
+    "prebuild": "node scripts/build-resolve.mjs && node scripts/build-legal-static.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:resolve": "node --test scripts/__tests__/resolveLogic.test.mjs"

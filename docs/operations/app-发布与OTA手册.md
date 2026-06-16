@@ -292,6 +292,20 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### 本机构建验证记录
 
+#### 2026-06-16 本地 production Android rebuild（1.0.4，隐私政策三端一致修复内嵌包，待分发/提审）
+
+- 类型：`eas build --profile production --platform android --local --non-interactive --output "$(pwd)/apk/正式版/prod-1.0.4-privacy-consistency-20260616-135143.apk"`
+- Profile: production / Platform: Android / Channel: production
+- Commit: `a7589ed`（`fix(legal): align privacy policy surfaces`；在 1.0.4 内嵌包基础上修复隐私政策三端一致性）
+- Version: 1.0.4 / VersionCode: 11 / RuntimeVersion: 1.0.4
+- 本地 APK: `apk/正式版/prod-1.0.4-privacy-consistency-20260616-135143.apk`（117 MB）；`apk/aimaimai-latest.apk` 已同步为同一文件
+- SHA-256: `edd5a19e468edb8a58da3af6246b57b6ec2ccc5bc1bbda6cd7983d2a4458a262`
+- 结果：✅ `BUILD SUCCESSFUL`（Gradle release profile total `455.8s`）；`aapt dump badging` 反查 `package='com.aimaimai.shop'` / `versionName='1.0.4'` / `versionCode='11'`；`apksigner verify --verbose --print-certs` 通过（v2 签名，证书 MD5 `766bafb6a3b34a678761e4b07e3665c4`）；AndroidManifest 确认 channel 为 `production`，`expo_runtime_version` resource 为 `1.0.4`
+- 64 位校验：✅ `aapt dump badging` 反查 `native-code: 'arm64-v8a' 'armeabi-v7a' 'x86' 'x86_64'`；APK 内 `arm64-v8a` / `armeabi-v7a` / `x86` / `x86_64` 均为 26 个 `.so`，可满足 vivo 等渠道 64 位要求
+- 构建前验证：✅ `node --test scripts/__tests__/legal-compliance.test.mjs`（14/14）、✅ `npm run test:legal`（21/21）、✅ `npx tsc -b --noEmit --pretty false`、✅ `cd website && npm ci && npm run build`，并确认 `website/dist/privacy/index.html` 与 `website/dist/privacy.html` 为可被审核端直接读取的静态隐私政策页，含 `AI爱买买APP隐私政策`、`版本：v1.0.2`、`生效日期：2026-06-10`、`剪贴板读取`、`APP支付客户端SDK`、`微信OpenSDK Android`；✅ production Android export（45 files；launch HBC `8.54 MB`）
+- 构建环境：`EXPO_PUBLIC_ENV=production`、`EXPO_PUBLIC_USE_MOCK=false`、`EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1`、`EXPO_PUBLIC_ALIPAY_SANDBOX=false`、`EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`
+- 注意：此前 `prod-1.0.4-20260616-002402.apk`（versionCode 10）已被本包替代，不再用于小米等渠道提审；原因是首启隐私弹窗摘要仍为手写旧口径，且官网 `/privacy` 线上入口在审核端只能抓到 SPA shell。本次修复后，App 首启隐私弹窗摘要、App 内隐私政策全文和官网静态隐私政策页均由同一份隐私政策内容锁定。
+
 #### 2026-06-16 本地 production Android rebuild（1.0.4，买家公开编号/数字资产/首页与我的页最新内嵌包，待分发/提审）
 
 - 类型：`eas build --profile production --platform android --local --non-interactive --output "$(pwd)/apk/正式版/prod-1.0.4-20260616-002402.apk"`
@@ -304,7 +318,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 - 64 位校验：✅ `aapt dump badging` 反查 `native-code: 'arm64-v8a' 'armeabi-v7a' 'x86' 'x86_64'`；APK 内 `arm64-v8a` / `armeabi-v7a` / `x86` / `x86_64` 均为 26 个 `.so`，可满足 vivo 等渠道 64 位要求
 - 构建前验证：✅ `npm run test:legal`（19/19）、✅ `npx tsc -b --noEmit --pretty false`、✅ production Android export（45 files；26 png / 19 ttf；launch HBC `8.1M`）
 - 构建环境：`EXPO_PUBLIC_ENV=production`、`EXPO_PUBLIC_USE_MOCK=false`、`EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1`、`EXPO_PUBLIC_ALIPAY_SANDBOX=false`、`EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`
-- 注意：本次 version bump 使新版 APK 的 OTA runtime 切到 **1.0.4**；后续若要给该包推 OTA，必须发布到 production branch 且 runtime 为 1.0.4。`expo doctor` 在 EAS local 流程中仍有既有告警（支付/微信原生库 RN Directory 元数据、Expo SDK 54 patch 版本落后、npm audit 若干漏洞）；Gradle release build、APK 签名、版本反查、runtime/channel、64 位 ABI 和 bundle 关键字段反查均已通过。
+- 注意：本包已被上方隐私政策三端一致修复包（`prod-1.0.4-privacy-consistency-20260616-135143.apk`，versionCode 11）替代，不再用于小米等渠道提审。本次 version bump 使新版 APK 的 OTA runtime 切到 **1.0.4**；后续若要给该包推 OTA，必须发布到 production branch 且 runtime 为 1.0.4。`expo doctor` 在 EAS local 流程中仍有既有告警（支付/微信原生库 RN Directory 元数据、Expo SDK 54 patch 版本落后、npm audit 若干漏洞）；Gradle release build、APK 签名、版本反查、runtime/channel、64 位 ABI 和 bundle 关键字段反查均已通过。
 
 #### 2026-06-11 本地 production Android rebuild（1.0.3，抽奖转盘展示修复内嵌包，待分发/提审）
 
@@ -466,7 +480,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### Production Branch
 
-**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前存在 runtime **1.0.1**（华为等旧包用户）与 **1.0.2**（小米 1.0.2 包用户）；2026-06-16 已本地重新生成 1.0.4 production APK（`prod-1.0.4-20260616-002402.apk`，versionCode 10，runtime 1.0.4，内嵌买家公开编号、数字资产、首页品牌文案和我的页身份卡最新 App 代码），但尚未上传/分发；`apk/aimaimai-latest.apk` 已同步为该包。上一版 2026-06-11 1.0.3 production APK 为 `prod-1.0.3-lottery-20260611-222117.apk`（versionCode 9，内嵌隐私政策 `v1.0.2` OPPO SDK 精确公示 + 会员服务协议 + 抽奖转盘奖品名完整展示 / 奖品实例配色修复）。2026-06-10 源码已按 OPPO 审核整改升级隐私政策 `v1.0.2`（支付宝/微信 SDK 精确公示），并已发 OPPO SDK 公示版 production OTA 到 runtime **1.0.3**；同日晚继续按 OPPO 付费会员审核要求发 runtime **1.0.3** production OTA，新增独立《会员服务协议》页面，并在 VIP 礼包选择页 / VIP 结算支付页醒目提示且支付前强制勾选。2026-06-11 已继续发 runtime **1.0.3** production OTA，将「关于爱买买」联系邮箱改为 `zwf@huahainongke.com`。2026-06-14 已发 runtime **1.0.3** production OTA，新增买家 App「数字资产」入口与累计消费金额页面；该页面依赖本次 `main` 后端部署完成 `DigitalAssetAccount`/`DigitalAssetLedger` migration 与 `/me/digital-assets/*` API 后可用。2026-06-15 曾发 runtime **1.0.3** 首页品牌文案/VIP 礼包卡片精简 OTA，但 Android 侧出现 0 installs / 3 failedInstalls / 100% crashRate，已用 `eas update:republish` 紧急回滚到数字资产稳定版本；同日已从干净 `main` 重新发 runtime **1.0.3** production OTA，包含首页品牌文案/VIP 礼包卡片精简与我的页 VIP 卡片「减免运费权益」文案；随后继续发第 22 条 OTA，将首页标语固定为「消费者就是生产力 / 是社会价值的创造者」，使命文案改为「让消费者创造一个属于自己的世界 / 为全世界创造一个共生的未来」，并把搜索框和已抽奖提示移动到使命文案下方；第 23 条 OTA 删除首页 VIP 礼包跑马灯顶部「好友开通可得礼包 / 3 个档位可选」标题行，并将黑色推荐条文案精简为「推荐好友开通 VIP」；第 24 条 OTA 调整我的页身份卡：删除时段问候语，用户编号显示为 `ID: AIMM...`，并优化昵称 / 编号 / 推荐码 / 右侧按钮排版。第 21/22/24 条发布前后均验证 Android/iOS manifest 为 45 assets / 19 ttf、launch HBC 约 5.27 MB。runtime 1.0.4 / 1.0.3 / 1.0.2 / 1.0.1 用户互不接收其他 runtime 的 OTA；1.0.4 新包上线后，后续 App JS 更新需要针对 runtime **1.0.4** 单独发 production OTA。**生产 OTA 必须按目标 runtime 分发**——1.0.4 / 1.0.3 / 1.0.2 / 1.0.1 / 1.0.0 / 0.2.0 互不通 OTA。
+**已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前存在 runtime **1.0.1**（华为等旧包用户）与 **1.0.2**（小米 1.0.2 包用户）；2026-06-16 已本地重新生成 1.0.4 隐私政策三端一致修复 production APK（`prod-1.0.4-privacy-consistency-20260616-135143.apk`，versionCode 11，runtime 1.0.4，commit `a7589ed`，内嵌买家公开编号、数字资产、首页品牌文案、我的页身份卡最新 App 代码，并修复首启隐私弹窗摘要与官网静态隐私政策页），但尚未上传/分发；`apk/aimaimai-latest.apk` 已同步为该包。此前 `prod-1.0.4-20260616-002402.apk`（versionCode 10）因隐私弹窗摘要仍有手写旧口径且官网 `/privacy` 为 SPA shell，已被替代，不再提审。上一版 2026-06-11 1.0.3 production APK 为 `prod-1.0.3-lottery-20260611-222117.apk`（versionCode 9，内嵌隐私政策 `v1.0.2` OPPO SDK 精确公示 + 会员服务协议 + 抽奖转盘奖品名完整展示 / 奖品实例配色修复）。2026-06-10 源码已按 OPPO 审核整改升级隐私政策 `v1.0.2`（支付宝/微信 SDK 精确公示），并已发 OPPO SDK 公示版 production OTA 到 runtime **1.0.3**；同日晚继续按 OPPO 付费会员审核要求发 runtime **1.0.3** production OTA，新增独立《会员服务协议》页面，并在 VIP 礼包选择页 / VIP 结算支付页醒目提示且支付前强制勾选。2026-06-11 已继续发 runtime **1.0.3** production OTA，将「关于爱买买」联系邮箱改为 `zwf@huahainongke.com`。2026-06-14 已发 runtime **1.0.3** production OTA，新增买家 App「数字资产」入口与累计消费金额页面；该页面依赖本次 `main` 后端部署完成 `DigitalAssetAccount`/`DigitalAssetLedger` migration 与 `/me/digital-assets/*` API 后可用。2026-06-15 曾发 runtime **1.0.3** 首页品牌文案/VIP 礼包卡片精简 OTA，但 Android 侧出现 0 installs / 3 failedInstalls / 100% crashRate，已用 `eas update:republish` 紧急回滚到数字资产稳定版本；同日已从干净 `main` 重新发 runtime **1.0.3** production OTA，包含首页品牌文案/VIP 礼包卡片精简与我的页 VIP 卡片「减免运费权益」文案；随后继续发第 22 条 OTA，将首页标语固定为「消费者就是生产力 / 是社会价值的创造者」，使命文案改为「让消费者创造一个属于自己的世界 / 为全世界创造一个共生的未来」，并把搜索框和已抽奖提示移动到使命文案下方；第 23 条 OTA 删除首页 VIP 礼包跑马灯顶部「好友开通可得礼包 / 3 个档位可选」标题行，并将黑色推荐条文案精简为「推荐好友开通 VIP」；第 24 条 OTA 调整我的页身份卡：删除时段问候语，用户编号显示为 `ID: AIMM...`，并优化昵称 / 编号 / 推荐码 / 右侧按钮排版。第 21/22/24 条发布前后均验证 Android/iOS manifest 为 45 assets / 19 ttf、launch HBC 约 5.27 MB。runtime 1.0.4 / 1.0.3 / 1.0.2 / 1.0.1 用户互不接收其他 runtime 的 OTA；1.0.4 新包上线后，后续 App JS 更新需要针对 runtime **1.0.4** 单独发 production OTA。**生产 OTA 必须按目标 runtime 分发**——1.0.4 / 1.0.3 / 1.0.2 / 1.0.1 / 1.0.0 / 0.2.0 互不通 OTA。
 
 生产 OTA 完整历史（第 1-24 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
 
