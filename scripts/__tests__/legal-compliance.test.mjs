@@ -87,6 +87,8 @@ test('website build generates crawler-readable static legal pages', () => {
     assert.match(html, /APP支付客户端SDK/);
     assert.match(html, /微信OpenSDK Android/);
     assert.doesNotMatch(html, /<div id="root"><\/div>/);
+    assert.doesNotMatch(html, /<nav aria-label="隐私政策目录">/);
+    assert.doesNotMatch(html, /href="#scope"/);
   }
 });
 
