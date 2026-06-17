@@ -91,6 +91,8 @@ test('website build generates crawler-readable static legal pages', () => {
     assert.match(html, /class="document-header-card card"/);
     assert.match(html, /class="summary-card card"/);
     assert.match(html, /class="section-card card"/);
+    assert.match(html, /\.body-text,\s*\.note,\s*\.strong-box,\s*\.bullet-row span:last-child\s*\{[^}]*overflow-wrap: anywhere;/s);
+    assert.match(html, /\.bullet-row span:last-child\s*\{[^}]*min-width: 0;/s);
     assert.doesNotMatch(html, /<div id="root"><\/div>/);
     assert.doesNotMatch(html, /<nav aria-label="隐私政策目录">/);
     assert.doesNotMatch(html, /href="#scope"/);

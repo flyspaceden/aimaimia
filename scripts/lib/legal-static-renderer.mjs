@@ -168,6 +168,13 @@ export function renderLegalPage(doc, kind) {
     .bullet-row:first-child {
       margin-top: 0;
     }
+    .body-text,
+    .note,
+    .strong-box,
+    .bullet-row span:last-child {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     .note {
       margin-top: 12px;
       font-weight: 600;
@@ -185,6 +192,9 @@ export function renderLegalPage(doc, kind) {
       display: flex;
       align-items: flex-start;
       gap: 8px;
+    }
+    .bullet-row span:last-child {
+      min-width: 0;
     }
     .bullet-dot {
       flex: 0 0 auto;
