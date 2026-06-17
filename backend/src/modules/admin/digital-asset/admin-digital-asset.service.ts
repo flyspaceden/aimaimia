@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
+import { validateCreditTiers } from '../../digital-asset/digital-asset-credit-calculator';
 import { AdminAdjustDigitalAssetDto } from '../../digital-asset/dto/admin-adjust-digital-asset.dto';
 import { UpdateDigitalAssetSettingsDto } from '../../digital-asset/dto/update-digital-asset-settings.dto';
+import { UpdateDigitalAssetRulesDto } from '../../digital-asset/dto/update-digital-asset-rules.dto';
+import { CreditAssetTier } from '../../digital-asset/digital-asset-v2.types';
 import {
   AdminDigitalAssetAccountQueryDto,
   AdminDigitalAssetLedgerQueryDto,
@@ -17,12 +20,18 @@ import { maskPhone } from '../../../common/security/privacy-mask';
 import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
+const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
 const ALLOWED_SETTING_FIELDS = new Set(['key', 'title', 'enabled', 'description']);
 const DEFAULT_MODULE_SETTINGS = [
   { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
   { key: 'level', title: '资产等级', enabled: false, description: '待开放' },
   { key: 'benefits', title: '权益兑换', enabled: false, description: '待开放' },
   { key: 'equity', title: '工资/期权/股权', enabled: false, description: '规则待公布' },
+];
+const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
+  { minAmount: 0, maxAmount: 500, multiplier: 3 },
+  { minAmount: 500, maxAmount: 5000, multiplier: 5 },
+  { minAmount: 5000, maxAmount: null, multiplier: 10 },
 ];
 
 @Injectable()
@@ -39,7 +48,11 @@ export class AdminDigitalAssetService {
     const [accounts, creditToday, debitToday] = await Promise.all([
       (this.prisma as any).digitalAssetAccount.aggregate({
         _count: { _all: true },
-        _sum: { cumulativeSpendAmount: true },
+        _sum: {
+          cumulativeSpendAmount: true,
+          seedAssetBalance: true,
+          creditAssetBalance: true,
+        },
       }),
       (this.prisma as any).digitalAssetLedger.aggregate({
         where: { direction: 'CREDIT', createdAt: { gte: startOfDay } },
@@ -51,9 +64,15 @@ export class AdminDigitalAssetService {
       }),
     ]);
 
+    const totalSeedAssetBalance = accounts?._sum?.seedAssetBalance ?? 0;
+    const totalCreditAssetBalance = accounts?._sum?.creditAssetBalance ?? 0;
+
     return {
       accountCount: accounts?._count?._all ?? 0,
       totalCumulativeSpendAmount: accounts?._sum?.cumulativeSpendAmount ?? 0,
+      totalSeedAssetBalance,
+      totalCreditAssetBalance,
+      totalAssetBalance: totalSeedAssetBalance + totalCreditAssetBalance,
       todayCreditAmount: creditToday?._sum?.amount ?? 0,
       todayDebitAmount: debitToday?._sum?.amount ?? 0,
     };
@@ -89,6 +108,7 @@ export class AdminDigitalAssetService {
       where: { id: resolvedUserId },
       include: {
         profile: { select: { nickname: true, avatarUrl: true } },
+        memberProfile: { select: { tier: true } },
         authIdentities: {
           where: { provider: 'PHONE' },
           select: { identifier: true },
@@ -107,9 +127,13 @@ export class AdminDigitalAssetService {
         avatarUrl: user.profile?.avatarUrl ?? null,
         phone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
         status: user.status,
+        vipStatus: user.memberProfile?.tier ?? (summary.isVip ? 'VIP' : 'NORMAL'),
       },
       account: {
         id: (user as any).digitalAssetAccount?.id ?? null,
+        totalAssetBalance: summary.totalAssetBalance,
+        seedAssetBalance: summary.seedAssetBalance,
+        creditAssetBalance: summary.creditAssetBalance,
         cumulativeSpendAmount: summary.cumulativeSpendAmount,
         updatedAt: (user as any).digitalAssetAccount?.updatedAt ?? null,
       },
@@ -130,6 +154,7 @@ export class AdminDigitalAssetService {
     await this.digitalAssetService.adjustByAdmin({
       targetUserId: resolvedUserId,
       adminUserId: admin.sub,
+      subjectType: dto.subjectType,
       direction: dto.direction,
       amount: dto.amount,
       reason: dto.reason,
@@ -147,12 +172,16 @@ export class AdminDigitalAssetService {
       include: this.accountInclude(),
     });
     const rows = [
-      ['买家编号', '用户ID', '昵称', '手机号', '累计消费', '账户更新时间'],
+      ['买家编号', '用户ID', '昵称', '手机号', 'VIP状态', '数字资产总额', '种子资产', '信用资产', '累计消费', '账户更新时间'],
       ...items.map((item: any) => [
         item.user?.buyerNo ?? '',
         item.userId,
         item.user?.profile?.nickname ?? '',
         maskPhone(item.user?.authIdentities?.[0]?.identifier ?? null) ?? '',
+        item.user?.memberProfile?.tier ?? 'NORMAL',
+        String((item.seedAssetBalance ?? 0) + (item.creditAssetBalance ?? 0)),
+        String(item.seedAssetBalance ?? 0),
+        String(item.creditAssetBalance ?? 0),
         String(item.cumulativeSpendAmount ?? 0),
         item.updatedAt ? new Date(item.updatedAt).toISOString() : '',
       ]),
@@ -163,22 +192,51 @@ export class AdminDigitalAssetService {
   }
 
   async getSettings() {
-    const config = await this.prisma.ruleConfig.findUnique({
-      where: { key: DIGITAL_ASSET_SETTINGS_KEY },
-    });
-    return {
-      modules: this.normalizeSettings((config?.value as any)?.modules ?? DEFAULT_MODULE_SETTINGS),
-    };
+    const rules = await this.getRules();
+    return { modules: rules.modules };
   }
 
   async updateSettings(dto: UpdateDigitalAssetSettingsDto) {
-    const modules = this.normalizeSettings(dto.modules);
-    await this.prisma.ruleConfig.upsert({
-      where: { key: DIGITAL_ASSET_SETTINGS_KEY },
-      update: { value: { modules } },
-      create: { key: DIGITAL_ASSET_SETTINGS_KEY, value: { modules } },
+    const rules = await this.getRules();
+    const nextRules = await this.updateRules({
+      tiers: rules.tiers,
+      modules: dto.modules,
     });
-    return { modules };
+    return { modules: nextRules.modules };
+  }
+
+  async getRules() {
+    const [creditConfig, moduleConfig] = await Promise.all([
+      this.prisma.ruleConfig.findUnique({
+        where: { key: DIGITAL_ASSET_CREDIT_TIERS_KEY },
+      }),
+      this.prisma.ruleConfig.findUnique({
+        where: { key: DIGITAL_ASSET_SETTINGS_KEY },
+      }),
+    ]);
+
+    return {
+      tiers: this.normalizeCreditTiers((creditConfig?.value as any)?.value?.tiers ?? (creditConfig?.value as any)?.tiers),
+      modules: this.normalizeSettings((moduleConfig?.value as any)?.modules ?? DEFAULT_MODULE_SETTINGS),
+    };
+  }
+
+  async updateRules(dto: UpdateDigitalAssetRulesDto) {
+    const tiers = this.normalizeCreditTiers(dto.tiers);
+    const modules = this.normalizeSettings(dto.modules);
+    await Promise.all([
+      this.prisma.ruleConfig.upsert({
+        where: { key: DIGITAL_ASSET_CREDIT_TIERS_KEY },
+        update: { value: { tiers } },
+        create: { key: DIGITAL_ASSET_CREDIT_TIERS_KEY, value: { tiers } },
+      }),
+      this.prisma.ruleConfig.upsert({
+        where: { key: DIGITAL_ASSET_SETTINGS_KEY },
+        update: { value: { modules } },
+        create: { key: DIGITAL_ASSET_SETTINGS_KEY, value: { modules } },
+      }),
+    ]);
+    return { tiers, modules };
   }
 
   private buildAccountWhere(query: AdminDigitalAssetAccountQueryDto) {
@@ -215,6 +273,7 @@ export class AdminDigitalAssetService {
           buyerNo: true,
           status: true,
           profile: { select: { nickname: true, avatarUrl: true } },
+          memberProfile: { select: { tier: true } },
           authIdentities: {
             where: { provider: 'PHONE' },
             select: { identifier: true },
@@ -230,6 +289,9 @@ export class AdminDigitalAssetService {
       id: item.id,
       userId: item.userId,
       cumulativeSpendAmount: item.cumulativeSpendAmount,
+      seedAssetBalance: item.seedAssetBalance ?? 0,
+      creditAssetBalance: item.creditAssetBalance ?? 0,
+      totalAssetBalance: (item.seedAssetBalance ?? 0) + (item.creditAssetBalance ?? 0),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       user: {
@@ -239,8 +301,17 @@ export class AdminDigitalAssetService {
         avatarUrl: item.user?.profile?.avatarUrl ?? null,
         phone: maskPhone(item.user?.authIdentities?.[0]?.identifier ?? null),
         status: item.user?.status ?? null,
+        vipStatus: item.user?.memberProfile?.tier ?? 'NORMAL',
       },
     };
+  }
+
+  private normalizeCreditTiers(tiers?: CreditAssetTier[]) {
+    try {
+      return validateCreditTiers((tiers ?? DEFAULT_CREDIT_TIERS) as CreditAssetTier[]);
+    } catch (error: any) {
+      throw new BadRequestException(error?.message ?? '信用资产倍率档位不合法');
+    }
   }
 
   private normalizeSettings(modules: any[]) {

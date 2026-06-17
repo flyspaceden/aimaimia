@@ -1,10 +1,16 @@
-import { IsIn, IsNumber, IsOptional, IsString, Length, Max } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
 export class AdminAdjustDigitalAssetDto {
   @IsIn(['CREDIT', 'DEBIT'])
   direction!: 'CREDIT' | 'DEBIT';
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsIn(['SEED_ASSET', 'CREDIT_ASSET'])
+  subjectType!: 'SEED_ASSET' | 'CREDIT_ASSET';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   @Max(999999999)
   amount!: number;
 
