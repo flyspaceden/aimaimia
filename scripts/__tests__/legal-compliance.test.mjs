@@ -153,6 +153,10 @@ test('huahai corporate site exposes the same legal pages', () => {
   assert.match(privacy, /剪贴板读取/);
   assert.match(terms, /AI爱买买APP用户协议/);
   assert.match(terms, /账号注销与权益终止规则/);
+  assert.doesNotMatch(privacy, /class="legal-toc"/);
+  assert.doesNotMatch(privacy, /href="#scope"/);
+  assert.doesNotMatch(terms, /class="legal-toc"/);
+  assert.doesNotMatch(terms, /href="#definitions"/);
 });
 
 test('all huahai corporate pages link to privacy and terms', () => {
