@@ -512,7 +512,13 @@ function ProductPricingFields({ selectedType }: { selectedType?: LotteryPrizeTyp
 function LimitsFields() {
   return (
     <>
-      <ProFormDigit name="prizeQuantity" label="奖品数量" min={1} fieldProps={{ precision: 0 }} extra="该奖品总可用数量" />
+      <ProFormDigit
+        name="prizeQuantity"
+        label="中奖入车件数"
+        min={1}
+        fieldProps={{ precision: 0 }}
+        extra="每次中奖加入购物车的件数；低价购固定按 1 件结算，总中奖次数请用总限制控制"
+      />
       <ProFormDigit name="expirationHours" label="过期时间(小时)" min={1} fieldProps={{ precision: 0 }} extra="中奖后奖品在购物车中的有效时长" />
     </>
   );

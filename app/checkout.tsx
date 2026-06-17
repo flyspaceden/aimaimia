@@ -333,7 +333,16 @@ export default function CheckoutScreen() {
       userId: session.userId,
       loginMethod: session.loginMethod,
     });
+    const mergeOutcome = await useCartStore.getState().syncLocalCartToServer();
+    if (mergeOutcome?.mergeErrors?.length) {
+      show({
+        message: mergeOutcome.mergeErrors[0] ?? '部分购物车商品同步失败，请返回购物车确认',
+        type: 'warning',
+      });
+    }
     await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['lottery-today'] }),
+      queryClient.invalidateQueries({ queryKey: ['lottery-today-page'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
       queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
       queryClient.invalidateQueries({ queryKey: ['addresses'] }),
