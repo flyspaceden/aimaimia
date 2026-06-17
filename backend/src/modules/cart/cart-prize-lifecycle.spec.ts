@@ -9,6 +9,7 @@ describe('CartService prize lifecycle guards', () => {
       cartItem: {
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({}),
         delete: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
       },
@@ -16,6 +17,9 @@ describe('CartService prize lifecycle guards', () => {
       lotteryPrize: { findUnique: jest.fn() },
       lotteryRecord: {
         findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 'lr-created' }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
@@ -31,7 +35,9 @@ describe('CartService prize lifecycle guards', () => {
       releaseLock: jest.fn(),
       ...redisOverrides,
     };
-    const bonusConfig: any = {};
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({ lotteryDailyChances: 1 }),
+    };
     const service = new CartService(prisma, config, redisCoord, bonusConfig);
     jest.spyOn(service, 'getCart').mockResolvedValue({ id: 'cart1', items: [] } as any);
     return { service, prisma, redisCoord };
@@ -375,5 +381,86 @@ describe('CartService prize lifecycle guards', () => {
     });
     expect(redisCoord.del).toHaveBeenCalledWith(claimKey, lockKey);
     expect(redisCoord.releaseLock).not.toHaveBeenCalledWith(lockKey, 'merge');
+  });
+
+  it('clamps DISCOUNT_BUY claim quantity to one when prizeQuantity is configured as total availability', async () => {
+    const claimToken = generateClaimToken(
+      {
+        fp: 'fingerprint-1',
+        prizeId: 'discount-prize',
+        drawDate: todayDateUTC8(),
+        ts: Date.now(),
+      },
+      'dev-claim-secret-do-not-use-in-production',
+    );
+    const hash = claimTokenHash(claimToken);
+    const { service, prisma, redisCoord } = createService(
+      {
+        lotteryPrize: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'discount-prize',
+            type: 'DISCOUNT_BUY',
+            isActive: true,
+            skuId: 'sku-discount',
+            sku: {
+              id: 'sku-discount',
+              status: 'ACTIVE',
+              product: { id: 'p1', status: 'ACTIVE' },
+            },
+          }),
+        },
+      },
+      {
+        acquireLock: jest.fn().mockResolvedValue(true),
+        get: jest.fn().mockResolvedValue(JSON.stringify({
+          prizeId: 'discount-prize',
+          prizeType: 'DISCOUNT_BUY',
+          prizePrice: 12,
+          originalPrice: 20.8,
+          skuId: 'sku-discount',
+          threshold: null,
+          prizeQuantity: 100,
+        })),
+        del: jest.fn().mockResolvedValue(true),
+        releaseLock: jest.fn().mockResolvedValue(true),
+      },
+    );
+
+    const result = await service.mergeItems('user1', [
+      {
+        localKey: 'pending-prize-local',
+        skuId: 'pending-prize-local',
+        quantity: 1,
+        isPrize: true,
+        claimToken,
+      },
+    ] as any);
+
+    expect((result as any).mergeResults).toEqual([
+      expect.objectContaining({
+        localKey: 'pending-prize-local',
+        skuId: 'pending-prize-local',
+        status: 'MERGED',
+      }),
+    ]);
+    expect(prisma.lotteryRecord.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        meta: expect.objectContaining({
+          prizeQuantity: 1,
+        }),
+      }),
+    });
+    expect(prisma.cartItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        skuId: 'sku-discount',
+        quantity: 1,
+        isPrize: true,
+        prizeRecordId: 'lr-created',
+      }),
+    });
+    expect(redisCoord.del).toHaveBeenCalledWith(
+      `lottery:claim:${hash}`,
+      `lottery:claim:${hash}:lock`,
+    );
   });
 });

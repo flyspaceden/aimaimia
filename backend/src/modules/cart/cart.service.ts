@@ -11,6 +11,7 @@ import {
   getUnavailableReasonText,
   PrizeUnavailableReason,
 } from '../lottery/prize-availability.util';
+import { getAwardedPrizeQuantity } from '../lottery/prize-quantity.util';
 
 type MergeResultStatus =
   | 'MERGED'
@@ -860,6 +861,10 @@ export class CartService {
 
     // Phase B — DB 事务（Serializable 隔离级别）
     const isThresholdGift = claimData.prizeType === 'THRESHOLD_GIFT';
+    const awardedQuantity = getAwardedPrizeQuantity(
+      claimData.prizeType,
+      claimData.prizeQuantity,
+    );
     const expiresAt = claimData.expiresAt
       ? new Date(claimData.expiresAt)
       : claimData.expirationHours
@@ -925,7 +930,7 @@ export class CartService {
                 prizePrice: claimData.prizePrice ?? claimData.originalPrice,
                 originalPrice: claimData.originalPrice ?? null,
                 threshold: claimData.threshold,
-                prizeQuantity: claimData.prizeQuantity,
+                prizeQuantity: awardedQuantity,
                 expiresAt: expiresAt ? expiresAt.toISOString() : null,
                 expirationHours: claimData.expirationHours ?? null,
                 claimedViaPublicDraw: true,
@@ -942,7 +947,7 @@ export class CartService {
             data: {
               cartId: cart.id,
               skuId: claimData.skuId,
-              quantity: claimData.prizeQuantity ?? 1,
+              quantity: awardedQuantity,
               isPrize: true,
               prizeRecordId: record.id,
               isLocked: isThresholdGift,

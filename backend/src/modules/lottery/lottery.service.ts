@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import {
   getPrizeUnavailableReason,
 } from './prize-availability.util';
+import { getAwardedPrizeQuantity } from './prize-quantity.util';
 
 @Injectable()
 export class LotteryService {
@@ -212,6 +213,10 @@ export class LotteryService {
 
         // F2: 判断是否为门槛赠品；F3: 预计算过期时间（确保 record 和 cartItem 一致）
         const isThresholdGift = selectedPrize.type === 'THRESHOLD_GIFT';
+        const awardedQuantity = getAwardedPrizeQuantity(
+          selectedPrize.type,
+          selectedPrize.prizeQuantity,
+        );
         const expiresAt = selectedPrize.expirationHours
           ? new Date(Date.now() + selectedPrize.expirationHours * 3600 * 1000)
           : null;
@@ -230,7 +235,7 @@ export class LotteryService {
               prizePrice: selectedPrize.prizePrice,
               originalPrice: selectedPrize.originalPrice ?? null,             // 管理员配置的展示划线价
               threshold: selectedPrize.threshold,
-              prizeQuantity: selectedPrize.prizeQuantity,
+              prizeQuantity: awardedQuantity,
               productId: selectedPrize.productId,
               skuId: selectedPrize.skuId,
               expiresAt: expiresAt ? expiresAt.toISOString() : null,         // F3: 过期时间（用于前端展示和审计）
@@ -252,7 +257,7 @@ export class LotteryService {
             data: {
               cartId: cart.id,
               skuId: selectedPrize.skuId,
-              quantity: selectedPrize.prizeQuantity ?? 1,
+              quantity: awardedQuantity,
               isPrize: true,
               prizeRecordId: record.id,
               isLocked: isThresholdGift,                                     // F2: THRESHOLD_GIFT 默认锁定
@@ -281,7 +286,7 @@ export class LotteryService {
             type: selectedPrize.type,
             prizePrice: selectedPrize.prizePrice,
             threshold: selectedPrize.threshold,
-            prizeQuantity: selectedPrize.prizeQuantity,
+            prizeQuantity: awardedQuantity,
           },
           addedToCart: !!selectedPrize.skuId, // 告知前端奖品是否已自动加入购物车
         };
@@ -527,6 +532,10 @@ export class LotteryService {
       this.claimSecret,
     );
     const hash = claimTokenHash(token);
+    const awardedQuantity = getAwardedPrizeQuantity(
+      selectedPrize.type,
+      selectedPrize.prizeQuantity,
+    );
 
     // 存储奖品元数据到 Redis，TTL 24 小时
     const stored = await this.redisCoord.set(
@@ -538,7 +547,7 @@ export class LotteryService {
         originalPrice: selectedPrize.originalPrice ?? null,
         skuId: selectedPrize.skuId,
         threshold: selectedPrize.threshold,
-        prizeQuantity: selectedPrize.prizeQuantity,
+        prizeQuantity: awardedQuantity,
         expirationHours: selectedPrize.expirationHours,
         expiresAt: claimExpiresAt ? claimExpiresAt.toISOString() : null,
       }),
@@ -588,7 +597,7 @@ export class LotteryService {
         type: selectedPrize.type,
         prizePrice: selectedPrize.prizePrice,
         threshold: selectedPrize.threshold,
-        prizeQuantity: selectedPrize.prizeQuantity,
+        prizeQuantity: awardedQuantity,
         expirationHours: selectedPrize.expirationHours,
         originalPrice: displayOriginalPrice,
         expiresAt: claimExpiresAt ? claimExpiresAt.toISOString() : null,
