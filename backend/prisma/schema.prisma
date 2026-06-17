@@ -237,6 +237,16 @@ enum DigitalAssetLedgerType {
   REFUND_REVERSAL
   ADMIN_ADJUSTMENT
   BACKFILL
+  CONSUMPTION_CONFIRMED
+  SELF_VIP_PURCHASE
+  REFERRAL_VIP_PURCHASE
+  HISTORICAL_CONSUMPTION_GRANT
+}
+
+enum DigitalAssetLedgerSubjectType {
+  CUMULATIVE_SPEND
+  SEED_ASSET
+  CREDIT_ASSET
 }
 
 enum DigitalAssetLedgerDirection {
@@ -304,8 +314,10 @@ enum VipGiftOptionStatus {
 
 model VipPackage {
   id                String              @id @default(cuid())
-  price             Float               // 档位价格（元），如 399 / 899 / 1599
+  price             Float               // 档位价格（元），如 399 / 699 / 999
   referralBonusRate Float               @default(0.15) // 推荐奖励比例，0.15 = 15%
+  selfSeedAssetAmount     Int           @default(0)
+  referralSeedAssetAmount Int           @default(0)
   sortOrder         Int                 @default(0)
   status            VipGiftOptionStatus @default(ACTIVE) // 复用 ACTIVE/INACTIVE
   createdAt         DateTime            @default(now())
@@ -1861,6 +1873,7 @@ model VipPurchase {
   activationError  String?             // 激活失败原因
 
   createdAt        DateTime            @default(now())
+  digitalAssetLedgers DigitalAssetLedger[]
 }
 
 model ReferralLink {
@@ -2006,50 +2019,66 @@ model RewardLedger {
 
 // 数字资产累计消费账户（第一版仅记录累计消费金额，不定义兑换/股权/期权规则）
 model DigitalAssetAccount {
-  id                    String   @id @default(cuid())
-  userId                String   @unique
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  cumulativeSpendAmount Float    @default(0)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                           String    @id @default(cuid())
+  userId                       String    @unique
+  user                         User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cumulativeSpendAmount        Float     @default(0)
+  seedAssetBalance             Int       @default(0)
+  creditAssetBalance           Int       @default(0)
+  historicalCreditGrantedAt    DateTime?
+  historicalCreditGrantLedgerId String?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
   ledgers DigitalAssetLedger[]
 
   @@index([cumulativeSpendAmount])
+  @@index([seedAssetBalance])
+  @@index([creditAssetBalance])
   @@index([updatedAt])
 }
 
 model DigitalAssetLedger {
-  id             String                       @id @default(cuid())
-  accountId      String
-  account        DigitalAssetAccount          @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  userId         String
-  user           User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  type           DigitalAssetLedgerType
-  direction      DigitalAssetLedgerDirection
-  amount         Float
-  balanceAfter   Float
-  orderId        String?
-  order          Order?                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  orderItemId    String?
-  orderItem      OrderItem?                   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
-  refundId       String?
-  refund         Refund?                      @relation(fields: [refundId], references: [id], onDelete: Restrict)
-  afterSaleId    String?
-  afterSale      AfterSaleRequest?            @relation(fields: [afterSaleId], references: [id], onDelete: Restrict)
-  adminUserId    String?
-  adminUser      AdminUser?                   @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
-  reason         String?
-  idempotencyKey String                       @unique
-  meta           Json?
-  createdAt      DateTime                     @default(now())
+  id                     String                       @id @default(cuid())
+  accountId              String
+  account                DigitalAssetAccount          @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  userId                 String
+  user                   User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type                   DigitalAssetLedgerType
+  subjectType            DigitalAssetLedgerSubjectType @default(CUMULATIVE_SPEND)
+  direction              DigitalAssetLedgerDirection
+  amount                 Float
+  assetAmount            Int?
+  balanceAfter           Float
+  cumulativeSpendAfter   Float?
+  seedAssetBalanceAfter  Int?
+  creditAssetBalanceAfter Int?
+  ruleSnapshot           Json?
+  orderId                String?
+  order                  Order?                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItemId            String?
+  orderItem              OrderItem?                   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  refundId               String?
+  refund                 Refund?                      @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  afterSaleId            String?
+  afterSale              AfterSaleRequest?            @relation(fields: [afterSaleId], references: [id], onDelete: Restrict)
+  vipPurchaseId          String?
+  vipPurchase            VipPurchase?                 @relation(fields: [vipPurchaseId], references: [id], onDelete: Restrict)
+  adminUserId            String?
+  adminUser              AdminUser?                   @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  reason                 String?
+  idempotencyKey         String                       @unique
+  meta                   Json?
+  createdAt              DateTime                     @default(now())
 
   @@index([userId, createdAt])
   @@index([accountId, createdAt])
+  @@index([subjectType, createdAt])
   @@index([orderId])
   @@index([orderItemId])
   @@index([refundId])
   @@index([afterSaleId])
+  @@index([vipPurchaseId])
   @@index([adminUserId, createdAt])
 }
 
