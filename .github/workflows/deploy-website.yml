@@ -9,6 +9,9 @@ on:
       - 'seller/**'
       - 'backend/**'
       - 'huahai-corporate-site/**'
+      - 'src/content/legal/**'
+      - 'scripts/lib/legal-static-renderer.mjs'
+      - 'scripts/sync-huahai-legal.mjs'
       - '.github/workflows/deploy-website.yml'
 
   # 手动触发
@@ -63,11 +66,11 @@ jobs:
             else
               CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
             fi
-            echo "$CHANGED" | grep -q '^website/' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(website/|scripts/lib/legal-static-renderer\.mjs$)' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^admin/'   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^seller/'  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^backend/' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -q '^huahai-corporate-site/' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Determine environment (main → 生产 / staging → 测试)
