@@ -107,9 +107,6 @@ function renderLegalPage(doc, kind) {
         ${section.blocks.map(renderBlock).join('\n        ')}
       </section>`)
     .join('\n\n      ');
-  const toc = doc.sections
-    .map((section) => `<a href="#${escapeHtml(section.id)}">${escapeHtml(section.title)}</a>`)
-    .join('\n          ');
   const summary = doc.summary
     .map((item) => `<p>${escapeHtml(item)}</p>`)
     .join('\n          ');
@@ -147,9 +144,6 @@ ${renderHeader()}
       <div class="legal-summary">
         ${summary}
       </div>
-      <nav class="legal-toc" aria-label="文档目录">
-          ${toc}
-      </nav>
 
       ${sections}
     </article>
