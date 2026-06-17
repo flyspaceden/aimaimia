@@ -36,7 +36,7 @@ describe('AdminDigitalAssetService', () => {
 
     await expect(service.adjustAccount(
       'user-1',
-      { direction: 'CREDIT', amount: 10, reason: 'manual correction' },
+      { direction: 'CREDIT', subjectType: 'SEED_ASSET', amount: 10, reason: 'manual correction' },
       { sub: 'admin-1', roles: ['运营'] },
     )).rejects.toBeInstanceOf(ForbiddenException);
     expect(digitalAssetService.adjustByAdmin).not.toHaveBeenCalled();
@@ -56,13 +56,14 @@ describe('AdminDigitalAssetService', () => {
 
     await service.adjustAccount(
       'user-1',
-      { direction: 'CREDIT', amount: 10, reason: 'manual correction' },
+      { direction: 'CREDIT', subjectType: 'SEED_ASSET', amount: 10, reason: 'manual correction' },
       { sub: 'admin-1', roles: ['超级管理员'] },
     );
 
     expect(digitalAssetService.adjustByAdmin).toHaveBeenCalledWith({
       targetUserId: 'user-1',
       adminUserId: 'admin-1',
+      subjectType: 'SEED_ASSET',
       direction: 'CREDIT',
       amount: 10,
       reason: 'manual correction',
