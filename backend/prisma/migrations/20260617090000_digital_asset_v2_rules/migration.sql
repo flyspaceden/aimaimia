@@ -47,6 +47,27 @@ ALTER TABLE "VipPackage"
   ADD COLUMN "selfSeedAssetAmount" INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN "referralSeedAssetAmount" INTEGER NOT NULL DEFAULT 0;
 
+UPDATE "VipPackage"
+SET
+  "price" = 399,
+  "selfSeedAssetAmount" = 1000,
+  "referralSeedAssetAmount" = 2000
+WHERE "id" = 'vpkg-001';
+
+UPDATE "VipPackage"
+SET
+  "price" = 699,
+  "selfSeedAssetAmount" = 2000,
+  "referralSeedAssetAmount" = 4000
+WHERE "id" = 'vpkg-002';
+
+UPDATE "VipPackage"
+SET
+  "price" = 999,
+  "selfSeedAssetAmount" = 3000,
+  "referralSeedAssetAmount" = 8000
+WHERE "id" = 'vpkg-003';
+
 UPDATE "VipPackage" SET "selfSeedAssetAmount" = 1000, "referralSeedAssetAmount" = 2000 WHERE "price" = 399;
 UPDATE "VipPackage" SET "selfSeedAssetAmount" = 2000, "referralSeedAssetAmount" = 4000 WHERE "price" = 699;
 UPDATE "VipPackage" SET "selfSeedAssetAmount" = 3000, "referralSeedAssetAmount" = 8000 WHERE "price" = 999;
