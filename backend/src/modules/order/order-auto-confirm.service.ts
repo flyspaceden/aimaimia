@@ -133,7 +133,9 @@ export class OrderAutoConfirmService {
   }
 
   private creditDigitalAssetAfterReceive(orderId: string) {
-    this.digitalAssetService?.creditOrderReceived(orderId, 'ORDER_RECEIVED').catch((err) => {
+    const recordOrderReceived = (this.digitalAssetService as any)?.recordOrderReceived
+      ?? (this.digitalAssetService as any)?.creditOrderReceived;
+    Promise.resolve(recordOrderReceived?.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).catch((err) => {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`订单 ${orderId} 数字资产累计失败: ${safeErr.message}`, safeErr.stack);
       Promise.resolve(this.prisma.orderStatusHistory.create({

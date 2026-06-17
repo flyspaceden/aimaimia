@@ -1587,7 +1587,9 @@ export class OrderService {
   }
 
   private creditDigitalAssetAfterReceive(orderId: string) {
-    this.digitalAssetService?.creditOrderReceived(orderId, 'ORDER_RECEIVED').catch((err: any) => {
+    const recordOrderReceived = (this.digitalAssetService as any)?.recordOrderReceived
+      ?? (this.digitalAssetService as any)?.creditOrderReceived;
+    Promise.resolve(recordOrderReceived?.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).catch((err: any) => {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(
         JSON.stringify({
