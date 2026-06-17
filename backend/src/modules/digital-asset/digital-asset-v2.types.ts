@@ -4,6 +4,7 @@ export type DigitalAssetSubjectType =
   | 'CREDIT_ASSET';
 
 export type DigitalAssetSourceType =
+  | 'ORDER_RECEIVED'
   | 'CONSUMPTION_CONFIRMED'
   | 'REFUND_REVERSAL'
   | 'SELF_VIP_PURCHASE'
