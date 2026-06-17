@@ -104,21 +104,27 @@ export class AdminDigitalAssetService {
 
   async getAccount(userId: string) {
     const resolvedUserId = await resolveBuyerUserId(this.prisma as any, userId);
-    const user = await (this.prisma as any).user.findUnique({
-      where: { id: resolvedUserId },
-      include: {
-        profile: { select: { nickname: true, avatarUrl: true } },
-        memberProfile: { select: { tier: true } },
-        authIdentities: {
-          where: { provider: 'PHONE' },
-          select: { identifier: true },
-          take: 1,
+    const [user, settings] = await Promise.all([
+      (this.prisma as any).user.findUnique({
+        where: { id: resolvedUserId },
+        include: {
+          profile: { select: { nickname: true, avatarUrl: true } },
+          memberProfile: { select: { tier: true } },
+          authIdentities: {
+            where: { provider: 'PHONE' },
+            select: { identifier: true },
+            take: 1,
+          },
+          digitalAssetAccount: true,
         },
-        digitalAssetAccount: true,
-      },
-    }) as any;
+      }),
+      this.getSettings(),
+    ]) as any;
     if (!user) throw new NotFoundException('用户不存在');
-    const summary = await this.digitalAssetService.getSummary(resolvedUserId);
+    const seedAssetBalance = (user as any).digitalAssetAccount?.seedAssetBalance ?? 0;
+    const creditAssetBalance = (user as any).digitalAssetAccount?.creditAssetBalance ?? 0;
+    const cumulativeSpendAmount = (user as any).digitalAssetAccount?.cumulativeSpendAmount ?? 0;
+
     return {
       user: {
         id: user.id,
@@ -127,17 +133,17 @@ export class AdminDigitalAssetService {
         avatarUrl: user.profile?.avatarUrl ?? null,
         phone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
         status: user.status,
-        vipStatus: user.memberProfile?.tier ?? (summary.isVip ? 'VIP' : 'NORMAL'),
+        vipStatus: user.memberProfile?.tier ?? 'NORMAL',
       },
       account: {
         id: (user as any).digitalAssetAccount?.id ?? null,
-        totalAssetBalance: summary.totalAssetBalance,
-        seedAssetBalance: summary.seedAssetBalance,
-        creditAssetBalance: summary.creditAssetBalance,
-        cumulativeSpendAmount: summary.cumulativeSpendAmount,
+        totalAssetBalance: seedAssetBalance + creditAssetBalance,
+        seedAssetBalance,
+        creditAssetBalance,
+        cumulativeSpendAmount,
         updatedAt: (user as any).digitalAssetAccount?.updatedAt ?? null,
       },
-      modules: summary.modules,
+      modules: settings.modules,
     };
   }
 
@@ -224,18 +230,18 @@ export class AdminDigitalAssetService {
   async updateRules(dto: UpdateDigitalAssetRulesDto) {
     const tiers = this.normalizeCreditTiers(dto.tiers);
     const modules = this.normalizeSettings(dto.modules);
-    await Promise.all([
-      this.prisma.ruleConfig.upsert({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.ruleConfig.upsert({
         where: { key: DIGITAL_ASSET_CREDIT_TIERS_KEY },
         update: { value: { tiers } },
         create: { key: DIGITAL_ASSET_CREDIT_TIERS_KEY, value: { tiers } },
-      }),
-      this.prisma.ruleConfig.upsert({
+      });
+      await tx.ruleConfig.upsert({
         where: { key: DIGITAL_ASSET_SETTINGS_KEY },
         update: { value: { modules } },
         create: { key: DIGITAL_ASSET_SETTINGS_KEY, value: { modules } },
-      }),
-    ]);
+      });
+    });
     return { tiers, modules };
   }
 

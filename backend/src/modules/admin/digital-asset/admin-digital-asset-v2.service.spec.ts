@@ -7,7 +7,13 @@ import { AdminAdjustDigitalAssetDto } from '../../digital-asset/dto/admin-adjust
 
 describe('AdminDigitalAssetService V2', () => {
   const makeService = () => {
+    const tx = {
+      ruleConfig: {
+        upsert: jest.fn(),
+      },
+    };
     const prisma = {
+      $transaction: jest.fn(async (callback: (innerTx: typeof tx) => Promise<unknown>) => callback(tx)),
       digitalAssetAccount: {
         aggregate: jest.fn(),
         count: jest.fn(),
@@ -32,7 +38,7 @@ describe('AdminDigitalAssetService V2', () => {
       listLedgers: jest.fn(),
     };
     const service = new AdminDigitalAssetService(prisma as any, digitalAssetService as any);
-    return { service, prisma, digitalAssetService };
+    return { service, prisma, tx, digitalAssetService };
   };
 
   it('getRules returns credit tiers and module settings together', async () => {
@@ -81,6 +87,36 @@ describe('AdminDigitalAssetService V2', () => {
         { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
       ],
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updateRules persists tiers and modules in one transaction', async () => {
+    const { service, prisma, tx } = makeService();
+    tx.ruleConfig.upsert
+      .mockResolvedValueOnce({ key: 'DIGITAL_ASSET_CREDIT_TIERS' })
+      .mockResolvedValueOnce({ key: 'DIGITAL_ASSET_MODULE_SETTINGS' });
+
+    const result = await (service as any).updateRules({
+      tiers: [
+        { minAmount: 0, maxAmount: 500, multiplier: 3 },
+        { minAmount: 500, maxAmount: null, multiplier: 10 },
+      ],
+      modules: [
+        { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
+      ],
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledTimes(2);
+    expect(prisma.ruleConfig.upsert).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      tiers: [
+        { minAmount: 0, maxAmount: 500, multiplier: 3 },
+        { minAmount: 500, maxAmount: null, multiplier: 10 },
+      ],
+      modules: [
+        { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
+      ],
+    });
   });
 
   it('overview returns V2 cumulative spend and asset balance totals', async () => {
@@ -172,24 +208,22 @@ describe('AdminDigitalAssetService V2', () => {
     expect(csv).toContain('4600');
   });
 
-  it('getAccount returns V2 balances from summary', async () => {
-    const { service, prisma, digitalAssetService } = makeService();
+  it('getAccount returns raw V2 balances for VIP admins', async () => {
+    const { service, prisma } = makeService();
     prisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
       buyerNo: 'AIMM20260616000001',
       status: 'ACTIVE',
       profile: { nickname: '买家', avatarUrl: null },
       authIdentities: [{ identifier: '13812345678' }],
-      digitalAssetAccount: { id: 'account-1', updatedAt: new Date('2026-06-16T00:00:00.000Z') },
+      digitalAssetAccount: {
+        id: 'account-1',
+        cumulativeSpendAmount: 880.5,
+        seedAssetBalance: 3000,
+        creditAssetBalance: 4600,
+        updatedAt: new Date('2026-06-16T00:00:00.000Z'),
+      },
       memberProfile: { tier: 'VIP' },
-    });
-    digitalAssetService.getSummary.mockResolvedValue({
-      isVip: true,
-      totalAssetBalance: 7600,
-      seedAssetBalance: 3000,
-      creditAssetBalance: 4600,
-      cumulativeSpendAmount: 880.5,
-      modules: [],
     });
 
     const result = await service.getAccount('user-1');
@@ -202,6 +236,45 @@ describe('AdminDigitalAssetService V2', () => {
     }));
     expect(result.user).toEqual(expect.objectContaining({
       vipStatus: 'VIP',
+    }));
+  });
+
+  it('getAccount returns raw seed and credit balances for non-VIP admins', async () => {
+    const { service, prisma, digitalAssetService } = makeService();
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-2',
+      buyerNo: 'AIMM20260616000002',
+      status: 'ACTIVE',
+      profile: { nickname: '普通买家', avatarUrl: null },
+      authIdentities: [{ identifier: '13912345678' }],
+      digitalAssetAccount: {
+        id: 'account-2',
+        cumulativeSpendAmount: 240,
+        seedAssetBalance: 999,
+        creditAssetBalance: 888,
+        updatedAt: new Date('2026-06-16T00:00:00.000Z'),
+      },
+      memberProfile: { tier: 'NORMAL' },
+    });
+    digitalAssetService.getSummary.mockResolvedValue({
+      isVip: false,
+      totalAssetBalance: 0,
+      seedAssetBalance: 0,
+      creditAssetBalance: 0,
+      cumulativeSpendAmount: 240,
+      modules: [],
+    });
+
+    const result = await service.getAccount('user-2');
+
+    expect(result.account).toEqual(expect.objectContaining({
+      totalAssetBalance: 1887,
+      seedAssetBalance: 999,
+      creditAssetBalance: 888,
+      cumulativeSpendAmount: 240,
+    }));
+    expect(result.user).toEqual(expect.objectContaining({
+      vipStatus: 'NORMAL',
     }));
   });
 

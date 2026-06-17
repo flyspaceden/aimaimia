@@ -20,6 +20,34 @@ function makeService() {
 }
 
 describe('VipPackageService digital asset config', () => {
+  it('findAll returns self and referral seed asset amounts', async () => {
+    const { service, prisma } = makeService();
+    prisma.vipPackage.findMany.mockResolvedValue([
+      {
+        id: 'pkg-399',
+        price: 399,
+        selfSeedAssetAmount: 1000,
+        referralSeedAssetAmount: 2000,
+        _count: { giftOptions: 0 },
+      },
+    ]);
+
+    const result = await service.findAll();
+
+    expect(prisma.vipPackage.findMany).toHaveBeenCalledWith({
+      orderBy: [{ price: 'asc' }, { sortOrder: 'asc' }],
+      include: {
+        _count: { select: { giftOptions: true } },
+      },
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        selfSeedAssetAmount: 1000,
+        referralSeedAssetAmount: 2000,
+      }),
+    ]);
+  });
+
   it('create accepts explicit self/referral seed asset amounts', async () => {
     const { service, prisma } = makeService();
     prisma.vipPackage.create.mockResolvedValue({
