@@ -2,6 +2,20 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateVipPackageDto, UpdateVipPackageDto } from './vip-package.dto';
 
+function defaultSelfSeed(price: number) {
+  if (price === 399) return 1000;
+  if (price === 699) return 2000;
+  if (price === 999) return 3000;
+  return 0;
+}
+
+function defaultReferralSeed(price: number) {
+  if (price === 399) return 2000;
+  if (price === 699) return 4000;
+  if (price === 999) return 8000;
+  return 0;
+}
+
 @Injectable()
 export class VipPackageService {
   constructor(private prisma: PrismaService) {}
@@ -22,6 +36,8 @@ export class VipPackageService {
       data: {
         price: dto.price,
         referralBonusRate: dto.referralBonusRate ?? 0.15,
+        selfSeedAssetAmount: dto.selfSeedAssetAmount ?? defaultSelfSeed(dto.price),
+        referralSeedAssetAmount: dto.referralSeedAssetAmount ?? defaultReferralSeed(dto.price),
         sortOrder: dto.sortOrder ?? 0,
         status: dto.status ?? 'ACTIVE',
       },

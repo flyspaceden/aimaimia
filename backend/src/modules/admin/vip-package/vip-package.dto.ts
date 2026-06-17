@@ -25,6 +25,20 @@ export class CreateVipPackageDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt({ message: '自购种子资产必须为整数' })
+  @Min(0, { message: '自购种子资产不能小于 0' })
+  @Max(999999999, { message: '自购种子资产不能超过 999999999' })
+  selfSeedAssetAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '推荐种子资产必须为整数' })
+  @Min(0, { message: '推荐种子资产不能小于 0' })
+  @Max(999999999, { message: '推荐种子资产不能超过 999999999' })
+  referralSeedAssetAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
   @IsInt({ message: '排序值必须为整数' })
   @Min(0)
   sortOrder?: number;
@@ -48,6 +62,20 @@ export class UpdateVipPackageDto {
   @Min(0, { message: '推荐奖励比例不能小于 0' })
   @Max(1, { message: '推荐奖励比例不能超过 1' })
   referralBonusRate?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '自购种子资产必须为整数' })
+  @Min(0, { message: '自购种子资产不能小于 0' })
+  @Max(999999999, { message: '自购种子资产不能超过 999999999' })
+  selfSeedAssetAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '推荐种子资产必须为整数' })
+  @Min(0, { message: '推荐种子资产不能小于 0' })
+  @Max(999999999, { message: '推荐种子资产不能超过 999999999' })
+  referralSeedAssetAmount?: number;
 
   @IsOptional()
   @Type(() => Number)
