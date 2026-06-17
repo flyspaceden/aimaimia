@@ -11,6 +11,7 @@ import {
   roundMoney,
 } from './digital-asset-ledger-calculator';
 import { CreditAssetTier, DigitalAssetSourceType, DigitalAssetSubjectType } from './digital-asset-v2.types';
+import { resolveVipBackfillPackage } from './digital-asset-vip-package.utils';
 
 type LedgerDirection = 'CREDIT' | 'DEBIT';
 type ReceiveSource = 'ORDER_RECEIVED' | 'BACKFILL';
@@ -69,8 +70,7 @@ export class DigitalAssetService {
         tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: legacyCumulativeIdempotencyKey } }),
         tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: creditIdempotencyKey } }),
       ]);
-      if (existingCumulative && existingCredit) return;
-      if (existingLegacyCumulative && existingCredit) return;
+      if (existingCumulative || existingLegacyCumulative || existingCredit) return;
 
       const order = await tx.order.findUnique({
         where: { id: orderId },
@@ -291,6 +291,8 @@ export class DigitalAssetService {
     if (!vipPackage) {
       throw new BadRequestException('VIP 档位不存在，无法发放数字资产');
     }
+    const selfSeedAssetAmount = vipPackage.selfSeedAssetAmount ?? 0;
+    const referralSeedAssetAmount = vipPackage.referralSeedAssetAmount ?? 0;
 
     const account = await this.findOrCreateAccount(tx, params.userId);
     const selfSeedKey = `vip-purchase:${params.vipPurchaseId}:self-seed`;
@@ -300,8 +302,8 @@ export class DigitalAssetService {
     const existingSelfSeedLedger = await tx.digitalAssetLedger.findUnique({
       where: { idempotencyKey: selfSeedKey },
     });
-    if (!existingSelfSeedLedger && vipPackage.selfSeedAssetAmount > 0) {
-      const nextSeedAssetBalance = (account.seedAssetBalance ?? 0) + vipPackage.selfSeedAssetAmount;
+    if (!existingSelfSeedLedger && selfSeedAssetAmount > 0) {
+      const nextSeedAssetBalance = (account.seedAssetBalance ?? 0) + selfSeedAssetAmount;
       const created = await tx.digitalAssetLedger.create({
         data: {
           accountId: account.id,
@@ -309,8 +311,8 @@ export class DigitalAssetService {
           type: 'SELF_VIP_PURCHASE',
           subjectType: 'SEED_ASSET',
           direction: 'CREDIT',
-          amount: vipPackage.selfSeedAssetAmount,
-          assetAmount: vipPackage.selfSeedAssetAmount,
+          amount: selfSeedAssetAmount,
+          assetAmount: selfSeedAssetAmount,
           balanceAfter: nextSeedAssetBalance,
           cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
           seedAssetBalanceAfter: nextSeedAssetBalance,
@@ -385,13 +387,13 @@ export class DigitalAssetService {
       }
     }
 
-    if (params.inviterUserId && vipPackage.referralSeedAssetAmount > 0) {
+    if (params.inviterUserId && referralSeedAssetAmount > 0) {
       const existingReferralLedger = await tx.digitalAssetLedger.findUnique({
         where: { idempotencyKey: referralSeedKey },
       });
       if (!existingReferralLedger) {
         const inviterAccount = await this.findOrCreateAccount(tx, params.inviterUserId);
-        const nextSeedAssetBalance = (inviterAccount.seedAssetBalance ?? 0) + vipPackage.referralSeedAssetAmount;
+        const nextSeedAssetBalance = (inviterAccount.seedAssetBalance ?? 0) + referralSeedAssetAmount;
         await tx.digitalAssetLedger.create({
           data: {
             accountId: inviterAccount.id,
@@ -399,8 +401,8 @@ export class DigitalAssetService {
             type: 'REFERRAL_VIP_PURCHASE',
             subjectType: 'SEED_ASSET',
             direction: 'CREDIT',
-            amount: vipPackage.referralSeedAssetAmount,
-            assetAmount: vipPackage.referralSeedAssetAmount,
+            amount: referralSeedAssetAmount,
+            assetAmount: referralSeedAssetAmount,
             balanceAfter: nextSeedAssetBalance,
             cumulativeSpendAfter: inviterAccount.cumulativeSpendAmount ?? 0,
             seedAssetBalanceAfter: nextSeedAssetBalance,
@@ -460,7 +462,7 @@ export class DigitalAssetService {
         inviterUserId: null,
       });
 
-      const grantedSelfSeed = !existingSelfSeedLedger && vipPackage.selfSeedAssetAmount > 0;
+      const grantedSelfSeed = !existingSelfSeedLedger && (vipPackage.selfSeedAssetAmount ?? 0) > 0;
       const grantedHistoricalCredit = !existingHistoricalLedger;
       return {
         status: grantedSelfSeed || grantedHistoricalCredit ? 'credited' as const : 'alreadyCredited' as const,
@@ -554,14 +556,14 @@ export class DigitalAssetService {
   }
 
   async getSummary(userId: string) {
-    const [account, member, modules, tiers, vipSeedRules, recentRecords] = await Promise.all([
+    const [account, member, modules, tiers, vipSeedRules] = await Promise.all([
       (this.prisma as any).digitalAssetAccount.findUnique({ where: { userId } }),
       (this.prisma as any).memberProfile.findUnique({ where: { userId } }),
       this.getModuleSettings(),
       this.getCreditTiers(this.prisma),
       this.getVipSeedRules(),
-      this.listLedgers(userId, { page: 1, pageSize: 5 }),
     ]);
+    const recentRecords = await this.listLedgersInternal(userId, { page: 1, pageSize: 5 }, { restrictForNonVipBuyer: true, member });
 
     const cumulativeSpendAmount = account?.cumulativeSpendAmount ?? 0;
     const isVip = member?.tier === 'VIP';
@@ -586,6 +588,16 @@ export class DigitalAssetService {
     };
   }
 
+  async listBuyerLedgers(userId: string, query: {
+    page?: number;
+    pageSize?: number;
+    type?: string;
+    subjectType?: DigitalAssetSubjectType;
+    sourceType?: string;
+  }) {
+    return this.listLedgersInternal(userId, query, { restrictForNonVipBuyer: true });
+  }
+
   async listLedgers(userId: string, query: {
     page?: number;
     pageSize?: number;
@@ -593,10 +605,42 @@ export class DigitalAssetService {
     subjectType?: DigitalAssetSubjectType;
     sourceType?: string;
   }) {
+    return this.listLedgersInternal(userId, query, { restrictForNonVipBuyer: false });
+  }
+
+  private async listLedgersInternal(userId: string, query: {
+    page?: number;
+    pageSize?: number;
+    type?: string;
+    subjectType?: DigitalAssetSubjectType;
+    sourceType?: string;
+  }, options: {
+    restrictForNonVipBuyer: boolean;
+    member?: { tier?: string | null } | null;
+  }) {
     const page = Math.max(1, Number(query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
     const where: any = { userId };
-    if (query.subjectType) where.subjectType = query.subjectType;
+
+    if (options.restrictForNonVipBuyer) {
+      const member = options.member ?? await (this.prisma as any).memberProfile.findUnique({ where: { userId } });
+      const isVip = member?.tier === 'VIP';
+      if (!isVip) {
+        if (query.subjectType && query.subjectType !== 'CUMULATIVE_SPEND') {
+          return {
+            items: [],
+            total: 0,
+            page,
+            pageSize,
+          };
+        }
+        where.subjectType = 'CUMULATIVE_SPEND';
+      } else if (query.subjectType) {
+        where.subjectType = query.subjectType;
+      }
+    } else if (query.subjectType) {
+      where.subjectType = query.subjectType;
+    }
 
     const sourceType = filterLegacySourceType(query.sourceType ?? query.type);
     if (sourceType) where.type = sourceType;
@@ -972,15 +1016,19 @@ export class DigitalAssetService {
 
   private async resolveVipPackageRule(tx: any, params: { packageId: string | null; vipAmount: number }) {
     if (!tx?.vipPackage) return null;
-    if (params.packageId) {
-      const byId = await tx.vipPackage.findUnique({ where: { id: params.packageId } });
-      if (byId) return byId;
-    }
-    return tx.vipPackage.findFirst({
-      where: {
-        status: 'ACTIVE',
-        price: params.vipAmount,
+    const vipPackages = await tx.vipPackage.findMany({
+      select: {
+        id: true,
+        price: true,
+        status: true,
+        selfSeedAssetAmount: true,
+        referralSeedAssetAmount: true,
       },
+    });
+    return resolveVipBackfillPackage({
+      packageId: params.packageId,
+      vipAmount: params.vipAmount,
+      vipPackages,
     });
   }
 

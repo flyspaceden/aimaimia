@@ -263,6 +263,44 @@ describe('DigitalAssetService V2 semantics', () => {
     });
   });
 
+  it('replaying an order after ordinary user becomes VIP does not mint historical credit asset for that old order', async () => {
+    const { data, service } = makeHarness({
+      memberProfiles: [{ userId: 'buyer-1', tier: 'NORMAL' }],
+      orders: [{
+        id: 'order-replay',
+        userId: 'buyer-1',
+        bizType: 'NORMAL_GOODS',
+        status: 'RECEIVED',
+        receivedAt: new Date(),
+        goodsAmount: 100,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 100, isPrize: false, createdAt: new Date('2026-06-02') },
+        ],
+      }],
+    });
+
+    await service.recordOrderReceived('order-replay', 'ORDER_RECEIVED');
+    data.memberProfiles[0].tier = 'VIP';
+
+    await service.recordOrderReceived('order-replay', 'ORDER_RECEIVED');
+
+    expect(data.accounts[0]).toMatchObject({
+      cumulativeSpendAmount: 100,
+      seedAssetBalance: 0,
+      creditAssetBalance: 0,
+    });
+    expect(data.ledgers).toHaveLength(1);
+    expect(data.ledgers[0]).toMatchObject({
+      type: 'CONSUMPTION_CONFIRMED',
+      subjectType: 'CUMULATIVE_SPEND',
+      amount: 100,
+    });
+  });
+
   it('VIP_PACKAGE order is ignored for cumulative spend and credit assets', async () => {
     const { data, service } = makeHarness({
       memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
@@ -394,7 +432,7 @@ describe('DigitalAssetService V2 semantics', () => {
     ]));
   });
 
-  it('getSummary zeroes asset balances for non-VIP users but returns rules and recent records', async () => {
+  it('getSummary zeroes asset balances for non-VIP users and recent records only include cumulative spend rows', async () => {
     const { data, service } = makeHarness({
       accounts: [{
         id: 'account-1',
@@ -406,19 +444,49 @@ describe('DigitalAssetService V2 semantics', () => {
         historicalCreditGrantLedgerId: null,
       }],
       memberProfiles: [{ userId: 'normal-user', tier: 'NORMAL' }],
-      ledgers: Array.from({ length: 6 }, (_, index) => ({
-        id: `ledger-${index + 1}`,
-        accountId: 'account-1',
-        userId: 'normal-user',
-        type: 'CONSUMPTION_CONFIRMED',
-        subjectType: 'CUMULATIVE_SPEND',
-        direction: 'CREDIT',
-        amount: 10 + index,
-        balanceAfter: 10 + index,
-        cumulativeSpendAfter: 10 + index,
-        idempotencyKey: `ledger-${index + 1}`,
-        createdAt: new Date(`2026-06-0${index + 1}T00:00:00.000Z`),
-      })),
+      ledgers: [
+        ...Array.from({ length: 4 }, (_, index) => ({
+          id: `ledger-spend-${index + 1}`,
+          accountId: 'account-1',
+          userId: 'normal-user',
+          type: 'CONSUMPTION_CONFIRMED',
+          subjectType: 'CUMULATIVE_SPEND',
+          direction: 'CREDIT',
+          amount: 10 + index,
+          balanceAfter: 10 + index,
+          cumulativeSpendAfter: 10 + index,
+          idempotencyKey: `ledger-spend-${index + 1}`,
+          createdAt: new Date(`2026-06-0${index + 1}T00:00:00.000Z`),
+        })),
+        {
+          id: 'ledger-credit-1',
+          accountId: 'account-1',
+          userId: 'normal-user',
+          type: 'HISTORICAL_CONSUMPTION_GRANT',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: 888,
+          assetAmount: 888,
+          balanceAfter: 888,
+          creditAssetBalanceAfter: 888,
+          idempotencyKey: 'ledger-credit-1',
+          createdAt: new Date('2026-06-09T00:00:00.000Z'),
+        },
+        {
+          id: 'ledger-seed-1',
+          accountId: 'account-1',
+          userId: 'normal-user',
+          type: 'SELF_VIP_PURCHASE',
+          subjectType: 'SEED_ASSET',
+          direction: 'CREDIT',
+          amount: 999,
+          assetAmount: 999,
+          balanceAfter: 999,
+          seedAssetBalanceAfter: 999,
+          idempotencyKey: 'ledger-seed-1',
+          createdAt: new Date('2026-06-10T00:00:00.000Z'),
+        },
+      ],
     });
 
     const summary = await service.getSummary('normal-user');
@@ -436,8 +504,64 @@ describe('DigitalAssetService V2 semantics', () => {
       },
     });
     expect(summary.vipSeedRules).toHaveLength(3);
-    expect(summary.recentRecords).toHaveLength(5);
-    expect(summary.recentRecords[0].title).toBe('消费累计');
+    expect(summary.recentRecords).toHaveLength(4);
+    expect(summary.recentRecords).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        subjectType: 'CUMULATIVE_SPEND',
+        title: '消费累计',
+      }),
+    ]));
+    expect(summary.recentRecords.every((item: any) => item.subjectType === 'CUMULATIVE_SPEND')).toBe(true);
+    expect(summary.recentRecords.some((item: any) => item.title === '历史消费转入' || item.title === '自购 VIP 种子资产')).toBe(false);
+  });
+
+  it('listLedgers for non-VIP buyers excludes seed and credit asset rows', async () => {
+    const { service } = makeHarness({
+      memberProfiles: [{ userId: 'normal-user', tier: 'NORMAL' }],
+      ledgers: [
+        {
+          id: 'ledger-spend-1',
+          accountId: 'account-1',
+          userId: 'normal-user',
+          type: 'CONSUMPTION_CONFIRMED',
+          subjectType: 'CUMULATIVE_SPEND',
+          direction: 'CREDIT',
+          amount: 100,
+          balanceAfter: 100,
+          cumulativeSpendAfter: 100,
+          idempotencyKey: 'ledger-spend-1',
+          createdAt: new Date('2026-06-01T00:00:00.000Z'),
+        },
+        {
+          id: 'ledger-credit-1',
+          accountId: 'account-1',
+          userId: 'normal-user',
+          type: 'HISTORICAL_CONSUMPTION_GRANT',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: 300,
+          assetAmount: 300,
+          balanceAfter: 300,
+          creditAssetBalanceAfter: 300,
+          idempotencyKey: 'ledger-credit-1',
+          createdAt: new Date('2026-06-02T00:00:00.000Z'),
+        },
+      ],
+    });
+
+    const result = await service.listBuyerLedgers('normal-user', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: 'ledger-spend-1',
+        subjectType: 'CUMULATIVE_SPEND',
+        title: '消费累计',
+      }),
+    ]);
   });
 
   it('listLedgers filters by subjectType and sourceType and maps v2 titles', async () => {

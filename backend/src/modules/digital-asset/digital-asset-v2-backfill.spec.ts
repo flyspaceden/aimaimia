@@ -1,13 +1,15 @@
 import {
   classifyVipBackfillCandidate,
   parseVipBackfillOptions,
+  resolveVipBackfillPackage,
+  runVipBackfillJob,
 } from '../../../scripts/backfill-digital-asset-v2';
 
 describe('digital asset v2 vip backfill script helpers', () => {
   const vipPackages = [
-    { id: 'pkg-399', price: 399, selfSeedAssetAmount: 1000, referralSeedAssetAmount: 2000 },
-    { id: 'pkg-699', price: 699, selfSeedAssetAmount: 2000, referralSeedAssetAmount: 4000 },
-    { id: 'pkg-999', price: 999, selfSeedAssetAmount: 3000, referralSeedAssetAmount: 8000 },
+    { id: 'pkg-399', price: 399, selfSeedAssetAmount: 1000, referralSeedAssetAmount: 2000, status: 'ACTIVE' },
+    { id: 'pkg-699', price: 699, selfSeedAssetAmount: 2000, referralSeedAssetAmount: 4000, status: 'ACTIVE' },
+    { id: 'pkg-999', price: 999, selfSeedAssetAmount: 3000, referralSeedAssetAmount: 8000, status: 'ACTIVE' },
   ];
 
   it('defaults to dry-run mode', () => {
@@ -70,6 +72,80 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'alreadyCredited',
       matchedPackageId: 'pkg-999',
+    });
+  });
+
+  it('dry-run and execute package resolution use the same package set, including inactive packageId matches', () => {
+    const packages = [
+      { id: 'pkg-legacy', price: 399, selfSeedAssetAmount: 800, referralSeedAssetAmount: 1600, status: 'INACTIVE' },
+      ...vipPackages,
+    ];
+
+    expect(resolveVipBackfillPackage({
+      packageId: 'pkg-legacy',
+      vipAmount: 399,
+      vipPackages: packages,
+    })).toMatchObject({ id: 'pkg-legacy', status: 'INACTIVE' });
+
+    expect(classifyVipBackfillCandidate({
+      vipPurchaseId: 'vp-legacy',
+      packageId: 'pkg-legacy',
+      vipAmount: 399,
+      userId: 'vip-user',
+      existingLedgerKeys: new Set(),
+      vipPackages: packages,
+    })).toEqual({
+      status: 'wouldCredit',
+      matchedPackageId: 'pkg-legacy',
+    });
+  });
+
+  it('skips PAID VipPurchase rows where activation never produced an actual VIP member', async () => {
+    const prisma = {
+      vipPurchase: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'vp-1', userId: 'normal-user', packageId: 'pkg-399', amount: 399, activationStatus: 'FAILED' },
+          { id: 'vp-2', userId: 'vip-user', packageId: 'pkg-699', amount: 699, activationStatus: 'SUCCESS' },
+        ]),
+      },
+      memberProfile: {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'vip-user', tier: 'VIP' },
+        ]),
+      },
+      vipPackage: {
+        findMany: jest.fn().mockResolvedValue(vipPackages),
+      },
+      digitalAssetLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const digitalAssetService = {
+      backfillExistingVipAssets: jest.fn().mockResolvedValue({
+        status: 'credited',
+        grantedSelfSeed: true,
+        grantedHistoricalCredit: true,
+      }),
+    };
+
+    const result = await runVipBackfillJob({
+      prisma: prisma as any,
+      digitalAssetService: digitalAssetService as any,
+      options: { dryRun: false },
+    });
+
+    expect(digitalAssetService.backfillExistingVipAssets).toHaveBeenCalledTimes(1);
+    expect(digitalAssetService.backfillExistingVipAssets).toHaveBeenCalledWith({
+      userId: 'vip-user',
+      vipPurchaseId: 'vp-2',
+      packageId: 'pkg-699',
+      vipAmount: 699,
+    });
+    expect(result).toMatchObject({
+      wouldCredit: 1,
+      alreadyCredited: 0,
+      invalidPackage: 0,
+      errors: 0,
     });
   });
 });
