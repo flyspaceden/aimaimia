@@ -81,14 +81,22 @@ test('website build generates crawler-readable static legal pages', () => {
 
   for (const html of [staticPrivacy, staticPrivacyAlias]) {
     assert.match(html, /AI爱买买APP隐私政策/);
-    assert.match(html, /版本：v1\.0\.2/);
-    assert.match(html, /生效日期：2026-06-10/);
+    assert.match(html, /版本 v1\.0\.2/);
+    assert.match(html, /生效日期 2026-06-10/);
     assert.match(html, /剪贴板读取/);
     assert.match(html, /APP支付客户端SDK/);
     assert.match(html, /微信OpenSDK Android/);
+    assert.match(html, /data-legal-format="app-legal-v1"/);
+    assert.match(html, /class="app-header"/);
+    assert.match(html, /class="document-header-card card"/);
+    assert.match(html, /class="summary-card card"/);
+    assert.match(html, /class="section-card card"/);
     assert.doesNotMatch(html, /<div id="root"><\/div>/);
     assert.doesNotMatch(html, /<nav aria-label="隐私政策目录">/);
     assert.doesNotMatch(html, /href="#scope"/);
+    assert.doesNotMatch(html, /site-header/);
+    assert.doesNotMatch(html, /page-hero/);
+    assert.doesNotMatch(html, /breadcrumb/);
   }
 });
 
@@ -143,25 +151,40 @@ test('privacy policy does not disclose removed in-app online support path', () =
 });
 
 test('huahai corporate site exposes the same legal pages', () => {
+  execFileSync('node', ['website/scripts/build-legal-static.mjs'], { encoding: 'utf8' });
+  execFileSync('node', ['scripts/sync-huahai-legal.mjs'], { encoding: 'utf8' });
+
   assert.equal(existsSync('huahai-corporate-site/privacy.html'), true);
   assert.equal(existsSync('huahai-corporate-site/terms.html'), true);
 
   const privacy = read('huahai-corporate-site/privacy.html');
   const terms = read('huahai-corporate-site/terms.html');
+  const websitePrivacy = read('website/public/privacy.html');
+  const websiteTerms = read('website/public/terms.html');
 
   assert.match(privacy, /AI爱买买APP隐私政策/);
   assert.match(privacy, /剪贴板读取/);
   assert.match(terms, /AI爱买买APP用户协议/);
   assert.match(terms, /账号注销与权益终止规则/);
+  assert.equal(privacy, websitePrivacy);
+  assert.equal(terms, websiteTerms);
+  assert.match(privacy, /data-legal-format="app-legal-v1"/);
   assert.doesNotMatch(privacy, /class="legal-toc"/);
   assert.doesNotMatch(privacy, /href="#scope"/);
+  assert.doesNotMatch(privacy, /site-header/);
+  assert.doesNotMatch(privacy, /page-hero/);
+  assert.doesNotMatch(privacy, /breadcrumb/);
   assert.doesNotMatch(terms, /class="legal-toc"/);
   assert.doesNotMatch(terms, /href="#definitions"/);
+  assert.doesNotMatch(terms, /site-header/);
+  assert.doesNotMatch(terms, /page-hero/);
+  assert.doesNotMatch(terms, /breadcrumb/);
 });
 
 test('all huahai corporate pages link to privacy and terms', () => {
   const pages = readdirSync('huahai-corporate-site')
     .filter((fileName) => fileName.endsWith('.html'))
+    .filter((fileName) => !['privacy.html', 'terms.html'].includes(fileName))
     .map((fileName) => `huahai-corporate-site/${fileName}`);
 
   for (const page of pages) {
