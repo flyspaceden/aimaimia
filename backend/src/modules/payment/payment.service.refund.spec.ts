@@ -511,6 +511,58 @@ describe('PaymentService.initiateRefund', () => {
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r_auto_1');
   });
 
+  it('AUTO-CANCEL 数字资产扣回失败时记录待重试失败单', async () => {
+    const { service, prisma } = makeService();
+    const reversalError = new Error('digital asset down');
+    const digitalAssetService = {
+      reverseRefund: jest.fn().mockRejectedValue(reversalError),
+      recordRefundReversalFailure: jest.fn().mockResolvedValue(undefined),
+    };
+    service.setDigitalAssetService(digitalAssetService as any);
+    const updateTx = {
+      refund: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce({ id: 'r_auto_1', status: 'REFUNDING' })
+          .mockResolvedValueOnce({
+            id: 'r_auto_1',
+            merchantRefundNo: 'AUTO-CANCEL-o1',
+            order: {
+              id: 'o1',
+              checkoutSessionId: 'cs1',
+              goodsAmount: 60,
+              discountAmount: 8,
+            },
+          }),
+        update: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          { orderId: 'o1', status: 'REFUNDED' },
+        ]),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'o1' }]),
+      },
+      checkoutSession: { findUnique: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+    };
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(updateTx));
+
+    const result = await (service as any).updateAutoRefundRecord({
+      refundId: 'r_auto_1',
+      toStatus: 'REFUNDED',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'provider_auto_001',
+      remark: '自动退款成功',
+    });
+
+    expect(result).toBe(true);
+    expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r_auto_1');
+    expect(digitalAssetService.recordRefundReversalFailure).toHaveBeenCalledWith(
+      'r_auto_1',
+      reversalError,
+      { source: 'AUTO_REFUND' },
+    );
+  });
+
   it('AUTO-CANCEL 多订单 session 未全部 REFUNDED 时不提前恢复平台红包', async () => {
     const { service, prisma, couponService } = makeService();
     const updateTx = {

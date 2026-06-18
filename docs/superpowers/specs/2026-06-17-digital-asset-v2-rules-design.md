@@ -234,6 +234,8 @@ VIP 用户普通商品确认收货时：
 
 VIP 礼包不产生信用资产，因此 VIP 赠品售后不触发信用资产扣回。
 
+如果退款渠道和退款业务状态已经成功，但数字资产扣回失败，不得回滚退款成功状态，也不得阻断用户到账通知。系统必须写入 `DigitalAssetRefundReversalFailure` 补偿记录，记录 `refundId`、`orderId`、`afterSaleId`、`userId`、来源、失败原因、重试次数和下次重试时间。定时任务每 10 分钟扫描待处理记录并调用同一个幂等的 `reverseRefund(refundId)`；成功后标记 `RESOLVED`，连续失败达到上限后标记 `FAILED`，等待人工核查。
+
 ## App 设计
 
 ### 普通用户数字资产页

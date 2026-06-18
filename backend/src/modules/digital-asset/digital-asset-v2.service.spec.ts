@@ -11,6 +11,7 @@ type DataSet = {
   users: any[];
   ruleConfigs: any[];
   vipPackages: any[];
+  reversalFailures: any[];
 };
 
 const DEFAULT_CREDIT_TIERS = {
@@ -38,6 +39,7 @@ const makeHarness = (initial?: Partial<DataSet>) => {
       { id: 'pkg-699', price: 699, selfSeedAssetAmount: 2000, referralSeedAssetAmount: 4000, status: 'ACTIVE' },
       { id: 'pkg-999', price: 999, selfSeedAssetAmount: 3000, referralSeedAssetAmount: 8000, status: 'ACTIVE' },
     ],
+    reversalFailures: initial?.reversalFailures ?? [],
   };
 
   const matchLedgerWhere = (ledger: any, where: any) => {
@@ -169,6 +171,46 @@ const makeHarness = (initial?: Partial<DataSet>) => {
       findUnique: jest.fn(({ where }: any) =>
         data.afterSales.find((request) => request.id === where.id) ?? null,
       ),
+    },
+    digitalAssetRefundReversalFailure: {
+      upsert: jest.fn(({ where, create, update }: any) => {
+        const existing = data.reversalFailures.find((item) => item.refundId === where.refundId);
+        if (existing) {
+          Object.assign(existing, update, { updatedAt: new Date() });
+          return existing;
+        }
+        const row = {
+          id: `reversal-failure-${data.reversalFailures.length + 1}`,
+          retryCount: 0,
+          status: 'PENDING',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...create,
+        };
+        data.reversalFailures.push(row);
+        return row;
+      }),
+      findMany: jest.fn(({ where, take, orderBy }: any = {}) => {
+        let items = data.reversalFailures.filter((item) => {
+          if (where?.status && item.status !== where.status) return false;
+          if (where?.nextRetryAt?.lte && item.nextRetryAt > where.nextRetryAt.lte) return false;
+          return true;
+        });
+        if (orderBy?.nextRetryAt) {
+          items = [...items].sort((a, b) =>
+            orderBy.nextRetryAt === 'asc'
+              ? new Date(a.nextRetryAt).getTime() - new Date(b.nextRetryAt).getTime()
+              : new Date(b.nextRetryAt).getTime() - new Date(a.nextRetryAt).getTime(),
+          );
+        }
+        if (take !== undefined) items = items.slice(0, take);
+        return items;
+      }),
+      update: jest.fn(({ where, data: updateData }: any) => {
+        const row = data.reversalFailures.find((item) => item.id === where.id);
+        Object.assign(row, updateData, { updatedAt: new Date() });
+        return row;
+      }),
     },
   };
 
@@ -437,6 +479,70 @@ describe('DigitalAssetService V2 semantics', () => {
         creditAssetBalanceAfter: 500,
       }),
     ]));
+  });
+
+  it('records a pending retry row when refund reversal fails after refund success', async () => {
+    const { data, service } = makeHarness({
+      refunds: [{
+        id: 'refund-1',
+        orderId: 'order-1',
+        afterSaleId: 'after-sale-1',
+      }],
+      afterSales: [{
+        id: 'after-sale-1',
+        refundId: 'refund-1',
+        userId: 'buyer-1',
+        orderId: 'order-1',
+      }],
+    });
+
+    await (service as any).recordRefundReversalFailure('refund-1', new Error('asset down'), {
+      source: 'AFTER_SALE_REFUND',
+    });
+
+    expect(data.reversalFailures).toHaveLength(1);
+    expect(data.reversalFailures[0]).toMatchObject({
+      refundId: 'refund-1',
+      orderId: 'order-1',
+      afterSaleId: 'after-sale-1',
+      userId: 'buyer-1',
+      status: 'PENDING',
+      retryCount: 0,
+      lastError: 'asset down',
+      source: 'AFTER_SALE_REFUND',
+    });
+    expect(data.reversalFailures[0].nextRetryAt).toBeInstanceOf(Date);
+  });
+
+  it('retryPendingRefundReversals resolves pending rows without duplicate debits', async () => {
+    const { data, service } = makeHarness({
+      reversalFailures: [{
+        id: 'failure-1',
+        refundId: 'refund-1',
+        orderId: 'order-1',
+        userId: 'buyer-1',
+        afterSaleId: 'after-sale-1',
+        source: 'AUTO_REFUND',
+        status: 'PENDING',
+        retryCount: 1,
+        nextRetryAt: new Date('2026-06-17T00:00:00.000Z'),
+        lastError: 'temporary down',
+        createdAt: new Date('2026-06-17T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-17T00:00:00.000Z'),
+      }],
+    });
+    const reverseRefund = jest.spyOn(service, 'reverseRefund').mockResolvedValue(undefined);
+
+    const result = await (service as any).retryPendingRefundReversals(new Date('2026-06-17T00:10:00.000Z'));
+
+    expect(result).toEqual({ scanned: 1, resolved: 1, failed: 0 });
+    expect(reverseRefund).toHaveBeenCalledWith('refund-1');
+    expect(data.reversalFailures[0]).toMatchObject({
+      status: 'RESOLVED',
+      retryCount: 1,
+      lastError: null,
+    });
+    expect(data.reversalFailures[0].resolvedAt).toBeInstanceOf(Date);
   });
 
   it('getSummary zeroes asset balances for non-VIP users and recent records only include cumulative spend rows', async () => {

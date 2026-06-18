@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { calculateCreditAsset, validateCreditTiers } from './digital-asset-credit-calculator';
 import {
   DEFAULT_DIGITAL_ASSET_MODULE_SETTINGS,
@@ -20,8 +22,12 @@ import { resolveVipBackfillPackage } from './digital-asset-vip-package.utils';
 type LedgerDirection = 'CREDIT' | 'DEBIT';
 type ReceiveSource = 'ORDER_RECEIVED' | 'BACKFILL';
 type AdminAdjustSubjectType = DigitalAssetSubjectType;
+type RefundReversalFailureSource = 'AFTER_SALE_REFUND' | 'AUTO_REFUND' | string;
 
 const SERIALIZABLE_MAX_RETRIES = 3;
+const REFUND_REVERSAL_RETRY_DELAY_MS = 10 * 60_000;
+const REFUND_REVERSAL_MAX_ATTEMPTS = 5;
+const REFUND_REVERSAL_RETRY_BATCH_SIZE = 20;
 const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
 const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
@@ -232,6 +238,129 @@ export class DigitalAssetService {
         afterSaleId,
       });
     });
+  }
+
+  async recordRefundReversalFailure(
+    refundId: string,
+    error: unknown,
+    options: { source?: RefundReversalFailureSource } = {},
+  ): Promise<void> {
+    const lastError = sanitizeErrorForLog(error).message;
+    const source = options.source ?? 'UNKNOWN';
+    const nextRetryAt = new Date(Date.now() + REFUND_REVERSAL_RETRY_DELAY_MS);
+
+    await this.withSerializableRetry(async (tx) => {
+      const refund = await tx.refund.findUnique({ where: { id: refundId } });
+      let afterSale = refund?.afterSaleId
+        ? await tx.afterSaleRequest.findUnique({ where: { id: refund.afterSaleId } })
+        : null;
+      if (!afterSale) {
+        afterSale = await tx.afterSaleRequest.findFirst({ where: { refundId } });
+      }
+      const orderId = refund?.orderId ?? afterSale?.orderId ?? null;
+      const order = orderId
+        ? await tx.order.findUnique({
+          where: { id: orderId },
+          select: { userId: true },
+        })
+        : null;
+
+      await tx.digitalAssetRefundReversalFailure.upsert({
+        where: { refundId },
+        create: {
+          refundId,
+          orderId,
+          afterSaleId: refund?.afterSaleId ?? afterSale?.id ?? null,
+          userId: afterSale?.userId ?? order?.userId ?? null,
+          source,
+          status: 'PENDING',
+          retryCount: 0,
+          nextRetryAt,
+          lastAttemptAt: null,
+          lastError,
+          resolvedAt: null,
+        },
+        update: {
+          orderId,
+          afterSaleId: refund?.afterSaleId ?? afterSale?.id ?? null,
+          userId: afterSale?.userId ?? order?.userId ?? null,
+          source,
+          status: 'PENDING',
+          nextRetryAt,
+          lastError,
+          resolvedAt: null,
+        },
+      });
+    });
+  }
+
+  async retryPendingRefundReversals(now = new Date()): Promise<{
+    scanned: number;
+    resolved: number;
+    failed: number;
+  }> {
+    const failures = await (this.prisma as any).digitalAssetRefundReversalFailure.findMany({
+      where: {
+        status: 'PENDING',
+        nextRetryAt: { lte: now },
+      },
+      orderBy: { nextRetryAt: 'asc' },
+      take: REFUND_REVERSAL_RETRY_BATCH_SIZE,
+    });
+
+    let resolved = 0;
+    let failed = 0;
+    for (const failure of failures) {
+      const attemptedAt = new Date();
+      try {
+        await this.reverseRefund(failure.refundId);
+        await (this.prisma as any).digitalAssetRefundReversalFailure.update({
+          where: { id: failure.id },
+          data: {
+            status: 'RESOLVED',
+            lastAttemptAt: attemptedAt,
+            lastError: null,
+            resolvedAt: attemptedAt,
+          },
+        });
+        resolved += 1;
+      } catch (err) {
+        const retryCount = (failure.retryCount ?? 0) + 1;
+        const exhausted = retryCount >= REFUND_REVERSAL_MAX_ATTEMPTS;
+        await (this.prisma as any).digitalAssetRefundReversalFailure.update({
+          where: { id: failure.id },
+          data: {
+            status: exhausted ? 'FAILED' : 'PENDING',
+            retryCount,
+            nextRetryAt: new Date(attemptedAt.getTime() + REFUND_REVERSAL_RETRY_DELAY_MS),
+            lastAttemptAt: attemptedAt,
+            lastError: sanitizeErrorForLog(err).message,
+          },
+        });
+        failed += 1;
+      }
+    }
+
+    return {
+      scanned: failures.length,
+      resolved,
+      failed,
+    };
+  }
+
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async retryPendingRefundReversalFailuresCron(): Promise<void> {
+    try {
+      const result = await this.retryPendingRefundReversals();
+      if (result.scanned > 0) {
+        this.logger.warn(
+          `数字资产退款扣回补偿完成: scanned=${result.scanned}, resolved=${result.resolved}, failed=${result.failed}`,
+        );
+      }
+    } catch (err) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(`数字资产退款扣回补偿任务失败: error=${safeErr.message}`, safeErr.stack);
+    }
   }
 
   async reverseAfterSale(afterSaleId: string): Promise<void> {

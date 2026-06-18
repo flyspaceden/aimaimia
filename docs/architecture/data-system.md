@@ -920,12 +920,22 @@ Invoice
   - reason (text nullable)
   - meta (jsonb nullable) — 金额口径、行级分摊、退款来源、VIP 档位/邀请源、回填批次等审计快照
   - createdAt
+- DigitalAssetRefundReversalFailure
+  - id (uuid, PK)
+  - refundId (uuid/text unique) — 已成功退款但数字资产扣回失败的退款单
+  - orderId / afterSaleId / userId (uuid/text nullable) — 便于排查和后台后续扩展
+  - source (text) — AFTER_SALE_REFUND / AUTO_REFUND 等触发来源
+  - status (enum: PENDING / RESOLVED / FAILED)
+  - retryCount (int default 0)
+  - nextRetryAt / lastAttemptAt / resolvedAt (timestamp nullable/default)
+  - lastError (text nullable)
+  - createdAt, updatedAt
 - 口径：
   - 所有用户都记录 `cumulativeSpendAmount`；只有 VIP 用户可展示/持有 `seedAssetBalance` 与 `creditAssetBalance`。
   - `cumulativeSpendAmount` 仅按普通商品实付商品金额累计，不含运费，扣除消费积分、平台红包、VIP 折扣；VIP 礼包不计入累计消费，也不直接产生信用资产。
   - `SEED_ASSET` 只来自本人购买 VIP 礼包（`SELF_VIP_PURCHASE`）和直接邀请好友购买 VIP 礼包（`REFERRAL_VIP_PURCHASE`）两类场景。
   - `CREDIT_ASSET` 由累计消费按可配置倍率档位计算；首次 VIP 激活可把历史累计消费按当时规则一次性转入 `HISTORICAL_CONSUMPTION_GRANT`，其后普通商品确认收货走 `CONSUMPTION_CONFIRMED`。
-  - 退款/退货成功按原入账行与快照可审计扣回；后台人工调整只能调整具体 subject，不能直接改“数字资产总额”。
+  - 退款/退货成功按原入账行与快照可审计扣回；若退款主链路已成功但扣回失败，写 `DigitalAssetRefundReversalFailure`，定时重试同一个幂等 `reverseRefund(refundId)`，成功后标记 RESOLVED，超限后转 FAILED 人工核查；后台人工调整只能调整具体 subject，不能直接改“数字资产总额”。
   - 该体系独立于 Reward 消费积分、Coupon 平台红包和普通/VIP 分润计数；未来现金使用、收益、股权/期权/工资/兑换规则另起设计，当前不承诺固定价值或回报。
 
 ## I10. NormalBucket
@@ -991,6 +1001,7 @@ Invoice
 - DigitalAssetLedgerType: ORDER_RECEIVED, REFUND_REVERSAL, ADMIN_ADJUSTMENT, BACKFILL, CONSUMPTION_CONFIRMED, SELF_VIP_PURCHASE, REFERRAL_VIP_PURCHASE, HISTORICAL_CONSUMPTION_GRANT
 - DigitalAssetLedgerSubjectType: CUMULATIVE_SPEND, SEED_ASSET, CREDIT_ASSET
 - DigitalAssetLedgerDirection: CREDIT, DEBIT
+- DigitalAssetRefundReversalFailureStatus: PENDING, RESOLVED, FAILED
 
 - LotteryPrizeType: DISCOUNT_BUY, THRESHOLD_GIFT, NO_PRIZE
 - LotteryResult: WON, NO_PRIZE
@@ -1029,6 +1040,10 @@ Invoice
 - DigitalAssetLedger(orderId)
 - DigitalAssetLedger(refundId)
 - DigitalAssetLedger(vipPurchaseId)
+- DigitalAssetRefundReversalFailure(unique refundId)
+- DigitalAssetRefundReversalFailure(status, nextRetryAt)
+- DigitalAssetRefundReversalFailure(userId, createdAt)
+- DigitalAssetRefundReversalFailure(orderId, createdAt)
 - ReviewTask(status, createdAt)
 
 ---
@@ -1071,6 +1086,6 @@ Invoice
 - 允许绑定：同一 User 可同时绑定 PHONE + WECHAT
 - 支付/退款/物流回调：落 rawPayload（脱敏），以 providerTxnId/providerRefundId/事件唯一键幂等
 - 奖励发放：写 RewardAllocation（幂等）→ 写 RewardLedger（冻结）→ 签收释放/解锁释放 → 退款作废与重算
-- 数字资产 V2：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger，并同步 `cumulativeSpendAmount` / `seedAssetBalance` / `creditAssetBalance`；VIP 激活与数字资产发放和会员升阶共事务；确认收货只累计普通商品实付金额，退款/退货成功按快照扣回，历史回填先 dry-run 再执行；后台只允许对具体 subject 做审计可追踪调整，禁止直接改总额。
+- 数字资产 V2：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger，并同步 `cumulativeSpendAmount` / `seedAssetBalance` / `creditAssetBalance`；VIP 激活与数字资产发放和会员升阶共事务；确认收货只累计普通商品实付金额，退款/退货成功按快照扣回；退款已成功但扣回失败时写 `DigitalAssetRefundReversalFailure` 并由 cron 重试幂等扣回；历史回填先 dry-run 再执行；后台只允许对具体 subject 做审计可追踪调整，禁止直接改总额。
 
 ---

@@ -254,6 +254,12 @@ enum DigitalAssetLedgerDirection {
   DEBIT
 }
 
+enum DigitalAssetRefundReversalFailureStatus {
+  PENDING
+  RESOLVED
+  FAILED
+}
+
 enum ShipmentStatus {
   INIT
   SHIPPED
@@ -2080,6 +2086,28 @@ model DigitalAssetLedger {
   @@index([afterSaleId])
   @@index([vipPurchaseId])
   @@index([adminUserId, createdAt])
+}
+
+model DigitalAssetRefundReversalFailure {
+  id            String    @id @default(cuid())
+  refundId      String    @unique
+  orderId       String?
+  afterSaleId   String?
+  userId        String?
+  source        String
+  status        DigitalAssetRefundReversalFailureStatus @default(PENDING)
+  retryCount    Int       @default(0)
+  nextRetryAt   DateTime  @default(now())
+  lastAttemptAt DateTime?
+  lastError     String?
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@index([userId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([afterSaleId, createdAt])
 }
 
 /// @deprecated 废弃：滑动窗口分桶，由 NormalTreeNode + 普通树分配替代。保留用于历史数据查询
