@@ -95,32 +95,11 @@ export class SellerShippingController {
       orderId,
     );
 
-    // PDF 面单（OSS URL 或 SF 临时 URL，或历史 base64 兼容）
+    // PDF 面单（历史 base64 兼容）
     const isPdfBase64 = printData.waybillUrl.startsWith('data:application/pdf;base64,');
-    const isPdfUrl = /\.pdf(\?|$)/i.test(printData.waybillUrl);
-
-    if (isPdfBase64 || isPdfUrl) {
-      let pdfBuffer: Buffer;
-
-      if (isPdfBase64) {
-        // 历史数据兼容：DB 中残留的 base64 dataURL
-        const base64Data = printData.waybillUrl.replace('data:application/pdf;base64,', '');
-        pdfBuffer = Buffer.from(base64Data, 'base64');
-      } else {
-        try {
-          const fetched = await fetchBinaryWithLimit(printData.waybillUrl, {
-            maxBytes: 10 * 1024 * 1024,
-            timeoutMs: 15000,
-            allowedContentTypes: ['application/pdf', 'application/octet-stream'],
-          });
-          pdfBuffer = fetched.buffer;
-        } catch (error) {
-          if (error instanceof RemoteBinaryFetchError) {
-            throw new HttpException(error.message, error.statusCode);
-          }
-          throw new HttpException('面单 PDF 读取失败', HttpStatus.BAD_GATEWAY);
-        }
-      }
+    if (isPdfBase64) {
+      const base64Data = printData.waybillUrl.replace('data:application/pdf;base64,', '');
+      const pdfBuffer = Buffer.from(base64Data, 'base64');
 
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Pragma', 'no-cache');
@@ -134,19 +113,43 @@ export class SellerShippingController {
       return res.send(pdfBuffer);
     }
 
-    // 原有图片逻辑保持不变（向后兼容）
-    const printedAt = new Date();
-    let imageBuffer: Buffer;
+    let remoteFile: { buffer: Buffer; contentType: string | null };
     try {
-      const remoteImage = await fetchBinaryWithLimit(printData.waybillUrl);
-      imageBuffer = remoteImage.buffer;
+      remoteFile = await fetchBinaryWithLimit(printData.waybillUrl, {
+        maxBytes: 10 * 1024 * 1024,
+        timeoutMs: 15000,
+        allowedContentTypes: ['application/pdf', 'application/octet-stream', 'image/'],
+      });
     } catch (error) {
       if (error instanceof RemoteBinaryFetchError) {
         throw new HttpException(error.message, error.statusCode);
       }
-      throw new HttpException('面单图片读取失败', HttpStatus.BAD_GATEWAY);
+      throw new HttpException('面单文件读取失败', HttpStatus.BAD_GATEWAY);
     }
-    const watermarked = await applyWaybillWatermark(imageBuffer, {
+
+    const contentType = remoteFile.contentType?.toLowerCase() ?? '';
+    const isPdfUrl = /\.pdf(\?|$)/i.test(printData.waybillUrl);
+    const isPdfContent =
+      isPdfUrl ||
+      contentType.startsWith('application/pdf') ||
+      remoteFile.buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+
+    if (isPdfContent) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="waybill-${orderId}.pdf"`);
+
+      await this.shippingService.recordWaybillPrintAccess(
+        companyId, staffId, orderId, req.ip, req.headers['user-agent'],
+      );
+
+      return res.send(remoteFile.buffer);
+    }
+
+    // 原有图片逻辑保持不变（向后兼容）
+    const printedAt = new Date();
+    const watermarked = await applyWaybillWatermark(remoteFile.buffer, {
       documentLabel: `订单#${orderId}`,
       staffId,
       printedAt,
