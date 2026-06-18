@@ -297,3 +297,12 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 | App 上线 | 配置 CORS 增加 App 域名 | 备案通过 |
 | 流量增长 | 数据库迁移到云 RDS，加 CDN | 日活 > 1000 |
 | 高可用 | 后端多实例 + 负载均衡 | 日活 > 10000 |
+
+## 十一、生产变更记录
+
+### 2026-06-18 数字资产推荐 VIP 种子资产历史补偿
+
+- **代码发布**：`staging` 推送 `fa3fbdf fix(digital-asset): backfill referral vip seed assets`；`main` 合并提交 `3ba41ed release: 合并 staging 到 main（数字资产推荐种子资产回填）`。
+- **生产部署**：GitHub Actions `Deploy Sites & Backend` run `27734523652` 成功，仅后端部署执行。
+- **生产数据补偿**：`Digital Asset Backfill` production dry-run run `27734576044` 显示 `referralWouldCredit=3`、`errors=0`、`invalidPackage=0`；execute run `27734613896` 成功补发 `referralCredited=3`；最终 dry-run run `27734647699` 显示 `wouldCredit=0`、`referralWouldCredit=0`、`errors=0`。
+- **安全口径**：补偿仍走 `DigitalAssetService.backfillExistingVipAssets()` 的 Serializable 事务和 `vip-purchase:*:referral-seed` 幂等键；重复执行不会重复入账。
