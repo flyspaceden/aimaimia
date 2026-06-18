@@ -145,6 +145,8 @@ export interface VipPackage {
   id: string;
   price: number;
   referralBonusRate: number;
+  selfSeedAssetAmount: number;
+  referralSeedAssetAmount: number;
   sortOrder: number;
   status: VipGiftOptionStatus;
   createdAt: string;
@@ -155,6 +157,8 @@ export interface VipPackage {
 export interface CreateVipPackageInput {
   price: number;
   referralBonusRate?: number;
+  selfSeedAssetAmount?: number;
+  referralSeedAssetAmount?: number;
   sortOrder?: number;
   status?: VipGiftOptionStatus;
 }
@@ -162,6 +166,8 @@ export interface CreateVipPackageInput {
 export interface UpdateVipPackageInput {
   price?: number;
   referralBonusRate?: number;
+  selfSeedAssetAmount?: number;
+  referralSeedAssetAmount?: number;
   sortOrder?: number;
   status?: VipGiftOptionStatus;
 }

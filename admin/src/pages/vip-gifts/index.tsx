@@ -21,6 +21,7 @@ import {
   Card,
   Flex,
   Modal,
+  Table,
 } from 'antd';
 import {
   PlusOutlined,
@@ -85,6 +86,14 @@ const statusMap: Record<string, { text: string; color: string }> = {
 interface RowProductState {
   keyword: string;
   selectedProductId?: string;
+}
+
+interface VipPackageFormValues {
+  price: number;
+  referralBonusRate: number;
+  selfSeedAssetAmount: number;
+  referralSeedAssetAmount: number;
+  status: VipGiftOptionStatus;
 }
 
 // ========== 封面样式预览组件 ==========
@@ -351,7 +360,7 @@ export default function VipGiftsPage() {
 
   const [pkgModalOpen, setPkgModalOpen] = useState(false);
   const [editingPkg, setEditingPkg] = useState<VipPackage | null>(null);
-  const [pkgForm] = Form.useForm();
+  const [pkgForm] = Form.useForm<VipPackageFormValues>();
 
   // 档位筛选
   const [filterPackageId, setFilterPackageId] = useState<string | undefined>(undefined);
@@ -724,6 +733,90 @@ export default function VipGiftsPage() {
       ? (watchedPkgPrice * watchedPkgRate) / 100
       : null;
 
+  const packageColumns = [
+    {
+      title: '价格',
+      dataIndex: 'price',
+      width: 110,
+      render: (value: number) => <Text strong>¥{value.toFixed(2)}</Text>,
+    },
+    {
+      title: '推荐奖励比例',
+      dataIndex: 'referralBonusRate',
+      width: 160,
+      render: (value: number, record: VipPackage) => (
+        <Space size={4}>
+          <Tag color="gold">{(value * 100).toFixed(1)}%</Tag>
+          <Text type="secondary">¥{(record.price * value).toFixed(2)}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '自购种子资产',
+      dataIndex: 'selfSeedAssetAmount',
+      width: 140,
+      render: (value: number) => value.toLocaleString(),
+    },
+    {
+      title: '推荐种子资产',
+      dataIndex: 'referralSeedAssetAmount',
+      width: 140,
+      render: (value: number) => value.toLocaleString(),
+    },
+    {
+      title: '赠品方案数',
+      dataIndex: ['_count', 'giftOptions'],
+      width: 120,
+      render: (value: number | undefined) => value ?? 0,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 100,
+      render: (value: VipPackage['status']) => (
+        <Tag color={value === 'ACTIVE' ? 'green' : 'default'}>
+          {value === 'ACTIVE' ? '上架' : '下架'}
+        </Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 140,
+      render: (_: unknown, pkg: VipPackage) => (
+        <Space size={0}>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setEditingPkg(pkg);
+              pkgForm.setFieldsValue({
+                price: pkg.price,
+                referralBonusRate: pkg.referralBonusRate * 100,
+                selfSeedAssetAmount: pkg.selfSeedAssetAmount,
+                referralSeedAssetAmount: pkg.referralSeedAssetAmount,
+                status: pkg.status,
+              });
+              setPkgModalOpen(true);
+            }}
+          >
+            编辑
+          </Button>
+          <Popconfirm
+            title="确定删除此档位？"
+            description="需先移除该档位下所有赠品方案"
+            onConfirm={() => deletePkgMutation.mutate(pkg.id)}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
   // 计算总价统计（使用 fieldKeysRef 将 index 映射回 field.key 以查找 rowStates）
   const calculateSummary = () => {
     let totalQty = 0;
@@ -804,6 +897,12 @@ export default function VipGiftsPage() {
               onClick={() => {
                 setEditingPkg(null);
                 pkgForm.resetFields();
+                pkgForm.setFieldsValue({
+                  referralBonusRate: 15,
+                  selfSeedAssetAmount: 0,
+                  referralSeedAssetAmount: 0,
+                  status: 'ACTIVE',
+                });
                 setPkgModalOpen(true);
               }}
             >
@@ -812,59 +911,15 @@ export default function VipGiftsPage() {
           </PermissionGate>
         }
       >
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {packages.map((pkg) => (
-            <Card
-              key={pkg.id}
-              size="small"
-              style={{ width: 200, borderColor: pkg.status === 'ACTIVE' ? '#C9A96E' : '#d9d9d9' }}
-              actions={[
-                <EditOutlined key="edit" onClick={() => {
-                  setEditingPkg(pkg);
-                  pkgForm.setFieldsValue({
-                    price: pkg.price,
-                    referralBonusRate: pkg.referralBonusRate * 100,
-                    status: pkg.status,
-                  });
-                  setPkgModalOpen(true);
-                }} />,
-                <Popconfirm
-                  key="delete"
-                  title="确定删除此档位？"
-                  description="需先移除该档位下所有赠品方案"
-                  onConfirm={() => deletePkgMutation.mutate(pkg.id)}
-                >
-                  <DeleteOutlined />
-                </Popconfirm>,
-              ]}
-            >
-              <div style={{ textAlign: 'center' }}>
-                <Text strong style={{ fontSize: 24, color: '#C9A96E' }}>¥{pkg.price}</Text>
-                <div style={{ marginTop: 4 }}>
-                  <Tag>
-                    奖励 {(pkg.referralBonusRate * 100).toFixed(0)}%
-                    <span style={{ color: '#8c8c8c', marginLeft: 4 }}>
-                      (¥{(pkg.price * pkg.referralBonusRate).toFixed(2)})
-                    </span>
-                  </Tag>
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {pkg._count?.giftOptions ?? 0} 个赠品方案
-                  </Text>
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <Tag color={pkg.status === 'ACTIVE' ? 'green' : 'default'}>
-                    {pkg.status === 'ACTIVE' ? '上架' : '下架'}
-                  </Tag>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {packages.length === 0 && (
-            <Text type="secondary">暂无档位，请先创建</Text>
-          )}
-        </div>
+        <Table<VipPackage>
+          rowKey="id"
+          size="small"
+          pagination={false}
+          columns={packageColumns}
+          dataSource={packages}
+          locale={{ emptyText: '暂无档位，请先创建' }}
+          scroll={{ x: 880 }}
+        />
       </Card>
 
       {/* 说明卡 */}
@@ -1126,12 +1181,17 @@ export default function VipGiftsPage() {
       <Modal
         title={editingPkg ? '编辑档位' : '新增档位'}
         open={pkgModalOpen}
-        onCancel={() => setPkgModalOpen(false)}
+        onCancel={() => {
+          setPkgModalOpen(false);
+          setEditingPkg(null);
+        }}
         onOk={async () => {
           const values = await pkgForm.validateFields();
           const data = {
             price: values.price,
             referralBonusRate: values.referralBonusRate / 100,
+            selfSeedAssetAmount: values.selfSeedAssetAmount,
+            referralSeedAssetAmount: values.referralSeedAssetAmount,
             status: values.status,
           };
           if (editingPkg) {
@@ -1140,10 +1200,20 @@ export default function VipGiftsPage() {
             await createPkgMutation.mutateAsync(data);
           }
           setPkgModalOpen(false);
+          setEditingPkg(null);
         }}
         confirmLoading={createPkgMutation.isPending || updatePkgMutation.isPending}
       >
-        <Form form={pkgForm} layout="vertical" initialValues={{ referralBonusRate: 15, status: 'ACTIVE' }}>
+        <Form
+          form={pkgForm}
+          layout="vertical"
+          initialValues={{
+            referralBonusRate: 15,
+            selfSeedAssetAmount: 0,
+            referralSeedAssetAmount: 0,
+            status: 'ACTIVE',
+          }}
+        >
           <Form.Item name="price" label="价格" rules={[{ required: true, message: '请输入价格' }]}>
             <InputNumber min={0.01} max={99999} precision={2} addonAfter="元" style={{ width: '100%' }} />
           </Form.Item>
@@ -1163,6 +1233,23 @@ export default function VipGiftsPage() {
           >
             <InputNumber min={0} max={100} precision={1} addonAfter="%" style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item
+            name="selfSeedAssetAmount"
+            label="自购种子资产"
+            rules={[{ required: true, message: '请输入自购种子资产' }]}
+          >
+            <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="referralSeedAssetAmount"
+            label="推荐种子资产"
+            rules={[{ required: true, message: '请输入推荐种子资产' }]}
+          >
+            <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            仅影响未来新支付成功的 VIP，历史流水不追溯。
+          </Typography.Text>
           <Form.Item name="status" label="状态">
             <Radio.Group>
               <Radio value="ACTIVE">上架</Radio>

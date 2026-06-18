@@ -213,16 +213,29 @@ export interface AppUserDetail {
 
 // ========== 数字资产 ==========
 
+export type DigitalAssetSubjectType =
+  | 'CUMULATIVE_SPEND'
+  | 'SEED_ASSET'
+  | 'CREDIT_ASSET';
+
 export type DigitalAssetLedgerType =
   | 'ORDER_RECEIVED'
+  | 'CONSUMPTION_CONFIRMED'
   | 'REFUND_REVERSAL'
+  | 'SELF_VIP_PURCHASE'
+  | 'REFERRAL_VIP_PURCHASE'
+  | 'HISTORICAL_CONSUMPTION_GRANT'
   | 'ADMIN_ADJUSTMENT'
   | 'BACKFILL';
 
 export type DigitalAssetLedgerDirection = 'CREDIT' | 'DEBIT';
+export type DigitalAssetSourceType = DigitalAssetLedgerType;
 
 export interface DigitalAssetOverview {
   accountCount: number;
+  totalAssetBalance: number;
+  totalSeedAssetBalance: number;
+  totalCreditAssetBalance: number;
   totalCumulativeSpendAmount: number;
   todayCreditAmount: number;
   todayDebitAmount: number;
@@ -243,6 +256,9 @@ export interface DigitalAssetLedgerQueryParams extends PaginationParams {
 export interface DigitalAssetAccountRow {
   id: string;
   userId: string;
+  totalAssetBalance: number;
+  seedAssetBalance: number;
+  creditAssetBalance: number;
   cumulativeSpendAmount: number;
   createdAt: string;
   updatedAt: string;
@@ -253,6 +269,7 @@ export interface DigitalAssetAccountRow {
     avatarUrl: string | null;
     phone: string | null;
     status: string | null;
+    vipStatus: 'NORMAL' | 'VIP';
   };
 }
 
@@ -272,20 +289,33 @@ export interface DigitalAssetAccountDetail {
     avatarUrl: string | null;
     phone: string | null;
     status: string;
+    vipStatus: 'NORMAL' | 'VIP';
   };
   account: {
     id: string | null;
+    totalAssetBalance: number;
+    seedAssetBalance: number;
+    creditAssetBalance: number;
     cumulativeSpendAmount: number;
     updatedAt: string | null;
   };
   modules: DigitalAssetModuleInfo[];
 }
 
+export interface DigitalAssetCreditTier {
+  minAmount: number;
+  maxAmount: number | null;
+  multiplier: number;
+}
+
 export interface DigitalAssetLedger {
   id: string;
   type: DigitalAssetLedgerType;
+  sourceType: DigitalAssetSourceType;
+  subjectType: DigitalAssetSubjectType;
   direction: DigitalAssetLedgerDirection;
   amount: number;
+  assetAmount: number | null;
   balanceAfter: number;
   title: string;
   description?: string;
@@ -295,12 +325,18 @@ export interface DigitalAssetLedger {
 
 export interface DigitalAssetAdjustPayload {
   direction: DigitalAssetLedgerDirection;
+  subjectType: Extract<DigitalAssetSubjectType, 'SEED_ASSET' | 'CREDIT_ASSET'>;
   amount: number;
   reason: string;
   clientIdempotencyKey?: string;
 }
 
 export interface DigitalAssetSettings {
+  modules: DigitalAssetModuleInfo[];
+}
+
+export interface DigitalAssetRules {
+  tiers: DigitalAssetCreditTier[];
   modules: DigitalAssetModuleInfo[];
 }
 
