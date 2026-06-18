@@ -43,11 +43,25 @@ test('builds seller packing slip with order items before the waybill iframe', ()
   assert.match(html, /AIMM00000000000036/);
   assert.match(html, /广东省\/深圳市\/宝安区/);
   assert.match(html, /龙虾 &lt;鲜活&gt;/);
-  assert.match(html, /84\.50 × 2/);
-  assert.match(html, /169\.00/);
+  assert.match(html, /<td class="quantity">2<\/td>/);
   assert.match(html, /满额赠品/);
   assert.match(html, /SF510000002959/);
   assert.ok(html.indexOf('订单拣货单') < html.indexOf('waybill-frame'));
+});
+
+test('does not expose seller platform prices on the printable packing slip', () => {
+  const html = buildSellerWaybillPrintHtml(
+    order,
+    'https://api.ai-maimai.com/api/v1/seller/orders/order-001/waybill/print?sig=abc',
+  );
+
+  assert.doesNotMatch(html, /单价/);
+  assert.doesNotMatch(html, /小计/);
+  assert.doesNotMatch(html, /商品金额/);
+  assert.doesNotMatch(html, /¥/);
+  assert.doesNotMatch(html, /84\.50/);
+  assert.doesNotMatch(html, /169\.00/);
+  assert.doesNotMatch(html, /333\.19/);
 });
 
 test('escapes waybill URL and triggers browser print from the generated page', () => {
