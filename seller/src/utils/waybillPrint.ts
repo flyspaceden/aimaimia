@@ -1,7 +1,6 @@
 import type { Order } from '@/types';
-import { toAbsoluteApiUrl } from './api-url.ts';
 
-type PrintResult = 'opened' | 'blocked' | 'missing-url';
+type PrintResult = 'opened' | 'blocked';
 
 const PRIZE_TYPE_LABELS: Record<string, string> = {
   THRESHOLD_GIFT: '满额赠品',
@@ -23,7 +22,7 @@ function itemLabel(item: Order['items'][number]): string {
   return item.prizeType ? (PRIZE_TYPE_LABELS[item.prizeType] ?? '奖品') : '奖品';
 }
 
-export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): string {
+export function buildSellerWaybillPrintHtml(order: Order): string {
   const rows = order.items
     .map((item, index) => {
       return `
@@ -142,16 +141,6 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
         font-weight: 700;
         font-size: 16px;
       }
-      .waybill-page {
-        page-break-before: always;
-        padding: 0;
-      }
-      iframe {
-        width: 100%;
-        height: 282mm;
-        border: 0;
-        display: block;
-      }
       @media print {
         body { background: #fff; }
         .page {
@@ -160,8 +149,6 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
           margin: 0;
           padding: 10mm;
         }
-        .waybill-page { padding: 0; }
-        iframe { height: 100vh; }
       }
     </style>
   </head>
@@ -196,9 +183,6 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
         <tbody>${rows}</tbody>
       </table>
     </section>
-    <section class="page waybill-page">
-      <iframe id="waybill-frame" src="${escapeHtml(waybillUrl)}" title="waybill-${escapeHtml(order.id)}"></iframe>
-    </section>
     <script>
       (function () {
         var printed = false;
@@ -208,12 +192,6 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
           window.focus();
           setTimeout(function () { window.print(); }, 300);
         }
-        var frame = document.getElementById('waybill-frame');
-        if (frame) {
-          frame.addEventListener('load', function () {
-            setTimeout(printNow, 700);
-          });
-        }
         setTimeout(printNow, 1800);
       })();
     </script>
@@ -222,13 +200,10 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
 }
 
 export function printSellerWaybill(order: Order): PrintResult {
-  const waybillUrl = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-  if (!waybillUrl) return 'missing-url';
-
   const printWindow = window.open('', '_blank');
   if (!printWindow) return 'blocked';
 
-  printWindow.document.write(buildSellerWaybillPrintHtml(order, waybillUrl));
+  printWindow.document.write(buildSellerWaybillPrintHtml(order));
   printWindow.document.close();
   return 'opened';
 }
