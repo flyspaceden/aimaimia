@@ -122,9 +122,7 @@ export default function OrderDetailPage() {
   const handlePrintWaybill = () => {
     if (!order) return;
     const result = printSellerWaybill(order);
-    if (result === 'missing-url') {
-      message.warning('面单文件暂无（生成时下载可能失败），请点「取消面单」后重新生成');
-    } else if (result === 'blocked') {
+    if (result === 'blocked') {
       message.error('浏览器拦截了打印窗口，请允许弹窗后重试');
     }
   };
@@ -327,7 +325,7 @@ export default function OrderDetailPage() {
           ) : (
             <div>
               <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                面单已生成，打印清单会包含商品明细和电子面单，贴单后即可确认发货。
+                面单已生成，打印清单只包含商品明细和数量，拣货核对后即可确认发货。
               </Typography.Paragraph>
               <Space size="middle">
                 <Button

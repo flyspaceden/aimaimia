@@ -32,11 +32,8 @@ const order = {
   },
 };
 
-test('builds seller packing slip with order items before the waybill iframe', () => {
-  const html = buildSellerWaybillPrintHtml(
-    order,
-    'https://api.ai-maimai.com/api/v1/seller/orders/order-001/waybill/print?sig=abc',
-  );
+test('builds a one-page seller packing slip with order items and quantities', () => {
+  const html = buildSellerWaybillPrintHtml(order);
 
   assert.match(html, /订单拣货单/);
   assert.match(html, /order-001/);
@@ -46,14 +43,15 @@ test('builds seller packing slip with order items before the waybill iframe', ()
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.match(html, /满额赠品/);
   assert.match(html, /SF510000002959/);
-  assert.ok(html.indexOf('订单拣货单') < html.indexOf('waybill-frame'));
+  assert.doesNotMatch(html, /waybill-frame/);
+  assert.doesNotMatch(html, /waybill-page/);
+  assert.doesNotMatch(html, /<iframe/);
+  assert.doesNotMatch(html, /page-break-before/);
+  assert.doesNotMatch(html, /https:\/\/api\.ai-maimai\.com/);
 });
 
 test('does not expose seller platform prices on the printable packing slip', () => {
-  const html = buildSellerWaybillPrintHtml(
-    order,
-    'https://api.ai-maimai.com/api/v1/seller/orders/order-001/waybill/print?sig=abc',
-  );
+  const html = buildSellerWaybillPrintHtml(order);
 
   assert.doesNotMatch(html, /单价/);
   assert.doesNotMatch(html, /小计/);
@@ -64,13 +62,9 @@ test('does not expose seller platform prices on the printable packing slip', () 
   assert.doesNotMatch(html, /333\.19/);
 });
 
-test('escapes waybill URL and triggers browser print from the generated page', () => {
-  const html = buildSellerWaybillPrintHtml(
-    order,
-    'https://api.ai-maimai.com/print?sig=<bad>&next="x"',
-  );
+test('triggers browser print from the generated page', () => {
+  const html = buildSellerWaybillPrintHtml(order);
 
-  assert.match(html, /sig=&lt;bad&gt;&amp;next=&quot;x&quot;/);
   assert.match(html, /window\.print\(\)/);
   assert.match(html, /setTimeout\(printNow, 1800\)/);
 });
@@ -106,7 +100,7 @@ test('opens a writable print window for the seller packing slip', () => {
     assert.equal(result, 'opened');
     assert.deepEqual(openArgs, ['', '_blank']);
     assert.match(writtenHtml, /订单拣货单/);
-    assert.match(writtenHtml, /waybill-frame/);
+    assert.doesNotMatch(writtenHtml, /waybill-frame/);
   } finally {
     globalThis.window = originalWindow;
   }
