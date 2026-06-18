@@ -350,7 +350,7 @@ describe('DigitalAssetService V2 semantics', () => {
     });
   });
 
-  it('VIP_PACKAGE order is ignored for cumulative spend and credit assets', async () => {
+  it('VIP_PACKAGE order is ignored by received-order accounting to avoid duplicate VIP payment assets', async () => {
     const { data, service } = makeHarness({
       memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
       orders: [{
@@ -624,7 +624,7 @@ describe('DigitalAssetService V2 semantics', () => {
       cumulativeSpendAmount: 240,
       activationPrompt: {
         title: '让每一次消费，都成为你的数字资产基础',
-        description: '成为 VIP 后，累计消费可按规则转化为信用资产。',
+        description: '成为 VIP 后，累计消费可按规则转化为消费资产。',
         actionLabel: '开通 VIP 激活资产',
       },
     });
@@ -754,14 +754,14 @@ describe('DigitalAssetService V2 semantics', () => {
     expect(result.total).toBe(1);
     expect(result.items[0]).toMatchObject({
       id: 'ledger-2',
-      title: '信用资产入账',
+      title: '消费资产入账',
       subjectType: 'CREDIT_ASSET',
       sourceType: 'CONSUMPTION_CONFIRMED',
       amount: 300,
     });
   });
 
-  it('marks historical credit processed even when VIP activation has zero prior spend', async () => {
+  it('marks historical consumption asset processed even when VIP activation has zero prior spend', async () => {
     const { data, service } = makeHarness({
       users: [{ id: 'buyer-1', status: 'ACTIVE', deletionExecutedAt: null }],
     });
@@ -781,7 +781,15 @@ describe('DigitalAssetService V2 semantics', () => {
       creditAssetBalance: 0,
       historicalCreditGrantedAt: expect.any(Date),
     });
+    expect(data.ledgers).toHaveLength(2);
     expect(data.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'SELF_VIP_PURCHASE',
+        subjectType: 'SEED_ASSET',
+        amount: 1000,
+        assetAmount: 1000,
+        idempotencyKey: 'vip-purchase:vp-1:self-seed',
+      }),
       expect.objectContaining({
         type: 'HISTORICAL_CONSUMPTION_GRANT',
         subjectType: 'CREDIT_ASSET',

@@ -31,7 +31,7 @@ const PENDING_MODULES = [
 
 const NON_VIP_ACTIVATION_PROMPT = {
   title: '让每一次消费，都成为你的数字资产基础',
-  description: '成为 VIP 后，累计消费可按规则转化为信用资产。',
+  description: '成为 VIP 后，累计消费可按规则转化为消费资产。',
   actionLabel: '开通 VIP 激活资产',
 } as const;
 
@@ -298,7 +298,7 @@ export default function DigitalAssetsScreen() {
             accent: colors.brand.primary,
           })}
           {renderMetricCard({
-            label: '信用资产',
+            label: '消费资产',
             value: summary?.creditAssetBalance ?? 0,
             accent: colors.gold.primary,
           })}
@@ -307,7 +307,7 @@ export default function DigitalAssetsScreen() {
 
       <View style={styles.sectionBlock}>
         <View style={styles.sectionHeader}>
-          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>信用资产规则</Text>
+          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>消费资产规则</Text>
           <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
             {summary?.currentCreditTier ? `当前档位 x${summary.currentCreditTier.multiplier}` : '规则待开放'}
           </Text>

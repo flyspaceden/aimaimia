@@ -892,9 +892,9 @@ Invoice
   - userId (uuid unique FK User)
   - cumulativeSpendAmount (float default 0) — 当前累计消费金额（所有用户可有）
   - seedAssetBalance (int default 0) — 当前种子资产余额（仅 VIP 可展示/持有）
-  - creditAssetBalance (int default 0) — 当前信用资产余额（仅 VIP 可展示/持有）
-  - historicalCreditGrantedAt (timestamp nullable) — 首次 VIP 激活时历史累计消费转信用资产的时间
-  - historicalCreditGrantLedgerId (uuid/text nullable) — 首次历史信用资产转入对应流水
+  - creditAssetBalance (int default 0) — 当前消费资产余额（仅 VIP 可展示/持有）
+  - historicalCreditGrantedAt (timestamp nullable) — 首次 VIP 激活时历史累计消费转消费资产的时间
+  - historicalCreditGrantLedgerId (uuid/text nullable) — 首次历史消费资产转入对应流水
   - createdAt, updatedAt
 - DigitalAssetLedger
   - id (uuid, PK)
@@ -915,7 +915,7 @@ Invoice
   - cumulativeSpendAfter (float nullable)
   - seedAssetBalanceAfter (int nullable)
   - creditAssetBalanceAfter (int nullable)
-  - ruleSnapshot (jsonb nullable) — 信用资产倍率档位、分段计算结果、原始未四舍五入值等快照
+  - ruleSnapshot (jsonb nullable) — 消费资产倍率档位、分段计算结果、原始未四舍五入值等快照
   - idempotencyKey (text unique)
   - reason (text nullable)
   - meta (jsonb nullable) — 金额口径、行级分摊、退款来源、VIP 档位/邀请源、回填批次等审计快照
@@ -932,7 +932,7 @@ Invoice
   - createdAt, updatedAt
 - 口径：
   - 所有用户都记录 `cumulativeSpendAmount`；只有 VIP 用户可展示/持有 `seedAssetBalance` 与 `creditAssetBalance`。
-  - `cumulativeSpendAmount` 仅按普通商品实付商品金额累计，不含运费，扣除消费积分、平台红包、VIP 折扣；VIP 礼包不计入累计消费，也不直接产生信用资产。
+  - `cumulativeSpendAmount` 只按普通商品真实实付商品金额累计，不含运费，扣除消费积分、平台红包和普通商品 VIP 折扣；VIP 礼包不计入累计消费，也不直接产生消费资产。
   - `SEED_ASSET` 只来自本人购买 VIP 礼包（`SELF_VIP_PURCHASE`）和直接邀请好友购买 VIP 礼包（`REFERRAL_VIP_PURCHASE`）两类场景。
   - `CREDIT_ASSET` 由累计消费按可配置倍率档位计算；首次 VIP 激活可把历史累计消费按当时规则一次性转入 `HISTORICAL_CONSUMPTION_GRANT`，其后普通商品确认收货走 `CONSUMPTION_CONFIRMED`。
   - 退款/退货成功按原入账行与快照可审计扣回；若退款主链路已成功但扣回失败，写 `DigitalAssetRefundReversalFailure`，定时重试同一个幂等 `reverseRefund(refundId)`，成功后标记 RESOLVED，超限后转 FAILED 人工核查；后台人工调整只能调整具体 subject，不能直接改“数字资产总额”。

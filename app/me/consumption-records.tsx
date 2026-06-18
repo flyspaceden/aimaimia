@@ -35,7 +35,7 @@ const formatAssetValue = (value: number) => `${Math.round(value).toLocaleString(
 
 const getLedgerTitle = (item: DigitalAssetLedger) => {
   if (item.sourceType === 'CONSUMPTION_CONFIRMED' && item.subjectType === 'CUMULATIVE_SPEND') return '消费累计';
-  if (item.sourceType === 'CONSUMPTION_CONFIRMED' && item.subjectType === 'CREDIT_ASSET') return '信用资产入账';
+  if (item.sourceType === 'CONSUMPTION_CONFIRMED' && item.subjectType === 'CREDIT_ASSET') return '消费资产入账';
   if (item.sourceType === 'SELF_VIP_PURCHASE') return '自购 VIP 种子资产';
   if (item.sourceType === 'REFERRAL_VIP_PURCHASE') return '推荐 VIP 种子资产';
   if (item.sourceType === 'HISTORICAL_CONSUMPTION_GRANT') return '历史消费转入';

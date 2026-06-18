@@ -1087,6 +1087,6 @@
 
 | 页面 | 完成内容 | 文件 |
 |------|----------|------|
-| 数字资产管理 | `/digital-assets` 总览升级为 V2 口径：顶部统计展示数字资产总额、种子资产总额、信用资产总额、累计消费总额、今日入账、今日扣回；账户表按买家编号/昵称/手机号搜索，展示 VIP 状态、数字资产总额、种子资产、信用资产、累计消费和更新时间；导出 CSV 同步输出上述字段 | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
-| 规则与明细 | 管理页内置“信用资产倍率规则”编辑器，要求首档从 0 开始、相邻档位无断档、仅最后一档允许无上限；账户详情 Drawer 展示数字资产总额、种子资产、信用资产、累计消费、当前倍率、下一档进度和最近流水；手动调整只允许超级管理员对种子资产/信用资产做带原因审计的加减，不允许直接改“数字资产总额” | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
+| 数字资产管理 | `/digital-assets` 总览升级为 V2 口径：顶部统计展示数字资产总额、种子资产总额、消费资产总额、累计消费总额、今日入账、今日扣回；账户表按买家编号/昵称/手机号搜索，展示 VIP 状态、数字资产总额、种子资产、消费资产、累计消费和更新时间；导出 CSV 同步输出上述字段 | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
+| 规则与明细 | 管理页内置“消费资产倍率规则”编辑器，要求首档从 0 开始、相邻档位无断档、仅最后一档允许无上限；账户详情 Drawer 展示数字资产总额、种子资产、消费资产、累计消费、当前倍率、下一档进度和最近流水；手动调整只允许超级管理员对种子资产/消费资产做带原因审计的加减，不允许直接改“数字资产总额” | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
 | VIP 档位配置 | VIP 档位列表与新建/编辑表单新增 `selfSeedAssetAmount` / `referralSeedAssetAmount` 字段，作为“自购种子资产 / 直接邀请好友开通 VIP 的种子资产”规则配置源，供 V2 激活与后台展示复用 | `admin/src/pages/vip-gifts/index.tsx`, `admin/src/api/vip-gifts.ts` |

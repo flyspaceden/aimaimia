@@ -210,7 +210,7 @@ test('legal review docx includes current privacy policy disclosure', () => {
   assert.match(markdown, /不会保存或上传剪贴板原文/);
   assert.match(markdown, /支付宝提现/);
   assert.match(markdown, /AI爱买买APP会员服务协议/);
-  assert.match(markdown, /数字资产包括种子资产和信用资产/);
+  assert.match(markdown, /数字资产包括种子资产和消费资产/);
   assert.doesNotMatch(markdown, /不支持提现/);
 });
 

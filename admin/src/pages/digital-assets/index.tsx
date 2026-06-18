@@ -61,7 +61,7 @@ const vipStatusMap: Record<'NORMAL' | 'VIP', { text: string; color: string }> = 
 const subjectMap: Record<DigitalAssetSubjectType, { text: string; color: string }> = {
   CUMULATIVE_SPEND: { text: '累计消费', color: 'blue' },
   SEED_ASSET: { text: '种子资产', color: 'purple' },
-  CREDIT_ASSET: { text: '信用资产', color: 'cyan' },
+  CREDIT_ASSET: { text: '消费资产', color: 'cyan' },
 };
 
 const sourceMap: Record<string, { text: string; color: string }> = {
@@ -99,7 +99,7 @@ function formatLedgerBalance(record: DigitalAssetLedger) {
 
 function validateCreditTiers(tiers: DigitalAssetCreditTier[]) {
   if (tiers.length === 0) {
-    throw new Error('信用资产倍率档位不能为空');
+    throw new Error('消费资产倍率档位不能为空');
   }
 
   const sorted = [...tiers].sort((a, b) => a.minAmount - b.minAmount);
@@ -116,26 +116,26 @@ function validateCreditTiers(tiers: DigitalAssetCreditTier[]) {
         throw new Error(`第${index + 1}个档位maxAmount必须是有限数字`);
       }
       if (tier.maxAmount <= tier.minAmount) {
-        throw new Error('信用资产倍率档位上限必须大于下限');
+        throw new Error('消费资产倍率档位上限必须大于下限');
       }
     }
     if (tier.multiplier <= 0) {
-      throw new Error('信用资产倍率必须大于0');
+      throw new Error('消费资产倍率必须大于0');
     }
   });
 
   if (sorted[0].minAmount !== 0) {
-    throw new Error('信用资产倍率首档必须从0开始');
+    throw new Error('消费资产倍率首档必须从0开始');
   }
 
   for (let index = 0; index < sorted.length - 1; index += 1) {
     const current = sorted[index];
     const next = sorted[index + 1];
     if (current.maxAmount === null) {
-      throw new Error('只有最后一个信用资产倍率档位可以无上限');
+      throw new Error('只有最后一个消费资产倍率档位可以无上限');
     }
     if (current.maxAmount !== next.minAmount) {
-      throw new Error('信用资产倍率档位不能断档');
+      throw new Error('消费资产倍率档位不能断档');
     }
   }
 
@@ -333,7 +333,7 @@ export default function DigitalAssetsPage() {
       render: (_: unknown, record) => formatAsset(record.seedAssetBalance),
     },
     {
-      title: '信用资产',
+      title: '消费资产',
       dataIndex: 'creditAssetBalance',
       search: false,
       width: 120,
@@ -498,7 +498,7 @@ export default function DigitalAssetsPage() {
           <Card>
             <Statistic
               loading={overviewLoading}
-              title="信用资产总额"
+              title="消费资产总额"
               value={overview?.totalCreditAssetBalance ?? 0}
               formatter={(value) => formatAsset(Number(value ?? 0))}
             />
@@ -591,7 +591,7 @@ export default function DigitalAssetsPage() {
 
       <PermissionGate permission={PERMISSIONS.DIGITAL_ASSETS_SETTINGS}>
         <Card
-          title="信用资产倍率规则"
+          title="消费资产倍率规则"
           loading={rulesQuery.isLoading && ruleDrafts.length === 0}
           extra={(
             <Space>
@@ -655,7 +655,7 @@ export default function DigitalAssetsPage() {
                   <Statistic title="种子资产" value={detail.account.seedAssetBalance} formatter={(value) => formatAsset(Number(value ?? 0))} />
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Statistic title="信用资产" value={detail.account.creditAssetBalance} formatter={(value) => formatAsset(Number(value ?? 0))} />
+                  <Statistic title="消费资产" value={detail.account.creditAssetBalance} formatter={(value) => formatAsset(Number(value ?? 0))} />
                 </Col>
                 <Col xs={24} sm={12}>
                   <Statistic title="累计消费" value={detail.account.cumulativeSpendAmount} precision={2} prefix="¥" />
@@ -663,7 +663,7 @@ export default function DigitalAssetsPage() {
               </Row>
             </Card>
 
-            <Card size="small" title="信用资产倍率">
+            <Card size="small" title="消费资产倍率">
               {effectiveTiers.length > 0 ? (
                 <Row gutter={[12, 12]} align="middle">
                   <Col xs={24} sm={8}>
@@ -690,7 +690,7 @@ export default function DigitalAssetsPage() {
                   </Col>
                 </Row>
               ) : (
-                <Typography.Text type="secondary">暂无可用的信用资产倍率规则</Typography.Text>
+                <Typography.Text type="secondary">暂无可用的消费资产倍率规则</Typography.Text>
               )}
             </Card>
 
@@ -790,7 +790,7 @@ export default function DigitalAssetsPage() {
             <Radio.Group
               options={[
                 { label: '种子资产', value: 'SEED_ASSET' },
-                { label: '信用资产', value: 'CREDIT_ASSET' },
+                { label: '消费资产', value: 'CREDIT_ASSET' },
               ]}
             />
           </Form.Item>

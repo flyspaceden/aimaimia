@@ -17,7 +17,7 @@ function assertFiniteNumber(value: number, label: string): number {
 
 export function validateCreditTiers(tiers: CreditAssetTier[]): CreditAssetTier[] {
   if (tiers.length === 0) {
-    throw new Error('信用资产倍率档位不能为空');
+    throw new Error('消费资产倍率档位不能为空');
   }
 
   const sorted = [...tiers].sort((a, b) => a.minAmount - b.minAmount);
@@ -28,16 +28,16 @@ export function validateCreditTiers(tiers: CreditAssetTier[]): CreditAssetTier[]
     if (tier.maxAmount !== null) {
       assertFiniteNumber(tier.maxAmount, `第${index + 1}个档位maxAmount`);
       if (tier.maxAmount <= tier.minAmount) {
-        throw new Error('信用资产倍率档位上限必须大于下限');
+        throw new Error('消费资产倍率档位上限必须大于下限');
       }
     }
     if (tier.multiplier <= 0) {
-      throw new Error('信用资产倍率必须大于0');
+      throw new Error('消费资产倍率必须大于0');
     }
   });
 
   if (sorted[0].minAmount !== 0) {
-    throw new Error('信用资产倍率首档必须从0开始');
+    throw new Error('消费资产倍率首档必须从0开始');
   }
 
   for (let index = 0; index < sorted.length - 1; index += 1) {
@@ -45,11 +45,11 @@ export function validateCreditTiers(tiers: CreditAssetTier[]): CreditAssetTier[]
     const next = sorted[index + 1];
 
     if (current.maxAmount === null) {
-      throw new Error('只有最后一个信用资产倍率档位可以无上限');
+      throw new Error('只有最后一个消费资产倍率档位可以无上限');
     }
 
     if (current.maxAmount !== next.minAmount) {
-      throw new Error('信用资产倍率档位不能断档');
+      throw new Error('消费资产倍率档位不能断档');
     }
   }
 

@@ -37,7 +37,7 @@ const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
 ];
 const ACTIVATION_PROMPT = {
   title: '让每一次消费，都成为你的数字资产基础',
-  description: '成为 VIP 后，累计消费可按规则转化为信用资产。',
+  description: '成为 VIP 后，累计消费可按规则转化为消费资产。',
   actionLabel: '开通 VIP 激活资产',
 };
 
@@ -670,7 +670,7 @@ export class DigitalAssetService {
         if (nextSeedAssetBalance < 0) throw new BadRequestException('种子资产不能扣成负数');
       } else {
         nextCreditAssetBalance = creditAssetBalance + directionMultiplier * amount;
-        if (nextCreditAssetBalance < 0) throw new BadRequestException('信用资产不能扣成负数');
+        if (nextCreditAssetBalance < 0) throw new BadRequestException('消费资产不能扣成负数');
       }
 
       await tx.digitalAssetLedger.create({
@@ -1002,7 +1002,7 @@ export class DigitalAssetService {
       ? (account.creditAssetBalance ?? 0) - roundAsset(amount)
       : account.creditAssetBalance ?? 0;
     if (nextCumulativeSpendAmount < 0) throw new BadRequestException('数字资产累计消费不能扣成负数');
-    if (nextCreditAssetBalance < 0) throw new BadRequestException('信用资产不能扣成负数');
+    if (nextCreditAssetBalance < 0) throw new BadRequestException('消费资产不能扣成负数');
 
     await tx.digitalAssetLedger.create({
       data: {
@@ -1327,7 +1327,7 @@ export class DigitalAssetService {
     if (ledger.type === 'REFUND_REVERSAL') return '退款扣回';
     if (ledger.type === 'ADMIN_ADJUSTMENT') return '后台调整';
     if (ledger.type === 'CONSUMPTION_CONFIRMED' || ledger.type === 'ORDER_RECEIVED' || ledger.type === 'BACKFILL') {
-      return ledger.subjectType === 'CREDIT_ASSET' ? '信用资产入账' : '消费累计';
+      return ledger.subjectType === 'CREDIT_ASSET' ? '消费资产入账' : '消费累计';
     }
     return '消费记录';
   }
