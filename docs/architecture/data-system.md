@@ -785,10 +785,23 @@ Invoice
 - giftOptionId (text nullable) — 用户选中的赠品方案 ID
 - giftSkuId (text nullable) — 赠品 SKU ID
 - giftSnapshot (json nullable) — 赠品快照 {title, coverUrl, marketPrice, badge}
+- packageId (uuid nullable FK VipPackage) — 购买时选中的 VIP 档位
+- referralBonusRate (float nullable) — 购买时快照的推荐奖励比例
 - source (text nullable) — 来源：APP_VIP_PACKAGE / ADMIN_GRANT / ACTIVITY
 - activationStatus (enum: PENDING/ACTIVATING/SUCCESS/FAILED/RETRYING, default SUCCESS)
 - activationError (text nullable) — 激活失败原因
 - createdAt
+
+## I2a. VipPackage（VIP 档位规则）
+- id (uuid, PK)
+- price (float) — 档位价格（元），如 399 / 699 / 999
+- referralBonusRate (float default 0.15) — 推荐奖励比例快照源
+- selfSeedAssetAmount (int default 0) — 用户本人购买该 VIP 档位时入账的种子资产
+- referralSeedAssetAmount (int default 0) — 直接邀请人因该 VIP 购买入账的种子资产
+- sortOrder (int default 0)
+- status (enum: ACTIVE/INACTIVE, default ACTIVE)
+- createdAt, updatedAt
+- 口径：上述两项只影响后续 VIP 激活/邀请入账，不自动追溯已形成的历史数字资产流水；历史解释以 `DigitalAssetLedger.ruleSnapshot/meta` 和购买快照为准。
 
 ## I2b. VipGiftOption（VIP 赠品方案）
 - id (uuid, PK)
@@ -873,30 +886,47 @@ Invoice
 - meta (jsonb) — 必含：scheme、sourceUserId、bucketKey、vipIndex、ancestorUserId、locked、calcSnapshot
 - createdAt
 
-## I9.5 DigitalAssetAccount / DigitalAssetLedger（累计消费数字资产）
+## I9.5 DigitalAssetAccount / DigitalAssetLedger（数字资产 V2）
 - DigitalAssetAccount
   - id (uuid, PK)
   - userId (uuid unique FK User)
-  - cumulativeSpendAmount (float default 0) — 当前累计消费金额
+  - cumulativeSpendAmount (float default 0) — 当前累计消费金额（所有用户可有）
+  - seedAssetBalance (int default 0) — 当前种子资产余额（仅 VIP 可展示/持有）
+  - creditAssetBalance (int default 0) — 当前信用资产余额（仅 VIP 可展示/持有）
+  - historicalCreditGrantedAt (timestamp nullable) — 首次 VIP 激活时历史累计消费转信用资产的时间
+  - historicalCreditGrantLedgerId (uuid/text nullable) — 首次历史信用资产转入对应流水
   - createdAt, updatedAt
 - DigitalAssetLedger
   - id (uuid, PK)
   - accountId (uuid FK DigitalAssetAccount)
   - userId (uuid FK User)
+  - subjectType (enum: CUMULATIVE_SPEND / SEED_ASSET / CREDIT_ASSET)
   - orderId (uuid nullable FK Order)
   - orderItemId (uuid nullable FK OrderItem)
   - refundId (uuid nullable FK Refund)
   - afterSaleId (uuid nullable FK AfterSaleRequest)
+  - vipPurchaseId (uuid nullable FK VipPurchase)
   - adminUserId (uuid nullable FK AdminUser)
-  - type (enum: ORDER_RECEIVED/REFUND_REVERSAL/ADMIN_ADJUSTMENT/BACKFILL)
+  - type (enum: ORDER_RECEIVED/REFUND_REVERSAL/ADMIN_ADJUSTMENT/BACKFILL/CONSUMPTION_CONFIRMED/SELF_VIP_PURCHASE/REFERRAL_VIP_PURCHASE/HISTORICAL_CONSUMPTION_GRANT)
   - direction (enum: CREDIT/DEBIT)
-  - amount (float) — 正数，方向由 direction 决定
-  - balanceAfter (float)
+  - amount (float) — 正数；`CUMULATIVE_SPEND` 以元计，资产类一般等于入账/扣回数量
+  - assetAmount (int nullable) — 资产类流水的整数数量快照
+  - balanceAfter (float) — 当前 subject 的余额快照；`CUMULATIVE_SPEND` 为金额，资产类为数量
+  - cumulativeSpendAfter (float nullable)
+  - seedAssetBalanceAfter (int nullable)
+  - creditAssetBalanceAfter (int nullable)
+  - ruleSnapshot (jsonb nullable) — 信用资产倍率档位、分段计算结果、原始未四舍五入值等快照
   - idempotencyKey (text unique)
-  - description (text nullable)
-  - meta (jsonb nullable) — 金额口径、行级分摊、退款来源、回填批次等审计快照
+  - reason (text nullable)
+  - meta (jsonb nullable) — 金额口径、行级分摊、退款来源、VIP 档位/邀请源、回填批次等审计快照
   - createdAt
-- 口径：确认收货后按商品实付金额累计，不含运费，扣除消费积分、平台红包、VIP 折扣；退款/退货成功后按原入账行可审计扣回。该体系独立于 Reward 消费积分、Coupon 平台红包和普通/VIP 分润计数，未来股权/期权/工资/兑换规则另起设计。
+- 口径：
+  - 所有用户都记录 `cumulativeSpendAmount`；只有 VIP 用户可展示/持有 `seedAssetBalance` 与 `creditAssetBalance`。
+  - `cumulativeSpendAmount` 仅按普通商品实付商品金额累计，不含运费，扣除消费积分、平台红包、VIP 折扣；VIP 礼包不计入累计消费，也不直接产生信用资产。
+  - `SEED_ASSET` 只来自本人购买 VIP 礼包（`SELF_VIP_PURCHASE`）和直接邀请好友购买 VIP 礼包（`REFERRAL_VIP_PURCHASE`）两类场景。
+  - `CREDIT_ASSET` 由累计消费按可配置倍率档位计算；首次 VIP 激活可把历史累计消费按当时规则一次性转入 `HISTORICAL_CONSUMPTION_GRANT`，其后普通商品确认收货走 `CONSUMPTION_CONFIRMED`。
+  - 退款/退货成功按原入账行与快照可审计扣回；后台人工调整只能调整具体 subject，不能直接改“数字资产总额”。
+  - 该体系独立于 Reward 消费积分、Coupon 平台红包和普通/VIP 分润计数；未来现金使用、收益、股权/期权/工资/兑换规则另起设计，当前不承诺固定价值或回报。
 
 ## I10. NormalBucket
 - id (uuid, PK)
@@ -958,7 +988,8 @@ Invoice
 - AllocationRuleType: NORMAL_BROADCAST(@deprecated), NORMAL_TREE, VIP_UPSTREAM, VIP_PLATFORM_SPLIT, PLATFORM_SPLIT, ZERO_PROFIT
 - RewardEntryType: FREEZE, RELEASE, WITHDRAW, VOID, ADJUST
 - RewardStatus: FROZEN, AVAILABLE, WITHDRAWN, VOIDED
-- DigitalAssetLedgerType: ORDER_RECEIVED, REFUND_REVERSAL, ADMIN_ADJUSTMENT, BACKFILL
+- DigitalAssetLedgerType: ORDER_RECEIVED, REFUND_REVERSAL, ADMIN_ADJUSTMENT, BACKFILL, CONSUMPTION_CONFIRMED, SELF_VIP_PURCHASE, REFERRAL_VIP_PURCHASE, HISTORICAL_CONSUMPTION_GRANT
+- DigitalAssetLedgerSubjectType: CUMULATIVE_SPEND, SEED_ASSET, CREDIT_ASSET
 - DigitalAssetLedgerDirection: CREDIT, DEBIT
 
 - LotteryPrizeType: DISCOUNT_BUY, THRESHOLD_GIFT, NO_PRIZE
@@ -990,10 +1021,14 @@ Invoice
 - RewardAllocation(unique idempotencyKey)
 - RewardLedger(userId, status, createdAt)
 - DigitalAssetAccount(unique userId)
+- DigitalAssetAccount(seedAssetBalance)
+- DigitalAssetAccount(creditAssetBalance)
 - DigitalAssetLedger(unique idempotencyKey)
 - DigitalAssetLedger(userId, createdAt)
+- DigitalAssetLedger(subjectType, createdAt)
 - DigitalAssetLedger(orderId)
 - DigitalAssetLedger(refundId)
+- DigitalAssetLedger(vipPurchaseId)
 - ReviewTask(status, createdAt)
 
 ---
@@ -1013,8 +1048,8 @@ Invoice
 | MemberProfile | userId | User | 防止删除有会员记录的用户 |
 | VipProgress | userId | User | 防止删除有 VIP 进度的用户 |
 | RewardAllocation | orderId | Order | 防止删除有分配记录的订单 |
-| DigitalAssetAccount | userId | User | 防止删除有累计消费账户的用户 |
-| DigitalAssetLedger | userId/accountId/orderId/refundId | User/DigitalAssetAccount/Order/Refund | 防止删除累计消费流水依赖的审计对象 |
+| DigitalAssetAccount | userId | User | 防止删除有数字资产账户的用户 |
+| DigitalAssetLedger | userId/accountId/orderId/refundId/vipPurchaseId | User/DigitalAssetAccount/Order/Refund/VipPurchase | 防止删除数字资产流水依赖的审计对象 |
 
 ## 5.6 新增外键索引（v3.0 性能优化）
 
@@ -1036,6 +1071,6 @@ Invoice
 - 允许绑定：同一 User 可同时绑定 PHONE + WECHAT
 - 支付/退款/物流回调：落 rawPayload（脱敏），以 providerTxnId/providerRefundId/事件唯一键幂等
 - 奖励发放：写 RewardAllocation（幂等）→ 写 RewardLedger（冻结）→ 签收释放/解锁释放 → 退款作废与重算
-- 数字资产累计消费：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger 并同步 cumulativeSpendAmount；确认收货入账，退款/退货成功扣回，历史数据先 dry-run 再执行回填。
+- 数字资产 V2：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger，并同步 `cumulativeSpendAmount` / `seedAssetBalance` / `creditAssetBalance`；VIP 激活与数字资产发放和会员升阶共事务；确认收货只累计普通商品实付金额，退款/退货成功按快照扣回，历史回填先 dry-run 再执行；后台只允许对具体 subject 做审计可追踪调整，禁止直接改总额。
 
 ---
