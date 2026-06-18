@@ -167,6 +167,7 @@ export default function DigitalAssetsPage() {
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
   const { hasPermission, isSuperAdmin } = usePermission();
+  const canReadRules = hasPermission(PERMISSIONS.DIGITAL_ASSETS_READ);
   const canManageRules = hasPermission(PERMISSIONS.DIGITAL_ASSETS_SETTINGS);
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -182,7 +183,7 @@ export default function DigitalAssetsPage() {
   const rulesQuery = useQuery({
     queryKey: ['admin', 'digital-assets', 'rules'],
     queryFn: getDigitalAssetRules,
-    enabled: canManageRules,
+    enabled: canReadRules || canManageRules,
   });
 
   useEffect(() => {
