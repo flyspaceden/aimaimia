@@ -29,6 +29,12 @@ const PENDING_MODULES = [
   { key: 'rights', title: '权益转换', description: '规则待定' },
 ] as const;
 
+const NON_VIP_ACTIVATION_PROMPT = {
+  title: '让每一次消费，都成为你的数字资产基础',
+  description: '成为 VIP 后，累计消费可按规则转化为信用资产。',
+  actionLabel: '开通 VIP 激活资产',
+} as const;
+
 const formatDateTime = (value: string) => {
   const date = new Date(value);
   const y = date.getFullYear();
@@ -96,8 +102,9 @@ export default function DigitalAssetsScreen() {
 
   const summary = summaryQuery.data?.ok ? summaryQuery.data.data : null;
   const loadError = summaryQuery.data && !summaryQuery.data.ok ? summaryQuery.data.error : null;
-  const recentRecords = summary?.recentRecords ?? [];
+  const recentRecords = (summary?.recentRecords ?? []).slice(0, 5);
   const isVip = summary?.isVip ?? false;
+  const hasCreditTierRules = Boolean(summary?.currentCreditTier);
 
   const tierProgress = useMemo(
     () => buildTierProgress(summary?.currentCreditTier, summary?.nextCreditTier),
@@ -270,14 +277,14 @@ export default function DigitalAssetsScreen() {
           <Text style={styles.heroValue} {...priceTextProps}>
             {formatCurrency(summary?.cumulativeSpendAmount ?? 0)}
           </Text>
-          <Text style={styles.heroPromptTitle}>{summary?.activationPrompt?.title}</Text>
-          <Text style={styles.heroPromptDesc}>{summary?.activationPrompt?.description}</Text>
+          <Text style={styles.heroPromptTitle}>{NON_VIP_ACTIVATION_PROMPT.title}</Text>
+          <Text style={styles.heroPromptDesc}>{NON_VIP_ACTIVATION_PROMPT.description}</Text>
           <Pressable
             onPress={() => router.push('/me/vip')}
             style={[styles.heroButton, { borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.18)' }]}
           >
             <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]} {...compactActionTextProps}>
-              {summary?.activationPrompt?.actionLabel}
+              {NON_VIP_ACTIVATION_PROMPT.actionLabel}
             </Text>
           </Pressable>
         </LinearGradient>
@@ -302,50 +309,66 @@ export default function DigitalAssetsScreen() {
         <View style={styles.sectionHeader}>
           <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>信用资产规则</Text>
           <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-            当前档位 x{summary?.currentCreditTier?.multiplier ?? 0}
+            {summary?.currentCreditTier ? `当前档位 x${summary.currentCreditTier.multiplier}` : '规则待开放'}
           </Text>
         </View>
-        <View
-          style={[
-            styles.sectionCard,
-            {
-              borderRadius: radius.lg,
-              borderColor: colors.border,
-              backgroundColor: colors.surface,
-            },
-          ]}
-        >
-          <View style={styles.ruleHeader}>
-            <View>
-              <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                {summary?.nextCreditTier
-                  ? `下一档 x${summary.nextCreditTier.multiplier}`
-                  : '当前最高档'}
-              </Text>
-              <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-                {tierProgress.remainingText}
+        {hasCreditTierRules ? (
+          <View
+            style={[
+              styles.sectionCard,
+              {
+                borderRadius: radius.lg,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+              },
+            ]}
+          >
+            <View style={styles.ruleHeader}>
+              <View>
+                <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                  {summary?.nextCreditTier
+                    ? `下一档 x${summary.nextCreditTier.multiplier}`
+                    : '当前最高档'}
+                </Text>
+                <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+                  {tierProgress.remainingText}
+                </Text>
+              </View>
+              <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
+                {summary?.currentCreditTier ? `${formatCurrency(summary.currentCreditTier.minAmount)} 起算` : '暂无档位规则'}
               </Text>
             </View>
-            <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-              {summary?.currentCreditTier
-                ? `${formatCurrency(summary.currentCreditTier.minAmount)} 起算`
-                : '待配置'}
+
+            <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary, borderRadius: radius.pill, marginTop: spacing.md }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${Math.max(8, tierProgress.progress * 100)}%`,
+                    backgroundColor: colors.brand.primary,
+                    borderRadius: radius.pill,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.sectionCard,
+              {
+                borderRadius: radius.lg,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+              },
+            ]}
+          >
+            <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>暂无档位规则</Text>
+            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
+              规则待开放
             </Text>
           </View>
-
-          <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary, borderRadius: radius.pill, marginTop: spacing.md }]}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${Math.max(8, tierProgress.progress * 100)}%`,
-                  backgroundColor: colors.brand.primary,
-                  borderRadius: radius.pill,
-                },
-              ]}
-            />
-          </View>
-        </View>
+        )}
       </View>
 
       <View style={styles.sectionBlock}>

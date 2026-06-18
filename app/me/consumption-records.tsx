@@ -148,12 +148,21 @@ export default function ConsumptionRecordsScreen() {
 
           <View style={styles.recordAmount}>
             <Text
-              style={[typography.bodyStrong, { color: isPositive ? colors.success : colors.danger }]}
+              style={[
+                typography.bodyStrong,
+                { color: isPositive ? colors.success : colors.danger, textAlign: 'right' },
+              ]}
               {...priceTextProps}
             >
               {formatLedgerAmount(item)}
             </Text>
-            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]} {...priceTextProps}>
+            <Text
+              style={[
+                typography.captionSm,
+                { color: colors.text.secondary, marginTop: 4, textAlign: 'right' },
+              ]}
+              {...priceTextProps}
+            >
               {formatLedgerBalance(item)}
             </Text>
           </View>
@@ -247,5 +256,7 @@ const styles = StyleSheet.create({
   recordAmount: {
     alignItems: 'flex-end',
     marginLeft: 12,
+    flexShrink: 1,
+    maxWidth: '42%',
   },
 });
