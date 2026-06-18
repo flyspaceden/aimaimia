@@ -1,0 +1,86 @@
+name: Digital Asset Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '目标环境'
+        required: true
+        default: production
+        type: choice
+        options:
+          - staging
+          - production
+      mode:
+        description: '运行模式'
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - execute
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run digital asset V2 backfill
+        env:
+          TARGET_ENV: ${{ github.event.inputs.environment }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          set -euo pipefail
+
+          if [ "$TARGET_ENV" = "production" ]; then
+            SRC_DIR="/www/wwwroot/aimaimai-prod-src"
+            BRANCH="main"
+            PM2_NAME="aimaimai-api-prod"
+          else
+            SRC_DIR="/www/wwwroot/aimaimai-staging-src"
+            BRANCH="staging"
+            PM2_NAME="aimaimai-api-test"
+          fi
+
+          EXTRA_ARGS=""
+          if [ "$MODE" = "execute" ]; then
+            EXTRA_ARGS="--execute"
+          fi
+
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            TARGET_SRC_DIR="$SRC_DIR" \
+            TARGET_BRANCH="$BRANCH" \
+            TARGET_PM2_NAME="$PM2_NAME" \
+            BACKFILL_ARGS="$EXTRA_ARGS" \
+            bash <<'EOF'
+              set -euo pipefail
+              echo "═══ 1. 切换到源码目录 ═══"
+              cd "$TARGET_SRC_DIR"
+
+              echo "═══ 2. 同步代码（branch: $TARGET_BRANCH）═══"
+              git fetch origin "$TARGET_BRANCH"
+              git reset --hard "origin/$TARGET_BRANCH"
+              git rev-parse --short HEAD
+
+              echo "═══ 3. 准备后端依赖 ═══"
+              cd backend
+              npm ci --include=dev
+
+              echo "═══ 4. Prisma generate ═══"
+              npx prisma generate
+
+              echo "═══ 5. 执行数字资产 V2 backfill ═══"
+              npx ts-node scripts/backfill-digital-asset-v2.ts $BACKFILL_ARGS
+
+              echo "═══ 6. PM2 状态 ═══"
+              pm2 list | grep "$TARGET_PM2_NAME"
+          EOF
