@@ -7,6 +7,7 @@ import type {
   DigitalAssetLedger,
   DigitalAssetLedgerQueryParams,
   DigitalAssetOverview,
+  DigitalAssetRules,
   DigitalAssetSettings,
   PaginatedData,
 } from '@/types';
@@ -42,7 +43,15 @@ export const adjustDigitalAssetAccount = (
 export const getDigitalAssetSettings = (): Promise<DigitalAssetSettings> =>
   client.get('/admin/digital-assets/settings');
 
+export const getDigitalAssetRules = (): Promise<DigitalAssetRules> =>
+  client.get('/admin/digital-assets/rules');
+
 export const updateDigitalAssetSettings = (
   data: DigitalAssetSettings,
 ): Promise<DigitalAssetSettings> =>
   client.put('/admin/digital-assets/settings', data);
+
+export const updateDigitalAssetRules = (
+  data: DigitalAssetRules,
+): Promise<DigitalAssetRules> =>
+  client.put('/admin/digital-assets/rules', data);

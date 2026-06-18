@@ -3,7 +3,13 @@ import { AdminDigitalAssetService } from './admin-digital-asset.service';
 
 describe('AdminDigitalAssetService', () => {
   const makeService = () => {
+    const tx = {
+      ruleConfig: {
+        upsert: jest.fn(),
+      },
+    };
     const prisma = {
+      $transaction: jest.fn(async (callback: (innerTx: typeof tx) => Promise<unknown>) => callback(tx)),
       digitalAssetAccount: {
         aggregate: jest.fn(),
         count: jest.fn(),
@@ -11,6 +17,7 @@ describe('AdminDigitalAssetService', () => {
       },
       digitalAssetLedger: {
         aggregate: jest.fn(),
+        groupBy: jest.fn().mockResolvedValue([]),
         findMany: jest.fn(),
         count: jest.fn(),
       },
@@ -28,7 +35,7 @@ describe('AdminDigitalAssetService', () => {
       listLedgers: jest.fn(),
     };
     const service = new AdminDigitalAssetService(prisma as any, digitalAssetService as any);
-    return { service, prisma, digitalAssetService };
+    return { service, prisma, tx, digitalAssetService };
   };
 
   it('blocks manual adjustment for non super admins', async () => {
@@ -36,7 +43,7 @@ describe('AdminDigitalAssetService', () => {
 
     await expect(service.adjustAccount(
       'user-1',
-      { direction: 'CREDIT', amount: 10, reason: 'manual correction' },
+      { direction: 'CREDIT', subjectType: 'SEED_ASSET', amount: 10, reason: 'manual correction' },
       { sub: 'admin-1', roles: ['运营'] },
     )).rejects.toBeInstanceOf(ForbiddenException);
     expect(digitalAssetService.adjustByAdmin).not.toHaveBeenCalled();
@@ -56,13 +63,14 @@ describe('AdminDigitalAssetService', () => {
 
     await service.adjustAccount(
       'user-1',
-      { direction: 'CREDIT', amount: 10, reason: 'manual correction' },
+      { direction: 'CREDIT', subjectType: 'SEED_ASSET', amount: 10, reason: 'manual correction' },
       { sub: 'admin-1', roles: ['超级管理员'] },
     );
 
     expect(digitalAssetService.adjustByAdmin).toHaveBeenCalledWith({
       targetUserId: 'user-1',
       adminUserId: 'admin-1',
+      subjectType: 'SEED_ASSET',
       direction: 'CREDIT',
       amount: 10,
       reason: 'manual correction',
@@ -70,7 +78,7 @@ describe('AdminDigitalAssetService', () => {
     });
   });
 
-  it('rejects undefined conversion/equity rule fields in settings payload', async () => {
+  it('rejects undefined future-rights rule fields in settings payload', async () => {
     const { service } = makeService();
 
     await expect(service.updateSettings({
@@ -84,9 +92,43 @@ describe('AdminDigitalAssetService', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects legacy equity module key in settings payload', async () => {
+    const { service } = makeService();
+
+    await expect(service.updateSettings({
+      modules: [{
+        key: 'equity',
+        title: '未来权益模块',
+        enabled: false,
+        description: '规则待开放',
+      } as any],
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('stores only presentation settings for digital asset placeholder modules', async () => {
-    const { service, prisma } = makeService();
-    prisma.ruleConfig.upsert.mockResolvedValue({});
+    const { service, prisma, tx } = makeService();
+    prisma.ruleConfig.findUnique
+      .mockResolvedValueOnce({
+        key: 'DIGITAL_ASSET_CREDIT_TIERS',
+        value: {
+          tiers: [
+            { minAmount: 0, maxAmount: 500, multiplier: 3 },
+            { minAmount: 500, maxAmount: 5000, multiplier: 5 },
+            { minAmount: 5000, maxAmount: null, multiplier: 10 },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        key: 'DIGITAL_ASSET_MODULE_SETTINGS',
+        value: {
+          modules: [
+            { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
+          ],
+        },
+      });
+    tx.ruleConfig.upsert
+      .mockResolvedValueOnce({ key: 'DIGITAL_ASSET_CREDIT_TIERS' })
+      .mockResolvedValueOnce({ key: 'DIGITAL_ASSET_MODULE_SETTINGS' });
 
     const result = await service.updateSettings({
       modules: [{
@@ -103,8 +145,8 @@ describe('AdminDigitalAssetService', () => {
       enabled: false,
       description: '规则待公布',
     });
-    expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { key: 'DIGITAL_ASSET_MODULE_SETTINGS' },
-    }));
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledTimes(2);
+    expect(prisma.ruleConfig.upsert).not.toHaveBeenCalled();
   });
 });

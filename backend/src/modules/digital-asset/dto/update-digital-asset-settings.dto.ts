@@ -2,8 +2,8 @@ import { IsArray, IsBoolean, IsIn, IsString, Length, ValidateNested } from 'clas
 import { Type } from 'class-transformer';
 
 export class DigitalAssetModuleSettingDto {
-  @IsIn(['assetValue', 'level', 'benefits', 'equity'])
-  key!: 'assetValue' | 'level' | 'benefits' | 'equity';
+  @IsIn(['assetValue', 'level', 'benefits', 'futureRights'])
+  key!: 'assetValue' | 'level' | 'benefits' | 'futureRights';
 
   @IsString()
   @Length(1, 20)

@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-15
+> **最后更新**: 2026-06-17
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -37,6 +37,11 @@
   - **来源**: 用户要求先记录每个用户的累计消费，未来再基于规则设计数字资产、等级、股权/期权/工资/兑换等系统
   - **实际做了**: 新增独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户流水；确认收货入账、退款/售后成功扣回、历史 dry-run/execute 回填；买家 App 我的页新增“数字资产”入口和 `/me/digital-assets` 累计消费金额页面；管理后台新增数字资产管理页、导出、详情、超管调整和用户详情卡片；明确该体系独立于 Reward 消费积分、Coupon 平台红包和分润计数；审查修复无明细部分退款重复扣回风险
   - **验证**: `backend npx prisma validate`、数字资产/订单/售后/退款/回填/Admin API Jest 9 suites / 93 tests、`backend npm run build`、根目录 `npx tsc -b`、`admin npm run build` 通过
+
+- [x] **数字资产 V2 规则落地与发版收口**（2026-06-17 新增并完成）
+  - **来源**: `docs/superpowers/specs/2026-06-17-digital-asset-v2-rules-design.md` / Task 1-6
+  - **实际做了**: 数字资产升级为“累计消费 + 种子资产 + 信用资产”三轨语义；买家端按普通/VIP 分流展示，新增消费记录页、最近 5 条记录卡和 VIP 激活引导；后台数字资产总览升级为总额/种子/信用/累计消费口径，支持信用资产倍率档位编辑、VIP 档位种子资产配置和仅对具体 subject 的超管审计调整；退款主链路已成功但数字资产扣回失败时落补偿表并定时幂等重试；法律文案、架构文档、安全检查和发布计划同步 V2 边界，明确数字资产不是现金/证券/可流通权益，未来收益/股权/折现规则待定
+  - **验证**: `cd backend && DATABASE_URL='postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder' npx prisma validate`、`cd backend && npx jest src/modules/digital-asset/digital-asset-credit-calculator.spec.ts src/modules/digital-asset/digital-asset-v2.service.spec.ts src/modules/digital-asset/digital-asset-v2-backfill.spec.ts src/modules/bonus/bonus.service.digital-asset-v2.spec.ts src/modules/order/order.service.digital-asset-v2.spec.ts src/modules/admin/digital-asset/admin-digital-asset.service.spec.ts src/modules/admin/digital-asset/admin-digital-asset-v2.service.spec.ts src/modules/admin/digital-asset/admin-digital-asset-v2.controller.spec.ts src/modules/admin/vip-package/vip-package.service.digital-asset.spec.ts --runInBand`、退款扣回失败补偿相关 `digital-asset-v2.service` / `after-sale-refund.service` / `payment.service.refund` Jest、`cd backend && npm run build`、`npx tsc -b`、`cd admin && npm run build`、数字资产旧口径/收益承诺关键字审计、法律审核稿重新导出
 
 - [x] **管理后台抽奖“谢谢参与”次数统计修复**（2026-06-11 新增并完成）
   - **来源**: 管理后台抽奖管理中“谢谢参与”的“已中次数”显示为 0，但实际已有多次未中奖抽奖记录

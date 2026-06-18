@@ -134,14 +134,15 @@ describe('DigitalAssetService', () => {
     });
     expect(data.ledgers[0]).toMatchObject({
       userId: 'user-1',
-      type: 'ORDER_RECEIVED',
+      type: 'CONSUMPTION_CONFIRMED',
+      subjectType: 'CUMULATIVE_SPEND',
       direction: 'CREDIT',
       amount: 100,
       balanceAfter: 100,
       orderId: 'order-1',
-      idempotencyKey: 'order:order-1:cumulative-spend-credit',
+      idempotencyKey: 'order:order-1:spend-credit',
     });
-    expect(data.ledgers[0].meta).toEqual({
+    expect(data.ledgers[0].meta).toMatchObject({
       itemAllocations: [
         { orderItemId: 'item-1', skuId: 'sku-1', quantity: 1, grossAmount: 60, assetAmount: 50 },
         { orderItemId: 'item-2', skuId: 'sku-2', quantity: 1, grossAmount: 60, assetAmount: 50 },
@@ -160,11 +161,12 @@ describe('DigitalAssetService', () => {
         accountId: 'account-1',
         userId: 'user-1',
         direction: 'CREDIT',
-        type: 'ORDER_RECEIVED',
+        type: 'CONSUMPTION_CONFIRMED',
+        subjectType: 'CUMULATIVE_SPEND',
         amount: 100,
         balanceAfter: 100,
         orderId: 'order-1',
-        idempotencyKey: 'order:order-1:cumulative-spend-credit',
+        idempotencyKey: 'order:order-1:spend-credit',
         meta: {},
       }],
     });
@@ -211,11 +213,12 @@ describe('DigitalAssetService', () => {
         accountId: 'account-1',
         userId: 'user-1',
         direction: 'CREDIT',
-        type: 'ORDER_RECEIVED',
+        type: 'CONSUMPTION_CONFIRMED',
+        subjectType: 'CUMULATIVE_SPEND',
         amount: 100,
         balanceAfter: 100,
         orderId: 'order-1',
-        idempotencyKey: 'order:order-1:cumulative-spend-credit',
+        idempotencyKey: 'order:order-1:spend-credit',
         meta: {
           itemAllocations: [
             { orderItemId: 'item-1', skuId: 'sku-1', quantity: 1, grossAmount: 60, assetAmount: 50 },
@@ -233,6 +236,7 @@ describe('DigitalAssetService', () => {
       accountId: 'account-1',
       userId: 'user-1',
       type: 'REFUND_REVERSAL',
+      subjectType: 'CUMULATIVE_SPEND',
       direction: 'DEBIT',
       amount: 50,
       balanceAfter: 50,
@@ -261,11 +265,12 @@ describe('DigitalAssetService', () => {
         accountId: 'account-1',
         userId: 'user-1',
         direction: 'CREDIT',
-        type: 'ORDER_RECEIVED',
+        type: 'CONSUMPTION_CONFIRMED',
+        subjectType: 'CUMULATIVE_SPEND',
         amount: 100,
         balanceAfter: 100,
         orderId: 'order-1',
-        idempotencyKey: 'order:order-1:cumulative-spend-credit',
+        idempotencyKey: 'order:order-1:spend-credit',
         meta: {
           itemAllocations: [
             { orderItemId: 'item-1', skuId: 'sku-1', quantity: 1, grossAmount: 60, assetAmount: 50 },
@@ -280,6 +285,7 @@ describe('DigitalAssetService', () => {
     expect(data.accounts[0].cumulativeSpendAmount).toBe(70);
     expect(data.ledgers[1]).toMatchObject({
       type: 'REFUND_REVERSAL',
+      subjectType: 'CUMULATIVE_SPEND',
       direction: 'DEBIT',
       amount: 30,
       balanceAfter: 70,
@@ -306,11 +312,12 @@ describe('DigitalAssetService', () => {
         accountId: 'account-1',
         userId: 'user-1',
         direction: 'CREDIT',
-        type: 'ORDER_RECEIVED',
+        type: 'CONSUMPTION_CONFIRMED',
+        subjectType: 'CUMULATIVE_SPEND',
         amount: 100,
         balanceAfter: 100,
         orderId: 'order-1',
-        idempotencyKey: 'order:order-1:cumulative-spend-credit',
+        idempotencyKey: 'order:order-1:spend-credit',
         meta: {
           itemAllocations: [
             { orderItemId: 'item-1', skuId: 'sku-1', quantity: 1, grossAmount: 60, assetAmount: 50 },

@@ -17,6 +17,6 @@ export class DigitalAssetController {
     @CurrentUser('sub') userId: string,
     @Query() query: DigitalAssetQueryDto,
   ) {
-    return this.digitalAssetService.listLedgers(userId, query);
+    return this.digitalAssetService.listBuyerLedgers(userId, query);
   }
 }

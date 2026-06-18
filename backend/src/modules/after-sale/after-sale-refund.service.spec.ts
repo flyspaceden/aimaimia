@@ -432,8 +432,10 @@ describe('AfterSaleRefundService', () => {
   });
 
   it('handleRefundSuccess does not fail when digital asset reversal fails', async () => {
+    const reversalError = new Error('digital asset down');
     const digitalAssetService = {
-      reverseRefund: jest.fn().mockRejectedValue(new Error('digital asset down')),
+      reverseRefund: jest.fn().mockRejectedValue(reversalError),
+      recordRefundReversalFailure: jest.fn().mockResolvedValue(undefined),
     };
     service.setDigitalAssetService(digitalAssetService as any);
     tx.refund.findUnique.mockResolvedValue({
@@ -457,6 +459,11 @@ describe('AfterSaleRefundService', () => {
       .resolves.toBeUndefined();
 
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('refund_001');
+    expect(digitalAssetService.recordRefundReversalFailure).toHaveBeenCalledWith(
+      'refund_001',
+      reversalError,
+      { source: 'AFTER_SALE_REFUND' },
+    );
     expect(inboxService.send).toHaveBeenCalled();
   });
 

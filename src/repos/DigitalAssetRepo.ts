@@ -15,9 +15,9 @@ export const DigitalAssetRepo = {
     return ApiClient.get<DigitalAssetSummary>('/me/digital-assets/summary');
   },
 
-  getLedgers: async (
+  getConsumptionRecords: async (
     page = 1,
-    pageSize = 30,
+    pageSize = 20,
   ): Promise<Result<PaginationResult<DigitalAssetLedger>>> => {
     const result = await ApiClient.get<DigitalAssetLedgerPage>('/me/digital-assets/ledgers', {
       page,
@@ -28,5 +28,12 @@ export const DigitalAssetRepo = {
       ok: true,
       data: normalizePagination(result.data),
     };
+  },
+
+  getLedgers: async (
+    page = 1,
+    pageSize = 30,
+  ): Promise<Result<PaginationResult<DigitalAssetLedger>>> => {
+    return DigitalAssetRepo.getConsumptionRecords(page, pageSize);
   },
 };

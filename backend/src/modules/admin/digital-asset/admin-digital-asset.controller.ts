@@ -24,6 +24,7 @@ import {
 } from './dto/admin-digital-asset.dto';
 import { AdminAdjustDigitalAssetDto } from '../../digital-asset/dto/admin-adjust-digital-asset.dto';
 import { UpdateDigitalAssetSettingsDto } from '../../digital-asset/dto/update-digital-asset-settings.dto';
+import { UpdateDigitalAssetRulesDto } from '../../digital-asset/dto/update-digital-asset-rules.dto';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
@@ -64,6 +65,12 @@ export class AdminDigitalAssetController {
     return this.digitalAssetService.getSettings();
   }
 
+  @Get('rules')
+  @RequirePermission('digital_assets:read')
+  getRules() {
+    return this.digitalAssetService.getRules();
+  }
+
   @Put('settings')
   @RequirePermission('digital_assets:settings')
   @AuditLog({
@@ -75,6 +82,18 @@ export class AdminDigitalAssetController {
   })
   updateSettings(@Body() dto: UpdateDigitalAssetSettingsDto) {
     return this.digitalAssetService.updateSettings(dto);
+  }
+
+  @Put('rules')
+  @RequirePermission('digital_assets:settings')
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'digital_assets',
+    targetType: 'RuleConfig',
+    isReversible: true,
+  })
+  updateRules(@Body() dto: UpdateDigitalAssetRulesDto) {
+    return this.digitalAssetService.updateRules(dto);
   }
 
   @Get('users/:userId')

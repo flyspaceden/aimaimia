@@ -1798,6 +1798,14 @@ export class PaymentService {
     } catch (err: any) {
       const msg = sanitizeStringForLog(err?.message || 'UNKNOWN', { maxStringLength: 256 });
       this.logger.error(`自动退款数字资产扣减失败: refundId=${refundId}, error=${msg}`);
+      try {
+        await this.digitalAssetService.recordRefundReversalFailure(refundId, err, {
+          source: 'AUTO_REFUND',
+        });
+      } catch (recordErr: any) {
+        const recordMsg = sanitizeStringForLog(recordErr?.message || 'UNKNOWN', { maxStringLength: 256 });
+        this.logger.error(`自动退款数字资产扣减失败记录写入失败: refundId=${refundId}, error=${recordMsg}`);
+      }
     }
   }
 

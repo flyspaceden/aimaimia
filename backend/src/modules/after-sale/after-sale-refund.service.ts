@@ -358,6 +358,17 @@ export class AfterSaleRefundService {
         `售后退款数字资产扣减失败: refundId=${refundId}, error=${safeErr.message}`,
         safeErr.stack,
       );
+      try {
+        await this.digitalAssetService.recordRefundReversalFailure(refundId, err, {
+          source: 'AFTER_SALE_REFUND',
+        });
+      } catch (recordErr: any) {
+        const safeRecordErr = sanitizeErrorForLog(recordErr);
+        this.logger.error(
+          `售后退款数字资产扣减失败记录写入失败: refundId=${refundId}, error=${safeRecordErr.message}`,
+          safeRecordErr.stack,
+        );
+      }
     }
   }
 

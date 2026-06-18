@@ -46,19 +46,24 @@ function renderDocument(doc) {
 
 const privacy = readLegalDocument('src/content/legal/privacyPolicy.ts', 'PRIVACY_POLICY');
 const terms = readLegalDocument('src/content/legal/termsOfService.ts', 'TERMS_OF_SERVICE');
+const member = readLegalDocument('src/content/legal/memberServiceAgreement.ts', 'MEMBER_SERVICE_AGREEMENT');
 
 const markdown = `# 爱买买 App 法律文本审核稿
 
-> **本文件用途**：将买家 App 内嵌的《隐私政策》《用户协议》原文导出为 Markdown，方便发给法律顾问审核。
-> **来源（权威原文）**：\`src/content/legal/privacyPolicy.ts\` / \`src/content/legal/termsOfService.ts\`（本文件由脚本原样导出，请以源文件为准，审核结论改回源文件）。
+> **本文件用途**：将买家 App 内嵌的《隐私政策》《用户协议》《会员服务协议》原文导出为 Markdown，方便发给法律顾问审核。
+> **来源（权威原文）**：\`src/content/legal/privacyPolicy.ts\` / \`src/content/legal/termsOfService.ts\` / \`src/content/legal/memberServiceAgreement.ts\`（本文件由脚本原样导出，请以源文件为准，审核结论改回源文件）。
 > **当前状态**：隐私政策已补充剪贴板读取披露（CB08），公司主体信息与联系方式已填实；正式上线前仍应经法律顾问审核。
-> **请审核人重点关注**：① 剪贴板读取披露是否满足应用商店审核要求；② 分润奖励 / 消费积分相关条款是否合规；③ 账号注销与数据保留期条款；④ 第三方信息共享清单（支付/物流/短信等）。
+> **请审核人重点关注**：① 剪贴板读取披露是否满足应用商店审核要求；② 分润奖励 / 消费积分 / 数字资产相关条款是否合规；③ 账号注销与数据保留期条款；④ 第三方信息共享清单（支付/物流/短信等）；⑤ VIP 会员服务协议中的数字资产边界与退款限制。
 
 ${renderDocument(privacy)}
 
 \\newpage
 
 ${renderDocument(terms)}
+
+\\newpage
+
+${renderDocument(member)}
 `;
 
 process.stdout.write(markdown);

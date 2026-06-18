@@ -1656,12 +1656,25 @@ async function main() {
     { key: 'DEDUCTION_ALLOW_COUPON_STACK', value: true, desc: '是否允许与平台红包叠加' },
     { key: 'WITHDRAW_PROVIDER_FEE_AMOUNT', value: 0, desc: '单笔通道手续费（元，v1.0=0）' },
     { key: 'WITHDRAW_YEARLY_ALERT_THRESHOLD', value: 0.80, desc: '年累计达上限多少时告警（0-1）' },
+    {
+      key: 'DIGITAL_ASSET_CREDIT_TIERS',
+      value: {
+        tiers: [
+          { minAmount: 0, maxAmount: 500, multiplier: 3 },
+          { minAmount: 500, maxAmount: 5000, multiplier: 5 },
+          { minAmount: 5000, maxAmount: null, multiplier: 10 },
+        ],
+      },
+      desc: '数字资产 V2 信用资产倍率档位',
+    },
   ];
 
   for (const rc of ruleConfigs) {
     await prisma.ruleConfig.upsert({
       where: { key: rc.key },
-      update: {},
+      update: rc.key === 'DIGITAL_ASSET_CREDIT_TIERS'
+        ? { value: { value: rc.value, description: rc.desc } }
+        : {},
       create: { key: rc.key, value: { value: rc.value, description: rc.desc } },
     });
   }
@@ -2896,15 +2909,28 @@ async function main() {
   // ============================================================
   const vipPackages = [
     { id: 'vpkg-001', price: 399, referralBonusRate: 0.15, sortOrder: 0, status: 'ACTIVE' as const },
-    { id: 'vpkg-002', price: 899, referralBonusRate: 0.15, sortOrder: 1, status: 'ACTIVE' as const },
-    { id: 'vpkg-003', price: 1599, referralBonusRate: 0.15, sortOrder: 2, status: 'ACTIVE' as const },
+    { id: 'vpkg-002', price: 699, referralBonusRate: 0.15, sortOrder: 1, status: 'ACTIVE' as const },
+    { id: 'vpkg-003', price: 999, referralBonusRate: 0.15, sortOrder: 2, status: 'ACTIVE' as const },
   ];
 
   for (const pkg of vipPackages) {
+    const selfSeedAssetAmount = pkg.price === 399 ? 1000 : pkg.price === 699 ? 2000 : pkg.price === 999 ? 3000 : 0;
+    const referralSeedAssetAmount = pkg.price === 399 ? 2000 : pkg.price === 699 ? 4000 : pkg.price === 999 ? 8000 : 0;
     await prisma.vipPackage.upsert({
       where: { id: pkg.id },
-      update: {},
-      create: pkg,
+      update: {
+        price: pkg.price,
+        referralBonusRate: pkg.referralBonusRate,
+        sortOrder: pkg.sortOrder,
+        status: pkg.status,
+        selfSeedAssetAmount,
+        referralSeedAssetAmount,
+      },
+      create: {
+        ...pkg,
+        selfSeedAssetAmount,
+        referralSeedAssetAmount,
+      },
     });
   }
   console.log(`✅ ${vipPackages.length} 个VIP档位已创建`);

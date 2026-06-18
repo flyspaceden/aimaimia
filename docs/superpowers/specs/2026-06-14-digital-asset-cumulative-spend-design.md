@@ -4,7 +4,7 @@
 > 创建时间：2026-06-14
 > 适用范围：买家 App / 管理后台 / 后端 / Prisma Schema / 历史数据回填
 >
-> **For agentic workers:** 本文档是数字资产累计消费第一版的权威来源。第一版只沉淀“累计消费金额”基础数据和审计流水，不定义股权、期权、工资、资产价值、等级、兑换比例等后续规则。
+> **For agentic workers:** 本文档是数字资产累计消费第一版的权威来源。第一版只沉淀“累计消费金额”基础数据和审计流水，不定义股权、期权、工资、资产价值、等级、兑换比例等后续规则。**注意：`docs/superpowers/specs/2026-06-17-digital-asset-v2-rules-design.md` 已补充并覆盖本文件中“VIP 礼包计入累计消费”“仅展示累计消费金额”等旧口径；涉及数字资产 V2 的实现、法务、发布与对外说明，请以后者为准。**
 
 ## 背景
 
@@ -25,12 +25,12 @@
 | 核心数据 | `DigitalAssetAccount` + `DigitalAssetLedger` |
 | 入账时点 | 订单确认收货后入账 |
 | 金额口径 | 商品实付金额，不含运费 |
-| VIP 礼包 | 计入累计消费 |
+| VIP 礼包 | 第一版曾定义为“计入累计消费”，该口径已被 2026-06-17 V2 规则覆盖为“不计入累计消费、不产生信用资产” |
 | 售后/退款 | 退款/退货成功后按退款商品对应金额扣回 |
 | 历史订单 | 回填所有已确认收货订单 |
 | 买家 App | 增加“数字资产”入口，进入“数字资产中心”页面 |
 | App 主文案 | “累计消费金额” |
-| App 未来模块 | 资产价值、等级、权益兑换、工资/期权/股权等仅展示“规则待公布/待开放” |
+| App 未来模块 | 资产价值、等级、权益福利、未来权益等仅展示“规则待公布/待开放” |
 | 管理后台 | 做完整数字资产管理页：查询、流水、调整、导出、规则占位配置 |
 | 手动调整 | 仅超级管理员可操作，必须填写原因，写审计流水 |
 
@@ -394,8 +394,8 @@ creditOrderReceived(order.id, 'BACKFILL')
   modules: [
     { key: 'assetValue', title: '资产价值', status: 'COMING_SOON', description: '规则待公布' },
     { key: 'level', title: '资产等级', status: 'COMING_SOON', description: '待开放' },
-    { key: 'benefits', title: '权益兑换', status: 'COMING_SOON', description: '待开放' },
-    { key: 'equity', title: '工资/期权/股权', status: 'COMING_SOON', description: '规则待公布' },
+    { key: 'benefits', title: '权益福利', status: 'COMING_SOON', description: '待开放' },
+    { key: 'futureRights', title: '未来权益模块', status: 'COMING_SOON', description: '规则待公布' },
   ],
 }
 ```
@@ -490,7 +490,7 @@ Response item:
 
 1. 顶部标题：数字资产中心。
 2. 主数字卡：累计消费金额。
-3. 模块占位区：资产价值、资产等级、权益兑换、工资/期权/股权等，状态为“规则待公布”或“待开放”。
+3. 模块占位区：资产价值、资产等级、权益福利、未来权益等，状态为“规则待公布”或“待开放”。
 4. 明细列表：确认收货入账、退款扣回、后台调整。
 5. 空态：暂无累计消费记录。
 6. 错误态：加载失败，可重试。

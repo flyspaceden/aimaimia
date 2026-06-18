@@ -10,6 +10,7 @@ import {
   PLATFORM_USER_ID,
 } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { InboxService } from '../inbox/inbox.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { maskPhone } from '../../common/security/privacy-mask';
@@ -23,6 +24,7 @@ export class BonusService {
     private bonusConfig: BonusConfigService,
     private couponEngine: CouponEngineService,
     private inboxService: InboxService,
+    private digitalAssetService?: DigitalAssetService,
   ) {}
 
   // ========== 会员信息 ==========
@@ -367,6 +369,14 @@ export class BonusService {
             referralCode: await pickUniqueReferralCode(tx),
           },
           update: updateData,
+        });
+
+        await this.digitalAssetService?.grantVipActivationAssets(tx, {
+          userId,
+          vipPurchaseId: vipPurchase.id,
+          packageId: vipPurchase.packageId ?? null,
+          vipAmount: vipPurchase.amount,
+          inviterUserId: updatedMember.inviterUserId || member?.inviterUserId || null,
         });
 
         // 创建 VIP 进度
