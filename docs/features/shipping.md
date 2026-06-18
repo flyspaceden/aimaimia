@@ -239,10 +239,12 @@ Order: DELIVERED → RECEIVED
   - 状态校验（仅 PAID/SHIPPED 允许）
   - 幂等性：已有面单拒绝重复生成（CAS 保护）
   - 分布式锁（pg_advisory_xact_lock）防并发
-  - 失败回滚（自动调用 cancelWaybill 回收单号）
-  - 存储 kuaidi100TaskId
+  - 顺丰客户订单号使用 `AIMM-WB-<32位hash>` 短 ID，并按取消次数轮转；顺丰规则要求取消后的客户订单号不能复用，否则会返回 8016「重复下单」
+  - 失败回滚（自动调用顺丰取消接口回收单号）
+  - 存储 `sfOrderId`
 - `cancelWaybill()` - 取消面单
-  - **先调快递100远端取消，再 CAS 清空本地**（避免不一致）
+  - **先调顺丰远端取消，再 CAS 清空本地**（避免不一致）
+  - 取消成功后在 `rawCarrierPayload.waybillCancellation` 保留取消次数和旧顺丰单号，供下一次生成面单换新的顺丰客户订单号
   - 仅 INIT 状态允许取消
 - `batchGenerateWaybill()` - 批量生成（部分失败不阻断）
 - `getWaybillPrintUrl()` - HMAC 签名的临时打印 URL（15分钟有效）
@@ -555,7 +557,7 @@ Order.status:     PENDING_PAYMENT → PAID → SHIPPED → DELIVERED → RECEIVE
 
 | 场景 | 机制 |
 |------|------|
-| 面单生成防重复 | `pg_advisory_xact_lock` 分布式锁 + CAS `updateMany where waybillNo: null` |
+| 面单生成防重复 | `pg_advisory_xact_lock` 分布式锁 + CAS `updateMany where waybillNo: null`；顺丰客户订单号按生成尝试轮转，避免取消后复用触发 8016「重复下单」 |
 | 发货状态转换 | Serializable 事务 + 重读校验 |
 | 回调 Order 联动 | Serializable + CAS `updateMany where status: 'SHIPPED'` + 最多3次重试 |
 | 取消面单 | 事务外先调远端 → 事务内 CAS `updateMany where status: 'INIT'` |

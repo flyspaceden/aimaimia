@@ -246,7 +246,14 @@ describe('generateWaybill — 面单生成', () => {
       data: expect.objectContaining({
         waybillNo: 'SF1234567890',
         sfOrderId: 'sf-order-abc-123',
-        rawCarrierPayload: Prisma.DbNull,
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'COMPLETED',
+            attempt: 1,
+            sfCustomerOrderId: expect.stringMatching(/^AIMM-WB-[a-f0-9]{32}$/),
+            completedAt: expect.any(String),
+          }),
+        },
       }),
     });
   });
@@ -322,7 +329,14 @@ describe('generateWaybill — 面单生成', () => {
       data: expect.objectContaining({
         waybillNo: 'SF1234567890',
         sfOrderId: 'sf-order-abc-123',
-        rawCarrierPayload: Prisma.DbNull,
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'COMPLETED',
+            attempt: 1,
+            sfCustomerOrderId: expect.stringMatching(/^AIMM-WB-[a-f0-9]{32}$/),
+            completedAt: expect.any(String),
+          }),
+        },
       }),
     });
     expect(shippingCost.recordPackage).toHaveBeenCalledWith({
@@ -383,7 +397,7 @@ describe('generateWaybill — 面单生成', () => {
         orderId,
         packageIndex: 0,
         companyId: company.companyId,
-        sfOrderId: `sf-${orderId}_${company.companyId}`,
+        sfOrderId: expect.stringMatching(/^sf-AIMM-WB-[a-f0-9]{32}$/),
         weightGramSent: company.expectedWeight,
       });
     });
@@ -551,10 +565,52 @@ describe('generateWaybill — 面单生成', () => {
         carrierCode: 'SF',
         carrierName: '顺丰速运',
         sfOrderId: 'sf-order-abc-123',
-        rawCarrierPayload: Prisma.DbNull,
+        rawCarrierPayload: {
+          waybillGeneration: expect.objectContaining({
+            status: 'COMPLETED',
+            attempt: 1,
+            sfCustomerOrderId: expect.stringMatching(/^AIMM-WB-[a-f0-9]{32}$/),
+            completedAt: expect.any(String),
+          }),
+        },
       }),
     });
     expect(prisma.shipment.create).not.toHaveBeenCalled();
+  });
+
+  it('取消后重新生成使用新的顺丰客户订单号，避免 8016 重复下单', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress, {
+      existingShipment: {
+        id: 'ship-cancelled',
+        waybillNo: null,
+        status: 'INIT',
+        rawCarrierPayload: {
+          waybillCancellation: {
+            cancelledCount: 1,
+            lastSfOrderId: `${ORDER_PAID}_${COMPANY_ID}`,
+            lastWaybillNo: 'SFOLD123456',
+            cancelledAt: '2026-06-17T12:00:00.000Z',
+          },
+        },
+      },
+    });
+    sfExpress.createOrder.mockImplementation(({ orderId: sfOrderId }: any) =>
+      Promise.resolve({
+        waybillNo: 'SFNEW123456',
+        sfOrderId,
+      }),
+    );
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    const sfOrderId = sfExpress.createOrder.mock.calls[0][0].orderId;
+    expect(sfOrderId).not.toBe(`${ORDER_PAID}_${COMPANY_ID}`);
+    expect(sfOrderId).toMatch(/^AIMM-WB-[a-f0-9]{32}$/);
+    expect(sfOrderId.length).toBeLessThanOrEqual(64);
+    expect(prisma.shipment.updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      data: expect.objectContaining({ sfOrderId }),
+    }));
   });
 
   it('existingShipment 存在但 CAS updateMany count=0 时抛重复错误', async () => {
@@ -670,6 +726,14 @@ describe('cancelWaybill — 面单取消', () => {
         waybillUrl: null,
         trackingNo: null,
         sfOrderId: null,
+        rawCarrierPayload: {
+          waybillCancellation: {
+            cancelledCount: 1,
+            lastSfOrderId: 'sf-order-abc-123',
+            lastWaybillNo: 'SF1234567890',
+            cancelledAt: expect.any(String),
+          },
+        },
       },
     });
     expect(shippingCost.reconcile).not.toHaveBeenCalled();
@@ -691,6 +755,42 @@ describe('cancelWaybill — 面单取消', () => {
 
     const result = await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
     expect(result.ok).toBe(true);
+  });
+
+  it('取消第二次生成的面单时保留当前 attempt，第三次生成不会复用顺丰客户订单号', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+
+    prisma.shipment.findUnique.mockResolvedValue({
+      id: 'ship-002',
+      carrierCode: 'SF',
+      waybillNo: 'SF2222222222',
+      sfOrderId: 'AIMM-WB-second-attempt',
+      status: 'INIT',
+      rawCarrierPayload: {
+        waybillGeneration: {
+          status: 'COMPLETED',
+          attempt: 2,
+          sfCustomerOrderId: 'AIMM-WB-second-attempt',
+          completedAt: '2026-06-17T12:10:00.000Z',
+        },
+      },
+    });
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
+
+    await service.cancelWaybill(COMPANY_ID, ORDER_PAID);
+
+    expect(prisma.shipment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        rawCarrierPayload: {
+          waybillCancellation: expect.objectContaining({
+            cancelledCount: 2,
+            lastSfOrderId: 'AIMM-WB-second-attempt',
+            lastWaybillNo: 'SF2222222222',
+          }),
+        },
+      }),
+    }));
   });
 
   it('已发货（非 INIT）拒绝取消', async () => {
