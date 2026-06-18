@@ -4,6 +4,10 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { calculateCreditAsset, validateCreditTiers } from './digital-asset-credit-calculator';
 import {
+  DEFAULT_DIGITAL_ASSET_MODULE_SETTINGS,
+  normalizeDigitalAssetModuleSettings,
+} from './digital-asset-module-settings';
+import {
   allocateOrderAssetAmount,
   calculateOrderAssetAmount,
   calculateRefundProductAmount,
@@ -20,18 +24,11 @@ type AdminAdjustSubjectType = DigitalAssetSubjectType;
 const SERIALIZABLE_MAX_RETRIES = 3;
 const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
-const DEFAULT_MODULE_SETTINGS = [
-  { key: 'assetValue', title: '未来权益模块', enabled: false, description: '规则待开放' },
-  { key: 'level', title: '权益规则待开放', enabled: false, description: '规则待开放' },
-  { key: 'benefits', title: '未来权益模块', enabled: false, description: '规则待开放' },
-  { key: 'equity', title: '权益规则待开放', enabled: false, description: '规则待开放' },
-];
 const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
   { minAmount: 0, maxAmount: 500, multiplier: 3 },
   { minAmount: 500, maxAmount: 5000, multiplier: 5 },
   { minAmount: 5000, maxAmount: null, multiplier: 10 },
 ];
-const RISKY_FUTURE_MODULE_COPY_PATTERN = /现金|兑换|定期|收益|利息|股权|期权|工资|cash|interest|equity|return/i;
 const ACTIVATION_PROMPT = {
   title: '让每一次消费，都成为你的数字资产基础',
   description: '成为 VIP 后，累计消费可按规则转化为信用资产。',
@@ -48,11 +45,6 @@ function normalizeLedgerSource(type: string): DigitalAssetSourceType {
 
 function filterLegacySourceType(sourceType?: string): string | undefined {
   return sourceType === 'ORDER_RECEIVED' ? 'ORDER_RECEIVED' : sourceType;
-}
-
-function normalizeFutureModuleCopy(value: unknown, fallback: string): string {
-  const text = typeof value === 'string' && value.trim() ? value : fallback;
-  return RISKY_FUTURE_MODULE_COPY_PATTERN.test(text) ? fallback : text;
 }
 
 @Injectable()
@@ -1076,7 +1068,7 @@ export class DigitalAssetService {
 
   private async getModuleSettings() {
     if (!(this.prisma as any).ruleConfig?.findUnique) {
-      return DEFAULT_MODULE_SETTINGS.map((item) => ({
+      return DEFAULT_DIGITAL_ASSET_MODULE_SETTINGS.map((item) => ({
         ...item,
         status: 'COMING_SOON' as const,
       }));
@@ -1084,18 +1076,13 @@ export class DigitalAssetService {
     const config = await (this.prisma as any).ruleConfig.findUnique({
       where: { key: DIGITAL_ASSET_SETTINGS_KEY },
     });
-    const configuredModules = (config?.value?.modules ?? DEFAULT_MODULE_SETTINGS) as any[];
-    const fallbackByKey = new Map(DEFAULT_MODULE_SETTINGS.map((item) => [item.key, item]));
-    return configuredModules.map((item) => {
-      const fallback = fallbackByKey.get(item.key) ?? item;
-      return {
-        key: item.key,
-        title: normalizeFutureModuleCopy(item.title, fallback.title),
-        enabled: item.enabled ?? fallback.enabled,
-        status: 'COMING_SOON' as const,
-        description: normalizeFutureModuleCopy(item.description, fallback.description),
-      };
-    });
+    return normalizeDigitalAssetModuleSettings(
+      (config?.value?.modules ?? DEFAULT_DIGITAL_ASSET_MODULE_SETTINGS) as any[],
+      { allowLegacyKey: true },
+    ).map((item) => ({
+      ...item,
+      status: 'COMING_SOON' as const,
+    }));
   }
 
   private getCurrentCreditTierInfo(cumulativeSpendAmount: number, tiers: CreditAssetTier[]) {

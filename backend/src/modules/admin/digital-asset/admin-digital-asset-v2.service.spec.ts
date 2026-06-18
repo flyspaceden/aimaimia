@@ -4,6 +4,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { AdminDigitalAssetService } from './admin-digital-asset.service';
 import { AdminAdjustDigitalAssetDto } from '../../digital-asset/dto/admin-adjust-digital-asset.dto';
+import { UpdateDigitalAssetSettingsDto } from '../../digital-asset/dto/update-digital-asset-settings.dto';
 
 describe('AdminDigitalAssetService V2', () => {
   const makeService = () => {
@@ -99,11 +100,44 @@ describe('AdminDigitalAssetService V2', () => {
     const result = await (service as any).getRules();
 
     expect(result.modules[0]).toEqual({
-      key: 'equity',
-      title: '权益规则待开放',
+      key: 'futureRights',
+      title: '未来权益模块',
       enabled: false,
       description: '规则待开放',
     });
+  });
+
+  it('getRules prefers futureRights when both legacy and neutral keys are stored', async () => {
+    const { service, prisma } = makeService();
+    prisma.ruleConfig.findUnique
+      .mockResolvedValueOnce({
+        key: 'DIGITAL_ASSET_CREDIT_TIERS',
+        value: {
+          tiers: [
+            { minAmount: 0, maxAmount: null, multiplier: 3 },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        key: 'DIGITAL_ASSET_MODULE_SETTINGS',
+        value: {
+          modules: [
+            { key: 'equity', title: '工资/期权/股权', enabled: true, description: '现金兑换规则待定' },
+            { key: 'futureRights', title: '未来权益模块', enabled: false, description: '规则待开放' },
+          ],
+        },
+      });
+
+    const result = await (service as any).getRules();
+
+    expect(result.modules.filter((item: any) => item.key === 'futureRights')).toEqual([
+      {
+        key: 'futureRights',
+        title: '未来权益模块',
+        enabled: false,
+        description: '规则待开放',
+      },
+    ]);
   });
 
   it('updateRules rejects credit tiers with gaps or overlaps', async () => {
@@ -379,5 +413,16 @@ describe('AdminDigitalAssetService V2', () => {
     }));
 
     expect(errors.map((item) => item.property)).toContain('subjectType');
+  });
+
+  it('settings dto rejects legacy equity module key', async () => {
+    const errors = await validate(plainToInstance(UpdateDigitalAssetSettingsDto, {
+      modules: [
+        { key: 'equity', title: '未来权益模块', enabled: false, description: '规则待开放' },
+      ],
+    }));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.property).toBe('modules');
   });
 });

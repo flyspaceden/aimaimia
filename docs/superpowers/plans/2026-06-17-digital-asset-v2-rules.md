@@ -1445,7 +1445,7 @@ Expected: prints counts and performs no writes.
 - [ ] **Step 5: Audit for old wording**
 
 ```bash
-rg -n "累计消费金额\"|资产流水|工资/期权/股权|VIP 礼包.*计入累计|可提现|固定收益|股权分红" app src admin backend docs -S
+rg -n "累计消费金额\"|资产流水|未来权益|VIP 礼包.*计入累计|可提现|固定收益|股权分红" app src admin backend docs -S
 ```
 
 Expected: any result is either intentionally legal-safe or updated.

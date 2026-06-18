@@ -851,7 +851,7 @@ Cover:
 - account export returns CSV bytes/string with masked phone, user id, member tier, cumulative amount, updated time;
 - ledger export returns CSV bytes/string with user id, masked phone, ledger type, direction, amount, balance after, order/refund/afterSale refs, reason, created time;
 - export writes `AdminAuditLog` with `action='EXPORT'`, `module='digital_assets'`, export mode, filters, admin id, ip, userAgent;
-- settings stores placeholder module labels, descriptions, and enable switches; it rejects `conversionRatio`, `equityRatio`, asset value, wage, option, and equity rule fields.
+- settings stores placeholder module labels, descriptions, and enable switches; it rejects `conversionRatio`, `futureRightsRatio`, asset value, wage, option, and future-rights rule fields.
 
 - [ ] **Step 2: Write failing admin controller tests**
 
@@ -903,7 +903,7 @@ updateSettings(dto: UpdateDigitalAssetSettingsDto, adminUserId: string): Promise
 ```ts
 {
   modules: Array<{
-    key: 'assetValue' | 'level' | 'benefits' | 'equity';
+    key: 'assetValue' | 'level' | 'benefits' | 'futureRights';
     title: string;
     enabled: boolean;
     description: string;
@@ -1046,7 +1046,7 @@ export type DigitalAssetLedgerType = 'ORDER_RECEIVED' | 'REFUND_REVERSAL' | 'ADM
 export type DigitalAssetLedgerDirection = 'CREDIT' | 'DEBIT';
 
 export interface DigitalAssetModuleStatus {
-  key: 'assetValue' | 'level' | 'benefits' | 'equity';
+  key: 'assetValue' | 'level' | 'benefits' | 'futureRights';
   title: string;
   status: 'COMING_SOON';
   description: string;
@@ -1251,7 +1251,7 @@ export interface DigitalAssetAccountDetail extends DigitalAssetAccountRow {
 }
 
 export interface DigitalAssetModuleSetting {
-  key: 'assetValue' | 'level' | 'benefits' | 'equity';
+  key: 'assetValue' | 'level' | 'benefits' | 'futureRights';
   title: string;
   enabled: boolean;
   description: string;

@@ -280,7 +280,7 @@ export interface DigitalAssetAccountRow {
 }
 
 export interface DigitalAssetModuleInfo {
-  key: 'assetValue' | 'level' | 'benefits' | 'equity';
+  key: 'assetValue' | 'level' | 'benefits' | 'futureRights';
   title: string;
   enabled?: boolean;
   status?: 'COMING_SOON';

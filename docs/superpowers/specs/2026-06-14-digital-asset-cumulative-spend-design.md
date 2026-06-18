@@ -30,7 +30,7 @@
 | 历史订单 | 回填所有已确认收货订单 |
 | 买家 App | 增加“数字资产”入口，进入“数字资产中心”页面 |
 | App 主文案 | “累计消费金额” |
-| App 未来模块 | 资产价值、等级、权益兑换、工资/期权/股权等仅展示“规则待公布/待开放” |
+| App 未来模块 | 资产价值、等级、权益福利、未来权益等仅展示“规则待公布/待开放” |
 | 管理后台 | 做完整数字资产管理页：查询、流水、调整、导出、规则占位配置 |
 | 手动调整 | 仅超级管理员可操作，必须填写原因，写审计流水 |
 
@@ -394,8 +394,8 @@ creditOrderReceived(order.id, 'BACKFILL')
   modules: [
     { key: 'assetValue', title: '资产价值', status: 'COMING_SOON', description: '规则待公布' },
     { key: 'level', title: '资产等级', status: 'COMING_SOON', description: '待开放' },
-    { key: 'benefits', title: '权益兑换', status: 'COMING_SOON', description: '待开放' },
-    { key: 'equity', title: '工资/期权/股权', status: 'COMING_SOON', description: '规则待公布' },
+    { key: 'benefits', title: '权益福利', status: 'COMING_SOON', description: '待开放' },
+    { key: 'futureRights', title: '未来权益模块', status: 'COMING_SOON', description: '规则待公布' },
   ],
 }
 ```
@@ -490,7 +490,7 @@ Response item:
 
 1. 顶部标题：数字资产中心。
 2. 主数字卡：累计消费金额。
-3. 模块占位区：资产价值、资产等级、权益兑换、工资/期权/股权等，状态为“规则待公布”或“待开放”。
+3. 模块占位区：资产价值、资产等级、权益福利、未来权益等，状态为“规则待公布”或“待开放”。
 4. 明细列表：确认收货入账、退款扣回、后台调整。
 5. 空态：暂无累计消费记录。
 6. 错误态：加载失败，可重试。

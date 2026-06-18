@@ -441,6 +441,18 @@ describe('DigitalAssetService V2 semantics', () => {
 
   it('getSummary zeroes asset balances for non-VIP users and recent records only include cumulative spend rows', async () => {
     const { data, service } = makeHarness({
+      ruleConfigs: [
+        { key: 'DIGITAL_ASSET_CREDIT_TIERS', value: DEFAULT_CREDIT_TIERS },
+        {
+          key: 'DIGITAL_ASSET_MODULE_SETTINGS',
+          value: {
+            modules: [
+              { key: 'equity', title: '工资/期权/股权', enabled: true, description: '现金兑换规则待定' },
+              { key: 'futureRights', title: '未来权益模块', enabled: false, description: '规则待开放' },
+            ],
+          },
+        },
+      ],
       accounts: [{
         id: 'account-1',
         userId: 'normal-user',
@@ -511,6 +523,15 @@ describe('DigitalAssetService V2 semantics', () => {
       },
     });
     expect(summary.vipSeedRules).toHaveLength(3);
+    expect(summary.modules.filter((item: any) => item.key === 'futureRights')).toEqual([
+      {
+        key: 'futureRights',
+        title: '未来权益模块',
+        enabled: false,
+        status: 'COMING_SOON',
+        description: '规则待开放',
+      },
+    ]);
     expect(summary.recentRecords).toHaveLength(4);
     expect(summary.recentRecords).toEqual(expect.arrayContaining([
       expect.objectContaining({

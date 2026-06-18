@@ -15,7 +15,7 @@ export type DigitalAssetSourceType =
 
 export type DigitalAssetLedgerDirection = 'CREDIT' | 'DEBIT';
 
-export type DigitalAssetModuleKey = 'assetValue' | 'level' | 'benefits' | 'equity';
+export type DigitalAssetModuleKey = 'assetValue' | 'level' | 'benefits' | 'futureRights';
 
 export interface DigitalAssetModuleInfo {
   key: DigitalAssetModuleKey;

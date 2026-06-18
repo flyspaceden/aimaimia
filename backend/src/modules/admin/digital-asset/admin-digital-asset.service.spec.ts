@@ -78,7 +78,7 @@ describe('AdminDigitalAssetService', () => {
     });
   });
 
-  it('rejects undefined conversion/equity rule fields in settings payload', async () => {
+  it('rejects undefined future-rights rule fields in settings payload', async () => {
     const { service } = makeService();
 
     await expect(service.updateSettings({
@@ -88,6 +88,19 @@ describe('AdminDigitalAssetService', () => {
         enabled: false,
         description: '规则待公布',
         conversionRate: 1,
+      } as any],
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects legacy equity module key in settings payload', async () => {
+    const { service } = makeService();
+
+    await expect(service.updateSettings({
+      modules: [{
+        key: 'equity',
+        title: '未来权益模块',
+        enabled: false,
+        description: '规则待开放',
       } as any],
     })).rejects.toBeInstanceOf(BadRequestException);
   });

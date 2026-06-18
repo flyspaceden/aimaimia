@@ -7,6 +7,10 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { validateCreditTiers } from '../../digital-asset/digital-asset-credit-calculator';
+import {
+  DEFAULT_DIGITAL_ASSET_MODULE_SETTINGS,
+  normalizeDigitalAssetModuleSettings,
+} from '../../digital-asset/digital-asset-module-settings';
 import { AdminAdjustDigitalAssetDto } from '../../digital-asset/dto/admin-adjust-digital-asset.dto';
 import { UpdateDigitalAssetSettingsDto } from '../../digital-asset/dto/update-digital-asset-settings.dto';
 import { UpdateDigitalAssetRulesDto } from '../../digital-asset/dto/update-digital-asset-rules.dto';
@@ -21,24 +25,11 @@ import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buye
 
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
 const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
-const ALLOWED_SETTING_FIELDS = new Set(['key', 'title', 'enabled', 'description']);
-const DEFAULT_MODULE_SETTINGS = [
-  { key: 'assetValue', title: '未来权益模块', enabled: false, description: '规则待开放' },
-  { key: 'level', title: '权益规则待开放', enabled: false, description: '规则待开放' },
-  { key: 'benefits', title: '未来权益模块', enabled: false, description: '规则待开放' },
-  { key: 'equity', title: '权益规则待开放', enabled: false, description: '规则待开放' },
-];
 const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
   { minAmount: 0, maxAmount: 500, multiplier: 3 },
   { minAmount: 500, maxAmount: 5000, multiplier: 5 },
   { minAmount: 5000, maxAmount: null, multiplier: 10 },
 ];
-const RISKY_FUTURE_MODULE_COPY_PATTERN = /现金|兑换|定期|收益|利息|股权|期权|工资|cash|interest|equity|return/i;
-
-function normalizeFutureModuleCopy(value: unknown, fallback: string): string {
-  const text = typeof value === 'string' && value.trim() ? value : fallback;
-  return RISKY_FUTURE_MODULE_COPY_PATTERN.test(text) ? fallback : text;
-}
 
 @Injectable()
 export class AdminDigitalAssetService {
@@ -240,7 +231,10 @@ export class AdminDigitalAssetService {
 
     return {
       tiers: this.normalizeCreditTiers((creditConfig?.value as any)?.value?.tiers ?? (creditConfig?.value as any)?.tiers),
-      modules: this.normalizeSettings((moduleConfig?.value as any)?.modules ?? DEFAULT_MODULE_SETTINGS),
+      modules: this.normalizeSettings(
+        (moduleConfig?.value as any)?.modules ?? DEFAULT_DIGITAL_ASSET_MODULE_SETTINGS,
+        { allowLegacyKey: true },
+      ),
     };
   }
 
@@ -337,27 +331,8 @@ export class AdminDigitalAssetService {
     }
   }
 
-  private normalizeSettings(modules: any[]) {
-    if (!Array.isArray(modules)) throw new BadRequestException('modules 必须是数组');
-    const defaults = new Map(DEFAULT_MODULE_SETTINGS.map((item) => [item.key, item]));
-    const seen = new Set<string>();
-
-    return modules.map((item) => {
-      const extraFields = Object.keys(item ?? {}).filter((key) => !ALLOWED_SETTING_FIELDS.has(key));
-      if (extraFields.length > 0) {
-        throw new BadRequestException(`数字资产规则字段尚未开放: ${extraFields.join(', ')}`);
-      }
-      const fallback = defaults.get(item?.key);
-      if (!fallback) throw new BadRequestException(`未知数字资产模块: ${item?.key ?? ''}`);
-      if (seen.has(item.key)) throw new BadRequestException(`重复数字资产模块: ${item.key}`);
-      seen.add(item.key);
-      return {
-        key: item.key,
-        title: normalizeFutureModuleCopy(item.title, fallback.title),
-        enabled: item.enabled ?? fallback.enabled,
-        description: normalizeFutureModuleCopy(item.description, fallback.description),
-      };
-    });
+  private normalizeSettings(modules: any[], options?: { allowLegacyKey?: boolean }) {
+    return normalizeDigitalAssetModuleSettings(modules, options);
   }
 
   private escapeCsv(value: string) {
