@@ -18,10 +18,6 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function money(value: number): string {
-  return value.toFixed(2);
-}
-
 function itemLabel(item: Order['items'][number]): string {
   if (!item.isPrize) return '普通';
   return item.prizeType ? (PRIZE_TYPE_LABELS[item.prizeType] ?? '奖品') : '奖品';
@@ -30,7 +26,6 @@ function itemLabel(item: Order['items'][number]): string {
 export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): string {
   const rows = order.items
     .map((item, index) => {
-      const subtotal = item.unitPrice * item.quantity;
       return `
         <tr>
           <td class="index">${index + 1}</td>
@@ -38,8 +33,7 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
             <div class="item-title">${escapeHtml(item.title || '-')}</div>
             <div class="item-meta">${escapeHtml(itemLabel(item))}</div>
           </td>
-          <td class="number">¥${money(item.unitPrice)} × ${item.quantity}</td>
-          <td class="number strong">¥${money(subtotal)}</td>
+          <td class="quantity">${item.quantity}</td>
         </tr>
       `;
     })
@@ -140,24 +134,13 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
         font-size: 12px;
         margin-top: 3px;
       }
-      .number {
-        text-align: right;
+      .quantity {
+        width: 92px;
+        text-align: center;
         white-space: nowrap;
         font-family: Menlo, Consolas, monospace;
-      }
-      .strong {
         font-weight: 700;
-      }
-      .total {
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-        margin-top: 12px;
         font-size: 16px;
-      }
-      .total strong {
-        color: #b42318;
-        font-family: Menlo, Consolas, monospace;
       }
       .waybill-page {
         page-break-before: always;
@@ -207,16 +190,11 @@ export function buildSellerWaybillPrintHtml(order: Order, waybillUrl: string): s
           <tr>
             <th class="index">#</th>
             <th>商品</th>
-            <th class="number">单价 × 数量</th>
-            <th class="number">小计</th>
+            <th class="quantity">数量</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
-      <div class="total">
-        <span>商品金额</span>
-        <strong>¥${money(order.totalAmount)}</strong>
-      </div>
     </section>
     <section class="page waybill-page">
       <iframe id="waybill-frame" src="${escapeHtml(waybillUrl)}" title="waybill-${escapeHtml(order.id)}"></iframe>
