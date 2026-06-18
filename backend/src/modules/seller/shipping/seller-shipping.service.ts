@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
 import { OrderShippingCostService } from '../../shipment/order-shipping-cost.service';
@@ -37,9 +37,12 @@ export type CarrierWaybillItem = {
 
 type WaybillGenerationMarker = {
   waybillGeneration: {
-    status: 'IN_PROGRESS';
+    status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
     token: string;
     startedAt: string;
+    attempt: number;
+    sfCustomerOrderId: string;
+    completedAt?: string;
   };
 };
 
@@ -48,6 +51,7 @@ type WaybillGenerationContext = {
   companyId: string;
   shipmentId: string;
   marker: WaybillGenerationMarker;
+  sfCustomerOrderId: string;
   addressSnapshot: unknown;
   items: CarrierWaybillItem[];
   carrierCode: string;
@@ -201,6 +205,7 @@ export class SellerShippingService {
         carrierCode,
         context.addressSnapshot,
         context.items,
+        context.sfCustomerOrderId,
       );
     } catch (error) {
       await this.clearWaybillGenerationMarker(context);
@@ -285,7 +290,9 @@ export class SellerShippingService {
         throw new BadRequestException('该订单面单正在生成，请稍后重试');
       }
 
-      const marker = this.createWaybillGenerationMarker();
+      const attempt = this.getNextWaybillGenerationAttempt(existingShipment?.rawCarrierPayload);
+      const sfCustomerOrderId = this.buildSfCustomerOrderId(orderId, companyId, attempt);
+      const marker = this.createWaybillGenerationMarker(attempt, sfCustomerOrderId);
       const items = orderItems.map((item) => ({
         name: item.sku?.product?.title || '商品',
         quantity: item.quantity,
@@ -330,6 +337,7 @@ export class SellerShippingService {
         companyId,
         shipmentId,
         marker,
+        sfCustomerOrderId,
         addressSnapshot: order.addressSnapshot,
         items,
         carrierCode,
@@ -358,7 +366,7 @@ export class SellerShippingService {
           sfOrderId: waybillResult.sfOrderId,
           senderInfoSnapshot: waybillResult.senderInfoSnapshot as Prisma.InputJsonValue,
           receiverInfoSnapshot: waybillResult.receiverInfoSnapshot as Prisma.InputJsonValue,
-          rawCarrierPayload: Prisma.DbNull,
+          rawCarrierPayload: this.createCompletedWaybillGenerationPayload(context),
         },
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -399,14 +407,63 @@ export class SellerShippingService {
     }
   }
 
-  private createWaybillGenerationMarker(): WaybillGenerationMarker {
+  private createWaybillGenerationMarker(
+    attempt: number,
+    sfCustomerOrderId: string,
+  ): WaybillGenerationMarker {
     return {
       waybillGeneration: {
         status: 'IN_PROGRESS',
         token: randomUUID(),
         startedAt: new Date().toISOString(),
+        attempt,
+        sfCustomerOrderId,
       },
     };
+  }
+
+  private buildSfCustomerOrderId(
+    orderId: string,
+    companyId: string,
+    attempt: number,
+  ): string {
+    const digest = createHash('sha1')
+      .update(`${orderId}:${companyId}:${attempt}`)
+      .digest('hex')
+      .slice(0, 32);
+
+    return `AIMM-WB-${digest}`;
+  }
+
+  private getNextWaybillGenerationAttempt(rawCarrierPayload: unknown): number {
+    const previousAttempt = Math.max(
+      this.getCancelledWaybillCount(rawCarrierPayload),
+      this.getCompletedWaybillAttempt(rawCarrierPayload),
+    );
+    return previousAttempt + 1;
+  }
+
+  private getCancelledWaybillCount(rawCarrierPayload: unknown): number {
+    if (!rawCarrierPayload || typeof rawCarrierPayload !== 'object') return 0;
+    const payload = rawCarrierPayload as { waybillCancellation?: unknown };
+    if (!payload.waybillCancellation || typeof payload.waybillCancellation !== 'object') {
+      return 0;
+    }
+
+    const cancelledCount = Number(
+      (payload.waybillCancellation as { cancelledCount?: unknown }).cancelledCount,
+    );
+    return Number.isInteger(cancelledCount) && cancelledCount > 0
+      ? cancelledCount
+      : 0;
+  }
+
+  private getCompletedWaybillAttempt(rawCarrierPayload: unknown): number {
+    const marker = this.getWaybillGenerationMarker(rawCarrierPayload);
+    if (!marker || marker.status !== 'COMPLETED') return 0;
+
+    const attempt = Number(marker.attempt);
+    return Number.isInteger(attempt) && attempt > 0 ? attempt : 0;
   }
 
   private hasActiveWaybillGenerationMarker(rawCarrierPayload: unknown): boolean {
@@ -423,6 +480,9 @@ export class SellerShippingService {
     status?: string;
     token?: string;
     startedAt?: string;
+    attempt?: number;
+    sfCustomerOrderId?: string;
+    completedAt?: string;
   } | null {
     if (!rawCarrierPayload || typeof rawCarrierPayload !== 'object') return null;
     const payload = rawCarrierPayload as { waybillGeneration?: unknown };
@@ -433,6 +493,9 @@ export class SellerShippingService {
       status?: string;
       token?: string;
       startedAt?: string;
+      attempt?: number;
+      sfCustomerOrderId?: string;
+      completedAt?: string;
     };
   }
 
@@ -484,6 +547,18 @@ export class SellerShippingService {
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  private createCompletedWaybillGenerationPayload(
+    context: WaybillGenerationContext,
+  ): Prisma.InputJsonValue {
+    return {
+      waybillGeneration: {
+        ...context.marker.waybillGeneration,
+        status: 'COMPLETED',
+        completedAt: new Date().toISOString(),
+      },
+    };
   }
 
   /**
@@ -618,6 +693,7 @@ export class SellerShippingService {
     carrierCode: string,
     addressSnapshot: unknown,
     items: CarrierWaybillItem[],
+    sfCustomerOrderId?: string,
   ) {
     const senderInfo = await this.getSenderInfo(companyId);
 
@@ -632,6 +708,7 @@ export class SellerShippingService {
     const result = await this.createCarrierWaybillWithAddresses({
       companyId,
       bizNo: orderId,
+      sfCustomerOrderId,
       carrierCode,
       sender: {
         name: senderInfo.senderName,
@@ -663,6 +740,7 @@ export class SellerShippingService {
     companyId: string;
     bizNo: string;
     orderId?: string;
+    sfCustomerOrderId?: string;
     carrierCode: string;
     sender: CarrierWaybillAddress;
     receiver: CarrierWaybillAddress;
@@ -685,9 +763,10 @@ export class SellerShippingService {
     const weightGramSent = Math.max(totalWeightGram, DEFAULT_SKU_WEIGHT_GRAM);
     const totalWeightKg = Math.max(totalWeightGram / GRAMS_PER_KG, 1);
 
-    // 使用 bizNo_companyId 作为顺丰 orderId，确保幂等性
+    // 顺丰要求取消后的客户订单号不能复用；生成链路传入按尝试次数派生的短 ID。
+    // 未传入时保持历史调用方（售后等）的 bizNo_companyId 兼容行为。
     const orderResult = await this.sfExpress.createOrder({
-      orderId: `${bizNo}_${companyId}`,
+      orderId: input.sfCustomerOrderId ?? `${bizNo}_${companyId}`,
       sender: input.sender,
       receiver: input.receiver,
       cargo,
@@ -834,6 +913,12 @@ export class SellerShippingService {
     await this.cancelCarrierWaybillStrict(shipment.sfOrderId ?? '', shipment.waybillNo);
 
     // 3. 远端取消后，清空本地记录
+    const cancellationPayload = this.createWaybillCancellationPayload(
+      shipment.rawCarrierPayload,
+      shipment.sfOrderId,
+      shipment.waybillNo,
+    );
+
     await this.prisma.$transaction(async (tx) => {
       const cas = await tx.shipment.updateMany({
         where: {
@@ -846,6 +931,7 @@ export class SellerShippingService {
           waybillUrl: null,
           trackingNo: null,
           sfOrderId: null,
+          rawCarrierPayload: cancellationPayload,
         },
       });
 
@@ -859,6 +945,25 @@ export class SellerShippingService {
     );
 
     return { ok: true };
+  }
+
+  private createWaybillCancellationPayload(
+    rawCarrierPayload: unknown,
+    sfOrderId: string | null,
+    waybillNo: string,
+  ): Prisma.InputJsonValue {
+    return {
+      waybillCancellation: {
+        cancelledCount: Math.max(
+          this.getCancelledWaybillCount(rawCarrierPayload),
+          this.getCompletedWaybillAttempt(rawCarrierPayload),
+          1,
+        ),
+        lastSfOrderId: sfOrderId ?? null,
+        lastWaybillNo: waybillNo,
+        cancelledAt: new Date().toISOString(),
+      },
+    };
   }
 
   private maskWaybillNo(waybillNo: string) {
