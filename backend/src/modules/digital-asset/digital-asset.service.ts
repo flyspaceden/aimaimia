@@ -564,10 +564,12 @@ export class DigitalAssetService {
     vipPurchaseId: string;
     packageId: string | null;
     vipAmount: number;
+    inviterUserId?: string | null;
   }): Promise<{
     status: 'credited' | 'alreadyCredited' | 'invalidPackage';
     grantedSelfSeed: boolean;
     grantedHistoricalCredit: boolean;
+    grantedReferralSeed: boolean;
   }> {
     return this.withSerializableRetry(async (tx) => {
       const vipPackage = await this.resolveVipPackageRule(tx, {
@@ -579,14 +581,18 @@ export class DigitalAssetService {
           status: 'invalidPackage' as const,
           grantedSelfSeed: false,
           grantedHistoricalCredit: false,
+          grantedReferralSeed: false,
         };
       }
 
       const selfSeedKey = `vip-purchase:${params.vipPurchaseId}:self-seed`;
       const historicalCreditKey = `user:${params.userId}:historical-consumption-credit-grant`;
-      const [accountBeforeGrant, existingSelfSeedLedger] = await Promise.all([
+      const referralSeedKey = `vip-purchase:${params.vipPurchaseId}:referral-seed`;
+      const [accountBeforeGrant, existingSelfSeedLedger, existingHistoricalLedger, existingReferralSeedLedger] = await Promise.all([
         tx.digitalAssetAccount.findUnique({ where: { userId: params.userId } }),
         tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: selfSeedKey } }),
+        tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: historicalCreditKey } }),
+        tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: referralSeedKey } }),
       ]);
 
       await this.grantVipActivationAssets(tx, {
@@ -594,15 +600,28 @@ export class DigitalAssetService {
         vipPurchaseId: params.vipPurchaseId,
         packageId: params.packageId,
         vipAmount: params.vipAmount,
-        inviterUserId: null,
+        inviterUserId: params.inviterUserId ?? null,
       });
 
-      const grantedSelfSeed = !existingSelfSeedLedger && (vipPackage.selfSeedAssetAmount ?? 0) > 0;
-      const grantedHistoricalCredit = !accountBeforeGrant?.historicalCreditGrantedAt;
+      const [selfSeedLedgerAfter, historicalLedgerAfter, referralSeedLedgerAfter] = await Promise.all([
+        existingSelfSeedLedger ? existingSelfSeedLedger : tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: selfSeedKey } }),
+        existingHistoricalLedger ? existingHistoricalLedger : tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: historicalCreditKey } }),
+        existingReferralSeedLedger ? existingReferralSeedLedger : tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: referralSeedKey } }),
+      ]);
+
+      const grantedSelfSeed = !existingSelfSeedLedger && Boolean(selfSeedLedgerAfter) && (vipPackage.selfSeedAssetAmount ?? 0) > 0;
+      const grantedHistoricalCredit =
+        !existingHistoricalLedger &&
+        !accountBeforeGrant?.historicalCreditGrantedAt &&
+        Boolean(historicalLedgerAfter);
+      const grantedReferralSeed = !existingReferralSeedLedger && Boolean(referralSeedLedgerAfter);
       return {
-        status: grantedSelfSeed || grantedHistoricalCredit ? 'credited' as const : 'alreadyCredited' as const,
+        status: grantedSelfSeed || grantedHistoricalCredit || grantedReferralSeed
+          ? 'credited' as const
+          : 'alreadyCredited' as const,
         grantedSelfSeed,
         grantedHistoricalCredit,
+        grantedReferralSeed,
       };
     });
   }
