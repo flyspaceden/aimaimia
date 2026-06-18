@@ -186,7 +186,7 @@ export class AdminDigitalAssetService {
       include: this.accountInclude(),
     });
     const rows = [
-      ['买家编号', '用户ID', '昵称', '手机号', 'VIP状态', '数字资产总额', '种子资产', '信用资产', '累计消费', '账户更新时间'],
+      ['买家编号', '用户ID', '昵称', '手机号', 'VIP状态', '数字资产总额', '种子资产', '消费资产', '累计消费', '账户更新时间'],
       ...items.map((item: any) => [
         item.user?.buyerNo ?? '',
         item.userId,
@@ -327,7 +327,7 @@ export class AdminDigitalAssetService {
     try {
       return validateCreditTiers((tiers ?? DEFAULT_CREDIT_TIERS) as CreditAssetTier[]);
     } catch (error: any) {
-      throw new BadRequestException(error?.message ?? '信用资产倍率档位不合法');
+      throw new BadRequestException(error?.message ?? '消费资产倍率档位不合法');
     }
   }
 

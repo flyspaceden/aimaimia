@@ -30,12 +30,12 @@ describe('digital asset credit calculator', () => {
     expect(() => validateCreditTiers([
       { minAmount: 0, maxAmount: 500, multiplier: 3 },
       { minAmount: 600, maxAmount: null, multiplier: 5 },
-    ])).toThrow('信用资产倍率档位不能断档');
+    ])).toThrow('消费资产倍率档位不能断档');
   });
 
   it('rejects tiers with a zero multiplier', () => {
     expect(() => validateCreditTiers([
       { minAmount: 0, maxAmount: null, multiplier: 0 },
-    ])).toThrow('信用资产倍率必须大于0');
+    ])).toThrow('消费资产倍率必须大于0');
   });
 });

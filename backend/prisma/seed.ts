@@ -1665,7 +1665,7 @@ async function main() {
           { minAmount: 5000, maxAmount: null, multiplier: 10 },
         ],
       },
-      desc: '数字资产 V2 信用资产倍率档位',
+      desc: '数字资产 V2 消费资产倍率档位',
     },
   ];
 

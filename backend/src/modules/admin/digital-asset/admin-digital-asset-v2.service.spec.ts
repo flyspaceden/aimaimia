@@ -277,7 +277,7 @@ describe('AdminDigitalAssetService V2', () => {
     const csv = await service.exportAccounts({});
 
     expect(csv.split('\n')[0]).toBe(
-      '买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,信用资产,累计消费,账户更新时间',
+      '买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,消费资产,累计消费,账户更新时间',
     );
     expect(csv).toContain('VIP');
     expect(csv).toContain('7600');

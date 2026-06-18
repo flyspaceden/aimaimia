@@ -338,7 +338,7 @@ expect(calculateCreditAsset({
 expect(() => validateCreditTiers([
   { minAmount: 0, maxAmount: 500, multiplier: 3 },
   { minAmount: 600, maxAmount: null, multiplier: 5 },
-])).toThrow('信用资产倍率档位不能断档');
+])).toThrow('消费资产倍率档位不能断档');
 ```
 
 - [ ] **Step 2: Run tests to confirm failure**
@@ -519,7 +519,7 @@ SELF_VIP_PURCHASE -> 自购 VIP 种子资产
 REFERRAL_VIP_PURCHASE -> 推荐 VIP 种子资产
 HISTORICAL_CONSUMPTION_GRANT -> 历史消费转入
 CONSUMPTION_CONFIRMED + CUMULATIVE_SPEND -> 消费累计
-CONSUMPTION_CONFIRMED + CREDIT_ASSET -> 信用资产入账
+CONSUMPTION_CONFIRMED + CREDIT_ASSET -> 消费资产入账
 REFUND_REVERSAL -> 退款扣回
 ADMIN_ADJUSTMENT -> 后台调整
 ```
@@ -896,7 +896,7 @@ Keep existing `/settings` temporarily or make it delegate to `/rules` for backwa
 CSV headers become:
 
 ```text
-买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,信用资产,累计消费,账户更新时间
+买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,消费资产,累计消费,账户更新时间
 ```
 
 - [ ] **Step 6: Run admin tests**
@@ -1040,7 +1040,7 @@ VIP state shows:
 ```text
 数字资产总额
 种子资产
-信用资产
+消费资产
 累计消费金额
 ```
 
@@ -1049,7 +1049,7 @@ Non-VIP state shows:
 ```text
 累计消费金额
 让每一次消费，都成为你的数字资产基础
-成为 VIP 后，累计消费可按规则转化为信用资产。
+成为 VIP 后，累计消费可按规则转化为消费资产。
 开通 VIP 激活资产
 ```
 
@@ -1102,7 +1102,7 @@ Record labels:
 
 ```ts
 CONSUMPTION_CONFIRMED + CUMULATIVE_SPEND -> 消费累计
-CONSUMPTION_CONFIRMED + CREDIT_ASSET -> 信用资产入账
+CONSUMPTION_CONFIRMED + CREDIT_ASSET -> 消费资产入账
 SELF_VIP_PURCHASE -> 自购 VIP 种子资产
 REFERRAL_VIP_PURCHASE -> 推荐 VIP 种子资产
 HISTORICAL_CONSUMPTION_GRANT -> 历史消费转入
@@ -1229,7 +1229,7 @@ Cards:
 ```text
 数字资产总额
 种子资产总额
-信用资产总额
+消费资产总额
 累计消费总额
 今日入账
 今日扣回
@@ -1244,7 +1244,7 @@ Columns:
 VIP 状态
 数字资产总额
 种子资产
-信用资产
+消费资产
 累计消费
 账户更新时间
 ```
@@ -1259,7 +1259,7 @@ Require `subjectType` radio:
 
 ```text
 种子资产
-信用资产
+消费资产
 ```
 
 Do not allow total adjustment.
