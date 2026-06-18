@@ -66,7 +66,7 @@ export class AdminDigitalAssetController {
   }
 
   @Get('rules')
-  @RequirePermission('digital_assets:settings')
+  @RequirePermission('digital_assets:read')
   getRules() {
     return this.digitalAssetService.getRules();
   }

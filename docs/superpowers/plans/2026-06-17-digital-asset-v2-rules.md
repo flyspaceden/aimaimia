@@ -1075,7 +1075,7 @@ Show:
 
 - Current credit tier and next tier progress.
 - VIP seed rules for latest package config.
-- Long-term modules: cash exchange, fixed-term income, future rights conversion, all marked rule pending.
+- Long-term modules: neutral future-right placeholders, all marked rule pending.
 
 - [ ] **Step 4: Run App TypeScript**
 

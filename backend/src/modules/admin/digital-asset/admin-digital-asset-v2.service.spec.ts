@@ -21,6 +21,7 @@ describe('AdminDigitalAssetService V2', () => {
       },
       digitalAssetLedger: {
         aggregate: jest.fn(),
+        groupBy: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
       },
@@ -75,6 +76,36 @@ describe('AdminDigitalAssetService V2', () => {
     });
   });
 
+  it('getRules neutralizes risky future module copy from stored settings', async () => {
+    const { service, prisma } = makeService();
+    prisma.ruleConfig.findUnique
+      .mockResolvedValueOnce({
+        key: 'DIGITAL_ASSET_CREDIT_TIERS',
+        value: {
+          tiers: [
+            { minAmount: 0, maxAmount: null, multiplier: 3 },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        key: 'DIGITAL_ASSET_MODULE_SETTINGS',
+        value: {
+          modules: [
+            { key: 'equity', title: '工资/期权/股权', enabled: false, description: '现金兑换规则待定' },
+          ],
+        },
+      });
+
+    const result = await (service as any).getRules();
+
+    expect(result.modules[0]).toEqual({
+      key: 'equity',
+      title: '权益规则待开放',
+      enabled: false,
+      description: '规则待开放',
+    });
+  });
+
   it('updateRules rejects credit tiers with gaps or overlaps', async () => {
     const { service } = makeService();
 
@@ -119,7 +150,7 @@ describe('AdminDigitalAssetService V2', () => {
     });
   });
 
-  it('overview returns V2 cumulative spend and asset balance totals', async () => {
+  it('overview returns split today metrics without mixing yuan and integer assets', async () => {
     const { service, prisma } = makeService();
     prisma.digitalAssetAccount.aggregate.mockResolvedValue({
       _count: { _all: 2 },
@@ -129,9 +160,13 @@ describe('AdminDigitalAssetService V2', () => {
         creditAssetBalance: 4600,
       },
     });
-    prisma.digitalAssetLedger.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 120 } })
-      .mockResolvedValueOnce({ _sum: { amount: 20 } });
+    prisma.digitalAssetLedger.groupBy.mockResolvedValue([
+      { subjectType: 'CUMULATIVE_SPEND', direction: 'CREDIT', _sum: { amount: 120, assetAmount: null } },
+      { subjectType: 'SEED_ASSET', direction: 'CREDIT', _sum: { amount: 1000, assetAmount: 1000 } },
+      { subjectType: 'CREDIT_ASSET', direction: 'CREDIT', _sum: { amount: 460, assetAmount: 460 } },
+      { subjectType: 'CUMULATIVE_SPEND', direction: 'DEBIT', _sum: { amount: 20, assetAmount: null } },
+      { subjectType: 'CREDIT_ASSET', direction: 'DEBIT', _sum: { amount: 60, assetAmount: 60 } },
+    ]);
 
     await expect(service.getOverview()).resolves.toEqual(expect.objectContaining({
       accountCount: 2,
@@ -139,6 +174,14 @@ describe('AdminDigitalAssetService V2', () => {
       totalSeedAssetBalance: 3000,
       totalCreditAssetBalance: 4600,
       totalAssetBalance: 7600,
+      todayCumulativeSpendCreditAmount: 120,
+      todayCumulativeSpendDebitAmount: 20,
+      todaySeedAssetCreditAmount: 1000,
+      todaySeedAssetDebitAmount: 0,
+      todayCreditAssetCreditAmount: 460,
+      todayCreditAssetDebitAmount: 60,
+      todayAssetCreditAmount: 1460,
+      todayAssetDebitAmount: 60,
     }));
   });
 

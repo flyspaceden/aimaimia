@@ -123,6 +123,7 @@ function makeService(overrides: {
   config?: any;
   redis?: any;
   sms?: any;
+  digitalAsset?: any;
 } = {}) {
   const prisma = overrides.prisma ?? makeTx();
   const config = overrides.config ?? {
@@ -138,12 +139,16 @@ function makeService(overrides: {
   const sms = overrides.sms ?? {
     sendVerificationCode: jest.fn().mockResolvedValue(undefined),
   };
+  const digitalAsset = overrides.digitalAsset ?? {
+    clearAccountAssets: jest.fn().mockResolvedValue(undefined),
+  };
   return {
     prisma,
     config,
     redis,
     sms,
-    service: new DeletionService(prisma, config, redis, sms),
+    digitalAsset,
+    service: new DeletionService(prisma, config, redis, sms, digitalAsset),
   };
 }
 
@@ -556,6 +561,31 @@ describe('DeletionService.execute', () => {
         deletionConfirmMethod: AccountDeletionConfirmMethod.SMS,
       },
     });
+  });
+
+  it('clears digital seed and credit assets during irreversible cleanup while keeping audit ledgers', async () => {
+    const prisma = makeTx();
+    const digitalAsset = {
+      clearAccountAssets: jest.fn().mockResolvedValue(undefined),
+    };
+    const { service } = makeService({ prisma, digitalAsset });
+    await mockSmsDeletion(prisma, '654321');
+
+    await service.execute(userId, executeDto({
+      confirmationMethod: AccountDeletionConfirmMethod.SMS,
+      smsCode: '654321',
+      modalConfirmText: undefined,
+    }));
+
+    expect(digitalAsset.clearAccountAssets).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        userId,
+        reason: 'ACCOUNT_DELETION',
+        idempotencyKey: `digital-asset-clear:${userId}:account-deletion`,
+      }),
+    );
+    expect(prisma.loginEvent.create).toHaveBeenCalled();
   });
 
   it('rejects WeChat modal execution when no verified WeChat identity exists', async () => {

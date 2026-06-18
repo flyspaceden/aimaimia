@@ -2,7 +2,8 @@ import { AdminAppUsersService } from './admin-app-users.service';
 
 describe('AdminAppUsersService buyer public ids', () => {
   const makeService = () => {
-    const prisma = {
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: any) => callback(prisma)),
       user: {
         findMany: jest.fn(),
         count: jest.fn(),
@@ -10,9 +11,13 @@ describe('AdminAppUsersService buyer public ids', () => {
         update: jest.fn(),
       },
     };
+    const digitalAssetService = {
+      clearAccountAssets: jest.fn(),
+    };
     return {
       prisma,
-      service: new AdminAppUsersService(prisma as any),
+      digitalAssetService,
+      service: new AdminAppUsersService(prisma as any, digitalAssetService as any),
     };
   };
 
@@ -98,5 +103,25 @@ describe('AdminAppUsersService buyer public ids', () => {
       where: { id: 'user-internal-1' },
     }));
     expect(result.id).toBe('user-internal-1');
+  });
+
+  it('clears digital assets when banning an app user', async () => {
+    const { service, prisma, digitalAssetService } = makeService();
+    prisma.user.findUnique.mockResolvedValue(userRow);
+    prisma.user.update.mockResolvedValue({ ...userRow, status: 'BANNED' });
+
+    await service.toggleBan('user-internal-1', 'BANNED');
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: 'Serializable' }),
+    );
+    expect(digitalAssetService.clearAccountAssets).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        userId: 'user-internal-1',
+        reason: 'SERIOUS_BAN',
+      }),
+    );
   });
 });

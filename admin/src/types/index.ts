@@ -237,8 +237,14 @@ export interface DigitalAssetOverview {
   totalSeedAssetBalance: number;
   totalCreditAssetBalance: number;
   totalCumulativeSpendAmount: number;
-  todayCreditAmount: number;
-  todayDebitAmount: number;
+  todayCumulativeSpendCreditAmount: number;
+  todayCumulativeSpendDebitAmount: number;
+  todaySeedAssetCreditAmount: number;
+  todaySeedAssetDebitAmount: number;
+  todayCreditAssetCreditAmount: number;
+  todayCreditAssetDebitAmount: number;
+  todayAssetCreditAmount: number;
+  todayAssetDebitAmount: number;
 }
 
 export interface DigitalAssetAccountQueryParams extends PaginationParams {

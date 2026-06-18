@@ -24,9 +24,9 @@ import type {
 } from '../../src/types';
 
 const PENDING_MODULES = [
-  { key: 'cash', title: '现金兑换', description: '规则待定' },
-  { key: 'fixed', title: '定期收益', description: '规则待定' },
-  { key: 'rights', title: '权益转换', description: '规则待定' },
+  { key: 'future-rights-1', title: '未来权益模块', description: '规则待开放' },
+  { key: 'future-rights-2', title: '规则待开放', description: '权益规则待开放' },
+  { key: 'future-rights-3', title: '未来权益模块', description: '权益规则待开放' },
 ] as const;
 
 const NON_VIP_ACTIVATION_PROMPT = {

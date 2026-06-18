@@ -32,6 +32,7 @@ import { createHash, randomInt } from 'crypto';
 import { RedisCoordinatorService } from '../../../common/infra/redis-coordinator.service';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { AccountDeletionConfirmMethod, ExecuteDeletionDto } from './dto/deletion.dto';
 
 type DeletionBlockerCode =
@@ -97,6 +98,7 @@ export class DeletionService {
     private readonly config: ConfigService,
     private readonly redisCoord: RedisCoordinatorService,
     private readonly aliyunSms: AliyunSmsService,
+    private readonly digitalAssetService: DigitalAssetService,
   ) {}
 
   async preview(userId: string) {
@@ -439,6 +441,12 @@ export class DeletionService {
       await tx.rewardLedger.createMany({ data: voidLedgerRows });
     }
 
+    await this.digitalAssetService.clearAccountAssets(tx, {
+      userId,
+      reason: 'ACCOUNT_DELETION',
+      idempotencyKey: `digital-asset-clear:${userId}:account-deletion`,
+    });
+
     await tx.couponInstance.updateMany({
       where: {
         userId,
@@ -561,6 +569,7 @@ export class DeletionService {
       paidOrders,
       activeAfterSales,
       user,
+      digitalAssetAccount,
     ] = await Promise.all([
       tx.userProfile.findUnique({
         where: { userId },
@@ -626,6 +635,16 @@ export class DeletionService {
           },
         },
       }),
+      (tx as any).digitalAssetAccount?.findUnique
+        ? (tx as any).digitalAssetAccount.findUnique({
+          where: { userId },
+          select: {
+            cumulativeSpendAmount: true,
+            seedAssetBalance: true,
+            creditAssetBalance: true,
+          },
+        })
+        : null,
     ]);
 
     const { withdrawableRewards, frozenRewards } = this.sumRewards(rewardAccounts);
@@ -663,6 +682,11 @@ export class DeletionService {
           lotteryQuota: lotteryRecords.length,
           pendingWithdrawAmount: pendingWithdrawAggregate._sum.amount ?? 0,
           activeCheckoutCount,
+          digitalAssets: {
+            cumulativeSpendAmount: digitalAssetAccount?.cumulativeSpendAmount ?? 0,
+            seedAssetBalance: digitalAssetAccount?.seedAssetBalance ?? 0,
+            creditAssetBalance: digitalAssetAccount?.creditAssetBalance ?? 0,
+          },
         },
         pending: { paidOrders, activeAfterSales },
         rewardAccounts: rewardAccounts.map((account) => ({
@@ -680,6 +704,8 @@ export class DeletionService {
         lotteryQuota: lotteryRecords.length,
         withdrawableRewards,
         frozenRewards,
+        digitalAssetSeedBalance: digitalAssetAccount?.seedAssetBalance ?? 0,
+        digitalAssetCreditBalance: digitalAssetAccount?.creditAssetBalance ?? 0,
       },
     };
 

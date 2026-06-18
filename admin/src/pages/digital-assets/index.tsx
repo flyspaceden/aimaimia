@@ -119,8 +119,8 @@ function validateCreditTiers(tiers: DigitalAssetCreditTier[]) {
         throw new Error('信用资产倍率档位上限必须大于下限');
       }
     }
-    if (tier.multiplier < 0) {
-      throw new Error('信用资产倍率不能为负数');
+    if (tier.multiplier <= 0) {
+      throw new Error('信用资产倍率必须大于0');
     }
   });
 
@@ -152,7 +152,7 @@ function getNextTierInfo(cumulativeSpendAmount: number, tiers: DigitalAssetCredi
 
 function buildDefaultRuleRow(previous?: DigitalAssetCreditTier): DigitalAssetCreditTier {
   if (!previous) {
-    return { minAmount: 0, maxAmount: null, multiplier: 0 };
+    return { minAmount: 0, maxAmount: null, multiplier: 1 };
   }
   const nextMinAmount = previous.maxAmount ?? previous.minAmount;
   return {
@@ -431,7 +431,7 @@ export default function DigitalAssetsPage() {
       width: 160,
       render: (value: number, _: DigitalAssetCreditTier, index: number) => (
         <InputNumber
-          min={0}
+          min={0.0001}
           precision={4}
           value={value}
           addonAfter="x"
@@ -473,7 +473,7 @@ export default function DigitalAssetsPage() {
   return (
     <div style={{ padding: 24 }}>
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={12} xl={8}>
+        <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic
               loading={overviewLoading}
@@ -484,7 +484,7 @@ export default function DigitalAssetsPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} xl={8}>
+        <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic
               loading={overviewLoading}
@@ -494,7 +494,7 @@ export default function DigitalAssetsPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} xl={8}>
+        <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic
               loading={overviewLoading}
@@ -504,7 +504,7 @@ export default function DigitalAssetsPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} xl={8}>
+        <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic
               loading={overviewLoading}
@@ -515,24 +515,48 @@ export default function DigitalAssetsPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} xl={8}>
+        <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic
               loading={overviewLoading}
-              title="今日入账"
-              value={overview?.todayCreditAmount ?? 0}
-              precision={2}
+              title="今日资产入账"
+              value={overview?.todayAssetCreditAmount ?? 0}
+              formatter={(value) => formatAsset(Number(value ?? 0))}
               valueStyle={{ color: '#16a34a' }}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} xl={8}>
+        <Col xs={24} sm={12} xl={6}>
           <Card>
             <Statistic
               loading={overviewLoading}
-              title="今日扣回"
-              value={overview?.todayDebitAmount ?? 0}
+              title="今日资产扣回"
+              value={overview?.todayAssetDebitAmount ?? 0}
+              formatter={(value) => formatAsset(Number(value ?? 0))}
+              valueStyle={{ color: '#dc2626' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic
+              loading={overviewLoading}
+              title="今日累计消费入账"
+              value={overview?.todayCumulativeSpendCreditAmount ?? 0}
               precision={2}
+              prefix="¥"
+              valueStyle={{ color: '#16a34a' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic
+              loading={overviewLoading}
+              title="今日累计消费扣回"
+              value={overview?.todayCumulativeSpendDebitAmount ?? 0}
+              precision={2}
+              prefix="¥"
               valueStyle={{ color: '#dc2626' }}
             />
           </Card>

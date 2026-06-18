@@ -49,21 +49,18 @@ ALTER TABLE "VipPackage"
 
 UPDATE "VipPackage"
 SET
-  "price" = 399,
   "selfSeedAssetAmount" = 1000,
   "referralSeedAssetAmount" = 2000
 WHERE "id" = 'vpkg-001';
 
 UPDATE "VipPackage"
 SET
-  "price" = 699,
   "selfSeedAssetAmount" = 2000,
   "referralSeedAssetAmount" = 4000
 WHERE "id" = 'vpkg-002';
 
 UPDATE "VipPackage"
 SET
-  "price" = 999,
   "selfSeedAssetAmount" = 3000,
   "referralSeedAssetAmount" = 8000
 WHERE "id" = 'vpkg-003';

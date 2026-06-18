@@ -75,6 +75,23 @@ describe('digital asset v2 vip backfill script helpers', () => {
     });
   });
 
+  it('re-running after zero historical grant marker exists reports alreadyCredited without a historical ledger key', () => {
+    expect(classifyVipBackfillCandidate({
+      vipPurchaseId: 'vp-zero',
+      packageId: 'pkg-399',
+      vipAmount: 399,
+      userId: 'user-zero',
+      historicalCreditGrantedAt: new Date('2026-06-17T00:00:00.000Z'),
+      existingLedgerKeys: new Set([
+        'vip-purchase:vp-zero:self-seed',
+      ]),
+      vipPackages,
+    })).toEqual({
+      status: 'alreadyCredited',
+      matchedPackageId: 'pkg-399',
+    });
+  });
+
   it('dry-run and execute package resolution use the same package set, including inactive packageId matches', () => {
     const packages = [
       { id: 'pkg-legacy', price: 399, selfSeedAssetAmount: 800, referralSeedAssetAmount: 1600, status: 'INACTIVE' },
@@ -115,6 +132,9 @@ describe('digital asset v2 vip backfill script helpers', () => {
       },
       vipPackage: {
         findMany: jest.fn().mockResolvedValue(vipPackages),
+      },
+      digitalAssetAccount: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       digitalAssetLedger: {
         findMany: jest.fn().mockResolvedValue([]),

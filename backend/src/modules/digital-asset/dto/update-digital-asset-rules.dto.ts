@@ -24,7 +24,7 @@ export class DigitalAssetCreditTierDto {
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 4 })
-  @Min(0)
+  @Min(0.0001)
   multiplier!: number;
 }
 

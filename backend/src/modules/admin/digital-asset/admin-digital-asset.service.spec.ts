@@ -17,6 +17,7 @@ describe('AdminDigitalAssetService', () => {
       },
       digitalAssetLedger: {
         aggregate: jest.fn(),
+        groupBy: jest.fn().mockResolvedValue([]),
         findMany: jest.fn(),
         count: jest.fn(),
       },

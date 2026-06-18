@@ -31,8 +31,8 @@ export function validateCreditTiers(tiers: CreditAssetTier[]): CreditAssetTier[]
         throw new Error('信用资产倍率档位上限必须大于下限');
       }
     }
-    if (tier.multiplier < 0) {
-      throw new Error('信用资产倍率不能为负数');
+    if (tier.multiplier <= 0) {
+      throw new Error('信用资产倍率必须大于0');
     }
   });
 

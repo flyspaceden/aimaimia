@@ -1,4 +1,5 @@
 import { AdminDigitalAssetController } from './admin-digital-asset.controller';
+import { PERMISSION_KEY } from '../common/decorators/require-permission';
 
 describe('AdminDigitalAssetController V2 rules routes', () => {
   const makeController = () => {
@@ -27,6 +28,12 @@ describe('AdminDigitalAssetController V2 rules routes', () => {
 
     await expect((controller as any).getRules()).resolves.toEqual({ tiers: [], modules: [] });
     expect(service.getRules).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows digital asset read permission to GET rules', () => {
+    expect(Reflect.getMetadata(PERMISSION_KEY, AdminDigitalAssetController.prototype.getRules)).toBe(
+      'digital_assets:read',
+    );
   });
 
   it('updateRules delegates to the admin digital asset service', async () => {

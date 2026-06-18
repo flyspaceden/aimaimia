@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { maskContact, maskPhone } from '../../../common/security/privacy-mask';
 import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
+import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 
 @Injectable()
 export class AdminAppUsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private digitalAssetService: DigitalAssetService,
+  ) {}
 
   /** App 用户列表（买家） */
   async findAll(
@@ -166,12 +171,24 @@ export class AdminAppUsersService {
   /** 封禁/解封 App 用户 */
   async toggleBan(id: string, status: 'ACTIVE' | 'BANNED') {
     const resolvedId = await resolveBuyerUserId(this.prisma, id);
-    const user = await this.prisma.user.findUnique({ where: { id: resolvedId } });
-    if (!user) throw new NotFoundException('用户不存在');
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: resolvedId } });
+      if (!user) throw new NotFoundException('用户不存在');
 
-    return this.prisma.user.update({
-      where: { id: resolvedId },
-      data: { status },
+      if (status === 'BANNED') {
+        await this.digitalAssetService.clearAccountAssets(tx, {
+          userId: resolvedId,
+          reason: 'SERIOUS_BAN',
+          idempotencyKey: `digital-asset-clear:${resolvedId}:serious-ban`,
+        });
+      }
+
+      return tx.user.update({
+        where: { id: resolvedId },
+        data: { status },
+      });
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   }
 }

@@ -8,6 +8,7 @@ type DataSet = {
   refunds: any[];
   afterSales: any[];
   memberProfiles: any[];
+  users: any[];
   ruleConfigs: any[];
   vipPackages: any[];
 };
@@ -30,6 +31,7 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     refunds: initial?.refunds ?? [],
     afterSales: initial?.afterSales ?? [],
     memberProfiles: initial?.memberProfiles ?? [],
+    users: initial?.users ?? [],
     ruleConfigs: initial?.ruleConfigs ?? [{ key: 'DIGITAL_ASSET_CREDIT_TIERS', value: DEFAULT_CREDIT_TIERS }],
     vipPackages: initial?.vipPackages ?? [
       { id: 'pkg-399', price: 399, selfSeedAssetAmount: 1000, referralSeedAssetAmount: 2000, status: 'ACTIVE' },
@@ -69,6 +71,11 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     memberProfile: {
       findUnique: jest.fn(({ where }: any) =>
         data.memberProfiles.find((profile) => profile.userId === where.userId) ?? null,
+      ),
+    },
+    user: {
+      findUnique: jest.fn(({ where }: any) =>
+        data.users.find((user) => user.id === where.id) ?? null,
       ),
     },
     ruleConfig: {
@@ -625,5 +632,124 @@ describe('DigitalAssetService V2 semantics', () => {
       sourceType: 'CONSUMPTION_CONFIRMED',
       amount: 300,
     });
+  });
+
+  it('marks historical credit processed even when VIP activation has zero prior spend', async () => {
+    const { data, service } = makeHarness({
+      users: [{ id: 'buyer-1', status: 'ACTIVE', deletionExecutedAt: null }],
+    });
+
+    await service.grantVipActivationAssets((service as any).prisma, {
+      userId: 'buyer-1',
+      vipPurchaseId: 'vp-1',
+      packageId: 'pkg-399',
+      vipAmount: 399,
+      inviterUserId: null,
+    });
+
+    expect(data.accounts[0]).toMatchObject({
+      userId: 'buyer-1',
+      cumulativeSpendAmount: 0,
+      seedAssetBalance: 1000,
+      creditAssetBalance: 0,
+      historicalCreditGrantedAt: expect.any(Date),
+    });
+    expect(data.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'HISTORICAL_CONSUMPTION_GRANT',
+        subjectType: 'CREDIT_ASSET',
+        amount: 0,
+        assetAmount: 0,
+        idempotencyKey: 'user:buyer-1:historical-consumption-credit-grant',
+      }),
+    ]));
+  });
+
+  it('does not grant referral seed assets to banned inviters', async () => {
+    const { data, service } = makeHarness({
+      users: [
+        { id: 'buyer-1', status: 'ACTIVE', deletionExecutedAt: null },
+        { id: 'inviter-1', status: 'BANNED', deletionExecutedAt: null },
+      ],
+      memberProfiles: [{ userId: 'inviter-1', tier: 'VIP' }],
+    });
+
+    await service.grantVipActivationAssets((service as any).prisma, {
+      userId: 'buyer-1',
+      vipPurchaseId: 'vp-1',
+      packageId: 'pkg-399',
+      vipAmount: 399,
+      inviterUserId: 'inviter-1',
+    });
+
+    expect(data.accounts.some((account) => account.userId === 'inviter-1')).toBe(false);
+    expect(data.ledgers.some((ledger) => ledger.type === 'REFERRAL_VIP_PURCHASE')).toBe(false);
+  });
+
+  it('does not grant referral seed assets to deleted inviters', async () => {
+    const { data, service } = makeHarness({
+      users: [
+        { id: 'buyer-1', status: 'ACTIVE', deletionExecutedAt: null },
+        { id: 'inviter-1', status: 'ACTIVE', deletionExecutedAt: new Date('2026-06-17T00:00:00.000Z') },
+      ],
+      memberProfiles: [{ userId: 'inviter-1', tier: 'VIP' }],
+    });
+
+    await service.grantVipActivationAssets((service as any).prisma, {
+      userId: 'buyer-1',
+      vipPurchaseId: 'vp-1',
+      packageId: 'pkg-399',
+      vipAmount: 399,
+      inviterUserId: 'inviter-1',
+    });
+
+    expect(data.accounts.some((account) => account.userId === 'inviter-1')).toBe(false);
+    expect(data.ledgers.some((ledger) => ledger.type === 'REFERRAL_VIP_PURCHASE')).toBe(false);
+  });
+
+  it('clears seed and credit assets while retaining cumulative spend and audit ledger rows', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{
+        id: 'account-1',
+        userId: 'vip-user',
+        cumulativeSpendAmount: 580,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 460,
+        historicalCreditGrantedAt: new Date('2026-06-01T00:00:00.000Z'),
+        historicalCreditGrantLedgerId: 'ledger-historical',
+      }],
+    });
+
+    await service.clearAccountAssets((service as any).prisma, {
+      userId: 'vip-user',
+      reason: 'ACCOUNT_DELETION',
+      idempotencyKey: 'digital-asset-clear:vip-user:account-deletion',
+    });
+
+    expect(data.accounts[0]).toMatchObject({
+      cumulativeSpendAmount: 580,
+      seedAssetBalance: 0,
+      creditAssetBalance: 0,
+    });
+    expect(data.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'ADMIN_ADJUSTMENT',
+        subjectType: 'SEED_ASSET',
+        direction: 'DEBIT',
+        amount: 1000,
+        assetAmount: 1000,
+        seedAssetBalanceAfter: 0,
+        creditAssetBalanceAfter: 460,
+      }),
+      expect.objectContaining({
+        type: 'ADMIN_ADJUSTMENT',
+        subjectType: 'CREDIT_ASSET',
+        direction: 'DEBIT',
+        amount: 460,
+        assetAmount: 460,
+        seedAssetBalanceAfter: 0,
+        creditAssetBalanceAfter: 0,
+      }),
+    ]));
   });
 });

@@ -11,6 +11,7 @@ export type VipBackfillCandidate = {
   packageId: string | null;
   vipAmount: number;
   userId: string;
+  historicalCreditGrantedAt?: Date | string | null;
   existingLedgerKeys: Set<string>;
   vipPackages: Array<{ id: string; price: number; status?: string | null }>;
 };
@@ -54,7 +55,7 @@ export function classifyVipBackfillCandidate(candidate: VipBackfillCandidate): {
   const historicalCreditKey = `user:${candidate.userId}:historical-consumption-credit-grant`;
   if (
     candidate.existingLedgerKeys.has(selfSeedKey)
-    && candidate.existingLedgerKeys.has(historicalCreditKey)
+    && (candidate.historicalCreditGrantedAt || candidate.existingLedgerKeys.has(historicalCreditKey))
   ) {
     return { status: 'alreadyCredited', matchedPackageId: matchedPackage.id };
   }
@@ -63,7 +64,7 @@ export function classifyVipBackfillCandidate(candidate: VipBackfillCandidate): {
 }
 
 export async function runVipBackfillJob(params: {
-  prisma: Pick<PrismaClient, 'vipPurchase' | 'memberProfile' | 'vipPackage' | 'digitalAssetLedger'>;
+  prisma: Pick<PrismaClient, 'vipPurchase' | 'memberProfile' | 'vipPackage' | 'digitalAssetAccount' | 'digitalAssetLedger'>;
   digitalAssetService: Pick<DigitalAssetService, 'backfillExistingVipAssets'>;
   options: VipBackfillOptions;
   errorLog?: (...args: any[]) => void;
@@ -90,7 +91,7 @@ export async function runVipBackfillJob(params: {
   });
 
   const vipUserIds = Array.from(new Set(vipPurchases.map((vipPurchase: any) => vipPurchase.userId)));
-  const [memberProfiles, vipPackages, existingLedgers] = await Promise.all([
+  const [memberProfiles, vipPackages, accounts, existingLedgers] = await Promise.all([
     vipUserIds.length === 0
       ? []
       : (prisma as any).memberProfile.findMany({
@@ -106,6 +107,15 @@ export async function runVipBackfillJob(params: {
     (prisma as any).vipPackage.findMany({
       select: { id: true, price: true, status: true },
     }),
+    vipUserIds.length === 0
+      ? []
+      : (prisma as any).digitalAssetAccount.findMany({
+        where: { userId: { in: vipUserIds } },
+        select: {
+          userId: true,
+          historicalCreditGrantedAt: true,
+        },
+      }),
     (prisma as any).digitalAssetLedger.findMany({
       where: {
         OR: [
@@ -133,6 +143,9 @@ export async function runVipBackfillJob(params: {
     existing.add(ledger.idempotencyKey);
     existingLedgerKeysByUser.set(ledger.userId, existing);
   }
+  const historicalCreditGrantedAtByUser = new Map<string, Date | string | null>(
+    accounts.map((account: any) => [account.userId, account.historicalCreditGrantedAt ?? null]),
+  );
 
   for (const vipPurchase of vipPurchases) {
     if (!vipMemberUserIds.has(vipPurchase.userId)) {
@@ -145,6 +158,7 @@ export async function runVipBackfillJob(params: {
         packageId: vipPurchase.packageId ?? null,
         vipAmount: vipPurchase.amount,
         userId: vipPurchase.userId,
+        historicalCreditGrantedAt: historicalCreditGrantedAtByUser.get(vipPurchase.userId) ?? null,
         existingLedgerKeys: existingLedgerKeysByUser.get(vipPurchase.userId) ?? new Set<string>(),
         vipPackages,
       });

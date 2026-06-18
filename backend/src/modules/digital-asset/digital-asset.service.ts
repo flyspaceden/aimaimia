@@ -21,16 +21,17 @@ const SERIALIZABLE_MAX_RETRIES = 3;
 const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
 const DEFAULT_MODULE_SETTINGS = [
-  { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
-  { key: 'level', title: '资产等级', enabled: false, description: '待开放' },
-  { key: 'benefits', title: '权益兑换', enabled: false, description: '待开放' },
-  { key: 'equity', title: '工资/期权/股权', enabled: false, description: '规则待公布' },
+  { key: 'assetValue', title: '未来权益模块', enabled: false, description: '规则待开放' },
+  { key: 'level', title: '权益规则待开放', enabled: false, description: '规则待开放' },
+  { key: 'benefits', title: '未来权益模块', enabled: false, description: '规则待开放' },
+  { key: 'equity', title: '权益规则待开放', enabled: false, description: '规则待开放' },
 ];
 const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
   { minAmount: 0, maxAmount: 500, multiplier: 3 },
   { minAmount: 500, maxAmount: 5000, multiplier: 5 },
   { minAmount: 5000, maxAmount: null, multiplier: 10 },
 ];
+const RISKY_FUTURE_MODULE_COPY_PATTERN = /现金|兑换|定期|收益|利息|股权|期权|工资|cash|interest|equity|return/i;
 const ACTIVATION_PROMPT = {
   title: '让每一次消费，都成为你的数字资产基础',
   description: '成为 VIP 后，累计消费可按规则转化为信用资产。',
@@ -47,6 +48,11 @@ function normalizeLedgerSource(type: string): DigitalAssetSourceType {
 
 function filterLegacySourceType(sourceType?: string): string | undefined {
   return sourceType === 'ORDER_RECEIVED' ? 'ORDER_RECEIVED' : sourceType;
+}
+
+function normalizeFutureModuleCopy(value: unknown, fallback: string): string {
+  const text = typeof value === 'string' && value.trim() ? value : fallback;
+  return RISKY_FUTURE_MODULE_COPY_PATTERN.test(text) ? fallback : text;
 }
 
 @Injectable()
@@ -330,68 +336,76 @@ export class DigitalAssetService {
         data: { seedAssetBalance: nextSeedAssetBalance },
       });
       account.seedAssetBalance = nextSeedAssetBalance;
-      if (!account.historicalCreditGrantLedgerId) {
-        account.historicalCreditGrantLedgerId = created.id;
-      }
     }
 
     const existingHistoricalLedger = await tx.digitalAssetLedger.findUnique({
       where: { idempotencyKey: historicalCreditKey },
     });
-    if (!existingHistoricalLedger && !account.historicalCreditGrantedAt) {
+    if (existingHistoricalLedger && !account.historicalCreditGrantedAt) {
+      const grantedAt = existingHistoricalLedger.createdAt ?? new Date();
+      await tx.digitalAssetAccount.update({
+        where: { id: account.id },
+        data: {
+          historicalCreditGrantedAt: grantedAt,
+          historicalCreditGrantLedgerId: existingHistoricalLedger.id,
+        },
+      });
+      account.historicalCreditGrantedAt = grantedAt;
+      account.historicalCreditGrantLedgerId = existingHistoricalLedger.id;
+    } else if (!existingHistoricalLedger && !account.historicalCreditGrantedAt) {
       const tiers = await this.getCreditTiers(tx);
       const historicalCreditResult = calculateCreditAsset({
         previousCumulativeSpend: 0,
         addedSpend: account.cumulativeSpendAmount ?? 0,
         tiers,
       });
-      if (historicalCreditResult.assetAmount > 0) {
-        const nextCreditAssetBalance = (account.creditAssetBalance ?? 0) + historicalCreditResult.assetAmount;
-        const createdHistoricalLedger = await tx.digitalAssetLedger.create({
-          data: {
-            accountId: account.id,
-            userId: params.userId,
-            type: 'HISTORICAL_CONSUMPTION_GRANT',
-            subjectType: 'CREDIT_ASSET',
-            direction: 'CREDIT',
-            amount: historicalCreditResult.assetAmount,
-            assetAmount: historicalCreditResult.assetAmount,
-            balanceAfter: nextCreditAssetBalance,
-            cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
-            seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
-            creditAssetBalanceAfter: nextCreditAssetBalance,
-            vipPurchaseId: params.vipPurchaseId,
-            idempotencyKey: historicalCreditKey,
-            ruleSnapshot: {
-              tiers,
-              segments: historicalCreditResult.segments,
-              rawAssetAmount: historicalCreditResult.rawAssetAmount,
-            },
-            meta: {
-              packageId: vipPackage.id,
-              vipAmount: params.vipAmount,
-            },
+      const nextCreditAssetBalance = (account.creditAssetBalance ?? 0) + historicalCreditResult.assetAmount;
+      const createdHistoricalLedger = await tx.digitalAssetLedger.create({
+        data: {
+          accountId: account.id,
+          userId: params.userId,
+          type: 'HISTORICAL_CONSUMPTION_GRANT',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: historicalCreditResult.assetAmount,
+          assetAmount: historicalCreditResult.assetAmount,
+          balanceAfter: nextCreditAssetBalance,
+          cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+          seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
+          creditAssetBalanceAfter: nextCreditAssetBalance,
+          vipPurchaseId: params.vipPurchaseId,
+          idempotencyKey: historicalCreditKey,
+          ruleSnapshot: {
+            tiers,
+            segments: historicalCreditResult.segments,
+            rawAssetAmount: historicalCreditResult.rawAssetAmount,
           },
-        });
-        await tx.digitalAssetAccount.update({
-          where: { id: account.id },
-          data: {
-            creditAssetBalance: nextCreditAssetBalance,
-            historicalCreditGrantedAt: new Date(),
-            historicalCreditGrantLedgerId: createdHistoricalLedger.id,
+          meta: {
+            packageId: vipPackage.id,
+            vipAmount: params.vipAmount,
           },
-        });
-        account.creditAssetBalance = nextCreditAssetBalance;
-        account.historicalCreditGrantedAt = new Date();
-        account.historicalCreditGrantLedgerId = createdHistoricalLedger.id;
-      }
+        },
+      });
+      const grantedAt = new Date();
+      await tx.digitalAssetAccount.update({
+        where: { id: account.id },
+        data: {
+          creditAssetBalance: nextCreditAssetBalance,
+          historicalCreditGrantedAt: grantedAt,
+          historicalCreditGrantLedgerId: createdHistoricalLedger.id,
+        },
+      });
+      account.creditAssetBalance = nextCreditAssetBalance;
+      account.historicalCreditGrantedAt = grantedAt;
+      account.historicalCreditGrantLedgerId = createdHistoricalLedger.id;
     }
 
     if (params.inviterUserId && referralSeedAssetAmount > 0) {
       const existingReferralLedger = await tx.digitalAssetLedger.findUnique({
         where: { idempotencyKey: referralSeedKey },
       });
-      if (!existingReferralLedger) {
+      const inviterEligible = await this.isEligibleReferralSeedRecipient(tx, params.inviterUserId);
+      if (!existingReferralLedger && inviterEligible) {
         const inviterAccount = await this.findOrCreateAccount(tx, params.inviterUserId);
         const nextSeedAssetBalance = (inviterAccount.seedAssetBalance ?? 0) + referralSeedAssetAmount;
         await tx.digitalAssetLedger.create({
@@ -449,9 +463,9 @@ export class DigitalAssetService {
 
       const selfSeedKey = `vip-purchase:${params.vipPurchaseId}:self-seed`;
       const historicalCreditKey = `user:${params.userId}:historical-consumption-credit-grant`;
-      const [existingSelfSeedLedger, existingHistoricalLedger] = await Promise.all([
+      const [accountBeforeGrant, existingSelfSeedLedger] = await Promise.all([
+        tx.digitalAssetAccount.findUnique({ where: { userId: params.userId } }),
         tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: selfSeedKey } }),
-        tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: historicalCreditKey } }),
       ]);
 
       await this.grantVipActivationAssets(tx, {
@@ -463,7 +477,7 @@ export class DigitalAssetService {
       });
 
       const grantedSelfSeed = !existingSelfSeedLedger && (vipPackage.selfSeedAssetAmount ?? 0) > 0;
-      const grantedHistoricalCredit = !existingHistoricalLedger;
+      const grantedHistoricalCredit = !accountBeforeGrant?.historicalCreditGrantedAt;
       return {
         status: grantedSelfSeed || grantedHistoricalCredit ? 'credited' as const : 'alreadyCredited' as const,
         grantedSelfSeed,
@@ -552,6 +566,97 @@ export class DigitalAssetService {
           creditAssetBalance: nextCreditAssetBalance,
         },
       });
+    });
+  }
+
+  async clearAccountAssets(tx: Prisma.TransactionClient | any, params: {
+    userId: string;
+    reason: 'ACCOUNT_DELETION' | 'SERIOUS_BAN' | string;
+    idempotencyKey: string;
+    adminUserId?: string | null;
+  }): Promise<void> {
+    const account = await tx.digitalAssetAccount.findUnique({ where: { userId: params.userId } });
+    if (!account) return;
+
+    const seedAssetBalance = account.seedAssetBalance ?? 0;
+    const creditAssetBalance = account.creditAssetBalance ?? 0;
+    if (seedAssetBalance <= 0 && creditAssetBalance <= 0) return;
+
+    let nextSeedAssetBalance = seedAssetBalance;
+    let nextCreditAssetBalance = creditAssetBalance;
+
+    if (seedAssetBalance > 0) {
+      const seedKey = `${params.idempotencyKey}:seed`;
+      const existingSeedLedger = await tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: seedKey } });
+      if (!existingSeedLedger) {
+        nextSeedAssetBalance = 0;
+        await tx.digitalAssetLedger.create({
+          data: {
+            accountId: account.id,
+            userId: params.userId,
+            type: 'ADMIN_ADJUSTMENT',
+            subjectType: 'SEED_ASSET',
+            direction: 'DEBIT',
+            amount: seedAssetBalance,
+            assetAmount: seedAssetBalance,
+            balanceAfter: nextSeedAssetBalance,
+            cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+            seedAssetBalanceAfter: nextSeedAssetBalance,
+            creditAssetBalanceAfter: nextCreditAssetBalance,
+            adminUserId: params.adminUserId ?? null,
+            reason: params.reason,
+            idempotencyKey: seedKey,
+            meta: {
+              reason: params.reason,
+              originalSeedAssetBalance: seedAssetBalance,
+              originalCreditAssetBalance: creditAssetBalance,
+            },
+          },
+        });
+      } else {
+        nextSeedAssetBalance = 0;
+      }
+    }
+
+    if (creditAssetBalance > 0) {
+      const creditKey = `${params.idempotencyKey}:credit`;
+      const existingCreditLedger = await tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: creditKey } });
+      if (!existingCreditLedger) {
+        nextCreditAssetBalance = 0;
+        await tx.digitalAssetLedger.create({
+          data: {
+            accountId: account.id,
+            userId: params.userId,
+            type: 'ADMIN_ADJUSTMENT',
+            subjectType: 'CREDIT_ASSET',
+            direction: 'DEBIT',
+            amount: creditAssetBalance,
+            assetAmount: creditAssetBalance,
+            balanceAfter: nextCreditAssetBalance,
+            cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+            seedAssetBalanceAfter: nextSeedAssetBalance,
+            creditAssetBalanceAfter: nextCreditAssetBalance,
+            adminUserId: params.adminUserId ?? null,
+            reason: params.reason,
+            idempotencyKey: creditKey,
+            meta: {
+              reason: params.reason,
+              originalSeedAssetBalance: seedAssetBalance,
+              originalCreditAssetBalance: creditAssetBalance,
+            },
+          },
+        });
+      } else {
+        nextCreditAssetBalance = 0;
+      }
+    }
+
+    await tx.digitalAssetAccount.update({
+      where: { id: account.id },
+      data: {
+        seedAssetBalance: nextSeedAssetBalance,
+        creditAssetBalance: nextCreditAssetBalance,
+      },
     });
   }
 
@@ -985,10 +1090,10 @@ export class DigitalAssetService {
       const fallback = fallbackByKey.get(item.key) ?? item;
       return {
         key: item.key,
-        title: item.title ?? fallback.title,
+        title: normalizeFutureModuleCopy(item.title, fallback.title),
         enabled: item.enabled ?? fallback.enabled,
         status: 'COMING_SOON' as const,
-        description: item.description ?? fallback.description,
+        description: normalizeFutureModuleCopy(item.description, fallback.description),
       };
     });
   }
@@ -1030,6 +1135,22 @@ export class DigitalAssetService {
       vipAmount: params.vipAmount,
       vipPackages,
     });
+  }
+
+  private async isEligibleReferralSeedRecipient(tx: any, userId: string): Promise<boolean> {
+    const user = await tx.user?.findUnique?.({
+      where: { id: userId },
+      select: {
+        status: true,
+        deletionExecutedAt: true,
+        memberProfile: { select: { tier: true } },
+      },
+    });
+    if (!user || user.status !== 'ACTIVE' || user.deletionExecutedAt) return false;
+
+    const tier = user.memberProfile?.tier
+      ?? (await tx.memberProfile?.findUnique?.({ where: { userId }, select: { tier: true } }))?.tier;
+    return tier === 'VIP';
   }
 
   private async findOrCreateAccount(tx: any, userId: string) {

@@ -23,16 +23,22 @@ const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
 const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
 const ALLOWED_SETTING_FIELDS = new Set(['key', 'title', 'enabled', 'description']);
 const DEFAULT_MODULE_SETTINGS = [
-  { key: 'assetValue', title: '资产价值', enabled: false, description: '规则待公布' },
-  { key: 'level', title: '资产等级', enabled: false, description: '待开放' },
-  { key: 'benefits', title: '权益兑换', enabled: false, description: '待开放' },
-  { key: 'equity', title: '工资/期权/股权', enabled: false, description: '规则待公布' },
+  { key: 'assetValue', title: '未来权益模块', enabled: false, description: '规则待开放' },
+  { key: 'level', title: '权益规则待开放', enabled: false, description: '规则待开放' },
+  { key: 'benefits', title: '未来权益模块', enabled: false, description: '规则待开放' },
+  { key: 'equity', title: '权益规则待开放', enabled: false, description: '规则待开放' },
 ];
 const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
   { minAmount: 0, maxAmount: 500, multiplier: 3 },
   { minAmount: 500, maxAmount: 5000, multiplier: 5 },
   { minAmount: 5000, maxAmount: null, multiplier: 10 },
 ];
+const RISKY_FUTURE_MODULE_COPY_PATTERN = /现金|兑换|定期|收益|利息|股权|期权|工资|cash|interest|equity|return/i;
+
+function normalizeFutureModuleCopy(value: unknown, fallback: string): string {
+  const text = typeof value === 'string' && value.trim() ? value : fallback;
+  return RISKY_FUTURE_MODULE_COPY_PATTERN.test(text) ? fallback : text;
+}
 
 @Injectable()
 export class AdminDigitalAssetService {
@@ -45,7 +51,7 @@ export class AdminDigitalAssetService {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [accounts, creditToday, debitToday] = await Promise.all([
+    const [accounts, todayGroups] = await Promise.all([
       (this.prisma as any).digitalAssetAccount.aggregate({
         _count: { _all: true },
         _sum: {
@@ -54,18 +60,23 @@ export class AdminDigitalAssetService {
           creditAssetBalance: true,
         },
       }),
-      (this.prisma as any).digitalAssetLedger.aggregate({
-        where: { direction: 'CREDIT', createdAt: { gte: startOfDay } },
-        _sum: { amount: true },
-      }),
-      (this.prisma as any).digitalAssetLedger.aggregate({
-        where: { direction: 'DEBIT', createdAt: { gte: startOfDay } },
-        _sum: { amount: true },
+      (this.prisma as any).digitalAssetLedger.groupBy({
+        by: ['subjectType', 'direction'],
+        where: { createdAt: { gte: startOfDay } },
+        _sum: { amount: true, assetAmount: true },
       }),
     ]);
 
     const totalSeedAssetBalance = accounts?._sum?.seedAssetBalance ?? 0;
     const totalCreditAssetBalance = accounts?._sum?.creditAssetBalance ?? 0;
+    const sumGroup = (subjectType: string, direction: 'CREDIT' | 'DEBIT', field: 'amount' | 'assetAmount') => {
+      const group = (todayGroups ?? []).find((item: any) => item.subjectType === subjectType && item.direction === direction);
+      return group?._sum?.[field] ?? 0;
+    };
+    const todaySeedAssetCreditAmount = sumGroup('SEED_ASSET', 'CREDIT', 'assetAmount');
+    const todayCreditAssetCreditAmount = sumGroup('CREDIT_ASSET', 'CREDIT', 'assetAmount');
+    const todaySeedAssetDebitAmount = sumGroup('SEED_ASSET', 'DEBIT', 'assetAmount');
+    const todayCreditAssetDebitAmount = sumGroup('CREDIT_ASSET', 'DEBIT', 'assetAmount');
 
     return {
       accountCount: accounts?._count?._all ?? 0,
@@ -73,8 +84,14 @@ export class AdminDigitalAssetService {
       totalSeedAssetBalance,
       totalCreditAssetBalance,
       totalAssetBalance: totalSeedAssetBalance + totalCreditAssetBalance,
-      todayCreditAmount: creditToday?._sum?.amount ?? 0,
-      todayDebitAmount: debitToday?._sum?.amount ?? 0,
+      todayCumulativeSpendCreditAmount: sumGroup('CUMULATIVE_SPEND', 'CREDIT', 'amount'),
+      todayCumulativeSpendDebitAmount: sumGroup('CUMULATIVE_SPEND', 'DEBIT', 'amount'),
+      todaySeedAssetCreditAmount,
+      todaySeedAssetDebitAmount,
+      todayCreditAssetCreditAmount,
+      todayCreditAssetDebitAmount,
+      todayAssetCreditAmount: todaySeedAssetCreditAmount + todayCreditAssetCreditAmount,
+      todayAssetDebitAmount: todaySeedAssetDebitAmount + todayCreditAssetDebitAmount,
     };
   }
 
@@ -336,9 +353,9 @@ export class AdminDigitalAssetService {
       seen.add(item.key);
       return {
         key: item.key,
-        title: item.title ?? fallback.title,
+        title: normalizeFutureModuleCopy(item.title, fallback.title),
         enabled: item.enabled ?? fallback.enabled,
-        description: item.description ?? fallback.description,
+        description: normalizeFutureModuleCopy(item.description, fallback.description),
       };
     });
   }
