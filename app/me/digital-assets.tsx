@@ -23,12 +23,6 @@ import type {
   DigitalAssetVipSeedRule,
 } from '../../src/types';
 
-const PENDING_MODULES = [
-  { key: 'future-rights-1', title: '未来权益模块', description: '规则待开放' },
-  { key: 'future-rights-2', title: '规则待开放', description: '权益规则待开放' },
-  { key: 'future-rights-3', title: '未来权益模块', description: '权益规则待开放' },
-] as const;
-
 const NON_VIP_ACTIVATION_PROMPT = {
   title: '让每一次消费，都成为你的数字资产基础',
   description: '成为 VIP 后，累计消费可按规则转化为消费资产。',
@@ -401,39 +395,6 @@ export default function DigitalAssetsScreen() {
             </Text>
           </View>
         )}
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <View style={styles.sectionHeader}>
-          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>长期模块</Text>
-          <Text style={[typography.captionSm, { color: colors.text.secondary }]}>规则待定</Text>
-        </View>
-        <View style={styles.metricGrid}>
-          {PENDING_MODULES.map((module) => (
-            <View
-              key={module.key}
-              style={[
-                styles.metricCard,
-                {
-                  width: isCompact ? '100%' : '48.5%',
-                  borderRadius: radius.lg,
-                  borderColor: colors.border,
-                  backgroundColor: colors.surface,
-                },
-              ]}
-            >
-              <Text style={[typography.bodyStrong, { color: colors.text.primary }]} {...fitTextProps}>
-                {module.title}
-              </Text>
-              <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.xs }]}>
-                {module.description}
-              </Text>
-              <View style={[styles.pendingPill, { marginTop: spacing.md, borderRadius: radius.pill, backgroundColor: colors.bgSecondary }]}>
-                <Text style={[typography.captionSm, { color: colors.muted }]}>待开放</Text>
-              </View>
-            </View>
-          ))}
-        </View>
       </View>
 
       <View style={styles.sectionBlock}>
