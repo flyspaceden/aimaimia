@@ -300,6 +300,13 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 
 ## 十一、生产变更记录
 
+### 2026-06-18 数字资产“消费资产”命名与 VIP 口径修正
+
+- **代码发布**：`staging` 推送 `08c1c75 fix(digital-asset): rename credit assets to consumption assets`；`main` 合并提交 `2b3872a release: 合并 staging 到 main（数字资产消费资产命名）`。
+- **生产部署**：GitHub Actions `Deploy Sites & Backend` run `27735452366` 成功，执行后端、管理后台、官网和花海静态站部署；无数据库 migration。
+- **业务口径**：撤回“VIP 礼包金额计入消费资产”的临时改动，保持 VIP 礼包只产生本人/直接推荐人种子资产；消费资产只由普通商品真实实付商品金额按倍率档位生成。
+- **验证结果**：数字资产相关 Jest 38 个用例通过，`npm run test:legal` 22 个用例通过，根目录 `npx tsc -b --noEmit --pretty false` 通过；临时 main worktree 后端 Jest 因未安装 `backend/node_modules` 未运行成功，已在具备依赖的开发 worktree 完成同内容验证。
+
 ### 2026-06-18 数字资产推荐 VIP 种子资产历史补偿
 
 - **代码发布**：`staging` 推送 `fa3fbdf fix(digital-asset): backfill referral vip seed assets`；`main` 合并提交 `3ba41ed release: 合并 staging 到 main（数字资产推荐种子资产回填）`。
