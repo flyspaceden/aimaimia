@@ -813,6 +813,90 @@ describe('DigitalAssetService V2 semantics', () => {
     expect(data.ledgers.some((ledger) => ledger.type === 'REFERRAL_VIP_PURCHASE')).toBe(false);
   });
 
+  it('backfills missing referral seed assets for historical VIP purchases', async () => {
+    const { data, service } = makeHarness({
+      users: [
+        { id: 'buyer-1', status: 'ACTIVE', deletionExecutedAt: null },
+        { id: 'inviter-1', status: 'ACTIVE', deletionExecutedAt: null },
+      ],
+      memberProfiles: [
+        { userId: 'buyer-1', tier: 'VIP' },
+        { userId: 'inviter-1', tier: 'VIP' },
+      ],
+      accounts: [{
+        id: 'account-buyer',
+        userId: 'buyer-1',
+        cumulativeSpendAmount: 0,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 0,
+        historicalCreditGrantedAt: new Date('2026-06-17T00:00:00.000Z'),
+        historicalCreditGrantLedgerId: 'ledger-historical',
+      }],
+      ledgers: [
+        {
+          id: 'ledger-self',
+          accountId: 'account-buyer',
+          userId: 'buyer-1',
+          type: 'SELF_VIP_PURCHASE',
+          subjectType: 'SEED_ASSET',
+          direction: 'CREDIT',
+          amount: 1000,
+          assetAmount: 1000,
+          balanceAfter: 1000,
+          seedAssetBalanceAfter: 1000,
+          creditAssetBalanceAfter: 0,
+          vipPurchaseId: 'vp-1',
+          idempotencyKey: 'vip-purchase:vp-1:self-seed',
+          createdAt: new Date('2026-06-17T00:00:00.000Z'),
+        },
+        {
+          id: 'ledger-historical',
+          accountId: 'account-buyer',
+          userId: 'buyer-1',
+          type: 'HISTORICAL_CONSUMPTION_GRANT',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: 0,
+          assetAmount: 0,
+          balanceAfter: 0,
+          creditAssetBalanceAfter: 0,
+          vipPurchaseId: 'vp-1',
+          idempotencyKey: 'user:buyer-1:historical-consumption-credit-grant',
+          createdAt: new Date('2026-06-17T00:00:00.000Z'),
+        },
+      ],
+    });
+
+    const result = await service.backfillExistingVipAssets({
+      userId: 'buyer-1',
+      vipPurchaseId: 'vp-1',
+      packageId: 'pkg-399',
+      vipAmount: 399,
+      inviterUserId: 'inviter-1',
+    });
+
+    expect(result).toMatchObject({
+      status: 'credited',
+      grantedSelfSeed: false,
+      grantedHistoricalCredit: false,
+      grantedReferralSeed: true,
+    });
+    expect(data.accounts.find((account) => account.userId === 'inviter-1')).toMatchObject({
+      seedAssetBalance: 2000,
+    });
+    expect(data.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: 'inviter-1',
+        type: 'REFERRAL_VIP_PURCHASE',
+        subjectType: 'SEED_ASSET',
+        amount: 2000,
+        assetAmount: 2000,
+        vipPurchaseId: 'vp-1',
+        idempotencyKey: 'vip-purchase:vp-1:referral-seed',
+      }),
+    ]));
+  });
+
   it('does not grant referral seed assets to deleted inviters', async () => {
     const { data, service } = makeHarness({
       users: [

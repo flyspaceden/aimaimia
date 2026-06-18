@@ -27,6 +27,7 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'wouldCredit',
       matchedPackageId: 'pkg-399',
+      needsReferralCredit: false,
     });
   });
 
@@ -41,6 +42,7 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'wouldCredit',
       matchedPackageId: 'pkg-699',
+      needsReferralCredit: false,
     });
   });
 
@@ -55,6 +57,7 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'invalidPackage',
       matchedPackageId: null,
+      needsReferralCredit: false,
     });
   });
 
@@ -72,6 +75,27 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'alreadyCredited',
       matchedPackageId: 'pkg-999',
+      needsReferralCredit: false,
+    });
+  });
+
+  it('re-running after self and historical grants still reports wouldCredit when referral seed is missing', () => {
+    expect(classifyVipBackfillCandidate({
+      vipPurchaseId: 'vp-referral',
+      packageId: 'pkg-399',
+      vipAmount: 399,
+      userId: 'buyer-1',
+      inviterUserId: 'inviter-1',
+      existingLedgerKeys: new Set([
+        'vip-purchase:vp-referral:self-seed',
+        'user:buyer-1:historical-consumption-credit-grant',
+      ]),
+      eligibleInviterUserIds: new Set(['inviter-1']),
+      vipPackages,
+    })).toEqual({
+      status: 'wouldCredit',
+      matchedPackageId: 'pkg-399',
+      needsReferralCredit: true,
     });
   });
 
@@ -89,6 +113,7 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'alreadyCredited',
       matchedPackageId: 'pkg-399',
+      needsReferralCredit: false,
     });
   });
 
@@ -114,6 +139,7 @@ describe('digital asset v2 vip backfill script helpers', () => {
     })).toEqual({
       status: 'wouldCredit',
       matchedPackageId: 'pkg-legacy',
+      needsReferralCredit: false,
     });
   });
 
@@ -145,6 +171,7 @@ describe('digital asset v2 vip backfill script helpers', () => {
         status: 'credited',
         grantedSelfSeed: true,
         grantedHistoricalCredit: true,
+        grantedReferralSeed: false,
       }),
     };
 
@@ -160,12 +187,71 @@ describe('digital asset v2 vip backfill script helpers', () => {
       vipPurchaseId: 'vp-2',
       packageId: 'pkg-699',
       vipAmount: 699,
+      inviterUserId: null,
     });
     expect(result).toMatchObject({
       wouldCredit: 1,
       alreadyCredited: 0,
       invalidPackage: 0,
       errors: 0,
+      referralWouldCredit: 0,
+      referralCredited: 0,
+    });
+  });
+
+  it('dry-run counts missing referral seed grants for eligible direct inviters', async () => {
+    const prisma = {
+      vipPurchase: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'vp-referral', userId: 'buyer-1', packageId: 'pkg-399', amount: 399, activationStatus: 'SUCCESS' },
+        ]),
+      },
+      memberProfile: {
+        findMany: jest.fn()
+          .mockResolvedValueOnce([
+            { userId: 'buyer-1', tier: 'VIP', inviterUserId: 'inviter-1' },
+          ])
+          .mockResolvedValueOnce([
+            { userId: 'inviter-1', tier: 'VIP' },
+          ]),
+      },
+      user: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'inviter-1', status: 'ACTIVE', deletionExecutedAt: null },
+        ]),
+      },
+      vipPackage: {
+        findMany: jest.fn().mockResolvedValue(vipPackages),
+      },
+      digitalAssetAccount: {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'buyer-1', historicalCreditGrantedAt: new Date('2026-06-17T00:00:00.000Z') },
+        ]),
+      },
+      digitalAssetLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'buyer-1', vipPurchaseId: 'vp-referral', idempotencyKey: 'vip-purchase:vp-referral:self-seed' },
+        ]),
+      },
+    };
+    const digitalAssetService = {
+      backfillExistingVipAssets: jest.fn(),
+    };
+
+    const result = await runVipBackfillJob({
+      prisma: prisma as any,
+      digitalAssetService: digitalAssetService as any,
+      options: { dryRun: true },
+    });
+
+    expect(digitalAssetService.backfillExistingVipAssets).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      wouldCredit: 1,
+      alreadyCredited: 0,
+      invalidPackage: 0,
+      errors: 0,
+      referralWouldCredit: 1,
+      referralCredited: 0,
     });
   });
 });
