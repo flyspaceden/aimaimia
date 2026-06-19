@@ -13,6 +13,15 @@ import { DeliverySellerApplicationController } from './seller-applications/deliv
 import { DeliverySellerApplicationService } from './seller-applications/delivery-seller-application.service';
 import { UnitFieldConfigController } from './admin/unit-field-config.controller';
 import { DeliveryUnitFieldConfigService } from './admin/unit-field-config.service';
+import { DeliveryCatalogController } from './catalog/delivery-catalog.controller';
+import { DeliveryCatalogService } from './catalog/delivery-catalog.service';
+import { DeliveryAdminProductsController } from './products/delivery-admin-products.controller';
+import { DeliverySellerProductsController } from './products/delivery-seller-products.controller';
+import { DeliveryProductsService } from './products/delivery-products.service';
+import { DeliveryPricingService } from './pricing/delivery-pricing.service';
+import { DeliveryAdminPricingRulesController } from './pricing/delivery-admin-pricing-rules.controller';
+import { DeliveryInventoryService } from './inventory/delivery-inventory.service';
+import { DeliverySellerInventoryController } from './inventory/delivery-seller-inventory.controller';
 
 @Module({
   imports: [
@@ -33,6 +42,11 @@ import { DeliveryUnitFieldConfigService } from './admin/unit-field-config.servic
     DeliveryUnitsController,
     DeliverySellerApplicationController,
     UnitFieldConfigController,
+    DeliveryCatalogController,
+    DeliveryAdminProductsController,
+    DeliverySellerProductsController,
+    DeliveryAdminPricingRulesController,
+    DeliverySellerInventoryController,
   ],
   providers: [
     DeliveryIdService,
@@ -41,7 +55,11 @@ import { DeliveryUnitFieldConfigService } from './admin/unit-field-config.servic
     DeliveryUnitsService,
     DeliverySellerApplicationService,
     DeliveryUnitFieldConfigService,
+    DeliveryCatalogService,
+    DeliveryProductsService,
+    DeliveryPricingService,
+    DeliveryInventoryService,
   ],
-  exports: [DeliveryIdService, DeliveryAuthModule],
+  exports: [DeliveryIdService, DeliveryAuthModule, DeliveryPricingService],
 })
 export class DeliveryModule {}
