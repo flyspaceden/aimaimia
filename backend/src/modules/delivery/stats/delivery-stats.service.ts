@@ -1,11 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { DeliverySettlementService } from '../settlement/delivery-settlement.service';
 
 @Injectable()
 export class DeliveryStatsService {
-  constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
+  constructor(
+    private readonly deliveryPrisma: DeliveryPrismaService,
+    private readonly deliverySettlementService: DeliverySettlementService,
+  ) {}
 
   async getAdminStats() {
+    await this.deliverySettlementService.materializeEligibleSettlements();
+
     const [
       users,
       units,

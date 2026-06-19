@@ -12,6 +12,7 @@ describe('DeliverySettlementService', () => {
     tx = {
       deliverySettlement: {
         findUnique: jest.fn(),
+        findMany: jest.fn(),
         update: jest.fn(),
       },
       deliverySubOrder: {
@@ -27,7 +28,7 @@ describe('DeliverySettlementService', () => {
         findMany: jest.fn(),
       },
       deliverySettlement: {
-        createMany: jest.fn(),
+        upsert: jest.fn(),
         count: jest.fn(),
         findMany: jest.fn(),
       },
@@ -37,6 +38,7 @@ describe('DeliverySettlementService', () => {
     };
 
     service = new DeliverySettlementService(deliveryPrisma as DeliveryPrismaService);
+    tx.deliverySettlement.findMany.mockResolvedValue([]);
   });
 
   it('makes settlement available only after delivery suborders are delivered or completed', async () => {
@@ -60,7 +62,9 @@ describe('DeliverySettlementService', () => {
         completedAt: new Date('2026-06-19T12:00:00.000Z'),
       },
     ]);
-    deliveryPrisma.deliverySettlement.createMany.mockResolvedValue({ count: 2 });
+    deliveryPrisma.deliverySettlement.upsert.mockResolvedValue({
+      id: 'settlement_1',
+    });
     deliveryPrisma.deliverySettlement.count.mockResolvedValue(2);
     deliveryPrisma.deliverySettlement.findMany.mockResolvedValue([
       {
@@ -138,22 +142,25 @@ describe('DeliverySettlementService', () => {
         completedAt: true,
       },
     });
-    expect(deliveryPrisma.deliverySettlement.createMany).toHaveBeenCalledWith({
-      data: [
-        {
-          merchantId: 'merchant_1',
-          subOrderId: 'sub_delivered',
-          settlementMonth: '2026-06',
-          supplyAmountCents: 1000,
-        },
-        {
-          merchantId: 'merchant_1',
-          subOrderId: 'sub_completed',
-          settlementMonth: '2026-06',
-          supplyAmountCents: 2000,
-        },
-      ],
-      skipDuplicates: true,
+    expect(deliveryPrisma.deliverySettlement.upsert).toHaveBeenNthCalledWith(1, {
+      where: { subOrderId: 'sub_delivered' },
+      create: {
+        merchantId: 'merchant_1',
+        subOrderId: 'sub_delivered',
+        settlementMonth: '2026-06',
+        supplyAmountCents: 1000,
+      },
+      update: {},
+    });
+    expect(deliveryPrisma.deliverySettlement.upsert).toHaveBeenNthCalledWith(2, {
+      where: { subOrderId: 'sub_completed' },
+      create: {
+        merchantId: 'merchant_1',
+        subOrderId: 'sub_completed',
+        settlementMonth: '2026-06',
+        supplyAmountCents: 2000,
+      },
+      update: {},
     });
     expect(result.items).toEqual([
       expect.objectContaining({
@@ -275,6 +282,29 @@ describe('DeliverySettlementService', () => {
         settledAmountCents: 1200,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects marking a settlement as paid when duplicate rows exist for the same suborder', async () => {
+    tx.deliverySettlement.findUnique.mockResolvedValue({
+      id: 'settlement_1',
+      subOrderId: 'sub_order_1',
+      status: 'PENDING',
+      supplyAmountCents: 1000,
+      settledAmountCents: 0,
+    });
+    tx.deliverySettlement.findMany.mockResolvedValue([
+      { id: 'settlement_1', subOrderId: 'sub_order_1', status: 'PENDING' },
+      { id: 'settlement_2', subOrderId: 'sub_order_1', status: 'PENDING' },
+    ]);
+
+    await expect(
+      service.markSettlementPaid('admin_1', 'settlement_1', {
+        settledAmountCents: 1200,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.deliverySettlement.update).not.toHaveBeenCalled();
+    expect(tx.deliveryAuditLog.create).not.toHaveBeenCalled();
   });
 
   it('throws when marking a missing settlement as paid', async () => {

@@ -16,6 +16,7 @@ describe('DeliveryCustomerServiceService', () => {
       },
       deliverySubOrder: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
       deliveryOrder: {
         findUnique: jest.fn(),
@@ -127,6 +128,35 @@ describe('DeliveryCustomerServiceService', () => {
         source: 'SELLER',
       }),
     );
+  });
+
+  it('rejects seller orderId conversation creation when the order does not belong to the current merchant', async () => {
+    deliveryPrisma.deliverySubOrder.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.createSellerConversation('merchant_1', 'staff_1', {
+        orderId: 'order_2',
+        message: '请尽快处理',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(deliveryPrisma.deliverySubOrder.findFirst).toHaveBeenCalledWith({
+      where: {
+        orderId: 'order_2',
+        merchantId: 'merchant_1',
+      },
+      select: {
+        orderId: true,
+        order: {
+          select: {
+            userId: true,
+            unitId: true,
+          },
+        },
+      },
+    });
+    expect(deliveryPrisma.deliveryOrder.findUnique).not.toHaveBeenCalled();
+    expect(deliveryPrisma.deliveryCustomerServiceConversation.create).not.toHaveBeenCalled();
   });
 
   it('updates a seller conversation inside delivery customer service tables only', async () => {

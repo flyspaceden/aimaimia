@@ -910,7 +910,7 @@ model DeliverySettlement {
   id                    String                    @id @default(cuid())
   merchantId            String
   merchant              DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
-  subOrderId            String?
+  subOrderId            String?                   @unique
   subOrder              DeliverySubOrder?         @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
   status                DeliverySettlementStatus  @default(PENDING)
   settlementMonth       String?
@@ -925,7 +925,6 @@ model DeliverySettlement {
   updatedAt             DateTime                  @updatedAt
 
   @@index([merchantId, status, createdAt])
-  @@index([subOrderId])
 }
 
 model DeliveryCustomerServiceConversation {

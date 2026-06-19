@@ -203,22 +203,29 @@ export class DeliveryCustomerServiceService {
     }
 
     if (dto.orderId) {
-      const order = await this.deliveryPrisma.deliveryOrder.findUnique({
-        where: { id: dto.orderId },
+      const sellerScopedOrder = await this.deliveryPrisma.deliverySubOrder.findFirst({
+        where: {
+          orderId: dto.orderId,
+          merchantId,
+        },
         select: {
-          id: true,
-          userId: true,
-          unitId: true,
+          orderId: true,
+          order: {
+            select: {
+              userId: true,
+              unitId: true,
+            },
+          },
         },
       });
-      if (!order) {
+      if (!sellerScopedOrder) {
         throw new NotFoundException('配送订单不存在');
       }
       return {
-        orderId: order.id,
+        orderId: sellerScopedOrder.orderId,
         subOrderId: undefined,
-        userId: order.userId,
-        unitId: order.unitId,
+        userId: sellerScopedOrder.order.userId,
+        unitId: sellerScopedOrder.order.unitId,
         defaultSubject: '配送订单咨询',
       };
     }

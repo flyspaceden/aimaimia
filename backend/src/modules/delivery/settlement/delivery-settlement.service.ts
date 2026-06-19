@@ -24,7 +24,9 @@ export class DeliverySettlementService {
   constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
 
   async listAdminSettlements(query: ListSettlementsQuery) {
-    await this.ensureEligibleSettlements(query.merchantId);
+    await this.materializeEligibleSettlements({
+      merchantId: query.merchantId,
+    });
 
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
@@ -98,6 +100,17 @@ export class DeliverySettlementService {
         if (settlement.status === 'SETTLED') {
           throw new ConflictException('配送结算记录已结清');
         }
+        if (settlement.subOrderId) {
+          const duplicateSettlements = await tx.deliverySettlement.findMany({
+            where: { subOrderId: settlement.subOrderId },
+            select: {
+              id: true,
+            },
+          });
+          if (duplicateSettlements.length > 1) {
+            throw new ConflictException('配送结算记录存在重复数据，请先清理后再结算');
+          }
+        }
 
         const subOrder = settlement.subOrderId
           ? await tx.deliverySubOrder.findUnique({
@@ -152,7 +165,7 @@ export class DeliverySettlementService {
     );
   }
 
-  private async ensureEligibleSettlements(merchantId?: string) {
+  async materializeEligibleSettlements(params: { merchantId?: string } = {}) {
     const where: Prisma.DeliverySubOrderWhereInput = {
       status: {
         in: ['DELIVERED', 'COMPLETED'],
@@ -161,8 +174,8 @@ export class DeliverySettlementService {
         none: {},
       },
     };
-    if (merchantId) {
-      where.merchantId = merchantId;
+    if (params.merchantId) {
+      where.merchantId = params.merchantId;
     }
 
     const eligibleSubOrders = await this.deliveryPrisma.deliverySubOrder.findMany({
@@ -182,15 +195,20 @@ export class DeliverySettlementService {
       return;
     }
 
-    await this.deliveryPrisma.deliverySettlement.createMany({
-      data: eligibleSubOrders.map((subOrder) => ({
-        merchantId: subOrder.merchantId,
-        subOrderId: subOrder.id,
-        settlementMonth: this.formatSettlementMonth(subOrder.completedAt ?? subOrder.deliveredAt),
-        supplyAmountCents: subOrder.supplyAmountCents,
-      })),
-      skipDuplicates: true,
-    });
+    await Promise.all(
+      eligibleSubOrders.map((subOrder) =>
+        this.deliveryPrisma.deliverySettlement.upsert({
+          where: { subOrderId: subOrder.id },
+          create: {
+            merchantId: subOrder.merchantId,
+            subOrderId: subOrder.id,
+            settlementMonth: this.formatSettlementMonth(subOrder.completedAt ?? subOrder.deliveredAt),
+            supplyAmountCents: subOrder.supplyAmountCents,
+          },
+          update: {},
+        }),
+      ),
+    );
   }
 
   private isSettlementReady(status: DeliveryOrderStatus) {

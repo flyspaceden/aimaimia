@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { DeliverySettlementService } from '../settlement/delivery-settlement.service';
 import { CreateDeliveryStaffDto } from './dto/create-delivery-staff.dto';
 import { UpdateDeliveryCompanyDto } from './dto/update-delivery-company.dto';
 import { UpdateDeliveryStaffDto } from './dto/update-delivery-staff.dto';
@@ -13,9 +14,16 @@ type ListSellerOrdersQuery = {
 
 @Injectable()
 export class DeliverySellerOpsService {
-  constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
+  constructor(
+    private readonly deliveryPrisma: DeliveryPrismaService,
+    private readonly deliverySettlementService: DeliverySettlementService,
+  ) {}
 
   async getDashboard(merchantId: string) {
+    await this.deliverySettlementService.materializeEligibleSettlements({
+      merchantId,
+    });
+
     const [pendingShipmentCount, deliveredPendingSettlementCount, openConversationCount] =
       await Promise.all([
         this.deliveryPrisma.deliverySubOrder.count({
