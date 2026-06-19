@@ -89,21 +89,18 @@ export class DeliverySellerAuthController {
     return this.deliverySellerAuthService.refresh(dto);
   }
 
-  @Public()
   @UseGuards(DeliverySellerAuthGuard)
   @Post('logout')
   logout(@CurrentUser('sessionId') sessionId: string) {
     return this.deliverySellerAuthService.logout(sessionId);
   }
 
-  @Public()
   @UseGuards(DeliverySellerAuthGuard)
   @Get('me')
   getMe(@CurrentUser('sub') staffId: string) {
     return this.deliverySellerAuthService.getMe(staffId);
   }
 
-  @Public()
   @UseGuards(DeliverySellerAuthGuard)
   @Post('change-password')
   changePassword(
@@ -113,7 +110,6 @@ export class DeliverySellerAuthController {
     return this.deliverySellerAuthService.changePassword(staffId, dto);
   }
 
-  @Public()
   @UseGuards(DeliverySellerAuthGuard)
   @Post('bind-phone/sms/code')
   sendBindPhoneSmsCode(
@@ -123,7 +119,6 @@ export class DeliverySellerAuthController {
     return this.deliverySellerAuthService.sendBindPhoneSmsCode(staffId, dto);
   }
 
-  @Public()
   @UseGuards(DeliverySellerAuthGuard)
   @Post('change-phone')
   changePhone(
@@ -133,7 +128,6 @@ export class DeliverySellerAuthController {
     return this.deliverySellerAuthService.changePhone(staffId, dto);
   }
 
-  @Public()
   @UseGuards(DeliverySellerAuthGuard)
   @Post('change-nickname')
   changeNickname(

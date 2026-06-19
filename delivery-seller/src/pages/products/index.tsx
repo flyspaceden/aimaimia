@@ -32,6 +32,14 @@ import type { Product, ProductSKU } from '@/types';
 
 const { Text } = Typography;
 
+function getSupplyPriceYuan(sku: ProductSKU): number | null {
+  const cents = sku.supplyPriceCents;
+  if (typeof cents !== 'number' || !Number.isFinite(cents) || cents <= 0) {
+    return null;
+  }
+  return cents / 100;
+}
+
 function getStockSummary(product: Product, threshold: number) {
   const skus = product.skus ?? [];
   const total = skus.reduce((sum, sku) => sum + (sku.stock ?? 0), 0);
@@ -182,22 +190,24 @@ export default function ProductListPage() {
       fieldProps: { placeholder: '搜索商品名称' },
     },
     {
-      title: '成本价',
+      title: '供货价',
       width: 150,
       search: false,
       render: (_, r) => {
         const skus = r.skus ?? [];
-        const costs = skus.map((s) => s.cost).filter((v): v is number => typeof v === 'number' && v > 0);
-        const minCost = costs.length > 0 ? Math.min(...costs) : 0;
-        const maxCost = costs.length > 0 ? Math.max(...costs) : 0;
-        const hasCostRange = costs.length > 1 && minCost !== maxCost;
+        const supplyPrices = skus
+          .map((sku) => getSupplyPriceYuan(sku))
+          .filter((value): value is number => value !== null);
+        const minSupplyPrice = supplyPrices.length > 0 ? Math.min(...supplyPrices) : 0;
+        const maxSupplyPrice = supplyPrices.length > 0 ? Math.max(...supplyPrices) : 0;
+        const hasSupplyPriceRange = supplyPrices.length > 1 && minSupplyPrice !== maxSupplyPrice;
         return (
           <div>
             <div style={{ fontWeight: 500, fontFamily: 'monospace' }}>
-              {minCost > 0 ? (
-                hasCostRange
-                  ? `¥${minCost.toFixed(2)} ~ ${maxCost.toFixed(2)}`
-                  : `¥${minCost.toFixed(2)}`
+              {minSupplyPrice > 0 ? (
+                hasSupplyPriceRange
+                  ? `¥${minSupplyPrice.toFixed(2)} ~ ${maxSupplyPrice.toFixed(2)}`
+                  : `¥${minSupplyPrice.toFixed(2)}`
               ) : (
                 <span style={{ color: '#bbb' }}>-</span>
               )}
@@ -417,12 +427,12 @@ export default function ProductListPage() {
                   render: (v) => v || '默认',
                 },
                 {
-                  title: '成本价',
-                  dataIndex: 'cost',
+                  title: '供货价',
+                  dataIndex: 'supplyPriceCents',
                   width: 100,
                   render: (v) =>
-                    typeof v === 'number' ? (
-                      <span style={{ fontFamily: 'monospace' }}>¥{v.toFixed(2)}</span>
+                    typeof v === 'number' && Number.isFinite(v) && v > 0 ? (
+                      <span style={{ fontFamily: 'monospace' }}>¥{(v / 100).toFixed(2)}</span>
                     ) : '-',
                 },
                 {

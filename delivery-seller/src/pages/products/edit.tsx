@@ -51,7 +51,6 @@ function getSellerPriceYuan(
   sku: Partial<{
     cost: number;
     supplyPriceCents: number;
-    basePriceCents: number;
   }>,
 ): number | undefined {
   if (typeof sku.cost === 'number' && Number.isFinite(sku.cost)) {
@@ -517,7 +516,6 @@ function buildPayload(
     id: s.id as string | undefined,
     title: (s.specName as string) || '默认规格',
     supplyPriceCents: yuanToCents(s.cost),
-    basePriceCents: yuanToCents(s.cost),
     stock: Number(s.stock),
     weightGram: s.weightGram === undefined || s.weightGram === null ? undefined : Number(s.weightGram),
   }));
@@ -1185,7 +1183,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           const multiMap: Record<string, string> = {
             title: 'specName',
             supplyPriceCents: 'cost',
-            basePriceCents: 'cost',
           };
           return ['skus', idx, multiMap[field] || field];
         }
@@ -1195,7 +1192,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             cost: 'singleCost',
             title: 'singleCost',
             supplyPriceCents: 'singleCost',
-            basePriceCents: 'singleCost',
             stock: 'singleStock',
             weightGram: 'singleWeightGram',
             maxPerOrder: 'singleMaxPerOrder',
