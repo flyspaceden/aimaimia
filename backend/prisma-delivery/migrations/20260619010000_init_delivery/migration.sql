@@ -1067,4 +1067,3 @@ ALTER TABLE "DeliveryCustomerServiceConversation" ADD CONSTRAINT "DeliveryCustom
 
 -- AddForeignKey
 ALTER TABLE "DeliveryCustomerServiceConversation" ADD CONSTRAINT "DeliveryCustomerServiceConversation_assignedStaffId_fkey" FOREIGN KEY ("assignedStaffId") REFERENCES "DeliverySellerStaff"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
