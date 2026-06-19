@@ -38,6 +38,20 @@ import { DeliveryManifestsController } from './manifests/delivery-manifests.cont
 import { DeliveryAdminManifestsController } from './manifests/delivery-admin-manifests.controller';
 import { DeliverySellerManifestsController } from './manifests/delivery-seller-manifests.controller';
 import { DeliveryManifestsService } from './manifests/delivery-manifests.service';
+import { DeliverySettlementService } from './settlement/delivery-settlement.service';
+import { DeliveryAdminSettlementController } from './settlement/delivery-admin-settlement.controller';
+import { DeliverySellerSettlementController } from './settlement/delivery-seller-settlement.controller';
+import { DeliveryCustomerServiceService } from './customer-service/delivery-customer-service.service';
+import { DeliveryAdminCustomerServiceController } from './customer-service/delivery-admin-customer-service.controller';
+import { DeliverySellerCustomerServiceController } from './customer-service/delivery-seller-customer-service.controller';
+import { DeliveryConfigService } from './config/delivery-config.service';
+import { DeliveryAdminConfigController } from './config/delivery-admin-config.controller';
+import { DeliveryStatsService } from './stats/delivery-stats.service';
+import { DeliveryAdminStatsController } from './stats/delivery-admin-stats.controller';
+import { DeliveryAdminOpsService } from './admin/delivery-admin-ops.service';
+import { DeliveryAdminOpsController } from './admin/delivery-admin-ops.controller';
+import { DeliverySellerOpsService } from './seller/delivery-seller-ops.service';
+import { DeliverySellerOpsController } from './seller/delivery-seller-ops.controller';
 
 @Module({
   imports: [
@@ -73,6 +87,14 @@ import { DeliveryManifestsService } from './manifests/delivery-manifests.service
     DeliveryManifestsController,
     DeliveryAdminManifestsController,
     DeliverySellerManifestsController,
+    DeliveryAdminSettlementController,
+    DeliverySellerSettlementController,
+    DeliveryAdminCustomerServiceController,
+    DeliverySellerCustomerServiceController,
+    DeliveryAdminConfigController,
+    DeliveryAdminStatsController,
+    DeliveryAdminOpsController,
+    DeliverySellerOpsController,
   ],
   providers: [
     DeliveryIdService,
@@ -91,6 +113,12 @@ import { DeliveryManifestsService } from './manifests/delivery-manifests.service
     DeliveryPaymentsService,
     DeliveryShippingService,
     DeliveryManifestsService,
+    DeliverySettlementService,
+    DeliveryCustomerServiceService,
+    DeliveryConfigService,
+    DeliveryStatsService,
+    DeliveryAdminOpsService,
+    DeliverySellerOpsService,
   ],
   exports: [
     DeliveryIdService,
