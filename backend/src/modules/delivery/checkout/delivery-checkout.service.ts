@@ -76,6 +76,10 @@ export class DeliveryCheckoutService {
   async createCheckout(deliveryUserId: string, dto: CreateDeliveryCheckoutDto) {
     return this.deliveryPrisma.$transaction(
       async (tx) => {
+        if (!dto.paymentChannel) {
+          throw new BadRequestException('paymentChannel 必填');
+        }
+
         const currentUnit = await this.requireCurrentUnit(tx, deliveryUserId);
         const cartItemIds = Array.from(
           new Set(dto.cartItemIds.map((itemId) => itemId.trim()).filter(Boolean)),
@@ -285,7 +289,7 @@ export class DeliveryCheckoutService {
             goodsAmountCents,
             shippingFeeCents,
             totalAmountCents,
-            paymentChannel: dto.paymentChannel ?? null,
+            paymentChannel: dto.paymentChannel,
             merchantOrderNo,
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
           },

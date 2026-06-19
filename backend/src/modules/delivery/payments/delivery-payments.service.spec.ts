@@ -44,6 +44,7 @@ describe('DeliveryPaymentsService', () => {
     deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
       merchantOrderNo: 'PSZF0000000000001',
       totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
     });
 
     await expect(
@@ -59,6 +60,7 @@ describe('DeliveryPaymentsService', () => {
     deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
       merchantOrderNo: 'PSZF0000000000001',
       totalAmountCents: 4900,
+      paymentChannel: 'WECHAT_PAY',
     });
 
     await expect(
@@ -67,6 +69,30 @@ describe('DeliveryPaymentsService', () => {
 
     await expect(
       service.assertWechatAmountMatchesCheckout('PSZF0000000000001', 4899),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects Alipay delivery callback when checkout expects WeChat Pay', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'WECHAT_PAY',
+    });
+
+    await expect(
+      service.assertAlipayAmountMatchesCheckout('PSZF0000000000001', '49.00'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects WeChat delivery callback when checkout expects Alipay', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+    });
+
+    await expect(
+      service.assertWechatAmountMatchesCheckout('PSZF0000000000001', 4900),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -93,6 +119,8 @@ describe('DeliveryPaymentsService', () => {
       providerTxnId: 'ALI_TXN_1',
       status: 'SUCCESS',
       paidAt: '2026-06-19T12:00:00.000Z',
+      paymentChannel: 'ALIPAY',
+      claimedAmountCents: 4900,
       rawPayload: { total_amount: '49.00' },
       skipSignatureVerification: true,
     });
@@ -115,7 +143,61 @@ describe('DeliveryPaymentsService', () => {
     });
   });
 
+  it('rejects delivery payment success when claimed amount is missing', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      status: 'ACTIVE',
+    });
+
+    await expect(
+      service.handlePaymentCallback({
+        merchantOrderNo: 'PSZF0000000000001',
+        providerTxnId: 'ALI_TXN_0',
+        status: 'SUCCESS',
+        paymentChannel: 'ALIPAY',
+        rawPayload: {},
+        skipSignatureVerification: true,
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(deliveryOrdersService.createOrderFromPaidCheckout).not.toHaveBeenCalled();
+  });
+
+  it('rejects delivery payment success when callback channel does not match checkout', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      status: 'ACTIVE',
+    });
+
+    await expect(
+      service.handlePaymentCallback({
+        merchantOrderNo: 'PSZF0000000000001',
+        providerTxnId: 'WX_TXN_1',
+        status: 'SUCCESS',
+        paymentChannel: 'WECHAT_PAY',
+        claimedAmountCents: 4900,
+        rawPayload: { amountFen: 4900 },
+        skipSignatureVerification: true,
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(deliveryOrdersService.createOrderFromPaidCheckout).not.toHaveBeenCalled();
+  });
+
   it('marks delivery checkout/payment failed without creating an order when provider reports failure', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
+      totalAmountCents: 4900,
+      status: 'ACTIVE',
+    });
     tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
       id: 'checkout_1',
       merchantOrderNo: 'PSZF0000000000001',
@@ -176,6 +258,8 @@ describe('DeliveryPaymentsService', () => {
         merchantOrderNo: 'PSZF0000000000001',
         providerTxnId: 'ALI_TXN_3',
         status: 'SUCCESS',
+        paymentChannel: 'ALIPAY',
+        claimedAmountCents: 4900,
         rawPayload: { total_amount: '49.00' },
         skipSignatureVerification: true,
       }),

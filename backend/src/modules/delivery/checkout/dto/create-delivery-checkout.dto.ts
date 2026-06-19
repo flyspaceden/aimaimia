@@ -28,7 +28,6 @@ export class CreateDeliveryCheckoutDto {
   @MaxLength(200, { message: 'note 不能超过 200 个字符' })
   note?: string;
 
-  @IsOptional()
   @IsEnum(DeliveryPaymentChannel, { message: 'paymentChannel 必须是有效的配送支付渠道' })
-  paymentChannel?: DeliveryPaymentChannel;
+  paymentChannel: DeliveryPaymentChannel;
 }

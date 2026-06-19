@@ -260,6 +260,79 @@ describe('DeliveryCheckoutService', () => {
     });
   });
 
+  it('requires paymentChannel for a payable delivery checkout session', async () => {
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    tx.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: null,
+    });
+    tx.deliveryCartItem.findMany.mockResolvedValue([
+      {
+        id: 'cart_1',
+        userId: 'PSYH0000000000001',
+        unitId: 'unit_1',
+        skuId: 'sku_1',
+        quantity: 1,
+        isSelected: true,
+        sku: {
+          id: 'sku_1',
+          title: '5kg/箱',
+          imageUrl: null,
+          basePriceCents: 1000,
+          stock: 20,
+          minOrderQuantity: 1,
+          orderStepQuantity: 1,
+          weightGram: 400,
+          isActive: true,
+          fixedFinalPriceCents: null,
+          priceRules: [],
+          product: {
+            id: 'PSSP0000000000001',
+            title: '冷鲜牛腩',
+            unitName: '箱',
+            minOrderQuantity: 1,
+            orderStepQuantity: 1,
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            priceRules: [],
+            merchant: {
+              id: 'merchant_1',
+              name: '华南仓',
+              defaultMarkupBps: 1000,
+              status: 'ACTIVE',
+            },
+          },
+        },
+      },
+    ]);
+    tx.deliveryPriceRule.findMany.mockResolvedValue([]);
+    tx.deliveryShippingRule.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.createCheckout('PSYH0000000000001', {
+        cartItemIds: ['cart_1'],
+        paymentChannel: undefined as any,
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.deliveryCheckoutSession.create).not.toHaveBeenCalled();
+  });
+
   it('uses a provided delivery address only when it belongs to the current user and unit', async () => {
     tx.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
@@ -348,6 +421,7 @@ describe('DeliveryCheckoutService', () => {
     await service.createCheckout('PSYH0000000000001', {
       cartItemIds: ['cart_1'],
       addressId: 'addr_1',
+      paymentChannel: 'ALIPAY',
     });
 
     expect(tx.deliveryAddress.findFirst).toHaveBeenCalledWith({
@@ -398,6 +472,7 @@ describe('DeliveryCheckoutService', () => {
     await expect(
       service.createCheckout('PSYH0000000000001', {
         cartItemIds: ['cart_1', 'cart_2'],
+        paymentChannel: 'ALIPAY',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.deliveryCheckoutSession.create).not.toHaveBeenCalled();

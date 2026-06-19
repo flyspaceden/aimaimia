@@ -161,6 +161,8 @@ describe('PaymentController.handleAlipayNotify', () => {
         merchantOrderNo: 'PSZF0000000000001',
         providerTxnId: notifyBody.trade_no,
         status: 'SUCCESS',
+        paymentChannel: 'ALIPAY',
+        claimedAmountCents: 4900,
         skipSignatureVerification: true,
       }),
     );

@@ -249,6 +249,8 @@ describe('PaymentController.handleWechatNotify', () => {
       providerTxnId: paymentNotify.providerTxnId,
       status: 'SUCCESS',
       paidAt: paymentNotify.paidAt.toISOString(),
+      paymentChannel: 'WECHAT_PAY',
+      claimedAmountCents: 4900,
       rawPayload: {},
       skipSignatureVerification: true,
     });

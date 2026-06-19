@@ -15,7 +15,11 @@ import type { RewardDeductionService } from '../bonus/reward-deduction.service';
 import type { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { WechatPayService } from './wechat-pay.service';
 import { DeliveryPaymentsService } from '../delivery/payments/delivery-payments.service';
-import { isDeliveryMerchantOrderNo } from '../delivery/payments/delivery-payment-routing.util';
+import {
+  extractDeliveryClaimedAmountCents,
+  isDeliveryCallbackChannel,
+  isDeliveryMerchantOrderNo,
+} from '../delivery/payments/delivery-payment-routing.util';
 
 @Injectable()
 export class PaymentService {
@@ -1377,11 +1381,23 @@ export class PaymentService {
     status: 'SUCCESS' | 'FAILED';
     paidAt?: string;
     rawPayload?: any;
+    paymentChannel?: 'ALIPAY' | 'WECHAT_PAY';
+    claimedAmountCents?: number;
     signature?: string;
     /** 支付宝回调已在 controller 层用证书验签，跳过内部 HMAC 验证 */
     skipSignatureVerification?: boolean;
   }) {
-    const { merchantOrderNo, providerTxnId, status, paidAt, rawPayload, signature, skipSignatureVerification } = body;
+    const {
+      merchantOrderNo,
+      providerTxnId,
+      status,
+      paidAt,
+      rawPayload,
+      paymentChannel,
+      claimedAmountCents,
+      signature,
+      skipSignatureVerification,
+    } = body;
 
     // C12修复：HMAC-SHA256 签名验证（支付宝回调已在 controller 层完成验签，可跳过）
     if (!skipSignatureVerification && !this.verifySignature(rawPayload, { merchantOrderNo, providerTxnId, status, paidAt }, signature)) {
@@ -1419,11 +1435,26 @@ export class PaymentService {
         throw new BadRequestException('配送支付服务未启用');
       }
 
+      const resolvedDeliveryChannel = this.resolveDeliveryCallbackChannel(
+        merchantOrderNo,
+        status,
+        paymentChannel,
+      );
+      const resolvedClaimedAmountCents = this.resolveDeliveryCallbackAmountCents({
+        merchantOrderNo,
+        status,
+        paymentChannel: resolvedDeliveryChannel,
+        claimedAmountCents,
+        rawPayload,
+      });
+
       return this.deliveryPaymentsService.handlePaymentCallback({
         merchantOrderNo,
         providerTxnId,
         status,
         paidAt,
+        paymentChannel: resolvedDeliveryChannel,
+        claimedAmountCents: resolvedClaimedAmountCents,
         rawPayload,
         skipSignatureVerification,
       });
@@ -1762,6 +1793,59 @@ export class PaymentService {
 
     // 返回标准应答（微信支付/支付宝均需要返回 SUCCESS 表示已收到）
     return { code: 'SUCCESS', message: '处理成功' };
+  }
+
+  private resolveDeliveryCallbackChannel(
+    merchantOrderNo: string,
+    status: 'SUCCESS' | 'FAILED',
+    paymentChannel?: string,
+  ): 'ALIPAY' | 'WECHAT_PAY' | undefined {
+    if (!paymentChannel) {
+      if (status === 'SUCCESS') {
+        throw new BadRequestException('配送支付成功回调缺少明确的支付渠道');
+      }
+      return undefined;
+    }
+
+    if (!isDeliveryCallbackChannel(paymentChannel)) {
+      throw new BadRequestException(
+        `配送支付回调渠道不支持: merchantOrderNo=${this.maskBizId(merchantOrderNo)}`,
+      );
+    }
+
+    return paymentChannel;
+  }
+
+  private resolveDeliveryCallbackAmountCents(params: {
+    merchantOrderNo: string;
+    status: 'SUCCESS' | 'FAILED';
+    paymentChannel?: 'ALIPAY' | 'WECHAT_PAY';
+    claimedAmountCents?: number;
+    rawPayload?: unknown;
+  }): number | undefined {
+    if (params.status !== 'SUCCESS') {
+      return undefined;
+    }
+
+    if (!params.paymentChannel) {
+      throw new BadRequestException('配送支付成功回调缺少明确的支付渠道');
+    }
+
+    if (Number.isInteger(params.claimedAmountCents)) {
+      return params.claimedAmountCents;
+    }
+
+    const parsedAmount = extractDeliveryClaimedAmountCents(
+      params.rawPayload,
+      params.paymentChannel,
+    );
+    if (!Number.isInteger(parsedAmount)) {
+      throw new BadRequestException(
+        `配送支付成功回调缺少可校验的支付金额: merchantOrderNo=${this.maskBizId(params.merchantOrderNo)}`,
+      );
+    }
+
+    return parsedAmount as number;
   }
 
   async finalizeAutoRefundRecord(params: {

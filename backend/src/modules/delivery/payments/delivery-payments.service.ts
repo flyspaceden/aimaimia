@@ -7,7 +7,12 @@ import {
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryOrdersService } from '../orders/delivery-orders.service';
-import { isDeliveryMerchantOrderNo } from './delivery-payment-routing.util';
+import {
+  DeliveryCallbackChannel,
+  extractDeliveryClaimedAmountCents,
+  isDeliveryMerchantOrderNo,
+  parseDeliveryYuanAmountToCents,
+} from './delivery-payment-routing.util';
 
 type DeliveryPaymentCallbackInput = {
   merchantOrderNo: string;
@@ -15,6 +20,8 @@ type DeliveryPaymentCallbackInput = {
   status: 'SUCCESS' | 'FAILED';
   paidAt?: string;
   rawPayload?: any;
+  paymentChannel?: DeliveryCallbackChannel;
+  claimedAmountCents?: number;
   skipSignatureVerification?: boolean;
 };
 
@@ -32,8 +39,12 @@ export class DeliveryPaymentsService {
     claimedAmountYuan: string,
   ): Promise<void> {
     const checkout = await this.getCheckoutOrThrow(merchantOrderNo);
-    const expected = (checkout.totalAmountCents / 100).toFixed(2);
-    if (claimedAmountYuan !== expected) {
+    this.assertCallbackChannelMatchesCheckout(checkout, 'ALIPAY');
+    const claimedAmountCents = parseDeliveryYuanAmountToCents(claimedAmountYuan);
+    if (!Number.isInteger(claimedAmountCents)) {
+      throw new BadRequestException('配送支付金额格式错误');
+    }
+    if (checkout.totalAmountCents !== claimedAmountCents) {
       throw new BadRequestException('配送支付金额校验失败，请联系客服');
     }
   }
@@ -43,6 +54,7 @@ export class DeliveryPaymentsService {
     claimedAmountFen: number,
   ): Promise<void> {
     const checkout = await this.getCheckoutOrThrow(merchantOrderNo);
+    this.assertCallbackChannelMatchesCheckout(checkout, 'WECHAT_PAY');
     if (!Number.isInteger(claimedAmountFen) || checkout.totalAmountCents !== claimedAmountFen) {
       throw new BadRequestException('配送支付金额校验失败，请联系客服');
     }
@@ -54,11 +66,16 @@ export class DeliveryPaymentsService {
     }
 
     const paidAt = body.paidAt ? new Date(body.paidAt) : new Date();
+    const checkout = await this.getCheckoutOrThrow(body.merchantOrderNo);
+    if (body.paymentChannel) {
+      this.assertCallbackChannelMatchesCheckout(checkout, body.paymentChannel);
+    }
     if (body.status === 'SUCCESS') {
-      const claimedAmountCents = this.extractClaimedAmountCents(body.rawPayload);
-      if (claimedAmountCents !== null) {
-        await this.assertAmountMatchesCheckoutCents(body.merchantOrderNo, claimedAmountCents);
+      if (!body.paymentChannel) {
+        throw new BadRequestException('配送支付成功回调缺少明确的支付渠道');
       }
+      const claimedAmountCents = this.resolveClaimedAmountCents(body);
+      await this.assertAmountMatchesCheckoutCents(checkout, claimedAmountCents);
 
       try {
         const result = await this.deliveryOrdersService.createOrderFromPaidCheckout({
@@ -87,8 +104,12 @@ export class DeliveryPaymentsService {
       }
     }
 
-    const checkout = await this.markFailedPayment(body.merchantOrderNo, body.providerTxnId, body.rawPayload);
-    this.logger.warn(`配送支付失败已记录: merchantOrderNo=${checkout.merchantOrderNo}`);
+    const failedCheckout = await this.markFailedPayment(
+      body.merchantOrderNo,
+      body.providerTxnId,
+      body.rawPayload,
+    );
+    this.logger.warn(`配送支付失败已记录: merchantOrderNo=${failedCheckout.merchantOrderNo}`);
     return { code: 'SUCCESS', message: '配送支付失败已记录' };
   }
 
@@ -112,42 +133,44 @@ export class DeliveryPaymentsService {
   }
 
   private async assertAmountMatchesCheckoutCents(
-    merchantOrderNo: string,
+    checkout: Awaited<ReturnType<DeliveryPaymentsService['getCheckoutOrThrow']>>,
     claimedAmountCents: number,
   ): Promise<void> {
-    const checkout = await this.getCheckoutOrThrow(merchantOrderNo);
     if (checkout.totalAmountCents !== claimedAmountCents) {
       throw new BadRequestException('配送支付金额校验失败，请联系客服');
     }
   }
 
-  private extractClaimedAmountCents(rawPayload: any): number | null {
-    if (!rawPayload || typeof rawPayload !== 'object') {
-      return null;
+  private resolveClaimedAmountCents(body: DeliveryPaymentCallbackInput): number {
+    if (Number.isInteger(body.claimedAmountCents)) {
+      return body.claimedAmountCents as number;
     }
 
-    if (typeof rawPayload.total_amount === 'string' || typeof rawPayload.total_amount === 'number') {
-      return this.parseYuanAmountToCents(rawPayload.total_amount);
-    }
-    if (typeof rawPayload.totalAmount === 'string' || typeof rawPayload.totalAmount === 'number') {
-      return this.parseYuanAmountToCents(rawPayload.totalAmount);
-    }
-    if (typeof rawPayload.amountFen === 'number') {
-      return rawPayload.amountFen;
-    }
-    if (typeof rawPayload.amount === 'number' && Number.isInteger(rawPayload.amount)) {
-      return rawPayload.amount;
+    if (!body.paymentChannel) {
+      throw new BadRequestException('配送支付成功回调缺少明确的支付渠道');
     }
 
-    return null;
+    const claimedAmountCents = extractDeliveryClaimedAmountCents(
+      body.rawPayload,
+      body.paymentChannel,
+    );
+    if (!Number.isInteger(claimedAmountCents)) {
+      throw new BadRequestException('配送支付成功回调缺少可校验的支付金额');
+    }
+
+    return claimedAmountCents as number;
   }
 
-  private parseYuanAmountToCents(amount: string | number): number {
-    const normalized = typeof amount === 'number' ? amount.toFixed(2) : amount.trim();
-    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
-      throw new BadRequestException('配送支付金额格式错误');
+  private assertCallbackChannelMatchesCheckout(
+    checkout: Awaited<ReturnType<DeliveryPaymentsService['getCheckoutOrThrow']>>,
+    callbackChannel: DeliveryCallbackChannel,
+  ) {
+    if (!checkout.paymentChannel) {
+      throw new BadRequestException('配送结算会话缺少支付渠道');
     }
-    return Math.round(Number(normalized) * 100);
+    if (checkout.paymentChannel !== callbackChannel) {
+      throw new BadRequestException('配送支付渠道与结算会话不匹配');
+    }
   }
 
   private async markFailedPayment(merchantOrderNo: string, providerTxnId: string, rawPayload?: any) {
