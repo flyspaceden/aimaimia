@@ -8,11 +8,15 @@ import {
   DashboardOutlined,
   ShoppingOutlined,
   FileTextOutlined,
+  ExportOutlined,
   ShopOutlined,
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
   SafetyOutlined,
+  TruckOutlined,
+  CustomerServiceOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -30,11 +34,24 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/products',
       name: '商品管理',
       icon: <ShoppingOutlined />,
+      routes: [
+        { path: '/products', name: '商品列表', icon: <ShoppingOutlined /> },
+        { path: '/products/stock', name: '库存管理', icon: <DatabaseOutlined /> },
+      ],
     },
     {
       path: '/orders',
       name: '订单管理',
       icon: <FileTextOutlined />,
+      routes: [
+        { path: '/orders', name: '订单列表', icon: <FileTextOutlined /> },
+        { path: '/orders/logistics', name: '物流跟踪', icon: <TruckOutlined /> },
+      ],
+    },
+    {
+      path: '/exports',
+      name: '导出中心',
+      icon: <ExportOutlined />,
     },
     {
       path: '/company/settings',
@@ -44,6 +61,11 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/company/settings', name: '企业设置', icon: <ShopOutlined /> },
         { path: '/company/staff', name: '员工管理', icon: <TeamOutlined />, roles: ['OWNER'] },
       ],
+    },
+    {
+      path: '/customer-service',
+      name: '客服工单',
+      icon: <CustomerServiceOutlined />,
     },
   ],
 };

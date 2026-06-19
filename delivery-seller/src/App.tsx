@@ -10,10 +10,14 @@ const ForgotPasswordPage = lazy(() => import('@/pages/forgot-password/index'));
 const DashboardPage = lazy(() => import('@/pages/dashboard/index'));
 const ProductListPage = lazy(() => import('@/pages/products/index'));
 const ProductEditPage = lazy(() => import('@/pages/products/edit'));
+const StockPage = lazy(() => import('@/pages/products/stock'));
 const OrderListPage = lazy(() => import('@/pages/orders/index'));
 const OrderDetailPage = lazy(() => import('@/pages/orders/detail'));
+const LogisticsPage = lazy(() => import('@/pages/orders/logistics'));
+const ExportCenterPage = lazy(() => import('@/pages/exports/index'));
 const CompanySettingsPage = lazy(() => import('@/pages/company/index'));
 const StaffManagementPage = lazy(() => import('@/pages/company/staff'));
+const CustomerServicePage = lazy(() => import('@/pages/customer-service/index'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 
 const PageLoading = () => (
@@ -91,11 +95,15 @@ export default function App() {
             <Route index element={<DashboardPage />} />
             <Route path="products" element={<ProductListPage />} />
             <Route path="products/create" element={<ProductEditPage />} />
+            <Route path="products/stock" element={<StockPage />} />
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
+            <Route path="orders/logistics" element={<LogisticsPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
+            <Route path="exports" element={<ExportCenterPage />} />
             <Route path="company/settings" element={<RequireRole roles={['OWNER', 'MANAGER']}><CompanySettingsPage /></RequireRole>} />
             <Route path="company/staff" element={<RequireRole roles={['OWNER']}><StaffManagementPage /></RequireRole>} />
+            <Route path="customer-service" element={<CustomerServicePage />} />
             <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 

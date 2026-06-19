@@ -123,7 +123,6 @@ export type DeliveryFinanceExportContext = {
     supplyAmountCents: number;
     shippingFeeShareCents: number;
     settlementAmountCents: number;
-    buyerFinalAmountCents: number;
   }>;
 };
 
@@ -296,7 +295,6 @@ export class DeliveryOrdersService {
           supplyAmountCents: subOrder.supplyAmountCents,
           shippingFeeShareCents: subOrder.shippingFeeShareCents,
           settlementAmountCents: subOrder.supplyAmountCents + subOrder.shippingFeeShareCents,
-          buyerFinalAmountCents: subOrder.totalAmountCents,
         };
       }),
     };

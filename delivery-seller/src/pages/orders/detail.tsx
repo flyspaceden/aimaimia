@@ -23,6 +23,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getOrder, shipOrder } from '@/api/orders';
+import { exportFulfillmentManifest } from '@/api/manifests';
 import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import { toAbsoluteApiUrl } from '@/utils/api-url';
 import dayjs from 'dayjs';
@@ -53,6 +54,7 @@ export default function OrderDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [shipping, setShipping] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['seller-order', id],
@@ -71,6 +73,22 @@ export default function OrderDetailPage() {
       message.error(err instanceof Error ? err.message : '发货失败');
     } finally {
       setShipping(false);
+    }
+  };
+
+  const handleFulfillmentExport = async () => {
+    setExporting(true);
+    try {
+      const manifest = await exportFulfillmentManifest(id!);
+      const url = toAbsoluteApiUrl(manifest.fileUrl);
+      if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      message.success('履约清单已生成');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '履约清单生成失败');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -104,6 +122,13 @@ export default function OrderDetailPage() {
           返回
         </Button>
         <Space>
+          <Button
+            icon={<PrinterOutlined />}
+            loading={exporting}
+            onClick={handleFulfillmentExport}
+          >
+            导出履约清单
+          </Button>
           <Tag color={status?.color} style={{ fontSize: 14, padding: '2px 12px' }}>
             {status?.text || order.status}
           </Tag>

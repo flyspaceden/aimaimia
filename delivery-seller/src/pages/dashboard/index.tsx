@@ -1,5 +1,12 @@
 import { Card, Col, Row, Statistic, Button, Typography, Spin, Alert, Space } from 'antd';
-import { ShoppingCartOutlined, ClockCircleOutlined, MessageOutlined, AppstoreOutlined } from '@ant-design/icons';
+import {
+  ShoppingCartOutlined,
+  ClockCircleOutlined,
+  MessageOutlined,
+  AppstoreOutlined,
+  ExportOutlined,
+  TruckOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getDashboard } from '@/api/dashboard';
@@ -41,10 +48,12 @@ export default function DashboardPage() {
   ];
 
   const quickLinks = [
-    { label: '订单', path: '/orders', icon: <ShoppingCartOutlined /> },
-    { label: '商品', path: '/products', icon: <AppstoreOutlined /> },
-    { label: '公司', path: '/company/settings', icon: <ClockCircleOutlined /> },
-    { label: '账号安全', path: '/account-security', icon: <MessageOutlined /> },
+    { label: '待发货订单', path: '/orders?statusTab=pending', icon: <ShoppingCartOutlined /> },
+    { label: '库存管理', path: '/products/stock', icon: <AppstoreOutlined /> },
+    { label: '物流跟踪', path: '/orders/logistics', icon: <TruckOutlined /> },
+    { label: '导出中心', path: '/exports', icon: <ExportOutlined /> },
+    { label: '客服工单', path: '/customer-service', icon: <MessageOutlined /> },
+    { label: '账号安全', path: '/account-security', icon: <ClockCircleOutlined /> },
   ];
 
   return (
@@ -73,12 +82,12 @@ export default function DashboardPage() {
         </Col>
 
         <Col xs={24} lg={10}>
-          <Card title={<Title level={5} style={{ margin: 0 }}>当前范围</Title>}>
-            <div style={{ color: '#666', lineHeight: 1.8 }}>
-              <div>仅展示配送中心可见的数据。</div>
-              <div>所有统计均来自配送中心工作台。</div>
-              <div>如需继续处理，请从快捷入口进入对应页面。</div>
-            </div>
+          <Card title={<Title level={5} style={{ margin: 0 }}>处理队列</Title>}>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Button block onClick={() => navigate('/orders?statusTab=pending')}>待发货订单</Button>
+              <Button block onClick={() => navigate('/exports')}>财务结算导出</Button>
+              <Button block onClick={() => navigate('/customer-service')}>客服工单</Button>
+            </Space>
           </Card>
         </Col>
       </Row>

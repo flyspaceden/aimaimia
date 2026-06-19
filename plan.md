@@ -36,6 +36,11 @@
   - **实际做了**: 新增 `delivery-admin/src/api/delivery-management.ts` 和 `src/types/delivery-management.ts`，把活跃路由全部收口到 `src/pages/delivery-admin/**`；补齐工作台、数据看板、用户、单位、商家、入驻审核、商品审核、定价规则、订单详情、发货记录、异常支付、清单模板、结算、客服、审计、配置中心页面；`App.tsx` 与 `AdminLayout.tsx` 只保留配送运营入口；订单/结算页面固定分栏展示 `买家金额 / 商家供货 / 商家应结 / 平台差额`
   - **验证**: `cd delivery-admin && npm run build`、`rg -n -F "/admin" delivery-admin/src/api/delivery-management.ts delivery-admin/src/pages/delivery-admin delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx`、`rg -n "VIP|红包|抽奖|分润|退款|售后|数字资产|发票|溯源" delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx delivery-admin/src/pages/delivery-admin delivery-admin/src/api/delivery-management.ts`
 
+- [x] **配送中心运营页与导出（Task 17）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 17 brief
+  - **实际做了**: 在 `delivery-seller/` 现有壳上补齐工作台快捷入口、商品草稿/审核提交、商品列表/编辑、SKU 库存调整、订单列表/发货详情、物流跟踪、履约清单导出、财务结算导出、企业资料、员工权限、客服工单、账号安全；新增 `inventory` / `shipments` / `manifests` / `settlements` / `customerService` API 模块，活跃调用全部收口到 `/delivery-seller/*`；移除 seller finance export context 中未返回且不应保留的 `buyerFinalAmountCents`
+  - **验证**: `cd delivery-seller && node --test test/deliveryCenterContracts.test.ts`、`cd delivery-seller && npm run build`、`cd backend && npm test -- --runInBand src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/settlement/delivery-settlement.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`cd backend && npm run build`；履约导出不展示金额，财务导出仅使用供货/应结金额口径
+
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀
   - **实际做了**: 买家 App 我的页身份卡移除时段问候语；昵称作为主标题；买家编号展示为 `ID: AIMM...` 并保留复制按钮；推荐码入口下移为独立 chip；右侧“扫一扫/编辑”按钮固定宽度和间距

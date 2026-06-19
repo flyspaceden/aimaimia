@@ -113,7 +113,6 @@ describe('DeliveryManifestsService', () => {
         supplyAmountCents: 12000,
         shippingFeeShareCents: 500,
         settlementAmountCents: 12500,
-        buyerFinalAmountCents: 17600,
       },
     ],
   };
@@ -514,7 +513,6 @@ describe('DeliveryManifestsService', () => {
             supplyAmountCents: 5400,
             shippingFeeShareCents: 200,
             settlementAmountCents: 5600,
-            buyerFinalAmountCents: 7600,
           },
         ],
       });
