@@ -15,6 +15,9 @@ describe('DeliveryCartService', () => {
       deliveryUser: {
         findUnique: jest.fn(),
       },
+      deliveryUnit: {
+        findFirst: jest.fn(),
+      },
       deliveryCartItem: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
@@ -35,6 +38,9 @@ describe('DeliveryCartService', () => {
       ),
       deliveryUser: {
         findUnique: jest.fn(),
+      },
+      deliveryUnit: {
+        findFirst: jest.fn(),
       },
       deliveryCartItem: {
         findUnique: jest.fn(),
@@ -72,10 +78,36 @@ describe('DeliveryCartService', () => {
     expect(deliveryPrisma.deliveryCartItem.findMany).not.toHaveBeenCalled();
   });
 
+  it('rejects cart access when currentUnitId does not resolve to an active unit owned by the delivery buyer', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_2',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue(null);
+
+    await expect(service.getCart('PSYH0000000000001')).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(deliveryPrisma.deliveryUnit.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'unit_2',
+        userId: 'PSYH0000000000001',
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    expect(deliveryPrisma.deliveryCartItem.findMany).not.toHaveBeenCalled();
+  });
+
   it('lists only current-unit cart items and resolves buyer prices in cents', async () => {
     deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
       currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      status: 'ACTIVE',
     });
     deliveryPrisma.deliveryCartItem.findMany.mockResolvedValue([
       {
@@ -156,6 +188,10 @@ describe('DeliveryCartService', () => {
       id: 'PSYH0000000000001',
       currentUnitId: 'unit_1',
     });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      status: 'ACTIVE',
+    });
     deliveryPrisma.deliveryProductSku.findUnique.mockResolvedValue({
       id: 'sku_1',
       stock: 20,
@@ -188,6 +224,10 @@ describe('DeliveryCartService', () => {
     deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
       currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      status: 'ACTIVE',
     });
     deliveryPrisma.deliveryProductSku.findUnique
       .mockResolvedValueOnce({
@@ -241,10 +281,41 @@ describe('DeliveryCartService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects cart writes when currentUnitId does not resolve to an active owned unit', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_9',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.addItem('PSYH0000000000001', {
+        skuId: 'sku_1',
+        quantity: 1,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.updateItem('PSYH0000000000001', 'cart_1', {
+        quantity: 1,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.removeItem('PSYH0000000000001', 'cart_1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+
+    expect(deliveryPrisma.deliveryProductSku.findUnique).not.toHaveBeenCalled();
+    expect(deliveryPrisma.deliveryCartItem.findUnique).not.toHaveBeenCalled();
+    expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('updates only cart items in the current delivery unit and enforces stock', async () => {
     deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
       currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      status: 'ACTIVE',
     });
     deliveryPrisma.deliveryCartItem.findUnique
       .mockResolvedValueOnce({
@@ -296,6 +367,18 @@ describe('DeliveryCartService', () => {
     deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
       currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      status: 'ACTIVE',
+    });
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    tx.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      status: 'ACTIVE',
     });
     deliveryPrisma.deliveryProductSku.findUnique.mockResolvedValue({
       id: 'sku_1',

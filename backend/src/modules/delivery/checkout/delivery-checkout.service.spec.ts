@@ -42,6 +42,9 @@ describe('DeliveryCheckoutService', () => {
       deliveryUser: {
         findUnique: jest.fn(),
       },
+      deliveryUnit: {
+        findFirst: jest.fn(),
+      },
       deliveryCheckoutSession: {
         findFirst: jest.fn(),
       },
@@ -396,6 +399,22 @@ describe('DeliveryCheckoutService', () => {
       id: 'PSYH0000000000001',
       currentUnitId: 'unit_1',
     });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: {},
+    });
     deliveryPrisma.deliveryCheckoutSession.findFirst
       .mockResolvedValueOnce({
         id: 'checkout_1',
@@ -420,5 +439,41 @@ describe('DeliveryCheckoutService', () => {
         unitId: 'unit_1',
       },
     });
+  });
+
+  it('rejects checkout reads when currentUnitId does not resolve to an active owned unit', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_9',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue(null);
+
+    await expect(service.getCheckout('PSYH0000000000001', 'checkout_1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+
+    expect(deliveryPrisma.deliveryUnit.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'unit_9',
+        userId: 'PSYH0000000000001',
+      },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        name: true,
+        contactName: true,
+        contactPhone: true,
+        provinceCode: true,
+        provinceName: true,
+        cityCode: true,
+        cityName: true,
+        districtCode: true,
+        districtName: true,
+        detailAddress: true,
+        extraFields: true,
+      },
+    });
+    expect(deliveryPrisma.deliveryCheckoutSession.findFirst).not.toHaveBeenCalled();
   });
 });

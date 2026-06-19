@@ -79,6 +79,20 @@ type OrderableSku = Prisma.DeliveryProductSkuGetPayload<{
   include: typeof orderableSkuInclude;
 }>;
 
+type CurrentUnitContext = {
+  id: string;
+  status: string;
+};
+
+type CurrentUnitReader = {
+  deliveryUser: {
+    findUnique: (args: Prisma.DeliveryUserFindUniqueArgs) => Promise<{ currentUnitId: string | null } | null>;
+  };
+  deliveryUnit: {
+    findFirst: (args: Prisma.DeliveryUnitFindFirstArgs) => Promise<CurrentUnitContext | null>;
+  };
+};
+
 @Injectable()
 export class DeliveryCartService {
   constructor(
@@ -87,13 +101,13 @@ export class DeliveryCartService {
   ) {}
 
   async getCart(deliveryUserId: string) {
-    const currentUnitId = await this.requireCurrentUnitId(deliveryUserId);
+    const currentUnit = await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
     const [platformRules, items] = await Promise.all([
       this.listActivePriceRules({ scope: DeliveryPriceRuleScope.PLATFORM }),
       this.deliveryPrisma.deliveryCartItem.findMany({
         where: {
           userId: deliveryUserId,
-          unitId: currentUnitId,
+          unitId: currentUnit.id,
         },
         include: cartItemInclude,
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
@@ -140,7 +154,7 @@ export class DeliveryCartService {
     });
 
     return {
-      currentUnitId,
+      currentUnitId: currentUnit.id,
       items: mappedItems,
       summary: {
         selectedGoodsAmountCents: mappedItems
@@ -151,7 +165,7 @@ export class DeliveryCartService {
   }
 
   async addItem(deliveryUserId: string, dto: CreateDeliveryCartItemDto) {
-    const currentUnitId = await this.requireCurrentUnitId(deliveryUserId);
+    await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
     const sku = await this.loadOrderableSku(dto.skuId);
     this.assertSkuEligible(sku);
     this.assertQuantityValid(dto.quantity, sku);
@@ -159,6 +173,7 @@ export class DeliveryCartService {
 
     return this.deliveryPrisma.$transaction(
       async (tx) => {
+        const currentUnit = await this.requireCurrentUnit(tx, deliveryUserId);
         const latestSku = await tx.deliveryProductSku.findUnique({
           where: { id: dto.skuId },
           include: orderableSkuInclude,
@@ -172,7 +187,7 @@ export class DeliveryCartService {
           where: {
             userId_unitId_skuId: {
               userId: deliveryUserId,
-              unitId: currentUnitId,
+              unitId: currentUnit.id,
               skuId: dto.skuId,
             },
           },
@@ -193,7 +208,7 @@ export class DeliveryCartService {
           : await tx.deliveryCartItem.create({
               data: {
                 userId: deliveryUserId,
-                unitId: currentUnitId,
+                unitId: currentUnit.id,
                 skuId: dto.skuId,
                 quantity: dto.quantity,
                 isSelected: true,
@@ -209,7 +224,7 @@ export class DeliveryCartService {
   }
 
   async updateItem(deliveryUserId: string, cartItemId: string, dto: UpdateDeliveryCartItemDto) {
-    const currentUnitId = await this.requireCurrentUnitId(deliveryUserId);
+    const currentUnit = await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
     if (dto.quantity === undefined && dto.isSelected === undefined) {
       throw new BadRequestException('至少提供一个可更新字段');
     }
@@ -221,7 +236,7 @@ export class DeliveryCartService {
     if (!item) {
       throw new NotFoundException('配送购物车商品不存在');
     }
-    this.assertCartItemScope(item, deliveryUserId, currentUnitId);
+    this.assertCartItemScope(item, deliveryUserId, currentUnit.id);
 
     if (dto.quantity !== undefined) {
       this.assertSkuEligible(item.sku);
@@ -241,14 +256,14 @@ export class DeliveryCartService {
   }
 
   async removeItem(deliveryUserId: string, cartItemId: string) {
-    const currentUnitId = await this.requireCurrentUnitId(deliveryUserId);
+    const currentUnit = await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
     const item = await this.deliveryPrisma.deliveryCartItem.findUnique({
       where: { id: cartItemId },
     });
     if (!item) {
       throw new NotFoundException('配送购物车商品不存在');
     }
-    this.assertCartItemScope(item, deliveryUserId, currentUnitId);
+    this.assertCartItemScope(item, deliveryUserId, currentUnit.id);
 
     await this.deliveryPrisma.deliveryCartItem.delete({
       where: { id: cartItemId },
@@ -259,8 +274,11 @@ export class DeliveryCartService {
     };
   }
 
-  private async requireCurrentUnitId(deliveryUserId: string) {
-    const user = await this.deliveryPrisma.deliveryUser.findUnique({
+  private async requireCurrentUnit(
+    reader: CurrentUnitReader,
+    deliveryUserId: string,
+  ): Promise<CurrentUnitContext> {
+    const user = await reader.deliveryUser.findUnique({
       where: { id: deliveryUserId },
       select: { currentUnitId: true },
     });
@@ -272,7 +290,22 @@ export class DeliveryCartService {
       throw new BadRequestException('请先选择配送单位');
     }
 
-    return user.currentUnitId;
+    const unit = await reader.deliveryUnit.findFirst({
+      where: {
+        id: user.currentUnitId,
+        userId: deliveryUserId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!unit || unit.status !== 'ACTIVE') {
+      throw new BadRequestException('当前配送单位不可用，请重新选择');
+    }
+
+    return unit;
   }
 
   private async loadOrderableSku(skuId: string) {

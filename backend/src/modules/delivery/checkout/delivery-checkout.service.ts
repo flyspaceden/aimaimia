@@ -293,12 +293,12 @@ export class DeliveryCheckoutService {
   }
 
   async getCheckout(deliveryUserId: string, checkoutSessionId: string) {
-    const currentUnitId = await this.requireCurrentUnitId(deliveryUserId);
+    const currentUnit = await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
     const session = await this.deliveryPrisma.deliveryCheckoutSession.findFirst({
       where: {
         id: checkoutSessionId,
         userId: deliveryUserId,
-        unitId: currentUnitId,
+        unitId: currentUnit.id,
       },
     });
 
@@ -309,8 +309,11 @@ export class DeliveryCheckoutService {
     return session;
   }
 
-  private async requireCurrentUnitId(deliveryUserId: string) {
-    const user = await this.deliveryPrisma.deliveryUser.findUnique({
+  private async requireCurrentUnit(
+    prisma: Pick<DeliveryPrismaService, 'deliveryUser' | 'deliveryUnit'> | Prisma.TransactionClient,
+    deliveryUserId: string,
+  ): Promise<CurrentUnit> {
+    const user = await prisma.deliveryUser.findUnique({
       where: { id: deliveryUserId },
       select: { currentUnitId: true },
     });
@@ -322,23 +325,7 @@ export class DeliveryCheckoutService {
       throw new BadRequestException('请先选择配送单位');
     }
 
-    return user.currentUnitId;
-  }
-
-  private async requireCurrentUnit(tx: Prisma.TransactionClient, deliveryUserId: string): Promise<CurrentUnit> {
-    const user = await tx.deliveryUser.findUnique({
-      where: { id: deliveryUserId },
-      select: { currentUnitId: true },
-    });
-
-    if (!user) {
-      throw new NotFoundException('配送用户不存在');
-    }
-    if (!user.currentUnitId) {
-      throw new BadRequestException('请先选择配送单位');
-    }
-
-    const unit = await tx.deliveryUnit.findFirst({
+    const unit = await prisma.deliveryUnit.findFirst({
       where: {
         id: user.currentUnitId,
         userId: deliveryUserId,
