@@ -1,5 +1,4 @@
-import { Type } from 'class-transformer';
-import { IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateDeliveryCompanyDto {
   @IsOptional()
@@ -21,9 +20,4 @@ export class UpdateDeliveryCompanyDto {
   @IsString()
   @MaxLength(40)
   servicePhone?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @Min(0)
-  defaultMarkupBps?: number;
 }

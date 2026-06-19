@@ -1,22 +1,15 @@
-WITH ranked_settlements AS (
-  SELECT
-    id,
-    ROW_NUMBER() OVER (
-      PARTITION BY "subOrderId"
-      ORDER BY
-        CASE WHEN status = 'SETTLED' THEN 0 ELSE 1 END,
-        COALESCE("settledAt", "updatedAt", "createdAt") DESC,
-        "createdAt" DESC,
-        id DESC
-    ) AS row_num
-  FROM "DeliverySettlement"
-  WHERE "subOrderId" IS NOT NULL
-)
-DELETE FROM "DeliverySettlement"
-WHERE id IN (
-  SELECT id
-  FROM ranked_settlements
-  WHERE row_num > 1
-);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "DeliverySettlement"
+    WHERE "subOrderId" IS NOT NULL
+    GROUP BY "subOrderId"
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION
+      'Cannot add DeliverySettlement.subOrderId unique index: duplicate non-null subOrderId rows exist. Please resolve duplicate DeliverySettlement rows manually before rerunning this migration.';
+  END IF;
+END $$;
 
 CREATE UNIQUE INDEX "DeliverySettlement_subOrderId_key" ON "DeliverySettlement"("subOrderId");

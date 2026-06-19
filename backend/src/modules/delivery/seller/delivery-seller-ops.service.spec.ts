@@ -9,6 +9,10 @@ describe('DeliverySellerOpsService', () => {
 
   beforeEach(() => {
     deliveryPrisma = {
+      deliveryMerchant: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
       deliverySubOrder: {
         count: jest.fn(),
       },
@@ -49,6 +53,55 @@ describe('DeliverySellerOpsService', () => {
 
     expect(deliverySettlementService.materializeEligibleSettlements).toHaveBeenCalledWith({
       merchantId: 'merchant_1',
+    });
+  });
+
+  it('sanitizes seller company responses so default markup is never exposed', async () => {
+    deliveryPrisma.deliveryMerchant.findUnique.mockResolvedValue({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+      defaultMarkupBps: 1800,
+    });
+
+    await expect(service.getCompany('merchant_1')).resolves.toEqual({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+    });
+  });
+
+  it('ignores default markup changes from seller company updates and strips it from the response', async () => {
+    deliveryPrisma.deliveryMerchant.update.mockResolvedValue({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      servicePhone: '400-800-9000',
+      defaultMarkupBps: 2600,
+    });
+
+    await expect(
+      service.updateCompany('merchant_1', {
+        name: ' 配送中心A ',
+        defaultMarkupBps: 9900,
+      } as any),
+    ).resolves.toEqual({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      servicePhone: '400-800-9000',
+    });
+
+    expect(deliveryPrisma.deliveryMerchant.update).toHaveBeenCalledWith({
+      where: { id: 'merchant_1' },
+      data: {
+        name: '配送中心A',
+        contactName: undefined,
+        contactPhone: undefined,
+        servicePhone: undefined,
+      },
     });
   });
 });

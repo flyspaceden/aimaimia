@@ -119,20 +119,21 @@ export class DeliverySellerOpsService {
     if (!merchant) {
       throw new NotFoundException('配送商家不存在');
     }
-    return merchant;
+    return this.sanitizeSellerCompanyResponse(merchant);
   }
 
   async updateCompany(merchantId: string, dto: UpdateDeliveryCompanyDto) {
-    return this.deliveryPrisma.deliveryMerchant.update({
+    const merchant = await this.deliveryPrisma.deliveryMerchant.update({
       where: { id: merchantId },
       data: {
         name: dto.name?.trim(),
         contactName: dto.contactName?.trim(),
         contactPhone: dto.contactPhone?.trim(),
         servicePhone: dto.servicePhone?.trim(),
-        defaultMarkupBps: dto.defaultMarkupBps,
       },
     });
+
+    return this.sanitizeSellerCompanyResponse(merchant);
   }
 
   async listStaff(merchantId: string) {
@@ -174,5 +175,10 @@ export class DeliverySellerOpsService {
         permissionCodes: dto.permissionCodes,
       },
     });
+  }
+
+  private sanitizeSellerCompanyResponse<T extends Record<string, unknown>>(merchant: T) {
+    const { defaultMarkupBps: _defaultMarkupBps, ...sanitizedMerchant } = merchant;
+    return sanitizedMerchant;
   }
 }
