@@ -45,30 +45,40 @@ export class DeliverySellerOpsController {
   @Patch('company')
   updateCompany(
     @CurrentUser('merchantId') merchantId: string,
+    @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
+    @CurrentUser('role') role: 'OWNER' | 'MANAGER' | 'OPERATOR',
     @Body() dto: UpdateDeliveryCompanyDto,
   ) {
-    return this.deliverySellerOpsService.updateCompany(merchantId, dto);
+    return this.deliverySellerOpsService.updateCompany({ merchantId, deliverySellerStaffId, role }, dto);
   }
 
   @Get('staff')
-  listStaff(@CurrentUser('merchantId') merchantId: string) {
-    return this.deliverySellerOpsService.listStaff(merchantId);
+  listStaff(
+    @CurrentUser('merchantId') merchantId: string,
+    @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
+    @CurrentUser('role') role: 'OWNER' | 'MANAGER' | 'OPERATOR',
+  ) {
+    return this.deliverySellerOpsService.listStaff({ merchantId, deliverySellerStaffId, role });
   }
 
   @Post('staff')
   createStaff(
     @CurrentUser('merchantId') merchantId: string,
+    @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
+    @CurrentUser('role') role: 'OWNER' | 'MANAGER' | 'OPERATOR',
     @Body() dto: CreateDeliveryStaffDto,
   ) {
-    return this.deliverySellerOpsService.createStaff(merchantId, dto);
+    return this.deliverySellerOpsService.createStaff({ merchantId, deliverySellerStaffId, role }, dto);
   }
 
   @Patch('staff/:id')
   updateStaff(
     @CurrentUser('merchantId') merchantId: string,
+    @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
+    @CurrentUser('role') role: 'OWNER' | 'MANAGER' | 'OPERATOR',
     @Param('id') id: string,
     @Body() dto: UpdateDeliveryStaffDto,
   ) {
-    return this.deliverySellerOpsService.updateStaff(merchantId, id, dto);
+    return this.deliverySellerOpsService.updateStaff({ merchantId, deliverySellerStaffId, role }, id, dto);
   }
 }

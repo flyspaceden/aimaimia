@@ -21,19 +21,21 @@ describe('DeliverySellerOpsController', () => {
     await expect(controller.getOrder('merchant_1', 'sub_1')).resolves.toEqual({ id: 'sub_1' });
     await expect(controller.getCompany('merchant_1')).resolves.toEqual({ id: 'merchant_1' });
     await expect(
-      controller.updateCompany('merchant_1', {
+      controller.updateCompany('merchant_1', 'staff_owner', 'OWNER', {
         name: '配送中心A',
       }),
     ).resolves.toEqual({ id: 'merchant_1', name: '配送中心A' });
-    await expect(controller.listStaff('merchant_1')).resolves.toEqual([{ id: 'staff_1' }]);
+    await expect(controller.listStaff('merchant_1', 'staff_owner', 'OWNER')).resolves.toEqual([
+      { id: 'staff_1' },
+    ]);
     await expect(
-      controller.createStaff('merchant_1', {
+      controller.createStaff('merchant_1', 'staff_owner', 'OWNER', {
         username: 'ops_2',
         role: 'OPERATOR',
       }),
     ).resolves.toEqual({ id: 'staff_2' });
     await expect(
-      controller.updateStaff('merchant_1', 'staff_1', {
+      controller.updateStaff('merchant_1', 'staff_owner', 'OWNER', 'staff_1', {
         status: 'ACTIVE',
       }),
     ).resolves.toEqual({ id: 'staff_1', status: 'ACTIVE' });
@@ -45,15 +47,42 @@ describe('DeliverySellerOpsController', () => {
       status: 'COMPLETED',
     });
     expect(sellerOpsService.getOrder).toHaveBeenCalledWith('merchant_1', 'sub_1');
-    expect(sellerOpsService.updateCompany).toHaveBeenCalledWith('merchant_1', {
-      name: '配送中心A',
+    expect(sellerOpsService.updateCompany).toHaveBeenCalledWith(
+      {
+        merchantId: 'merchant_1',
+        deliverySellerStaffId: 'staff_owner',
+        role: 'OWNER',
+      },
+      {
+        name: '配送中心A',
+      },
+    );
+    expect(sellerOpsService.listStaff).toHaveBeenCalledWith({
+      merchantId: 'merchant_1',
+      deliverySellerStaffId: 'staff_owner',
+      role: 'OWNER',
     });
-    expect(sellerOpsService.createStaff).toHaveBeenCalledWith('merchant_1', {
-      username: 'ops_2',
-      role: 'OPERATOR',
-    });
-    expect(sellerOpsService.updateStaff).toHaveBeenCalledWith('merchant_1', 'staff_1', {
-      status: 'ACTIVE',
-    });
+    expect(sellerOpsService.createStaff).toHaveBeenCalledWith(
+      {
+        merchantId: 'merchant_1',
+        deliverySellerStaffId: 'staff_owner',
+        role: 'OWNER',
+      },
+      {
+        username: 'ops_2',
+        role: 'OPERATOR',
+      },
+    );
+    expect(sellerOpsService.updateStaff).toHaveBeenCalledWith(
+      {
+        merchantId: 'merchant_1',
+        deliverySellerStaffId: 'staff_owner',
+        role: 'OWNER',
+      },
+      'staff_1',
+      {
+        status: 'ACTIVE',
+      },
+    );
   });
 });

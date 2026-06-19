@@ -15,6 +15,35 @@ type PagingQuery = {
 export class DeliveryAdminOpsService {
   constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
 
+  private readonly adminUserPublicSelect = {
+    id: true,
+    username: true,
+    phone: true,
+    realName: true,
+    roleCodes: true,
+    permissions: true,
+    status: true,
+    lastLoginAt: true,
+    lastLoginIp: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies Prisma.DeliveryAdminUserSelect;
+
+  private readonly sellerStaffPublicSelect = {
+    id: true,
+    merchantId: true,
+    phone: true,
+    username: true,
+    realName: true,
+    role: true,
+    permissionCodes: true,
+    status: true,
+    lastLoginAt: true,
+    lastLoginIp: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies Prisma.DeliverySellerStaffSelect;
+
   async listUsers(query: PagingQuery) {
     return this.findManyWithPage(this.deliveryPrisma.deliveryUser, {
       query,
@@ -104,13 +133,17 @@ export class DeliveryAdminOpsService {
       include: {
         staff: {
           orderBy: [{ createdAt: 'desc' }],
+          select: this.sellerStaffPublicSelect,
         },
       },
     });
     if (!merchant) {
       throw new NotFoundException('配送商家不存在');
     }
-    return merchant;
+    return {
+      ...merchant,
+      staff: merchant.staff.map((staff) => this.sanitizeSensitiveFields(staff)),
+    };
   }
 
   async updateMerchant(id: string, dto: UpdateDeliveryMerchantDto) {
@@ -151,13 +184,20 @@ export class DeliveryAdminOpsService {
       where: { id },
       include: {
         merchant: true,
-        reviewedByAdmin: true,
+        reviewedByAdmin: {
+          select: this.adminUserPublicSelect,
+        },
       },
     });
     if (!application) {
       throw new NotFoundException('配送商家入驻申请不存在');
     }
-    return application;
+    return {
+      ...application,
+      reviewedByAdmin: application.reviewedByAdmin
+        ? this.sanitizeSensitiveFields(application.reviewedByAdmin)
+        : null,
+    };
   }
 
   async reviewMerchantApplication(
@@ -287,5 +327,16 @@ export class DeliveryAdminOpsService {
       page,
       pageSize,
     };
+  }
+
+  private sanitizeSensitiveFields<T extends Record<string, unknown>>(record: T) {
+    const {
+      passwordHash: _passwordHash,
+      refreshTokenHash: _refreshTokenHash,
+      sessionToken: _sessionToken,
+      accessToken: _accessToken,
+      ...sanitized
+    } = record;
+    return sanitized;
   }
 }

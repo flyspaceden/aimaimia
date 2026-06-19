@@ -305,7 +305,7 @@ export class DeliveryAdminAuthService {
     const refreshToken = randomBytes(48).toString('hex');
     const refreshTokenHash = this.hashToken(refreshToken);
 
-    await this.deliveryPrisma.deliveryAdminSession.create({
+    const session = await this.deliveryPrisma.deliveryAdminSession.create({
       data: {
         adminUserId: admin.id,
         refreshTokenHash,
@@ -317,6 +317,7 @@ export class DeliveryAdminAuthService {
 
     const payload: DeliveryAdminJwtPayload = {
       sub: admin.id,
+      sessionId: session.id,
       roles,
       permissions,
       type: 'delivery-admin',

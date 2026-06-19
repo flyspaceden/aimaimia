@@ -1,6 +1,26 @@
+import { ForbiddenException } from '@nestjs/common';
+import { DeliverySellerStaffRole, DeliverySellerStaffStatus } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliverySettlementService } from '../settlement/delivery-settlement.service';
 import { DeliverySellerOpsService } from './delivery-seller-ops.service';
+
+const ownerActor = {
+  merchantId: 'merchant_1',
+  deliverySellerStaffId: 'staff_owner',
+  role: DeliverySellerStaffRole.OWNER,
+};
+
+const managerActor = {
+  merchantId: 'merchant_1',
+  deliverySellerStaffId: 'staff_manager',
+  role: DeliverySellerStaffRole.MANAGER,
+};
+
+const operatorActor = {
+  merchantId: 'merchant_1',
+  deliverySellerStaffId: 'staff_operator',
+  role: DeliverySellerStaffRole.OPERATOR,
+};
 
 describe('DeliverySellerOpsService', () => {
   let deliveryPrisma: any;
@@ -23,6 +43,12 @@ describe('DeliverySellerOpsService', () => {
       },
       deliveryCustomerServiceConversation: {
         count: jest.fn(),
+      },
+      deliverySellerStaff: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+        findFirst: jest.fn(),
+        update: jest.fn(),
       },
     };
     deliverySettlementService = {
@@ -84,7 +110,7 @@ describe('DeliverySellerOpsService', () => {
     });
 
     await expect(
-      service.updateCompany('merchant_1', {
+      service.updateCompany(ownerActor as any, {
         name: ' 配送中心A ',
         defaultMarkupBps: 9900,
       } as any),
@@ -105,6 +131,154 @@ describe('DeliverySellerOpsService', () => {
         servicePhone: undefined,
       },
     });
+  });
+
+  it('rejects company updates from operators but allows owner and manager', async () => {
+    deliveryPrisma.deliveryMerchant.update.mockResolvedValue({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+      defaultMarkupBps: 2600,
+    });
+
+    await expect(
+      service.updateCompany(operatorActor as any, {
+        name: '配送中心A',
+      } as any),
+    ).rejects.toThrow(ForbiddenException);
+    expect(deliveryPrisma.deliveryMerchant.update).not.toHaveBeenCalled();
+
+    await expect(
+      service.updateCompany(ownerActor as any, {
+        name: '配送中心A',
+      } as any),
+    ).resolves.toEqual({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+    });
+
+    await expect(
+      service.updateCompany(managerActor as any, {
+        name: '配送中心B',
+      } as any),
+    ).resolves.toEqual({
+      id: 'merchant_1',
+      name: '配送中心A',
+      contactName: '张三',
+    });
+    expect(deliveryPrisma.deliveryMerchant.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows only owners to list and create staff, and never returns password hashes', async () => {
+    deliveryPrisma.deliverySellerStaff.findMany.mockResolvedValue([
+      {
+        id: 'staff_1',
+        merchantId: 'merchant_1',
+        username: 'ops_1',
+        passwordHash: 'secret-hash',
+        role: DeliverySellerStaffRole.OPERATOR,
+        status: DeliverySellerStaffStatus.ACTIVE,
+      },
+    ]);
+    deliveryPrisma.deliverySellerStaff.create.mockResolvedValue({
+      id: 'staff_2',
+      merchantId: 'merchant_1',
+      username: 'ops_2',
+      passwordHash: 'new-secret',
+      role: DeliverySellerStaffRole.MANAGER,
+      status: DeliverySellerStaffStatus.ACTIVE,
+    });
+
+    await expect(service.listStaff(operatorActor as any)).rejects.toThrow(ForbiddenException);
+    await expect(
+      service.createStaff(operatorActor as any, {
+        username: 'ops_2',
+        role: 'MANAGER',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(deliveryPrisma.deliverySellerStaff.findMany).not.toHaveBeenCalled();
+    expect(deliveryPrisma.deliverySellerStaff.create).not.toHaveBeenCalled();
+
+    const staffList = await service.listStaff(ownerActor as any);
+    expect(staffList).toEqual([
+      expect.objectContaining({
+        id: 'staff_1',
+        username: 'ops_1',
+        role: DeliverySellerStaffRole.OPERATOR,
+      }),
+    ]);
+    expect(staffList[0]).not.toHaveProperty('passwordHash');
+
+    const created = await service.createStaff(ownerActor as any, {
+      username: 'ops_2',
+      role: 'MANAGER',
+    });
+    expect(created).toMatchObject({
+      id: 'staff_2',
+      username: 'ops_2',
+      role: DeliverySellerStaffRole.MANAGER,
+    });
+    expect(created).not.toHaveProperty('passwordHash');
+  });
+
+  it('allows only owners to update staff and blocks self-disable or self-demotion', async () => {
+    deliveryPrisma.deliverySellerStaff.findFirst
+      .mockResolvedValueOnce({
+        id: 'staff_owner',
+        merchantId: 'merchant_1',
+        role: DeliverySellerStaffRole.OWNER,
+        status: DeliverySellerStaffStatus.ACTIVE,
+      })
+      .mockResolvedValueOnce({
+        id: 'staff_owner',
+        merchantId: 'merchant_1',
+        role: DeliverySellerStaffRole.OWNER,
+        status: DeliverySellerStaffStatus.ACTIVE,
+      })
+      .mockResolvedValueOnce({
+        id: 'staff_manager',
+        merchantId: 'merchant_1',
+        role: DeliverySellerStaffRole.MANAGER,
+        status: DeliverySellerStaffStatus.ACTIVE,
+      });
+    deliveryPrisma.deliverySellerStaff.update.mockResolvedValue({
+      id: 'staff_manager',
+      merchantId: 'merchant_1',
+      username: 'manager_1',
+      passwordHash: 'updated-secret',
+      role: DeliverySellerStaffRole.MANAGER,
+      status: DeliverySellerStaffStatus.DISABLED,
+    });
+
+    await expect(
+      service.updateStaff(operatorActor as any, 'staff_operator', {
+        status: 'DISABLED',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      service.updateStaff(ownerActor as any, 'staff_owner', {
+        status: 'DISABLED',
+      }),
+    ).rejects.toThrow('企业主不能禁用自己');
+
+    await expect(
+      service.updateStaff(ownerActor as any, 'staff_owner', {
+        role: 'MANAGER',
+      }),
+    ).rejects.toThrow('企业主不能降低自己的角色');
+
+    const updated = await service.updateStaff(ownerActor as any, 'staff_manager', {
+      status: 'DISABLED',
+      role: 'MANAGER',
+    });
+    expect(updated).toMatchObject({
+      id: 'staff_manager',
+      role: DeliverySellerStaffRole.MANAGER,
+      status: DeliverySellerStaffStatus.DISABLED,
+    });
+    expect(updated).not.toHaveProperty('passwordHash');
   });
 
   it('sanitizes seller order list payloads so buyer totals and settlements never leak', async () => {

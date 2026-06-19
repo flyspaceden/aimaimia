@@ -742,13 +742,14 @@ export class DeliveryManifestsService {
       }
 
       const label = entry.label.trim();
-      this.assertCustomFieldAllowed(definition, key, label);
+      const value = entry.value.trim();
+      this.assertCustomFieldAllowed(definition, key, label, value);
       normalizedKeys.add(key);
 
       return {
         key,
         label,
-        value: entry.value.trim(),
+        value,
         sortOrder: typeof entry.sortOrder === 'number' ? entry.sortOrder : 500 + index * 10,
         visible: entry.visible !== false,
       };
@@ -777,12 +778,13 @@ export class DeliveryManifestsService {
     definition: DeliveryManifestTemplateDefinition,
     key: string,
     label: string,
+    value: string,
   ) {
     if (definition.apiType !== 'SELLER_FULFILLMENT') {
       return;
     }
 
-    const normalized = `${key}${label}`.toLowerCase().replace(/[\s_-]+/g, '');
+    const normalized = `${key}${label}${value}`.toLowerCase().replace(/[\s_-]+/g, '');
     const blockedTerms = [
       'price',
       'cost',
@@ -796,7 +798,12 @@ export class DeliveryManifestsService {
       '金额',
       '运费',
     ];
-    if (blockedTerms.some((term) => normalized.includes(term))) {
+    const hasBlockedTerm = blockedTerms.some((term) => normalized.includes(term));
+    const hasMoneyPattern =
+      /(?:[¥￥]\s*\d)|(?:\brmb\b|\bcny\b|\busd\b|\$|\d+(?:\.\d{1,2})?\s*(?:元|块|人民币))/.test(
+        value.toLowerCase(),
+      );
+    if (hasBlockedTerm || hasMoneyPattern) {
       throw new BadRequestException('卖家配货清单禁止自定义金额相关字段');
     }
   }

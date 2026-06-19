@@ -6,6 +6,7 @@ import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.
 
 export type DeliveryAdminJwtPayload = {
   sub: string; // DeliveryAdminUser.id
+  sessionId: string; // DeliveryAdminSession.id
   roles: string[];
   permissions: string[];
   type: 'delivery-admin';
@@ -28,10 +29,24 @@ export class DeliveryAdminJwtStrategy extends PassportStrategy(Strategy, 'delive
     const hasValidShape =
       payload.type === 'delivery-admin' &&
       !!payload.sub &&
+      !!payload.sessionId &&
       Array.isArray(payload.roles) &&
       Array.isArray(payload.permissions);
     if (!hasValidShape) {
       throw new UnauthorizedException('无效的令牌类型');
+    }
+
+    const session = await this.deliveryPrisma.deliveryAdminSession.findFirst({
+      where: {
+        id: payload.sessionId,
+        adminUserId: payload.sub,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (!session) {
+      throw new UnauthorizedException('登录态已失效，请重新登录');
     }
 
     const deliveryAdmin = await this.deliveryPrisma.deliveryAdminUser.findUnique({
@@ -45,6 +60,7 @@ export class DeliveryAdminJwtStrategy extends PassportStrategy(Strategy, 'delive
     return {
       sub: payload.sub,
       deliveryAdminUserId: payload.sub,
+      sessionId: payload.sessionId,
       roles: payload.roles,
       permissions: payload.permissions,
       type: payload.type,

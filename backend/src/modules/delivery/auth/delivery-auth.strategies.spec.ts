@@ -178,6 +178,9 @@ describe('Delivery JWT strategies', () => {
 
   describe('DeliveryAdminJwtStrategy', () => {
     let prisma: {
+      deliveryAdminSession: {
+        findFirst: jest.Mock;
+      };
       deliveryAdminUser: {
         findUnique: jest.Mock;
       };
@@ -185,6 +188,9 @@ describe('Delivery JWT strategies', () => {
 
     beforeEach(() => {
       prisma = {
+        deliveryAdminSession: {
+          findFirst: jest.fn(),
+        },
         deliveryAdminUser: {
           findUnique: jest.fn(),
         },
@@ -192,6 +198,9 @@ describe('Delivery JWT strategies', () => {
     });
 
     it('uses DELIVERY_ADMIN_JWT_SECRET and accepts active delivery admins', async () => {
+      prisma.deliveryAdminSession.findFirst.mockResolvedValue({
+        id: 'dasess_001',
+      });
       prisma.deliveryAdminUser.findUnique.mockResolvedValue({
         status: DeliveryAdminUserStatus.ACTIVE,
       });
@@ -201,6 +210,7 @@ describe('Delivery JWT strategies', () => {
       );
       const payload: DeliveryAdminJwtPayload = {
         sub: 'dadmin_001',
+        sessionId: 'dasess_001',
         roles: ['ops'],
         permissions: ['delivery:manifest:review'],
         type: 'delivery-admin',
@@ -209,11 +219,21 @@ describe('Delivery JWT strategies', () => {
       await expect(strategy.validate(payload)).resolves.toEqual({
         sub: 'dadmin_001',
         deliveryAdminUserId: 'dadmin_001',
+        sessionId: 'dasess_001',
         roles: ['ops'],
         permissions: ['delivery:manifest:review'],
         type: 'delivery-admin',
       });
       expect(configService.getOrThrow).toHaveBeenCalledWith('DELIVERY_ADMIN_JWT_SECRET');
+      expect(prisma.deliveryAdminSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'dasess_001',
+          adminUserId: 'dadmin_001',
+          revokedAt: null,
+          expiresAt: { gt: expect.any(Date) },
+        },
+        select: { id: true },
+      });
       expect(prisma.deliveryAdminUser.findUnique).toHaveBeenCalledWith({
         where: { id: 'dadmin_001' },
         select: { status: true },
@@ -229,11 +249,13 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dadmin_001',
+          sessionId: 'dasess_001',
           roles: [],
           permissions: [],
           type: 'admin' as 'delivery-admin',
         }),
       ).rejects.toThrow('无效的令牌类型');
+      expect(prisma.deliveryAdminSession.findFirst).not.toHaveBeenCalled();
       expect(prisma.deliveryAdminUser.findUnique).not.toHaveBeenCalled();
     });
 
@@ -250,11 +272,11 @@ describe('Delivery JWT strategies', () => {
           type: 'delivery-admin',
         } as unknown as DeliveryAdminJwtPayload),
       ).rejects.toThrow('无效的令牌类型');
+      expect(prisma.deliveryAdminSession.findFirst).not.toHaveBeenCalled();
       expect(prisma.deliveryAdminUser.findUnique).not.toHaveBeenCalled();
     });
 
-    it('rejects missing delivery admin records', async () => {
-      prisma.deliveryAdminUser.findUnique.mockResolvedValue(null);
+    it('rejects missing sessionId before DB lookup', async () => {
       const strategy = new DeliveryAdminJwtStrategy(
         configService as unknown as ConfigService,
         prisma as unknown as DeliveryPrismaService,
@@ -266,12 +288,38 @@ describe('Delivery JWT strategies', () => {
           roles: [],
           permissions: [],
           type: 'delivery-admin',
+        } as unknown as DeliveryAdminJwtPayload),
+      ).rejects.toThrow('无效的令牌类型');
+      expect(prisma.deliveryAdminSession.findFirst).not.toHaveBeenCalled();
+      expect(prisma.deliveryAdminUser.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects missing delivery admin records', async () => {
+      prisma.deliveryAdminSession.findFirst.mockResolvedValue({
+        id: 'dasess_001',
+      });
+      prisma.deliveryAdminUser.findUnique.mockResolvedValue(null);
+      const strategy = new DeliveryAdminJwtStrategy(
+        configService as unknown as ConfigService,
+        prisma as unknown as DeliveryPrismaService,
+      );
+
+      await expect(
+        strategy.validate({
+          sub: 'dadmin_001',
+          sessionId: 'dasess_001',
+          roles: [],
+          permissions: [],
+          type: 'delivery-admin',
         }),
       ).rejects.toThrow('配送管理账号已被禁用');
       expect(prisma.deliveryAdminUser.findUnique).toHaveBeenCalledTimes(1);
     });
 
     it('rejects inactive delivery admin records', async () => {
+      prisma.deliveryAdminSession.findFirst.mockResolvedValue({
+        id: 'dasess_001',
+      });
       prisma.deliveryAdminUser.findUnique.mockResolvedValue({
         status: DeliveryAdminUserStatus.DISABLED,
       });
@@ -283,12 +331,32 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dadmin_001',
+          sessionId: 'dasess_001',
           roles: [],
           permissions: [],
           type: 'delivery-admin',
         }),
       ).rejects.toThrow('配送管理账号已被禁用');
       expect(prisma.deliveryAdminUser.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects revoked or expired admin sessions before user lookup', async () => {
+      prisma.deliveryAdminSession.findFirst.mockResolvedValue(null);
+      const strategy = new DeliveryAdminJwtStrategy(
+        configService as unknown as ConfigService,
+        prisma as unknown as DeliveryPrismaService,
+      );
+
+      await expect(
+        strategy.validate({
+          sub: 'dadmin_001',
+          sessionId: 'dasess_001',
+          roles: [],
+          permissions: [],
+          type: 'delivery-admin',
+        }),
+      ).rejects.toThrow('登录态已失效，请重新登录');
+      expect(prisma.deliveryAdminUser.findUnique).not.toHaveBeenCalled();
     });
   });
 

@@ -151,6 +151,7 @@ describe('DeliveryAdminAuthService', () => {
     expect(jwtService.sign).toHaveBeenCalledWith(
       {
         sub: 'dadmin_1',
+        sessionId: 'dasess_1',
         roles: ['超级管理员'],
         permissions: ['delivery:*'],
         type: 'delivery-admin',
@@ -211,5 +212,55 @@ describe('DeliveryAdminAuthService', () => {
         revokedAt: expect.any(Date),
       },
     });
+    expect(jwtService.sign).toHaveBeenCalledWith(
+      {
+        sub: 'dadmin_1',
+        sessionId: 'dasess_2',
+        roles: ['超级管理员'],
+        permissions: ['delivery:*'],
+        type: 'delivery-admin',
+      },
+      {
+        secret: 'delivery-admin-secret',
+        expiresIn: '8h',
+      },
+    );
+  });
+
+  it('revokes active admin sessions on logout and password change', async () => {
+    prisma.deliveryAdminSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.deliveryAdminUser.findUnique.mockResolvedValue({
+      id: 'dadmin_1',
+      username: 'delivery-admin',
+      phone: '13800000000',
+      passwordHash: await bcrypt.hash('correct-password', 4),
+      realName: '配送管理员',
+      roleCodes: ['SUPER_ADMIN'],
+      permissions: ['delivery:*'],
+      status: DeliveryAdminUserStatus.ACTIVE,
+      lastLoginAt: null,
+      lastLoginIp: null,
+    });
+    prisma.deliveryAdminUser.update.mockResolvedValue({});
+
+    await expect(service.logout('dadmin_1')).resolves.toEqual({ ok: true });
+    expect(prisma.deliveryAdminSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        adminUserId: 'dadmin_1',
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+      },
+      data: {
+        revokedAt: expect.any(Date),
+      },
+    });
+
+    await expect(
+      service.changePassword('dadmin_1', {
+        oldPassword: 'correct-password',
+        newPassword: 'better-password',
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(prisma.deliveryAdminSession.updateMany).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '../../../generated/delivery-client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { DeliverySellerStaffRole, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliverySettlementService } from '../settlement/delivery-settlement.service';
 import { CreateDeliveryStaffDto } from './dto/create-delivery-staff.dto';
@@ -48,6 +48,27 @@ const sellerOrderInclude = {
 type SellerOrderRecord = Prisma.DeliverySubOrderGetPayload<{
   include: typeof sellerOrderInclude;
 }>;
+
+type DeliverySellerActor = {
+  merchantId: string;
+  deliverySellerStaffId: string;
+  role: DeliverySellerStaffRole;
+};
+
+const sellerStaffPublicSelect = {
+  id: true,
+  merchantId: true,
+  phone: true,
+  username: true,
+  realName: true,
+  role: true,
+  permissionCodes: true,
+  status: true,
+  lastLoginAt: true,
+  lastLoginIp: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.DeliverySellerStaffSelect;
 
 @Injectable()
 export class DeliverySellerOpsService {
@@ -139,9 +160,10 @@ export class DeliverySellerOpsService {
     return this.sanitizeSellerCompanyResponse(merchant);
   }
 
-  async updateCompany(merchantId: string, dto: UpdateDeliveryCompanyDto) {
+  async updateCompany(actor: DeliverySellerActor, dto: UpdateDeliveryCompanyDto) {
+    this.assertCompanyManager(actor);
     const merchant = await this.deliveryPrisma.deliveryMerchant.update({
-      where: { id: merchantId },
+      where: { id: actor.merchantId },
       data: {
         name: dto.name?.trim(),
         contactName: dto.contactName?.trim(),
@@ -153,17 +175,24 @@ export class DeliverySellerOpsService {
     return this.sanitizeSellerCompanyResponse(merchant);
   }
 
-  async listStaff(merchantId: string) {
-    return this.deliveryPrisma.deliverySellerStaff.findMany({
-      where: { merchantId },
+  async listStaff(actor: DeliverySellerActor) {
+    this.assertOwner(actor, '仅企业主可管理员工');
+    const staffs = await this.deliveryPrisma.deliverySellerStaff.findMany({
+      where: { merchantId: actor.merchantId },
       orderBy: [{ createdAt: 'desc' }],
+      select: sellerStaffPublicSelect,
     });
+    return staffs.map((staff) => this.sanitizeSellerStaffResponse(staff));
   }
 
-  async createStaff(merchantId: string, dto: CreateDeliveryStaffDto) {
-    return this.deliveryPrisma.deliverySellerStaff.create({
+  async createStaff(actor: DeliverySellerActor, dto: CreateDeliveryStaffDto) {
+    this.assertOwner(actor, '仅企业主可管理员工');
+    if (dto.role === DeliverySellerStaffRole.OWNER) {
+      throw new BadRequestException('员工管理接口不支持新增企业主');
+    }
+    const staff = await this.deliveryPrisma.deliverySellerStaff.create({
       data: {
-        merchantId,
+        merchantId: actor.merchantId,
         username: dto.username.trim(),
         phone: dto.phone?.trim() || null,
         realName: dto.realName?.trim() || null,
@@ -171,19 +200,33 @@ export class DeliverySellerOpsService {
         permissionCodes: dto.permissionCodes ?? [],
         status: 'ACTIVE',
       },
+      select: sellerStaffPublicSelect,
     });
+    return this.sanitizeSellerStaffResponse(staff);
   }
 
-  async updateStaff(merchantId: string, id: string, dto: UpdateDeliveryStaffDto) {
+  async updateStaff(actor: DeliverySellerActor, id: string, dto: UpdateDeliveryStaffDto) {
+    this.assertOwner(actor, '仅企业主可管理员工');
     const staff = await this.deliveryPrisma.deliverySellerStaff.findFirst({
-      where: { id, merchantId },
-      select: { id: true },
+      where: { id, merchantId: actor.merchantId },
+      select: { id: true, role: true },
     });
     if (!staff) {
       throw new NotFoundException('配送中心员工不存在');
     }
+    if (dto.role === DeliverySellerStaffRole.OWNER && staff.role !== DeliverySellerStaffRole.OWNER) {
+      throw new BadRequestException('员工管理接口不支持提升为企业主');
+    }
+    if (actor.deliverySellerStaffId === id) {
+      if (dto.status === 'DISABLED') {
+        throw new ForbiddenException('企业主不能禁用自己');
+      }
+      if (dto.role && dto.role !== DeliverySellerStaffRole.OWNER) {
+        throw new ForbiddenException('企业主不能降低自己的角色');
+      }
+    }
 
-    return this.deliveryPrisma.deliverySellerStaff.update({
+    const updated = await this.deliveryPrisma.deliverySellerStaff.update({
       where: { id },
       data: {
         realName: dto.realName?.trim(),
@@ -191,12 +234,34 @@ export class DeliverySellerOpsService {
         status: dto.status,
         permissionCodes: dto.permissionCodes,
       },
+      select: sellerStaffPublicSelect,
     });
+    return this.sanitizeSellerStaffResponse(updated);
   }
 
   private sanitizeSellerCompanyResponse<T extends Record<string, unknown>>(merchant: T) {
     const { defaultMarkupBps: _defaultMarkupBps, ...sanitizedMerchant } = merchant;
     return sanitizedMerchant;
+  }
+
+  private sanitizeSellerStaffResponse<T extends Record<string, unknown>>(staff: T) {
+    const { passwordHash: _passwordHash, refreshTokenHash: _refreshTokenHash, ...sanitizedStaff } = staff;
+    return sanitizedStaff;
+  }
+
+  private assertOwner(actor: DeliverySellerActor, message: string) {
+    if (actor.role !== DeliverySellerStaffRole.OWNER) {
+      throw new ForbiddenException(message);
+    }
+  }
+
+  private assertCompanyManager(actor: DeliverySellerActor) {
+    if (
+      actor.role !== DeliverySellerStaffRole.OWNER &&
+      actor.role !== DeliverySellerStaffRole.MANAGER
+    ) {
+      throw new ForbiddenException('仅企业主或经理可修改企业信息');
+    }
   }
 
   private buildSellerOrderWhere(merchantId: string, status?: string): Prisma.DeliverySubOrderWhereInput {

@@ -708,6 +708,133 @@ describe('DeliveryManifestsService', () => {
     ).rejects.toThrow('卖家配货清单禁止自定义金额相关字段');
   });
 
+  it('rejects seller fulfillment custom values that reveal money or pricing information', async () => {
+    const template = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: 'Seller Fulfillment',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_seller_fulfillment_v3',
+      templateId: 'tmpl_seller_fulfillment',
+      versionNo: 3,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+
+    for (const value of ['¥100', '平台售价 100', '成本 60', '运费到付']) {
+      await expect(
+        service.upsertTargetCustomization('admin_1', {
+          manifestType: 'SELLER_FULFILLMENT',
+          targetId: 'PSZDD000000000001',
+          entries: [
+            {
+              key: 'memo',
+              label: '履约备注',
+              value,
+              visible: true,
+            },
+          ],
+        }),
+      ).rejects.toThrow('卖家配货清单禁止自定义金额相关字段');
+    }
+  });
+
+  it('allows ordinary seller fulfillment remarks and does not apply the seller rule to buyer full manifests', async () => {
+    const sellerTemplate = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: 'Seller Fulfillment',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const sellerVersion = {
+      id: 'ver_seller_fulfillment_v4',
+      templateId: 'tmpl_seller_fulfillment',
+      versionNo: 4,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(sellerTemplate);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(sellerVersion);
+    deliveryPrisma.deliveryManifestTemplate.update.mockResolvedValue(sellerTemplate);
+    deliveryPrisma.deliveryManifest.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.upsertTargetCustomization('admin_1', {
+        manifestType: 'SELLER_FULFILLMENT',
+        targetId: 'PSZDD000000000001',
+        entries: [
+          {
+            key: 'memo',
+            label: '履约备注',
+            value: '请冷藏保存，优先上午配送',
+            visible: true,
+          },
+        ],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        entries: [expect.objectContaining({ value: '请冷藏保存，优先上午配送' })],
+      }),
+    );
+
+    const buyerTemplate = {
+      id: 'tmpl_buyer_full',
+      type: 'USER_FULL',
+      name: 'Buyer Full',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const buyerVersion = {
+      id: 'ver_buyer_full_v1',
+      templateId: 'tmpl_buyer_full',
+      versionNo: 1,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(buyerTemplate);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(buyerVersion);
+    deliveryPrisma.deliveryManifestTemplate.update.mockResolvedValue(buyerTemplate);
+
+    await expect(
+      service.upsertTargetCustomization('admin_1', {
+        manifestType: 'BUYER_FULL',
+        targetId: 'PSDD0000000000001',
+        entries: [
+          {
+            key: 'memo',
+            label: '付款备注',
+            value: '平台售价 ¥100',
+            visible: true,
+          },
+        ],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        manifestType: 'BUYER_FULL',
+      }),
+    );
+  });
+
   it('creates v2 and v3 manifests without deleting historical objects when a newer template version is published', async () => {
     const template = {
       id: 'tmpl_buyer_full',
