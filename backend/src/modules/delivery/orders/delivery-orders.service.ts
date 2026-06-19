@@ -40,6 +40,87 @@ type DeliveryMerchantPricingGroup = {
   totalAmountCents?: number;
 };
 
+export type DeliveryOrderManifestContext = {
+  orderId: string;
+  userId: string;
+  unitId: string;
+  unitName: string;
+  contactName: string;
+  contactPhone: string;
+  recipientName: string;
+  recipientPhone: string;
+  regionText: string;
+  detailAddress: string;
+  note: string | null;
+  goodsAmountCents: number;
+  shippingFeeCents: number;
+  totalAmountCents: number;
+  paidAt: Date | null;
+  items: Array<{
+    subOrderId: string;
+    merchantId: string;
+    merchantName: string;
+    productTitle: string;
+    skuTitle: string;
+    unitName: string;
+    quantity: number;
+    finalUnitPriceCents: number;
+    finalLineAmountCents: number;
+    supplyUnitPriceCents: number;
+    supplyAmountCents: number;
+    shippingFeeShareCents: number;
+  }>;
+  payments: Array<{
+    merchantOrderNo: string;
+    channel: string;
+    amountCents: number;
+    providerTxnId: string | null;
+    paidAt: Date | null;
+  }>;
+};
+
+export type DeliveryFulfillmentManifestContext = {
+  subOrderId: string;
+  orderId: string;
+  merchantId: string;
+  merchantName: string;
+  unitName: string;
+  contactName: string;
+  contactPhone: string;
+  recipientName: string;
+  recipientPhone: string;
+  regionText: string;
+  detailAddress: string;
+  note: string | null;
+  paidAt: Date | null;
+  items: Array<{
+    productTitle: string;
+    skuTitle: string;
+    unitName: string;
+    quantity: number;
+    finalUnitPriceCents: number;
+    finalLineAmountCents: number;
+    supplyUnitPriceCents: number;
+    supplyAmountCents: number;
+  }>;
+};
+
+export type DeliveryFinanceExportContext = {
+  merchantId: string;
+  merchantName: string;
+  rows: Array<{
+    subOrderId: string;
+    orderId: string;
+    paidAt: Date | null;
+    itemSummary: string;
+    quantity: number;
+    supplyAmountCents: number;
+    shippingFeeShareCents: number;
+    settlementAmountCents: number;
+    buyerFinalAmountCents: number;
+  }>;
+};
+
 export class DeliveryProviderTxnConflictException extends ConflictException {
   constructor() {
     super('配送结算会话已绑定其他支付流水');
@@ -54,6 +135,166 @@ export class DeliveryOrdersService {
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryIdService: DeliveryIdService,
   ) {}
+
+  async getOrderManifestContextForBuyer(
+    deliveryUserId: string,
+    orderId: string,
+  ): Promise<DeliveryOrderManifestContext> {
+    const order = await this.deliveryPrisma.deliveryOrder.findFirst({
+      where: { id: orderId, userId: deliveryUserId },
+      include: this.getOrderManifestInclude(),
+    });
+    if (!order) {
+      throw new NotFoundException('配送订单不存在');
+    }
+    return this.mapOrderManifestContext(order);
+  }
+
+  async getOrderManifestContextForAdmin(orderId: string): Promise<DeliveryOrderManifestContext> {
+    const order = await this.deliveryPrisma.deliveryOrder.findFirst({
+      where: { id: orderId },
+      include: this.getOrderManifestInclude(),
+    });
+    if (!order) {
+      throw new NotFoundException('配送订单不存在');
+    }
+    return this.mapOrderManifestContext(order);
+  }
+
+  async getSellerFulfillmentManifestContext(
+    merchantId: string,
+    subOrderId: string,
+  ): Promise<DeliveryFulfillmentManifestContext> {
+    const subOrder = await this.deliveryPrisma.deliverySubOrder.findFirst({
+      where: { id: subOrderId, merchantId },
+      include: {
+        merchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        order: {
+          select: {
+            id: true,
+            unitSnapshot: true,
+            addressSnapshot: true,
+            note: true,
+            paidAt: true,
+          },
+        },
+        items: {
+          include: {
+            product: {
+              select: {
+                title: true,
+                unitName: true,
+              },
+            },
+            sku: {
+              select: {
+                title: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!subOrder) {
+      throw new NotFoundException('配送子订单不存在');
+    }
+
+    const unitSnapshot = this.parseUnitSnapshot(subOrder.order.unitSnapshot);
+    const addressSnapshot = this.parseAddressSnapshot(subOrder.order.addressSnapshot);
+    return {
+      subOrderId: subOrder.id,
+      orderId: subOrder.orderId,
+      merchantId: subOrder.merchantId,
+      merchantName: subOrder.merchant.name,
+      unitName: unitSnapshot.name,
+      contactName: unitSnapshot.contactName,
+      contactPhone: unitSnapshot.contactPhone,
+      recipientName: addressSnapshot.recipientName,
+      recipientPhone: addressSnapshot.phone,
+      regionText: addressSnapshot.regionText,
+      detailAddress: addressSnapshot.detailAddress,
+      note: subOrder.order.note,
+      paidAt: subOrder.order.paidAt,
+      items: subOrder.items.map((item) => {
+        const snapshot = this.parseProductSnapshot(item.productSnapshot);
+        return {
+          productTitle: snapshot.productTitle || item.product.title,
+          skuTitle: snapshot.skuTitle || item.sku.title,
+          unitName: snapshot.unitName || item.product.unitName,
+          quantity: item.quantity,
+          finalUnitPriceCents: item.unitPriceCents,
+          finalLineAmountCents: item.lineAmountCents,
+          supplyUnitPriceCents: item.supplyUnitPriceCents,
+          supplyAmountCents: item.supplyAmountCents,
+        };
+      }),
+    };
+  }
+
+  async getSellerFinanceExportContext(merchantId: string): Promise<DeliveryFinanceExportContext> {
+    const merchant = await this.deliveryPrisma.deliveryMerchant.findUnique({
+      where: { id: merchantId },
+      select: { id: true, name: true },
+    });
+    if (!merchant) {
+      throw new NotFoundException('配送商家不存在');
+    }
+
+    const subOrders = await this.deliveryPrisma.deliverySubOrder.findMany({
+      where: { merchantId },
+      orderBy: [{ createdAt: 'desc' }],
+      include: {
+        order: {
+          select: {
+            id: true,
+            paidAt: true,
+          },
+        },
+        items: {
+          include: {
+            product: {
+              select: {
+                title: true,
+              },
+            },
+            sku: {
+              select: {
+                title: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      merchantId,
+      merchantName: merchant.name,
+      rows: subOrders.map((subOrder) => {
+        const firstItem = subOrder.items[0];
+        const quantity = subOrder.items.reduce((sum, item) => sum + item.quantity, 0);
+        const itemSummary = firstItem
+          ? `${this.parseProductSnapshot(firstItem.productSnapshot).productTitle || firstItem.product.title} x${quantity}`
+          : 'No Items';
+        return {
+          subOrderId: subOrder.id,
+          orderId: subOrder.orderId,
+          paidAt: subOrder.order.paidAt,
+          itemSummary,
+          quantity,
+          supplyAmountCents: subOrder.supplyAmountCents,
+          shippingFeeShareCents: subOrder.shippingFeeShareCents,
+          settlementAmountCents: subOrder.supplyAmountCents + subOrder.shippingFeeShareCents,
+          buyerFinalAmountCents: subOrder.totalAmountCents,
+        };
+      }),
+    };
+  }
 
   async createOrderFromPaidCheckout(params: PaidCheckoutParams) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -385,5 +626,138 @@ export class DeliveryOrdersService {
     }
 
     return merchantGroups;
+  }
+
+  private getOrderManifestInclude() {
+    return {
+      items: {
+        include: {
+          subOrder: {
+            select: {
+              id: true,
+              merchantId: true,
+              shippingFeeShareCents: true,
+              merchant: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          product: {
+            select: {
+              title: true,
+              unitName: true,
+            },
+          },
+          sku: {
+            select: {
+              title: true,
+            },
+          },
+        },
+      },
+      payments: {
+        select: {
+          merchantOrderNo: true,
+          channel: true,
+          amountCents: true,
+          providerTxnId: true,
+          paidAt: true,
+        },
+        orderBy: {
+          createdAt: 'asc' as const,
+        },
+      },
+    };
+  }
+
+  private mapOrderManifestContext(order: any): DeliveryOrderManifestContext {
+    const unitSnapshot = this.parseUnitSnapshot(order.unitSnapshot);
+    const addressSnapshot = this.parseAddressSnapshot(order.addressSnapshot);
+    return {
+      orderId: order.id,
+      userId: order.userId,
+      unitId: order.unitId,
+      unitName: unitSnapshot.name,
+      contactName: unitSnapshot.contactName,
+      contactPhone: unitSnapshot.contactPhone,
+      recipientName: addressSnapshot.recipientName,
+      recipientPhone: addressSnapshot.phone,
+      regionText: addressSnapshot.regionText,
+      detailAddress: addressSnapshot.detailAddress,
+      note: order.note,
+      goodsAmountCents: order.goodsAmountCents,
+      shippingFeeCents: order.shippingFeeCents,
+      totalAmountCents: order.totalAmountCents,
+      paidAt: order.paidAt,
+      items: order.items.map((item: any) => {
+        const snapshot = this.parseProductSnapshot(item.productSnapshot);
+        return {
+          subOrderId: item.subOrderId,
+          merchantId: item.subOrder.merchantId,
+          merchantName: item.subOrder.merchant.name,
+          productTitle: snapshot.productTitle || item.product.title,
+          skuTitle: snapshot.skuTitle || item.sku.title,
+          unitName: snapshot.unitName || item.product.unitName,
+          quantity: item.quantity,
+          finalUnitPriceCents: item.unitPriceCents,
+          finalLineAmountCents: item.lineAmountCents,
+          supplyUnitPriceCents: item.supplyUnitPriceCents,
+          supplyAmountCents: item.supplyAmountCents,
+          shippingFeeShareCents: item.shippingFeeShareCents,
+        };
+      }),
+      payments: order.payments.map((payment: any) => ({
+        merchantOrderNo: payment.merchantOrderNo,
+        channel: payment.channel,
+        amountCents: payment.amountCents,
+        providerTxnId: payment.providerTxnId,
+        paidAt: payment.paidAt,
+      })),
+    };
+  }
+
+  private parseUnitSnapshot(raw: Prisma.JsonValue) {
+    const value = this.asRecord(raw);
+    return {
+      name: this.asString(value.name) || 'Unknown Unit',
+      contactName: this.asString(value.contactName) || '',
+      contactPhone: this.asString(value.contactPhone) || '',
+    };
+  }
+
+  private parseAddressSnapshot(raw: Prisma.JsonValue) {
+    const value = this.asRecord(raw);
+    const regionParts = [
+      this.asString(value.provinceName),
+      this.asString(value.cityName),
+      this.asString(value.districtName),
+    ].filter(Boolean);
+    return {
+      recipientName: this.asString(value.recipientName) || '',
+      phone: this.asString(value.phone) || '',
+      regionText: regionParts.join(' '),
+      detailAddress: this.asString(value.detailAddress) || '',
+    };
+  }
+
+  private parseProductSnapshot(raw: Prisma.JsonValue) {
+    const value = this.asRecord(raw);
+    return {
+      productTitle: this.asString(value.productTitle),
+      skuTitle: this.asString(value.skuTitle),
+      unitName: this.asString(value.unitName),
+    };
+  }
+
+  private asRecord(raw: Prisma.JsonValue): Record<string, unknown> {
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  }
+
+  private asString(raw: unknown) {
+    return typeof raw === 'string' ? raw : '';
   }
 }

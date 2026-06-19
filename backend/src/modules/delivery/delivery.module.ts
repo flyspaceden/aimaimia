@@ -34,6 +34,10 @@ import { DeliveryShippingService } from './shipping/delivery-shipping.service';
 import { DeliverySellerShippingController } from './shipping/delivery-seller-shipping.controller';
 import { DeliveryOrderShipmentsController } from './shipping/delivery-order-shipments.controller';
 import { DeliveryAdminShippingRecordsController } from './shipping/delivery-admin-shipping-records.controller';
+import { DeliveryManifestsController } from './manifests/delivery-manifests.controller';
+import { DeliveryAdminManifestsController } from './manifests/delivery-admin-manifests.controller';
+import { DeliverySellerManifestsController } from './manifests/delivery-seller-manifests.controller';
+import { DeliveryManifestsService } from './manifests/delivery-manifests.service';
 
 @Module({
   imports: [
@@ -66,6 +70,9 @@ import { DeliveryAdminShippingRecordsController } from './shipping/delivery-admi
     DeliverySellerShippingController,
     DeliveryOrderShipmentsController,
     DeliveryAdminShippingRecordsController,
+    DeliveryManifestsController,
+    DeliveryAdminManifestsController,
+    DeliverySellerManifestsController,
   ],
   providers: [
     DeliveryIdService,
@@ -83,6 +90,7 @@ import { DeliveryAdminShippingRecordsController } from './shipping/delivery-admi
     DeliveryOrdersService,
     DeliveryPaymentsService,
     DeliveryShippingService,
+    DeliveryManifestsService,
   ],
   exports: [
     DeliveryIdService,
