@@ -101,8 +101,8 @@ const formatLedgerBalance = (item: DigitalAssetLedger) =>
     : `余额 ${formatAssetValue(item.balanceAfter)}`;
 
 const getLedgerTone = (item: DigitalAssetLedger): LedgerTone => {
-  if (item.direction === 'DEBIT' || item.sourceType === 'REFUND_REVERSAL') return 'refund';
   if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'adjustment';
+  if (item.direction === 'DEBIT' || item.sourceType === 'REFUND_REVERSAL') return 'refund';
   if (item.subjectType === 'SEED_ASSET') return 'seed';
   if (item.subjectType === 'CREDIT_ASSET') return 'consumption';
   return 'spend';
