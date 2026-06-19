@@ -7,15 +7,36 @@ const sharp = require('sharp');
 
 import { buildSimplePdf } from './delivery-manifest.renderers';
 
-const PDFTOTEXT_BIN = '/opt/homebrew/bin/pdftotext';
-const PDFTOPPM_BIN = '/opt/homebrew/bin/pdftoppm';
-
-function hasExecutable(filePath: string) {
-  try {
-    return fs.existsSync(filePath);
-  } catch {
-    return false;
+function findCommandInPath(commandName: string) {
+  const pathValue = process.env.PATH ?? '';
+  for (const entry of pathValue.split(path.delimiter)) {
+    if (!entry) {
+      continue;
+    }
+    const candidate = path.join(entry, commandName);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
   }
+  return null;
+}
+
+function resolveRequiredCommand(commandName: string) {
+  const resolved = findCommandInPath(commandName);
+  if (resolved) {
+    return resolved;
+  }
+
+  if (process.env.DELIVERY_PDF_RENDER_TEST_SKIP === '1') {
+    return null;
+  }
+
+  throw new Error(
+    `Missing required Poppler command "${commandName}" in PATH. Install Poppler or set DELIVERY_PDF_RENDER_TEST_SKIP=1 to skip render verification.`,
+  );
 }
 
 function makeTempDir() {
@@ -30,10 +51,33 @@ describe('buildSimplePdf', () => {
     expect(pdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
   });
 
-  it('renders Chinese text, preserves supplementary characters, and avoids tofu-only raster output', async () => {
-    if (!hasExecutable(PDFTOTEXT_BIN) || !hasExecutable(PDFTOPPM_BIN)) {
-      const missing = [PDFTOTEXT_BIN, PDFTOPPM_BIN].filter((item) => !hasExecutable(item));
-      console.warn(`Skipping Poppler-backed PDF render assertion; missing: ${missing.join(', ')}`);
+  it('fails clearly when Poppler is absent unless DELIVERY_PDF_RENDER_TEST_SKIP=1 is set', () => {
+    const originalPath = process.env.PATH;
+    const originalSkip = process.env.DELIVERY_PDF_RENDER_TEST_SKIP;
+
+    try {
+      process.env.PATH = '';
+      delete process.env.DELIVERY_PDF_RENDER_TEST_SKIP;
+      expect(() => resolveRequiredCommand('pdftotext')).toThrow(
+        'Missing required Poppler command "pdftotext" in PATH.',
+      );
+
+      process.env.DELIVERY_PDF_RENDER_TEST_SKIP = '1';
+      expect(resolveRequiredCommand('pdftotext')).toBeNull();
+    } finally {
+      process.env.PATH = originalPath;
+      if (originalSkip === undefined) {
+        delete process.env.DELIVERY_PDF_RENDER_TEST_SKIP;
+      } else {
+        process.env.DELIVERY_PDF_RENDER_TEST_SKIP = originalSkip;
+      }
+    }
+  });
+
+  it('renders high-resolution CJK text, preserves supplementary characters, and verifies output with Poppler from PATH', async () => {
+    const pdftotextBin = resolveRequiredCommand('pdftotext');
+    const pdftoppmBin = resolveRequiredCommand('pdftoppm');
+    if (!pdftotextBin || !pdftoppmBin) {
       return;
     }
 
@@ -45,8 +89,14 @@ describe('buildSimplePdf', () => {
     try {
       const pdf = await buildSimplePdf(['测试中文', '北京上海', '𠮷野家']);
       fs.writeFileSync(pdfPath, pdf);
+      const pdfText = pdf.toString('latin1');
+      const imageMatch = pdfText.match(/\/Subtype \/Image[\s\S]*?\/Width (\d+)[\s\S]*?\/Height (\d+)/);
 
-      const extractedText = execFileSync(PDFTOTEXT_BIN, [pdfPath, '-'], {
+      expect(imageMatch).not.toBeNull();
+      expect(Number(imageMatch?.[1])).toBeGreaterThan(612);
+      expect(Number(imageMatch?.[2])).toBeGreaterThan(792);
+
+      const extractedText = execFileSync(pdftotextBin, [pdfPath, '-'], {
         encoding: 'utf8',
       });
 
@@ -55,26 +105,34 @@ describe('buildSimplePdf', () => {
       expect(extractedText).toContain('𠮷野家');
       expect(extractedText).not.toContain('?');
 
-      execFileSync(PDFTOPPM_BIN, ['-r', '72', '-png', '-singlefile', pdfPath, pngPrefix], {
+      execFileSync(pdftoppmBin, ['-r', '144', '-png', '-singlefile', pdfPath, pngPrefix], {
         stdio: 'pipe',
       });
 
+      const pngStats = fs.statSync(pngPath);
+      expect(pngStats.size).toBeGreaterThan(3_000);
+
+      const { data, info } = await sharp(pngPath).removeAlpha().raw().toBuffer({
+        resolveWithObject: true,
+      });
+      let darkPixelCount = 0;
+      for (let index = 0; index < data.length; index += info.channels) {
+        if (data[index] < 245 || data[index + 1] < 245 || data[index + 2] < 245) {
+          darkPixelCount += 1;
+        }
+      }
+      expect(darkPixelCount).toBeGreaterThan(500);
+
       const lineA = await sharp(pngPath)
-        .extract({ left: 36, top: 32, width: 180, height: 40 })
+        .extract({ left: 72, top: 72, width: 360, height: 60 })
         .png()
         .toBuffer();
       const lineB = await sharp(pngPath)
-        .extract({ left: 36, top: 60, width: 180, height: 40 })
-        .png()
-        .toBuffer();
-      const lineC = await sharp(pngPath)
-        .extract({ left: 36, top: 88, width: 180, height: 40 })
+        .extract({ left: 72, top: 128, width: 360, height: 60 })
         .png()
         .toBuffer();
 
       expect(lineA.equals(lineB)).toBe(false);
-      expect(lineB.equals(lineC)).toBe(false);
-      expect(lineA.equals(lineC)).toBe(false);
     } finally {
       fs.rmSync(workingDir, { recursive: true, force: true });
     }

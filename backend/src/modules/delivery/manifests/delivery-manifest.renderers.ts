@@ -13,6 +13,7 @@ const PDF_MARGIN_BOTTOM = 40;
 const PDF_FONT_SIZE = 16;
 const PDF_LINE_HEIGHT = 28;
 const PDF_TEXT_COLOR = rgb(0.1, 0.1, 0.1);
+const PDF_RENDER_SCALE = 3;
 const SOURCE_HAN_SANS_VF_PATH = require.resolve('@fontpkg/source-han-sans-vf/SourceHanSans-VF.ttf.woff2');
 
 let cachedFontBytes: Uint8Array | null = null;
@@ -77,6 +78,10 @@ function chunkPdfLines(lines: string[]) {
   return pages.length ? pages : [['']];
 }
 
+function getPdfLineY(index: number) {
+  return PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - PDF_FONT_SIZE - index * PDF_LINE_HEIGHT;
+}
+
 async function renderPdfPagePng(lines: string[]) {
   const fontBase64 = getSourceHanSansBase64();
   const textNodes = lines
@@ -87,7 +92,10 @@ async function renderPdfPagePng(lines: string[]) {
     .join('');
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${PDF_PAGE_WIDTH}" height="${PDF_PAGE_HEIGHT}" viewBox="0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}">
+<svg xmlns="http://www.w3.org/2000/svg"
+  width="${PDF_PAGE_WIDTH * PDF_RENDER_SCALE}"
+  height="${PDF_PAGE_HEIGHT * PDF_RENDER_SCALE}"
+  viewBox="0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}">
   <style>
     @font-face { font-family: 'SourceHanSans'; src: url(data:font/woff2;base64,${fontBase64}) format('woff2'); }
     text { font-family: 'SourceHanSans'; font-size: ${PDF_FONT_SIZE}px; fill: #111111; }
@@ -124,10 +132,9 @@ export async function buildSimplePdf(lines: string[]): Promise<Buffer> {
     });
 
     for (let index = 0; index < pageLines.length; index += 1) {
-      const baselineY = PDF_MARGIN_TOP + PDF_FONT_SIZE + index * PDF_LINE_HEIGHT;
       page.drawText(pageLines[index], {
         x: PDF_MARGIN_LEFT,
-        y: PDF_PAGE_HEIGHT - baselineY,
+        y: getPdfLineY(index),
         size: PDF_FONT_SIZE,
         font,
         color: PDF_TEXT_COLOR,
