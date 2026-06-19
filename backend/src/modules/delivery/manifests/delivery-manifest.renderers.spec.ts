@@ -43,6 +43,14 @@ function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'delivery-manifest-renderer-'));
 }
 
+function buildMultiPageSampleLines() {
+  return Array.from({ length: 80 }, (_, index) => {
+    const lineNo = String(index + 1).padStart(2, '0');
+    const orderNo = String(index + 1).padStart(4, '0');
+    return `第${lineNo}行测试中文北京上海订单${orderNo}`;
+  });
+}
+
 describe('buildSimplePdf', () => {
   it('creates a non-empty PDF buffer for manifest lines', async () => {
     const pdf = await buildSimplePdf(['测试中文', '北京上海', '𠮷野家']);
@@ -137,4 +145,35 @@ describe('buildSimplePdf', () => {
       fs.rmSync(workingDir, { recursive: true, force: true });
     }
   });
+
+  it(
+    'keeps a multi-page sample PDF operationally small while preserving extraction and pagination',
+    async () => {
+    const pdftotextBin = resolveRequiredCommand('pdftotext');
+    if (!pdftotextBin) {
+      return;
+    }
+
+    const workingDir = makeTempDir();
+    const pdfPath = path.join(workingDir, 'multi-page.pdf');
+    const lines = buildMultiPageSampleLines();
+
+    try {
+      const pdf = await buildSimplePdf(lines);
+      fs.writeFileSync(pdfPath, pdf);
+
+      expect(pdf.byteLength).toBeLessThan(4_000_000);
+
+      const extractedText = execFileSync(pdftotextBin, [pdfPath, '-'], {
+        encoding: 'utf8',
+      });
+
+      expect(extractedText).toContain(lines[0]);
+      expect(extractedText).toContain(lines[lines.length - 1]);
+    } finally {
+      fs.rmSync(workingDir, { recursive: true, force: true });
+    }
+    },
+    20_000,
+  );
 });
