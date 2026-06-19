@@ -45,9 +45,9 @@ interface PhoneLoginForm {
 // 环境标识：根据 VITE_APP_ENV 或 Vite 内置 MODE 判断
 const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
 const isProduction = appEnv === 'production';
-const switchToDeliveryAdminUrl = isProduction
-  ? 'https://delivery-admin.ai-maimai.com'
-  : 'https://test-delivery-admin.ai-maimai.com';
+const switchToAdminUrl = isProduction
+  ? 'https://admin.ai-maimai.com'
+  : 'https://test-admin.ai-maimai.com';
 
 /**
  * 将登录/获取权限过程中的异常转为用户友好的错误提示
@@ -178,13 +178,13 @@ export default function LoginPage() {
         captchaId,
         captchaCode: values.captchaCode,
       });
-      localStorage.setItem('admin_token', result.accessToken);
+      localStorage.setItem('delivery_admin_token', result.accessToken);
       const profile = await getProfile();
       setAuth(result.accessToken, result.refreshToken, profile);
       message.success('登录成功');
       navigate('/', { replace: true });
     } catch (err) {
-      localStorage.removeItem('admin_token');
+      localStorage.removeItem('delivery_admin_token');
       message.error(getLoginErrorMessage(err));
       // 登录失败时刷新验证码（每个 captcha 只能使用一次）
       void refreshCaptcha();
@@ -223,13 +223,13 @@ export default function LoginPage() {
         phone: values.phone,
         code: values.code,
       });
-      localStorage.setItem('admin_token', result.accessToken);
+      localStorage.setItem('delivery_admin_token', result.accessToken);
       const profile = await getProfile();
       setAuth(result.accessToken, result.refreshToken, profile);
       message.success('登录成功');
       navigate('/', { replace: true });
     } catch (err) {
-      localStorage.removeItem('admin_token');
+      localStorage.removeItem('delivery_admin_token');
       message.error(getLoginErrorMessage(err));
     } finally {
       setLoading(false);
@@ -244,7 +244,7 @@ export default function LoginPage() {
         alignItems: 'center',
         justifyContent: 'center',
         background:
-          'linear-gradient(135deg, #e8eaf6 0%, #c5cae9 50%, #9fa8da 100%)',
+          'linear-gradient(135deg, #f0f9ff 0%, #dbeafe 50%, #bfdbfe 100%)',
       }}
     >
       <Card
@@ -257,14 +257,14 @@ export default function LoginPage() {
       >
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ marginBottom: 8 }}>
-            <Tag color={isProduction ? 'green' : 'orange'}>
+            <Tag color={isProduction ? 'green' : 'blue'}>
               {isProduction ? '正式环境' : '测试环境'}
             </Tag>
           </div>
-          <Title level={3} style={{ marginBottom: 4, color: '#1E40AF' }}>
-            爱买买管理后台
+          <Title level={3} style={{ marginBottom: 4, color: '#0B5CAD' }}>
+            配送管理后台
           </Title>
-          <Text type="secondary">AI 赋能农业电商平台</Text>
+          <Text type="secondary">配送业务独立后台</Text>
         </div>
 
         <Tabs
@@ -449,9 +449,9 @@ export default function LoginPage() {
         <Button
           block
           style={{ marginTop: 16, height: 44, borderRadius: 8 }}
-          href={switchToDeliveryAdminUrl}
+          href={switchToAdminUrl}
         >
-          切换配送管理后台
+          切换爱买买管理后台
         </Button>
       </Card>
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>

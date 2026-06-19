@@ -26,6 +26,11 @@
   - **实际做了**: 买家 App `我的 > 常用工具 > 配送` 入口接到 `/delivery`；完成 delivery 登录门禁、单位选择/编辑、双 Tab（商品/我的）、商品列表/详情、购物车、配送专属结算与支付状态页、配送订单列表/详情、配送清单页；新增 delivery buyer 订单列表/详情后端接口与 App `DeliveryOrderRepo` 映射；补 delivery 专属 `checkout/:id/pay` 发起支付参数接口，App 走原生支付宝 / 微信 SDK；配送支付回调建单后同事务清理本次 checkout 对应的 `DeliveryCartItem`
   - **验证**: `npx tsc --noEmit --pretty false`、根目录 `npm test -- --runInBand`、`backend npm test -- --runInBand src/modules/delivery/checkout/delivery-checkout.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`backend npm run build`、`git diff --check`；其中真实支付宝 / 微信 provider 回调仍待实机联调验证，当前仅完成代码链路与单测验证
 
+- [x] **配送管理后台壳（Task 14）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 14 brief
+  - **实际做了**: 复制 `admin/` 新建 `delivery-admin/`；切成 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth` 独立登录态；认证接口改到 `/delivery-admin/auth/*`；登录页与爱买买管理后台互相增加切换按钮；配送管理后台改为浅蓝主题；裁掉 VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送菜单与路由；`deploy-website.yml` 新增 delivery-admin 构建与部署目标
+  - **验证**: `cd admin && npm run build`、`cd ../delivery-admin && npm install && npm run build`
+
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀
   - **实际做了**: 买家 App 我的页身份卡移除时段问候语；昵称作为主标题；买家编号展示为 `ID: AIMM...` 并保留复制按钮；推荐码入口下移为独立 chip；右侧“扫一扫/编辑”按钮固定宽度和间距

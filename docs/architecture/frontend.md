@@ -70,6 +70,13 @@
 - 支付宝 / 微信真实 provider 回调链路沿用现有 `/payments/alipay|wechat/notify -> DeliveryPaymentsService -> DeliveryOrdersService`，本次只补齐 delivery 侧 pay params 发起；真实渠道联调仍待实机验证，当前不能表述为已完成生产验证。
 - 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
 
+### 0.6 配送管理后台壳（2026-06-19 / Task 14）
+
+- 已新增独立 `delivery-admin/` 前端包，作为配送管理后台壳。
+- 认证本地存储与持久化键独立为 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth`。
+- 登录认证接口改到 `/api/v1/delivery-admin/auth/*`，登录页与爱买买管理后台登录页已互相增加切换按钮。
+- 当前仅保留壳层路由、浅蓝主题和基础可访问菜单；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块已从路由和菜单裁掉。
+
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
 ### 1.2 设计原则

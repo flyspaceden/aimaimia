@@ -6,6 +6,7 @@ on:
     paths:
       - 'website/**'
       - 'admin/**'
+      - 'delivery-admin/**'
       - 'seller/**'
       - 'backend/**'
       - 'huahai-corporate-site/**'
@@ -18,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_target:
-        description: '部署目标 (all/website/admin/seller/backend/huahai)'
+        description: '部署目标 (all/website/admin/delivery-admin/seller/backend/huahai)'
         required: true
         default: 'all'
 
@@ -28,6 +29,7 @@ jobs:
     outputs:
       website: ${{ steps.changes.outputs.website }}
       admin: ${{ steps.changes.outputs.admin }}
+      delivery_admin: ${{ steps.changes.outputs.delivery_admin }}
       seller: ${{ steps.changes.outputs.seller }}
       backend: ${{ steps.changes.outputs.backend }}
       huahai: ${{ steps.changes.outputs.huahai }}
@@ -35,6 +37,7 @@ jobs:
       api_base: ${{ steps.env.outputs.api_base }}
       ws_base: ${{ steps.env.outputs.ws_base }}
       admin_target: ${{ steps.env.outputs.admin_target }}
+      delivery_admin_target: ${{ steps.env.outputs.delivery_admin_target }}
       seller_target: ${{ steps.env.outputs.seller_target }}
       website_target: ${{ steps.env.outputs.website_target }}
       backend_src_dir: ${{ steps.env.outputs.backend_src_dir }}
@@ -54,6 +57,7 @@ jobs:
             TARGET="${{ github.event.inputs.deploy_target }}"
             [ "$TARGET" = "all" ] || [ "$TARGET" = "website" ] && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "admin" ]   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
+            [ "$TARGET" = "all" ] || [ "$TARGET" = "delivery-admin" ] && echo "delivery_admin=true" >> $GITHUB_OUTPUT || echo "delivery_admin=false" >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "seller" ]  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ] && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "huahai" ]  && echo "huahai=true"  >> $GITHUB_OUTPUT || echo "huahai=false"  >> $GITHUB_OUTPUT
@@ -68,6 +72,7 @@ jobs:
             fi
             echo "$CHANGED" | grep -Eq '^(website/|scripts/lib/legal-static-renderer\.mjs$)' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^admin/'   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -q '^delivery-admin/' && echo "delivery_admin=true" >> $GITHUB_OUTPUT || echo "delivery_admin=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^seller/'  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^backend/' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
@@ -81,6 +86,7 @@ jobs:
             echo "api_base=https://api.ai-maimai.com/api/v1" >> $GITHUB_OUTPUT
             echo "ws_base=https://api.ai-maimai.com" >> $GITHUB_OUTPUT
             echo "admin_target=/www/wwwroot/admin/" >> $GITHUB_OUTPUT
+            echo "delivery_admin_target=/www/wwwroot/delivery-admin/" >> $GITHUB_OUTPUT
             echo "seller_target=/www/wwwroot/seller/" >> $GITHUB_OUTPUT
             echo "website_target=/www/wwwroot/website/" >> $GITHUB_OUTPUT
             echo "backend_src_dir=/www/wwwroot/aimaimai-prod-src" >> $GITHUB_OUTPUT
@@ -91,6 +97,7 @@ jobs:
             echo "api_base=https://test-api.ai-maimai.com/api/v1" >> $GITHUB_OUTPUT
             echo "ws_base=https://test-api.ai-maimai.com" >> $GITHUB_OUTPUT
             echo "admin_target=/www/wwwroot/test-admin/" >> $GITHUB_OUTPUT
+            echo "delivery_admin_target=/www/wwwroot/test-delivery-admin/" >> $GITHUB_OUTPUT
             echo "seller_target=/www/wwwroot/test-seller/" >> $GITHUB_OUTPUT
             echo "website_target=/www/wwwroot/website/" >> $GITHUB_OUTPUT
             echo "backend_src_dir=/www/wwwroot/aimaimai-staging-src" >> $GITHUB_OUTPUT
@@ -164,6 +171,39 @@ jobs:
           REMOTE_USER: ${{ secrets.SERVER_USER }}
           SOURCE: admin/dist/
           TARGET: ${{ needs.detect-changes.outputs.admin_target }}
+          ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
+
+  deploy-delivery-admin:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.delivery_admin == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: delivery-admin/package-lock.json
+
+      - name: Build delivery-admin
+        env:
+          VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
+          VITE_WS_BASE_URL: ${{ needs.detect-changes.outputs.ws_base }}
+          VITE_APP_ENV: ${{ needs.detect-changes.outputs.env_name }}
+        run: |
+          cd delivery-admin
+          npm ci
+          npm run build
+
+      - name: Deploy to server
+        uses: easingthemes/ssh-deploy@v4
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.SERVER_HOST }}
+          REMOTE_USER: ${{ secrets.SERVER_USER }}
+          SOURCE: delivery-admin/dist/
+          TARGET: ${{ needs.detect-changes.outputs.delivery_admin_target }}
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
 
   deploy-seller:
