@@ -135,7 +135,7 @@ export default function DigitalAssetsScreen() {
 
   const tierProgressPercent = (() => {
     if (!summary?.currentCreditTier) return 0;
-    if (!summary.nextCreditTier) return 1;
+    if (!summary.nextCreditTier) return 100;
     const span = Math.max(
       1,
       summary.nextCreditTier.minAmount - summary.currentCreditTier.minAmount,
