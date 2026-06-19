@@ -3,6 +3,12 @@ export interface UploadDownloadRequest {
   filename: string;
 }
 
+const DELIVERY_UPLOAD_KEY_PREFIXES = [
+  'delivery/products/',
+  'delivery/documents/',
+  'delivery/general/',
+  'delivery/avatars/',
+];
 const UPLOAD_KEY_PREFIXES = ['products/', 'documents/', 'general/', 'avatars/'];
 
 function appendQuery(url: string, params: Record<string, string>): string {
@@ -30,10 +36,11 @@ function deriveFilename(preferredName: string, keyOrUrl: string): string {
   return `${preferredName}${getExtension(keyOrUrl) || '.jpg'}`;
 }
 
-function extractUploadKey(fileUrl: string): string | null {
-  const pathname = decodeURIComponent(getPathname(fileUrl)).replace(/^\/+/, '');
-  const uploadIndex = pathname.indexOf('uploads/');
-  if (uploadIndex >= 0) return pathname.slice(uploadIndex + 'uploads/'.length);
+function extractKeyByPrefix(pathname: string): string | null {
+  for (const prefix of DELIVERY_UPLOAD_KEY_PREFIXES) {
+    const index = pathname.indexOf(prefix);
+    if (index >= 0) return pathname.slice(index);
+  }
 
   for (const prefix of UPLOAD_KEY_PREFIXES) {
     const index = pathname.indexOf(prefix);
@@ -41,6 +48,17 @@ function extractUploadKey(fileUrl: string): string | null {
   }
 
   return null;
+}
+
+function extractUploadKey(fileUrl: string): string | null {
+  const pathname = decodeURIComponent(getPathname(fileUrl)).replace(/^\/+/, '');
+  const uploadIndex = pathname.indexOf('uploads/');
+  if (uploadIndex >= 0) {
+    const uploadKey = pathname.slice(uploadIndex + 'uploads/'.length);
+    return extractKeyByPrefix(uploadKey) ?? uploadKey;
+  }
+
+  return extractKeyByPrefix(pathname);
 }
 
 export function buildUploadDownloadRequest(
