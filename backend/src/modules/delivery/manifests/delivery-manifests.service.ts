@@ -33,6 +33,11 @@ type ManifestTemplateConfig = {
   columns: DeliveryManifestColumnDefinition[];
 };
 
+type ManifestRenderedTable = {
+  headers: string[];
+  rows: string[][];
+};
+
 @Injectable()
 export class DeliveryManifestsService {
   constructor(
@@ -248,29 +253,19 @@ export class DeliveryManifestsService {
       totalAmount: this.money(context.totalAmountCents),
     }));
 
+    const renderedTable = this.buildRenderedTable(config, rows);
+
     const payloadSnapshot = {
       versionNo: version.versionNo,
       generatedFor: { orderId: context.orderId, userId: context.userId },
       columns: config.columns,
       rows,
+      renderedTable,
     };
-    const lines = [
-      'Buyer Full Manifest',
-      `Order ID: ${context.orderId}`,
-      `Unit: ${context.unitName}`,
-      `Recipient: ${context.recipientName}`,
-      `Recipient Phone: ${context.recipientPhone}`,
-      `Address: ${context.detailAddress}`,
-      ...rows.map(
-        (row) =>
-          `${row.productTitle} | ${row.skuTitle} | qty ${row.quantity} | final ${row.finalUnitPrice} | line ${row.finalLineAmount}`,
-      ),
-      `Goods Amount: ${this.money(context.goodsAmountCents)}`,
-      `Shipping Fee: ${this.money(context.shippingFeeCents)}`,
-      `Total Amount: ${this.money(context.totalAmountCents)}`,
-    ];
-
-    const uploaded = await this.uploadGeneratedBuffer(definition, buildSimplePdf(lines));
+    const uploaded = await this.uploadGeneratedBuffer(
+      definition,
+      buildSimplePdf(this.buildPdfLines(definition.name, version.versionNo, renderedTable)),
+    );
     return this.deliveryPrisma.deliveryManifest.create({
       data: {
         id: await this.deliveryIdService.next('PSQD'),
@@ -324,27 +319,19 @@ export class DeliveryManifestsService {
       note: context.note ?? '',
     }));
 
+    const renderedTable = this.buildRenderedTable(config, rows);
+
     const payloadSnapshot = {
       versionNo: version.versionNo,
       generatedFor: { orderId: context.orderId, subOrderId: context.subOrderId, merchantId: context.merchantId },
       columns: config.columns,
       rows,
+      renderedTable,
     };
-    const lines = [
-      'Seller Fulfillment Manifest',
-      `Order ID: ${context.orderId}`,
-      `SubOrder ID: ${context.subOrderId}`,
-      `Recipient: ${context.recipientName}`,
-      `Recipient Phone: ${context.recipientPhone}`,
-      `Address: ${context.detailAddress}`,
-      ...rows.map(
-        (row) =>
-          `${row.productTitle} | ${row.skuTitle} | qty ${row.quantity} | unit ${row.unitNameItem}`,
-      ),
-      `Note: ${context.note ?? ''}`,
-    ];
-
-    const uploaded = await this.uploadGeneratedBuffer(definition, buildSimplePdf(lines));
+    const uploaded = await this.uploadGeneratedBuffer(
+      definition,
+      buildSimplePdf(this.buildPdfLines(definition.name, version.versionNo, renderedTable)),
+    );
     return this.deliveryPrisma.deliveryManifest.create({
       data: {
         id: await this.deliveryIdService.next('PSQD'),
@@ -370,18 +357,6 @@ export class DeliveryManifestsService {
     context: DeliveryFinanceExportContext,
   ) {
     const { template, version, config } = await this.getTemplateAndVersion(definition);
-    const existing = await this.deliveryPrisma.deliveryManifest.findFirst({
-      where: {
-        merchantId: context.merchantId,
-        type: definition.dbType,
-        format: definition.format,
-        status: DeliveryManifestStatus.GENERATED,
-      },
-      orderBy: [{ createdAt: 'desc' }],
-    });
-    if (existing && existing.templateVersionId === version.id) {
-      return existing;
-    }
 
     const rows = context.rows.map((row) => ({
       orderId: row.orderId,
@@ -393,19 +368,17 @@ export class DeliveryManifestsService {
       shippingFeeShare: this.money(row.shippingFeeShareCents),
       settlementAmount: this.money(row.settlementAmountCents),
     }));
+    const renderedTable = this.buildRenderedTable(config, rows);
     const payloadSnapshot = {
       versionNo: version.versionNo,
       generatedFor: { merchantId: context.merchantId },
       columns: config.columns,
       rows,
+      renderedTable,
     };
-    const visibleColumns = config.columns.filter((column) => column.visible);
     const uploaded = await this.uploadGeneratedBuffer(
       definition,
-      buildSpreadsheetXml(
-        visibleColumns.map((column) => column.label),
-        rows.map((row) => visibleColumns.map((column) => String((row as Record<string, unknown>)[column.key] ?? ''))),
-      ),
+      buildSpreadsheetXml(renderedTable.headers, renderedTable.rows),
     );
 
     return this.deliveryPrisma.deliveryManifest.create({
@@ -504,6 +477,33 @@ export class DeliveryManifestsService {
         })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key)),
     };
+  }
+
+  private buildRenderedTable(
+    config: ManifestTemplateConfig,
+    rows: Array<Record<string, unknown>>,
+  ): ManifestRenderedTable {
+    const visibleColumns = config.columns.filter((column) => column.visible);
+
+    return {
+      headers: visibleColumns.map((column) => column.label),
+      rows: rows.map((row) =>
+        visibleColumns.map((column) => String(row[column.key] ?? '')),
+      ),
+    };
+  }
+
+  private buildPdfLines(
+    title: string,
+    versionNo: number,
+    renderedTable: ManifestRenderedTable,
+  ) {
+    return [
+      title,
+      `Template Version: v${versionNo}`,
+      renderedTable.headers.join(' | '),
+      ...renderedTable.rows.map((row) => row.join(' | ')),
+    ];
   }
 
   private async uploadGeneratedBuffer(

@@ -5,6 +5,12 @@ import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryOrdersService } from '../orders/delivery-orders.service';
 import { DeliveryManifestsService } from './delivery-manifests.service';
 
+function toUtf16BeHex(value: string) {
+  return Array.from(value)
+    .map((char) => char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'))
+    .join('');
+}
+
 describe('DeliveryManifestsService', () => {
   let deliveryPrisma: any;
   let deliveryOrdersService: any;
@@ -198,8 +204,8 @@ describe('DeliveryManifestsService', () => {
       'application/pdf',
     );
     const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain('88.00');
-    expect(uploadedPdf).toContain('176.00');
+    expect(uploadedPdf).toContain(toUtf16BeHex('88.00'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('176.00'));
     expect(buyerResult.type).toBe('BUYER_FULL');
     expect(adminResult.type).toBe('BUYER_FULL');
     expect(buyerResult.format).toBe(DeliveryManifestFormat.PDF);
@@ -209,6 +215,89 @@ describe('DeliveryManifestsService', () => {
         expect.objectContaining({ key: 'finalLineAmount', visible: true }),
       ]),
     );
+  });
+
+  it('preserves Chinese text in buyer PDFs and renders buyer columns from normalized template config', async () => {
+    const localizedOrderContext = {
+      ...orderContext,
+      unitName: '清河厨房',
+      recipientName: '张三',
+      detailAddress: '南山区科技园一层',
+      items: [
+        {
+          ...orderContext.items[0],
+          merchantName: '北仓商户',
+          productTitle: '牛肉',
+          skuTitle: '精品装',
+        },
+      ],
+    };
+    deliveryOrdersService.getOrderManifestContextForBuyer.mockResolvedValue(localizedOrderContext);
+    const template = {
+      id: 'tmpl_buyer_full',
+      type: 'USER_FULL',
+      name: 'Buyer Full',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_buyer_full_v2',
+      templateId: 'tmpl_buyer_full',
+      versionNo: 2,
+      status: 'PUBLISHED',
+      config: {
+        columns: [
+          { key: 'recipientName', label: '收货人', sortOrder: 5, visible: true, fixed: true },
+          { key: 'orderId', label: '配送单号', sortOrder: 10, visible: true, fixed: true },
+          { key: 'merchantName', label: '商户', sortOrder: 15, visible: false, fixed: false },
+          { key: 'productTitle', label: '商品名称', sortOrder: 20, visible: true, fixed: true },
+          { key: 'finalLineAmount', label: '金额', sortOrder: 25, visible: true, fixed: true },
+        ],
+      },
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue(null);
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+
+    const manifest = await service.getOrderManifest({
+      orderId: 'PSDD0000000000001',
+      viewer: { kind: 'buyer', deliveryUserId: 'delivery_user_1' },
+    });
+
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
+    expect(uploadedPdf).toContain(toUtf16BeHex('收货人'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('配送单号'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('商品名称'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('张三'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('牛肉'));
+    expect(uploadedPdf).not.toContain('?');
+    expect(uploadedPdf).not.toContain(toUtf16BeHex('商户'));
+    expect(uploadedPdf).not.toContain(toUtf16BeHex('北仓商户'));
+    expect(uploadedPdf.indexOf(toUtf16BeHex('收货人'))).toBeLessThan(
+      uploadedPdf.indexOf(toUtf16BeHex('配送单号')),
+    );
+    expect(manifest.payloadSnapshot.renderedTable.headers).toEqual([
+      '收货人',
+      '配送单号',
+      '商品名称',
+      'Unit',
+      '金额',
+      'Recipient Phone',
+      'Address',
+      'SKU',
+      'Qty',
+      'Final Unit Price',
+      'Paid At',
+      'Note',
+      'Goods Amount',
+      'Shipping Fee',
+      'Total Amount',
+    ]);
   });
 
   it('builds seller fulfillment PDFs without amount fields', async () => {
@@ -238,11 +327,11 @@ describe('DeliveryManifestsService', () => {
     const manifest = await service.getSellerFulfillmentManifest('merchant_1', 'PSZDD000000000001');
 
     const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain('PSZDD000000000001');
-    expect(uploadedPdf).toContain('Receiver A');
-    expect(uploadedPdf).not.toContain('88.00');
-    expect(uploadedPdf).not.toContain('176.00');
-    expect(uploadedPdf).not.toContain('120.00');
+    expect(uploadedPdf).toContain(toUtf16BeHex('PSZDD000000000001'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('Receiver A'));
+    expect(uploadedPdf).not.toContain(toUtf16BeHex('88.00'));
+    expect(uploadedPdf).not.toContain(toUtf16BeHex('176.00'));
+    expect(uploadedPdf).not.toContain(toUtf16BeHex('120.00'));
     expect(manifest.type).toBe('SELLER_FULFILLMENT');
     expect(manifest.payloadSnapshot.columns).not.toEqual(
       expect.arrayContaining([
@@ -250,6 +339,64 @@ describe('DeliveryManifestsService', () => {
         expect.objectContaining({ key: 'supplyAmount' }),
       ]),
     );
+  });
+
+  it('renders seller fulfillment PDFs from normalized visible columns and keeps fixed columns non-hideable', async () => {
+    const template = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: 'Seller Fulfillment',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_seller_fulfillment_v2',
+      templateId: 'tmpl_seller_fulfillment',
+      versionNo: 2,
+      status: 'PUBLISHED',
+      config: {
+        columns: [
+          { key: 'recipientName', label: '收件人', sortOrder: 5, visible: true, fixed: true },
+          { key: 'orderId', label: '配送主单', sortOrder: 10, visible: false, fixed: true },
+          { key: 'subOrderId', label: '子单号', sortOrder: 15, visible: true, fixed: true },
+          { key: 'note', label: '备注', sortOrder: 20, visible: false, fixed: false },
+          { key: 'productTitle', label: '商品', sortOrder: 25, visible: true, fixed: true },
+        ],
+      },
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue(null);
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+
+    const manifest = await service.getSellerFulfillmentManifest('merchant_1', 'PSZDD000000000001');
+
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
+    expect(uploadedPdf).toContain(toUtf16BeHex('收件人'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('配送主单'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('子单号'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('商品'));
+    expect(uploadedPdf).not.toContain(toUtf16BeHex('备注'));
+    expect(uploadedPdf.indexOf(toUtf16BeHex('收件人'))).toBeLessThan(
+      uploadedPdf.indexOf(toUtf16BeHex('配送主单')),
+    );
+    expect(manifest.payloadSnapshot.renderedTable.headers).toEqual([
+      '收件人',
+      '配送主单',
+      '子单号',
+      '商品',
+      'Unit',
+      'Recipient Phone',
+      'Address',
+      'SKU',
+      'Item Unit',
+      'Qty',
+      'Paid At',
+    ]);
   });
 
   it('exports seller finance data with only supply and settlement amounts', async () => {
@@ -306,6 +453,69 @@ describe('DeliveryManifestsService', () => {
         expect.objectContaining({ key: 'buyerFinalAmount' }),
       ]),
     );
+  });
+
+  it('creates a fresh seller finance export when finance rows change under the same template version', async () => {
+    const template = {
+      id: 'tmpl_seller_finance',
+      type: 'SELLER_SETTLEMENT',
+      name: 'Seller Finance',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_seller_finance_v1',
+      templateId: 'tmpl_seller_finance',
+      versionNo: 1,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+    deliveryOrdersService.getSellerFinanceExportContext
+      .mockResolvedValueOnce(financeContext)
+      .mockResolvedValueOnce({
+        ...financeContext,
+        rows: [
+          ...financeContext.rows,
+          {
+            subOrderId: 'PSZDD000000000002',
+            orderId: 'PSDD0000000000002',
+            paidAt: new Date('2026-06-19T10:30:00.000Z'),
+            itemSummary: 'Pork x1',
+            quantity: 1,
+            supplyAmountCents: 5400,
+            shippingFeeShareCents: 200,
+            settlementAmountCents: 5600,
+            buyerFinalAmountCents: 7600,
+          },
+        ],
+      });
+    deliveryIdService.next
+      .mockResolvedValueOnce('PSQD0000000000001')
+      .mockResolvedValueOnce('PSQD0000000000002');
+    uploadService.uploadBuffer.mockResolvedValue({
+      url: 'https://oss.example.com/delivery/manifests/file.xls',
+      key: 'delivery/manifests/file.xls',
+      size: 256,
+      mimeType: 'application/vnd.ms-excel',
+    });
+
+    const first = await service.exportSellerFinanceManifest('merchant_1');
+    const second = await service.exportSellerFinanceManifest('merchant_1');
+
+    expect(first.id).toBe('PSQD0000000000001');
+    expect(second.id).toBe('PSQD0000000000002');
+    expect(uploadService.uploadBuffer).toHaveBeenCalledTimes(2);
+    expect(uploadService.uploadBuffer.mock.calls[1][0].toString('utf8')).toContain(
+      'PSZDD000000000002',
+    );
+    expect(second.payloadSnapshot.rows).toHaveLength(2);
   });
 
   it('protects fixed columns while still supporting column names, order, and visibility for template regeneration', async () => {
@@ -421,5 +631,52 @@ describe('DeliveryManifestsService', () => {
     expect(manifestV2.id).toBe('PSQD0000000000010');
     expect(manifestV3.id).toBe('PSQD0000000000011');
     expect(uploadService.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('paginates large buyer manifests so rows beyond the first page still reach the PDF output', async () => {
+    const template = {
+      id: 'tmpl_buyer_full',
+      type: 'USER_FULL',
+      name: 'Buyer Full',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_buyer_full_v1',
+      templateId: 'tmpl_buyer_full',
+      versionNo: 1,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    const largeOrderContext = {
+      ...orderContext,
+      items: Array.from({ length: 50 }, (_, index) => ({
+        ...orderContext.items[0],
+        subOrderId: `PSZDD000000000${String(index + 1).padStart(3, '0')}`,
+        productTitle: `商品${index + 1}`,
+        skuTitle: `规格${index + 1}`,
+      })),
+    };
+    deliveryOrdersService.getOrderManifestContextForBuyer.mockResolvedValue(largeOrderContext);
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue(null);
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+
+    const manifest = await service.getOrderManifest({
+      orderId: 'PSDD0000000000001',
+      viewer: { kind: 'buyer', deliveryUserId: 'delivery_user_1' },
+    });
+
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
+    expect(uploadedPdf).toContain('/Count 2');
+    expect(uploadedPdf).toContain(toUtf16BeHex('商品1'));
+    expect(uploadedPdf).toContain(toUtf16BeHex('商品50'));
+    expect(manifest.payloadSnapshot.rows).toHaveLength(50);
+    expect(manifest.payloadSnapshot.renderedTable.rows).toHaveLength(50);
   });
 });
