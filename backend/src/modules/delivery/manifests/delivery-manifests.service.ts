@@ -605,11 +605,12 @@ export class DeliveryManifestsService {
           };
         })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key)),
-      customizations: this.normalizeCustomizations(rawConfig),
+      customizations: this.normalizeCustomizations(definition, rawConfig),
     };
   }
 
   private normalizeCustomizations(
+    definition: DeliveryManifestTemplateDefinition,
     rawConfig: unknown,
   ): ManifestTemplateConfig['customizations'] {
     const rawCustomizations = (rawConfig as { customizations?: unknown } | null)?.customizations;
@@ -649,7 +650,8 @@ export class DeliveryManifestsService {
                     : 500 + index * 10,
                 visible: (entry as Record<string, unknown>).visible !== false,
               }))
-              .filter((entry) => entry.key && entry.label),
+              .filter((entry) => entry.key && entry.label)
+              .filter((entry) => this.isPersistedCustomizationEntryAllowed(definition, entry)),
             updatedAt:
               typeof (customization as Record<string, unknown>).updatedAt === 'string'
                 ? String((customization as Record<string, unknown>).updatedAt)
@@ -805,6 +807,21 @@ export class DeliveryManifestsService {
       );
     if (hasBlockedTerm || hasMoneyPattern) {
       throw new BadRequestException('卖家配货清单禁止自定义金额相关字段');
+    }
+  }
+
+  private isPersistedCustomizationEntryAllowed(
+    definition: DeliveryManifestTemplateDefinition,
+    entry: ManifestTargetCustomizationEntry,
+  ) {
+    try {
+      this.assertCustomFieldAllowed(definition, entry.key, entry.label, entry.value);
+      return true;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        return false;
+      }
+      throw error;
     }
   }
 

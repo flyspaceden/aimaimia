@@ -20,6 +20,7 @@
     "prisma:delivery:migrate": "prisma migrate dev --schema prisma-delivery/schema.prisma",
     "prisma:delivery:deploy": "prisma migrate deploy --schema prisma-delivery/schema.prisma",
     "prisma:delivery:seed": "ts-node prisma-delivery/seed.ts",
+    "delivery:cleanup:manifest-customizations": "node scripts/cleanup-delivery-manifest-customizations.cjs",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "digital-asset:backfill": "ts-node scripts/backfill-digital-assets.ts",

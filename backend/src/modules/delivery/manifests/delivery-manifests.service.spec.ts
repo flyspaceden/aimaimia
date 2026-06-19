@@ -835,6 +835,144 @@ describe('DeliveryManifestsService', () => {
     );
   });
 
+  it('filters persisted dirty seller fulfillment customizations from generated payloads while keeping ordinary remarks', async () => {
+    const template = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: 'Seller Fulfillment',
+      description: null,
+      config: {
+        customizations: {
+          subOrder: {
+            PSZDD000000000001: {
+              targetId: 'PSZDD000000000001',
+              entries: [
+                {
+                  key: 'sellerMemo',
+                  label: '配货备注',
+                  value: '请冷藏保存，优先上午配送',
+                  sortOrder: 500,
+                  visible: true,
+                },
+                {
+                  key: 'platformPrice',
+                  label: '平台售价',
+                  value: '¥100',
+                  sortOrder: 510,
+                  visible: true,
+                },
+                {
+                  key: 'costInfo',
+                  label: '履约说明',
+                  value: '成本 60',
+                  sortOrder: 520,
+                  visible: true,
+                },
+              ],
+            },
+          },
+        },
+      },
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_seller_fulfillment_v5',
+      templateId: 'tmpl_seller_fulfillment',
+      versionNo: 5,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue(null);
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+
+    const manifest = await service.getSellerFulfillmentManifest('merchant_1', 'PSZDD000000000001');
+
+    expect(manifest.payloadSnapshot.columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'sellerMemo', label: '配货备注' })]),
+    );
+    expect(manifest.payloadSnapshot.columns).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'platformPrice' }),
+        expect.objectContaining({ key: 'costInfo' }),
+      ]),
+    );
+    expect(manifest.payloadSnapshot.rows[0]).toEqual(
+      expect.objectContaining({
+        sellerMemo: '请冷藏保存，优先上午配送',
+      }),
+    );
+    expect(manifest.payloadSnapshot.rows[0]).not.toHaveProperty('platformPrice');
+    expect(manifest.payloadSnapshot.rows[0]).not.toHaveProperty('costInfo');
+    expect(manifest.payloadSnapshot.renderedTable.headers).toContain('配货备注');
+    expect(manifest.payloadSnapshot.renderedTable.headers).not.toContain('平台售价');
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).toContain('请冷藏保存，优先上午配送');
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).not.toContain('¥100');
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).not.toContain('成本 60');
+  });
+
+  it('keeps persisted buyer full customizations even when they contain price-related wording', async () => {
+    const template = {
+      id: 'tmpl_buyer_full',
+      type: 'USER_FULL',
+      name: 'Buyer Full',
+      description: null,
+      config: {
+        customizations: {
+          order: {
+            PSDD0000000000001: {
+              targetId: 'PSDD0000000000001',
+              entries: [
+                {
+                  key: 'buyerMemo',
+                  label: '付款备注',
+                  value: '平台售价 ¥100',
+                  sortOrder: 500,
+                  visible: true,
+                },
+              ],
+            },
+          },
+        },
+      },
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_buyer_full_v2',
+      templateId: 'tmpl_buyer_full',
+      versionNo: 2,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue(null);
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+
+    const manifest = await service.getOrderManifest({
+      orderId: 'PSDD0000000000001',
+      viewer: { kind: 'admin', deliveryAdminUserId: 'admin_1' },
+    });
+
+    expect(manifest.payloadSnapshot.columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'buyerMemo', label: '付款备注' })]),
+    );
+    expect(manifest.payloadSnapshot.rows[0]).toEqual(
+      expect.objectContaining({
+        buyerMemo: '平台售价 ¥100',
+      }),
+    );
+    expect(manifest.payloadSnapshot.renderedTable.headers).toContain('付款备注');
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).toContain('平台售价 ¥100');
+  });
+
   it('creates v2 and v3 manifests without deleting historical objects when a newer template version is published', async () => {
     const template = {
       id: 'tmpl_buyer_full',

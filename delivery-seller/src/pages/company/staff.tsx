@@ -33,6 +33,11 @@ interface EditStaffForm {
   permissionCodes: string[];
 }
 
+const editableStaffRoleOptions = [
+  { value: 'MANAGER', label: '经理' },
+  { value: 'OPERATOR', label: '运营' },
+];
+
 export default function StaffManagementPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
@@ -240,13 +245,7 @@ export default function StaffManagementPage() {
             label="角色"
             rules={[{ required: true, message: '请选择角色' }]}
           >
-            <Select
-              options={[
-                { value: 'OWNER', label: '企业主' },
-                { value: 'MANAGER', label: '经理' },
-                { value: 'OPERATOR', label: '运营' },
-              ]}
-            />
+            <Select options={editableStaffRoleOptions} />
           </Form.Item>
           <Form.Item name="permissionCodes" label="权限码">
             <Select
@@ -296,11 +295,7 @@ export default function StaffManagementPage() {
               >
                 <Select
                   disabled={editingStaff.id === currentStaffId}
-                  options={[
-                    { value: 'OWNER', label: '企业主' },
-                    { value: 'MANAGER', label: '经理' },
-                    { value: 'OPERATOR', label: '运营' },
-                  ]}
+                  options={editableStaffRoleOptions}
                 />
               </Form.Item>
               <Form.Item
