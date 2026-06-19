@@ -22,6 +22,10 @@ import { DeliveryPricingService } from './pricing/delivery-pricing.service';
 import { DeliveryAdminPricingRulesController } from './pricing/delivery-admin-pricing-rules.controller';
 import { DeliveryInventoryService } from './inventory/delivery-inventory.service';
 import { DeliverySellerInventoryController } from './inventory/delivery-seller-inventory.controller';
+import { DeliveryCartController } from './cart/delivery-cart.controller';
+import { DeliveryCartService } from './cart/delivery-cart.service';
+import { DeliveryCheckoutController } from './checkout/delivery-checkout.controller';
+import { DeliveryCheckoutService } from './checkout/delivery-checkout.service';
 
 @Module({
   imports: [
@@ -47,6 +51,8 @@ import { DeliverySellerInventoryController } from './inventory/delivery-seller-i
     DeliverySellerProductsController,
     DeliveryAdminPricingRulesController,
     DeliverySellerInventoryController,
+    DeliveryCartController,
+    DeliveryCheckoutController,
   ],
   providers: [
     DeliveryIdService,
@@ -59,6 +65,8 @@ import { DeliverySellerInventoryController } from './inventory/delivery-seller-i
     DeliveryProductsService,
     DeliveryPricingService,
     DeliveryInventoryService,
+    DeliveryCartService,
+    DeliveryCheckoutService,
   ],
   exports: [DeliveryIdService, DeliveryAuthModule, DeliveryPricingService],
 })
