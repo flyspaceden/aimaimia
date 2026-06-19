@@ -31,9 +31,15 @@ export class DeliverySellerJwtStrategy extends PassportStrategy(Strategy, 'deliv
       payload.type === 'delivery-seller' &&
       !!payload.sub &&
       !!payload.merchantId &&
+      !!payload.role &&
       Array.isArray(payload.permissionCodes);
     if (!hasValidShape) {
       throw new UnauthorizedException('无效的令牌类型');
+    }
+
+    const validSellerRoles = new Set(Object.values(DeliverySellerStaffRole));
+    if (!validSellerRoles.has(payload.role)) {
+      throw new UnauthorizedException('无效的卖家角色');
     }
 
     const staff = await this.deliveryPrisma.deliverySellerStaff.findUnique({
