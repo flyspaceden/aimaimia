@@ -13,6 +13,10 @@ enum DeliveryAuthProvider {
   WECHAT
 }
 
+enum DeliveryOtpPurpose {
+  LOGIN
+}
+
 enum DeliveryUserStatus {
   ACTIVE
   DISABLED
@@ -214,6 +218,7 @@ model DeliveryUser {
   phone          String?             @unique
   nickname       String?
   avatarUrl      String?
+  currentUnitId  String?
   status         DeliveryUserStatus  @default(ACTIVE)
   loginFailCount Int                 @default(0)
   lockedUntil    DateTime?
@@ -221,14 +226,16 @@ model DeliveryUser {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
+  currentUnit       DeliveryUnit?                      @relation("DeliveryCurrentUnit", fields: [currentUnitId], references: [id], onDelete: SetNull)
   authIdentities   DeliveryAuthIdentity[]
-  units            DeliveryUnit[]
+  units            DeliveryUnit[]                     @relation("DeliveryUserUnits")
   addresses        DeliveryAddress[]
   cartItems        DeliveryCartItem[]
   checkoutSessions DeliveryCheckoutSession[]
   orders           DeliveryOrder[]
   manifests        DeliveryManifest[]
   conversations    DeliveryCustomerServiceConversation[]
+  phoneOtps        DeliveryPhoneOtp[]
 }
 
 model DeliveryAuthIdentity {
@@ -291,7 +298,7 @@ model DeliverySellerStaff {
 model DeliveryUnit {
   id            String              @id
   userId        String
-  user          DeliveryUser        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user          DeliveryUser        @relation("DeliveryUserUnits", fields: [userId], references: [id], onDelete: Restrict)
   name          String
   contactName   String
   contactPhone  String
@@ -315,8 +322,25 @@ model DeliveryUnit {
   orders           DeliveryOrder[]
   manifests        DeliveryManifest[]
   conversations    DeliveryCustomerServiceConversation[]
+  selectedByUsers  DeliveryUser[]                       @relation("DeliveryCurrentUnit")
 
   @@index([userId, status, createdAt])
+}
+
+model DeliveryPhoneOtp {
+  id         String             @id @default(cuid())
+  userId     String?
+  user       DeliveryUser?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone      String
+  purpose    DeliveryOtpPurpose
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@index([phone, purpose, expiresAt])
+  @@index([userId, purpose, createdAt])
 }
 
 model DeliveryAddress {
@@ -565,6 +589,8 @@ model DeliveryUnitFieldConfig {
   showInApp       Boolean               @default(true)
   showInAdmin     Boolean               @default(true)
   includeInExport Boolean               @default(false)
+  includeInPdf    Boolean               @default(false)
+  includeInExcel  Boolean               @default(false)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 }
