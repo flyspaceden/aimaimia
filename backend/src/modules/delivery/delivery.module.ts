@@ -3,6 +3,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { DeliveryPrismaModule } from '../../delivery-prisma/delivery-prisma.module';
 import { DeliveryAuthModule } from './auth/delivery-auth.module';
+import { ShipmentModule } from '../shipment/shipment.module';
+import { UploadModule } from '../upload/upload.module';
 import { DeliveryIdService } from './common/delivery-id.service';
 import { DeliveryBuyerAuthController } from './buyer/delivery-buyer-auth.controller';
 import { DeliveryBuyerAuthService } from './buyer/delivery-buyer-auth.service';
@@ -28,11 +30,17 @@ import { DeliveryCheckoutController } from './checkout/delivery-checkout.control
 import { DeliveryCheckoutService } from './checkout/delivery-checkout.service';
 import { DeliveryOrdersService } from './orders/delivery-orders.service';
 import { DeliveryPaymentsService } from './payments/delivery-payments.service';
+import { DeliveryShippingService } from './shipping/delivery-shipping.service';
+import { DeliverySellerShippingController } from './shipping/delivery-seller-shipping.controller';
+import { DeliveryOrderShipmentsController } from './shipping/delivery-order-shipments.controller';
+import { DeliveryAdminShippingRecordsController } from './shipping/delivery-admin-shipping-records.controller';
 
 @Module({
   imports: [
     DeliveryPrismaModule,
     DeliveryAuthModule,
+    ShipmentModule,
+    UploadModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -55,6 +63,9 @@ import { DeliveryPaymentsService } from './payments/delivery-payments.service';
     DeliverySellerInventoryController,
     DeliveryCartController,
     DeliveryCheckoutController,
+    DeliverySellerShippingController,
+    DeliveryOrderShipmentsController,
+    DeliveryAdminShippingRecordsController,
   ],
   providers: [
     DeliveryIdService,
@@ -71,6 +82,7 @@ import { DeliveryPaymentsService } from './payments/delivery-payments.service';
     DeliveryCheckoutService,
     DeliveryOrdersService,
     DeliveryPaymentsService,
+    DeliveryShippingService,
   ],
   exports: [
     DeliveryIdService,
