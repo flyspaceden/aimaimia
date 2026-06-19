@@ -7,5 +7,7 @@ describe('DeliveryPrismaService', () => {
     expect(service).toBeDefined();
     expect(typeof service.$connect).toBe('function');
     expect(typeof service.$disconnect).toBe('function');
+    expect('onModuleInit' in service).toBe(false);
+    expect((service as { onModuleInit?: unknown }).onModuleInit).toBeUndefined();
   });
 });
