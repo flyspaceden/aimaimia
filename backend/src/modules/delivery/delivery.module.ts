@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { DeliveryPrismaModule } from '../../delivery-prisma/delivery-prisma.module';
 import { DeliveryAuthModule } from './auth/delivery-auth.module';
+import { CaptchaModule } from '../captcha/captcha.module';
 import { ShipmentModule } from '../shipment/shipment.module';
 import { UploadModule } from '../upload/upload.module';
 import { DeliveryIdService } from './common/delivery-id.service';
@@ -53,11 +54,14 @@ import { DeliveryAdminOpsService } from './admin/delivery-admin-ops.service';
 import { DeliveryAdminOpsController } from './admin/delivery-admin-ops.controller';
 import { DeliverySellerOpsService } from './seller/delivery-seller-ops.service';
 import { DeliverySellerOpsController } from './seller/delivery-seller-ops.controller';
+import { DeliverySellerAuthController } from './seller-auth/delivery-seller-auth.controller';
+import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.service';
 
 @Module({
   imports: [
     DeliveryPrismaModule,
     DeliveryAuthModule,
+    CaptchaModule,
     ShipmentModule,
     UploadModule,
     JwtModule.registerAsync({
@@ -71,6 +75,7 @@ import { DeliverySellerOpsController } from './seller/delivery-seller-ops.contro
     }),
   ],
   controllers: [
+    DeliverySellerAuthController,
     DeliveryBuyerAuthController,
     DeliveryUnitsController,
     DeliverySellerApplicationController,
@@ -99,6 +104,7 @@ import { DeliverySellerOpsController } from './seller/delivery-seller-ops.contro
     DeliverySellerOpsController,
   ],
   providers: [
+    DeliverySellerAuthService,
     DeliveryIdService,
     DeliveryBuyerAuthService,
     DeliveryPhoneOtpService,

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { App, Card, Form, Input, Button, Typography, Space, List, Tag, Alert, Tabs } from 'antd';
+import { App, Card, Form, Input, Button, Typography, Space, List, Tag, Alert, Tabs, Modal } from 'antd';
 import { MobileOutlined, SafetyCertificateOutlined, ShopOutlined, ClockCircleOutlined, LockOutlined, SafetyOutlined, ReloadOutlined } from '@ant-design/icons';
 import { sendSmsCode, login, loginByPassword, selectCompany, getMe, getCaptcha } from '@/api/auth';
+import { createDeliveryMerchantApplication } from '@/api/merchant-applications';
 import useAuthStore from '@/store/useAuthStore';
 import { queryClient } from '@/queryClient';
 import type { LoginResponse, SelectCompanyResponse } from '@/types';
@@ -37,6 +38,15 @@ export default function LoginPage() {
   const [captchaId, setCaptchaId] = useState('');
   const [captchaSvg, setCaptchaSvg] = useState('');
   const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applySubmitting, setApplySubmitting] = useState(false);
+  const [applyForm] = Form.useForm<{
+    companyName: string;
+    contactName: string;
+    contactPhone: string;
+    email?: string;
+    note?: string;
+  }>();
 
   const refreshCaptcha = useCallback(async () => {
     setCaptchaLoading(true);
@@ -230,6 +240,31 @@ export default function LoginPage() {
     queryClient.clear();
     message.success('登录成功');
     navigate('/', { replace: true });
+  };
+
+  const handleSubmitApplication = async () => {
+    try {
+      const values = await applyForm.validateFields();
+      setApplySubmitting(true);
+      const payload = {
+        companyName: values.companyName.trim(),
+        contactName: values.contactName.trim(),
+        contactPhone: values.contactPhone.trim(),
+        email: values.email?.trim() || undefined,
+        note: values.note?.trim() || undefined,
+      };
+      const res = await createDeliveryMerchantApplication(payload);
+      message.success(res.message || '申请已提交，请等待审核');
+      setApplyOpen(false);
+      applyForm.resetFields();
+    } catch (err) {
+      if ((err as any)?.errorFields) {
+        return;
+      }
+      message.error(err instanceof Error ? err.message : '提交申请失败');
+    } finally {
+      setApplySubmitting(false);
+    }
   };
 
   // 多企业选择界面
@@ -515,11 +550,77 @@ export default function LoginPage() {
         <Button
           block
           style={{ marginTop: 12, height: 44, borderRadius: 8 }}
-          onClick={() => message.info('配送商家入驻页待接入，当前 Task 16 仅完成配送中心壳层切换。')}
+          onClick={() => setApplyOpen(true)}
         >
           申请入驻
         </Button>
       </Card>
+      <Modal
+        title="申请入驻配送中心"
+        open={applyOpen}
+        onCancel={() => {
+          setApplyOpen(false);
+          applyForm.resetFields();
+        }}
+        onOk={() => void handleSubmitApplication()}
+        confirmLoading={applySubmitting}
+        okText="提交申请"
+        cancelText="取消"
+        destroyOnClose
+        okButtonProps={{ style: { background: '#EA580C', borderColor: '#EA580C' } }}
+      >
+        <Form
+          form={applyForm}
+          layout="vertical"
+          preserve={false}
+          initialValues={{ note: '申请入驻配送中心' }}
+        >
+          <Form.Item
+            label="企业名称"
+            name="companyName"
+            rules={[
+              { required: true, message: '请输入企业名称' },
+              { max: 200, message: '企业名称不能超过 200 字' },
+            ]}
+          >
+            <Input placeholder="例如：青禾智慧配送中心" />
+          </Form.Item>
+          <Form.Item
+            label="联系人"
+            name="contactName"
+            rules={[
+              { required: true, message: '请输入联系人姓名' },
+              { max: 100, message: '联系人姓名不能超过 100 字' },
+            ]}
+          >
+            <Input placeholder="请输入联系人姓名" />
+          </Form.Item>
+          <Form.Item
+            label="联系电话"
+            name="contactPhone"
+            rules={[
+              { required: true, message: '请输入联系电话' },
+              { pattern: /^1\d{10}$/, message: '请输入正确的手机号' },
+            ]}
+          >
+            <Input placeholder="请输入联系电话" />
+          </Form.Item>
+          <Form.Item
+            label="邮箱"
+            name="email"
+            rules={[{ type: 'email', message: '请输入正确的邮箱地址' }]}
+          >
+            <Input placeholder="选填" />
+          </Form.Item>
+          <Form.Item
+            label="备注"
+            name="note"
+            rules={[{ max: 500, message: '备注不能超过 500 字' }]}
+          >
+            <Input.TextArea rows={4} placeholder="选填，可补充经营范围或合作需求" />
+          </Form.Item>
+        </Form>
+      </Modal>
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
         <div>&copy; 2026 深圳华海农业科技集团有限公司</div>
         <div>

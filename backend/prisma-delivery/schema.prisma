@@ -15,6 +15,8 @@ enum DeliveryAuthProvider {
 
 enum DeliveryOtpPurpose {
   LOGIN
+  BIND
+  RESET
 }
 
 enum DeliveryUserStatus {
@@ -277,7 +279,7 @@ model DeliverySellerStaff {
   id             String                    @id @default(cuid())
   merchantId     String
   merchant       DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
-  phone          String?                   @unique
+  phone          String?
   username       String?                   @unique
   passwordHash   String?
   realName       String?
@@ -292,7 +294,9 @@ model DeliverySellerStaff {
   createdProducts      DeliveryProduct[]                    @relation("DeliveryProductCreator")
   operatedSubOrders    DeliverySubOrder[]                   @relation("DeliverySubOrderLastOperator")
   assignedConversations DeliveryCustomerServiceConversation[] @relation("DeliveryConversationSeller")
+  sessions             DeliverySellerSession[]
 
+  @@index([phone, status])
   @@index([merchantId, role, status])
 }
 
@@ -372,6 +376,23 @@ model DeliveryUserSession {
   @@index([userId, expiresAt])
   @@index([expiresAt])
   @@index([userId, revokedAt])
+}
+
+model DeliverySellerSession {
+  id               String              @id @default(cuid())
+  staffId          String
+  staff            DeliverySellerStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  refreshTokenHash String              @unique
+  ip               String?
+  userAgent        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([staffId, expiresAt])
+  @@index([staffId, revokedAt])
+  @@index([expiresAt])
 }
 
 model DeliveryAddress {

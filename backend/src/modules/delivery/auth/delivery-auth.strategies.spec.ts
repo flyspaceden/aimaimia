@@ -294,6 +294,9 @@ describe('Delivery JWT strategies', () => {
 
   describe('DeliverySellerJwtStrategy', () => {
     let prisma: {
+      deliverySellerSession: {
+        findFirst: jest.Mock;
+      };
       deliverySellerStaff: {
         findUnique: jest.Mock;
       };
@@ -301,6 +304,9 @@ describe('Delivery JWT strategies', () => {
 
     beforeEach(() => {
       prisma = {
+        deliverySellerSession: {
+          findFirst: jest.fn(),
+        },
         deliverySellerStaff: {
           findUnique: jest.fn(),
         },
@@ -308,6 +314,9 @@ describe('Delivery JWT strategies', () => {
     });
 
     it('uses DELIVERY_SELLER_JWT_SECRET and accepts active delivery seller staff', async () => {
+      prisma.deliverySellerSession.findFirst.mockResolvedValue({
+        id: 'dsess_001',
+      });
       prisma.deliverySellerStaff.findUnique.mockResolvedValue({
         status: DeliverySellerStaffStatus.ACTIVE,
         merchantId: 'merchant_001',
@@ -318,6 +327,7 @@ describe('Delivery JWT strategies', () => {
       );
       const payload: DeliverySellerJwtPayload = {
         sub: 'dstaff_001',
+        sessionId: 'dsess_001',
         merchantId: 'merchant_001',
         role: DeliverySellerStaffRole.MANAGER,
         permissionCodes: ['delivery:orders:manage'],
@@ -327,12 +337,22 @@ describe('Delivery JWT strategies', () => {
       await expect(strategy.validate(payload)).resolves.toEqual({
         sub: 'dstaff_001',
         deliverySellerStaffId: 'dstaff_001',
+        sessionId: 'dsess_001',
         merchantId: 'merchant_001',
         role: DeliverySellerStaffRole.MANAGER,
         permissionCodes: ['delivery:orders:manage'],
         type: 'delivery-seller',
       });
       expect(configService.getOrThrow).toHaveBeenCalledWith('DELIVERY_SELLER_JWT_SECRET');
+      expect(prisma.deliverySellerSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'dsess_001',
+          staffId: 'dstaff_001',
+          revokedAt: null,
+          expiresAt: { gt: expect.any(Date) },
+        },
+        select: { id: true },
+      });
       expect(prisma.deliverySellerStaff.findUnique).toHaveBeenCalledWith({
         where: { id: 'dstaff_001' },
         select: { status: true, merchantId: true },
@@ -348,6 +368,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           merchantId: 'merchant_001',
           role: DeliverySellerStaffRole.OWNER,
           permissionCodes: [],
@@ -374,6 +395,25 @@ describe('Delivery JWT strategies', () => {
       expect(prisma.deliverySellerStaff.findUnique).not.toHaveBeenCalled();
     });
 
+    it('rejects missing sessionId before DB lookup', async () => {
+      const strategy = new DeliverySellerJwtStrategy(
+        configService as unknown as ConfigService,
+        prisma as unknown as DeliveryPrismaService,
+      );
+
+      await expect(
+        strategy.validate({
+          sub: 'dstaff_001',
+          merchantId: 'merchant_001',
+          role: DeliverySellerStaffRole.OWNER,
+          permissionCodes: [],
+          type: 'delivery-seller',
+        } as unknown as DeliverySellerJwtPayload),
+      ).rejects.toThrow('无效的令牌类型');
+      expect(prisma.deliverySellerSession.findFirst).not.toHaveBeenCalled();
+      expect(prisma.deliverySellerStaff.findUnique).not.toHaveBeenCalled();
+    });
+
     it('rejects missing merchantId before DB lookup', async () => {
       const strategy = new DeliverySellerJwtStrategy(
         configService as unknown as ConfigService,
@@ -383,6 +423,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           role: DeliverySellerStaffRole.OWNER,
           permissionCodes: [],
           type: 'delivery-seller',
@@ -400,6 +441,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           merchantId: 'merchant_001',
           permissionCodes: [],
           type: 'delivery-seller',
@@ -417,6 +459,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           merchantId: 'merchant_001',
           role: 'INVALID_ROLE' as DeliverySellerStaffRole,
           permissionCodes: [],
@@ -427,6 +470,9 @@ describe('Delivery JWT strategies', () => {
     });
 
     it('rejects missing delivery seller records', async () => {
+      prisma.deliverySellerSession.findFirst.mockResolvedValue({
+        id: 'dsess_001',
+      });
       prisma.deliverySellerStaff.findUnique.mockResolvedValue(null);
       const strategy = new DeliverySellerJwtStrategy(
         configService as unknown as ConfigService,
@@ -436,6 +482,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           merchantId: 'merchant_001',
           role: DeliverySellerStaffRole.OWNER,
           permissionCodes: [],
@@ -446,6 +493,9 @@ describe('Delivery JWT strategies', () => {
     });
 
     it('rejects inactive delivery seller records', async () => {
+      prisma.deliverySellerSession.findFirst.mockResolvedValue({
+        id: 'dsess_001',
+      });
       prisma.deliverySellerStaff.findUnique.mockResolvedValue({
         status: DeliverySellerStaffStatus.DISABLED,
         merchantId: 'merchant_001',
@@ -458,6 +508,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           merchantId: 'merchant_001',
           role: DeliverySellerStaffRole.OWNER,
           permissionCodes: [],
@@ -468,6 +519,9 @@ describe('Delivery JWT strategies', () => {
     });
 
     it('rejects seller merchant mismatch', async () => {
+      prisma.deliverySellerSession.findFirst.mockResolvedValue({
+        id: 'dsess_001',
+      });
       prisma.deliverySellerStaff.findUnique.mockResolvedValue({
         status: DeliverySellerStaffStatus.ACTIVE,
         merchantId: 'merchant_002',
@@ -480,6 +534,7 @@ describe('Delivery JWT strategies', () => {
       await expect(
         strategy.validate({
           sub: 'dstaff_001',
+          sessionId: 'dsess_001',
           merchantId: 'merchant_001',
           role: DeliverySellerStaffRole.OWNER,
           permissionCodes: [],
@@ -487,6 +542,26 @@ describe('Delivery JWT strategies', () => {
         }),
       ).rejects.toThrow('商家信息已变更，请重新登录');
       expect(prisma.deliverySellerStaff.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects revoked or expired delivery seller sessions before staff lookup', async () => {
+      prisma.deliverySellerSession.findFirst.mockResolvedValue(null);
+      const strategy = new DeliverySellerJwtStrategy(
+        configService as unknown as ConfigService,
+        prisma as unknown as DeliveryPrismaService,
+      );
+
+      await expect(
+        strategy.validate({
+          sub: 'dstaff_001',
+          sessionId: 'dsess_001',
+          merchantId: 'merchant_001',
+          role: DeliverySellerStaffRole.OWNER,
+          permissionCodes: [],
+          type: 'delivery-seller',
+        }),
+      ).rejects.toThrow('登录态已失效，请重新登录');
+      expect(prisma.deliverySellerStaff.findUnique).not.toHaveBeenCalled();
     });
   });
 });

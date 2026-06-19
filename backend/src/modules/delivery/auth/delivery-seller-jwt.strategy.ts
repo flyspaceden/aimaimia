@@ -7,6 +7,7 @@ import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.
 
 export type DeliverySellerJwtPayload = {
   sub: string; // DeliverySellerStaff.id
+  sessionId: string; // DeliverySellerSession.id
   merchantId: string; // DeliveryMerchant.id
   role: DeliverySellerStaffRole;
   permissionCodes: string[];
@@ -30,6 +31,7 @@ export class DeliverySellerJwtStrategy extends PassportStrategy(Strategy, 'deliv
     const hasValidShape =
       payload.type === 'delivery-seller' &&
       !!payload.sub &&
+      !!payload.sessionId &&
       !!payload.merchantId &&
       !!payload.role &&
       Array.isArray(payload.permissionCodes);
@@ -40,6 +42,19 @@ export class DeliverySellerJwtStrategy extends PassportStrategy(Strategy, 'deliv
     const validSellerRoles = new Set(Object.values(DeliverySellerStaffRole));
     if (!validSellerRoles.has(payload.role)) {
       throw new UnauthorizedException('无效的卖家角色');
+    }
+
+    const session = await this.deliveryPrisma.deliverySellerSession.findFirst({
+      where: {
+        id: payload.sessionId,
+        staffId: payload.sub,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (!session) {
+      throw new UnauthorizedException('登录态已失效，请重新登录');
     }
 
     const staff = await this.deliveryPrisma.deliverySellerStaff.findUnique({
@@ -56,6 +71,7 @@ export class DeliverySellerJwtStrategy extends PassportStrategy(Strategy, 'deliv
     return {
       sub: payload.sub,
       deliverySellerStaffId: payload.sub,
+      sessionId: payload.sessionId,
       merchantId: payload.merchantId,
       role: payload.role,
       permissionCodes: payload.permissionCodes,
