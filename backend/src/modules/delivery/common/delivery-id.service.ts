@@ -17,12 +17,26 @@ export type DeliveryIdPrefix = (typeof DELIVERY_ID_PREFIXES)[number];
 const READABLE_DELIVERY_ID_LENGTH = 17;
 const DELIVERY_ID_RETRY_LIMIT = 3;
 
-export function formatDeliveryId(prefix: DeliveryIdPrefix, value: number | bigint): string {
+export function assertDeliveryIdPrefix(prefix: string): asserts prefix is DeliveryIdPrefix {
+  if (!DELIVERY_ID_PREFIXES.includes(prefix as DeliveryIdPrefix)) {
+    throw new Error(`Invalid delivery prefix: ${prefix}`);
+  }
+}
+
+export function formatDeliveryId(prefix: string, value: number | bigint): string {
+  assertDeliveryIdPrefix(prefix);
+
   const numericValue = typeof value === 'bigint' ? value : BigInt(value);
   const paddedWidth = READABLE_DELIVERY_ID_LENGTH - prefix.length;
 
   if (numericValue < 0n) {
-    throw new Error('Delivery sequence value must be non-negative');
+    throw new Error(`Delivery sequence value must be non-negative for prefix ${prefix}`);
+  }
+
+  if (numericValue >= 10n ** BigInt(paddedWidth)) {
+    throw new Error(
+      `Delivery sequence value ${numericValue.toString()} exceeds the fixed width for prefix ${prefix}`,
+    );
   }
 
   return `${prefix}${numericValue.toString().padStart(paddedWidth, '0')}`;
@@ -32,7 +46,9 @@ export function formatDeliveryId(prefix: DeliveryIdPrefix, value: number | bigin
 export class DeliveryIdService {
   constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
 
-  async next(prefix: DeliveryIdPrefix): Promise<string> {
+  async next(prefix: string): Promise<string> {
+    assertDeliveryIdPrefix(prefix);
+
     for (let attempt = 0; attempt < DELIVERY_ID_RETRY_LIMIT; attempt += 1) {
       try {
         const sequence = await this.deliveryPrisma.$transaction(

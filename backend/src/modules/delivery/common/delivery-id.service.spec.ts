@@ -12,6 +12,25 @@ describe('formatDeliveryId', () => {
     expect(formatDeliveryId('PSZF', 1)).toBe('PSZF0000000000001');
     expect(formatDeliveryId('PSQD', 1)).toBe('PSQD0000000000001');
   });
+
+  it('rejects invalid prefixes', () => {
+    expect(() => formatDeliveryId('BAD', 1)).toThrow('Invalid delivery prefix: BAD');
+  });
+
+  it('rejects negative and overflowing values for four-letter prefixes', () => {
+    expect(() => formatDeliveryId('PSYH', -1)).toThrow(
+      'Delivery sequence value must be non-negative for prefix PSYH',
+    );
+    expect(() => formatDeliveryId('PSYH', 10n ** 13n)).toThrow(
+      'Delivery sequence value 10000000000000 exceeds the fixed width for prefix PSYH',
+    );
+  });
+
+  it('rejects overflowing values for five-letter prefixes', () => {
+    expect(() => formatDeliveryId('PSZDD', 10n ** 12n)).toThrow(
+      'Delivery sequence value 1000000000000 exceeds the fixed width for prefix PSZDD',
+    );
+  });
 });
 
 describe('DeliveryIdService.next', () => {
@@ -72,5 +91,23 @@ describe('DeliveryIdService.next', () => {
 
     await expect(service.next('PSZF')).resolves.toBe('PSZF0000000000002');
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects invalid prefixes before any database write', async () => {
+    await expect(service.next('BAD' as unknown as string)).rejects.toThrow(
+      'Invalid delivery prefix: BAD',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.deliverySequence.upsert).not.toHaveBeenCalled();
+  });
+
+  it('throws after retry attempts are exhausted', async () => {
+    (prisma.$transaction as jest.Mock)
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockRejectedValueOnce({ code: 'P2034' });
+
+    await expect(service.next('PSQD')).rejects.toMatchObject({ code: 'P2034' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });
 });
