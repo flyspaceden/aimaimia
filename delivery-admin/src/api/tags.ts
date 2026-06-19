@@ -25,7 +25,7 @@ export interface TagItem {
 // ===== TagCategory =====
 
 export const getTagCategories = (scope?: string): Promise<TagCategory[]> =>
-  client.get('/admin/tag-categories', { params: scope ? { scope } : undefined });
+  client.get('/delivery-admin/tag-categories', { params: scope ? { scope } : undefined });
 
 export const createTagCategory = (data: {
   name: string;
@@ -33,35 +33,35 @@ export const createTagCategory = (data: {
   scope: 'COMPANY' | 'PRODUCT';
   description?: string;
   sortOrder?: number;
-}): Promise<TagCategory> => client.post('/admin/tag-categories', data);
+}): Promise<TagCategory> => client.post('/delivery-admin/tag-categories', data);
 
 export const updateTagCategory = (
   id: string,
   data: { name?: string; description?: string; sortOrder?: number },
-): Promise<TagCategory> => client.patch(`/admin/tag-categories/${id}`, data);
+): Promise<TagCategory> => client.patch(`/delivery-admin/tag-categories/${id}`, data);
 
 export const deleteTagCategory = (id: string): Promise<void> =>
-  client.delete(`/admin/tag-categories/${id}`);
+  client.delete(`/delivery-admin/tag-categories/${id}`);
 
 // ===== Tag =====
 
 export const getTags = (params?: { categoryId?: string; scope?: string }): Promise<TagItem[]> =>
-  client.get('/admin/tags', { params });
+  client.get('/delivery-admin/tags', { params });
 
 export const createTag = (data: {
   name: string;
   categoryId: string;
   synonyms?: string[];
   sortOrder?: number;
-}): Promise<TagItem> => client.post('/admin/tags', data);
+}): Promise<TagItem> => client.post('/delivery-admin/tags', data);
 
 export const updateTag = (
   id: string,
   data: { name?: string; synonyms?: string[]; sortOrder?: number; isActive?: boolean },
-): Promise<TagItem> => client.patch(`/admin/tags/${id}`, data);
+): Promise<TagItem> => client.patch(`/delivery-admin/tags/${id}`, data);
 
 export const deleteTag = (id: string): Promise<void> =>
-  client.delete(`/admin/tags/${id}`);
+  client.delete(`/delivery-admin/tags/${id}`);
 
 // ===== Company Tags =====
 
@@ -73,10 +73,10 @@ export interface CompanyTagGroup {
 }
 
 export const getCompanyTags = (companyId: string): Promise<CompanyTagGroup[]> =>
-  client.get(`/admin/companies/${companyId}/tags`);
+  client.get(`/delivery-admin/companies/${companyId}/tags`);
 
 export const updateCompanyTags = (companyId: string, tagIds: string[]): Promise<CompanyTagGroup[]> =>
-  client.put(`/admin/companies/${companyId}/tags`, { tagIds });
+  client.put(`/delivery-admin/companies/${companyId}/tags`, { tagIds });
 
 // ===== Public API (for tag options in selectors) =====
 

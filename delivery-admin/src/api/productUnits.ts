@@ -19,24 +19,24 @@ export interface PublicProductUnit {
 
 /** 获取全部单位（含停用） */
 export const getProductUnits = (): Promise<AdminProductUnit[]> =>
-  client.get('/admin/product-units');
+  client.get('/delivery-admin/product-units');
 
 /** 创建单位 */
 export const createProductUnit = (data: {
   name: string;
   sortOrder?: number;
   isActive?: boolean;
-}): Promise<AdminProductUnit> => client.post('/admin/product-units', data);
+}): Promise<AdminProductUnit> => client.post('/delivery-admin/product-units', data);
 
 /** 编辑单位 */
 export const updateProductUnit = (
   id: string,
   data: { name?: string; sortOrder?: number; isActive?: boolean },
-): Promise<AdminProductUnit> => client.patch(`/admin/product-units/${id}`, data);
+): Promise<AdminProductUnit> => client.patch(`/delivery-admin/product-units/${id}`, data);
 
 /** 删除单位 */
 export const deleteProductUnit = (id: string): Promise<void> =>
-  client.delete(`/admin/product-units/${id}`);
+  client.delete(`/delivery-admin/product-units/${id}`);
 
 /** 公开接口：仅返回启用单位（供商品编辑下拉使用） */
 export const getPublicProductUnits = (): Promise<PublicProductUnit[]> =>

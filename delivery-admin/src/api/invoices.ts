@@ -122,25 +122,25 @@ export type InvoiceStatsMap = Record<string, number>;
 
 /** 发票列表 */
 export const getInvoices = (params?: InvoiceQueryParams): Promise<PaginatedData<Invoice>> =>
-  client.get('/admin/invoices', { params });
+  client.get('/delivery-admin/invoices', { params });
 
 /** 发票详情 */
 export const getInvoiceDetail = (id: string): Promise<Invoice> =>
-  client.get(`/admin/invoices/${id}`);
+  client.get(`/delivery-admin/invoices/${id}`);
 
 /** 发票状态统计 */
 export const getInvoiceStats = (): Promise<InvoiceStatsMap> =>
-  client.get('/admin/invoices/stats');
+  client.get('/delivery-admin/invoices/stats');
 
 /** 发票设置 */
 export const getInvoiceSettings = (): Promise<InvoiceSettings> =>
-  client.get('/admin/invoices/settings');
+  client.get('/delivery-admin/invoices/settings');
 
 /** 更新发票设置 */
 export const updateInvoiceSettings = (
   data: Partial<InvoiceSettings>,
 ): Promise<{ ok: boolean }> =>
-  client.put('/admin/invoices/settings', data);
+  client.put('/delivery-admin/invoices/settings', data);
 
 export type IssueInvoicePayload =
   | { mode: 'AUTO' | 'MOCK' }
@@ -149,17 +149,17 @@ export type IssueInvoicePayload =
 
 /** 开票 */
 export const issueInvoice = (id: string, data: IssueInvoicePayload): Promise<{ ok: boolean }> =>
-  client.post(`/admin/invoices/${id}/issue`, data);
+  client.post(`/delivery-admin/invoices/${id}/issue`, data);
 
 /** 标记失败 */
 export const failInvoice = (id: string, data: {
   reason: string;
 }): Promise<{ ok: boolean }> =>
-  client.post(`/admin/invoices/${id}/fail`, data);
+  client.post(`/delivery-admin/invoices/${id}/fail`, data);
 
 /** 重置卡住的开票 Provider 任务 */
 export const resetInvoiceProviderReservation = (id: string): Promise<{
   ok: boolean;
   providerRequestId: string;
 }> =>
-  client.post(`/admin/invoices/${id}/reset-provider-reservation`);
+  client.post(`/delivery-admin/invoices/${id}/reset-provider-reservation`);

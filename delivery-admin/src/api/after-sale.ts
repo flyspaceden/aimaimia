@@ -132,32 +132,32 @@ export interface AfterSaleStatsResponse {
 
 /** 售后列表 */
 export const getAfterSales = (params?: AfterSaleQueryParams): Promise<PaginatedData<AdminAfterSale>> =>
-  client.get('/admin/after-sale', { params });
+  client.get('/delivery-admin/after-sale', { params });
 
 /** 售后状态统计 */
 export const getAfterSaleStats = (): Promise<AfterSaleStatsResponse> =>
-  client.get('/admin/after-sale/stats');
+  client.get('/delivery-admin/after-sale/stats');
 
 /** 售后详情 */
 export const getAfterSale = (id: string): Promise<AdminAfterSale> =>
-  client.get(`/admin/after-sale/${id}`);
+  client.get(`/delivery-admin/after-sale/${id}`);
 
 /** 管理员仲裁 */
 export const arbitrateAfterSale = (
   id: string,
   data: { status: 'APPROVED' | 'REJECTED'; reason?: string },
 ): Promise<AdminAfterSale> =>
-  client.post(`/admin/after-sale/${id}/arbitrate`, data);
+  client.post(`/delivery-admin/after-sale/${id}/arbitrate`, data);
 
 /** 人工重试售后退款 */
 export const retryAfterSaleRefund = (
   afterSaleId: string,
   refundId: string,
 ): Promise<AdminAfterSale['refund']> =>
-  client.post(`/admin/after-sale/${afterSaleId}/refunds/${refundId}/retry`);
+  client.post(`/delivery-admin/after-sale/${afterSaleId}/refunds/${refundId}/retry`);
 
 /** 售后状态时间线 */
 export const getAfterSaleTimeline = (
   id: string,
 ): Promise<{ items: AfterSaleTimelineItem[] }> =>
-  client.get(`/admin/after-sale/${id}/timeline`);
+  client.get(`/delivery-admin/after-sale/${id}/timeline`);

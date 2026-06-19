@@ -3,15 +3,15 @@ import type { AdminRole, AdminPermission } from '@/types';
 
 /** 角色列表 */
 export const getRoles = (): Promise<AdminRole[]> =>
-  client.get('/admin/roles');
+  client.get('/delivery-admin/roles');
 
 /** 角色详情 */
 export const getRole = (id: string): Promise<AdminRole> =>
-  client.get(`/admin/roles/${id}`);
+  client.get(`/delivery-admin/roles/${id}`);
 
 /** 所有可用权限 */
 export const getPermissions = (): Promise<AdminPermission[]> =>
-  client.get('/admin/roles/permissions');
+  client.get('/delivery-admin/roles/permissions');
 
 /** 创建角色 */
 export const createRole = (data: {
@@ -19,7 +19,7 @@ export const createRole = (data: {
   description?: string;
   permissionIds?: string[];
 }): Promise<AdminRole> =>
-  client.post('/admin/roles', data);
+  client.post('/delivery-admin/roles', data);
 
 /** 更新角色 */
 export const updateRole = (id: string, data: {
@@ -27,8 +27,8 @@ export const updateRole = (id: string, data: {
   description?: string;
   permissionIds?: string[];
 }): Promise<AdminRole> =>
-  client.put(`/admin/roles/${id}`, data);
+  client.put(`/delivery-admin/roles/${id}`, data);
 
 /** 删除角色 */
 export const deleteRole = (id: string): Promise<void> =>
-  client.delete(`/admin/roles/${id}`);
+  client.delete(`/delivery-admin/roles/${id}`);

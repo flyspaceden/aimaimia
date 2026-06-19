@@ -81,7 +81,7 @@ export interface TaxVoucherResult {
 
 /** 会员列表 */
 export const getMembers = (params?: MemberQueryParams): Promise<PaginatedData<BonusMember>> =>
-  client.get('/admin/bonus/members', { params });
+  client.get('/delivery-admin/bonus/members', { params });
 
 /** VIP 会员统计（总数 + 今日/本周/本月新增） */
 export interface VipMembersStats {
@@ -91,47 +91,47 @@ export interface VipMembersStats {
   newThisMonth: number;
 }
 export const getVipMembersStats = (): Promise<VipMembersStats> =>
-  client.get('/admin/bonus/members/stats');
+  client.get('/delivery-admin/bonus/members/stats');
 
 /** 会员详情 */
 export const getMemberDetail = (userId: string): Promise<BonusMemberDetail> =>
-  client.get(`/admin/bonus/members/${userId}`);
+  client.get(`/delivery-admin/bonus/members/${userId}`);
 
 /** 提现请求列表 */
 export const getWithdrawals = (params?: WithdrawQueryParams): Promise<PaginatedData<WithdrawRequest>> =>
-  client.get('/admin/bonus/withdrawals', { params });
+  client.get('/delivery-admin/bonus/withdrawals', { params });
 
 /** 批准提现 */
 export const approveWithdrawal = (id: string): Promise<WithdrawRequest> =>
-  client.post(`/admin/bonus/withdrawals/${id}/approve`);
+  client.post(`/delivery-admin/bonus/withdrawals/${id}/approve`);
 
 /** 拒绝提现 */
 export const rejectWithdrawal = (id: string, reason?: string): Promise<WithdrawRequest> =>
-  client.post(`/admin/bonus/withdrawals/${id}/reject`, { reason });
+  client.post(`/delivery-admin/bonus/withdrawals/${id}/reject`, { reason });
 
 /** 查询提现规则配置 */
 export const getWithdrawRules = (): Promise<WithdrawRules> =>
-  client.get('/admin/bonus/withdraw-rules');
+  client.get('/delivery-admin/bonus/withdraw-rules');
 
 /** 更新提现/抵扣规则配置 */
 export const updateWithdrawRules = (dto: Partial<WithdrawRules>): Promise<WithdrawRules> =>
-  client.put('/admin/bonus/withdraw-rules', dto);
+  client.put('/delivery-admin/bonus/withdraw-rules', dto);
 
 /** 税务报送月度汇总 */
 export const getTaxReportSummary = (year: number, month: number): Promise<TaxReportSummary> =>
-  client.get('/admin/bonus/tax-report/summary', { params: { year, month } });
+  client.get('/delivery-admin/bonus/tax-report/summary', { params: { year, month } });
 
 /** 税务报送明细 */
 export const getTaxReportDetail = (year: number, month: number): Promise<TaxReportDetailRow[]> =>
-  client.get('/admin/bonus/tax-report/detail', { params: { year, month } });
+  client.get('/delivery-admin/bonus/tax-report/detail', { params: { year, month } });
 
 /** 生成代扣凭证 */
 export const generateTaxVoucher = (year: number, month: number): Promise<TaxVoucherResult> =>
-  client.post('/admin/bonus/tax-report/voucher', { year, month });
+  client.post('/delivery-admin/bonus/tax-report/voucher', { year, month });
 
 /** 手动查询 PROCESSING 提现状态 */
 export const queryWithdrawStatus = (id: string): Promise<QueryWithdrawStatusResult> =>
-  client.post(`/admin/bonus/withdrawals/${id}/query`);
+  client.post(`/delivery-admin/bonus/withdrawals/${id}/query`);
 
 // ========== VIP 树可视化 ==========
 
@@ -144,19 +144,19 @@ export const searchVipTreeUsers = (keyword: string): Promise<Array<{
   tier: string;
   treeStatus: 'active' | 'silent' | 'frozen' | 'exited' | null;
   hasVipNode: boolean;
-}>> => client.get('/admin/bonus/vip-tree/search', { params: { keyword } });
+}>> => client.get('/delivery-admin/bonus/vip-tree/search', { params: { keyword } });
 
 /** VIP 树根节点统计 */
 export const getVipTreeRootStats = (): Promise<VipRootStat[]> =>
-  client.get('/admin/bonus/vip-tree/root-stats');
+  client.get('/delivery-admin/bonus/vip-tree/root-stats');
 
 /** 获取 VIP 树上下文 */
 export const getVipTreeContext = (userId: string, descendantDepth = 1): Promise<VipTreeContextResponse> =>
-  client.get('/admin/bonus/vip-tree/context', { params: { userId, descendantDepth } });
+  client.get('/delivery-admin/bonus/vip-tree/context', { params: { userId, descendantDepth } });
 
 /** 懒加载子节点 */
 export const getVipTreeChildren = (userId: string): Promise<{ children: VipTreeNodeView[] }> =>
-  client.get(`/admin/bonus/vip-tree/${userId}/children`);
+  client.get(`/delivery-admin/bonus/vip-tree/${userId}/children`);
 
 /** VIP 树奖励记录 */
 export const getVipTreeRewardRecords = (
@@ -164,7 +164,7 @@ export const getVipTreeRewardRecords = (
   page = 1,
   pageSize = 10,
 ): Promise<PaginatedData<TreeRewardRecord>> =>
-  client.get(`/admin/bonus/vip-tree/${userId}/reward-records`, { params: { page, pageSize } });
+  client.get(`/delivery-admin/bonus/vip-tree/${userId}/reward-records`, { params: { page, pageSize } });
 
 /** VIP 树关联订单 */
 export const getVipTreeRelatedOrders = (
@@ -172,27 +172,27 @@ export const getVipTreeRelatedOrders = (
   page = 1,
   pageSize = 10,
 ): Promise<PaginatedData<TreeRelatedOrder>> =>
-  client.get(`/admin/bonus/vip-tree/${userId}/orders`, { params: { page, pageSize } });
+  client.get(`/delivery-admin/bonus/vip-tree/${userId}/orders`, { params: { page, pageSize } });
 
 /** VIP 树奖励路径解释 */
 export const getVipPathExplain = (
   userId: string,
   ledgerId: string,
 ): Promise<PathExplainResponse> =>
-  client.get(`/admin/bonus/vip-tree/${userId}/path-explain`, { params: { ledgerId } });
+  client.get(`/delivery-admin/bonus/vip-tree/${userId}/path-explain`, { params: { ledgerId } });
 
 /** 普通树奖励路径解释 */
 export const getNormalPathExplain = (
   userId: string,
   ledgerId: string,
 ): Promise<PathExplainResponse> =>
-  client.get(`/admin/bonus/normal-tree/${userId}/path-explain`, { params: { ledgerId } });
+  client.get(`/delivery-admin/bonus/normal-tree/${userId}/path-explain`, { params: { ledgerId } });
 
 // ========== 普通奖励滑动窗口 ==========
 
 /** 获取所有桶概览 */
 export const getBroadcastBuckets = (): Promise<BroadcastBucketInfo[]> =>
-  client.get('/admin/bonus/broadcast-window/buckets');
+  client.get('/delivery-admin/bonus/broadcast-window/buckets');
 
 /** 获取指定桶的窗口订单 */
 export const getBroadcastWindow = (
@@ -200,11 +200,11 @@ export const getBroadcastWindow = (
   page = 1,
   pageSize = 30,
 ): Promise<BroadcastWindowResponse> =>
-  client.get('/admin/bonus/broadcast-window', { params: { bucket, page, pageSize } });
+  client.get('/delivery-admin/bonus/broadcast-window', { params: { bucket, page, pageSize } });
 
 /** 获取订单奖励分配明细 */
 export const getBroadcastDistributions = (orderId: string): Promise<BroadcastDistributionResponse> =>
-  client.get(`/admin/bonus/broadcast-window/${orderId}/distributions`);
+  client.get(`/delivery-admin/bonus/broadcast-window/${orderId}/distributions`);
 
 // ========== 普通奖励树可视化 ==========
 
@@ -217,19 +217,19 @@ export const searchNormalTreeUsers = (keyword: string): Promise<Array<{
   tier: string;
   treeStatus: 'active' | 'silent' | 'frozen' | 'exited' | null;
   hasNormalNode: boolean;
-}>> => client.get('/admin/bonus/normal-tree/search', { params: { keyword } });
+}>> => client.get('/delivery-admin/bonus/normal-tree/search', { params: { keyword } });
 
 /** 普通树根节点统计 */
 export const getNormalTreeRootStats = (): Promise<NormalRootStat> =>
-  client.get('/admin/bonus/normal-tree/root-stats');
+  client.get('/delivery-admin/bonus/normal-tree/root-stats');
 
 /** 获取普通树上下文 */
 export const getNormalTreeContext = (userId: string, descendantDepth = 1): Promise<VipTreeContextResponse> =>
-  client.get('/admin/bonus/normal-tree/context', { params: { userId, descendantDepth } });
+  client.get('/delivery-admin/bonus/normal-tree/context', { params: { userId, descendantDepth } });
 
 /** 懒加载普通树子节点 */
 export const getNormalTreeChildren = (userId: string): Promise<{ children: VipTreeNodeView[] }> =>
-  client.get(`/admin/bonus/normal-tree/${userId}/children`);
+  client.get(`/delivery-admin/bonus/normal-tree/${userId}/children`);
 
 /** 普通树奖励记录 */
 export const getNormalTreeRewardRecords = (
@@ -237,7 +237,7 @@ export const getNormalTreeRewardRecords = (
   page = 1,
   pageSize = 10,
 ): Promise<PaginatedData<TreeRewardRecord>> =>
-  client.get(`/admin/bonus/normal-tree/${userId}/reward-records`, { params: { page, pageSize } });
+  client.get(`/delivery-admin/bonus/normal-tree/${userId}/reward-records`, { params: { page, pageSize } });
 
 /** 普通树关联订单 */
 export const getNormalTreeRelatedOrders = (
@@ -245,4 +245,4 @@ export const getNormalTreeRelatedOrders = (
   page = 1,
   pageSize = 10,
 ): Promise<PaginatedData<TreeRelatedOrder>> =>
-  client.get(`/admin/bonus/normal-tree/${userId}/orders`, { params: { page, pageSize } });
+  client.get(`/delivery-admin/bonus/normal-tree/${userId}/orders`, { params: { page, pageSize } });

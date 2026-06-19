@@ -8,11 +8,11 @@ interface CompanyQueryParams extends PaginationParams {
 
 /** 企业列表 */
 export const getCompanies = (params?: CompanyQueryParams): Promise<PaginatedData<Company>> =>
-  client.get('/admin/companies', { params });
+  client.get('/delivery-admin/companies', { params });
 
 /** 企业详情 */
 export const getCompany = (id: string): Promise<Company> =>
-  client.get(`/admin/companies/${id}`);
+  client.get(`/delivery-admin/companies/${id}`);
 
 /** 更新企业 */
 export const updateCompany = (id: string, data: {
@@ -25,40 +25,40 @@ export const updateCompany = (id: string, data: {
   contact?: { name?: string; phone?: string };
   status?: string;
 }): Promise<Company> =>
-  client.put(`/admin/companies/${id}`, data);
+  client.put(`/delivery-admin/companies/${id}`, data);
 
 /** 企业审核 */
 export const auditCompany = (id: string, data: {
   status: 'APPROVED' | 'REJECTED';
   note?: string;
 }): Promise<Company> =>
-  client.post(`/admin/companies/${id}/audit`, data);
+  client.post(`/delivery-admin/companies/${id}/audit`, data);
 
 /** 获取企业亮点 */
 export const getCompanyHighlights = (companyId: string): Promise<Record<string, string>> =>
-  client.get(`/admin/companies/${companyId}/highlights`);
+  client.get(`/delivery-admin/companies/${companyId}/highlights`);
 
 /** 更新企业亮点 */
 export const updateCompanyHighlights = (companyId: string, highlights: Record<string, string>): Promise<void> =>
-  client.put(`/admin/companies/${companyId}/highlights`, { highlights });
+  client.put(`/delivery-admin/companies/${companyId}/highlights`, { highlights });
 
 /** 审核资质文件 */
 export const verifyDocument = (companyId: string, docId: string, data: {
   verifyStatus: 'VERIFIED' | 'REJECTED';
   verifyNote?: string;
 }): Promise<void> =>
-  client.post(`/admin/companies/${companyId}/documents/${docId}/verify`, data);
+  client.post(`/delivery-admin/companies/${companyId}/documents/${docId}/verify`, data);
 
 /** 企业员工列表 */
 export const getCompanyStaff = (companyId: string): Promise<CompanyStaff[]> =>
-  client.get(`/admin/companies/${companyId}/staff`);
+  client.get(`/delivery-admin/companies/${companyId}/staff`);
 
 /** 绑定企业创始人 */
 export const bindCompanyOwner = (
   companyId: string,
   data: { phone: string; nickname?: string },
 ): Promise<CompanyStaff> =>
-  client.post(`/admin/companies/${companyId}/bind-owner`, data);
+  client.post(`/delivery-admin/companies/${companyId}/bind-owner`, data);
 
 /** C40c8 管理员兜底重置员工密码 */
 export const resetStaffPassword = (
@@ -66,7 +66,7 @@ export const resetStaffPassword = (
   staffId: string,
   newPassword: string,
 ): Promise<{ ok: boolean }> =>
-  client.post(`/admin/companies/${companyId}/staff/${staffId}/reset-password`, {
+  client.post(`/delivery-admin/companies/${companyId}/staff/${staffId}/reset-password`, {
     newPassword,
   });
 
@@ -77,7 +77,7 @@ export const addStaff = (
   companyId: string,
   data: { phone: string; role: 'MANAGER' | 'OPERATOR'; nickname?: string; password?: string },
 ): Promise<CompanyStaff> =>
-  client.post(`/admin/companies/${companyId}/staff`, data);
+  client.post(`/delivery-admin/companies/${companyId}/staff`, data);
 
 /** 修改员工角色/状态（OWNER 不可改） */
 export const updateStaff = (
@@ -85,14 +85,14 @@ export const updateStaff = (
   staffId: string,
   data: { role?: 'MANAGER' | 'OPERATOR'; status?: 'ACTIVE' | 'DISABLED' },
 ): Promise<CompanyStaff> =>
-  client.put(`/admin/companies/${companyId}/staff/${staffId}`, data);
+  client.put(`/delivery-admin/companies/${companyId}/staff/${staffId}`, data);
 
 /** 移除员工（OWNER 不可移除） */
 export const removeStaff = (
   companyId: string,
   staffId: string,
 ): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/companies/${companyId}/staff/${staffId}`);
+  client.delete(`/delivery-admin/companies/${companyId}/staff/${staffId}`);
 
 /** 修改员工昵称（全局生效，影响该 User 在所有场景的显示） */
 export const updateStaffNickname = (
@@ -100,7 +100,7 @@ export const updateStaffNickname = (
   staffId: string,
   nickname: string,
 ): Promise<CompanyStaff> =>
-  client.put(`/admin/companies/${companyId}/staff/${staffId}/nickname`, { nickname });
+  client.put(`/delivery-admin/companies/${companyId}/staff/${staffId}/nickname`, { nickname });
 
 /** 修改员工手机号（替换登录凭证） */
 export const updateStaffPhone = (
@@ -108,7 +108,7 @@ export const updateStaffPhone = (
   staffId: string,
   newPhone: string,
 ): Promise<{ ok: boolean; unchanged?: boolean; oldPhone?: string; newPhone?: string }> =>
-  client.put(`/admin/companies/${companyId}/staff/${staffId}/phone`, { newPhone });
+  client.put(`/delivery-admin/companies/${companyId}/staff/${staffId}/phone`, { newPhone });
 
 /** 换 OWNER */
 export const transferOwner = (
@@ -119,15 +119,15 @@ export const transferOwner = (
     nickname?: string;
   },
 ): Promise<{ ok: boolean; oldOwnerId: string; newOwnerId: string }> =>
-  client.post(`/admin/companies/${companyId}/transfer-owner`, data);
+  client.post(`/delivery-admin/companies/${companyId}/transfer-owner`, data);
 
 /** 获取企业 AI 搜索资料 */
 export const getCompanyAiSearchProfile = (companyId: string): Promise<AiSearchProfile> =>
-  client.get(`/admin/companies/${companyId}/ai-search-profile`);
+  client.get(`/delivery-admin/companies/${companyId}/ai-search-profile`);
 
 /** 更新企业 AI 搜索资料 */
 export const updateCompanyAiSearchProfile = (companyId: string, data: AiSearchProfile): Promise<AiSearchProfile> =>
-  client.put(`/admin/companies/${companyId}/ai-search-profile`, data);
+  client.put(`/delivery-admin/companies/${companyId}/ai-search-profile`, data);
 
 // ========== 产业基金（INDUSTRY_FUND） ==========
 
@@ -164,7 +164,7 @@ export const getCompanyIndustryFund = (
   companyId: string,
   params?: { page?: number; pageSize?: number },
 ): Promise<IndustryFundResponse> =>
-  client.get(`/admin/companies/${companyId}/industry-fund`, { params });
+  client.get(`/delivery-admin/companies/${companyId}/industry-fund`, { params });
 
 /** 添加企业 */
 export const createCompany = (data: {
@@ -174,4 +174,4 @@ export const createCompany = (data: {
   category: string;
   description?: string;
 }): Promise<{ companyId: string; staffId: string }> =>
-  client.post('/admin/companies', data);
+  client.post('/delivery-admin/companies', data);

@@ -62,7 +62,7 @@ export interface ShippingRulePreviewRequest {
 }
 
 export const listRules = (params?: PaginationParams): Promise<PaginatedData<ShippingRule>> =>
-  client.get('/admin/shipping-rules', { params });
+  client.get('/delivery-admin/shipping-rules', { params });
 
 export const getShippingRules = listRules;
 
@@ -120,24 +120,24 @@ const withLegacyFormulaDefaults = <T extends { fee?: number } & Partial<Shipping
 };
 
 export const createShippingRule = (data: CreateShippingRuleInput): Promise<ShippingRule> =>
-  client.post('/admin/shipping-rules', withLegacyFormulaDefaults(data));
+  client.post('/delivery-admin/shipping-rules', withLegacyFormulaDefaults(data));
 
 export const updateShippingRule = (id: string, data: UpdateShippingRuleInput): Promise<ShippingRule> =>
-  client.put(`/admin/shipping-rules/${id}`, data);
+  client.put(`/delivery-admin/shipping-rules/${id}`, data);
 
 export const deleteShippingRule = (id: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/shipping-rules/${id}`);
+  client.delete(`/delivery-admin/shipping-rules/${id}`);
 
 export const previewRule = (data: ShippingRulePreviewRequest): Promise<ShippingPreview> =>
-  client.post('/admin/shipping-rules/preview', data);
+  client.post('/delivery-admin/shipping-rules/preview', data);
 
 export const previewShipping = previewRule;
 
 export const importRulesDryRun = (data: ShippingRuleImportRequest): Promise<ShippingRuleImportResult> =>
-  client.post('/admin/shipping-rules/import', { ...data, dryRun: true });
+  client.post('/delivery-admin/shipping-rules/import', { ...data, dryRun: true });
 
 export const importRules = (data: ShippingRuleImportRequest): Promise<ShippingRuleImportResult> =>
-  client.post('/admin/shipping-rules/import', { ...data, dryRun: false });
+  client.post('/delivery-admin/shipping-rules/import', { ...data, dryRun: false });
 
 export const downloadTemplate = (): Promise<string> =>
-  client.get('/admin/shipping-rules/template');
+  client.get('/delivery-admin/shipping-rules/template');

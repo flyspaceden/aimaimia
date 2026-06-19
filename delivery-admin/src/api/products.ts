@@ -19,11 +19,11 @@ export interface CategoryNode {
 
 /** 商品列表 */
 export const getProducts = (params?: ProductQueryParams): Promise<PaginatedData<Product>> =>
-  client.get('/admin/products', { params });
+  client.get('/delivery-admin/products', { params });
 
 /** 商品详情 */
 export const getProduct = (id: string): Promise<Product> =>
-  client.get(`/admin/products/${id}`);
+  client.get(`/delivery-admin/products/${id}`);
 
 /** 更新商品 */
 export const updateProduct = (id: string, data: {
@@ -43,7 +43,7 @@ export const updateProduct = (id: string, data: {
   tagIds?: string[];
   unit?: string;
 }): Promise<Product> =>
-  client.put(`/admin/products/${id}`, data);
+  client.put(`/delivery-admin/products/${id}`, data);
 
 /** C21: SKU 编辑项 */
 export interface SkuUpdateItem {
@@ -61,26 +61,26 @@ export const updateProductSkus = (
   id: string,
   skus: SkuUpdateItem[],
 ): Promise<any[]> =>
-  client.put(`/admin/products/${id}/skus`, { skus });
+  client.put(`/delivery-admin/products/${id}/skus`, { skus });
 
 /** 触发 AI 重新生成语义标签 */
 export const refillSemanticTags = (id: string): Promise<void> =>
-  client.post(`/admin/products/${id}/refill-semantic`);
+  client.post(`/delivery-admin/products/${id}/refill-semantic`);
 
 /** 上下架 */
 export const toggleProductStatus = (id: string, status: 'ACTIVE' | 'INACTIVE'): Promise<Product> =>
-  client.post(`/admin/products/${id}/toggle-status`, { status });
+  client.post(`/delivery-admin/products/${id}/toggle-status`, { status });
 
 /** 审核商品 */
 export const auditProduct = (id: string, data: {
   auditStatus: 'APPROVED' | 'REJECTED';
   auditNote?: string;
 }): Promise<Product> =>
-  client.post(`/admin/products/${id}/audit`, data);
+  client.post(`/delivery-admin/products/${id}/audit`, data);
 
 /** 硬删除商品 */
 export const deleteProduct = (id: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/products/${id}`);
+  client.delete(`/delivery-admin/products/${id}`);
 
 /** 获取商品分类树 — 复用买家端公开接口 */
 export const getCategories = (): Promise<CategoryNode[]> =>
@@ -88,4 +88,4 @@ export const getCategories = (): Promise<CategoryNode[]> =>
 
 /** 商品统计 */
 export const getProductStats = (): Promise<Record<string, number>> =>
-  client.get('/admin/products/stats');
+  client.get('/delivery-admin/products/stats');

@@ -29,20 +29,20 @@ interface ApplicationQueryParams extends PaginationParams {
 
 /** 入驻申请列表 */
 export const getMerchantApplications = (params?: ApplicationQueryParams): Promise<PaginatedData<MerchantApplication>> =>
-  client.get('/admin/merchant-applications', { params });
+  client.get('/delivery-admin/merchant-applications', { params });
 
 /** 入驻申请详情 */
 export const getMerchantApplication = (id: string): Promise<MerchantApplicationDetail> =>
-  client.get(`/admin/merchant-applications/${id}`);
+  client.get(`/delivery-admin/merchant-applications/${id}`);
 
 /** 审核通过 */
 export const approveMerchantApplication = (id: string): Promise<{ companyId: string; staffId: string }> =>
-  client.post(`/admin/merchant-applications/${id}/approve`);
+  client.post(`/delivery-admin/merchant-applications/${id}/approve`);
 
 /** 审核拒绝 */
 export const rejectMerchantApplication = (id: string, reason: string): Promise<void> =>
-  client.post(`/admin/merchant-applications/${id}/reject`, { reason });
+  client.post(`/delivery-admin/merchant-applications/${id}/reject`, { reason });
 
 /** 待审核数量 */
 export const getMerchantApplicationPendingCount = (): Promise<number> =>
-  client.get('/admin/merchant-applications/pending-count');
+  client.get('/delivery-admin/merchant-applications/pending-count');

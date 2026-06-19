@@ -86,61 +86,61 @@ export interface CsStats {
 
 // --- API Functions ---
 export const getCsSessions = (params?: { status?: string; page?: number }): Promise<CsSession[]> =>
-  client.get('/admin/cs/sessions', { params });
+  client.get('/delivery-admin/cs/sessions', { params });
 
 export const getCsSessionDetail = (id: string): Promise<CsSession> =>
-  client.get(`/admin/cs/sessions/${id}`);
+  client.get(`/delivery-admin/cs/sessions/${id}`);
 
 export const getCsTickets = (params?: Record<string, string | number>): Promise<{ items: CsTicket[]; total: number }> =>
-  client.get('/admin/cs/tickets', { params });
+  client.get('/delivery-admin/cs/tickets', { params });
 
 export const updateCsTicket = (id: string, data: Record<string, string>): Promise<CsTicket> =>
-  client.patch(`/admin/cs/tickets/${id}`, data);
+  client.patch(`/delivery-admin/cs/tickets/${id}`, data);
 
 export const getCsFaqs = (): Promise<CsFaq[]> =>
-  client.get('/admin/cs/faq');
+  client.get('/delivery-admin/cs/faq');
 
 export const createCsFaq = (data: Partial<CsFaq>): Promise<CsFaq> =>
-  client.post('/admin/cs/faq', data);
+  client.post('/delivery-admin/cs/faq', data);
 
 export const updateCsFaq = (id: string, data: Partial<CsFaq>): Promise<CsFaq> =>
-  client.patch(`/admin/cs/faq/${id}`, data);
+  client.patch(`/delivery-admin/cs/faq/${id}`, data);
 
 export const deleteCsFaq = (id: string): Promise<void> =>
-  client.delete(`/admin/cs/faq/${id}`);
+  client.delete(`/delivery-admin/cs/faq/${id}`);
 
 export const testCsFaq = (message: string): Promise<{ answer: string } | null> =>
-  client.post('/admin/cs/faq/test', { message });
+  client.post('/delivery-admin/cs/faq/test', { message });
 
 export const getCsQuickEntries = (): Promise<CsQuickEntry[]> =>
-  client.get('/admin/cs/quick-entries');
+  client.get('/delivery-admin/cs/quick-entries');
 
 export const createCsQuickEntry = (data: Partial<CsQuickEntry>): Promise<CsQuickEntry> =>
-  client.post('/admin/cs/quick-entries', data);
+  client.post('/delivery-admin/cs/quick-entries', data);
 
 export const updateCsQuickEntry = (id: string, data: Partial<CsQuickEntry>): Promise<CsQuickEntry> =>
-  client.patch(`/admin/cs/quick-entries/${id}`, data);
+  client.patch(`/delivery-admin/cs/quick-entries/${id}`, data);
 
 export const deleteCsQuickEntry = (id: string): Promise<void> =>
-  client.delete(`/admin/cs/quick-entries/${id}`);
+  client.delete(`/delivery-admin/cs/quick-entries/${id}`);
 
 export const sortCsQuickEntries = (items: { id: string; sortOrder: number }[]): Promise<void> =>
-  client.patch('/admin/cs/quick-entries/sort', { items });
+  client.patch('/delivery-admin/cs/quick-entries/sort', { items });
 
 export const getCsQuickReplies = (): Promise<CsQuickReply[]> =>
-  client.get('/admin/cs/quick-replies');
+  client.get('/delivery-admin/cs/quick-replies');
 
 export const createCsQuickReply = (data: Partial<CsQuickReply>): Promise<CsQuickReply> =>
-  client.post('/admin/cs/quick-replies', data);
+  client.post('/delivery-admin/cs/quick-replies', data);
 
 export const updateCsQuickReply = (id: string, data: Partial<CsQuickReply>): Promise<CsQuickReply> =>
-  client.patch(`/admin/cs/quick-replies/${id}`, data);
+  client.patch(`/delivery-admin/cs/quick-replies/${id}`, data);
 
 export const deleteCsQuickReply = (id: string): Promise<void> =>
-  client.delete(`/admin/cs/quick-replies/${id}`);
+  client.delete(`/delivery-admin/cs/quick-replies/${id}`);
 
 export const getCsStats = (): Promise<CsStats> =>
-  client.get('/admin/cs/stats');
+  client.get('/delivery-admin/cs/stats');
 
 export const getCsAgentStatus = (): Promise<any[]> =>
-  client.get('/admin/cs/agent-status');
+  client.get('/delivery-admin/cs/agent-status');

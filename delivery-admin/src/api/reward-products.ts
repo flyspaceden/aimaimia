@@ -91,32 +91,32 @@ export interface UpdateSkuInput {
 
 // 商品列表
 export const getRewardProducts = (params?: RewardProductParams): Promise<PaginatedData<RewardProduct>> =>
-  client.get('/admin/reward-products', { params });
+  client.get('/delivery-admin/reward-products', { params });
 
 // 商品详情
 export const getRewardProduct = (id: string): Promise<RewardProduct> =>
-  client.get(`/admin/reward-products/${id}`);
+  client.get(`/delivery-admin/reward-products/${id}`);
 
 // 创建商品
 export const createRewardProduct = (data: CreateRewardProductInput): Promise<RewardProduct> =>
-  client.post('/admin/reward-products', data);
+  client.post('/delivery-admin/reward-products', data);
 
 // 更新商品基本信息
 export const updateRewardProduct = (id: string, data: UpdateRewardProductInput): Promise<RewardProduct> =>
-  client.put(`/admin/reward-products/${id}`, data);
+  client.put(`/delivery-admin/reward-products/${id}`, data);
 
 // 删除商品
 export const deleteRewardProduct = (id: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/reward-products/${id}`);
+  client.delete(`/delivery-admin/reward-products/${id}`);
 
 // 新增 SKU
 export const addRewardProductSku = (productId: string, data: CreateSkuInput): Promise<RewardProductSku> =>
-  client.post(`/admin/reward-products/${productId}/skus`, data);
+  client.post(`/delivery-admin/reward-products/${productId}/skus`, data);
 
 // 更新 SKU
 export const updateRewardProductSku = (productId: string, skuId: string, data: UpdateSkuInput): Promise<RewardProductSku> =>
-  client.put(`/admin/reward-products/${productId}/skus/${skuId}`, data);
+  client.put(`/delivery-admin/reward-products/${productId}/skus/${skuId}`, data);
 
 // 删除 SKU
 export const deleteRewardProductSku = (productId: string, skuId: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/reward-products/${productId}/skus/${skuId}`);
+  client.delete(`/delivery-admin/reward-products/${productId}/skus/${skuId}`);

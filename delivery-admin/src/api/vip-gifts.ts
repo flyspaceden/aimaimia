@@ -104,40 +104,40 @@ export interface SkuReferenceInfo {
 
 // 赠品方案列表
 export const getVipGiftOptions = (params?: VipGiftOptionParams): Promise<PaginatedData<VipGiftOption>> =>
-  client.get('/admin/vip/gift-options', { params });
+  client.get('/delivery-admin/vip/gift-options', { params });
 
 // 赠品方案详情
 export const getVipGiftOption = (id: string): Promise<VipGiftOption> =>
-  client.get(`/admin/vip/gift-options/${id}`);
+  client.get(`/delivery-admin/vip/gift-options/${id}`);
 
 // 创建赠品方案
 export const createVipGiftOption = (data: CreateVipGiftOptionInput): Promise<VipGiftOption> =>
-  client.post('/admin/vip/gift-options', data);
+  client.post('/delivery-admin/vip/gift-options', data);
 
 // 更新赠品方案
 export const updateVipGiftOption = (id: string, data: UpdateVipGiftOptionInput): Promise<VipGiftOption> =>
-  client.patch(`/admin/vip/gift-options/${id}`, data);
+  client.patch(`/delivery-admin/vip/gift-options/${id}`, data);
 
 // 更新赠品方案状态
 export const updateVipGiftOptionStatus = (id: string, status: VipGiftOptionStatus): Promise<VipGiftOption> =>
-  client.patch(`/admin/vip/gift-options/${id}/status`, { status });
+  client.patch(`/delivery-admin/vip/gift-options/${id}/status`, { status });
 
 // 删除赠品方案
 export const deleteVipGiftOption = (id: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/vip/gift-options/${id}`);
+  client.delete(`/delivery-admin/vip/gift-options/${id}`);
 
 // 获取奖励商品 SKU 列表（用于选择器）
 export const getRewardSkus = (productId?: string): Promise<RewardSkuOption[]> =>
-  client.get('/admin/vip/gift-options/reward-skus', { params: { productId } });
+  client.get('/delivery-admin/vip/gift-options/reward-skus', { params: { productId } });
 
 // 查询 SKU 引用情况
 export const getSkuReferences = (skuId: string): Promise<SkuReferenceInfo> =>
-  client.get(`/admin/vip/gift-options/sku-references/${skuId}`);
+  client.get(`/delivery-admin/vip/gift-options/sku-references/${skuId}`);
 
 // 批量排序赠品方案
 export const batchSortVipGiftOptions = (
   items: { id: string; sortOrder: number }[],
-): Promise<void> => client.put('/admin/vip/gift-options/batch/sort', { items });
+): Promise<void> => client.put('/delivery-admin/vip/gift-options/batch/sort', { items });
 
 // ===== VIP 档位 =====
 
@@ -167,13 +167,13 @@ export interface UpdateVipPackageInput {
 }
 
 export const getVipPackages = (): Promise<VipPackage[]> =>
-  client.get('/admin/vip/packages');
+  client.get('/delivery-admin/vip/packages');
 
 export const createVipPackage = (data: CreateVipPackageInput): Promise<VipPackage> =>
-  client.post('/admin/vip/packages', data);
+  client.post('/delivery-admin/vip/packages', data);
 
 export const updateVipPackage = (id: string, data: UpdateVipPackageInput): Promise<VipPackage> =>
-  client.patch(`/admin/vip/packages/${id}`, data);
+  client.patch(`/delivery-admin/vip/packages/${id}`, data);
 
 export const deleteVipPackage = (id: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/vip/packages/${id}`);
+  client.delete(`/delivery-admin/vip/packages/${id}`);

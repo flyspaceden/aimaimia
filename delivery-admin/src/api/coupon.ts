@@ -166,52 +166,52 @@ export interface ManualIssueResult {
 
 /** 活动列表 */
 export const getCampaigns = (params?: CampaignQueryParams): Promise<PaginatedData<CouponCampaign>> =>
-  client.get('/admin/coupons/campaigns', { params });
+  client.get('/delivery-admin/coupons/campaigns', { params });
 
 /** 活动详情 */
 export const getCampaign = (id: string): Promise<CouponCampaign> =>
-  client.get(`/admin/coupons/campaigns/${id}`);
+  client.get(`/delivery-admin/coupons/campaigns/${id}`);
 
 /** 创建活动 */
 export const createCampaign = (data: CreateCampaignDto): Promise<CouponCampaign> =>
-  client.post('/admin/coupons/campaigns', data);
+  client.post('/delivery-admin/coupons/campaigns', data);
 
 /** 更新活动 */
 export const updateCampaign = (id: string, data: UpdateCampaignDto): Promise<CouponCampaign> =>
-  client.patch(`/admin/coupons/campaigns/${id}`, data);
+  client.patch(`/delivery-admin/coupons/campaigns/${id}`, data);
 
 /** 更新活动状态（上架/暂停/结束） */
 export const updateCampaignStatus = (id: string, status: CouponCampaignStatus): Promise<CouponCampaign> =>
-  client.patch(`/admin/coupons/campaigns/${id}/status`, { status });
+  client.patch(`/delivery-admin/coupons/campaigns/${id}/status`, { status });
 
 /** 活动发放记录（实例列表） */
 export const getCampaignInstances = (id: string, params?: InstanceQueryParams): Promise<PaginatedData<CouponInstance>> =>
-  client.get(`/admin/coupons/campaigns/${id}/instances`, { params });
+  client.get(`/delivery-admin/coupons/campaigns/${id}/instances`, { params });
 
 /** 活动使用记录 */
 export const getCampaignUsage = (id: string, params?: UsageQueryParams): Promise<PaginatedData<CouponUsageRecord>> =>
-  client.get(`/admin/coupons/campaigns/${id}/usage`, { params });
+  client.get(`/delivery-admin/coupons/campaigns/${id}/usage`, { params });
 
 /** 手动发放红包 */
 export const manualIssue = (id: string, data: ManualIssueDto): Promise<ManualIssueResult> =>
-  client.post(`/admin/coupons/campaigns/${id}/manual-issue`, data);
+  client.post(`/delivery-admin/coupons/campaigns/${id}/manual-issue`, data);
 
 /** 撤回红包实例 */
 export const revokeInstance = (instanceId: string): Promise<CouponInstance> =>
-  client.post(`/admin/coupons/instances/${instanceId}/revoke`);
+  client.post(`/delivery-admin/coupons/instances/${instanceId}/revoke`);
 
 /** 全局发放记录 */
 export const getInstances = (params?: InstanceQueryParams): Promise<PaginatedData<CouponInstance>> =>
-  client.get('/admin/coupons/instances', { params });
+  client.get('/delivery-admin/coupons/instances', { params });
 
 /** 全局使用记录 */
 export const getUsageRecords = (params?: UsageQueryParams): Promise<PaginatedData<CouponUsageRecord>> =>
-  client.get('/admin/coupons/usage', { params });
+  client.get('/delivery-admin/coupons/usage', { params });
 
 /** 红包统计概览 */
 export const getCouponStats = (): Promise<CouponStats> =>
-  client.get('/admin/coupons/stats');
+  client.get('/delivery-admin/coupons/stats');
 
 /** 单个活动统计 */
 export const getCampaignStats = (id: string): Promise<CouponStats> =>
-  client.get(`/admin/coupons/stats/${id}`);
+  client.get(`/delivery-admin/coupons/stats/${id}`);

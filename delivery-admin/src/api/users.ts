@@ -3,11 +3,11 @@ import type { AdminUser, PaginatedData, PaginationParams } from '@/types';
 
 /** 管理员列表 */
 export const getAdminUsers = (params?: PaginationParams): Promise<PaginatedData<AdminUser>> =>
-  client.get('/admin/users', { params });
+  client.get('/delivery-admin/users', { params });
 
 /** 管理员详情 */
 export const getAdminUser = (id: string): Promise<AdminUser> =>
-  client.get(`/admin/users/${id}`);
+  client.get(`/delivery-admin/users/${id}`);
 
 /** 创建管理员 */
 export const createAdminUser = (data: {
@@ -17,7 +17,7 @@ export const createAdminUser = (data: {
   phone?: string;
   roleIds?: string[];
 }): Promise<AdminUser> =>
-  client.post('/admin/users', data);
+  client.post('/delivery-admin/users', data);
 
 /** 更新管理员 */
 export const updateAdminUser = (id: string, data: {
@@ -26,12 +26,12 @@ export const updateAdminUser = (id: string, data: {
   status?: 'ACTIVE' | 'DISABLED';
   roleIds?: string[];
 }): Promise<AdminUser> =>
-  client.put(`/admin/users/${id}`, data);
+  client.put(`/delivery-admin/users/${id}`, data);
 
 /** 重置密码 */
 export const resetPassword = (id: string, newPassword: string): Promise<void> =>
-  client.post(`/admin/users/${id}/reset-password`, { newPassword });
+  client.post(`/delivery-admin/users/${id}/reset-password`, { newPassword });
 
 /** 删除管理员 */
 export const deleteAdminUser = (id: string): Promise<void> =>
-  client.delete(`/admin/users/${id}`);
+  client.delete(`/delivery-admin/users/${id}`);

@@ -3,15 +3,15 @@ import type { Order, OrderQueryParams, OrderStatsMap, PaginatedData } from '@/ty
 
 /** 订单列表 */
 export const getOrders = (params?: OrderQueryParams): Promise<PaginatedData<Order>> =>
-  client.get('/admin/orders', { params });
+  client.get('/delivery-admin/orders', { params });
 
 /** 订单状态统计 */
 export const getOrderStats = (): Promise<OrderStatsMap> =>
-  client.get('/admin/orders/stats');
+  client.get('/delivery-admin/orders/stats');
 
 /** 订单详情 */
 export const getOrder = (id: string): Promise<Order> =>
-  client.get(`/admin/orders/${id}`);
+  client.get(`/delivery-admin/orders/${id}`);
 
 /**
  * 发货（Bug 86）
@@ -26,15 +26,15 @@ export const shipOrder = (id: string, data: {
   carrierName?: string;
   trackingNo?: string;
 }): Promise<{ ok: boolean; waybillNo?: string; waybillUrl?: string | null }> =>
-  client.post(`/admin/orders/${id}/ship`, data);
+  client.post(`/delivery-admin/orders/${id}/ship`, data);
 
 /** 取消订单 */
 export const cancelOrder = (id: string, reason: string): Promise<{ ok: boolean }> =>
-  client.post(`/admin/orders/${id}/cancel`, { reason });
+  client.post(`/delivery-admin/orders/${id}/cancel`, { reason });
 
 /** 手动重试退款 */
 export const retryRefund = (
   orderId: string,
   refundId: string,
 ): Promise<{ ok: boolean; message?: string }> =>
-  client.post(`/admin/orders/${orderId}/refunds/${refundId}/retry`);
+  client.post(`/delivery-admin/orders/${orderId}/refunds/${refundId}/retry`);

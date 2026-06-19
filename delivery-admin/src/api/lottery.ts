@@ -63,22 +63,22 @@ interface PrizeQueryParams extends PaginationParams { type?: string; }
 interface DrawRecordParams extends PaginationParams { userId?: string; result?: string; }
 
 export const getPrizes = (params?: PrizeQueryParams): Promise<PaginatedData<Prize>> =>
-  client.get('/admin/lottery/prizes', { params });
+  client.get('/delivery-admin/lottery/prizes', { params });
 
 export const createPrize = (data: Partial<Prize>): Promise<Prize> =>
-  client.post('/admin/lottery/prizes', data);
+  client.post('/delivery-admin/lottery/prizes', data);
 
 export const updatePrize = (id: string, data: Partial<Prize>): Promise<Prize> =>
-  client.put(`/admin/lottery/prizes/${id}`, data);
+  client.put(`/delivery-admin/lottery/prizes/${id}`, data);
 
 export const deletePrize = (id: string): Promise<{ ok: boolean }> =>
-  client.delete(`/admin/lottery/prizes/${id}`);
+  client.delete(`/delivery-admin/lottery/prizes/${id}`);
 
 export const batchUpdateProbabilities = (items: Array<{ id: string; probability: number }>): Promise<{ updated: number; items: Prize[] }> =>
-  client.put('/admin/lottery/prizes/batch-probabilities', { items });
+  client.put('/delivery-admin/lottery/prizes/batch-probabilities', { items });
 
 export const getDrawRecords = (params?: DrawRecordParams): Promise<PaginatedData<DrawRecord>> =>
-  client.get('/admin/lottery/records', { params });
+  client.get('/delivery-admin/lottery/records', { params });
 
 export const getLotteryStats = (): Promise<LotteryStats> =>
-  client.get('/admin/lottery/stats');
+  client.get('/delivery-admin/lottery/stats');
