@@ -32,6 +32,8 @@ test('digital asset page does not expose front-end acquisition rules', () => {
     /nextCreditTier\?\.multiplier/,
     /buildTierProgress/,
     /renderVipSeedRule/,
+    /信用资产/,
+    /资产说明/,
   ].forEach((pattern) => assert.doesNotMatch(page, pattern));
 });
 
@@ -47,6 +49,12 @@ test('digital asset page keeps result-only asset surface', () => {
     /查看全部/,
     /开通 VIP 激活数字资产/,
   ].forEach((pattern) => assert.match(page, pattern));
+});
+
+test('digital asset page filters non-vip recent records to cumulative spend rows', () => {
+  const page = read('app/me/digital-assets.tsx');
+
+  assert.match(page, /filter\(\(item\) => isVip \|\| item\.subjectType === 'CUMULATIVE_SPEND'\)/);
 });
 
 test('digital asset page defines restrained ledger type colors', () => {

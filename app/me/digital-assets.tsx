@@ -125,8 +125,10 @@ export default function DigitalAssetsScreen() {
 
   const summary = summaryQuery.data?.ok ? summaryQuery.data.data : null;
   const loadError = summaryQuery.data && !summaryQuery.data.ok ? summaryQuery.data.error : null;
-  const recentRecords = (summary?.recentRecords ?? []).slice(0, 5);
   const isVip = summary?.isVip ?? false;
+  const recentRecords = (summary?.recentRecords ?? [])
+    .filter((item) => isVip || item.subjectType === 'CUMULATIVE_SPEND')
+    .slice(0, 5);
 
   const renderAssetTile = (label: string, value: number) => (
     <View
@@ -314,7 +316,7 @@ export default function DigitalAssetsScreen() {
 
   if (!isLoggedIn) {
     return (
-      <Screen contentStyle={{ flex: 1 }}>
+      <Screen contentStyle={{ flex: 1, backgroundColor: ASSET_VISUAL.screenWash }}>
         <AppHeader title="数字资产" />
         <EmptyState
           title="请先登录"
@@ -327,7 +329,7 @@ export default function DigitalAssetsScreen() {
   }
 
   return (
-    <Screen contentStyle={{ flex: 1 }}>
+    <Screen contentStyle={{ flex: 1, backgroundColor: ASSET_VISUAL.screenWash }}>
       <AppHeader title="数字资产" />
       {summaryQuery.isLoading ? (
         <View style={{ padding: spacing.xl }}>
