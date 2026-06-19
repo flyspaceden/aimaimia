@@ -14,6 +14,61 @@
 
 ---
 
+## 配送管理后台（Task 15，2026-06-19）
+
+### 页面边界
+
+`delivery-admin/` 的活跃入口只使用 `delivery-admin/src/pages/delivery-admin/**` 下的配送专用页面，并由：
+
+- `delivery-admin/src/App.tsx`
+- `delivery-admin/src/layouts/AdminLayout.tsx`
+- `delivery-admin/src/api/delivery-management.ts`
+- `delivery-admin/src/types/delivery-management.ts`
+
+统一接线。旧 `admin/` 复制页可以保留在仓库里，但不再挂配送后台路由或菜单。
+
+### 当前活跃路由
+
+- `/` 工作台
+- `/users` `/users/:id`
+- `/units` `/units/:id`
+- `/merchants` `/merchants/:id`
+- `/merchant-applications` `/merchant-applications/:id`
+- `/products`
+- `/pricing-rules`
+- `/orders` `/orders/:id`
+- `/shipping-records`
+- `/abnormal-payments`
+- `/manifests`
+- `/settlements`
+- `/customer-service` `/customer-service/:id`
+- `/audit`
+- `/config`
+- `/account-security`
+
+### 金额可见性边界
+
+配送管理后台的金额展示按三栏固定：
+
+- `买家金额`
+- `商家供货/应结`
+- `平台差额`
+
+要求：
+
+- API 层统一保持 `cents` 单位，页面只通过 `formatMoney(cents)` 格式化。
+- 商家供货/应结金额优先取后端明确字段，如 `supplyAmountCents`、`expectedAmountCents`。
+- 平台差额只在前端能从现有字段确定时显示，例如 `subOrder.totalAmountCents - supplyAmountCents`；不能确定时显示 `-`。
+- 结算页只展示供货额、应结额、已结额，不在该页暴露平台定价策略。
+
+### 组件风格
+
+- 使用 Ant Design 的 `Table / Descriptions / Modal / Drawer / Tabs / Statistic / Tag`
+- 维持浅蓝配色、紧凑运营台样式
+- 列表页优先高信息密度，详情页优先 `Descriptions + 分组卡片`
+
+---
+
 ## 2. 现状诊断
 
 ### 2.1 菜单层面

@@ -1,0 +1,243 @@
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { App as AntdApp, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import {
+  getDeliveryManifests,
+  regenerateDeliveryManifest,
+} from '@/api/delivery-management';
+import type {
+  DeliveryManifestColumn,
+  DeliveryManifestTemplate,
+} from '@/types/delivery-management';
+import { PageHeader, StatusPill } from './components';
+import { formatDateTime, getErrorMessage } from './utils';
+
+type TemplateFormValues = {
+  name?: string;
+  description?: string;
+  columns: DeliveryManifestColumn[];
+};
+
+export default function DeliveryManifestsPage() {
+  const { message } = AntdApp.useApp();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<DeliveryManifestTemplate | null>(null);
+  const [open, setOpen] = useState(false);
+  const [columns, setColumns] = useState<DeliveryManifestColumn[]>([]);
+  const [form] = Form.useForm<TemplateFormValues>();
+
+  const query = useQuery({
+    queryKey: ['delivery-manifests'],
+    queryFn: getDeliveryManifests,
+  });
+
+  useEffect(() => {
+    if (!editing || !open) {
+      form.resetFields();
+      setColumns([]);
+      return;
+    }
+    form.setFieldsValue({
+      name: editing.name,
+      description: editing.description ?? undefined,
+      columns: editing.currentConfig.columns,
+    });
+    setColumns(editing.currentConfig.columns.map((item) => ({ ...item })));
+  }, [editing, form, open]);
+
+  const mutation = useMutation({
+    mutationFn: async (values: TemplateFormValues) =>
+      regenerateDeliveryManifest(editing!.id, {
+        name: values.name?.trim() || undefined,
+        description: values.description?.trim() || undefined,
+        columns: columns.map((item) => ({
+          key: item.key,
+          label: item.label,
+          sortOrder: item.sortOrder,
+          visible: item.visible,
+        })),
+      }),
+    onSuccess: async () => {
+      message.success('模板已重新生成版本');
+      setOpen(false);
+      setEditing(null);
+      await queryClient.invalidateQueries({ queryKey: ['delivery-manifests'] });
+    },
+    onError: (error) => {
+      message.error(getErrorMessage(error));
+    },
+  });
+
+  const templateColumns: ColumnsType<DeliveryManifestTemplate> = [
+    { title: '模板 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '模板类型', dataIndex: 'type', key: 'type', width: 160 },
+    { title: '模板名称', dataIndex: 'name', key: 'name', width: 180 },
+    { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
+    {
+      title: '当前版本',
+      key: 'latestVersion',
+      width: 120,
+      render: (_, record) => record.latestVersion?.versionNo ?? '-',
+    },
+    {
+      title: '已发布状态',
+      key: 'status',
+      width: 100,
+      render: (_, record) => <StatusPill value={record.latestVersion?.status ?? null} />,
+    },
+    {
+      title: '列配置数',
+      key: 'columns',
+      width: 100,
+      render: (_, record) => record.currentConfig.columns.length,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      render: (_, record) => (
+        <Button
+          type="link"
+          size="small"
+          onClick={() => {
+            setEditing(record);
+            setOpen(true);
+          }}
+        >
+          编辑列配置
+        </Button>
+      ),
+    },
+  ];
+
+  const editableColumns: ColumnsType<DeliveryManifestColumn> = [
+    { title: 'key', dataIndex: 'key', key: 'key', width: 180 },
+    {
+      title: '标签',
+      dataIndex: 'label',
+      key: 'label',
+      render: (_, record, index) => (
+        <Input
+          value={record.label}
+          onChange={(event) =>
+            setColumns((prev) =>
+              prev.map((item, itemIndex) => (itemIndex === index ? { ...item, label: event.target.value } : item)),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '排序',
+      dataIndex: 'sortOrder',
+      key: 'sortOrder',
+      width: 110,
+      render: (_, record, index) => (
+        <InputNumber
+          min={0}
+          max={999}
+          precision={0}
+          value={record.sortOrder}
+          onChange={(value) =>
+            setColumns((prev) =>
+              prev.map((item, itemIndex) => (itemIndex === index ? { ...item, sortOrder: value ?? item.sortOrder } : item)),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '显示',
+      dataIndex: 'visible',
+      key: 'visible',
+      width: 90,
+      render: (_, record, index) => (
+        <Switch
+          checked={record.visible}
+          disabled={record.fixed}
+          onChange={(checked) =>
+            setColumns((prev) =>
+              prev.map((item, itemIndex) => (itemIndex === index ? { ...item, visible: checked } : item)),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '固定列',
+      dataIndex: 'fixed',
+      key: 'fixed',
+      width: 90,
+      render: (value: boolean | undefined) => <StatusPill value={value ? 'ACTIVE' : 'INACTIVE'} />,
+    },
+  ];
+
+  return (
+    <div style={{ padding: 24 }}>
+      <PageHeader title="配送清单模板" subtitle="维护模板列 label / sortOrder / visible，并通过重新生成发布新版本。" />
+
+      <Card>
+        <Table<DeliveryManifestTemplate>
+          rowKey="id"
+          columns={templateColumns}
+          dataSource={query.data ?? []}
+          loading={query.isLoading}
+          scroll={{ x: 980 }}
+          locale={{ emptyText: query.isError ? getErrorMessage(query.error) : '暂无模板' }}
+          expandable={{
+            expandedRowRender: (record) => (
+              <Table
+                size="small"
+                pagination={false}
+                rowKey="id"
+                dataSource={record.versions}
+                columns={[
+                  { title: '版本 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+                  { title: '版本号', dataIndex: 'versionNo', key: 'versionNo', width: 100 },
+                  { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (value: string) => <StatusPill value={value} /> },
+                  { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 150, render: formatDateTime },
+                ]}
+              />
+            ),
+          }}
+        />
+      </Card>
+
+      <Modal
+        open={open}
+        width={900}
+        title="编辑清单模板"
+        confirmLoading={mutation.isPending}
+        onCancel={() => {
+          setOpen(false);
+          setEditing(null);
+          form.resetFields();
+        }}
+        onOk={async () => {
+          const values = await form.validateFields();
+          mutation.mutate(values);
+        }}
+      >
+        <Form form={form} layout="vertical">
+          <Space align="start" style={{ width: '100%' }}>
+            <Form.Item label="模板名称" name="name" style={{ flex: 1 }}>
+              <Input />
+            </Form.Item>
+            <Form.Item label="说明" name="description" style={{ flex: 1 }}>
+              <Input />
+            </Form.Item>
+          </Space>
+        </Form>
+        <Table<DeliveryManifestColumn>
+          rowKey="key"
+          size="small"
+          pagination={false}
+          columns={editableColumns}
+          dataSource={columns}
+          scroll={{ x: 760 }}
+        />
+      </Modal>
+    </div>
+  );
+}

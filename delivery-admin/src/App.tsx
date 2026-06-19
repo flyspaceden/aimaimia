@@ -1,59 +1,49 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { Spin } from 'antd';
-import useAuthStore from '@/store/useAuthStore';
 import AdminLayout from '@/layouts/AdminLayout';
+import useAuthStore from '@/store/useAuthStore';
 
-// N17修复：路由级代码拆分，减小首屏包体
 const LoginPage = lazy(() => import('@/pages/login/index'));
-const DashboardPage = lazy(() => import('@/pages/dashboard/index'));
-const ProductListPage = lazy(() => import('@/pages/products/index'));
-const ProductEditPage = lazy(() => import('@/pages/products/edit'));
-const ProductUnitsPage = lazy(() => import('@/pages/products/units'));
-const OrderListPage = lazy(() => import('@/pages/orders/index'));
-const OrderDetailPage = lazy(() => import('@/pages/orders/detail'));
-const CompanyListPage = lazy(() => import('@/pages/companies/index'));
-const CompanyDetailPage = lazy(() => import('@/pages/companies/detail'));
-const UserListPage = lazy(() => import('@/pages/users/index'));
-const UserDetailPage = lazy(() => import('@/pages/users/detail'));
-const TraceListPage = lazy(() => import('@/pages/trace/index'));
-const ConfigPage = lazy(() => import('@/pages/config/index'));
-const AuditLogPage = lazy(() => import('@/pages/audit/index'));
-const AdminUsersPage = lazy(() => import('@/pages/admin/users'));
-const RolesPage = lazy(() => import('@/pages/admin/roles'));
-const ShippingRulesPage = lazy(() => import('@/pages/shipping-rules/index'));
-const CategoriesPage = lazy(() => import('@/pages/categories/index'));
-const InvoiceListPage = lazy(() => import('@/pages/invoices/index'));
-const InvoiceDetailPage = lazy(() => import('@/pages/invoices/detail'));
-const InvoiceSettingsPage = lazy(() => import('@/pages/invoices/settings'));
-const TagManagementPage = lazy(() => import('@/pages/tags/index'));
-const DiscoveryFiltersPage = lazy(() => import('@/pages/config/discovery-filters'));
-const CsWorkstationPage = lazy(() => import('@/pages/cs/workstation'));
-const CsTicketsPage = lazy(() => import('@/pages/cs/tickets'));
-const CsFaqPage = lazy(() => import('@/pages/cs/faq'));
-const CsQuickEntriesPage = lazy(() => import('@/pages/cs/quick-entries'));
-const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
-const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
+const DashboardPage = lazy(() => import('@/pages/delivery-admin/dashboard'));
+const UsersPage = lazy(() => import('@/pages/delivery-admin/users'));
+const UserDetailPage = lazy(() => import('@/pages/delivery-admin/user-detail'));
+const UnitsPage = lazy(() => import('@/pages/delivery-admin/units'));
+const UnitDetailPage = lazy(() => import('@/pages/delivery-admin/unit-detail'));
+const MerchantsPage = lazy(() => import('@/pages/delivery-admin/merchants'));
+const MerchantDetailPage = lazy(() => import('@/pages/delivery-admin/merchant-detail'));
+const MerchantApplicationsPage = lazy(() => import('@/pages/delivery-admin/merchant-applications'));
+const MerchantApplicationDetailPage = lazy(() => import('@/pages/delivery-admin/merchant-application-detail'));
+const ProductsPage = lazy(() => import('@/pages/delivery-admin/products'));
+const PricingRulesPage = lazy(() => import('@/pages/delivery-admin/pricing-rules'));
+const OrdersPage = lazy(() => import('@/pages/delivery-admin/orders'));
+const OrderDetailPage = lazy(() => import('@/pages/delivery-admin/order-detail'));
+const ShippingRecordsPage = lazy(() => import('@/pages/delivery-admin/shipping-records'));
+const AbnormalPaymentsPage = lazy(() => import('@/pages/delivery-admin/abnormal-payments'));
+const ManifestsPage = lazy(() => import('@/pages/delivery-admin/manifests'));
+const SettlementsPage = lazy(() => import('@/pages/delivery-admin/settlements'));
+const CustomerServicePage = lazy(() => import('@/pages/delivery-admin/customer-service'));
+const CustomerServiceDetailPage = lazy(() => import('@/pages/delivery-admin/customer-service-detail'));
+const AuditPage = lazy(() => import('@/pages/delivery-admin/audit'));
+const ConfigPage = lazy(() => import('@/pages/delivery-admin/config'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 
 const PageLoading = () => (
-  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 220 }}>
     <Spin size="large" />
   </div>
 );
 
-/** 路由守卫：未登录跳转登录页 */
 function RequireAuth({ children }: { children: ReactNode }) {
-  const token = useAuthStore((s) => s.token);
+  const token = useAuthStore((state) => state.token);
   if (!token) {
     return <Navigate to="/login" replace />;
   }
   return <>{children}</>;
 }
 
-/** 已登录访问登录页则跳转首页 */
 function GuestOnly({ children }: { children: ReactNode }) {
-  const token = useAuthStore((s) => s.token);
+  const token = useAuthStore((state) => state.token);
   if (token) {
     return <Navigate to="/" replace />;
   }
@@ -65,56 +55,46 @@ export default function App() {
     <BrowserRouter>
       <Suspense fallback={<PageLoading />}>
         <Routes>
-          {/* 登录页（公开） */}
           <Route
             path="/login"
-            element={
+            element={(
               <GuestOnly>
                 <LoginPage />
               </GuestOnly>
-            }
+            )}
           />
 
-          {/* 配送管理后台（需登录） */}
           <Route
-            element={
+            element={(
               <RequireAuth>
                 <AdminLayout />
               </RequireAuth>
-            }
+            )}
           >
             <Route index element={<DashboardPage />} />
-            <Route path="categories" element={<CategoriesPage />} />
-            <Route path="products" element={<ProductListPage />} />
-            <Route path="products/units" element={<ProductUnitsPage />} />
-            <Route path="products/:id/edit" element={<ProductEditPage />} />
-            <Route path="orders" element={<OrderListPage />} />
-            <Route path="orders/:id" element={<OrderDetailPage />} />
-            <Route path="companies" element={<CompanyListPage />} />
-            <Route path="companies/:id" element={<CompanyDetailPage />} />
-            <Route path="users" element={<UserListPage />} />
+            <Route path="users" element={<UsersPage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
-            <Route path="invoices" element={<InvoiceListPage />} />
-            <Route path="invoices/settings" element={<InvoiceSettingsPage />} />
-            <Route path="invoices/:id" element={<InvoiceDetailPage />} />
-            <Route path="shipping-rules" element={<ShippingRulesPage />} />
-            <Route path="tags" element={<TagManagementPage />} />
-            <Route path="trace" element={<TraceListPage />} />
+            <Route path="units" element={<UnitsPage />} />
+            <Route path="units/:id" element={<UnitDetailPage />} />
+            <Route path="merchants" element={<MerchantsPage />} />
+            <Route path="merchants/:id" element={<MerchantDetailPage />} />
+            <Route path="merchant-applications" element={<MerchantApplicationsPage />} />
+            <Route path="merchant-applications/:id" element={<MerchantApplicationDetailPage />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="pricing-rules" element={<PricingRulesPage />} />
+            <Route path="orders" element={<OrdersPage />} />
+            <Route path="orders/:id" element={<OrderDetailPage />} />
+            <Route path="shipping-records" element={<ShippingRecordsPage />} />
+            <Route path="abnormal-payments" element={<AbnormalPaymentsPage />} />
+            <Route path="manifests" element={<ManifestsPage />} />
+            <Route path="settlements" element={<SettlementsPage />} />
+            <Route path="customer-service" element={<CustomerServicePage />} />
+            <Route path="customer-service/:id" element={<CustomerServiceDetailPage />} />
+            <Route path="audit" element={<AuditPage />} />
             <Route path="config" element={<ConfigPage />} />
-            <Route path="discovery-filters" element={<DiscoveryFiltersPage />} />
-            <Route path="cs/workstation" element={<CsWorkstationPage />} />
-            <Route path="cs/tickets" element={<CsTicketsPage />} />
-            <Route path="cs/faq" element={<CsFaqPage />} />
-            <Route path="cs/quick-entries" element={<CsQuickEntriesPage />} />
-            <Route path="cs/quick-replies" element={<CsQuickRepliesPage />} />
-            <Route path="cs/dashboard" element={<CsDashboardPage />} />
-            <Route path="audit" element={<AuditLogPage />} />
-            <Route path="admin/users" element={<AdminUsersPage />} />
-            <Route path="admin/roles" element={<RolesPage />} />
             <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 
-          {/* 兜底 */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

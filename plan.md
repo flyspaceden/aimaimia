@@ -31,6 +31,11 @@
   - **实际做了**: 复制 `admin/` 新建 `delivery-admin/`；切成 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth` 独立登录态；认证接口改到 `/delivery-admin/auth/*`；登录页与爱买买管理后台互相增加切换按钮；配送管理后台改为浅蓝主题；裁掉 VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送菜单与路由；`deploy-website.yml` 新增 delivery-admin 构建与部署目标
   - **验证**: `cd admin && npm run build`、`cd ../delivery-admin && npm install && npm run build`
 
+- [x] **配送管理后台运营页（Task 15）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 15 brief
+  - **实际做了**: 新增 `delivery-admin/src/api/delivery-management.ts` 和 `src/types/delivery-management.ts`，把活跃路由全部收口到 `src/pages/delivery-admin/**`；补齐工作台、用户、单位、商家、入驻审核、商品审核、定价规则、订单详情、发货记录、异常支付、清单模板、结算、客服、审计、配置中心页面；`App.tsx` 与 `AdminLayout.tsx` 只保留配送运营入口；订单/结算页面固定分栏展示 `买家金额 / 商家供货或应结 / 平台差额`
+  - **验证**: `cd delivery-admin && npm run build`、`rg -n -F "/admin" delivery-admin/src/api/delivery-management.ts delivery-admin/src/pages/delivery-admin delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx`、`rg -n "VIP|红包|抽奖|分润|退款|售后|数字资产|发票|溯源" delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx delivery-admin/src/pages/delivery-admin delivery-admin/src/api/delivery-management.ts`
+
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀
   - **实际做了**: 买家 App 我的页身份卡移除时段问候语；昵称作为主标题；买家编号展示为 `ID: AIMM...` 并保留复制按钮；推荐码入口下移为独立 chip；右侧“扫一扫/编辑”按钮固定宽度和间距
