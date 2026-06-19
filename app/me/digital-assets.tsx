@@ -15,6 +15,7 @@ import {
   priceTextProps,
   useBottomInset,
   useTheme,
+  useResponsiveLayout,
 } from '../../src/theme';
 import type { DigitalAssetLedger } from '../../src/types';
 
@@ -111,6 +112,7 @@ const getLedgerVisual = (item: DigitalAssetLedger) => ASSET_VISUAL.tones[getLedg
 
 export default function DigitalAssetsScreen() {
   const { colors, radius, spacing, typography } = useTheme();
+  const { isCompact } = useResponsiveLayout();
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const bottomInset = useBottomInset(spacing['3xl']);
@@ -130,6 +132,7 @@ export default function DigitalAssetsScreen() {
     <View
       style={[
         styles.heroAssetTile,
+        { paddingHorizontal: isCompact ? 10 : 12 },
         {
           borderColor: ASSET_VISUAL.heroTileBorder,
           backgroundColor: ASSET_VISUAL.heroTile,
@@ -207,7 +210,11 @@ export default function DigitalAssetsScreen() {
           colors={ASSET_VISUAL.heroGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.heroCard, styles.assetHeroCard, { borderRadius: radius.xl }]}
+          style={[
+            styles.heroCard,
+            styles.assetHeroCard,
+            { borderRadius: radius.xl, paddingHorizontal: isCompact ? 18 : 22 },
+          ]}
         >
           <View pointerEvents="none" style={styles.heroFieldLines}>
             <View style={[styles.heroFieldLine, styles.heroFieldLinePrimary]} />
@@ -223,7 +230,16 @@ export default function DigitalAssetsScreen() {
           />
 
           <Text style={styles.heroLabel}>数字资产总额</Text>
-          <Text style={styles.heroValue} {...priceTextProps}>
+          <Text
+            style={[
+              styles.heroValue,
+              {
+                fontSize: isCompact ? 42 : 46,
+                lineHeight: isCompact ? 50 : 54,
+              },
+            ]}
+            {...priceTextProps}
+          >
             {formatAssetValue(summary?.totalAssetBalance ?? 0)}
           </Text>
           <View style={styles.heroFootRow}>
@@ -242,7 +258,11 @@ export default function DigitalAssetsScreen() {
           colors={ASSET_VISUAL.nonVipGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.heroCard, styles.assetHeroCard, { borderRadius: radius.xl }]}
+          style={[
+            styles.heroCard,
+            styles.assetHeroCard,
+            { borderRadius: radius.xl, paddingHorizontal: isCompact ? 18 : 22 },
+          ]}
         >
           <View pointerEvents="none" style={styles.heroFieldLines}>
             <View style={[styles.heroFieldLine, styles.heroFieldLinePrimary]} />
@@ -257,7 +277,16 @@ export default function DigitalAssetsScreen() {
           />
 
           <Text style={styles.heroLabel}>累计消费金额</Text>
-          <Text style={styles.heroValue} {...priceTextProps}>
+          <Text
+            style={[
+              styles.heroValue,
+              {
+                fontSize: isCompact ? 42 : 46,
+                lineHeight: isCompact ? 50 : 54,
+              },
+            ]}
+            {...priceTextProps}
+          >
             {formatCurrency(summary?.cumulativeSpendAmount ?? 0)}
           </Text>
           <Text style={styles.heroPromptTitle}>{NON_VIP_ACTIVATION_PROMPT.title}</Text>
