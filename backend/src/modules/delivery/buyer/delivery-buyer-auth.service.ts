@@ -128,24 +128,12 @@ export class DeliveryBuyerAuthService {
         });
 
         let deliveryUserId = existingWechatIdentity?.userId;
-        if (!deliveryUserId && dto.phone) {
-          const phoneIdentity = await tx.deliveryAuthIdentity.findUnique({
-            where: {
-              provider_providerSubject: {
-                provider: 'PHONE',
-                providerSubject: dto.phone,
-              },
-            },
-          });
-          deliveryUserId = phoneIdentity?.userId;
-        }
-
         if (!deliveryUserId) {
           deliveryUserId = await this.deliveryIdService.next('PSYH');
           await tx.deliveryUser.create({
             data: {
               id: deliveryUserId,
-              phone: dto.phone ?? null,
+              phone: null,
               nickname: dto.nickname?.trim() || null,
               avatarUrl: dto.avatarUrl?.trim() || null,
               lastLoginAt: now,
@@ -155,7 +143,6 @@ export class DeliveryBuyerAuthService {
           await tx.deliveryUser.update({
             where: { id: deliveryUserId },
             data: {
-              phone: dto.phone ?? undefined,
               nickname: dto.nickname?.trim() || undefined,
               avatarUrl: dto.avatarUrl?.trim() || undefined,
               lastLoginAt: now,
@@ -169,7 +156,7 @@ export class DeliveryBuyerAuthService {
               userId: deliveryUserId,
               provider: 'WECHAT',
               providerSubject,
-              phone: dto.phone ?? null,
+              phone: null,
             },
           });
         }

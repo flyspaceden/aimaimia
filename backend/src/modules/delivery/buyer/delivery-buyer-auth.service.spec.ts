@@ -146,6 +146,73 @@ describe('DeliveryBuyerAuthService', () => {
     });
   });
 
+  it('wechat login does not merge into an existing phone identity even when dto.phone matches', async () => {
+    tx.deliveryAuthIdentity.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        userId: 'PSYHPHONE00000001',
+      });
+    tx.deliveryUser.create.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      phone: null,
+      nickname: '微信配送用户',
+      avatarUrl: null,
+      status: 'ACTIVE',
+      currentUnitId: null,
+    });
+    tx.deliveryAuthIdentity.create.mockResolvedValue({ id: 'identity_3' });
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      phone: null,
+      nickname: '微信配送用户',
+      avatarUrl: null,
+      status: 'ACTIVE',
+      currentUnitId: null,
+      units: [],
+      currentUnit: null,
+    });
+
+    await expect(
+      service.wechatLogin({
+        openid: 'wx-openid-2',
+        unionid: 'wx-union-2',
+        phone: '13800000000',
+        nickname: '微信配送用户',
+      }),
+    ).resolves.toMatchObject({
+      accessToken: 'delivery-user-token',
+      user: {
+        id: 'PSYH0000000000001',
+        phone: null,
+      },
+    });
+
+    expect(tx.deliveryAuthIdentity.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.deliveryAuthIdentity.findUnique).toHaveBeenCalledWith({
+      where: {
+        provider_providerSubject: {
+          provider: 'WECHAT',
+          providerSubject: 'wx-openid-2',
+        },
+      },
+    });
+    expect(tx.deliveryUser.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: 'PSYH0000000000001',
+        phone: null,
+        nickname: '微信配送用户',
+      }),
+    });
+    expect(tx.deliveryAuthIdentity.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'PSYH0000000000001',
+        provider: 'WECHAT',
+        providerSubject: 'wx-openid-2',
+        phone: null,
+      },
+    });
+  });
+
   it('getMe returns requiresUnit=true when the user has no units', async () => {
     deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
