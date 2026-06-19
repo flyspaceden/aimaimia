@@ -25,6 +25,8 @@ import { LegalDocument } from './types';
 //
 // 2026-06-10 局部更新（OPPO 审核整改）：附录「支付类 / 账号登录类」按全国 SDK 管理服务平台登记口径，
 //   将支付宝与微信 SDK 名称、开发者、收集信息范围、目的和隐私政策链接改为审核要求的精确公示信息；version bump 至 v1.0.2。
+//
+// 2026-06-19 局部更新：附录删除未实际使用的地图服务披露；未新增个人信息处理，version/生效日不 bump。
 
 export const PRIVACY_POLICY: LegalDocument = {
   title: 'AI爱买买APP隐私政策',
@@ -206,8 +208,6 @@ export const PRIVACY_POLICY: LegalDocument = {
         { type: 'note', text: '存储与基础设施' },
         { type: 'bullet', text: '阿里云对象存储 OSS（阿里云计算有限公司）— 用途：图片、视频、文件存储；共享字段：您上传的图片/文件内容' },
         { type: 'bullet', text: '阿里云 ECS / RDS — 用途：服务器与数据库托管；共享字段：所有业务数据（加密存储）' },
-        { type: 'note', text: '地图与位置类' },
-        { type: 'bullet', text: '高德地图开放平台（高德软件有限公司）— 用途：地址解析、POI 搜索、地图展示；共享字段：经纬度、地址文本；隐私政策：https://lbs.amap.com/pages/privacy/' },
         { type: 'note', text: '语音与 AI 类' },
         { type: 'bullet', text: '大语言模型服务（供应商待定）— 用途：AI 客服、意图识别、智能搜索；共享字段：脱敏后的文本对话' },
         { type: 'note', text: '物流类' },

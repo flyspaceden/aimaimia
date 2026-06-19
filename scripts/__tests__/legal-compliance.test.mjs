@@ -56,6 +56,20 @@ test('privacy policy discloses OPPO-required payment SDK metadata', () => {
   assert.doesNotMatch(privacy, /微信开放平台 SDK（腾讯公司）/);
 });
 
+test('privacy policy does not disclose unused map provider services', () => {
+  const appPrivacy = read(appPrivacyPath);
+  const websitePrivacy = read(websitePrivacyPath);
+  const staticPrivacy = read('website/public/privacy.html');
+  const huahaiPrivacy = read('huahai-corporate-site/privacy.html');
+  const combined = [appPrivacy, websitePrivacy, staticPrivacy, huahaiPrivacy].join('\n');
+
+  assert.doesNotMatch(combined, /地图与位置类/);
+  assert.doesNotMatch(combined, /高德地图开放平台/);
+  assert.doesNotMatch(combined, /高德软件有限公司/);
+  assert.doesNotMatch(combined, /地址解析、POI 搜索、地图展示/);
+  assert.doesNotMatch(combined, /lbs\.amap\.com\/pages\/privacy/);
+});
+
 test('privacy consent modal summary stays sourced from the privacy policy document', () => {
   const modal = read('src/components/overlay/PrivacyConsentModal.tsx');
 
@@ -209,6 +223,9 @@ test('legal review docx includes current privacy policy disclosure', () => {
   assert.match(markdown, /剪贴板读取/);
   assert.match(markdown, /不会保存或上传剪贴板原文/);
   assert.match(markdown, /支付宝提现/);
+  assert.doesNotMatch(markdown, /地图与位置类/);
+  assert.doesNotMatch(markdown, /高德地图开放平台/);
+  assert.doesNotMatch(markdown, /lbs\.amap\.com\/pages\/privacy/);
   assert.match(markdown, /AI爱买买APP会员服务协议/);
   assert.match(markdown, /数字资产包括种子资产和消费资产/);
   assert.doesNotMatch(markdown, /不支持提现/);
