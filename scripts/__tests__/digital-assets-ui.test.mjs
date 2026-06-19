@@ -69,3 +69,36 @@ test('digital asset page defines restrained ledger type colors', () => {
     /getLedgerTone/,
   ].forEach((pattern) => assert.match(page, pattern));
 });
+
+test('asset ledger page exposes type tabs and avoids old consumption-record copy', () => {
+  const page = read('app/me/consumption-records.tsx');
+
+  [
+    /ASSET_LEDGER_TABS/,
+    /selectedLedgerTab/,
+    /全部/,
+    /种子资产/,
+    /消费资产/,
+    /累计消费/,
+    /扣回/,
+    /调整/,
+    /资产流水/,
+  ].forEach((pattern) => assert.match(page, pattern));
+
+  assert.doesNotMatch(page, /消费记录/);
+});
+
+test('asset ledger page color-codes ledger rows by type', () => {
+  const page = read('app/me/consumption-records.tsx');
+
+  [
+    /#1F8A5F/,
+    /#267B93/,
+    /#A87918/,
+    /#B65347/,
+    /#6E7B72/,
+    /getLedgerTone/,
+    /getLedgerVisual/,
+    /filterRecordsByTab/,
+  ].forEach((pattern) => assert.match(page, pattern));
+});

@@ -2,7 +2,9 @@ import React from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -19,6 +21,58 @@ import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { AppError, DigitalAssetLedger } from '../../src/types';
 
 const PAGE_SIZE = 20;
+
+type LedgerTone = 'seed' | 'consumption' | 'spend' | 'refund' | 'adjustment';
+type LedgerTabKey = 'all' | LedgerTone;
+
+const ASSET_LEDGER_TONES = {
+  seed: {
+    color: '#1F8A5F',
+    bg: '#DFF1E6',
+    border: 'rgba(31,138,95,0.28)',
+    icon: 'sprout-outline',
+  },
+  consumption: {
+    color: '#267B93',
+    bg: '#DFF1F3',
+    border: 'rgba(38,123,147,0.28)',
+    icon: 'chart-line',
+  },
+  spend: {
+    color: '#A87918',
+    bg: '#F3ECD8',
+    border: 'rgba(168,121,24,0.26)',
+    icon: 'shopping-outline',
+  },
+  refund: {
+    color: '#B65347',
+    bg: '#F7E3DF',
+    border: 'rgba(182,83,71,0.28)',
+    icon: 'cash-refund',
+  },
+  adjustment: {
+    color: '#6E7B72',
+    bg: '#E7ECE8',
+    border: 'rgba(110,123,114,0.28)',
+    icon: 'tune-variant',
+  },
+} as const;
+
+const ALL_LEDGER_TONE = {
+  color: '#15364B',
+  bg: '#E6EFEC',
+  border: 'rgba(21,54,75,0.22)',
+  icon: 'view-grid-outline',
+} as const;
+
+const ASSET_LEDGER_TABS: ReadonlyArray<{ key: LedgerTabKey; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'seed', label: '种子资产' },
+  { key: 'consumption', label: '消费资产' },
+  { key: 'spend', label: '累计消费' },
+  { key: 'refund', label: '扣回' },
+  { key: 'adjustment', label: '调整' },
+];
 
 const formatDateTime = (value: string) => {
   const date = new Date(value);
@@ -41,18 +95,22 @@ const getLedgerTitle = (item: DigitalAssetLedger) => {
   if (item.sourceType === 'HISTORICAL_CONSUMPTION_GRANT') return '历史消费转入';
   if (item.sourceType === 'REFUND_REVERSAL') return '退款扣回';
   if (item.sourceType === 'ADMIN_ADJUSTMENT') return '后台调整';
-  return item.title || '消费记录';
+  return item.title || '资产流水';
 };
 
-const getLedgerIcon = (item: DigitalAssetLedger) => {
-  if (item.subjectType === 'SEED_ASSET') return 'sprout-outline';
-  if (item.subjectType === 'CREDIT_ASSET' && item.direction === 'DEBIT') return 'chart-line-variant';
-  if (item.subjectType === 'CREDIT_ASSET') return 'chart-line';
-  if (item.sourceType === 'REFUND_REVERSAL') return 'cash-refund';
-  if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'tune-variant';
-  if (item.sourceType === 'HISTORICAL_CONSUMPTION_GRANT') return 'archive-arrow-up-outline';
-  return 'shopping-outline';
+const getLedgerTone = (item: DigitalAssetLedger): LedgerTone => {
+  if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'adjustment';
+  if (item.direction === 'DEBIT' || item.sourceType === 'REFUND_REVERSAL') return 'refund';
+  if (item.subjectType === 'SEED_ASSET') return 'seed';
+  if (item.subjectType === 'CREDIT_ASSET') return 'consumption';
+  return 'spend';
 };
+
+const getLedgerVisual = (item: DigitalAssetLedger) => ASSET_LEDGER_TONES[getLedgerTone(item)];
+const getTabVisual = (key: LedgerTabKey) => (key === 'all' ? ALL_LEDGER_TONE : ASSET_LEDGER_TONES[key]);
+
+const filterRecordsByTab = (records: DigitalAssetLedger[], tab: LedgerTabKey) =>
+  tab === 'all' ? records : records.filter((item) => getLedgerTone(item) === tab);
 
 const isCurrencyLedger = (item: DigitalAssetLedger) => item.subjectType === 'CUMULATIVE_SPEND';
 
@@ -73,6 +131,7 @@ export default function ConsumptionRecordsScreen() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const bottomInset = useBottomInset(spacing['3xl']);
+  const [selectedLedgerTab, setSelectedLedgerTab] = React.useState<LedgerTabKey>('all');
 
   const {
     data,
@@ -104,9 +163,10 @@ export default function ConsumptionRecordsScreen() {
 
   const listError = isError ? (error as unknown as AppError) : null;
   const records = data?.pages.flatMap((page) => page.items) ?? [];
+  const filteredRecords = filterRecordsByTab(records, selectedLedgerTab);
 
   const renderItem = ({ item, index }: { item: DigitalAssetLedger; index: number }) => {
-    const isPositive = item.direction === 'CREDIT';
+    const visual = getLedgerVisual(item);
     return (
       <Animated.View entering={FadeInDown.duration(220).delay(index < PAGE_SIZE ? index * 24 : 0)}>
         <View
@@ -114,23 +174,25 @@ export default function ConsumptionRecordsScreen() {
             styles.recordCard,
             {
               borderRadius: radius.lg,
-              borderColor: colors.border,
+              borderColor: visual.border,
               backgroundColor: colors.surface,
             },
           ]}
         >
+          <View style={[styles.recordAccent, { backgroundColor: visual.color }]} />
           <View
             style={[
               styles.recordIcon,
               {
-                backgroundColor: isPositive ? colors.brand.primarySoft : `${colors.danger}12`,
+                backgroundColor: visual.bg,
+                borderColor: visual.border,
               },
             ]}
           >
             <MaterialCommunityIcons
-              name={getLedgerIcon(item) as any}
+              name={visual.icon as any}
               size={20}
-              color={isPositive ? colors.brand.primary : colors.danger}
+              color={visual.color}
             />
           </View>
 
@@ -150,7 +212,7 @@ export default function ConsumptionRecordsScreen() {
             <Text
               style={[
                 typography.bodyStrong,
-                { color: isPositive ? colors.success : colors.danger, textAlign: 'right' },
+                { color: visual.color, textAlign: 'right' },
               ]}
               {...priceTextProps}
             >
@@ -171,13 +233,62 @@ export default function ConsumptionRecordsScreen() {
     );
   };
 
+  const renderTabs = () => (
+    <View style={styles.tabsBlock}>
+      <View style={styles.tabsHeader}>
+        <Text style={[typography.headingSm, { color: colors.text.primary }]}>资产流水</Text>
+        <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
+          {filteredRecords.length}/{records.length}
+        </Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabsContent}
+      >
+        {ASSET_LEDGER_TABS.map((tab) => {
+          const visual = getTabVisual(tab.key);
+          const active = selectedLedgerTab === tab.key;
+          return (
+            <Pressable
+              key={tab.key}
+              onPress={() => setSelectedLedgerTab(tab.key)}
+              style={[
+                styles.tabChip,
+                {
+                  borderColor: active ? visual.color : visual.border,
+                  backgroundColor: active ? visual.color : visual.bg,
+                },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name={visual.icon as any}
+                size={15}
+                color={active ? '#FFFFFF' : visual.color}
+              />
+              <Text
+                style={[
+                  typography.captionSm,
+                  { color: active ? '#FFFFFF' : visual.color, fontWeight: '700' },
+                ]}
+                numberOfLines={1}
+              >
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+
   if (!isLoggedIn) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="消费记录" />
+        <AppHeader title="资产流水" />
         <EmptyState
           title="请先登录"
-          description="登录后查看消费记录"
+          description="登录后查看资产流水"
           actionLabel="返回我的"
           onAction={() => router.back()}
         />
@@ -187,7 +298,7 @@ export default function ConsumptionRecordsScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="消费记录" />
+      <AppHeader title="资产流水" />
       {isLoading ? (
         <View style={{ padding: spacing.xl }}>
           <Skeleton height={96} radius={radius.lg} />
@@ -199,16 +310,17 @@ export default function ConsumptionRecordsScreen() {
       ) : listError ? (
         <View style={{ padding: spacing.xl }}>
           <ErrorState
-            title="消费记录加载失败"
+            title="资产流水加载失败"
             description={listError.displayMessage ?? '请稍后重试'}
             onAction={refetch}
           />
         </View>
       ) : (
         <FlatList
-          data={records}
+          data={filteredRecords}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          ListHeaderComponent={renderTabs}
           refreshControl={(
             <RefreshControl
               refreshing={isFetching && !isFetchingNextPage}
@@ -216,7 +328,7 @@ export default function ConsumptionRecordsScreen() {
             />
           )}
           contentContainerStyle={{ padding: spacing.xl, paddingBottom: bottomInset }}
-          ListEmptyComponent={<EmptyState title="暂无消费记录" description="确认收货后开始累计" />}
+          ListEmptyComponent={<EmptyState title="暂无资产流水" description="当前分类暂无记录" />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();
           }}
@@ -233,6 +345,29 @@ export default function ConsumptionRecordsScreen() {
 }
 
 const styles = StyleSheet.create({
+  tabsBlock: {
+    marginBottom: 14,
+  },
+  tabsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  tabsContent: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  tabChip: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
   recordCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -240,11 +375,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 10,
+    overflow: 'hidden',
+  },
+  recordAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
   },
   recordIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
   },
