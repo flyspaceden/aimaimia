@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { Public } from '../../../common/decorators/public.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { DeliveryUserAuthGuard } from '../auth/guards/delivery-user-auth.guard';
+import { DeliverySmsCodeDto } from './dto/delivery-sms-code.dto';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { WechatLoginDto } from './dto/wechat-login.dto';
 import { DeliveryBuyerAuthService } from './delivery-buyer-auth.service';
@@ -11,6 +12,15 @@ import { DeliveryBuyerAuthService } from './delivery-buyer-auth.service';
 @Controller('delivery')
 export class DeliveryBuyerAuthController {
   constructor(private readonly deliveryBuyerAuthService: DeliveryBuyerAuthService) {}
+
+  @Post('auth/sms/code')
+  sendSmsCode(@Body() dto: DeliverySmsCodeDto, @Req() req: Request) {
+    return this.deliveryBuyerAuthService.sendSmsCode(
+      dto,
+      req.ip,
+      req.headers['user-agent'] as string | undefined,
+    );
+  }
 
   @Post('auth/phone-login')
   phoneLogin(@Body() dto: PhoneLoginDto, @Req() req: Request) {

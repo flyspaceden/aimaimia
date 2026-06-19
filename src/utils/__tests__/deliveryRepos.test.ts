@@ -16,6 +16,7 @@ import { deliveryManifestPaths, mapDeliveryManifestRow } from '../../repos/deliv
 describe('delivery repo paths', () => {
   it('builds only /delivery/* prefixed endpoints', () => {
     expect(buildDeliveryPath('auth/phone-login')).toBe('/delivery/auth/phone-login');
+    expect(deliveryAuthPaths.smsCode()).toBe('/delivery/auth/sms/code');
     expect(buildDeliveryPath('/delivery/cart')).toBe('/delivery/cart');
     expect(deliveryAuthPaths.me()).toBe('/delivery/me');
     expect(deliveryUnitPaths.select('unit_1')).toBe('/delivery/units/unit_1/select');

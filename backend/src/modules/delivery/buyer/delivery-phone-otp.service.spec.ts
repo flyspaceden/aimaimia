@@ -4,6 +4,54 @@ import { DeliveryPhoneOtpService } from './delivery-phone-otp.service';
 describe('DeliveryPhoneOtpService', () => {
   const phone = '13800000000';
 
+  it('issues delivery-scoped login otp records and uses delivery sms mock code 123456 only when enabled', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'otp-create-1' });
+    const count = jest.fn().mockResolvedValue(0);
+    const smsService = { sendVerificationCode: jest.fn() };
+    const service = new DeliveryPhoneOtpService(
+      {
+        deliveryPhoneOtp: {
+          count,
+          create,
+        },
+      } as any,
+      {
+        get: jest.fn((key: string, fallback?: string) => {
+          if (key === 'DELIVERY_SMS_MOCK') return 'true';
+          return fallback;
+        }),
+      } as any,
+      smsService as any,
+    );
+    jest.spyOn(service, 'hashCode').mockReturnValue('mock-hash');
+
+    await expect(
+      service.issuePhoneLoginCode(phone, {
+        ip: '127.0.0.5',
+        userAgent: 'jest-send-otp',
+      }),
+    ).resolves.toEqual({ ok: true, message: '验证码已发送' });
+
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        phone,
+        purpose: 'LOGIN',
+        createdAt: {
+          gte: expect.any(Date),
+        },
+      },
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        phone,
+        purpose: 'LOGIN',
+        codeHash: 'mock-hash',
+        expiresAt: expect.any(Date),
+      }),
+    });
+    expect(smsService.sendVerificationCode).not.toHaveBeenCalled();
+  });
+
   it('valid stored OTP consumes and passes', async () => {
     const tx = {
       deliveryPhoneOtp: {
@@ -30,7 +78,11 @@ describe('DeliveryPhoneOtpService', () => {
       },
     };
     const configService = { get: jest.fn((key: string, fallback?: string) => fallback) };
-    const service = new DeliveryPhoneOtpService(deliveryPrisma as any, configService as any);
+    const service = new DeliveryPhoneOtpService(
+      deliveryPrisma as any,
+      configService as any,
+      { sendVerificationCode: jest.fn() } as any,
+    );
     jest.spyOn(service, 'hashCode').mockReturnValue('expected-hash');
 
     await expect(
@@ -108,6 +160,7 @@ describe('DeliveryPhoneOtpService', () => {
         },
       } as any,
       configService as any,
+      { sendVerificationCode: jest.fn() } as any,
     );
     const expiredService = new DeliveryPhoneOtpService(
       {
@@ -117,6 +170,7 @@ describe('DeliveryPhoneOtpService', () => {
         },
       } as any,
       configService as any,
+      { sendVerificationCode: jest.fn() } as any,
     );
     jest.spyOn(missingService, 'hashCode').mockReturnValue('expected-hash');
     jest.spyOn(expiredService, 'hashCode').mockReturnValue('expected-hash');
@@ -153,10 +207,15 @@ describe('DeliveryPhoneOtpService', () => {
         deliveryPhoneOtpAttempt: {
           create: jest.fn(),
         },
+        deliveryPhoneOtp: {
+          count: jest.fn().mockResolvedValue(0),
+          create: jest.fn(),
+        },
       } as any,
       {
         get: jest.fn((key: string, fallback?: string) => (key === 'DELIVERY_SMS_MOCK' ? 'true' : fallback)),
       } as any,
+      { sendVerificationCode: jest.fn() } as any,
     );
     const serviceWithoutMock = new DeliveryPhoneOtpService(
       {
@@ -164,10 +223,15 @@ describe('DeliveryPhoneOtpService', () => {
         deliveryPhoneOtpAttempt: {
           create: jest.fn(),
         },
+        deliveryPhoneOtp: {
+          count: jest.fn().mockResolvedValue(0),
+          create: jest.fn(),
+        },
       } as any,
       {
         get: jest.fn((key: string, fallback?: string) => fallback),
       } as any,
+      { sendVerificationCode: jest.fn() } as any,
     );
 
     await expect(serviceWithExplicitMock.verifyPhoneLoginCode(phone, '123456')).resolves.toBeUndefined();
@@ -193,10 +257,15 @@ describe('DeliveryPhoneOtpService', () => {
         deliveryPhoneOtpAttempt: {
           create: jest.fn(),
         },
+        deliveryPhoneOtp: {
+          count: jest.fn().mockResolvedValue(0),
+          create: jest.fn(),
+        },
       } as any,
       {
         get: jest.fn((key: string, fallback?: string) => fallback),
       } as any,
+      { sendVerificationCode: jest.fn() } as any,
     );
 
     await expect(
@@ -207,5 +276,22 @@ describe('DeliveryPhoneOtpService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.deliveryPhoneOtp.findFirst).not.toHaveBeenCalled();
     expect(tx.deliveryPhoneOtpAttempt.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects issuing login otp when the same delivery phone already requested one within a minute', async () => {
+    const service = new DeliveryPhoneOtpService(
+      {
+        deliveryPhoneOtp: {
+          count: jest.fn().mockResolvedValue(1),
+          create: jest.fn(),
+        },
+      } as any,
+      {
+        get: jest.fn((key: string, fallback?: string) => fallback),
+      } as any,
+      { sendVerificationCode: jest.fn() } as any,
+    );
+
+    await expect(service.issuePhoneLoginCode(phone)).rejects.toBeInstanceOf(BadRequestException);
   });
 });

@@ -6,6 +6,7 @@ import { DeliveryUserStatus, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryUserJwtPayload } from '../auth/delivery-user-jwt.strategy';
 import { DeliveryIdService } from '../common/delivery-id.service';
+import { DeliverySmsCodeDto } from './dto/delivery-sms-code.dto';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { WechatLoginDto } from './dto/wechat-login.dto';
 import { DeliveryPhoneOtpService } from './delivery-phone-otp.service';
@@ -60,6 +61,13 @@ export class DeliveryBuyerAuthService {
     private readonly deliveryIdService: DeliveryIdService,
     private readonly deliveryPhoneOtpService: DeliveryPhoneOtpService,
   ) {}
+
+  async sendSmsCode(dto: DeliverySmsCodeDto, ip?: string, userAgent?: string) {
+    return this.deliveryPhoneOtpService.issuePhoneLoginCode(dto.phone, {
+      ip,
+      userAgent,
+    });
+  }
 
   async phoneLogin(dto: PhoneLoginDto, ip?: string, userAgent?: string) {
     await this.deliveryPhoneOtpService.verifyPhoneLoginCode(dto.phone, dto.code, {

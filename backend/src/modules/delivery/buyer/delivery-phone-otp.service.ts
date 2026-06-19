@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
+import { createHash, randomInt } from 'crypto';
+import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 
@@ -13,11 +14,53 @@ type DeliveryAuthRequestMeta = {
 export class DeliveryPhoneOtpService {
   private static readonly FAILED_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
   private static readonly MAX_FAILED_ATTEMPTS = 5;
+  private readonly logger = new Logger(DeliveryPhoneOtpService.name);
 
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly configService: ConfigService,
+    private readonly aliyunSmsService: AliyunSmsService,
   ) {}
+
+  async issuePhoneLoginCode(phone: string, _meta: DeliveryAuthRequestMeta = {}) {
+    const now = new Date();
+    const recentCount = await this.deliveryPrisma.deliveryPhoneOtp.count({
+      where: {
+        phone,
+        purpose: 'LOGIN',
+        createdAt: {
+          gte: new Date(now.getTime() - 60_000),
+        },
+      },
+    });
+
+    if (recentCount > 0) {
+      throw new BadRequestException('请勿频繁获取验证码');
+    }
+
+    const code = this.isMockCodeEnabled() ? '123456' : this.generateCode();
+    await this.deliveryPrisma.deliveryPhoneOtp.create({
+      data: {
+        phone,
+        purpose: 'LOGIN',
+        codeHash: this.hashCode(code),
+        expiresAt: new Date(now.getTime() + 5 * 60 * 1000),
+      },
+    });
+
+    if (this.isMockCodeEnabled()) {
+      this.logger.log(`[Delivery Buyer SMS Mock] code=${code}`);
+      return { ok: true, message: '验证码已发送' };
+    }
+
+    try {
+      await this.aliyunSmsService.sendVerificationCode(phone, code);
+    } catch (error) {
+      this.logger.error(`[Delivery Buyer SMS] 发送失败: ${(error as Error).message}`);
+    }
+
+    return { ok: true, message: '验证码已发送' };
+  }
 
   async verifyPhoneLoginCode(phone: string, code: string, meta: DeliveryAuthRequestMeta = {}) {
     const now = new Date();
@@ -112,6 +155,10 @@ export class DeliveryPhoneOtpService {
 
   private isMockCodeEnabled() {
     return this.configService.get('DELIVERY_SMS_MOCK') === 'true';
+  }
+
+  private generateCode() {
+    return `${randomInt(100000, 1000000)}`;
   }
 
   hashCode(code: string) {

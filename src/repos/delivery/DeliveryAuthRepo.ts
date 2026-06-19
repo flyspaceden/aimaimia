@@ -230,12 +230,16 @@ export const mapDeliveryAuthSession = (
 });
 
 export const deliveryAuthPaths = {
+  smsCode: () => buildDeliveryPath('auth/sms/code'),
   phoneLogin: () => buildDeliveryPath('auth/phone-login'),
   wechatLogin: () => buildDeliveryPath('auth/wechat-login'),
   me: () => buildDeliveryPath('me'),
 };
 
 export const DeliveryAuthRepo = {
+  sendSmsCode: (payload: { phone: string }): Promise<Result<{ ok: boolean; message?: string }>> =>
+    deliveryApiClient.post<{ ok: boolean; message?: string }>(deliveryAuthPaths.smsCode(), payload),
+
   loginWithPhone: (payload: {
     phone: string;
     code: string;

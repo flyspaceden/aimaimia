@@ -198,27 +198,40 @@ export class DeliveryCheckoutService {
             map.set(item.merchantId, existing);
             return map;
           }, new Map<string, { merchantId: string; merchantName: string; items: typeof itemSnapshots }>()),
-        ).map(([, group]) => {
-          const goodsAmountCents = group.items.reduce((sum, item) => sum + item.lineAmountCents, 0);
-          const shippingRuleSnapshot = this.resolveShippingFee(group.merchantId, group.items, goodsAmountCents, shippingRules);
-          const shippingFeeCents = shippingRuleSnapshot.shippingFeeCents;
+        ).map(([, group]) => ({
+          merchantId: group.merchantId,
+          merchantName: group.merchantName,
+          goodsAmountCents: group.items.reduce((sum, item) => sum + item.lineAmountCents, 0),
+          items: group.items,
+        }));
+
+        const goodsAmountCents = merchantGroups.reduce((sum, group) => sum + group.goodsAmountCents, 0);
+        const orderShippingRuleSnapshot = this.resolveCheckoutShippingFee(
+          itemSnapshots,
+          goodsAmountCents,
+          shippingRules,
+        );
+        const shippingAllocations = this.allocateShippingFeeByGoodsAmount(
+          merchantGroups.map((group) => group.goodsAmountCents),
+          orderShippingRuleSnapshot.shippingFeeCents,
+        );
+        const merchantGroupsWithShipping = merchantGroups.map((group, index) => {
+          const shippingFeeCents = shippingAllocations[index] ?? 0;
 
           return {
-            merchantId: group.merchantId,
-            merchantName: group.merchantName,
-            goodsAmountCents,
+            ...group,
             shippingFeeCents,
-            totalAmountCents: goodsAmountCents + shippingFeeCents,
-            shippingRuleSnapshot,
-            items: group.items,
+            totalAmountCents: group.goodsAmountCents + shippingFeeCents,
+            shippingRuleSnapshot: {
+              ...orderShippingRuleSnapshot,
+              allocationBasis: 'GOODS_AMOUNT',
+              allocationWeightCents: group.goodsAmountCents,
+              allocatedShippingFeeCents: shippingFeeCents,
+            },
           };
         });
 
-        const goodsAmountCents = merchantGroups.reduce((sum, group) => sum + group.goodsAmountCents, 0);
-        const shippingFeeCents = merchantGroups.reduce(
-          (sum, group) => sum + group.shippingFeeCents,
-          0,
-        );
+        const shippingFeeCents = orderShippingRuleSnapshot.shippingFeeCents;
         const totalAmountCents = goodsAmountCents + shippingFeeCents;
         const note = dto.note?.trim() || null;
         const merchantOrderNo = await this.deliveryIdService.nextInTransaction(tx, 'PSZF');
@@ -267,7 +280,7 @@ export class DeliveryCheckoutService {
             };
         const pricingSnapshot = {
           currency: 'CNY_CENTS',
-          merchantGroups,
+          merchantGroups: merchantGroupsWithShipping,
           totals: {
             goodsAmountCents,
             shippingFeeCents,
@@ -592,6 +605,80 @@ export class DeliveryCheckoutService {
       minShippingFeeCents: merchantRule.minShippingFeeCents,
       freeShippingThresholdCents: merchantRule.freeShippingThresholdCents,
     };
+  }
+
+  private resolveCheckoutShippingFee(
+    items: Array<{ merchantId: string; quantity: number; weightGram: number; lineAmountCents: number }>,
+    goodsAmountCents: number,
+    shippingRules: Array<{
+      id: string;
+      merchantId: string | null;
+      calcType: DeliveryShippingCalcType;
+      firstWeightGram: number;
+      firstWeightPriceCents: number;
+      additionalWeightGram: number | null;
+      additionalWeightPriceCents: number | null;
+      freeShippingThresholdCents: number | null;
+      minShippingFeeCents: number;
+      sortOrder: number;
+    }>,
+  ) {
+    const platformRule =
+      shippingRules.find((rule) => rule.merchantId === null) ?? shippingRules[0] ?? null;
+
+    if (!platformRule) {
+      return {
+        ruleId: null,
+        calcType: null,
+        metricValue: 0,
+        shippingFeeCents: 0,
+        fallbackReason: 'NO_DELIVERY_SHIPPING_RULE',
+      };
+    }
+
+    return this.resolveShippingFee(
+      platformRule.merchantId ?? items[0]?.merchantId ?? '',
+      items,
+      goodsAmountCents,
+      [platformRule],
+    );
+  }
+
+  private allocateShippingFeeByGoodsAmount(goodsAmountCentsList: number[], totalShippingFeeCents: number) {
+    if (goodsAmountCentsList.length === 0) {
+      return [];
+    }
+    if (totalShippingFeeCents <= 0) {
+      return goodsAmountCentsList.map(() => 0);
+    }
+
+    const weights = goodsAmountCentsList.map((value) => Math.max(0, Math.trunc(value)));
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+
+    if (totalWeight === 0) {
+      const allocations = goodsAmountCentsList.map(() => 0);
+      allocations[allocations.length - 1] = totalShippingFeeCents;
+      return allocations;
+    }
+
+    const allocations = goodsAmountCentsList.map(() => 0);
+    let allocatedCents = 0;
+    for (let index = 0; index < weights.length; index += 1) {
+      const remainingCents = totalShippingFeeCents - allocatedCents;
+      if (index === weights.length - 1) {
+        allocations[index] = remainingCents;
+        break;
+      }
+
+      const cents = Math.min(
+        remainingCents,
+        Math.round((weights[index] / totalWeight) * totalShippingFeeCents),
+      );
+      allocations[index] = cents;
+      allocatedCents += cents;
+    }
+
+    return allocations;
   }
 
   private resolveShippingMetric(
