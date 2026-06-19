@@ -254,7 +254,7 @@ DELIVERY_DATABASE_URL=postgresql://delivery_user:<DELIVERY_DB_PASSWORD>@localhos
 # Redis
 REDIS_URL=redis://localhost:6379
 
-# JWT（三套独立密钥，务必用强随机值）
+# JWT（主业务三套 + 配送三套独立密钥，务必用强随机值）
 JWT_SECRET=<买家端随机密钥>
 ADMIN_JWT_SECRET=<管理端随机密钥>
 SELLER_JWT_SECRET=<卖家端随机密钥>
