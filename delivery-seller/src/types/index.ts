@@ -83,6 +83,7 @@ export interface Product {
   description?: string;
   basePrice: number;
   unit?: string;
+  unitName?: string;
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
@@ -106,8 +107,14 @@ export interface ProductSKU {
   title: string;
   price: number;
   cost?: number;
+  supplyPriceCents?: number;
+  basePriceCents?: number;
   stock: number;
   maxPerOrder?: number;
+  imageUrl?: string | null;
+  minOrderQuantity?: number;
+  orderStepQuantity?: number;
+  isActive?: boolean;
   skuCode?: string | null;
   weightGram: number;
   status: string;

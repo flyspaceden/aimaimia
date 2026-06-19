@@ -381,4 +381,63 @@ describe('DeliverySellerAuthService', () => {
       },
     });
   });
+
+  it('allows sending bind-phone otp when another active delivery staff already uses that phone', async () => {
+    prisma.deliverySellerStaff.findUnique.mockResolvedValue({
+      id: 'staff_1',
+      phone: '13800001004',
+    });
+    prisma.deliverySellerStaff.count.mockResolvedValue(1);
+
+    await expect(
+      service.sendBindPhoneSmsCode('staff_1', {
+        phone: '13800001005',
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(prisma.deliveryPhoneOtp.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phone: '13800001005',
+        }),
+      }),
+    );
+  });
+
+  it('allows changing phone to one used by another staff and only updates the current staff row and sessions', async () => {
+    prisma.deliverySellerStaff.findUnique.mockResolvedValue({
+      id: 'staff_1',
+      phone: '13800001004',
+    });
+    prisma.deliverySellerStaff.count.mockResolvedValue(1);
+    prisma.deliverySellerStaff.update.mockResolvedValue({
+      id: 'staff_1',
+      phone: '13800001005',
+    });
+    prisma.deliverySellerSession.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.changePhone('staff_1', {
+        oldPhoneCode: '123456',
+        newPhone: '13800001005',
+        newPhoneCode: '123456',
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(prisma.deliverySellerStaff.update).toHaveBeenCalledWith({
+      where: { id: 'staff_1' },
+      data: { phone: '13800001005' },
+    });
+    expect(prisma.deliverySellerStaff.updateMany).not.toHaveBeenCalled();
+    expect(prisma.deliverySellerSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        staffId: { in: ['staff_1'] },
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+      },
+      data: {
+        revokedAt: expect.any(Date),
+      },
+    });
+  });
 });

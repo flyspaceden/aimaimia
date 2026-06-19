@@ -322,7 +322,6 @@ export class DeliverySellerAuthService {
       throw new BadRequestException('新手机号不能与当前手机号相同');
     }
 
-    await this.assertPhoneAvailable(dto.phone);
     await this.issueOtp(dto.phone, DeliveryOtpPurpose.BIND);
     return { ok: true };
   }
@@ -339,7 +338,6 @@ export class DeliverySellerAuthService {
       throw new BadRequestException('新手机号不能与当前手机号相同');
     }
 
-    await this.assertPhoneAvailable(dto.newPhone);
     await this.verifyOtpOrThrow({
       phone: currentStaff.phone,
       code: dto.oldPhoneCode,
@@ -571,18 +569,6 @@ export class DeliverySellerAuthService {
         revokedAt: new Date(),
       },
     });
-  }
-
-  private async assertPhoneAvailable(phone: string) {
-    const conflictCount = await this.deliveryPrisma.deliverySellerStaff.count({
-      where: {
-        phone,
-        status: DeliverySellerStaffStatus.ACTIVE,
-      },
-    });
-    if (conflictCount > 0) {
-      throw new BadRequestException('该手机号已被其他配送中心账号使用');
-    }
   }
 
   private async issueOtp(phone: string, purpose: DeliveryOtpPurpose) {

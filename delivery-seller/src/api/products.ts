@@ -21,13 +21,10 @@ export const createProduct = (data: Record<string, unknown>): Promise<Product> =
   client.post('/delivery-seller/products', data);
 
 export const updateProduct = (id: string, data: Record<string, unknown>): Promise<Product> =>
-  client.put(`/delivery-seller/products/${id}`, data);
+  client.patch(`/delivery-seller/products/${id}`, data);
 
 export const toggleProductStatus = (id: string, status: string): Promise<Product> =>
   client.post(`/delivery-seller/products/${id}/status`, { status });
-
-export const updateProductSkus = (id: string, skus: Record<string, unknown>[]): Promise<unknown> =>
-  client.put(`/delivery-seller/products/${id}/skus`, { skus });
 
 export const deleteProduct = (id: string): Promise<{ ok: boolean }> =>
   client.delete(`/delivery-seller/products/${id}`);

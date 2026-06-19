@@ -30,7 +30,7 @@ import {
   batchShipOrders,
   getOrders,
 } from '@/api/orders';
-import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
 
@@ -355,11 +355,6 @@ export default function OrderListPage() {
               </div>
               <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
                 {r.items.length > 1 ? `共 ${r.items.length} 种 / ${totalQty} 件` : `${totalQty} 件`}
-                {r.bizType === 'VIP_PACKAGE' && (
-                  <Tag color="#C9A96E" style={{ color: '#fff', marginLeft: 6, fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
-                    VIP
-                  </Tag>
-                )}
                 {r.items.some((item) => item.isPrize) && (
                   <Tag color="gold" style={{ marginLeft: 6, fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
                     奖品
@@ -385,18 +380,6 @@ export default function OrderListPage() {
           {shortOrderId(r.id)}
         </Typography.Text>
       ),
-    },
-    {
-      title: '类型',
-      dataIndex: 'bizType',
-      width: 100,
-      hideInTable: true,
-      valueType: 'select',
-      valueEnum: {
-        VIP_PACKAGE: { text: 'VIP礼包' },
-        LOTTERY_PRIZE: { text: '抽奖奖品' },
-        NORMAL_GOODS: { text: '普通订单' },
-      },
     },
     {
       title: '买家',
@@ -431,19 +414,7 @@ export default function OrderListPage() {
       search: false,
       render: (_, r) => {
         const s = orderStatusMap[r.status];
-        const refundStatus = r.refundSummary ? refundStatusMap[r.refundSummary.status] : null;
-        const orderText = s?.text || r.status;
-        const refundText = refundStatus?.text || r.refundSummary?.status;
-        // 订单主状态和退款流水状态文字一致时（例如 REFUNDED + REFUNDED）只显示一个，避免冗余
-        const showRefundTag = Boolean(r.refundSummary) && refundText !== orderText;
-        return (
-          <Space size={4} wrap>
-            <Tag color={s?.color}>{orderText}</Tag>
-            {showRefundTag && (
-              <Tag color={refundStatus?.color}>{refundText}</Tag>
-            )}
-          </Space>
-        );
+        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
       },
     },
     {

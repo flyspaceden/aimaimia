@@ -33,7 +33,7 @@ import {
   cancelWaybill,
   bindVirtualCall,
 } from '@/api/orders';
-import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
+import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import { toAbsoluteApiUrl } from '@/utils/api-url';
 import dayjs from 'dayjs';
@@ -148,7 +148,6 @@ export default function OrderDetailPage() {
   }
 
   const status = orderStatusMap[order.status];
-  const refundStatus = order.refundSummary ? refundStatusMap[order.refundSummary.status] : null;
   const canCallBuyer =
     ['PAID', 'SHIPPED'].includes(order.status) && hasRole('OWNER', 'MANAGER');
   const canManageShipment =
@@ -193,23 +192,7 @@ export default function OrderDetailPage() {
         </Space>
       </div>
 
-      {/* VIP 提示 */}
-      {order.bizType === 'VIP_PACKAGE' && (
-        <Alert
-          message="VIP 开通礼包 · 不支持退款"
-          type="warning"
-          showIcon
-          banner
-          style={{
-            marginBottom: 16,
-            backgroundColor: '#FFF8E6',
-            border: '1px solid #C9A96E',
-            borderRadius: 8,
-          }}
-        />
-      )}
-
-      {/* 订单进度 — 非取消/退款状态才显示 */}
+      {/* 订单进度 */}
       {!isCancelled && (
         <Card style={{ marginBottom: 16 }}>
           <Steps
@@ -255,27 +238,13 @@ export default function OrderDetailPage() {
         </Card>
       )}
 
-      {/* 已取消/退款状态提示 */}
+      {/* 已关闭状态提示 */}
       {isCancelled && (
         <Alert
-          message={
-            order.status === 'CANCELED'
-              ? '该订单已取消'
-              : '该订单已退款'
-          }
-          type={order.status === 'CANCELED' ? 'info' : 'error'}
+          message={order.status === 'CANCELED' ? '该订单已取消' : '该订单已结束'}
+          type={order.status === 'CANCELED' ? 'info' : 'warning'}
           showIcon
           icon={<CloseCircleOutlined />}
-          style={{ marginBottom: 16, borderRadius: 8 }}
-        />
-      )}
-
-      {order.refundSummary && (
-        <Alert
-          message={`退款${refundStatus?.text || order.refundSummary.status}`}
-          description={`金额 ¥${order.refundSummary.amount.toFixed(2)}，原因：${order.refundSummary.reason}`}
-          type={order.refundSummary.status === 'FAILED' ? 'error' : 'info'}
-          showIcon
           style={{ marginBottom: 16, borderRadius: 8 }}
         />
       )}
@@ -378,13 +347,6 @@ export default function OrderDetailPage() {
             </Space>
           </Descriptions.Item>
           <Descriptions.Item label="地区">{order.regionText || '-'}</Descriptions.Item>
-          <Descriptions.Item label="发票状态">
-            {order.invoiceStatus === 'REQUESTED' && <Tag color="orange">已申请</Tag>}
-            {order.invoiceStatus === 'ISSUED' && <Tag color="green">已开票</Tag>}
-            {order.invoiceStatus === 'FAILED' && <Tag color="red">开票失败</Tag>}
-            {order.invoiceStatus === 'CANCELED' && <Tag color="default">已取消</Tag>}
-            {!order.invoiceStatus && <span style={{ color: '#999' }}>未申请</span>}
-          </Descriptions.Item>
         </Descriptions>
       </Card>
 

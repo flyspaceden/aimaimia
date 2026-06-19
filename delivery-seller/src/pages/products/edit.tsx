@@ -17,7 +17,6 @@ import {
   getProduct,
   createProduct,
   updateProduct,
-  updateProductSkus,
   getCategories,
   createDraft,
   updateDraft,
@@ -39,6 +38,33 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
 /** 新建商品时的默认计量单位 */
 const DEFAULT_PRODUCT_UNIT = '斤';
+
+function centsToYuan(value: unknown): number | undefined {
+  const cents = Number(value);
+  return Number.isFinite(cents) ? cents / 100 : undefined;
+}
+
+function yuanToCents(value: unknown): number {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : 0;
+}
+
+function getSellerPriceYuan(
+  sku: Partial<{
+    cost: number;
+    supplyPriceCents: number;
+    basePriceCents: number;
+  }>,
+): number | undefined {
+  if (typeof sku.cost === 'number' && Number.isFinite(sku.cost)) {
+    return sku.cost;
+  }
+  return centsToYuan(sku.supplyPriceCents ?? sku.basePriceCents);
+}
+
+function getUnitName(product: Partial<{ unit?: string; unitName?: string }> | null | undefined): string {
+  return product?.unitName || product?.unit || DEFAULT_PRODUCT_UNIT;
+}
 
 /**
  * 计量单位下拉选项。
@@ -235,10 +261,10 @@ function MultiSpecRows({ lowStockThreshold }: { lowStockThreshold: number }) {
                   <Form.Item
                     {...field}
                     name={[field.name, 'cost']}
-                    label="成本价"
+                    label="供货价"
                     rules={[
-                      { required: true, message: '请输入成本' },
-                      { type: 'number', min: 0.01, message: '成本必须大于 0' },
+                      { required: true, message: '请输入供货价' },
+                      { type: 'number', min: 0.01, message: '供货价必须大于 0' },
                     ]}
                     style={{ marginBottom: 0 }}
                   >
@@ -477,61 +503,47 @@ function buildPayload(
   skuList: Array<Record<string, unknown>>,
   fileList: UploadFile[],
 ) {
-  // 处理标签（使用标签池 ID 列表）
-  const tagIds = (values.tagIds as string[] | undefined) || undefined;
-
-  // 处理 AI 关键词
-  const aiKeywords = typeof values.aiKeywords === 'string'
+  const searchKeywords = typeof values.aiKeywords === 'string'
     ? values.aiKeywords.split(',').map((s: string) => s.trim()).filter(Boolean)
     : undefined;
 
-  // 处理属性
   const attrPairs = values.attributes as Array<{ key: string; value: string }> | undefined;
   const attributes = attrPairs && attrPairs.length > 0
     ? Object.fromEntries(attrPairs.filter((p) => p.key).map((p) => [p.key, p.value]))
     : undefined;
 
-  // 处理图片
-  const mediaUrls = fileList
+  const media = fileList
     .filter((f) => f.status === 'done')
-    .map((f) => {
+    .map((f, index) => {
       const response = f.response as { url?: string; data?: { url?: string } } | undefined;
-      return f.url || response?.data?.url || response?.url;
+      const url = f.url || response?.data?.url || response?.url;
+      if (!url) return null;
+      return {
+        url,
+        type: 'IMAGE',
+        sortOrder: index,
+      };
     })
-    .filter(Boolean) as string[];
-
-  const supplyPrices = skuList
-    .map((s) => Number(s.cost))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  const basePrice = supplyPrices.length > 0 ? Math.min(...supplyPrices) : 0;
+    .filter(Boolean);
 
   const skus = skuList.map((s) => ({
     id: s.id as string | undefined,
-    specName: (s.specName as string) || '默认规格',
-    cost: Number(s.cost),
+    title: (s.specName as string) || '默认规格',
+    supplyPriceCents: yuanToCents(s.cost),
+    basePriceCents: yuanToCents(s.cost),
     stock: Number(s.stock),
     weightGram: s.weightGram === undefined || s.weightGram === null ? undefined : Number(s.weightGram),
-    maxPerOrder: s.maxPerOrder === undefined || s.maxPerOrder === null ? undefined : Number(s.maxPerOrder),
   }));
 
   return {
     title: values.title,
     subtitle: values.subtitle || undefined,
-    description: values.description,
-    basePrice,
-    unit: (values.unit as string | undefined) || undefined,
-    categoryId: values.categoryId,
-    returnPolicy: values.returnPolicy || 'INHERIT',
-    origin: values.originText ? { text: values.originText } : undefined,
-    tagIds,
-    aiKeywords,
+    description: values.description || undefined,
+    unitName: ((values.unit as string | undefined) || DEFAULT_PRODUCT_UNIT),
+    categoryId: (values.categoryId as string | undefined) || undefined,
+    media: media.length > 0 ? media : undefined,
+    searchKeywords,
     attributes,
-    mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
-    flavorTags: (values.flavorTags as string[] | undefined) || undefined,
-    seasonalMonths: (values.seasonalMonths as number[] | undefined) || undefined,
-    usageScenarios: (values.usageScenarios as string[] | undefined) || undefined,
-    dietaryTags: (values.dietaryTags as string[] | undefined) || undefined,
-    originRegion: (values.originText as string | undefined) || undefined,
     skus,
   };
 }
@@ -601,8 +613,8 @@ function ProductEditForm({ id }: { id: string }) {
   });
   // 编辑态：若商品当前单位被管理员事后停用，仍兜底加入选项，避免静默丢失
   const unitOptions = useMemo(
-    () => buildUnitOptions(productUnits, product?.unit),
-    [productUnits, product?.unit],
+    () => buildUnitOptions(productUnits, getUnitName(product)),
+    [productUnits, product],
   );
 
   // 商品数据加载后填充表单并判断是否多规格
@@ -629,7 +641,7 @@ function ProductEditForm({ id }: { id: string }) {
       title: product.title,
       subtitle: product.subtitle,
       description: product.description,
-      unit: product.unit || DEFAULT_PRODUCT_UNIT,
+      unit: getUnitName(product),
       categoryId: product.categoryId,
       returnPolicy: (product as any).returnPolicy || 'INHERIT',
       originText,
@@ -638,7 +650,7 @@ function ProductEditForm({ id }: { id: string }) {
       attributes: attrPairs.length > 0 ? attrPairs : [],
       // 单规格字段
       ...(!isMulti && firstSku ? {
-        singleCost: firstSku.cost,
+        singleCost: getSellerPriceYuan(firstSku),
         singleStock: firstSku.stock,
         singleWeightGram: firstSku.weightGram,
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
@@ -648,7 +660,7 @@ function ProductEditForm({ id }: { id: string }) {
         skus: product.skus.map((s) => ({
           id: s.id,
           specName: s.title,
-          cost: s.cost,
+          cost: getSellerPriceYuan(s),
           stock: s.stock,
           weightGram: s.weightGram,
           maxPerOrder: s.maxPerOrder,
@@ -696,10 +708,7 @@ function ProductEditForm({ id }: { id: string }) {
       }
 
       const payload = buildPayload(values, skuList, fileList);
-      const { skus, ...productData } = payload;
-
-      await updateProduct(id, productData);
-      await updateProductSkus(id, skus);
+      await updateProduct(id, payload);
       message.success('商品已更新');
       navigate('/products');
     } catch (err) {
@@ -820,7 +829,7 @@ function ProductEditForm({ id }: { id: string }) {
               style={{ width: 300 }}
             />
           </Form.Item>
-          <Form.Item label="退货政策" name="returnPolicy" initialValue="INHERIT">
+          <Form.Item label="服务规则" name="returnPolicy" initialValue="INHERIT">
             <Select style={{ width: 300 }} options={[
               { label: '默认（跟随分类设置）', value: 'INHERIT' },
               { label: '7天无理由退换', value: 'RETURNABLE' },
@@ -913,11 +922,11 @@ function ProductEditForm({ id }: { id: string }) {
             <Row gutter={16}>
               <Col span={8}>
                 <Form.Item
-                  label="成本价"
+                  label="供货价"
                   name="singleCost"
                   rules={[
-                    { required: true, message: '请输入成本价' },
-                    { type: 'number', min: 0.01, message: '成本必须大于 0' },
+                    { required: true, message: '请输入供货价' },
+                    { type: 'number', min: 0.01, message: '供货价必须大于 0' },
                   ]}
                 >
                   <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
@@ -1059,8 +1068,8 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   });
   // 草稿可能携带一个事后被停用的单位，兜底加入选项避免静默丢失
   const unitOptions = useMemo(
-    () => buildUnitOptions(productUnits, draftProduct?.unit),
-    [productUnits, draftProduct?.unit],
+    () => buildUnitOptions(productUnits, getUnitName(draftProduct)),
+    [productUnits, draftProduct],
   );
 
   // 草稿加载后回填表单（仅执行一次）
@@ -1087,7 +1096,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       title: draftProduct.title,
       subtitle: draftProduct.subtitle,
       description: draftProduct.description,
-      unit: draftProduct.unit || DEFAULT_PRODUCT_UNIT,
+      unit: getUnitName(draftProduct),
       categoryId: draftProduct.categoryId,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       returnPolicy: (draftProduct as any).returnPolicy || 'INHERIT',
@@ -1097,7 +1106,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       aiKeywords: (draftProduct.aiKeywords || []).join(','),
       attributes: attrPairs.length > 0 ? attrPairs : [],
       ...(!isMulti && firstSku ? {
-        singleCost: firstSku.cost || undefined,
+        singleCost: getSellerPriceYuan(firstSku),
         singleStock: firstSku.stock,
         singleWeightGram: hydrateDraftWeightGram(firstSku),
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
@@ -1106,7 +1115,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         skus: draftProduct.skus.map((s) => ({
           id: s.id,
           specName: s.title,
-          cost: s.cost,
+          cost: getSellerPriceYuan(s),
           stock: s.stock,
           weightGram: hydrateDraftWeightGram(s),
           maxPerOrder: s.maxPerOrder,
@@ -1298,11 +1307,21 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       if (m) {
         const idx = Number(m[1]);
         const field = m[2];
-        if (multiSpec) return ['skus', idx, field];
+        if (multiSpec) {
+          const multiMap: Record<string, string> = {
+            title: 'specName',
+            supplyPriceCents: 'cost',
+            basePriceCents: 'cost',
+          };
+          return ['skus', idx, multiMap[field] || field];
+        }
         // 单规格模式：只有 idx=0 有意义
         if (idx === 0) {
           const map: Record<string, string> = {
             cost: 'singleCost',
+            title: 'singleCost',
+            supplyPriceCents: 'singleCost',
+            basePriceCents: 'singleCost',
             stock: 'singleStock',
             weightGram: 'singleWeightGram',
             maxPerOrder: 'singleMaxPerOrder',
@@ -1312,6 +1331,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         return null;
       }
       // 顶层简单字段同名直传
+      if (path === 'unitName') return ['unit'];
       const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'unit', 'categoryId', 'returnPolicy']);
       if (TOP_LEVEL.has(path)) return [path];
       return null;
@@ -1330,7 +1350,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         await updateDraft(draftId, buildDraftPayload());
         await submitDraft(draftId);
       } else {
-        // 全新商品创建：用 buildPayload（含自动定价 basePrice 计算）
+        // 全新商品创建：直接提交卖家填写的供货价，不在前端推导平台价格。
         let skuList: Array<Record<string, unknown>>;
         if (multiSpec) {
           skuList = values.skus as Array<Record<string, unknown>>;
@@ -1459,7 +1479,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
               style={{ width: 300 }}
             />
           </Form.Item>
-          <Form.Item label="退货政策" name="returnPolicy" initialValue="INHERIT">
+          <Form.Item label="服务规则" name="returnPolicy" initialValue="INHERIT">
             <Select style={{ width: 300 }} options={[
               { label: '默认（跟随分类设置）', value: 'INHERIT' },
               { label: '7天无理由退换', value: 'RETURNABLE' },
@@ -1551,11 +1571,11 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             <Row gutter={16}>
               <Col span={8}>
                 <Form.Item
-                  label="成本价"
+                  label="供货价"
                   name="singleCost"
                   rules={[
-                    { required: true, message: '请输入成本价' },
-                    { type: 'number', min: 0.01, message: '成本必须大于 0' },
+                    { required: true, message: '请输入供货价' },
+                    { type: 'number', min: 0.01, message: '供货价必须大于 0' },
                   ]}
                 >
                   <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />

@@ -43,7 +43,7 @@ export default function DashboardPage() {
   const quickLinks = [
     { label: '订单', path: '/orders', icon: <ShoppingCartOutlined /> },
     { label: '商品', path: '/products', icon: <AppstoreOutlined /> },
-    { label: '公司', path: '/company', icon: <ClockCircleOutlined /> },
+    { label: '公司', path: '/company/settings', icon: <ClockCircleOutlined /> },
     { label: '账号安全', path: '/account-security', icon: <MessageOutlined /> },
   ];
 
