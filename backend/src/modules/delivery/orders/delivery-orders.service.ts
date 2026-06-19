@@ -40,6 +40,12 @@ type DeliveryMerchantPricingGroup = {
   totalAmountCents?: number;
 };
 
+type BuyerOrdersQuery = {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+};
+
 export type DeliveryOrderManifestContext = {
   orderId: string;
   userId: string;
@@ -294,6 +300,50 @@ export class DeliveryOrdersService {
         };
       }),
     };
+  }
+
+  async listBuyerOrders(deliveryUserId: string, query: BuyerOrdersQuery) {
+    const page = query.page && query.page > 0 ? query.page : 1;
+    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
+    const skip = (page - 1) * pageSize;
+    const where = {
+      userId: deliveryUserId,
+      ...(query.status ? { status: query.status as any } : {}),
+    };
+
+    const [total, orders] = await Promise.all([
+      this.deliveryPrisma.deliveryOrder.count({ where }),
+      this.deliveryPrisma.deliveryOrder.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+        include: this.getBuyerOrderInclude(),
+      }),
+    ]);
+
+    return {
+      items: orders.map((order) => this.mapBuyerOrder(order)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async getBuyerOrder(deliveryUserId: string, orderId: string) {
+    const order = await this.deliveryPrisma.deliveryOrder.findFirst({
+      where: {
+        id: orderId,
+        userId: deliveryUserId,
+      },
+      include: this.getBuyerOrderInclude(),
+    });
+
+    if (!order) {
+      throw new NotFoundException('配送订单不存在');
+    }
+
+    return this.mapBuyerOrder(order);
   }
 
   async createOrderFromPaidCheckout(params: PaidCheckoutParams) {
@@ -672,6 +722,75 @@ export class DeliveryOrdersService {
     };
   }
 
+  private getBuyerOrderInclude() {
+    return {
+      payments: {
+        select: {
+          merchantOrderNo: true,
+          channel: true,
+        },
+        orderBy: {
+          createdAt: 'asc' as const,
+        },
+      },
+      subOrders: {
+        select: {
+          id: true,
+          merchantId: true,
+          status: true,
+          totalAmountCents: true,
+          shippingFeeShareCents: true,
+          merchant: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'asc' as const }],
+      },
+      items: {
+        select: {
+          id: true,
+          subOrderId: true,
+          productId: true,
+          skuId: true,
+          quantity: true,
+          unitPriceCents: true,
+          lineAmountCents: true,
+          productSnapshot: true,
+          subOrder: {
+            select: {
+              id: true,
+              merchantId: true,
+              status: true,
+              totalAmountCents: true,
+              shippingFeeShareCents: true,
+              merchant: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'asc' as const }],
+      },
+      shipments: {
+        select: {
+          id: true,
+          status: true,
+          carrierCode: true,
+          carrierName: true,
+          waybillNo: true,
+          waybillUrl: true,
+          shippedAt: true,
+          deliveredAt: true,
+        },
+        orderBy: [{ createdAt: 'desc' as const }],
+      },
+    };
+  }
+
   private mapOrderManifestContext(order: any): DeliveryOrderManifestContext {
     const unitSnapshot = this.parseUnitSnapshot(order.unitSnapshot);
     const addressSnapshot = this.parseAddressSnapshot(order.addressSnapshot);
@@ -718,6 +837,68 @@ export class DeliveryOrdersService {
     };
   }
 
+  private mapBuyerOrder(order: any) {
+    const unitSnapshot = this.parseUnitSnapshot(order.unitSnapshot);
+    const addressSnapshot = this.parseAddressSnapshot(order.addressSnapshot);
+    const firstPayment = order.payments[0] ?? null;
+
+    return {
+      id: order.id,
+      status: order.status,
+      note: order.note ?? null,
+      merchantOrderNo: firstPayment?.merchantOrderNo ?? null,
+      paymentChannel: firstPayment?.channel ?? null,
+      goodsAmountCents: order.goodsAmountCents,
+      shippingFeeCents: order.shippingFeeCents,
+      totalAmountCents: order.totalAmountCents,
+      createdAt: order.createdAt,
+      paidAt: order.paidAt,
+      unit: {
+        id: this.asString(this.asRecord(order.unitSnapshot).id) || order.unitId || '',
+        name: unitSnapshot.name,
+        contactName: unitSnapshot.contactName,
+        contactPhone: unitSnapshot.contactPhone,
+      },
+      address: addressSnapshot,
+      subOrders: (order.subOrders ?? []).map((subOrder: any) => ({
+        id: subOrder.id,
+        merchantId: subOrder.merchantId,
+        merchantName: subOrder.merchant?.name || '',
+        status: subOrder.status,
+        totalAmountCents: subOrder.totalAmountCents,
+        shippingFeeShareCents: subOrder.shippingFeeShareCents ?? 0,
+      })),
+      items: (order.items ?? []).map((item: any) => {
+        const snapshot = this.parseProductSnapshot(item.productSnapshot);
+        return {
+          id: item.id,
+          subOrderId: item.subOrderId,
+          merchantId: item.subOrder?.merchantId || '',
+          merchantName: item.subOrder?.merchant?.name || '',
+          productId: item.productId,
+          skuId: item.skuId,
+          productTitle: snapshot.productTitle || '',
+          skuTitle: snapshot.skuTitle || '',
+          imageUrl: snapshot.imageUrl || null,
+          unitName: snapshot.unitName || '',
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+          lineAmountCents: item.lineAmountCents,
+        };
+      }),
+      shipments: (order.shipments ?? []).map((shipment: any) => ({
+        id: shipment.id,
+        status: shipment.status,
+        carrierCode: shipment.carrierCode,
+        carrierName: shipment.carrierName,
+        waybillNo: shipment.waybillNo,
+        waybillUrl: shipment.waybillUrl,
+        shippedAt: shipment.shippedAt,
+        deliveredAt: shipment.deliveredAt,
+      })),
+    };
+  }
+
   private parseUnitSnapshot(raw: Prisma.JsonValue) {
     const value = this.asRecord(raw);
     return {
@@ -737,7 +918,7 @@ export class DeliveryOrdersService {
     return {
       recipientName: this.asString(value.recipientName) || '',
       phone: this.asString(value.phone) || '',
-      regionText: regionParts.join(' '),
+      regionText: this.asString(value.regionText) || regionParts.join(' '),
       detailAddress: this.asString(value.detailAddress) || '',
     };
   }
@@ -748,6 +929,7 @@ export class DeliveryOrdersService {
       productTitle: this.asString(value.productTitle),
       skuTitle: this.asString(value.skuTitle),
       unitName: this.asString(value.unitName),
+      imageUrl: this.asString(value.imageUrl),
     };
   }
 

@@ -40,6 +40,7 @@ const TOOL_GRID_BASE = [
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
+  { label: '配送', icon: 'truck-delivery-outline' as const, route: '/delivery' },
   { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
   { label: '数字资产', icon: 'diamond-stone' as const, route: '/me/digital-assets' },
   { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
@@ -562,7 +563,11 @@ export default function MeScreen() {
               {toolGrid.map((tool) => (
                 <Pressable
                   key={tool.label}
-                  onPress={() => requireLogin(() => router.push(tool.route as any))}
+                  onPress={() =>
+                    tool.route === '/delivery'
+                      ? router.push('/delivery')
+                      : requireLogin(() => router.push(tool.route as any))
+                  }
                   style={styles.toolItem}
                 >
                   <View style={[styles.toolIcon, { backgroundColor: colors.background }]}>

@@ -6,7 +6,11 @@ import { buildDeliveryPath, deliveryAuthPaths, mapDeliveryAuthSession } from '..
 import { deliveryUnitPaths } from '../../repos/delivery/DeliveryUnitRepo';
 import { deliveryProductPaths, mapDeliveryCatalogProduct } from '../../repos/delivery/DeliveryProductRepo';
 import { deliveryCartPaths, mapDeliveryCartResponse } from '../../repos/delivery/DeliveryCartRepo';
-import { deliveryOrderPaths, mapDeliveryCheckoutSession } from '../../repos/delivery/DeliveryOrderRepo';
+import {
+  deliveryOrderPaths,
+  mapDeliveryBuyerOrder,
+  mapDeliveryCheckoutSession,
+} from '../../repos/delivery/DeliveryOrderRepo';
 import { deliveryManifestPaths, mapDeliveryManifestRow } from '../../repos/delivery/DeliveryManifestRepo';
 
 describe('delivery repo paths', () => {
@@ -18,6 +22,9 @@ describe('delivery repo paths', () => {
     expect(deliveryProductPaths.detail('product_1')).toBe('/delivery/products/product_1');
     expect(deliveryCartPaths.item('cart_1')).toBe('/delivery/cart/items/cart_1');
     expect(deliveryOrderPaths.checkout('checkout_1')).toBe('/delivery/checkout/checkout_1');
+    expect(deliveryOrderPaths.list()).toBe('/delivery/orders');
+    expect(deliveryOrderPaths.detail('order_1')).toBe('/delivery/orders/order_1');
+    expect(deliveryOrderPaths.shipments('order_1')).toBe('/delivery/orders/order_1/shipments');
     expect(deliveryManifestPaths.order('order_1')).toBe('/delivery/orders/order_1/manifest');
   });
 });
@@ -180,5 +187,77 @@ describe('delivery repo mappers', () => {
     expect(mapped.storageKey.startsWith('delivery/')).toBe(true);
     expect(mapped.templateVersion.versionNo).toBe(3);
     expect(mapped.type).toBe('BUYER_FULL');
+  });
+
+  it('maps delivery buyer orders with nested cents snapshots and shipment rows', () => {
+    const mapped = mapDeliveryBuyerOrder({
+      id: 'PSDD0000000000001',
+      status: 'PENDING_SHIPMENT',
+      note: '下班前送达',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
+      goodsAmountCents: 5200,
+      shippingFeeCents: 800,
+      totalAmountCents: 6000,
+      createdAt: '2026-06-19T12:00:00.000Z',
+      paidAt: '2026-06-19T12:10:00.000Z',
+      unit: {
+        id: 'unit_1',
+        name: '华南餐饮部',
+        contactName: '张三',
+        contactPhone: '13800000000',
+      },
+      address: {
+        recipientName: '李四',
+        phone: '13900000000',
+        regionText: '广东省 广州市 天河区',
+        detailAddress: '体育西路 1 号',
+      },
+      subOrders: [
+        {
+          id: 'PSZDD000000000001',
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          status: 'PENDING_SHIPMENT',
+          totalAmountCents: 6000,
+          shippingFeeShareCents: 800,
+        },
+      ],
+      items: [
+        {
+          id: 'item_1',
+          subOrderId: 'PSZDD000000000001',
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          productId: 'product_1',
+          skuId: 'sku_1',
+          productTitle: '冷鲜牛腩',
+          skuTitle: '5kg/箱',
+          imageUrl: 'https://img.example.com/a.png',
+          unitName: '箱',
+          quantity: 2,
+          unitPriceCents: 2600,
+          lineAmountCents: 5200,
+        },
+      ],
+      shipments: [
+        {
+          id: 'shipment_1',
+          status: 'SHIPPED',
+          carrierCode: 'SF',
+          carrierName: '顺丰速运',
+          waybillNo: 'SF123',
+          waybillUrl: 'https://oss.example.com/waybill.pdf',
+          shippedAt: '2026-06-19T13:00:00.000Z',
+          deliveredAt: null,
+        },
+      ],
+    });
+
+    expect(mapped.totalAmount).toBe(60);
+    expect(mapped.items[0].unitPrice).toBe(26);
+    expect(mapped.subOrders[0].shippingFeeShare).toBe(8);
+    expect(mapped.address.regionText).toContain('天河区');
+    expect(mapped.shipments[0].waybillNo).toBe('SF123');
   });
 });

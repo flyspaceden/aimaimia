@@ -15,6 +15,59 @@
 - **科技之脉**：AI 的智能，光流、粒子、呼吸的节奏
 - **人心之脉**：用户的需求，温暖、可信、自然的交互
 
+---
+
+## 0. 配送模块（2026-06-19 / Task 13）
+
+### 0.1 定位
+
+- 配送模块是买家 App 内的一个业务模式，不是独立安装包，也不是营销落地页。
+- 入口固定在 `我的 > 常用工具 > 配送`，路由 `/delivery`。
+- delivery 模式只使用 `src/repos/delivery/*` 和 delivery stores；不复用普通商品/购物车/订单/用户状态仓储。
+
+### 0.2 路由门禁
+
+`app/delivery/_layout.tsx` 统一处理三段式门禁：
+
+1. 无 delivery token：跳 `/delivery/login`
+2. 有 token 但无当前单位：跳 `/delivery/unit-select`
+3. 有 token 且有单位：默认进 `/delivery/(tabs)/products`
+
+已登录用户仍可从 delivery 我的页进入 `/delivery/unit-select` / `/delivery/unit-edit` 主动切换或维护单位。
+
+### 0.3 Tab 约束
+
+- delivery tabs 只有两个：`商品`、`我的`
+- delivery 视觉主色使用 `src/theme/delivery.ts` 的橙色 token
+- delivery 我的页常用工具保留业务闭环最小集：
+  - `配送订单`
+  - `配送清单`
+  - `配送单位`
+  - `返回爱买买平台`
+  - `退出配送账号`
+
+### 0.4 页面状态
+
+| 页面 | 路由 | 状态 | 说明 |
+|---|---|---|---|
+| 配送登录 | `/delivery/login` | ✅ 已接入 | 手机号 + 验证码登录，成功后写入 `useDeliveryAuthStore` |
+| 配送单位选择 | `/delivery/unit-select` | ✅ 已接入 | 支持当前单位切换、跳转编辑 |
+| 配送单位编辑 | `/delivery/unit-edit` | ✅ 已接入 | 支持新增 / 编辑单位基础信息 |
+| 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
+| 配送商品详情 | `/delivery/product/[id]` | ✅ 已接入 | SKU 选择、起订量 / 步长 / 库存展示 |
+| 配送购物车 | `/delivery/cart` | ✅ 已接入 | 勾选、改数量、删除、去结算 |
+| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 创建 delivery checkout session，备注与支付渠道绑定到配送结算 |
+| 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 轮询 checkout session 状态；当前用于结算创建后状态页 |
+| 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用 |
+| 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口 |
+| 配送清单列表 | `/delivery/manifests` | ✅ 已接入 | 打开 buyer manifests 文件 |
+
+### 0.5 当前边界
+
+- delivery 订单列表/详情走 delivery buyer 专属后端接口，不再落到普通订单接口。
+- checkout 已能创建 delivery checkout session 并进入状态页。
+- 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
+
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
 ### 1.2 设计原则

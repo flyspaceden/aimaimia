@@ -29,6 +29,7 @@ import { DeliveryCartService } from './cart/delivery-cart.service';
 import { DeliveryCheckoutController } from './checkout/delivery-checkout.controller';
 import { DeliveryCheckoutService } from './checkout/delivery-checkout.service';
 import { DeliveryOrdersService } from './orders/delivery-orders.service';
+import { DeliveryBuyerOrdersController } from './orders/delivery-buyer-orders.controller';
 import { DeliveryPaymentsService } from './payments/delivery-payments.service';
 import { DeliveryShippingService } from './shipping/delivery-shipping.service';
 import { DeliverySellerShippingController } from './shipping/delivery-seller-shipping.controller';
@@ -81,6 +82,7 @@ import { DeliverySellerOpsController } from './seller/delivery-seller-ops.contro
     DeliverySellerInventoryController,
     DeliveryCartController,
     DeliveryCheckoutController,
+    DeliveryBuyerOrdersController,
     DeliverySellerShippingController,
     DeliveryOrderShipmentsController,
     DeliveryAdminShippingRecordsController,

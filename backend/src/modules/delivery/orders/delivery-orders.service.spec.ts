@@ -100,6 +100,11 @@ describe('DeliveryOrdersService', () => {
     };
 
     deliveryPrisma = {
+      deliveryOrder: {
+        count: jest.fn(),
+        findMany: jest.fn(),
+        findFirst: jest.fn(),
+      },
       $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
         callback(tx),
       ),
@@ -300,5 +305,201 @@ describe('DeliveryOrdersService', () => {
     expect(tx.deliveryProductSku.updateMany).not.toHaveBeenCalled();
     expect(tx.deliveryOrder.create).not.toHaveBeenCalled();
     expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
+  });
+
+  it('lists only the authenticated buyer delivery orders with pagination', async () => {
+    deliveryPrisma.deliveryOrder.count.mockResolvedValue(1);
+    deliveryPrisma.deliveryOrder.findMany.mockResolvedValue([
+      {
+        id: 'PSDD0000000000001',
+        status: 'PENDING_SHIPMENT',
+        note: '下班前送达',
+        goodsAmountCents: 5200,
+        shippingFeeCents: 800,
+        totalAmountCents: 6000,
+        createdAt: new Date('2026-06-19T12:00:00.000Z'),
+        paidAt: new Date('2026-06-19T12:10:00.000Z'),
+        unitSnapshot: {
+          id: 'unit_1',
+          name: '华南餐饮部',
+          contactName: '张三',
+          contactPhone: '13800000000',
+        },
+        addressSnapshot: {
+          recipientName: '李四',
+          phone: '13900000000',
+          regionText: '广东省 广州市 天河区',
+          detailAddress: '体育西路 1 号',
+        },
+        payments: [{ merchantOrderNo: 'PSZF0000000000001', channel: 'ALIPAY' }],
+        items: [
+          {
+            id: 'item_1',
+            subOrderId: 'PSZDD000000000001',
+            productId: 'product_1',
+            skuId: 'sku_1',
+            quantity: 2,
+            unitPriceCents: 2600,
+            lineAmountCents: 5200,
+            productSnapshot: {
+              productTitle: '冷鲜牛腩',
+              skuTitle: '5kg/箱',
+              imageUrl: 'https://img.example.com/a.png',
+              unitName: '箱',
+            },
+            subOrder: {
+              id: 'PSZDD000000000001',
+              merchantId: 'merchant_1',
+              status: 'PENDING_SHIPMENT',
+              totalAmountCents: 6000,
+              shippingFeeShareCents: 800,
+              merchant: { name: '华南仓' },
+            },
+          },
+        ],
+        subOrders: [
+          {
+            id: 'PSZDD000000000001',
+            merchantId: 'merchant_1',
+            status: 'PENDING_SHIPMENT',
+            totalAmountCents: 6000,
+            shippingFeeShareCents: 800,
+            merchant: { name: '华南仓' },
+          },
+        ],
+        shipments: [],
+      },
+    ]);
+
+    const result = await service.listBuyerOrders('delivery_user_1', {
+      page: 2,
+      pageSize: 5,
+      status: 'PENDING_SHIPMENT',
+    });
+
+    expect(deliveryPrisma.deliveryOrder.count).toHaveBeenCalledWith({
+      where: {
+        userId: 'delivery_user_1',
+        status: 'PENDING_SHIPMENT',
+      },
+    });
+    expect(deliveryPrisma.deliveryOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: 'delivery_user_1',
+          status: 'PENDING_SHIPMENT',
+        },
+        skip: 5,
+        take: 5,
+      }),
+    );
+    expect(result).toMatchObject({
+      total: 1,
+      page: 2,
+      pageSize: 5,
+      items: [
+        {
+          id: 'PSDD0000000000001',
+          merchantOrderNo: 'PSZF0000000000001',
+          unit: { name: '华南餐饮部' },
+          items: [{ productTitle: '冷鲜牛腩' }],
+        },
+      ],
+    });
+  });
+
+  it('returns one authenticated buyer delivery order detail with shipments', async () => {
+    deliveryPrisma.deliveryOrder.findFirst.mockResolvedValue({
+      id: 'PSDD0000000000001',
+      userId: 'delivery_user_1',
+      status: 'SHIPPED',
+      note: '下班前送达',
+      goodsAmountCents: 5200,
+      shippingFeeCents: 800,
+      totalAmountCents: 6000,
+      createdAt: new Date('2026-06-19T12:00:00.000Z'),
+      paidAt: new Date('2026-06-19T12:10:00.000Z'),
+      unitSnapshot: {
+        id: 'unit_1',
+        name: '华南餐饮部',
+        contactName: '张三',
+        contactPhone: '13800000000',
+      },
+      addressSnapshot: {
+        recipientName: '李四',
+        phone: '13900000000',
+        regionText: '广东省 广州市 天河区',
+        detailAddress: '体育西路 1 号',
+      },
+      payments: [{ merchantOrderNo: 'PSZF0000000000001', channel: 'ALIPAY' }],
+      items: [
+        {
+          id: 'item_1',
+          subOrderId: 'PSZDD000000000001',
+          productId: 'product_1',
+          skuId: 'sku_1',
+          quantity: 2,
+          unitPriceCents: 2600,
+          lineAmountCents: 5200,
+          productSnapshot: {
+            productTitle: '冷鲜牛腩',
+            skuTitle: '5kg/箱',
+            imageUrl: 'https://img.example.com/a.png',
+            unitName: '箱',
+          },
+          subOrder: {
+            id: 'PSZDD000000000001',
+            merchantId: 'merchant_1',
+            status: 'SHIPPED',
+            totalAmountCents: 6000,
+            shippingFeeShareCents: 800,
+            merchant: { name: '华南仓' },
+          },
+        },
+      ],
+      subOrders: [
+        {
+          id: 'PSZDD000000000001',
+          merchantId: 'merchant_1',
+          status: 'SHIPPED',
+          totalAmountCents: 6000,
+          shippingFeeShareCents: 800,
+          merchant: { name: '华南仓' },
+        },
+      ],
+      shipments: [
+        {
+          id: 'shipment_1',
+          status: 'SHIPPED',
+          carrierCode: 'SF',
+          carrierName: '顺丰速运',
+          waybillNo: 'SF123',
+          waybillUrl: 'https://oss.example.com/waybill.pdf',
+          shippedAt: new Date('2026-06-19T13:00:00.000Z'),
+          deliveredAt: null,
+        },
+      ],
+    });
+
+    const result = await service.getBuyerOrder(
+      'delivery_user_1',
+      'PSDD0000000000001',
+    );
+
+    expect(deliveryPrisma.deliveryOrder.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'PSDD0000000000001',
+          userId: 'delivery_user_1',
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      id: 'PSDD0000000000001',
+      status: 'SHIPPED',
+      shipments: [{ waybillNo: 'SF123' }],
+      address: { detailAddress: '体育西路 1 号' },
+      items: [{ skuTitle: '5kg/箱' }],
+    });
   });
 });
