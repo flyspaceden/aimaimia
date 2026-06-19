@@ -50,7 +50,7 @@
 
 | 页面 | 路由 | 状态 | 说明 |
 |---|---|---|---|
-| 配送登录 | `/delivery/login` | ✅ 已接入 | 手机号 + 验证码登录，成功后写入 `useDeliveryAuthStore` |
+| 配送登录 | `/delivery/login` | ✅ 已接入 | 手机号发码 + 60 秒倒计时 + 微信登录，成功后写入 `useDeliveryAuthStore` |
 | 配送单位选择 | `/delivery/unit-select` | ✅ 已接入 | 支持当前单位切换、跳转编辑 |
 | 配送单位编辑 | `/delivery/unit-edit` | ✅ 已接入 | 支持新增 / 编辑单位基础信息 |
 | 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
@@ -76,6 +76,7 @@
 - 认证本地存储与持久化键独立为 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth`。
 - 登录认证接口改到 `/api/v1/delivery-admin/auth/*`，登录页与爱买买管理后台登录页已互相增加切换按钮。
 - 当前仅保留壳层路由、浅蓝主题和基础可访问菜单；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块已从路由和菜单裁掉。
+- 清单模板页已补逐单自定义列操作区，可按 `BUYER_FULL` / `SELLER_FULFILLMENT` 目标单号维护自定义列名、排序、显示与内容；卖家配货清单由后端限制金额敏感字段。
 
 ### 0.7 集成验证记录（2026-06-19 / Task 20）
 

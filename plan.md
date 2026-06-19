@@ -41,6 +41,11 @@
   - **实际做了**: 在 `delivery-seller/` 现有壳上补齐工作台快捷入口、商品草稿/审核提交、商品列表/编辑、SKU 库存调整、订单列表/发货详情、物流跟踪、履约清单导出、财务结算导出、企业资料、员工权限、客服工单、账号安全；新增 `inventory` / `shipments` / `manifests` / `settlements` / `customerService` API 模块，活跃调用全部收口到 `/delivery-seller/*`；移除 seller finance export context 中未返回且不应保留的 `buyerFinalAmountCents`
   - **验证**: `cd delivery-seller && node --test test/deliveryCenterContracts.test.ts`、`cd delivery-seller && npm run build`、`cd backend && npm test -- --runInBand src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/settlement/delivery-settlement.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`cd backend && npm run build`；履约导出不展示金额，财务导出仅使用供货/应结金额口径
 
+- [x] **配送终审修复收口（2026-06-19）**
+  - **来源**: final review 剩余 Critical / Important
+  - **实际做了**: 补齐配送买家短信发码接口、delivery 登录页发码倒计时与微信登录；checkout 改为整单运费单次计算并按商家商品金额精确分摊；配送管理后台清单模板页新增逐单自定义列/内容入口，后端支持 buyer order / seller fulfillment 自定义列持久化与再生成，且对 seller fulfillment 金额敏感字段做拦截。
+  - **验证**: `cd backend && npm test -- --runInBand src/modules/delivery/buyer/delivery-buyer-auth.controller.spec.ts src/modules/delivery/buyer/delivery-phone-otp.service.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/manifests/delivery-admin-manifests.controller.spec.ts`、根目录 `npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、后续补跑根目录 TypeScript / delivery-admin build / backend build / git diff --check
+
 - [x] **配送部署、法律页、seed 与集成验证（Task 18-20）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 18-20 brief
   - **实际做了**: 补齐配送管理后台 / 配送中心部署配置与公开上线说明；新增配送法律页 `/legal/delivery-terms`、`/legal/delivery-privacy`、`/legal/delivery-seller-agreement`，文案明确标注上线前需法务确认；实现幂等 `backend/prisma-delivery/seed.ts`，包含配送超管、运营/财务/客服角色、配送商/OWNER、分类/单位、商品/SKU、配送用户、配送单位、地址、清单模板、客服配置；修复根 App `tsconfig.json` 误扫新增 Web 后台目录的问题。

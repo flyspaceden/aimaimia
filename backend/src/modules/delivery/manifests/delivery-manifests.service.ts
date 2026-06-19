@@ -22,6 +22,7 @@ import {
   DeliveryManifestTemplateDefinition,
   findManifestDefinitionByDbType,
 } from './delivery-manifest.definitions';
+import { UpsertDeliveryManifestCustomizationDto } from './dto/manifest-target-customization.dto';
 import { buildSimplePdf, buildSpreadsheetXml } from './delivery-manifest.renderers';
 import { RegenerateDeliveryManifestDto } from './dto/regenerate-delivery-manifest.dto';
 
@@ -31,11 +32,27 @@ type OrderManifestViewer =
 
 type ManifestTemplateConfig = {
   columns: DeliveryManifestColumnDefinition[];
+  customizations: Partial<Record<'order' | 'subOrder', Record<string, ManifestTargetCustomization>>>;
 };
 
 type ManifestRenderedTable = {
   headers: string[];
   rows: string[][];
+};
+
+type ManifestTargetCustomizationEntry = {
+  key: string;
+  label: string;
+  value: string;
+  sortOrder: number;
+  visible: boolean;
+};
+
+type ManifestTargetCustomization = {
+  targetId: string;
+  entries: ManifestTargetCustomizationEntry[];
+  updatedAt?: string;
+  updatedByAdminId?: string;
 };
 
 @Injectable()
@@ -109,6 +126,26 @@ export class DeliveryManifestsService {
         };
       }),
     );
+  }
+
+  async getTargetCustomization(manifestType: DeliveryManifestApiType, targetId: string) {
+    const definition = DELIVERY_MANIFEST_TEMPLATES[manifestType];
+    if (!definition) {
+      throw new BadRequestException('不支持的配送清单模板类型');
+    }
+
+    const scope = this.resolveCustomizationScope(definition);
+    if (!scope) {
+      throw new BadRequestException('当前配送清单模板不支持逐单自定义列');
+    }
+
+    const template = await this.ensureTemplate(definition);
+    const config = this.normalizeTemplateConfig(definition, template.config);
+    return {
+      manifestType,
+      targetId,
+      entries: config.customizations[scope]?.[targetId]?.entries ?? [],
+    };
   }
 
   async regenerateTemplate(
@@ -199,6 +236,84 @@ export class DeliveryManifestsService {
     });
   }
 
+  async upsertTargetCustomization(
+    deliveryAdminUserId: string,
+    dto: UpsertDeliveryManifestCustomizationDto,
+  ) {
+    const definition = DELIVERY_MANIFEST_TEMPLATES[dto.manifestType];
+    if (!definition) {
+      throw new BadRequestException('不支持的配送清单模板类型');
+    }
+
+    const scope = this.resolveCustomizationScope(definition);
+    if (!scope) {
+      throw new BadRequestException('当前配送清单模板不支持逐单自定义列');
+    }
+
+    const template = await this.ensureTemplate(definition);
+    const version = await this.getPublishedVersion(template.id);
+    if (!version) {
+      throw new NotFoundException('配送清单模板版本不存在');
+    }
+
+    const currentConfig = this.normalizeTemplateConfig(definition, template.config);
+    const entries = this.normalizeCustomizationEntries(definition, dto.entries ?? []);
+    const nextCustomizations = {
+      ...currentConfig.customizations,
+      [scope]: {
+        ...(currentConfig.customizations[scope] ?? {}),
+        [dto.targetId]: {
+          targetId: dto.targetId,
+          entries,
+          updatedAt: new Date().toISOString(),
+          updatedByAdminId: deliveryAdminUserId,
+        },
+      },
+    };
+    const nextConfig: ManifestTemplateConfig = {
+      columns: currentConfig.columns,
+      customizations: nextCustomizations,
+    };
+    const serializedConfig = this.serializeTemplateConfig(nextConfig);
+
+    await this.deliveryPrisma.$transaction(async (tx) => {
+      await tx.deliveryManifestTemplate.update({
+        where: { id: template.id },
+        data: {
+          config: serializedConfig as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await tx.deliveryManifestVersion.updateMany({
+        where: { id: version.id },
+        data: {
+          config: serializedConfig as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await tx.deliveryManifest.updateMany({
+        where: {
+          type: definition.dbType,
+          status: DeliveryManifestStatus.GENERATED,
+          ...(scope === 'order' ? { orderId: dto.targetId } : { subOrderId: dto.targetId }),
+        },
+        data: {
+          status: DeliveryManifestStatus.PENDING,
+          fileUrl: null,
+          storageKey: null,
+          generatedAt: null,
+          failedAt: null,
+          failureReason: null,
+        },
+      });
+    });
+
+    return {
+      ok: true,
+      manifestType: dto.manifestType,
+      targetId: dto.targetId,
+      entries,
+    };
+  }
+
   async getSellerFulfillmentManifest(merchantId: string, subOrderId: string) {
     const definition = DELIVERY_MANIFEST_TEMPLATES.SELLER_FULFILLMENT;
     const context = await this.deliveryOrdersService.getSellerFulfillmentManifestContext(
@@ -252,14 +367,19 @@ export class DeliveryManifestsService {
       shippingFee: this.money(context.shippingFeeCents),
       totalAmount: this.money(context.totalAmountCents),
     }));
-
-    const renderedTable = this.buildRenderedTable(config, rows);
+    const customized = this.applyTargetCustomization(
+      definition,
+      config,
+      context.orderId,
+      rows,
+    );
+    const renderedTable = this.buildRenderedTable(customized.config, customized.rows);
 
     const payloadSnapshot = {
       versionNo: version.versionNo,
       generatedFor: { orderId: context.orderId, userId: context.userId },
-      columns: config.columns,
-      rows,
+      columns: customized.config.columns,
+      rows: customized.rows,
       renderedTable,
     };
     const uploaded = await this.uploadGeneratedBuffer(
@@ -318,14 +438,19 @@ export class DeliveryManifestsService {
       paidAt: this.formatDate(context.paidAt),
       note: context.note ?? '',
     }));
-
-    const renderedTable = this.buildRenderedTable(config, rows);
+    const customized = this.applyTargetCustomization(
+      definition,
+      config,
+      context.subOrderId,
+      rows,
+    );
+    const renderedTable = this.buildRenderedTable(customized.config, customized.rows);
 
     const payloadSnapshot = {
       versionNo: version.versionNo,
       generatedFor: { orderId: context.orderId, subOrderId: context.subOrderId, merchantId: context.merchantId },
-      columns: config.columns,
-      rows,
+      columns: customized.config.columns,
+      rows: customized.rows,
       renderedTable,
     };
     const uploaded = await this.uploadGeneratedBuffer(
@@ -404,10 +529,15 @@ export class DeliveryManifestsService {
     if (!version) {
       throw new NotFoundException('配送清单模板版本不存在');
     }
+    const templateConfig = this.normalizeTemplateConfig(definition, template.config);
+    const versionConfig = this.normalizeTemplateConfig(definition, version.config);
     return {
       template,
       version,
-      config: this.normalizeTemplateConfig(definition, version.config),
+      config: {
+        columns: versionConfig.columns,
+        customizations: templateConfig.customizations,
+      },
     };
   }
 
@@ -475,7 +605,200 @@ export class DeliveryManifestsService {
           };
         })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key)),
+      customizations: this.normalizeCustomizations(rawConfig),
     };
+  }
+
+  private normalizeCustomizations(
+    rawConfig: unknown,
+  ): ManifestTemplateConfig['customizations'] {
+    const rawCustomizations = (rawConfig as { customizations?: unknown } | null)?.customizations;
+    const normalized: ManifestTemplateConfig['customizations'] = {};
+
+    for (const scope of ['order', 'subOrder'] as const) {
+      const scopeValue =
+        rawCustomizations &&
+        typeof rawCustomizations === 'object' &&
+        !Array.isArray(rawCustomizations)
+          ? (rawCustomizations as Record<string, unknown>)[scope]
+          : undefined;
+      if (!scopeValue || typeof scopeValue !== 'object' || Array.isArray(scopeValue)) {
+        continue;
+      }
+
+      const entries = Object.entries(scopeValue).reduce<Record<string, ManifestTargetCustomization>>(
+        (map, [targetId, customization]) => {
+          if (!customization || typeof customization !== 'object' || Array.isArray(customization)) {
+            return map;
+          }
+
+          const rawEntries = Array.isArray((customization as { entries?: unknown[] }).entries)
+            ? ((customization as { entries: unknown[] }).entries ?? [])
+            : [];
+          map[targetId] = {
+            targetId,
+            entries: rawEntries
+              .filter((entry) => entry && typeof entry === 'object')
+              .map((entry, index) => ({
+                key: String((entry as Record<string, unknown>).key ?? ''),
+                label: String((entry as Record<string, unknown>).label ?? ''),
+                value: String((entry as Record<string, unknown>).value ?? ''),
+                sortOrder:
+                  typeof (entry as Record<string, unknown>).sortOrder === 'number'
+                    ? Number((entry as Record<string, unknown>).sortOrder)
+                    : 500 + index * 10,
+                visible: (entry as Record<string, unknown>).visible !== false,
+              }))
+              .filter((entry) => entry.key && entry.label),
+            updatedAt:
+              typeof (customization as Record<string, unknown>).updatedAt === 'string'
+                ? String((customization as Record<string, unknown>).updatedAt)
+                : undefined,
+            updatedByAdminId:
+              typeof (customization as Record<string, unknown>).updatedByAdminId === 'string'
+                ? String((customization as Record<string, unknown>).updatedByAdminId)
+                : undefined,
+          };
+          return map;
+        },
+        {},
+      );
+
+      if (Object.keys(entries).length > 0) {
+        normalized[scope] = entries;
+      }
+    }
+
+    return normalized;
+  }
+
+  private serializeTemplateConfig(config: ManifestTemplateConfig) {
+    return {
+      columns: config.columns,
+      ...(Object.keys(config.customizations).length > 0
+        ? { customizations: config.customizations }
+        : {}),
+    };
+  }
+
+  private applyTargetCustomization(
+    definition: DeliveryManifestTemplateDefinition,
+    config: ManifestTemplateConfig,
+    targetId: string,
+    rows: Array<Record<string, unknown>>,
+  ) {
+    const scope = this.resolveCustomizationScope(definition);
+    if (!scope) {
+      return { config, rows };
+    }
+
+    const customization = config.customizations[scope]?.[targetId];
+    if (!customization || customization.entries.length === 0) {
+      return { config, rows };
+    }
+
+    const customColumns = customization.entries.map<DeliveryManifestColumnDefinition>((entry) => ({
+      key: entry.key,
+      label: entry.label,
+      sortOrder: entry.sortOrder,
+      visible: entry.visible,
+      fixed: false,
+    }));
+    const mergedConfig: ManifestTemplateConfig = {
+      columns: [...config.columns, ...customColumns].sort(
+        (a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key),
+      ),
+      customizations: config.customizations,
+    };
+    const customValues = Object.fromEntries(
+      customization.entries.map((entry) => [entry.key, entry.value]),
+    );
+
+    return {
+      config: mergedConfig,
+      rows: rows.map((row) => ({
+        ...row,
+        ...customValues,
+      })),
+    };
+  }
+
+  private normalizeCustomizationEntries(
+    definition: DeliveryManifestTemplateDefinition,
+    entries: UpsertDeliveryManifestCustomizationDto['entries'],
+  ): ManifestTargetCustomizationEntry[] {
+    const normalizedKeys = new Set<string>();
+
+    return entries.map((entry, index) => {
+      const key = this.normalizeCustomFieldKey(entry.key ?? entry.label);
+      if (!key) {
+        throw new BadRequestException('自定义列 key 不能为空');
+      }
+      if (definition.columns.some((column) => column.key === key)) {
+        throw new BadRequestException(`自定义列 key 与系统列冲突: ${key}`);
+      }
+      if (normalizedKeys.has(key)) {
+        throw new BadRequestException(`自定义列 key 重复: ${key}`);
+      }
+
+      const label = entry.label.trim();
+      this.assertCustomFieldAllowed(definition, key, label);
+      normalizedKeys.add(key);
+
+      return {
+        key,
+        label,
+        value: entry.value.trim(),
+        sortOrder: typeof entry.sortOrder === 'number' ? entry.sortOrder : 500 + index * 10,
+        visible: entry.visible !== false,
+      };
+    });
+  }
+
+  private resolveCustomizationScope(definition: DeliveryManifestTemplateDefinition) {
+    if (definition.apiType === 'BUYER_FULL') {
+      return 'order' as const;
+    }
+    if (definition.apiType === 'SELLER_FULFILLMENT') {
+      return 'subOrder' as const;
+    }
+    return null;
+  }
+
+  private normalizeCustomFieldKey(input: string) {
+    return input
+      .trim()
+      .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 64);
+  }
+
+  private assertCustomFieldAllowed(
+    definition: DeliveryManifestTemplateDefinition,
+    key: string,
+    label: string,
+  ) {
+    if (definition.apiType !== 'SELLER_FULFILLMENT') {
+      return;
+    }
+
+    const normalized = `${key}${label}`.toLowerCase().replace(/[\s_-]+/g, '');
+    const blockedTerms = [
+      'price',
+      'cost',
+      'amount',
+      'fee',
+      'markup',
+      'shippingfee',
+      '加价',
+      '成本',
+      '售价',
+      '金额',
+      '运费',
+    ];
+    if (blockedTerms.some((term) => normalized.includes(term))) {
+      throw new BadRequestException('卖家配货清单禁止自定义金额相关字段');
+    }
   }
 
   private buildRenderedTable(

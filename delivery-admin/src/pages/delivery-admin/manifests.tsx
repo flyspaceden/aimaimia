@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App as AntdApp, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table } from 'antd';
+import { App as AntdApp, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
+  getDeliveryManifestCustomization,
   getDeliveryManifests,
   regenerateDeliveryManifest,
+  upsertDeliveryManifestCustomization,
 } from '@/api/delivery-management';
 import type {
   DeliveryManifestColumn,
+  DeliveryManifestCustomization,
+  DeliveryManifestCustomizationEntry,
   DeliveryManifestTemplate,
 } from '@/types/delivery-management';
 import { PageHeader, StatusPill } from './components';
@@ -25,6 +29,14 @@ export default function DeliveryManifestsPage() {
   const [editing, setEditing] = useState<DeliveryManifestTemplate | null>(null);
   const [open, setOpen] = useState(false);
   const [columns, setColumns] = useState<DeliveryManifestColumn[]>([]);
+  const [customTarget, setCustomTarget] = useState<{
+    manifestType: DeliveryManifestCustomization['manifestType'];
+    targetId: string;
+  }>({
+    manifestType: 'BUYER_FULL',
+    targetId: '',
+  });
+  const [customEntries, setCustomEntries] = useState<DeliveryManifestCustomizationEntry[]>([]);
   const [form] = Form.useForm<TemplateFormValues>();
 
   const query = useQuery({
@@ -62,6 +74,40 @@ export default function DeliveryManifestsPage() {
       message.success('模板已重新生成版本');
       setOpen(false);
       setEditing(null);
+      await queryClient.invalidateQueries({ queryKey: ['delivery-manifests'] });
+    },
+    onError: (error) => {
+      message.error(getErrorMessage(error));
+    },
+  });
+
+  const loadCustomizationMutation = useMutation({
+    mutationFn: async () =>
+      getDeliveryManifestCustomization(customTarget.manifestType, customTarget.targetId.trim()),
+    onSuccess: (data) => {
+      setCustomEntries(data.entries.map((entry) => ({ ...entry })));
+      message.success('已加载目标自定义列');
+    },
+    onError: (error) => {
+      message.error(getErrorMessage(error));
+    },
+  });
+
+  const saveCustomizationMutation = useMutation({
+    mutationFn: async () =>
+      upsertDeliveryManifestCustomization({
+        manifestType: customTarget.manifestType,
+        targetId: customTarget.targetId.trim(),
+        entries: customEntries.map((entry) => ({
+          key: entry.key,
+          label: entry.label,
+          value: entry.value,
+          sortOrder: entry.sortOrder,
+          visible: entry.visible,
+        })),
+      }),
+    onSuccess: async () => {
+      message.success('目标自定义列已保存');
       await queryClient.invalidateQueries({ queryKey: ['delivery-manifests'] });
     },
     onError: (error) => {
@@ -173,6 +219,135 @@ export default function DeliveryManifestsPage() {
     },
   ];
 
+  const customColumnsTable: ColumnsType<DeliveryManifestCustomizationEntry> = [
+    {
+      title: 'key',
+      dataIndex: 'key',
+      key: 'key',
+      width: 180,
+      render: (_, record, index) => (
+        <Input
+          value={record.key}
+          placeholder="custom_key"
+          onChange={(event) =>
+            setCustomEntries((prev) =>
+              prev.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, key: event.target.value } : item,
+              ),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '列名',
+      dataIndex: 'label',
+      key: 'label',
+      width: 180,
+      render: (_, record, index) => (
+        <Input
+          value={record.label}
+          onChange={(event) =>
+            setCustomEntries((prev) =>
+              prev.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, label: event.target.value } : item,
+              ),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '内容',
+      dataIndex: 'value',
+      key: 'value',
+      render: (_, record, index) => (
+        <Input
+          value={record.value}
+          onChange={(event) =>
+            setCustomEntries((prev) =>
+              prev.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, value: event.target.value } : item,
+              ),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '排序',
+      dataIndex: 'sortOrder',
+      key: 'sortOrder',
+      width: 110,
+      render: (_, record, index) => (
+        <InputNumber
+          min={0}
+          max={999}
+          precision={0}
+          value={record.sortOrder}
+          onChange={(value) =>
+            setCustomEntries((prev) =>
+              prev.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, sortOrder: value ?? item.sortOrder } : item,
+              ),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '显示',
+      dataIndex: 'visible',
+      key: 'visible',
+      width: 90,
+      render: (_, record, index) => (
+        <Switch
+          checked={record.visible}
+          onChange={(checked) =>
+            setCustomEntries((prev) =>
+              prev.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, visible: checked } : item,
+              ),
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 100,
+      render: (_, __, index) => (
+        <Button
+          danger
+          type="link"
+          size="small"
+          onClick={() =>
+            setCustomEntries((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+          }
+        >
+          删除
+        </Button>
+      ),
+    },
+  ];
+
+  const handleLoadCustomization = () => {
+    if (!customTarget.targetId.trim()) {
+      message.warning(customTarget.manifestType === 'BUYER_FULL' ? '请输入订单号' : '请输入子单号');
+      return;
+    }
+    loadCustomizationMutation.mutate();
+  };
+
+  const handleSaveCustomization = () => {
+    if (!customTarget.targetId.trim()) {
+      message.warning(customTarget.manifestType === 'BUYER_FULL' ? '请输入订单号' : '请输入子单号');
+      return;
+    }
+    saveCustomizationMutation.mutate();
+  };
+
   return (
     <div style={{ padding: 24 }}>
       <PageHeader title="配送清单模板" subtitle="维护模板列 label / sortOrder / visible，并通过重新生成发布新版本。" />
@@ -201,6 +376,85 @@ export default function DeliveryManifestsPage() {
               />
             ),
           }}
+        />
+      </Card>
+
+      <Card title="逐单自定义列" style={{ marginTop: 24 }}>
+        <Space align="start" style={{ width: '100%', marginBottom: 16 }} wrap>
+          <div style={{ minWidth: 180 }}>
+            <div style={{ marginBottom: 8 }}>清单类型</div>
+            <Select
+              value={customTarget.manifestType}
+              onChange={(value) =>
+                setCustomTarget((prev) => ({
+                  ...prev,
+                  manifestType: value as DeliveryManifestCustomization['manifestType'],
+                }))
+              }
+              style={{ width: '100%' }}
+              options={[
+                { value: 'BUYER_FULL', label: '买家整单 PDF' },
+                { value: 'SELLER_FULFILLMENT', label: '卖家配货 PDF' },
+              ]}
+            />
+          </div>
+          <div style={{ minWidth: 240, flex: 1 }}>
+            <div style={{ marginBottom: 8 }}>
+              {customTarget.manifestType === 'BUYER_FULL' ? '订单号' : '子单号'}
+            </div>
+            <Input
+              value={customTarget.targetId}
+              onChange={(event) =>
+                setCustomTarget((prev) => ({ ...prev, targetId: event.target.value }))
+              }
+              placeholder={
+                customTarget.manifestType === 'BUYER_FULL'
+                  ? 'PSDD...'
+                  : 'PSZDD...'
+              }
+            />
+          </div>
+          <Space style={{ paddingTop: 28 }}>
+            <Button
+              onClick={handleLoadCustomization}
+              loading={loadCustomizationMutation.isPending}
+            >
+              加载
+            </Button>
+            <Button
+              type="primary"
+              onClick={handleSaveCustomization}
+              loading={saveCustomizationMutation.isPending}
+            >
+              保存
+            </Button>
+            <Button
+              onClick={() =>
+                setCustomEntries((prev) => [
+                  ...prev,
+                  {
+                    key: '',
+                    label: '',
+                    value: '',
+                    sortOrder: 500 + prev.length * 10,
+                    visible: true,
+                  },
+                ])
+              }
+            >
+              新增列
+            </Button>
+          </Space>
+        </Space>
+
+        <Table<DeliveryManifestCustomizationEntry>
+          rowKey={(record, index) => `${record.key || 'custom'}-${index}`}
+          size="small"
+          pagination={false}
+          columns={customColumnsTable}
+          dataSource={customEntries}
+          scroll={{ x: 960 }}
+          locale={{ emptyText: '暂无逐单自定义列' }}
         />
       </Card>
 

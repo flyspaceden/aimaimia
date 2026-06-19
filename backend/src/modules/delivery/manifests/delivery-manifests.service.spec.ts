@@ -138,6 +138,7 @@ describe('DeliveryManifestsService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
 
@@ -601,6 +602,110 @@ describe('DeliveryManifestsService', () => {
         }),
       ]),
     );
+  });
+
+  it('supports per-order custom columns and values so buyer manifests can be regenerated with extra fields', async () => {
+    const template = {
+      id: 'tmpl_buyer_full',
+      type: 'USER_FULL',
+      name: 'Buyer Full',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_buyer_full_v2',
+      templateId: 'tmpl_buyer_full',
+      versionNo: 2,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockImplementation(async () => template);
+    deliveryPrisma.deliveryManifestTemplate.update.mockImplementation(({ data }: any) => {
+      Object.assign(template, data);
+      return template;
+    });
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue(null);
+    deliveryPrisma.deliveryManifest.updateMany.mockResolvedValue({ count: 0 });
+    deliveryPrisma.deliveryManifest.create.mockImplementation(({ data }: any) => data);
+
+    await service.upsertTargetCustomization('admin_1', {
+      manifestType: 'BUYER_FULL',
+      targetId: 'PSDD0000000000001',
+      entries: [
+        {
+          key: 'pickupCode',
+          label: '取货码',
+          value: 'A-17',
+          sortOrder: 17,
+          visible: true,
+        },
+      ],
+    });
+
+    const manifest = await service.getOrderManifest({
+      orderId: 'PSDD0000000000001',
+      viewer: { kind: 'admin', deliveryAdminUserId: 'admin_1' },
+    });
+
+    expect(manifest.payloadSnapshot.columns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'pickupCode',
+          label: '取货码',
+          visible: true,
+        }),
+      ]),
+    );
+    expect(manifest.payloadSnapshot.rows[0]).toEqual(
+      expect.objectContaining({
+        pickupCode: 'A-17',
+      }),
+    );
+    expect(manifest.payloadSnapshot.renderedTable.headers).toContain('取货码');
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).toContain('A-17');
+  });
+
+  it('rejects seller fulfillment custom columns whose keys or labels reveal sensitive money fields', async () => {
+    const template = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: 'Seller Fulfillment',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_seller_fulfillment_v2',
+      templateId: 'tmpl_seller_fulfillment',
+      versionNo: 2,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+
+    await expect(
+      service.upsertTargetCustomization('admin_1', {
+        manifestType: 'SELLER_FULFILLMENT',
+        targetId: 'PSZDD000000000001',
+        entries: [
+          {
+            key: 'shippingFee',
+            label: '运费金额',
+            value: '5.00',
+            visible: true,
+          },
+        ],
+      }),
+    ).rejects.toThrow('卖家配货清单禁止自定义金额相关字段');
   });
 
   it('creates v2 and v3 manifests without deleting historical objects when a newer template version is published', async () => {

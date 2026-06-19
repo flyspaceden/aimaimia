@@ -4,6 +4,8 @@ import type {
   DeliveryAuditLog,
   DeliveryConfigItem,
   DeliveryConversation,
+  DeliveryManifestCustomization,
+  DeliveryManifestCustomizationEntry,
   DeliveryManifestTemplate,
   DeliveryMerchantApplicationDetail,
   DeliveryMerchantApplicationSummary,
@@ -193,6 +195,23 @@ export const regenerateDeliveryManifest = (
   status: string;
   config: JsonValue;
 }> => client.post(`/delivery-admin/manifests/${id}/regenerate`, payload);
+
+export const getDeliveryManifestCustomization = (
+  manifestType: DeliveryManifestCustomization['manifestType'],
+  targetId: string,
+): Promise<DeliveryManifestCustomization> =>
+  client.get(withQuery('/delivery-admin/manifests/customization', { manifestType, targetId }));
+
+export const upsertDeliveryManifestCustomization = (payload: {
+  manifestType: DeliveryManifestCustomization['manifestType'];
+  targetId: string;
+  entries: DeliveryManifestCustomizationEntry[];
+}): Promise<{
+  ok: boolean;
+  manifestType: DeliveryManifestCustomization['manifestType'];
+  targetId: string;
+  entries: DeliveryManifestCustomizationEntry[];
+}> => client.post('/delivery-admin/manifests/customization', payload);
 
 export const getDeliverySettlements = (
   params?: PaginationParams & { status?: string },

@@ -347,6 +347,20 @@ export type DeliveryManifestColumn = {
   fixed?: boolean;
 };
 
+export type DeliveryManifestCustomizationEntry = {
+  key: string;
+  label: string;
+  value: string;
+  sortOrder: number;
+  visible: boolean;
+};
+
+export type DeliveryManifestCustomization = {
+  manifestType: 'BUYER_FULL' | 'SELLER_FULFILLMENT';
+  targetId: string;
+  entries: DeliveryManifestCustomizationEntry[];
+};
+
 export type DeliveryManifestTemplate = {
   id: string;
   type: string;
