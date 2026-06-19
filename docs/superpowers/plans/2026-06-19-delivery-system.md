@@ -150,6 +150,9 @@ Add v1 enums and models in the same file. Start with only fields needed by this 
 - `DeliveryProduct`
 - `DeliveryProductSku`
 - `DeliveryPriceRule`
+- `DeliveryShippingRule`
+- `DeliveryShippingCost`
+- `DeliveryUnitFieldConfig`
 - `DeliveryInventoryLedger`
 - `DeliveryCartItem`
 - `DeliveryCheckoutSession`
@@ -166,7 +169,7 @@ Add v1 enums and models in the same file. Start with only fields needed by this 
 - `DeliveryConfig`
 - `DeliveryAuditLog`
 
-Use integer cents for all money fields. Use `String @id` for business IDs such as `PSDD...` where the spec requires readable delivery IDs.
+Use integer cents for all money fields. Use `String @id` for core delivery business tables that use readable IDs such as `PSDD...`; these IDs are internal delivery database IDs or business primary keys, not a second display-only number.
 
 - [ ] **Step 2: Add Prisma scripts**
 
@@ -435,9 +438,14 @@ git commit -m "feat(delivery): add isolated auth guards"
 - Create: `backend/src/modules/delivery/buyer/delivery-buyer-auth.controller.ts`
 - Create: `backend/src/modules/delivery/buyer/delivery-buyer-auth.service.ts`
 - Create: `backend/src/modules/delivery/buyer/dto/*.ts`
+- Create: `backend/src/modules/delivery/seller-applications/delivery-seller-application.controller.ts`
+- Create: `backend/src/modules/delivery/seller-applications/delivery-seller-application.service.ts`
+- Create: `backend/src/modules/delivery/seller-applications/dto/*.ts`
 - Create: `backend/src/modules/delivery/units/delivery-units.controller.ts`
 - Create: `backend/src/modules/delivery/units/delivery-units.service.ts`
 - Create: `backend/src/modules/delivery/units/dto/*.ts`
+- Create: `backend/src/modules/delivery/admin/unit-field-config.controller.ts`
+- Create: `backend/src/modules/delivery/admin/unit-field-config.service.ts`
 - Modify: `backend/src/modules/delivery/delivery.module.ts`
 
 - [ ] **Step 1: Write failing service tests**
@@ -446,9 +454,11 @@ Cover:
 
 - Phone OTP login creates or finds `DeliveryUser`.
 - WeChat login creates or finds independent `DeliveryAuthIdentity`.
+- Delivery center public application endpoint creates `DeliveryMerchantApplication` without requiring seller login.
 - User with no unit gets `requiresUnit=true`.
 - Creating first unit allows entering delivery mall.
 - Switching unit only permits units owned by the current delivery user.
+- Admin-configured delivery unit fields support label, sort order, visibility, required flag, and PDF/Excel inclusion.
 
 - [ ] **Step 2: Run tests**
 
@@ -466,14 +476,19 @@ Routes:
 ```text
 POST /api/v1/delivery/auth/phone-login
 POST /api/v1/delivery/auth/wechat-login
+POST /api/v1/delivery-seller/merchant-applications
 GET  /api/v1/delivery/me
 GET  /api/v1/delivery/units
 POST /api/v1/delivery/units
 PATCH /api/v1/delivery/units/:id
 POST /api/v1/delivery/units/:id/select
+GET  /api/v1/delivery-admin/unit-field-config
+PATCH /api/v1/delivery-admin/unit-field-config
 ```
 
-Use delivery database only. Reuse SMS sending infrastructure but store OTP/session/rate-limit records in delivery tables or delivery-scoped tables.
+Use delivery database only. Reuse SMS sending infrastructure but store OTP/session/rate-limit records in delivery tables or delivery-scoped tables. The public delivery center application endpoint powers the `申请入驻` button on the delivery center login page; review and approval are handled under `/api/v1/delivery-admin/merchant-applications`.
+
+Keep fixed fulfillment fields protected: unit name, contact name, contact phone, province/city/district, and detailed address cannot be fully removed because they are required for checkout, shipping, PDF, Excel, and customer service.
 
 - [ ] **Step 4: Run tests and build**
 
@@ -614,7 +629,7 @@ POST   /api/v1/delivery/checkout
 GET    /api/v1/delivery/checkout/:id
 ```
 
-Copy current cart/checkout validation patterns. Use delivery pricing engine for final buyer price and existing shipping rule logic copied into delivery DB tables.
+Copy current cart/checkout validation patterns. Use delivery pricing engine for final buyer price. Shipping fee calculation must use delivery-owned `DeliveryShippingRule` rows copied into the delivery database; do not read the main database shipping-rule tables during delivery checkout.
 
 - [ ] **Step 4: Run tests and build**
 
@@ -826,6 +841,7 @@ Admin routes:
 /api/v1/delivery-admin/users
 /api/v1/delivery-admin/units
 /api/v1/delivery-admin/merchants
+/api/v1/delivery-admin/merchant-applications
 /api/v1/delivery-admin/orders
 /api/v1/delivery-admin/payments/abnormal
 /api/v1/delivery-admin/settlements
@@ -980,6 +996,7 @@ git commit -m "feat(app): add delivery shopping module"
 
 **Files:**
 - Create: `delivery-admin/**`
+- Modify: `admin/src/pages/login/index.tsx`
 - Modify: `.github/workflows/deploy-website.yml`
 
 - [ ] **Step 1: Copy admin package**
@@ -997,6 +1014,8 @@ Update:
 - theme to light blue
 - login page switch button to `切换爱买买管理后台`
 
+Also modify the existing 爱买买管理后台 login page `admin/src/pages/login/index.tsx` to add `切换配送管理后台`, linking to `https://delivery-admin.ai-maimai.com` in production and the test delivery-admin domain in staging/local configuration.
+
 - [ ] **Step 3: Prune unavailable modules**
 
 Remove routes and menus for:
@@ -1012,17 +1031,16 @@ Remove routes and menus for:
 - [ ] **Step 4: Run build**
 
 ```bash
-cd delivery-admin
-npm install
-npm run build
+cd admin && npm run build
+cd ../delivery-admin && npm install && npm run build
 ```
 
-Expected: build passes.
+Expected: both builds pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add delivery-admin .github/workflows/deploy-website.yml
+git add delivery-admin admin/src/pages/login/index.tsx .github/workflows/deploy-website.yml
 git commit -m "feat(delivery-admin): add admin shell"
 ```
 
@@ -1083,6 +1101,7 @@ git commit -m "feat(delivery-admin): add delivery management pages"
 
 **Files:**
 - Create: `delivery-seller/**`
+- Modify: `seller/src/pages/login/index.tsx`
 - Modify: `.github/workflows/deploy-website.yml`
 
 - [ ] **Step 1: Copy seller package**
@@ -1101,6 +1120,8 @@ Update:
 - login page switch button to `切换爱买买卖家中心`
 - login page application button to `申请入驻`
 
+Also modify the existing 爱买买卖家中心 login page `seller/src/pages/login/index.tsx` to add `切换配送中心`, linking to `https://delivery-seller.ai-maimai.com` in production and the test delivery-seller domain in staging/local configuration.
+
 - [ ] **Step 3: Prune unavailable modules**
 
 Remove routes and menus for:
@@ -1113,17 +1134,16 @@ Remove routes and menus for:
 - [ ] **Step 4: Run build**
 
 ```bash
-cd delivery-seller
-npm install
-npm run build
+cd seller && npm run build
+cd ../delivery-seller && npm install && npm run build
 ```
 
-Expected: build passes.
+Expected: both builds pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add delivery-seller .github/workflows/deploy-website.yml
+git add delivery-seller seller/src/pages/login/index.tsx .github/workflows/deploy-website.yml
 git commit -m "feat(delivery-seller): add delivery center shell"
 ```
 
