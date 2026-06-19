@@ -375,7 +375,7 @@ function ImageUploadSection({
     <>
       <Upload
         name="file"
-        action={`${API_BASE}/upload?folder=products`}
+        action={`${API_BASE}/delivery-seller/upload`}
         headers={{ Authorization: `Bearer ${token || ''}` }}
         listType="picture-card"
         fileList={fileList}

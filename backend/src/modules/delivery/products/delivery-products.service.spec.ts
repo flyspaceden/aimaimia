@@ -136,6 +136,26 @@ describe('DeliveryProductsService', () => {
     expect(result.items[0].skus[0]).not.toHaveProperty('marginCents');
   });
 
+  it('ignores query merchantId when listing seller-owned products', async () => {
+    deliveryPrisma.deliveryProduct.count.mockResolvedValue(0);
+    deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([]);
+
+    await service.listSellerProducts('merchant_1', { merchantId: 'merchant_2' });
+
+    expect(deliveryPrisma.deliveryProduct.count).toHaveBeenCalledWith({
+      where: {
+        merchantId: 'merchant_1',
+      },
+    });
+    expect(deliveryPrisma.deliveryProduct.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          merchantId: 'merchant_1',
+        },
+      }),
+    );
+  });
+
   it('loads a seller-owned product by id with only seller-visible fields', async () => {
     deliveryPrisma.deliveryProduct.findFirst = jest.fn().mockResolvedValue({
       id: 'PSSP0000000000001',

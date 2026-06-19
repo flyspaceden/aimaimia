@@ -54,6 +54,9 @@ import { DeliveryAdminOpsService } from './admin/delivery-admin-ops.service';
 import { DeliveryAdminOpsController } from './admin/delivery-admin-ops.controller';
 import { DeliverySellerOpsService } from './seller/delivery-seller-ops.service';
 import { DeliverySellerOpsController } from './seller/delivery-seller-ops.controller';
+import { DeliverySellerPublicController } from './seller/delivery-seller-public.controller';
+import { DeliverySellerPublicService } from './seller/delivery-seller-public.service';
+import { DeliverySellerUploadController } from './seller/delivery-seller-upload.controller';
 import { DeliverySellerAuthController } from './seller-auth/delivery-seller-auth.controller';
 import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.service';
 
@@ -102,6 +105,8 @@ import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.se
     DeliveryAdminStatsController,
     DeliveryAdminOpsController,
     DeliverySellerOpsController,
+    DeliverySellerPublicController,
+    DeliverySellerUploadController,
   ],
   providers: [
     DeliverySellerAuthService,
@@ -127,6 +132,7 @@ import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.se
     DeliveryStatsService,
     DeliveryAdminOpsService,
     DeliverySellerOpsService,
+    DeliverySellerPublicService,
   ],
   exports: [
     DeliveryIdService,

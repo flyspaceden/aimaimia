@@ -9,7 +9,7 @@ export interface CategoryNode {
   level: number;
 }
 export const getCategories = (): Promise<CategoryNode[]> =>
-  client.get('/products/categories');
+  client.get('/delivery-seller/categories');
 
 export const getProducts = (params?: QueryParams): Promise<PaginatedData<Product>> =>
   client.get('/delivery-seller/products', { params });

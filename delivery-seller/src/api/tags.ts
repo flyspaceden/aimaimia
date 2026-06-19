@@ -16,7 +16,7 @@ export interface CompanyTagGroup {
 }
 
 export const getTagCategories = (scope?: string): Promise<TagCategory[]> =>
-  client.get('/companies/tag-categories', { params: scope ? { scope } : undefined });
+  client.get('/delivery-seller/tag-categories', { params: scope ? { scope } : undefined });
 
 export const getCompanyTags = (): Promise<CompanyTagGroup[]> =>
   client.get('/delivery-seller/company/tags');

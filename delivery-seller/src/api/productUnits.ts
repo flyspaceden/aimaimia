@@ -10,8 +10,8 @@ export interface ProductUnit {
 /**
  * 获取启用中的商品计量单位列表（已按 sortOrder 排序）。
  *
- * 后端公开接口 `GET /api/v1/product-units`，返回 `{ ok:true, data:[...] }`，
+ * 后端公开接口 `GET /api/v1/delivery-seller/product-units`，返回 `{ ok:true, data:[...] }`，
  * 由 `client` 响应拦截器自动解包为 data 数组。携带 seller JWT 即可访问。
  */
 export const getProductUnits = (): Promise<ProductUnit[]> =>
-  client.get('/product-units');
+  client.get('/delivery-seller/product-units');
