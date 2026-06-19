@@ -40,6 +40,12 @@ type DeliveryMerchantPricingGroup = {
   totalAmountCents?: number;
 };
 
+export class DeliveryProviderTxnConflictException extends ConflictException {
+  constructor() {
+    super('配送结算会话已绑定其他支付流水');
+  }
+}
+
 @Injectable()
 export class DeliveryOrdersService {
   private readonly logger = new Logger(DeliveryOrdersService.name);
@@ -359,7 +365,7 @@ export class DeliveryOrdersService {
     incomingProviderTxnId: string,
   ) {
     if (existingProviderTxnId && existingProviderTxnId !== incomingProviderTxnId) {
-      throw new ConflictException('配送结算会话已绑定其他支付流水');
+      throw new DeliveryProviderTxnConflictException();
     }
   }
 

@@ -1,7 +1,10 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
-import { DeliveryOrdersService } from '../orders/delivery-orders.service';
+import {
+  DeliveryOrdersService,
+  DeliveryProviderTxnConflictException,
+} from '../orders/delivery-orders.service';
 import { DeliveryPaymentsService } from './delivery-payments.service';
 
 describe('DeliveryPaymentsService', () => {
@@ -260,6 +263,43 @@ describe('DeliveryPaymentsService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(deliveryOrdersService.createOrderFromPaidCheckout).not.toHaveBeenCalled();
+    expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
+    expect(tx.deliveryCheckoutSession.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a repeated success callback with a different providerTxnId without recording an abnormal payment', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      status: 'PAID',
+    });
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
+    });
+    deliveryOrdersService.createOrderFromPaidCheckout.mockRejectedValue(
+      new DeliveryProviderTxnConflictException(),
+    );
+
+    await expect(
+      service.handlePaymentCallback({
+        merchantOrderNo: 'PSZF0000000000001',
+        providerTxnId: 'ALI_TXN_2',
+        status: 'SUCCESS',
+        paymentChannel: 'ALIPAY',
+        claimedAmountCents: 4900,
+        rawPayload: { total_amount: '49.00' },
+        skipSignatureVerification: true,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
     expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
     expect(tx.deliveryCheckoutSession.updateMany).not.toHaveBeenCalled();
   });

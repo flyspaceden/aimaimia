@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
-import { DeliveryOrdersService } from '../orders/delivery-orders.service';
+import {
+  DeliveryOrdersService,
+  DeliveryProviderTxnConflictException,
+} from '../orders/delivery-orders.service';
 import {
   DeliveryCallbackChannel,
   extractDeliveryClaimedAmountCents,
@@ -94,6 +97,9 @@ export class DeliveryPaymentsService {
           manifest: result.manifest,
         };
       } catch (error) {
+        if (error instanceof DeliveryProviderTxnConflictException) {
+          throw error;
+        }
         await this.recordAbnormalPayment({
           merchantOrderNo: body.merchantOrderNo,
           providerTxnId: body.providerTxnId,
@@ -320,7 +326,7 @@ export class DeliveryPaymentsService {
     incomingProviderTxnId: string,
   ) {
     if (existingProviderTxnId && existingProviderTxnId !== incomingProviderTxnId) {
-      throw new ConflictException('配送结算会话已绑定其他支付流水');
+      throw new DeliveryProviderTxnConflictException();
     }
   }
 }
