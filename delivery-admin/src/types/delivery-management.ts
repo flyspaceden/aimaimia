@@ -210,9 +210,9 @@ export type DeliveryOrderSubOrderSummary = {
   id: string;
   merchantId: string;
   status: string;
+  supplyAmountCents: number;
+  shippingFeeShareCents: number;
   totalAmountCents: number;
-  supplyAmountCents?: number;
-  shippingFeeShareCents?: number;
   deliveredAt?: string | null;
   completedAt?: string | null;
 };

@@ -47,7 +47,7 @@ export default function DeliveryOrdersPage() {
     {
       title: '金额拆分',
       key: 'money',
-      width: 220,
+      width: 260,
       render: (_, record) => {
         const summary = getOrderAmountSummary(record);
         return <MoneyBreakdown {...summary} />;
@@ -86,7 +86,7 @@ export default function DeliveryOrdersPage() {
     <div style={{ padding: 24 }}>
       <PageHeader
         title="配送订单"
-        subtitle="订单列表中明确区分买家金额、商家供货/应结和平台差额。"
+        subtitle="订单列表中明确区分买家金额、商家供货、商家应结和平台差额。"
         extra={(
           <Select
             allowClear

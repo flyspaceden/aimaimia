@@ -9,6 +9,7 @@ import {
   DashboardOutlined,
   DollarOutlined,
   LogoutOutlined,
+  BarChartOutlined,
   SafetyOutlined,
   SettingOutlined,
   ShopOutlined,
@@ -25,10 +26,10 @@ const menuRoutes: ProLayoutProps['route'] = {
   path: '/',
   routes: [
     { path: '/', name: '工作台', icon: <DashboardOutlined /> },
+    { path: '/stats', name: '数据看板', icon: <BarChartOutlined /> },
     { path: '/users', name: '配送用户', icon: <UserOutlined /> },
     { path: '/units', name: '配送单位', icon: <SolutionOutlined /> },
     {
-      path: '/merchant-center',
       name: '商家管理',
       icon: <ShopOutlined />,
       routes: [
@@ -37,7 +38,6 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
     },
     {
-      path: '/goods-center',
       name: '商品与定价',
       icon: <ShoppingCartOutlined />,
       routes: [
@@ -46,7 +46,6 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
     },
     {
-      path: '/trade-center',
       name: '订单与履约',
       icon: <TruckOutlined />,
       routes: [

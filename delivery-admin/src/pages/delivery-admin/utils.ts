@@ -93,64 +93,111 @@ export function sumNumbers(values: Array<number | null | undefined>) {
   return values.reduce<number>((total, value) => total + (value ?? 0), 0);
 }
 
+function hasMoney(value?: number | null) {
+  return value !== null && value !== undefined && !Number.isNaN(value);
+}
+
+export function calcSubOrderBuyerAmount(subOrder?: {
+  totalAmountCents?: number | null;
+}) {
+  const totalAmountCents = subOrder?.totalAmountCents;
+  if (!hasMoney(totalAmountCents)) {
+    return null;
+  }
+  return totalAmountCents;
+}
+
+export function calcSubOrderSupplyAmount(subOrder?: {
+  supplyAmountCents?: number | null;
+}) {
+  const supplyAmountCents = subOrder?.supplyAmountCents;
+  if (!hasMoney(supplyAmountCents)) {
+    return null;
+  }
+  return supplyAmountCents;
+}
+
 export function calcSubOrderSettlementAmount(subOrder?: {
   supplyAmountCents?: number | null;
   shippingFeeShareCents?: number | null;
 }) {
-  if (subOrder?.supplyAmountCents === null || subOrder?.supplyAmountCents === undefined) {
+  const supplyAmountCents = subOrder?.supplyAmountCents;
+  const shippingFeeShareCents = subOrder?.shippingFeeShareCents;
+  if (supplyAmountCents === null || supplyAmountCents === undefined) {
     return null;
   }
-  return subOrder.supplyAmountCents + (subOrder.shippingFeeShareCents ?? 0);
+  if (shippingFeeShareCents === null || shippingFeeShareCents === undefined) {
+    return null;
+  }
+  return supplyAmountCents + shippingFeeShareCents;
 }
 
 export function calcSubOrderPlatformDiff(subOrder?: {
   totalAmountCents?: number | null;
   supplyAmountCents?: number | null;
+  shippingFeeShareCents?: number | null;
 }) {
-  if (subOrder?.totalAmountCents === null || subOrder?.totalAmountCents === undefined) {
+  const totalAmountCents = subOrder?.totalAmountCents;
+  if (totalAmountCents === null || totalAmountCents === undefined) {
     return null;
   }
-  if (subOrder?.supplyAmountCents === null || subOrder?.supplyAmountCents === undefined) {
+  const settlementAmountCents = calcSubOrderSettlementAmount(subOrder);
+  if (settlementAmountCents === null) {
     return null;
   }
-  return subOrder.totalAmountCents - subOrder.supplyAmountCents;
+  return totalAmountCents - settlementAmountCents;
+}
+
+export function calcOrderSupplyAmount(order: Pick<DeliveryOrderDetail, 'subOrders'>) {
+  if (!order.subOrders.length) {
+    return null;
+  }
+  if (order.subOrders.some((item) => !hasMoney(item.supplyAmountCents))) {
+    return null;
+  }
+  return sumNumbers(order.subOrders.map((item) => item.supplyAmountCents ?? 0));
 }
 
 export function calcOrderSettlementAmount(order: Pick<DeliveryOrderDetail, 'subOrders'>) {
   if (!order.subOrders.length) {
     return null;
   }
-  if (order.subOrders.some((item) => item.supplyAmountCents === null || item.supplyAmountCents === undefined)) {
+  if (order.subOrders.some((item) => !hasMoney(item.supplyAmountCents) || !hasMoney(item.shippingFeeShareCents))) {
     return null;
   }
-  return sumNumbers(
-    order.subOrders.map((item) => (item.supplyAmountCents ?? 0) + (item.shippingFeeShareCents ?? 0)),
-  );
+  return sumNumbers(order.subOrders.map((item) => (item.supplyAmountCents ?? 0) + (item.shippingFeeShareCents ?? 0)));
 }
 
 export function calcOrderPlatformDiff(order: Pick<DeliveryOrderDetail, 'subOrders' | 'totalAmountCents'>) {
-  if (order.totalAmountCents === null || order.totalAmountCents === undefined) {
+  if (!hasMoney(order.totalAmountCents)) {
     return null;
   }
-  if (!order.subOrders.length) {
+  const settlementAmountCents = calcOrderSettlementAmount(order);
+  if (settlementAmountCents === null) {
     return null;
   }
-  if (order.subOrders.some((item) => item.supplyAmountCents === null || item.supplyAmountCents === undefined)) {
-    return null;
-  }
-  return order.totalAmountCents - sumNumbers(order.subOrders.map((item) => item.supplyAmountCents ?? 0));
+  return order.totalAmountCents - settlementAmountCents;
 }
 
 export function getOrderAmountSummary(order: {
   totalAmountCents?: number | null;
   subOrders: DeliveryOrderSubOrderSummary[];
 }) {
-  const sellerKnown = order.subOrders.length > 0 && order.subOrders.every((item) => item.supplyAmountCents !== undefined);
-  const sellerAmountCents = sellerKnown ? sumNumbers(order.subOrders.map((item) => item.supplyAmountCents ?? 0)) : null;
+  const supplyAmountCents = order.subOrders.length > 0
+    && order.subOrders.every((item) => hasMoney(item.supplyAmountCents))
+    ? sumNumbers(order.subOrders.map((item) => item.supplyAmountCents ?? 0))
+    : null;
+  const settlementAmountCents = order.subOrders.length > 0
+    && order.subOrders.every((item) => hasMoney(item.supplyAmountCents) && hasMoney(item.shippingFeeShareCents))
+    ? sumNumbers(order.subOrders.map((item) => (item.supplyAmountCents ?? 0) + (item.shippingFeeShareCents ?? 0)))
+    : null;
   return {
     buyerAmountCents: order.totalAmountCents ?? null,
-    sellerAmountCents,
-    marginAmountCents: calcMargin(order.totalAmountCents ?? null, sellerAmountCents),
+    supplyAmountCents,
+    settlementAmountCents,
+    platformDiffAmountCents: settlementAmountCents === null
+      ? null
+      : calcMargin(order.totalAmountCents ?? null, settlementAmountCents),
   };
 }
 

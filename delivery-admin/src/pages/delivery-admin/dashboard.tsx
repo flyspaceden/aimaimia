@@ -162,7 +162,7 @@ export default function DeliveryDashboardPage() {
         <Col xs={24} xl={8}>
           <Card
             title="异常支付"
-            extra={<Link to="/payments/abnormal">查看全部</Link>}
+            extra={<Link to="/abnormal-payments">查看全部</Link>}
           >
             <Table<DeliveryAbnormalPayment>
               size="small"

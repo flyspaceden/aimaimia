@@ -19,6 +19,8 @@ import {
 import {
   calcOrderPlatformDiff,
   calcOrderSettlementAmount,
+  calcOrderSupplyAmount,
+  calcSubOrderBuyerAmount,
   calcSubOrderPlatformDiff,
   calcSubOrderSettlementAmount,
   formatDateTime,
@@ -55,15 +57,21 @@ export default function DeliveryOrderDetailPage() {
     },
     {
       title: '买家金额',
-      dataIndex: 'totalAmountCents',
       key: 'totalAmountCents',
       width: 110,
+      render: (_, record) => formatMoney(calcSubOrderBuyerAmount(record)),
+    },
+    {
+      title: '商家供货',
+      dataIndex: 'supplyAmountCents',
+      key: 'supplyAmountCents',
+      width: 130,
       render: (value: number) => formatMoney(value),
     },
     {
-      title: '商家供货/应结',
-      key: 'seller',
-      width: 130,
+      title: '商家应结',
+      key: 'settlementAmountCents',
+      width: 110,
       render: (_, record) => formatMoney(calcSubOrderSettlementAmount(record)),
     },
     {
@@ -101,7 +109,7 @@ export default function DeliveryOrderDetailPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <PageHeader title="订单详情" subtitle="订单层与子订单层都展示买家金额、商家应结和平台差额边界。" />
+      <PageHeader title="订单详情" subtitle="订单层与子订单层都展示买家金额、商家供货、商家应结和平台差额边界。" />
 
       <Card loading={query.isLoading}>
         {data ? (
@@ -111,7 +119,18 @@ export default function DeliveryOrderDetailPage() {
               { key: 'status', label: '订单状态', children: <StatusPill value={data.status} /> },
               { key: 'buyer', label: '买家', children: data.user?.nickname || data.user?.phone || data.userId },
               { key: 'unit', label: '单位', children: data.unit?.name || data.unitId },
-              { key: 'money', label: '金额拆分', children: <MoneyBreakdown buyerAmountCents={data.totalAmountCents} sellerAmountCents={calcOrderSettlementAmount(data)} marginAmountCents={calcOrderPlatformDiff(data)} /> },
+              {
+                key: 'money',
+                label: '金额拆分',
+                children: (
+                  <MoneyBreakdown
+                    buyerAmountCents={data.totalAmountCents}
+                    supplyAmountCents={calcOrderSupplyAmount(data)}
+                    settlementAmountCents={calcOrderSettlementAmount(data)}
+                    platformDiffAmountCents={calcOrderPlatformDiff(data)}
+                  />
+                ),
+              },
               { key: 'goodsAmountCents', label: '货款', children: formatMoney(data.goodsAmountCents) },
               { key: 'shippingFeeCents', label: '运费', children: formatMoney(data.shippingFeeCents) },
               { key: 'paidAt', label: '支付时间', children: formatDateTime(data.paidAt) },

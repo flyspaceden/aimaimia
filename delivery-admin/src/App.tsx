@@ -6,6 +6,7 @@ import useAuthStore from '@/store/useAuthStore';
 
 const LoginPage = lazy(() => import('@/pages/login/index'));
 const DashboardPage = lazy(() => import('@/pages/delivery-admin/dashboard'));
+const StatsPage = lazy(() => import('@/pages/delivery-admin/stats'));
 const UsersPage = lazy(() => import('@/pages/delivery-admin/users'));
 const UserDetailPage = lazy(() => import('@/pages/delivery-admin/user-detail'));
 const UnitsPage = lazy(() => import('@/pages/delivery-admin/units'));
@@ -72,6 +73,7 @@ export default function App() {
             )}
           >
             <Route index element={<DashboardPage />} />
+            <Route path="stats" element={<StatsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
             <Route path="units" element={<UnitsPage />} />

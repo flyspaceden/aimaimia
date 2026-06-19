@@ -33,7 +33,7 @@
 
 - [x] **配送管理后台运营页（Task 15）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 15 brief
-  - **实际做了**: 新增 `delivery-admin/src/api/delivery-management.ts` 和 `src/types/delivery-management.ts`，把活跃路由全部收口到 `src/pages/delivery-admin/**`；补齐工作台、用户、单位、商家、入驻审核、商品审核、定价规则、订单详情、发货记录、异常支付、清单模板、结算、客服、审计、配置中心页面；`App.tsx` 与 `AdminLayout.tsx` 只保留配送运营入口；订单/结算页面固定分栏展示 `买家金额 / 商家供货或应结 / 平台差额`
+  - **实际做了**: 新增 `delivery-admin/src/api/delivery-management.ts` 和 `src/types/delivery-management.ts`，把活跃路由全部收口到 `src/pages/delivery-admin/**`；补齐工作台、数据看板、用户、单位、商家、入驻审核、商品审核、定价规则、订单详情、发货记录、异常支付、清单模板、结算、客服、审计、配置中心页面；`App.tsx` 与 `AdminLayout.tsx` 只保留配送运营入口；订单/结算页面固定分栏展示 `买家金额 / 商家供货 / 商家应结 / 平台差额`
   - **验证**: `cd delivery-admin && npm run build`、`rg -n -F "/admin" delivery-admin/src/api/delivery-management.ts delivery-admin/src/pages/delivery-admin delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx`、`rg -n "VIP|红包|抽奖|分润|退款|售后|数字资产|发票|溯源" delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx delivery-admin/src/pages/delivery-admin delivery-admin/src/api/delivery-management.ts`
 
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）

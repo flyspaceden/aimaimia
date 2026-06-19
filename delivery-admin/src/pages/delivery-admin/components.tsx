@@ -57,14 +57,16 @@ export function MoneyText({
 
 export function MoneyBreakdown(props: {
   buyerAmountCents?: number | null;
-  sellerAmountCents?: number | null;
-  marginAmountCents?: number | null;
+  supplyAmountCents?: number | null;
+  settlementAmountCents?: number | null;
+  platformDiffAmountCents?: number | null;
 }) {
   return (
     <Space direction="vertical" size={0}>
       <Text>买家金额: {formatMoney(props.buyerAmountCents)}</Text>
-      <Text>商家供货/应结: {formatMoney(props.sellerAmountCents)}</Text>
-      <Text type="secondary">平台差额: {formatMoney(props.marginAmountCents)}</Text>
+      <Text>商家供货: {formatMoney(props.supplyAmountCents)}</Text>
+      <Text>商家应结: {formatMoney(props.settlementAmountCents)}</Text>
+      <Text type="secondary">平台差额: {formatMoney(props.platformDiffAmountCents)}</Text>
     </Space>
   );
 }
