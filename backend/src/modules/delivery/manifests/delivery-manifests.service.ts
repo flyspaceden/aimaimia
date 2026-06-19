@@ -264,7 +264,7 @@ export class DeliveryManifestsService {
     };
     const uploaded = await this.uploadGeneratedBuffer(
       definition,
-      buildSimplePdf(this.buildPdfLines(definition.name, version.versionNo, renderedTable)),
+      await buildSimplePdf(this.buildPdfLines(definition.name, version.versionNo, renderedTable)),
     );
     return this.deliveryPrisma.deliveryManifest.create({
       data: {
@@ -330,7 +330,7 @@ export class DeliveryManifestsService {
     };
     const uploaded = await this.uploadGeneratedBuffer(
       definition,
-      buildSimplePdf(this.buildPdfLines(definition.name, version.versionNo, renderedTable)),
+      await buildSimplePdf(this.buildPdfLines(definition.name, version.versionNo, renderedTable)),
     );
     return this.deliveryPrisma.deliveryManifest.create({
       data: {

@@ -1,105 +1,143 @@
+import * as fs from 'node:fs';
+
+import * as fontkit from '@pdf-lib/fontkit';
+import { PDFDocument, rgb } from 'pdf-lib';
+import sharp = require('sharp');
+
 const PDF_PAGE_WIDTH = 612;
 const PDF_PAGE_HEIGHT = 792;
 const PDF_MARGIN_LEFT = 40;
-const PDF_MARGIN_TOP = 760;
-const PDF_LINE_HEIGHT = 16;
-const PDF_LINES_PER_PAGE = 44;
+const PDF_MARGIN_RIGHT = 40;
+const PDF_MARGIN_TOP = 40;
+const PDF_MARGIN_BOTTOM = 40;
+const PDF_FONT_SIZE = 16;
+const PDF_LINE_HEIGHT = 28;
+const PDF_TEXT_COLOR = rgb(0.1, 0.1, 0.1);
+const SOURCE_HAN_SANS_VF_PATH = require.resolve('@fontpkg/source-han-sans-vf/SourceHanSans-VF.ttf.woff2');
+
+let cachedFontBytes: Uint8Array | null = null;
+let cachedFontBase64: string | null = null;
 
 function normalizePdfLine(value: unknown) {
   return String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ');
 }
 
-function toUtf16BeHex(value: string) {
-  const codeUnits: number[] = [];
-
-  for (const symbol of value) {
-    const codePoint = symbol.codePointAt(0);
-    if (codePoint === undefined) {
-      continue;
-    }
-    if (codePoint <= 0xffff) {
-      codeUnits.push(codePoint);
-      continue;
-    }
-    const adjusted = codePoint - 0x10000;
-    codeUnits.push(0xd800 + (adjusted >> 10));
-    codeUnits.push(0xdc00 + (adjusted & 0x3ff));
+function getSourceHanSansBytes() {
+  if (!cachedFontBytes) {
+    cachedFontBytes = fs.readFileSync(SOURCE_HAN_SANS_VF_PATH);
   }
-
-  return codeUnits.map((unit) => unit.toString(16).toUpperCase().padStart(4, '0')).join('');
+  return cachedFontBytes;
 }
 
-function chunkLines(lines: string[]) {
-  if (!lines.length) {
-    return [['']];
+function getSourceHanSansBase64() {
+  if (!cachedFontBase64) {
+    cachedFontBase64 = Buffer.from(getSourceHanSansBytes()).toString('base64');
+  }
+  return cachedFontBase64;
+}
+
+function wrapPdfLine(line: string, maxWidth: number, widthOfTextAtSize: (text: string) => number) {
+  const normalized = normalizePdfLine(line);
+  if (!normalized) {
+    return [''];
   }
 
+  const wrapped: string[] = [];
+  let current = '';
+
+  for (const symbol of normalized) {
+    const candidate = `${current}${symbol}`;
+    if (!current || widthOfTextAtSize(candidate) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+
+    wrapped.push(current);
+    current = symbol;
+  }
+
+  if (current) {
+    wrapped.push(current);
+  }
+
+  return wrapped;
+}
+
+function chunkPdfLines(lines: string[]) {
   const pages: string[][] = [];
-  for (let index = 0; index < lines.length; index += PDF_LINES_PER_PAGE) {
-    pages.push(lines.slice(index, index + PDF_LINES_PER_PAGE));
-  }
-  return pages;
-}
-
-function buildPdfTextStream(lines: string[]) {
-  const normalizedLines = lines.map((line) => normalizePdfLine(line));
-  const textBlocks = normalizedLines.map((line) => `<FEFF${toUtf16BeHex(line)}> Tj`);
-  const content = [
-    'BT',
-    '/F1 11 Tf',
-    `${PDF_LINE_HEIGHT} TL`,
-    `${PDF_MARGIN_LEFT} ${PDF_MARGIN_TOP} Td`,
-    ...textBlocks.flatMap((block, index) => (index === 0 ? [block] : ['T*', block])),
-    'ET',
-  ].join('\n');
-
-  return `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`;
-}
-
-export function buildSimplePdf(lines: string[]): Buffer {
-  const pages = chunkLines(lines);
-  const pageCount = pages.length;
-  const firstPageObjectNumber = 3;
-  const firstContentObjectNumber = firstPageObjectNumber + pageCount;
-  const type0FontObjectNumber = firstContentObjectNumber + pageCount;
-  const cidFontObjectNumber = type0FontObjectNumber + 1;
-
-  const pageObjectNumbers = Array.from({ length: pageCount }, (_, index) => firstPageObjectNumber + index);
-  const contentObjectNumbers = Array.from(
-    { length: pageCount },
-    (_, index) => firstContentObjectNumber + index,
+  const maxLinesPerPage = Math.max(
+    1,
+    Math.floor((PDF_PAGE_HEIGHT - PDF_MARGIN_TOP - PDF_MARGIN_BOTTOM) / PDF_LINE_HEIGHT),
   );
 
-  const pageRefs = pageObjectNumbers.map((objectNumber) => `${objectNumber} 0 R`).join(' ');
-
-  const objects: string[] = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    `<< /Type /Pages /Kids [${pageRefs}] /Count ${pageCount} >>`,
-    ...pageObjectNumbers.map(
-      (_, index) =>
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}] /Resources << /Font << /F1 ${type0FontObjectNumber} 0 R >> >> /Contents ${contentObjectNumbers[index]} 0 R >>`,
-    ),
-    ...pages.map((pageLines) => buildPdfTextStream(pageLines)),
-    `<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [${cidFontObjectNumber} 0 R] >>`,
-    '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /DW 1000 >>',
-  ];
-
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  for (let index = 0; index < objects.length; index += 1) {
-    offsets.push(Buffer.byteLength(pdf, 'ascii'));
-    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  for (let index = 0; index < lines.length; index += maxLinesPerPage) {
+    pages.push(lines.slice(index, index + maxLinesPerPage));
   }
 
-  const xrefStart = Buffer.byteLength(pdf, 'ascii');
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += '0000000000 65535 f \n';
-  for (let index = 1; index < offsets.length; index += 1) {
-    pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return pages.length ? pages : [['']];
+}
 
-  return Buffer.from(pdf, 'ascii');
+async function renderPdfPagePng(lines: string[]) {
+  const fontBase64 = getSourceHanSansBase64();
+  const textNodes = lines
+    .map((line, index) => {
+      const baselineY = PDF_MARGIN_TOP + PDF_FONT_SIZE + index * PDF_LINE_HEIGHT;
+      return `<text x="${PDF_MARGIN_LEFT}" y="${baselineY}">${escapeXml(line)}</text>`;
+    })
+    .join('');
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${PDF_PAGE_WIDTH}" height="${PDF_PAGE_HEIGHT}" viewBox="0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}">
+  <style>
+    @font-face { font-family: 'SourceHanSans'; src: url(data:font/woff2;base64,${fontBase64}) format('woff2'); }
+    text { font-family: 'SourceHanSans'; font-size: ${PDF_FONT_SIZE}px; fill: #111111; }
+  </style>
+  <rect width="100%" height="100%" fill="#ffffff" />
+  ${textNodes}
+</svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+export async function buildSimplePdf(lines: string[]): Promise<Buffer> {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+
+  const font = await pdfDoc.embedFont(getSourceHanSansBytes(), { subset: true });
+  const maxTextWidth = PDF_PAGE_WIDTH - PDF_MARGIN_LEFT - PDF_MARGIN_RIGHT;
+  const widthOfTextAtSize = (text: string) => font.widthOfTextAtSize(text, PDF_FONT_SIZE);
+  const wrappedLines = (lines.length ? lines : ['']).flatMap((line) =>
+    wrapPdfLine(line, maxTextWidth, widthOfTextAtSize),
+  );
+  const pages = chunkPdfLines(wrappedLines);
+
+  for (const pageLines of pages) {
+    const page = pdfDoc.addPage([PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT]);
+    const pagePng = await renderPdfPagePng(pageLines);
+    const image = await pdfDoc.embedPng(pagePng);
+
+    page.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: PDF_PAGE_WIDTH,
+      height: PDF_PAGE_HEIGHT,
+    });
+
+    for (let index = 0; index < pageLines.length; index += 1) {
+      const baselineY = PDF_MARGIN_TOP + PDF_FONT_SIZE + index * PDF_LINE_HEIGHT;
+      page.drawText(pageLines[index], {
+        x: PDF_MARGIN_LEFT,
+        y: PDF_PAGE_HEIGHT - baselineY,
+        size: PDF_FONT_SIZE,
+        font,
+        color: PDF_TEXT_COLOR,
+        opacity: 0,
+      });
+    }
+  }
+
+  const bytes = await pdfDoc.save();
+  return Buffer.from(bytes);
 }
 
 function escapeXml(value: unknown) {

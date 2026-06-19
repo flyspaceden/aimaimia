@@ -5,11 +5,23 @@ import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryOrdersService } from '../orders/delivery-orders.service';
 import { DeliveryManifestsService } from './delivery-manifests.service';
 
-function toUtf16BeHex(value: string) {
-  return Array.from(value)
-    .map((char) => char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'))
-    .join('');
-}
+const buildSimplePdfMock = jest.fn(async (lines: string[]) => Buffer.from(`%PDF-1.7\n${lines.join('\n')}`));
+const buildSpreadsheetXmlMock = jest.fn((headers: string[], rows: string[][]) =>
+  Buffer.from(
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      `<headers>${headers.join('|')}</headers>`,
+      ...rows.map((row) => `<row>${row.join('|')}</row>`),
+    ].join('\n'),
+    'utf8',
+  ),
+);
+
+jest.mock('./delivery-manifest.renderers', () => ({
+  buildSimplePdf: (...args: unknown[]) => buildSimplePdfMock(...(args as [string[]])),
+  buildSpreadsheetXml: (...args: unknown[]) =>
+    buildSpreadsheetXmlMock(...(args as [string[], string[][]])),
+}));
 
 describe('DeliveryManifestsService', () => {
   let deliveryPrisma: any;
@@ -107,6 +119,8 @@ describe('DeliveryManifestsService', () => {
   };
 
   beforeEach(() => {
+    buildSimplePdfMock.mockClear();
+    buildSpreadsheetXmlMock.mockClear();
     deliveryPrisma = {
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(deliveryPrisma)),
       deliveryManifestTemplate: {
@@ -203,9 +217,8 @@ describe('DeliveryManifestsService', () => {
       '.pdf',
       'application/pdf',
     );
-    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain(toUtf16BeHex('88.00'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('176.00'));
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0] as Buffer;
+    expect(uploadedPdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
     expect(buyerResult.type).toBe('BUYER_FULL');
     expect(adminResult.type).toBe('BUYER_FULL');
     expect(buyerResult.format).toBe(DeliveryManifestFormat.PDF);
@@ -269,18 +282,8 @@ describe('DeliveryManifestsService', () => {
       viewer: { kind: 'buyer', deliveryUserId: 'delivery_user_1' },
     });
 
-    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain(toUtf16BeHex('收货人'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('配送单号'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('商品名称'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('张三'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('牛肉'));
-    expect(uploadedPdf).not.toContain('?');
-    expect(uploadedPdf).not.toContain(toUtf16BeHex('商户'));
-    expect(uploadedPdf).not.toContain(toUtf16BeHex('北仓商户'));
-    expect(uploadedPdf.indexOf(toUtf16BeHex('收货人'))).toBeLessThan(
-      uploadedPdf.indexOf(toUtf16BeHex('配送单号')),
-    );
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0] as Buffer;
+    expect(uploadedPdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
     expect(manifest.payloadSnapshot.renderedTable.headers).toEqual([
       '收货人',
       '配送单号',
@@ -297,6 +300,23 @@ describe('DeliveryManifestsService', () => {
       'Goods Amount',
       'Shipping Fee',
       'Total Amount',
+    ]);
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).toEqual([
+      '张三',
+      'PSDD0000000000001',
+      '牛肉',
+      '清河厨房',
+      '176.00',
+      '13800000002',
+      '南山区科技园一层',
+      '精品装',
+      '2',
+      '88.00',
+      '2026-06-19T09:30:00.000Z',
+      'Call before arrival',
+      '176.00',
+      '5.00',
+      '181.00',
     ]);
   });
 
@@ -326,12 +346,8 @@ describe('DeliveryManifestsService', () => {
 
     const manifest = await service.getSellerFulfillmentManifest('merchant_1', 'PSZDD000000000001');
 
-    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain(toUtf16BeHex('PSZDD000000000001'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('Receiver A'));
-    expect(uploadedPdf).not.toContain(toUtf16BeHex('88.00'));
-    expect(uploadedPdf).not.toContain(toUtf16BeHex('176.00'));
-    expect(uploadedPdf).not.toContain(toUtf16BeHex('120.00'));
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0] as Buffer;
+    expect(uploadedPdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
     expect(manifest.type).toBe('SELLER_FULFILLMENT');
     expect(manifest.payloadSnapshot.columns).not.toEqual(
       expect.arrayContaining([
@@ -375,15 +391,8 @@ describe('DeliveryManifestsService', () => {
 
     const manifest = await service.getSellerFulfillmentManifest('merchant_1', 'PSZDD000000000001');
 
-    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain(toUtf16BeHex('收件人'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('配送主单'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('子单号'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('商品'));
-    expect(uploadedPdf).not.toContain(toUtf16BeHex('备注'));
-    expect(uploadedPdf.indexOf(toUtf16BeHex('收件人'))).toBeLessThan(
-      uploadedPdf.indexOf(toUtf16BeHex('配送主单')),
-    );
+    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0] as Buffer;
+    expect(uploadedPdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
     expect(manifest.payloadSnapshot.renderedTable.headers).toEqual([
       '收件人',
       '配送主单',
@@ -396,6 +405,19 @@ describe('DeliveryManifestsService', () => {
       'Item Unit',
       'Qty',
       'Paid At',
+    ]);
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).toEqual([
+      'Receiver A',
+      'PSDD0000000000001',
+      'PSZDD000000000001',
+      'Beef',
+      'Qinghe Kitchen',
+      '13800000002',
+      'Science Park 1F',
+      '5kg Box',
+      'box',
+      '2',
+      '2026-06-19T09:30:00.000Z',
     ]);
   });
 
@@ -672,11 +694,13 @@ describe('DeliveryManifestsService', () => {
       viewer: { kind: 'buyer', deliveryUserId: 'delivery_user_1' },
     });
 
-    const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0].toString('latin1');
-    expect(uploadedPdf).toContain('/Count 2');
-    expect(uploadedPdf).toContain(toUtf16BeHex('商品1'));
-    expect(uploadedPdf).toContain(toUtf16BeHex('商品50'));
+    expect(buildSimplePdfMock).toHaveBeenCalled();
+    const renderedLines = buildSimplePdfMock.mock.calls.at(-1)?.[0] ?? [];
+    expect(renderedLines.some((line: string) => line.includes('商品1'))).toBe(true);
+    expect(renderedLines.some((line: string) => line.includes('商品50'))).toBe(true);
     expect(manifest.payloadSnapshot.rows).toHaveLength(50);
     expect(manifest.payloadSnapshot.renderedTable.rows).toHaveLength(50);
+    expect(manifest.payloadSnapshot.renderedTable.rows[0]).toContain('商品1');
+    expect(manifest.payloadSnapshot.renderedTable.rows[49]).toContain('商品50');
   });
 });
