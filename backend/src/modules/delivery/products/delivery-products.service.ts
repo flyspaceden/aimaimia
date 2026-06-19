@@ -59,15 +59,41 @@ export class DeliveryProductsService {
   ) {}
 
   async listSellerProducts(merchantId: string, query: ListDeliveryProductsQueryDto = {}) {
-    const items = await this.deliveryPrisma.deliveryProduct.findMany({
-      where: this.buildOwnedProductWhere(merchantId, query),
-      include: adminProductInclude,
-      orderBy: [{ updatedAt: 'desc' }],
-    });
+    const page = query.page && query.page > 0 ? query.page : 1;
+    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
+    const skip = (page - 1) * pageSize;
+    const where = this.buildOwnedProductWhere(merchantId, query);
+    const [total, items] = await Promise.all([
+      this.deliveryPrisma.deliveryProduct.count({ where }),
+      this.deliveryPrisma.deliveryProduct.findMany({
+        where,
+        include: adminProductInclude,
+        orderBy: [{ updatedAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+    ]);
 
     return {
       items: items.map((item) => this.mapSellerProduct(item)),
+      total,
+      page,
+      pageSize,
     };
+  }
+
+  async getSellerProduct(merchantId: string, productId: string) {
+    const product = await this.deliveryPrisma.deliveryProduct.findFirst({
+      where: {
+        id: productId,
+        merchantId,
+      },
+      include: adminProductInclude,
+    });
+    if (!product) {
+      throw new NotFoundException('配送商品不存在');
+    }
+    return this.mapSellerProduct(product);
   }
 
   async createSellerProduct(
@@ -478,9 +504,16 @@ export class DeliveryProductsService {
     return {
       id: product.id,
       merchantId: product.merchantId,
+      categoryId: product.categoryId,
+      productUnitId: product.productUnitId,
       title: product.title,
       subtitle: product.subtitle,
       description: product.description,
+      detailRich: product.detailRich,
+      media: product.media,
+      attributes: product.attributes,
+      aiKeywords: product.searchKeywords,
+      searchKeywords: product.searchKeywords,
       unitName: product.unitName,
       status: product.status,
       auditStatus: product.auditStatus,
@@ -497,7 +530,6 @@ export class DeliveryProductsService {
         title: sku.title,
         imageUrl: sku.imageUrl,
         supplyPriceCents: sku.supplyPriceCents,
-        basePriceCents: sku.basePriceCents,
         stock: sku.stock,
         minOrderQuantity: sku.minOrderQuantity,
         orderStepQuantity: sku.orderStepQuantity,

@@ -1,15 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  App,
   Avatar,
   Button,
   Card,
   Image,
-  Popconfirm,
   Space,
   Statistic,
-  Switch,
   Table,
   Tag,
   Tooltip,
@@ -27,8 +24,8 @@ import {
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getProducts, toggleProductStatus, deleteProduct } from '@/api/products';
+import { useQuery } from '@tanstack/react-query';
+import { getProducts } from '@/api/products';
 import { getPublicAppConfig } from '@/api/config';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
@@ -51,9 +48,7 @@ function getStockSummary(product: Product, threshold: number) {
 }
 
 export default function ProductListPage() {
-  const { message, modal } = App.useApp();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
   // 顶部统计卡作为快捷筛选 tab
   type StatusTabKey = 'ALL' | 'ACTIVE' | 'PENDING' | 'DRAFT';
@@ -111,38 +106,6 @@ export default function ProductListPage() {
   useEffect(() => {
     actionRef.current?.reload();
   }, [activeTab]);
-
-  const handleToggle = async (id: string, newStatus: 'ACTIVE' | 'INACTIVE') => {
-    try {
-      await toggleProductStatus(id, newStatus);
-      message.success(newStatus === 'ACTIVE' ? '已上架' : '已下架');
-      queryClient.invalidateQueries({ queryKey: ['seller-product-status-counts'] });
-      actionRef.current?.reload();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteProduct(id);
-      message.success('删除成功');
-      queryClient.invalidateQueries({ queryKey: ['seller-product-status-counts'] });
-      actionRef.current?.reload();
-    } catch (err) {
-      modal.error({
-        title: '无法删除',
-        content: (
-          <div style={{ fontSize: 16, lineHeight: 1.7, paddingTop: 8 }}>
-            {err instanceof Error ? err.message : '删除失败'}
-          </div>
-        ),
-        width: 520,
-        centered: true,
-        okText: '知道了',
-      });
-    }
-  };
 
   const columns: ProColumns<Product>[] = [
     {
@@ -296,28 +259,8 @@ export default function ProductListPage() {
         ]),
       ),
       render: (_, r) => {
-        // 草稿 / 未审核 / 被驳回：只读 Tag，不能上下架
-        if (r.status === 'DRAFT' || r.auditStatus !== 'APPROVED') {
-          const s = productStatusMap[r.status];
-          return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
-        }
-        return (
-          <Popconfirm
-            title={r.status === 'ACTIVE' ? '确认下架？' : '确认上架？'}
-            onConfirm={() =>
-              handleToggle(r.id, r.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')
-            }
-          >
-            <Switch
-              checked={r.status === 'ACTIVE'}
-              checkedChildren="上架"
-              unCheckedChildren="下架"
-              size="small"
-              // 阻止 switch 直接切换，由 Popconfirm 控制
-              onClick={(_, e) => e.stopPropagation()}
-            />
-          </Popconfirm>
-        );
+        const s = productStatusMap[r.status];
+        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
       },
     },
     {
@@ -341,31 +284,16 @@ export default function ProductListPage() {
       fixed: 'right',
       search: false,
       render: (_, r) => {
-        // 草稿行：仅展示"继续编辑"+"删除"
         if (r.status === 'DRAFT') {
           return (
-            <Space size={4}>
-              <Button
-                type="link"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => navigate(`/products/${r.id}/edit`)}
-              >
-                继续编辑
-              </Button>
-              <Popconfirm
-                title="删除草稿？"
-                description="删除后不可恢复。"
-                okText="确认删除"
-                cancelText="取消"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => handleDelete(r.id)}
-              >
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
-            </Space>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/products/${r.id}/edit`)}
+            >
+              继续编辑
+            </Button>
           );
         }
         return (
@@ -385,27 +313,13 @@ export default function ProductListPage() {
                 style={{ color: '#fa8c16' }}
                 onClick={() => navigate(`/products/${r.id}/edit`)}
               >
-                重新提交
+                重新编辑
                 {(r.submissionCount ?? 1) > 1 && (
                   <span style={{ marginLeft: 4, color: '#8c8c8c' }}>
                     (已提交 {r.submissionCount} 次)
                   </span>
                 )}
               </Button>
-            )}
-            {r.status === 'INACTIVE' && (
-              <Popconfirm
-                title="确认删除该商品？"
-                description="删除后不可恢复，关联的规格、图片将一并移除。"
-                okText="确认删除"
-                cancelText="取消"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => handleDelete(r.id)}
-              >
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
             )}
           </Space>
         );

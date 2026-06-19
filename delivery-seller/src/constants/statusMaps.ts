@@ -14,12 +14,11 @@ export const auditStatusMap: Record<string, { text: string; color: string }> = {
 
 // 订单状态（付款后建单架构：无 PENDING_PAYMENT；换货替代退款：无 ISSUE/REFUNDING）
 export const orderStatusMap: Record<string, { text: string; color: string }> = {
-  PAID: { text: '待发货', color: 'warning' },
+  PENDING_SHIPMENT: { text: '待发货', color: 'warning' },
   SHIPPED: { text: '已发货', color: 'processing' },
   DELIVERED: { text: '已送达', color: 'cyan' },
-  RECEIVED: { text: '已收货', color: 'green' },
+  COMPLETED: { text: '已完成', color: 'green' },
   CANCELED: { text: '已取消', color: 'default' },
-  REFUNDED: { text: '已退款', color: 'error' },
 };
 
 // 退款状态

@@ -21,6 +21,11 @@ export class DeliverySellerProductsController {
     return this.deliveryProductsService.listSellerProducts(merchantId, query);
   }
 
+  @Get(':id')
+  getOne(@CurrentUser('merchantId') merchantId: string, @Param('id') id: string) {
+    return this.deliveryProductsService.getSellerProduct(merchantId, id);
+  }
+
   @Post()
   create(
     @CurrentUser('merchantId') merchantId: string,

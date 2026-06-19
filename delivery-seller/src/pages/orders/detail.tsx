@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Alert,
   App,
   Avatar,
   Button,
@@ -11,30 +10,20 @@ import {
   Spin,
   Steps,
   Tag,
-  Tooltip,
   Typography,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
-  CloseCircleOutlined,
-  PhoneOutlined,
   PrinterOutlined,
   SendOutlined,
   ShoppingOutlined,
   TruckOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  getOrder,
-  shipOrder,
-  generateWaybill,
-  cancelWaybill,
-  bindVirtualCall,
-} from '@/api/orders';
+import { getOrder, shipOrder } from '@/api/orders';
 import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
-import useAuthStore from '@/store/useAuthStore';
 import { toAbsoluteApiUrl } from '@/utils/api-url';
 import dayjs from 'dayjs';
 
@@ -44,14 +33,14 @@ function getOrderStep(order: {
   shipment?: { status: string; waybillNo?: string } | null;
 }): number {
   const { status, shipment } = order;
-  if (['CANCELED', 'REFUNDED'].includes(status)) return -1;
-  if (status === 'RECEIVED') return 4;
+  if (status === 'CANCELED') return -1;
+  if (status === 'COMPLETED') return 4;
   if (status === 'DELIVERED') return 3;
   if (status === 'SHIPPED') {
     if (shipment?.status === 'DELIVERED') return 3;
     return 2;
   }
-  if (status === 'PAID') {
+  if (status === 'PENDING_SHIPMENT') {
     if (shipment?.waybillNo) return 1;
     return 0;
   }
@@ -59,14 +48,11 @@ function getOrderStep(order: {
 }
 
 export default function OrderDetailPage() {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [shipping, setShipping] = useState(false);
-  const [generatingWaybill, setGeneratingWaybill] = useState(false);
-  const [callingBuyer, setCallingBuyer] = useState(false);
-  const { hasRole } = useAuthStore();
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['seller-order', id],
@@ -78,66 +64,13 @@ export default function OrderDetailPage() {
     setShipping(true);
     try {
       await shipOrder(id!);
-      message.success('发货成功');
       queryClient.invalidateQueries({ queryKey: ['seller-order', id] });
       queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
+      await queryClient.refetchQueries({ queryKey: ['seller-order', id] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '发货失败');
     } finally {
       setShipping(false);
-    }
-  };
-
-  const handleGenerateWaybill = async (carrierCode: string) => {
-    setGeneratingWaybill(true);
-    try {
-      const result = await generateWaybill(id!, carrierCode);
-      message.success(`面单生成成功：${result.waybillNo}`);
-      queryClient.invalidateQueries({ queryKey: ['seller-order', id] });
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '面单生成失败');
-    } finally {
-      setGeneratingWaybill(false);
-    }
-  };
-
-  const handleCancelWaybill = () => {
-    modal.confirm({
-      title: '确认取消面单？',
-      content: '取消后需重新生成面单',
-      onOk: async () => {
-        try {
-          await cancelWaybill(id!);
-          message.success('面单已取消');
-          queryClient.invalidateQueries({ queryKey: ['seller-order', id] });
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : '取消失败');
-        }
-      },
-    });
-  };
-
-  const handleCallBuyer = async () => {
-    setCallingBuyer(true);
-    try {
-      const result = await bindVirtualCall(id!);
-      modal.info({
-        title: '联系买家',
-        content: (
-          <div>
-            <p>虚拟号码：<strong>{result.virtualNumber}</strong></p>
-            <p>有效期至：{dayjs(result.expireAt).format('YYYY-MM-DD HH:mm')}</p>
-            <p>剩余通话次数：{result.remainingCalls}</p>
-            <p style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
-              请使用此虚拟号码联系买家，通话结束后号码将在到期后自动解绑。
-            </p>
-          </div>
-        ),
-      });
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取虚拟号码失败');
-    } finally {
-      setCallingBuyer(false);
     }
   };
 
@@ -146,12 +79,10 @@ export default function OrderDetailPage() {
   }
 
   const status = orderStatusMap[order.status];
-  const canCallBuyer =
-    ['PAID', 'SHIPPED'].includes(order.status) && hasRole('OWNER', 'MANAGER');
   const canManageShipment =
-    ['PAID', 'SHIPPED'].includes(order.status) &&
+    order.status === 'PENDING_SHIPMENT' &&
     (!order.shipment || order.shipment.status === 'INIT');
-  const isCancelled = ['CANCELED', 'REFUNDED'].includes(order.status);
+  const isCancelled = order.status === 'CANCELED';
   const currentStep = getOrderStep(order);
 
   return (
@@ -176,17 +107,6 @@ export default function OrderDetailPage() {
           <Tag color={status?.color} style={{ fontSize: 14, padding: '2px 12px' }}>
             {status?.text || order.status}
           </Tag>
-          {canCallBuyer && (
-            <Tooltip title="通过平台虚拟号联系买家，保护双方隐私">
-              <Button
-                icon={<PhoneOutlined />}
-                loading={callingBuyer}
-                onClick={handleCallBuyer}
-              >
-                联系买家
-              </Button>
-            </Tooltip>
-          )}
         </Space>
       </div>
 
@@ -238,13 +158,9 @@ export default function OrderDetailPage() {
 
       {/* 已关闭状态提示 */}
       {isCancelled && (
-        <Alert
-          message={order.status === 'CANCELED' ? '该订单已取消' : '该订单已结束'}
-          type={order.status === 'CANCELED' ? 'info' : 'warning'}
-          showIcon
-          icon={<CloseCircleOutlined />}
-          style={{ marginBottom: 16, borderRadius: 8 }}
-        />
+        <Card style={{ marginBottom: 16, borderRadius: 8 }}>
+          <Typography.Text type="secondary">该订单已取消</Typography.Text>
+        </Card>
       )}
 
       {/* 发货操作区 — 待发货状态醒目展示 */}
@@ -262,74 +178,45 @@ export default function OrderDetailPage() {
             <Space>
               <SendOutlined style={{ color: '#fa8c16' }} />
               <span style={{ color: '#d46b08' }}>
-                {!order.shipment?.waybillNo ? '生成电子面单' : '确认发货'}
+                确认发货
               </span>
             </Space>
           }
         >
-          {!order.shipment?.waybillNo ? (
-            <div>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                生成电子面单后，平台将代为打印面单，卖家无需接触买家地址信息。
-              </Typography.Paragraph>
-              <Button
-                type="primary"
-                loading={generatingWaybill}
-                size="large"
-                onClick={() => handleGenerateWaybill('SF')}
-              >
-                生成面单（顺丰速运）
-              </Button>
-            </div>
-          ) : (
-            <div>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                面单已生成，打印并贴单后即可确认发货。
-              </Typography.Paragraph>
-              <Space size="middle">
-                <Button
-                  icon={<PrinterOutlined />}
-                  size="large"
-                  onClick={() => {
-                    const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-                    if (url) {
-                      window.open(url, '_blank', 'noopener,noreferrer');
-                    } else {
-                      message.warning('面单文件暂无（生成时下载可能失败），请点「取消面单」后重新生成');
-                    }
-                  }}
-                >
-                  打印面单
-                </Button>
-                {order.shipment?.status === 'INIT' && (
-                  <Button danger onClick={handleCancelWaybill}>
-                    取消面单
-                  </Button>
-                )}
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<SendOutlined />}
-                  loading={shipping}
-                  onClick={handleShip}
-                >
-                  确认发货
-                </Button>
-              </Space>
-            </div>
-          )}
+          <div>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+              确认发货后系统会生成并绑定顺丰面单，订单状态会更新为已发货。
+            </Typography.Paragraph>
+            <Button
+              type="primary"
+              size="large"
+              icon={<SendOutlined />}
+              loading={shipping}
+              onClick={handleShip}
+            >
+              确认发货
+            </Button>
+          </div>
         </Card>
       )}
 
       {/* 订单信息 */}
       <Card title="订单信息" size="small" style={{ marginBottom: 16 }}>
         <Descriptions column={{ xs: 1, sm: 2 }} size="small">
-          <Descriptions.Item label="订单号">
+          <Descriptions.Item label="子订单号">
             <Typography.Text copyable style={{ fontFamily: 'monospace' }}>
               {order.id}
             </Typography.Text>
           </Descriptions.Item>
+          <Descriptions.Item label="主订单号">
+            <Typography.Text copyable style={{ fontFamily: 'monospace' }}>
+              {order.orderId}
+            </Typography.Text>
+          </Descriptions.Item>
           <Descriptions.Item label="下单日期">{order.createdDate}</Descriptions.Item>
+          <Descriptions.Item label="付款时间">
+            {order.paidAt ? dayjs(order.paidAt).format('YYYY-MM-DD HH:mm') : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="买家">
             <Space direction="vertical" size={0}>
               <span>{order.buyerAlias}</span>
@@ -345,6 +232,19 @@ export default function OrderDetailPage() {
             </Space>
           </Descriptions.Item>
           <Descriptions.Item label="地区">{order.regionText || '-'}</Descriptions.Item>
+          {order.shippingAddress && (
+            <>
+              <Descriptions.Item label="收货人">
+                {order.shippingAddress.recipientName || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="联系电话">
+                {order.shippingAddress.phone || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="收货地址" span={2}>
+                {`${order.shippingAddress.regionText} ${order.shippingAddress.detailAddress}`.trim() || '-'}
+              </Descriptions.Item>
+            </>
+          )}
         </Descriptions>
       </Card>
 
@@ -386,12 +286,11 @@ export default function OrderDetailPage() {
                   {item.title || '-'}
                 </div>
                 <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
-                  {item.isPrize ? (
-                    <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
-                      {item.prizeType === 'THRESHOLD_GIFT' ? '满额赠品' : item.prizeType === 'DISCOUNT_BUY' ? '特价购' : '抽奖奖品'}
-                    </Tag>
-                  ) : (
-                    <Tag style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>普通</Tag>
+                  <Tag style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
+                    {item.skuTitle || '默认规格'}
+                  </Tag>
+                  {item.unitName && (
+                    <span style={{ marginLeft: 8 }}>{item.unitName}</span>
                   )}
                 </div>
               </div>
@@ -442,16 +341,6 @@ export default function OrderDetailPage() {
                   >
                     打印
                   </Button>
-                  {order.shipment.status === 'INIT' && canManageShipment && (
-                    <Button
-                      type="link"
-                      size="small"
-                      danger
-                      onClick={handleCancelWaybill}
-                    >
-                      取消
-                    </Button>
-                  )}
                 </Space>
               </Descriptions.Item>
             )}

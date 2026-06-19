@@ -32,6 +32,11 @@ export class DeliverySellerOpsController {
     });
   }
 
+  @Get('orders/:id')
+  getOrder(@CurrentUser('merchantId') merchantId: string, @Param('id') id: string) {
+    return this.deliverySellerOpsService.getOrder(merchantId, id);
+  }
+
   @Get('company')
   getCompany(@CurrentUser('merchantId') merchantId: string) {
     return this.deliverySellerOpsService.getCompany(merchantId);

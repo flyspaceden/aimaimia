@@ -12,6 +12,43 @@ type ListSellerOrdersQuery = {
   status?: string;
 };
 
+const sellerOrderInclude = {
+  order: {
+    select: {
+      id: true,
+      paidAt: true,
+      addressSnapshot: true,
+    },
+  },
+  items: {
+    select: {
+      id: true,
+      quantity: true,
+      productSnapshot: true,
+    },
+  },
+  shipments: {
+    orderBy: [{ createdAt: 'desc' }],
+    take: 1,
+    select: {
+      id: true,
+      status: true,
+      trackingNo: true,
+      waybillNo: true,
+      waybillUrl: true,
+      carrierCode: true,
+      carrierName: true,
+      shippedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+} satisfies Prisma.DeliverySubOrderInclude;
+
+type SellerOrderRecord = Prisma.DeliverySubOrderGetPayload<{
+  include: typeof sellerOrderInclude;
+}>;
+
 @Injectable()
 export class DeliverySellerOpsService {
   constructor(
@@ -57,10 +94,7 @@ export class DeliverySellerOpsService {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
     const skip = (page - 1) * pageSize;
-    const where: Prisma.DeliverySubOrderWhereInput = { merchantId };
-    if (query.status) {
-      where.status = query.status as any;
-    }
+    const where = this.buildSellerOrderWhere(merchantId, query.status);
 
     const [total, items] = await Promise.all([
       this.deliveryPrisma.deliverySubOrder.count({ where }),
@@ -69,47 +103,30 @@ export class DeliverySellerOpsService {
         orderBy: [{ createdAt: 'desc' }],
         take: pageSize,
         skip,
-        include: {
-          order: {
-            select: {
-              id: true,
-              status: true,
-              paidAt: true,
-              totalAmountCents: true,
-            },
-          },
-          items: {
-            select: {
-              id: true,
-              quantity: true,
-              lineAmountCents: true,
-            },
-          },
-          settlements: {
-            select: {
-              id: true,
-              status: true,
-              settledAmountCents: true,
-            },
-          },
-          shipments: {
-            select: {
-              id: true,
-              status: true,
-              trackingNo: true,
-              waybillNo: true,
-            },
-          },
-        },
+        include: sellerOrderInclude,
       }),
     ]);
 
     return {
-      items,
+      items: items.map((item) => this.mapSellerOrder(item)),
       total,
       page,
       pageSize,
     };
+  }
+
+  async getOrder(merchantId: string, subOrderId: string) {
+    const order = await this.deliveryPrisma.deliverySubOrder.findFirst({
+      where: {
+        id: subOrderId,
+        merchantId,
+      },
+      include: sellerOrderInclude,
+    });
+    if (!order) {
+      throw new NotFoundException('配送子订单不存在');
+    }
+    return this.mapSellerOrder(order);
   }
 
   async getCompany(merchantId: string) {
@@ -180,5 +197,99 @@ export class DeliverySellerOpsService {
   private sanitizeSellerCompanyResponse<T extends Record<string, unknown>>(merchant: T) {
     const { defaultMarkupBps: _defaultMarkupBps, ...sanitizedMerchant } = merchant;
     return sanitizedMerchant;
+  }
+
+  private buildSellerOrderWhere(merchantId: string, status?: string): Prisma.DeliverySubOrderWhereInput {
+    const statuses = status
+      ?.split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return {
+      merchantId,
+      ...(statuses?.length
+        ? {
+            status: statuses.length === 1 ? (statuses[0] as any) : { in: statuses as any[] },
+          }
+        : {}),
+    };
+  }
+
+  private mapSellerOrder(order: SellerOrderRecord) {
+    const address = this.parseAddressSnapshot(order.order.addressSnapshot);
+    const latestShipment = order.shipments[0] ?? null;
+
+    return {
+      id: order.id,
+      orderId: order.orderId,
+      status: order.status,
+      createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
+      paidAt: order.order.paidAt?.toISOString() ?? null,
+      createdDate: (order.order.paidAt ?? order.createdAt).toISOString().slice(0, 10),
+      buyerAlias: address.recipientName ? `收货人 ${address.recipientName}` : '收货信息待补充',
+      buyerNo: null,
+      regionText: address.regionText || null,
+      shippingAddress: address,
+      items: order.items.map((item) => {
+        const snapshot = this.parseProductSnapshot(item.productSnapshot);
+        return {
+          id: item.id,
+          title: snapshot.productTitle || '',
+          skuTitle: snapshot.skuTitle || '',
+          unitName: snapshot.unitName || '',
+          imageUrl: snapshot.imageUrl || null,
+          quantity: item.quantity,
+        };
+      }),
+      shipment: latestShipment
+        ? {
+            id: latestShipment.id,
+            status: latestShipment.status,
+            trackingNo: latestShipment.trackingNo,
+            waybillNo: latestShipment.waybillNo,
+            waybillPrintUrl: latestShipment.waybillUrl,
+            carrierCode: latestShipment.carrierCode,
+            carrierName: latestShipment.carrierName,
+            shippedAt: latestShipment.shippedAt?.toISOString() ?? null,
+            createdAt: latestShipment.createdAt.toISOString(),
+            updatedAt: latestShipment.updatedAt.toISOString(),
+          }
+        : null,
+    };
+  }
+
+  private parseAddressSnapshot(raw: Prisma.JsonValue) {
+    const value = this.asRecord(raw);
+    const regionParts = [
+      this.asString(value.provinceName),
+      this.asString(value.cityName),
+      this.asString(value.districtName),
+    ].filter(Boolean);
+    return {
+      recipientName: this.asString(value.recipientName),
+      phone: this.asString(value.phone),
+      regionText: this.asString(value.regionText) || regionParts.join(' '),
+      detailAddress: this.asString(value.detailAddress),
+    };
+  }
+
+  private parseProductSnapshot(raw: Prisma.JsonValue) {
+    const value = this.asRecord(raw);
+    return {
+      productTitle: this.asString(value.productTitle),
+      skuTitle: this.asString(value.skuTitle),
+      unitName: this.asString(value.unitName),
+      imageUrl: this.asString(value.imageUrl),
+    };
+  }
+
+  private asRecord(raw: Prisma.JsonValue): Record<string, unknown> {
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  }
+
+  private asString(raw: unknown) {
+    return typeof raw === 'string' ? raw : '';
   }
 }

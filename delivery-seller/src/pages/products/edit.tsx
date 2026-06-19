@@ -11,16 +11,14 @@ import {
   SaveOutlined, CloudUploadOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { ApiError } from '@/api/client';
 import {
   getProduct,
   createProduct,
   updateProduct,
+  submitProduct,
   getCategories,
-  createDraft,
-  updateDraft,
-  submitDraft,
   type CategoryNode,
 } from '@/api/products';
 import { getPublicAppConfig } from '@/api/config';
@@ -128,20 +126,6 @@ function isDraftWeightPlaceholderSkuCode(skuCode?: string | null) {
 
 function hydrateDraftWeightGram(sku: { skuCode?: string | null; weightGram?: number }) {
   return isDraftWeightPlaceholderSkuCode(sku.skuCode) ? undefined : sku.weightGram;
-}
-
-// 轻量 debounce（避免引入 lodash 类型依赖）
-function makeDebounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const debounced = (...args: Args) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), wait);
-  };
-  debounced.cancel = () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
-  };
-  return debounced;
 }
 
 // 将扁平分类列表转为 TreeSelect 需要的树形结构
@@ -549,6 +533,24 @@ function buildPayload(
     attributes,
     skus,
   };
+}
+
+function buildValidatedSkuList(
+  values: Record<string, unknown>,
+  multiSpec: boolean,
+  existingSkuId?: string,
+) {
+  if (multiSpec) {
+    return values.skus as Array<Record<string, unknown>>;
+  }
+  return [{
+    id: existingSkuId,
+    specName: '默认规格',
+    cost: values.singleCost,
+    stock: values.singleStock,
+    weightGram: values.singleWeightGram,
+    maxPerOrder: values.singleMaxPerOrder,
+  }];
 }
 
 // ============================================================
@@ -999,7 +1001,6 @@ function ProductEditForm({ id }: { id: string }) {
 function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {}) {
   const { message } = App.useApp();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const token = useAuthStore((s) => s.token);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
@@ -1010,15 +1011,12 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   const [draftId, setDraftId] = useState<string | null>(draftInitialId ?? null);
   const [draftSaving, setDraftSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  const [draftLimitReached, setDraftLimitReached] = useState(false);
   // 自上次保存后是否有改动；驱动未保存提醒。
   // 不用 form.isFieldsTouched() 因为它只增不减，保存成功后无法复位。
   const [dirtySinceSave, setDirtySinceSave] = useState(false);
   // 防止表单从草稿填入时触发自动保存 / dirty 标记
   const hydratingRef = useRef(false);
 
-  // 监听表单变化以驱动自动保存
-  const watchedValues = Form.useWatch([], form);
   useUnsavedChanges(dirtySinceSave);
 
   // 包装 setFileList：图片增删也要标 dirty（fileList 不在 Form 内，onValuesChange 收不到）
@@ -1141,151 +1139,35 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     setTimeout(() => { hydratingRef.current = false; }, 0);
   }, [draftProduct, form]);
 
-  // 构造草稿 payload（全量覆盖：表单当前状态 = 库里下次状态）
-  // 数组始终发（空数组也发，让后端清空对应表）；字符串清空发空串；对象 / json 字段清空发 null。
-  const numOrUndef = (v: unknown): number | undefined =>
-    v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
-
-  const buildDraftPayload = useCallback((): Record<string, unknown> & { title?: string } => {
-    const values = form.getFieldsValue();
-
-    // SKU：保留 form 里的全部行（含只填了规格名的、空行），后端 DraftSkuDto 全字段可选
-    let skuList: Array<Record<string, unknown>> = [];
-    if (multiSpec) {
-      skuList = (values.skus as Array<Record<string, unknown>>) || [];
-    } else {
-      const { singleCost, singleStock, singleWeightGram, singleMaxPerOrder } = values;
-      const hasAnySingle =
-        singleCost !== undefined && singleCost !== null && singleCost !== ''
-        || singleStock !== undefined && singleStock !== null && singleStock !== ''
-        || singleWeightGram !== undefined && singleWeightGram !== null && singleWeightGram !== ''
-        || singleMaxPerOrder !== undefined && singleMaxPerOrder !== null && singleMaxPerOrder !== '';
-      if (hasAnySingle) {
-        skuList = [{
-          specName: '默认规格',
-          cost: singleCost,
-          stock: singleStock,
-          weightGram: singleWeightGram,
-          maxPerOrder: singleMaxPerOrder,
-        }];
-      }
-    }
-    const skus = skuList.map((s) => ({
-      id: (s.id as string | undefined) || undefined,
-      specName: (s.specName as string | undefined) || undefined,
-      cost: numOrUndef(s.cost),
-      stock: numOrUndef(s.stock),
-      weightGram: numOrUndef(s.weightGram),
-      maxPerOrder: numOrUndef(s.maxPerOrder),
-    }));
-
-    // 自定义属性：始终发对象（清空发 {}）
-    const attrPairs = (values.attributes as Array<{ key: string; value: string }> | undefined) || [];
-    const attributes = Object.fromEntries(
-      attrPairs.filter((p) => p.key).map((p) => [p.key, p.value]),
-    );
-
-    // 媒体：始终发数组（清空发 []）
-    const mediaUrls = fileList
-      .filter((f) => f.status === 'done')
-      .map((f) => {
-        const response = f.response as { url?: string; data?: { url?: string } } | undefined;
-        return f.url || response?.data?.url || response?.url;
-      })
-      .filter(Boolean) as string[];
-
-    const aiKeywords = typeof values.aiKeywords === 'string'
-      ? values.aiKeywords.split(',').map((s: string) => s.trim()).filter(Boolean)
-      : [];
-
-    const originText = (values.originText as string | undefined) ?? '';
-
-    return {
-      title: (values.title as string | undefined) || undefined,
-      subtitle: (values.subtitle as string | undefined) ?? '',
-      description: (values.description as string | undefined) ?? '',
-      unit: (values.unit as string | undefined) || DEFAULT_PRODUCT_UNIT,
-      categoryId: (values.categoryId as string | undefined) || null,
-      // origin 是 Json? 字段：清空时发 null（后端 update 显式置 null）
-      origin: originText ? { text: originText } : null,
-      tagIds: (values.tagIds as string[] | undefined) ?? [],
-      aiKeywords,
-      attributes,
-      mediaUrls,
-      flavorTags: (values.flavorTags as string[] | undefined) ?? [],
-      seasonalMonths: (values.seasonalMonths as number[] | undefined) ?? [],
-      usageScenarios: (values.usageScenarios as string[] | undefined) ?? [],
-      dietaryTags: (values.dietaryTags as string[] | undefined) ?? [],
-      originRegion: originText || null,
-      skus,
-    };
-  }, [form, fileList, multiSpec]);
-
-  const handleSaveDraft = useCallback(async (silent = false) => {
-    if (draftLimitReached && !draftId) {
-      if (!silent) message.error('草稿数量已达上限（5 份），请先删除不再需要的草稿');
-      return;
-    }
-    const payload = buildDraftPayload();
-    if (!payload.title) {
-      if (!silent) message.warning('请先填写商品标题，才能保存草稿');
-      return;
-    }
+  const handleSaveDraft = useCallback(async () => {
     setDraftSaving(true);
     try {
+      const values = await form.validateFields();
+      const skuList = buildValidatedSkuList(values, multiSpec);
+      const payload = buildPayload(values, skuList, fileList);
+
       if (draftId) {
-        await updateDraft(draftId, payload);
+        await updateProduct(draftId, payload);
       } else {
-        const created = await createDraft(payload as Record<string, unknown> & { title: string });
+        const created = await createProduct(payload);
         setDraftId(created.id);
-        // 用 React Router navigate 替代 history.replaceState：直接 replaceState 只改地址栏，
-        // React Router 内部 location 不同步，SellerLayout 的 useLocation() 拿到的还是
-        // /products/create，导致菜单高亮等行为偏离。先把 product 数据预热到 React Query
-        // cache，使 navigate 触发的 unmount/mount 后，新的 ProductCreateForm（由 ProductEditForm
-        // 检测 DRAFT 状态后转发而来）能立即从 cache 命中，水合 form values（来自 createDraft 的
-        // 响应即保存时的快照），用户感知一致。仅 fileList 中 status='uploading' 的项会丢失，
-        // 边界情况，用户可重传。
-        queryClient.setQueryData(['seller-product', created.id], created);
         navigate(`/products/${created.id}/edit`, { replace: true });
       }
       setLastSavedAt(new Date());
-      // 保存成功后清 dirty，避免离开页面仍弹未保存提醒
       setDirtySinceSave(false);
-      if (!silent) message.success('草稿已保存');
-    } catch (err: unknown) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const e = err as any;
-      const status = e?.response?.status ?? e?.status;
-      const msg = e?.response?.data?.message || e?.message || '保存草稿失败';
-      if (status === 409) {
-        setDraftLimitReached(true);
-        message.error(msg);
-      } else if (!silent) {
-        message.error(msg);
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn('自动保存草稿失败', err);
+      message.success('草稿已保存');
+    } catch (err) {
+      if (err instanceof ApiError && err.fieldErrors && err.fieldErrors.length > 0) {
+        message.error(err.message || '保存草稿失败');
+        return;
+      }
+      if (err instanceof Error) {
+        message.error(err.message || '保存草稿失败');
       }
     } finally {
       setDraftSaving(false);
     }
-  }, [draftId, draftLimitReached, buildDraftPayload, message, navigate, queryClient]);
-
-  // 30 秒 debounce 自动保存（表单 dirty 才触发）
-  const debouncedAutoSave = useMemo(
-    () => makeDebounce(() => handleSaveDraft(true), 30_000),
-    [handleSaveDraft],
-  );
-
-  useEffect(() => {
-    if (hydratingRef.current) return;
-    if (!dirtySinceSave) return; // 已保存到最新状态就不再触发自动保存
-    debouncedAutoSave();
-    return () => debouncedAutoSave.cancel();
-  }, [watchedValues, fileList, debouncedAutoSave, dirtySinceSave]);
-
-  // 卸载时取消未执行的 debounce
-  useEffect(() => () => { debouncedAutoSave.cancel(); }, [debouncedAutoSave]);
+  }, [draftId, fileList, form, message, multiSpec, navigate]);
 
   // 把后端字段路径（如 "skus.0.specName" / "origin"）映射到前端 form name 路径
   const mapBackendFieldToForm = useCallback(
@@ -1335,30 +1217,16 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     setLoading(true);
     try {
       const values = await form.validateFields();
+      const skuList = buildValidatedSkuList(values, multiSpec);
+      const payload = buildPayload(values, skuList, fileList);
 
       if (draftId) {
-        // 草稿分支：用 buildDraftPayload（全量覆盖语义），否则被清空的字段会被
-        // buildPayload 压成 undefined，updateDraft 跳过更新，旧值留库被一起提交。
-        await updateDraft(draftId, buildDraftPayload());
-        await submitDraft(draftId);
+        await updateProduct(draftId, payload);
+        await submitProduct(draftId);
       } else {
-        // 全新商品创建：直接提交卖家填写的供货价，不在前端推导平台价格。
-        let skuList: Array<Record<string, unknown>>;
-        if (multiSpec) {
-          skuList = values.skus as Array<Record<string, unknown>>;
-        } else {
-          skuList = [{
-            specName: '默认规格',
-            cost: values.singleCost,
-            stock: values.singleStock,
-            weightGram: values.singleWeightGram,
-            maxPerOrder: values.singleMaxPerOrder,
-          }];
-        }
-        const payload = buildPayload(values, skuList, fileList);
-        await createProduct(payload);
+        const created = await createProduct(payload);
+        await submitProduct(created.id);
       }
-      // 提交成功 → 清 dirty 防止跳转时弹未保存提醒
       setDirtySinceSave(false);
       message.success('商品已提交，等待管理员审核');
       navigate('/products');
@@ -1426,9 +1294,8 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             )}
             <Button
               icon={<CloudUploadOutlined />}
-              onClick={() => handleSaveDraft(false)}
+              onClick={handleSaveDraft}
               loading={draftSaving}
-              disabled={draftLimitReached && !draftId}
             >
               保存草稿
             </Button>

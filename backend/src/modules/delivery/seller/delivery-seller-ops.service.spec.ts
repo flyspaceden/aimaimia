@@ -15,6 +15,8 @@ describe('DeliverySellerOpsService', () => {
       },
       deliverySubOrder: {
         count: jest.fn(),
+        findMany: jest.fn(),
+        findFirst: jest.fn(),
       },
       deliverySettlement: {
         count: jest.fn(),
@@ -103,5 +105,176 @@ describe('DeliverySellerOpsService', () => {
         servicePhone: undefined,
       },
     });
+  });
+
+  it('sanitizes seller order list payloads so buyer totals and settlements never leak', async () => {
+    deliveryPrisma.deliverySubOrder.count.mockResolvedValue(1);
+    deliveryPrisma.deliverySubOrder.findMany.mockResolvedValue([
+      {
+        id: 'sub_1',
+        orderId: 'order_1',
+        merchantId: 'merchant_1',
+        status: 'PENDING_SHIPMENT',
+        createdAt: new Date('2026-06-19T10:00:00Z'),
+        updatedAt: new Date('2026-06-19T11:00:00Z'),
+        order: {
+          id: 'order_1',
+          paidAt: new Date('2026-06-19T09:00:00Z'),
+          totalAmountCents: 99999,
+          addressSnapshot: {
+            recipientName: '张三',
+            phone: '13800000000',
+            regionText: '广东省广州市天河区',
+            detailAddress: '体育西路 1 号',
+          },
+        },
+        items: [
+          {
+            id: 'item_1',
+            quantity: 2,
+            lineAmountCents: 5200,
+            productSnapshot: {
+              productTitle: '冷鲜牛腩',
+              skuTitle: '5kg/箱',
+              imageUrl: 'https://img.example.com/1.png',
+              unitName: '箱',
+            },
+          },
+        ],
+        settlements: [{ id: 'settlement_1', status: 'PENDING', settledAmountCents: 8888 }],
+        shipments: [
+          {
+            id: 'shipment_1',
+            status: 'INIT',
+            trackingNo: null,
+            waybillNo: 'SF123',
+            waybillUrl: '/waybills/SF123.pdf',
+            carrierCode: 'SF',
+            carrierName: '顺丰速运',
+            shippedAt: null,
+            createdAt: new Date('2026-06-19T10:10:00Z'),
+            updatedAt: new Date('2026-06-19T10:10:00Z'),
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.listOrders('merchant_1', {});
+
+    expect(result).toMatchObject({
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      items: [
+        {
+          id: 'sub_1',
+          orderId: 'order_1',
+          status: 'PENDING_SHIPMENT',
+          buyerAlias: '收货人 张三',
+          regionText: '广东省广州市天河区',
+          items: [
+            {
+              id: 'item_1',
+              title: '冷鲜牛腩',
+              skuTitle: '5kg/箱',
+              quantity: 2,
+            },
+          ],
+          shipment: {
+            id: 'shipment_1',
+            waybillNo: 'SF123',
+            waybillPrintUrl: '/waybills/SF123.pdf',
+          },
+        },
+      ],
+    });
+    expect(result.items[0]).not.toHaveProperty('totalAmountCents');
+    expect(result.items[0].items[0]).not.toHaveProperty('lineAmountCents');
+    expect(result.items[0]).not.toHaveProperty('settlements');
+  });
+
+  it('loads a seller order detail with only fulfillment-safe fields', async () => {
+    deliveryPrisma.deliverySubOrder.findFirst.mockResolvedValue({
+      id: 'sub_1',
+      orderId: 'order_1',
+      merchantId: 'merchant_1',
+      status: 'SHIPPED',
+      createdAt: new Date('2026-06-19T10:00:00Z'),
+      updatedAt: new Date('2026-06-19T11:00:00Z'),
+      shippedAt: null,
+      deliveredAt: null,
+      order: {
+        id: 'order_1',
+        paidAt: new Date('2026-06-19T09:00:00Z'),
+        totalAmountCents: 99999,
+        addressSnapshot: {
+          recipientName: '李四',
+          phone: '13900000000',
+          regionText: '北京市朝阳区',
+          detailAddress: '建国路 88 号',
+        },
+      },
+      items: [
+        {
+          id: 'item_1',
+          quantity: 1,
+          lineAmountCents: 6600,
+          productSnapshot: {
+            productTitle: '阳光玫瑰',
+            skuTitle: '2kg/箱',
+            imageUrl: 'https://img.example.com/2.png',
+            unitName: '箱',
+          },
+        },
+      ],
+      settlements: [{ id: 'settlement_1', status: 'PENDING', settledAmountCents: 7777 }],
+      shipments: [
+        {
+          id: 'shipment_1',
+          status: 'SHIPPED',
+          trackingNo: 'SF123',
+          waybillNo: 'SF123',
+          waybillUrl: '/waybills/SF123.pdf',
+          carrierCode: 'SF',
+          carrierName: '顺丰速运',
+          shippedAt: new Date('2026-06-19T10:30:00Z'),
+          createdAt: new Date('2026-06-19T10:10:00Z'),
+          updatedAt: new Date('2026-06-19T10:10:00Z'),
+        },
+      ],
+    });
+
+    const result = await service.getOrder('merchant_1', 'sub_1');
+
+    expect(result).toMatchObject({
+      id: 'sub_1',
+      orderId: 'order_1',
+      status: 'SHIPPED',
+      paidAt: new Date('2026-06-19T09:00:00Z').toISOString(),
+      shippingAddress: {
+        recipientName: '李四',
+        phone: '13900000000',
+        regionText: '北京市朝阳区',
+        detailAddress: '建国路 88 号',
+      },
+      items: [
+        {
+          id: 'item_1',
+          title: '阳光玫瑰',
+          skuTitle: '2kg/箱',
+          quantity: 1,
+        },
+      ],
+      shipment: {
+        id: 'shipment_1',
+        status: 'SHIPPED',
+        trackingNo: 'SF123',
+        waybillNo: 'SF123',
+        waybillPrintUrl: '/waybills/SF123.pdf',
+      },
+    });
+    expect(result).not.toHaveProperty('totalAmountCents');
+    expect(result.items[0]).not.toHaveProperty('lineAmountCents');
+    expect(result).not.toHaveProperty('settlements');
   });
 });

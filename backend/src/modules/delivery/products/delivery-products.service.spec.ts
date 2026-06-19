@@ -12,6 +12,7 @@ describe('DeliveryProductsService', () => {
     deliveryPrisma = {
       deliveryProduct: {
         create: jest.fn(),
+        count: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -81,6 +82,7 @@ describe('DeliveryProductsService', () => {
   });
 
   it('never leaks final price, markup rate, or margin in seller product responses', async () => {
+    deliveryPrisma.deliveryProduct.count.mockResolvedValue(1);
     deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([
       {
         id: 'PSSP0000000000001',
@@ -116,17 +118,77 @@ describe('DeliveryProductsService', () => {
 
     const result = await service.listSellerProducts('merchant_1');
 
+    expect(result).toMatchObject({
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
     expect(result.items).toHaveLength(1);
     expect(result.items[0].skus[0]).toMatchObject({
       id: 'sku_1',
       supplyPriceCents: 8800,
-      basePriceCents: 10000,
       stock: 12,
     });
+    expect(result.items[0].skus[0]).not.toHaveProperty('basePriceCents');
     expect(result.items[0].skus[0]).not.toHaveProperty('fixedFinalPriceCents');
     expect(result.items[0].skus[0]).not.toHaveProperty('finalPriceCents');
     expect(result.items[0].skus[0]).not.toHaveProperty('markupBps');
     expect(result.items[0].skus[0]).not.toHaveProperty('marginCents');
+  });
+
+  it('loads a seller-owned product by id with only seller-visible fields', async () => {
+    deliveryPrisma.deliveryProduct.findFirst = jest.fn().mockResolvedValue({
+      id: 'PSSP0000000000001',
+      merchantId: 'merchant_1',
+      title: '冷鲜牛腩',
+      subtitle: '现切',
+      description: '仅供冷链配送',
+      status: 'DRAFT',
+      auditStatus: 'PENDING',
+      auditNote: null,
+      submissionCount: 1,
+      unitName: '箱',
+      minOrderQuantity: 1,
+      orderStepQuantity: 1,
+      createdAt: new Date('2026-06-19T10:00:00Z'),
+      updatedAt: new Date('2026-06-19T11:00:00Z'),
+      category: { id: 'cat_1', name: '牛肉', status: 'ACTIVE' },
+      productUnit: { id: 'unit_1', name: '箱' },
+      skus: [
+        {
+          id: 'sku_1',
+          title: '5kg/箱',
+          imageUrl: null,
+          supplyPriceCents: 8800,
+          basePriceCents: 10000,
+          stock: 12,
+          minOrderQuantity: 1,
+          orderStepQuantity: 1,
+          weightGram: 5000,
+          isActive: true,
+          createdAt: new Date('2026-06-19T10:00:00Z'),
+          updatedAt: new Date('2026-06-19T11:00:00Z'),
+        },
+      ],
+    });
+
+    await expect(
+      service.getSellerProduct('merchant_1', 'PSSP0000000000001'),
+    ).resolves.toMatchObject({
+      id: 'PSSP0000000000001',
+      merchantId: 'merchant_1',
+      title: '冷鲜牛腩',
+      skus: [
+        {
+          id: 'sku_1',
+          supplyPriceCents: 8800,
+          stock: 12,
+        },
+      ],
+    });
+
+    const result = await service.getSellerProduct('merchant_1', 'PSSP0000000000001');
+    expect(result.skus[0]).not.toHaveProperty('basePriceCents');
   });
 
   it('submitting a seller product re-enters audit and uses a serializable transaction', async () => {

@@ -5,6 +5,7 @@ describe('DeliverySellerOpsController', () => {
     const sellerOpsService = {
       getDashboard: jest.fn().mockResolvedValue({ pendingShipmentCount: 3 }),
       listOrders: jest.fn().mockResolvedValue({ items: [] }),
+      getOrder: jest.fn().mockResolvedValue({ id: 'sub_1' }),
       getCompany: jest.fn().mockResolvedValue({ id: 'merchant_1' }),
       updateCompany: jest.fn().mockResolvedValue({ id: 'merchant_1', name: '配送中心A' }),
       listStaff: jest.fn().mockResolvedValue([{ id: 'staff_1' }]),
@@ -17,6 +18,7 @@ describe('DeliverySellerOpsController', () => {
     await expect(controller.listOrders('merchant_1', '1', '10', 'COMPLETED')).resolves.toEqual({
       items: [],
     });
+    await expect(controller.getOrder('merchant_1', 'sub_1')).resolves.toEqual({ id: 'sub_1' });
     await expect(controller.getCompany('merchant_1')).resolves.toEqual({ id: 'merchant_1' });
     await expect(
       controller.updateCompany('merchant_1', {
@@ -42,6 +44,7 @@ describe('DeliverySellerOpsController', () => {
       pageSize: 10,
       status: 'COMPLETED',
     });
+    expect(sellerOpsService.getOrder).toHaveBeenCalledWith('merchant_1', 'sub_1');
     expect(sellerOpsService.updateCompany).toHaveBeenCalledWith('merchant_1', {
       name: '配送中心A',
     });

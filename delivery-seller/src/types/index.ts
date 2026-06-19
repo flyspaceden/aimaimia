@@ -77,27 +77,27 @@ export interface SelectCompanyResponse {
 
 export interface Product {
   id: string;
-  companyId: string;
+  merchantId: string;
+  categoryId?: string | null;
+  productUnitId?: string | null;
   title: string;
   subtitle?: string;
   description?: string;
-  basePrice: number;
-  unit?: string;
   unitName?: string;
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
   submissionCount?: number;
+  detailRich?: unknown;
   origin?: { text?: string };
-  attributes?: Record<string, string>;
+  attributes?: Record<string, unknown>;
   aiKeywords?: string[];
-  categoryId?: string;
+  searchKeywords?: string[];
   category?: { id: string; name: string; path?: string };
-  returnPolicy?: string;
-  effectiveReturnPolicy?: string;
+  productUnit?: { id: string; name: string } | null;
   skus: ProductSKU[];
   media: ProductMedia[];
-  tags: Array<{ tag: { id: string; name: string } }>;
+  tags?: Array<{ tag?: { id: string; name: string }; tagId?: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,10 +105,8 @@ export interface Product {
 export interface ProductSKU {
   id: string;
   title: string;
-  price: number;
   cost?: number;
   supplyPriceCents?: number;
-  basePriceCents?: number;
   stock: number;
   maxPerOrder?: number;
   imageUrl?: string | null;
@@ -131,8 +129,12 @@ export interface ProductMedia {
 // 订单
 // ============================================================
 
-/** 与后端 Prisma OrderStatus 对齐（付款后建单，无 PENDING_PAYMENT） */
-export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
+export type OrderStatus =
+  | 'PENDING_SHIPMENT'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'COMPLETED'
+  | 'CANCELED';
 
 export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
 
@@ -146,29 +148,31 @@ export interface RefundSummary {
 
 export interface Order {
   id: string;
+  orderId: string;
   status: OrderStatus;
-  bizType?: 'NORMAL_GOODS' | 'VIP_PACKAGE';
-  totalAmount: number;
-  goodsAmount?: number;
-  shippingFee?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  paidAt?: string | null;
   createdDate: string; // YYYY-MM-DD（非 createdAt 时间戳）
-  buyerAlias: string; // 匿名编号
-  buyerNo?: string | null; // 买家公开编号（AIMM + 14位数字）
+  buyerAlias: string;
+  buyerNo?: string | null;
   regionText: string | null; // 省市区
+  shippingAddress?: {
+    recipientName: string;
+    phone: string;
+    regionText: string;
+    detailAddress: string;
+  };
   items: OrderItem[];
   shipment?: Shipment | null;
-  refundSummary?: RefundSummary | null;
-  /** 发票状态（只读，仅订单详情返回） */
-  invoiceStatus?: 'REQUESTED' | 'ISSUED' | 'FAILED' | 'CANCELED' | null;
 }
 
 export interface OrderItem {
   id: string;
   title: string;
-  unitPrice: number;
+  skuTitle?: string;
+  unitName?: string;
   quantity: number;
-  isPrize?: boolean;
-  prizeType?: string;
   imageUrl?: string; // 商品首图
 }
 
