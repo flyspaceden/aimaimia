@@ -1,0 +1,927 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/delivery-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DELIVERY_DATABASE_URL")
+}
+
+enum DeliveryAuthProvider {
+  PHONE
+  WECHAT
+}
+
+enum DeliveryUserStatus {
+  ACTIVE
+  DISABLED
+  FROZEN
+}
+
+enum DeliveryAdminUserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum DeliverySellerStaffRole {
+  OWNER
+  MANAGER
+  OPERATOR
+}
+
+enum DeliverySellerStaffStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum DeliveryUnitStatus {
+  ACTIVE
+  DISABLED
+  FROZEN
+}
+
+enum DeliveryMerchantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum DeliveryMerchantApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DeliveryCategoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DeliveryProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum DeliveryProductAuditStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DeliveryPriceRuleScope {
+  PLATFORM
+  MERCHANT
+  PRODUCT
+  SKU
+}
+
+enum DeliveryPriceRuleType {
+  FIXED_PRICE
+  MARKUP_RATE
+}
+
+enum DeliveryShippingRuleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DeliveryShippingCalcType {
+  WEIGHT
+  COUNT
+  AMOUNT
+}
+
+enum DeliveryInventoryLedgerType {
+  IN
+  OUT
+  ADJUST
+  RESERVE
+  RELEASE
+}
+
+enum DeliveryCheckoutSessionStatus {
+  ACTIVE
+  PAID
+  COMPLETED
+  EXPIRED
+  FAILED
+}
+
+enum DeliveryOrderStatus {
+  PENDING_SHIPMENT
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELED
+}
+
+enum DeliveryPaymentChannel {
+  WECHAT_PAY
+  ALIPAY
+}
+
+enum DeliveryPaymentScene {
+  APP
+}
+
+enum DeliveryPaymentStatus {
+  INIT
+  PENDING
+  PAID
+  FAILED
+  CLOSED
+}
+
+enum DeliveryShipmentStatus {
+  INIT
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
+  EXCEPTION
+}
+
+enum DeliveryManifestTemplateType {
+  USER_FULL
+  SELLER_FULFILLMENT
+  SELLER_SETTLEMENT
+}
+
+enum DeliveryManifestFormat {
+  PDF
+  EXCEL
+}
+
+enum DeliveryManifestStatus {
+  PENDING
+  GENERATED
+  FAILED
+}
+
+enum DeliveryManifestVersionStatus {
+  PUBLISHED
+  ARCHIVED
+}
+
+enum DeliverySettlementStatus {
+  PENDING
+  SETTLED
+}
+
+enum DeliveryConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum DeliveryConversationSource {
+  APP
+  ADMIN
+  SELLER
+}
+
+enum DeliveryUnitFieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  SELECT
+}
+
+enum DeliveryConfigScope {
+  SYSTEM
+  CUSTOMER_SERVICE
+  MANIFEST
+  UNIT
+}
+
+enum DeliveryAuditActorType {
+  USER
+  ADMIN
+  SELLER
+  SYSTEM
+}
+
+model DeliverySequence {
+  id           String   @id
+  prefix       String   @unique
+  currentValue BigInt   @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model DeliveryUser {
+  id             String              @id
+  phone          String?             @unique
+  nickname       String?
+  avatarUrl      String?
+  status         DeliveryUserStatus  @default(ACTIVE)
+  loginFailCount Int                 @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  authIdentities   DeliveryAuthIdentity[]
+  units            DeliveryUnit[]
+  addresses        DeliveryAddress[]
+  cartItems        DeliveryCartItem[]
+  checkoutSessions DeliveryCheckoutSession[]
+  orders           DeliveryOrder[]
+  manifests        DeliveryManifest[]
+  conversations    DeliveryCustomerServiceConversation[]
+}
+
+model DeliveryAuthIdentity {
+  id              String               @id @default(cuid())
+  userId          String
+  user            DeliveryUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        DeliveryAuthProvider
+  providerSubject String
+  phone           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+}
+
+model DeliveryAdminUser {
+  id          String                  @id @default(cuid())
+  username    String                  @unique
+  phone       String?                 @unique
+  passwordHash String
+  realName    String?
+  roleCodes   String[]                @default([])
+  permissions Json?
+  status      DeliveryAdminUserStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+  lastLoginIp String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  reviewedApplications DeliveryMerchantApplication[]        @relation("DeliveryMerchantApplicationReviewer")
+  manifestVersions     DeliveryManifestVersion[]
+  settlementsMarked    DeliverySettlement[]                 @relation("DeliverySettlementOperator")
+  assignedConversations DeliveryCustomerServiceConversation[] @relation("DeliveryConversationAdmin")
+}
+
+model DeliverySellerStaff {
+  id             String                    @id @default(cuid())
+  merchantId     String
+  merchant       DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  phone          String?                   @unique
+  username       String?                   @unique
+  passwordHash   String?
+  realName       String?
+  role           DeliverySellerStaffRole   @default(OPERATOR)
+  permissionCodes String[]                 @default([])
+  status         DeliverySellerStaffStatus @default(ACTIVE)
+  lastLoginAt    DateTime?
+  lastLoginIp    String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  createdProducts      DeliveryProduct[]                    @relation("DeliveryProductCreator")
+  operatedSubOrders    DeliverySubOrder[]                   @relation("DeliverySubOrderLastOperator")
+  assignedConversations DeliveryCustomerServiceConversation[] @relation("DeliveryConversationSeller")
+
+  @@index([merchantId, role, status])
+}
+
+model DeliveryUnit {
+  id            String              @id
+  userId        String
+  user          DeliveryUser        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name          String
+  contactName   String
+  contactPhone  String
+  provinceCode  String
+  provinceName  String
+  cityCode      String
+  cityName      String
+  districtCode  String
+  districtName  String
+  detailAddress String
+  extraFields   Json?
+  status        DeliveryUnitStatus  @default(ACTIVE)
+  remark        String?
+  disabledReason String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  addresses        DeliveryAddress[]
+  cartItems        DeliveryCartItem[]
+  checkoutSessions DeliveryCheckoutSession[]
+  orders           DeliveryOrder[]
+  manifests        DeliveryManifest[]
+  conversations    DeliveryCustomerServiceConversation[]
+
+  @@index([userId, status, createdAt])
+}
+
+model DeliveryAddress {
+  id            String        @id @default(cuid())
+  userId        String
+  user          DeliveryUser  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  unitId        String?
+  unit          DeliveryUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  recipientName String
+  phone         String
+  provinceCode  String
+  provinceName  String
+  cityCode      String
+  cityName      String
+  districtCode  String
+  districtName  String
+  detailAddress String
+  regionText    String?
+  label         String?
+  isDefault     Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  checkoutSessions DeliveryCheckoutSession[]
+
+  @@index([userId, unitId, isDefault])
+}
+
+model DeliveryMerchant {
+  id               String                       @id
+  name             String
+  shortName        String?
+  description      String?
+  contactName      String
+  contactPhone     String
+  servicePhone     String?
+  status           DeliveryMerchantStatus      @default(PENDING)
+  logoUrl          String?
+  addressJson      Json?
+  defaultMarkupBps Int?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  applications  DeliveryMerchantApplication[]
+  staff         DeliverySellerStaff[]
+  products      DeliveryProduct[]
+  priceRules    DeliveryPriceRule[]
+  shippingRules DeliveryShippingRule[]
+  subOrders     DeliverySubOrder[]
+  settlements   DeliverySettlement[]
+  shippingCosts DeliveryShippingCost[]
+  shipments     DeliveryShipment[]
+  manifests     DeliveryManifest[]
+  conversations DeliveryCustomerServiceConversation[]
+
+  @@index([status, createdAt])
+}
+
+model DeliveryMerchantApplication {
+  id               String                            @id @default(cuid())
+  companyName      String
+  contactName      String
+  contactPhone     String
+  email            String?
+  note             String?
+  licenseFileUrl   String?
+  status           DeliveryMerchantApplicationStatus @default(PENDING)
+  rejectReason     String?
+  reviewedAt       DateTime?
+  reviewedByAdminId String?
+  reviewedByAdmin  DeliveryAdminUser?               @relation("DeliveryMerchantApplicationReviewer", fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
+  merchantId       String?
+  merchant         DeliveryMerchant?                @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                         @default(now())
+  updatedAt        DateTime                         @updatedAt
+
+  @@index([status, createdAt])
+  @@index([contactPhone])
+}
+
+model DeliveryCategory {
+  id        String              @id @default(cuid())
+  parentId  String?
+  parent    DeliveryCategory?   @relation("DeliveryCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  DeliveryCategory[]  @relation("DeliveryCategoryTree")
+  name      String
+  path      String              @unique
+  level     Int
+  sortOrder Int                 @default(0)
+  status    DeliveryCategoryStatus @default(ACTIVE)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  products DeliveryProduct[]
+}
+
+model DeliveryProductUnit {
+  id        String            @id @default(cuid())
+  name      String            @unique
+  sortOrder Int               @default(0)
+  isActive  Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  products DeliveryProduct[]
+}
+
+model DeliveryProduct {
+  id               String                     @id
+  merchantId       String
+  merchant         DeliveryMerchant           @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  categoryId       String?
+  category         DeliveryCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  productUnitId    String?
+  productUnit      DeliveryProductUnit?       @relation(fields: [productUnitId], references: [id], onDelete: SetNull)
+  createdByStaffId String?
+  createdByStaff   DeliverySellerStaff?       @relation("DeliveryProductCreator", fields: [createdByStaffId], references: [id], onDelete: SetNull)
+  title            String
+  subtitle         String?
+  description      String?
+  detailRich       Json?
+  media            Json?
+  attributes       Json?
+  searchKeywords   String[]                   @default([])
+  unitName         String
+  status           DeliveryProductStatus      @default(DRAFT)
+  auditStatus      DeliveryProductAuditStatus @default(PENDING)
+  auditNote        String?
+  submissionCount  Int                        @default(1)
+  minOrderQuantity Int                        @default(1)
+  orderStepQuantity Int                       @default(1)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  skus       DeliveryProductSku[]
+  priceRules DeliveryPriceRule[]
+  orderItems DeliveryOrderItem[]
+
+  @@index([merchantId, status, createdAt])
+  @@index([categoryId, auditStatus])
+}
+
+model DeliveryProductSku {
+  id                 String               @id @default(cuid())
+  productId          String
+  product            DeliveryProduct      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  skuCode            String?              @unique
+  title              String
+  imageUrl           String?
+  supplyPriceCents   Int
+  basePriceCents     Int
+  fixedFinalPriceCents Int?
+  stock              Int                  @default(0)
+  minOrderQuantity   Int                  @default(1)
+  orderStepQuantity  Int                  @default(1)
+  weightGram         Int
+  isActive           Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  inventoryLedgers DeliveryInventoryLedger[]
+  cartItems        DeliveryCartItem[]
+  orderItems       DeliveryOrderItem[]
+  priceRules       DeliveryPriceRule[]
+  shippingCosts    DeliveryShippingCost[]
+}
+
+model DeliveryPriceRule {
+  id              String                 @id @default(cuid())
+  scope           DeliveryPriceRuleScope
+  ruleType        DeliveryPriceRuleType
+  merchantId      String?
+  merchant        DeliveryMerchant?      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  productId       String?
+  product         DeliveryProduct?       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  skuId           String?
+  sku             DeliveryProductSku?    @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  minQuantity     Int                    @default(1)
+  maxQuantity     Int?
+  fixedPriceCents Int?
+  markupBps       Int?
+  priority        Int                    @default(0)
+  isActive        Boolean                @default(true)
+  note            String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([scope, isActive, priority])
+  @@index([merchantId, productId, skuId])
+}
+
+model DeliveryShippingRule {
+  id                         String                     @id @default(cuid())
+  merchantId                 String?
+  merchant                   DeliveryMerchant?         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  status                     DeliveryShippingRuleStatus @default(ACTIVE)
+  calcType                   DeliveryShippingCalcType   @default(WEIGHT)
+  firstWeightGram            Int
+  firstWeightPriceCents      Int
+  additionalWeightGram       Int?
+  additionalWeightPriceCents Int?
+  freeShippingThresholdCents Int?
+  minShippingFeeCents        Int                        @default(0)
+  sortOrder                  Int                        @default(0)
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+
+  @@index([merchantId, status, sortOrder])
+}
+
+model DeliveryShippingCost {
+  id                         String                   @id @default(cuid())
+  checkoutSessionId          String?
+  checkoutSession            DeliveryCheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
+  orderId                    String?
+  order                      DeliveryOrder?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subOrderId                 String?
+  subOrder                   DeliverySubOrder?        @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  merchantId                 String?
+  merchant                   DeliveryMerchant?        @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  skuId                      String?
+  sku                        DeliveryProductSku?      @relation(fields: [skuId], references: [id], onDelete: SetNull)
+  estimatedUserShippingFeeCents Int
+  actualCarrierCostCents     Int?
+  carrierCode                String?
+  carrierRecordNo            String?
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
+
+  @@index([checkoutSessionId])
+  @@index([orderId])
+  @@index([subOrderId])
+  @@index([merchantId])
+}
+
+model DeliveryUnitFieldConfig {
+  id              String                @id @default(cuid())
+  fieldKey        String                @unique
+  label           String
+  fieldType       DeliveryUnitFieldType @default(TEXT)
+  sortOrder       Int                   @default(0)
+  placeholder     String?
+  options         Json?
+  isVisible       Boolean               @default(true)
+  isRequired      Boolean               @default(false)
+  showInApp       Boolean               @default(true)
+  showInAdmin     Boolean               @default(true)
+  includeInExport Boolean               @default(false)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+model DeliveryInventoryLedger {
+  id            String                  @id @default(cuid())
+  skuId         String
+  sku           DeliveryProductSku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  type          DeliveryInventoryLedgerType
+  quantity      Int
+  beforeStock   Int?
+  afterStock    Int?
+  refType       String?
+  refId         String?
+  remark        String?
+  createdByType DeliveryAuditActorType?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+
+  @@index([skuId, createdAt])
+  @@index([refType, refId])
+}
+
+model DeliveryCartItem {
+  id         String           @id @default(cuid())
+  userId     String
+  user       DeliveryUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unitId     String
+  unit       DeliveryUnit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  skuId      String
+  sku        DeliveryProductSku @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  quantity   Int
+  isSelected Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([userId, unitId, skuId])
+  @@index([unitId, updatedAt])
+}
+
+model DeliveryCheckoutSession {
+  id               String                        @id @default(cuid())
+  userId           String
+  user             DeliveryUser                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  unitId           String
+  unit             DeliveryUnit                  @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  addressId        String?
+  address          DeliveryAddress?              @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  status           DeliveryCheckoutSessionStatus @default(ACTIVE)
+  itemsSnapshot    Json
+  unitSnapshot     Json
+  addressSnapshot  Json
+  pricingSnapshot  Json?
+  note             String?
+  goodsAmountCents Int
+  shippingFeeCents Int
+  totalAmountCents Int
+  paymentChannel   DeliveryPaymentChannel?
+  providerTxnId    String?                       @unique
+  merchantOrderNo  String?                       @unique
+  expiresAt        DateTime
+  paidAt           DateTime?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+
+  orders        DeliveryOrder[]
+  shippingCosts DeliveryShippingCost[]
+
+  @@index([userId, unitId, status])
+  @@index([status, expiresAt])
+}
+
+model DeliveryOrder {
+  id                String               @id
+  userId            String
+  user              DeliveryUser         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  unitId            String
+  unit              DeliveryUnit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  checkoutSessionId String?
+  checkoutSession   DeliveryCheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
+  status            DeliveryOrderStatus  @default(PENDING_SHIPMENT)
+  unitSnapshot      Json
+  addressSnapshot   Json
+  itemsSnapshot     Json
+  pricingSnapshot   Json?
+  note              String?
+  goodsAmountCents  Int
+  shippingFeeCents  Int
+  totalAmountCents  Int
+  paidAt            DateTime?
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  completedAt       DateTime?
+  canceledAt        DateTime?
+  cancelReason      String?
+  autoReceiveAt     DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  subOrders     DeliverySubOrder[]
+  items         DeliveryOrderItem[]
+  payments      DeliveryPayment[]
+  shipments     DeliveryShipment[]
+  manifests     DeliveryManifest[]
+  shippingCosts DeliveryShippingCost[]
+  conversations DeliveryCustomerServiceConversation[]
+
+  @@index([userId, unitId, status, createdAt])
+}
+
+model DeliverySubOrder {
+  id                 String               @id
+  orderId            String
+  order              DeliveryOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  merchantId         String
+  merchant           DeliveryMerchant     @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  status             DeliveryOrderStatus  @default(PENDING_SHIPMENT)
+  supplyAmountCents  Int
+  shippingFeeShareCents Int               @default(0)
+  totalAmountCents   Int
+  note               String?
+  lastOperatorStaffId String?
+  lastOperatorStaff  DeliverySellerStaff? @relation("DeliverySubOrderLastOperator", fields: [lastOperatorStaffId], references: [id], onDelete: SetNull)
+  shippedAt          DateTime?
+  deliveredAt        DateTime?
+  completedAt        DateTime?
+  canceledAt         DateTime?
+  cancelReason       String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  items         DeliveryOrderItem[]
+  shipments     DeliveryShipment[]
+  manifests     DeliveryManifest[]
+  settlements   DeliverySettlement[]
+  shippingCosts DeliveryShippingCost[]
+  conversations DeliveryCustomerServiceConversation[]
+
+  @@index([merchantId, status, createdAt])
+  @@index([orderId])
+}
+
+model DeliveryOrderItem {
+  id                   String            @id @default(cuid())
+  orderId              String
+  order                DeliveryOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrderId           String
+  subOrder             DeliverySubOrder  @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  productId            String
+  product              DeliveryProduct   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  skuId                String
+  sku                  DeliveryProductSku @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  productSnapshot      Json
+  unitPriceCents       Int
+  supplyUnitPriceCents Int
+  baseUnitPriceCents   Int
+  quantity             Int
+  lineAmountCents      Int
+  supplyAmountCents    Int
+  shippingFeeShareCents Int             @default(0)
+  createdAt            DateTime         @default(now())
+
+  @@index([orderId])
+  @@index([subOrderId])
+}
+
+model DeliveryPayment {
+  id               String                @id
+  orderId          String
+  order            DeliveryOrder         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  channel          DeliveryPaymentChannel
+  scene            DeliveryPaymentScene  @default(APP)
+  amountCents      Int
+  currency         String                @default("CNY")
+  status           DeliveryPaymentStatus @default(INIT)
+  merchantOrderNo  String                @unique
+  providerTxnId    String?               @unique
+  requestPayload   Json?
+  rawNotifyPayload Json?
+  exceptionSummary String?
+  paidAt           DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([orderId, status])
+}
+
+model DeliveryShipment {
+  id                   String                @id @default(cuid())
+  orderId              String
+  order                DeliveryOrder         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrderId           String
+  subOrder             DeliverySubOrder      @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  merchantId           String
+  merchant             DeliveryMerchant      @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  status               DeliveryShipmentStatus @default(INIT)
+  carrierCode          String
+  carrierName          String
+  trackingNo           String?
+  waybillNo            String?
+  waybillUrl           String?
+  sfOrderId            String?
+  senderInfoSnapshot   Json?
+  receiverInfoSnapshot Json?
+  rawCarrierPayload    Json?
+  shippedAt            DateTime?
+  deliveredAt          DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([merchantId, status, createdAt])
+  @@index([subOrderId])
+}
+
+model DeliveryManifestTemplate {
+  id          String                       @id @default(cuid())
+  type        DeliveryManifestTemplateType
+  name        String
+  description String?
+  config      Json
+  isDefault   Boolean                      @default(false)
+  isActive    Boolean                      @default(true)
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+
+  versions  DeliveryManifestVersion[]
+  manifests DeliveryManifest[]
+
+  @@unique([type, name])
+}
+
+model DeliveryManifest {
+  id                String                       @id
+  orderId           String?
+  order             DeliveryOrder?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subOrderId        String?
+  subOrder          DeliverySubOrder?           @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  userId            String?
+  user              DeliveryUser?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  unitId            String?
+  unit              DeliveryUnit?               @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  merchantId        String?
+  merchant          DeliveryMerchant?           @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  templateId        String
+  template          DeliveryManifestTemplate    @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateVersionId String?
+  templateVersion   DeliveryManifestVersion?    @relation(fields: [templateVersionId], references: [id], onDelete: SetNull)
+  type              DeliveryManifestTemplateType
+  format            DeliveryManifestFormat      @default(PDF)
+  status            DeliveryManifestStatus      @default(PENDING)
+  title             String
+  fileUrl           String?
+  storageKey        String?
+  payloadSnapshot   Json
+  generatedAt       DateTime?
+  failedAt          DateTime?
+  failureReason     String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  @@index([orderId, type, format])
+  @@index([subOrderId, type, format])
+}
+
+model DeliveryManifestVersion {
+  id               String                         @id @default(cuid())
+  templateId       String
+  template         DeliveryManifestTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  versionNo        Int
+  status           DeliveryManifestVersionStatus  @default(PUBLISHED)
+  config           Json
+  createdByAdminId String?
+  createdByAdmin   DeliveryAdminUser?             @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                       @default(now())
+
+  manifests DeliveryManifest[]
+
+  @@unique([templateId, versionNo])
+}
+
+model DeliverySettlement {
+  id                    String                    @id @default(cuid())
+  merchantId            String
+  merchant              DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  subOrderId            String?
+  subOrder              DeliverySubOrder?         @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  status                DeliverySettlementStatus  @default(PENDING)
+  settlementMonth       String?
+  supplyAmountCents     Int
+  settledAmountCents    Int                       @default(0)
+  exportFileUrl         String?
+  note                  String?
+  markedSettledByAdminId String?
+  markedSettledByAdmin  DeliveryAdminUser?        @relation("DeliverySettlementOperator", fields: [markedSettledByAdminId], references: [id], onDelete: SetNull)
+  settledAt             DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  @@index([merchantId, status, createdAt])
+  @@index([subOrderId])
+}
+
+model DeliveryCustomerServiceConversation {
+  id                 String                     @id @default(cuid())
+  source             DeliveryConversationSource @default(APP)
+  status             DeliveryConversationStatus @default(OPEN)
+  userId             String?
+  user               DeliveryUser?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  unitId             String?
+  unit               DeliveryUnit?              @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  orderId            String?
+  order              DeliveryOrder?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subOrderId         String?
+  subOrder           DeliverySubOrder?          @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  merchantId         String?
+  merchant           DeliveryMerchant?          @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  assignedAdminId    String?
+  assignedAdmin      DeliveryAdminUser?         @relation("DeliveryConversationAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedStaffId    String?
+  assignedStaff      DeliverySellerStaff?       @relation("DeliveryConversationSeller", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  subject            String?
+  lastMessagePreview String?
+  lastMessageAt      DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([userId, unitId])
+}
+
+model DeliveryConfig {
+  id          String              @id @default(cuid())
+  scope       DeliveryConfigScope @default(SYSTEM)
+  key         String              @unique
+  value       Json
+  description String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model DeliveryAuditLog {
+  id         String                @id @default(cuid())
+  actorType  DeliveryAuditActorType
+  actorId    String?
+  module     String
+  action     String
+  targetType String?
+  targetId   String?
+  summary    String?
+  before     Json?
+  after      Json?
+  diff       Json?
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  createdAt  DateTime              @default(now())
+
+  @@index([module, createdAt])
+  @@index([targetType, targetId, createdAt])
+}
