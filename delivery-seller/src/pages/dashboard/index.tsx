@@ -1,158 +1,84 @@
-import { Card, Col, Row, Statistic, List, Button, Typography, Spin, Alert } from 'antd';
-import {
-  ShoppingCartOutlined,
-  DollarOutlined,
-  SendOutlined,
-  SwapOutlined,
-} from '@ant-design/icons';
+import { Card, Col, Row, Statistic, Button, Typography, Spin, Alert, Space } from 'antd';
+import { ShoppingCartOutlined, ClockCircleOutlined, MessageOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { getOverview, getSalesTrend } from '@/api/analytics';
-import { getOrders } from '@/api/orders';
-import { getAfterSales } from '@/api/after-sale';
-import { Line } from '@ant-design/charts';
+import { getDashboard } from '@/api/dashboard';
 
 const { Title } = Typography;
 
 export default function DashboardPage() {
   const navigate = useNavigate();
 
-  const { data: overview, isLoading: loadingOverview, isError: overviewError } = useQuery({
-    queryKey: ['seller-overview'],
-    queryFn: () => getOverview(),
+  const { data: dashboard, isLoading, isError } = useQuery({
+    queryKey: ['delivery-seller-dashboard'],
+    queryFn: () => getDashboard(),
   });
 
-  const { data: salesTrend } = useQuery({
-    queryKey: ['seller-sales-trend'],
-    queryFn: () => getSalesTrend(14),
-  });
-
-  // 待发货订单
-  const { data: pendingOrders } = useQuery({
-    queryKey: ['seller-pending-orders'],
-    queryFn: () => getOrders({ status: 'PAID', page: 1, pageSize: 5 }),
-  });
-
-  // 待处理售后
-  const { data: pendingAfterSales } = useQuery({
-    queryKey: ['seller-pending-after-sales'],
-    queryFn: () => getAfterSales({ status: 'REQUESTED', page: 1, pageSize: 5 }),
-  });
-
-  if (loadingOverview) {
+  if (isLoading) {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   }
 
-  if (overviewError) {
+  if (isError) {
     return <Alert type="error" message="数据加载失败" description="请刷新页面重试" showIcon style={{ margin: 24 }} />;
   }
 
-  const todoItems = [
-    ...(pendingOrders?.items || []).map((o) => ({
-      key: `order-${o.id}`,
-      title: `订单 ${o.id.slice(0, 12)}... 待发货`,
-      action: () => navigate(`/orders/${o.id}`),
-      label: '去发货',
-    })),
-    ...(pendingAfterSales?.items || []).map((r) => ({
-      key: `after-sale-${r.id}`,
-      title: `售后 ${r.id.slice(0, 12)}... 待处理`,
-      action: () => navigate(`/after-sale/${r.id}`),
-      label: '去处理',
-    })),
+  const summaryCards = [
+    {
+      title: '待发货',
+      value: dashboard?.pendingShipmentCount || 0,
+      prefix: <ShoppingCartOutlined />,
+    },
+    {
+      title: '待结算',
+      value: dashboard?.deliveredPendingSettlementCount || 0,
+      prefix: <ClockCircleOutlined />,
+    },
+    {
+      title: '在线会话',
+      value: dashboard?.openConversationCount || 0,
+      prefix: <MessageOutlined />,
+    },
+  ];
+
+  const quickLinks = [
+    { label: '订单', path: '/orders', icon: <ShoppingCartOutlined /> },
+    { label: '商品', path: '/products', icon: <AppstoreOutlined /> },
+    { label: '公司', path: '/company', icon: <ClockCircleOutlined /> },
+    { label: '账号安全', path: '/account-security', icon: <MessageOutlined /> },
   ];
 
   return (
     <div>
-      {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={12} sm={8} lg={5}>
-          <Card>
-            <Statistic
-              title="今日订单"
-              value={overview?.today.orderCount || 0}
-              prefix={<ShoppingCartOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} lg={5}>
-          <Card>
-            <Statistic
-              title="今日销售额"
-              value={overview?.today.revenue || 0}
-              prefix={<DollarOutlined />}
-              precision={2}
-              suffix="元"
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} lg={5}>
-          <Card>
-            <Statistic
-              title="待发货"
-              value={overview?.today.pendingShipCount || 0}
-              prefix={<SendOutlined />}
-              valueStyle={overview?.today.pendingShipCount ? { color: '#DC2626' } : undefined}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} lg={4}>
-          <Card>
-            <Statistic
-              title="待处理售后"
-              value={overview?.today.pendingAfterSaleCount || 0}
-              prefix={<SwapOutlined />}
-              valueStyle={overview?.today.pendingAfterSaleCount ? { color: '#DC2626' } : undefined}
-            />
-          </Card>
-        </Col>
+        {summaryCards.map((item) => (
+          <Col xs={24} sm={8} key={item.title}>
+            <Card>
+              <Statistic title={item.title} value={item.value} prefix={item.prefix} />
+            </Card>
+          </Col>
+        ))}
       </Row>
 
       <Row gutter={16}>
-        {/* 待处理事项 */}
-        <Col span={12}>
-          <Card title="待处理" style={{ marginBottom: 24 }}>
-            {todoItems.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 0', color: '#999' }}>
-                暂无待处理事项
-              </div>
-            ) : (
-              <List
-                dataSource={todoItems}
-                renderItem={(item) => (
-                  <List.Item
-                    actions={[
-                      <Button type="link" size="small" onClick={item.action} key="action">
-                        {item.label}
-                      </Button>,
-                    ]}
-                  >
-                    {item.title}
-                  </List.Item>
-                )}
-              />
-            )}
+        <Col xs={24} lg={14}>
+          <Card title={<Title level={5} style={{ margin: 0 }}>快捷入口</Title>}>
+            <Space wrap>
+              {quickLinks.map((item) => (
+                <Button key={item.path} icon={item.icon} onClick={() => navigate(item.path)}>
+                  {item.label}
+                </Button>
+              ))}
+            </Space>
           </Card>
         </Col>
 
-        {/* 销售趋势 */}
-        <Col span={12}>
-          <Card title={<Title level={5} style={{ margin: 0 }}>近 14 日销售趋势</Title>}>
-            {salesTrend && salesTrend.length > 0 ? (
-              <Line
-                data={salesTrend}
-                xField="date"
-                yField="revenue"
-                height={260}
-                smooth
-                point={{ size: 3 }}
-                yAxis={{ label: { formatter: (v: string) => `¥${v}` } }}
-              />
-            ) : (
-              <div style={{ textAlign: 'center', padding: '60px 0', color: '#999' }}>
-                暂无销售数据
-              </div>
-            )}
+        <Col xs={24} lg={10}>
+          <Card title={<Title level={5} style={{ margin: 0 }}>当前范围</Title>}>
+            <div style={{ color: '#666', lineHeight: 1.8 }}>
+              <div>仅展示配送中心可见的数据。</div>
+              <div>所有统计均来自配送中心工作台。</div>
+              <div>如需继续处理，请从快捷入口进入对应页面。</div>
+            </div>
           </Card>
         </Col>
       </Row>
