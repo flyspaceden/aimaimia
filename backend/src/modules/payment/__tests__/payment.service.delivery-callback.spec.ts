@@ -7,10 +7,30 @@ describe('PaymentService delivery payment callback routing', () => {
     };
     const checkoutService = {
       findByMerchantOrderNo: jest.fn(),
+      handlePaymentSuccess: jest.fn(),
     };
     const prisma = {
+      order: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
       payment: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+      },
+      rewardLedger: {
+        create: jest.fn(),
+      },
+      couponInstance: {
+        updateMany: jest.fn(),
+      },
+      digitalAssetLedger: {
+        create: jest.fn(),
+      },
+      userReferralBinding: {
+        updateMany: jest.fn(),
       },
     };
 
@@ -46,8 +66,18 @@ describe('PaymentService delivery payment callback routing', () => {
         skipSignatureVerification: true,
       }),
     );
+    expect(checkoutService.handlePaymentSuccess).not.toHaveBeenCalled();
     expect(checkoutService.findByMerchantOrderNo).not.toHaveBeenCalled();
+    expect(prisma.order.findUnique).not.toHaveBeenCalled();
+    expect(prisma.order.update).not.toHaveBeenCalled();
     expect(prisma.payment.findUnique).not.toHaveBeenCalled();
+    expect(prisma.payment.findFirst).not.toHaveBeenCalled();
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+    expect(prisma.rewardLedger.create).not.toHaveBeenCalled();
+    expect(prisma.couponInstance.updateMany).not.toHaveBeenCalled();
+    expect(prisma.digitalAssetLedger.create).not.toHaveBeenCalled();
+    expect(prisma.userReferralBinding.updateMany).not.toHaveBeenCalled();
     expect(result).toEqual({ code: 'SUCCESS', message: '配送支付处理成功' });
   });
 

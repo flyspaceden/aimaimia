@@ -71,6 +71,8 @@ export class DeliveryOrdersService {
               throw new NotFoundException('配送结算会话不存在');
             }
 
+            this.assertProviderTxnIdConsistency(checkout.providerTxnId, params.providerTxnId);
+
             const existingOrder = checkout.orders[0] ?? null;
             if (
               existingOrder &&
@@ -92,9 +94,6 @@ export class DeliveryOrdersService {
             }
             if (!checkout.paymentChannel) {
               throw new BadRequestException('配送结算会话缺少支付渠道');
-            }
-            if (checkout.providerTxnId && checkout.providerTxnId !== params.providerTxnId) {
-              throw new ConflictException('配送结算会话已绑定其他支付流水');
             }
 
             const itemsSnapshot = this.parseItemsSnapshot(checkout.itemsSnapshot);
@@ -179,6 +178,7 @@ export class DeliveryOrdersService {
                 },
               });
               const latestOrder = latest?.orders[0] ?? null;
+              this.assertProviderTxnIdConsistency(latest?.providerTxnId, params.providerTxnId);
               if (latestOrder) {
                 return {
                   orderId: latestOrder.id,
@@ -352,6 +352,15 @@ export class DeliveryOrdersService {
 
     this.logger.warn(`配送订单创建重试耗尽: merchantOrderNo=${params.merchantOrderNo}`);
     throw new ConflictException('配送订单创建冲突，请重试');
+  }
+
+  private assertProviderTxnIdConsistency(
+    existingProviderTxnId: string | null | undefined,
+    incomingProviderTxnId: string,
+  ) {
+    if (existingProviderTxnId && existingProviderTxnId !== incomingProviderTxnId) {
+      throw new ConflictException('配送结算会话已绑定其他支付流水');
+    }
   }
 
   private parseItemsSnapshot(raw: Prisma.JsonValue): DeliveryCheckoutItemSnapshot[] {

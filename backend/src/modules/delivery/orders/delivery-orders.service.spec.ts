@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
@@ -209,6 +209,7 @@ describe('DeliveryOrdersService', () => {
     tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
       ...activeCheckout,
       status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
       orders: [{ id: 'PSDD0000000000009', subOrders: [{ id: 'PSZDD000000000099' }] }],
     });
 
@@ -230,6 +231,28 @@ describe('DeliveryOrdersService', () => {
         trigger: 'skipped-existing-order',
       },
     });
+  });
+
+  it('rejects a repeated callback with a different providerTxnId after the checkout is already paid', async () => {
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      ...activeCheckout,
+      status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
+      orders: [{ id: 'PSDD0000000000009', subOrders: [{ id: 'PSZDD000000000099' }] }],
+    });
+
+    await expect(
+      service.createOrderFromPaidCheckout({
+        merchantOrderNo: 'PSZF0000000000001',
+        providerTxnId: 'ALI_TXN_2',
+        paidAt: new Date('2026-06-19T12:00:00.000Z'),
+        rawPayload: { total_amount: '49.00' },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.deliveryProductSku.updateMany).not.toHaveBeenCalled();
+    expect(tx.deliveryOrder.create).not.toHaveBeenCalled();
+    expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
   });
 
   it('rejects payment success when current delivery stock is insufficient and never decrements below zero', async () => {

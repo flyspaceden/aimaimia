@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryOrdersService } from '../orders/delivery-orders.service';
@@ -230,6 +230,38 @@ describe('DeliveryPaymentsService', () => {
       }),
     );
     expect(result).toEqual({ code: 'SUCCESS', message: '配送支付失败已记录' });
+  });
+
+  it('rejects a failed callback with a different providerTxnId after the checkout is already paid', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
+      totalAmountCents: 4900,
+      status: 'PAID',
+    });
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
+      totalAmountCents: 4900,
+      status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
+    });
+
+    await expect(
+      service.handlePaymentCallback({
+        merchantOrderNo: 'PSZF0000000000001',
+        providerTxnId: 'ALI_TXN_2',
+        status: 'FAILED',
+        rawPayload: { trade_status: 'TRADE_CLOSED' },
+        skipSignatureVerification: true,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(deliveryOrdersService.createOrderFromPaidCheckout).not.toHaveBeenCalled();
+    expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
+    expect(tx.deliveryCheckoutSession.updateMany).not.toHaveBeenCalled();
   });
 
   it('records an abnormal delivery payment record when order creation fails after provider success', async () => {

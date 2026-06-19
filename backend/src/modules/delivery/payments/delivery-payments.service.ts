@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -184,6 +185,7 @@ export class DeliveryPaymentsService {
             paymentChannel: true,
             totalAmountCents: true,
             status: true,
+            providerTxnId: true,
           },
         });
 
@@ -193,6 +195,8 @@ export class DeliveryPaymentsService {
         if (!checkout.paymentChannel) {
           throw new BadRequestException('配送结算会话缺少支付渠道');
         }
+
+        this.assertProviderTxnIdConsistency(checkout.providerTxnId, providerTxnId);
 
         if (checkout.status === 'PAID' || checkout.status === 'COMPLETED') {
           return checkout;
@@ -309,5 +313,14 @@ export class DeliveryPaymentsService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+  }
+
+  private assertProviderTxnIdConsistency(
+    existingProviderTxnId: string | null | undefined,
+    incomingProviderTxnId: string,
+  ) {
+    if (existingProviderTxnId && existingProviderTxnId !== incomingProviderTxnId) {
+      throw new ConflictException('配送结算会话已绑定其他支付流水');
+    }
   }
 }
