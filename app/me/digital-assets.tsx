@@ -149,8 +149,7 @@ export default function DigitalAssetsScreen() {
   );
 
   const renderRecentRecord = ({ item, index }: { item: DigitalAssetLedger; index: number }) => {
-    const isPositive = item.direction === 'CREDIT';
-    const accent = isPositive ? colors.success : colors.danger;
+    const visual = getLedgerVisual(item);
     return (
       <Animated.View entering={FadeInDown.duration(220).delay(index * 32)}>
         <View
@@ -167,19 +166,20 @@ export default function DigitalAssetsScreen() {
             style={[
               styles.ledgerIcon,
               {
-                backgroundColor: isPositive ? colors.brand.primarySoft : `${colors.danger}12`,
+                backgroundColor: visual.bg,
+                borderColor: visual.border,
               },
             ]}
           >
             <MaterialCommunityIcons
-              name={getLedgerVisual(item).icon as any}
+              name={visual.icon as any}
               size={20}
-              color={getLedgerVisual(item).color}
+              color={visual.color}
             />
           </View>
 
           <View style={styles.ledgerMain}>
-            <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+            <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={2}>
               {item.title}
             </Text>
             <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 3 }]} numberOfLines={1}>
@@ -191,7 +191,7 @@ export default function DigitalAssetsScreen() {
           </View>
 
           <View style={styles.ledgerAmountBox}>
-            <Text style={[typography.bodyStrong, { color: accent }]} {...priceTextProps}>
+            <Text style={[typography.bodyStrong, { color: visual.color }]} {...priceTextProps}>
               {formatLedgerAmount(item)}
             </Text>
             <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]} {...priceTextProps}>
@@ -353,7 +353,7 @@ export default function DigitalAssetsScreen() {
           ListHeaderComponent={listHeader}
           ListEmptyComponent={(
             <View style={{ paddingTop: spacing.sm }}>
-              <EmptyState title="暂无消费记录" description="确认收货后开始累计" />
+              <EmptyState title="暂无资产流水" description="系统结算后会显示记录" />
             </View>
           )}
           ListFooterComponent={(
@@ -370,7 +370,7 @@ export default function DigitalAssetsScreen() {
               ]}
             >
               <Text style={[typography.bodyStrong, { color: colors.text.primary }]} {...compactActionTextProps}>
-                查看全部消费记录
+                查看全部
               </Text>
               <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.secondary} />
             </Pressable>
@@ -523,6 +523,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 10,
+    shadowColor: '#101828',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   ledgerIcon: {
     width: 40,
@@ -530,6 +535,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   ledgerMain: {
     flex: 1,
@@ -539,6 +545,7 @@ const styles = StyleSheet.create({
   ledgerAmountBox: {
     alignItems: 'flex-end',
     marginLeft: 12,
+    maxWidth: 112,
   },
   viewAllButton: {
     flexDirection: 'row',
