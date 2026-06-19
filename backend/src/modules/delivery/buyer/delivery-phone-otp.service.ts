@@ -53,11 +53,15 @@ export class DeliveryPhoneOtpService {
       return;
     }
 
-    if (this.configService.get('SMS_MOCK', 'true') === 'true' && code === '123456') {
+    if (this.isMockCodeEnabled() && code === '123456') {
       return;
     }
 
     throw new BadRequestException('验证码错误或已过期');
+  }
+
+  private isMockCodeEnabled() {
+    return this.configService.get('DELIVERY_SMS_MOCK') === 'true';
   }
 
   hashCode(code: string) {
