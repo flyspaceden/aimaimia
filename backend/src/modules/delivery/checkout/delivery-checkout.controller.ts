@@ -26,4 +26,15 @@ export class DeliveryCheckoutController {
   ) {
     return this.deliveryCheckoutService.getCheckout(deliveryUserId, checkoutSessionId);
   }
+
+  @Post('checkout/:id/pay')
+  createPaymentParams(
+    @CurrentUser('deliveryUserId') deliveryUserId: string,
+    @Param('id') checkoutSessionId: string,
+  ) {
+    return this.deliveryCheckoutService.createPaymentParams(
+      deliveryUserId,
+      checkoutSessionId,
+    );
+  }
 }

@@ -174,9 +174,39 @@ export type DeliveryCreateCheckoutPayload = {
   paymentChannel: 'ALIPAY' | 'WECHAT_PAY';
 };
 
+export type DeliveryAlipayPaymentParams = {
+  channel: 'alipay';
+  orderStr: string;
+};
+
+export type DeliveryWechatPaymentParams = {
+  channel: 'wechat';
+  appId: string;
+  partnerId: string;
+  timestamp: string;
+  nonceStr: string;
+  prepayId: string;
+  packageVal: string;
+  signType: string;
+  paySign: string;
+};
+
+export type DeliveryCheckoutPaymentParams =
+  | DeliveryAlipayPaymentParams
+  | DeliveryWechatPaymentParams
+  | Record<string, never>;
+
+type DeliveryCheckoutPaymentResponse = {
+  checkoutId: string;
+  merchantOrderNo: string | null;
+  totalAmount: number;
+  paymentParams: DeliveryCheckoutPaymentParams;
+};
+
 export const deliveryOrderPaths = {
   checkoutRoot: () => buildDeliveryPath('checkout'),
   checkout: (id: string) => buildDeliveryPath(`checkout/${id}`),
+  payment: (id: string) => buildDeliveryPath(`checkout/${id}/pay`),
   list: () => buildDeliveryPath('orders'),
   detail: (id: string) => buildDeliveryPath(`orders/${id}`),
   shipments: (id: string) => buildDeliveryPath(`orders/${id}/shipments`),
@@ -265,6 +295,14 @@ export const DeliveryOrderRepo = {
     deliveryApiClient
       .get<DeliveryCheckoutSessionResponse>(deliveryOrderPaths.checkout(id))
       .then((result) => mapDeliveryResult(result, mapDeliveryCheckoutSession)),
+
+  createPaymentParams: (
+    checkoutId: string,
+  ): Promise<Result<DeliveryCheckoutPaymentResponse>> =>
+    deliveryApiClient.post<DeliveryCheckoutPaymentResponse>(
+      deliveryOrderPaths.payment(checkoutId),
+      {},
+    ),
 
   listOrders: (params?: {
     status?: string;

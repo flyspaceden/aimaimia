@@ -5,6 +5,8 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback/Toast';
 import { DeliveryOrderRepo } from '../../src/repos/delivery';
 import { useDeliveryAuthStore, useDeliveryCartStore } from '../../src/store';
+import { payWithAlipay } from '../../src/utils/alipay';
+import { hasCompleteWechatPayPayload, payWithWechat } from '../../src/utils/wechat-pay';
 import {
   DeliveryButton,
   DeliveryPanel,
@@ -25,6 +27,16 @@ export default function DeliveryCheckoutScreen() {
 
   const total = items.reduce((sum, item) => sum + item.lineAmount, 0);
 
+  const navigateToStatus = (checkoutId: string, merchantOrderNo?: string | null) => {
+    router.replace({
+      pathname: '/delivery/payment-success',
+      params: {
+        checkoutId,
+        merchantOrderNo: merchantOrderNo || undefined,
+      },
+    });
+  };
+
   const handleSubmit = async () => {
     if (!items.length) {
       show({ message: '请先选择要结算的商品', type: 'warning' });
@@ -44,13 +56,58 @@ export default function DeliveryCheckoutScreen() {
       return;
     }
 
-    router.replace({
-      pathname: '/delivery/payment-success',
-      params: {
-        checkoutId: result.data.id,
-        merchantOrderNo: result.data.merchantOrderNo,
-      },
-    });
+    const paymentResult = await DeliveryOrderRepo.createPaymentParams(result.data.id);
+    if (!paymentResult.ok) {
+      show({ message: paymentResult.error.displayMessage ?? '拉起配送支付失败', type: 'error' });
+      return;
+    }
+
+    const { paymentParams, merchantOrderNo } = paymentResult.data;
+    if (paymentParams?.channel === 'alipay' && paymentParams.orderStr) {
+      const alipayResult = await payWithAlipay(paymentParams.orderStr);
+      if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
+        show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+        return;
+      }
+      if (alipayResult.resultStatus === '6001') {
+        show({ message: '已取消支付', type: 'warning' });
+        return;
+      }
+      if (!alipayResult.success) {
+        show({
+          message:
+            alipayResult.memo === 'TIMEOUT'
+              ? '支付宝未响应，正在等待配送支付回调确认'
+              : '正在确认支付宝支付结果',
+          type: 'warning',
+        });
+      }
+      navigateToStatus(result.data.id, merchantOrderNo);
+      return;
+    }
+
+    if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
+      const wechatResult = await payWithWechat(paymentParams);
+      if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
+        show({ message: '支付组件不可用，请更新到最新版 App 后重试', type: 'error' });
+        return;
+      }
+      if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
+        show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
+        return;
+      }
+      if (wechatResult.resultStatus === '6001') {
+        show({ message: '已取消支付', type: 'warning' });
+        return;
+      }
+      if (!wechatResult.success) {
+        show({ message: '正在确认微信支付结果', type: 'warning' });
+      }
+      navigateToStatus(result.data.id, merchantOrderNo);
+      return;
+    }
+
+    show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
   };
 
   return (

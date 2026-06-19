@@ -23,8 +23,8 @@
 
 - [x] **配送买家 App 模块（Task 13）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 13 brief
-  - **实际做了**: 买家 App `我的 > 常用工具 > 配送` 入口接到 `/delivery`；完成 delivery 登录门禁、单位选择/编辑、双 Tab（商品/我的）、商品列表/详情、购物车、结算状态页、配送订单列表/详情、配送清单页；新增 delivery buyer 订单列表/详情后端接口与 App `DeliveryOrderRepo` 映射，避免 `/delivery/orders` 成为死页面
-  - **验证**: `npx tsc --noEmit`、根目录 `npm test -- --runInBand`、`backend npm test -- --runInBand src/modules/delivery/orders/delivery-buyer-orders.controller.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`backend npm run build` 通过
+  - **实际做了**: 买家 App `我的 > 常用工具 > 配送` 入口接到 `/delivery`；完成 delivery 登录门禁、单位选择/编辑、双 Tab（商品/我的）、商品列表/详情、购物车、配送专属结算与支付状态页、配送订单列表/详情、配送清单页；新增 delivery buyer 订单列表/详情后端接口与 App `DeliveryOrderRepo` 映射；补 delivery 专属 `checkout/:id/pay` 发起支付参数接口，App 走原生支付宝 / 微信 SDK；配送支付回调建单后同事务清理本次 checkout 对应的 `DeliveryCartItem`
+  - **验证**: `npx tsc --noEmit --pretty false`、根目录 `npm test -- --runInBand`、`backend npm test -- --runInBand src/modules/delivery/checkout/delivery-checkout.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`backend npm run build`、`git diff --check`；其中真实支付宝 / 微信 provider 回调仍待实机联调验证，当前仅完成代码链路与单测验证
 
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀

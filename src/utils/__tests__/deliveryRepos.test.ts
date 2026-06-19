@@ -22,6 +22,7 @@ describe('delivery repo paths', () => {
     expect(deliveryProductPaths.detail('product_1')).toBe('/delivery/products/product_1');
     expect(deliveryCartPaths.item('cart_1')).toBe('/delivery/cart/items/cart_1');
     expect(deliveryOrderPaths.checkout('checkout_1')).toBe('/delivery/checkout/checkout_1');
+    expect(deliveryOrderPaths.payment('checkout_1')).toBe('/delivery/checkout/checkout_1/pay');
     expect(deliveryOrderPaths.list()).toBe('/delivery/orders');
     expect(deliveryOrderPaths.detail('order_1')).toBe('/delivery/orders/order_1');
     expect(deliveryOrderPaths.shipments('order_1')).toBe('/delivery/orders/order_1/shipments');

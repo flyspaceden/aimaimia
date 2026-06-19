@@ -10,6 +10,7 @@ describe('DeliveryCheckoutService', () => {
   let deliveryPrisma: any;
   let deliveryIdService: { nextInTransaction: jest.Mock };
   let pricingService: { resolvePrice: jest.Mock };
+  let moduleRef: { get: jest.Mock };
   let service: DeliveryCheckoutService;
 
   beforeEach(() => {
@@ -70,10 +71,14 @@ describe('DeliveryCheckoutService', () => {
           appliedMarkupBps: 1000,
         }),
     };
+    moduleRef = {
+      get: jest.fn(),
+    };
     service = new DeliveryCheckoutService(
       deliveryPrisma as DeliveryPrismaService,
       pricingService as unknown as DeliveryPricingService,
       deliveryIdService as unknown as DeliveryIdService,
+      moduleRef as any,
     );
   });
 
@@ -331,6 +336,138 @@ describe('DeliveryCheckoutService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(tx.deliveryCheckoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('creates delivery Alipay app payment params for an active checkout session', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: null,
+    });
+    deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+      id: 'checkout_1',
+      userId: 'PSYH0000000000001',
+      unitId: 'unit_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
+      totalAmountCents: 4900,
+      status: 'ACTIVE',
+      expiresAt: new Date('2099-06-19T12:00:00.000Z'),
+    });
+    const alipayService = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      createAppPayOrder: jest.fn().mockResolvedValue('delivery-order-str'),
+    };
+    moduleRef.get.mockImplementation((token: any) => {
+      if (token?.name === 'AlipayService') return alipayService;
+      return null;
+    });
+
+    const result = await service.createPaymentParams('PSYH0000000000001', 'checkout_1');
+
+    expect(alipayService.createAppPayOrder).toHaveBeenCalledWith({
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmount: 49,
+      subject: '爱买买配送订单-PSZF0000000000001',
+    });
+    expect(result).toEqual({
+      checkoutId: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmount: 49,
+      paymentParams: {
+        channel: 'alipay',
+        orderStr: 'delivery-order-str',
+      },
+    });
+  });
+
+  it('creates delivery WeChat app payment params for an active checkout session', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: null,
+    });
+    deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+      id: 'checkout_2',
+      userId: 'PSYH0000000000001',
+      unitId: 'unit_1',
+      merchantOrderNo: 'PSZF0000000000002',
+      paymentChannel: 'WECHAT_PAY',
+      totalAmountCents: 6600,
+      status: 'ACTIVE',
+      expiresAt: new Date('2099-06-19T12:00:00.000Z'),
+    });
+    const wechatPayService = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      createAppOrder: jest.fn().mockResolvedValue({
+        appId: 'wx-app',
+        partnerId: 'mch-1',
+        timestamp: '1718798400',
+        nonceStr: 'nonce',
+        prepayId: 'prepay-1',
+        packageVal: 'Sign=WXPay',
+        signType: 'RSA',
+        paySign: 'signed',
+      }),
+    };
+    moduleRef.get.mockImplementation((token: any) => {
+      if (token?.name === 'WechatPayService') return wechatPayService;
+      return null;
+    });
+
+    const result = await service.createPaymentParams('PSYH0000000000001', 'checkout_2');
+
+    expect(wechatPayService.createAppOrder).toHaveBeenCalledWith({
+      outTradeNo: 'PSZF0000000000002',
+      amount: 66,
+      description: '爱买买配送订单-PSZF0000000000002',
+    });
+    expect(result).toEqual({
+      checkoutId: 'checkout_2',
+      merchantOrderNo: 'PSZF0000000000002',
+      totalAmount: 66,
+      paymentParams: {
+        channel: 'wechat',
+        appId: 'wx-app',
+        partnerId: 'mch-1',
+        timestamp: '1718798400',
+        nonceStr: 'nonce',
+        prepayId: 'prepay-1',
+        packageVal: 'Sign=WXPay',
+        signType: 'RSA',
+        paySign: 'signed',
+      },
+    });
   });
 
   it('uses a provided delivery address only when it belongs to the current user and unit', async () => {

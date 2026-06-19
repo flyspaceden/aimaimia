@@ -594,6 +594,25 @@ export class DeliveryOrdersService {
               }
             }
 
+            const purchasedCartItemIds = Array.from(
+              new Set(
+                itemsSnapshot
+                  .map((item) => item.cartItemId?.trim())
+                  .filter((itemId): itemId is string => Boolean(itemId)),
+              ),
+            );
+            if (purchasedCartItemIds.length > 0) {
+              await tx.deliveryCartItem.deleteMany({
+                where: {
+                  id: {
+                    in: purchasedCartItemIds,
+                  },
+                  userId: checkout.userId,
+                  unitId: checkout.unitId,
+                },
+              });
+            }
+
             await tx.deliveryPayment.upsert({
               where: { merchantOrderNo: params.merchantOrderNo },
               create: {

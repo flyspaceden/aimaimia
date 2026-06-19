@@ -56,8 +56,8 @@
 | 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
 | 配送商品详情 | `/delivery/product/[id]` | ✅ 已接入 | SKU 选择、起订量 / 步长 / 库存展示 |
 | 配送购物车 | `/delivery/cart` | ✅ 已接入 | 勾选、改数量、删除、去结算 |
-| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 创建 delivery checkout session，备注与支付渠道绑定到配送结算 |
-| 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 轮询 checkout session 状态；当前用于结算创建后状态页 |
+| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 先创建 delivery checkout session，再通过 delivery 专属 pay-params 接口拉起原生支付宝 / 微信支付 |
+| 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 支付拉起后轮询 delivery checkout session 状态，等待支付回调建单完成 |
 | 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用 |
 | 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口 |
 | 配送清单列表 | `/delivery/manifests` | ✅ 已接入 | 打开 buyer manifests 文件 |
@@ -65,7 +65,9 @@
 ### 0.5 当前边界
 
 - delivery 订单列表/详情走 delivery buyer 专属后端接口，不再落到普通订单接口。
-- checkout 已能创建 delivery checkout session 并进入状态页。
+- checkout 已接入 delivery 专属支付发起链路：`createCheckout -> createPaymentParams -> 原生 Alipay/WeChat SDK -> /delivery/payment-success`。
+- delivery paid order 创建后会在同一 delivery 事务内清理本次 checkout snapshot 对应的 `DeliveryCartItem`，不触碰普通购物车。
+- 支付宝 / 微信真实 provider 回调链路沿用现有 `/payments/alipay|wechat/notify -> DeliveryPaymentsService -> DeliveryOrdersService`，本次只补齐 delivery 侧 pay params 发起；真实渠道联调仍待实机验证，当前不能表述为已完成生产验证。
 - 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
 
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。

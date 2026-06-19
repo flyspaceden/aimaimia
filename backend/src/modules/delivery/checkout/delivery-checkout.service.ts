@@ -2,13 +2,18 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import {
   DeliveryPriceRuleScope,
   DeliveryShippingCalcType,
   Prisma,
 } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { AlipayService } from '../../payment/alipay.service';
+import { WechatPayService } from '../../payment/wechat-pay.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
 import { CreateDeliveryCheckoutDto } from './dto/create-delivery-checkout.dto';
@@ -71,6 +76,7 @@ export class DeliveryCheckoutService {
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryPricingService: DeliveryPricingService,
     private readonly deliveryIdService: DeliveryIdService,
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   async createCheckout(deliveryUserId: string, dto: CreateDeliveryCheckoutDto) {
@@ -318,6 +324,90 @@ export class DeliveryCheckoutService {
     return session;
   }
 
+  async createPaymentParams(deliveryUserId: string, checkoutSessionId: string) {
+    const currentUnit = await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
+    const session = await this.deliveryPrisma.deliveryCheckoutSession.findFirst({
+      where: {
+        id: checkoutSessionId,
+        userId: deliveryUserId,
+        unitId: currentUnit.id,
+      },
+      select: {
+        id: true,
+        merchantOrderNo: true,
+        paymentChannel: true,
+        totalAmountCents: true,
+        status: true,
+        expiresAt: true,
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('配送结算会话不存在');
+    }
+    if (session.status !== 'ACTIVE') {
+      throw new BadRequestException(`配送结算会话状态不可支付: ${session.status}`);
+    }
+    if (session.expiresAt <= new Date()) {
+      throw new BadRequestException('配送结算会话已过期');
+    }
+    if (!session.merchantOrderNo) {
+      throw new BadRequestException('配送结算会话缺少支付单号');
+    }
+    if (!session.paymentChannel) {
+      throw new BadRequestException('配送结算会话缺少支付渠道');
+    }
+
+    const totalAmount = Number((session.totalAmountCents / 100).toFixed(2));
+    if (session.paymentChannel === 'ALIPAY') {
+      const alipayService = this.getAlipayService();
+      if (!alipayService?.isAvailable()) {
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+
+      const orderStr = await alipayService.createAppPayOrder({
+        merchantOrderNo: session.merchantOrderNo,
+        totalAmount,
+        subject: `爱买买配送订单-${session.merchantOrderNo}`,
+      });
+
+      return {
+        checkoutId: session.id,
+        merchantOrderNo: session.merchantOrderNo,
+        totalAmount,
+        paymentParams: {
+          channel: 'alipay',
+          orderStr,
+        },
+      };
+    }
+
+    if (session.paymentChannel === 'WECHAT_PAY') {
+      const wechatPayService = this.getWechatPayService();
+      if (!wechatPayService?.isAvailable()) {
+        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+      }
+
+      const wechatParams = await wechatPayService.createAppOrder({
+        outTradeNo: session.merchantOrderNo,
+        amount: totalAmount,
+        description: `爱买买配送订单-${session.merchantOrderNo}`,
+      });
+
+      return {
+        checkoutId: session.id,
+        merchantOrderNo: session.merchantOrderNo,
+        totalAmount,
+        paymentParams: {
+          channel: 'wechat',
+          ...wechatParams,
+        },
+      };
+    }
+
+    throw new BadRequestException('配送支付渠道不支持');
+  }
+
   private async requireCurrentUnit(
     prisma: Pick<DeliveryPrismaService, 'deliveryUser' | 'deliveryUnit'> | Prisma.TransactionClient,
     deliveryUserId: string,
@@ -393,6 +483,14 @@ export class DeliveryCheckoutService {
     if (stock < quantity) {
       throw new BadRequestException('库存不足');
     }
+  }
+
+  private getAlipayService(): AlipayService | null {
+    return this.moduleRef?.get(AlipayService, { strict: false }) ?? null;
+  }
+
+  private getWechatPayService(): WechatPayService | null {
+    return this.moduleRef?.get(WechatPayService, { strict: false }) ?? null;
   }
 
   private async loadMerchantRulesByMerchantId(tx: Prisma.TransactionClient, merchantIds: string[]) {

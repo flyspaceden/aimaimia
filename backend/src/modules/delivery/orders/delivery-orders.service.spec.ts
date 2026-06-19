@@ -78,6 +78,9 @@ describe('DeliveryOrdersService', () => {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
+      deliveryCartItem: {
+        deleteMany: jest.fn(),
+      },
       deliveryProductSku: {
         findMany: jest.fn(),
         updateMany: jest.fn(),
@@ -208,6 +211,69 @@ describe('DeliveryOrdersService', () => {
       subOrderIds: ['PSZDD000000000001', 'PSZDD000000000002'],
       idempotent: false,
     });
+  });
+
+  it('clears purchased delivery cart rows inside the paid-order transaction without touching normal cart', async () => {
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue(activeCheckout);
+    tx.deliveryProductSku.findMany.mockResolvedValue([
+      {
+        id: 'sku_1',
+        stock: 20,
+        supplyPriceCents: 800,
+        basePriceCents: 1000,
+        isActive: true,
+        product: {
+          id: 'product_1',
+          merchantId: 'merchant_1',
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'ACTIVE',
+          },
+        },
+      },
+      {
+        id: 'sku_2',
+        stock: 10,
+        supplyPriceCents: 1600,
+        basePriceCents: 2000,
+        isActive: true,
+        product: {
+          id: 'product_2',
+          merchantId: 'merchant_2',
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'ACTIVE',
+          },
+        },
+      },
+    ]);
+    tx.deliveryProductSku.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryOrder.create.mockResolvedValue({ id: 'PSDD0000000000001' });
+    tx.deliverySubOrder.create
+      .mockResolvedValueOnce({ id: 'PSZDD000000000001' })
+      .mockResolvedValueOnce({ id: 'PSZDD000000000002' });
+    tx.deliveryOrderItem.create.mockResolvedValue({});
+    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
+    tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryCartItem.deleteMany.mockResolvedValue({ count: 2 });
+
+    await service.createOrderFromPaidCheckout({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      rawPayload: { total_amount: '49.00' },
+    });
+
+    expect(tx.deliveryCartItem.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['cart_1', 'cart_2'] },
+        userId: 'delivery_user_1',
+        unitId: 'unit_1',
+      },
+    });
+    expect((tx as any).cartItem).toBeUndefined();
   });
 
   it('returns existing delivery order ids without a second stock deduction when the checkout is already consumed', async () => {

@@ -40,11 +40,11 @@ export default function DeliveryPaymentSuccessScreen() {
   const title =
     checkout?.status === 'COMPLETED' || checkout?.status === 'PAID'
       ? '支付成功'
-      : '结算单已创建';
+      : '支付结果确认中';
   const description =
     checkout?.status === 'COMPLETED' || checkout?.status === 'PAID'
       ? '配送订单正在生成或已经生成，可以去订单页查看'
-      : '当前结算单还在等待支付回调，稍后可刷新状态';
+      : '已拉起配送支付，当前还在等待渠道回调或订单生成，请稍后刷新状态';
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
