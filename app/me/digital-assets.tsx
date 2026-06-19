@@ -173,7 +173,7 @@ export default function DigitalAssetsScreen() {
           >
             <MaterialCommunityIcons
               name={visual.icon as any}
-              size={20}
+              size={19}
               color={visual.color}
             />
           </View>
@@ -523,16 +523,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 10,
-    shadowColor: '#101828',
-    shadowOpacity: 0.08,
+    shadowColor: '#16241F',
+    shadowOpacity: 0.045,
     shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 6 },
     elevation: 1,
   },
   ledgerIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
