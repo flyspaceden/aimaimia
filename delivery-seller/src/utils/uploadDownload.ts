@@ -48,7 +48,7 @@ export function buildUploadDownloadRequest(
   preferredName: string,
   apiBase: string,
 ): UploadDownloadRequest {
-  const privateMatch = fileUrl.match(/\/upload\/private\/(.+?)(?:\?|$)/);
+  const privateMatch = fileUrl.match(/\/delivery-seller\/upload\/private\/(.+?)(?:\?|$)/);
   if (privateMatch) {
     const key = decodeURIComponent(privateMatch[1]);
     const filename = deriveFilename(preferredName, key);
@@ -65,7 +65,7 @@ export function buildUploadDownloadRequest(
 
   const filename = deriveFilename(preferredName, key);
   return {
-    href: `${apiBase}/upload/download?${new URLSearchParams({ key, filename }).toString()}`,
+    href: `${apiBase}/delivery-seller/upload/download?${new URLSearchParams({ key, filename }).toString()}`,
     filename,
   };
 }
