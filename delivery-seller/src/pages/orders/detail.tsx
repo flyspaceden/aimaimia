@@ -81,8 +81,6 @@ export default function OrderDetailPage() {
       message.success('发货成功');
       queryClient.invalidateQueries({ queryKey: ['seller-order', id] });
       queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
-      queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
-      queryClient.invalidateQueries({ queryKey: ['seller-analytics-orders'] });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '发货失败');
     } finally {

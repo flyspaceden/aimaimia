@@ -246,57 +246,47 @@ export interface VirtualCallResult {
 export interface Company {
   id: string;
   name: string;
-  shortName?: string;
-  description?: string;
-  status: string;
-  servicePhone?: string;
-  serviceWeChat?: string;
-  contact?: Record<string, unknown>;
-  address?: Record<string, unknown>;
-  profile?: { richContent?: unknown; highlights?: unknown };
-  documents?: CompanyDocument[];
-}
-
-// ============================================================
-// AI 搜索资料
-// ============================================================
-
-export interface AiSearchProfile {
-  companyType: string | null;
-}
-
-/** AI 搜索资料 — 枚举常量（与后端 seller-company.dto.ts 保持一致） */
-export const COMPANY_TYPE_OPTIONS = [
-  { value: 'farm', label: '农场' },
-  { value: 'company', label: '公司' },
-  { value: 'cooperative', label: '合作社' },
-  { value: 'base', label: '基地' },
-  { value: 'factory', label: '工厂' },
-  { value: 'store', label: '店铺' },
-];
-
-export interface CompanyDocument {
-  id: string;
-  type: string;
-  title: string;
-  fileUrl: string;
-  issuer?: string;
-  expiresAt?: string;
-  verifyStatus: string;
+  contactName: string;
+  contactPhone: string;
+  servicePhone?: string | null;
+  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED';
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface CompanyStaff {
   id: string;
-  userId: string;
-  companyId: string;
+  merchantId: string;
+  username: string;
+  phone?: string | null;
+  realName?: string | null;
   role: 'OWNER' | 'MANAGER' | 'OPERATOR';
-  status: string;
-  joinedAt: string;
-  user: {
-    profile?: { nickname?: string; avatarUrl?: string };
-    authIdentities?: { identifier: string }[];
-  };
+  permissionCodes: string[];
+  status: 'ACTIVE' | 'DISABLED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateCompanyPayload {
+  name?: string;
+  contactName?: string;
+  contactPhone?: string;
+  servicePhone?: string;
+}
+
+export interface CreateCompanyStaffPayload {
+  username: string;
+  phone?: string;
+  realName?: string;
+  role: 'OWNER' | 'MANAGER' | 'OPERATOR';
+  permissionCodes?: string[];
+}
+
+export interface UpdateCompanyStaffPayload {
+  realName?: string;
+  role?: 'OWNER' | 'MANAGER' | 'OPERATOR';
+  status?: 'ACTIVE' | 'DISABLED';
+  permissionCodes?: string[];
 }
 
 // ============================================================

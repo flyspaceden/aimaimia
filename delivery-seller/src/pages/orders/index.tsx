@@ -98,7 +98,6 @@ export default function OrderListPage() {
       if (document.visibilityState === 'visible') {
         actionRef.current?.reload();
         queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
-        queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -211,8 +210,6 @@ export default function OrderListPage() {
           resetSelection();
           showBatchResult('批量确认发货', result.results);
           queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
-          queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
-          queryClient.invalidateQueries({ queryKey: ['seller-analytics-orders'] });
           actionRef.current?.reload();
         } catch (err) {
           message.error(err instanceof Error ? err.message : '批量发货失败');

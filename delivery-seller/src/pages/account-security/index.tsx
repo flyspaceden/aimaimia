@@ -175,7 +175,7 @@ export default function AccountSecurityPage() {
                   <Alert
                     type="info"
                     showIcon
-                    message="修改密码后本企业所有设备会被强制登出（不影响您在其他企业的 staff 账号密码）"
+                    message="修改密码后，当前配送中心账号的其他登录会话会失效，需使用新密码重新登录。"
                     style={{ marginBottom: 16 }}
                   />
                   <Form<ChangePasswordForm>
@@ -237,7 +237,7 @@ export default function AccountSecurityPage() {
                   <Alert
                     type="warning"
                     showIcon
-                    message="修改手机号会影响您名下所有企业的登录手机号。修改后所有设备会被强制登出"
+                    message="修改手机号只会更新当前配送中心账号，并使该账号现有登录会话失效，不会改动其他员工账号。"
                     style={{ marginBottom: 16 }}
                   />
                   <div style={{ marginBottom: 16 }}>
@@ -328,7 +328,7 @@ export default function AccountSecurityPage() {
                   <Alert
                     type="info"
                     showIcon
-                    message="昵称会同步显示在您名下所有企业的员工列表和买家端"
+                    message="昵称会同步刷新当前账号资料显示和买家端昵称。"
                     style={{ marginBottom: 16 }}
                   />
                   <div style={{ marginBottom: 16 }}>
