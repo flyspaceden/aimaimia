@@ -59,7 +59,10 @@ function getSellerPriceYuan(
   if (typeof sku.cost === 'number' && Number.isFinite(sku.cost)) {
     return sku.cost;
   }
-  return centsToYuan(sku.supplyPriceCents ?? sku.basePriceCents);
+  if (typeof sku.supplyPriceCents === 'number' && Number.isFinite(sku.supplyPriceCents) && sku.supplyPriceCents > 0) {
+    return centsToYuan(sku.supplyPriceCents);
+  }
+  return undefined;
 }
 
 function getUnitName(product: Partial<{ unit?: string; unitName?: string }> | null | undefined): string {
