@@ -1,9 +1,29 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Prisma } from '../../../generated/delivery-client';
+import { DeliveryUnitFieldType, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { CreateDeliveryUnitDto } from './dto/create-delivery-unit.dto';
 import { UpdateDeliveryUnitDto } from './dto/update-delivery-unit.dto';
+
+const FIXED_REQUIRED_FIELDS = [
+  'name',
+  'contactName',
+  'contactPhone',
+  'provinceCode',
+  'provinceName',
+  'cityCode',
+  'cityName',
+  'districtCode',
+  'districtName',
+  'detailAddress',
+] as const;
+
+type FixedRequiredField = (typeof FIXED_REQUIRED_FIELDS)[number];
+type DynamicRequiredConfig = {
+  fieldKey: string;
+  fieldType: DeliveryUnitFieldType;
+  isRequired: boolean;
+};
 
 @Injectable()
 export class DeliveryUnitsService {
@@ -30,6 +50,20 @@ export class DeliveryUnitsService {
   async createUnit(deliveryUserId: string, dto: CreateDeliveryUnitDto) {
     return this.deliveryPrisma.$transaction(
       async (tx) => {
+        const normalizedFixedFields = this.normalizeCreateFixedFields(dto);
+        const requiredDynamicConfigs = await tx.deliveryUnitFieldConfig.findMany({
+          where: {
+            isRequired: true,
+          },
+          select: {
+            fieldKey: true,
+            fieldType: true,
+            isRequired: true,
+          },
+        });
+        const normalizedExtraFields = this.normalizeExtraFields(dto.extraFields);
+        this.assertRequiredDynamicFields(requiredDynamicConfigs, normalizedExtraFields);
+
         const user = await tx.deliveryUser.findUnique({
           where: { id: deliveryUserId },
           select: {
@@ -51,19 +85,10 @@ export class DeliveryUnitsService {
           data: {
             id: randomUUID(),
             userId: deliveryUserId,
-            name: dto.name.trim(),
-            contactName: dto.contactName.trim(),
-            contactPhone: dto.contactPhone.trim(),
-            provinceCode: dto.provinceCode.trim(),
-            provinceName: dto.provinceName.trim(),
-            cityCode: dto.cityCode.trim(),
-            cityName: dto.cityName.trim(),
-            districtCode: dto.districtCode.trim(),
-            districtName: dto.districtName.trim(),
-            detailAddress: dto.detailAddress.trim(),
+            ...normalizedFixedFields,
             extraFields:
-              dto.extraFields !== undefined
-                ? (dto.extraFields as Prisma.InputJsonValue)
+              normalizedExtraFields !== undefined
+                ? (normalizedExtraFields as Prisma.InputJsonValue)
                 : Prisma.JsonNull,
           },
         });
@@ -104,24 +129,38 @@ export class DeliveryUnitsService {
       throw new ForbiddenException('无权修改该配送单位');
     }
 
+    const normalizedFixedFields = this.normalizePatchFixedFields(dto);
+    const existingExtraFields = this.normalizeExtraFields(unit.extraFields);
+    const incomingExtraFields = this.normalizeExtraFields(dto.extraFields);
+    const mergedExtraFields =
+      incomingExtraFields === undefined
+        ? undefined
+        : {
+            ...(existingExtraFields ?? {}),
+            ...incomingExtraFields,
+          };
+    const requiredDynamicConfigs = await this.deliveryPrisma.deliveryUnitFieldConfig.findMany({
+      where: {
+        isRequired: true,
+      },
+      select: {
+        fieldKey: true,
+        fieldType: true,
+        isRequired: true,
+      },
+    });
+    this.assertRequiredDynamicFields(
+      requiredDynamicConfigs,
+      mergedExtraFields ?? existingExtraFields ?? undefined,
+    );
+
     return {
       unit: await this.deliveryPrisma.deliveryUnit.update({
         where: { id: unitId },
         data: {
-          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-          ...(dto.contactName !== undefined ? { contactName: dto.contactName.trim() } : {}),
-          ...(dto.contactPhone !== undefined ? { contactPhone: dto.contactPhone.trim() } : {}),
-          ...(dto.provinceCode !== undefined ? { provinceCode: dto.provinceCode.trim() } : {}),
-          ...(dto.provinceName !== undefined ? { provinceName: dto.provinceName.trim() } : {}),
-          ...(dto.cityCode !== undefined ? { cityCode: dto.cityCode.trim() } : {}),
-          ...(dto.cityName !== undefined ? { cityName: dto.cityName.trim() } : {}),
-          ...(dto.districtCode !== undefined ? { districtCode: dto.districtCode.trim() } : {}),
-          ...(dto.districtName !== undefined ? { districtName: dto.districtName.trim() } : {}),
-          ...(dto.detailAddress !== undefined
-            ? { detailAddress: dto.detailAddress.trim() }
-            : {}),
-          ...(dto.extraFields !== undefined
-            ? { extraFields: dto.extraFields as Prisma.InputJsonValue }
+          ...normalizedFixedFields,
+          ...(mergedExtraFields !== undefined
+            ? { extraFields: mergedExtraFields as Prisma.InputJsonValue }
             : {}),
         },
       }),
@@ -154,5 +193,81 @@ export class DeliveryUnitsService {
       currentUnitId: unitId,
       requiresUnit: false,
     };
+  }
+
+  private normalizeCreateFixedFields(dto: Record<FixedRequiredField, string>) {
+    const normalized = this.normalizePatchFixedFields(dto);
+
+    for (const field of FIXED_REQUIRED_FIELDS) {
+      if (!normalized[field]) {
+        throw new BadRequestException(`配送单位字段 ${field} 不能为空`);
+      }
+    }
+
+    return normalized as Record<FixedRequiredField, string>;
+  }
+
+  private normalizePatchFixedFields(dto: Partial<Record<FixedRequiredField, string>>) {
+    const normalized: Partial<Record<FixedRequiredField, string>> = {};
+
+    for (const field of FIXED_REQUIRED_FIELDS) {
+      const rawValue = dto[field];
+      if (rawValue === undefined) {
+        continue;
+      }
+
+      const value = rawValue.trim();
+      if (!value) {
+        throw new BadRequestException(`配送单位字段 ${field} 不能为空`);
+      }
+
+      normalized[field] = value;
+    }
+
+    return normalized;
+  }
+
+  private normalizeExtraFields(value: unknown): Record<string, unknown> | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new BadRequestException('配送单位扩展字段格式不正确');
+    }
+    return { ...(value as Record<string, unknown>) };
+  }
+
+  private assertRequiredDynamicFields(
+    configs: DynamicRequiredConfig[],
+    extraFields: Record<string, unknown> | undefined,
+  ) {
+    const dynamicRequiredConfigs = configs.filter(
+      (config) =>
+        config.isRequired &&
+        !FIXED_REQUIRED_FIELDS.includes(config.fieldKey as FixedRequiredField),
+    );
+
+    for (const config of dynamicRequiredConfigs) {
+      const value = extraFields?.[config.fieldKey];
+      if (this.isMissingRequiredValue(value, config.fieldType)) {
+        throw new BadRequestException(`配送单位扩展字段 ${config.fieldKey} 不能为空`);
+      }
+    }
+  }
+
+  private isMissingRequiredValue(value: unknown, fieldType: DeliveryUnitFieldType) {
+    if (value === undefined || value === null) {
+      return true;
+    }
+    if (typeof value === 'string') {
+      return value.trim().length === 0;
+    }
+    if (Array.isArray(value)) {
+      return value.length === 0;
+    }
+    if (fieldType === DeliveryUnitFieldType.NUMBER) {
+      return Number.isNaN(Number(value));
+    }
+    return false;
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   DeliveryUnitFieldConfig,
   DeliveryUnitFieldType,
@@ -130,7 +130,10 @@ export class DeliveryUnitFieldConfigService {
 
     for (const item of items) {
       const fixed = FIXED_UNIT_FIELDS[item.fieldKey];
-      const normalized = this.normalizeInput(item, fixed);
+      const existing = await this.deliveryPrisma.deliveryUnitFieldConfig.findUnique({
+        where: { fieldKey: item.fieldKey },
+      });
+      const normalized = this.normalizeInput(item, fixed, existing);
       const row = await this.deliveryPrisma.deliveryUnitFieldConfig.upsert({
         where: { fieldKey: item.fieldKey },
         create: normalized,
@@ -148,30 +151,92 @@ export class DeliveryUnitFieldConfigService {
   private normalizeInput(
     item: UpdateUnitFieldConfigItemDto,
     fixed?: Omit<UnitFieldConfigView, 'includeInExport'>,
+    existing?: DeliveryUnitFieldConfig | null,
   ) {
-    const includeInPdf = fixed ? true : item.includeInPdf ?? false;
-    const includeInExcel = fixed ? true : item.includeInExcel ?? false;
+    const fieldType =
+      item.fieldType ?? existing?.fieldType ?? fixed?.fieldType ?? DeliveryUnitFieldType.TEXT;
+    const sortOrder =
+      typeof item.sortOrder === 'number'
+        ? item.sortOrder
+        : existing?.sortOrder ?? fixed?.sortOrder ?? 0;
+    if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 999) {
+      throw new BadRequestException('sortOrder 必须是 0 到 999 之间的整数');
+    }
+
+    const includeInPdf = fixed ? true : item.includeInPdf ?? existing?.includeInPdf ?? false;
+    const includeInExcel = fixed ? true : item.includeInExcel ?? existing?.includeInExcel ?? false;
+    const normalizedOptions = this.normalizeOptions(
+      item.options,
+      fieldType,
+      existing?.options ?? fixed?.options ?? null,
+      Boolean(fixed),
+    );
 
     return {
       fieldKey: item.fieldKey,
       label: item.label?.trim() || fixed?.label || item.fieldKey,
-      fieldType: item.fieldType ?? fixed?.fieldType ?? DeliveryUnitFieldType.TEXT,
-      sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : fixed?.sortOrder ?? 0,
-      placeholder: item.placeholder?.trim() || fixed?.placeholder || null,
-      options:
-        item.options !== undefined
-          ? (item.options as Prisma.InputJsonValue)
-          : fixed?.options !== null && fixed?.options !== undefined
-            ? (fixed.options as Prisma.InputJsonValue)
-            : Prisma.JsonNull,
-      isVisible: fixed ? true : item.isVisible ?? true,
-      isRequired: fixed ? true : item.isRequired ?? false,
-      showInApp: fixed ? true : item.showInApp ?? true,
-      showInAdmin: fixed ? true : item.showInAdmin ?? true,
+      fieldType,
+      sortOrder,
+      placeholder: item.placeholder?.trim() || existing?.placeholder || fixed?.placeholder || null,
+      options: normalizedOptions,
+      isVisible: fixed ? true : item.isVisible ?? existing?.isVisible ?? true,
+      isRequired: fixed ? true : item.isRequired ?? existing?.isRequired ?? false,
+      showInApp: fixed ? true : item.showInApp ?? existing?.showInApp ?? true,
+      showInAdmin: fixed ? true : item.showInAdmin ?? existing?.showInAdmin ?? true,
       includeInPdf,
       includeInExcel,
       includeInExport: includeInPdf || includeInExcel,
     };
+  }
+
+  private normalizeOptions(
+    rawOptions: unknown,
+    fieldType: DeliveryUnitFieldType,
+    existingOptions: unknown,
+    isFixed: boolean,
+  ): Prisma.InputJsonValue {
+    if (rawOptions === undefined) {
+      if (existingOptions !== null && existingOptions !== undefined) {
+        return existingOptions as Prisma.InputJsonValue;
+      }
+      if (fieldType === DeliveryUnitFieldType.SELECT && !isFixed) {
+        throw new BadRequestException('SELECT 字段必须提供 options');
+      }
+      return Prisma.JsonNull as unknown as Prisma.InputJsonValue;
+    }
+
+    if (fieldType !== DeliveryUnitFieldType.SELECT) {
+      throw new BadRequestException('只有 SELECT 字段允许配置 options');
+    }
+    if (!Array.isArray(rawOptions)) {
+      throw new BadRequestException('SELECT 字段的 options 必须是数组');
+    }
+
+    const normalized = rawOptions.map((item) => {
+      if (typeof item === 'string' && item.trim()) {
+        return item.trim();
+      }
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new BadRequestException('SELECT 字段的 options 格式不正确');
+      }
+
+      const option = item as Record<string, unknown>;
+      if (
+        typeof option.label !== 'string' ||
+        !option.label.trim() ||
+        typeof option.value !== 'string' ||
+        !option.value.trim()
+      ) {
+        throw new BadRequestException('SELECT 字段的 options 必须包含非空 label/value');
+      }
+
+      return {
+        label: option.label.trim(),
+        value: option.value.trim(),
+      };
+    });
+
+    return normalized as Prisma.InputJsonValue;
   }
 
   private mergeFixedConfig(

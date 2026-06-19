@@ -5,6 +5,7 @@ describe('DeliveryUnitFieldConfigService', () => {
   let deliveryPrisma: {
     deliveryUnitFieldConfig: {
       findMany: jest.Mock;
+      findUnique: jest.Mock;
       upsert: jest.Mock;
     };
   };
@@ -14,6 +15,7 @@ describe('DeliveryUnitFieldConfigService', () => {
     deliveryPrisma = {
       deliveryUnitFieldConfig: {
         findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockImplementation(({ create, update }: any) => ({
           ...(create ?? {}),
           ...(update ?? {}),
@@ -71,5 +73,28 @@ describe('DeliveryUnitFieldConfigService', () => {
         }),
       ]),
     );
+  });
+
+  it('rejects malformed field options and invalid sort order in service normalization', async () => {
+    await expect(
+      service.updateConfigs([
+        {
+          fieldKey: 'note',
+          fieldType: 'TEXT' as any,
+          options: ['A'],
+        },
+      ]),
+    ).rejects.toThrow();
+
+    await expect(
+      service.updateConfigs([
+        {
+          fieldKey: 'gateCode',
+          fieldType: 'SELECT' as any,
+          sortOrder: -1,
+          options: [{ label: 'A 区' }],
+        },
+      ]),
+    ).rejects.toThrow();
   });
 });

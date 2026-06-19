@@ -45,6 +45,12 @@ type DeliveryUserProfile = Prisma.DeliveryUserGetPayload<{
   select: typeof deliveryUserProfileSelect;
 }>;
 
+type DeliveryLoginMethod = 'PHONE' | 'WECHAT';
+type DeliveryAuthRequestMeta = {
+  ip?: string;
+  userAgent?: string;
+};
+
 @Injectable()
 export class DeliveryBuyerAuthService {
   constructor(
@@ -55,8 +61,11 @@ export class DeliveryBuyerAuthService {
     private readonly deliveryPhoneOtpService: DeliveryPhoneOtpService,
   ) {}
 
-  async phoneLogin(dto: PhoneLoginDto, _ip?: string, _userAgent?: string) {
-    await this.deliveryPhoneOtpService.verifyPhoneLoginCode(dto.phone, dto.code);
+  async phoneLogin(dto: PhoneLoginDto, ip?: string, userAgent?: string) {
+    await this.deliveryPhoneOtpService.verifyPhoneLoginCode(dto.phone, dto.code, {
+      ip,
+      userAgent,
+    });
 
     const user = await this.deliveryPrisma.$transaction(
       async (tx) => {
@@ -113,10 +122,10 @@ export class DeliveryBuyerAuthService {
       },
     );
 
-    return this.issueLoginResult(user);
+    return this.issueLoginResult(user, 'PHONE', { ip, userAgent });
   }
 
-  async wechatLogin(dto: WechatLoginDto, _ip?: string, _userAgent?: string) {
+  async wechatLogin(dto: WechatLoginDto, ip?: string, userAgent?: string) {
     const { openId: providerSubject } = await this.resolveWechatIdentity(dto.code);
 
     const user = await this.deliveryPrisma.$transaction(
@@ -176,7 +185,7 @@ export class DeliveryBuyerAuthService {
       },
     );
 
-    return this.issueLoginResult(user);
+    return this.issueLoginResult(user, 'WECHAT', { ip, userAgent });
   }
 
   async getMe(deliveryUserId: string) {
@@ -192,14 +201,29 @@ export class DeliveryBuyerAuthService {
     return this.mapProfile(user);
   }
 
-  private async issueLoginResult(user: DeliveryUserProfile | null) {
+  private async issueLoginResult(
+    user: DeliveryUserProfile | null,
+    loginMethod: DeliveryLoginMethod,
+    meta: DeliveryAuthRequestMeta,
+  ) {
     if (!user) {
       throw new NotFoundException('配送用户不存在');
     }
 
+    const session = await this.deliveryPrisma.deliveryUserSession.create({
+      data: {
+        userId: user.id,
+        loginMethod,
+        ip: meta.ip ?? null,
+        userAgent: meta.userAgent ?? null,
+        expiresAt: this.resolveSessionExpiresAt(),
+      },
+    });
+
     const payload: DeliveryUserJwtPayload = {
       sub: user.id,
       type: 'delivery-user',
+      sessionId: session.id,
     };
     const accessToken = await this.jwtService.signAsync(payload);
 
@@ -315,11 +339,28 @@ export class DeliveryBuyerAuthService {
   }
 
   private isWechatMockEnabled() {
-    const deliveryWechatMock = this.configService.get<string | undefined>('DELIVERY_WECHAT_MOCK');
-    if (deliveryWechatMock !== undefined) {
-      return deliveryWechatMock === 'true';
+    return this.configService.get('DELIVERY_WECHAT_MOCK') === 'true';
+  }
+
+  private resolveSessionExpiresAt() {
+    const rawExpiresIn = this.configService.get<string>('DELIVERY_USER_JWT_EXPIRES_IN', '8h');
+    const match = /^(\d+)([smhd]?)$/i.exec(rawExpiresIn.trim());
+    if (!match) {
+      return new Date(Date.now() + 8 * 60 * 60 * 1000);
     }
-    return this.configService.get('WECHAT_MOCK', 'true') === 'true';
+
+    const value = Number(match[1]);
+    const unit = match[2].toLowerCase();
+    const multiplier =
+      unit === 'd'
+        ? 24 * 60 * 60 * 1000
+        : unit === 'h'
+          ? 60 * 60 * 1000
+          : unit === 'm'
+            ? 60 * 1000
+            : 1000;
+
+    return new Date(Date.now() + value * multiplier);
   }
 
 }

@@ -7,6 +7,7 @@ import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.
 export type DeliveryUserJwtPayload = {
   sub: string; // DeliveryUser.id
   type: 'delivery-user';
+  sessionId?: string;
 };
 
 @Injectable()
@@ -27,6 +28,21 @@ export class DeliveryUserJwtStrategy extends PassportStrategy(Strategy, 'deliver
       throw new UnauthorizedException('无效的令牌类型');
     }
 
+    const now = new Date();
+    if (payload.sessionId) {
+      const session = await this.deliveryPrisma.deliveryUserSession.findFirst({
+        where: {
+          id: payload.sessionId,
+          userId: payload.sub,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+      });
+      if (!session) {
+        throw new UnauthorizedException('会话已过期或已注销');
+      }
+    }
+
     const deliveryUser = await this.deliveryPrisma.deliveryUser.findUnique({
       where: { id: payload.sub },
       select: { status: true },
@@ -39,6 +55,7 @@ export class DeliveryUserJwtStrategy extends PassportStrategy(Strategy, 'deliver
       sub: payload.sub,
       deliveryUserId: payload.sub,
       type: payload.type,
+      sessionId: payload.sessionId,
     };
   }
 }

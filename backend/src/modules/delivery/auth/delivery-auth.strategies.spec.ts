@@ -37,6 +37,9 @@ describe('Delivery JWT strategies', () => {
       deliveryUser: {
         findUnique: jest.Mock;
       };
+      deliveryUserSession: {
+        findFirst: jest.Mock;
+      };
     };
 
     beforeEach(() => {
@@ -44,7 +47,44 @@ describe('Delivery JWT strategies', () => {
         deliveryUser: {
           findUnique: jest.fn(),
         },
+        deliveryUserSession: {
+          findFirst: jest.fn(),
+        },
       };
+    });
+
+    it('validates active delivery sessions when sessionId is present', async () => {
+      prisma.deliveryUserSession.findFirst.mockResolvedValue({
+        id: 'dusess_1',
+      });
+      prisma.deliveryUser.findUnique.mockResolvedValue({
+        status: DeliveryUserStatus.ACTIVE,
+      });
+      const strategy = new DeliveryUserJwtStrategy(
+        configService as unknown as ConfigService,
+        prisma as unknown as DeliveryPrismaService,
+      );
+
+      await expect(
+        strategy.validate({
+          sub: 'dusr_001',
+          type: 'delivery-user',
+          sessionId: 'dusess_1',
+        } as DeliveryUserJwtPayload),
+      ).resolves.toEqual({
+        sub: 'dusr_001',
+        deliveryUserId: 'dusr_001',
+        type: 'delivery-user',
+        sessionId: 'dusess_1',
+      });
+      expect(prisma.deliveryUserSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'dusess_1',
+          userId: 'dusr_001',
+          revokedAt: null,
+          expiresAt: { gt: expect.any(Date) },
+        },
+      });
     });
 
     it('uses DELIVERY_USER_JWT_SECRET and accepts active delivery users', async () => {

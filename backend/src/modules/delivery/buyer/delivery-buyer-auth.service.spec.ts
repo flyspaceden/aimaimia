@@ -11,7 +11,11 @@ import { DeliveryPhoneOtpService } from './delivery-phone-otp.service';
 describe('DeliveryBuyerAuthService', () => {
   const originalFetch = global.fetch;
   let tx: any;
-  let deliveryPrisma: { $transaction: jest.Mock; deliveryUser: { findUnique: jest.Mock } };
+  let deliveryPrisma: {
+    $transaction: jest.Mock;
+    deliveryUser: { findUnique: jest.Mock };
+    deliveryUserSession: { create: jest.Mock };
+  };
   let jwtService: { signAsync: jest.Mock };
   let idService: { next: jest.Mock };
   let otpService: { verifyPhoneLoginCode: jest.Mock };
@@ -40,6 +44,9 @@ describe('DeliveryBuyerAuthService', () => {
       ),
       deliveryUser: {
         findUnique: jest.fn(),
+      },
+      deliveryUserSession: {
+        create: jest.fn(),
       },
     };
     jwtService = {
@@ -81,6 +88,9 @@ describe('DeliveryBuyerAuthService', () => {
       status: 'ACTIVE',
       currentUnitId: null,
     });
+    deliveryPrisma.deliveryUserSession.create.mockResolvedValue({
+      id: 'dusess_1',
+    });
     tx.deliveryAuthIdentity.create.mockResolvedValue({ id: 'identity_1' });
     tx.deliveryUser.findUnique.mockResolvedValue({
       id: 'PSYH0000000000001',
@@ -98,7 +108,7 @@ describe('DeliveryBuyerAuthService', () => {
         phone: '13800000000',
         code: '123456',
         nickname: '配送新用户',
-      }),
+      }, '127.0.0.1', 'jest-phone'),
     ).resolves.toMatchObject({
       accessToken: 'delivery-user-token',
       requiresUnit: true,
@@ -108,8 +118,24 @@ describe('DeliveryBuyerAuthService', () => {
       },
     });
 
-    expect(otpService.verifyPhoneLoginCode).toHaveBeenCalledWith('13800000000', '123456');
+    expect(otpService.verifyPhoneLoginCode).toHaveBeenCalledWith('13800000000', '123456', {
+      ip: '127.0.0.1',
+      userAgent: 'jest-phone',
+    });
     expect(idService.next).toHaveBeenCalledWith('PSYH');
+    expect(deliveryPrisma.deliveryUserSession.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'PSYH0000000000001',
+        loginMethod: 'PHONE',
+        ip: '127.0.0.1',
+        userAgent: 'jest-phone',
+      }),
+    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 'PSYH0000000000001',
+      type: 'delivery-user',
+      sessionId: 'dusess_1',
+    });
     expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
@@ -117,10 +143,19 @@ describe('DeliveryBuyerAuthService', () => {
 
   it('wechat login creates an independent delivery auth identity from server-side code exchange', async () => {
     const code = 'delivery-wechat-code-1';
-    const derivedOpenId = createHash('sha256')
-      .update(`wx_openid_${code}`)
-      .digest('hex')
-      .slice(0, 28);
+    configService.get.mockImplementation((key: string, defaultValue?: string) => {
+      if (key === 'DELIVERY_WECHAT_MOCK') return undefined;
+      if (key === 'WECHAT_MOCK') return 'true';
+      if (key === 'WECHAT_APP_ID') return 'delivery-app-id';
+      if (key === 'WECHAT_APP_SECRET') return 'delivery-app-secret';
+      return defaultValue;
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: jest.fn().mockResolvedValue({
+        openid: 'wx-server-openid',
+        unionid: 'wx-server-unionid',
+      }),
+    });
     tx.deliveryAuthIdentity.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
@@ -131,6 +166,9 @@ describe('DeliveryBuyerAuthService', () => {
       avatarUrl: 'https://example.com/avatar.png',
       status: 'ACTIVE',
       currentUnitId: null,
+    });
+    deliveryPrisma.deliveryUserSession.create.mockResolvedValue({
+      id: 'dusess_wx_1',
     });
     tx.deliveryAuthIdentity.create.mockResolvedValue({ id: 'identity_2' });
     tx.deliveryUser.findUnique.mockResolvedValue({
@@ -149,7 +187,7 @@ describe('DeliveryBuyerAuthService', () => {
         code,
         nickname: '微信配送用户',
         avatarUrl: 'https://example.com/avatar.png',
-      }),
+      }, '127.0.0.2', 'jest-wechat'),
     ).resolves.toMatchObject({
       accessToken: 'delivery-user-token',
       requiresUnit: true,
@@ -162,9 +200,89 @@ describe('DeliveryBuyerAuthService', () => {
       data: {
         userId: 'PSYH0000000000001',
         provider: 'WECHAT',
+        providerSubject: 'wx-server-openid',
+        phone: null,
+      },
+    });
+    expect(deliveryPrisma.deliveryUserSession.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'PSYH0000000000001',
+        loginMethod: 'WECHAT',
+        ip: '127.0.0.2',
+        userAgent: 'jest-wechat',
+      }),
+    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 'PSYH0000000000001',
+      type: 'delivery-user',
+      sessionId: 'dusess_wx_1',
+    });
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
+  it('wechat login still supports explicit delivery-scoped mock mode', async () => {
+    const code = 'delivery-wechat-code-mock';
+    const derivedOpenId = createHash('sha256')
+      .update(`wx_openid_${code}`)
+      .digest('hex')
+      .slice(0, 28);
+    configService.get.mockImplementation((key: string, defaultValue?: string) => {
+      if (key === 'DELIVERY_WECHAT_MOCK') return 'true';
+      return defaultValue;
+    });
+    tx.deliveryAuthIdentity.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    tx.deliveryUser.create.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      phone: null,
+      nickname: '微信配送用户',
+      avatarUrl: null,
+      status: 'ACTIVE',
+      currentUnitId: null,
+    });
+    deliveryPrisma.deliveryUserSession.create.mockResolvedValue({
+      id: 'dusess_wx_mock',
+    });
+    tx.deliveryAuthIdentity.create.mockResolvedValue({ id: 'identity_2' });
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      phone: null,
+      nickname: '微信配送用户',
+      avatarUrl: null,
+      status: 'ACTIVE',
+      currentUnitId: null,
+      units: [],
+      currentUnit: null,
+    });
+
+    await expect(
+      service.wechatLogin({
+        code,
+        nickname: '微信配送用户',
+      }, '127.0.0.3', 'jest-wechat-mock'),
+    ).resolves.toMatchObject({
+      accessToken: 'delivery-user-token',
+      user: {
+        id: 'PSYH0000000000001',
+      },
+    });
+
+    expect(tx.deliveryAuthIdentity.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'PSYH0000000000001',
+        provider: 'WECHAT',
         providerSubject: derivedOpenId,
         phone: null,
       },
+    });
+    expect(deliveryPrisma.deliveryUserSession.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'PSYH0000000000001',
+        loginMethod: 'WECHAT',
+        ip: '127.0.0.3',
+        userAgent: 'jest-wechat-mock',
+      }),
     });
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -187,6 +305,9 @@ describe('DeliveryBuyerAuthService', () => {
       avatarUrl: null,
       status: 'ACTIVE',
       currentUnitId: null,
+    });
+    deliveryPrisma.deliveryUserSession.create.mockResolvedValue({
+      id: 'dusess_wx_2',
     });
     tx.deliveryAuthIdentity.create.mockResolvedValue({ id: 'identity_3' });
     tx.deliveryUser.findUnique.mockResolvedValue({
