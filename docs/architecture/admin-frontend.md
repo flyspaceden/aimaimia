@@ -71,6 +71,14 @@
 - 维持浅蓝配色、紧凑运营台样式
 - 列表页优先高信息密度，详情页优先 `Descriptions + 分组卡片`
 
+### 集成验证记录（Task 20，2026-06-19）
+
+- `cd admin && npm run build` 已通过，确认爱买买管理后台现有构建未被配送分支破坏。
+- `cd delivery-admin && npm run build` 已通过，确认配送管理后台浅蓝主题、活跃路由和 API 类型可以完成生产构建。
+- Vite 构建仍会输出部分 vendor chunk 超过 500 kB 的提示，这是当前 Ant Design / Pro Components 构建体积提示，不是失败。
+- 尚未本地执行 staging 浏览器 smoke：配送管理后台登录、用户/单位/商家/订单/清单/结算/客服/审计/配置页面需要等待 DNS、宝塔 SSL、Nginx 站点、`CORS_ORIGINS` 和真实配送库迁移完成后在测试域名验收。
+- 私有 `docs/operations/阿里云部署.md` 不在公开提交中创建或更新；上线操作时需由运维同步实际域名、SSL、PM2/env、数据库和 migration 状态。
+
 ---
 
 ## 2. 现状诊断

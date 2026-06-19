@@ -18,6 +18,18 @@
 - **分润引擎**：完整的奖励分配系统（普通广播 + VIP 三叉树上溯 + 平台分润）
 - **种子数据**：6 个用户 + 4 家企业 + 6 个商品 + 4 笔订单 + VIP 三叉树 + 分润流水 + 管理员 RBAC
 
+### 配送后端补充（2026-06-19 / Task 20）
+
+配送系统在同一个 NestJS 进程内运行，但数据层和接口命名空间与爱买买主业务隔离：
+
+- 主库仍使用 `backend/prisma/schema.prisma` 和 `DATABASE_URL`；配送库使用 `backend/prisma-delivery/schema.prisma`、`DELIVERY_DATABASE_URL` 和生成到 `backend/src/generated/delivery-client` 的独立 Prisma client。
+- 买家配送接口固定为 `/api/v1/delivery/*`，配送管理后台接口固定为 `/api/v1/delivery-admin/*`，配送中心接口固定为 `/api/v1/delivery-seller/*`。
+- 配送订单、商品、购物车、支付、顺丰发货、PDF/Excel 清单、结算、客服、审计、配置均使用 delivery schema 的模型；不复用普通 App 订单、购物车、VIP、红包、分润、数字资产、退款/退货数据。
+- 本地集成验证已完成：`npm run prisma:generate`、`npm run prisma:delivery:generate`、`npm run build`、`npx jest src/modules/delivery --runInBand` 均通过；delivery Jest 43/43 suites、196/196 tests。
+- 当前环境没有注入真实 `DATABASE_URL` / `DELIVERY_DATABASE_URL`，所以原始 `npx prisma validate` 和 `npx prisma validate --schema prisma-delivery/schema.prisma` 会停在环境变量缺失；已使用本地占位 PostgreSQL URL 复跑 schema validate，主 schema 和配送 schema 均通过，且未连接 staging/production 数据库。
+
+发布前仍需人工完成：配置 staging/production `DELIVERY_DATABASE_URL`、配送 JWT secret、CORS 域名；部署 delivery Prisma migration；在 staging 配送库连续运行两次 seed 验证幂等；完成真实支付/SF 月结链路、staging E2E 和私有 `docs/operations/阿里云部署.md` 同步。
+
 ### 核心设计理念
 
 - **前后端契约对齐**：所有响应严格遵循 `Result<T>` —— 成功 `{ ok: true, data }` / 失败 `{ ok: false, error: AppError }`

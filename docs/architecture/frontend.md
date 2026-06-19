@@ -77,6 +77,13 @@
 - 登录认证接口改到 `/api/v1/delivery-admin/auth/*`，登录页与爱买买管理后台登录页已互相增加切换按钮。
 - 当前仅保留壳层路由、浅蓝主题和基础可访问菜单；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块已从路由和菜单裁掉。
 
+### 0.7 集成验证记录（2026-06-19 / Task 20）
+
+- 根目录 `npx tsc --noEmit` 已通过。验证中发现根 App `tsconfig.json` 会误扫描新增的 `delivery-admin/` 和 `delivery-seller/`，已按既有 `admin/`、`seller/`、`website/` 模式加入 `exclude`；配送 Web 项目仍由各自 `npm run build` 独立验证。
+- 根目录 `npm test -- --runInBand` 已通过：App Jest 9/9 suites、51/51 tests；legal node tests 22/22 tests。
+- Web 构建已通过：`admin npm run build`、`seller npm run build`、`delivery-admin npm run build`、`delivery-seller npm run build`。Vite 输出的大 chunk warning 是构建体积提示，不影响退出码。
+- 尚未完成 staging 真机 / 浏览器 E2E：`我的 > 常用工具 > 配送` 入口、delivery 手机号登录、单位创建、商品列表、起订量/步长、沙箱支付建单、买家清单、配送中心清单/财务导出、配送管理后台运营页仍需在测试域名和真实配送库配置后逐项验收。
+
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
 ### 1.2 设计原则

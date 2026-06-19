@@ -41,6 +41,13 @@
   - **实际做了**: 在 `delivery-seller/` 现有壳上补齐工作台快捷入口、商品草稿/审核提交、商品列表/编辑、SKU 库存调整、订单列表/发货详情、物流跟踪、履约清单导出、财务结算导出、企业资料、员工权限、客服工单、账号安全；新增 `inventory` / `shipments` / `manifests` / `settlements` / `customerService` API 模块，活跃调用全部收口到 `/delivery-seller/*`；移除 seller finance export context 中未返回且不应保留的 `buyerFinalAmountCents`
   - **验证**: `cd delivery-seller && node --test test/deliveryCenterContracts.test.ts`、`cd delivery-seller && npm run build`、`cd backend && npm test -- --runInBand src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/settlement/delivery-settlement.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`cd backend && npm run build`；履约导出不展示金额，财务导出仅使用供货/应结金额口径
 
+- [x] **配送部署、法律页、seed 与集成验证（Task 18-20）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 18-20 brief
+  - **实际做了**: 补齐配送管理后台 / 配送中心部署配置与公开上线说明；新增配送法律页 `/legal/delivery-terms`、`/legal/delivery-privacy`、`/legal/delivery-seller-agreement`，文案明确标注上线前需法务确认；实现幂等 `backend/prisma-delivery/seed.ts`，包含配送超管、运营/财务/客服角色、配送商/OWNER、分类/单位、商品/SKU、配送用户、配送单位、地址、清单模板、客服配置；修复根 App `tsconfig.json` 误扫新增 Web 后台目录的问题。
+  - **本地验证**: `cd backend && npm run prisma:generate`、`cd backend && npm run prisma:delivery:generate`、`cd backend && npm run build`、`cd backend && npx jest src/modules/delivery --runInBand`（43 suites / 196 tests）、根目录 `npx tsc --noEmit`、根目录 `npm test -- --runInBand`（App Jest 9 suites / 51 tests + legal node tests 22 tests）、`cd admin && npm run build`、`cd seller && npm run build`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build` 均通过。
+  - **环境说明**: 当前本地没有真实 `DATABASE_URL` / `DELIVERY_DATABASE_URL`，原始 `npx prisma validate` 两条命令会停在环境变量缺失；已用本地占位 PostgreSQL URL 复跑主库和配送库 schema validate，均通过且未连接 staging/production 数据库。
+  - **发布前人工待办**: 阿里云 DNS 解析 `delivery-admin` / `delivery-seller` / `test-delivery-admin` / `test-delivery-seller`；宝塔站点和 SSL；staging/production `DELIVERY_DATABASE_URL`、配送 JWT secrets、CORS；配送 migration 部署；staging 配送库连续两次 seed 幂等验证；配送支付/SF 月结实链路；App/后台/配送中心 staging E2E；私有 `docs/operations/阿里云部署.md` 上线时同步实际配置。
+
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀
   - **实际做了**: 买家 App 我的页身份卡移除时段问候语；昵称作为主标题；买家编号展示为 `ID: AIMM...` 并保留复制按钮；推荐码入口下移为独立 chip；右侧“扫一扫/编辑”按钮固定宽度和间距
