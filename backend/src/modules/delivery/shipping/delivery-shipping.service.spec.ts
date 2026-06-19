@@ -302,6 +302,128 @@ describe('DeliveryShippingService', () => {
     });
   });
 
+  it('rejects duplicate generation when an active shipment marker already exists', async () => {
+    tx.deliverySubOrder.findUnique.mockResolvedValue({
+      ...pendingSubOrder,
+      shipments: [
+        {
+          id: 'shipment_1',
+          waybillNo: null,
+          rawCarrierPayload: {
+            waybillGeneration: {
+              status: 'IN_PROGRESS',
+              token: 'token-1',
+              startedAt: new Date().toISOString(),
+              attempt: 1,
+              sfCustomerOrderId: 'AIMM-DELIVERY-WB-1',
+            },
+          },
+        },
+      ],
+    });
+
+    await expect(
+      service.shipSubOrder('merchant_1', 'staff_1', 'sub_1'),
+    ).rejects.toThrow('该配送子订单面单正在生成，请稍后重试');
+
+    expect(sfExpress.createOrder).not.toHaveBeenCalled();
+    expect(tx.deliveryShipment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('cancels the remote SF order and clears the marker when final persist loses the suborder CAS', async () => {
+    tx.deliverySubOrder.findUnique.mockResolvedValue({ ...pendingSubOrder, shipments: [] });
+    tx.deliveryShipment.create.mockResolvedValue({
+      id: 'shipment_1',
+      rawCarrierPayload: {
+        waybillGeneration: {
+          status: 'IN_PROGRESS',
+          token: 'token-1',
+          startedAt: '2026-06-19T16:00:00.000Z',
+          attempt: 1,
+          sfCustomerOrderId: 'AIMM-DELIVERY-WB-1',
+        },
+      },
+    });
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SF1234567890',
+      sfOrderId: 'sf_order_1',
+    });
+    sfExpress.printWaybill.mockResolvedValue({
+      pdfUrl: 'https://sf.example.com/waybill.pdf',
+    });
+    uploadService.uploadBuffer.mockResolvedValue({
+      url: 'https://oss.example.com/waybill.pdf',
+    });
+    tx.deliveryShipment.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    tx.deliverySubOrder.updateMany.mockResolvedValue({ count: 0 });
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
+
+    await expect(
+      service.shipSubOrder('merchant_1', 'staff_1', 'sub_1'),
+    ).rejects.toThrow('该配送子订单面单状态已变更，请刷新后重试');
+
+    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf_order_1', 'SF1234567890');
+    expect(tx.deliveryShippingCost.create).not.toHaveBeenCalled();
+    expect(tx.deliveryOrder.updateMany).not.toHaveBeenCalled();
+    expect(tx.deliveryShipment.updateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: {
+          rawCarrierPayload: Prisma.JsonNull,
+        },
+      }),
+    );
+  });
+
+  it('cancels the remote SF order and clears the marker when local finalization throws after SF success', async () => {
+    tx.deliverySubOrder.findUnique.mockResolvedValue({ ...pendingSubOrder, shipments: [] });
+    tx.deliveryShipment.create.mockResolvedValue({
+      id: 'shipment_1',
+      rawCarrierPayload: {
+        waybillGeneration: {
+          status: 'IN_PROGRESS',
+          token: 'token-1',
+          startedAt: '2026-06-19T16:00:00.000Z',
+          attempt: 1,
+          sfCustomerOrderId: 'AIMM-DELIVERY-WB-1',
+        },
+      },
+    });
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SF1234567890',
+      sfOrderId: 'sf_order_1',
+    });
+    sfExpress.printWaybill.mockResolvedValue({
+      pdfUrl: 'https://sf.example.com/waybill.pdf',
+    });
+    uploadService.uploadBuffer.mockResolvedValue({
+      url: 'https://oss.example.com/waybill.pdf',
+    });
+    tx.deliveryShipment.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    tx.deliverySubOrder.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliverySubOrder.count.mockResolvedValue(1);
+    tx.deliveryShippingCost.create.mockRejectedValue(new Error('cost write failed'));
+    sfExpress.cancelOrder.mockResolvedValue({ success: true });
+
+    await expect(
+      service.shipSubOrder('merchant_1', 'staff_1', 'sub_1'),
+    ).rejects.toThrow('cost write failed');
+
+    expect(sfExpress.cancelOrder).toHaveBeenCalledWith('sf_order_1', 'SF1234567890');
+    expect(tx.deliveryShipment.updateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: {
+          rawCarrierPayload: Prisma.JsonNull,
+        },
+      }),
+    );
+  });
+
   it('rejects shipping when the delivery merchant does not own the suborder', async () => {
     tx.deliverySubOrder.findUnique.mockResolvedValue({
       ...pendingSubOrder,

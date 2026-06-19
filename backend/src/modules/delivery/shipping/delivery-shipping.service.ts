@@ -92,6 +92,13 @@ type DeliveryShippingRecord = {
 
 const LOCK_NAMESPACE = 'delivery-waybill-suborder';
 const WAYBILL_MARKER_TTL_MS = 15 * 60 * 1000;
+const WAYBILL_PERSIST_CONFLICT_MESSAGE = '该配送子订单面单状态已变更，请刷新后重试';
+
+class DeliveryWaybillPersistConflictError extends Error {
+  constructor() {
+    super(WAYBILL_PERSIST_CONFLICT_MESSAGE);
+  }
+}
 
 @Injectable()
 export class DeliveryShippingService {
@@ -438,85 +445,98 @@ export class DeliveryShippingService {
   ) {
     const shippedAt = new Date();
 
-    const persisted = await this.deliveryPrisma.$transaction(
-      async (tx) => {
-        const shipmentPersist = await tx.deliveryShipment.updateMany({
-          where: {
-            id: context.shipmentId,
-            waybillNo: null,
-            rawCarrierPayload: {
-              equals: context.marker as Prisma.InputJsonValue,
-            },
-          },
-          data: {
-            status: 'SHIPPED',
-            trackingNo: waybillResult.waybillNo,
-            waybillNo: waybillResult.waybillNo,
-            waybillUrl: waybillResult.waybillUrl,
-            sfOrderId: waybillResult.sfOrderId,
-            senderInfoSnapshot: context.sender as Prisma.InputJsonValue,
-            receiverInfoSnapshot: context.receiver as Prisma.InputJsonValue,
-            rawCarrierPayload: this.createCompletedWaybillGenerationPayload(context),
-            shippedAt,
-          },
-        });
-
-        if (shipmentPersist.count !== 1) {
-          return false;
-        }
-
-        await tx.deliverySubOrder.updateMany({
-          where: {
-            id: context.subOrderId,
-            status: 'PENDING_SHIPMENT',
-          },
-          data: {
-            status: 'SHIPPED',
-            shippedAt,
-            lastOperatorStaffId: deliverySellerStaffId,
-          },
-        });
-
-        const remainingPendingCount = await tx.deliverySubOrder.count({
-          where: {
-            orderId: context.orderId,
-            status: 'PENDING_SHIPMENT',
-          },
-        });
-
-        if (remainingPendingCount === 0) {
-          await tx.deliveryOrder.updateMany({
+    let persisted = false;
+    try {
+      persisted = await this.deliveryPrisma.$transaction(
+        async (tx) => {
+          const shipmentPersist = await tx.deliveryShipment.updateMany({
             where: {
-              id: context.orderId,
+              id: context.shipmentId,
+              waybillNo: null,
+              rawCarrierPayload: {
+                equals: context.marker as Prisma.InputJsonValue,
+              },
+            },
+            data: {
+              status: 'SHIPPED',
+              trackingNo: waybillResult.waybillNo,
+              waybillNo: waybillResult.waybillNo,
+              waybillUrl: waybillResult.waybillUrl,
+              sfOrderId: waybillResult.sfOrderId,
+              senderInfoSnapshot: context.sender as Prisma.InputJsonValue,
+              receiverInfoSnapshot: context.receiver as Prisma.InputJsonValue,
+              rawCarrierPayload: this.createCompletedWaybillGenerationPayload(context),
+              shippedAt,
+            },
+          });
+
+          if (shipmentPersist.count !== 1) {
+            return false;
+          }
+
+          const subOrderPersist = await tx.deliverySubOrder.updateMany({
+            where: {
+              id: context.subOrderId,
               status: 'PENDING_SHIPMENT',
             },
             data: {
               status: 'SHIPPED',
               shippedAt,
+              lastOperatorStaffId: deliverySellerStaffId,
             },
           });
-        }
 
-        await tx.deliveryShippingCost.create({
-          data: {
-            checkoutSessionId: context.checkoutSessionId,
-            orderId: context.orderId,
-            subOrderId: context.subOrderId,
-            merchantId: context.merchantId,
-            skuId: null,
-            estimatedUserShippingFeeCents: context.estimatedUserShippingFeeCents,
-            actualCarrierCostCents: null,
-            carrierCode: 'SF',
-            carrierRecordNo: waybillResult.sfOrderId,
-          },
-        });
+          if (subOrderPersist.count !== 1) {
+            throw new DeliveryWaybillPersistConflictError();
+          }
 
-        return true;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+          const remainingPendingCount = await tx.deliverySubOrder.count({
+            where: {
+              orderId: context.orderId,
+              status: 'PENDING_SHIPMENT',
+            },
+          });
+
+          if (remainingPendingCount === 0) {
+            await tx.deliveryOrder.updateMany({
+              where: {
+                id: context.orderId,
+                status: 'PENDING_SHIPMENT',
+              },
+              data: {
+                status: 'SHIPPED',
+                shippedAt,
+              },
+            });
+          }
+
+          await tx.deliveryShippingCost.create({
+            data: {
+              checkoutSessionId: context.checkoutSessionId,
+              orderId: context.orderId,
+              subOrderId: context.subOrderId,
+              merchantId: context.merchantId,
+              skuId: null,
+              estimatedUserShippingFeeCents: context.estimatedUserShippingFeeCents,
+              actualCarrierCostCents: null,
+              carrierCode: 'SF',
+              carrierRecordNo: waybillResult.sfOrderId,
+            },
+          });
+
+          return true;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+    } catch (error) {
+      await this.compensateFailedWaybillPersist(context, waybillResult);
+      if (error instanceof DeliveryWaybillPersistConflictError) {
+        throw new BadRequestException(WAYBILL_PERSIST_CONFLICT_MESSAGE);
+      }
+      throw error;
+    }
 
     if (persisted) {
       return;
@@ -533,7 +553,7 @@ export class DeliveryShippingService {
     }
 
     await this.compensateFailedWaybillPersist(context, waybillResult);
-    throw new BadRequestException('该配送子订单面单状态已变更，请刷新后重试');
+    throw new BadRequestException(WAYBILL_PERSIST_CONFLICT_MESSAGE);
   }
 
   private async compensateFailedWaybillPersist(
