@@ -81,4 +81,4 @@ export const updateCompanyTags = (companyId: string, tagIds: string[]): Promise<
 // ===== Public API (for tag options in selectors) =====
 
 export const getPublicTagCategories = (scope?: string): Promise<TagCategory[]> =>
-  client.get('/companies/tag-categories', { params: scope ? { scope } : undefined });
+  client.get('/delivery-admin/companies/tag-categories', { params: scope ? { scope } : undefined });

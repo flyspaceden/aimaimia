@@ -84,7 +84,7 @@ export const deleteProduct = (id: string): Promise<{ ok: boolean }> =>
 
 /** 获取商品分类树 — 复用买家端公开接口 */
 export const getCategories = (): Promise<CategoryNode[]> =>
-  client.get('/products/categories');
+  client.get('/delivery-admin/products/categories');
 
 /** 商品统计 */
 export const getProductStats = (): Promise<Record<string, number>> =>

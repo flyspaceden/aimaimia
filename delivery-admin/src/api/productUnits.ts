@@ -40,4 +40,4 @@ export const deleteProductUnit = (id: string): Promise<void> =>
 
 /** 公开接口：仅返回启用单位（供商品编辑下拉使用） */
 export const getPublicProductUnits = (): Promise<PublicProductUnit[]> =>
-  client.get('/product-units');
+  client.get('/delivery-admin/product-units');
