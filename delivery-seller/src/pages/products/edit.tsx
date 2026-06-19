@@ -643,7 +643,6 @@ function ProductEditForm({ id }: { id: string }) {
       description: product.description,
       unit: getUnitName(product),
       categoryId: product.categoryId,
-      returnPolicy: (product as any).returnPolicy || 'INHERIT',
       originText,
       tagIds: product.tags?.map((t: any) => t.tag?.id || t.tagId) || [],
       aiKeywords: (product.aiKeywords || []).join(','),
@@ -828,13 +827,6 @@ function ProductEditForm({ id }: { id: string }) {
               treeNodeFilterProp="title"
               style={{ width: 300 }}
             />
-          </Form.Item>
-          <Form.Item label="服务规则" name="returnPolicy" initialValue="INHERIT">
-            <Select style={{ width: 300 }} options={[
-              { label: '默认（跟随分类设置）', value: 'INHERIT' },
-              { label: '7天无理由退换', value: 'RETURNABLE' },
-              { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
-            ]} />
           </Form.Item>
           <Form.Item
             label="商品描述"
@@ -1098,8 +1090,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       description: draftProduct.description,
       unit: getUnitName(draftProduct),
       categoryId: draftProduct.categoryId,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      returnPolicy: (draftProduct as any).returnPolicy || 'INHERIT',
       originText,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tagIds: draftProduct.tags?.map((t: any) => t.tag?.id || t.tagId) || [],
@@ -1213,7 +1203,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       description: (values.description as string | undefined) ?? '',
       unit: (values.unit as string | undefined) || DEFAULT_PRODUCT_UNIT,
       categoryId: (values.categoryId as string | undefined) || null,
-      returnPolicy: (values.returnPolicy as string | undefined) || 'INHERIT',
       // origin 是 Json? 字段：清空时发 null（后端 update 显式置 null）
       origin: originText ? { text: originText } : null,
       tagIds: (values.tagIds as string[] | undefined) ?? [],
@@ -1332,7 +1321,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       }
       // 顶层简单字段同名直传
       if (path === 'unitName') return ['unit'];
-      const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'unit', 'categoryId', 'returnPolicy']);
+      const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'unit', 'categoryId']);
       if (TOP_LEVEL.has(path)) return [path];
       return null;
     },
@@ -1478,13 +1467,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
               treeNodeFilterProp="title"
               style={{ width: 300 }}
             />
-          </Form.Item>
-          <Form.Item label="服务规则" name="returnPolicy" initialValue="INHERIT">
-            <Select style={{ width: 300 }} options={[
-              { label: '默认（跟随分类设置）', value: 'INHERIT' },
-              { label: '7天无理由退换', value: 'RETURNABLE' },
-              { label: '仅质量问题可退', value: 'NON_RETURNABLE' },
-            ]} />
           </Form.Item>
           <Form.Item
             label="商品描述"

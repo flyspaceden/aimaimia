@@ -328,7 +328,7 @@ export default function AccountSecurityPage() {
                   <Alert
                     type="info"
                     showIcon
-                    message="昵称会同步刷新当前账号资料显示和买家端昵称。"
+                    message="昵称仅更新当前配送中心账号的显示名和当前 staff 身份展示。"
                     style={{ marginBottom: 16 }}
                   />
                   <div style={{ marginBottom: 16 }}>

@@ -30,7 +30,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProducts, toggleProductStatus, deleteProduct } from '@/api/products';
 import { getPublicAppConfig } from '@/api/config';
-import { productStatusMap, auditStatusMap, returnPolicyMap } from '@/constants/statusMaps';
+import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
 
 const { Text } = Typography;
@@ -282,17 +282,6 @@ export default function ProductListPage() {
         const min = Math.min(...limits);
         const max = Math.max(...limits);
         return min === max ? `${min} 件` : `${min}~${max} 件`;
-      },
-    },
-    {
-      title: '退货政策',
-      width: 110,
-      search: false,
-      render: (_, r) => {
-        const policy = (r as any).effectiveReturnPolicy;
-        if (!policy) return '-';
-        const entry = returnPolicyMap[policy];
-        return <Tag color={entry?.color || 'default'}>{entry?.text || policy}</Tag>;
       },
     },
     {

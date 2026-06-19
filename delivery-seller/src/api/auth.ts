@@ -67,6 +67,6 @@ export const changePhone = (data: {
 }): Promise<{ ok: boolean }> =>
   client.post('/delivery-seller/auth/change-phone', data);
 
-/** 修改昵称（自助，无需 SMS；影响该 User 在所有企业 staff 和买家端的显示） */
+/** 修改昵称（自助，无需 SMS；仅影响当前配送中心账号的显示名和当前 staff 身份展示） */
 export const changeNickname = (nickname: string): Promise<{ ok: boolean; nickname: string }> =>
   client.post('/delivery-seller/auth/change-nickname', { nickname });

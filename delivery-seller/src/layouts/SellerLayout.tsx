@@ -37,7 +37,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       icon: <FileTextOutlined />,
     },
     {
-      path: '/company',
+      path: '/company/settings',
       name: '企业管理',
       icon: <ShopOutlined />,
       routes: [
