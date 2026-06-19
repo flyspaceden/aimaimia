@@ -313,9 +313,11 @@ jobs:
             cd backend
             npm ci
 
-            echo "═══ 4. Prisma generate + migrate deploy ═══"
+            echo "═══ 4. Prisma generate + migrate deploy（主库 + 配送库）═══"
             npx prisma generate
             npx prisma migrate deploy
+            npx prisma generate --schema prisma-delivery/schema.prisma
+            npx prisma migrate deploy --schema prisma-delivery/schema.prisma
 
             echo "═══ 5. 构建 ═══"
             npm run build
