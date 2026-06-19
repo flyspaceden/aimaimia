@@ -436,9 +436,6 @@ export default function OrderDetailPage() {
                 </div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontFamily: 'monospace' }}>
-                  ¥{item.unitPrice.toFixed(2)} × {item.quantity}
-                </div>
                 <div
                   style={{
                     fontWeight: 600,
@@ -446,35 +443,11 @@ export default function OrderDetailPage() {
                     marginTop: 2,
                   }}
                 >
-                  ¥{(item.unitPrice * item.quantity).toFixed(2)}
+                  × {item.quantity}
                 </div>
               </div>
             </div>
           ))}
-
-          {/* 合计行 */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              alignItems: 'center',
-              padding: '12px 12px 0',
-              borderTop: '1px solid #f0f0f0',
-              gap: 8,
-            }}
-          >
-            <span style={{ color: '#666' }}>商品金额：</span>
-            <span
-              style={{
-                fontSize: 18,
-                fontWeight: 600,
-                fontFamily: 'monospace',
-                color: '#d46b08',
-              }}
-            >
-              ¥{order.totalAmount.toFixed(2)}
-            </span>
-          </div>
         </div>
       </Card>
 

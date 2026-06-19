@@ -18,7 +18,6 @@ import {
   PrinterOutlined,
   SendOutlined,
   ShoppingOutlined,
-  DollarOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
@@ -31,7 +30,6 @@ import {
   batchShipOrders,
   getOrders,
 } from '@/api/orders';
-import { getOverview } from '@/api/analytics';
 import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
@@ -109,13 +107,6 @@ export default function OrderListPage() {
   const pendingWaybillOrders = selectedOrders.filter(isWaybillPending);
   const printableOrders = selectedOrders.filter((order) => order.shipment?.waybillPrintUrl);
   const shippableOrders = selectedOrders.filter(canBatchShip);
-
-  // 概览统计数据
-  const { data: overview } = useQuery({
-    queryKey: ['seller-analytics-overview'],
-    queryFn: getOverview,
-    staleTime: 30_000,
-  });
 
   // Tab 计数
   const { data: orderTabCounts } = useQuery({
@@ -434,18 +425,6 @@ export default function OrderListPage() {
       fieldProps: { placeholder: '输入 AIMM 用户编号' },
     },
     {
-      title: '金额',
-      dataIndex: 'totalAmount',
-      width: 100,
-      search: false,
-      sorter: true,
-      render: (_, r) => (
-        <span style={{ fontWeight: 500, fontFamily: 'monospace' }}>
-          ¥{r.totalAmount.toFixed(2)}
-        </span>
-      ),
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       width: 90,
@@ -513,7 +492,7 @@ export default function OrderListPage() {
         >
           <Statistic
             title="待发货"
-            value={overview?.today.pendingShipCount ?? orderTabCounts?.pending ?? 0}
+            value={orderTabCounts?.pending ?? 0}
             prefix={<ClockCircleOutlined style={{ color: '#fa8c16' }} />}
             valueStyle={{ color: '#fa8c16', fontSize: 28 }}
           />
@@ -528,20 +507,18 @@ export default function OrderListPage() {
         </Card>
         <Card size="small">
           <Statistic
-            title="今日订单"
-            value={overview?.today.orderCount ?? 0}
+            title="已完成"
+            value={orderTabCounts?.completed ?? 0}
             prefix={<FileTextOutlined style={{ color: '#52c41a' }} />}
             valueStyle={{ color: '#52c41a', fontSize: 28 }}
           />
         </Card>
         <Card size="small">
           <Statistic
-            title="本月营收"
-            value={overview?.month.revenue ?? 0}
-            precision={2}
-            prefix={<DollarOutlined style={{ color: '#722ed1' }} />}
+            title="已取消"
+            value={orderTabCounts?.cancelled ?? 0}
+            prefix={<InboxOutlined style={{ color: '#722ed1' }} />}
             valueStyle={{ color: '#722ed1', fontSize: 28 }}
-            suffix="元"
           />
         </Card>
       </div>

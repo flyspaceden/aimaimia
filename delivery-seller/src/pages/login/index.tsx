@@ -185,7 +185,7 @@ export default function LoginPage() {
   };
 
   // 选择企业后完成登录
-  const handleSelectCompany = async (companyId: string) => {
+  const handleSelectCompany = async (companyId: string, staffId: string) => {
     // M15修复：如果临时凭证已过期，阻止选择并提示重新登录
     if (tempTokenExpired) {
       message.error('临时凭证已超时，请重新登录');
@@ -195,7 +195,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const result = await selectCompany(tempToken, companyId);
+      const result = await selectCompany(tempToken, companyId, staffId);
       clearTempTokenTimer(); // 登录成功后清理倒计时
       await completeLogin(result);
     } catch (err: any) {
@@ -315,7 +315,7 @@ export default function LoginPage() {
                     borderRadius: 8,
                     opacity: isDisabled ? 0.5 : 1,
                   }}
-                  onClick={() => !isDisabled && handleSelectCompany(item.companyId)}
+                  onClick={() => !isDisabled && handleSelectCompany(item.companyId, item.staffId)}
                 >
                   <List.Item.Meta
                     avatar={<ShopOutlined style={{ fontSize: 24, color: isDisabled ? '#999' : '#EA580C' }} />}
@@ -326,7 +326,10 @@ export default function LoginPage() {
                         {isSuspended && <Tag color="orange" style={{ marginLeft: 8 }}>已暂停</Tag>}
                       </span>
                     }
-                    description={`角色：${item.role === 'OWNER' ? '企业主' : item.role === 'MANAGER' ? '经理' : '运营'}`}
+                    description={[
+                      `身份：${item.role === 'OWNER' ? '企业主' : item.role === 'MANAGER' ? '经理' : '运营'}`,
+                      item.realName ? `姓名：${item.realName}` : null,
+                    ].filter(Boolean).join(' · ')}
                   />
                 </List.Item>
               );

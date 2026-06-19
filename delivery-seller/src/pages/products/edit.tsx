@@ -24,7 +24,7 @@ import {
   submitDraft,
   type CategoryNode,
 } from '@/api/products';
-import { getMarkupRate, getPublicAppConfig } from '@/api/config';
+import { getPublicAppConfig } from '@/api/config';
 import { getProductUnits } from '@/api/productUnits';
 import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -136,24 +136,6 @@ function buildCategoryTree(categories: CategoryNode[]): TreeNode[] {
 }
 
 // ============================================================
-// 共享：售价只读展示组件
-// ============================================================
-function SellingPriceDisplay({ cost, markupRate }: { cost: number | undefined; markupRate: number }) {
-  const computed = cost && cost > 0 ? (cost * markupRate).toFixed(2) : undefined;
-  return (
-    <InputNumber
-      value={computed ? Number(computed) : undefined}
-      disabled
-      prefix="¥"
-      precision={2}
-      style={{ width: '100%' }}
-      placeholder="自动计算"
-      addonAfter={`= 成本 × ${markupRate}`}
-    />
-  );
-}
-
-// ============================================================
 // 共享：语义标签字段组
 // ============================================================
 function SemanticTagFields() {
@@ -219,7 +201,7 @@ function AiSearchOptimizationContent() {
 // ============================================================
 // 共享：多规格行列表
 // ============================================================
-function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; lowStockThreshold: number }) {
+function MultiSpecRows({ lowStockThreshold }: { lowStockThreshold: number }) {
   return (
     <Form.List name="skus" initialValue={[{ specName: '', stock: 0 }]}>
       {(fields, { add, remove }) => (
@@ -263,19 +245,7 @@ function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; 
                     <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
                   </Form.Item>
                 </Col>
-                <Col span={5}>
-                  <Form.Item shouldUpdate noStyle>
-                    {({ getFieldValue }) => {
-                      const cost = getFieldValue(['skus', field.name, 'cost']);
-                      return (
-                        <Form.Item label="售价（自动计算）" style={{ marginBottom: 0 }}>
-                          <SellingPriceDisplay cost={cost} markupRate={markupRate} />
-                        </Form.Item>
-                      );
-                    }}
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={12} md={6} lg={3}>
+                <Col xs={24} sm={12} md={6} lg={5}>
                   <Form.Item
                     {...field}
                     name={[field.name, 'stock']}
@@ -505,7 +475,6 @@ function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { v
 function buildPayload(
   values: Record<string, unknown>,
   skuList: Array<Record<string, unknown>>,
-  markupRate: number,
   fileList: UploadFile[],
 ) {
   // 处理标签（使用标签池 ID 列表）
@@ -531,8 +500,10 @@ function buildPayload(
     })
     .filter(Boolean) as string[];
 
-  // 计算 basePrice（取 SKU 中最低售价）
-  const basePrice = Math.min(...skuList.map((s) => Number(s.cost) * markupRate));
+  const supplyPrices = skuList
+    .map((s) => Number(s.cost))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const basePrice = supplyPrices.length > 0 ? Math.min(...supplyPrices) : 0;
 
   const skus = skuList.map((s) => ({
     id: s.id as string | undefined,
@@ -607,13 +578,6 @@ function ProductEditForm({ id }: { id: string }) {
     queryFn: getCategories,
   });
   const treeData = useMemo(() => buildCategoryTree(categories || []), [categories]);
-
-  // 加价率（动态从 API 获取）
-  const { data: configData } = useQuery({
-    queryKey: ['seller-markup-rate'],
-    queryFn: getMarkupRate,
-  });
-  const markupRate = configData?.markupRate ?? 1.3;
 
   const { data: appConfig } = useQuery({
     queryKey: ['app-config'],
@@ -731,7 +695,7 @@ function ProductEditForm({ id }: { id: string }) {
         }];
       }
 
-      const payload = buildPayload(values, skuList, markupRate, fileList);
+      const payload = buildPayload(values, skuList, fileList);
       const { skus, ...productData } = payload;
 
       await updateProduct(id, productData);
@@ -944,14 +908,10 @@ function ProductEditForm({ id }: { id: string }) {
             </Space>
           }
         >
-          <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-            售价由平台按成本 × 加价率（{markupRate}）自动计算，卖家只需填写成本价。
-          </Text>
-
           {!multiSpec ? (
             /* 单规格模式 */
             <Row gutter={16}>
-              <Col span={6}>
+              <Col span={8}>
                 <Form.Item
                   label="成本价"
                   name="singleCost"
@@ -961,18 +921,6 @@ function ProductEditForm({ id }: { id: string }) {
                   ]}
                 >
                   <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item shouldUpdate noStyle>
-                  {({ getFieldValue }) => {
-                    const cost = getFieldValue('singleCost');
-                    return (
-                      <Form.Item label="售价（自动计算）">
-                        <SellingPriceDisplay cost={cost} markupRate={markupRate} />
-                      </Form.Item>
-                    );
-                  }}
                 </Form.Item>
               </Col>
               <Col xs={24} sm={12} md={5}>
@@ -1013,7 +961,7 @@ function ProductEditForm({ id }: { id: string }) {
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
+            <MultiSpecRows lowStockThreshold={lowStockThreshold} />
           )}
         </Card>
 
@@ -1088,13 +1036,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     queryFn: getCategories,
   });
   const treeData = useMemo(() => buildCategoryTree(categories || []), [categories]);
-
-  // 加价率（动态从 API 获取）
-  const { data: configData } = useQuery({
-    queryKey: ['seller-markup-rate'],
-    queryFn: getMarkupRate,
-  });
-  const markupRate = configData?.markupRate ?? 1.3;
 
   const { data: appConfig } = useQuery({
     queryKey: ['app-config'],
@@ -1402,7 +1343,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             maxPerOrder: values.singleMaxPerOrder,
           }];
         }
-        const payload = buildPayload(values, skuList, markupRate, fileList);
+        const payload = buildPayload(values, skuList, fileList);
         await createProduct(payload);
       }
       // 提交成功 → 清 dirty 防止跳转时弹未保存提醒
@@ -1605,14 +1546,10 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             </Space>
           }
         >
-          <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-            售价由平台按成本 × 加价率（{markupRate}）自动计算，卖家只需填写成本价。
-          </Text>
-
           {!multiSpec ? (
             /* 单规格模式 */
             <Row gutter={16}>
-              <Col span={6}>
+              <Col span={8}>
                 <Form.Item
                   label="成本价"
                   name="singleCost"
@@ -1622,18 +1559,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   ]}
                 >
                   <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item shouldUpdate noStyle>
-                  {({ getFieldValue }) => {
-                    const cost = getFieldValue('singleCost');
-                    return (
-                      <Form.Item label="售价（自动计算）">
-                        <SellingPriceDisplay cost={cost} markupRate={markupRate} />
-                      </Form.Item>
-                    );
-                  }}
                 </Form.Item>
               </Col>
               <Col xs={24} sm={12} md={5}>
@@ -1674,7 +1599,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
+            <MultiSpecRows lowStockThreshold={lowStockThreshold} />
           )}
         </Card>
 

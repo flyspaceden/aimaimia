@@ -23,17 +23,15 @@ import {
   WarningOutlined,
   EditOutlined,
   FileImageOutlined,
-  DollarOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProducts, toggleProductStatus, deleteProduct } from '@/api/products';
-import { getMarkupRate, getPublicAppConfig } from '@/api/config';
+import { getPublicAppConfig } from '@/api/config';
 import { productStatusMap, auditStatusMap, returnPolicyMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
-import { getOverview } from '@/api/analytics';
 
 const { Text } = Typography;
 
@@ -60,14 +58,6 @@ export default function ProductListPage() {
   // 顶部统计卡作为快捷筛选 tab
   type StatusTabKey = 'ALL' | 'ACTIVE' | 'PENDING' | 'DRAFT';
   const [activeTab, setActiveTab] = useState<StatusTabKey>('ALL');
-
-  // 复用 analytics 接口获取统计数据
-  const { data: overview } = useQuery({
-    queryKey: ['seller-analytics-overview'],
-    queryFn: getOverview,
-    staleTime: 30_000,
-    refetchOnWindowFocus: true,
-  });
 
   const { data: appConfig } = useQuery({
     queryKey: ['app-config'],
@@ -122,20 +112,11 @@ export default function ProductListPage() {
     actionRef.current?.reload();
   }, [activeTab]);
 
-  // 加价率（用于展开行计算售价）
-  const { data: configData } = useQuery({
-    queryKey: ['seller-markup-rate'],
-    queryFn: getMarkupRate,
-    staleTime: 300_000,
-  });
-  const markupRate = configData?.markupRate ?? 1.3;
-
   const handleToggle = async (id: string, newStatus: 'ACTIVE' | 'INACTIVE') => {
     try {
       await toggleProductStatus(id, newStatus);
       message.success(newStatus === 'ACTIVE' ? '已上架' : '已下架');
       queryClient.invalidateQueries({ queryKey: ['seller-product-status-counts'] });
-      queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
       actionRef.current?.reload();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败');
@@ -147,7 +128,6 @@ export default function ProductListPage() {
       await deleteProduct(id);
       message.success('删除成功');
       queryClient.invalidateQueries({ queryKey: ['seller-product-status-counts'] });
-      queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
       actionRef.current?.reload();
     } catch (err) {
       modal.error({
@@ -239,50 +219,26 @@ export default function ProductListPage() {
       fieldProps: { placeholder: '搜索商品名称' },
     },
     {
-      title: '价格',
+      title: '成本价',
       width: 150,
       search: false,
       render: (_, r) => {
         const skus = r.skus ?? [];
         const costs = skus.map((s) => s.cost).filter((v): v is number => typeof v === 'number' && v > 0);
-        // 草稿 SKU 后端 price 占位为 0（提交审核时统一按成本×加价率重算），
-        // 这里若 sku.price 为 0 就用 cost × markupRate 实时算估价显示。
-        const effectivePrices = skus
-          .map((s) => {
-            if (s.price > 0) return s.price;
-            if (typeof s.cost === 'number' && s.cost > 0) return +(s.cost * markupRate).toFixed(2);
-            return 0;
-          })
-          .filter((v) => v > 0);
-        const fallbackBase = r.basePrice > 0
-          ? r.basePrice
-          : (costs.length > 0 ? +(Math.min(...costs) * markupRate).toFixed(2) : 0);
-        const minPrice = effectivePrices.length > 0 ? Math.min(...effectivePrices) : fallbackBase;
-        const maxPrice = effectivePrices.length > 0 ? Math.max(...effectivePrices) : fallbackBase;
-        const hasPriceRange = effectivePrices.length > 1 && minPrice !== maxPrice;
-        const isDraft = r.status === 'DRAFT';
+        const minCost = costs.length > 0 ? Math.min(...costs) : 0;
+        const maxCost = costs.length > 0 ? Math.max(...costs) : 0;
+        const hasCostRange = costs.length > 1 && minCost !== maxCost;
         return (
           <div>
             <div style={{ fontWeight: 500, fontFamily: 'monospace' }}>
-              {minPrice > 0 ? (
-                hasPriceRange
-                  ? `¥${minPrice.toFixed(2)} ~ ${maxPrice.toFixed(2)}`
-                  : `¥${minPrice.toFixed(2)}`
+              {minCost > 0 ? (
+                hasCostRange
+                  ? `¥${minCost.toFixed(2)} ~ ${maxCost.toFixed(2)}`
+                  : `¥${minCost.toFixed(2)}`
               ) : (
                 <span style={{ color: '#bbb' }}>-</span>
               )}
-              {isDraft && minPrice > 0 && (
-                <span style={{ fontSize: 11, color: '#bbb', marginLeft: 4 }}>估价</span>
-              )}
             </div>
-            {costs.length > 0 && (
-              <div style={{ fontSize: 12, color: '#999', fontFamily: 'monospace' }}>
-                成本 ¥{Math.min(...costs).toFixed(2)}
-                {costs.length > 1 && Math.min(...costs) !== Math.max(...costs)
-                  ? ` ~ ${Math.max(...costs).toFixed(2)}`
-                  : ''}
-              </div>
-            )}
           </div>
         );
       },
@@ -470,17 +426,17 @@ export default function ProductListPage() {
 
   return (
     <div>
-      {/* 统计概览卡片（前 4 个为可点击的快捷筛选 tab，最后一个为只读营收） */}
+      {/* 统计概览卡片 */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: 16,
           marginBottom: 16,
         }}
       >
         {([
-          { key: 'ALL', title: '全部商品', value: statusCounts?.total ?? overview?.total.productCount ?? 0, icon: <ShoppingOutlined />, color: '#1677ff' },
+          { key: 'ALL', title: '全部商品', value: statusCounts?.total ?? 0, icon: <ShoppingOutlined />, color: '#1677ff' },
           { key: 'ACTIVE', title: '已上架', value: statusCounts?.active ?? 0, icon: <CheckCircleOutlined />, color: '#2E7D32' },
           { key: 'PENDING', title: '待审核', value: statusCounts?.pending ?? 0, icon: <ClockCircleOutlined />, color: '#fa8c16' },
           {
@@ -526,16 +482,6 @@ export default function ProductListPage() {
             </Card>
           );
         })}
-        <Card size="small">
-          <Statistic
-            title="累计营收"
-            value={overview?.total.totalRevenue ?? 0}
-            precision={2}
-            prefix={<DollarOutlined style={{ color: '#722ed1' }} />}
-            valueStyle={{ color: '#722ed1', fontSize: 28 }}
-            suffix="元"
-          />
-        </Card>
       </div>
 
       {/* 商品表格 */}
@@ -568,24 +514,13 @@ export default function ProductListPage() {
                   render: (v) => v || '默认',
                 },
                 {
-                  title: '成本',
+                  title: '成本价',
                   dataIndex: 'cost',
                   width: 100,
                   render: (v) =>
                     typeof v === 'number' ? (
                       <span style={{ fontFamily: 'monospace' }}>¥{v.toFixed(2)}</span>
                     ) : '-',
-                },
-                {
-                  title: '售价',
-                  dataIndex: 'price',
-                  width: 100,
-                  render: (v, sku) => {
-                    const price = v > 0 ? v : (typeof sku.cost === 'number' ? sku.cost * markupRate : 0);
-                    return price > 0 ? (
-                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>¥{price.toFixed(2)}</span>
-                    ) : '-';
-                  },
                 },
                 {
                   title: '库存',

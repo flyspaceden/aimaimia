@@ -24,9 +24,13 @@ export const loginByPassword = (
 ): Promise<LoginResponse | SelectCompanyResponse> =>
   client.post('/delivery-seller/auth/login-by-password', { phone, password, captchaId, captchaCode });
 
-/** 多企业用户选择企业 */
-export const selectCompany = (tempToken: string, companyId: string): Promise<LoginResponse> =>
-  client.post('/delivery-seller/auth/select-company', { tempToken, companyId });
+/** 多企业用户选择具体员工身份 */
+export const selectCompany = (
+  tempToken: string,
+  companyId: string,
+  staffId: string,
+): Promise<LoginResponse> =>
+  client.post('/delivery-seller/auth/select-company', { tempToken, companyId, staffId });
 
 /** 刷新 Token */
 export const refreshToken = (refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> =>
@@ -55,7 +59,7 @@ export const sendBindPhoneSmsCode = (
 ): Promise<{ ok: boolean; message?: string }> =>
   client.post('/delivery-seller/auth/bind-phone/sms/code', { phone });
 
-/** 修改手机号（双重 SMS 验证，影响 User 名下所有企业 staff） */
+/** 修改手机号（双重 SMS 验证，仅影响当前登录 staff） */
 export const changePhone = (data: {
   oldPhoneCode: string;
   newPhone: string;

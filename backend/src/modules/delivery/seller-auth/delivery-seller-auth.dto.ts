@@ -46,6 +46,10 @@ export class DeliverySellerSelectCompanyDto {
 
   @IsString()
   @IsNotEmpty()
+  staffId: string;
+
+  @IsString()
+  @IsNotEmpty()
   companyId: string;
 }
 

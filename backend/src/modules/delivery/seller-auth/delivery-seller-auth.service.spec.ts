@@ -17,6 +17,11 @@ describe('DeliverySellerAuthService', () => {
     };
     deliverySellerStaff: {
       findMany: jest.Mock;
+      findFirst: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+      count: jest.Mock;
     };
     deliverySellerSession: {
       create: jest.Mock;
@@ -46,6 +51,11 @@ describe('DeliverySellerAuthService', () => {
       },
       deliverySellerStaff: {
         findMany: jest.fn(),
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       deliverySellerSession: {
         create: jest.fn(),
@@ -129,16 +139,20 @@ describe('DeliverySellerAuthService', () => {
       tempToken: 'temp-token',
       companies: [
         {
+          staffId: 'staff_1',
           companyId: 'merchant_1',
           companyName: '澄源生态',
           shortName: '澄源',
+          realName: '陈澄源',
           role: DeliverySellerStaffRole.OWNER,
           status: 'ACTIVE',
         },
         {
+          staffId: 'staff_2',
           companyId: 'merchant_2',
           companyName: '青禾智慧',
           shortName: '青禾',
+          realName: '陈澄源',
           role: DeliverySellerStaffRole.MANAGER,
           status: 'ACTIVE',
         },
@@ -266,6 +280,104 @@ describe('DeliverySellerAuthService', () => {
       seller: {
         staffId: 'staff_1',
         companyId: 'merchant_1',
+      },
+    });
+  });
+
+  it('selects the requested staff id instead of an arbitrary active staff under the same merchant', async () => {
+    jwtService.verify.mockReturnValue({
+      sub: '13800001003',
+      type: 'delivery-seller-temp',
+      staffIds: ['staff_1', 'staff_2'],
+    });
+    prisma.deliverySellerStaff.findFirst.mockResolvedValue({
+      id: 'staff_2',
+      merchantId: 'merchant_1',
+      phone: '13800001003',
+      realName: '王一',
+      role: DeliverySellerStaffRole.OPERATOR,
+      permissionCodes: ['delivery:orders:manage'],
+      status: DeliverySellerStaffStatus.ACTIVE,
+      merchant: {
+        id: 'merchant_1',
+        name: '澄源生态',
+        shortName: '澄源',
+        status: 'ACTIVE',
+      },
+    });
+    prisma.deliverySellerSession.create.mockResolvedValue({
+      id: 'dsess_select_staff_2',
+    });
+
+    const result = await service.selectCompany(
+      {
+        tempToken: 'temp-token',
+        companyId: 'merchant_1',
+        staffId: 'staff_2',
+      },
+      '127.0.0.1',
+      'jest',
+    );
+
+    expect(prisma.deliverySellerStaff.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            { id: 'staff_2' },
+            { id: { in: ['staff_1', 'staff_2'] } },
+          ]),
+          merchantId: 'merchant_1',
+          status: DeliverySellerStaffStatus.ACTIVE,
+        }),
+      }),
+    );
+    expect(prisma.deliverySellerSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          staffId: 'staff_2',
+        }),
+      }),
+    );
+    expect(result).toMatchObject({
+      seller: {
+        staffId: 'staff_2',
+        companyId: 'merchant_1',
+      },
+    });
+  });
+
+  it('changes phone only for the authenticated staff and revokes only that staff sessions', async () => {
+    prisma.deliverySellerStaff.findUnique.mockResolvedValue({
+      id: 'staff_1',
+      phone: '13800001004',
+    });
+    prisma.deliverySellerStaff.update.mockResolvedValue({
+      id: 'staff_1',
+      phone: '13800001005',
+    });
+    prisma.deliverySellerSession.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.changePhone('staff_1', {
+        oldPhoneCode: '123456',
+        newPhone: '13800001005',
+        newPhoneCode: '123456',
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(prisma.deliverySellerStaff.update).toHaveBeenCalledWith({
+      where: { id: 'staff_1' },
+      data: { phone: '13800001005' },
+    });
+    expect(prisma.deliverySellerStaff.updateMany).not.toHaveBeenCalled();
+    expect(prisma.deliverySellerSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        staffId: { in: ['staff_1'] },
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+      },
+      data: {
+        revokedAt: expect.any(Date),
       },
     });
   });

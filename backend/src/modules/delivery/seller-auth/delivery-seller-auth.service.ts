@@ -155,7 +155,7 @@ export class DeliverySellerAuthService {
 
     const staff = await this.deliveryPrisma.deliverySellerStaff.findFirst({
       where: {
-        id: { in: decoded.staffIds },
+        AND: [{ id: dto.staffId }, { id: { in: decoded.staffIds } }],
         merchantId: dto.companyId,
         status: DeliverySellerStaffStatus.ACTIVE,
         merchant: {
@@ -340,15 +340,6 @@ export class DeliverySellerAuthService {
     }
 
     await this.assertPhoneAvailable(dto.newPhone);
-    const relatedStaff = await this.deliveryPrisma.deliverySellerStaff.findMany({
-      where: { phone: currentStaff.phone },
-      select: { id: true },
-    });
-    const relatedStaffIds = relatedStaff.map((item) => item.id);
-    if (!relatedStaffIds.includes(staffId)) {
-      throw new UnauthorizedException('配送中心账号不存在');
-    }
-
     await this.verifyOtpOrThrow({
       phone: currentStaff.phone,
       code: dto.oldPhoneCode,
@@ -362,15 +353,13 @@ export class DeliverySellerAuthService {
       consume: true,
     });
 
-    await this.deliveryPrisma.deliverySellerStaff.updateMany({
-      where: {
-        id: { in: relatedStaffIds },
-      },
+    await this.deliveryPrisma.deliverySellerStaff.update({
+      where: { id: staffId },
       data: {
         phone: dto.newPhone,
       },
     });
-    await this.revokeStaffSessions(relatedStaffIds);
+    await this.revokeStaffSessions([staffId]);
     return { ok: true };
   }
 
@@ -499,9 +488,11 @@ export class DeliverySellerAuthService {
       needSelectCompany: true as const,
       tempToken,
       companies: staffs.map((staff) => ({
+        staffId: staff.id,
         companyId: staff.merchant.id,
         companyName: staff.merchant.name,
         shortName: staff.merchant.shortName ?? undefined,
+        realName: staff.realName ?? undefined,
         role: staff.role,
         status: staff.merchant.status,
       })),

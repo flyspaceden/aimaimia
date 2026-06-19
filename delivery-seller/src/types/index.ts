@@ -61,9 +61,11 @@ export interface SelectCompanyResponse {
   needSelectCompany: true;
   tempToken: string;
   companies: Array<{
+    staffId: string;
     companyId: string;
     companyName: string;
     shortName?: string;
+    realName?: string;
     role: string;
     status?: string;
   }>;
