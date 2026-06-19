@@ -462,6 +462,8 @@ describe('DeliveryManifestsService', () => {
     expect(uploadedSheet).toContain('120.00');
     expect(uploadedSheet).toContain('125.00');
     expect(uploadedSheet).not.toContain('176.00');
+    expect(uploadedSheet).not.toContain('|5.00|');
+    expect(uploadedSheet).not.toContain('Shipping Share');
     expect(manifest.type).toBe('SELLER_FINANCE');
     expect(manifest.payloadSnapshot.columns).toEqual(
       expect.arrayContaining([
@@ -472,8 +474,16 @@ describe('DeliveryManifestsService', () => {
     expect(manifest.payloadSnapshot.columns).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'buyerFinalAmount' }),
+        expect.objectContaining({ key: 'shippingFeeShare' }),
       ]),
     );
+    expect(manifest.payloadSnapshot.rows[0]).toEqual(
+      expect.objectContaining({
+        supplyAmount: '120.00',
+        settlementAmount: '125.00',
+      }),
+    );
+    expect(manifest.payloadSnapshot.rows[0]).not.toHaveProperty('shippingFeeShare');
   });
 
   it('creates a fresh seller finance export when finance rows change under the same template version', async () => {

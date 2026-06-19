@@ -365,7 +365,6 @@ export class DeliveryManifestsService {
       itemSummary: row.itemSummary,
       quantity: String(row.quantity),
       supplyAmount: this.money(row.supplyAmountCents),
-      shippingFeeShare: this.money(row.shippingFeeShareCents),
       settlementAmount: this.money(row.settlementAmountCents),
     }));
     const renderedTable = this.buildRenderedTable(config, rows);

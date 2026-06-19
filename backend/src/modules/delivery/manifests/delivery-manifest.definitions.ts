@@ -66,8 +66,7 @@ const SELLER_FINANCE_COLUMNS: DeliveryManifestColumnDefinition[] = [
   { key: 'itemSummary', label: 'Items', sortOrder: 40, visible: true, fixed: false },
   { key: 'quantity', label: 'Qty', sortOrder: 50, visible: true, fixed: false },
   { key: 'supplyAmount', label: 'Supply Amount', sortOrder: 60, visible: true, fixed: true },
-  { key: 'shippingFeeShare', label: 'Shipping Share', sortOrder: 70, visible: true, fixed: false },
-  { key: 'settlementAmount', label: 'Settlement Amount', sortOrder: 80, visible: true, fixed: true },
+  { key: 'settlementAmount', label: 'Settlement Amount', sortOrder: 70, visible: true, fixed: true },
 ];
 
 export const DELIVERY_MANIFEST_TEMPLATES: Record<
