@@ -19,6 +19,8 @@ type ListSettlementsQuery = {
   merchantId?: string;
 };
 
+type DeliverySettlementListWhere = Prisma.DeliverySettlementWhereInput;
+
 @Injectable()
 export class DeliverySettlementService {
   constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
@@ -28,17 +30,8 @@ export class DeliverySettlementService {
       merchantId: query.merchantId,
     });
 
-    const page = query.page && query.page > 0 ? query.page : 1;
-    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
-    const skip = (page - 1) * pageSize;
-    const where: Prisma.DeliverySettlementWhereInput = {};
-
-    if (query.merchantId) {
-      where.merchantId = query.merchantId;
-    }
-    if (query.status && this.isSettlementStatus(query.status)) {
-      where.status = query.status;
-    }
+    const { page, pageSize, skip } = this.resolvePage(query);
+    const where = this.buildSettlementWhere(query);
 
     const [total, items] = await Promise.all([
       this.deliveryPrisma.deliverySettlement.count({ where }),
@@ -70,7 +63,7 @@ export class DeliverySettlementService {
     ]);
 
     return {
-      items: items.map((item) => this.mapSettlement(item)),
+      items: items.map((item) => this.mapAdminSettlement(item)),
       total,
       page,
       pageSize,
@@ -78,10 +71,79 @@ export class DeliverySettlementService {
   }
 
   async listSellerSettlements(merchantId: string, query: Omit<ListSettlementsQuery, 'merchantId'>) {
-    return this.listAdminSettlements({
+    await this.materializeEligibleSettlements({ merchantId });
+
+    const { page, pageSize, skip } = this.resolvePage(query);
+    const where = this.buildSettlementWhere({
       ...query,
       merchantId,
     });
+
+    const [total, items] = await Promise.all([
+      this.deliveryPrisma.deliverySettlement.count({ where }),
+      this.deliveryPrisma.deliverySettlement.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          merchantId: true,
+          subOrderId: true,
+          status: true,
+          settlementMonth: true,
+          supplyAmountCents: true,
+          settledAmountCents: true,
+          note: true,
+          settledAt: true,
+          createdAt: true,
+          updatedAt: true,
+          merchant: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          subOrder: {
+            select: {
+              id: true,
+              orderId: true,
+              status: true,
+              shippingFeeShareCents: true,
+              deliveredAt: true,
+              completedAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: items.map((item) => this.mapSellerSettlement(item)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  private resolvePage(query: Pick<ListSettlementsQuery, 'page' | 'pageSize'>) {
+    const page = query.page && query.page > 0 ? query.page : 1;
+    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
+    const skip = (page - 1) * pageSize;
+    return { page, pageSize, skip };
+  }
+
+  private buildSettlementWhere(query: ListSettlementsQuery): DeliverySettlementListWhere {
+    const where: DeliverySettlementListWhere = {};
+
+    if (query.merchantId) {
+      where.merchantId = query.merchantId;
+    }
+    if (query.status && this.isSettlementStatus(query.status)) {
+      where.status = query.status;
+    }
+
+    return where;
   }
 
   async markSettlementPaid(
@@ -224,7 +286,7 @@ export class DeliverySettlementService {
     return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`;
   }
 
-  private mapSettlement(
+  private mapAdminSettlement(
     item: Prisma.DeliverySettlementGetPayload<{
       include: {
         merchant: { select: { id: true; name: true } };
@@ -247,6 +309,64 @@ export class DeliverySettlementService {
       expectedAmountCents: item.subOrder
         ? item.supplyAmountCents + item.subOrder.shippingFeeShareCents
         : item.settledAmountCents,
+    };
+  }
+
+  private mapSellerSettlement(
+    item: Prisma.DeliverySettlementGetPayload<{
+      select: {
+        id: true;
+        merchantId: true;
+        subOrderId: true;
+        status: true;
+        settlementMonth: true;
+        supplyAmountCents: true;
+        settledAmountCents: true;
+        note: true;
+        settledAt: true;
+        createdAt: true;
+        updatedAt: true;
+        merchant: { select: { id: true; name: true } };
+        subOrder: {
+          select: {
+            id: true;
+            orderId: true;
+            status: true;
+            shippingFeeShareCents: true;
+            deliveredAt: true;
+            completedAt: true;
+          };
+        };
+      };
+    }>,
+  ) {
+    const expectedAmountCents = item.subOrder
+      ? item.supplyAmountCents + item.subOrder.shippingFeeShareCents
+      : item.settledAmountCents;
+
+    return {
+      id: item.id,
+      merchantId: item.merchantId,
+      subOrderId: item.subOrderId,
+      status: item.status,
+      settlementMonth: item.settlementMonth,
+      supplyAmountCents: item.supplyAmountCents,
+      settledAmountCents: item.settledAmountCents,
+      expectedAmountCents,
+      note: item.note,
+      settledAt: item.settledAt,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      merchant: item.merchant,
+      subOrder: item.subOrder
+        ? {
+            id: item.subOrder.id,
+            orderId: item.subOrder.orderId,
+            status: item.subOrder.status,
+            deliveredAt: item.subOrder.deliveredAt,
+            completedAt: item.subOrder.completedAt,
+          }
+        : null,
     };
   }
 }

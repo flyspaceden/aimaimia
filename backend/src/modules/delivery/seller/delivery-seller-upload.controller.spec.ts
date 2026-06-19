@@ -80,6 +80,18 @@ describe('DeliverySellerUploadController', () => {
     expect(res.sendFile).toHaveBeenCalledWith('/tmp/delivery/products/file.webp');
   });
 
+  it('rejects non-delivery download keys before reaching the shared upload service', async () => {
+    const res = createResponseDouble();
+
+    await expect(
+      controller.downloadFile('documents/file.webp', '配送商品图.webp', res),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(uploadService.getFileForDownload).not.toHaveBeenCalled();
+    expect(res.setHeader).not.toHaveBeenCalled();
+    expect(res.sendFile).not.toHaveBeenCalled();
+  });
+
   it('adds content-disposition for private delivery downloads when download mode is requested', () => {
     const res = createResponseDouble();
 
@@ -99,6 +111,18 @@ describe('DeliverySellerUploadController', () => {
       `attachment; filename="___.webp"; filename*=UTF-8''${encodeURIComponent('私有图.webp')}`,
     );
     expect(res.sendFile).toHaveBeenCalledWith('/tmp/delivery/products/private-file.webp');
+  });
+
+  it('rejects non-delivery private keys before reaching the shared upload service', () => {
+    const res = createResponseDouble();
+
+    expect(() =>
+      controller.getPrivateFile('documents/private-file.webp', '123', 'signed', '1', '私有图.webp', res),
+    ).toThrow(BadRequestException);
+
+    expect(uploadService.getSignedLocalFile).not.toHaveBeenCalled();
+    expect(res.setHeader).not.toHaveBeenCalled();
+    expect(res.sendFile).not.toHaveBeenCalled();
   });
 });
 

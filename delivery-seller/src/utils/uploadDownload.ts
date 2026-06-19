@@ -9,7 +9,6 @@ const DELIVERY_UPLOAD_KEY_PREFIXES = [
   'delivery/general/',
   'delivery/avatars/',
 ];
-const UPLOAD_KEY_PREFIXES = ['products/', 'documents/', 'general/', 'avatars/'];
 
 function appendQuery(url: string, params: Record<string, string>): string {
   const sep = url.includes('?') ? '&' : '?';
@@ -41,12 +40,6 @@ function extractKeyByPrefix(pathname: string): string | null {
     const index = pathname.indexOf(prefix);
     if (index >= 0) return pathname.slice(index);
   }
-
-  for (const prefix of UPLOAD_KEY_PREFIXES) {
-    const index = pathname.indexOf(prefix);
-    if (index >= 0) return pathname.slice(index);
-  }
-
   return null;
 }
 
@@ -55,7 +48,7 @@ function extractUploadKey(fileUrl: string): string | null {
   const uploadIndex = pathname.indexOf('uploads/');
   if (uploadIndex >= 0) {
     const uploadKey = pathname.slice(uploadIndex + 'uploads/'.length);
-    return extractKeyByPrefix(uploadKey) ?? uploadKey;
+    return extractKeyByPrefix(uploadKey);
   }
 
   return extractKeyByPrefix(pathname);
@@ -69,6 +62,9 @@ export function buildUploadDownloadRequest(
   const privateMatch = fileUrl.match(/\/delivery-seller\/upload\/private\/(.+?)(?:\?|$)/);
   if (privateMatch) {
     const key = decodeURIComponent(privateMatch[1]);
+    if (!key.startsWith('delivery/')) {
+      throw new Error('UNSUPPORTED_UPLOAD_URL');
+    }
     const filename = deriveFilename(preferredName, key);
     return {
       href: appendQuery(fileUrl, { download: '1', filename }),

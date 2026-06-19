@@ -44,16 +44,14 @@ test('extracts delivery upload key from OSS object URL and routes through backen
   assert.equal(request.filename, '配送资质图.webp');
 });
 
-test('keeps legacy non-delivery keys when no delivery prefix is present', () => {
-  const request = buildUploadDownloadRequest(
-    'http://localhost:3000/uploads/documents/license.pdf',
-    '营业执照',
-    'http://localhost:3000/api/v1',
+test('rejects non-delivery upload URLs when no delivery namespace key is present', () => {
+  assert.throws(
+    () =>
+      buildUploadDownloadRequest(
+        'http://localhost:3000/uploads/documents/license.pdf',
+        '营业执照',
+        'http://localhost:3000/api/v1',
+      ),
+    /UNSUPPORTED_UPLOAD_URL/,
   );
-
-  assert.equal(
-    request.href,
-    'http://localhost:3000/api/v1/delivery-seller/upload/download?key=documents%2Flicense.pdf&filename=%E8%90%A5%E4%B8%9A%E6%89%A7%E7%85%A7.pdf',
-  );
-  assert.equal(request.filename, '营业执照.pdf');
 });

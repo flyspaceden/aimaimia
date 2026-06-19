@@ -176,6 +176,90 @@ describe('DeliverySettlementService', () => {
     ]);
   });
 
+  it('returns seller settlements scoped to the merchant without buyer final totals', async () => {
+    deliveryPrisma.deliverySubOrder.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliverySettlement.count.mockResolvedValue(1);
+    deliveryPrisma.deliverySettlement.findMany.mockResolvedValue([
+      {
+        id: 'settlement_1',
+        merchantId: 'merchant_1',
+        subOrderId: 'sub_order_1',
+        status: 'PENDING',
+        settlementMonth: '2026-06',
+        supplyAmountCents: 1800,
+        settledAmountCents: 0,
+        note: '待月结',
+        exportFileUrl: null,
+        settledAt: null,
+        markedSettledByAdminId: null,
+        createdAt: new Date('2026-06-19T09:00:00.000Z'),
+        updatedAt: new Date('2026-06-19T09:00:00.000Z'),
+        merchant: {
+          id: 'merchant_1',
+          name: '华南仓',
+        },
+        subOrder: {
+          id: 'sub_order_1',
+          orderId: 'order_1',
+          status: 'COMPLETED',
+          totalAmountCents: 2600,
+          shippingFeeShareCents: 200,
+          deliveredAt: new Date('2026-06-18T10:00:00.000Z'),
+          completedAt: new Date('2026-06-19T08:00:00.000Z'),
+        },
+      },
+    ]);
+
+    const result = await service.listSellerSettlements('merchant_1', {
+      page: 1,
+      pageSize: 20,
+      status: 'PENDING',
+    });
+
+    expect(deliveryPrisma.deliverySettlement.count).toHaveBeenCalledWith({
+      where: {
+        merchantId: 'merchant_1',
+        status: 'PENDING',
+      },
+    });
+    expect(deliveryPrisma.deliverySettlement.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          merchantId: 'merchant_1',
+          status: 'PENDING',
+        },
+      }),
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      id: 'settlement_1',
+      merchantId: 'merchant_1',
+      settlementMonth: '2026-06',
+      status: 'PENDING',
+      supplyAmountCents: 1800,
+      settledAmountCents: 0,
+      expectedAmountCents: 2000,
+      merchant: {
+        id: 'merchant_1',
+        name: '华南仓',
+      },
+      subOrder: {
+        id: 'sub_order_1',
+        orderId: 'order_1',
+        status: 'COMPLETED',
+        deliveredAt: new Date('2026-06-18T10:00:00.000Z'),
+        completedAt: new Date('2026-06-19T08:00:00.000Z'),
+      },
+    });
+    expect(result.items[0].subOrder).not.toHaveProperty('totalAmountCents');
+    expect(result.items[0].subOrder).not.toHaveProperty('shippingFeeShareCents');
+    expect(result.items[0]).not.toHaveProperty('totalAmountCents');
+    expect(result.items[0]).not.toHaveProperty('buyerPaymentTotalAmountCents');
+    expect(result.items[0]).not.toHaveProperty('finalBuyerPriceCents');
+    expect(result.items[0]).not.toHaveProperty('markupAmountCents');
+    expect(result.items[0]).not.toHaveProperty('marginAmountCents');
+  });
+
   it('marks a settlement as paid and writes a delivery audit log', async () => {
     tx.deliverySettlement.findUnique.mockResolvedValue({
       id: 'settlement_1',

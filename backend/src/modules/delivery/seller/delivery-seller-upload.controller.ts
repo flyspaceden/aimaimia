@@ -68,11 +68,12 @@ export class DeliverySellerUploadController {
     @Query('filename') filename: string | undefined,
     @Res() res: Response,
   ) {
-    const file = this.uploadService.getSignedLocalFile(key, expires, sig);
+    const normalizedKey = this.requireDeliveryKey(key);
+    const file = this.uploadService.getSignedLocalFile(normalizedKey, expires, sig);
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=60');
     if (download === '1' || download === 'true') {
-      const basename = key.split('/').pop() || 'download';
+      const basename = normalizedKey.split('/').pop() || 'download';
       res.setHeader('Content-Disposition', buildContentDisposition(filename || basename));
     }
     return res.sendFile(file.filePath);
@@ -85,7 +86,8 @@ export class DeliverySellerUploadController {
     @Res() res: Response,
   ) {
     if (!key) throw new BadRequestException('请提供文件 key');
-    const file = await this.uploadService.getFileForDownload(key);
+    const normalizedKey = this.requireDeliveryKey(key);
+    const file = await this.uploadService.getFileForDownload(normalizedKey);
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader('Content-Disposition', buildContentDisposition(filename || file.basename));
     res.setHeader('Cache-Control', 'private, max-age=60');
@@ -98,5 +100,13 @@ export class DeliverySellerUploadController {
   private resolveFolder(folder?: string) {
     const normalized = folder?.trim().replace(/^delivery\//, '') || 'products';
     return `delivery/${normalized}`;
+  }
+
+  private requireDeliveryKey(key: string) {
+    const normalized = key.trim().replace(/^\/+/, '');
+    if (!normalized.startsWith('delivery/')) {
+      throw new BadRequestException('仅支持 delivery/ 命名空间文件');
+    }
+    return normalized;
   }
 }
