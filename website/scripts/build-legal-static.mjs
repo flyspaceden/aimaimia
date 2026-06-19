@@ -16,6 +16,18 @@ function writeStaticPage(route, html) {
 
 const privacy = readLegalDocument(resolve(websiteRoot, 'src/content/legal/privacyPolicy.ts'), 'PRIVACY_POLICY');
 const terms = readLegalDocument(resolve(websiteRoot, 'src/content/legal/termsOfService.ts'), 'TERMS_OF_SERVICE');
+const deliveryTerms = readLegalDocument(resolve(websiteRoot, 'src/content/legal/deliveryTerms.ts'), 'DELIVERY_TERMS');
+const deliveryPrivacy = readLegalDocument(resolve(websiteRoot, 'src/content/legal/deliveryPrivacy.ts'), 'DELIVERY_PRIVACY_POLICY');
+const deliverySellerAgreement = readLegalDocument(
+  resolve(websiteRoot, 'src/content/legal/deliverySellerAgreement.ts'),
+  'DELIVERY_SELLER_AGREEMENT',
+);
 
 writeStaticPage('privacy', renderLegalPage(privacy, 'privacy'));
 writeStaticPage('terms', renderLegalPage(terms, 'terms'));
+writeStaticPage('legal/delivery-terms', renderLegalPage(deliveryTerms, 'delivery-terms'));
+writeStaticPage('legal/delivery-privacy', renderLegalPage(deliveryPrivacy, 'delivery-privacy'));
+writeStaticPage(
+  'legal/delivery-seller-agreement',
+  renderLegalPage(deliverySellerAgreement, 'delivery-seller-agreement'),
+);

@@ -16,6 +16,9 @@ const Download = lazy(() => import('@/pages/Download'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
 const Privacy = lazy(() => import('@/pages/Privacy'))
 const Terms = lazy(() => import('@/pages/Terms'))
+const DeliveryTerms = lazy(() => import('@/pages/DeliveryTerms'))
+const DeliveryPrivacy = lazy(() => import('@/pages/DeliveryPrivacy'))
+const DeliverySellerAgreement = lazy(() => import('@/pages/DeliverySellerAgreement'))
 
 /** 动态更新页面 title 和 meta description */
 function MetaUpdater() {
@@ -72,6 +75,9 @@ export default function App() {
             <Route path="/resolve" element={<Resolve />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/legal/delivery-terms" element={<DeliveryTerms />} />
+            <Route path="/legal/delivery-privacy" element={<DeliveryPrivacy />} />
+            <Route path="/legal/delivery-seller-agreement" element={<DeliverySellerAgreement />} />
             {/* 商城暂未开放，所有 /shop 路径重定向回首页 */}
             <Route path="/shop/*" element={<Navigate to="/" replace />} />
             <Route path="*" element={<NotFound />} />

@@ -110,6 +110,18 @@ export const PAGE_META: Record<string, { title: string; description: string }> =
     title: '用户服务协议 — AI爱买买',
     description: 'AI爱买买用户服务协议，规定您与AI爱买买平台之间的权利义务关系',
   },
+  '/legal/delivery-terms': {
+    title: '配送服务条款 — AI爱买买',
+    description: 'AI爱买买配送业务服务条款运营占位稿，正式上线前需法律顾问确认',
+  },
+  '/legal/delivery-privacy': {
+    title: '配送隐私政策 — AI爱买买',
+    description: 'AI爱买买配送业务隐私政策运营占位稿，正式上线前需法律顾问确认',
+  },
+  '/legal/delivery-seller-agreement': {
+    title: '配送中心商家协议 — AI爱买买',
+    description: 'AI爱买买配送中心商家协议运营占位稿，正式上线前需法律顾问确认',
+  },
 }
 
 // ============================================
