@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,16 +17,60 @@ import {
   useResponsiveLayout,
   useTheme,
 } from '../../src/theme';
-import type {
-  DigitalAssetCreditTierInfo,
-  DigitalAssetLedger,
-  DigitalAssetVipSeedRule,
-} from '../../src/types';
+import type { DigitalAssetLedger } from '../../src/types';
 
 const NON_VIP_ACTIVATION_PROMPT = {
-  title: '让每一次消费，都成为你的数字资产基础',
-  description: '成为 VIP 后，累计消费可按规则转化为消费资产。',
+  title: '开通 VIP 激活数字资产',
   actionLabel: '开通 VIP 激活资产',
+} as const;
+
+type LedgerTone = 'seed' | 'consumption' | 'spend' | 'refund' | 'adjustment';
+
+const ASSET_VISUAL = {
+  heroGradient: ['#15364B', '#116150', '#C2A03E'] as const,
+  nonVipGradient: ['#15364B', '#116150'] as const,
+  heroBorder: 'rgba(255,255,255,0.18)',
+  heroLine: 'rgba(255,255,255,0.34)',
+  heroTile: 'rgba(255,255,255,0.10)',
+  heroTileBorder: 'rgba(255,255,255,0.18)',
+  screenWash: '#EEF6F1',
+  tones: {
+    seed: {
+      color: '#1F8A5F',
+      bg: '#DFF1E6',
+      border: 'rgba(31,138,95,0.28)',
+      icon: 'sprout-outline',
+      badge: '种',
+    },
+    consumption: {
+      color: '#267B93',
+      bg: '#DFF1F3',
+      border: 'rgba(38,123,147,0.28)',
+      icon: 'chart-line',
+      badge: '消',
+    },
+    spend: {
+      color: '#A87918',
+      bg: '#F3ECD8',
+      border: 'rgba(168,121,24,0.26)',
+      icon: 'shopping-outline',
+      badge: '单',
+    },
+    refund: {
+      color: '#B65347',
+      bg: '#F7E3DF',
+      border: 'rgba(182,83,71,0.28)',
+      icon: 'cash-refund',
+      badge: '扣',
+    },
+    adjustment: {
+      color: '#6E7B72',
+      bg: '#E7ECE8',
+      border: 'rgba(110,123,114,0.28)',
+      icon: 'tune-variant',
+      badge: '调',
+    },
+  },
 } as const;
 
 const formatDateTime = (value: string) => {
@@ -56,30 +100,15 @@ const formatLedgerBalance = (item: DigitalAssetLedger) =>
     ? `累计 ${formatCurrency(item.balanceAfter)}`
     : `余额 ${formatAssetValue(item.balanceAfter)}`;
 
-const getLedgerIcon = (item: DigitalAssetLedger) => {
-  if (item.subjectType === 'SEED_ASSET') return 'sprout-outline';
-  if (item.subjectType === 'CREDIT_ASSET' && item.direction === 'DEBIT') return 'chart-line-variant';
-  if (item.subjectType === 'CREDIT_ASSET') return 'chart-line';
-  if (item.sourceType === 'REFUND_REVERSAL') return 'cash-refund';
-  if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'tune-variant';
-  if (item.sourceType === 'BACKFILL') return 'archive-arrow-up-outline';
-  return 'shopping-outline';
+const getLedgerTone = (item: DigitalAssetLedger): LedgerTone => {
+  if (item.direction === 'DEBIT' || item.sourceType === 'REFUND_REVERSAL') return 'refund';
+  if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'adjustment';
+  if (item.subjectType === 'SEED_ASSET') return 'seed';
+  if (item.subjectType === 'CREDIT_ASSET') return 'consumption';
+  return 'spend';
 };
 
-const buildTierProgress = (
-  currentTier?: DigitalAssetCreditTierInfo,
-  nextTier?: DigitalAssetCreditTierInfo | null,
-) => {
-  if (!currentTier) return { progress: 0, remainingText: '规则待定' };
-  if (!nextTier) return { progress: 1, remainingText: '已达当前最高档' };
-  const span = Math.max(1, nextTier.minAmount - currentTier.minAmount);
-  const currentAmount = currentTier.currentAmount ?? currentTier.minAmount;
-  const progress = Math.min(1, Math.max(0, (currentAmount - currentTier.minAmount) / span));
-  return {
-    progress,
-    remainingText: `距下一档还差 ${formatCurrency(nextTier.remainingAmount ?? 0)}`,
-  };
-};
+const getLedgerVisual = (item: DigitalAssetLedger) => ASSET_VISUAL.tones[getLedgerTone(item)];
 
 export default function DigitalAssetsScreen() {
   const { colors, radius, spacing, typography } = useTheme();
@@ -98,12 +127,26 @@ export default function DigitalAssetsScreen() {
   const loadError = summaryQuery.data && !summaryQuery.data.ok ? summaryQuery.data.error : null;
   const recentRecords = (summary?.recentRecords ?? []).slice(0, 5);
   const isVip = summary?.isVip ?? false;
-  const hasCreditTierRules = Boolean(summary?.currentCreditTier);
+  const tierPrompt = summary?.currentCreditTier
+    ? summary.nextCreditTier
+      ? `距下一档还差 ${formatCurrency(summary.nextCreditTier.remainingAmount ?? 0)}`
+      : '已达当前最高档'
+    : '暂无档位规则';
 
-  const tierProgress = useMemo(
-    () => buildTierProgress(summary?.currentCreditTier, summary?.nextCreditTier),
-    [summary?.currentCreditTier, summary?.nextCreditTier],
-  );
+  const tierProgressPercent = (() => {
+    if (!summary?.currentCreditTier) return 0;
+    if (!summary.nextCreditTier) return 1;
+    const span = Math.max(
+      1,
+      summary.nextCreditTier.minAmount - summary.currentCreditTier.minAmount,
+    );
+    const currentAmount = summary.currentCreditTier.currentAmount ?? summary.currentCreditTier.minAmount;
+    const progress = Math.min(
+      1,
+      Math.max(0, (currentAmount - summary.currentCreditTier.minAmount) / span),
+    );
+    return Math.max(0.08, Math.round(progress * 100));
+  })();
 
   const renderMetricCard = ({
     label,
@@ -143,7 +186,18 @@ export default function DigitalAssetsScreen() {
     </View>
   );
 
-  const renderVipSeedRule = ({ item, index }: { item: DigitalAssetVipSeedRule; index: number }) => (
+  const renderVipSeedRule = ({
+    item,
+    index,
+  }: {
+    item: {
+      packageId: string;
+      price: number;
+      selfSeedAssetAmount: number;
+      referralSeedAssetAmount: number;
+    };
+    index: number;
+  }) => (
     <Animated.View entering={FadeInDown.duration(220).delay(index * 40)}>
       <View
         style={[
@@ -209,9 +263,9 @@ export default function DigitalAssetsScreen() {
             ]}
           >
             <MaterialCommunityIcons
-              name={getLedgerIcon(item) as any}
+              name={getLedgerVisual(item).icon as any}
               size={20}
-              color={isPositive ? colors.brand.primary : colors.danger}
+              color={getLedgerVisual(item).color}
             />
           </View>
 
@@ -271,8 +325,7 @@ export default function DigitalAssetsScreen() {
           <Text style={styles.heroValue} {...priceTextProps}>
             {formatCurrency(summary?.cumulativeSpendAmount ?? 0)}
           </Text>
-          <Text style={styles.heroPromptTitle}>{NON_VIP_ACTIVATION_PROMPT.title}</Text>
-          <Text style={styles.heroPromptDesc}>{NON_VIP_ACTIVATION_PROMPT.description}</Text>
+        <Text style={styles.heroPromptTitle}>{NON_VIP_ACTIVATION_PROMPT.title}</Text>
           <Pressable
             onPress={() => router.push('/me/vip')}
             style={[styles.heroButton, { borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.18)' }]}
@@ -306,8 +359,8 @@ export default function DigitalAssetsScreen() {
             {summary?.currentCreditTier ? `当前档位 x${summary.currentCreditTier.multiplier}` : '规则待开放'}
           </Text>
         </View>
-        {hasCreditTierRules ? (
-          <View
+      {summary?.currentCreditTier ? (
+        <View
             style={[
               styles.sectionCard,
               {
@@ -325,20 +378,20 @@ export default function DigitalAssetsScreen() {
                     : '当前最高档'}
                 </Text>
                 <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-                  {tierProgress.remainingText}
+                  {tierPrompt}
                 </Text>
               </View>
-              <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-                {summary?.currentCreditTier ? `${formatCurrency(summary.currentCreditTier.minAmount)} 起算` : '暂无档位规则'}
-              </Text>
-            </View>
+                <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
+                  {summary?.currentCreditTier ? `${formatCurrency(summary.currentCreditTier.minAmount)} 起算` : '暂无档位规则'}
+                </Text>
+              </View>
 
             <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary, borderRadius: radius.pill, marginTop: spacing.md }]}>
               <View
                 style={[
                   styles.progressFill,
                   {
-                    width: `${Math.max(8, tierProgress.progress * 100)}%`,
+                    width: `${tierProgressPercent}%`,
                     backgroundColor: colors.brand.primary,
                     borderRadius: radius.pill,
                   },
