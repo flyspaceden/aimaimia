@@ -1,12 +1,14 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
 import { DeliveryCheckoutService } from './delivery-checkout.service';
 
 describe('DeliveryCheckoutService', () => {
   let tx: any;
   let deliveryPrisma: any;
+  let deliveryIdService: { nextInTransaction: jest.Mock };
   let pricingService: { resolvePrice: jest.Mock };
   let service: DeliveryCheckoutService;
 
@@ -49,6 +51,9 @@ describe('DeliveryCheckoutService', () => {
         findFirst: jest.fn(),
       },
     };
+    deliveryIdService = {
+      nextInTransaction: jest.fn().mockResolvedValue('PSZF0000000000001'),
+    };
     pricingService = {
       resolvePrice: jest
         .fn()
@@ -68,6 +73,7 @@ describe('DeliveryCheckoutService', () => {
     service = new DeliveryCheckoutService(
       deliveryPrisma as DeliveryPrismaService,
       pricingService as unknown as DeliveryPricingService,
+      deliveryIdService as unknown as DeliveryIdService,
     );
   });
 
@@ -196,6 +202,7 @@ describe('DeliveryCheckoutService', () => {
     const result = await service.createCheckout('PSYH0000000000001', {
       cartItemIds: ['cart_1', 'cart_2'],
       note: '送货前联系',
+      paymentChannel: 'ALIPAY',
     });
 
     expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
@@ -208,6 +215,8 @@ describe('DeliveryCheckoutService', () => {
       unitId: 'unit_1',
       addressId: null,
       note: '送货前联系',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
       goodsAmountCents: 4400,
       shippingFeeCents: 500,
       totalAmountCents: 4900,

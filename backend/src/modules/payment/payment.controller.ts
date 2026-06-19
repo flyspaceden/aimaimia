@@ -10,6 +10,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
 import { PaymentCallbackDto } from './dto/payment-callback.dto';
+import { DeliveryPaymentsService } from '../delivery/payments/delivery-payments.service';
+import { isDeliveryMerchantOrderNo } from '../delivery/payments/delivery-payment-routing.util';
 
 type WithdrawPayoutRuntimeService = {
   finalizeWithdrawalPaid(
@@ -34,6 +36,7 @@ export class PaymentController {
     @Optional() private moduleRef?: ModuleRef,
     @Optional() private prisma?: PrismaService,
     @Optional() private wechatPayService?: WechatPayService,
+    @Optional() private deliveryPaymentsService?: DeliveryPaymentsService,
   ) {}
 
   /** 查询订单支付记录 */
@@ -120,6 +123,23 @@ export class PaymentController {
         } catch (amountErr: any) {
           this.logger.error(
             `支付宝 notify 售后退货运费金额校验失败，已拒绝处理：${amountErr.message} ` +
+            `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+          );
+          res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
+          return;
+        }
+      } else if (isDeliveryMerchantOrderNo(body.out_trade_no)) {
+        try {
+          if (!this.deliveryPaymentsService) {
+            throw new Error('delivery payments service unavailable');
+          }
+          await this.deliveryPaymentsService.assertAlipayAmountMatchesCheckout(
+            body.out_trade_no,
+            body.total_amount,
+          );
+        } catch (amountErr: any) {
+          this.logger.error(
+            `支付宝 notify 配送金额校验失败，已拒绝处理：${amountErr.message} ` +
             `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
           );
           res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
@@ -253,6 +273,14 @@ export class PaymentController {
       try {
         if (notify.outTradeNo?.startsWith('AS_SHIP_PAY_')) {
           await this.paymentService.assertWechatAfterSaleShippingPaymentAmountMatches(
+            notify.outTradeNo,
+            notify.amountFen,
+          );
+        } else if (isDeliveryMerchantOrderNo(notify.outTradeNo)) {
+          if (!this.deliveryPaymentsService) {
+            throw new Error('delivery payments service unavailable');
+          }
+          await this.deliveryPaymentsService.assertWechatAmountMatchesCheckout(
             notify.outTradeNo,
             notify.amountFen,
           );

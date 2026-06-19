@@ -52,29 +52,13 @@ export class DeliveryIdService {
     for (let attempt = 0; attempt < DELIVERY_ID_RETRY_LIMIT; attempt += 1) {
       try {
         const sequence = await this.deliveryPrisma.$transaction(
-          async (tx: Prisma.TransactionClient) =>
-            tx.deliverySequence.upsert({
-              where: { prefix },
-              create: {
-                id: prefix,
-                prefix,
-                currentValue: 1n,
-              },
-              update: {
-                currentValue: {
-                  increment: 1n,
-                },
-              },
-              select: {
-                currentValue: true,
-              },
-            }),
+          async (tx: Prisma.TransactionClient) => this.nextInTransaction(tx, prefix),
           {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           },
         );
 
-        return formatDeliveryId(prefix, sequence.currentValue);
+        return sequence;
       } catch (error: any) {
         if (error?.code === 'P2034' && attempt < DELIVERY_ID_RETRY_LIMIT - 1) {
           continue;
@@ -84,5 +68,28 @@ export class DeliveryIdService {
     }
 
     throw new ConflictException('配送单号生成冲突，请重试');
+  }
+
+  async nextInTransaction(tx: Prisma.TransactionClient, prefix: string): Promise<string> {
+    assertDeliveryIdPrefix(prefix);
+
+    const sequence = await tx.deliverySequence.upsert({
+      where: { prefix },
+      create: {
+        id: prefix,
+        prefix,
+        currentValue: 1n,
+      },
+      update: {
+        currentValue: {
+          increment: 1n,
+        },
+      },
+      select: {
+        currentValue: true,
+      },
+    });
+
+    return formatDeliveryId(prefix, sequence.currentValue);
   }
 }

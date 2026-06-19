@@ -14,6 +14,8 @@ import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-s
 import type { RewardDeductionService } from '../bonus/reward-deduction.service';
 import type { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { WechatPayService } from './wechat-pay.service';
+import { DeliveryPaymentsService } from '../delivery/payments/delivery-payments.service';
+import { isDeliveryMerchantOrderNo } from '../delivery/payments/delivery-payment-routing.util';
 
 @Injectable()
 export class PaymentService {
@@ -26,6 +28,7 @@ export class PaymentService {
   private afterSaleShippingPaymentService: AfterSaleShippingPaymentService | null = null;
   private rewardDeductionService: RewardDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
+  private deliveryPaymentsService: DeliveryPaymentsService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -36,8 +39,10 @@ export class PaymentService {
     @Optional() private inboxService?: InboxService,
     @Optional() private wechatPayService?: WechatPayService,
     @Optional() digitalAssetService?: DigitalAssetService,
+    @Optional() deliveryPaymentsService?: DeliveryPaymentsService,
   ) {
     this.digitalAssetService = digitalAssetService ?? null;
+    this.deliveryPaymentsService = deliveryPaymentsService ?? null;
   }
 
   setAfterSaleRefundService(service: AfterSaleRefundService) {
@@ -1407,6 +1412,21 @@ export class PaymentService {
         '支付失败',
       );
       return { code: 'SUCCESS', message: '售后退货运费支付失败已记录' };
+    }
+
+    if (isDeliveryMerchantOrderNo(merchantOrderNo)) {
+      if (!this.deliveryPaymentsService) {
+        throw new BadRequestException('配送支付服务未启用');
+      }
+
+      return this.deliveryPaymentsService.handlePaymentCallback({
+        merchantOrderNo,
+        providerTxnId,
+        status,
+        paidAt,
+        rawPayload,
+        skipSignatureVerification,
+      });
     }
 
     // F1: 检测新结算流程（CheckoutSession-based）

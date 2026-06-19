@@ -14,6 +14,7 @@ describe('PaymentController.handleAlipayNotify', () => {
     findByMerchantOrderNo?: jest.Mock;
     assertAlipayAmountMatchesSession?: jest.Mock;
     assertAfterSaleShippingPaymentAmountMatches?: jest.Mock;
+    assertDeliveryAlipayAmountMatches?: jest.Mock;
     handlePaymentCallback?: jest.Mock;
   }) => {
     const paymentService = {
@@ -32,16 +33,29 @@ describe('PaymentController.handleAlipayNotify', () => {
         merchantOrderNo: notifyBody.out_trade_no,
       }),
     };
+    const deliveryPaymentsService = {
+      assertAlipayAmountMatchesCheckout:
+        overrides?.assertDeliveryAlipayAmountMatches ?? jest.fn().mockResolvedValue(undefined),
+    };
     const res = {
       status: jest.fn().mockReturnThis(),
       send: jest.fn(),
     };
 
     return {
-      controller: new PaymentController(paymentService as any, alipayService as any, checkoutService as any),
+      controller: new PaymentController(
+        paymentService as any,
+        alipayService as any,
+        checkoutService as any,
+        undefined,
+        undefined,
+        undefined,
+        deliveryPaymentsService as any,
+      ),
       paymentService,
       alipayService,
       checkoutService,
+      deliveryPaymentsService,
       res,
     };
   };
@@ -116,6 +130,35 @@ describe('PaymentController.handleAlipayNotify', () => {
     expect(paymentService.handlePaymentCallback).toHaveBeenCalledWith(
       expect.objectContaining({
         merchantOrderNo: 'AS_SHIP_PAY_as_001',
+        providerTxnId: notifyBody.trade_no,
+        status: 'SUCCESS',
+        skipSignatureVerification: true,
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith('success');
+  });
+
+  it('validates delivery payment amount without normal CheckoutSession lookup', async () => {
+    const deliveryBody = {
+      ...notifyBody,
+      out_trade_no: 'PSZF0000000000001',
+      total_amount: '49.00',
+    };
+    const { controller, paymentService, checkoutService, deliveryPaymentsService, res } =
+      buildController();
+
+    await controller.handleAlipayNotify(deliveryBody, res as any);
+
+    expect(checkoutService.findByMerchantOrderNo).not.toHaveBeenCalled();
+    expect(paymentService.assertAlipayAmountMatchesSession).not.toHaveBeenCalled();
+    expect(deliveryPaymentsService.assertAlipayAmountMatchesCheckout).toHaveBeenCalledWith(
+      'PSZF0000000000001',
+      '49.00',
+    );
+    expect(paymentService.handlePaymentCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchantOrderNo: 'PSZF0000000000001',
         providerTxnId: notifyBody.trade_no,
         status: 'SUCCESS',
         skipSignatureVerification: true,

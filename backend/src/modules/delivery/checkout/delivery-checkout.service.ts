@@ -9,6 +9,7 @@ import {
   Prisma,
 } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
 import { CreateDeliveryCheckoutDto } from './dto/create-delivery-checkout.dto';
 
@@ -69,6 +70,7 @@ export class DeliveryCheckoutService {
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryPricingService: DeliveryPricingService,
+    private readonly deliveryIdService: DeliveryIdService,
   ) {}
 
   async createCheckout(deliveryUserId: string, dto: CreateDeliveryCheckoutDto) {
@@ -209,6 +211,7 @@ export class DeliveryCheckoutService {
         );
         const totalAmountCents = goodsAmountCents + shippingFeeCents;
         const note = dto.note?.trim() || null;
+        const merchantOrderNo = await this.deliveryIdService.nextInTransaction(tx, 'PSZF');
         const unitSnapshot = {
           id: currentUnit.id,
           name: currentUnit.name,
@@ -282,6 +285,8 @@ export class DeliveryCheckoutService {
             goodsAmountCents,
             shippingFeeCents,
             totalAmountCents,
+            paymentChannel: dto.paymentChannel ?? null,
+            merchantOrderNo,
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
           },
         });

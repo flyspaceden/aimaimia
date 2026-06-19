@@ -688,6 +688,7 @@ model DeliveryCheckoutSession {
   updatedAt        DateTime                      @updatedAt
 
   orders        DeliveryOrder[]
+  payments      DeliveryPayment[]
   shippingCosts DeliveryShippingCost[]
 
   @@index([userId, unitId, status])
@@ -790,8 +791,10 @@ model DeliveryOrderItem {
 
 model DeliveryPayment {
   id               String                @id
-  orderId          String
-  order            DeliveryOrder         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId          String?
+  order            DeliveryOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  checkoutSessionId String?
+  checkoutSession   DeliveryCheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
   channel          DeliveryPaymentChannel
   scene            DeliveryPaymentScene  @default(APP)
   amountCents      Int
@@ -807,6 +810,7 @@ model DeliveryPayment {
   updatedAt        DateTime              @updatedAt
 
   @@index([orderId, status])
+  @@index([checkoutSessionId, status])
 }
 
 model DeliveryShipment {

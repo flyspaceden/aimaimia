@@ -39,6 +39,7 @@ describe('PaymentController.handleWechatNotify', () => {
     assertWechatAmountMatchesSession?: jest.Mock;
     assertWechatPaymentAmountMatches?: jest.Mock;
     assertWechatAfterSaleShippingPaymentAmountMatches?: jest.Mock;
+    assertWechatDeliveryAmountMatches?: jest.Mock;
     handlePaymentCallback?: jest.Mock;
     handleWechatRefundNotify?: jest.Mock;
     getAppId?: jest.Mock;
@@ -65,6 +66,10 @@ describe('PaymentController.handleWechatNotify', () => {
       getAppId: overrides?.getAppId ?? jest.fn().mockReturnValue('wx_app_1'),
       getMchId: overrides?.getMchId ?? jest.fn().mockReturnValue('mch_1'),
     };
+    const deliveryPaymentsService = {
+      assertWechatAmountMatchesCheckout:
+        overrides?.assertWechatDeliveryAmountMatches ?? jest.fn().mockResolvedValue(undefined),
+    };
     const res = {
       status: jest.fn().mockReturnThis(),
       send: jest.fn(),
@@ -78,9 +83,11 @@ describe('PaymentController.handleWechatNotify', () => {
         undefined,
         undefined,
         wechatPayService as any,
+        deliveryPaymentsService as any,
       ),
       paymentService,
       checkoutService,
+      deliveryPaymentsService,
       wechatPayService,
       res,
     };
@@ -212,6 +219,39 @@ describe('PaymentController.handleWechatNotify', () => {
         status: 'SUCCESS',
       }),
     );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith();
+  });
+
+  it('validates delivery payment amount without normal CheckoutSession lookup', async () => {
+    const deliveryNotify = {
+      ...paymentNotify,
+      outTradeNo: 'PSZF0000000000001',
+      amount: 49,
+      amountFen: 4900,
+    };
+    const { controller, paymentService, checkoutService, deliveryPaymentsService, res } =
+      buildController({
+        parsedNotify: deliveryNotify,
+      });
+
+    await controller.handleWechatNotify({}, { rawBody } as any, headers as any, res as any);
+
+    expect(checkoutService.findByMerchantOrderNo).not.toHaveBeenCalled();
+    expect(paymentService.assertWechatAmountMatchesSession).not.toHaveBeenCalled();
+    expect(paymentService.assertWechatPaymentAmountMatches).not.toHaveBeenCalled();
+    expect(deliveryPaymentsService.assertWechatAmountMatchesCheckout).toHaveBeenCalledWith(
+      'PSZF0000000000001',
+      4900,
+    );
+    expect(paymentService.handlePaymentCallback).toHaveBeenCalledWith({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: paymentNotify.providerTxnId,
+      status: 'SUCCESS',
+      paidAt: paymentNotify.paidAt.toISOString(),
+      rawPayload: {},
+      skipSignatureVerification: true,
+    });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith();
   });

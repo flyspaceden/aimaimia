@@ -26,6 +26,8 @@ import { DeliveryCartController } from './cart/delivery-cart.controller';
 import { DeliveryCartService } from './cart/delivery-cart.service';
 import { DeliveryCheckoutController } from './checkout/delivery-checkout.controller';
 import { DeliveryCheckoutService } from './checkout/delivery-checkout.service';
+import { DeliveryOrdersService } from './orders/delivery-orders.service';
+import { DeliveryPaymentsService } from './payments/delivery-payments.service';
 
 @Module({
   imports: [
@@ -67,7 +69,14 @@ import { DeliveryCheckoutService } from './checkout/delivery-checkout.service';
     DeliveryInventoryService,
     DeliveryCartService,
     DeliveryCheckoutService,
+    DeliveryOrdersService,
+    DeliveryPaymentsService,
   ],
-  exports: [DeliveryIdService, DeliveryAuthModule, DeliveryPricingService],
+  exports: [
+    DeliveryIdService,
+    DeliveryAuthModule,
+    DeliveryPricingService,
+    DeliveryPaymentsService,
+  ],
 })
 export class DeliveryModule {}
