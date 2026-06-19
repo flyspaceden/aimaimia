@@ -1,19 +1,25 @@
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
-import { Prisma } from '../../../generated/delivery-client';
+import { DeliveryUserStatus, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryBuyerAuthService } from './delivery-buyer-auth.service';
 import { DeliveryPhoneOtpService } from './delivery-phone-otp.service';
 
 describe('DeliveryBuyerAuthService', () => {
+  const originalFetch = global.fetch;
   let tx: any;
   let deliveryPrisma: { $transaction: jest.Mock; deliveryUser: { findUnique: jest.Mock } };
   let jwtService: { signAsync: jest.Mock };
   let idService: { next: jest.Mock };
   let otpService: { verifyPhoneLoginCode: jest.Mock };
+  let configService: { get: jest.Mock; getOrThrow: jest.Mock };
   let service: DeliveryBuyerAuthService;
 
   beforeEach(() => {
+    global.fetch = jest.fn();
     tx = {
       deliveryAuthIdentity: {
         findUnique: jest.fn(),
@@ -45,12 +51,24 @@ describe('DeliveryBuyerAuthService', () => {
     otpService = {
       verifyPhoneLoginCode: jest.fn().mockResolvedValue(undefined),
     };
+    configService = {
+      get: jest.fn((key: string, defaultValue?: string) => {
+        if (key === 'DELIVERY_WECHAT_MOCK') return 'true';
+        return defaultValue;
+      }),
+      getOrThrow: jest.fn((key: string) => `value-for:${key}`),
+    };
     service = new DeliveryBuyerAuthService(
       deliveryPrisma as unknown as DeliveryPrismaService,
       jwtService as unknown as JwtService,
+      configService as unknown as ConfigService,
       idService as unknown as DeliveryIdService,
       otpService as unknown as DeliveryPhoneOtpService,
     );
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   it('phone OTP login creates a delivery user when no identity exists', async () => {
@@ -97,7 +115,12 @@ describe('DeliveryBuyerAuthService', () => {
     });
   });
 
-  it('wechat login creates an independent delivery auth identity', async () => {
+  it('wechat login creates an independent delivery auth identity from server-side code exchange', async () => {
+    const code = 'delivery-wechat-code-1';
+    const derivedOpenId = createHash('sha256')
+      .update(`wx_openid_${code}`)
+      .digest('hex')
+      .slice(0, 28);
     tx.deliveryAuthIdentity.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
@@ -123,8 +146,7 @@ describe('DeliveryBuyerAuthService', () => {
 
     await expect(
       service.wechatLogin({
-        openid: 'wx-openid-1',
-        unionid: 'wx-union-1',
+        code,
         nickname: '微信配送用户',
         avatarUrl: 'https://example.com/avatar.png',
       }),
@@ -140,13 +162,19 @@ describe('DeliveryBuyerAuthService', () => {
       data: {
         userId: 'PSYH0000000000001',
         provider: 'WECHAT',
-        providerSubject: 'wx-openid-1',
+        providerSubject: derivedOpenId,
         phone: null,
       },
     });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('wechat login does not merge into an existing phone identity even when dto.phone matches', async () => {
+  it('wechat login does not merge into an existing phone identity', async () => {
+    const code = 'delivery-wechat-code-2';
+    const derivedOpenId = createHash('sha256')
+      .update(`wx_openid_${code}`)
+      .digest('hex')
+      .slice(0, 28);
     tx.deliveryAuthIdentity.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
@@ -174,9 +202,7 @@ describe('DeliveryBuyerAuthService', () => {
 
     await expect(
       service.wechatLogin({
-        openid: 'wx-openid-2',
-        unionid: 'wx-union-2',
-        phone: '13800000000',
+        code,
         nickname: '微信配送用户',
       }),
     ).resolves.toMatchObject({
@@ -192,7 +218,7 @@ describe('DeliveryBuyerAuthService', () => {
       where: {
         provider_providerSubject: {
           provider: 'WECHAT',
-          providerSubject: 'wx-openid-2',
+          providerSubject: derivedOpenId,
         },
       },
     });
@@ -207,10 +233,96 @@ describe('DeliveryBuyerAuthService', () => {
       data: {
         userId: 'PSYH0000000000001',
         provider: 'WECHAT',
-        providerSubject: 'wx-openid-2',
+        providerSubject: derivedOpenId,
         phone: null,
       },
     });
+  });
+
+  it.each([DeliveryUserStatus.DISABLED, DeliveryUserStatus.FROZEN])(
+    'phone login rejects existing %s delivery users before mutation',
+    async (status) => {
+      tx.deliveryAuthIdentity.findUnique.mockResolvedValue({
+        userId: 'PSYH0000000000099',
+      });
+      tx.deliveryUser.findUnique.mockResolvedValue({
+        id: 'PSYH0000000000099',
+        status,
+      });
+
+      await expect(
+        service.phoneLogin({
+          phone: '13800000000',
+          code: '123456',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(tx.deliveryUser.update).not.toHaveBeenCalled();
+      expect(tx.deliveryAuthIdentity.create).not.toHaveBeenCalled();
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([DeliveryUserStatus.DISABLED, DeliveryUserStatus.FROZEN])(
+    'wechat login rejects existing %s delivery users before mutation',
+    async (status) => {
+      const code = `delivery-wechat-${status.toLowerCase()}`;
+      const derivedOpenId = createHash('sha256')
+        .update(`wx_openid_${code}`)
+        .digest('hex')
+        .slice(0, 28);
+      tx.deliveryAuthIdentity.findUnique.mockResolvedValue({
+        userId: 'PSYH0000000000088',
+      });
+      tx.deliveryUser.findUnique.mockResolvedValue({
+        id: 'PSYH0000000000088',
+        status,
+      });
+
+      await expect(
+        service.wechatLogin({
+          code,
+          nickname: '冻结微信配送用户',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(tx.deliveryUser.update).not.toHaveBeenCalled();
+      expect(tx.deliveryUser.create).not.toHaveBeenCalled();
+      expect(tx.deliveryAuthIdentity.create).not.toHaveBeenCalled();
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+      expect(tx.deliveryAuthIdentity.findUnique).toHaveBeenCalledWith({
+        where: {
+          provider_providerSubject: {
+            provider: 'WECHAT',
+            providerSubject: derivedOpenId,
+          },
+        },
+      });
+    },
+  );
+
+  it('wechat login rejects failed server-side WeChat exchange in non-mock mode', async () => {
+    configService.get.mockImplementation((key: string, defaultValue?: string) => {
+      if (key === 'DELIVERY_WECHAT_MOCK') return 'false';
+      if (key === 'WECHAT_MOCK') return 'false';
+      return defaultValue;
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      json: jest.fn().mockResolvedValue({
+        errcode: 40029,
+        errmsg: 'invalid code',
+      }),
+    });
+
+    await expect(
+      service.wechatLogin({
+        code: 'bad-wechat-code',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.deliveryAuthIdentity.findUnique).not.toHaveBeenCalled();
+    expect(tx.deliveryUser.create).not.toHaveBeenCalled();
+    expect(tx.deliveryUser.update).not.toHaveBeenCalled();
   });
 
   it('getMe returns requiresUnit=true when the user has no units', async () => {

@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Prisma } from '../../../generated/delivery-client';
+import { createHash } from 'crypto';
+import { DeliveryUserStatus, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryUserJwtPayload } from '../auth/delivery-user-jwt.strategy';
 import { DeliveryIdService } from '../common/delivery-id.service';
@@ -48,6 +50,7 @@ export class DeliveryBuyerAuthService {
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     private readonly deliveryIdService: DeliveryIdService,
     private readonly deliveryPhoneOtpService: DeliveryPhoneOtpService,
   ) {}
@@ -88,6 +91,7 @@ export class DeliveryBuyerAuthService {
             },
           });
         } else {
+          await this.assertUserActive(tx, deliveryUserId);
           await tx.deliveryUser.update({
             where: { id: deliveryUserId },
             data: {
@@ -113,7 +117,7 @@ export class DeliveryBuyerAuthService {
   }
 
   async wechatLogin(dto: WechatLoginDto, _ip?: string, _userAgent?: string) {
-    const providerSubject = dto.openid;
+    const { openId: providerSubject } = await this.resolveWechatIdentity(dto.code);
 
     const user = await this.deliveryPrisma.$transaction(
       async (tx) => {
@@ -140,6 +144,7 @@ export class DeliveryBuyerAuthService {
             },
           });
         } else {
+          await this.assertUserActive(tx, deliveryUserId);
           await tx.deliveryUser.update({
             where: { id: deliveryUserId },
             data: {
@@ -251,6 +256,70 @@ export class DeliveryBuyerAuthService {
       extraFields: unit.extraFields,
       status: unit.status,
     };
+  }
+
+  private async assertUserActive(tx: Prisma.TransactionClient, deliveryUserId: string) {
+    const user = await tx.deliveryUser.findUnique({
+      where: { id: deliveryUserId },
+      select: { status: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('配送用户不存在');
+    }
+
+    if (user.status !== DeliveryUserStatus.ACTIVE) {
+      throw new ForbiddenException('配送用户账号已被禁用');
+    }
+  }
+
+  private async resolveWechatIdentity(code: string): Promise<{ openId: string; unionId: string }> {
+    if (this.isWechatMockEnabled()) {
+      return {
+        openId: createHash('sha256').update(`wx_openid_${code}`).digest('hex').slice(0, 28),
+        unionId: createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28),
+      };
+    }
+
+    const appId = this.configService.getOrThrow<string>('WECHAT_APP_ID');
+    const appSecret = this.configService.getOrThrow<string>('WECHAT_APP_SECRET');
+    const tokenUrl =
+      `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${encodeURIComponent(appId)}` +
+      `&secret=${encodeURIComponent(appSecret)}` +
+      `&code=${encodeURIComponent(code)}` +
+      '&grant_type=authorization_code';
+
+    let tokenData: {
+      access_token?: string;
+      openid?: string;
+      unionid?: string;
+      errcode?: number;
+      errmsg?: string;
+    };
+
+    try {
+      const tokenRes = await fetch(tokenUrl);
+      tokenData = (await tokenRes.json()) as typeof tokenData;
+    } catch {
+      throw new BadRequestException('微信授权失败');
+    }
+
+    if (tokenData.errcode || !tokenData.openid) {
+      throw new BadRequestException(`微信授权失败：${tokenData.errmsg || '未知错误'}`);
+    }
+
+    return {
+      openId: tokenData.openid,
+      unionId: tokenData.unionid || '',
+    };
+  }
+
+  private isWechatMockEnabled() {
+    const deliveryWechatMock = this.configService.get<string | undefined>('DELIVERY_WECHAT_MOCK');
+    if (deliveryWechatMock !== undefined) {
+      return deliveryWechatMock === 'true';
+    }
+    return this.configService.get('WECHAT_MOCK', 'true') === 'true';
   }
 
 }

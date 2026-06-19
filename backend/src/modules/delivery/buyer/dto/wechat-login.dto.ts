@@ -1,18 +1,9 @@
-import { IsMobilePhone, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Length, MaxLength } from 'class-validator';
 
 export class WechatLoginDto {
   @IsString()
-  @MaxLength(128)
-  openid: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(128)
-  unionid?: string;
-
-  @IsOptional()
-  @IsMobilePhone('zh-CN')
-  phone?: string;
+  @Length(1, 256)
+  code: string;
 
   @IsOptional()
   @IsString()
