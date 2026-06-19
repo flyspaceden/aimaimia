@@ -11,9 +11,9 @@ const { Title, Text } = Typography;
 
 const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
 const isProduction = appEnv === 'production';
-const switchToDeliverySellerUrl = isProduction
-  ? 'https://delivery-seller.ai-maimai.com'
-  : 'https://test-delivery-seller.ai-maimai.com';
+const switchToSellerCenterUrl = isProduction
+  ? 'https://seller.ai-maimai.com'
+  : 'https://test-seller.ai-maimai.com';
 
 /** 将 SVG 字符串转为可直接用于 <img> 的 data URL（base64 编码，规避中文等 Unicode 字符） */
 const svgToDataUrl = (svg: string): string => {
@@ -240,12 +240,12 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 50%, #a5d6a7 100%)',
+        background: 'linear-gradient(135deg, #fff7ed 0%, #fed7aa 50%, #fb923c 100%)',
       }}>
         <Card style={{ width: 440, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', borderRadius: 12 }}
               styles={{ body: { padding: 32 } }}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <Title level={4} style={{ color: '#2E7D32' }}>选择企业</Title>
+            <Title level={4} style={{ color: '#EA580C' }}>选择企业</Title>
             <Text type="secondary">您关联了多个企业，请选择要进入的企业</Text>
           </div>
           {/* M15修复：临时凭证倒计时/过期提示 */}
@@ -283,7 +283,7 @@ export default function LoginPage() {
                   onClick={() => !isDisabled && handleSelectCompany(item.companyId)}
                 >
                   <List.Item.Meta
-                    avatar={<ShopOutlined style={{ fontSize: 24, color: isDisabled ? '#999' : '#2E7D32' }} />}
+                    avatar={<ShopOutlined style={{ fontSize: 24, color: isDisabled ? '#999' : '#EA580C' }} />}
                     title={
                       <span>
                         {item.companyName}
@@ -373,15 +373,15 @@ export default function LoginPage() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 50%, #a5d6a7 100%)',
+      background: 'linear-gradient(135deg, #fff7ed 0%, #fed7aa 50%, #fb923c 100%)',
     }}>
       <Card style={{ width: 400, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', borderRadius: 12 }}
             styles={{ body: { padding: 32 } }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title level={3} style={{ marginBottom: 4, color: '#2E7D32' }}>
-            爱买买卖家中心
+          <Title level={3} style={{ marginBottom: 4, color: '#EA580C' }}>
+            配送中心
           </Title>
-          <Text type="secondary">企业商家管理后台</Text>
+          <Text type="secondary">配送商家管理后台</Text>
         </div>
 
         <Tabs
@@ -508,9 +508,16 @@ export default function LoginPage() {
         <Button
           block
           style={{ marginTop: 16, height: 44, borderRadius: 8 }}
-          href={switchToDeliverySellerUrl}
+          href={switchToSellerCenterUrl}
         >
-          切换配送中心
+          切换爱买买卖家中心
+        </Button>
+        <Button
+          block
+          style={{ marginTop: 12, height: 44, borderRadius: 8 }}
+          onClick={() => message.info('配送商家入驻页待接入，当前 Task 16 仅完成配送中心壳层切换。')}
+        >
+          申请入驻
         </Button>
       </Card>
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
