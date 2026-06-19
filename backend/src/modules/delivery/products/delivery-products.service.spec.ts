@@ -27,7 +27,7 @@ describe('DeliveryProductsService', () => {
     );
   });
 
-  it('creates seller products with a delivery readable id and stores seller-entered prices only', async () => {
+  it('creates seller products with a delivery readable id and derives hidden base price from seller supply price', async () => {
     deliveryPrisma.deliveryProduct.create.mockResolvedValue({
       id: 'PSSP0000000000001',
       merchantId: 'merchant_1',
@@ -52,7 +52,6 @@ describe('DeliveryProductsService', () => {
         {
           title: '5kg/箱',
           supplyPriceCents: 8800,
-          basePriceCents: 10000,
           stock: 12,
           weightGram: 5000,
         },
@@ -72,8 +71,157 @@ describe('DeliveryProductsService', () => {
             expect.objectContaining({
               title: '5kg/箱',
               supplyPriceCents: 8800,
-              basePriceCents: 10000,
+              basePriceCents: 8800,
             }),
+          ],
+        },
+      }),
+      include: expect.any(Object),
+    });
+  });
+
+  it('syncs hidden base price from seller supply price on seller update and ignores malicious basePriceCents input', async () => {
+    const tx = {
+      deliveryProduct: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'PSSP0000000000001',
+          merchantId: 'merchant_1',
+          skus: [
+            {
+              id: 'sku_1',
+              fixedFinalPriceCents: null,
+              basePriceCents: 10000,
+            },
+          ],
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'PSSP0000000000001',
+          merchantId: 'merchant_1',
+          title: '冷鲜牛腩',
+          status: 'DRAFT',
+          auditStatus: 'PENDING',
+          unitName: '箱',
+          category: null,
+          productUnit: null,
+          skus: [
+            {
+              id: 'sku_1',
+              title: '5kg/箱',
+              supplyPriceCents: 9200,
+              basePriceCents: 9200,
+              fixedFinalPriceCents: null,
+              stock: 12,
+              minOrderQuantity: 1,
+              orderStepQuantity: 1,
+              weightGram: 5000,
+              isActive: true,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+        }),
+      },
+    };
+    deliveryPrisma.$transaction = jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+      callback(tx),
+    );
+
+    await service.updateSellerProduct('merchant_1', 'PSSP0000000000001', {
+      skus: [
+        {
+          id: 'sku_1',
+          supplyPriceCents: 9200,
+          basePriceCents: 500,
+        },
+      ],
+    } as any);
+
+    expect(tx.deliveryProduct.update).toHaveBeenCalledWith({
+      where: { id: 'PSSP0000000000001' },
+      data: expect.objectContaining({
+        skus: {
+          update: [
+            {
+              where: { id: 'sku_1' },
+              data: {
+                supplyPriceCents: 9200,
+                basePriceCents: 9200,
+              },
+            },
+          ],
+        },
+      }),
+      include: expect.any(Object),
+    });
+  });
+
+  it('keeps existing hidden base price on seller update when the sku already has explicit fixed final pricing', async () => {
+    const tx = {
+      deliveryProduct: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'PSSP0000000000001',
+          merchantId: 'merchant_1',
+          skus: [
+            {
+              id: 'sku_1',
+              fixedFinalPriceCents: 14500,
+              basePriceCents: 10000,
+            },
+          ],
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'PSSP0000000000001',
+          merchantId: 'merchant_1',
+          title: '冷鲜牛腩',
+          status: 'DRAFT',
+          auditStatus: 'PENDING',
+          unitName: '箱',
+          category: null,
+          productUnit: null,
+          skus: [
+            {
+              id: 'sku_1',
+              title: '5kg/箱',
+              supplyPriceCents: 9200,
+              basePriceCents: 10000,
+              fixedFinalPriceCents: 14500,
+              stock: 12,
+              minOrderQuantity: 1,
+              orderStepQuantity: 1,
+              weightGram: 5000,
+              isActive: true,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ],
+        }),
+      },
+    };
+    deliveryPrisma.$transaction = jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+      callback(tx),
+    );
+
+    await service.updateSellerProduct('merchant_1', 'PSSP0000000000001', {
+      skus: [
+        {
+          id: 'sku_1',
+          supplyPriceCents: 9200,
+          basePriceCents: 500,
+        },
+      ],
+    } as any);
+
+    expect(tx.deliveryProduct.update).toHaveBeenCalledWith({
+      where: { id: 'PSSP0000000000001' },
+      data: expect.objectContaining({
+        skus: {
+          update: [
+            {
+              where: { id: 'sku_1' },
+              data: {
+                supplyPriceCents: 9200,
+              },
+            },
           ],
         },
       }),

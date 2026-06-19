@@ -17,8 +17,16 @@ import {
   CreateDeliveryProductDto,
   CreateDeliveryProductSkuDto,
 } from './dto/create-delivery-product.dto';
+import {
+  CreateDeliverySellerProductDto,
+  CreateDeliverySellerProductSkuDto,
+} from './dto/create-delivery-seller-product.dto';
 import { ListDeliveryProductsQueryDto } from './dto/list-delivery-products.query.dto';
 import { UpdateDeliveryProductDto, UpdateDeliveryProductSkuDto } from './dto/update-delivery-product.dto';
+import {
+  UpdateDeliverySellerProductDto,
+  UpdateDeliverySellerProductSkuDto,
+} from './dto/update-delivery-seller-product.dto';
 
 const adminProductInclude = {
   merchant: {
@@ -50,6 +58,22 @@ const adminProductInclude = {
 type AdminProductPayload = Prisma.DeliveryProductGetPayload<{
   include: typeof adminProductInclude;
 }>;
+
+type SellerProductCreateDto = CreateDeliverySellerProductDto;
+type SellerProductUpdateDto = UpdateDeliverySellerProductDto;
+type ProductCreateDto = CreateDeliveryProductDto | CreateAdminDeliveryProductDto | SellerProductCreateDto;
+type ProductCreateSkuDto = CreateDeliveryProductSkuDto | CreateDeliverySellerProductSkuDto;
+type ProductUpdateDto = UpdateDeliveryProductDto | SellerProductUpdateDto;
+type ProductUpdateSkuDto = UpdateDeliveryProductSkuDto | UpdateDeliverySellerProductSkuDto;
+type SellerSkuPricingState = {
+  id: string;
+  fixedFinalPriceCents: number | null;
+};
+
+type ProductDataBuildOptions = {
+  sellerControlsBasePrice?: boolean;
+  sellerSkuStateById?: Map<string, SellerSkuPricingState>;
+};
 
 @Injectable()
 export class DeliveryProductsService {
@@ -99,7 +123,7 @@ export class DeliveryProductsService {
   async createSellerProduct(
     merchantId: string,
     deliverySellerStaffId: string,
-    dto: CreateDeliveryProductDto,
+    dto: SellerProductCreateDto,
   ) {
     const product = await this.deliveryPrisma.deliveryProduct.create({
       data: {
@@ -107,7 +131,7 @@ export class DeliveryProductsService {
         merchantId,
         createdByStaffId: deliverySellerStaffId,
         submissionCount: 0,
-        ...this.buildCreateProductData(dto),
+        ...this.buildCreateProductData(dto, { sellerControlsBasePrice: false }),
       },
       include: adminProductInclude,
     });
@@ -115,7 +139,7 @@ export class DeliveryProductsService {
     return this.mapSellerProduct(product);
   }
 
-  async updateSellerProduct(merchantId: string, productId: string, dto: UpdateDeliveryProductDto) {
+  async updateSellerProduct(merchantId: string, productId: string, dto: SellerProductUpdateDto) {
     const product = await this.deliveryPrisma.$transaction(
       async (tx) => {
         const existing = await tx.deliveryProduct.findUnique({
@@ -123,6 +147,12 @@ export class DeliveryProductsService {
           select: {
             id: true,
             merchantId: true,
+            skus: {
+              select: {
+                id: true,
+                fixedFinalPriceCents: true,
+              },
+            },
           },
         });
         if (!existing) {
@@ -134,7 +164,10 @@ export class DeliveryProductsService {
 
         return tx.deliveryProduct.update({
           where: { id: productId },
-          data: this.buildUpdateProductData(dto),
+          data: this.buildUpdateProductData(dto, {
+            sellerControlsBasePrice: false,
+            sellerSkuStateById: new Map(existing.skus.map((sku) => [sku.id, sku])),
+          }),
           include: adminProductInclude,
         });
       },
@@ -236,7 +269,7 @@ export class DeliveryProductsService {
 
     return this.deliveryPrisma.deliveryProduct.update({
       where: { id: productId },
-      data: this.buildUpdateProductData(dto),
+      data: this.buildUpdateProductData(dto, { sellerControlsBasePrice: true }),
       include: adminProductInclude,
     });
   }
@@ -344,7 +377,7 @@ export class DeliveryProductsService {
     };
   }
 
-  private buildCreateProductData(dto: CreateDeliveryProductDto) {
+  private buildCreateProductData(dto: ProductCreateDto, options: ProductDataBuildOptions = {}) {
     return {
       categoryId: dto.categoryId?.trim() || null,
       productUnitId: dto.productUnitId?.trim() || null,
@@ -361,12 +394,12 @@ export class DeliveryProductsService {
       status: DeliveryProductStatus.DRAFT,
       auditStatus: DeliveryProductAuditStatus.PENDING,
       skus: {
-        create: dto.skus.map((sku) => this.buildCreateSkuData(sku)),
+        create: dto.skus.map((sku) => this.buildCreateSkuData(sku, options)),
       },
     };
   }
 
-  private buildUpdateProductData(dto: UpdateDeliveryProductDto) {
+  private buildUpdateProductData(dto: ProductUpdateDto, options: ProductDataBuildOptions = {}) {
     const data: Prisma.DeliveryProductUpdateInput = {};
 
     if (dto.categoryId !== undefined) {
@@ -418,7 +451,7 @@ export class DeliveryProductsService {
         ...(createItems.length
           ? {
               create: createItems.map((sku) =>
-                this.buildCreateSkuData(sku as CreateDeliveryProductSkuDto),
+                this.buildCreateSkuData(sku as ProductCreateSkuDto, options),
               ),
             }
           : {}),
@@ -426,7 +459,7 @@ export class DeliveryProductsService {
           ? {
               update: updateItems.map((sku) => ({
                 where: { id: sku.id! },
-                data: this.buildUpdateSkuData(sku),
+                data: this.buildUpdateSkuData(sku, options),
               })),
             }
           : {}),
@@ -436,12 +469,17 @@ export class DeliveryProductsService {
     return data;
   }
 
-  private buildCreateSkuData(dto: CreateDeliveryProductSkuDto) {
+  private buildCreateSkuData(dto: ProductCreateSkuDto, options: ProductDataBuildOptions = {}) {
+    const basePriceCents =
+      options.sellerControlsBasePrice === false
+        ? dto.supplyPriceCents
+        : (dto as CreateDeliveryProductSkuDto).basePriceCents;
+
     return {
       title: dto.title.trim(),
       imageUrl: dto.imageUrl?.trim() || null,
       supplyPriceCents: dto.supplyPriceCents,
-      basePriceCents: dto.basePriceCents,
+      basePriceCents,
       stock: dto.stock,
       minOrderQuantity: dto.minOrderQuantity ?? 1,
       orderStepQuantity: dto.orderStepQuantity ?? 1,
@@ -450,8 +488,9 @@ export class DeliveryProductsService {
     } satisfies Prisma.DeliveryProductSkuUncheckedCreateWithoutProductInput;
   }
 
-  private buildUpdateSkuData(dto: UpdateDeliveryProductSkuDto) {
+  private buildUpdateSkuData(dto: ProductUpdateSkuDto, options: ProductDataBuildOptions = {}) {
     const data: Prisma.DeliveryProductSkuUpdateWithoutProductInput = {};
+    const existingSellerSku = dto.id ? options.sellerSkuStateById?.get(dto.id) : undefined;
 
     if (dto.title !== undefined) {
       data.title = dto.title.trim();
@@ -461,9 +500,12 @@ export class DeliveryProductsService {
     }
     if (dto.supplyPriceCents !== undefined) {
       data.supplyPriceCents = dto.supplyPriceCents;
+      if (!options.sellerControlsBasePrice && existingSellerSku?.fixedFinalPriceCents == null) {
+        data.basePriceCents = dto.supplyPriceCents;
+      }
     }
-    if (dto.basePriceCents !== undefined) {
-      data.basePriceCents = dto.basePriceCents;
+    if (options.sellerControlsBasePrice !== false && (dto as UpdateDeliveryProductSkuDto).basePriceCents !== undefined) {
+      data.basePriceCents = (dto as UpdateDeliveryProductSkuDto).basePriceCents;
     }
     if (dto.minOrderQuantity !== undefined) {
       data.minOrderQuantity = dto.minOrderQuantity;

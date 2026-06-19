@@ -2,9 +2,9 @@ import { Body, Controller, Get, Patch, Post, Param, Query, UseGuards } from '@ne
 import { Public } from '../../../common/decorators/public.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { DeliverySellerAuthGuard } from '../auth/guards/delivery-seller-auth.guard';
-import { CreateDeliveryProductDto } from './dto/create-delivery-product.dto';
+import { CreateDeliverySellerProductDto } from './dto/create-delivery-seller-product.dto';
 import { ListDeliveryProductsQueryDto } from './dto/list-delivery-products.query.dto';
-import { UpdateDeliveryProductDto } from './dto/update-delivery-product.dto';
+import { UpdateDeliverySellerProductDto } from './dto/update-delivery-seller-product.dto';
 import { DeliveryProductsService } from './delivery-products.service';
 
 @Public()
@@ -30,7 +30,7 @@ export class DeliverySellerProductsController {
   create(
     @CurrentUser('merchantId') merchantId: string,
     @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
-    @Body() dto: CreateDeliveryProductDto,
+    @Body() dto: CreateDeliverySellerProductDto,
   ) {
     return this.deliveryProductsService.createSellerProduct(merchantId, deliverySellerStaffId, dto);
   }
@@ -39,7 +39,7 @@ export class DeliverySellerProductsController {
   update(
     @CurrentUser('merchantId') merchantId: string,
     @Param('id') id: string,
-    @Body() dto: UpdateDeliveryProductDto,
+    @Body() dto: UpdateDeliverySellerProductDto,
   ) {
     return this.deliveryProductsService.updateSellerProduct(merchantId, id, dto);
   }
