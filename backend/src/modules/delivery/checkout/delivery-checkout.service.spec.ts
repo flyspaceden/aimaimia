@@ -12,6 +12,8 @@ describe('DeliveryCheckoutService', () => {
   let pricingService: { resolvePrice: jest.Mock };
   let moduleRef: { get: jest.Mock };
   let service: DeliveryCheckoutService;
+  let alipayService: { isAvailable: jest.Mock; createAppPayOrder: jest.Mock };
+  let wechatPayService: { isAvailable: jest.Mock; createAppOrder: jest.Mock };
 
   beforeEach(() => {
     tx = {
@@ -74,6 +76,28 @@ describe('DeliveryCheckoutService', () => {
     moduleRef = {
       get: jest.fn(),
     };
+    alipayService = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      createAppPayOrder: jest.fn().mockResolvedValue('delivery-order-str'),
+    };
+    wechatPayService = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      createAppOrder: jest.fn().mockResolvedValue({
+        appId: 'wx-app',
+        partnerId: 'mch-1',
+        timestamp: '1718798400',
+        nonceStr: 'nonce',
+        prepayId: 'prepay-1',
+        packageVal: 'Sign=WXPay',
+        signType: 'RSA',
+        paySign: 'signed',
+      }),
+    };
+    moduleRef.get.mockImplementation((token: any) => {
+      if (token?.name === 'AlipayService') return alipayService;
+      if (token?.name === 'WechatPayService') return wechatPayService;
+      return null;
+    });
     service = new DeliveryCheckoutService(
       deliveryPrisma as DeliveryPrismaService,
       pricingService as unknown as DeliveryPricingService,
@@ -369,15 +393,6 @@ describe('DeliveryCheckoutService', () => {
       status: 'ACTIVE',
       expiresAt: new Date('2099-06-19T12:00:00.000Z'),
     });
-    const alipayService = {
-      isAvailable: jest.fn().mockReturnValue(true),
-      createAppPayOrder: jest.fn().mockResolvedValue('delivery-order-str'),
-    };
-    moduleRef.get.mockImplementation((token: any) => {
-      if (token?.name === 'AlipayService') return alipayService;
-      return null;
-    });
-
     const result = await service.createPaymentParams('PSYH0000000000001', 'checkout_1');
 
     expect(alipayService.createAppPayOrder).toHaveBeenCalledWith({
@@ -427,24 +442,6 @@ describe('DeliveryCheckoutService', () => {
       status: 'ACTIVE',
       expiresAt: new Date('2099-06-19T12:00:00.000Z'),
     });
-    const wechatPayService = {
-      isAvailable: jest.fn().mockReturnValue(true),
-      createAppOrder: jest.fn().mockResolvedValue({
-        appId: 'wx-app',
-        partnerId: 'mch-1',
-        timestamp: '1718798400',
-        nonceStr: 'nonce',
-        prepayId: 'prepay-1',
-        packageVal: 'Sign=WXPay',
-        signType: 'RSA',
-        paySign: 'signed',
-      }),
-    };
-    moduleRef.get.mockImplementation((token: any) => {
-      if (token?.name === 'WechatPayService') return wechatPayService;
-      return null;
-    });
-
     const result = await service.createPaymentParams('PSYH0000000000001', 'checkout_2');
 
     expect(wechatPayService.createAppOrder).toHaveBeenCalledWith({
@@ -467,6 +464,191 @@ describe('DeliveryCheckoutService', () => {
         signType: 'RSA',
         paySign: 'signed',
       },
+    });
+  });
+
+  describe('createPaymentParams rejection guards', () => {
+    beforeEach(() => {
+      deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+        id: 'PSYH0000000000001',
+        currentUnitId: 'unit_1',
+      });
+      deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+        id: 'unit_1',
+        userId: 'PSYH0000000000001',
+        status: 'ACTIVE',
+        name: '青禾食堂',
+        contactName: '张三',
+        contactPhone: '13800000000',
+        provinceCode: '440000',
+        provinceName: '广东省',
+        cityCode: '440100',
+        cityName: '广州市',
+        districtCode: '440106',
+        districtName: '天河区',
+        detailAddress: '体育西路 1 号',
+        extraFields: null,
+      });
+    });
+
+    const expectNoPaymentServiceCall = () => {
+      expect(alipayService.createAppPayOrder).not.toHaveBeenCalled();
+      expect(wechatPayService.createAppOrder).not.toHaveBeenCalled();
+    };
+
+    it('rejects pay params when the checkout session is missing or not owned by the delivery user', async () => {
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_missing'),
+      ).rejects.toThrow(new NotFoundException('配送结算会话不存在'));
+
+      expect(deliveryPrisma.deliveryCheckoutSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'checkout_missing',
+          userId: 'PSYH0000000000001',
+          unitId: 'unit_1',
+        },
+        select: {
+          id: true,
+          merchantOrderNo: true,
+          paymentChannel: true,
+          totalAmountCents: true,
+          status: true,
+          expiresAt: true,
+        },
+      });
+      expectNoPaymentServiceCall();
+    });
+
+    it('rejects pay params when the checkout session belongs to a different current unit', async () => {
+      deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+        id: 'PSYH0000000000001',
+        currentUnitId: 'unit_2',
+      });
+      deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+        id: 'unit_2',
+        userId: 'PSYH0000000000001',
+        status: 'ACTIVE',
+        name: '青禾食堂二店',
+        contactName: '李四',
+        contactPhone: '13900000000',
+        provinceCode: '440000',
+        provinceName: '广东省',
+        cityCode: '440100',
+        cityName: '广州市',
+        districtCode: '440106',
+        districtName: '天河区',
+        detailAddress: '体育东路 2 号',
+        extraFields: null,
+      });
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_1'),
+      ).rejects.toThrow(new NotFoundException('配送结算会话不存在'));
+
+      expect(deliveryPrisma.deliveryCheckoutSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'checkout_1',
+          userId: 'PSYH0000000000001',
+          unitId: 'unit_2',
+        },
+        select: {
+          id: true,
+          merchantOrderNo: true,
+          paymentChannel: true,
+          totalAmountCents: true,
+          status: true,
+          expiresAt: true,
+        },
+      });
+      expectNoPaymentServiceCall();
+    });
+
+    it('rejects pay params when the checkout session is not ACTIVE', async () => {
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+        id: 'checkout_1',
+        merchantOrderNo: 'PSZF0000000000001',
+        paymentChannel: 'ALIPAY',
+        totalAmountCents: 4900,
+        status: 'PAID',
+        expiresAt: new Date('2099-06-19T12:00:00.000Z'),
+      });
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_1'),
+      ).rejects.toThrow(new BadRequestException('配送结算会话状态不可支付: PAID'));
+
+      expectNoPaymentServiceCall();
+    });
+
+    it('rejects pay params when the checkout session is expired', async () => {
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+        id: 'checkout_1',
+        merchantOrderNo: 'PSZF0000000000001',
+        paymentChannel: 'ALIPAY',
+        totalAmountCents: 4900,
+        status: 'ACTIVE',
+        expiresAt: new Date('2000-01-01T00:00:00.000Z'),
+      });
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_1'),
+      ).rejects.toThrow(new BadRequestException('配送结算会话已过期'));
+
+      expectNoPaymentServiceCall();
+    });
+
+    it('rejects pay params when merchantOrderNo is missing', async () => {
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+        id: 'checkout_1',
+        merchantOrderNo: null,
+        paymentChannel: 'ALIPAY',
+        totalAmountCents: 4900,
+        status: 'ACTIVE',
+        expiresAt: new Date('2099-06-19T12:00:00.000Z'),
+      });
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_1'),
+      ).rejects.toThrow(new BadRequestException('配送结算会话缺少支付单号'));
+
+      expectNoPaymentServiceCall();
+    });
+
+    it('rejects pay params when paymentChannel is missing', async () => {
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+        id: 'checkout_1',
+        merchantOrderNo: 'PSZF0000000000001',
+        paymentChannel: null,
+        totalAmountCents: 4900,
+        status: 'ACTIVE',
+        expiresAt: new Date('2099-06-19T12:00:00.000Z'),
+      });
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_1'),
+      ).rejects.toThrow(new BadRequestException('配送结算会话缺少支付渠道'));
+
+      expectNoPaymentServiceCall();
+    });
+
+    it('rejects pay params when paymentChannel is unsupported', async () => {
+      deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+        id: 'checkout_1',
+        merchantOrderNo: 'PSZF0000000000001',
+        paymentChannel: 'BALANCE_PAY',
+        totalAmountCents: 4900,
+        status: 'ACTIVE',
+        expiresAt: new Date('2099-06-19T12:00:00.000Z'),
+      });
+
+      await expect(
+        service.createPaymentParams('PSYH0000000000001', 'checkout_1'),
+      ).rejects.toThrow(new BadRequestException('配送支付渠道不支持'));
+
+      expectNoPaymentServiceCall();
     });
   });
 
