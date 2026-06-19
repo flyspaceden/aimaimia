@@ -145,7 +145,7 @@ export default function DigitalAssetsScreen() {
       1,
       Math.max(0, (currentAmount - summary.currentCreditTier.minAmount) / span),
     );
-    return Math.max(0.08, Math.round(progress * 100));
+    return Math.max(8, Math.round(progress * 100));
   })();
 
   const renderMetricCard = ({
