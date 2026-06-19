@@ -565,13 +565,27 @@ export class DeliveryShippingService {
     },
   ) {
     try {
-      await this.sfExpress.cancelOrder(
+      const cancelResult = await this.sfExpress.cancelOrder(
         waybillResult.sfOrderId ?? '',
         waybillResult.waybillNo,
       );
-      await this.clearWaybillGenerationMarker(context);
+      if (!cancelResult?.success) {
+        throw new Error('SF cancel compensation returned success:false');
+      }
+
+      const cleared = await this.clearWaybillGenerationMarker(context);
+      if (!cleared) {
+        throw new Error('waybill generation marker cleanup affected 0 rows');
+      }
     } catch (error: any) {
-      await this.markWaybillGenerationFailed(context, waybillResult, error);
+      const markError =
+        error instanceof Error ? error : new Error(error?.message ?? 'unknown compensation failure');
+      const markedFailed = await this.markWaybillGenerationFailed(context, waybillResult, markError);
+      if (!markedFailed) {
+        this.logger.error(
+          `delivery shipping compensation failed without local marker update: subOrderId=${context.subOrderId}, shipmentId=${context.shipmentId}, sfOrderId=${waybillResult.sfOrderId ?? ''}, waybillNo=${waybillResult.waybillNo}, reason=${markError.message}`,
+        );
+      }
     }
   }
 
@@ -736,7 +750,7 @@ export class DeliveryShippingService {
   }
 
   private async clearWaybillGenerationMarker(context: SellerShipmentContext) {
-    await this.deliveryPrisma.$transaction(
+    const cleared = await this.deliveryPrisma.$transaction(
       (tx) =>
         tx.deliveryShipment.updateMany({
           where: {
@@ -754,6 +768,7 @@ export class DeliveryShippingService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+    return cleared.count === 1;
   }
 
   private async markWaybillGenerationFailed(
@@ -765,7 +780,7 @@ export class DeliveryShippingService {
     },
     error: Error,
   ) {
-    await this.deliveryPrisma.$transaction(
+    const marked = await this.deliveryPrisma.$transaction(
       (tx) =>
         tx.deliveryShipment.updateMany({
           where: {
@@ -781,7 +796,7 @@ export class DeliveryShippingService {
                 ...context.marker.waybillGeneration,
                 status: 'FAILED',
                 failedAt: new Date().toISOString(),
-                failureReason: 'FINAL_PERSIST_CANCEL_FAILED',
+                failureReason: 'FINAL_PERSIST_COMPENSATION_FAILED',
                 remoteWaybillNo: waybillResult.waybillNo,
                 remoteSfOrderId: waybillResult.sfOrderId,
                 error: error.message,
@@ -793,6 +808,7 @@ export class DeliveryShippingService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+    return marked.count === 1;
   }
 
   private getNextWaybillGenerationAttempt(rawCarrierPayload: Prisma.JsonValue | null): number {
