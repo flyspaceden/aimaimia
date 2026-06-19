@@ -1,8 +1,10 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { Public } from '../../../common/decorators/public.decorator';
 import { DeliveryUserAuthGuard } from '../auth/guards/delivery-user-auth.guard';
 import { DeliveryManifestsService } from './delivery-manifests.service';
 
+@Public()
 @UseGuards(DeliveryUserAuthGuard)
 @Controller('delivery')
 export class DeliveryManifestsController {

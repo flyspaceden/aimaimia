@@ -59,6 +59,8 @@ import { DeliverySellerPublicService } from './seller/delivery-seller-public.ser
 import { DeliverySellerUploadController } from './seller/delivery-seller-upload.controller';
 import { DeliverySellerAuthController } from './seller-auth/delivery-seller-auth.controller';
 import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.service';
+import { DeliveryAdminAuthController } from './admin-auth/delivery-admin-auth.controller';
+import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.service';
 
 @Module({
   imports: [
@@ -79,6 +81,7 @@ import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.se
   ],
   controllers: [
     DeliverySellerAuthController,
+    DeliveryAdminAuthController,
     DeliveryBuyerAuthController,
     DeliveryUnitsController,
     DeliverySellerApplicationController,
@@ -110,6 +113,7 @@ import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.se
   ],
   providers: [
     DeliverySellerAuthService,
+    DeliveryAdminAuthService,
     DeliveryIdService,
     DeliveryBuyerAuthService,
     DeliveryPhoneOtpService,

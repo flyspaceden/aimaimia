@@ -273,6 +273,24 @@ model DeliveryAdminUser {
   manifestVersions     DeliveryManifestVersion[]
   settlementsMarked    DeliverySettlement[]                 @relation("DeliverySettlementOperator")
   assignedConversations DeliveryCustomerServiceConversation[] @relation("DeliveryConversationAdmin")
+  sessions             DeliveryAdminSession[]
+}
+
+model DeliveryAdminSession {
+  id               String            @id @default(cuid())
+  adminUserId      String
+  adminUser        DeliveryAdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  refreshTokenHash String            @unique
+  ip               String?
+  userAgent        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([adminUserId, expiresAt])
+  @@index([adminUserId, revokedAt])
+  @@index([expiresAt])
 }
 
 model DeliverySellerStaff {
