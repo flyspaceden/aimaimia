@@ -200,6 +200,8 @@ export class DeliveryAdminOpsService {
             id: true,
             merchantId: true,
             status: true,
+            supplyAmountCents: true,
+            shippingFeeShareCents: true,
             totalAmountCents: true,
           },
         },
