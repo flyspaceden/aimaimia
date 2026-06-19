@@ -13,6 +13,8 @@ describe('DeliveryProductsService', () => {
       deliveryProduct: {
         create: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
       },
     };
     deliveryIdService = {
@@ -174,6 +176,59 @@ describe('DeliveryProductsService', () => {
 
     expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it('does not allow product PATCH to mutate stock for existing skus', async () => {
+    deliveryPrisma.deliveryProduct.findUnique.mockResolvedValue({
+      id: 'PSSP0000000000001',
+    });
+    deliveryPrisma.deliveryProduct.update.mockResolvedValue({
+      id: 'PSSP0000000000001',
+      merchantId: 'merchant_1',
+      title: '冷鲜牛腩',
+      status: 'DRAFT',
+      auditStatus: 'PENDING',
+      unitName: '箱',
+      category: null,
+      productUnit: null,
+      skus: [
+        {
+          id: 'sku_1',
+          title: '5kg/箱',
+          supplyPriceCents: 8800,
+          basePriceCents: 10000,
+          stock: 12,
+          isActive: true,
+        },
+      ],
+    });
+
+    await service.updateAdminProduct('PSSP0000000000001', {
+      skus: [
+        {
+          id: 'sku_1',
+          title: '新标题',
+          stock: 99,
+        },
+      ],
+    });
+
+    expect(deliveryPrisma.deliveryProduct.update).toHaveBeenCalledWith({
+      where: { id: 'PSSP0000000000001' },
+      data: expect.objectContaining({
+        skus: {
+          update: [
+            {
+              where: { id: 'sku_1' },
+              data: {
+                title: '新标题',
+              },
+            },
+          ],
+        },
+      }),
+      include: expect.any(Object),
     });
   });
 });

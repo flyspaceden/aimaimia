@@ -64,34 +64,32 @@ export class DeliveryCatalogService {
   async listProducts(query: ListDeliveryCatalogProductsQueryDto) {
     const quantity = query.quantity ?? 1;
     const [platformRules, products] = await Promise.all([
-      this.deliveryPrisma.deliveryPriceRule.findMany({
-        where: {
-          scope: DeliveryPriceRuleScope.PLATFORM,
-          isActive: true,
-        },
-        orderBy: [{ priority: 'desc' }, { minQuantity: 'asc' }, { createdAt: 'desc' }],
-      }),
+      this.listActivePriceRules({ scope: DeliveryPriceRuleScope.PLATFORM }),
       this.deliveryPrisma.deliveryProduct.findMany({
         where: this.buildCatalogWhere(query),
         include: catalogProductInclude,
         orderBy: [{ updatedAt: 'desc' }],
       }),
     ]);
+    const merchantRulesByMerchantId = await this.loadMerchantRulesByMerchantId(
+      products.map((product) => product.merchant.id),
+    );
 
     return {
-      items: products.map((product) => this.mapCatalogProduct(product, platformRules, quantity)),
+      items: products.map((product) =>
+        this.mapCatalogProduct(
+          product,
+          platformRules,
+          merchantRulesByMerchantId.get(product.merchant.id) ?? [],
+          quantity,
+        ),
+      ),
     };
   }
 
   async getProductDetail(productId: string, quantity = 1) {
     const [platformRules, product] = await Promise.all([
-      this.deliveryPrisma.deliveryPriceRule.findMany({
-        where: {
-          scope: DeliveryPriceRuleScope.PLATFORM,
-          isActive: true,
-        },
-        orderBy: [{ priority: 'desc' }, { minQuantity: 'asc' }, { createdAt: 'desc' }],
-      }),
+      this.listActivePriceRules({ scope: DeliveryPriceRuleScope.PLATFORM }),
       this.deliveryPrisma.deliveryProduct.findFirst({
         where: {
           id: productId,
@@ -105,7 +103,14 @@ export class DeliveryCatalogService {
       throw new NotFoundException('配送商品不存在或未上架');
     }
 
-    return this.mapCatalogProduct(product, platformRules, quantity);
+    const merchantRulesByMerchantId = await this.loadMerchantRulesByMerchantId([product.merchant.id]);
+
+    return this.mapCatalogProduct(
+      product,
+      platformRules,
+      merchantRulesByMerchantId.get(product.merchant.id) ?? [],
+      quantity,
+    );
   }
 
   private buildCatalogWhere(query: Pick<ListDeliveryCatalogProductsQueryDto, 'categoryId' | 'keyword'>) {
@@ -167,6 +172,7 @@ export class DeliveryCatalogService {
   private mapCatalogProduct(
     product: CatalogProductPayload,
     platformRules: any[],
+    merchantRules: any[],
     quantity: number,
   ) {
     const skus = product.skus.map((sku) => {
@@ -175,7 +181,7 @@ export class DeliveryCatalogService {
         fixedFinalPriceCents: sku.fixedFinalPriceCents,
         quantity,
         merchantDefaultMarkupBps: product.merchant.defaultMarkupBps,
-        rules: [...platformRules, ...product.priceRules, ...sku.priceRules],
+        rules: [...platformRules, ...merchantRules, ...product.priceRules, ...sku.priceRules],
       });
 
       return {
@@ -210,5 +216,40 @@ export class DeliveryCatalogService {
       minFinalPriceCents,
       skus,
     };
+  }
+
+  private async loadMerchantRulesByMerchantId(merchantIds: string[]) {
+    const uniqueMerchantIds = Array.from(new Set(merchantIds.filter(Boolean)));
+    if (!uniqueMerchantIds.length) {
+      return new Map<string, any[]>();
+    }
+
+    const merchantRules = await this.listActivePriceRules({
+      scope: DeliveryPriceRuleScope.MERCHANT,
+      merchantId: {
+        in: uniqueMerchantIds,
+      },
+    });
+
+    return merchantRules.reduce((map, rule) => {
+      if (!rule.merchantId) {
+        return map;
+      }
+
+      const existingRules = map.get(rule.merchantId) ?? [];
+      existingRules.push(rule);
+      map.set(rule.merchantId, existingRules);
+      return map;
+    }, new Map<string, typeof merchantRules>());
+  }
+
+  private listActivePriceRules(where: Prisma.DeliveryPriceRuleWhereInput) {
+    return this.deliveryPrisma.deliveryPriceRule.findMany({
+      where: {
+        ...where,
+        isActive: true,
+      },
+      orderBy: [{ priority: 'desc' }, { minQuantity: 'asc' }, { createdAt: 'desc' }],
+    });
   }
 }

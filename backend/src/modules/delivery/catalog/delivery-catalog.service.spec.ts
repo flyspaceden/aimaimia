@@ -1,5 +1,6 @@
 import { DeliveryPriceRuleScope, DeliveryPriceRuleType } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
 import { DeliveryCatalogService } from './delivery-catalog.service';
 
 describe('DeliveryCatalogService', () => {
@@ -121,6 +122,110 @@ describe('DeliveryCatalogService', () => {
     expect(result.items[0].skus[0]).toMatchObject({
       id: 'sku_1',
       finalPriceCents: 11800,
+    });
+  });
+
+  it('uses merchant tier rules in buyer catalog pricing before merchant default and platform default', async () => {
+    const realPricingService = new DeliveryPricingService();
+    const catalogService = new DeliveryCatalogService(
+      deliveryPrisma as DeliveryPrismaService,
+      realPricingService,
+    );
+
+    deliveryPrisma.deliveryPriceRule.findMany.mockImplementation(({ where }: any) => {
+      if (where.scope === DeliveryPriceRuleScope.PLATFORM) {
+        return Promise.resolve([
+          {
+            id: 'platform-rule',
+            scope: DeliveryPriceRuleScope.PLATFORM,
+            ruleType: DeliveryPriceRuleType.MARKUP_RATE,
+            markupBps: 1500,
+            minQuantity: 1,
+            maxQuantity: null,
+            priority: 1,
+            isActive: true,
+          },
+        ]);
+      }
+
+      if (where.scope === DeliveryPriceRuleScope.MERCHANT) {
+        return Promise.resolve([
+          {
+            id: 'merchant-tier-rule',
+            scope: DeliveryPriceRuleScope.MERCHANT,
+            ruleType: DeliveryPriceRuleType.MARKUP_RATE,
+            markupBps: 3500,
+            minQuantity: 3,
+            maxQuantity: null,
+            priority: 9,
+            isActive: true,
+            merchantId: 'merchant_1',
+          },
+        ]);
+      }
+
+      return Promise.resolve([]);
+    });
+    deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([
+      {
+        id: 'PSSP0000000000001',
+        title: '冷鲜牛腩',
+        subtitle: '当天现切',
+        description: null,
+        detailRich: null,
+        media: null,
+        attributes: null,
+        unitName: '箱',
+        minOrderQuantity: 1,
+        orderStepQuantity: 1,
+        merchant: {
+          id: 'merchant_1',
+          name: '华南仓',
+          defaultMarkupBps: 2200,
+        },
+        category: {
+          id: 'cat_1',
+          name: '肉类',
+          status: 'ACTIVE',
+        },
+        priceRules: [],
+        skus: [
+          {
+            id: 'sku_1',
+            title: '5kg/箱',
+            imageUrl: null,
+            basePriceCents: 10000,
+            stock: 10,
+            minOrderQuantity: 1,
+            orderStepQuantity: 1,
+            isActive: true,
+            fixedFinalPriceCents: null,
+            priceRules: [],
+          },
+        ],
+      },
+    ]);
+
+    const result = await catalogService.listProducts({
+      quantity: 3,
+    });
+
+    expect(deliveryPrisma.deliveryPriceRule.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          scope: DeliveryPriceRuleScope.MERCHANT,
+          merchantId: {
+            in: ['merchant_1'],
+          },
+          isActive: true,
+        }),
+      }),
+    );
+    expect(result.items[0].minFinalPriceCents).toBe(13500);
+    expect(result.items[0].skus[0]).toMatchObject({
+      id: 'sku_1',
+      finalPriceCents: 13500,
+      pricingSource: 'MERCHANT_TIER_MARKUP',
     });
   });
 

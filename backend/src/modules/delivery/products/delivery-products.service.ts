@@ -439,9 +439,6 @@ export class DeliveryProductsService {
     if (dto.basePriceCents !== undefined) {
       data.basePriceCents = dto.basePriceCents;
     }
-    if (dto.stock !== undefined) {
-      data.stock = dto.stock;
-    }
     if (dto.minOrderQuantity !== undefined) {
       data.minOrderQuantity = dto.minOrderQuantity;
     }
