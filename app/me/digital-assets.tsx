@@ -14,7 +14,6 @@ import {
   fitTextProps,
   priceTextProps,
   useBottomInset,
-  useResponsiveLayout,
   useTheme,
 } from '../../src/theme';
 import type { DigitalAssetLedger } from '../../src/types';
@@ -112,7 +111,6 @@ const getLedgerVisual = (item: DigitalAssetLedger) => ASSET_VISUAL.tones[getLedg
 
 export default function DigitalAssetsScreen() {
   const { colors, radius, spacing, typography } = useTheme();
-  const { isCompact } = useResponsiveLayout();
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const bottomInset = useBottomInset(spacing['3xl']);
@@ -127,116 +125,24 @@ export default function DigitalAssetsScreen() {
   const loadError = summaryQuery.data && !summaryQuery.data.ok ? summaryQuery.data.error : null;
   const recentRecords = (summary?.recentRecords ?? []).slice(0, 5);
   const isVip = summary?.isVip ?? false;
-  const tierPrompt = summary?.currentCreditTier
-    ? summary.nextCreditTier
-      ? `距下一档还差 ${formatCurrency(summary.nextCreditTier.remainingAmount ?? 0)}`
-      : '已达当前最高档'
-    : '暂无档位规则';
 
-  const tierProgressPercent = (() => {
-    if (!summary?.currentCreditTier) return 0;
-    if (!summary.nextCreditTier) return 100;
-    const span = Math.max(
-      1,
-      summary.nextCreditTier.minAmount - summary.currentCreditTier.minAmount,
-    );
-    const currentAmount = summary.currentCreditTier.currentAmount ?? summary.currentCreditTier.minAmount;
-    const progress = Math.min(
-      1,
-      Math.max(0, (currentAmount - summary.currentCreditTier.minAmount) / span),
-    );
-    return Math.max(8, Math.round(progress * 100));
-  })();
-
-  const renderMetricCard = ({
-    label,
-    value,
-    accent,
-    currency = false,
-  }: {
-    label: string;
-    value: number;
-    accent: string;
-    currency?: boolean;
-  }) => (
+  const renderAssetTile = (label: string, value: number) => (
     <View
       style={[
-        styles.metricCard,
+        styles.heroAssetTile,
         {
-          width: isCompact ? '100%' : '48.5%',
-          borderRadius: radius.lg,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
+          borderColor: ASSET_VISUAL.heroTileBorder,
+          backgroundColor: ASSET_VISUAL.heroTile,
         },
       ]}
     >
-      <Text style={[typography.caption, { color: colors.text.secondary }]} {...fitTextProps}>
+      <Text style={styles.heroAssetLabel} {...fitTextProps}>
         {label}
       </Text>
-      <Text
-        style={[
-          typography.title2,
-          styles.metricValue,
-          { color: accent, marginTop: spacing.xs },
-        ]}
-        {...priceTextProps}
-      >
-        {currency ? formatCurrency(value) : formatAssetValue(value)}
+      <Text style={styles.heroAssetValue} {...priceTextProps}>
+        {formatAssetValue(value)}
       </Text>
     </View>
-  );
-
-  const renderVipSeedRule = ({
-    item,
-    index,
-  }: {
-    item: {
-      packageId: string;
-      price: number;
-      selfSeedAssetAmount: number;
-      referralSeedAssetAmount: number;
-    };
-    index: number;
-  }) => (
-    <Animated.View entering={FadeInDown.duration(220).delay(index * 40)}>
-      <View
-        style={[
-          styles.ruleCard,
-          {
-            borderRadius: radius.lg,
-            borderColor: colors.border,
-            backgroundColor: colors.surface,
-          },
-        ]}
-      >
-        <View style={styles.ruleHeader}>
-          <View>
-            <Text style={[typography.bodyStrong, { color: colors.text.primary }]} {...fitTextProps}>
-              VIP 套餐 {formatCurrency(item.price)}
-            </Text>
-            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-              当前套餐规则
-            </Text>
-          </View>
-          <View style={[styles.pendingPill, { borderRadius: radius.pill, backgroundColor: colors.brand.primarySoft }]}>
-            <Text style={[typography.captionSm, { color: colors.brand.primary }]}>生效中</Text>
-          </View>
-        </View>
-
-        <View style={[styles.metricGrid, { marginTop: spacing.md }]}>
-          {renderMetricCard({
-            label: '自购种子资产',
-            value: item.selfSeedAssetAmount,
-            accent: colors.brand.primary,
-          })}
-          {renderMetricCard({
-            label: '推荐种子资产',
-            value: item.referralSeedAssetAmount,
-            accent: colors.gold.primary,
-          })}
-        </View>
-      </View>
-    </Animated.View>
   );
 
   const renderRecentRecord = ({ item, index }: { item: DigitalAssetLedger; index: number }) => {
@@ -298,11 +204,24 @@ export default function DigitalAssetsScreen() {
     <View>
       {isVip ? (
         <LinearGradient
-          colors={[colors.brand.primary, colors.gold.primary]}
+          colors={ASSET_VISUAL.heroGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.heroCard, { borderRadius: radius.xl }]}
+          style={[styles.heroCard, styles.assetHeroCard, { borderRadius: radius.xl }]}
         >
+          <View pointerEvents="none" style={styles.heroFieldLines}>
+            <View style={[styles.heroFieldLine, styles.heroFieldLinePrimary]} />
+            <View style={[styles.heroFieldLine, styles.heroFieldLineSecondary]} />
+            <View style={[styles.heroFieldLine, styles.heroFieldLineThird]} />
+          </View>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.heroInsetBorder,
+              { borderColor: ASSET_VISUAL.heroBorder, borderRadius: radius.lg },
+            ]}
+          />
+
           <Text style={styles.heroLabel}>数字资产总额</Text>
           <Text style={styles.heroValue} {...priceTextProps}>
             {formatAssetValue(summary?.totalAssetBalance ?? 0)}
@@ -313,19 +232,35 @@ export default function DigitalAssetsScreen() {
               {formatCurrency(summary?.cumulativeSpendAmount ?? 0)}
             </Text>
           </View>
+          <View style={styles.heroAssetGrid}>
+            {renderAssetTile('种子资产', summary?.seedAssetBalance ?? 0)}
+            {renderAssetTile('消费资产', summary?.creditAssetBalance ?? 0)}
+          </View>
         </LinearGradient>
       ) : (
         <LinearGradient
-          colors={[colors.brand.primary, colors.ai.soft]}
+          colors={ASSET_VISUAL.nonVipGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.heroCard, { borderRadius: radius.xl }]}
+          style={[styles.heroCard, styles.assetHeroCard, { borderRadius: radius.xl }]}
         >
+          <View pointerEvents="none" style={styles.heroFieldLines}>
+            <View style={[styles.heroFieldLine, styles.heroFieldLinePrimary]} />
+            <View style={[styles.heroFieldLine, styles.heroFieldLineSecondary]} />
+          </View>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.heroInsetBorder,
+              { borderColor: ASSET_VISUAL.heroBorder, borderRadius: radius.lg },
+            ]}
+          />
+
           <Text style={styles.heroLabel}>累计消费金额</Text>
           <Text style={styles.heroValue} {...priceTextProps}>
             {formatCurrency(summary?.cumulativeSpendAmount ?? 0)}
           </Text>
-        <Text style={styles.heroPromptTitle}>{NON_VIP_ACTIVATION_PROMPT.title}</Text>
+          <Text style={styles.heroPromptTitle}>{NON_VIP_ACTIVATION_PROMPT.title}</Text>
           <Pressable
             onPress={() => router.push('/me/vip')}
             style={[styles.heroButton, { borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.18)' }]}
@@ -337,122 +272,9 @@ export default function DigitalAssetsScreen() {
         </LinearGradient>
       )}
 
-      {isVip ? (
-        <View style={[styles.metricGrid, { marginTop: spacing.md }]}>
-          {renderMetricCard({
-            label: '种子资产',
-            value: summary?.seedAssetBalance ?? 0,
-            accent: colors.brand.primary,
-          })}
-          {renderMetricCard({
-            label: '消费资产',
-            value: summary?.creditAssetBalance ?? 0,
-            accent: colors.gold.primary,
-          })}
-        </View>
-      ) : null}
-
       <View style={styles.sectionBlock}>
         <View style={styles.sectionHeader}>
-          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>消费资产规则</Text>
-          <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-            {summary?.currentCreditTier ? `当前档位 x${summary.currentCreditTier.multiplier}` : '规则待开放'}
-          </Text>
-        </View>
-      {summary?.currentCreditTier ? (
-        <View
-            style={[
-              styles.sectionCard,
-              {
-                borderRadius: radius.lg,
-                borderColor: colors.border,
-                backgroundColor: colors.surface,
-              },
-            ]}
-          >
-            <View style={styles.ruleHeader}>
-              <View>
-                <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
-                  {summary?.nextCreditTier
-                    ? `下一档 x${summary.nextCreditTier.multiplier}`
-                    : '当前最高档'}
-                </Text>
-                <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-                  {tierPrompt}
-                </Text>
-              </View>
-                <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-                  {summary?.currentCreditTier ? `${formatCurrency(summary.currentCreditTier.minAmount)} 起算` : '暂无档位规则'}
-                </Text>
-              </View>
-
-            <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary, borderRadius: radius.pill, marginTop: spacing.md }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${tierProgressPercent}%`,
-                    backgroundColor: colors.brand.primary,
-                    borderRadius: radius.pill,
-                  },
-                ]}
-              />
-            </View>
-          </View>
-        ) : (
-          <View
-            style={[
-              styles.sectionCard,
-              {
-                borderRadius: radius.lg,
-                borderColor: colors.border,
-                backgroundColor: colors.surface,
-              },
-            ]}
-          >
-            <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>暂无档位规则</Text>
-            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-              规则待开放
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <View style={styles.sectionHeader}>
-          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>VIP 种子资产规则</Text>
-          <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
-            按套餐配置
-          </Text>
-        </View>
-        {summary?.vipSeedRules?.length ? (
-          summary.vipSeedRules.map((item, index) => (
-            <View key={item.packageId} style={{ marginBottom: index === summary.vipSeedRules.length - 1 ? 0 : spacing.sm }}>
-              {renderVipSeedRule({ item, index })}
-            </View>
-          ))
-        ) : (
-          <View
-            style={[
-              styles.sectionCard,
-              {
-                borderRadius: radius.lg,
-                borderColor: colors.border,
-                backgroundColor: colors.surface,
-              },
-            ]}
-          >
-            <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>VIP 规则待配置</Text>
-            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}>
-              暂无可展示的套餐规则
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <View style={styles.sectionHeader}>
-          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>最近消费记录</Text>
+          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>最近资产流水</Text>
           <Text style={[typography.captionSm, { color: colors.text.secondary }]}>
             最近 5 条
           </Text>
@@ -541,44 +363,89 @@ const styles = StyleSheet.create({
   heroCard: {
     paddingHorizontal: 22,
     paddingVertical: 22,
+    overflow: 'hidden',
+  },
+  assetHeroCard: {
+    minHeight: 250,
+    shadowColor: '#115240',
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 5,
+  },
+  heroInsetBorder: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    bottom: 14,
+    left: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  heroFieldLines: {
+    position: 'absolute',
+    right: -24,
+    bottom: -8,
+    width: 250,
+    height: 120,
+    opacity: 0.42,
+  },
+  heroFieldLine: {
+    position: 'absolute',
+    height: 1,
+    backgroundColor: ASSET_VISUAL.heroLine,
+  },
+  heroFieldLinePrimary: {
+    left: 0,
+    right: 4,
+    bottom: 28,
+    transform: [{ rotate: '13deg' }],
+  },
+  heroFieldLineSecondary: {
+    left: 12,
+    right: 20,
+    bottom: 56,
+    transform: [{ rotate: '-13deg' }],
+  },
+  heroFieldLineThird: {
+    left: 30,
+    right: 0,
+    bottom: 84,
+    transform: [{ rotate: '8deg' }],
   },
   heroLabel: {
-    color: 'rgba(255,255,255,0.78)',
+    color: 'rgba(255,255,255,0.74)',
     fontSize: 13,
+    fontWeight: '700',
   },
   heroValue: {
     color: '#FFFFFF',
-    fontSize: 34,
-    fontWeight: '800',
-    marginTop: 8,
+    fontSize: 46,
+    fontWeight: '900',
+    lineHeight: 54,
+    marginTop: 9,
   },
   heroFootRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 14,
+    alignItems: 'baseline',
+    marginTop: 12,
+    gap: 8,
   },
   heroFootLabel: {
-    color: 'rgba(255,255,255,0.78)',
+    color: 'rgba(255,255,255,0.76)',
     fontSize: 12,
+    fontWeight: '600',
   },
   heroFootValue: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
   },
   heroPromptTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 12,
-    lineHeight: 21,
-  },
-  heroPromptDesc: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 18,
+    lineHeight: 22,
   },
   heroButton: {
     alignSelf: 'flex-start',
@@ -586,57 +453,39 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginTop: 14,
   },
-  metricGrid: {
+  heroAssetGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
     gap: 10,
+    marginTop: 24,
   },
-  metricCard: {
+  heroAssetTile: {
+    flex: 1,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 17,
   },
-  metricValue: {
-    fontWeight: '800',
+  heroAssetLabel: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  heroAssetValue: {
+    color: '#FFFFFF',
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 25,
+    marginTop: 6,
   },
   sectionBlock: {
     marginTop: 22,
   },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 10,
     gap: 12,
-  },
-  sectionCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  ruleCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  ruleHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  pendingPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  progressTrack: {
-    height: 8,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    minWidth: 8,
   },
   ledgerRow: {
     flexDirection: 'row',
