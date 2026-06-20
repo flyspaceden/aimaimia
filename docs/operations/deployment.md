@@ -318,7 +318,10 @@ pm2 reload <aimaimai-api-*> --update-env
 > `npx prisma migrate resolve --rolled-back 20260618120000_task5_delivery_auth_units --schema prisma-delivery/schema.prisma`
 > 后重新 `migrate deploy`。同日修复 `npm run build`，避免 `nest build`
 > 清空 `dist` 后遗漏配送 Prisma client，导致 PM2 启动时报
-> `Cannot find module '../../../generated/delivery-client'`。
+> `Cannot find module '../../../generated/delivery-client'`。staging `.env`
+> 已补 `DELIVERY_SEED_PASSWORD`，并已执行 `npm run prisma:delivery:seed`
+> 初始化配送测试账号、示范商家、商品、清单模板和基础配置；真实密码只保存在服务器
+> `.env` 和本次操作记录中，不写入仓库。
 
 ### 3. 构建并启动
 ```bash
