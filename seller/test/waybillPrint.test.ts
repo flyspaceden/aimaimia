@@ -42,12 +42,24 @@ test('builds a one-page seller packing slip with order items and quantities', ()
   assert.match(html, /龙虾 &lt;鲜活&gt;/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.match(html, /满额赠品/);
+  assert.doesNotMatch(html, /普通/);
   assert.match(html, /SF510000002959/);
   assert.doesNotMatch(html, /waybill-frame/);
   assert.doesNotMatch(html, /waybill-page/);
   assert.doesNotMatch(html, /<iframe/);
   assert.doesNotMatch(html, /page-break-before/);
   assert.doesNotMatch(html, /https:\/\/api\.ai-maimai\.com/);
+});
+
+test('uses larger print typography for warehouse picking', () => {
+  const html = buildSellerWaybillPrintHtml(order);
+
+  assert.match(html, /body\s*\{[\s\S]*font-size: 16px;/);
+  assert.match(html, /h1\s*\{[\s\S]*font-size: 34px;/);
+  assert.match(html, /\.meta\s*\{[\s\S]*font-size: 16px;/);
+  assert.match(html, /table\s*\{[\s\S]*font-size: 17px;/);
+  assert.match(html, /\.item-title\s*\{[\s\S]*font-size: 22px;/);
+  assert.match(html, /\.quantity\s*\{[\s\S]*font-size: 26px;/);
 });
 
 test('does not expose seller platform prices on the printable packing slip', () => {
