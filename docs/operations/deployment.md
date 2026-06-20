@@ -308,9 +308,17 @@ npx prisma generate
 npx prisma migrate deploy
 npx prisma generate --schema prisma-delivery/schema.prisma
 npx prisma migrate deploy --schema prisma-delivery/schema.prisma
-npm run build
+npm run build   # 同时复制 src/generated/delivery-client 到 dist/src/generated/delivery-client
 pm2 reload <aimaimai-api-*> --update-env
 ```
+
+> 2026-06-20：staging 首次配送迁移时曾因旧迁移目录排在初始化迁移前导致
+> `20260618120000_task5_delivery_auth_units` 失败；处理方式为先确认
+> `testdelivery` 仅有 `_prisma_migrations`、无业务表，再执行
+> `npx prisma migrate resolve --rolled-back 20260618120000_task5_delivery_auth_units --schema prisma-delivery/schema.prisma`
+> 后重新 `migrate deploy`。同日修复 `npm run build`，避免 `nest build`
+> 清空 `dist` 后遗漏配送 Prisma client，导致 PM2 启动时报
+> `Cannot find module '../../../generated/delivery-client'`。
 
 ### 3. 构建并启动
 ```bash
