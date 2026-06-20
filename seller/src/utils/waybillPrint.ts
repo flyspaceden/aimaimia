@@ -18,19 +18,20 @@ function escapeHtml(text: string): string {
 }
 
 function itemLabel(item: Order['items'][number]): string {
-  if (!item.isPrize) return '普通';
+  if (!item.isPrize) return '';
   return item.prizeType ? (PRIZE_TYPE_LABELS[item.prizeType] ?? '奖品') : '奖品';
 }
 
 export function buildSellerWaybillPrintHtml(order: Order): string {
   const rows = order.items
     .map((item, index) => {
+      const label = itemLabel(item);
       return `
         <tr>
           <td class="index">${index + 1}</td>
           <td>
             <div class="item-title">${escapeHtml(item.title || '-')}</div>
-            <div class="item-meta">${escapeHtml(itemLabel(item))}</div>
+            ${label ? `<div class="item-meta">${escapeHtml(label)}</div>` : ''}
           </td>
           <td class="quantity">${item.quantity}</td>
         </tr>
@@ -56,12 +57,13 @@ export function buildSellerWaybillPrintHtml(order: Order): string {
         background: #f5f5f5;
         color: #1f2933;
         font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-size: 16px;
       }
       .page {
         width: 210mm;
         min-height: 297mm;
         margin: 0 auto;
-        padding: 16mm;
+        padding: 12mm;
         background: #fff;
       }
       .header {
@@ -74,31 +76,31 @@ export function buildSellerWaybillPrintHtml(order: Order): string {
       }
       h1 {
         margin: 0;
-        font-size: 24px;
+        font-size: 34px;
         line-height: 1.2;
       }
       .subtle {
         color: #5f6b7a;
-        font-size: 12px;
+        font-size: 16px;
         margin-top: 6px;
       }
       .waybill-no {
         text-align: right;
-        font-size: 13px;
+        font-size: 16px;
         line-height: 1.8;
       }
       .waybill-no strong {
         display: block;
         color: #111827;
         font-family: Menlo, Consolas, monospace;
-        font-size: 18px;
+        font-size: 24px;
       }
       .meta {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px 18px;
-        margin-bottom: 16px;
-        font-size: 13px;
+        gap: 10px 18px;
+        margin-bottom: 18px;
+        font-size: 16px;
       }
       .meta span {
         color: #5f6b7a;
@@ -106,40 +108,41 @@ export function buildSellerWaybillPrintHtml(order: Order): string {
       table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 13px;
+        font-size: 17px;
       }
       th {
         text-align: left;
         background: #eef2f7;
         border: 1px solid #d8dee8;
-        padding: 8px;
+        padding: 11px 10px;
       }
       td {
         border: 1px solid #d8dee8;
-        padding: 9px 8px;
+        padding: 14px 10px;
         vertical-align: top;
       }
       .index {
-        width: 36px;
+        width: 44px;
         text-align: center;
         color: #5f6b7a;
       }
       .item-title {
         font-weight: 700;
-        line-height: 1.4;
+        font-size: 22px;
+        line-height: 1.35;
       }
       .item-meta {
         color: #5f6b7a;
-        font-size: 12px;
-        margin-top: 3px;
+        font-size: 15px;
+        margin-top: 5px;
       }
       .quantity {
-        width: 92px;
+        width: 104px;
         text-align: center;
         white-space: nowrap;
         font-family: Menlo, Consolas, monospace;
         font-weight: 700;
-        font-size: 16px;
+        font-size: 26px;
       }
       @media print {
         body { background: #fff; }
