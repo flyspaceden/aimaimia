@@ -54,10 +54,13 @@ export default function Footer() {
             <span>© 2026 深圳华海农业科技集团有限公司 All rights reserved</span>
             <span className="text-xs opacity-70">地址：深圳市龙岗区平湖街道白坭坑社区丹农路1号5#楼5RE2070</span>
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap justify-center md:justify-end gap-x-6 gap-y-2">
             <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">粤ICP备2023047684号</a>
             <Link to="/privacy" className="hover:text-white transition-colors">隐私政策</Link>
             <Link to="/terms" className="hover:text-white transition-colors">服务条款</Link>
+            <Link to="/legal/delivery-terms" className="hover:text-white transition-colors">配送条款</Link>
+            <Link to="/legal/delivery-privacy" className="hover:text-white transition-colors">配送隐私</Link>
+            <Link to="/legal/delivery-seller-agreement" className="hover:text-white transition-colors">配送中心协议</Link>
           </div>
         </div>
       </div>

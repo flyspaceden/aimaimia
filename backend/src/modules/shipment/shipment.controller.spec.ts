@@ -49,8 +49,15 @@ function createController() {
     parsePushPayload: jest.fn(),
     verifyPushToken: jest.fn(),
   };
-  const controller = new ShipmentController(shipmentService as any, sfExpress as any);
-  return { controller, shipmentService, sfExpress };
+  const deliverySfCallbackService = {
+    handleSfCallback: jest.fn(),
+  };
+  const controller = new ShipmentController(
+    shipmentService as any,
+    sfExpress as any,
+    deliverySfCallbackService as any,
+  );
+  return { controller, shipmentService, sfExpress, deliverySfCallbackService };
 }
 
 // Bug 36: 控制器返回 XML，需 mock express Response
@@ -112,16 +119,47 @@ describe('ShipmentController.handleSfCallback', () => {
     });
 
     it('单条 trackingNo 不在 DB（NotFoundException）跳过 + 返 200 OK', async () => {
-      const { controller, sfExpress, shipmentService } = createController();
+      const { controller, sfExpress, shipmentService, deliverySfCallbackService } = createController();
       sfExpress.verifyPushToken.mockReturnValue(true);
       sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
       shipmentService.handleSfCallback.mockRejectedValue(
         new NotFoundException('物流单号 SF1234567890 不存在'),
       );
+      deliverySfCallbackService.handleSfCallback.mockRejectedValue(
+        new NotFoundException('配送物流单号 SF1234567890 不存在'),
+      );
       const res = makeRes();
 
       await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
 
+      expect(deliverySfCallbackService.handleSfCallback).toHaveBeenCalledWith(
+        PARSED_PAYLOAD.trackingNo,
+        PARSED_PAYLOAD.status,
+        PARSED_PAYLOAD.events,
+        VALID_PUSH_BODY,
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
+    });
+
+    it('主库找不到 trackingNo 时尝试配送库回调并返 200 OK', async () => {
+      const { controller, sfExpress, shipmentService, deliverySfCallbackService } = createController();
+      sfExpress.verifyPushToken.mockReturnValue(true);
+      sfExpress.parsePushPayload.mockReturnValue([PARSED_PAYLOAD]);
+      shipmentService.handleSfCallback.mockRejectedValue(
+        new NotFoundException('物流单号 SF1234567890 不存在'),
+      );
+      deliverySfCallbackService.handleSfCallback.mockResolvedValue({ ok: true, handledBy: 'delivery' });
+      const res = makeRes();
+
+      await controller.handleSfCallback(VALID_TOKEN, VALID_PUSH_BODY, res);
+
+      expect(deliverySfCallbackService.handleSfCallback).toHaveBeenCalledWith(
+        PARSED_PAYLOAD.trackingNo,
+        PARSED_PAYLOAD.status,
+        PARSED_PAYLOAD.events,
+        VALID_PUSH_BODY,
+      );
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.send).toHaveBeenCalledWith(SF_OK_XML);
     });

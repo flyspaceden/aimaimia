@@ -45,6 +45,9 @@ interface PhoneLoginForm {
 // 环境标识：根据 VITE_APP_ENV 或 Vite 内置 MODE 判断
 const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
 const isProduction = appEnv === 'production';
+const switchToDeliveryAdminUrl = isProduction
+  ? 'https://delivery-admin.ai-maimai.com'
+  : 'https://test-delivery-admin.ai-maimai.com';
 
 /**
  * 将登录/获取权限过程中的异常转为用户友好的错误提示
@@ -443,6 +446,13 @@ export default function LoginPage() {
             },
           ]}
         />
+        <Button
+          block
+          style={{ marginTop: 16, height: 44, borderRadius: 8 }}
+          href={switchToDeliveryAdminUrl}
+        >
+          切换配送管理后台
+        </Button>
       </Card>
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
         <div>&copy; 2026 深圳华海农业科技集团有限公司</div>

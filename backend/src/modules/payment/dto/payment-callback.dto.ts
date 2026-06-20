@@ -1,4 +1,4 @@
-import { IsIn, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsISO8601, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class PaymentCallbackDto {
   @IsString({ message: 'merchantOrderNo 必须为字符串' })
@@ -18,6 +18,16 @@ export class PaymentCallbackDto {
 
   @IsOptional()
   rawPayload?: any;
+
+  @IsOptional()
+  @IsString({ message: 'paymentChannel 必须为字符串' })
+  @IsIn(['ALIPAY', 'WECHAT_PAY'], { message: 'paymentChannel 必须是 ALIPAY 或 WECHAT_PAY' })
+  paymentChannel?: 'ALIPAY' | 'WECHAT_PAY';
+
+  @IsOptional()
+  @IsInt({ message: 'claimedAmountCents 必须为整数分' })
+  @Min(0, { message: 'claimedAmountCents 不能小于 0' })
+  claimedAmountCents?: number;
 
   @IsOptional()
   @IsString({ message: 'signature 必须为字符串' })

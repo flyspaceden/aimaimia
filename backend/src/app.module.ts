@@ -39,6 +39,7 @@ import { DeferredLinkModule } from './modules/deferred-link/deferred-link.module
 import { AfterSaleModule } from './modules/after-sale/after-sale.module';
 import { CustomerServiceModule } from './modules/customer-service/cs.module';
 import { DeletionModule } from './modules/me/deletion/deletion.module';
+import { DeliveryModule } from './modules/delivery/delivery.module';
 import { DigitalAssetModule } from './modules/digital-asset/digital-asset.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
@@ -98,6 +99,7 @@ import { EmailModule } from './common/email/email.module';
     AfterSaleModule,
     CustomerServiceModule,
     DeletionModule,
+    DeliveryModule,
     DigitalAssetModule,
   ],
   providers: [

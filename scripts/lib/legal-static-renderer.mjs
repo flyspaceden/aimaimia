@@ -35,7 +35,14 @@ function renderBlock(block) {
 }
 
 function routeTitle(kind) {
-  return kind === 'privacy' ? '隐私政策' : '用户协议';
+  const titles = {
+    privacy: '隐私政策',
+    terms: '用户协议',
+    'delivery-terms': '配送服务条款',
+    'delivery-privacy': '配送隐私政策',
+    'delivery-seller-agreement': '配送中心商家协议',
+  };
+  return titles[kind] ?? '法律文本';
 }
 
 export function renderLegalPage(doc, kind) {

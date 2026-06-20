@@ -72,6 +72,43 @@
 /company/staff          → 员工管理                    — OWNER
 ```
 
+### 1.5 配送中心（delivery-seller）补充
+
+配送中心是独立前端 `delivery-seller/`，展示名称为「配送中心」，技术命名空间统一使用 `delivery-seller`。它不是普通卖家中心的换肤版，活跃 API 只能调用 `/delivery-seller/*`。
+
+当前活跃路由：
+
+```
+/                       → 工作台
+/products               → 商品列表、草稿继续编辑、提交审核
+/products/create        → 创建商品 / 保存草稿 / 提交审核
+/products/:id/edit      → 编辑商品
+/products/stock         → SKU 库存管理
+/orders                 → 订单列表
+/orders/:id             → 订单详情、发货、履约清单导出
+/orders/logistics       → 物流跟踪
+/exports                → 财务结算导出、履约清单导出
+/company/settings       → 配送中心资料
+/company/staff          → 员工与权限
+/customer-service       → 客服工单
+/account-security       → 账号安全
+```
+
+配送中心可见数据边界：
+
+- 可展示供货价、成本价、库存、订单履约状态、物流状态、企业资料、员工账号、客服工单、商家侧结算金额。
+- 禁止展示买家最终成交价、平台加价、平台差额、买家完整支付合计、平台定价规则或 admin-only pricing 字段。
+- 履约清单导出不展示任何金额。
+- 财务导出只使用配送商可见的供货 / 应结金额口径。
+- 不接入 VIP、红包、分润、抽奖、售后退款退货、普通卖家后台专属页面。
+
+集成验证记录（2026-06-19 / Task 20）：
+
+- `cd seller && npm run build` 已通过，确认爱买买卖家中心现有构建未被配送分支破坏。
+- `cd delivery-seller && npm run build` 已通过，确认配送中心橙色主题、活跃路由、API 类型和导出页面可以完成生产构建。
+- 根 App `npx tsc --noEmit` 已通过；为避免 App tsconfig 误扫 Web 后台代码，根 `tsconfig.json` 已按既有 `admin/` / `seller/` 模式排除 `delivery-admin/` 和 `delivery-seller/`。
+- 配送中心 staging smoke 仍需在测试域名执行：手机号登录、入驻申请入口、商品草稿/上架、库存、订单发货、履约 PDF、财务导出、客服工单、账号安全，以及卖家不可见买家最终成交价 / 平台差额 / 平台定价规则的页面检查。
+
 ---
 
 ## 二、隐私保护策略（核心改造）

@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-18
+> **最后更新**: 2026-06-20
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -40,6 +40,53 @@
   - **来源**: 卖家中心订单详情点击打印后只打开面单/异常页面，卖家无法直接看包裹内有哪些货。
   - **实际做了**: 卖家订单详情“打印”改为“打印清单”，新打印页只展示订单号、买家匿名信息、地区、电子面单号和商品明细/数量，不输出单价、小计、商品金额等卖家平台价格，不再附电子面单 iframe，避免第二页空白；打印清单整体改大字号，商品名称和数量加大加粗，普通商品不再显示“普通”标签；后端打印代理按 Content-Type / PDF 文件头识别 PDF，避免签名下载链接被误当图片处理。
   - **验证**: `node --test seller/test/waybillPrint.test.ts`、`seller npm run build`、`backend npm test -- seller-shipping.controller.spec.ts --runInBand`、`backend npm run build` 通过。
+
+- [x] **配送买家 App 模块（Task 13）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 13 brief
+  - **实际做了**: 买家 App `我的 > 常用工具 > 配送` 入口接到 `/delivery`；完成 delivery 登录门禁、单位选择/编辑、双 Tab（商品/我的）、商品列表/详情、购物车、配送专属结算与支付状态页、配送订单列表/详情、配送清单页；新增 delivery buyer 订单列表/详情后端接口与 App `DeliveryOrderRepo` 映射；补 delivery 专属 `checkout/:id/pay` 发起支付参数接口，App 走原生支付宝 / 微信 SDK；配送支付回调建单后同事务清理本次 checkout 对应的 `DeliveryCartItem`
+  - **验证**: `npx tsc --noEmit --pretty false`、根目录 `npm test -- --runInBand`、`backend npm test -- --runInBand src/modules/delivery/checkout/delivery-checkout.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`backend npm run build`、`git diff --check`；其中真实支付宝 / 微信 provider 回调仍待实机联调验证，当前仅完成代码链路与单测验证
+
+- [x] **配送管理后台壳（Task 14）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 14 brief
+  - **实际做了**: 复制 `admin/` 新建 `delivery-admin/`；切成 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth` 独立登录态；认证接口改到 `/delivery-admin/auth/*`；登录页与爱买买管理后台互相增加切换按钮；配送管理后台改为浅蓝主题；裁掉 VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送菜单与路由；`deploy-website.yml` 新增 delivery-admin 构建与部署目标
+  - **验证**: `cd admin && npm run build`、`cd ../delivery-admin && npm install && npm run build`
+
+- [x] **配送管理后台运营页（Task 15）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 15 brief
+  - **实际做了**: 新增 `delivery-admin/src/api/delivery-management.ts` 和 `src/types/delivery-management.ts`，把活跃路由全部收口到 `src/pages/delivery-admin/**`；补齐工作台、数据看板、用户、单位、商家、入驻审核、商品审核、定价规则、订单详情、发货记录、异常支付、清单模板、结算、客服、审计、配置中心页面；`App.tsx` 与 `AdminLayout.tsx` 只保留配送运营入口；订单/结算页面固定分栏展示 `买家金额 / 商家供货 / 商家应结 / 平台差额`
+  - **验证**: `cd delivery-admin && npm run build`、`rg -n -F "/admin" delivery-admin/src/api/delivery-management.ts delivery-admin/src/pages/delivery-admin delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx`、`rg -n "VIP|红包|抽奖|分润|退款|售后|数字资产|发票|溯源" delivery-admin/src/App.tsx delivery-admin/src/layouts/AdminLayout.tsx delivery-admin/src/pages/delivery-admin delivery-admin/src/api/delivery-management.ts`
+
+- [x] **配送中心运营页与导出（Task 17）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 17 brief
+  - **实际做了**: 在 `delivery-seller/` 现有壳上补齐工作台快捷入口、商品草稿/审核提交、商品列表/编辑、SKU 库存调整、订单列表/发货详情、物流跟踪、履约清单导出、财务结算导出、企业资料、员工权限、客服工单、账号安全；新增 `inventory` / `shipments` / `manifests` / `settlements` / `customerService` API 模块，活跃调用全部收口到 `/delivery-seller/*`；移除 seller finance export context 中未返回且不应保留的 `buyerFinalAmountCents`
+  - **验证**: `cd delivery-seller && node --test test/deliveryCenterContracts.test.ts`、`cd delivery-seller && npm run build`、`cd backend && npm test -- --runInBand src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/settlement/delivery-settlement.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`cd backend && npm run build`；履约导出不展示金额，财务导出仅使用供货/应结金额口径
+
+- [x] **配送终审修复收口（2026-06-19）**
+  - **来源**: final review 剩余 Critical / Important
+  - **实际做了**: 补齐配送买家短信发码接口、delivery 登录页发码倒计时与微信登录；checkout 改为整单运费单次计算并按商家商品金额精确分摊；配送管理后台清单模板页新增逐单自定义列/内容入口，后端支持 buyer order / seller fulfillment 自定义列持久化与再生成，且对 seller fulfillment 金额敏感字段做拦截。
+  - **验证**: `cd backend && npm test -- --runInBand src/modules/delivery/buyer/delivery-buyer-auth.controller.spec.ts src/modules/delivery/buyer/delivery-phone-otp.service.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/manifests/delivery-admin-manifests.controller.spec.ts`、根目录 `npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、后续补跑根目录 TypeScript / delivery-admin build / backend build / git diff --check
+
+- [x] **配送全方位审查修复补充（2026-06-19）**
+  - **来源**: 用户要求“全部整体审查一遍”后的剩余问题修复
+  - **实际做了**: 补 `/delivery/checkout/:id/active-query` 主动查单，App 支付完成后主动确认支付宝 / 微信支付状态并复用配送支付回调建单；补买家配送客服 `/delivery/cs` 后端、Repo 和 App 页面；配送单位编辑页接入后台单位字段配置和现有省市区选择器；配送单位保存 6 位标准省 / 市 / 区编码，并让 RegionPicker 支持注入配送橙色色板；配送中心文件下载增加商家归属校验，顺丰面单 PDF 固定存入 `delivery/waybills/`；配送管理后台新增权限装饰器和 Guard，并给业务控制器补 `delivery:<module>:<action>` 权限。
+  - **验证**: `npm --prefix backend test -- --runInBand src/modules/delivery`（48 suites / 231 tests）、`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`npm --prefix backend run build`、占位 `DELIVERY_DATABASE_URL` 下的配送 Prisma validate 均通过。
+
+- [x] **配送合并前阻塞修复（2026-06-20）**
+  - **来源**: 合并 staging 前全面审查发现的阻塞项
+  - **实际做了**: `backend/prisma-delivery/seed.ts` 去掉公开默认 seed 密码，缺少 `DELIVERY_SEED_PASSWORD` 时直接拒绝执行；配送 App 结算页改为先创建 checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计，用户再次确认才拉起支付；配送中心下载 helper 支持 `delivery/waybills/`、`delivery/manifests/`、`delivery/settlements/`，面单/清单/结算文件继续走后端商家归属校验。
+  - **验证**: `cd backend && npx jest prisma-delivery/seed-security.spec.ts --runInBand`、根目录 `npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`cd delivery-seller && node --test test/uploadDownload.test.ts`、根目录 `npx tsc --noEmit`、`cd backend && DELIVERY_DATABASE_URL='postgresql://delivery:delivery@127.0.0.1:5432/delivery?schema=public' npm run build` 均通过。
+
+- [x] **配送全面审查修复补充（2026-06-20）**
+  - **来源**: 用户要求“全面审查”，并按 App / 配送管理后台 / 配送中心 / 后端四个系统逐项复查
+  - **实际做了**: 顺丰回调在主库未命中时分流到配送库 `DeliveryShipment`，签收后推进配送子订单和主订单状态；配送中心新增 `DeliverySellerPermissionGuard`，发货/商品/库存/客服写接口分别走 `orders:write` / `products:write` / `inventory:write` / `customer-service:write`，财务导出和结算列表走 `finance:read`，JWT 校验每次读取数据库最新 `role` / `permissionCodes`，OWNER 默认放行；配送配货 PDF 自定义列金额拦截扩展到供货价、结算款、付款、货款、单价、总价等绕法；清单模板固定系统列也允许后台设置是否显示；配送管理后台新增活跃路由/API 合同测试；配送中心删除未路由的售后/统计页面和 API，并用合同测试锁定不暴露售后、退款、平台售价等非配送内容；活跃代码中“采购/团购/配送卖家中心”文案残留已清理。
+  - **验证**: `cd backend && npx jest src/modules/delivery/auth/guards/delivery-seller-permission.guard.spec.ts src/modules/delivery/auth/guards/delivery-admin-permission.guard.spec.ts src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/manifests/delivery-seller-manifests.controller.spec.ts src/modules/shipment/delivery-sf-callback.service.spec.ts src/modules/shipment/shipment.controller.spec.ts src/modules/delivery/units/delivery-units.service.spec.ts src/modules/delivery/seller/delivery-seller-upload.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/checkout/delivery-checkout.controller.spec.ts --runInBand`、配送后端大回归 55 suites / 276 tests、`cd delivery-admin && npm test`、`cd delivery-seller && npm test`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、根目录 `npx tsc --noEmit`、根目录 `npm test`、`git diff --check` 均通过。
+
+- [x] **配送部署、法律页、seed 与集成验证（Task 18-20）**（2026-06-19 新增并完成）
+  - **来源**: isolated worktree `delivery-system` / Task 18-20 brief
+  - **实际做了**: 补齐配送管理后台 / 配送中心部署配置与公开上线说明；新增配送法律页 `/legal/delivery-terms`、`/legal/delivery-privacy`、`/legal/delivery-seller-agreement`，文案明确标注上线前需法务确认；实现幂等 `backend/prisma-delivery/seed.ts`，包含配送超管、运营/财务/客服角色、配送商/OWNER、分类/单位、商品/SKU、配送用户、配送单位、地址、清单模板、客服配置；修复根 App `tsconfig.json` 误扫新增 Web 后台目录的问题。
+  - **本地验证**: `cd backend && npm run prisma:generate`、`cd backend && npm run prisma:delivery:generate`、`cd backend && npm run build`、`cd backend && npx jest src/modules/delivery --runInBand`（43 suites / 196 tests）、根目录 `npx tsc --noEmit`、根目录 `npm test -- --runInBand`（App Jest 9 suites / 51 tests + legal node tests 22 tests）、`cd admin && npm run build`、`cd seller && npm run build`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build` 均通过。
+  - **环境说明**: 当前本地没有真实 `DATABASE_URL` / `DELIVERY_DATABASE_URL`，原始 `npx prisma validate` 两条命令会停在环境变量缺失；已用本地占位 PostgreSQL URL 复跑主库和配送库 schema validate，均通过且未连接 staging/production 数据库。
+  - **发布前人工待办**: 阿里云 DNS 解析 `delivery-admin` / `delivery-seller` / `test-delivery-admin` / `test-delivery-seller`；宝塔站点和 SSL；staging/production `DELIVERY_DATABASE_URL`、配送 JWT secrets、CORS；配送 migration 部署；staging 配送库连续两次 seed 幂等验证；配送支付/SF 月结实链路；App/后台/配送中心 staging E2E；私有 `docs/operations/阿里云部署.md` 上线时同步实际配置。
 
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀

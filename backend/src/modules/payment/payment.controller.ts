@@ -10,6 +10,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
 import { PaymentCallbackDto } from './dto/payment-callback.dto';
+import { DeliveryPaymentsService } from '../delivery/payments/delivery-payments.service';
+import {
+  isDeliveryMerchantOrderNo,
+  parseDeliveryYuanAmountToCents,
+} from '../delivery/payments/delivery-payment-routing.util';
 
 type WithdrawPayoutRuntimeService = {
   finalizeWithdrawalPaid(
@@ -34,6 +39,7 @@ export class PaymentController {
     @Optional() private moduleRef?: ModuleRef,
     @Optional() private prisma?: PrismaService,
     @Optional() private wechatPayService?: WechatPayService,
+    @Optional() private deliveryPaymentsService?: DeliveryPaymentsService,
   ) {}
 
   /** 查询订单支付记录 */
@@ -125,6 +131,23 @@ export class PaymentController {
           res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
           return;
         }
+      } else if (isDeliveryMerchantOrderNo(body.out_trade_no)) {
+        try {
+          if (!this.deliveryPaymentsService) {
+            throw new Error('delivery payments service unavailable');
+          }
+          await this.deliveryPaymentsService.assertAlipayAmountMatchesCheckout(
+            body.out_trade_no,
+            body.total_amount,
+          );
+        } catch (amountErr: any) {
+          this.logger.error(
+            `支付宝 notify 配送金额校验失败，已拒绝处理：${amountErr.message} ` +
+            `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+          );
+          res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
+          return;
+        }
       } else {
         let session: Awaited<ReturnType<CheckoutService['findByMerchantOrderNo']>>;
         try {
@@ -165,6 +188,11 @@ export class PaymentController {
         providerTxnId: body.trade_no,
         status,
         paidAt: body.gmt_payment ? new Date(body.gmt_payment).toISOString() : undefined,
+        paymentChannel: isDeliveryMerchantOrderNo(body.out_trade_no) ? 'ALIPAY' : undefined,
+        claimedAmountCents:
+          status === 'SUCCESS' && isDeliveryMerchantOrderNo(body.out_trade_no)
+            ? this.requireDeliveryAlipayAmountCents(body.total_amount)
+            : undefined,
         rawPayload: body,
         skipSignatureVerification: true, // 已在上方用支付宝证书验签
       });
@@ -256,6 +284,14 @@ export class PaymentController {
             notify.outTradeNo,
             notify.amountFen,
           );
+        } else if (isDeliveryMerchantOrderNo(notify.outTradeNo)) {
+          if (!this.deliveryPaymentsService) {
+            throw new Error('delivery payments service unavailable');
+          }
+          await this.deliveryPaymentsService.assertWechatAmountMatchesCheckout(
+            notify.outTradeNo,
+            notify.amountFen,
+          );
         } else {
           const session = await this.checkoutService.findByMerchantOrderNo(notify.outTradeNo);
           if (session) {
@@ -289,6 +325,11 @@ export class PaymentController {
       providerTxnId: notify.providerTxnId,
       status,
       paidAt: this.normalizeNotifyPaidAt(notify.paidAt),
+      paymentChannel: isDeliveryMerchantOrderNo(notify.outTradeNo) ? 'WECHAT_PAY' : undefined,
+      claimedAmountCents:
+        status === 'SUCCESS' && isDeliveryMerchantOrderNo(notify.outTradeNo)
+          ? notify.amountFen
+          : undefined,
       rawPayload: body,
       skipSignatureVerification: true,
     });
@@ -478,5 +519,14 @@ export class PaymentController {
     if (!paidAt) return undefined;
     if (paidAt instanceof Date) return paidAt.toISOString();
     return paidAt;
+  }
+
+  private requireDeliveryAlipayAmountCents(totalAmount: unknown): number {
+    const claimedAmountCents = parseDeliveryYuanAmountToCents(totalAmount);
+    if (!Number.isInteger(claimedAmountCents)) {
+      throw new BadRequestException('配送支付金额格式错误');
+    }
+
+    return claimedAmountCents as number;
   }
 }

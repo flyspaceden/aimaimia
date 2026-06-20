@@ -1,0 +1,372 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  DeliveryOrderStatus,
+  DeliverySettlementStatus,
+  Prisma,
+} from '../../../generated/delivery-client';
+import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { MarkDeliverySettlementPaidDto } from './dto/mark-delivery-settlement-paid.dto';
+
+type ListSettlementsQuery = {
+  page?: number;
+  pageSize?: number;
+  status?: DeliverySettlementStatus | string;
+  merchantId?: string;
+};
+
+type DeliverySettlementListWhere = Prisma.DeliverySettlementWhereInput;
+
+@Injectable()
+export class DeliverySettlementService {
+  constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
+
+  async listAdminSettlements(query: ListSettlementsQuery) {
+    await this.materializeEligibleSettlements({
+      merchantId: query.merchantId,
+    });
+
+    const { page, pageSize, skip } = this.resolvePage(query);
+    const where = this.buildSettlementWhere(query);
+
+    const [total, items] = await Promise.all([
+      this.deliveryPrisma.deliverySettlement.count({ where }),
+      this.deliveryPrisma.deliverySettlement.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+        include: {
+          merchant: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          subOrder: {
+            select: {
+              id: true,
+              orderId: true,
+              status: true,
+              totalAmountCents: true,
+              shippingFeeShareCents: true,
+              deliveredAt: true,
+              completedAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: items.map((item) => this.mapAdminSettlement(item)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async listSellerSettlements(merchantId: string, query: Omit<ListSettlementsQuery, 'merchantId'>) {
+    await this.materializeEligibleSettlements({ merchantId });
+
+    const { page, pageSize, skip } = this.resolvePage(query);
+    const where = this.buildSettlementWhere({
+      ...query,
+      merchantId,
+    });
+
+    const [total, items] = await Promise.all([
+      this.deliveryPrisma.deliverySettlement.count({ where }),
+      this.deliveryPrisma.deliverySettlement.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          merchantId: true,
+          subOrderId: true,
+          status: true,
+          settlementMonth: true,
+          supplyAmountCents: true,
+          settledAmountCents: true,
+          note: true,
+          settledAt: true,
+          createdAt: true,
+          updatedAt: true,
+          merchant: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          subOrder: {
+            select: {
+              id: true,
+              orderId: true,
+              status: true,
+              shippingFeeShareCents: true,
+              deliveredAt: true,
+              completedAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: items.map((item) => this.mapSellerSettlement(item)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  private resolvePage(query: Pick<ListSettlementsQuery, 'page' | 'pageSize'>) {
+    const page = query.page && query.page > 0 ? query.page : 1;
+    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20;
+    const skip = (page - 1) * pageSize;
+    return { page, pageSize, skip };
+  }
+
+  private buildSettlementWhere(query: ListSettlementsQuery): DeliverySettlementListWhere {
+    const where: DeliverySettlementListWhere = {};
+
+    if (query.merchantId) {
+      where.merchantId = query.merchantId;
+    }
+    if (query.status && this.isSettlementStatus(query.status)) {
+      where.status = query.status;
+    }
+
+    return where;
+  }
+
+  async markSettlementPaid(
+    deliveryAdminUserId: string,
+    settlementId: string,
+    dto: MarkDeliverySettlementPaidDto,
+  ) {
+    return this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const settlement = await tx.deliverySettlement.findUnique({
+          where: { id: settlementId },
+        });
+        if (!settlement) {
+          throw new NotFoundException('配送结算记录不存在');
+        }
+        if (settlement.status === 'SETTLED') {
+          throw new ConflictException('配送结算记录已结清');
+        }
+        if (settlement.subOrderId) {
+          const duplicateSettlements = await tx.deliverySettlement.findMany({
+            where: { subOrderId: settlement.subOrderId },
+            select: {
+              id: true,
+            },
+          });
+          if (duplicateSettlements.length > 1) {
+            throw new ConflictException('配送结算记录存在重复数据，请先清理后再结算');
+          }
+        }
+
+        const subOrder = settlement.subOrderId
+          ? await tx.deliverySubOrder.findUnique({
+              where: { id: settlement.subOrderId },
+              select: {
+                id: true,
+                status: true,
+                shippingFeeShareCents: true,
+              },
+            })
+          : null;
+
+        if (!subOrder || !this.isSettlementReady(subOrder.status)) {
+          throw new BadRequestException('配送子订单未签收完成，暂不可结算');
+        }
+
+        const minimumAmountCents = settlement.supplyAmountCents + subOrder.shippingFeeShareCents;
+        if (dto.settledAmountCents < minimumAmountCents) {
+          throw new BadRequestException('结算金额不能小于应结金额');
+        }
+
+        const updated = await tx.deliverySettlement.update({
+          where: { id: settlementId },
+          data: {
+            status: 'SETTLED',
+            settledAmountCents: dto.settledAmountCents,
+            note: dto.note?.trim() || settlement.note,
+            markedSettledByAdminId: deliveryAdminUserId,
+            settledAt: new Date(),
+          },
+        });
+
+        await tx.deliveryAuditLog.create({
+          data: {
+            actorType: 'ADMIN',
+            actorId: deliveryAdminUserId,
+            module: 'delivery-settlement',
+            action: 'mark-paid',
+            targetType: 'DeliverySettlement',
+            targetId: settlementId,
+            summary: `配送结算完成：${settlementId}`,
+            before: settlement as unknown as Prisma.InputJsonValue,
+            after: updated as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        return updated;
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
+  }
+
+  async materializeEligibleSettlements(params: { merchantId?: string } = {}) {
+    const where: Prisma.DeliverySubOrderWhereInput = {
+      status: {
+        in: ['DELIVERED', 'COMPLETED'],
+      },
+      settlements: {
+        none: {},
+      },
+    };
+    if (params.merchantId) {
+      where.merchantId = params.merchantId;
+    }
+
+    const eligibleSubOrders = await this.deliveryPrisma.deliverySubOrder.findMany({
+      where,
+      select: {
+        id: true,
+        merchantId: true,
+        status: true,
+        supplyAmountCents: true,
+        shippingFeeShareCents: true,
+        deliveredAt: true,
+        completedAt: true,
+      },
+    });
+
+    if (!eligibleSubOrders.length) {
+      return;
+    }
+
+    await Promise.all(
+      eligibleSubOrders.map((subOrder) =>
+        this.deliveryPrisma.deliverySettlement.upsert({
+          where: { subOrderId: subOrder.id },
+          create: {
+            merchantId: subOrder.merchantId,
+            subOrderId: subOrder.id,
+            settlementMonth: this.formatSettlementMonth(subOrder.completedAt ?? subOrder.deliveredAt),
+            supplyAmountCents: subOrder.supplyAmountCents,
+          },
+          update: {},
+        }),
+      ),
+    );
+  }
+
+  private isSettlementReady(status: DeliveryOrderStatus) {
+    return status === 'DELIVERED' || status === 'COMPLETED';
+  }
+
+  private isSettlementStatus(value: string): value is DeliverySettlementStatus {
+    return value === 'PENDING' || value === 'SETTLED';
+  }
+
+  private formatSettlementMonth(date?: Date | null) {
+    const value = date ?? new Date();
+    return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  private mapAdminSettlement(
+    item: Prisma.DeliverySettlementGetPayload<{
+      include: {
+        merchant: { select: { id: true; name: true } };
+        subOrder: {
+          select: {
+            id: true;
+            orderId: true;
+            status: true;
+            totalAmountCents: true;
+            shippingFeeShareCents: true;
+            deliveredAt: true;
+            completedAt: true;
+          };
+        };
+      };
+    }>,
+  ) {
+    return {
+      ...item,
+      expectedAmountCents: item.subOrder
+        ? item.supplyAmountCents + item.subOrder.shippingFeeShareCents
+        : item.settledAmountCents,
+    };
+  }
+
+  private mapSellerSettlement(
+    item: Prisma.DeliverySettlementGetPayload<{
+      select: {
+        id: true;
+        merchantId: true;
+        subOrderId: true;
+        status: true;
+        settlementMonth: true;
+        supplyAmountCents: true;
+        settledAmountCents: true;
+        note: true;
+        settledAt: true;
+        createdAt: true;
+        updatedAt: true;
+        merchant: { select: { id: true; name: true } };
+        subOrder: {
+          select: {
+            id: true;
+            orderId: true;
+            status: true;
+            shippingFeeShareCents: true;
+            deliveredAt: true;
+            completedAt: true;
+          };
+        };
+      };
+    }>,
+  ) {
+    const expectedAmountCents = item.subOrder
+      ? item.supplyAmountCents + item.subOrder.shippingFeeShareCents
+      : item.settledAmountCents;
+
+    return {
+      id: item.id,
+      merchantId: item.merchantId,
+      subOrderId: item.subOrderId,
+      status: item.status,
+      settlementMonth: item.settlementMonth,
+      supplyAmountCents: item.supplyAmountCents,
+      settledAmountCents: item.settledAmountCents,
+      expectedAmountCents,
+      note: item.note,
+      settledAt: item.settledAt,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      merchant: item.merchant,
+      subOrder: item.subOrder
+        ? {
+            id: item.subOrder.id,
+            orderId: item.subOrder.orderId,
+            status: item.subOrder.status,
+            deliveredAt: item.subOrder.deliveredAt,
+            completedAt: item.subOrder.completedAt,
+          }
+        : null,
+    };
+  }
+}

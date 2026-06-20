@@ -13,6 +13,7 @@ import {
 import type { Response } from 'express';
 import { ShipmentService } from './shipment.service';
 import { SfExpressService } from './sf-express.service';
+import { DeliverySfCallbackService } from './delivery-sf-callback.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 
@@ -28,6 +29,7 @@ export class ShipmentController {
   constructor(
     private shipmentService: ShipmentService,
     private sfExpress: SfExpressService,
+    private deliverySfCallbackService?: DeliverySfCallbackService,
   ) {}
 
   /** 查询订单物流 */
@@ -88,10 +90,32 @@ export class ShipmentController {
         );
       } catch (error: any) {
         if (error instanceof NotFoundException) {
-          this.logger.warn(
-            `顺丰推送 trackingNo=${payload.trackingNo} 不在 DB（可能是历史单或测试数据），跳过`,
-          );
-          continue;
+          try {
+            await this.deliverySfCallbackService?.handleSfCallback(
+              payload.trackingNo,
+              payload.status,
+              payload.events,
+              body,
+            );
+            continue;
+          } catch (deliveryError: any) {
+            if (deliveryError instanceof NotFoundException) {
+              this.logger.warn(
+                `顺丰推送 trackingNo=${payload.trackingNo} 不在主库/配送库（可能是历史单或测试数据），跳过`,
+              );
+              continue;
+            }
+            if (deliveryError instanceof BadRequestException) {
+              this.logger.warn(
+                `顺丰推送配送业务异常（不重试）: trackingNo=${payload.trackingNo}, ${deliveryError.message}`,
+              );
+              continue;
+            }
+            this.logger.error(
+              `顺丰推送配送处理异常（将重试）: trackingNo=${payload.trackingNo}, ${deliveryError.message || deliveryError}`,
+            );
+            return res.status(500).send(SF_PUSH_RESPONSE_ERR);
+          }
         }
         if (error instanceof BadRequestException) {
           this.logger.warn(

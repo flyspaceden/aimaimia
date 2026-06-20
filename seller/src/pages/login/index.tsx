@@ -9,6 +9,12 @@ import type { LoginResponse, SelectCompanyResponse } from '@/types';
 
 const { Title, Text } = Typography;
 
+const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
+const isProduction = appEnv === 'production';
+const switchToDeliverySellerUrl = isProduction
+  ? 'https://delivery-seller.ai-maimai.com'
+  : 'https://test-delivery-seller.ai-maimai.com';
+
 /** 将 SVG 字符串转为可直接用于 <img> 的 data URL（base64 编码，规避中文等 Unicode 字符） */
 const svgToDataUrl = (svg: string): string => {
   try {
@@ -499,6 +505,13 @@ export default function LoginPage() {
             </Text>
           </div>
         )}
+        <Button
+          block
+          style={{ marginTop: 16, height: 44, borderRadius: 8 }}
+          href={switchToDeliverySellerUrl}
+        >
+          切换配送中心
+        </Button>
       </Card>
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center', color: '#666', fontSize: 12, lineHeight: 1.8 }}>
         <div>&copy; 2026 深圳华海农业科技集团有限公司</div>

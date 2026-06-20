@@ -7,3 +7,4 @@ export * from './animation';
 export * from './ThemeProvider';
 export * from './bottomInset';
 export * from './responsive';
+export * from './delivery';

@@ -1,0 +1,95 @@
+import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '../../../generated/delivery-client';
+import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+
+export const DELIVERY_ID_PREFIXES = [
+  'PSYH',
+  'PSSJ',
+  'PSSP',
+  'PSDD',
+  'PSZDD',
+  'PSZF',
+  'PSQD',
+] as const;
+
+export type DeliveryIdPrefix = (typeof DELIVERY_ID_PREFIXES)[number];
+
+const READABLE_DELIVERY_ID_LENGTH = 17;
+const DELIVERY_ID_RETRY_LIMIT = 3;
+
+export function assertDeliveryIdPrefix(prefix: string): asserts prefix is DeliveryIdPrefix {
+  if (!DELIVERY_ID_PREFIXES.includes(prefix as DeliveryIdPrefix)) {
+    throw new Error(`Invalid delivery prefix: ${prefix}`);
+  }
+}
+
+export function formatDeliveryId(prefix: string, value: number | bigint): string {
+  assertDeliveryIdPrefix(prefix);
+
+  const numericValue = typeof value === 'bigint' ? value : BigInt(value);
+  const paddedWidth = READABLE_DELIVERY_ID_LENGTH - prefix.length;
+
+  if (numericValue < 0n) {
+    throw new Error(`Delivery sequence value must be non-negative for prefix ${prefix}`);
+  }
+
+  if (numericValue >= 10n ** BigInt(paddedWidth)) {
+    throw new Error(
+      `Delivery sequence value ${numericValue.toString()} exceeds the fixed width for prefix ${prefix}`,
+    );
+  }
+
+  return `${prefix}${numericValue.toString().padStart(paddedWidth, '0')}`;
+}
+
+@Injectable()
+export class DeliveryIdService {
+  constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
+
+  async next(prefix: string): Promise<string> {
+    assertDeliveryIdPrefix(prefix);
+
+    for (let attempt = 0; attempt < DELIVERY_ID_RETRY_LIMIT; attempt += 1) {
+      try {
+        const sequence = await this.deliveryPrisma.$transaction(
+          async (tx: Prisma.TransactionClient) => this.nextInTransaction(tx, prefix),
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+
+        return sequence;
+      } catch (error: any) {
+        if (error?.code === 'P2034' && attempt < DELIVERY_ID_RETRY_LIMIT - 1) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new ConflictException('配送单号生成冲突，请重试');
+  }
+
+  async nextInTransaction(tx: Prisma.TransactionClient, prefix: string): Promise<string> {
+    assertDeliveryIdPrefix(prefix);
+
+    const sequence = await tx.deliverySequence.upsert({
+      where: { prefix },
+      create: {
+        id: prefix,
+        prefix,
+        currentValue: 1n,
+      },
+      update: {
+        currentValue: {
+          increment: 1n,
+        },
+      },
+      select: {
+        currentValue: true,
+      },
+    });
+
+    return formatDeliveryId(prefix, sequence.currentValue);
+  }
+}

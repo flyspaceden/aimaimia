@@ -15,6 +15,88 @@
 - **科技之脉**：AI 的智能，光流、粒子、呼吸的节奏
 - **人心之脉**：用户的需求，温暖、可信、自然的交互
 
+---
+
+## 0. 配送模块（2026-06-19 / Task 13）
+
+### 0.1 定位
+
+- 配送模块是买家 App 内的一个业务模式，不是独立安装包，也不是营销落地页。
+- 入口固定在 `我的 > 常用工具 > 配送`，路由 `/delivery`。
+- delivery 模式只使用 `src/repos/delivery/*` 和 delivery stores；不复用普通商品/购物车/订单/用户状态仓储。
+
+### 0.2 路由门禁
+
+`app/delivery/_layout.tsx` 统一处理三段式门禁：
+
+1. 无 delivery token：跳 `/delivery/login`
+2. 有 token 但无当前单位：跳 `/delivery/unit-select`
+3. 有 token 且有单位：默认进 `/delivery/(tabs)/products`
+
+已登录用户仍可从 delivery 我的页进入 `/delivery/unit-select` / `/delivery/unit-edit` 主动切换或维护单位。
+
+### 0.3 Tab 约束
+
+- delivery tabs 只有两个：`商品`、`我的`
+- delivery 视觉主色使用 `src/theme/delivery.ts` 的橙色 token
+- delivery 我的页常用工具保留业务闭环最小集：
+  - `配送订单`
+  - `配送清单`
+  - `配送单位`
+  - `配送客服`
+  - `返回爱买买平台`
+  - `退出配送账号`
+
+### 0.4 页面状态
+
+| 页面 | 路由 | 状态 | 说明 |
+|---|---|---|---|
+| 配送登录 | `/delivery/login` | ✅ 已接入 | 手机号发码 + 60 秒倒计时 + 微信登录，成功后写入 `useDeliveryAuthStore` |
+| 配送单位选择 | `/delivery/unit-select` | ✅ 已接入 | 支持当前单位切换、跳转编辑 |
+| 配送单位编辑 | `/delivery/unit-edit` | ✅ 已接入 | 支持新增 / 编辑单位基础信息，省市区使用注入配送橙色色板的现有 RegionPicker，并保存 6 位标准省 / 市 / 区编码；后台可配置扩展字段 |
+| 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
+| 配送商品详情 | `/delivery/product/[id]` | ✅ 已接入 | SKU 选择、起订量 / 步长 / 库存展示 |
+| 配送购物车 | `/delivery/cart` | ✅ 已接入 | 勾选、改数量、删除、去结算 |
+| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 第一次提交先创建 delivery checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计；用户核对后第二次确认才通过 delivery 专属 pay-params 接口拉起原生支付宝 / 微信支付 |
+| 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 支付拉起后主动查单并轮询 delivery checkout session 状态，等待支付回调建单完成 |
+| 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用 |
+| 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口 |
+| 配送清单列表 | `/delivery/manifests` | ✅ 已接入 | 打开 buyer manifests 文件 |
+| 配送客服 | `/delivery/cs` | ✅ 已接入 | 我的页入口，买家可按配送订单/子订单上下文创建和查看客服记录 |
+
+### 0.5 当前边界
+
+- delivery 订单列表/详情走 delivery buyer 专属后端接口，不再落到普通订单接口。
+- checkout 已接入 delivery 专属支付发起链路：`createCheckout -> 展示后端锁定金额 -> createPaymentParams -> 原生 Alipay/WeChat SDK -> active-query -> /delivery/payment-success`。App 不再用本地购物车金额直接作为付款前应付合计，避免有配送费时展示金额与实际支付金额不一致。
+- delivery paid order 创建后会在同一 delivery 事务内清理本次 checkout snapshot 对应的 `DeliveryCartItem`，不触碰普通购物车。
+- 支付宝 / 微信真实 provider 回调链路沿用现有 `/payments/alipay|wechat/notify -> DeliveryPaymentsService -> DeliveryOrdersService`；App 侧支付完成后会调用 `/delivery/checkout/:id/active-query` 主动查单，降低第三方异步回调延迟导致的长时间未建单风险。真实渠道联调仍待实机验证，当前不能表述为已完成生产验证。
+- 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
+
+### 0.6 配送管理后台壳（2026-06-19 / Task 14）
+
+- 已新增独立 `delivery-admin/` 前端包，作为配送管理后台壳。
+- 认证本地存储与持久化键独立为 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth`。
+- 登录认证接口改到 `/api/v1/delivery-admin/auth/*`，登录页与爱买买管理后台登录页已互相增加切换按钮。
+- 当前仅保留壳层路由、浅蓝主题和基础可访问菜单；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块已从路由和菜单裁掉。
+- 清单模板页已补逐单自定义列操作区，可按 `BUYER_FULL` / `SELLER_FULFILLMENT` 目标单号维护自定义列名、排序、显示与内容；卖家配货清单由后端限制金额敏感字段。
+
+### 0.7 集成验证记录（2026-06-19 / Task 20）
+
+- 根目录 `npx tsc --noEmit` 已通过。验证中发现根 App `tsconfig.json` 会误扫描新增的 `delivery-admin/` 和 `delivery-seller/`，已按既有 `admin/`、`seller/`、`website/` 模式加入 `exclude`；配送 Web 项目仍由各自 `npm run build` 独立验证。
+- 根目录 `npm test -- --runInBand` 已通过：App Jest 9/9 suites、51/51 tests；legal node tests 22/22 tests。
+- Web 构建已通过：`admin npm run build`、`seller npm run build`、`delivery-admin npm run build`、`delivery-seller npm run build`。Vite 输出的大 chunk warning 是构建体积提示，不影响退出码。
+- 尚未完成 staging 真机 / 浏览器 E2E：`我的 > 常用工具 > 配送` 入口、delivery 手机号登录、单位创建、商品列表、起订量/步长、沙箱支付建单、买家清单、配送中心清单/财务导出、配送管理后台运营页仍需在测试域名和真实配送库配置后逐项验收。
+
+### 0.8 审查修复补充（2026-06-19）
+
+- 配送 checkout 支付后新增主动查单闭环：App 调用 `DeliveryOrderRepo.activeQueryPayment`，后端按支付渠道主动查询支付宝 / 微信订单，确认已支付后进入配送支付回调处理。
+- 配送单位编辑页改为复用现有省市区选择器，并读取 `/delivery/unit-field-config` 的后台配置字段；管理员配置的列名、排序、必填、是否显示会影响 App 表单。
+- 配送单位编辑页省市区选择后统一落库 6 位标准行政区划编码（如 `440000` / `440100` / `440106`），避免保存 2 位省码或 4 位市码；`RegionPicker` 支持传入业务色板，配送页面使用橙色 token，普通 App 地址页继续使用全局绿色主题。
+- 买家配送客服新增 `/delivery/cs` 页面和 Repo，只读写 delivery 客服表，支持从配送 App 我的页进入。
+- 合并前审查修复（2026-06-20）：配送 checkout 改成“锁定费用 -> 核对 -> 支付”两步；新增 `src/utils/deliveryCheckoutSummary.ts` 锁定金额摘要测试；配送中心下载 helper 增加 `delivery/waybills/`、`delivery/manifests/`、`delivery/settlements/` 前缀，清单/面单下载继续走后端商家归属校验。
+- 全面审查补充（2026-06-20）：配送管理后台新增 `deliveryAdminContracts.test.ts`，锁定活跃路由/API 只暴露配送管理模块；配送中心删除未路由的售后/统计页面和 API，并用 `deliveryCenterContracts.test.ts` 锁定不暴露售后、退款、平台售价等非配送内容；配送中心结算文件下载增加 `delivery/settlements/` 回归测试；活跃代码中“采购/团购/配送卖家中心”文案残留已清理。
+- 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
+
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
 ### 1.2 设计原则
