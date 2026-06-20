@@ -128,7 +128,7 @@ export default function DeliveryLoginScreen() {
               value={code}
               onChangeText={setCode}
               keyboardType="number-pad"
-              placeholder="请输入验证码（测试环境可用 123456）"
+              placeholder="请输入验证码"
               style={{ marginTop: spacing.lg }}
             />
             <View style={[styles.codeActionRow, { marginTop: spacing.md }]}>

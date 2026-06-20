@@ -59,7 +59,27 @@ export type DeliveryUnitPayload = {
   extraFields?: Record<string, unknown>;
 };
 
+export type DeliveryUnitFieldType = 'TEXT' | 'TEXTAREA' | 'NUMBER' | 'SELECT' | 'DATE';
+
+export type DeliveryUnitFieldConfig = {
+  fieldKey: string;
+  label: string;
+  fieldType: DeliveryUnitFieldType;
+  sortOrder: number;
+  placeholder: string | null;
+  options: unknown;
+  isVisible: boolean;
+  isRequired: boolean;
+  showInApp: boolean;
+  showInAdmin: boolean;
+  includeInPdf: boolean;
+  includeInExcel: boolean;
+  includeInExport: boolean;
+  isFixed: boolean;
+};
+
 export const deliveryUnitPaths = {
+  fieldConfig: () => buildDeliveryPath('unit-field-config'),
   list: () => buildDeliveryPath('units'),
   update: (id: string) => buildDeliveryPath(`units/${id}`),
   select: (id: string) => buildDeliveryPath(`units/${id}/select`),
@@ -77,6 +97,9 @@ const mapDeliveryUnitMutation = (payload: DeliveryUnitMutationResponse): Deliver
 });
 
 export const DeliveryUnitRepo = {
+  getFieldConfig: (): Promise<Result<DeliveryUnitFieldConfig[]>> =>
+    deliveryApiClient.get<DeliveryUnitFieldConfig[]>(deliveryUnitPaths.fieldConfig()),
+
   list: (): Promise<Result<DeliveryUnitList>> =>
     deliveryApiClient
       .get<DeliveryUnitListResponse>(deliveryUnitPaths.list())

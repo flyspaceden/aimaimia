@@ -12,8 +12,9 @@ describe('DeliveryCheckoutService', () => {
   let pricingService: { resolvePrice: jest.Mock };
   let moduleRef: { get: jest.Mock };
   let service: DeliveryCheckoutService;
-  let alipayService: { isAvailable: jest.Mock; createAppPayOrder: jest.Mock };
-  let wechatPayService: { isAvailable: jest.Mock; createAppOrder: jest.Mock };
+  let alipayService: { isAvailable: jest.Mock; createAppPayOrder: jest.Mock; queryOrder: jest.Mock };
+  let wechatPayService: { isAvailable: jest.Mock; createAppOrder: jest.Mock; queryOrder: jest.Mock };
+  let deliveryPaymentsService: { handlePaymentCallback: jest.Mock };
 
   beforeEach(() => {
     tx = {
@@ -79,6 +80,7 @@ describe('DeliveryCheckoutService', () => {
     alipayService = {
       isAvailable: jest.fn().mockReturnValue(true),
       createAppPayOrder: jest.fn().mockResolvedValue('delivery-order-str'),
+      queryOrder: jest.fn(),
     };
     wechatPayService = {
       isAvailable: jest.fn().mockReturnValue(true),
@@ -92,6 +94,10 @@ describe('DeliveryCheckoutService', () => {
         signType: 'RSA',
         paySign: 'signed',
       }),
+      queryOrder: jest.fn(),
+    };
+    deliveryPaymentsService = {
+      handlePaymentCallback: jest.fn().mockResolvedValue({ code: 'SUCCESS' }),
     };
     moduleRef.get.mockImplementation((token: any) => {
       if (token?.name === 'AlipayService') return alipayService;
@@ -103,6 +109,7 @@ describe('DeliveryCheckoutService', () => {
       pricingService as unknown as DeliveryPricingService,
       deliveryIdService as unknown as DeliveryIdService,
       moduleRef as any,
+      deliveryPaymentsService as any,
     );
   });
 
@@ -283,6 +290,212 @@ describe('DeliveryCheckoutService', () => {
       goodsAmountCents: 4400,
       shippingFeeCents: 500,
       totalAmountCents: 4900,
+    });
+    expect(result).not.toHaveProperty('itemsSnapshot');
+    expect(result).not.toHaveProperty('pricingSnapshot');
+    expect(result).not.toHaveProperty('unitSnapshot');
+    expect(result).not.toHaveProperty('addressSnapshot');
+  });
+
+  it('returns sanitized buyer checkout sessions without internal pricing snapshots', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+    });
+    deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+      id: 'checkout_1',
+      userId: 'PSYH0000000000001',
+      unitId: 'unit_1',
+      addressId: 'addr_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      status: 'ACTIVE',
+      goodsAmountCents: 4400,
+      shippingFeeCents: 500,
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      note: '送货前联系',
+      expiresAt: new Date('2026-06-20T12:30:00.000Z'),
+      createdAt: new Date('2026-06-20T12:00:00.000Z'),
+      itemsSnapshot: [
+        {
+          skuId: 'sku_1',
+          basePriceCents: 1000,
+          finalPriceCents: 1100,
+          pricingSource: 'MERCHANT_DEFAULT_MARKUP',
+          matchedRuleId: 'rule_1',
+        },
+      ],
+      pricingSnapshot: {
+        merchantGroups: [
+          {
+            merchantId: 'merchant_1',
+            items: [
+              {
+                basePriceCents: 1000,
+                finalPriceCents: 1100,
+                pricingSource: 'MERCHANT_DEFAULT_MARKUP',
+                matchedRuleId: 'rule_1',
+              },
+            ],
+          },
+        ],
+      },
+      unitSnapshot: { name: '青禾食堂' },
+      addressSnapshot: { recipientName: '张三' },
+    });
+
+    const result = await service.getCheckout('PSYH0000000000001', 'checkout_1');
+
+    expect(result).toEqual({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      status: 'ACTIVE',
+      goodsAmountCents: 4400,
+      shippingFeeCents: 500,
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      note: '送货前联系',
+      expiresAt: new Date('2026-06-20T12:30:00.000Z'),
+      createdAt: new Date('2026-06-20T12:00:00.000Z'),
+      addressId: 'addr_1',
+      unitId: 'unit_1',
+    });
+    expect(result).not.toHaveProperty('itemsSnapshot');
+    expect(result).not.toHaveProperty('pricingSnapshot');
+    expect(result).not.toHaveProperty('unitSnapshot');
+    expect(result).not.toHaveProperty('addressSnapshot');
+  });
+
+  it('active-query confirms a paid Alipay delivery checkout through delivery payment handling', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: null,
+    });
+    deliveryPrisma.deliveryCheckoutSession.findFirst
+      .mockResolvedValueOnce({
+        id: 'checkout_1',
+        userId: 'PSYH0000000000001',
+        unitId: 'unit_1',
+        status: 'ACTIVE',
+        merchantOrderNo: 'PSZF0000000000001',
+        paymentChannel: 'ALIPAY',
+        totalAmountCents: 1234,
+        orders: [],
+      })
+      .mockResolvedValueOnce({
+        id: 'checkout_1',
+        status: 'COMPLETED',
+        merchantOrderNo: 'PSZF0000000000001',
+        paymentChannel: 'ALIPAY',
+        totalAmountCents: 1234,
+        orders: [{ id: 'PSDD0000000000001' }],
+      });
+    alipayService.queryOrder.mockResolvedValue({
+      tradeStatus: 'TRADE_SUCCESS',
+      tradeNo: 'ali_txn_1',
+      totalAmount: '12.34',
+    });
+
+    const result = await (service as any).activeQueryPayment(
+      'PSYH0000000000001',
+      'checkout_1',
+    );
+
+    expect(alipayService.queryOrder).toHaveBeenCalledWith('PSZF0000000000001');
+    expect(deliveryPaymentsService.handlePaymentCallback).toHaveBeenCalledWith({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: 'ali_txn_1',
+      status: 'SUCCESS',
+      paidAt: expect.any(String),
+      rawPayload: {
+        source: 'active-query',
+        tradeStatus: 'TRADE_SUCCESS',
+        tradeNo: 'ali_txn_1',
+        totalAmount: '12.34',
+      },
+      paymentChannel: 'ALIPAY',
+      claimedAmountCents: 1234,
+      skipSignatureVerification: true,
+    });
+    expect(result).toEqual({
+      status: 'COMPLETED',
+      orderIds: ['PSDD0000000000001'],
+      expectedTotal: 12.34,
+      confirmedBy: 'active-query-success',
+    });
+  });
+
+  it('active-query keeps polling when WeChat returns a non-success state', async () => {
+    deliveryPrisma.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    deliveryPrisma.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: null,
+    });
+    deliveryPrisma.deliveryCheckoutSession.findFirst.mockResolvedValue({
+      id: 'checkout_1',
+      userId: 'PSYH0000000000001',
+      unitId: 'unit_1',
+      status: 'ACTIVE',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'WECHAT_PAY',
+      totalAmountCents: 1234,
+      orders: [],
+    });
+    wechatPayService.queryOrder.mockResolvedValue({
+      tradeState: 'USERPAYING',
+      outTradeNo: 'PSZF0000000000001',
+      totalAmountFen: 1234,
+      totalAmount: 12.34,
+    });
+
+    const result = await (service as any).activeQueryPayment(
+      'PSYH0000000000001',
+      'checkout_1',
+    );
+
+    expect(wechatPayService.queryOrder).toHaveBeenCalledWith('PSZF0000000000001');
+    expect(deliveryPaymentsService.handlePaymentCallback).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      orderIds: [],
+      expectedTotal: 12.34,
+      confirmedBy: 'wechat-userpaying',
     });
   });
 

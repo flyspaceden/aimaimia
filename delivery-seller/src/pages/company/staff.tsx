@@ -38,12 +38,27 @@ const editableStaffRoleOptions = [
   { value: 'OPERATOR', label: '运营' },
 ];
 
+const permissionCodeOptions = [
+  { value: 'orders:read', label: '订单查看' },
+  { value: 'orders:write', label: '订单发货/履约' },
+  { value: 'products:read', label: '商品查看' },
+  { value: 'products:write', label: '商品维护' },
+  { value: 'inventory:write', label: '库存维护' },
+  { value: 'finance:read', label: '财务导出' },
+  { value: 'customer-service:read', label: '客服查看' },
+  { value: 'customer-service:write', label: '客服处理' },
+  { value: 'company:read', label: '公司资料查看' },
+  { value: 'company:write', label: '公司资料维护' },
+  { value: 'staff:manage', label: '员工管理' },
+  { value: 'delivery:*', label: '全部配送权限' },
+];
+
 export default function StaffManagementPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const isOwner = useAuthStore((s) => s.isOwner);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
   const currentStaffId = useAuthStore((s) => s.seller?.staffId);
-  const canManageStaff = isOwner();
+  const canManageStaff = hasPermission('staff:manage');
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<CompanyStaff | null>(null);
@@ -189,7 +204,7 @@ export default function StaffManagementPage() {
       <Alert
         type="info"
         showIcon
-        message="当前 delivery 员工合同只支持账号创建，以及 realName、role、status、permissionCodes 的维护。删除、重置密码、改手机号和改昵称都不在此合同里。"
+        message="当前配送中心员工管理支持账号创建，以及姓名、角色、状态、权限码维护。删除、重置密码、改手机号和改昵称暂不开放。"
       />
 
       <Card
@@ -250,9 +265,9 @@ export default function StaffManagementPage() {
           <Form.Item name="permissionCodes" label="权限码">
             <Select
               mode="tags"
+              options={permissionCodeOptions}
               tokenSeparators={[',', ' ']}
-              placeholder="可选，回车后新增权限码"
-              open={false}
+              placeholder="请选择权限码，也可以手动输入后回车"
             />
           </Form.Item>
         </Form>
@@ -314,9 +329,9 @@ export default function StaffManagementPage() {
               <Form.Item name="permissionCodes" label="权限码">
                 <Select
                   mode="tags"
+                  options={permissionCodeOptions}
                   tokenSeparators={[',', ' ']}
-                  placeholder="可选，回车后新增权限码"
-                  open={false}
+                  placeholder="请选择权限码，也可以手动输入后回车"
                 />
               </Form.Item>
             </Form>

@@ -268,12 +268,14 @@ export class DeliveryPaymentsService {
             paymentChannel: true,
             totalAmountCents: true,
             status: true,
+            providerTxnId: true,
           },
         });
 
         if (!checkout || !checkout.paymentChannel) {
           return;
         }
+        this.assertProviderTxnIdConsistency(checkout.providerTxnId, params.providerTxnId);
 
         const exceptionSummary =
           params.error instanceof Error ? params.error.message : '配送订单创建失败';
@@ -288,7 +290,7 @@ export class DeliveryPaymentsService {
             scene: 'APP',
             amountCents: checkout.totalAmountCents,
             currency: 'CNY',
-            status: 'FAILED',
+            status: 'PAID',
             merchantOrderNo: params.merchantOrderNo,
             providerTxnId: params.providerTxnId,
             requestPayload: Prisma.JsonNull,
@@ -299,7 +301,7 @@ export class DeliveryPaymentsService {
           update: {
             orderId: null,
             checkoutSessionId: checkout.id,
-            status: 'FAILED',
+            status: 'PAID',
             providerTxnId: params.providerTxnId,
             rawNotifyPayload: params.rawPayload ?? Prisma.JsonNull,
             exceptionSummary,
@@ -310,8 +312,9 @@ export class DeliveryPaymentsService {
         await tx.deliveryCheckoutSession.updateMany({
           where: { id: checkout.id, status: 'ACTIVE' },
           data: {
-            status: 'FAILED',
+            status: 'PAID',
             providerTxnId: params.providerTxnId,
+            paidAt: params.paidAt,
           },
         });
       },

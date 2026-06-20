@@ -18,7 +18,6 @@ export type DeliveryCatalogCategory = {
 export type DeliveryCatalogMerchant = {
   id: string;
   name: string;
-  defaultMarkupBps?: number | null;
   status?: string;
 };
 
@@ -30,7 +29,6 @@ export type DeliveryCatalogSku = {
   minOrderQuantity: number;
   orderStepQuantity: number;
   finalPrice: number;
-  pricingSource?: string | null;
 };
 
 export type DeliveryCatalogProduct = {
@@ -87,7 +85,6 @@ type DeliveryCatalogProductResponse = {
     minOrderQuantity: number;
     orderStepQuantity: number;
     finalPriceCents: number;
-    pricingSource?: string | null;
   }>;
 };
 
@@ -127,7 +124,6 @@ export const mapDeliveryCatalogProduct = (
     minOrderQuantity: sku.minOrderQuantity,
     orderStepQuantity: sku.orderStepQuantity,
     finalPrice: centsToYuan(sku.finalPriceCents),
-    pricingSource: sku.pricingSource ?? null,
   }));
   const priceSet = new Set(skus.map((sku) => sku.finalPrice));
   const imageUrl = resolveDeliveryProductImage(product);
@@ -147,7 +143,6 @@ export const mapDeliveryCatalogProduct = (
     merchant: {
       id: product.merchant.id,
       name: product.merchant.name,
-      defaultMarkupBps: product.merchant.defaultMarkupBps ?? null,
       status: product.merchant.status,
     },
     category: product.category

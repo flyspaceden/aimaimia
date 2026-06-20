@@ -1,17 +1,20 @@
 import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Public } from '../../../common/decorators/public.decorator';
+import { RequireDeliveryAdminPermission } from '../auth/decorators/require-delivery-admin-permission.decorator';
 import { DeliveryAdminAuthGuard } from '../auth/guards/delivery-admin-auth.guard';
+import { DeliveryAdminPermissionGuard } from '../auth/guards/delivery-admin-permission.guard';
 import { UpdateDeliveryConversationDto } from './dto/update-delivery-conversation.dto';
 import { DeliveryCustomerServiceService } from './delivery-customer-service.service';
 
 @Public()
-@UseGuards(DeliveryAdminAuthGuard)
+@UseGuards(DeliveryAdminAuthGuard, DeliveryAdminPermissionGuard)
 @Controller('delivery-admin/cs')
 export class DeliveryAdminCustomerServiceController {
   constructor(private readonly deliveryCustomerServiceService: DeliveryCustomerServiceService) {}
 
   @Get()
+  @RequireDeliveryAdminPermission('delivery:customer-service:read')
   list(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -25,11 +28,13 @@ export class DeliveryAdminCustomerServiceController {
   }
 
   @Get(':id')
+  @RequireDeliveryAdminPermission('delivery:customer-service:read')
   get(@Param('id') id: string) {
     return this.deliveryCustomerServiceService.getAdminConversation(id);
   }
 
   @Patch(':id')
+  @RequireDeliveryAdminPermission('delivery:customer-service:write')
   update(
     @Param('id') id: string,
     @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,

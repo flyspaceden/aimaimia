@@ -153,6 +153,89 @@ describe('DeliveryUnitsService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('does not require dynamic fields hidden from the delivery app on create', async () => {
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: null,
+      _count: { units: 0 },
+    });
+    tx.deliveryUnit.create.mockResolvedValue({
+      id: 'unit_1',
+    });
+    tx.deliveryUnitFieldConfig.findMany.mockResolvedValue([
+      {
+        fieldKey: 'internalCode',
+        fieldType: DeliveryUnitFieldType.TEXT,
+        isRequired: true,
+        isVisible: false,
+        showInApp: false,
+      },
+    ]);
+
+    await expect(
+      service.createUnit('PSYH0000000000001', {
+        name: '青禾食堂',
+        contactName: '张三',
+        contactPhone: '13800000000',
+        provinceCode: '440000',
+        provinceName: '广东省',
+        cityCode: '440100',
+        cityName: '广州市',
+        districtCode: '440106',
+        districtName: '天河区',
+        detailAddress: '体育西路 1 号',
+        extraFields: {},
+      }),
+    ).resolves.toMatchObject({
+      unit: { id: 'unit_1' },
+    });
+  });
+
+  it('drops extraFields that are not visible in the delivery app on create', async () => {
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: null,
+      _count: { units: 0 },
+    });
+    tx.deliveryUnit.create.mockResolvedValue({
+      id: 'unit_1',
+    });
+    tx.deliveryUnitFieldConfig.findMany.mockResolvedValue([
+      {
+        fieldKey: 'deliveryWindow',
+        fieldType: DeliveryUnitFieldType.TEXT,
+        isRequired: false,
+        isVisible: true,
+        showInApp: true,
+      },
+    ]);
+
+    await service.createUnit('PSYH0000000000001', {
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: {
+        deliveryWindow: '上午',
+        internalCostCode: 'secret',
+      },
+    });
+
+    expect(tx.deliveryUnit.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        extraFields: {
+          deliveryWindow: '上午',
+        },
+      }),
+    });
+  });
+
   it('merges extraFields on patch and rejects blank required dynamic values', async () => {
     deliveryPrisma.deliveryUnit.findUnique.mockResolvedValue({
       id: 'unit_1',
@@ -167,6 +250,15 @@ describe('DeliveryUnitsService', () => {
         fieldKey: 'gateCode',
         fieldType: DeliveryUnitFieldType.TEXT,
         isRequired: true,
+        isVisible: true,
+        showInApp: true,
+      },
+      {
+        fieldKey: 'note',
+        fieldType: DeliveryUnitFieldType.TEXT,
+        isRequired: false,
+        isVisible: true,
+        showInApp: true,
       },
     ]);
 
@@ -190,6 +282,43 @@ describe('DeliveryUnitsService', () => {
         extraFields: {
           gateCode: 'A-01',
           note: '新备注',
+        },
+      }),
+    });
+  });
+
+  it('does not let app updates overwrite hidden existing extraFields', async () => {
+    deliveryPrisma.deliveryUnit.findUnique.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      extraFields: {
+        gateCode: 'A-01',
+        internalCostCode: 'keep-this',
+      },
+    });
+    deliveryPrisma.deliveryUnitFieldConfig.findMany.mockResolvedValue([
+      {
+        fieldKey: 'gateCode',
+        fieldType: DeliveryUnitFieldType.TEXT,
+        isRequired: false,
+        isVisible: true,
+        showInApp: true,
+      },
+    ]);
+
+    await service.updateUnit('PSYH0000000000001', 'unit_1', {
+      extraFields: {
+        gateCode: 'B-02',
+        internalCostCode: 'client-overwrite',
+      },
+    });
+
+    expect(deliveryPrisma.deliveryUnit.update).toHaveBeenCalledWith({
+      where: { id: 'unit_1' },
+      data: expect.objectContaining({
+        extraFields: {
+          gateCode: 'B-02',
+          internalCostCode: 'keep-this',
         },
       }),
     });

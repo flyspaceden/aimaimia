@@ -388,6 +388,8 @@ describe('Delivery JWT strategies', () => {
       prisma.deliverySellerStaff.findUnique.mockResolvedValue({
         status: DeliverySellerStaffStatus.ACTIVE,
         merchantId: 'merchant_001',
+        role: DeliverySellerStaffRole.MANAGER,
+        permissionCodes: ['delivery:orders:read'],
       });
       const strategy = new DeliverySellerJwtStrategy(
         configService as unknown as ConfigService,
@@ -408,7 +410,7 @@ describe('Delivery JWT strategies', () => {
         sessionId: 'dsess_001',
         merchantId: 'merchant_001',
         role: DeliverySellerStaffRole.MANAGER,
-        permissionCodes: ['delivery:orders:manage'],
+        permissionCodes: ['delivery:orders:read'],
         type: 'delivery-seller',
       });
       expect(configService.getOrThrow).toHaveBeenCalledWith('DELIVERY_SELLER_JWT_SECRET');
@@ -423,7 +425,42 @@ describe('Delivery JWT strategies', () => {
       });
       expect(prisma.deliverySellerStaff.findUnique).toHaveBeenCalledWith({
         where: { id: 'dstaff_001' },
-        select: { status: true, merchantId: true },
+        select: {
+          status: true,
+          merchantId: true,
+          role: true,
+          permissionCodes: true,
+        },
+      });
+    });
+
+    it('uses live seller role and permission codes instead of stale token claims', async () => {
+      prisma.deliverySellerSession.findFirst.mockResolvedValue({
+        id: 'dsess_001',
+      });
+      prisma.deliverySellerStaff.findUnique.mockResolvedValue({
+        status: DeliverySellerStaffStatus.ACTIVE,
+        merchantId: 'merchant_001',
+        role: DeliverySellerStaffRole.OPERATOR,
+        permissionCodes: ['delivery:finance:read'],
+      });
+      const strategy = new DeliverySellerJwtStrategy(
+        configService as unknown as ConfigService,
+        prisma as unknown as DeliveryPrismaService,
+      );
+
+      await expect(
+        strategy.validate({
+          sub: 'dstaff_001',
+          sessionId: 'dsess_001',
+          merchantId: 'merchant_001',
+          role: DeliverySellerStaffRole.MANAGER,
+          permissionCodes: ['delivery:orders:write', 'delivery:products:write'],
+          type: 'delivery-seller',
+        }),
+      ).resolves.toMatchObject({
+        role: DeliverySellerStaffRole.OPERATOR,
+        permissionCodes: ['delivery:finance:read'],
       });
     });
 

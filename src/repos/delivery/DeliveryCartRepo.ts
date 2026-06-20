@@ -23,7 +23,6 @@ type DeliveryCartItemResponse = {
   orderStepQuantity: number;
   finalPriceCents: number;
   lineAmountCents: number;
-  pricingSource?: string | null;
 };
 
 type DeliveryCartResponse = {
@@ -50,7 +49,6 @@ export type DeliveryCartItem = {
   orderStepQuantity: number;
   finalPrice: number;
   lineAmount: number;
-  pricingSource?: string | null;
 };
 
 export type DeliveryCart = {
@@ -85,7 +83,6 @@ export const mapDeliveryCartResponse = (payload: DeliveryCartResponse): Delivery
     orderStepQuantity: item.orderStepQuantity,
     finalPrice: centsToYuan(item.finalPriceCents),
     lineAmount: centsToYuan(item.lineAmountCents),
-    pricingSource: item.pricingSource ?? null,
   })),
   summary: {
     selectedGoodsAmount: centsToYuan(payload.summary.selectedGoodsAmountCents),

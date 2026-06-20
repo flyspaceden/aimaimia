@@ -31,6 +31,7 @@ export interface SellerProfile {
   staffId: string;
   userId: string;
   role: 'OWNER' | 'MANAGER' | 'OPERATOR';
+  permissionCodes: string[];
   user: {
     nickname?: string;
     avatarUrl?: string;
@@ -136,16 +137,6 @@ export type OrderStatus =
   | 'COMPLETED'
   | 'CANCELED';
 
-export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
-
-export interface RefundSummary {
-  id: string;
-  amount: number;
-  status: RefundStatus;
-  reason: string;
-  updatedAt?: string | null;
-}
-
 export interface Order {
   id: string;
   orderId: string;
@@ -200,50 +191,10 @@ export interface TrackingEvent {
 }
 
 // ============================================================
-// 退款
-// ============================================================
-
-export interface Refund {
-  id: string;
-  status: string;
-  amount: number;
-  reason: string;
-  merchantRefundNo?: string;
-  createdAt: string;
-  order: {
-    id: string;
-    status: string;
-    totalAmount: number;
-    goodsAmount?: number;
-    shippingFee?: number;
-    createdDate: string;
-    buyerAlias: string;
-    regionText: string | null;
-    items: Array<{ id: string; title?: string; unitPrice: number; quantity: number }>;
-  };
-}
-
-// ============================================================
 // 面单 & 虚拟号
 // ============================================================
 
 /** 面单生成响应 */
-export interface WaybillResult {
-  ok: boolean;
-  waybillNo: string;
-  waybillPrintUrl: string;
-  carrierCode: string;
-  carrierName: string;
-}
-
-/** 虚拟号响应 */
-export interface VirtualCallResult {
-  virtualNumber: string;
-  expireAt: string;
-  remainingCalls: number;
-}
-
-// ============================================================
 // 企业 & 员工
 // ============================================================
 
@@ -291,44 +242,4 @@ export interface UpdateCompanyStaffPayload {
   role?: 'OWNER' | 'MANAGER' | 'OPERATOR';
   status?: 'ACTIVE' | 'DISABLED';
   permissionCodes?: string[];
-}
-
-// ============================================================
-// 数据看板
-// ============================================================
-
-export interface SellerOverview {
-  today: {
-    orderCount: number;
-    revenue: number;
-    pendingShipCount: number;
-    pendingAfterSaleCount: number;
-  };
-  month: {
-    orderCount: number;
-    revenue: number;
-    afterSaleRate: number;
-  };
-  total: {
-    productCount: number;
-    totalRevenue: number;
-  };
-}
-
-export interface SalesTrendItem {
-  date: string;
-  orderCount: number;
-  revenue: number;
-}
-
-export interface ProductRankItem {
-  productId: string;
-  title: string;
-  totalSold: number;
-  totalRevenue: number;
-}
-
-export interface OrderStatItem {
-  status: string;
-  count: number;
 }

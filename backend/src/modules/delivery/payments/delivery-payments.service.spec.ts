@@ -304,7 +304,7 @@ describe('DeliveryPaymentsService', () => {
     expect(tx.deliveryCheckoutSession.updateMany).not.toHaveBeenCalled();
   });
 
-  it('records an abnormal delivery payment record when order creation fails after provider success', async () => {
+  it('keeps provider-success abnormal delivery payments as paid records when order creation fails', async () => {
     deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
       id: 'checkout_1',
       merchantOrderNo: 'PSZF0000000000001',
@@ -319,7 +319,7 @@ describe('DeliveryPaymentsService', () => {
       totalAmountCents: 4900,
       status: 'ACTIVE',
     });
-    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'FAILED' });
+    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
     tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
     deliveryOrdersService.createOrderFromPaidCheckout.mockRejectedValue(
       new BadRequestException('库存不足'),
@@ -330,6 +330,7 @@ describe('DeliveryPaymentsService', () => {
         merchantOrderNo: 'PSZF0000000000001',
         providerTxnId: 'ALI_TXN_3',
         status: 'SUCCESS',
+        paidAt: '2026-06-19T12:00:00.000Z',
         paymentChannel: 'ALIPAY',
         claimedAmountCents: 4900,
         rawPayload: { total_amount: '49.00' },
@@ -344,12 +345,14 @@ describe('DeliveryPaymentsService', () => {
           id: 'PSZF0000000000001',
           checkoutSessionId: 'checkout_1',
           orderId: null,
-          status: 'FAILED',
+          status: 'PAID',
+          paidAt: new Date('2026-06-19T12:00:00.000Z'),
           exceptionSummary: expect.stringContaining('库存不足'),
         }),
         update: expect.objectContaining({
           orderId: null,
-          status: 'FAILED',
+          status: 'PAID',
+          paidAt: new Date('2026-06-19T12:00:00.000Z'),
           exceptionSummary: expect.stringContaining('库存不足'),
         }),
       }),
@@ -357,8 +360,9 @@ describe('DeliveryPaymentsService', () => {
     expect(tx.deliveryCheckoutSession.updateMany).toHaveBeenCalledWith({
       where: { id: 'checkout_1', status: 'ACTIVE' },
       data: {
-        status: 'FAILED',
+        status: 'PAID',
         providerTxnId: 'ALI_TXN_3',
+        paidAt: new Date('2026-06-19T12:00:00.000Z'),
       },
     });
   });

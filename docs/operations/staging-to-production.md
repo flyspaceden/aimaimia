@@ -141,6 +141,7 @@
 | `DELIVERY_USER_JWT_SECRET` | `<TEST_DELIVERY_USER_JWT_SECRET>` | **`<PROD_DELIVERY_USER_JWT_SECRET>`（独立）** |
 | `DELIVERY_ADMIN_JWT_SECRET` | `<TEST_DELIVERY_ADMIN_JWT_SECRET>` | **`<PROD_DELIVERY_ADMIN_JWT_SECRET>`（独立）** |
 | `DELIVERY_SELLER_JWT_SECRET` | `<TEST_DELIVERY_SELLER_JWT_SECRET>` | **`<PROD_DELIVERY_SELLER_JWT_SECRET>`（独立）** |
+| `DELIVERY_SEED_PASSWORD` | `<TEST_DELIVERY_SEED_PASSWORD>`（仅手动跑 `npm run prisma:delivery:seed` 时需要） | 生产默认不跑配送演示 seed；如确需初始化配送账号，必须临时设置强随机值并执行后立即改密 |
 | `JWT_EXPIRES_IN` | `15m` | `15m`（access token 15 分钟；refresh 30 天写死在代码里）|
 | `DATA_ENCRYPTION_KEY` | （可留空，兜底走 `JWT_SECRET` → `'nongmai-dev-data-key'`）| **`<PROD_DATA_ENCRYPTION_KEY>`（32 字节随机 hex，用于 PII 字段 AES-256-GCM 加密）**。**生产必填且已加启动强校验**（见 §2.2 第 6 条，为空或等于 JWT_SECRET 直接拒绝启动）：`encryption.ts:20-26` 的兜底顺序是 `DATA_ENCRYPTION_KEY → JWT_SECRET → 弱默认`，若依赖 JWT_SECRET 作为加密 key，则 JWT 泄露 = 加密 key 同步泄露（发票 bankInfo / 税号等 PII 全暴露），必须独立配置 |
 | `PAYMENT_WEBHOOK_SECRET` | `<TEST_PAYMENT_WEBHOOK_SECRET>` | **`<PROD_PAYMENT_WEBHOOK_SECRET>`（独立，HMAC-SHA256）** |
@@ -182,6 +183,7 @@
 | `ALIPAY_NOTIFY_URL` | `https://test-api.ai-maimai.com/api/v1/payments/alipay/notify` | **`https://api.ai-maimai.com/api/v1/payments/alipay/notify`**（必须带 `/api/v1` 前缀，否则回调打到 404；`alipay.service.ts:105` 在 `createAppPayOrder` 时显式传给支付宝）|
 
 > **注**：`ALIPAY_TRANSFER_NOTIFY_URL` env **代码当前不读**（`alipay.fund.trans.uni.transfer` API 不接受 notify_url 入参），转账 webhook 是支付宝开放平台**账户级订阅**配置，不在代码里。详见 §三 第 2 行的运营操作。
+> **配送注**：配送系统复用现有支付宝、微信支付、顺丰月结/丰桥、阿里云 OSS、短信配置和回调地址，不需要为配送再申请一套第三方账号。配送独立配置只包括 `DELIVERY_DATABASE_URL`、`DELIVERY_USER_JWT_SECRET` / `DELIVERY_ADMIN_JWT_SECRET` / `DELIVERY_SELLER_JWT_SECRET`、配送前端域名加入 `CORS_ORIGINS`，以及手动 seed 时临时设置 `DELIVERY_SEED_PASSWORD`。
 | `BODY_LIMIT` | （默认 `1mb`） | 同左（除非有大文件上传业务）|
 | `AI_SEMANTIC_SLOTS_ENABLED` | `true` | 默认 `true`，按上线节奏决定先关闭再灰度 |
 | `AI_PRODUCT_SEMANTIC_FIELDS_ENABLED` | `false` | `false`（v1.0 暂不启用，留 v1.1）|
@@ -260,7 +262,8 @@ if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/
 3. **CORS 同源**：前端域名必须出现在后端 `CORS_ORIGINS` 里（见 §2.1）
 4. **超管账号**：生产数据库不要复用 staging 的 `admin / 123456`，**首次部署后立刻在管理后台改密**（"账号安全"页面）
 5. **配送数据库已建库并已授权**：生产 / 测试两套 `DELIVERY_DATABASE_URL` 指向的数据库与用户必须先在服务器上创建好，再允许 workflow 自动执行 `prisma migrate deploy --schema prisma-delivery/schema.prisma`
-6. **私有文档补记**：域名/DNS/SSL/站点根目录/服务器 `.env` / 配送数据库建库记录完成后，必须手动同步到本地 gitignored 的 `docs/operations/阿里云部署.md`；不要在仓库里新增公开版凭据文件
+6. **配送 seed 密码**：staging 测试库如需跑 `npm run prisma:delivery:seed`，必须先设置 `DELIVERY_SEED_PASSWORD`；脚本不再提供默认密码
+7. **私有文档补记**：域名/DNS/SSL/站点根目录/服务器 `.env` / 配送数据库建库记录完成后，必须手动同步到本地 gitignored 的 `docs/operations/阿里云部署.md`；不要在仓库里新增公开版凭据文件
 
 ---
 
@@ -331,6 +334,7 @@ pm2 reload aimaimai-api-prod --update-env
 
 - `DELIVERY_DATABASE_URL` 指向的生产数据库已经存在，且账号具备建表/建索引权限
 - `DELIVERY_USER_JWT_SECRET` / `DELIVERY_ADMIN_JWT_SECRET` / `DELIVERY_SELLER_JWT_SECRET` 都已写入生产 `.env`
+- 支付宝、微信支付、顺丰、OSS、短信均复用主系统现有配置；除非全局账号本身要变更，否则不要为配送单独改第三方商户后台
 - `CORS_ORIGINS` 已包含 `https://delivery-admin.ai-maimai.com` 和 `https://delivery-seller.ai-maimai.com`
 - `delivery-admin.ai-maimai.com` / `delivery-seller.ai-maimai.com` 的 DNS、SSL、宝塔站点根目录已就位
 - 同样的测试环境值已先写入 staging `.env`，并在 `test-delivery-admin.ai-maimai.com` / `test-delivery-seller.ai-maimai.com` 验证通过

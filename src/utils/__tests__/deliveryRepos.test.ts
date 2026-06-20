@@ -4,6 +4,7 @@ declare const expect: any;
 
 import { buildDeliveryPath, deliveryAuthPaths, mapDeliveryAuthSession } from '../../repos/delivery/DeliveryAuthRepo';
 import { deliveryUnitPaths } from '../../repos/delivery/DeliveryUnitRepo';
+import { deliveryCustomerServicePaths } from '../../repos/delivery/DeliveryCustomerServiceRepo';
 import { deliveryProductPaths, mapDeliveryCatalogProduct } from '../../repos/delivery/DeliveryProductRepo';
 import { deliveryCartPaths, mapDeliveryCartResponse } from '../../repos/delivery/DeliveryCartRepo';
 import {
@@ -24,9 +25,13 @@ describe('delivery repo paths', () => {
     expect(deliveryCartPaths.item('cart_1')).toBe('/delivery/cart/items/cart_1');
     expect(deliveryOrderPaths.checkout('checkout_1')).toBe('/delivery/checkout/checkout_1');
     expect(deliveryOrderPaths.payment('checkout_1')).toBe('/delivery/checkout/checkout_1/pay');
+    expect(deliveryOrderPaths.activeQuery('checkout_1')).toBe('/delivery/checkout/checkout_1/active-query');
     expect(deliveryOrderPaths.list()).toBe('/delivery/orders');
     expect(deliveryOrderPaths.detail('order_1')).toBe('/delivery/orders/order_1');
     expect(deliveryOrderPaths.shipments('order_1')).toBe('/delivery/orders/order_1/shipments');
+    expect(deliveryUnitPaths.fieldConfig()).toBe('/delivery/unit-field-config');
+    expect(deliveryCustomerServicePaths.list()).toBe('/delivery/cs');
+    expect(deliveryCustomerServicePaths.detail('conv_1')).toBe('/delivery/cs/conv_1');
     expect(deliveryManifestPaths.order('order_1')).toBe('/delivery/orders/order_1/manifest');
   });
 });
@@ -78,7 +83,7 @@ describe('delivery repo mappers', () => {
       unitName: '箱',
       minOrderQuantity: 2,
       orderStepQuantity: 2,
-      merchant: { id: 'merchant_1', name: '华南仓', defaultMarkupBps: 1500 },
+      merchant: { id: 'merchant_1', name: '华南仓' },
       category: { id: 'cat_1', name: '牛肉', status: 'ACTIVE' },
       minFinalPriceCents: 1234,
       skus: [
@@ -90,7 +95,6 @@ describe('delivery repo mappers', () => {
           minOrderQuantity: 2,
           orderStepQuantity: 2,
           finalPriceCents: 1234,
-          pricingSource: 'SKU_RULE',
         },
         {
           id: 'sku_2',
@@ -100,7 +104,6 @@ describe('delivery repo mappers', () => {
           minOrderQuantity: 2,
           orderStepQuantity: 2,
           finalPriceCents: 1888,
-          pricingSource: 'PRODUCT_RULE',
         },
       ],
     });
@@ -125,13 +128,12 @@ describe('delivery repo mappers', () => {
           skuTitle: '5kg/箱',
           imageUrl: 'https://img.example.com/a.png',
           unitName: '箱',
-          merchant: { id: 'merchant_1', name: '华南仓', defaultMarkupBps: 1200, status: 'ACTIVE' },
+          merchant: { id: 'merchant_1', name: '华南仓', status: 'ACTIVE' },
           stock: 20,
           minOrderQuantity: 2,
           orderStepQuantity: 1,
           finalPriceCents: 1275,
           lineAmountCents: 3825,
-          pricingSource: 'SKU_RULE',
         },
       ],
       summary: {
@@ -162,11 +164,15 @@ describe('delivery repo mappers', () => {
       addressSnapshot: { recipientName: '李四' },
       unitSnapshot: { name: '华南餐饮部' },
       itemsSnapshot: [],
-    });
+    } as any);
 
     expect(mapped.totalAmount).toBe(60);
     expect(mapped.shippingFee).toBe(8);
     expect(mapped.merchantOrderNo).toBe('PSZF0000000000001');
+    expect(mapped).not.toHaveProperty('pricingSnapshot');
+    expect(mapped).not.toHaveProperty('itemsSnapshot');
+    expect(mapped).not.toHaveProperty('addressSnapshot');
+    expect(mapped).not.toHaveProperty('unitSnapshot');
   });
 
   it('maps delivery manifest rows with template version metadata', () => {

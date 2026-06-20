@@ -3,6 +3,7 @@ import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../../src/components/layout';
+import { useToast } from '../../../src/components/feedback/Toast';
 import { DeliveryManifestRepo } from '../../../src/repos/delivery';
 import {
   DeliveryLoading,
@@ -13,10 +14,19 @@ import {
 
 export default function DeliveryManifestsScreen() {
   const { spacing, typography, palette } = useDeliveryTheme();
+  const { show } = useToast();
   const query = useQuery({
     queryKey: ['delivery-manifests'],
     queryFn: () => DeliveryManifestRepo.list(),
   });
+
+  const openManifest = async (fileUrl: string) => {
+    try {
+      await Linking.openURL(fileUrl);
+    } catch {
+      show({ message: '配送清单打开失败，请稍后重试', type: 'error' });
+    }
+  };
 
   if (query.isLoading && !query.data) {
     return (
@@ -56,7 +66,7 @@ export default function DeliveryManifestsScreen() {
           />
         ) : (
           manifests.map((manifest) => (
-            <Pressable key={manifest.id} onPress={() => Linking.openURL(manifest.fileUrl)} style={{ marginBottom: spacing.md }}>
+            <Pressable key={manifest.id} onPress={() => openManifest(manifest.fileUrl)} style={{ marginBottom: spacing.md }}>
               <DeliveryPanel>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
                   <View

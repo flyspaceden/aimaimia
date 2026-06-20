@@ -143,13 +143,16 @@ export class DeliveryCartService {
         skuTitle: item.sku.title,
         imageUrl: item.sku.imageUrl,
         unitName: item.sku.product.unitName,
-        merchant: item.sku.product.merchant,
+        merchant: {
+          id: item.sku.product.merchant.id,
+          name: item.sku.product.merchant.name,
+          status: item.sku.product.merchant.status,
+        },
         stock: item.sku.stock,
         minOrderQuantity: quantityRule.minOrderQuantity,
         orderStepQuantity: quantityRule.orderStepQuantity,
         finalPriceCents: pricing.finalPriceCents,
         lineAmountCents,
-        pricingSource: pricing.matchedSource,
       };
     });
 

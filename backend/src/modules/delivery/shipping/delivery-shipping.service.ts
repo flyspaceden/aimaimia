@@ -416,7 +416,7 @@ export class DeliveryShippingService {
       });
       const uploaded = await this.uploadService.uploadBuffer(
         fetched.buffer,
-        'waybills',
+        'delivery/waybills',
         '.pdf',
         'application/pdf',
       );

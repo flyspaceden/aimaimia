@@ -22,7 +22,10 @@ export default function DeliveryPaymentSuccessScreen() {
 
   const query = useQuery({
     queryKey: ['delivery-checkout-status', checkoutId],
-    queryFn: () => DeliveryOrderRepo.getCheckout(checkoutId),
+    queryFn: async () => {
+      await DeliveryOrderRepo.activeQueryPayment(checkoutId);
+      return DeliveryOrderRepo.getCheckout(checkoutId);
+    },
     enabled: Boolean(checkoutId),
     refetchInterval: 15_000,
   });

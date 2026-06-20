@@ -192,7 +192,6 @@ export class DeliveryCatalogService {
         minOrderQuantity: sku.minOrderQuantity,
         orderStepQuantity: sku.orderStepQuantity,
         finalPriceCents: pricing.finalPriceCents,
-        pricingSource: pricing.matchedSource,
       };
     });
 
@@ -211,7 +210,10 @@ export class DeliveryCatalogService {
       unitName: product.unitName,
       minOrderQuantity: product.minOrderQuantity,
       orderStepQuantity: product.orderStepQuantity,
-      merchant: product.merchant,
+      merchant: {
+        id: product.merchant.id,
+        name: product.merchant.name,
+      },
       category: product.category,
       minFinalPriceCents,
       skus,

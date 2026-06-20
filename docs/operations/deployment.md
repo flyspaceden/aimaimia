@@ -32,6 +32,7 @@
 - **6 个前端入口（官网、买家 App、企业系统、管理后台、配送中心、配送管理后台）全部调用同一个 NestJS 后端**
 - **后端已有六套隔离认证/密钥面**：买家 JWT / 卖家 `SELLER_JWT_SECRET` / 管理员 `ADMIN_JWT_SECRET` / 配送用户 `DELIVERY_USER_JWT_SECRET` / 配送卖家 `DELIVERY_SELLER_JWT_SECRET` / 配送管理 `DELIVERY_ADMIN_JWT_SECRET`
 - **子域名天然隔离**：各前端的 localStorage/Cookie 互不影响，XSS 攻击面隔离
+- **配送第三方服务复用现有配置**：支付宝、微信支付、顺丰月结/丰桥、阿里云 OSS、阿里云短信不单独申请新账号；配送上线新增的是独立 `DELIVERY_DATABASE_URL`、三套配送 JWT secret、配送前端域名/CORS、以及仅 seed 时使用的 `DELIVERY_SEED_PASSWORD`。
 
 ## 二、域名与子域名规划
 
@@ -261,6 +262,8 @@ SELLER_JWT_SECRET=<卖家端随机密钥>
 DELIVERY_USER_JWT_SECRET=<配送用户随机密钥>
 DELIVERY_ADMIN_JWT_SECRET=<配送管理后台随机密钥>
 DELIVERY_SELLER_JWT_SECRET=<配送中心随机密钥>
+# 仅在手动运行配送 seed 时设置；必须强随机，禁止提交到仓库
+DELIVERY_SEED_PASSWORD=<配送 seed 初始账号强密码>
 
 # CORS（允许的前端域名）
 CORS_ORIGINS=https://ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com,https://delivery-admin.ai-maimai.com,https://delivery-seller.ai-maimai.com
@@ -277,6 +280,8 @@ npx prisma migrate deploy
 npx prisma generate --schema prisma-delivery/schema.prisma
 npx prisma migrate deploy --schema prisma-delivery/schema.prisma
 npx prisma db seed           # 写入种子数据（管理员账号等）
+# 配送演示 seed 仅用于 staging / 测试库初始化；生产不要无脑执行
+DELIVERY_SEED_PASSWORD='<强随机初始密码>' npm run prisma:delivery:seed
 ```
 
 ### 2.1 测试环境 `.env` 追加项
@@ -288,6 +293,7 @@ DELIVERY_DATABASE_URL=postgresql://delivery_user:<STAGING_DELIVERY_DB_PASSWORD>@
 DELIVERY_USER_JWT_SECRET=<STAGING_DELIVERY_USER_JWT_SECRET>
 DELIVERY_ADMIN_JWT_SECRET=<STAGING_DELIVERY_ADMIN_JWT_SECRET>
 DELIVERY_SELLER_JWT_SECRET=<STAGING_DELIVERY_SELLER_JWT_SECRET>
+DELIVERY_SEED_PASSWORD=<STAGING_DELIVERY_SEED_PASSWORD>
 CORS_ORIGINS=https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com,https://test-delivery-admin.ai-maimai.com,https://test-delivery-seller.ai-maimai.com,https://test-api.ai-maimai.com
 ```
 

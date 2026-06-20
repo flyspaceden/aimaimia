@@ -25,8 +25,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getOrder, shipOrder } from '@/api/orders';
 import { exportFulfillmentManifest } from '@/api/manifests';
 import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
-import { toAbsoluteApiUrl } from '@/utils/api-url';
+import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // 根据订单状态和物流状态计算进度步骤
 function getOrderStep(order: {
@@ -80,10 +82,7 @@ export default function OrderDetailPage() {
     setExporting(true);
     try {
       const manifest = await exportFulfillmentManifest(id!);
-      const url = toAbsoluteApiUrl(manifest.fileUrl);
-      if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
+      await downloadDeliveryUploadWithAuth(manifest.fileUrl, manifest.title || '配送履约清单', API_BASE);
       message.success('履约清单已生成');
     } catch (err) {
       message.error(err instanceof Error ? err.message : '履约清单生成失败');
@@ -355,12 +354,19 @@ export default function OrderDetailPage() {
                     type="link"
                     size="small"
                     icon={<PrinterOutlined />}
-                    onClick={() => {
-                      const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-                      if (url) {
-                        window.open(url, '_blank', 'noopener,noreferrer');
-                      } else {
+                    onClick={async () => {
+                      if (!order.shipment?.waybillPrintUrl) {
                         message.warning('面单文件暂无，请重新生成面单后再打印');
+                        return;
+                      }
+                      try {
+                        await downloadDeliveryUploadWithAuth(
+                          order.shipment.waybillPrintUrl,
+                          `配送面单-${order.shipment.waybillNo}`,
+                          API_BASE,
+                        );
+                      } catch (err) {
+                        message.error(err instanceof Error ? err.message : '面单下载失败');
                       }
                     }}
                   >

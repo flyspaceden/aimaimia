@@ -33,7 +33,11 @@ export default function DeliveryOrderDetailScreen() {
       show({ message: result.error.displayMessage ?? '获取配送清单失败', type: 'error' });
       return;
     }
-    await Linking.openURL(result.data.fileUrl);
+    try {
+      await Linking.openURL(result.data.fileUrl);
+    } catch {
+      show({ message: '配送清单打开失败，请稍后重试', type: 'error' });
+    }
   };
 
   if (query.isLoading && !query.data) {

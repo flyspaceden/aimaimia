@@ -19,10 +19,6 @@ export type DeliveryCheckoutSession = {
   createdAt: string;
   addressId?: string | null;
   unitId: string;
-  pricingSnapshot?: Record<string, unknown> | null;
-  addressSnapshot?: Record<string, unknown> | null;
-  unitSnapshot?: Record<string, unknown> | null;
-  itemsSnapshot?: unknown[];
 };
 
 export type DeliveryOrderUnit = {
@@ -161,10 +157,6 @@ type DeliveryCheckoutSessionResponse = {
   createdAt: string;
   addressId?: string | null;
   unitId: string;
-  pricingSnapshot?: Record<string, unknown> | null;
-  addressSnapshot?: Record<string, unknown> | null;
-  unitSnapshot?: Record<string, unknown> | null;
-  itemsSnapshot?: unknown[];
 };
 
 export type DeliveryCreateCheckoutPayload = {
@@ -203,10 +195,18 @@ type DeliveryCheckoutPaymentResponse = {
   paymentParams: DeliveryCheckoutPaymentParams;
 };
 
+export type DeliveryCheckoutActiveQueryResult = {
+  status: string;
+  orderIds: string[];
+  expectedTotal: number;
+  confirmedBy: string;
+};
+
 export const deliveryOrderPaths = {
   checkoutRoot: () => buildDeliveryPath('checkout'),
   checkout: (id: string) => buildDeliveryPath(`checkout/${id}`),
   payment: (id: string) => buildDeliveryPath(`checkout/${id}/pay`),
+  activeQuery: (id: string) => buildDeliveryPath(`checkout/${id}/active-query`),
   list: () => buildDeliveryPath('orders'),
   detail: (id: string) => buildDeliveryPath(`orders/${id}`),
   shipments: (id: string) => buildDeliveryPath(`orders/${id}/shipments`),
@@ -227,10 +227,6 @@ export const mapDeliveryCheckoutSession = (
   createdAt: session.createdAt,
   addressId: session.addressId ?? null,
   unitId: session.unitId,
-  pricingSnapshot: session.pricingSnapshot ?? null,
-  addressSnapshot: session.addressSnapshot ?? null,
-  unitSnapshot: session.unitSnapshot ?? null,
-  itemsSnapshot: session.itemsSnapshot ?? [],
 });
 
 export const mapDeliveryBuyerOrder = (
@@ -301,6 +297,14 @@ export const DeliveryOrderRepo = {
   ): Promise<Result<DeliveryCheckoutPaymentResponse>> =>
     deliveryApiClient.post<DeliveryCheckoutPaymentResponse>(
       deliveryOrderPaths.payment(checkoutId),
+      {},
+    ),
+
+  activeQueryPayment: (
+    checkoutId: string,
+  ): Promise<Result<DeliveryCheckoutActiveQueryResult>> =>
+    deliveryApiClient.post<DeliveryCheckoutActiveQueryResult>(
+      deliveryOrderPaths.activeQuery(checkoutId),
       {},
     ),
 

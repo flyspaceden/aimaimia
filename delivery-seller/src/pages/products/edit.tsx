@@ -27,7 +27,7 @@ import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
-import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
+import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -354,15 +354,13 @@ function ImageUploadSection({
     setPreviewFile({ url, name: file.name || '商品图片' });
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!previewFile) return;
     setDownloading(true);
     try {
-      const request = buildUploadDownloadRequest(previewFile.url, previewFile.name, API_BASE);
-      triggerBrowserDownload(request.href, request.filename);
+      await downloadDeliveryUploadWithAuth(previewFile.url, previewFile.name, API_BASE);
     } catch (err) {
-      message.warning('自动下载失败，已为你打开图片地址，可右键另存为');
-      window.open(previewFile.url, '_blank', 'noopener');
+      message.error('图片下载失败，请确认当前账号有商品查看权限');
       // eslint-disable-next-line no-console
       console.error('图片下载失败', err);
     } finally {

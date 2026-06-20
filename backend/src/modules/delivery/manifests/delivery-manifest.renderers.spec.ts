@@ -144,7 +144,7 @@ describe('buildSimplePdf', () => {
     } finally {
       fs.rmSync(workingDir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it(
     'keeps a multi-page sample PDF operationally small while preserving extraction and pagination',

@@ -1,4 +1,6 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
@@ -108,6 +110,9 @@ describe('DeliveryOrdersService', () => {
         findMany: jest.fn(),
         findFirst: jest.fn(),
       },
+      deliveryCheckoutSession: {
+        findUnique: jest.fn(),
+      },
       $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
         callback(tx),
       ),
@@ -125,6 +130,16 @@ describe('DeliveryOrdersService', () => {
       deliveryPrisma as DeliveryPrismaService,
       deliveryIdService as unknown as DeliveryIdService,
     );
+  });
+
+  it('enforces one delivery order per paid checkout session at the database boundary', () => {
+    const schema = readFileSync(
+      join(__dirname, '../../../../prisma-delivery/schema.prisma'),
+      'utf8',
+    );
+    const deliveryOrderModel = schema.match(/model DeliveryOrder \{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    expect(deliveryOrderModel).toContain('@@unique([checkoutSessionId])');
   });
 
   it('creates exactly one delivery order, merchant suborders, order items, payment, and stock deductions in a Serializable transaction', async () => {
@@ -179,11 +194,11 @@ describe('DeliveryOrdersService', () => {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
     expect(tx.deliveryProductSku.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: 'sku_1', stock: { gte: 2 } },
+      where: { id: 'sku_1' },
       data: { stock: { decrement: 2 } },
     });
     expect(tx.deliveryProductSku.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'sku_2', stock: { gte: 1 } },
+      where: { id: 'sku_2' },
       data: { stock: { decrement: 1 } },
     });
     expect(tx.deliveryOrder.create).toHaveBeenCalledWith(
@@ -304,6 +319,161 @@ describe('DeliveryOrdersService', () => {
     });
   });
 
+  it('rebuilds a delivery order from a paid checkout that recorded provider success before order creation', async () => {
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      ...activeCheckout,
+      status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      orders: [],
+    });
+    tx.deliveryProductSku.findMany.mockResolvedValue([
+      {
+        id: 'sku_1',
+        stock: 20,
+        supplyPriceCents: 800,
+        basePriceCents: 1000,
+        isActive: true,
+        product: {
+          id: 'product_1',
+          merchantId: 'merchant_1',
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'ACTIVE',
+          },
+        },
+      },
+      {
+        id: 'sku_2',
+        stock: 10,
+        supplyPriceCents: 1600,
+        basePriceCents: 2000,
+        isActive: true,
+        product: {
+          id: 'product_2',
+          merchantId: 'merchant_2',
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'ACTIVE',
+          },
+        },
+      },
+    ]);
+    tx.deliveryProductSku.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryOrder.create.mockResolvedValue({ id: 'PSDD0000000000001' });
+    tx.deliverySubOrder.create
+      .mockResolvedValueOnce({ id: 'PSZDD000000000001' })
+      .mockResolvedValueOnce({ id: 'PSZDD000000000002' });
+    tx.deliveryOrderItem.create.mockResolvedValue({});
+    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
+    tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.createOrderFromPaidCheckout({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      rawPayload: { total_amount: '49.00' },
+    });
+
+    expect(tx.deliveryOrder.create).toHaveBeenCalled();
+    expect(tx.deliveryPayment.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          orderId: 'PSDD0000000000001',
+          status: 'PAID',
+        }),
+      }),
+    );
+    expect(result).toMatchObject({
+      orderId: 'PSDD0000000000001',
+      idempotent: false,
+    });
+  });
+
+  it('returns the order created by a concurrent paid-checkout callback when the unique checkout order guard wins the race', async () => {
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      ...activeCheckout,
+      status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      orders: [],
+    });
+    tx.deliveryProductSku.findMany.mockResolvedValue([
+      {
+        id: 'sku_1',
+        stock: 20,
+        supplyPriceCents: 800,
+        basePriceCents: 1000,
+        isActive: true,
+        product: {
+          id: 'product_1',
+          merchantId: 'merchant_1',
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'ACTIVE',
+          },
+        },
+      },
+      {
+        id: 'sku_2',
+        stock: 10,
+        supplyPriceCents: 1600,
+        basePriceCents: 2000,
+        isActive: true,
+        product: {
+          id: 'product_2',
+          merchantId: 'merchant_2',
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'ACTIVE',
+          },
+        },
+      },
+    ]);
+    tx.deliveryProductSku.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryOrder.create.mockRejectedValue({ code: 'P2002' });
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      ...activeCheckout,
+      status: 'PAID',
+      providerTxnId: 'ALI_TXN_1',
+      orders: [{ id: 'PSDD0000000000099', subOrders: [{ id: 'PSZDD000000000999' }] }],
+    });
+
+    const result = await service.createOrderFromPaidCheckout({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      rawPayload: { total_amount: '49.00' },
+    });
+
+    expect(deliveryPrisma.deliveryCheckoutSession.findUnique).toHaveBeenCalledWith({
+      where: { merchantOrderNo: 'PSZF0000000000001' },
+      include: {
+        orders: {
+          include: {
+            subOrders: {
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+    expect(result).toEqual({
+      orderId: 'PSDD0000000000099',
+      subOrderIds: ['PSZDD000000000999'],
+      idempotent: true,
+      manifest: {
+        status: 'PENDING',
+        trigger: 'skipped-existing-order',
+      },
+    });
+  });
+
   it('rejects a repeated callback with a different providerTxnId after the checkout is already paid', async () => {
     tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
       ...activeCheckout,
@@ -326,7 +496,78 @@ describe('DeliveryOrdersService', () => {
     expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
   });
 
-  it('rejects payment success when current delivery stock is insufficient and never decrements below zero', async () => {
+  it('creates the paid order from checkout snapshots even if the seller later disables the SKU or merchant', async () => {
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      ...activeCheckout,
+      itemsSnapshot: activeCheckout.itemsSnapshot.map((item) => ({
+        ...item,
+        supplyPriceCents: item.skuId === 'sku_1' ? 800 : 1600,
+        weightGram: item.skuId === 'sku_1' ? 5000 : 10000,
+      })),
+    });
+    tx.deliveryProductSku.findMany.mockResolvedValue([
+      {
+        id: 'sku_1',
+        stock: 20,
+        supplyPriceCents: 9999,
+        basePriceCents: 9999,
+        isActive: false,
+        product: {
+          id: 'product_1',
+          merchantId: 'merchant_1',
+          status: 'INACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'DISABLED',
+          },
+        },
+      },
+      {
+        id: 'sku_2',
+        stock: 10,
+        supplyPriceCents: 9999,
+        basePriceCents: 9999,
+        isActive: false,
+        product: {
+          id: 'product_2',
+          merchantId: 'merchant_2',
+          status: 'INACTIVE',
+          auditStatus: 'APPROVED',
+          merchant: {
+            status: 'DISABLED',
+          },
+        },
+      },
+    ]);
+    tx.deliveryProductSku.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryOrder.create.mockResolvedValue({ id: 'PSDD0000000000001' });
+    tx.deliverySubOrder.create
+      .mockResolvedValueOnce({ id: 'PSZDD000000000001' })
+      .mockResolvedValueOnce({ id: 'PSZDD000000000002' });
+    tx.deliveryOrderItem.create.mockResolvedValue({});
+    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
+    tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.createOrderFromPaidCheckout({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      rawPayload: { total_amount: '49.00' },
+    });
+
+    expect(tx.deliveryOrderItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          skuId: 'sku_1',
+          supplyUnitPriceCents: 800,
+          baseUnitPriceCents: 1000,
+          supplyAmountCents: 1600,
+        }),
+      }),
+    );
+  });
+
+  it('creates the paid delivery order even when current stock dropped below the checkout quantity', async () => {
     tx.deliveryCheckoutSession.findUnique.mockResolvedValue(activeCheckout);
     tx.deliveryProductSku.findMany.mockResolvedValue([
       {
@@ -358,19 +599,48 @@ describe('DeliveryOrdersService', () => {
         },
       },
     ]);
+    tx.deliveryProductSku.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryOrder.create.mockResolvedValue({ id: 'PSDD0000000000001' });
+    tx.deliverySubOrder.create
+      .mockResolvedValueOnce({ id: 'PSZDD000000000001' })
+      .mockResolvedValueOnce({ id: 'PSZDD000000000002' });
+    tx.deliveryOrderItem.create.mockResolvedValue({});
+    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
+    tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
 
-    await expect(
-      service.createOrderFromPaidCheckout({
-        merchantOrderNo: 'PSZF0000000000001',
-        providerTxnId: 'ALI_TXN_1',
-        paidAt: new Date('2026-06-19T12:00:00.000Z'),
-        rawPayload: { total_amount: '49.00' },
+    const result = await service.createOrderFromPaidCheckout({
+      merchantOrderNo: 'PSZF0000000000001',
+      providerTxnId: 'ALI_TXN_1',
+      paidAt: new Date('2026-06-19T12:00:00.000Z'),
+      rawPayload: { total_amount: '49.00' },
+    });
+
+    expect(tx.deliveryProductSku.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sku_1' },
+      data: { stock: { decrement: 2 } },
+    });
+    expect(tx.deliveryInventoryLedger.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          skuId: 'sku_1',
+          beforeStock: 1,
+          afterStock: -1,
+        }),
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(tx.deliveryProductSku.updateMany).not.toHaveBeenCalled();
-    expect(tx.deliveryOrder.create).not.toHaveBeenCalled();
-    expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
+    );
+    expect(tx.deliveryOrder.create).toHaveBeenCalled();
+    expect(tx.deliveryPayment.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: 'PAID',
+          orderId: 'PSDD0000000000001',
+        }),
+      }),
+    );
+    expect(result).toMatchObject({
+      orderId: 'PSDD0000000000001',
+      idempotent: false,
+    });
   });
 
   it('lists only the authenticated buyer delivery orders with pagination', async () => {

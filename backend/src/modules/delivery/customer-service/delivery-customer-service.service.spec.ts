@@ -83,6 +83,98 @@ describe('DeliveryCustomerServiceService', () => {
     ]);
   });
 
+  it('reads buyer conversations scoped to the authenticated delivery user only', async () => {
+    deliveryPrisma.deliveryCustomerServiceConversation.findMany.mockResolvedValue([
+      {
+        id: 'conv_1',
+        userId: 'delivery_user_1',
+        status: 'OPEN',
+        subject: '商品问题',
+      },
+    ]);
+
+    const result = await (service as any).listBuyerConversations('delivery_user_1', {});
+
+    expect(deliveryPrisma.deliveryCustomerServiceConversation.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'delivery_user_1',
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+      take: 20,
+      skip: 0,
+      include: expect.any(Object),
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 'conv_1',
+        userId: 'delivery_user_1',
+      }),
+    ]);
+  });
+
+  it('lets a buyer create an app conversation for their own delivery suborder', async () => {
+    deliveryPrisma.deliverySubOrder.findUnique.mockResolvedValue({
+      id: 'sub_1',
+      merchantId: 'merchant_1',
+      orderId: 'order_1',
+      order: {
+        userId: 'delivery_user_1',
+        unitId: 'unit_1',
+      },
+    });
+    deliveryPrisma.deliveryCustomerServiceConversation.create.mockResolvedValue({
+      id: 'conv_1',
+      source: 'APP',
+      userId: 'delivery_user_1',
+      unitId: 'unit_1',
+      merchantId: 'merchant_1',
+      subOrderId: 'sub_1',
+      lastMessagePreview: '商品有破损',
+    });
+
+    const result = await (service as any).createBuyerConversation('delivery_user_1', {
+      subOrderId: 'sub_1',
+      subject: '商品问题',
+      message: '商品有破损',
+    });
+
+    expect(deliveryPrisma.deliveryCustomerServiceConversation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        source: 'APP',
+        status: 'OPEN',
+        userId: 'delivery_user_1',
+        unitId: 'unit_1',
+        merchantId: 'merchant_1',
+        orderId: 'order_1',
+        subOrderId: 'sub_1',
+        subject: '商品问题',
+        lastMessagePreview: '商品有破损',
+      }),
+    });
+    expect(result).toEqual(expect.objectContaining({ id: 'conv_1', source: 'APP' }));
+  });
+
+  it('rejects buyer conversation creation for another buyer suborder', async () => {
+    deliveryPrisma.deliverySubOrder.findUnique.mockResolvedValue({
+      id: 'sub_2',
+      merchantId: 'merchant_1',
+      orderId: 'order_2',
+      order: {
+        userId: 'other_delivery_user',
+        unitId: 'unit_2',
+      },
+    });
+
+    await expect(
+      (service as any).createBuyerConversation('delivery_user_1', {
+        subOrderId: 'sub_2',
+        message: '商品有破损',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(deliveryPrisma.deliveryCustomerServiceConversation.create).not.toHaveBeenCalled();
+  });
+
   it('writes seller replies into delivery customer service conversations only', async () => {
     deliveryPrisma.deliverySubOrder.findUnique.mockResolvedValue({
       id: 'sub_1',

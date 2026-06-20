@@ -225,8 +225,9 @@ describe('DeliveryCatalogService', () => {
     expect(result.items[0].skus[0]).toMatchObject({
       id: 'sku_1',
       finalPriceCents: 13500,
-      pricingSource: 'MERCHANT_TIER_MARKUP',
     });
+    expect(result.items[0].skus[0]).not.toHaveProperty('pricingSource');
+    expect(result.items[0].merchant).not.toHaveProperty('defaultMarkupBps');
   });
 
   it('returns product detail with active skus only', async () => {

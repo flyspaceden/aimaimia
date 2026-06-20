@@ -44,6 +44,7 @@ import { DeliverySettlementService } from './settlement/delivery-settlement.serv
 import { DeliveryAdminSettlementController } from './settlement/delivery-admin-settlement.controller';
 import { DeliverySellerSettlementController } from './settlement/delivery-seller-settlement.controller';
 import { DeliveryCustomerServiceService } from './customer-service/delivery-customer-service.service';
+import { DeliveryBuyerCustomerServiceController } from './customer-service/delivery-buyer-customer-service.controller';
 import { DeliveryAdminCustomerServiceController } from './customer-service/delivery-admin-customer-service.controller';
 import { DeliverySellerCustomerServiceController } from './customer-service/delivery-seller-customer-service.controller';
 import { DeliveryConfigService } from './config/delivery-config.service';
@@ -102,6 +103,7 @@ import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.servi
     DeliverySellerManifestsController,
     DeliveryAdminSettlementController,
     DeliverySellerSettlementController,
+    DeliveryBuyerCustomerServiceController,
     DeliveryAdminCustomerServiceController,
     DeliverySellerCustomerServiceController,
     DeliveryAdminConfigController,

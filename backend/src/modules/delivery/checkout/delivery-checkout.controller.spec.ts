@@ -23,6 +23,7 @@ describe('DeliveryCheckoutController', () => {
     createCheckout: jest.Mock;
     getCheckout: jest.Mock;
     createPaymentParams: jest.Mock;
+    activeQueryPayment: jest.Mock;
   };
   let controller: DeliveryCheckoutController;
 
@@ -31,6 +32,7 @@ describe('DeliveryCheckoutController', () => {
       createCheckout: jest.fn(),
       getCheckout: jest.fn(),
       createPaymentParams: jest.fn(),
+      activeQueryPayment: jest.fn(),
     };
     controller = new DeliveryCheckoutController(service as any);
   });
@@ -41,10 +43,12 @@ describe('DeliveryCheckoutController', () => {
     await controller.createCheckout('user_1', dto as any);
     await controller.getCheckout('user_1', 'checkout_1');
     await controller.createPaymentParams('user_1', 'checkout_1');
+    await (controller as any).activeQueryPayment('user_1', 'checkout_1');
 
     expect(service.createCheckout).toHaveBeenCalledWith('user_1', dto);
     expect(service.getCheckout).toHaveBeenCalledWith('user_1', 'checkout_1');
     expect(service.createPaymentParams).toHaveBeenCalledWith('user_1', 'checkout_1');
+    expect(service.activeQueryPayment).toHaveBeenCalledWith('user_1', 'checkout_1');
   });
 
   it('rejects anonymous delivery checkout pay requests before reaching the service', async () => {

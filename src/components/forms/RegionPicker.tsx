@@ -9,7 +9,9 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
+import type { ColorScheme } from '../../theme/colors';
 import regions from '../../data/china-regions.json';
+import { resolveRegionPickerColors } from './regionPickerTheme';
 
 /** 行政区划节点（省/市/区共用） */
 type RegionNode = {
@@ -31,6 +33,7 @@ type Props = {
   value?: RegionValue | null;
   onChange: (value: RegionValue) => void;
   placeholder?: string;
+  colors?: ColorScheme;
 };
 
 type Level = 'province' | 'city' | 'district';
@@ -41,8 +44,15 @@ type Level = 'province' | 'city' | 'district';
  * - 选完 3 级自动 onChange + 关闭
  * - regionText 用 "/" 分隔，与后端 parseChineseAddress 兼容
  */
-export const RegionPicker: React.FC<Props> = ({ value, onChange, placeholder = '请选择省/市/区' }) => {
-  const { colors, radius, spacing, typography } = useTheme();
+export const RegionPicker: React.FC<Props> = ({
+  value,
+  onChange,
+  placeholder = '请选择省/市/区',
+  colors: colorOverride,
+}) => {
+  const theme = useTheme();
+  const colors = resolveRegionPickerColors(theme.colors, colorOverride);
+  const { radius, spacing, typography } = theme;
   const [open, setOpen] = useState(false);
   const [level, setLevel] = useState<Level>('province');
   const [provinceCode, setProvinceCode] = useState<string | null>(null);

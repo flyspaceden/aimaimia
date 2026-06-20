@@ -69,7 +69,7 @@ export const mockAiRecommendInsights: AiRecommendInsight[] = [
 export const mockAiFinanceServices: AiFinanceService[] = [
   {
     id: 'finance-1',
-    title: '企业采购授信',
+    title: '企业配送授信',
     description: '为企业客户提供周期性授信额度',
     status: 'available',
     badge: '企业',

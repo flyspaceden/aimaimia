@@ -181,6 +181,8 @@ describe('DeliveryCartService', () => {
         selectedGoodsAmountCents: 25200,
       },
     });
+    expect(result.items[0]).not.toHaveProperty('pricingSource');
+    expect(result.items[0].merchant).not.toHaveProperty('defaultMarkupBps');
   });
 
   it('rejects add quantity that violates sku or product ordering rules', async () => {

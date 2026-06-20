@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-19
+> **最后更新**: 2026-06-20
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -45,6 +45,21 @@
   - **来源**: final review 剩余 Critical / Important
   - **实际做了**: 补齐配送买家短信发码接口、delivery 登录页发码倒计时与微信登录；checkout 改为整单运费单次计算并按商家商品金额精确分摊；配送管理后台清单模板页新增逐单自定义列/内容入口，后端支持 buyer order / seller fulfillment 自定义列持久化与再生成，且对 seller fulfillment 金额敏感字段做拦截。
   - **验证**: `cd backend && npm test -- --runInBand src/modules/delivery/buyer/delivery-buyer-auth.controller.spec.ts src/modules/delivery/buyer/delivery-phone-otp.service.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/manifests/delivery-admin-manifests.controller.spec.ts`、根目录 `npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、后续补跑根目录 TypeScript / delivery-admin build / backend build / git diff --check
+
+- [x] **配送全方位审查修复补充（2026-06-19）**
+  - **来源**: 用户要求“全部整体审查一遍”后的剩余问题修复
+  - **实际做了**: 补 `/delivery/checkout/:id/active-query` 主动查单，App 支付完成后主动确认支付宝 / 微信支付状态并复用配送支付回调建单；补买家配送客服 `/delivery/cs` 后端、Repo 和 App 页面；配送单位编辑页接入后台单位字段配置和现有省市区选择器；配送单位保存 6 位标准省 / 市 / 区编码，并让 RegionPicker 支持注入配送橙色色板；配送中心文件下载增加商家归属校验，顺丰面单 PDF 固定存入 `delivery/waybills/`；配送管理后台新增权限装饰器和 Guard，并给业务控制器补 `delivery:<module>:<action>` 权限。
+  - **验证**: `npm --prefix backend test -- --runInBand src/modules/delivery`（48 suites / 231 tests）、`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`npm --prefix backend run build`、占位 `DELIVERY_DATABASE_URL` 下的配送 Prisma validate 均通过。
+
+- [x] **配送合并前阻塞修复（2026-06-20）**
+  - **来源**: 合并 staging 前全面审查发现的阻塞项
+  - **实际做了**: `backend/prisma-delivery/seed.ts` 去掉公开默认 seed 密码，缺少 `DELIVERY_SEED_PASSWORD` 时直接拒绝执行；配送 App 结算页改为先创建 checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计，用户再次确认才拉起支付；配送中心下载 helper 支持 `delivery/waybills/`、`delivery/manifests/`、`delivery/settlements/`，面单/清单/结算文件继续走后端商家归属校验。
+  - **验证**: `cd backend && npx jest prisma-delivery/seed-security.spec.ts --runInBand`、根目录 `npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`cd delivery-seller && node --test test/uploadDownload.test.ts`、根目录 `npx tsc --noEmit`、`cd backend && DELIVERY_DATABASE_URL='postgresql://delivery:delivery@127.0.0.1:5432/delivery?schema=public' npm run build` 均通过。
+
+- [x] **配送全面审查修复补充（2026-06-20）**
+  - **来源**: 用户要求“全面审查”，并按 App / 配送管理后台 / 配送中心 / 后端四个系统逐项复查
+  - **实际做了**: 顺丰回调在主库未命中时分流到配送库 `DeliveryShipment`，签收后推进配送子订单和主订单状态；配送中心新增 `DeliverySellerPermissionGuard`，发货/商品/库存/客服写接口分别走 `orders:write` / `products:write` / `inventory:write` / `customer-service:write`，财务导出和结算列表走 `finance:read`，JWT 校验每次读取数据库最新 `role` / `permissionCodes`，OWNER 默认放行；配送配货 PDF 自定义列金额拦截扩展到供货价、结算款、付款、货款、单价、总价等绕法；清单模板固定系统列也允许后台设置是否显示；配送管理后台新增活跃路由/API 合同测试；配送中心删除未路由的售后/统计页面和 API，并用合同测试锁定不暴露售后、退款、平台售价等非配送内容；活跃代码中“采购/团购/配送卖家中心”文案残留已清理。
+  - **验证**: `cd backend && npx jest src/modules/delivery/auth/guards/delivery-seller-permission.guard.spec.ts src/modules/delivery/auth/guards/delivery-admin-permission.guard.spec.ts src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/manifests/delivery-seller-manifests.controller.spec.ts src/modules/shipment/delivery-sf-callback.service.spec.ts src/modules/shipment/shipment.controller.spec.ts src/modules/delivery/units/delivery-units.service.spec.ts src/modules/delivery/seller/delivery-seller-upload.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/checkout/delivery-checkout.controller.spec.ts --runInBand`、配送后端大回归 55 suites / 276 tests、`cd delivery-admin && npm test`、`cd delivery-seller && npm test`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、根目录 `npx tsc --noEmit`、根目录 `npm test`、`git diff --check` 均通过。
 
 - [x] **配送部署、法律页、seed 与集成验证（Task 18-20）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 18-20 brief

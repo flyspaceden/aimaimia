@@ -14,12 +14,19 @@ import {
   UserOutlined,
   LogoutOutlined,
   SafetyOutlined,
+  SwapOutlined,
   TruckOutlined,
   CustomerServiceOutlined,
   DatabaseOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
+
+const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
+const isProduction = appEnv === 'production';
+const switchToSellerCenterUrl = isProduction
+  ? 'https://seller.ai-maimai.com'
+  : 'https://test-seller.ai-maimai.com';
 
 // 侧边栏菜单
 const menuRoutes: ProLayoutProps['route'] = {
@@ -29,43 +36,43 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/',
       name: '工作台',
       icon: <DashboardOutlined />,
+      permission: 'orders:read',
     },
     {
-      path: '/products',
       name: '商品管理',
       icon: <ShoppingOutlined />,
       routes: [
-        { path: '/products', name: '商品列表', icon: <ShoppingOutlined /> },
-        { path: '/products/stock', name: '库存管理', icon: <DatabaseOutlined /> },
+        { path: '/products', name: '商品列表', icon: <ShoppingOutlined />, permission: 'products:read' },
+        { path: '/products/stock', name: '库存管理', icon: <DatabaseOutlined />, permission: 'inventory:write' },
       ],
     },
     {
-      path: '/orders',
       name: '订单管理',
       icon: <FileTextOutlined />,
       routes: [
-        { path: '/orders', name: '订单列表', icon: <FileTextOutlined /> },
-        { path: '/orders/logistics', name: '物流跟踪', icon: <TruckOutlined /> },
+        { path: '/orders', name: '订单列表', icon: <FileTextOutlined />, permission: 'orders:read' },
+        { path: '/orders/logistics', name: '物流跟踪', icon: <TruckOutlined />, permission: 'orders:read' },
       ],
     },
     {
       path: '/exports',
       name: '导出中心',
       icon: <ExportOutlined />,
+      permission: 'finance:read',
     },
     {
-      path: '/company/settings',
       name: '企业管理',
       icon: <ShopOutlined />,
       routes: [
-        { path: '/company/settings', name: '企业设置', icon: <ShopOutlined /> },
-        { path: '/company/staff', name: '员工管理', icon: <TeamOutlined />, roles: ['OWNER'] },
+        { path: '/company/settings', name: '企业设置', icon: <ShopOutlined />, permission: 'company:read' },
+        { path: '/company/staff', name: '员工管理', icon: <TeamOutlined />, permission: 'staff:manage' },
       ],
     },
     {
       path: '/customer-service',
       name: '客服工单',
       icon: <CustomerServiceOutlined />,
+      permission: 'customer-service:read',
     },
   ],
 };
@@ -76,7 +83,7 @@ export default function SellerLayout() {
   const location = useLocation();
   const seller = useAuthStore((s) => s.seller);
   const clearAuth = useAuthStore((s) => s.clearAuth);
-  const hasRole = useAuthStore((s) => s.hasRole);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
   const [collapsed, setCollapsed] = useState(false);
 
   const handleLogout = async () => {
@@ -90,16 +97,24 @@ export default function SellerLayout() {
     navigate('/login', { replace: true });
   };
 
-  // 按角色过滤菜单
+  const handleSwitchToSellerCenter = () => {
+    if (isGlobalDirty()) {
+      const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
+      if (!confirmed) return;
+    }
+    window.location.href = switchToSellerCenterUrl;
+  };
+
+  // 按权限码过滤菜单
   type MenuRoute = NonNullable<NonNullable<ProLayoutProps['route']>['routes']>[number];
-  const filterMenuByRole = (routes: MenuRoute[] | undefined): MenuRoute[] => {
+  const filterMenuByPermission = (routes: MenuRoute[] | undefined): MenuRoute[] => {
     if (!routes) return [];
     return routes.reduce<MenuRoute[]>((acc, route) => {
-      const roles = (route as MenuRoute & { roles?: string[] }).roles;
-      if (roles && !hasRole(...(roles as Array<'OWNER' | 'MANAGER' | 'OPERATOR'>))) return acc;
+      const permission = (route as MenuRoute & { permission?: string }).permission;
+      if (permission && !hasPermission(permission)) return acc;
       const filtered = { ...route };
       if (route.routes) {
-        filtered.routes = filterMenuByRole(route.routes);
+        filtered.routes = filterMenuByPermission(route.routes);
         if (filtered.routes.length === 0) return acc;
       }
       acc.push(filtered);
@@ -109,7 +124,7 @@ export default function SellerLayout() {
 
   const filteredRoute = {
     ...menuRoutes,
-    routes: filterMenuByRole(menuRoutes?.routes),
+    routes: filterMenuByPermission(menuRoutes?.routes),
   };
 
   return (
@@ -157,6 +172,13 @@ export default function SellerLayout() {
           <Dropdown
             menu={{
               items: [
+                {
+                  key: 'switch-seller-center',
+                  icon: <SwapOutlined />,
+                  label: '切换爱买买卖家中心',
+                  onClick: handleSwitchToSellerCenter,
+                },
+                { type: 'divider' },
                 {
                   key: 'account-security',
                   icon: <SafetyOutlined />,

@@ -37,4 +37,12 @@ export class DeliveryCheckoutController {
       checkoutSessionId,
     );
   }
+
+  @Post('checkout/:id/active-query')
+  activeQueryPayment(
+    @CurrentUser('deliveryUserId') deliveryUserId: string,
+    @Param('id') checkoutSessionId: string,
+  ) {
+    return this.deliveryCheckoutService.activeQueryPayment(deliveryUserId, checkoutSessionId);
+  }
 }

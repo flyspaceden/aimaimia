@@ -201,6 +201,7 @@ jobs:
         run: |
           cd delivery-admin
           npm ci
+          npm test
           npm run build
 
       - name: Deploy to server
@@ -267,6 +268,7 @@ jobs:
         run: |
           cd delivery-seller
           npm ci
+          npm test
           npm run build
 
       - name: Deploy to server

@@ -14,6 +14,7 @@ const tools = [
   { label: '配送订单', icon: 'clipboard-text-outline', route: '/delivery/orders' },
   { label: '配送清单', icon: 'file-document-outline', route: '/delivery/manifests' },
   { label: '配送单位', icon: 'warehouse', route: '/delivery/unit-select' },
+  { label: '配送客服', icon: 'headset', route: '/delivery/cs' },
   { label: '返回爱买买平台', icon: 'arrow-u-left-top', route: '/(tabs)/me' },
 ] as const;
 

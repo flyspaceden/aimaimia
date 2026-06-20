@@ -18,6 +18,17 @@ Most behavior should be copied from the existing app/admin/seller/backend. Do no
 
 Primary spec: `docs/superpowers/specs/2026-06-19-delivery-system-design.md`
 
+## Review Follow-up 2026-06-19
+
+- [x] Add delivery checkout active-query endpoint and App polling fallback after native Alipay / WeChat payment returns.
+- [x] Add buyer delivery customer-service API, App repo, and `/delivery/cs` page.
+- [x] Wire buyer delivery unit edit form to admin unit-field config and existing province/city/district picker.
+- [x] Store delivery unit province/city/district as 6-digit standard region codes from the picker.
+- [x] Allow the shared RegionPicker to receive the delivery orange palette without changing normal App address pages.
+- [x] Guard delivery center file downloads by merchant ownership and store SF waybill PDFs under `delivery/waybills/`.
+- [x] Add delivery admin permission decorator/guard and annotate delivery-admin business controllers.
+- [x] Verify with targeted backend Jest, App delivery repo and region Jest, App TypeScript, backend build, and delivery Prisma validate with a local placeholder URL.
+
 ## File Structure
 
 ### Backend foundation

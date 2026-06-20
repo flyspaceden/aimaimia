@@ -270,7 +270,7 @@ export class DeliveryAdminOpsService {
     return this.findManyWithPage(this.deliveryPrisma.deliveryPayment, {
       query,
       where: {
-        status: 'FAILED',
+        OR: [{ status: 'FAILED' }, { exceptionSummary: { not: null } }],
       },
       include: {
         order: {

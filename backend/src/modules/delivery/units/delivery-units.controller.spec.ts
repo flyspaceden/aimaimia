@@ -7,6 +7,9 @@ describe('DeliveryUnitsController', () => {
     updateUnit: jest.Mock;
     selectUnit: jest.Mock;
   };
+  let fieldConfigService: {
+    getConfigs: jest.Mock;
+  };
   let controller: DeliveryUnitsController;
 
   beforeEach(() => {
@@ -16,7 +19,10 @@ describe('DeliveryUnitsController', () => {
       updateUnit: jest.fn().mockResolvedValue({ unit: { id: 'unit_1' } }),
       selectUnit: jest.fn().mockResolvedValue({ currentUnitId: 'unit_1' }),
     };
-    controller = new DeliveryUnitsController(service as any);
+    fieldConfigService = {
+      getConfigs: jest.fn().mockResolvedValue([]),
+    };
+    controller = new DeliveryUnitsController(service as any, fieldConfigService as any);
   });
 
   it('delegates unit selection to the service with the current delivery user id', async () => {

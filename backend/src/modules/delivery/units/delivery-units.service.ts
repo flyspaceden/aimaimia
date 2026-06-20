@@ -23,6 +23,8 @@ type DynamicRequiredConfig = {
   fieldKey: string;
   fieldType: DeliveryUnitFieldType;
   isRequired: boolean;
+  isVisible?: boolean;
+  showInApp?: boolean;
 };
 
 @Injectable()
@@ -51,18 +53,24 @@ export class DeliveryUnitsService {
     return this.deliveryPrisma.$transaction(
       async (tx) => {
         const normalizedFixedFields = this.normalizeCreateFixedFields(dto);
-        const requiredDynamicConfigs = await tx.deliveryUnitFieldConfig.findMany({
+        const appDynamicConfigs = await tx.deliveryUnitFieldConfig.findMany({
           where: {
-            isRequired: true,
+            isVisible: true,
+            showInApp: true,
           },
           select: {
             fieldKey: true,
             fieldType: true,
             isRequired: true,
+            isVisible: true,
+            showInApp: true,
           },
         });
-        const normalizedExtraFields = this.normalizeExtraFields(dto.extraFields);
-        this.assertRequiredDynamicFields(requiredDynamicConfigs, normalizedExtraFields);
+        const normalizedExtraFields = this.filterExtraFieldsByConfigs(
+          this.normalizeExtraFields(dto.extraFields),
+          appDynamicConfigs,
+        );
+        this.assertRequiredDynamicFields(appDynamicConfigs, normalizedExtraFields);
 
         const user = await tx.deliveryUser.findUnique({
           where: { id: deliveryUserId },
@@ -131,7 +139,23 @@ export class DeliveryUnitsService {
 
     const normalizedFixedFields = this.normalizePatchFixedFields(dto);
     const existingExtraFields = this.normalizeExtraFields(unit.extraFields);
-    const incomingExtraFields = this.normalizeExtraFields(dto.extraFields);
+    const appDynamicConfigs = await this.deliveryPrisma.deliveryUnitFieldConfig.findMany({
+      where: {
+        isVisible: true,
+        showInApp: true,
+      },
+      select: {
+        fieldKey: true,
+        fieldType: true,
+        isRequired: true,
+        isVisible: true,
+        showInApp: true,
+      },
+    });
+    const incomingExtraFields = this.filterExtraFieldsByConfigs(
+      this.normalizeExtraFields(dto.extraFields),
+      appDynamicConfigs,
+    );
     const mergedExtraFields =
       incomingExtraFields === undefined
         ? undefined
@@ -139,18 +163,8 @@ export class DeliveryUnitsService {
             ...(existingExtraFields ?? {}),
             ...incomingExtraFields,
           };
-    const requiredDynamicConfigs = await this.deliveryPrisma.deliveryUnitFieldConfig.findMany({
-      where: {
-        isRequired: true,
-      },
-      select: {
-        fieldKey: true,
-        fieldType: true,
-        isRequired: true,
-      },
-    });
     this.assertRequiredDynamicFields(
-      requiredDynamicConfigs,
+      appDynamicConfigs,
       mergedExtraFields ?? existingExtraFields ?? undefined,
     );
 
@@ -237,6 +251,25 @@ export class DeliveryUnitsService {
     return { ...(value as Record<string, unknown>) };
   }
 
+  private filterExtraFieldsByConfigs(
+    extraFields: Record<string, unknown> | undefined,
+    configs: DynamicRequiredConfig[],
+  ) {
+    if (extraFields === undefined) {
+      return undefined;
+    }
+
+    const allowedKeys = new Set(
+      configs
+        .filter((config) => !FIXED_REQUIRED_FIELDS.includes(config.fieldKey as FixedRequiredField))
+        .map((config) => config.fieldKey),
+    );
+
+    return Object.fromEntries(
+      Object.entries(extraFields).filter(([key]) => allowedKeys.has(key)),
+    );
+  }
+
   private assertRequiredDynamicFields(
     configs: DynamicRequiredConfig[],
     extraFields: Record<string, unknown> | undefined,
@@ -244,6 +277,8 @@ export class DeliveryUnitsService {
     const dynamicRequiredConfigs = configs.filter(
       (config) =>
         config.isRequired &&
+        config.isVisible !== false &&
+        config.showInApp !== false &&
         !FIXED_REQUIRED_FIELDS.includes(config.fieldKey as FixedRequiredField),
     );
 

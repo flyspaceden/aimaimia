@@ -27,6 +27,8 @@ type DeliveryCheckoutItemSnapshot = {
   imageUrl?: string | null;
   unitName?: string | null;
   quantity: number;
+  supplyPriceCents?: number;
+  weightGram?: number | null;
   basePriceCents: number;
   finalPriceCents: number;
   lineAmountCents: number;
@@ -384,7 +386,7 @@ export class DeliveryOrdersService {
               };
             }
 
-            if (checkout.status !== 'ACTIVE') {
+            if (checkout.status !== 'ACTIVE' && checkout.status !== 'PAID') {
               throw new BadRequestException(`配送结算会话状态不可支付: ${checkout.status}`);
             }
             if (!checkout.paymentChannel) {
@@ -429,29 +431,20 @@ export class DeliveryOrdersService {
             });
 
             if (skuRecords.length !== aggregatedQuantityBySkuId.size) {
-              throw new BadRequestException('配送 SKU 不存在或已下架');
+              throw new BadRequestException('配送 SKU 记录不存在，请人工核对');
             }
 
             const skuById = new Map(skuRecords.map((sku) => [sku.id, sku]));
             for (const item of itemsSnapshot) {
               const sku = skuById.get(item.skuId);
-              if (!sku || !sku.isActive) {
-                throw new BadRequestException('配送 SKU 已下架');
-              }
-              if (sku.product.status !== 'ACTIVE' || sku.product.auditStatus !== 'APPROVED') {
-                throw new BadRequestException('配送商品不存在或未上架');
-              }
-              if (sku.product.merchantId !== item.merchantId || sku.product.merchant.status !== 'ACTIVE') {
-                throw new BadRequestException('配送商家当前不可下单');
-              }
-              if (sku.stock < (aggregatedQuantityBySkuId.get(item.skuId) ?? item.quantity)) {
-                throw new BadRequestException('库存不足');
+              if (!sku || sku.product.id !== item.productId || sku.product.merchantId !== item.merchantId) {
+                throw new BadRequestException('配送 SKU 与结算快照不一致，请人工核对');
               }
             }
 
             const paidAt = params.paidAt;
             const checkoutClaim = await tx.deliveryCheckoutSession.updateMany({
-              where: { id: checkout.id, status: 'ACTIVE' },
+              where: { id: checkout.id, status: checkout.status },
               data: {
                 status: 'PAID',
                 providerTxnId: params.providerTxnId,
@@ -493,12 +486,12 @@ export class DeliveryOrdersService {
             for (const [skuId, quantity] of aggregatedQuantityBySkuId.entries()) {
               const sku = skuById.get(skuId)!;
               const updated = await tx.deliveryProductSku.updateMany({
-                where: { id: skuId, stock: { gte: quantity } },
+                where: { id: skuId },
                 data: { stock: { decrement: quantity } },
               });
 
               if (updated.count !== 1) {
-                throw new ConflictException('配送 SKU 库存已变化，请刷新后重试');
+                throw new ConflictException('配送 SKU 库存扣减失败，请人工核对');
               }
 
               await tx.deliveryInventoryLedger.create({
@@ -553,7 +546,7 @@ export class DeliveryOrdersService {
               const merchantItems = itemSnapshotsByMerchant.get(pricingGroup.merchantId) ?? [];
               const supplyAmountCents = merchantItems.reduce((sum, item) => {
                 const sku = skuById.get(item.skuId)!;
-                return sum + sku.supplyPriceCents * item.quantity;
+                return sum + this.resolveSnapshotCents(item.supplyPriceCents, sku.supplyPriceCents, item.basePriceCents) * item.quantity;
               }, 0);
 
               await tx.deliverySubOrder.create({
@@ -573,6 +566,16 @@ export class DeliveryOrdersService {
 
               for (const item of merchantItems) {
                 const sku = skuById.get(item.skuId)!;
+                const supplyUnitPriceCents = this.resolveSnapshotCents(
+                  item.supplyPriceCents,
+                  sku.supplyPriceCents,
+                  item.basePriceCents,
+                );
+                const baseUnitPriceCents = this.resolveSnapshotCents(
+                  item.basePriceCents,
+                  sku.basePriceCents,
+                  item.finalPriceCents,
+                );
                 await tx.deliveryOrderItem.create({
                   data: {
                     orderId,
@@ -581,11 +584,11 @@ export class DeliveryOrdersService {
                     skuId: item.skuId,
                     productSnapshot: item as unknown as Prisma.InputJsonValue,
                     unitPriceCents: item.finalPriceCents,
-                    supplyUnitPriceCents: sku.supplyPriceCents,
-                    baseUnitPriceCents: sku.basePriceCents,
+                    supplyUnitPriceCents,
+                    baseUnitPriceCents,
                     quantity: item.quantity,
                     lineAmountCents: item.lineAmountCents,
-                    supplyAmountCents: sku.supplyPriceCents * item.quantity,
+                    supplyAmountCents: supplyUnitPriceCents * item.quantity,
                     shippingFeeShareCents: 0,
                   },
                 });
@@ -660,12 +663,56 @@ export class DeliveryOrdersService {
         if (error?.code === 'P2034' && attempt < 2) {
           continue;
         }
+        if (error?.code === 'P2002') {
+          const existingOrder = await this.findOrderCreatedForPaidCheckout(
+            params.merchantOrderNo,
+            params.providerTxnId,
+          );
+          if (existingOrder) {
+            return existingOrder;
+          }
+        }
         throw error;
       }
     }
 
     this.logger.warn(`配送订单创建重试耗尽: merchantOrderNo=${params.merchantOrderNo}`);
     throw new ConflictException('配送订单创建冲突，请重试');
+  }
+
+  private async findOrderCreatedForPaidCheckout(
+    merchantOrderNo: string,
+    providerTxnId: string,
+  ) {
+    const checkout = await this.deliveryPrisma.deliveryCheckoutSession.findUnique({
+      where: { merchantOrderNo },
+      include: {
+        orders: {
+          include: {
+            subOrders: {
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+
+    this.assertProviderTxnIdConsistency(checkout?.providerTxnId, providerTxnId);
+
+    const order = checkout?.orders[0] ?? null;
+    if (!checkout || !order || (checkout.status !== 'PAID' && checkout.status !== 'COMPLETED')) {
+      return null;
+    }
+
+    return {
+      orderId: order.id,
+      subOrderIds: order.subOrders.map((subOrder) => subOrder.id),
+      idempotent: true,
+      manifest: {
+        status: 'PENDING' as const,
+        trigger: 'skipped-existing-order' as const,
+      },
+    };
   }
 
   private assertProviderTxnIdConsistency(
@@ -675,6 +722,11 @@ export class DeliveryOrdersService {
     if (existingProviderTxnId && existingProviderTxnId !== incomingProviderTxnId) {
       throw new DeliveryProviderTxnConflictException();
     }
+  }
+
+  private resolveSnapshotCents(...candidates: Array<number | null | undefined>) {
+    const value = candidates.find((candidate) => typeof candidate === 'number' && Number.isFinite(candidate));
+    return Math.max(0, Math.round(value ?? 0));
   }
 
   private parseItemsSnapshot(raw: Prisma.JsonValue): DeliveryCheckoutItemSnapshot[] {

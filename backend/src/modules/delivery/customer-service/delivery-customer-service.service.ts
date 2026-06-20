@@ -53,6 +53,13 @@ export class DeliveryCustomerServiceService {
     });
   }
 
+  async listBuyerConversations(deliveryUserId: string, query: ListConversationQuery) {
+    return this.listConversations({
+      userId: deliveryUserId,
+      query,
+    });
+  }
+
   async getAdminConversation(id: string) {
     const conversation = await this.deliveryPrisma.deliveryCustomerServiceConversation.findFirst({
       where: { id },
@@ -73,6 +80,38 @@ export class DeliveryCustomerServiceService {
       throw new NotFoundException('配送客服会话不存在');
     }
     return conversation;
+  }
+
+  async getBuyerConversation(deliveryUserId: string, id: string) {
+    const conversation = await this.deliveryPrisma.deliveryCustomerServiceConversation.findFirst({
+      where: { id, userId: deliveryUserId },
+      include: conversationInclude,
+    });
+    if (!conversation) {
+      throw new NotFoundException('配送客服会话不存在');
+    }
+    return conversation;
+  }
+
+  async createBuyerConversation(
+    deliveryUserId: string,
+    dto: CreateDeliveryConversationDto,
+  ) {
+    const relationContext = await this.resolveBuyerConversationContext(deliveryUserId, dto);
+    return this.deliveryPrisma.deliveryCustomerServiceConversation.create({
+      data: {
+        merchantId: relationContext.merchantId,
+        source: 'APP',
+        status: 'OPEN',
+        subject: dto.subject?.trim() || relationContext.defaultSubject,
+        lastMessagePreview: dto.message.trim(),
+        lastMessageAt: new Date(),
+        orderId: relationContext.orderId,
+        subOrderId: relationContext.subOrderId,
+        userId: deliveryUserId,
+        unitId: relationContext.unitId,
+      },
+    });
   }
 
   async createSellerConversation(
@@ -152,6 +191,7 @@ export class DeliveryCustomerServiceService {
 
   private async listConversations(params: {
     merchantId?: string;
+    userId?: string;
     query: ListConversationQuery;
   }) {
     const page = params.query.page && params.query.page > 0 ? params.query.page : 1;
@@ -160,6 +200,9 @@ export class DeliveryCustomerServiceService {
     const where: Prisma.DeliveryCustomerServiceConversationWhereInput = {};
     if (params.merchantId) {
       where.merchantId = params.merchantId;
+    }
+    if (params.userId) {
+      where.userId = params.userId;
     }
     if (params.query.status === 'OPEN' || params.query.status === 'CLOSED') {
       where.status = params.query.status;
@@ -172,6 +215,72 @@ export class DeliveryCustomerServiceService {
       skip,
       include: conversationInclude,
     });
+  }
+
+  private async resolveBuyerConversationContext(
+    deliveryUserId: string,
+    dto: CreateDeliveryConversationDto,
+  ) {
+    if (dto.subOrderId) {
+      const subOrder = await this.deliveryPrisma.deliverySubOrder.findUnique({
+        where: { id: dto.subOrderId },
+        select: {
+          id: true,
+          merchantId: true,
+          orderId: true,
+          order: {
+            select: {
+              userId: true,
+              unitId: true,
+            },
+          },
+        },
+      });
+      if (!subOrder || subOrder.order.userId !== deliveryUserId) {
+        throw new NotFoundException('配送子订单不存在');
+      }
+      return {
+        merchantId: subOrder.merchantId,
+        orderId: subOrder.orderId,
+        subOrderId: subOrder.id,
+        unitId: subOrder.order.unitId,
+        defaultSubject: '配送订单咨询',
+      };
+    }
+
+    if (dto.orderId) {
+      const order = await this.deliveryPrisma.deliveryOrder.findUnique({
+        where: { id: dto.orderId },
+        select: {
+          id: true,
+          userId: true,
+          unitId: true,
+        },
+      });
+      if (!order || order.userId !== deliveryUserId) {
+        throw new NotFoundException('配送订单不存在');
+      }
+      return {
+        merchantId: undefined,
+        orderId: order.id,
+        subOrderId: undefined,
+        unitId: order.unitId,
+        defaultSubject: '配送订单咨询',
+      };
+    }
+
+    const user = await this.deliveryPrisma.deliveryUser.findUnique({
+      where: { id: deliveryUserId },
+      select: { currentUnitId: true },
+    });
+
+    return {
+      merchantId: undefined,
+      orderId: undefined,
+      subOrderId: undefined,
+      unitId: user?.currentUnitId ?? undefined,
+      defaultSubject: '配送咨询',
+    };
   }
 
   private async resolveConversationContext(merchantId: string, dto: CreateDeliveryConversationDto) {

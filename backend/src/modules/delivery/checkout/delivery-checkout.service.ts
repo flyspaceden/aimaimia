@@ -15,6 +15,8 @@ import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.
 import { AlipayService } from '../../payment/alipay.service';
 import { WechatPayService } from '../../payment/wechat-pay.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
+import { DeliveryPaymentsService } from '../payments/delivery-payments.service';
+import { parseDeliveryYuanAmountToCents } from '../payments/delivery-payment-routing.util';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
 import { CreateDeliveryCheckoutDto } from './dto/create-delivery-checkout.dto';
 
@@ -77,10 +79,11 @@ export class DeliveryCheckoutService {
     private readonly deliveryPricingService: DeliveryPricingService,
     private readonly deliveryIdService: DeliveryIdService,
     @Optional() private readonly moduleRef?: ModuleRef,
+    @Optional() private readonly deliveryPaymentsService?: DeliveryPaymentsService,
   ) {}
 
   async createCheckout(deliveryUserId: string, dto: CreateDeliveryCheckoutDto) {
-    return this.deliveryPrisma.$transaction(
+    const session = await this.deliveryPrisma.$transaction(
       async (tx) => {
         if (!dto.paymentChannel) {
           throw new BadRequestException('paymentChannel 必填');
@@ -179,6 +182,7 @@ export class DeliveryCheckoutService {
             minOrderQuantity: item.sku.minOrderQuantity ?? item.sku.product.minOrderQuantity ?? 1,
             orderStepQuantity:
               item.sku.orderStepQuantity ?? item.sku.product.orderStepQuantity ?? 1,
+            supplyPriceCents: item.sku.supplyPriceCents,
             basePriceCents: item.sku.basePriceCents,
             finalPriceCents: pricing.finalPriceCents,
             lineAmountCents,
@@ -318,6 +322,8 @@ export class DeliveryCheckoutService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    return this.mapBuyerCheckoutSession(session);
   }
 
   async getCheckout(deliveryUserId: string, checkoutSessionId: string) {
@@ -334,7 +340,37 @@ export class DeliveryCheckoutService {
       throw new NotFoundException('配送结算会话不存在');
     }
 
-    return session;
+    return this.mapBuyerCheckoutSession(session);
+  }
+
+  private mapBuyerCheckoutSession(session: {
+    id: string;
+    merchantOrderNo: string | null;
+    status: string;
+    goodsAmountCents: number;
+    shippingFeeCents: number;
+    totalAmountCents: number;
+    paymentChannel: string | null;
+    note: string | null;
+    expiresAt: Date;
+    createdAt: Date;
+    addressId: string | null;
+    unitId: string;
+  }) {
+    return {
+      id: session.id,
+      merchantOrderNo: session.merchantOrderNo,
+      status: session.status,
+      goodsAmountCents: session.goodsAmountCents,
+      shippingFeeCents: session.shippingFeeCents,
+      totalAmountCents: session.totalAmountCents,
+      paymentChannel: session.paymentChannel,
+      note: session.note,
+      expiresAt: session.expiresAt,
+      createdAt: session.createdAt,
+      addressId: session.addressId,
+      unitId: session.unitId,
+    };
   }
 
   async createPaymentParams(deliveryUserId: string, checkoutSessionId: string) {
@@ -419,6 +455,165 @@ export class DeliveryCheckoutService {
     }
 
     throw new BadRequestException('配送支付渠道不支持');
+  }
+
+  async activeQueryPayment(deliveryUserId: string, checkoutSessionId: string) {
+    const currentUnit = await this.requireCurrentUnit(this.deliveryPrisma, deliveryUserId);
+    const session = await this.deliveryPrisma.deliveryCheckoutSession.findFirst({
+      where: {
+        id: checkoutSessionId,
+        userId: deliveryUserId,
+        unitId: currentUnit.id,
+      },
+      include: {
+        orders: {
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('配送结算会话不存在');
+    }
+    if (session.paymentChannel !== 'ALIPAY' && session.paymentChannel !== 'WECHAT_PAY') {
+      throw new BadRequestException('当前配送支付渠道不支持主动查询');
+    }
+
+    const toResult = (
+      confirmedBy:
+        | 'already-completed'
+        | 'terminal-state'
+        | 'no-merchant-order-no'
+        | 'query-error'
+        | 'not-found'
+        | `alipay-${string}`
+        | `wechat-${string}`,
+      row = session,
+    ) => ({
+      status: row.status,
+      orderIds: row.orders?.map((order) => order.id) ?? [],
+      expectedTotal: Number((row.totalAmountCents / 100).toFixed(2)),
+      confirmedBy,
+    });
+
+    if (session.status === 'COMPLETED') {
+      return toResult('already-completed');
+    }
+    if (session.status === 'EXPIRED' || session.status === 'FAILED') {
+      return toResult('terminal-state');
+    }
+    if (!session.merchantOrderNo) {
+      return toResult('no-merchant-order-no');
+    }
+
+    if (session.paymentChannel === 'ALIPAY') {
+      const alipayService = this.getAlipayService();
+      if (!alipayService?.isAvailable()) {
+        return toResult('query-error');
+      }
+
+      let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
+      try {
+        queryResult = await alipayService.queryOrder(session.merchantOrderNo);
+      } catch {
+        return toResult('query-error');
+      }
+
+      if (!queryResult) {
+        return toResult('not-found');
+      }
+      if (
+        queryResult.tradeStatus !== 'TRADE_SUCCESS' &&
+        queryResult.tradeStatus !== 'TRADE_FINISHED'
+      ) {
+        return toResult(`alipay-${queryResult.tradeStatus.toLowerCase()}`);
+      }
+
+      const claimedAmountCents = parseDeliveryYuanAmountToCents(queryResult.totalAmount);
+      if (!Number.isInteger(claimedAmountCents) || claimedAmountCents !== session.totalAmountCents) {
+        throw new BadRequestException('配送支付金额校验失败，请联系客服');
+      }
+      if (!this.deliveryPaymentsService) {
+        throw new BadRequestException('配送支付服务未启用');
+      }
+
+      await this.deliveryPaymentsService.handlePaymentCallback({
+        merchantOrderNo: session.merchantOrderNo,
+        providerTxnId: queryResult.tradeNo,
+        status: 'SUCCESS',
+        paidAt: new Date().toISOString(),
+        rawPayload: { source: 'active-query', ...queryResult },
+        paymentChannel: 'ALIPAY',
+        claimedAmountCents,
+        skipSignatureVerification: true,
+      });
+    } else {
+      const wechatPayService = this.getWechatPayService();
+      if (!wechatPayService?.isAvailable()) {
+        return toResult('query-error');
+      }
+
+      let queryResult: {
+        tradeState: string;
+        transactionId?: string;
+        outTradeNo: string;
+        totalAmountFen: number;
+        totalAmount: number;
+        paidAt?: Date;
+      } | null = null;
+      try {
+        queryResult = await wechatPayService.queryOrder(session.merchantOrderNo);
+      } catch {
+        return toResult('query-error');
+      }
+
+      if (!queryResult) {
+        return toResult('not-found');
+      }
+      if (queryResult.tradeState !== 'SUCCESS') {
+        return toResult(`wechat-${queryResult.tradeState.toLowerCase()}`);
+      }
+      if (!queryResult.transactionId) {
+        throw new BadRequestException('微信支付成功但缺少交易流水号');
+      }
+      if (!Number.isInteger(queryResult.totalAmountFen) || queryResult.totalAmountFen !== session.totalAmountCents) {
+        throw new BadRequestException('配送支付金额校验失败，请联系客服');
+      }
+      if (!this.deliveryPaymentsService) {
+        throw new BadRequestException('配送支付服务未启用');
+      }
+
+      await this.deliveryPaymentsService.handlePaymentCallback({
+        merchantOrderNo: session.merchantOrderNo,
+        providerTxnId: queryResult.transactionId,
+        status: 'SUCCESS',
+        paidAt: queryResult.paidAt?.toISOString() ?? new Date().toISOString(),
+        rawPayload: { source: 'active-query', ...queryResult },
+        paymentChannel: 'WECHAT_PAY',
+        claimedAmountCents: queryResult.totalAmountFen,
+        skipSignatureVerification: true,
+      });
+    }
+
+    const refreshed = await this.deliveryPrisma.deliveryCheckoutSession.findFirst({
+      where: {
+        id: checkoutSessionId,
+        userId: deliveryUserId,
+        unitId: currentUnit.id,
+      },
+      include: {
+        orders: {
+          select: { id: true },
+        },
+      },
+    });
+
+    return {
+      status: refreshed?.status ?? 'COMPLETED',
+      orderIds: refreshed?.orders.map((order) => order.id) ?? [],
+      expectedTotal: Number((session.totalAmountCents / 100).toFixed(2)),
+      confirmedBy: 'active-query-success' as const,
+    };
   }
 
   private async requireCurrentUnit(

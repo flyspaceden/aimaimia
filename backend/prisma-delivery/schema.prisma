@@ -769,6 +769,7 @@ model DeliveryOrder {
   shippingCosts DeliveryShippingCost[]
   conversations DeliveryCustomerServiceConversation[]
 
+  @@unique([checkoutSessionId])
   @@index([userId, unitId, status, createdAt])
 }
 

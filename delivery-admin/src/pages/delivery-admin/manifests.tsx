@@ -15,6 +15,11 @@ import type {
   DeliveryManifestTemplate,
 } from '@/types/delivery-management';
 import { PageHeader, StatusPill } from './components';
+import {
+  normalizeDeliveryManifestCustomizationEntries,
+  validateDeliveryManifestCustomizationEntries,
+  validateDeliveryManifestTemplateColumns,
+} from './formValidation';
 import { formatDateTime, getErrorMessage } from './utils';
 
 type TemplateFormValues = {
@@ -98,13 +103,7 @@ export default function DeliveryManifestsPage() {
       upsertDeliveryManifestCustomization({
         manifestType: customTarget.manifestType,
         targetId: customTarget.targetId.trim(),
-        entries: customEntries.map((entry) => ({
-          key: entry.key,
-          label: entry.label,
-          value: entry.value,
-          sortOrder: entry.sortOrder,
-          visible: entry.visible,
-        })),
+        entries: normalizeDeliveryManifestCustomizationEntries(customEntries),
       }),
     onSuccess: async () => {
       message.success('目标自定义列已保存');
@@ -201,7 +200,6 @@ export default function DeliveryManifestsPage() {
       render: (_, record, index) => (
         <Switch
           checked={record.visible}
-          disabled={record.fixed}
           onChange={(checked) =>
             setColumns((prev) =>
               prev.map((item, itemIndex) => (itemIndex === index ? { ...item, visible: checked } : item)),
@@ -345,6 +343,14 @@ export default function DeliveryManifestsPage() {
       message.warning(customTarget.manifestType === 'BUYER_FULL' ? '请输入订单号' : '请输入子单号');
       return;
     }
+    const validationMessage = validateDeliveryManifestCustomizationEntries(
+      customEntries,
+      customTarget.manifestType,
+    );
+    if (validationMessage) {
+      message.warning(validationMessage);
+      return;
+    }
     saveCustomizationMutation.mutate();
   };
 
@@ -470,6 +476,11 @@ export default function DeliveryManifestsPage() {
         }}
         onOk={async () => {
           const values = await form.validateFields();
+          const validationMessage = validateDeliveryManifestTemplateColumns(columns, editing?.type);
+          if (validationMessage) {
+            message.warning(validationMessage);
+            return;
+          }
           mutation.mutate(values);
         }}
       >

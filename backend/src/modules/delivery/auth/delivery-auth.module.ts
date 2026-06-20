@@ -5,7 +5,9 @@ import { DeliveryAdminJwtStrategy } from './delivery-admin-jwt.strategy';
 import { DeliverySellerJwtStrategy } from './delivery-seller-jwt.strategy';
 import { DeliveryUserJwtStrategy } from './delivery-user-jwt.strategy';
 import { DeliveryAdminAuthGuard } from './guards/delivery-admin-auth.guard';
+import { DeliveryAdminPermissionGuard } from './guards/delivery-admin-permission.guard';
 import { DeliverySellerAuthGuard } from './guards/delivery-seller-auth.guard';
+import { DeliverySellerPermissionGuard } from './guards/delivery-seller-permission.guard';
 import { DeliveryUserAuthGuard } from './guards/delivery-user-auth.guard';
 
 @Module({
@@ -16,8 +18,16 @@ import { DeliveryUserAuthGuard } from './guards/delivery-user-auth.guard';
     DeliverySellerJwtStrategy,
     DeliveryUserAuthGuard,
     DeliveryAdminAuthGuard,
+    DeliveryAdminPermissionGuard,
     DeliverySellerAuthGuard,
+    DeliverySellerPermissionGuard,
   ],
-  exports: [DeliveryUserAuthGuard, DeliveryAdminAuthGuard, DeliverySellerAuthGuard],
+  exports: [
+    DeliveryUserAuthGuard,
+    DeliveryAdminAuthGuard,
+    DeliveryAdminPermissionGuard,
+    DeliverySellerAuthGuard,
+    DeliverySellerPermissionGuard,
+  ],
 })
 export class DeliveryAuthModule {}

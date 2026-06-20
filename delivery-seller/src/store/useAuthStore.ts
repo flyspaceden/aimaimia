@@ -29,6 +29,8 @@ interface AuthState {
   setSellerNickname: (nickname: string) => void;
   /** 检查角色权限 */
   hasRole: (...roles: StaffRole[]) => boolean;
+  /** 检查配送中心权限码 */
+  hasPermission: (permission: string) => boolean;
   /** 是否企业主 */
   isOwner: () => boolean;
 }
@@ -62,6 +64,37 @@ const useAuthStore = create<AuthState>()(
         const { seller } = get();
         if (!seller) return false;
         return roles.includes(seller.role);
+      },
+
+      hasPermission: (permission) => {
+        const { seller } = get();
+        if (!seller) return false;
+        if (seller.role === 'OWNER') return true;
+
+        const permissions = seller.permissionCodes ?? [];
+        const unprefixed = permission.replace(/^delivery:/, '');
+        const [moduleName, action] = unprefixed.split(':');
+        const candidates = new Set([permission, unprefixed, `delivery:${unprefixed}`]);
+        if (action === 'read') {
+          candidates.add(`${moduleName}:write`);
+          candidates.add(`${moduleName}:manage`);
+          candidates.add(`delivery:${moduleName}:write`);
+          candidates.add(`delivery:${moduleName}:manage`);
+        }
+        if (action === 'write') {
+          candidates.add(`${moduleName}:manage`);
+          candidates.add(`delivery:${moduleName}:manage`);
+        }
+
+        for (const candidate of candidates) {
+          if (permissions.includes(candidate)) return true;
+        }
+        return (
+          permissions.includes(`${moduleName}:*`) ||
+          permissions.includes(`delivery:${moduleName}:*`) ||
+          permissions.includes('delivery:*') ||
+          permissions.includes('*')
+        );
       },
 
       isOwner: () => {

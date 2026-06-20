@@ -15,12 +15,19 @@ import {
   ShopOutlined,
   ShoppingCartOutlined,
   SolutionOutlined,
+  SwapOutlined,
   TruckOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import { logout } from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
+
+const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
+const isProduction = appEnv === 'production';
+const switchToAdminUrl = isProduction
+  ? 'https://admin.ai-maimai.com'
+  : 'https://test-admin.ai-maimai.com';
 
 const menuRoutes: ProLayoutProps['route'] = {
   path: '/',
@@ -101,6 +108,14 @@ export default function AdminLayout() {
     navigate('/login', { replace: true });
   };
 
+  const handleSwitchToAdmin = () => {
+    if (isGlobalDirty()) {
+      const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
+      if (!confirmed) return;
+    }
+    window.location.href = switchToAdminUrl;
+  };
+
   return (
     <ProLayout
       title="配送管理后台"
@@ -159,6 +174,13 @@ export default function AdminLayout() {
           <Dropdown
             menu={{
               items: [
+                {
+                  key: 'switch-admin',
+                  icon: <SwapOutlined />,
+                  label: '切换爱买买管理后台',
+                  onClick: handleSwitchToAdmin,
+                },
+                { type: 'divider' },
                 {
                   key: 'account-security',
                   icon: <SafetyOutlined />,

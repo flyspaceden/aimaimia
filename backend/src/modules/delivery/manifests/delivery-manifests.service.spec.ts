@@ -349,6 +349,7 @@ describe('DeliveryManifestsService', () => {
     const uploadedPdf = uploadService.uploadBuffer.mock.calls[0][0] as Buffer;
     expect(uploadedPdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
     expect(manifest.type).toBe('SELLER_FULFILLMENT');
+    expect(manifest.fileUrl).toBe('/delivery-seller/upload/download?key=delivery%2Fmanifests%2Ffile.pdf');
     expect(manifest.payloadSnapshot.columns).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'finalUnitPrice' }),
@@ -357,7 +358,7 @@ describe('DeliveryManifestsService', () => {
     );
   });
 
-  it('renders seller fulfillment PDFs from normalized visible columns and keeps fixed columns non-hideable', async () => {
+  it('renders seller fulfillment PDFs from normalized visible columns and allows fixed system columns to be hidden', async () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
@@ -395,7 +396,6 @@ describe('DeliveryManifestsService', () => {
     expect(uploadedPdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
     expect(manifest.payloadSnapshot.renderedTable.headers).toEqual([
       '收件人',
-      '配送主单',
       '子单号',
       '商品',
       'Unit',
@@ -408,7 +408,6 @@ describe('DeliveryManifestsService', () => {
     ]);
     expect(manifest.payloadSnapshot.renderedTable.rows[0]).toEqual([
       'Receiver A',
-      'PSDD0000000000001',
       'PSZDD000000000001',
       'Beef',
       'Qinghe Kitchen',
@@ -466,6 +465,7 @@ describe('DeliveryManifestsService', () => {
     expect(uploadedSheet).not.toContain('|5.00|');
     expect(uploadedSheet).not.toContain('Shipping Share');
     expect(manifest.type).toBe('SELLER_FINANCE');
+    expect(manifest.fileUrl).toBe('/delivery-seller/upload/download?key=delivery%2Fmanifests%2Ffile.xls');
     expect(manifest.payloadSnapshot.columns).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'supplyAmount', visible: true }),
@@ -549,7 +549,7 @@ describe('DeliveryManifestsService', () => {
     expect(second.payloadSnapshot.rows).toHaveLength(2);
   });
 
-  it('protects fixed columns while still supporting column names, order, and visibility for template regeneration', async () => {
+  it('supports column names, order, and visibility for template regeneration including fixed system columns', async () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
@@ -579,6 +579,9 @@ describe('DeliveryManifestsService', () => {
       ],
     });
 
+    expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
     expect(deliveryPrisma.deliveryManifestVersion.updateMany).toHaveBeenCalledWith({
       where: { templateId: 'tmpl_seller_fulfillment', status: 'PUBLISHED' },
       data: { status: 'ARCHIVED' },
@@ -590,7 +593,7 @@ describe('DeliveryManifestsService', () => {
           key: 'orderId',
           label: 'Delivery Order',
           sortOrder: 90,
-          visible: true,
+          visible: false,
           fixed: true,
         }),
         expect.objectContaining({
@@ -602,6 +605,36 @@ describe('DeliveryManifestsService', () => {
         }),
       ]),
     );
+  });
+
+  it('rejects seller fulfillment template column labels that expose money, cost, price, or settlement fields', async () => {
+    const template = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: 'Seller Fulfillment',
+      description: null,
+      config: {
+        columns: [
+          { key: 'orderId', label: 'Order ID', sortOrder: 10, visible: true, fixed: true },
+        ],
+      },
+      isDefault: true,
+      isActive: true,
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findMany
+      .mockResolvedValueOnce([{ id: 'ver1', versionNo: 1, status: 'PUBLISHED' }]);
+
+    await expect(
+      service.regenerateTemplate('admin_1', 'tmpl_seller_fulfillment', {
+        columns: [
+          { key: 'note', label: '结算金额备注', sortOrder: 15, visible: true },
+        ],
+      }),
+    ).rejects.toThrow('卖家配货清单禁止自定义金额相关字段');
+
+    expect(deliveryPrisma.deliveryManifestTemplate.update).not.toHaveBeenCalled();
+    expect(deliveryPrisma.deliveryManifestVersion.create).not.toHaveBeenCalled();
   });
 
   it('supports per-order custom columns and values so buyer manifests can be regenerated with extra fields', async () => {
@@ -692,20 +725,20 @@ describe('DeliveryManifestsService', () => {
     deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
     deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
 
-    await expect(
-      service.upsertTargetCustomization('admin_1', {
-        manifestType: 'SELLER_FULFILLMENT',
-        targetId: 'PSZDD000000000001',
-        entries: [
-          {
-            key: 'shippingFee',
-            label: '运费金额',
-            value: '5.00',
-            visible: true,
-          },
-        ],
-      }),
-    ).rejects.toThrow('卖家配货清单禁止自定义金额相关字段');
+    for (const entry of [
+      { key: 'shippingFee', label: '运费金额', value: '5.00' },
+      { key: 'supplyPrice', label: '供货价', value: '保密' },
+      { key: 'settlementMemo', label: '结算款', value: '后台核算' },
+      { key: 'lineTotal', label: '总价', value: '自动计算' },
+    ]) {
+      await expect(
+        service.upsertTargetCustomization('admin_1', {
+          manifestType: 'SELLER_FULFILLMENT',
+          targetId: 'PSZDD000000000001',
+          entries: [{ ...entry, visible: true }],
+        }),
+      ).rejects.toThrow('卖家配货清单禁止自定义金额相关字段');
+    }
   });
 
   it('rejects seller fulfillment custom values that reveal money or pricing information', async () => {
@@ -730,7 +763,7 @@ describe('DeliveryManifestsService', () => {
     deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
     deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
 
-    for (const value of ['¥100', '平台售价 100', '成本 60', '运费到付']) {
+    for (const value of ['¥100', '平台售价 100', '成本 60', '运费到付', '付款100元', '货款 100']) {
       await expect(
         service.upsertTargetCustomization('admin_1', {
           manifestType: 'SELLER_FULFILLMENT',

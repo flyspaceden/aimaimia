@@ -23,12 +23,12 @@ import {
   PrismaClient,
 } from '../src/generated/delivery-client';
 import { DELIVERY_MANIFEST_TEMPLATES } from '../src/modules/delivery/manifests/delivery-manifest.definitions';
+import { resolveDeliverySeedPassword } from './seed-security';
 
 const prisma = new PrismaClient();
 
 type DeliverySeedPrefix = 'PSYH' | 'PSSJ' | 'PSSP' | 'PSDD' | 'PSZDD' | 'PSZF' | 'PSQD';
 
-const seedPassword = process.env.DELIVERY_SEED_PASSWORD ?? 'AimmDeliverySeed@2026!';
 const seedPasswordRounds = Number(process.env.DELIVERY_SEED_BCRYPT_ROUNDS ?? '10');
 
 const ids = {
@@ -332,6 +332,10 @@ async function seedManifestTemplates(adminId: string) {
 }
 
 async function main(): Promise<void> {
+  const seedPassword = resolveDeliverySeedPassword({
+    DELIVERY_SEED_PASSWORD: process.env.DELIVERY_SEED_PASSWORD,
+  });
+
   if (!Number.isInteger(seedPasswordRounds) || seedPasswordRounds < 4 || seedPasswordRounds > 15) {
     throw new Error('DELIVERY_SEED_BCRYPT_ROUNDS must be an integer between 4 and 15');
   }
@@ -987,7 +991,7 @@ async function main(): Promise<void> {
     JSON.stringify(
       {
         message: 'Delivery seed completed',
-        passwordSource: process.env.DELIVERY_SEED_PASSWORD ? 'DELIVERY_SEED_PASSWORD' : 'default seed password',
+        passwordSource: 'DELIVERY_SEED_PASSWORD',
         admins: admins.map((admin) => ({
           id: admin.id,
           username: admin.username,

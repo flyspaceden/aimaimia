@@ -165,75 +165,81 @@ export class DeliveryManifestsService {
       throw new BadRequestException('不支持的配送清单模板类型');
     }
 
-    return this.deliveryPrisma.$transaction(async (tx) => {
-      const existingVersions = await tx.deliveryManifestVersion.findMany({
-        where: { templateId },
-        orderBy: [{ versionNo: 'desc' }],
-      });
-      const currentConfig = this.normalizeTemplateConfig(definition, template.config);
-      const nextConfig = this.normalizeTemplateConfig(definition, {
-        columns: dto.columns?.length
-          ? currentConfig.columns.map((column) => {
-              const override = dto.columns?.find((item) => item.key === column.key);
-              return override
-                ? {
-                    ...column,
-                    label: override.label?.trim() || column.label,
-                    sortOrder: typeof override.sortOrder === 'number' ? override.sortOrder : column.sortOrder,
-                    visible: column.fixed ? true : override.visible ?? column.visible,
-                  }
-                : column;
-            }).concat(
-              (dto.columns ?? [])
-                .filter((item) => !currentConfig.columns.some((column) => column.key === item.key))
-                .map((item) => {
-                  const base = definition.columns.find((column) => column.key === item.key);
-                  if (!base) {
-                    throw new BadRequestException(`不支持的模板列: ${item.key}`);
-                  }
-                  return {
-                    ...base,
-                    label: item.label?.trim() || base.label,
-                    sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : base.sortOrder,
-                    visible: base.fixed ? true : item.visible ?? base.visible,
-                  };
-                }),
-            )
-          : currentConfig.columns,
-      });
+    return this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const existingVersions = await tx.deliveryManifestVersion.findMany({
+          where: { templateId },
+          orderBy: [{ versionNo: 'desc' }],
+        });
+        const currentConfig = this.normalizeTemplateConfig(definition, template.config);
+        const nextConfig = this.normalizeTemplateConfig(definition, {
+          columns: dto.columns?.length
+            ? currentConfig.columns.map((column) => {
+                const override = dto.columns?.find((item) => item.key === column.key);
+                return override
+                  ? {
+                      ...column,
+                      label: override.label?.trim() || column.label,
+                      sortOrder: typeof override.sortOrder === 'number' ? override.sortOrder : column.sortOrder,
+                      visible: override.visible ?? column.visible,
+                    }
+                  : column;
+              }).concat(
+                (dto.columns ?? [])
+                  .filter((item) => !currentConfig.columns.some((column) => column.key === item.key))
+                  .map((item) => {
+                    const base = definition.columns.find((column) => column.key === item.key);
+                    if (!base) {
+                      throw new BadRequestException(`不支持的模板列: ${item.key}`);
+                    }
+                    return {
+                      ...base,
+                      label: item.label?.trim() || base.label,
+                      sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : base.sortOrder,
+                      visible: item.visible ?? base.visible,
+                    };
+                  }),
+              )
+            : currentConfig.columns,
+        });
+        this.assertTemplateColumnsAllowed(definition, nextConfig.columns);
 
-      await tx.deliveryManifestVersion.updateMany({
-        where: { templateId, status: DeliveryManifestVersionStatus.PUBLISHED },
-        data: { status: DeliveryManifestVersionStatus.ARCHIVED },
-      });
+        await tx.deliveryManifestVersion.updateMany({
+          where: { templateId, status: DeliveryManifestVersionStatus.PUBLISHED },
+          data: { status: DeliveryManifestVersionStatus.ARCHIVED },
+        });
 
-      await tx.deliveryManifestTemplate.update({
-        where: { id: templateId },
-        data: {
-          name: dto.name?.trim() || template.name,
-          description: dto.description?.trim() || template.description,
-          config: nextConfig as unknown as Prisma.InputJsonValue,
-        },
-      });
+        await tx.deliveryManifestTemplate.update({
+          where: { id: templateId },
+          data: {
+            name: dto.name?.trim() || template.name,
+            description: dto.description?.trim() || template.description,
+            config: nextConfig as unknown as Prisma.InputJsonValue,
+          },
+        });
 
-      const version = await tx.deliveryManifestVersion.create({
-        data: {
+        const version = await tx.deliveryManifestVersion.create({
+          data: {
+            templateId,
+            versionNo: (existingVersions[0]?.versionNo ?? 0) + 1,
+            status: DeliveryManifestVersionStatus.PUBLISHED,
+            config: nextConfig as unknown as Prisma.InputJsonValue,
+            createdByAdminId: deliveryAdminUserId,
+          },
+        });
+
+        return {
+          id: version.id,
           templateId,
-          versionNo: (existingVersions[0]?.versionNo ?? 0) + 1,
-          status: DeliveryManifestVersionStatus.PUBLISHED,
-          config: nextConfig as unknown as Prisma.InputJsonValue,
-          createdByAdminId: deliveryAdminUserId,
-        },
-      });
-
-      return {
-        id: version.id,
-        templateId,
-        versionNo: version.versionNo,
-        status: version.status,
-        config: nextConfig,
-      };
-    });
+          versionNo: version.versionNo,
+          status: version.status,
+          config: nextConfig,
+        };
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   }
 
   async upsertTargetCustomization(
@@ -321,14 +327,14 @@ export class DeliveryManifestsService {
       subOrderId,
     );
     const manifest = await this.ensureGeneratedFulfillmentManifest(definition, context);
-    return this.mapManifestRow(manifest);
+    return this.mapSellerManifestRow(manifest);
   }
 
   async exportSellerFinanceManifest(merchantId: string) {
     const definition = DELIVERY_MANIFEST_TEMPLATES.SELLER_FINANCE;
     const context = await this.deliveryOrdersService.getSellerFinanceExportContext(merchantId);
     const manifest = await this.ensureGeneratedFinanceManifest(definition, context);
-    return this.mapManifestRow(manifest);
+    return this.mapSellerManifestRow(manifest);
   }
 
   private async ensureGeneratedOrderManifest(
@@ -601,7 +607,7 @@ export class DeliveryManifestsService {
               typeof source?.sortOrder === 'number' && Number.isInteger(source.sortOrder)
                 ? source.sortOrder
                 : column.sortOrder,
-            visible: column.fixed ? true : source?.visible === false ? false : column.visible,
+            visible: source?.visible === false ? false : column.visible,
           };
         })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key)),
@@ -793,12 +799,24 @@ export class DeliveryManifestsService {
       'amount',
       'fee',
       'markup',
+      'payment',
+      'settlement',
+      'supply',
+      'unitprice',
+      'totalprice',
       'shippingfee',
       '加价',
       '成本',
       '售价',
       '金额',
       '运费',
+      '供货',
+      '结算',
+      '付款',
+      '货款',
+      '单价',
+      '总价',
+      '小计',
     ];
     const hasBlockedTerm = blockedTerms.some((term) => normalized.includes(term));
     const hasMoneyPattern =
@@ -807,6 +825,18 @@ export class DeliveryManifestsService {
       );
     if (hasBlockedTerm || hasMoneyPattern) {
       throw new BadRequestException('卖家配货清单禁止自定义金额相关字段');
+    }
+  }
+
+  private assertTemplateColumnsAllowed(
+    definition: DeliveryManifestTemplateDefinition,
+    columns: DeliveryManifestColumnDefinition[],
+  ) {
+    if (definition.apiType !== 'SELLER_FULFILLMENT') {
+      return;
+    }
+    for (const column of columns) {
+      this.assertCustomFieldAllowed(definition, column.key, column.label, '');
     }
   }
 
@@ -886,6 +916,37 @@ export class DeliveryManifestsService {
         versionNo,
       },
     };
+  }
+
+  private mapSellerManifestRow(row: any) {
+    const mapped = this.mapManifestRow(row);
+    return {
+      ...mapped,
+      fileUrl: this.buildSellerDownloadPath(row.storageKey, row.fileUrl),
+    };
+  }
+
+  private buildSellerDownloadPath(storageKey?: string | null, fileUrl?: string | null) {
+    const key = storageKey || this.extractDeliveryStorageKey(fileUrl);
+    if (!key) {
+      return fileUrl ?? '';
+    }
+    return `/delivery-seller/upload/download?${new URLSearchParams({ key }).toString()}`;
+  }
+
+  private extractDeliveryStorageKey(fileUrl?: string | null) {
+    if (!fileUrl) {
+      return null;
+    }
+    try {
+      const pathname = decodeURIComponent(new URL(fileUrl).pathname).replace(/^\/+/, '');
+      const index = pathname.indexOf('delivery/');
+      return index >= 0 ? pathname.slice(index) : null;
+    } catch {
+      const clean = decodeURIComponent(fileUrl.split('?')[0]).replace(/^\/+/, '');
+      const index = clean.indexOf('delivery/');
+      return index >= 0 ? clean.slice(index) : null;
+    }
   }
 
   private money(cents: number) {

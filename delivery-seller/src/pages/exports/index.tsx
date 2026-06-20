@@ -4,20 +4,18 @@ import { DownloadOutlined, FileDoneOutlined, FileExcelOutlined, FilePdfOutlined 
 import { useQuery } from '@tanstack/react-query';
 import { exportFinanceManifest, exportFulfillmentManifest, type DeliveryManifest } from '@/api/manifests';
 import { getSettlements, type DeliverySettlement } from '@/api/settlements';
-import { toAbsoluteApiUrl } from '@/utils/api-url';
+import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 
 interface FulfillmentExportForm {
   subOrderId: string;
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 const money = (value?: number) => (typeof value === 'number' ? `¥${(value / 100).toFixed(2)}` : '-');
 
-function openManifest(manifest: DeliveryManifest) {
-  const url = toAbsoluteApiUrl(manifest.fileUrl);
-  if (url) {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+async function openManifest(manifest: DeliveryManifest) {
+  await downloadDeliveryUploadWithAuth(manifest.fileUrl, manifest.title || '配送清单', API_BASE);
 }
 
 export default function ExportCenterPage() {
@@ -37,7 +35,7 @@ export default function ExportCenterPage() {
     try {
       const manifest = await exportFinanceManifest();
       setLastManifest(manifest);
-      openManifest(manifest);
+      await openManifest(manifest);
       message.success('财务导出已生成');
     } catch (err) {
       message.error(err instanceof Error ? err.message : '财务导出失败');
@@ -51,7 +49,7 @@ export default function ExportCenterPage() {
     try {
       const manifest = await exportFulfillmentManifest(values.subOrderId.trim());
       setLastManifest(manifest);
-      openManifest(manifest);
+      await openManifest(manifest);
       message.success('履约清单已生成');
     } catch (err) {
       message.error(err instanceof Error ? err.message : '履约清单生成失败');
@@ -98,7 +96,7 @@ export default function ExportCenterPage() {
             <Button
               type="link"
               icon={<DownloadOutlined />}
-              onClick={() => openManifest(lastManifest)}
+              onClick={() => void openManifest(lastManifest)}
             >
               {lastManifest.title}
             </Button>

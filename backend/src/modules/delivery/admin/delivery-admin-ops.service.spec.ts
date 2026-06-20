@@ -13,6 +13,10 @@ describe('DeliveryAdminOpsService', () => {
       deliveryMerchantApplication: {
         findUnique: jest.fn(),
       },
+      deliveryPayment: {
+        count: jest.fn(),
+        findMany: jest.fn(),
+      },
     };
 
     service = new DeliveryAdminOpsService(deliveryPrisma as DeliveryPrismaService);
@@ -78,5 +82,32 @@ describe('DeliveryAdminOpsService', () => {
       },
     });
     expect(application.reviewedByAdmin).not.toHaveProperty('passwordHash');
+  });
+
+  it('lists provider-failed payments and paid abnormal payments that need manual handling', async () => {
+    deliveryPrisma.deliveryPayment.count.mockResolvedValue(1);
+    deliveryPrisma.deliveryPayment.findMany.mockResolvedValue([
+      {
+        id: 'PSZF0000000000001',
+        status: 'PAID',
+        exceptionSummary: '配送订单创建失败',
+      },
+    ]);
+
+    const result = await service.listAbnormalPayments({ page: 1, pageSize: 20 });
+
+    expect(deliveryPrisma.deliveryPayment.count).toHaveBeenCalledWith({
+      where: {
+        OR: [{ status: 'FAILED' }, { exceptionSummary: { not: null } }],
+      },
+    });
+    expect(deliveryPrisma.deliveryPayment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ status: 'FAILED' }, { exceptionSummary: { not: null } }],
+        },
+      }),
+    );
+    expect(result.items).toHaveLength(1);
   });
 });

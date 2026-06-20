@@ -15,7 +15,7 @@ const companyStatusMap: Record<Company['status'], { text: string; color: string 
 export default function CompanySettingsPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const canEdit = useAuthStore((s) => s.hasRole('OWNER', 'MANAGER'));
+  const canEdit = useAuthStore((s) => s.hasPermission('company:write'));
   const [form] = Form.useForm<UpdateCompanyPayload>();
 
   const { data: company, isLoading } = useQuery({
@@ -113,7 +113,7 @@ export default function CompanySettingsPage() {
                 <Alert
                   type="info"
                   showIcon
-                  message="当前账号只有查看权限，如需修改请使用 OWNER 或 MANAGER 账号登录。"
+                  message="当前账号只有查看权限，如需修改请联系管理员开通公司资料维护权限。"
                 />
               )}
             </Form>

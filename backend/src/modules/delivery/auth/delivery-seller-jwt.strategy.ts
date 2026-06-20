@@ -59,7 +59,12 @@ export class DeliverySellerJwtStrategy extends PassportStrategy(Strategy, 'deliv
 
     const staff = await this.deliveryPrisma.deliverySellerStaff.findUnique({
       where: { id: payload.sub },
-      select: { status: true, merchantId: true },
+      select: {
+        status: true,
+        merchantId: true,
+        role: true,
+        permissionCodes: true,
+      },
     });
     if (!staff || staff.status !== 'ACTIVE') {
       throw new ForbiddenException('配送中心账号已被禁用');
@@ -73,8 +78,8 @@ export class DeliverySellerJwtStrategy extends PassportStrategy(Strategy, 'deliv
       deliverySellerStaffId: payload.sub,
       sessionId: payload.sessionId,
       merchantId: payload.merchantId,
-      role: payload.role,
-      permissionCodes: payload.permissionCodes,
+      role: staff.role,
+      permissionCodes: staff.permissionCodes ?? [],
       type: payload.type,
     };
   }

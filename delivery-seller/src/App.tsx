@@ -35,17 +35,29 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** 路由守卫：角色权限检查 */
-type StaffRole = 'OWNER' | 'MANAGER' | 'OPERATOR';
-function RequireRole({ roles, children }: { roles: StaffRole[]; children: ReactNode }) {
+function useDefaultAuthorizedPath() {
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  if (hasPermission('orders:read')) return '/';
+  if (hasPermission('products:read')) return '/products';
+  if (hasPermission('inventory:write')) return '/products/stock';
+  if (hasPermission('finance:read')) return '/exports';
+  if (hasPermission('company:read')) return '/company/settings';
+  if (hasPermission('staff:manage')) return '/company/staff';
+  if (hasPermission('customer-service:read')) return '/customer-service';
+  return '/account-security';
+}
+
+/** 路由守卫：配送中心权限码检查 */
+function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
   const seller = useAuthStore((s) => s.seller);
   const token = useAuthStore((s) => s.token);
-  // token 存在但 seller profile 未加载完成时显示 loading，避免误 redirect
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const fallbackPath = useDefaultAuthorizedPath();
   if (token && !seller) {
     return <Spin style={{ display: 'flex', justifyContent: 'center', marginTop: 120 }} />;
   }
-  if (!seller || !roles.includes(seller.role as StaffRole)) {
-    return <Navigate to="/" replace />;
+  if (!hasPermission(permission)) {
+    return <Navigate to={fallbackPath} replace />;
   }
   return <>{children}</>;
 }
@@ -85,25 +97,25 @@ export default function App() {
           />
 
           {/* 配送中心（需登录） */}
-          <Route
-            element={
-              <RequireAuth>
+            <Route
+              element={
+                <RequireAuth>
                 <SellerLayout />
               </RequireAuth>
-            }
-          >
-            <Route index element={<DashboardPage />} />
-            <Route path="products" element={<ProductListPage />} />
-            <Route path="products/create" element={<ProductEditPage />} />
-            <Route path="products/stock" element={<StockPage />} />
-            <Route path="products/:id/edit" element={<ProductEditPage />} />
-            <Route path="orders" element={<OrderListPage />} />
-            <Route path="orders/logistics" element={<LogisticsPage />} />
-            <Route path="orders/:id" element={<OrderDetailPage />} />
-            <Route path="exports" element={<ExportCenterPage />} />
-            <Route path="company/settings" element={<RequireRole roles={['OWNER', 'MANAGER']}><CompanySettingsPage /></RequireRole>} />
-            <Route path="company/staff" element={<RequireRole roles={['OWNER']}><StaffManagementPage /></RequireRole>} />
-            <Route path="customer-service" element={<CustomerServicePage />} />
+              }
+            >
+            <Route index element={<RequirePermission permission="orders:read"><DashboardPage /></RequirePermission>} />
+            <Route path="products" element={<RequirePermission permission="products:read"><ProductListPage /></RequirePermission>} />
+            <Route path="products/create" element={<RequirePermission permission="products:write"><ProductEditPage /></RequirePermission>} />
+            <Route path="products/stock" element={<RequirePermission permission="inventory:write"><StockPage /></RequirePermission>} />
+            <Route path="products/:id/edit" element={<RequirePermission permission="products:write"><ProductEditPage /></RequirePermission>} />
+            <Route path="orders" element={<RequirePermission permission="orders:read"><OrderListPage /></RequirePermission>} />
+            <Route path="orders/logistics" element={<RequirePermission permission="orders:read"><LogisticsPage /></RequirePermission>} />
+            <Route path="orders/:id" element={<RequirePermission permission="orders:read"><OrderDetailPage /></RequirePermission>} />
+            <Route path="exports" element={<RequirePermission permission="finance:read"><ExportCenterPage /></RequirePermission>} />
+            <Route path="company/settings" element={<RequirePermission permission="company:read"><CompanySettingsPage /></RequirePermission>} />
+            <Route path="company/staff" element={<RequirePermission permission="staff:manage"><StaffManagementPage /></RequirePermission>} />
+            <Route path="customer-service" element={<RequirePermission permission="customer-service:read"><CustomerServicePage /></RequirePermission>} />
             <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 

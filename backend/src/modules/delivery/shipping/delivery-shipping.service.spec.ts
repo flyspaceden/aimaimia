@@ -217,6 +217,12 @@ describe('DeliveryShippingService', () => {
     expect(sfInput).not.toHaveProperty('length');
     expect(sfInput).not.toHaveProperty('width');
     expect(sfInput).not.toHaveProperty('height');
+    expect(uploadService.uploadBuffer).toHaveBeenCalledWith(
+      Buffer.from('pdf-binary'),
+      'delivery/waybills',
+      '.pdf',
+      'application/pdf',
+    );
     expect(tx.deliveryShipment.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

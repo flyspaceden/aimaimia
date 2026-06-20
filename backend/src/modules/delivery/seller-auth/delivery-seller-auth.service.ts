@@ -541,6 +541,7 @@ export class DeliverySellerAuthService {
       staffId: staff.id,
       userId: staff.id,
       role: staff.role,
+      permissionCodes: staff.permissionCodes ?? [],
       user: {
         nickname: staff.realName ?? undefined,
         phone: staff.phone ?? undefined,
