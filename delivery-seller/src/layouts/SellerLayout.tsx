@@ -30,7 +30,7 @@ const switchToSellerCenterUrl = isProduction
 
 // 侧边栏菜单
 const menuRoutes: ProLayoutProps['route'] = {
-  path: '/',
+  path: '/delivery-center',
   routes: [
     {
       path: '/',
@@ -39,7 +39,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       permission: 'orders:read',
     },
     {
-      path: '/products',
+      path: '/delivery-products',
       name: '商品管理',
       icon: <ShoppingOutlined />,
       routes: [
@@ -48,7 +48,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
     },
     {
-      path: '/orders',
+      path: '/delivery-orders',
       name: '订单履约',
       icon: <FileTextOutlined />,
       routes: [
@@ -63,7 +63,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       permission: 'finance:read',
     },
     {
-      path: '/company/settings',
+      path: '/delivery-company',
       name: '企业与人员',
       icon: <ShopOutlined />,
       routes: [
