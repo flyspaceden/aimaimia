@@ -81,14 +81,6 @@ const permissionGroups: PermissionGroup[] = [
     ],
   },
   {
-    title: '客服中心',
-    description: '查看和处理配送客服会话。',
-    options: [
-      { value: 'customer-service:read', label: '查看客服' },
-      { value: 'customer-service:write', label: '处理客服' },
-    ],
-  },
-  {
     title: '财务与导出',
     description: '导出配送中心财务清单。',
     options: [

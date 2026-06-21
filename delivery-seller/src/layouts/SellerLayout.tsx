@@ -16,7 +16,6 @@ import {
   SafetyOutlined,
   SwapOutlined,
   TruckOutlined,
-  CustomerServiceOutlined,
   DatabaseOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
@@ -70,12 +69,6 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/company/settings', name: '企业设置', icon: <ShopOutlined />, permission: 'company:read' },
         { path: '/company/staff', name: '员工管理', icon: <TeamOutlined />, permission: 'staff:manage' },
       ],
-    },
-    {
-      path: '/customer-service',
-      name: '客服中心',
-      icon: <CustomerServiceOutlined />,
-      permission: 'customer-service:read',
     },
   ],
 };

@@ -3,7 +3,6 @@ import { ProCard } from '@ant-design/pro-components';
 import {
   ShoppingCartOutlined,
   ClockCircleOutlined,
-  MessageOutlined,
   AppstoreOutlined,
   ExportOutlined,
   TruckOutlined,
@@ -41,11 +40,6 @@ export default function DashboardPage() {
       value: dashboard?.deliveredPendingSettlementCount || 0,
       prefix: <ClockCircleOutlined />,
     },
-    {
-      title: '在线会话',
-      value: dashboard?.openConversationCount || 0,
-      prefix: <MessageOutlined />,
-    },
   ];
 
   const quickLinks = [
@@ -53,7 +47,6 @@ export default function DashboardPage() {
     { label: '库存管理', path: '/products/stock', icon: <AppstoreOutlined /> },
     { label: '物流跟踪', path: '/orders/logistics', icon: <TruckOutlined /> },
     { label: '经营导出', path: '/exports', icon: <ExportOutlined /> },
-    { label: '客服中心', path: '/customer-service', icon: <MessageOutlined /> },
     { label: '账号安全', path: '/account-security', icon: <ClockCircleOutlined /> },
   ];
 
@@ -67,7 +60,7 @@ export default function DashboardPage() {
       >
         <Row gutter={[16, 16]}>
           {summaryCards.map((item) => (
-            <Col xs={24} md={8} key={item.title}>
+            <Col xs={24} md={12} key={item.title}>
               <Statistic title={item.title} value={item.value} prefix={item.prefix} />
             </Col>
           ))}
@@ -98,7 +91,6 @@ export default function DashboardPage() {
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Button block onClick={() => navigate('/orders?statusTab=pending')}>待发货订单</Button>
               <Button block onClick={() => navigate('/exports')}>财务结算导出</Button>
-              <Button block onClick={() => navigate('/customer-service')}>客服中心</Button>
               <Text type="secondary">配送中心只展示供货、履约和结算相关事项。</Text>
             </Space>
           </ProCard>

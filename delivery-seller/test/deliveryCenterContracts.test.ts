@@ -26,7 +26,6 @@ test('delivery center exposes the task 17 operational routes', () => {
     'products/stock',
     'orders/logistics',
     'exports',
-    'customer-service',
     'company/settings',
     'company/staff',
     'account-security',
@@ -34,7 +33,7 @@ test('delivery center exposes the task 17 operational routes', () => {
     assert.match(app, new RegExp(route.replace('/', '\\/')));
   }
 
-  for (const menuText of ['库存管理', '物流跟踪', '经营导出', '客服中心']) {
+  for (const menuText of ['库存管理', '物流跟踪', '经营导出']) {
     assert.match(layout, new RegExp(menuText));
   }
 });
@@ -42,7 +41,7 @@ test('delivery center exposes the task 17 operational routes', () => {
 test('delivery center layout shows the full operational menu in the sidebar', () => {
   const layout = read('src/layouts/SellerLayout.tsx');
 
-  for (const group of ['商品管理', '订单履约', '经营导出', '企业与人员', '客服中心']) {
+  for (const group of ['商品管理', '订单履约', '经营导出', '企业与人员']) {
     assert.match(layout, new RegExp(group), `layout should expose grouped menu ${group}`);
   }
 
@@ -75,7 +74,6 @@ test('delivery center operational pages use seller-center dense page components'
     'src/pages/orders/logistics.tsx',
     'src/pages/company/index.tsx',
     'src/pages/company/staff.tsx',
-    'src/pages/customer-service/index.tsx',
   ]) {
     const source = read(file);
     assert.match(source, /ProCard|ProTable/, `${file} should use ProCard or ProTable`);
@@ -133,7 +131,6 @@ test('delivery center uses delivery-seller API namespaces for task 17 modules', 
     'src/api/shipments.ts',
     'src/api/manifests.ts',
     'src/api/settlements.ts',
-    'src/api/customerService.ts',
   ];
 
   for (const file of expectedFiles) {
@@ -164,18 +161,30 @@ test('delivery center does not keep routed refund or analytics surfaces', () => 
     'src/api/after-sale.ts',
     'src/api/analytics.ts',
     'src/api/trace.ts',
+    'src/api/customerService.ts',
     'src/pages/after-sale/index.tsx',
     'src/pages/after-sale/detail.tsx',
     'src/pages/analytics/index.tsx',
     'src/pages/trace/index.tsx',
+    'src/pages/customer-service/index.tsx',
   ]) {
     assert.equal(existsSync(join(root, removedPath)), false, `${removedPath} should not exist`);
   }
 
   const app = read('src/App.tsx');
   const layout = read('src/layouts/SellerLayout.tsx');
-  assert.doesNotMatch(app, /after-sale|analytics|trace/);
-  assert.doesNotMatch(layout, /售后管理|退款|数据看板|溯源管理|analytics|trace/);
+  assert.doesNotMatch(app, /after-sale|analytics|trace|customer-service|CustomerService|customer-service:read/);
+  assert.doesNotMatch(layout, /售后管理|退款|数据看板|溯源管理|客服中心|analytics|trace|customer-service|CustomerService/);
+});
+
+test('delivery center does not expose customer service on active seller pages', () => {
+  for (const file of [
+    'src/pages/dashboard/index.tsx',
+    'src/pages/company/staff.tsx',
+  ]) {
+    const source = read(file);
+    assert.doesNotMatch(source, /客服中心|在线会话|customer-service|customer-service:read|customer-service:write|CustomerService/, file);
+  }
 });
 
 test('active delivery seller source avoids platform price identifiers', () => {
@@ -224,7 +233,6 @@ test('delivery center visible labels translate backend enum values and technical
   const visibleSourceFiles = [
     'src/pages/company/index.tsx',
     'src/pages/company/staff.tsx',
-    'src/pages/customer-service/index.tsx',
     'src/pages/exports/index.tsx',
     'src/pages/orders/detail.tsx',
     'src/pages/orders/index.tsx',

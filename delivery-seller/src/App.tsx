@@ -17,7 +17,6 @@ const LogisticsPage = lazy(() => import('@/pages/orders/logistics'));
 const ExportCenterPage = lazy(() => import('@/pages/exports/index'));
 const CompanySettingsPage = lazy(() => import('@/pages/company/index'));
 const StaffManagementPage = lazy(() => import('@/pages/company/staff'));
-const CustomerServicePage = lazy(() => import('@/pages/customer-service/index'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 
 const PageLoading = () => (
@@ -43,7 +42,6 @@ function useDefaultAuthorizedPath() {
   if (hasPermission('finance:read')) return '/exports';
   if (hasPermission('company:read')) return '/company/settings';
   if (hasPermission('staff:manage')) return '/company/staff';
-  if (hasPermission('customer-service:read')) return '/customer-service';
   return '/account-security';
 }
 
@@ -115,7 +113,6 @@ export default function App() {
             <Route path="exports" element={<RequirePermission permission="finance:read"><ExportCenterPage /></RequirePermission>} />
             <Route path="company/settings" element={<RequirePermission permission="company:read"><CompanySettingsPage /></RequirePermission>} />
             <Route path="company/staff" element={<RequirePermission permission="staff:manage"><StaffManagementPage /></RequirePermission>} />
-            <Route path="customer-service" element={<RequirePermission permission="customer-service:read"><CustomerServicePage /></RequirePermission>} />
             <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 
