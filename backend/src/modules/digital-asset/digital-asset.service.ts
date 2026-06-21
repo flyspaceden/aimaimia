@@ -480,45 +480,58 @@ export class DigitalAssetService {
         addedSpend: account.cumulativeSpendAmount ?? 0,
         tiers,
       });
-      const nextCreditAssetBalance = (account.creditAssetBalance ?? 0) + historicalCreditResult.assetAmount;
-      const createdHistoricalLedger = await tx.digitalAssetLedger.create({
-        data: {
-          accountId: account.id,
-          userId: params.userId,
-          type: 'HISTORICAL_CONSUMPTION_GRANT',
-          subjectType: 'CREDIT_ASSET',
-          direction: 'CREDIT',
-          amount: historicalCreditResult.assetAmount,
-          assetAmount: historicalCreditResult.assetAmount,
-          balanceAfter: nextCreditAssetBalance,
-          cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
-          seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
-          creditAssetBalanceAfter: nextCreditAssetBalance,
-          vipPurchaseId: params.vipPurchaseId,
-          idempotencyKey: historicalCreditKey,
-          ruleSnapshot: {
-            tiers,
-            segments: historicalCreditResult.segments,
-            rawAssetAmount: historicalCreditResult.rawAssetAmount,
+      if (historicalCreditResult.assetAmount <= 0) {
+        const grantedAt = new Date();
+        await tx.digitalAssetAccount.update({
+          where: { id: account.id },
+          data: {
+            historicalCreditGrantedAt: grantedAt,
+            historicalCreditGrantLedgerId: null,
           },
-          meta: {
-            packageId: vipPackage.id,
-            vipAmount: params.vipAmount,
+        });
+        account.historicalCreditGrantedAt = grantedAt;
+        account.historicalCreditGrantLedgerId = null;
+      } else {
+        const nextCreditAssetBalance = (account.creditAssetBalance ?? 0) + historicalCreditResult.assetAmount;
+        const createdHistoricalLedger = await tx.digitalAssetLedger.create({
+          data: {
+            accountId: account.id,
+            userId: params.userId,
+            type: 'HISTORICAL_CONSUMPTION_GRANT',
+            subjectType: 'CREDIT_ASSET',
+            direction: 'CREDIT',
+            amount: historicalCreditResult.assetAmount,
+            assetAmount: historicalCreditResult.assetAmount,
+            balanceAfter: nextCreditAssetBalance,
+            cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+            seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
+            creditAssetBalanceAfter: nextCreditAssetBalance,
+            vipPurchaseId: params.vipPurchaseId,
+            idempotencyKey: historicalCreditKey,
+            ruleSnapshot: {
+              tiers,
+              segments: historicalCreditResult.segments,
+              rawAssetAmount: historicalCreditResult.rawAssetAmount,
+            },
+            meta: {
+              packageId: vipPackage.id,
+              vipAmount: params.vipAmount,
+            },
           },
-        },
-      });
-      const grantedAt = new Date();
-      await tx.digitalAssetAccount.update({
-        where: { id: account.id },
-        data: {
-          creditAssetBalance: nextCreditAssetBalance,
-          historicalCreditGrantedAt: grantedAt,
-          historicalCreditGrantLedgerId: createdHistoricalLedger.id,
-        },
-      });
-      account.creditAssetBalance = nextCreditAssetBalance;
-      account.historicalCreditGrantedAt = grantedAt;
-      account.historicalCreditGrantLedgerId = createdHistoricalLedger.id;
+        });
+        const grantedAt = new Date();
+        await tx.digitalAssetAccount.update({
+          where: { id: account.id },
+          data: {
+            creditAssetBalance: nextCreditAssetBalance,
+            historicalCreditGrantedAt: grantedAt,
+            historicalCreditGrantLedgerId: createdHistoricalLedger.id,
+          },
+        });
+        account.creditAssetBalance = nextCreditAssetBalance;
+        account.historicalCreditGrantedAt = grantedAt;
+        account.historicalCreditGrantLedgerId = createdHistoricalLedger.id;
+      }
     }
 
     if (params.inviterUserId && referralSeedAssetAmount > 0) {
@@ -865,7 +878,13 @@ export class DigitalAssetService {
   }) {
     const page = Math.max(1, Number(query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
-    const where: any = { userId };
+    const where: any = {
+      userId,
+      NOT: {
+        type: 'HISTORICAL_CONSUMPTION_GRANT',
+        amount: 0,
+      },
+    };
 
     if (options.restrictForNonVipBuyer) {
       const member = options.member ?? await (this.prisma as any).memberProfile.findUnique({ where: { userId } });
