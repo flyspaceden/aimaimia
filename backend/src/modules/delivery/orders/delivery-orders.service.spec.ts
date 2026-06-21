@@ -194,11 +194,11 @@ describe('DeliveryOrdersService', () => {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
     expect(tx.deliveryProductSku.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: 'sku_1' },
+      where: { id: 'sku_1', stock: { gte: 2 }, isActive: true },
       data: { stock: { decrement: 2 } },
     });
     expect(tx.deliveryProductSku.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'sku_2' },
+      where: { id: 'sku_2', stock: { gte: 1 }, isActive: true },
       data: { stock: { decrement: 1 } },
     });
     expect(tx.deliveryOrder.create).toHaveBeenCalledWith(
@@ -567,7 +567,7 @@ describe('DeliveryOrdersService', () => {
     );
   });
 
-  it('creates the paid delivery order even when current stock dropped below the checkout quantity', async () => {
+  it('rejects paid delivery order creation when current stock dropped below the checkout quantity', async () => {
     tx.deliveryCheckoutSession.findUnique.mockResolvedValue(activeCheckout);
     tx.deliveryProductSku.findMany.mockResolvedValue([
       {
@@ -599,7 +599,7 @@ describe('DeliveryOrdersService', () => {
         },
       },
     ]);
-    tx.deliveryProductSku.updateMany.mockResolvedValue({ count: 1 });
+    tx.deliveryProductSku.updateMany.mockResolvedValueOnce({ count: 0 });
     tx.deliveryOrder.create.mockResolvedValue({ id: 'PSDD0000000000001' });
     tx.deliverySubOrder.create
       .mockResolvedValueOnce({ id: 'PSZDD000000000001' })
@@ -608,39 +608,20 @@ describe('DeliveryOrdersService', () => {
     tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
     tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 1 });
 
-    const result = await service.createOrderFromPaidCheckout({
+    await expect(service.createOrderFromPaidCheckout({
       merchantOrderNo: 'PSZF0000000000001',
       providerTxnId: 'ALI_TXN_1',
       paidAt: new Date('2026-06-19T12:00:00.000Z'),
       rawPayload: { total_amount: '49.00' },
-    });
+    })).rejects.toBeInstanceOf(ConflictException);
 
     expect(tx.deliveryProductSku.updateMany).toHaveBeenCalledWith({
-      where: { id: 'sku_1' },
+      where: { id: 'sku_1', stock: { gte: 2 }, isActive: true },
       data: { stock: { decrement: 2 } },
     });
-    expect(tx.deliveryInventoryLedger.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          skuId: 'sku_1',
-          beforeStock: 1,
-          afterStock: -1,
-        }),
-      }),
-    );
-    expect(tx.deliveryOrder.create).toHaveBeenCalled();
-    expect(tx.deliveryPayment.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          status: 'PAID',
-          orderId: 'PSDD0000000000001',
-        }),
-      }),
-    );
-    expect(result).toMatchObject({
-      orderId: 'PSDD0000000000001',
-      idempotent: false,
-    });
+    expect(tx.deliveryInventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.deliveryOrder.create).not.toHaveBeenCalled();
+    expect(tx.deliveryPayment.upsert).not.toHaveBeenCalled();
   });
 
   it('lists only the authenticated buyer delivery orders with pagination', async () => {

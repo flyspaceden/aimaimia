@@ -32,51 +32,55 @@ const switchToAdminUrl = isProduction
 const menuRoutes: ProLayoutProps['route'] = {
   path: '/',
   routes: [
-    { path: '/', name: '工作台', icon: <DashboardOutlined /> },
-    { path: '/stats', name: '数据看板', icon: <BarChartOutlined /> },
+    { path: '/', name: '工作台', icon: <DashboardOutlined />, permission: 'delivery:dashboard:read' },
+    { path: '/stats', name: '数据看板', icon: <BarChartOutlined />, permission: 'delivery:dashboard:read' },
     {
       path: '/delivery-users',
       name: '用户与单位',
       icon: <UserOutlined />,
+      permissionAny: ['delivery:users:read'],
       routes: [
-        { path: '/users', name: '配送用户' },
-        { path: '/units', name: '配送单位', icon: <SolutionOutlined /> },
+        { path: '/users', name: '配送用户', permission: 'delivery:users:read' },
+        { path: '/units', name: '配送单位', icon: <SolutionOutlined />, permission: 'delivery:users:read' },
       ],
     },
     {
       path: '/delivery-commerce',
       name: '商家与商品',
       icon: <ShopOutlined />,
+      permissionAny: ['delivery:merchants:read', 'delivery:products:read', 'delivery:config:read'],
       routes: [
-        { path: '/merchants', name: '商家档案' },
-        { path: '/merchant-applications', name: '入驻审核' },
-        { path: '/products', name: '商品审核' },
-        { path: '/pricing-rules', name: '定价规则', icon: <ShoppingCartOutlined /> },
+        { path: '/merchants', name: '商家档案', permission: 'delivery:merchants:read' },
+        { path: '/merchant-applications', name: '入驻审核', permission: 'delivery:merchants:read' },
+        { path: '/products', name: '商品审核', permission: 'delivery:products:read' },
+        { path: '/pricing-rules', name: '定价规则', icon: <ShoppingCartOutlined />, permission: 'delivery:config:read' },
       ],
     },
     {
       path: '/delivery-fulfillment',
       name: '订单与履约',
       icon: <TruckOutlined />,
+      permissionAny: ['delivery:orders:read', 'delivery:settlements:read', 'delivery:manifests:read'],
       routes: [
-        { path: '/orders', name: '订单管理' },
-        { path: '/shipping-records', name: '发货记录' },
-        { path: '/abnormal-payments', name: '异常支付' },
-        { path: '/settlements', name: '结算管理' },
-        { path: '/manifests', name: '清单模板' },
+        { path: '/orders', name: '订单管理', permission: 'delivery:orders:read' },
+        { path: '/shipping-records', name: '发货记录', permission: 'delivery:orders:read' },
+        { path: '/abnormal-payments', name: '异常支付', permission: 'delivery:orders:read' },
+        { path: '/settlements', name: '结算管理', permission: 'delivery:settlements:read' },
+        { path: '/manifests', name: '清单模板', permission: 'delivery:manifests:read' },
       ],
     },
     {
       path: '/delivery-service',
       name: '客服中心',
       icon: <ContainerOutlined />,
+      permissionAny: ['delivery:customer-service:read'],
       routes: [
-        { path: '/cs/workstation', name: '对话工作台' },
-        { path: '/cs/tickets', name: '工单管理' },
-        { path: '/cs/faq', name: 'FAQ 管理' },
-        { path: '/cs/quick-entries', name: '快捷入口配置' },
-        { path: '/cs/quick-replies', name: '坐席快捷回复' },
-        { path: '/cs/dashboard', name: '数据看板' },
+        { path: '/cs/workstation', name: '对话工作台', permission: 'delivery:customer-service:read' },
+        { path: '/cs/tickets', name: '工单管理', permission: 'delivery:customer-service:read' },
+        { path: '/cs/faq', name: 'FAQ 管理', permission: 'delivery:customer-service:read' },
+        { path: '/cs/quick-entries', name: '快捷入口配置', permission: 'delivery:customer-service:read' },
+        { path: '/cs/quick-replies', name: '坐席快捷回复', permission: 'delivery:customer-service:read' },
+        { path: '/cs/dashboard', name: '数据看板', permission: 'delivery:customer-service:read' },
       ],
     },
     {
@@ -84,8 +88,8 @@ const menuRoutes: ProLayoutProps['route'] = {
       name: '系统管理',
       icon: <SettingOutlined />,
       routes: [
-        { path: '/config', name: '配置中心' },
-        { path: '/audit', name: '审计日志', icon: <AuditOutlined /> },
+        { path: '/config', name: '配置中心', permission: 'delivery:config:read' },
+        { path: '/audit', name: '审计日志', icon: <AuditOutlined />, permission: 'delivery:config:read' },
         { path: '/account-security', name: '账号安全', icon: <SafetyOutlined /> },
       ],
     },
@@ -93,11 +97,16 @@ const menuRoutes: ProLayoutProps['route'] = {
 };
 
 type MenuRoute = NonNullable<NonNullable<ProLayoutProps['route']>['routes']>[number];
+type DeliveryMenuRoute = MenuRoute & {
+  permission?: string;
+  permissionAny?: string[];
+  routes?: DeliveryMenuRoute[];
+};
 
-function flattenRoutes(routes: MenuRoute[]): string[] {
+function flattenRoutes(routes: DeliveryMenuRoute[]): string[] {
   return routes.reduce<string[]>((all, route) => {
     const current = route.path ? [route.path] : [];
-    const children = route.routes ? flattenRoutes(route.routes as MenuRoute[]) : [];
+    const children = route.routes ? flattenRoutes(route.routes) : [];
     return [...all, ...current, ...children];
   }, []);
 }
@@ -108,8 +117,38 @@ export default function AdminLayout() {
   const location = useLocation();
   const admin = useAuthStore((state) => state.admin);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const hasPermission = useAuthStore((state) => state.hasPermission);
   const [collapsed, setCollapsed] = useState(false);
-  const routeItems = (menuRoutes?.routes ?? []) as MenuRoute[];
+
+  const filteredRoute = useMemo(() => {
+    const filterMenuByPermission = (routes: DeliveryMenuRoute[] = []): DeliveryMenuRoute[] => (
+      routes.reduce<DeliveryMenuRoute[]>((all, route) => {
+        if (route.permission && !hasPermission(route.permission)) {
+          return all;
+        }
+        if (route.permissionAny?.length && !route.permissionAny.some(hasPermission)) {
+          return all;
+        }
+
+        const nextRoute: DeliveryMenuRoute = { ...route };
+        if (route.routes) {
+          nextRoute.routes = filterMenuByPermission(route.routes);
+          if (nextRoute.routes.length === 0) {
+            return all;
+          }
+        }
+
+        all.push(nextRoute);
+        return all;
+      }, [])
+    );
+
+    return {
+      ...menuRoutes,
+      routes: filterMenuByPermission((menuRoutes?.routes ?? []) as DeliveryMenuRoute[]),
+    };
+  }, [hasPermission]);
+  const routeItems = (filteredRoute.routes ?? []) as DeliveryMenuRoute[];
 
   const selectedKeys = useMemo(() => {
     const all = flattenRoutes(routeItems);
@@ -143,7 +182,7 @@ export default function AdminLayout() {
     <ProLayout
       title="配送管理后台"
       logo={null}
-      route={menuRoutes}
+      route={filteredRoute}
       layout="side"
       fixSiderbar
       collapsed={collapsed}

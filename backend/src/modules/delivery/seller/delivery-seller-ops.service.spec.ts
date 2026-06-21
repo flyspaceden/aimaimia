@@ -41,9 +41,6 @@ describe('DeliverySellerOpsService', () => {
       deliverySettlement: {
         count: jest.fn(),
       },
-      deliveryCustomerServiceConversation: {
-        count: jest.fn(),
-      },
       deliverySellerStaff: {
         findMany: jest.fn(),
         create: jest.fn(),
@@ -71,12 +68,10 @@ describe('DeliverySellerOpsService', () => {
       expect(settlementsMaterialized).toBe(true);
       return 2;
     });
-    deliveryPrisma.deliveryCustomerServiceConversation.count.mockResolvedValue(4);
 
     await expect(service.getDashboard('merchant_1')).resolves.toEqual({
       pendingShipmentCount: 5,
       deliveredPendingSettlementCount: 2,
-      openConversationCount: 4,
     });
 
     expect(deliverySettlementService.materializeEligibleSettlements).toHaveBeenCalledWith({

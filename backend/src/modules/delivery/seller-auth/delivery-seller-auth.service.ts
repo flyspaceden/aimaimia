@@ -83,7 +83,7 @@ export class DeliverySellerAuthService {
   }
 
   async sendSmsCode(dto: DeliverySellerSmsCodeDto, _ip?: string) {
-    await this.issueOtp(dto.phone, DeliveryOtpPurpose.LOGIN);
+    await this.issueOtp(dto.phone, DeliveryOtpPurpose.SELLER_LOGIN);
     return { ok: true };
   }
 
@@ -91,7 +91,7 @@ export class DeliverySellerAuthService {
     await this.verifyOtpOrThrow({
       phone: dto.phone,
       code: dto.code,
-      purpose: DeliveryOtpPurpose.LOGIN,
+      purpose: DeliveryOtpPurpose.SELLER_LOGIN,
       consume: true,
     });
 
@@ -341,7 +341,7 @@ export class DeliverySellerAuthService {
     await this.verifyOtpOrThrow({
       phone: currentStaff.phone,
       code: dto.oldPhoneCode,
-      purpose: DeliveryOtpPurpose.LOGIN,
+      purpose: DeliveryOtpPurpose.SELLER_LOGIN,
       consume: true,
     });
     await this.verifyOtpOrThrow({

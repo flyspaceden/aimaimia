@@ -146,8 +146,11 @@ export class DeliveryAdminOpsService {
     };
   }
 
-  async updateMerchant(id: string, dto: UpdateDeliveryMerchantDto) {
-    return this.deliveryPrisma.deliveryMerchant.update({
+  async updateMerchant(id: string, dto: UpdateDeliveryMerchantDto, deliveryAdminUserId?: string) {
+    const before = deliveryAdminUserId
+      ? await this.deliveryPrisma.deliveryMerchant.findUnique({ where: { id } })
+      : null;
+    const updated = await this.deliveryPrisma.deliveryMerchant.update({
       where: { id },
       data: {
         name: dto.name?.trim(),
@@ -156,6 +159,16 @@ export class DeliveryAdminOpsService {
         defaultMarkupBps: dto.defaultMarkupBps,
       },
     });
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      module: 'merchants',
+      action: 'UPDATE_MERCHANT',
+      targetType: 'DeliveryMerchant',
+      targetId: id,
+      summary: '更新配送商家',
+      before,
+      after: updated,
+    });
+    return updated;
   }
 
   async listMerchantApplications(query: PagingQuery) {
@@ -205,7 +218,8 @@ export class DeliveryAdminOpsService {
     id: string,
     dto: ReviewDeliveryMerchantApplicationDto,
   ) {
-    return this.deliveryPrisma.deliveryMerchantApplication.update({
+    const before = await this.deliveryPrisma.deliveryMerchantApplication.findUnique({ where: { id } });
+    const updated = await this.deliveryPrisma.deliveryMerchantApplication.update({
       where: { id },
       data: {
         status: dto.status,
@@ -215,6 +229,16 @@ export class DeliveryAdminOpsService {
         merchantId: dto.status === 'APPROVED' ? dto.merchantId : undefined,
       },
     });
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      module: 'merchants',
+      action: 'REVIEW_MERCHANT_APPLICATION',
+      targetType: 'DeliveryMerchantApplication',
+      targetId: id,
+      summary: '审核配送商家入驻申请',
+      before,
+      after: updated,
+    });
+    return updated;
   }
 
   async listOrders(query: PagingQuery) {
@@ -296,6 +320,44 @@ export class DeliveryAdminOpsService {
           }
         : undefined,
     });
+  }
+
+  private async writeAdminAuditLog(
+    deliveryAdminUserId: string | undefined,
+    input: {
+      module: string;
+      action: string;
+      targetType: string;
+      targetId: string;
+      summary: string;
+      before: unknown;
+      after: unknown;
+    },
+  ) {
+    if (!deliveryAdminUserId) {
+      return;
+    }
+
+    await this.deliveryPrisma.deliveryAuditLog.create({
+      data: {
+        actorType: 'ADMIN',
+        actorId: deliveryAdminUserId,
+        module: input.module,
+        action: input.action,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        before: this.toAuditJson(input.before),
+        after: this.toAuditJson(input.after),
+      },
+    });
+  }
+
+  private toAuditJson(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private async findManyWithPage(

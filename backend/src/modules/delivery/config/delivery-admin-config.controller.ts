@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Patch, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Public } from '../../../common/decorators/public.decorator';
 import { RequireDeliveryAdminPermission } from '../auth/decorators/require-delivery-admin-permission.decorator';
 import { DeliveryAdminAuthGuard } from '../auth/guards/delivery-admin-auth.guard';
@@ -20,7 +21,10 @@ export class DeliveryAdminConfigController {
 
   @Patch()
   @RequireDeliveryAdminPermission('delivery:config:write')
-  update(@Body() dto: UpdateDeliveryConfigDto) {
-    return this.deliveryConfigService.update(dto.items);
+  update(
+    @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,
+    @Body() dto: UpdateDeliveryConfigDto,
+  ) {
+    return this.deliveryConfigService.update(dto.items, deliveryAdminUserId);
   }
 }

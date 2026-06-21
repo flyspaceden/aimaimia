@@ -49,7 +49,7 @@ import {
 } from './utils';
 
 type UnitFieldFormValues = {
-  fieldKey: string;
+  fieldKey?: string;
   label?: string;
   fieldType?: string;
   sortOrder?: number;
@@ -173,6 +173,15 @@ function parseOptionLines(value?: string): JsonValue | undefined {
     .map((item) => item.trim())
     .filter(Boolean);
   return options.length > 0 ? options : undefined;
+}
+
+function buildInternalFieldKey(label?: string) {
+  const normalized = label
+    ?.trim()
+    .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
+  return normalized || `field_${Date.now()}`;
 }
 
 function renderLocationTags(record: DeliveryUnitFieldConfig) {
@@ -310,7 +319,7 @@ export default function DeliveryConfigPage() {
     mutationFn: async (values: UnitFieldFormValues) =>
       updateDeliveryUnitFieldConfig([
         {
-          fieldKey: values.fieldKey.trim(),
+          fieldKey: editingField?.fieldKey ?? buildInternalFieldKey(values.label),
           label: values.label?.trim() || undefined,
           fieldType: values.fieldType,
           sortOrder: values.sortOrder,
@@ -748,30 +757,20 @@ export default function DeliveryConfigPage() {
       >
         <Form form={fieldForm} layout="vertical">
           <Typography.Title level={5}>基础资料</Typography.Title>
-          {editingField ? (
-            <Form.Item name="fieldKey" hidden>
-              <Input />
-            </Form.Item>
-          ) : null}
+          <Form.Item name="fieldKey" hidden>
+            <Input />
+          </Form.Item>
           <Row gutter={16}>
-            {!editingField ? (
-              <Col xs={24} md={10}>
-                <Form.Item
-                  label="字段编号"
-                  name="fieldKey"
-                  extra="用于保存这项资料，买家不会看到。"
-                  rules={[{ required: true, message: '请输入字段编号' }]}
-                >
-                  <Input placeholder="例如：门禁信息" />
-                </Form.Item>
-              </Col>
-            ) : null}
-            <Col xs={24} md={editingField ? 12 : 8}>
-              <Form.Item label="字段名称" name="label">
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="字段名称"
+                name="label"
+                rules={[{ required: true, message: '请输入字段名称' }]}
+              >
                 <Input placeholder="例如：部门名称" />
               </Form.Item>
             </Col>
-            <Col xs={24} md={editingField ? 12 : 6}>
+            <Col xs={24} md={12}>
               <Form.Item label="填写方式" name="fieldType">
                 <Select options={unitFieldTypeOptions.map((item) => ({ label: formatDeliveryDisplayText(item), value: item }))} />
               </Form.Item>

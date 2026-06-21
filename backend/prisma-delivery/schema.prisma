@@ -15,6 +15,9 @@ enum DeliveryAuthProvider {
 
 enum DeliveryOtpPurpose {
   LOGIN
+  BUYER_LOGIN
+  ADMIN_LOGIN
+  SELLER_LOGIN
   BIND
   RESET
 }

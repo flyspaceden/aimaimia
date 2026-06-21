@@ -11,6 +11,7 @@ describe('DeliveryPaymentsService', () => {
   let tx: any;
   let deliveryPrisma: any;
   let deliveryOrdersService: { createOrderFromPaidCheckout: jest.Mock };
+  let deliveryManifestsService: { generateOrderManifestAfterPayment: jest.Mock };
   let service: DeliveryPaymentsService;
 
   beforeEach(() => {
@@ -36,10 +37,14 @@ describe('DeliveryPaymentsService', () => {
     deliveryOrdersService = {
       createOrderFromPaidCheckout: jest.fn(),
     };
+    deliveryManifestsService = {
+      generateOrderManifestAfterPayment: jest.fn(),
+    };
 
     service = new DeliveryPaymentsService(
       deliveryPrisma as DeliveryPrismaService,
       deliveryOrdersService as unknown as DeliveryOrdersService,
+      deliveryManifestsService as any,
     );
   });
 
@@ -116,6 +121,11 @@ describe('DeliveryPaymentsService', () => {
         trigger: 'queued',
       },
     });
+    deliveryManifestsService.generateOrderManifestAfterPayment.mockResolvedValue({
+      id: 'PSQD0000000000001',
+      status: 'GENERATED',
+      fileUrl: 'https://oss.example.com/delivery/manifests/buyer-full.pdf',
+    });
 
     const result = await service.handlePaymentCallback({
       merchantOrderNo: 'PSZF0000000000001',
@@ -134,14 +144,18 @@ describe('DeliveryPaymentsService', () => {
       paidAt: new Date('2026-06-19T12:00:00.000Z'),
       rawPayload: { total_amount: '49.00' },
     });
+    expect(deliveryManifestsService.generateOrderManifestAfterPayment).toHaveBeenCalledWith(
+      'PSDD0000000000001',
+    );
     expect(result).toEqual({
       code: 'SUCCESS',
       message: '配送支付处理成功',
       orderId: 'PSDD0000000000001',
       subOrderIds: ['PSZDD000000000001'],
       manifest: {
-        status: 'PENDING',
-        trigger: 'queued',
+        id: 'PSQD0000000000001',
+        status: 'GENERATED',
+        fileUrl: 'https://oss.example.com/delivery/manifests/buyer-full.pdf',
       },
     });
   });
@@ -365,5 +379,77 @@ describe('DeliveryPaymentsService', () => {
         paidAt: new Date('2026-06-19T12:00:00.000Z'),
       },
     });
+  });
+
+  it('keeps payment callback successful and records the order when buyer manifest generation fails after order creation', async () => {
+    deliveryPrisma.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      totalAmountCents: 4900,
+      paymentChannel: 'ALIPAY',
+      status: 'ACTIVE',
+    });
+    deliveryOrdersService.createOrderFromPaidCheckout.mockResolvedValue({
+      orderId: 'PSDD0000000000001',
+      subOrderIds: ['PSZDD000000000001'],
+      idempotent: false,
+      manifest: {
+        status: 'PENDING',
+        trigger: 'queued',
+      },
+    });
+    deliveryManifestsService.generateOrderManifestAfterPayment.mockRejectedValue(
+      new Error('配送清单 PDF 生成失败'),
+    );
+    const loggerErrorSpy = jest
+      .spyOn((service as any).logger, 'error')
+      .mockImplementation(() => undefined);
+    tx.deliveryCheckoutSession.findUnique.mockResolvedValue({
+      id: 'checkout_1',
+      merchantOrderNo: 'PSZF0000000000001',
+      paymentChannel: 'ALIPAY',
+      totalAmountCents: 4900,
+      status: 'PAID',
+    });
+    tx.deliveryPayment.upsert.mockResolvedValue({ id: 'PSZF0000000000001', status: 'PAID' });
+    tx.deliveryCheckoutSession.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.handlePaymentCallback({
+        merchantOrderNo: 'PSZF0000000000001',
+        providerTxnId: 'ALI_TXN_4',
+        status: 'SUCCESS',
+        paidAt: '2026-06-19T12:00:00.000Z',
+        paymentChannel: 'ALIPAY',
+        claimedAmountCents: 4900,
+        rawPayload: { total_amount: '49.00' },
+        skipSignatureVerification: true,
+      }),
+    ).resolves.toEqual({
+      code: 'SUCCESS',
+      message: '配送支付处理成功',
+      orderId: 'PSDD0000000000001',
+      subOrderIds: ['PSZDD000000000001'],
+      manifest: {
+        status: 'FAILED',
+        trigger: 'payment_callback',
+        message: '配送清单生成失败，已记录异常',
+      },
+    });
+
+    expect(tx.deliveryPayment.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { merchantOrderNo: 'PSZF0000000000001' },
+        update: expect.objectContaining({
+          orderId: 'PSDD0000000000001',
+          status: 'PAID',
+          exceptionSummary: expect.stringContaining('配送清单 PDF 生成失败'),
+        }),
+      }),
+    );
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('配送支付已成功但清单生成失败'),
+      expect.any(String),
+    );
   });
 });

@@ -486,12 +486,12 @@ export class DeliveryOrdersService {
             for (const [skuId, quantity] of aggregatedQuantityBySkuId.entries()) {
               const sku = skuById.get(skuId)!;
               const updated = await tx.deliveryProductSku.updateMany({
-                where: { id: skuId },
+                where: { id: skuId, stock: { gte: quantity }, isActive: true },
                 data: { stock: { decrement: quantity } },
               });
 
               if (updated.count !== 1) {
-                throw new ConflictException('配送 SKU 库存扣减失败，请人工核对');
+                throw new ConflictException('配送 SKU 库存不足或已下架，请人工核对');
               }
 
               await tx.deliveryInventoryLedger.create({

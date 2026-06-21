@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Public } from '../../../common/decorators/public.decorator';
 import { RequireDeliveryAdminPermission } from '../auth/decorators/require-delivery-admin-permission.decorator';
 import { DeliveryAdminAuthGuard } from '../auth/guards/delivery-admin-auth.guard';
@@ -25,25 +26,40 @@ export class DeliveryAdminProductsController {
 
   @Post()
   @RequireDeliveryAdminPermission('delivery:products:write')
-  create(@Body() dto: CreateAdminDeliveryProductDto) {
-    return this.deliveryProductsService.createAdminProduct(dto);
+  create(
+    @Body() dto: CreateAdminDeliveryProductDto,
+    @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,
+  ) {
+    return this.deliveryProductsService.createAdminProduct(dto, deliveryAdminUserId);
   }
 
   @Patch(':id')
   @RequireDeliveryAdminPermission('delivery:products:write')
-  update(@Param('id') id: string, @Body() dto: UpdateDeliveryProductDto) {
-    return this.deliveryProductsService.updateAdminProduct(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateDeliveryProductDto,
+    @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,
+  ) {
+    return this.deliveryProductsService.updateAdminProduct(id, dto, deliveryAdminUserId);
   }
 
   @Post(':id/approve')
   @RequireDeliveryAdminPermission('delivery:products:audit')
-  approve(@Param('id') id: string, @Body() dto: ReviewDeliveryProductDto) {
-    return this.deliveryProductsService.approveAdminProduct(id, dto.note);
+  approve(
+    @Param('id') id: string,
+    @Body() dto: ReviewDeliveryProductDto,
+    @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,
+  ) {
+    return this.deliveryProductsService.approveAdminProduct(id, dto.note, deliveryAdminUserId);
   }
 
   @Post(':id/reject')
   @RequireDeliveryAdminPermission('delivery:products:audit')
-  reject(@Param('id') id: string, @Body() dto: ReviewDeliveryProductDto) {
-    return this.deliveryProductsService.rejectAdminProduct(id, dto.note);
+  reject(
+    @Param('id') id: string,
+    @Body() dto: ReviewDeliveryProductDto,
+    @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,
+  ) {
+    return this.deliveryProductsService.rejectAdminProduct(id, dto.note, deliveryAdminUserId);
   }
 }

@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { Table, Tag, Typography } from 'antd';
+import { Button, Space, Table, Tag, Typography } from 'antd';
 import { ProCard } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 import { getDeliveryConfig } from '@/api/delivery-management';
 import { PageHeader } from './components';
 import { getCustomerServiceDefaults } from './cs-helpers';
@@ -15,6 +16,7 @@ type QuickEntryRow = {
 };
 
 export default function DeliveryCsQuickEntriesPage() {
+  const navigate = useNavigate();
   const configQuery = useQuery({
     queryKey: ['delivery-config', 'customer-service-defaults'],
     queryFn: () => getDeliveryConfig('CUSTOMER_SERVICE'),
@@ -40,10 +42,15 @@ export default function DeliveryCsQuickEntriesPage() {
     <div style={{ padding: 24 }}>
       <PageHeader
         title="配送快捷入口配置"
-        subtitle="展示配送 App 客服入口可用的常见问题入口。"
+        subtitle="查看配送 App 客服页的快捷问题入口，入口内容由坐席快捷回复配置统一维护。"
+        extra={<Button type="primary" onClick={() => navigate('/cs/quick-replies')}>维护入口内容</Button>}
       />
 
       <ProCard title="快捷入口" headerBordered>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            买家点击快捷入口后会带入对应常见问题，便于客服快速识别咨询场景。
+          </Typography.Text>
         <Table<QuickEntryRow>
           rowKey="id"
           columns={columns}
@@ -52,9 +59,7 @@ export default function DeliveryCsQuickEntriesPage() {
           locale={{ emptyText: '暂无快捷入口，请在坐席快捷回复中维护默认问题' }}
           pagination={false}
         />
-        <Typography.Text type="secondary">
-          后续补齐配送快捷入口独立接口后，本页会支持拖拽排序、新增入口和启停开关。
-        </Typography.Text>
+        </Space>
       </ProCard>
     </div>
   );

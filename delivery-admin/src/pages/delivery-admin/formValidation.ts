@@ -31,7 +31,6 @@ export type DeliveryManifestTemplateColumnDraft = {
 export type DeliveryManifestCustomizationType = 'BUYER_FULL' | 'SELLER_FULFILLMENT';
 export type DeliveryManifestTemplateType = DeliveryManifestCustomizationType | 'SELLER_FINANCE';
 
-const CUSTOM_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const SELLER_FULFILLMENT_FORBIDDEN_TEXT_PATTERN =
   /(price|cost|amount|fee|markup|payment|settlement|supply|profit|margin|revenue|final|buyer|total|售价|价格|成本|金额|费用|运费|加价|支付|付款|结算|供货|供货价|利润|毛利|收入|应付|实付|总价|合计)/i;
 
@@ -39,6 +38,12 @@ const trimOptional = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 };
+
+const normalizeInternalKey = (value?: string | null) =>
+  trimOptional(value)
+    ?.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
 
 export function validateDeliveryPricingRuleDraft(values: DeliveryPricingRuleDraft): string | null {
   const scope = values.scope;
@@ -107,24 +112,18 @@ export function validateDeliveryManifestCustomizationEntries(
 
   for (const [index, entry] of entries.entries()) {
     const rowNo = index + 1;
-    const key = trimOptional(entry.key);
     const label = trimOptional(entry.label);
     const value = trimOptional(entry.value);
-
-    if (!key) {
-      return `第 ${rowNo} 行自定义列字段标识不能为空`;
-    }
-    if (!CUSTOM_KEY_PATTERN.test(key)) {
-      return `第 ${rowNo} 行自定义列字段标识只能用字母开头，并包含字母、数字、下划线或短横线`;
-    }
-    if (seenKeys.has(key)) {
-      return `自定义列字段标识重复: ${key}`;
-    }
-    seenKeys.add(key);
+    const key = normalizeInternalKey(entry.key || label);
 
     if (!label) {
       return `第 ${rowNo} 行自定义列列名不能为空`;
     }
+    if (!key || seenKeys.has(key)) {
+      return `自定义列重复: ${label}`;
+    }
+    seenKeys.add(key);
+
     if (!value) {
       return `第 ${rowNo} 行自定义列内容不能为空`;
     }
@@ -164,7 +163,7 @@ export function normalizeDeliveryManifestCustomizationEntries(
   entries: DeliveryManifestCustomizationDraft[],
 ) {
   return entries.map((entry) => ({
-    key: entry.key?.trim() ?? '',
+    key: trimOptional(entry.key),
     label: entry.label?.trim() ?? '',
     value: entry.value?.trim() ?? '',
     sortOrder: entry.sortOrder ?? 0,

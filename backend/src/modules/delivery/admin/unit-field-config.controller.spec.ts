@@ -9,10 +9,13 @@ describe('UnitFieldConfigController', () => {
     const controller = new UnitFieldConfigController(service as any);
 
     await expect(
-      controller.update({
+      controller.update('admin_1', {
         items: [{ fieldKey: 'name', label: '单位名称' }],
       } as any),
     ).resolves.toEqual([{ fieldKey: 'name' }]);
-    expect(service.updateConfigs).toHaveBeenCalledWith([{ fieldKey: 'name', label: '单位名称' }]);
+    expect(service.updateConfigs).toHaveBeenCalledWith(
+      [{ fieldKey: 'name', label: '单位名称' }],
+      'admin_1',
+    );
   });
 });

@@ -17,6 +17,9 @@ describe('DeliveryProductsService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      deliveryAuditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
+      },
     };
     deliveryIdService = {
       next: jest.fn().mockResolvedValue('PSSP0000000000001'),
@@ -459,6 +462,127 @@ describe('DeliveryProductsService', () => {
         },
       }),
       include: expect.any(Object),
+    });
+  });
+
+  it('writes audit logs when an admin creates a delivery product', async () => {
+    const created = {
+      id: 'PSSP0000000000001',
+      merchantId: 'merchant_1',
+      title: '冷鲜牛腩',
+      auditStatus: 'PENDING',
+      skus: [],
+    };
+    deliveryPrisma.deliveryProduct.create.mockResolvedValue(created);
+
+    await service.createAdminProduct(
+      {
+        merchantId: 'merchant_1',
+        categoryId: 'category_1',
+        productUnitId: 'unit_1',
+        title: '冷鲜牛腩',
+        unitName: '箱',
+        skus: [
+          {
+            title: '5kg/箱',
+            supplyPriceCents: 8800,
+            basePriceCents: 10000,
+            stock: 12,
+            weightGram: 5000,
+          },
+        ],
+      },
+      'admin_1',
+    );
+
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'products',
+        action: 'CREATE_PRODUCT',
+        targetType: 'DeliveryProduct',
+        targetId: 'PSSP0000000000001',
+        before: undefined,
+        after: expect.objectContaining({ id: 'PSSP0000000000001' }),
+      }),
+    });
+  });
+
+  it('writes audit logs when an admin updates a delivery product', async () => {
+    const before = {
+      id: 'PSSP0000000000001',
+      title: '冷鲜牛腩',
+      auditStatus: 'PENDING',
+    };
+    const after = {
+      ...before,
+      title: '冷鲜牛腩新标题',
+    };
+    deliveryPrisma.deliveryProduct.findUnique.mockResolvedValue(before);
+    deliveryPrisma.deliveryProduct.update.mockResolvedValue(after);
+
+    await service.updateAdminProduct(
+      'PSSP0000000000001',
+      {
+        title: '冷鲜牛腩新标题',
+      },
+      'admin_1',
+    );
+
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'products',
+        action: 'UPDATE_PRODUCT',
+        targetType: 'DeliveryProduct',
+        targetId: 'PSSP0000000000001',
+        before: expect.objectContaining({ title: '冷鲜牛腩' }),
+        after: expect.objectContaining({ title: '冷鲜牛腩新标题' }),
+      }),
+    });
+  });
+
+  it('writes audit logs when an admin approves a delivery product', async () => {
+    const tx = {
+      deliveryProduct: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'PSSP0000000000001',
+            status: 'ACTIVE',
+            auditStatus: 'PENDING',
+          })
+          .mockResolvedValueOnce({
+            id: 'PSSP0000000000001',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            auditNote: '资料完整',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      deliveryAuditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
+      },
+    };
+    deliveryPrisma.$transaction = jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+      callback(tx),
+    );
+
+    await service.approveAdminProduct('PSSP0000000000001', '资料完整', 'admin_1');
+
+    expect(tx.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'products',
+        action: 'APPROVE_PRODUCT',
+        targetType: 'DeliveryProduct',
+        targetId: 'PSSP0000000000001',
+        before: expect.objectContaining({ auditStatus: 'PENDING' }),
+        after: expect.objectContaining({ auditStatus: 'APPROVED' }),
+      }),
     });
   });
 });

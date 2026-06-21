@@ -140,6 +140,9 @@ describe('DeliveryManifestsService', () => {
         create: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      deliveryAuditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
+      },
     };
 
     deliveryOrdersService = {
@@ -288,18 +291,18 @@ describe('DeliveryManifestsService', () => {
       '收货人',
       '配送单号',
       '商品名称',
-      'Unit',
+      '配送单位',
       '金额',
-      'Recipient Phone',
-      'Address',
-      'SKU',
-      'Qty',
-      'Final Unit Price',
-      'Paid At',
-      'Note',
-      'Goods Amount',
-      'Shipping Fee',
-      'Total Amount',
+      '联系电话',
+      '收货地址',
+      '规格',
+      '数量',
+      '最终单价',
+      '支付时间',
+      '配送备注',
+      '商品金额',
+      '配送费',
+      '支付金额',
     ]);
     expect(manifest.payloadSnapshot.renderedTable.rows[0]).toEqual([
       '张三',
@@ -324,7 +327,7 @@ describe('DeliveryManifestsService', () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: null,
       isDefault: true,
@@ -362,7 +365,7 @@ describe('DeliveryManifestsService', () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: null,
       isDefault: true,
@@ -398,13 +401,13 @@ describe('DeliveryManifestsService', () => {
       '收件人',
       '子单号',
       '商品',
-      'Unit',
-      'Recipient Phone',
-      'Address',
-      'SKU',
-      'Item Unit',
-      'Qty',
-      'Paid At',
+      '配送单位',
+      '联系电话',
+      '收货地址',
+      '规格',
+      '商品单位',
+      '数量',
+      '支付时间',
     ]);
     expect(manifest.payloadSnapshot.renderedTable.rows[0]).toEqual([
       'Receiver A',
@@ -553,11 +556,11 @@ describe('DeliveryManifestsService', () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: {
         columns: [
-          { key: 'orderId', label: 'Order ID', sortOrder: 10, visible: true, fixed: true },
+          { key: 'orderId', label: '配送订单号', sortOrder: 10, visible: true, fixed: true },
         ],
       },
       isDefault: true,
@@ -574,8 +577,8 @@ describe('DeliveryManifestsService', () => {
 
     const regenerated = await service.regenerateTemplate('admin_1', 'tmpl_seller_fulfillment', {
       columns: [
-        { key: 'orderId', label: 'Delivery Order', sortOrder: 90, visible: false },
-        { key: 'note', label: 'Delivery Note', sortOrder: 15, visible: false },
+        { key: 'orderId', label: '配送订单号', sortOrder: 90, visible: false },
+        { key: 'note', label: '配送备注', sortOrder: 15, visible: false },
       ],
     });
 
@@ -591,14 +594,14 @@ describe('DeliveryManifestsService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: 'orderId',
-          label: 'Delivery Order',
+          label: '配送订单号',
           sortOrder: 90,
           visible: false,
           fixed: true,
         }),
         expect.objectContaining({
           key: 'note',
-          label: 'Delivery Note',
+          label: '配送备注',
           sortOrder: 15,
           visible: false,
           fixed: false,
@@ -607,15 +610,64 @@ describe('DeliveryManifestsService', () => {
     );
   });
 
+  it('writes audit logs when an admin publishes a new delivery manifest template version', async () => {
+    const template = {
+      id: 'tmpl_seller_fulfillment',
+      type: 'SELLER_FULFILLMENT',
+      name: '配送中心履约清单',
+      description: null,
+      config: {
+        columns: [
+          { key: 'orderId', label: '配送订单号', sortOrder: 10, visible: true, fixed: true },
+        ],
+      },
+      isDefault: true,
+      isActive: true,
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestTemplate.update.mockImplementation(({ data }: any) => ({
+      ...template,
+      ...data,
+    }));
+    deliveryPrisma.deliveryManifestVersion.findMany.mockResolvedValueOnce([
+      { id: 'ver1', versionNo: 1, status: 'PUBLISHED' },
+    ]);
+    deliveryPrisma.deliveryManifestVersion.create.mockImplementation(({ data }: any) => ({
+      id: 'ver2',
+      ...data,
+    }));
+
+    await service.regenerateTemplate('admin_1', 'tmpl_seller_fulfillment', {
+      columns: [{ key: 'note', label: '配送备注', sortOrder: 15, visible: false }],
+    });
+
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'manifests',
+        action: 'PUBLISH_TEMPLATE_VERSION',
+        targetType: 'DeliveryManifestTemplate',
+        targetId: 'tmpl_seller_fulfillment',
+        before: expect.objectContaining({
+          columns: expect.arrayContaining([expect.objectContaining({ key: 'orderId' })]),
+        }),
+        after: expect.objectContaining({
+          columns: expect.arrayContaining([expect.objectContaining({ key: 'note' })]),
+        }),
+      }),
+    });
+  });
+
   it('rejects seller fulfillment template column labels that expose money, cost, price, or settlement fields', async () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: {
         columns: [
-          { key: 'orderId', label: 'Order ID', sortOrder: 10, visible: true, fixed: true },
+          { key: 'orderId', label: '配送订单号', sortOrder: 10, visible: true, fixed: true },
         ],
       },
       isDefault: true,
@@ -703,11 +755,63 @@ describe('DeliveryManifestsService', () => {
     expect(manifest.payloadSnapshot.renderedTable.rows[0]).toContain('A-17');
   });
 
+  it('writes audit logs when an admin updates single-manifest custom columns', async () => {
+    const template = {
+      id: 'tmpl_buyer_full',
+      type: 'USER_FULL',
+      name: '买家整单清单',
+      description: null,
+      config: null,
+      isDefault: true,
+      isActive: true,
+    };
+    const version = {
+      id: 'ver_buyer_full_v2',
+      templateId: 'tmpl_buyer_full',
+      versionNo: 2,
+      status: 'PUBLISHED',
+      config: null,
+      createdByAdminId: null,
+      createdAt: new Date('2026-06-19T00:00:00.000Z'),
+    };
+    deliveryPrisma.deliveryManifestTemplate.findFirst.mockResolvedValue(template);
+    deliveryPrisma.deliveryManifestVersion.findFirst.mockResolvedValue(version);
+    deliveryPrisma.deliveryManifestTemplate.update.mockResolvedValue(template);
+
+    await service.upsertTargetCustomization('admin_1', {
+      manifestType: 'BUYER_FULL',
+      targetId: 'PSDD0000000000001',
+      entries: [
+        {
+          key: 'pickupCode',
+          label: '取货码',
+          value: 'A-17',
+          sortOrder: 17,
+          visible: true,
+        },
+      ],
+    });
+
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'manifests',
+        action: 'UPSERT_CUSTOM_COLUMNS',
+        targetType: 'DeliveryManifestCustomization',
+        targetId: 'BUYER_FULL:PSDD0000000000001',
+        after: expect.objectContaining({
+          entries: [expect.objectContaining({ key: 'pickupCode', value: 'A-17' })],
+        }),
+      }),
+    });
+  });
+
   it('rejects seller fulfillment custom columns whose keys or labels reveal sensitive money fields', async () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: null,
       isDefault: true,
@@ -745,7 +849,7 @@ describe('DeliveryManifestsService', () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: null,
       isDefault: true,
@@ -785,7 +889,7 @@ describe('DeliveryManifestsService', () => {
     const sellerTemplate = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: null,
       isDefault: true,
@@ -872,7 +976,7 @@ describe('DeliveryManifestsService', () => {
     const template = {
       id: 'tmpl_seller_fulfillment',
       type: 'SELLER_FULFILLMENT',
-      name: 'Seller Fulfillment',
+      name: '配送中心履约清单',
       description: null,
       config: {
         customizations: {

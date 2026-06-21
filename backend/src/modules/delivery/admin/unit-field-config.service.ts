@@ -125,7 +125,10 @@ export class DeliveryUnitFieldConfigService {
     );
   }
 
-  async updateConfigs(items: UpdateUnitFieldConfigItemDto[]): Promise<UnitFieldConfigView[]> {
+  async updateConfigs(
+    items: UpdateUnitFieldConfigItemDto[],
+    deliveryAdminUserId?: string,
+  ): Promise<UnitFieldConfigView[]> {
     const results: UnitFieldConfigView[] = [];
 
     for (const item of items) {
@@ -139,6 +142,11 @@ export class DeliveryUnitFieldConfigService {
         create: normalized,
         update: normalized,
       });
+      await this.writeAdminAuditLog(deliveryAdminUserId, {
+        fieldKey: item.fieldKey,
+        before: existing,
+        after: row,
+      });
 
       results.push(
         fixed ? this.mergeFixedConfig(fixed, row) : this.mapDynamicConfig(row),
@@ -146,6 +154,36 @@ export class DeliveryUnitFieldConfigService {
     }
 
     return results.sort((a, b) => a.sortOrder - b.sortOrder || a.fieldKey.localeCompare(b.fieldKey));
+  }
+
+  private async writeAdminAuditLog(
+    deliveryAdminUserId: string | undefined,
+    input: { fieldKey: string; before: unknown; after: unknown },
+  ) {
+    if (!deliveryAdminUserId) {
+      return;
+    }
+
+    await this.deliveryPrisma.deliveryAuditLog.create({
+      data: {
+        actorType: 'ADMIN',
+        actorId: deliveryAdminUserId,
+        module: 'unit-field-config',
+        action: input.before ? 'UPDATE_UNIT_FIELD' : 'CREATE_UNIT_FIELD',
+        targetType: 'DeliveryUnitFieldConfig',
+        targetId: input.fieldKey,
+        summary: input.before ? '更新配送单位字段' : '创建配送单位字段',
+        before: this.toAuditJson(input.before),
+        after: this.toAuditJson(input.after),
+      },
+    });
+  }
+
+  private toAuditJson(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private normalizeInput(

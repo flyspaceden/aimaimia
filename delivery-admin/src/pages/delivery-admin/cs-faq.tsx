@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { Table, Tag, Typography } from 'antd';
+import { Button, Space, Table, Tag, Typography } from 'antd';
 import { ProCard } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 import { getDeliveryConfig } from '@/api/delivery-management';
 import { PageHeader } from './components';
 import { getCustomerServiceDefaults } from './cs-helpers';
@@ -14,6 +15,7 @@ type FaqRow = {
 };
 
 export default function DeliveryCsFaqPage() {
+  const navigate = useNavigate();
   const configQuery = useQuery({
     queryKey: ['delivery-config', 'customer-service-defaults'],
     queryFn: () => getDeliveryConfig('CUSTOMER_SERVICE'),
@@ -37,10 +39,15 @@ export default function DeliveryCsFaqPage() {
     <div style={{ padding: 24 }}>
       <PageHeader
         title="配送 FAQ 管理"
-        subtitle="配送专属 FAQ 接口接入前，本页展示当前配送客服默认常见问题。"
+        subtitle="查看配送 App 客服入口展示的常见问题，问题内容由坐席快捷回复配置统一维护。"
+        extra={<Button type="primary" onClick={() => navigate('/cs/quick-replies')}>维护常见问题</Button>}
       />
 
       <ProCard title="常见问题" headerBordered>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            本页用于核对买家侧常见问题展示效果；需要新增、删除或调整问题时，请进入“坐席快捷回复”维护。
+          </Typography.Text>
         <Table<FaqRow>
           rowKey="id"
           columns={columns}
@@ -49,9 +56,7 @@ export default function DeliveryCsFaqPage() {
           locale={{ emptyText: '暂无常见问题，请在坐席快捷回复中维护默认问题' }}
           pagination={false}
         />
-        <Typography.Text type="secondary">
-          后续补齐配送 FAQ 独立接口后，本页会切换为新增、编辑、启停和测试命中的完整管理页。
-        </Typography.Text>
+        </Space>
       </ProCard>
     </div>
   );

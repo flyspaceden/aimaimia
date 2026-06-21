@@ -11,6 +11,7 @@ import {
   DeliveryOrdersService,
   DeliveryProviderTxnConflictException,
 } from '../orders/delivery-orders.service';
+import { DeliveryManifestsService } from '../manifests/delivery-manifests.service';
 import {
   DeliveryCallbackChannel,
   extractDeliveryClaimedAmountCents,
@@ -36,6 +37,7 @@ export class DeliveryPaymentsService {
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryOrdersService: DeliveryOrdersService,
+    private readonly deliveryManifestsService: DeliveryManifestsService,
   ) {}
 
   async assertAlipayAmountMatchesCheckout(
@@ -81,21 +83,14 @@ export class DeliveryPaymentsService {
       const claimedAmountCents = this.resolveClaimedAmountCents(body);
       await this.assertAmountMatchesCheckoutCents(checkout, claimedAmountCents);
 
+      let result: Awaited<ReturnType<DeliveryOrdersService['createOrderFromPaidCheckout']>>;
       try {
-        const result = await this.deliveryOrdersService.createOrderFromPaidCheckout({
+        result = await this.deliveryOrdersService.createOrderFromPaidCheckout({
           merchantOrderNo: body.merchantOrderNo,
           providerTxnId: body.providerTxnId,
           paidAt,
           rawPayload: body.rawPayload as Prisma.JsonValue,
         });
-
-        return {
-          code: 'SUCCESS',
-          message: '配送支付处理成功',
-          orderId: result.orderId,
-          subOrderIds: result.subOrderIds,
-          manifest: result.manifest,
-        };
       } catch (error) {
         if (error instanceof DeliveryProviderTxnConflictException) {
           throw error;
@@ -109,6 +104,37 @@ export class DeliveryPaymentsService {
         });
         throw error;
       }
+
+      let manifest: unknown = result.manifest;
+      try {
+        manifest = await this.deliveryManifestsService.generateOrderManifestAfterPayment(result.orderId);
+      } catch (error) {
+        await this.recordAbnormalPayment({
+          merchantOrderNo: body.merchantOrderNo,
+          providerTxnId: body.providerTxnId,
+          paidAt,
+          rawPayload: body.rawPayload as Prisma.JsonValue,
+          error,
+          orderId: result.orderId,
+        });
+        this.logger.error(
+          `配送支付已成功但清单生成失败: merchantOrderNo=${body.merchantOrderNo}, orderId=${result.orderId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        manifest = {
+          status: 'FAILED',
+          trigger: 'payment_callback',
+          message: '配送清单生成失败，已记录异常',
+        };
+      }
+
+      return {
+        code: 'SUCCESS',
+        message: '配送支付处理成功',
+        orderId: result.orderId,
+        subOrderIds: result.subOrderIds,
+        manifest,
+      };
     }
 
     const failedCheckout = await this.markFailedPayment(
@@ -258,6 +284,7 @@ export class DeliveryPaymentsService {
     paidAt: Date;
     rawPayload?: Prisma.JsonValue;
     error: any;
+    orderId?: string;
   }) {
     await this.deliveryPrisma.$transaction(
       async (tx) => {
@@ -284,7 +311,7 @@ export class DeliveryPaymentsService {
           where: { merchantOrderNo: params.merchantOrderNo },
           create: {
             id: params.merchantOrderNo,
-            orderId: null,
+            orderId: params.orderId ?? null,
             checkoutSessionId: checkout.id,
             channel: checkout.paymentChannel,
             scene: 'APP',
@@ -299,7 +326,7 @@ export class DeliveryPaymentsService {
             paidAt: params.paidAt,
           },
           update: {
-            orderId: null,
+            orderId: params.orderId ?? null,
             checkoutSessionId: checkout.id,
             status: 'PAID',
             providerTxnId: params.providerTxnId,

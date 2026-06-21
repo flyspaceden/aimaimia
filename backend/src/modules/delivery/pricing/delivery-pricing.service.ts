@@ -192,16 +192,24 @@ export class DeliveryPricingService {
     };
   }
 
-  async createRule(dto: CreateDeliveryPriceRuleDto) {
+  async createRule(dto: CreateDeliveryPriceRuleDto, deliveryAdminUserId?: string) {
     const data = await this.normalizeRuleInput(dto);
-    return this.prisma.deliveryPriceRule.create({
+    const created = await this.prisma.deliveryPriceRule.create({
       data: {
         ...data,
       },
     });
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      action: 'CREATE_RULE',
+      targetId: created.id,
+      before: null,
+      after: created,
+      summary: '创建配送定价规则',
+    });
+    return created;
   }
 
-  async updateRule(id: string, dto: UpdateDeliveryPriceRuleDto) {
+  async updateRule(id: string, dto: UpdateDeliveryPriceRuleDto, deliveryAdminUserId?: string) {
     const existing = await this.prisma.deliveryPriceRule.findUnique({
       where: { id },
     });
@@ -229,12 +237,56 @@ export class DeliveryPricingService {
       note: dto.note === undefined ? existing.note ?? undefined : dto.note ?? undefined,
     });
 
-    return this.prisma.deliveryPriceRule.update({
+    const updated = await this.prisma.deliveryPriceRule.update({
       where: { id },
       data: {
         ...data,
       },
     });
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      action: 'UPDATE_RULE',
+      targetId: updated.id,
+      before: existing,
+      after: updated,
+      summary: '更新配送定价规则',
+    });
+    return updated;
+  }
+
+  private async writeAdminAuditLog(
+    deliveryAdminUserId: string | undefined,
+    input: {
+      action: string;
+      targetId: string;
+      before: unknown;
+      after: unknown;
+      summary: string;
+    },
+  ) {
+    if (!deliveryAdminUserId) {
+      return;
+    }
+
+    await this.prisma.deliveryAuditLog.create({
+      data: {
+        actorType: 'ADMIN',
+        actorId: deliveryAdminUserId,
+        module: 'pricing',
+        action: input.action,
+        targetType: 'DeliveryPriceRule',
+        targetId: input.targetId,
+        summary: input.summary,
+        before: this.toAuditJson(input.before),
+        after: this.toAuditJson(input.after),
+      },
+    });
+  }
+
+  private toAuditJson(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private findBestRule(

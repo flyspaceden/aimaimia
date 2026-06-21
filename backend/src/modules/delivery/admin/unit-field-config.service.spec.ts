@@ -8,6 +8,9 @@ describe('DeliveryUnitFieldConfigService', () => {
       findUnique: jest.Mock;
       upsert: jest.Mock;
     };
+    deliveryAuditLog: {
+      create: jest.Mock;
+    };
   };
   let service: DeliveryUnitFieldConfigService;
 
@@ -20,6 +23,9 @@ describe('DeliveryUnitFieldConfigService', () => {
           ...(create ?? {}),
           ...(update ?? {}),
         })),
+      },
+      deliveryAuditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
       },
     };
     service = new DeliveryUnitFieldConfigService(
@@ -96,5 +102,28 @@ describe('DeliveryUnitFieldConfigService', () => {
         },
       ]),
     ).rejects.toThrow();
+  });
+
+  it('writes audit logs when an admin updates delivery unit fields', async () => {
+    await service.updateConfigs([
+      {
+        fieldKey: 'gateCode',
+        label: '门禁码',
+        sortOrder: 9,
+        isVisible: true,
+      },
+    ], 'admin_1');
+
+    expect((deliveryPrisma as any).deliveryAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'unit-field-config',
+        action: 'CREATE_UNIT_FIELD',
+        targetType: 'DeliveryUnitFieldConfig',
+        targetId: 'gateCode',
+        after: expect.objectContaining({ label: '门禁码' }),
+      }),
+    }));
   });
 });

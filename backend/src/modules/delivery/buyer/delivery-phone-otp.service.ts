@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt } from 'crypto';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
-import { Prisma } from '../../../generated/delivery-client';
+import { DeliveryOtpPurpose, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 
 type DeliveryAuthRequestMeta = {
@@ -14,6 +14,7 @@ type DeliveryAuthRequestMeta = {
 export class DeliveryPhoneOtpService {
   private static readonly FAILED_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
   private static readonly MAX_FAILED_ATTEMPTS = 5;
+  private static readonly LOGIN_PURPOSE = DeliveryOtpPurpose.BUYER_LOGIN;
   private readonly logger = new Logger(DeliveryPhoneOtpService.name);
 
   constructor(
@@ -27,7 +28,7 @@ export class DeliveryPhoneOtpService {
     const recentCount = await this.deliveryPrisma.deliveryPhoneOtp.count({
       where: {
         phone,
-        purpose: 'LOGIN',
+        purpose: DeliveryPhoneOtpService.LOGIN_PURPOSE,
         createdAt: {
           gte: new Date(now.getTime() - 60_000),
         },
@@ -42,7 +43,7 @@ export class DeliveryPhoneOtpService {
     await this.deliveryPrisma.deliveryPhoneOtp.create({
       data: {
         phone,
-        purpose: 'LOGIN',
+        purpose: DeliveryPhoneOtpService.LOGIN_PURPOSE,
         codeHash: this.hashCode(code),
         expiresAt: new Date(now.getTime() + 5 * 60 * 1000),
       },
@@ -74,7 +75,7 @@ export class DeliveryPhoneOtpService {
         const recentFailedAttempts = await tx.deliveryPhoneOtpAttempt.count({
           where: {
             phone,
-            purpose: 'LOGIN',
+            purpose: DeliveryPhoneOtpService.LOGIN_PURPOSE,
             success: false,
             createdAt: { gte: throttleWindowStart },
             ...(meta.ip ? { ip: meta.ip } : {}),
@@ -88,7 +89,7 @@ export class DeliveryPhoneOtpService {
         const record = await tx.deliveryPhoneOtp.findFirst({
           where: {
             phone,
-            purpose: 'LOGIN',
+            purpose: DeliveryPhoneOtpService.LOGIN_PURPOSE,
             codeHash,
             consumedAt: null,
             expiresAt: { gt: now },
@@ -144,7 +145,7 @@ export class DeliveryPhoneOtpService {
     await this.deliveryPrisma.deliveryPhoneOtpAttempt.create({
       data: {
         phone,
-        purpose: 'LOGIN',
+        purpose: DeliveryPhoneOtpService.LOGIN_PURPOSE,
         ip: meta.ip ?? null,
         userAgent: meta.userAgent ?? null,
         success,

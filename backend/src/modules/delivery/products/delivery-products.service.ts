@@ -247,8 +247,8 @@ export class DeliveryProductsService {
     };
   }
 
-  async createAdminProduct(dto: CreateAdminDeliveryProductDto) {
-    return this.deliveryPrisma.deliveryProduct.create({
+  async createAdminProduct(dto: CreateAdminDeliveryProductDto, deliveryAdminUserId?: string) {
+    const created = await this.deliveryPrisma.deliveryProduct.create({
       data: {
         id: await this.deliveryIdService.next('PSSP'),
         merchantId: dto.merchantId,
@@ -256,43 +256,60 @@ export class DeliveryProductsService {
       },
       include: adminProductInclude,
     });
+    await this.writeProductAuditLog(this.deliveryPrisma, deliveryAdminUserId, {
+      action: 'CREATE_PRODUCT',
+      summary: '创建配送商品',
+      targetId: created.id,
+      before: null,
+      after: created,
+    });
+    return created;
   }
 
-  async updateAdminProduct(productId: string, dto: UpdateDeliveryProductDto) {
+  async updateAdminProduct(productId: string, dto: UpdateDeliveryProductDto, deliveryAdminUserId?: string) {
     const existing = await this.deliveryPrisma.deliveryProduct.findUnique({
       where: { id: productId },
-      select: { id: true },
+      include: adminProductInclude,
     });
     if (!existing) {
       throw new NotFoundException('配送商品不存在');
     }
 
-    return this.deliveryPrisma.deliveryProduct.update({
+    const updated = await this.deliveryPrisma.deliveryProduct.update({
       where: { id: productId },
       data: this.buildUpdateProductData(dto, { sellerControlsBasePrice: true }),
       include: adminProductInclude,
     });
+    await this.writeProductAuditLog(this.deliveryPrisma, deliveryAdminUserId, {
+      action: 'UPDATE_PRODUCT',
+      summary: '更新配送商品',
+      targetId: productId,
+      before: existing,
+      after: updated,
+    });
+    return updated;
   }
 
-  async approveAdminProduct(productId: string, note?: string) {
+  async approveAdminProduct(productId: string, note?: string, deliveryAdminUserId?: string) {
     return this.transitionAdminProduct(productId, {
       status: DeliveryProductStatus.ACTIVE,
       auditStatus: DeliveryProductAuditStatus.APPROVED,
       auditNote: note?.trim() || null,
-    });
+    }, deliveryAdminUserId);
   }
 
-  async rejectAdminProduct(productId: string, note?: string) {
+  async rejectAdminProduct(productId: string, note?: string, deliveryAdminUserId?: string) {
     return this.transitionAdminProduct(productId, {
       status: DeliveryProductStatus.INACTIVE,
       auditStatus: DeliveryProductAuditStatus.REJECTED,
       auditNote: note?.trim() || null,
-    });
+    }, deliveryAdminUserId);
   }
 
   private async transitionAdminProduct(
     productId: string,
     data: Pick<Prisma.DeliveryProductUpdateInput, 'status' | 'auditStatus' | 'auditNote'>,
+    deliveryAdminUserId?: string,
   ) {
     return this.deliveryPrisma.$transaction(
       async (tx) => {
@@ -320,15 +337,71 @@ export class DeliveryProductsService {
           throw new ConflictException('配送商品状态已变更，请刷新后重试');
         }
 
-        return tx.deliveryProduct.findUnique({
+        const updated = await tx.deliveryProduct.findUnique({
           where: { id: productId },
           include: adminProductInclude,
         });
+        if (!updated) {
+          throw new NotFoundException('配送商品不存在');
+        }
+
+        await this.writeProductAuditLog(tx, deliveryAdminUserId, {
+          action:
+            data.auditStatus === DeliveryProductAuditStatus.APPROVED
+              ? 'APPROVE_PRODUCT'
+              : 'REJECT_PRODUCT',
+          summary:
+            data.auditStatus === DeliveryProductAuditStatus.APPROVED
+              ? '审核通过配送商品'
+              : '驳回配送商品',
+          targetId: productId,
+          before: existing,
+          after: updated,
+        });
+
+        return updated;
       },
       {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+  }
+
+  private async writeProductAuditLog(
+    tx: Pick<Prisma.TransactionClient, 'deliveryAuditLog'>,
+    deliveryAdminUserId: string | undefined,
+    input: {
+      action: string;
+      summary: string;
+      targetId: string;
+      before: unknown;
+      after: unknown;
+    },
+  ) {
+    if (!deliveryAdminUserId) {
+      return;
+    }
+
+    await tx.deliveryAuditLog.create({
+      data: {
+        actorType: 'ADMIN',
+        actorId: deliveryAdminUserId,
+        module: 'products',
+        action: input.action,
+        targetType: 'DeliveryProduct',
+        targetId: input.targetId,
+        summary: input.summary,
+        before: this.toAuditJson(input.before),
+        after: this.toAuditJson(input.after),
+      },
+    });
+  }
+
+  private toAuditJson(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private buildOwnedProductWhere(merchantId: string, query: ListDeliveryProductsQueryDto) {

@@ -116,13 +116,24 @@ test('delivery pricing validation rejects mismatched scope fields and missing pr
   );
 });
 
+test('delivery manifest customization validation lets admins use Chinese column names without technical keys', () => {
+  const entries = [
+    { key: '', label: ' 配货备注 ', value: ' 冷藏 ', sortOrder: 500, visible: true },
+  ];
+
+  assert.equal(validateDeliveryManifestCustomizationEntries(entries), null);
+  assert.deepEqual(normalizeDeliveryManifestCustomizationEntries(entries), [
+    {
+      key: undefined,
+      label: '配货备注',
+      value: '冷藏',
+      sortOrder: 500,
+      visible: true,
+    },
+  ]);
+});
+
 test('delivery manifest customization validation rejects blank or duplicate custom columns', () => {
-  assert.match(
-    validateDeliveryManifestCustomizationEntries([
-      { key: '', label: '备注', value: '冷藏', sortOrder: 500, visible: true },
-    ]) ?? '',
-    /字段标识不能为空/,
-  );
   assert.match(
     validateDeliveryManifestCustomizationEntries([
       { key: 'memo', label: '备注', value: '冷藏', sortOrder: 500, visible: true },
@@ -132,9 +143,9 @@ test('delivery manifest customization validation rejects blank or duplicate cust
   );
   assert.match(
     validateDeliveryManifestCustomizationEntries([
-      { key: '1memo', label: '备注', value: '冷藏', sortOrder: 500, visible: true },
+      { key: '', label: '', value: '冷藏', sortOrder: 500, visible: true },
     ]) ?? '',
-    /字母开头/,
+    /列名不能为空/,
   );
 });
 

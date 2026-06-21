@@ -82,32 +82,24 @@ export class DeliverySellerOpsService {
       merchantId,
     });
 
-    const [pendingShipmentCount, deliveredPendingSettlementCount, openConversationCount] =
-      await Promise.all([
-        this.deliveryPrisma.deliverySubOrder.count({
-          where: {
-            merchantId,
-            status: 'PENDING_SHIPMENT',
-          },
-        }),
-        this.deliveryPrisma.deliverySettlement.count({
-          where: {
-            merchantId,
-            status: 'PENDING',
-          },
-        }),
-        this.deliveryPrisma.deliveryCustomerServiceConversation.count({
-          where: {
-            merchantId,
-            status: 'OPEN',
-          },
-        }),
-      ]);
+    const [pendingShipmentCount, deliveredPendingSettlementCount] = await Promise.all([
+      this.deliveryPrisma.deliverySubOrder.count({
+        where: {
+          merchantId,
+          status: 'PENDING_SHIPMENT',
+        },
+      }),
+      this.deliveryPrisma.deliverySettlement.count({
+        where: {
+          merchantId,
+          status: 'PENDING',
+        },
+      }),
+    ]);
 
     return {
       pendingShipmentCount,
       deliveredPendingSettlementCount,
-      openConversationCount,
     };
   }
 

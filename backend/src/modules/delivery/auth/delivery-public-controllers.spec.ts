@@ -1,4 +1,5 @@
 import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
+import { MODULE_METADATA } from '@nestjs/common/constants';
 
 jest.mock('../../captcha/captcha.service', () => ({
   CaptchaService: class {},
@@ -9,11 +10,11 @@ import { DeliveryAdminManifestsController } from '../manifests/delivery-admin-ma
 import { DeliveryManifestsController } from '../manifests/delivery-manifests.controller';
 import { DeliverySellerManifestsController } from '../manifests/delivery-seller-manifests.controller';
 import { DELIVERY_SELLER_PERMISSIONS_KEY } from './decorators/require-delivery-seller-permission.decorator';
-import { DeliverySellerCustomerServiceController } from '../customer-service/delivery-seller-customer-service.controller';
 import { DeliverySellerInventoryController } from '../inventory/delivery-seller-inventory.controller';
 import { DeliverySellerProductsController } from '../products/delivery-seller-products.controller';
 import { DeliverySellerOpsController } from '../seller/delivery-seller-ops.controller';
 import { DeliverySellerShippingController } from '../shipping/delivery-seller-shipping.controller';
+import { DeliveryModule } from '../delivery.module';
 
 function isPublic(target: Function) {
   return Reflect.getMetadata(IS_PUBLIC_KEY, target) === true;
@@ -61,10 +62,13 @@ describe('delivery controllers that use delivery-specific guards', () => {
     expect(requiredSellerPermissions(DeliverySellerProductsController.prototype.submit)).toEqual(['products:write']);
 
     expect(requiredSellerPermissions(DeliverySellerInventoryController.prototype.updateStock)).toEqual(['inventory:write']);
+  });
 
-    expect(requiredSellerPermissions(DeliverySellerCustomerServiceController.prototype.list)).toEqual(['customer-service:read']);
-    expect(requiredSellerPermissions(DeliverySellerCustomerServiceController.prototype.get)).toEqual(['customer-service:read']);
-    expect(requiredSellerPermissions(DeliverySellerCustomerServiceController.prototype.create)).toEqual(['customer-service:write']);
-    expect(requiredSellerPermissions(DeliverySellerCustomerServiceController.prototype.update)).toEqual(['customer-service:write']);
+  it('does not register delivery center customer-service controllers', () => {
+    const controllers = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, DeliveryModule) as Function[];
+
+    expect(controllers.map((controller) => controller.name)).not.toContain(
+      'DeliverySellerCustomerServiceController',
+    );
   });
 });

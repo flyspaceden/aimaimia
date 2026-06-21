@@ -341,7 +341,7 @@ export default function StaffManagementPage() {
           <ProCard title="分配权限" headerBordered style={{ borderTop: '3px solid #f97316' }}>
             <Space direction="vertical" size={8}>
               <SafetyCertificateOutlined style={{ color: '#f97316', fontSize: 22 }} />
-              <Typography.Text>按商品、订单、客服、财务和人员分组勾选权限。</Typography.Text>
+              <Typography.Text>按商品、订单、财务和人员分组勾选权限。</Typography.Text>
             </Space>
           </ProCard>
         </Col>

@@ -2,7 +2,11 @@ import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
-import { DeliverySellerStaffRole, DeliverySellerStaffStatus } from '../../../generated/delivery-client';
+import {
+  DeliveryOtpPurpose,
+  DeliverySellerStaffRole,
+  DeliverySellerStaffStatus,
+} from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliverySellerAuthService } from './delivery-seller-auth.service';
 
@@ -158,6 +162,64 @@ describe('DeliverySellerAuthService', () => {
         },
       ],
     });
+  });
+
+  it('uses seller-scoped login otp records for delivery center SMS login', async () => {
+    prisma.deliveryPhoneOtp.create.mockResolvedValue({ id: 'otp_1' });
+
+    await expect(service.sendSmsCode({ phone: '13800001001' })).resolves.toEqual({ ok: true });
+    expect(prisma.deliveryPhoneOtp.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phone: '13800001001',
+          purpose: DeliveryOtpPurpose.SELLER_LOGIN,
+        }),
+      }),
+    );
+
+    configService.get.mockImplementation((key: string, fallback?: string) => {
+      if (key === 'DELIVERY_SELLER_JWT_EXPIRES_IN') return '8h';
+      return fallback;
+    });
+    prisma.deliveryPhoneOtp.findFirst.mockResolvedValue({
+      id: 'otp_login_1',
+      consumedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.deliveryPhoneOtp.updateMany.mockResolvedValue({ count: 1 });
+    prisma.deliverySellerStaff.findMany.mockResolvedValue([
+      {
+        id: 'staff_1',
+        merchantId: 'merchant_1',
+        phone: '13800001001',
+        realName: '陈澄源',
+        role: DeliverySellerStaffRole.OWNER,
+        permissionCodes: ['delivery:orders:manage'],
+        status: DeliverySellerStaffStatus.ACTIVE,
+        merchant: {
+          id: 'merchant_1',
+          name: '澄源生态',
+          shortName: '澄源',
+          status: 'ACTIVE',
+        },
+      },
+    ]);
+    prisma.deliverySellerSession.create.mockResolvedValue({ id: 'seller_session_1' });
+
+    await expect(
+      service.login({ phone: '13800001001', code: '654321' }, '127.0.0.1', 'jest'),
+    ).resolves.toMatchObject({
+      accessToken: 'access-token',
+      seller: { staffId: 'staff_1' },
+    });
+    expect(prisma.deliveryPhoneOtp.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          phone: '13800001001',
+          purpose: DeliveryOtpPurpose.SELLER_LOGIN,
+        }),
+      }),
+    );
   });
 
   it('logs password login into the staff whose password hash matches', async () => {

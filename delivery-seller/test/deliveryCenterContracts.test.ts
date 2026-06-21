@@ -180,10 +180,11 @@ test('delivery center does not keep routed refund or analytics surfaces', () => 
 test('delivery center does not expose customer service on active seller pages', () => {
   for (const file of [
     'src/pages/dashboard/index.tsx',
+    'src/pages/company/index.tsx',
     'src/pages/company/staff.tsx',
   ]) {
     const source = read(file);
-    assert.doesNotMatch(source, /客服中心|在线会话|customer-service|customer-service:read|customer-service:write|CustomerService/, file);
+    assert.doesNotMatch(source, /客服|在线会话|customer-service|customer-service:read|customer-service:write|CustomerService/, file);
   }
 });
 

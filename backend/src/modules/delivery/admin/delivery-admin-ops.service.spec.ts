@@ -9,13 +9,18 @@ describe('DeliveryAdminOpsService', () => {
     deliveryPrisma = {
       deliveryMerchant: {
         findUnique: jest.fn(),
+        update: jest.fn(),
       },
       deliveryMerchantApplication: {
         findUnique: jest.fn(),
+        update: jest.fn(),
       },
       deliveryPayment: {
         count: jest.fn(),
         findMany: jest.fn(),
+      },
+      deliveryAuditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
       },
     };
 
@@ -109,5 +114,75 @@ describe('DeliveryAdminOpsService', () => {
       }),
     );
     expect(result.items).toHaveLength(1);
+  });
+
+  it('writes audit logs when an admin updates a delivery merchant', async () => {
+    const before = {
+      id: 'merchant_1',
+      name: '配送中心A',
+      status: 'ACTIVE',
+      servicePhone: '400-100',
+      defaultMarkupBps: 1200,
+    };
+    const after = {
+      ...before,
+      name: '配送中心A新名称',
+      defaultMarkupBps: 1500,
+    };
+    deliveryPrisma.deliveryMerchant.findUnique.mockResolvedValue(before);
+    deliveryPrisma.deliveryMerchant.update.mockResolvedValue(after);
+
+    await service.updateMerchant('merchant_1', {
+      name: '配送中心A新名称',
+      defaultMarkupBps: 1500,
+    }, 'admin_1');
+
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'merchants',
+        action: 'UPDATE_MERCHANT',
+        targetType: 'DeliveryMerchant',
+        targetId: 'merchant_1',
+        before,
+        after,
+      }),
+    });
+  });
+
+  it('writes audit logs when an admin reviews a delivery merchant application', async () => {
+    const before = {
+      id: 'application_1',
+      status: 'PENDING',
+      merchantId: null,
+      rejectReason: null,
+    };
+    const after = {
+      ...before,
+      status: 'APPROVED',
+      merchantId: 'merchant_1',
+      reviewedByAdminId: 'admin_1',
+    };
+    deliveryPrisma.deliveryMerchantApplication.findUnique.mockResolvedValue(before);
+    deliveryPrisma.deliveryMerchantApplication.update.mockResolvedValue(after);
+
+    await service.reviewMerchantApplication('admin_1', 'application_1', {
+      status: 'APPROVED',
+      merchantId: 'merchant_1',
+    });
+
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'merchants',
+        action: 'REVIEW_MERCHANT_APPLICATION',
+        targetType: 'DeliveryMerchantApplication',
+        targetId: 'application_1',
+        before,
+        after,
+      }),
+    });
   });
 });

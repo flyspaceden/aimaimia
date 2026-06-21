@@ -142,7 +142,7 @@ export default function CompanySettingsPage() {
                   </Form.Item>
                 </Col>
               </Row>
-              <Form.Item name="servicePhone" label="客服/值班电话">
+              <Form.Item name="servicePhone" label="值班联系电话">
                 <Input prefix={<PhoneOutlined />} placeholder="可选，给买家或协作方使用" />
               </Form.Item>
 

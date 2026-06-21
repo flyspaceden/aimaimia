@@ -70,8 +70,12 @@ export class DeliveryAdminOpsController {
 
   @Patch('merchants/:id')
   @RequireDeliveryAdminPermission('delivery:merchants:write')
-  updateMerchant(@Param('id') id: string, @Body() dto: UpdateDeliveryMerchantDto) {
-    return this.deliveryAdminOpsService.updateMerchant(id, dto);
+  updateMerchant(
+    @CurrentUser('deliveryAdminUserId') deliveryAdminUserId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateDeliveryMerchantDto,
+  ) {
+    return this.deliveryAdminOpsService.updateMerchant(id, dto, deliveryAdminUserId);
   }
 
   @Get('merchant-applications')

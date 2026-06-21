@@ -12,7 +12,7 @@ describe('DeliveryAdminManifestsController', () => {
 
     await controller.listTemplates();
     await controller.regenerate('admin_1', 'tmpl_1', {
-      columns: [{ key: 'orderId', label: 'Order ID', sortOrder: 10, visible: true }],
+      columns: [{ key: 'orderId', label: '配送订单号', sortOrder: 10, visible: true }],
     } as any);
     await controller.getCustomization('BUYER_FULL', 'PSDD0000000000001');
     await controller.upsertCustomization('admin_1', {
@@ -23,7 +23,7 @@ describe('DeliveryAdminManifestsController', () => {
 
     expect(manifestsService.listAdminTemplates).toHaveBeenCalled();
     expect(manifestsService.regenerateTemplate).toHaveBeenCalledWith('admin_1', 'tmpl_1', {
-      columns: [{ key: 'orderId', label: 'Order ID', sortOrder: 10, visible: true }],
+      columns: [{ key: 'orderId', label: '配送订单号', sortOrder: 10, visible: true }],
     });
     expect(manifestsService.getTargetCustomization).toHaveBeenCalledWith(
       'BUYER_FULL',

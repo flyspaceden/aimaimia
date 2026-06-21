@@ -179,4 +179,66 @@ describe('DeliveryPricingService', () => {
       matchedRuleId: null,
     });
   });
+
+  it('writes audit logs when an admin creates or updates pricing rules', async () => {
+    const prisma = {
+      deliveryPriceRule: {
+        create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'rule_1', ...data })),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'rule_1',
+          scope: DeliveryPriceRuleScope.PLATFORM,
+          ruleType: DeliveryPriceRuleType.MARKUP_RATE,
+          merchantId: null,
+          productId: null,
+          skuId: null,
+          minQuantity: 1,
+          maxQuantity: null,
+          fixedPriceCents: null,
+          markupBps: 3000,
+          priority: 0,
+          isActive: true,
+          note: null,
+        }),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'rule_1', ...data })),
+      },
+      deliveryAuditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
+      },
+    };
+    const auditedService = new DeliveryPricingService(prisma as any);
+
+    await auditedService.createRule(
+      {
+        scope: DeliveryPriceRuleScope.PLATFORM,
+        ruleType: DeliveryPriceRuleType.MARKUP_RATE,
+        minQuantity: 1,
+        markupBps: 3000,
+      },
+      'admin_1',
+    );
+    await auditedService.updateRule('rule_1', { markupBps: 2500 }, 'admin_1');
+
+    expect(prisma.deliveryAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'pricing',
+        action: 'CREATE_RULE',
+        targetType: 'DeliveryPriceRule',
+        targetId: 'rule_1',
+      }),
+    }));
+    expect(prisma.deliveryAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'pricing',
+        action: 'UPDATE_RULE',
+        targetType: 'DeliveryPriceRule',
+        targetId: 'rule_1',
+        before: expect.objectContaining({ markupBps: 3000 }),
+        after: expect.objectContaining({ markupBps: 2500 }),
+      }),
+    }));
+  });
 });

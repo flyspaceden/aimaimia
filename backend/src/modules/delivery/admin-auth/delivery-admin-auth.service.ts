@@ -106,7 +106,7 @@ export class DeliveryAdminAuthService {
     });
 
     if (admin?.status === DeliveryAdminUserStatus.ACTIVE) {
-      await this.issueOtp(dto.phone, DeliveryOtpPurpose.LOGIN);
+      await this.issueOtp(dto.phone, DeliveryOtpPurpose.ADMIN_LOGIN);
     } else {
       this.logger.warn('[Delivery Admin SMS] 手机号无有效配送管理员账号，忽略发送');
     }
@@ -122,7 +122,7 @@ export class DeliveryAdminAuthService {
     await this.verifyOtpOrThrow({
       phone: dto.phone,
       code: dto.code,
-      purpose: DeliveryOtpPurpose.LOGIN,
+      purpose: DeliveryOtpPurpose.ADMIN_LOGIN,
       consume: true,
     });
 
@@ -279,7 +279,7 @@ export class DeliveryAdminAuthService {
     await this.verifyOtpOrThrow({
       phone: admin.phone,
       code: dto.oldPhoneCode,
-      purpose: DeliveryOtpPurpose.LOGIN,
+      purpose: DeliveryOtpPurpose.ADMIN_LOGIN,
       consume: true,
     });
     await this.verifyOtpOrThrow({

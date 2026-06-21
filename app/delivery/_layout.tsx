@@ -61,6 +61,7 @@ export default function DeliveryLayout() {
       <Stack.Screen name="product/[id]" />
       <Stack.Screen name="cart" />
       <Stack.Screen name="checkout" />
+      <Stack.Screen name="cs" />
       <Stack.Screen name="payment-success" />
       <Stack.Screen name="orders/index" />
       <Stack.Screen name="orders/[id]" />

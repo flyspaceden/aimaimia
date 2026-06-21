@@ -115,7 +115,6 @@ export default function DeliveryManifestsPage() {
   });
 
   const templateColumns: ColumnsType<DeliveryManifestTemplate> = [
-    { title: '模板编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
     { title: '模板类型', dataIndex: 'type', key: 'type', width: 160, render: (value: string) => formatDeliveryDisplayText(value) },
     { title: '模板名称', dataIndex: 'name', key: 'name', width: 180 },
     { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
@@ -157,9 +156,8 @@ export default function DeliveryManifestsPage() {
   ];
 
   const editableColumns: ColumnsType<DeliveryManifestColumn> = [
-    { title: '字段标识', dataIndex: 'key', key: 'key', width: 180 },
     {
-      title: '标签',
+      title: '列名',
       dataIndex: 'label',
       key: 'label',
       render: (_, record, index) => (
@@ -218,25 +216,6 @@ export default function DeliveryManifestsPage() {
   ];
 
   const customColumnsTable: ColumnsType<DeliveryManifestCustomizationEntry> = [
-    {
-      title: '字段标识',
-      dataIndex: 'key',
-      key: 'key',
-      width: 180,
-      render: (_, record, index) => (
-        <Input
-          value={record.key}
-          placeholder="例如: 配送备注"
-          onChange={(event) =>
-            setCustomEntries((prev) =>
-              prev.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, key: event.target.value } : item,
-              ),
-            )
-          }
-        />
-      ),
-    },
     {
       title: '列名',
       dataIndex: 'label',
@@ -439,7 +418,6 @@ export default function DeliveryManifestsPage() {
                 setCustomEntries((prev) => [
                   ...prev,
                   {
-                    key: '',
                     label: '',
                     value: '',
                     sortOrder: 500 + prev.length * 10,

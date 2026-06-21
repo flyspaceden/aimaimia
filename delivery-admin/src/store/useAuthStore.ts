@@ -40,7 +40,15 @@ const useAuthStore = create<AuthState>()(
         if (!admin) return false;
         // 超级管理员拥有所有权限
         if (admin.roles.includes('超级管理员')) return true;
-        return admin.permissions.includes(permission);
+        const permissions = admin.permissions ?? [];
+        if (permissions.includes(permission) || permissions.includes('delivery:*') || permissions.includes('*')) {
+          return true;
+        }
+        const [prefix, moduleName] = permission.split(':');
+        if (!prefix || !moduleName) {
+          return false;
+        }
+        return permissions.includes(`${prefix}:${moduleName}:*`) || permissions.includes(`${moduleName}:*`);
       },
 
       isSuperAdmin: () => {

@@ -348,7 +348,7 @@ export type DeliveryManifestColumn = {
 };
 
 export type DeliveryManifestCustomizationEntry = {
-  key: string;
+  key?: string;
   label: string;
   value: string;
   sortOrder: number;

@@ -106,6 +106,19 @@ test('delivery admin layout uses admin-style grouped operational navigation', ()
   }
 });
 
+test('delivery admin navigation is filtered by delivery admin permissions', () => {
+  const layout = read('src/layouts/AdminLayout.tsx');
+  const authStore = read('src/store/useAuthStore.ts');
+
+  assert.match(layout, /permissionAny/, 'grouped menu should support any-of permissions');
+  assert.match(layout, /permission:\s*['"]delivery:/, 'menu entries should declare delivery permissions');
+  assert.match(layout, /filteredRoute/, 'layout should pass filtered routes to ProLayout');
+  assert.match(layout, /hasPermission/, 'layout should use the admin permission checker');
+  assert.match(layout, /route=\{filteredRoute\}/, 'ProLayout should render permission-filtered menu routes');
+  assert.match(authStore, /delivery:\*/, 'frontend permission checker should support delivery wildcard permission');
+  assert.match(authStore, /\$\{moduleName\}:\*/, 'frontend permission checker should support module wildcard permission');
+});
+
 test('delivery admin core list pages use mature ProTable request patterns', () => {
   for (const file of [
     'src/pages/delivery-admin/users.tsx',
@@ -215,6 +228,7 @@ test('delivery admin visible labels translate backend enum values and technical 
     assert.doesNotMatch(source, /text:\s*item\b/, `${file} must not expose raw enum text in filters`);
     assert.doesNotMatch(source, /label:\s*['"](?:APPROVED|REJECTED|PENDING|ACTIVE|INACTIVE|SUSPENDED|PLATFORM|MERCHANT|PRODUCT|SKU)['"]/, `${file} must not expose raw enum labels`);
     assert.doesNotMatch(source, /title:\s*['"](?:key|scope|fieldKey|App|Admin|Excel|PDF|SKU\s|.*\sID)['"]/, `${file} must not expose technical English column titles`);
+    assert.doesNotMatch(source, /字段标识|字段编号|模板编号/, `${file} must not expose internal field identifiers`);
     assert.doesNotMatch(source, /label \/ sortOrder \/ visible/, `${file} must not describe template columns with technical English names`);
   }
 });
@@ -247,6 +261,9 @@ test('delivery admin config page uses categorized setting panels and operator-fa
   assert.doesNotMatch(source, /valueText/);
   assert.doesNotMatch(source, /departmentName/);
   assert.doesNotMatch(source, /<Typography\.Text type="secondary">\{record\.fieldKey\}<\/Typography\.Text>/);
+  assert.doesNotMatch(source, /字段编号/);
+  assert.doesNotMatch(source, /字段标识/);
+  assert.doesNotMatch(source, /模板编号/);
   assert.doesNotMatch(source, /openRuleDrawer/);
   assert.doesNotMatch(source, /ruleOpen/);
   assert.doesNotMatch(source, /editingRuleKey/);
@@ -351,5 +368,7 @@ test('delivery admin customer-service center mirrors the main admin six-page str
     'src/pages/delivery-admin/cs-dashboard.tsx',
   ]) {
     assert.equal(existsSync(join(root, file)), true, `${file} should exist`);
+    const source = read(file);
+    assert.doesNotMatch(source, /接口接入前|后续补齐|待接入|占位/, `${file} should not expose unfinished customer-service wording`);
   }
 });

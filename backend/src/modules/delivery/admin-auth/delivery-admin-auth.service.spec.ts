@@ -2,7 +2,7 @@ import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
-import { DeliveryAdminUserStatus } from '../../../generated/delivery-client';
+import { DeliveryAdminUserStatus, DeliveryOtpPurpose } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { CaptchaService } from '../../captcha/captcha.service';
 import { DeliveryAdminAuthService } from './delivery-admin-auth.service';
@@ -224,6 +224,66 @@ describe('DeliveryAdminAuthService', () => {
         secret: 'delivery-admin-secret',
         expiresIn: '8h',
       },
+    );
+  });
+
+  it('uses admin-scoped login otp records for delivery admin SMS login', async () => {
+    prisma.deliveryAdminUser.findUnique
+      .mockResolvedValueOnce({
+        id: 'dadmin_1',
+        phone: '13800000000',
+        status: DeliveryAdminUserStatus.ACTIVE,
+      })
+      .mockResolvedValueOnce({
+        id: 'dadmin_1',
+        username: 'delivery-admin',
+        phone: '13800000000',
+        realName: '配送管理员',
+        roleCodes: ['SUPER_ADMIN'],
+        permissions: ['delivery:*'],
+        status: DeliveryAdminUserStatus.ACTIVE,
+      });
+    prisma.deliveryPhoneOtp.create.mockResolvedValue({ id: 'otp_1' });
+    prisma.deliveryPhoneOtp.findFirst.mockResolvedValue({
+      id: 'otp_1',
+      consumedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.deliveryPhoneOtp.updateMany.mockResolvedValue({ count: 1 });
+    prisma.deliveryAdminUser.update.mockResolvedValue({});
+    prisma.deliveryAdminSession.create.mockResolvedValue({ id: 'dasess_1' });
+
+    await expect(service.sendSmsCode({ phone: '13800000000' })).resolves.toEqual({
+      ok: true,
+      message: '验证码已发送',
+    });
+    expect(prisma.deliveryPhoneOtp.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phone: '13800000000',
+          purpose: DeliveryOtpPurpose.ADMIN_LOGIN,
+        }),
+      }),
+    );
+
+    configService.get.mockImplementation((key: string, fallback?: string) => {
+      if (key === 'DELIVERY_ADMIN_JWT_EXPIRES_IN') return '8h';
+      return fallback;
+    });
+
+    await expect(
+      service.loginByPhoneCode({ phone: '13800000000', code: '654321' }, '127.0.0.1', 'jest'),
+    ).resolves.toMatchObject({
+      accessToken: 'delivery-admin-access-token',
+      admin: { id: 'dadmin_1' },
+    });
+    expect(prisma.deliveryPhoneOtp.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          phone: '13800000000',
+          purpose: DeliveryOtpPurpose.ADMIN_LOGIN,
+        }),
+      }),
     );
   });
 

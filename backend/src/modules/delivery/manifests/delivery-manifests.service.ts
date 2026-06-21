@@ -86,6 +86,13 @@ export class DeliveryManifestsService {
     return this.mapManifestRow(manifest);
   }
 
+  async generateOrderManifestAfterPayment(orderId: string) {
+    const definition = DELIVERY_MANIFEST_TEMPLATES.BUYER_FULL;
+    const context = await this.deliveryOrdersService.getOrderManifestContextForAdmin(orderId);
+    const manifest = await this.ensureGeneratedOrderManifest(definition, context);
+    return this.mapManifestRow(manifest);
+  }
+
   async listAdminTemplates() {
     const templates = await Promise.all(
       Object.values(DELIVERY_MANIFEST_TEMPLATES).map((definition) => this.ensureTemplate(definition)),
@@ -228,6 +235,15 @@ export class DeliveryManifestsService {
           },
         });
 
+        await this.writeAdminAuditLog(tx, deliveryAdminUserId, {
+          action: 'PUBLISH_TEMPLATE_VERSION',
+          targetType: 'DeliveryManifestTemplate',
+          targetId: templateId,
+          summary: '发布配送清单模板版本',
+          before: currentConfig,
+          after: nextConfig,
+        });
+
         return {
           id: version.id,
           templateId,
@@ -264,16 +280,18 @@ export class DeliveryManifestsService {
 
     const currentConfig = this.normalizeTemplateConfig(definition, template.config);
     const entries = this.normalizeCustomizationEntries(definition, dto.entries ?? []);
+    const currentCustomization = currentConfig.customizations[scope]?.[dto.targetId] ?? null;
+    const nextCustomization = {
+      targetId: dto.targetId,
+      entries,
+      updatedAt: new Date().toISOString(),
+      updatedByAdminId: deliveryAdminUserId,
+    };
     const nextCustomizations = {
       ...currentConfig.customizations,
       [scope]: {
         ...(currentConfig.customizations[scope] ?? {}),
-        [dto.targetId]: {
-          targetId: dto.targetId,
-          entries,
-          updatedAt: new Date().toISOString(),
-          updatedByAdminId: deliveryAdminUserId,
-        },
+        [dto.targetId]: nextCustomization,
       },
     };
     const nextConfig: ManifestTemplateConfig = {
@@ -310,6 +328,14 @@ export class DeliveryManifestsService {
           failureReason: null,
         },
       });
+      await this.writeAdminAuditLog(tx, deliveryAdminUserId, {
+        action: 'UPSERT_CUSTOM_COLUMNS',
+        targetType: 'DeliveryManifestCustomization',
+        targetId: `${dto.manifestType}:${dto.targetId}`,
+        summary: '更新配送清单自定义列',
+        before: currentCustomization,
+        after: nextCustomization,
+      });
     });
 
     return {
@@ -318,6 +344,40 @@ export class DeliveryManifestsService {
       targetId: dto.targetId,
       entries,
     };
+  }
+
+  private async writeAdminAuditLog(
+    tx: Prisma.TransactionClient,
+    deliveryAdminUserId: string,
+    input: {
+      action: string;
+      targetType: string;
+      targetId: string;
+      summary: string;
+      before: unknown;
+      after: unknown;
+    },
+  ) {
+    await tx.deliveryAuditLog.create({
+      data: {
+        actorType: 'ADMIN',
+        actorId: deliveryAdminUserId,
+        module: 'manifests',
+        action: input.action,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        before: this.toAuditJson(input.before),
+        after: this.toAuditJson(input.after),
+      },
+    });
+  }
+
+  private toAuditJson(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   async getSellerFulfillmentManifest(merchantId: string, subOrderId: string) {
@@ -740,13 +800,13 @@ export class DeliveryManifestsService {
     return entries.map((entry, index) => {
       const key = this.normalizeCustomFieldKey(entry.key ?? entry.label);
       if (!key) {
-        throw new BadRequestException('自定义列 key 不能为空');
+        throw new BadRequestException('自定义列列名不能为空');
       }
       if (definition.columns.some((column) => column.key === key)) {
-        throw new BadRequestException(`自定义列 key 与系统列冲突: ${key}`);
+        throw new BadRequestException(`自定义列与系统列冲突: ${entry.label}`);
       }
       if (normalizedKeys.has(key)) {
-        throw new BadRequestException(`自定义列 key 重复: ${key}`);
+        throw new BadRequestException(`自定义列重复: ${entry.label}`);
       }
 
       const label = entry.label.trim();

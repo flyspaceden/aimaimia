@@ -35,7 +35,7 @@ describe('DeliveryPhoneOtpService', () => {
     expect(count).toHaveBeenCalledWith({
       where: {
         phone,
-        purpose: 'LOGIN',
+        purpose: 'BUYER_LOGIN',
         createdAt: {
           gte: expect.any(Date),
         },
@@ -44,7 +44,7 @@ describe('DeliveryPhoneOtpService', () => {
     expect(create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         phone,
-        purpose: 'LOGIN',
+        purpose: 'BUYER_LOGIN',
         codeHash: 'mock-hash',
         expiresAt: expect.any(Date),
       }),
@@ -58,7 +58,7 @@ describe('DeliveryPhoneOtpService', () => {
         findFirst: jest.fn().mockResolvedValue({
           id: 'otp-1',
           phone,
-          purpose: 'LOGIN',
+          purpose: 'BUYER_LOGIN',
           codeHash: 'expected-hash',
           consumedAt: null,
           expiresAt: new Date(Date.now() + 60_000),
@@ -95,7 +95,7 @@ describe('DeliveryPhoneOtpService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           phone,
-          purpose: 'LOGIN',
+          purpose: 'BUYER_LOGIN',
           codeHash: 'expected-hash',
           consumedAt: null,
         }),
@@ -110,7 +110,7 @@ describe('DeliveryPhoneOtpService', () => {
     expect(deliveryPrisma.deliveryPhoneOtpAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         phone,
-        purpose: 'LOGIN',
+        purpose: 'BUYER_LOGIN',
         success: true,
         ip: '127.0.0.1',
         userAgent: 'jest-otp',
@@ -131,7 +131,7 @@ describe('DeliveryPhoneOtpService', () => {
     const expiredRecord = {
       id: 'otp-expired',
       phone,
-      purpose: 'LOGIN',
+      purpose: 'BUYER_LOGIN',
       codeHash: 'expected-hash',
       consumedAt: null,
       expiresAt: new Date(Date.now() - 60_000),
@@ -192,7 +192,7 @@ describe('DeliveryPhoneOtpService', () => {
     expect((missingService as any).deliveryPrisma.deliveryPhoneOtpAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         phone,
-        purpose: 'LOGIN',
+        purpose: 'BUYER_LOGIN',
         success: false,
         ip: '127.0.0.2',
         userAgent: 'missing-otp',
