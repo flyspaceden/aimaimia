@@ -92,7 +92,7 @@ test('delivery pricing validation rejects mismatched scope fields and missing pr
       minQuantity: 1,
       markupBps: 1000,
     }) ?? '',
-    /merchantId/,
+    /商家编号/,
   );
   assert.match(
     validateDeliveryPricingRuleDraft({
@@ -121,7 +121,7 @@ test('delivery manifest customization validation rejects blank or duplicate cust
     validateDeliveryManifestCustomizationEntries([
       { key: '', label: '备注', value: '冷藏', sortOrder: 500, visible: true },
     ]) ?? '',
-    /key 不能为空/,
+    /字段标识不能为空/,
   );
   assert.match(
     validateDeliveryManifestCustomizationEntries([
@@ -134,7 +134,7 @@ test('delivery manifest customization validation rejects blank or duplicate cust
     validateDeliveryManifestCustomizationEntries([
       { key: '1memo', label: '备注', value: '冷藏', sortOrder: 500, visible: true },
     ]) ?? '',
-    /英文字母开头/,
+    /字母开头/,
   );
 });
 

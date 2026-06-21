@@ -1,9 +1,19 @@
-import { App, Alert, Button, Card, Col, Descriptions, Form, Input, Row, Space, Spin, Tag } from 'antd';
-import { EnvironmentOutlined, PhoneOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons';
+import { App, Button, Col, Descriptions, Form, Input, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
+import {
+  CheckCircleOutlined,
+  LockOutlined,
+  PhoneOutlined,
+  SaveOutlined,
+  ShopOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
+import { ProCard } from '@ant-design/pro-components';
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import { getCompany, updateCompany } from '@/api/company';
 import useAuthStore from '@/store/useAuthStore';
+import { getStatusDisplay } from '@/constants/statusMaps';
 import type { Company, UpdateCompanyPayload } from '@/types';
 
 const companyStatusMap: Record<Company['status'], { text: string; color: string }> = {
@@ -53,35 +63,65 @@ export default function CompanySettingsPage() {
     return <Spin size="large" style={{ display: 'block', margin: '96px auto' }} />;
   }
 
-  const statusDisplay = companyStatusMap[company.status] || { text: company.status, color: 'default' };
+  const statusDisplay = getStatusDisplay(companyStatusMap, company.status);
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Alert
-        type="warning"
-        showIcon
-        message="当前配送中心资料只支持维护基础联系人信息。资质文件、AI 搜索资料和企业亮点不在 delivery 合同里。"
-      />
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={8}>
+          <ProCard title="当前状态" headerBordered style={{ borderTop: '3px solid #EA580C' }}>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Tag color={statusDisplay.color}>{statusDisplay.text}</Tag>
+              <Statistic title="配送中心编号" value={company.id} valueStyle={{ fontSize: 18 }} />
+              <Typography.Text type="secondary">
+                更新时间 {dayjs(company.updatedAt).format('YYYY-MM-DD HH:mm')}
+              </Typography.Text>
+            </Space>
+          </ProCard>
+        </Col>
+        <Col xs={24} md={8}>
+          <ProCard title="基础资料" headerBordered style={{ borderTop: '3px solid #f59e0b' }}>
+            <Descriptions column={1} size="small" labelStyle={{ width: 96 }}>
+              <Descriptions.Item label="配送中心">{company.name}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">
+                {dayjs(company.createdAt).format('YYYY-MM-DD HH:mm')}
+              </Descriptions.Item>
+            </Descriptions>
+          </ProCard>
+        </Col>
+        <Col xs={24} md={8}>
+          <ProCard title="操作权限" headerBordered style={{ borderTop: '3px solid #fb923c' }}>
+            <Space direction="vertical" size={8}>
+              <Tag icon={canEdit ? <CheckCircleOutlined /> : <LockOutlined />} color={canEdit ? 'green' : 'default'}>
+                {canEdit ? '当前账号可以维护资料' : '当前账号只能查看资料'}
+              </Tag>
+              <Typography.Text type="secondary">
+                资质资料、搜索资料和企业亮点由配送管理后台维护。
+              </Typography.Text>
+            </Space>
+          </ProCard>
+        </Col>
+      </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
-          <Card
-            title="配送中心设置"
-            styles={{ header: { borderTop: '3px solid #fa8c16' } }}
-          >
+          <ProCard title="资料维护" headerBordered style={{ borderTop: '3px solid #EA580C' }}>
             <Form<UpdateCompanyPayload>
               form={form}
               layout="vertical"
               onFinish={handleSubmit}
               disabled={!canEdit}
             >
+              <Typography.Title level={5}>基础资料</Typography.Title>
               <Form.Item
                 name="name"
                 label="配送中心名称"
                 rules={[{ required: true, message: '请输入配送中心名称' }]}
               >
-                <Input placeholder="填写对外显示的配送中心名称" />
+                <Input prefix={<ShopOutlined />} placeholder="填写对外显示的配送中心名称" />
               </Form.Item>
+
+              <Typography.Title level={5}>联系方式</Typography.Title>
               <Row gutter={16}>
                 <Col xs={24} md={12}>
                   <Form.Item
@@ -105,55 +145,24 @@ export default function CompanySettingsPage() {
               <Form.Item name="servicePhone" label="客服/值班电话">
                 <Input prefix={<PhoneOutlined />} placeholder="可选，给买家或协作方使用" />
               </Form.Item>
+
               {canEdit ? (
                 <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>
                   保存设置
                 </Button>
-              ) : (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="当前账号只有查看权限，如需修改请联系管理员开通公司资料维护权限。"
-                />
-              )}
+              ) : null}
             </Form>
-          </Card>
+          </ProCard>
         </Col>
 
         <Col xs={24} lg={8}>
-          <Card
-            title="当前资料"
-            styles={{ header: { borderTop: '3px solid #ffa940' } }}
-          >
+          <ProCard title="当前联系方式" headerBordered style={{ borderTop: '3px solid #ffa940' }}>
             <Descriptions column={1} size="small" labelStyle={{ width: 112 }}>
-              <Descriptions.Item label="状态">
-                <Tag color={statusDisplay.color}>{statusDisplay.text}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="配送中心 ID">{company.id}</Descriptions.Item>
               <Descriptions.Item label="联系人">{company.contactName}</Descriptions.Item>
               <Descriptions.Item label="联系手机">{company.contactPhone}</Descriptions.Item>
-              <Descriptions.Item label="值班电话">
-                {company.servicePhone || '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="创建时间">{company.createdAt}</Descriptions.Item>
-              <Descriptions.Item label="更新时间">{company.updatedAt}</Descriptions.Item>
+              <Descriptions.Item label="值班电话">{company.servicePhone || '-'}</Descriptions.Item>
             </Descriptions>
-
-            <div
-              style={{
-                marginTop: 16,
-                padding: 12,
-                borderRadius: 8,
-                background: '#fff7e6',
-                color: '#ad6800',
-              }}
-            >
-              <Space size={8}>
-                <EnvironmentOutlined />
-                <span>本页只维护 delivery backend 当前开放的四个字段。</span>
-              </Space>
-            </div>
-          </Card>
+          </ProCard>
         </Col>
       </Row>
     </Space>

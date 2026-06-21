@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App as AntdApp, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table } from 'antd';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { App as AntdApp, Button, Form, Input, InputNumber, Modal, Space } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import { ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
 import {
   getDeliverySettlements,
   markDeliverySettlementPaid,
 } from '@/api/delivery-management';
 import type { DeliverySettlement } from '@/types/delivery-management';
 import { PageHeader, StatusPill } from './components';
-import { formatDateTime, formatMoney, getErrorMessage, settlementStatusOptions } from './utils';
+import { deliveryValueEnum, formatDateTime, formatMoney, getErrorMessage, settlementStatusOptions } from './utils';
 
 type SettlementFormValues = {
   settledAmountCents: number;
@@ -17,24 +18,9 @@ type SettlementFormValues = {
 
 export default function DeliverySettlementsPage() {
   const { message } = AntdApp.useApp();
-  const queryClient = useQueryClient();
-  const [status, setStatus] = useState<string | undefined>();
-  const [pagination, setPagination] = useState<TablePaginationConfig>({
-    current: 1,
-    pageSize: 20,
-  });
+  const actionRef = useRef<ActionType | undefined>(undefined);
   const [editing, setEditing] = useState<DeliverySettlement | null>(null);
   const [form] = Form.useForm<SettlementFormValues>();
-
-  const query = useQuery({
-    queryKey: ['delivery-settlements', pagination.current, pagination.pageSize, status],
-    queryFn: () =>
-      getDeliverySettlements({
-        page: pagination.current,
-        pageSize: pagination.pageSize,
-        status,
-      }),
-  });
 
   useEffect(() => {
     if (!editing) {
@@ -53,26 +39,28 @@ export default function DeliverySettlementsPage() {
     onSuccess: async () => {
       message.success('结算已标记为已支付');
       setEditing(null);
-      await queryClient.invalidateQueries({ queryKey: ['delivery-settlements'] });
+      actionRef.current?.reload();
     },
     onError: (error) => {
       message.error(getErrorMessage(error));
     },
   });
 
-  const columns: ColumnsType<DeliverySettlement> = [
-    { title: '结算 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+  const columns: ProColumns<DeliverySettlement>[] = [
+    { title: '结算编号', dataIndex: 'id', key: 'id', width: 170, ellipsis: true, copyable: true, search: false },
     {
       title: '商家',
       key: 'merchant',
       width: 180,
       render: (_, record) => record.merchant?.name ?? record.merchantId,
+      search: false,
     },
     {
       title: '子订单',
       key: 'subOrder',
       width: 150,
       render: (_, record) => record.subOrder?.id ?? record.subOrderId ?? '-',
+      search: false,
     },
     {
       title: '金额边界',
@@ -85,16 +73,18 @@ export default function DeliverySettlementsPage() {
           <span>已结额: {formatMoney(record.settledAmountCents)}</span>
         </Space>
       ),
+      search: false,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (value: string) => <StatusPill value={value} />,
+      valueEnum: deliveryValueEnum(settlementStatusOptions),
+      render: (_, record) => <StatusPill value={record.status} />,
     },
-    { title: '结算月', dataIndex: 'settlementMonth', key: 'settlementMonth', width: 100 },
-    { title: '完成时间', dataIndex: 'settledAt', key: 'settledAt', width: 150, render: formatDateTime },
+    { title: '结算月', dataIndex: 'settlementMonth', key: 'settlementMonth', width: 100, search: false },
+    { title: '完成时间', dataIndex: 'settledAt', key: 'settledAt', width: 150, render: (_, record) => formatDateTime(record.settledAt), search: false },
     {
       title: '操作',
       key: 'action',
@@ -105,6 +95,7 @@ export default function DeliverySettlementsPage() {
           标记已打款
         </Button>
       ),
+      search: false,
     },
   ];
 
@@ -113,38 +104,33 @@ export default function DeliverySettlementsPage() {
       <PageHeader
         title="配送结算"
         subtitle="结算页只展示供货额、应结额、已结额，不暴露平台定价策略。"
-        extra={(
-          <Select
-            allowClear
-            placeholder="按状态筛选"
-            style={{ width: 180 }}
-            value={status}
-            onChange={(value) => {
-              setStatus(value);
-              setPagination((prev) => ({ ...prev, current: 1 }));
-            }}
-            options={settlementStatusOptions.map((item) => ({ label: item, value: item }))}
-          />
-        )}
       />
 
-      <Card>
-        <Table<DeliverySettlement>
-          rowKey="id"
-          columns={columns}
-          dataSource={query.data?.items ?? []}
-          loading={query.isLoading}
-          scroll={{ x: 1160 }}
-          locale={{ emptyText: query.isError ? getErrorMessage(query.error) : '暂无结算记录' }}
-          pagination={{
-            current: query.data?.page ?? pagination.current,
-            pageSize: query.data?.pageSize ?? pagination.pageSize,
-            total: query.data?.total ?? 0,
-            showSizeChanger: true,
-          }}
-          onChange={(nextPagination) => setPagination(nextPagination)}
-        />
-      </Card>
+      <ProTable<DeliverySettlement>
+        actionRef={actionRef}
+        rowKey="id"
+        columns={columns}
+        request={async (params) => {
+          const result = await getDeliverySettlements({
+            page: params.current,
+            pageSize: params.pageSize,
+            status: typeof params.status === 'string' ? params.status : undefined,
+          });
+          return {
+            data: result.items,
+            success: true,
+            total: result.total,
+          };
+        }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
+        search={{ labelWidth: 84 }}
+        scroll={{ x: 1160 }}
+        toolBarRender={() => [
+          <Button key="reload" icon={<ReloadOutlined />} onClick={() => actionRef.current?.reload()}>
+            刷新
+          </Button>,
+        ]}
+      />
 
       <Modal
         open={Boolean(editing)}

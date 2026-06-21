@@ -230,6 +230,58 @@ export function statusColor(status?: string | null) {
   }
 }
 
+const deliveryDisplayTextMap: Record<string, string> = {
+  ACTIVE: '启用',
+  INACTIVE: '停用',
+  DISABLED: '停用',
+  SUSPENDED: '已暂停',
+  DRAFT: '草稿',
+  PENDING: '待处理',
+  APPROVED: '已通过',
+  REJECTED: '已驳回',
+  OPEN: '处理中',
+  CLOSED: '已关闭',
+  PUBLISHED: '已发布',
+  COMPLETED: '已完成',
+  DELIVERED: '已送达',
+  SETTLED: '已结算',
+  SUCCESS: '成功',
+  FAILED: '失败',
+  PENDING_SHIPMENT: '待发货',
+  SHIPPED: '已发货',
+  CANCELED: '已取消',
+  IN_PROGRESS: '处理中',
+  PLATFORM: '全平台',
+  MERCHANT: '指定商家',
+  PRODUCT: '指定商品',
+  SKU: '指定规格',
+  FIXED_PRICE: '固定售价',
+  MARKUP_RATE: '加价率',
+  SYSTEM: '系统设置',
+  CUSTOMER_SERVICE: '客服中心',
+  MANIFEST: '清单模板',
+  UNIT: '配送单位',
+  TEXT: '单行文本',
+  TEXTAREA: '多行文本',
+  SELECT: '下拉选项',
+  BUYER_FULL: '买家整单清单',
+  SELLER_FULFILLMENT: '卖家配货清单',
+};
+
+export function formatDeliveryDisplayText(value?: string | null) {
+  if (!value) {
+    return '-';
+  }
+  if (deliveryDisplayTextMap[value]) {
+    return deliveryDisplayTextMap[value];
+  }
+  return /^[A-Z0-9_]+$/.test(value) ? '未知状态' : value;
+}
+
+export function deliveryValueEnum(options: string[]) {
+  return Object.fromEntries(options.map((item) => [item, { text: formatDeliveryDisplayText(item) }]));
+}
+
 export const merchantStatusOptions = ['PENDING', 'ACTIVE', 'SUSPENDED'];
 export const merchantApplicationStatusOptions = ['PENDING', 'APPROVED', 'REJECTED'];
 export const productStatusOptions = ['DRAFT', 'ACTIVE', 'INACTIVE'];

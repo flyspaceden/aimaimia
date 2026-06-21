@@ -14,7 +14,7 @@ export default function DeliveryUnitDetailPage() {
   });
 
   if (!id) {
-    return <NotFoundPanel title="缺少配送单位 ID" />;
+    return <NotFoundPanel title="缺少配送单位编号" />;
   }
 
   if (query.isError) {
@@ -33,7 +33,7 @@ export default function DeliveryUnitDetailPage() {
         {data ? (
           <DetailDescriptions
             items={[
-              { key: 'id', label: '单位 ID', children: data.id },
+              { key: 'id', label: '单位编号', children: data.id },
               { key: 'name', label: '单位名称', children: data.name },
               { key: 'user', label: '所属用户', children: data.user?.nickname || data.user?.phone || data.userId },
               { key: 'contactName', label: '联系人', children: data.contactName },

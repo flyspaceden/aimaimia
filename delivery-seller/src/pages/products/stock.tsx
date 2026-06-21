@@ -4,6 +4,7 @@ import { EditOutlined, WarningOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProducts } from '@/api/products';
 import { updateSkuStock } from '@/api/inventory';
+import { getStatusDisplay, productStatusMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
 
 interface StockRow {
@@ -118,7 +119,10 @@ export default function StockPage() {
             title: '状态',
             dataIndex: 'status',
             width: 120,
-            render: (value?: string) => <Tag color={value === 'ACTIVE' ? 'green' : 'default'}>{value || '-'}</Tag>,
+            render: (value?: string) => {
+              const status = getStatusDisplay(productStatusMap, value);
+              return <Tag color={status.color}>{status.text}</Tag>;
+            },
           },
           {
             title: '操作',

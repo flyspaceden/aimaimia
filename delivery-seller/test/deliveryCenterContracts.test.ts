@@ -34,8 +34,47 @@ test('delivery center exposes the task 17 operational routes', () => {
     assert.match(app, new RegExp(route.replace('/', '\\/')));
   }
 
-  for (const menuText of ['库存管理', '物流跟踪', '导出中心', '客服工单']) {
+  for (const menuText of ['库存管理', '物流跟踪', '经营导出', '客服中心']) {
     assert.match(layout, new RegExp(menuText));
+  }
+});
+
+test('delivery center layout shows the full operational menu in the sidebar', () => {
+  const layout = read('src/layouts/SellerLayout.tsx');
+
+  for (const group of ['商品管理', '订单履约', '经营导出', '企业与人员', '客服中心']) {
+    assert.match(layout, new RegExp(group), `layout should expose grouped menu ${group}`);
+  }
+
+  for (const [group, path] of [
+    ['商品管理', '/products'],
+    ['订单履约', '/orders'],
+    ['企业与人员', '/company/settings'],
+  ]) {
+    assert.match(
+      layout,
+      new RegExp(`path:\\s*['"]${path.replace('/', '\\/')}['"][\\s\\S]*?name:\\s*['"]${group}['"][\\s\\S]*?routes:\\s*\\[`),
+      `grouped sidebar menu ${group} should have its own path so ProLayout renders it`,
+    );
+  }
+
+  assert.match(layout, /layout="side"/);
+  assert.doesNotMatch(layout, /layout="mix"/);
+  assert.match(layout, /#EA580C/);
+  assert.match(layout, /切换爱买买卖家中心/);
+});
+
+test('delivery center operational pages use seller-center dense page components', () => {
+  for (const file of [
+    'src/pages/dashboard/index.tsx',
+    'src/pages/exports/index.tsx',
+    'src/pages/orders/logistics.tsx',
+    'src/pages/company/index.tsx',
+    'src/pages/company/staff.tsx',
+    'src/pages/customer-service/index.tsx',
+  ]) {
+    const source = read(file);
+    assert.match(source, /ProCard|ProTable/, `${file} should use ProCard or ProTable`);
   }
 });
 
@@ -58,6 +97,30 @@ test('delivery center keeps a logged-in switch back to the main seller center', 
   assert.match(layout, /切换爱买买卖家中心/);
   assert.match(layout, /seller\.ai-maimai\.com/);
   assert.match(layout, /test-seller\.ai-maimai\.com/);
+});
+
+test('delivery center login page explains the test phone credentials', () => {
+  const source = read('src/pages/login/index.tsx');
+
+  for (const label of [
+    '登录账号是手机号',
+    '不要填写内部账号名',
+    '测试时建议使用密码登录',
+    '默认密码：123456',
+    '短信登录请先点击获取验证码',
+    '测试服务器以实际短信验证码为准',
+    '本地模拟环境可用 123456',
+    '请以收到的短信或本地后端控制台为准',
+    '13800001001',
+    '配送中心 OWNER',
+    '配送示范供应商',
+  ]) {
+    assert.ok(source.includes(label), `login page should explain ${label}`);
+  }
+
+  assert.doesNotMatch(source, /delivery_seed_owner/);
+  assert.doesNotMatch(source, /短信验证码：123456/);
+  assert.doesNotMatch(source, /13800001002/);
 });
 
 test('delivery center uses delivery-seller API namespaces for task 17 modules', () => {
@@ -144,4 +207,53 @@ test('delivery center downloads private files with authenticated API requests be
 
   const productEdit = read('src/pages/products/edit.tsx');
   assert.doesNotMatch(productEdit, /window\.open\(previewFile\.url/, 'product image download must not fall back to opening the raw storage URL');
+});
+
+test('delivery center local dev proxy defaults to the staging API', () => {
+  const viteConfig = read('vite.config.ts');
+  assert.match(viteConfig, /VITE_PROXY_TARGET/);
+  assert.match(viteConfig, /https:\/\/test-api\.ai-maimai\.com/);
+  assert.doesNotMatch(viteConfig, /target:\s*['"]http:\/\/localhost:3000['"]/);
+});
+
+test('delivery center visible labels translate backend enum values and technical field names', () => {
+  const visibleSourceFiles = [
+    'src/pages/company/index.tsx',
+    'src/pages/company/staff.tsx',
+    'src/pages/customer-service/index.tsx',
+    'src/pages/exports/index.tsx',
+    'src/pages/orders/detail.tsx',
+    'src/pages/orders/index.tsx',
+    'src/pages/orders/logistics.tsx',
+    'src/pages/products/edit.tsx',
+    'src/pages/products/index.tsx',
+    'src/pages/products/stock.tsx',
+  ];
+
+  for (const file of visibleSourceFiles) {
+    const source = read(file);
+    assert.doesNotMatch(source, /title:\s*['"](?:SKU\s|.*\sID)['"]/, `${file} must not expose technical English column titles`);
+    assert.doesNotMatch(source, /label:\s*['"](?:OPEN|CLOSED|ACTIVE|DISABLED|OWNER|MANAGER|OPERATOR|PENDING|APPROVED|REJECTED)['"]/, `${file} must not expose raw enum labels`);
+    assert.doesNotMatch(source, /\{(?:status|value|role|order\.status|row\.shipment\.status|staff\.role)\s*\|\|\s*['"]-['"]\}/, `${file} must not render raw enum fallbacks`);
+    assert.doesNotMatch(source, /\|\|\s*(?:order|row|staff|company)\.(?:status|role)/, `${file} must not fall back to raw enum values`);
+  }
+});
+
+test('delivery center company and staff settings use guided Chinese setting workflows', () => {
+  const company = read('src/pages/company/index.tsx');
+  const staff = read('src/pages/company/staff.tsx');
+
+  for (const label of ['基础资料', '联系方式', '当前状态', '操作权限']) {
+    assert.match(company, new RegExp(label), `company settings should expose ${label}`);
+  }
+
+  for (const label of ['权限分组', '新增员工', '分配权限', '禁用员工', '商品与库存', '订单与履约']) {
+    assert.match(staff, new RegExp(label), `staff settings should expose ${label}`);
+  }
+
+  assert.match(staff, /permissionGroups/);
+  assert.match(staff, /Checkbox\.Group/);
+  assert.match(staff, /Drawer/);
+  assert.match(staff, /Switch/);
+  assert.doesNotMatch(staff, /mode=["']tags["']/);
 });

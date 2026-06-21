@@ -23,7 +23,7 @@ export default function DeliveryAbnormalPaymentsPage() {
   });
 
   const columns: ColumnsType<DeliveryAbnormalPayment> = [
-    { title: '支付单 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '支付单编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
     { title: '商户单号', dataIndex: 'merchantOrderNo', key: 'merchantOrderNo', width: 180, ellipsis: true },
     { title: '渠道', dataIndex: 'channel', key: 'channel', width: 100 },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (value: string) => <StatusPill value={value} /> },

@@ -34,25 +34,28 @@ const menuRoutes: ProLayoutProps['route'] = {
   routes: [
     { path: '/', name: '工作台', icon: <DashboardOutlined /> },
     { path: '/stats', name: '数据看板', icon: <BarChartOutlined /> },
-    { path: '/users', name: '配送用户', icon: <UserOutlined /> },
-    { path: '/units', name: '配送单位', icon: <SolutionOutlined /> },
     {
-      name: '商家管理',
+      path: '/delivery-users',
+      name: '用户与单位',
+      icon: <UserOutlined />,
+      routes: [
+        { path: '/users', name: '配送用户' },
+        { path: '/units', name: '配送单位', icon: <SolutionOutlined /> },
+      ],
+    },
+    {
+      path: '/delivery-commerce',
+      name: '商家与商品',
       icon: <ShopOutlined />,
       routes: [
         { path: '/merchants', name: '商家档案' },
         { path: '/merchant-applications', name: '入驻审核' },
-      ],
-    },
-    {
-      name: '商品与定价',
-      icon: <ShoppingCartOutlined />,
-      routes: [
         { path: '/products', name: '商品审核' },
-        { path: '/pricing-rules', name: '定价规则' },
+        { path: '/pricing-rules', name: '定价规则', icon: <ShoppingCartOutlined /> },
       ],
     },
     {
+      path: '/delivery-fulfillment',
       name: '订单与履约',
       icon: <TruckOutlined />,
       routes: [
@@ -63,9 +66,29 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/manifests', name: '清单模板' },
       ],
     },
-    { path: '/customer-service', name: '客服会话', icon: <ContainerOutlined /> },
-    { path: '/audit', name: '审计日志', icon: <AuditOutlined /> },
-    { path: '/config', name: '配置中心', icon: <SettingOutlined /> },
+    {
+      path: '/delivery-service',
+      name: '客服中心',
+      icon: <ContainerOutlined />,
+      routes: [
+        { path: '/cs/workstation', name: '对话工作台' },
+        { path: '/cs/tickets', name: '工单管理' },
+        { path: '/cs/faq', name: 'FAQ 管理' },
+        { path: '/cs/quick-entries', name: '快捷入口配置' },
+        { path: '/cs/quick-replies', name: '坐席快捷回复' },
+        { path: '/cs/dashboard', name: '数据看板' },
+      ],
+    },
+    {
+      path: '/delivery-system',
+      name: '系统管理',
+      icon: <SettingOutlined />,
+      routes: [
+        { path: '/config', name: '配置中心' },
+        { path: '/audit', name: '审计日志', icon: <AuditOutlined /> },
+        { path: '/account-security', name: '账号安全', icon: <SafetyOutlined /> },
+      ],
+    },
   ],
 };
 

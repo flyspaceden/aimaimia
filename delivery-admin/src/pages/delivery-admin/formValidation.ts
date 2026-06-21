@@ -61,22 +61,22 @@ export function validateDeliveryPricingRuleDraft(values: DeliveryPricingRuleDraf
   }
 
   if (scope === 'PLATFORM' && (merchantId || productId || skuId)) {
-    return '平台级规则不要填写商家、商品或 SKU ID';
+    return '平台级规则不要填写商家、商品或规格编号';
   }
   if (scope === 'MERCHANT' && !merchantId) {
-    return '商家级规则必须填写 merchantId';
+    return '商家级规则必须填写商家编号';
   }
   if (scope === 'MERCHANT' && (productId || skuId)) {
-    return '商家级规则不要填写 productId 或 skuId';
+    return '商家级规则不要填写商品编号或规格编号';
   }
   if (scope === 'PRODUCT' && !productId) {
-    return '商品级规则必须填写 productId';
+    return '商品级规则必须填写商品编号';
   }
   if (scope === 'PRODUCT' && skuId) {
-    return '商品级规则不要填写 skuId';
+    return '商品级规则不要填写规格编号';
   }
   if (scope === 'SKU' && !skuId) {
-    return 'SKU 级规则必须填写 skuId';
+    return '规格级规则必须填写规格编号';
   }
 
   return null;
@@ -112,13 +112,13 @@ export function validateDeliveryManifestCustomizationEntries(
     const value = trimOptional(entry.value);
 
     if (!key) {
-      return `第 ${rowNo} 行自定义列 key 不能为空`;
+      return `第 ${rowNo} 行自定义列字段标识不能为空`;
     }
     if (!CUSTOM_KEY_PATTERN.test(key)) {
-      return `第 ${rowNo} 行自定义列 key 只能用英文字母开头，并包含字母、数字、_ 或 -`;
+      return `第 ${rowNo} 行自定义列字段标识只能用字母开头，并包含字母、数字、下划线或短横线`;
     }
     if (seenKeys.has(key)) {
-      return `自定义列 key 重复: ${key}`;
+      return `自定义列字段标识重复: ${key}`;
     }
     seenKeys.add(key);
 
@@ -131,7 +131,7 @@ export function validateDeliveryManifestCustomizationEntries(
     if (manifestType === 'SELLER_FULFILLMENT') {
       const combined = `${key} ${label} ${value}`;
       if (SELLER_FULFILLMENT_FORBIDDEN_TEXT_PATTERN.test(combined)) {
-        return `第 ${rowNo} 行卖家配货 PDF 自定义列不能包含金额、成本、售价、结算或加价相关内容`;
+        return `第 ${rowNo} 行卖家配货清单自定义列不能包含金额、成本、售价、结算或加价相关内容`;
       }
     }
   }
@@ -153,7 +153,7 @@ export function validateDeliveryManifestTemplateColumns(
     const label = trimOptional(column.label);
     const combined = `${key ?? ''} ${label ?? ''}`;
     if (SELLER_FULFILLMENT_FORBIDDEN_TEXT_PATTERN.test(combined)) {
-      return `第 ${rowNo} 行卖家配货 PDF 模板列不能包含金额、成本、售价、结算或加价相关内容`;
+      return `第 ${rowNo} 行卖家配货清单模板列不能包含金额、成本、售价、结算或加价相关内容`;
     }
   }
 

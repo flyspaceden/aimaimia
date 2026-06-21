@@ -1,4 +1,5 @@
-import { Card, Col, Row, Statistic, Button, Typography, Spin, Alert, Space } from 'antd';
+import { Col, Row, Statistic, Button, Typography, Spin, Alert, Space, Tag } from 'antd';
+import { ProCard } from '@ant-design/pro-components';
 import {
   ShoppingCartOutlined,
   ClockCircleOutlined,
@@ -11,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getDashboard } from '@/api/dashboard';
 
-const { Title } = Typography;
+const { Text, Title } = Typography;
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -51,26 +52,34 @@ export default function DashboardPage() {
     { label: '待发货订单', path: '/orders?statusTab=pending', icon: <ShoppingCartOutlined /> },
     { label: '库存管理', path: '/products/stock', icon: <AppstoreOutlined /> },
     { label: '物流跟踪', path: '/orders/logistics', icon: <TruckOutlined /> },
-    { label: '导出中心', path: '/exports', icon: <ExportOutlined /> },
-    { label: '客服工单', path: '/customer-service', icon: <MessageOutlined /> },
+    { label: '经营导出', path: '/exports', icon: <ExportOutlined /> },
+    { label: '客服中心', path: '/customer-service', icon: <MessageOutlined /> },
     { label: '账号安全', path: '/account-security', icon: <ClockCircleOutlined /> },
   ];
 
   return (
-    <div>
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {summaryCards.map((item) => (
-          <Col xs={24} sm={8} key={item.title}>
-            <Card>
+    <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+      <ProCard
+        title="履约工作台"
+        extra={<Tag color="orange">配送中心</Tag>}
+        headerBordered
+        style={{ borderTop: '3px solid #EA580C' }}
+      >
+        <Row gutter={[16, 16]}>
+          {summaryCards.map((item) => (
+            <Col xs={24} md={8} key={item.title}>
               <Statistic title={item.title} value={item.value} prefix={item.prefix} />
-            </Card>
-          </Col>
-        ))}
-      </Row>
+            </Col>
+          ))}
+        </Row>
+      </ProCard>
 
-      <Row gutter={16}>
-        <Col xs={24} lg={14}>
-          <Card title={<Title level={5} style={{ margin: 0 }}>快捷入口</Title>}>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={15}>
+          <ProCard
+            title={<Title level={5} style={{ margin: 0 }}>快捷入口</Title>}
+            headerBordered
+          >
             <Space wrap>
               {quickLinks.map((item) => (
                 <Button key={item.path} icon={item.icon} onClick={() => navigate(item.path)}>
@@ -78,19 +87,23 @@ export default function DashboardPage() {
                 </Button>
               ))}
             </Space>
-          </Card>
+          </ProCard>
         </Col>
 
-        <Col xs={24} lg={10}>
-          <Card title={<Title level={5} style={{ margin: 0 }}>处理队列</Title>}>
+        <Col xs={24} lg={9}>
+          <ProCard
+            title={<Title level={5} style={{ margin: 0 }}>处理队列</Title>}
+            headerBordered
+          >
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Button block onClick={() => navigate('/orders?statusTab=pending')}>待发货订单</Button>
               <Button block onClick={() => navigate('/exports')}>财务结算导出</Button>
-              <Button block onClick={() => navigate('/customer-service')}>客服工单</Button>
+              <Button block onClick={() => navigate('/customer-service')}>客服中心</Button>
+              <Text type="secondary">配送中心只展示供货、履约和结算相关事项。</Text>
             </Space>
-          </Card>
+          </ProCard>
         </Col>
       </Row>
-    </div>
+    </Space>
   );
 }

@@ -67,9 +67,10 @@
 
 ### 组件风格
 
-- 使用 Ant Design 的 `Table / Descriptions / Modal / Drawer / Tabs / Statistic / Tag`
-- 维持浅蓝配色、紧凑运营台样式
-- 列表页优先高信息密度，详情页优先 `Descriptions + 分组卡片`
+- 核心运营列表页使用 `ProTable`，包括搜索表单、分页请求、工具栏刷新、复制列、固定操作列和横向滚动。
+- 详情页继续使用 `Descriptions / Modal / Drawer / Tabs / Statistic / Tag` 等后台组件。
+- 维持浅蓝配色、紧凑运营台样式；侧边栏按“用户与单位 / 商家与商品 / 订单与履约 / 客服中心 / 系统管理”分组，避免回到简化版平铺菜单。
+- 列表页优先高信息密度，详情页优先 `Descriptions + 分组卡片`。
 
 ### 集成验证记录（Task 20，2026-06-19）
 
@@ -78,6 +79,15 @@
 - Vite 构建仍会输出部分 vendor chunk 超过 500 kB 的提示，这是当前 Ant Design / Pro Components 构建体积提示，不是失败。
 - 尚未本地执行 staging 浏览器 smoke：配送管理后台登录、用户/单位/商家/订单/清单/结算/客服/审计/配置页面需要等待 DNS、宝塔 SSL、Nginx 站点、`CORS_ORIGINS` 和真实配送库迁移完成后在测试域名验收。
 - 私有 `docs/operations/阿里云部署.md` 不在公开提交中创建或更新；上线操作时需由运维同步实际域名、SSL、PM2/env、数据库和 migration 状态。
+
+### Web 前端重做补充（2026-06-20）
+
+- `delivery-admin/src/layouts/AdminLayout.tsx` 已从简化平铺菜单调整为管理后台式业务分组，并在系统管理中补出账号安全入口。
+- `delivery-admin/src/pages/delivery-admin/{users,units,merchants,merchant-applications,products,orders,shipping-records,settlements}.tsx` 已从基础 `Table` 升级为 `ProTable`。
+- `delivery-seller/src/layouts/SellerLayout.tsx` 已按配送中心业务调整为“商品管理 / 订单履约 / 经营导出 / 企业与人员 / 客服中心”，保留橙色选中态、`layout="mix"` 和权限码过滤。
+- 配送中心工作台、物流、导出、企业资料、员工和客服页面已使用 `ProCard` 做运营分区；配送中心仍不能展示平台最终售价、加价率、平台利润等字段。
+- `delivery-admin/vite.config.ts` 与 `delivery-seller/vite.config.ts` 的本地 dev proxy 默认指向 `https://test-api.ai-maimai.com`，避免本地未启动后端时验证码和登录请求打到 `localhost:3000`；需要联调本地后端时可设置 `VITE_PROXY_TARGET=http://localhost:3000`。
+- 新增合同测试锁定上述结构，当前验证：`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm test && npm run build` 均通过。
 
 ---
 
@@ -1157,3 +1167,12 @@
 | 数字资产管理 | `/digital-assets` 总览升级为 V2 口径：顶部统计展示数字资产总额、种子资产总额、消费资产总额、累计消费总额、今日入账、今日扣回；账户表按买家编号/昵称/手机号搜索，展示 VIP 状态、数字资产总额、种子资产、消费资产、累计消费和更新时间；导出 CSV 同步输出上述字段 | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
 | 规则与明细 | 管理页内置“消费资产倍率规则”编辑器，要求首档从 0 开始、相邻档位无断档、仅最后一档允许无上限；账户详情 Drawer 展示数字资产总额、种子资产、消费资产、累计消费、当前倍率、下一档进度和最近流水；手动调整只允许超级管理员对种子资产/消费资产做带原因审计的加减，不允许直接改“数字资产总额” | `admin/src/pages/digital-assets/index.tsx`, `admin/src/api/digital-assets.ts`, `admin/src/types/index.ts` |
 | VIP 档位配置 | VIP 档位列表与新建/编辑表单新增 `selfSeedAssetAmount` / `referralSeedAssetAmount` 字段，作为“自购种子资产 / 直接邀请好友开通 VIP 的种子资产”规则配置源，供 V2 激活与后台展示复用 | `admin/src/pages/vip-gifts/index.tsx`, `admin/src/api/vip-gifts.ts` |
+
+### 2026-06-20 配送 Web 中文显示口径
+
+| 页面/系统 | 完成内容 | 文件 |
+|------|----------|------|
+| 配送管理后台 | 状态标签、筛选下拉、审核弹窗、定价规则、配置中心、清单模板和表单校验提示统一将后端枚举与技术字段名转换为中文说明；编号列不再用英文 `ID`，配置列不再直接显示 `key/scope/fieldKey/App/Admin/Excel`；新增合同测试防止英文枚举和技术字段名重新进入可见 UI | `delivery-admin/src/pages/delivery-admin/**`, `delivery-admin/test/deliveryAdminContracts.test.ts`, `delivery-admin/test/deliveryAdminFormValidation.test.ts` |
+| 配送管理后台配置中心 | 配置中心从 Tab + Modal 改为左侧业务分类、右侧设置面板；分类只保留配送单位字段、清单与导出、平台规则；字段启用、必填、买家端显示、管理后台显示、PDF 清单、表格导出改为开关维护；平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在卡片内直接使用数字输入和开关修改，顶部统一保存，不再把内部配置标识、配置范围或 JSON 内容暴露给管理人员；字段下拉选项改为每行一个选项；客服配置从配置中心移入客服中心 | `delivery-admin/src/pages/delivery-admin/config.tsx`, `delivery-admin/test/deliveryAdminContracts.test.ts` |
+| 配送管理后台客服中心 | 对齐现有爱买买管理后台客服中心 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已有会话接口和客服默认配置接口，前端先接真实会话数据与默认客服配置，FAQ/快捷入口独立 CRUD 待后端配送接口补齐后再升级 | `delivery-admin/src/layouts/AdminLayout.tsx`, `delivery-admin/src/App.tsx`, `delivery-admin/src/pages/delivery-admin/cs-*.tsx`, `delivery-admin/test/deliveryAdminContracts.test.ts` |
+| 配送中心 | 订单、物流、商品、库存、公司资料和员工权限页面统一中文化状态兜底；未知后端枚举显示“未知状态”而不是原始英文值；权限码在员工表格中展示为中文权限名称；商品和公司编号列不再使用英文 `ID` | `delivery-seller/src/pages/**`, `delivery-seller/src/constants/statusMaps.ts`, `delivery-seller/test/deliveryCenterContracts.test.ts` |

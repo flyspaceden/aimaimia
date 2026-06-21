@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **配送管理后台与配送中心前端重做**（2026-06-20 新增并完成）
+  - **来源**: 用户反馈现有配送管理后台和配送中心过于简陋，要求基于现有管理后台 / 卖家中心风格重做，不污染 staging
+  - **实际做了**: 新建 `codex/delivery-frontend-rebuild` worktree；配送管理后台侧边栏改为业务分组，核心运营列表页从基础 `Table` 升级为 `ProTable`；配送中心菜单改为商品管理 / 订单履约 / 经营导出 / 企业与人员 / 客服中心，工作台、物流、导出、企业资料、员工、客服页使用 `ProCard` 分区并保持橙色主题；本地 dev proxy 默认改为测试 API，修复本地预览验证码/登录请求打到未启动 `localhost:3000` 的问题；新增合同测试锁定不回退成简化版，并继续限制配送中心不展示平台最终售价、加价率、平台利润等字段；配送管理后台和配送中心新增中文显示口径，状态枚举、配置范围、字段标识、权限、编号列和校验提示不再直接展示后端英文枚举或技术字段名；配置中心从 Tab + Modal 改为左侧分类和右侧设置面板，只保留配送单位字段 / 清单导出 / 平台规则，平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在页面内直接用数字输入 / 开关修改后统一保存，不向管理人员暴露内部配置标识、配置范围或 JSON 内容；客服相关配置移入客服中心；配送管理后台客服中心补齐为对话工作台 / 工单管理 / FAQ 管理 / 快捷入口配置 / 坐席快捷回复 / 数据看板 6 个页面；配送中心企业资料页改为当前状态、基础资料、联系方式、操作权限分块；员工页改为新增员工 / 分配权限 / 禁用员工工作区，权限用中文分组勾选，账号启用状态用开关。
+  - **验证**: `cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm test && npm run build`、`git diff --check` 均通过；Vite 仅输出已有 vendor chunk 体积提示。
+
 - [x] **资产流水分类 Tab 与类型配色**（2026-06-19 新增并完成）
   - **来源**: 用户要求资产流水里加 Tab 切换不同种类，下面不同类使用不同颜色
   - **实际做了**: 买家 App `/me/consumption-records` 从“消费记录”统一改为“资产流水”，新增横向分类 Tab（全部 / 种子资产 / 消费资产 / 累计消费 / 扣回 / 调整），按选中类型过滤当前已加载流水；列表卡片左侧色条、图标底色、图标和金额按类型使用固定颜色
@@ -80,6 +85,11 @@
   - **来源**: 用户要求“全面审查”，并按 App / 配送管理后台 / 配送中心 / 后端四个系统逐项复查
   - **实际做了**: 顺丰回调在主库未命中时分流到配送库 `DeliveryShipment`，签收后推进配送子订单和主订单状态；配送中心新增 `DeliverySellerPermissionGuard`，发货/商品/库存/客服写接口分别走 `orders:write` / `products:write` / `inventory:write` / `customer-service:write`，财务导出和结算列表走 `finance:read`，JWT 校验每次读取数据库最新 `role` / `permissionCodes`，OWNER 默认放行；配送配货 PDF 自定义列金额拦截扩展到供货价、结算款、付款、货款、单价、总价等绕法；清单模板固定系统列也允许后台设置是否显示；配送管理后台新增活跃路由/API 合同测试；配送中心删除未路由的售后/统计页面和 API，并用合同测试锁定不暴露售后、退款、平台售价等非配送内容；活跃代码中“采购/团购/配送卖家中心”文案残留已清理。
   - **验证**: `cd backend && npx jest src/modules/delivery/auth/guards/delivery-seller-permission.guard.spec.ts src/modules/delivery/auth/guards/delivery-admin-permission.guard.spec.ts src/modules/delivery/manifests/delivery-manifests.service.spec.ts src/modules/delivery/manifests/delivery-seller-manifests.controller.spec.ts src/modules/shipment/delivery-sf-callback.service.spec.ts src/modules/shipment/shipment.controller.spec.ts src/modules/delivery/units/delivery-units.service.spec.ts src/modules/delivery/seller/delivery-seller-upload.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/checkout/delivery-checkout.controller.spec.ts --runInBand`、配送后端大回归 55 suites / 276 tests、`cd delivery-admin && npm test`、`cd delivery-seller && npm test`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、根目录 `npx tsc --noEmit`、根目录 `npm test`、`git diff --check` 均通过。
+
+- [x] **配送管理后台配置页可用性修正（2026-06-20）**
+  - **来源**: 用户截图反馈“系统参数”含义不清，编辑抽屉像代码，管理人员看不懂。
+  - **实际做了**: 对齐现有爱买买管理后台“平台设置/发票设置”的业务表单模式，将配置中心第三类从“系统参数”改为“平台规则”；低库存展示改为“低库存提醒阈值”数字输入，逐单自定义列改为“允许逐单添加自定义列”开关；这两个平台规则不再点击编辑进入弹窗，而是在页面卡片内直接修改后统一保存；移除管理人员可见的内部配置标识、配置范围、JSON 内容和新增内部参数入口；配送单位字段的下拉选项改为每行一个选项。
+  - **验证**: `cd delivery-admin && npm test`、`cd delivery-admin && npm run build`、`git diff --check` 均通过。
 
 - [x] **配送部署、法律页、seed 与集成验证（Task 18-20）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 18-20 brief

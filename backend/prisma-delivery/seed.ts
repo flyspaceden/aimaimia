@@ -444,7 +444,7 @@ async function main(): Promise<void> {
     create: {
       merchantId: merchant.id,
       username: 'delivery_seed_owner',
-      phone: '13800001011',
+      phone: '13800001001',
       realName: '配送中心 OWNER',
       passwordHash,
       role: DeliverySellerStaffRole.OWNER,
@@ -453,7 +453,7 @@ async function main(): Promise<void> {
     },
     update: {
       merchantId: merchant.id,
-      phone: '13800001011',
+      phone: '13800001001',
       realName: '配送中心 OWNER',
       passwordHash,
       role: DeliverySellerStaffRole.OWNER,

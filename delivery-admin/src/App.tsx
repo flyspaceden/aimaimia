@@ -23,7 +23,12 @@ const ShippingRecordsPage = lazy(() => import('@/pages/delivery-admin/shipping-r
 const AbnormalPaymentsPage = lazy(() => import('@/pages/delivery-admin/abnormal-payments'));
 const ManifestsPage = lazy(() => import('@/pages/delivery-admin/manifests'));
 const SettlementsPage = lazy(() => import('@/pages/delivery-admin/settlements'));
-const CustomerServicePage = lazy(() => import('@/pages/delivery-admin/customer-service'));
+const CsWorkstationPage = lazy(() => import('@/pages/delivery-admin/cs-workstation'));
+const CsTicketsPage = lazy(() => import('@/pages/delivery-admin/cs-tickets'));
+const CsFaqPage = lazy(() => import('@/pages/delivery-admin/cs-faq'));
+const CsQuickEntriesPage = lazy(() => import('@/pages/delivery-admin/cs-quick-entries'));
+const CsQuickRepliesPage = lazy(() => import('@/pages/delivery-admin/cs-quick-replies'));
+const CsDashboardPage = lazy(() => import('@/pages/delivery-admin/cs-dashboard'));
 const CustomerServiceDetailPage = lazy(() => import('@/pages/delivery-admin/customer-service-detail'));
 const AuditPage = lazy(() => import('@/pages/delivery-admin/audit'));
 const ConfigPage = lazy(() => import('@/pages/delivery-admin/config'));
@@ -90,8 +95,14 @@ export default function App() {
             <Route path="abnormal-payments" element={<AbnormalPaymentsPage />} />
             <Route path="manifests" element={<ManifestsPage />} />
             <Route path="settlements" element={<SettlementsPage />} />
-            <Route path="customer-service" element={<CustomerServicePage />} />
+            <Route path="customer-service" element={<Navigate to="/cs/workstation" replace />} />
             <Route path="customer-service/:id" element={<CustomerServiceDetailPage />} />
+            <Route path="cs/workstation" element={<CsWorkstationPage />} />
+            <Route path="cs/tickets" element={<CsTicketsPage />} />
+            <Route path="cs/faq" element={<CsFaqPage />} />
+            <Route path="cs/quick-entries" element={<CsQuickEntriesPage />} />
+            <Route path="cs/quick-replies" element={<CsQuickRepliesPage />} />
+            <Route path="cs/dashboard" element={<CsDashboardPage />} />
             <Route path="audit" element={<AuditPage />} />
             <Route path="config" element={<ConfigPage />} />
             <Route path="account-security" element={<AccountSecurityPage />} />

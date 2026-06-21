@@ -1,19 +1,21 @@
 // 商品状态
-export const productStatusMap: Record<string, { text: string; color: string }> = {
+type StatusDisplay = { text: string; color: string };
+
+export const productStatusMap: Record<string, StatusDisplay> = {
   DRAFT: { text: '草稿', color: 'default' },
   ACTIVE: { text: '已上架', color: 'green' },
   INACTIVE: { text: '已下架', color: 'warning' },
 };
 
 // 商品审核状态
-export const auditStatusMap: Record<string, { text: string; color: string }> = {
+export const auditStatusMap: Record<string, StatusDisplay> = {
   PENDING: { text: '待审核', color: 'processing' },
   APPROVED: { text: '已通过', color: 'green' },
   REJECTED: { text: '已驳回', color: 'error' },
 };
 
 // 订单状态（付款后建单架构：无 PENDING_PAYMENT）
-export const orderStatusMap: Record<string, { text: string; color: string }> = {
+export const orderStatusMap: Record<string, StatusDisplay> = {
   PENDING_SHIPMENT: { text: '待发货', color: 'warning' },
   SHIPPED: { text: '已发货', color: 'processing' },
   DELIVERED: { text: '已送达', color: 'cyan' },
@@ -22,7 +24,7 @@ export const orderStatusMap: Record<string, { text: string; color: string }> = {
 };
 
 // 物流状态（与 backend Prisma ShipmentStatus 枚举严格对齐）
-export const shipmentStatusMap: Record<string, { text: string; color: string }> = {
+export const shipmentStatusMap: Record<string, StatusDisplay> = {
   INIT: { text: '待发货', color: 'default' },
   SHIPPED: { text: '已发货', color: 'processing' },
   IN_TRANSIT: { text: '运输中', color: 'processing' },
@@ -31,7 +33,7 @@ export const shipmentStatusMap: Record<string, { text: string; color: string }> 
 };
 
 // 员工角色
-export const staffRoleMap: Record<string, { text: string; color: string }> = {
+export const staffRoleMap: Record<string, StatusDisplay> = {
   OWNER: { text: '企业主', color: 'gold' },
   MANAGER: { text: '经理', color: 'blue' },
   OPERATOR: { text: '运营', color: 'default' },
@@ -47,3 +49,14 @@ export const carrierMap: Record<string, string> = {
   JD: '京东物流',
   EMS: '中国邮政速递',
 };
+
+export function getStatusDisplay(
+  map: Record<string, StatusDisplay>,
+  value?: string | null,
+  fallbackText = '未知状态',
+): StatusDisplay {
+  if (!value) {
+    return { text: '-', color: 'default' };
+  }
+  return map[value] ?? { text: fallbackText, color: 'default' };
+}

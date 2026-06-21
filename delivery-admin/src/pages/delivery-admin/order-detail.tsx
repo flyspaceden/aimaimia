@@ -36,7 +36,7 @@ export default function DeliveryOrderDetailPage() {
   });
 
   if (!id) {
-    return <NotFoundPanel title="缺少订单 ID" />;
+    return <NotFoundPanel title="缺少订单编号" />;
   }
 
   if (query.isError) {
@@ -46,8 +46,8 @@ export default function DeliveryOrderDetailPage() {
   const data = query.data;
 
   const subOrderColumns: ColumnsType<DeliveryOrderDetail['subOrders'][number]> = [
-    { title: '子订单 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
-    { title: '商家 ID', dataIndex: 'merchantId', key: 'merchantId', width: 150, ellipsis: true },
+    { title: '子订单编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '商家编号', dataIndex: 'merchantId', key: 'merchantId', width: 150, ellipsis: true },
     {
       title: '状态',
       dataIndex: 'status',
@@ -89,7 +89,7 @@ export default function DeliveryOrderDetailPage() {
   ];
 
   const paymentColumns: ColumnsType<DeliveryPayment> = [
-    { title: '支付单 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '支付单编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
     { title: '渠道', dataIndex: 'channel', key: 'channel', width: 110 },
     { title: '状态', dataIndex: 'status', key: 'status', width: 110, render: (value: string) => <StatusPill value={value} /> },
     { title: '金额', dataIndex: 'amountCents', key: 'amountCents', width: 110, render: (value: number) => formatMoney(value) },
@@ -98,7 +98,7 @@ export default function DeliveryOrderDetailPage() {
   ];
 
   const shipmentColumns: ColumnsType<DeliveryShipment> = [
-    { title: '运单 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '运单编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
     { title: '子订单', dataIndex: 'subOrderId', key: 'subOrderId', width: 150, ellipsis: true },
     { title: '承运商', dataIndex: 'carrierName', key: 'carrierName', width: 140 },
     { title: '状态', dataIndex: 'status', key: 'status', width: 110, render: (value: string) => <StatusPill value={value} /> },
@@ -115,7 +115,7 @@ export default function DeliveryOrderDetailPage() {
         {data ? (
           <DetailDescriptions
             items={[
-              { key: 'id', label: '订单 ID', children: data.id },
+              { key: 'id', label: '订单编号', children: data.id },
               { key: 'status', label: '订单状态', children: <StatusPill value={data.status} /> },
               { key: 'buyer', label: '买家', children: data.user?.nickname || data.user?.phone || data.userId },
               { key: 'unit', label: '单位', children: data.unit?.name || data.unitId },

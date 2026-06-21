@@ -15,7 +15,7 @@ export default function DeliveryUserDetailPage() {
   });
 
   if (!id) {
-    return <NotFoundPanel title="缺少配送用户 ID" />;
+    return <NotFoundPanel title="缺少配送用户编号" />;
   }
 
   if (query.isError) {
@@ -34,7 +34,7 @@ export default function DeliveryUserDetailPage() {
         {data ? (
           <DetailDescriptions
             items={[
-              { key: 'id', label: '用户 ID', children: data.id },
+              { key: 'id', label: '用户编号', children: data.id },
               { key: 'phone', label: '手机号', children: data.phone ?? '-' },
               { key: 'nickname', label: '昵称', children: data.nickname ?? '-' },
               { key: 'status', label: '状态', children: <StatusPill value={data.status} /> },
@@ -52,7 +52,7 @@ export default function DeliveryUserDetailPage() {
         <Card title="当前单位" style={{ marginTop: 16 }}>
           <DetailDescriptions
             items={[
-              { key: 'unitId', label: '单位 ID', children: data.currentUnit.id },
+              { key: 'unitId', label: '单位编号', children: data.currentUnit.id },
               { key: 'unitName', label: '单位名称', children: data.currentUnit.name },
               { key: 'contactName', label: '联系人', children: data.currentUnit.contactName },
               { key: 'contactPhone', label: '联系电话', children: data.currentUnit.contactPhone },

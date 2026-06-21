@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
@@ -39,6 +39,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       permission: 'orders:read',
     },
     {
+      path: '/products',
       name: '商品管理',
       icon: <ShoppingOutlined />,
       routes: [
@@ -47,7 +48,8 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
     },
     {
-      name: '订单管理',
+      path: '/orders',
+      name: '订单履约',
       icon: <FileTextOutlined />,
       routes: [
         { path: '/orders', name: '订单列表', icon: <FileTextOutlined />, permission: 'orders:read' },
@@ -56,12 +58,13 @@ const menuRoutes: ProLayoutProps['route'] = {
     },
     {
       path: '/exports',
-      name: '导出中心',
+      name: '经营导出',
       icon: <ExportOutlined />,
       permission: 'finance:read',
     },
     {
-      name: '企业管理',
+      path: '/company/settings',
+      name: '企业与人员',
       icon: <ShopOutlined />,
       routes: [
         { path: '/company/settings', name: '企业设置', icon: <ShopOutlined />, permission: 'company:read' },
@@ -70,12 +73,22 @@ const menuRoutes: ProLayoutProps['route'] = {
     },
     {
       path: '/customer-service',
-      name: '客服工单',
+      name: '客服中心',
       icon: <CustomerServiceOutlined />,
       permission: 'customer-service:read',
     },
   ],
 };
+
+type MenuRoute = NonNullable<NonNullable<ProLayoutProps['route']>['routes']>[number];
+
+function flattenRoutes(routes: MenuRoute[]): string[] {
+  return routes.reduce<string[]>((all, route) => {
+    const current = route.path ? [route.path] : [];
+    const children = route.routes ? flattenRoutes(route.routes as MenuRoute[]) : [];
+    return [...all, ...current, ...children];
+  }, []);
+}
 
 export default function SellerLayout() {
   const { message } = App.useApp();
@@ -105,38 +118,53 @@ export default function SellerLayout() {
     window.location.href = switchToSellerCenterUrl;
   };
 
-  // 按权限码过滤菜单
-  type MenuRoute = NonNullable<NonNullable<ProLayoutProps['route']>['routes']>[number];
-  const filterMenuByPermission = (routes: MenuRoute[] | undefined): MenuRoute[] => {
-    if (!routes) return [];
-    return routes.reduce<MenuRoute[]>((acc, route) => {
-      const permission = (route as MenuRoute & { permission?: string }).permission;
-      if (permission && !hasPermission(permission)) return acc;
-      const filtered = { ...route };
-      if (route.routes) {
-        filtered.routes = filterMenuByPermission(route.routes);
-        if (filtered.routes.length === 0) return acc;
-      }
-      acc.push(filtered);
-      return acc;
-    }, []);
-  };
+  const filteredRoute = useMemo(() => {
+    const filterMenuByPermission = (routes: MenuRoute[] | undefined): MenuRoute[] => {
+      if (!routes) return [];
+      return routes.reduce<MenuRoute[]>((acc, route) => {
+        const permission = (route as MenuRoute & { permission?: string }).permission;
+        if (permission && !hasPermission(permission)) return acc;
+        const filtered = { ...route };
+        if (route.routes) {
+          filtered.routes = filterMenuByPermission(route.routes);
+          if (filtered.routes.length === 0) return acc;
+        }
+        acc.push(filtered);
+        return acc;
+      }, []);
+    };
 
-  const filteredRoute = {
-    ...menuRoutes,
-    routes: filterMenuByPermission(menuRoutes?.routes),
-  };
+    return {
+      ...menuRoutes,
+      routes: filterMenuByPermission(menuRoutes?.routes),
+    };
+  }, [hasPermission]);
+
+  const selectedKeys = useMemo(() => {
+    const all = flattenRoutes((filteredRoute.routes ?? []) as MenuRoute[]);
+    const matches = all.filter((path) => path === location.pathname || (path !== '/' && location.pathname.startsWith(`${path}/`)));
+    if (!matches.length) {
+      return [];
+    }
+    return [matches.reduce((longest, path) => (path.length > longest.length ? path : longest), matches[0])];
+  }, [filteredRoute.routes, location.pathname]);
 
   return (
     <ProLayout
       title="配送中心"
       logo={null}
-      layout="mix"
+      layout="side"
       fixSiderbar
       collapsed={collapsed}
       onCollapse={setCollapsed}
       route={filteredRoute}
       location={{ pathname: location.pathname }}
+      menuProps={{ selectedKeys }}
+      menuHeaderRender={() => (
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, padding: '16px 0 8px 20px' }}>
+          配送中心
+        </div>
+      )}
       token={{
         sider: {
           colorMenuBackground: '#001529',

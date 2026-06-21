@@ -100,10 +100,10 @@ function getStockHint(stockValue: unknown, threshold: number): { type: 'danger' 
     return { type: 'danger', text: '当前为超卖欠货，请填写补货后的可售库存（不能保存负数）' };
   }
   if (stock === 0) {
-    return { type: 'danger', text: '无库存，App 端不可购买/不可结算' };
+    return { type: 'danger', text: '无库存，买家端不可购买/不可结算' };
   }
   if (threshold > 0 && stock <= threshold) {
-    return { type: 'warning', text: `低库存：App 端显示仅剩 ${stock} 件` };
+    return { type: 'warning', text: `低库存：买家端显示仅剩 ${stock} 件` };
   }
   return null;
 }
@@ -773,7 +773,7 @@ function ProductEditForm({ id }: { id: string }) {
         {/* 1. 商品状态（只读） */}
         <Card title="商品状态" style={{ marginBottom: 16 }}>
           <Descriptions column={{ xs: 1, sm: 3 }}>
-            <Descriptions.Item label="商品 ID">
+            <Descriptions.Item label="商品编号">
               <Text copyable={{ text: product.id }} style={{ fontSize: 12 }}>{product.id}</Text>
             </Descriptions.Item>
             <Descriptions.Item label="上架状态">

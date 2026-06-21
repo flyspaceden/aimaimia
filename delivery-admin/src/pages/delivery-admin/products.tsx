@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App as AntdApp, Button, Card, Form, Input, Modal, Select, Space, Table, Typography } from 'antd';
+import { useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { App as AntdApp, Button, Form, Input, Modal, Space, Table, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import { ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
 import {
   approveDeliveryProduct,
@@ -10,6 +12,7 @@ import {
 import type { DeliveryProduct, DeliveryProductSku } from '@/types/delivery-management';
 import { PageHeader, StatusPill } from './components';
 import {
+  deliveryValueEnum,
   formatDateTime,
   formatMoney,
   getErrorMessage,
@@ -26,18 +29,9 @@ type ReviewAction = {
 
 export default function DeliveryProductsPage() {
   const { message } = AntdApp.useApp();
-  const queryClient = useQueryClient();
-  const [keywordInput, setKeywordInput] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [status, setStatus] = useState<string | undefined>();
-  const [auditStatus, setAuditStatus] = useState<string | undefined>();
+  const actionRef = useRef<ActionType | undefined>(undefined);
   const [reviewAction, setReviewAction] = useState<ReviewAction | null>(null);
   const [form] = Form.useForm<{ note?: string }>();
-
-  const query = useQuery({
-    queryKey: ['delivery-products', keyword, status, auditStatus],
-    queryFn: () => getDeliveryProducts({ keyword, status, auditStatus }),
-  });
 
   const reviewMutation = useMutation({
     mutationFn: async (values: { note?: string }) => {
@@ -53,7 +47,7 @@ export default function DeliveryProductsPage() {
       message.success(values?.note ? '商品审核结果已提交并附带备注' : '商品审核结果已提交');
       setReviewAction(null);
       form.resetFields();
-      await queryClient.invalidateQueries({ queryKey: ['delivery-products'] });
+      actionRef.current?.reload();
     },
     onError: (error) => {
       message.error(getErrorMessage(error));
@@ -61,8 +55,8 @@ export default function DeliveryProductsPage() {
   });
 
   const skuColumns: ColumnsType<DeliveryProductSku> = [
-    { title: 'SKU 标题', dataIndex: 'title', key: 'title', width: 180 },
-    { title: 'SKU 编码', dataIndex: 'skuCode', key: 'skuCode', width: 140, render: (value) => value || '-' },
+    { title: '规格名称', dataIndex: 'title', key: 'title', width: 180 },
+    { title: '规格编码', dataIndex: 'skuCode', key: 'skuCode', width: 140, render: (value) => value || '-' },
     {
       title: '供货价',
       dataIndex: 'supplyPriceCents',
@@ -97,19 +91,28 @@ export default function DeliveryProductsPage() {
     },
   ];
 
-  const columns: ColumnsType<DeliveryProduct> = [
-    { title: '商品 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
-    { title: '商品标题', dataIndex: 'title', key: 'title', width: 220 },
+  const columns: ProColumns<DeliveryProduct>[] = [
+    {
+      title: '关键词',
+      dataIndex: 'keyword',
+      hideInTable: true,
+      fieldProps: { placeholder: '搜标题、副标题、关键字' },
+    },
+    { title: '商品编号', dataIndex: 'id', key: 'id', width: 170, ellipsis: true, copyable: true, search: false },
+    { title: '商品标题', dataIndex: 'title', key: 'title', width: 220, search: false },
     {
       title: '商家',
       key: 'merchant',
       width: 180,
       render: (_, record) => record.merchant?.name ?? record.merchantId,
+      search: false,
     },
     {
       title: '状态',
+      dataIndex: 'status',
       key: 'status',
       width: 200,
+      valueEnum: deliveryValueEnum(productStatusOptions),
       render: (_, record) => (
         <Space direction="vertical" size={4}>
           <StatusPill value={record.status} />
@@ -118,7 +121,13 @@ export default function DeliveryProductsPage() {
       ),
     },
     {
-      title: 'SKU 定价概览',
+      title: '审核状态',
+      dataIndex: 'auditStatus',
+      hideInTable: true,
+      valueEnum: deliveryValueEnum(productAuditStatusOptions),
+    },
+    {
+      title: '规格定价概览',
       key: 'pricing',
       width: 240,
       render: (_, record) => {
@@ -137,19 +146,22 @@ export default function DeliveryProductsPage() {
           </Space>
         );
       },
+      search: false,
     },
     {
       title: '提审次数',
       dataIndex: 'submissionCount',
       key: 'submissionCount',
       width: 90,
+      search: false,
     },
     {
       title: '更新时间',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       width: 150,
-      render: formatDateTime,
+      render: (_, record) => formatDateTime(record.updatedAt),
+      search: false,
     },
     {
       title: '操作',
@@ -166,6 +178,7 @@ export default function DeliveryProductsPage() {
           </Button>
         </Space>
       ),
+      search: false,
     },
   ];
 
@@ -174,58 +187,45 @@ export default function DeliveryProductsPage() {
       <PageHeader
         title="配送商品"
         subtitle="审核配送商品，重点区分商家供货价、基础价和固定最终价。"
-        extra={(
-          <Space wrap>
-            <Input.Search
-              allowClear
-              placeholder="搜标题、副标题、关键字"
-              style={{ width: 280 }}
-              value={keywordInput}
-              onChange={(event) => setKeywordInput(event.target.value)}
-              onSearch={(value) => setKeyword(value.trim())}
-            />
-            <Select
-              allowClear
-              placeholder="商品状态"
-              style={{ width: 160 }}
-              value={status}
-              onChange={setStatus}
-              options={productStatusOptions.map((item) => ({ label: item, value: item }))}
-            />
-            <Select
-              allowClear
-              placeholder="审核状态"
-              style={{ width: 160 }}
-              value={auditStatus}
-              onChange={setAuditStatus}
-              options={productAuditStatusOptions.map((item) => ({ label: item, value: item }))}
-            />
-          </Space>
-        )}
       />
 
-      <Card>
-        <Table<DeliveryProduct>
-          rowKey="id"
-          columns={columns}
-          dataSource={query.data?.items ?? []}
-          loading={query.isLoading}
-          scroll={{ x: 1380 }}
-          locale={{ emptyText: query.isError ? getErrorMessage(query.error) : '暂无配送商品' }}
-          expandable={{
-            expandedRowRender: (record) => (
-              <Table<DeliveryProductSku>
-                rowKey="id"
-                size="small"
-                pagination={false}
-                columns={skuColumns}
-                dataSource={record.skus}
-                scroll={{ x: 1040 }}
-              />
-            ),
-          }}
-        />
-      </Card>
+      <ProTable<DeliveryProduct>
+        actionRef={actionRef}
+        rowKey="id"
+        columns={columns}
+        request={async (params) => {
+          const result = await getDeliveryProducts({
+            keyword: typeof params.keyword === 'string' ? params.keyword.trim() : undefined,
+            status: typeof params.status === 'string' ? params.status : undefined,
+            auditStatus: typeof params.auditStatus === 'string' ? params.auditStatus : undefined,
+          });
+          return {
+            data: result.items,
+            success: true,
+            total: result.items.length,
+          };
+        }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
+        search={{ labelWidth: 84 }}
+        scroll={{ x: 1380 }}
+        toolBarRender={() => [
+          <Button key="reload" icon={<ReloadOutlined />} onClick={() => actionRef.current?.reload()}>
+            刷新
+          </Button>,
+        ]}
+        expandable={{
+          expandedRowRender: (record) => (
+            <Table<DeliveryProductSku>
+              rowKey="id"
+              size="small"
+              pagination={false}
+              columns={skuColumns}
+              dataSource={record.skus}
+              scroll={{ x: 1040 }}
+            />
+          ),
+        }}
+      />
 
       <Modal
         open={Boolean(reviewAction)}
