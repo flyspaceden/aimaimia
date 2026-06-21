@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ModalForm, ProFormDigit, ProFormSelect, ProFormTextArea, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -115,6 +115,14 @@ const pricingQuickActionItems: PricingQuickAction[] = [
 ];
 
 const matchOrderItems = ['规格优先', '商品其次', '商家再次', '全平台兜底'];
+
+const pricingRuleTargetGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  columnGap: 12,
+  rowGap: 0,
+  width: '100%',
+};
 
 const optionLabel = (options: Array<{ value: string; label: string }>, value?: string | null) =>
   options.find((item) => item.value === value)?.label ?? '未设置';
@@ -736,11 +744,10 @@ export default function DeliveryPricingRulesPage() {
             />
 
             {formScope !== 'PLATFORM' && (
-              <Space align="start" style={{ width: '100%' }}>
+              <div style={pricingRuleTargetGridStyle}>
                 <ProFormSelect
                   name="merchantId"
                   label={formScope === 'MERCHANT' ? '选择商家' : '先按商家筛选'}
-                  width="md"
                   rules={formScope === 'MERCHANT' ? [{ required: true, message: '请选择商家' }] : undefined}
                   options={merchants.map((merchant: DeliveryMerchantSummary) => ({
                     label: merchant.name,
@@ -751,6 +758,7 @@ export default function DeliveryPricingRulesPage() {
                     showSearch: true,
                     loading: merchantsQuery.isLoading,
                     optionFilterProp: 'label',
+                    style: { width: '100%' },
                     onChange: () => {
                       form.setFieldsValue({ productId: undefined, skuId: undefined });
                     },
@@ -760,7 +768,6 @@ export default function DeliveryPricingRulesPage() {
                   <ProFormSelect
                     name="productId"
                     label="选择商品"
-                    width="md"
                     rules={formScope === 'PRODUCT' ? [{ required: true, message: '请选择商品' }] : undefined}
                     options={productOptions}
                     fieldProps={{
@@ -768,6 +775,7 @@ export default function DeliveryPricingRulesPage() {
                       showSearch: true,
                       loading: productsQuery.isLoading,
                       optionFilterProp: 'label',
+                      style: { width: '100%' },
                       onChange: () => {
                         form.setFieldsValue({ skuId: undefined });
                       },
@@ -778,7 +786,6 @@ export default function DeliveryPricingRulesPage() {
                   <ProFormSelect
                     name="skuId"
                     label="选择规格"
-                    width="md"
                     rules={[{ required: true, message: '请选择规格' }]}
                     options={skuOptions}
                     fieldProps={{
@@ -787,10 +794,11 @@ export default function DeliveryPricingRulesPage() {
                       loading: productsQuery.isLoading,
                       disabled: !formProductId,
                       optionFilterProp: 'label',
+                      style: { width: '100%' },
                     }}
                   />
                 )}
-              </Space>
+              </div>
             )}
           </FormSection>
 

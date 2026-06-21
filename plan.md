@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **配送管理后台定价规则弹窗溢出修复**（2026-06-21 新增并完成）
+  - **来源**: 用户反馈配送管理后台 `/pricing-rules` 新建价格规则时，选择“指定规格规则 - 只影响某一个商品规格”后，规格选择框撑出弹窗范围。
+  - **实际做了**: 将定价规则弹窗里商家 / 商品 / 规格选择区从固定横向布局改为响应式 CSS Grid，去掉三个选择框的固定 `md` 宽度，选择框按弹窗宽度自动等分，空间不足时自动换行。
+  - **验证**: 先新增回归测试并确认失败；修复后 `cd delivery-admin && npm test -- --test-name-pattern "pricing rule modal keeps scoped selectors"`、`cd delivery-admin && npm test`、`cd delivery-admin && npm run build` 均通过。
+
 - [x] **配送中心首次登录侧边栏菜单缺失修复**（2026-06-21 新增并完成）
   - **来源**: 用户反馈 `test-delivery-seller.ai-maimai.com` 每次登录进去只有工作台一个页面，刷新后才出现完整菜单。
   - **实际做了**: 修复配送中心登录流程，不再把 `seller=null` 的临时登录态写入 Zustand；改为先把 token 写入 localStorage 供 `getMe` 请求使用，获取完整账号资料和权限码后再一次性 `setAuth`，避免 ProLayout 在空权限状态下初始化侧边栏。

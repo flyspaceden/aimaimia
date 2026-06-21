@@ -340,6 +340,27 @@ test('delivery admin pricing rules page uses operator-facing pricing language', 
   assert.doesNotMatch(source, /规格:\s*\{/);
 });
 
+test('delivery admin pricing rule modal keeps scoped selectors inside the dialog', () => {
+  const source = read('src/pages/delivery-admin/pricing-rules.tsx');
+
+  assert.match(source, /pricingRuleTargetGridStyle/, 'scope-specific selectors should use a responsive grid');
+  assert.match(
+    source,
+    /gridTemplateColumns:\s*'repeat\(auto-fit, minmax\(220px, 1fr\)\)'/,
+    'merchant, product, and sku selectors should shrink or wrap inside the modal',
+  );
+  assert.doesNotMatch(
+    source,
+    /<Space align="start" style=\{\{ width: '100%' \}\}>[\s\S]*name="merchantId"[\s\S]*name="productId"[\s\S]*name="skuId"[\s\S]*<\/Space>/,
+    'fixed horizontal Space layout overflows when SKU scope shows three selectors',
+  );
+  assert.doesNotMatch(
+    source,
+    /name="skuId"[\s\S]{0,220}width="md"/,
+    'sku selector should not keep a fixed md width inside the modal grid',
+  );
+});
+
 test('delivery admin customer-service center mirrors the main admin six-page structure', () => {
   const app = read('src/App.tsx');
   const layout = read('src/layouts/AdminLayout.tsx');
