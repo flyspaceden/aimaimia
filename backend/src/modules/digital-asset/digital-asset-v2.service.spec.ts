@@ -44,6 +44,18 @@ const makeHarness = (initial?: Partial<DataSet>) => {
 
   const matchLedgerWhere = (ledger: any, where: any) => {
     if (!where) return true;
+    if (where.AND) {
+      const clauses = Array.isArray(where.AND) ? where.AND : [where.AND];
+      if (!clauses.every((clause: any) => matchLedgerWhere(ledger, clause))) return false;
+    }
+    if (where.OR) {
+      const clauses = Array.isArray(where.OR) ? where.OR : [where.OR];
+      if (!clauses.some((clause: any) => matchLedgerWhere(ledger, clause))) return false;
+    }
+    if (where.NOT) {
+      const clauses = Array.isArray(where.NOT) ? where.NOT : [where.NOT];
+      if (clauses.some((clause: any) => matchLedgerWhere(ledger, clause))) return false;
+    }
     if (where.idempotencyKey && ledger.idempotencyKey !== where.idempotencyKey) return false;
     if (where.id && ledger.id !== where.id) return false;
     if (where.orderId && ledger.orderId !== where.orderId) return false;
@@ -52,6 +64,7 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     if (where.userId && ledger.userId !== where.userId) return false;
     if (where.accountId && ledger.accountId !== where.accountId) return false;
     if (where.direction && ledger.direction !== where.direction) return false;
+    if (where.amount !== undefined && ledger.amount !== where.amount) return false;
     if (where.type) {
       if (typeof where.type === 'string' && ledger.type !== where.type) return false;
       if (where.type.in && !where.type.in.includes(ledger.type)) return false;
@@ -761,7 +774,70 @@ describe('DigitalAssetService V2 semantics', () => {
     });
   });
 
-  it('marks historical consumption asset processed even when VIP activation has zero prior spend', async () => {
+  it('listLedgers excludes zero historical consumption transfer rows for VIP and admin views', async () => {
+    const zeroHistoricalLedger = {
+      id: 'ledger-zero-history',
+      accountId: 'account-1',
+      userId: 'vip-user',
+      type: 'HISTORICAL_CONSUMPTION_GRANT',
+      subjectType: 'CREDIT_ASSET',
+      direction: 'CREDIT',
+      amount: 0,
+      assetAmount: 0,
+      balanceAfter: 0,
+      creditAssetBalanceAfter: 0,
+      idempotencyKey: 'user:vip-user:historical-consumption-credit-grant',
+      createdAt: new Date('2026-06-21T00:00:00.000Z'),
+    };
+    const { service } = makeHarness({
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      ledgers: [
+        zeroHistoricalLedger,
+        {
+          id: 'ledger-self-seed',
+          accountId: 'account-1',
+          userId: 'vip-user',
+          type: 'SELF_VIP_PURCHASE',
+          subjectType: 'SEED_ASSET',
+          direction: 'CREDIT',
+          amount: 1000,
+          assetAmount: 1000,
+          balanceAfter: 1000,
+          seedAssetBalanceAfter: 1000,
+          idempotencyKey: 'vip-purchase:vp-1:self-seed',
+          createdAt: new Date('2026-06-20T00:00:00.000Z'),
+        },
+        {
+          id: 'ledger-positive-history',
+          accountId: 'account-1',
+          userId: 'vip-user',
+          type: 'HISTORICAL_CONSUMPTION_GRANT',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: 300,
+          assetAmount: 300,
+          balanceAfter: 300,
+          creditAssetBalanceAfter: 300,
+          idempotencyKey: 'user:vip-user:historical-consumption-credit-grant-positive',
+          createdAt: new Date('2026-06-19T00:00:00.000Z'),
+        },
+      ],
+    });
+
+    const buyerResult = await service.listBuyerLedgers('vip-user', { page: 1, pageSize: 20 });
+    const adminResult = await service.listLedgers('vip-user', { page: 1, pageSize: 20 });
+
+    for (const result of [buyerResult, adminResult]) {
+      expect(result.total).toBe(2);
+      expect(result.items.map((item: any) => item.id)).toEqual([
+        'ledger-self-seed',
+        'ledger-positive-history',
+      ]);
+      expect(result.items.some((item: any) => item.id === zeroHistoricalLedger.id)).toBe(false);
+    }
+  });
+
+  it('marks historical consumption asset processed without creating a zero-amount ledger', async () => {
     const { data, service } = makeHarness({
       users: [{ id: 'buyer-1', status: 'ACTIVE', deletionExecutedAt: null }],
     });
@@ -780,8 +856,9 @@ describe('DigitalAssetService V2 semantics', () => {
       seedAssetBalance: 1000,
       creditAssetBalance: 0,
       historicalCreditGrantedAt: expect.any(Date),
+      historicalCreditGrantLedgerId: null,
     });
-    expect(data.ledgers).toHaveLength(2);
+    expect(data.ledgers).toHaveLength(1);
     expect(data.ledgers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: 'SELF_VIP_PURCHASE',
@@ -790,14 +867,8 @@ describe('DigitalAssetService V2 semantics', () => {
         assetAmount: 1000,
         idempotencyKey: 'vip-purchase:vp-1:self-seed',
       }),
-      expect.objectContaining({
-        type: 'HISTORICAL_CONSUMPTION_GRANT',
-        subjectType: 'CREDIT_ASSET',
-        amount: 0,
-        assetAmount: 0,
-        idempotencyKey: 'user:buyer-1:historical-consumption-credit-grant',
-      }),
     ]));
+    expect(data.ledgers.some((ledger) => ledger.type === 'HISTORICAL_CONSUMPTION_GRANT')).toBe(false);
   });
 
   it('does not grant referral seed assets to banned inviters', async () => {
