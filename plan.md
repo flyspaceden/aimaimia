@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-20
+> **最后更新**: 2026-06-21
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -20,6 +20,11 @@
 | 时间 | 无硬 deadline，质量优先 |
 
 ### 近期完成补充
+
+- [x] **配送中心首次登录侧边栏菜单缺失修复**（2026-06-21 新增并完成）
+  - **来源**: 用户反馈 `test-delivery-seller.ai-maimai.com` 每次登录进去只有工作台一个页面，刷新后才出现完整菜单。
+  - **实际做了**: 修复配送中心登录流程，不再把 `seller=null` 的临时登录态写入 Zustand；改为先把 token 写入 localStorage 供 `getMe` 请求使用，获取完整账号资料和权限码后再一次性 `setAuth`，避免 ProLayout 在空权限状态下初始化侧边栏。
+  - **验证**: 先新增回归测试并确认失败；修复后 `cd delivery-seller && npm test -- --test-name-pattern "does not mark the app as authenticated"`、`cd delivery-seller && npm test`、`cd delivery-seller && npm run build` 均通过。
 
 - [x] **配送管理后台与配送中心前端重做**（2026-06-20 新增并完成）
   - **来源**: 用户反馈现有配送管理后台和配送中心过于简陋，要求基于现有管理后台 / 卖家中心风格重做，不污染 staging

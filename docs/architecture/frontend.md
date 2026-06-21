@@ -99,6 +99,7 @@
 - 配送 Web 中文显示口径（2026-06-20）：配送管理后台与配送中心用户可见文案不得直接展示后端英文枚举或技术字段名；状态标签、筛选下拉、配置范围、规则类型、清单字段、权限名称、编号列、校验提示统一转换为中文说明。内部 API 字段名和 TypeScript 类型仍可保留英文，以保持接口兼容。
 - 配送设置页 UX 收口（2026-06-20）：配送管理后台 `/config` 从 Tab + Modal 改为左侧分类、右侧设置面板，配置中心只保留配送单位字段、清单导出、平台规则；平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在页面内直接使用数字输入和开关修改，顶部统一保存，不再暴露内部配置标识、配置范围或 JSON 内容；配送单位字段的下拉选项改为每行一个选项；客服相关配置移入客服中心。配送中心企业资料页改为当前状态、基础资料、联系方式、操作权限分块；员工权限页改为“新增员工 / 分配权限 / 禁用员工”工作区和中文权限分组勾选，账号启用状态使用开关。
 - 配送客服中心补齐（2026-06-20）：配送管理后台客服中心对齐现有爱买买管理后台 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已提供会话列表/详情/更新和客服默认配置，前端先接真实会话数据与默认配置，FAQ/快捷入口独立 CRUD 等待后端配送接口后续补齐。
+- 配送中心登录菜单修复（2026-06-21）：配送中心登录成功后不再先把 `seller=null` 的临时登录态写入 Zustand，改为先把 token 写入 localStorage 供 `getMe` 拉取完整账号资料，拿到完整 `permissionCodes` 后再一次性进入已登录状态，避免 ProLayout 在空权限 profile 下初始化成空侧边栏，导致首次登录只有一个页面、刷新后才出现完整菜单。
 - 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
 
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。

@@ -94,6 +94,18 @@ test('delivery center routes and menus use seller permission codes instead of ro
   assert.doesNotMatch(layout, /roles:\s*\[/);
 });
 
+test('delivery center login does not mark the app as authenticated before the seller profile is loaded', () => {
+  const loginPage = read('src/pages/login/index.tsx');
+
+  assert.doesNotMatch(
+    loginPage,
+    /setAuth\(\s*result\.accessToken,\s*result\.refreshToken,\s*null\s+as\s+unknown\s+as\s+import\('@\/types'\)\.SellerProfile\s*\)/,
+    'login must not mount the seller layout with a null profile, otherwise ProLayout initializes an empty sidebar until refresh',
+  );
+  assert.match(loginPage, /localStorage\.setItem\('delivery_seller_token',\s*result\.accessToken\)/);
+  assert.match(loginPage, /const profile = await getMe\(\);[\s\S]*setAuth\(result\.accessToken,\s*result\.refreshToken,\s*profile\)/);
+});
+
 test('delivery center keeps a logged-in switch back to the main seller center', () => {
   const layout = read('src/layouts/SellerLayout.tsx');
   assert.match(layout, /切换爱买买卖家中心/);

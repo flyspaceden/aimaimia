@@ -224,12 +224,12 @@ export default function LoginPage() {
   };
 
   const completeLogin = async (result: LoginResponse) => {
-    // 通过 setAuth 统一设置 token（内部写 localStorage + zustand 状态）
-    // 先用 null profile 设置 token，以便 getMe 请求能携带认证头
-    setAuth(result.accessToken, result.refreshToken, null as unknown as import('@/types').SellerProfile);
+    // getMe 依赖 axios 从 localStorage 读取 token；这里不能提前写入 zustand，
+    // 否则登录页会先跳到首页并让菜单用空 profile 初始化。
+    localStorage.setItem('delivery_seller_token', result.accessToken);
+    localStorage.setItem('delivery_seller_refresh_token', result.refreshToken);
     try {
       const profile = await getMe();
-      // 用完整 profile 再次更新状态
       setAuth(result.accessToken, result.refreshToken, profile);
     } catch (e) {
       // I17修复：getMe 失败时清理脏状态，避免残留 token + null profile
