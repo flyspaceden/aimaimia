@@ -24,7 +24,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getOrder, shipOrder } from '@/api/orders';
 import { exportFulfillmentManifest } from '@/api/manifests';
-import { orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
+import { getStatusDisplay, orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 
@@ -95,7 +95,7 @@ export default function OrderDetailPage() {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   }
 
-  const status = orderStatusMap[order.status];
+  const status = getStatusDisplay(orderStatusMap, order.status);
   const canManageShipment =
     order.status === 'PENDING_SHIPMENT' &&
     (!order.shipment || order.shipment.status === 'INIT');
@@ -128,8 +128,8 @@ export default function OrderDetailPage() {
           >
             导出履约清单
           </Button>
-          <Tag color={status?.color} style={{ fontSize: 14, padding: '2px 12px' }}>
-            {status?.text || order.status}
+          <Tag color={status.color} style={{ fontSize: 14, padding: '2px 12px' }}>
+            {status.text}
           </Tag>
         </Space>
       </div>
@@ -382,12 +382,8 @@ export default function OrderDetailPage() {
             </Descriptions.Item>
             <Descriptions.Item label="物流状态">
               {(() => {
-                const ss = shipmentStatusMap[order.shipment!.status];
-                return ss ? (
-                  <Tag color={ss.color}>{ss.text}</Tag>
-                ) : (
-                  order.shipment!.status
-                );
+                const ss = getStatusDisplay(shipmentStatusMap, order.shipment!.status);
+                return <Tag color={ss.color}>{ss.text}</Tag>;
               })()}
             </Descriptions.Item>
           </Descriptions>

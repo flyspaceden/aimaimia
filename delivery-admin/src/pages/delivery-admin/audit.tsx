@@ -27,11 +27,11 @@ export default function DeliveryAuditPage() {
   });
 
   const columns: ColumnsType<DeliveryAuditLog> = [
-    { title: '日志 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '日志编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
     { title: '模块', dataIndex: 'module', key: 'module', width: 140 },
     { title: '动作', dataIndex: 'action', key: 'action', width: 120 },
     { title: '目标类型', dataIndex: 'targetType', key: 'targetType', width: 130 },
-    { title: '目标 ID', dataIndex: 'targetId', key: 'targetId', width: 150, ellipsis: true },
+    { title: '目标编号', dataIndex: 'targetId', key: 'targetId', width: 150, ellipsis: true },
     { title: '摘要', dataIndex: 'summary', key: 'summary', ellipsis: true },
     { title: '操作者', dataIndex: 'actorId', key: 'actorId', width: 150, ellipsis: true },
     { title: '时间', dataIndex: 'createdAt', key: 'createdAt', width: 150, render: formatDateTime },

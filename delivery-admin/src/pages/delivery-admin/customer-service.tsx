@@ -5,7 +5,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { getDeliveryCustomerServiceList } from '@/api/delivery-management';
 import type { DeliveryConversation } from '@/types/delivery-management';
 import { DetailLinkButton, PageHeader, StatusPill } from './components';
-import { conversationStatusOptions, formatDateTime, getErrorMessage } from './utils';
+import { conversationStatusOptions, formatDateTime, formatDeliveryDisplayText, getErrorMessage } from './utils';
 
 export default function DeliveryCustomerServicePage() {
   const [status, setStatus] = useState<string | undefined>();
@@ -15,7 +15,7 @@ export default function DeliveryCustomerServicePage() {
   });
 
   const columns: ColumnsType<DeliveryConversation> = [
-    { title: '会话 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '会话编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
     { title: '主题', dataIndex: 'subject', key: 'subject', width: 220, ellipsis: true, render: (value) => value || '-' },
     {
       title: '关联对象',
@@ -48,7 +48,7 @@ export default function DeliveryCustomerServicePage() {
             style={{ width: 180 }}
             value={status}
             onChange={setStatus}
-            options={conversationStatusOptions.map((item) => ({ label: item, value: item }))}
+            options={conversationStatusOptions.map((item) => ({ label: formatDeliveryDisplayText(item), value: item }))}
           />
         )}
       />

@@ -43,7 +43,7 @@ export default function DeliveryMerchantApplicationDetailPage() {
   });
 
   if (!id) {
-    return <NotFoundPanel title="缺少申请 ID" />;
+    return <NotFoundPanel title="缺少申请编号" />;
   }
 
   if (query.isError) {
@@ -67,7 +67,7 @@ export default function DeliveryMerchantApplicationDetailPage() {
         {data ? (
           <DetailDescriptions
             items={[
-              { key: 'id', label: '申请 ID', children: data.id },
+              { key: 'id', label: '申请编号', children: data.id },
               { key: 'companyName', label: '企业名', children: data.companyName },
               { key: 'contactName', label: '联系人', children: data.contactName },
               { key: 'contactPhone', label: '联系电话', children: data.contactPhone },
@@ -111,15 +111,15 @@ export default function DeliveryMerchantApplicationDetailPage() {
           >
             <Select
               options={[
-                { label: 'APPROVED', value: 'APPROVED' },
-                { label: 'REJECTED', value: 'REJECTED' },
+                { label: '审核通过', value: 'APPROVED' },
+                { label: '审核驳回', value: 'REJECTED' },
               ]}
             />
           </Form.Item>
           <Form.Item shouldUpdate={(prev, next) => prev.status !== next.status} noStyle>
             {({ getFieldValue }) =>
               getFieldValue('status') === 'APPROVED' ? (
-                <Form.Item label="关联商家 ID" name="merchantId">
+                <Form.Item label="关联商家编号" name="merchantId">
                   <Input />
                 </Form.Item>
               ) : (

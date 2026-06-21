@@ -119,7 +119,7 @@ export default function LoginPage() {
     setCodeSending(true);
     try {
       await sendSmsCode(phone);
-      message.success('验证码已发送（开发模式请查看后端控制台）');
+      message.success('验证码已发送，请以收到的短信或本地后端控制台为准');
       setCountdown(60);
       const timer = setInterval(() => {
         setCountdown((prev) => {
@@ -537,9 +537,18 @@ export default function LoginPage() {
 
         {/* 测试手机号提示：仅非生产显示（本地 dev 或 test-api 测试环境），生产隐藏 */}
         {(import.meta.env.DEV || import.meta.env.VITE_API_BASE_URL?.includes('test-')) && (
-          <div style={{ textAlign: 'center' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              测试手机号：13800001001（陈澄源/澄源生态）、13800001002（李青禾/青禾智慧）
+          <div style={{ textAlign: 'center', marginTop: 4, lineHeight: 1.8 }}>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+              登录账号是手机号，不要填写内部账号名。
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+              测试手机号：13800001001（配送中心 OWNER / 配送示范供应商）
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+              测试时建议使用密码登录，默认密码：123456。
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+              短信登录请先点击获取验证码；测试服务器以实际短信验证码为准，本地模拟环境可用 123456。
             </Text>
           </div>
         )}

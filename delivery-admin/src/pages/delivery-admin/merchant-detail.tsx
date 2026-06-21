@@ -5,7 +5,7 @@ import { useParams } from 'react-router-dom';
 import { getDeliveryMerchant, updateDeliveryMerchant } from '@/api/delivery-management';
 import type { DeliverySellerStaff } from '@/types/delivery-management';
 import { DetailDescriptions, JsonBlock, NotFoundPanel, PageHeader, StatusPill } from './components';
-import { formatBps, formatDateTime, getErrorMessage, merchantStatusOptions } from './utils';
+import { formatBps, formatDateTime, formatDeliveryDisplayText, getErrorMessage, merchantStatusOptions } from './utils';
 
 type MerchantFormValues = {
   name?: string;
@@ -58,7 +58,7 @@ export default function DeliveryMerchantDetailPage() {
   });
 
   if (!id) {
-    return <NotFoundPanel title="缺少商家 ID" />;
+    return <NotFoundPanel title="缺少商家编号" />;
   }
 
   if (query.isError) {
@@ -84,7 +84,7 @@ export default function DeliveryMerchantDetailPage() {
         {data ? (
           <DetailDescriptions
             items={[
-              { key: 'id', label: '商家 ID', children: data.id },
+              { key: 'id', label: '商家编号', children: data.id },
               { key: 'name', label: '商家名称', children: data.name },
               { key: 'contactName', label: '联系人', children: data.contactName },
               { key: 'contactPhone', label: '联系电话', children: data.contactPhone },
@@ -113,7 +113,7 @@ export default function DeliveryMerchantDetailPage() {
           size="small"
           dataSource={data?.staff ?? []}
           columns={[
-            { title: '员工 ID', dataIndex: 'id', key: 'id', width: 140, ellipsis: true },
+            { title: '员工编号', dataIndex: 'id', key: 'id', width: 140, ellipsis: true },
             { title: '姓名', dataIndex: 'realName', key: 'realName', width: 120 },
             { title: '用户名', dataIndex: 'username', key: 'username', width: 140 },
             { title: '手机号', dataIndex: 'phone', key: 'phone', width: 140 },
@@ -151,12 +151,12 @@ export default function DeliveryMerchantDetailPage() {
             <Input />
           </Form.Item>
           <Form.Item label="状态" name="status">
-            <Select options={merchantStatusOptions.map((item) => ({ label: item, value: item }))} />
+            <Select options={merchantStatusOptions.map((item) => ({ label: formatDeliveryDisplayText(item), value: item }))} />
           </Form.Item>
           <Form.Item label="客服热线" name="servicePhone">
             <Input />
           </Form.Item>
-          <Form.Item label="默认加价率 (bps)" name="defaultMarkupBps">
+          <Form.Item label="默认加价率（万分比）" name="defaultMarkupBps">
             <InputNumber min={0} max={100000} precision={0} style={{ width: '100%' }} />
           </Form.Item>
         </Form>

@@ -7,7 +7,7 @@ import {
   updateDeliveryCustomerService,
 } from '@/api/delivery-management';
 import { DetailDescriptions, NotFoundPanel, PageHeader, StatusPill } from './components';
-import { conversationStatusOptions, formatDateTime, getErrorMessage } from './utils';
+import { conversationStatusOptions, formatDateTime, formatDeliveryDisplayText, getErrorMessage } from './utils';
 
 type ConversationFormValues = {
   subject?: string;
@@ -55,7 +55,7 @@ export default function DeliveryCustomerServiceDetailPage() {
   });
 
   if (!id) {
-    return <NotFoundPanel title="缺少会话 ID" />;
+    return <NotFoundPanel title="缺少会话编号" />;
   }
 
   if (query.isError) {
@@ -72,7 +72,7 @@ export default function DeliveryCustomerServiceDetailPage() {
         {data ? (
           <DetailDescriptions
             items={[
-              { key: 'id', label: '会话 ID', children: data.id },
+              { key: 'id', label: '会话编号', children: data.id },
               { key: 'subject', label: '主题', children: data.subject ?? '-' },
               { key: 'status', label: '状态', children: <StatusPill value={data.status} /> },
               { key: 'source', label: '来源', children: data.source },
@@ -96,15 +96,15 @@ export default function DeliveryCustomerServiceDetailPage() {
               <Input />
             </Form.Item>
             <Form.Item label="状态" name="status" style={{ width: 160 }}>
-              <Select options={conversationStatusOptions.map((item) => ({ label: item, value: item }))} />
+              <Select options={conversationStatusOptions.map((item) => ({ label: formatDeliveryDisplayText(item), value: item }))} />
             </Form.Item>
           </Space>
 
           <Space align="start" style={{ width: '100%' }}>
-            <Form.Item label="assignedAdminId" name="assignedAdminId" style={{ flex: 1 }}>
+            <Form.Item label="分配管理员编号" name="assignedAdminId" style={{ flex: 1 }}>
               <Input placeholder="不填则保留当前值" />
             </Form.Item>
-            <Form.Item label="assignedStaffId" name="assignedStaffId" style={{ flex: 1 }}>
+            <Form.Item label="分配员工编号" name="assignedStaffId" style={{ flex: 1 }}>
               <Input placeholder="不填则保留当前值" />
             </Form.Item>
           </Space>

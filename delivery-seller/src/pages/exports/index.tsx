@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { App, Button, Card, Form, Input, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Form, Input, Space, Table, Tag, Typography } from 'antd';
 import { DownloadOutlined, FileDoneOutlined, FileExcelOutlined, FilePdfOutlined } from '@ant-design/icons';
+import { ProCard } from '@ant-design/pro-components';
 import { useQuery } from '@tanstack/react-query';
 import { exportFinanceManifest, exportFulfillmentManifest, type DeliveryManifest } from '@/api/manifests';
 import { getSettlements, type DeliverySettlement } from '@/api/settlements';
@@ -60,9 +61,10 @@ export default function ExportCenterPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Card
+      <ProCard
         title={<Space><FileDoneOutlined />导出操作</Space>}
-        styles={{ header: { borderTop: '3px solid #EA580C' } }}
+        headerBordered
+        style={{ borderTop: '3px solid #EA580C' }}
       >
         <Space align="start" size={24} wrap>
           <Button
@@ -102,9 +104,9 @@ export default function ExportCenterPage() {
             </Button>
           </div>
         ) : null}
-      </Card>
+      </ProCard>
 
-      <Card title="结算记录" styles={{ header: { borderTop: '3px solid #FFA940' } }}>
+      <ProCard title="结算记录" headerBordered style={{ borderTop: '3px solid #FFA940' }}>
         <Table<DeliverySettlement>
           rowKey="id"
           loading={isLoading}
@@ -146,7 +148,7 @@ export default function ExportCenterPage() {
             },
           ]}
         />
-      </Card>
+      </ProCard>
     </Space>
   );
 }

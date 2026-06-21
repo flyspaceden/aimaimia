@@ -21,7 +21,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getOrders } from '@/api/orders';
-import { orderStatusMap } from '@/constants/statusMaps';
+import { getStatusDisplay, orderStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 
 const orderStatusTabs = [
@@ -199,8 +199,8 @@ export default function OrderListPage() {
       width: 90,
       search: false,
       render: (_, r) => {
-        const s = orderStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        const s = getStatusDisplay(orderStatusMap, r.status);
+        return <Tag color={s.color}>{s.text}</Tag>;
       },
     },
     {

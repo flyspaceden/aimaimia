@@ -20,7 +20,7 @@ import {
   validateDeliveryManifestCustomizationEntries,
   validateDeliveryManifestTemplateColumns,
 } from './formValidation';
-import { formatDateTime, getErrorMessage } from './utils';
+import { formatDateTime, formatDeliveryDisplayText, getErrorMessage } from './utils';
 
 type TemplateFormValues = {
   name?: string;
@@ -115,8 +115,8 @@ export default function DeliveryManifestsPage() {
   });
 
   const templateColumns: ColumnsType<DeliveryManifestTemplate> = [
-    { title: '模板 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
-    { title: '模板类型', dataIndex: 'type', key: 'type', width: 160 },
+    { title: '模板编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+    { title: '模板类型', dataIndex: 'type', key: 'type', width: 160, render: (value: string) => formatDeliveryDisplayText(value) },
     { title: '模板名称', dataIndex: 'name', key: 'name', width: 180 },
     { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
     {
@@ -157,7 +157,7 @@ export default function DeliveryManifestsPage() {
   ];
 
   const editableColumns: ColumnsType<DeliveryManifestColumn> = [
-    { title: 'key', dataIndex: 'key', key: 'key', width: 180 },
+    { title: '字段标识', dataIndex: 'key', key: 'key', width: 180 },
     {
       title: '标签',
       dataIndex: 'label',
@@ -219,14 +219,14 @@ export default function DeliveryManifestsPage() {
 
   const customColumnsTable: ColumnsType<DeliveryManifestCustomizationEntry> = [
     {
-      title: 'key',
+      title: '字段标识',
       dataIndex: 'key',
       key: 'key',
       width: 180,
       render: (_, record, index) => (
         <Input
           value={record.key}
-          placeholder="custom_key"
+          placeholder="例如: 配送备注"
           onChange={(event) =>
             setCustomEntries((prev) =>
               prev.map((item, itemIndex) =>
@@ -356,7 +356,7 @@ export default function DeliveryManifestsPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <PageHeader title="配送清单模板" subtitle="维护模板列 label / sortOrder / visible，并通过重新生成发布新版本。" />
+      <PageHeader title="配送清单模板" subtitle="维护模板列名、排序和显示状态，并通过重新生成发布新版本。" />
 
       <Card>
         <Table<DeliveryManifestTemplate>
@@ -374,7 +374,7 @@ export default function DeliveryManifestsPage() {
                 rowKey="id"
                 dataSource={record.versions}
                 columns={[
-                  { title: '版本 ID', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
+                  { title: '版本编号', dataIndex: 'id', key: 'id', width: 150, ellipsis: true },
                   { title: '版本号', dataIndex: 'versionNo', key: 'versionNo', width: 100 },
                   { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (value: string) => <StatusPill value={value} /> },
                   { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 150, render: formatDateTime },
@@ -399,8 +399,8 @@ export default function DeliveryManifestsPage() {
               }
               style={{ width: '100%' }}
               options={[
-                { value: 'BUYER_FULL', label: '买家整单 PDF' },
-                { value: 'SELLER_FULFILLMENT', label: '卖家配货 PDF' },
+                { value: 'BUYER_FULL', label: '买家整单清单' },
+                { value: 'SELLER_FULFILLMENT', label: '卖家配货清单' },
               ]}
             />
           </div>

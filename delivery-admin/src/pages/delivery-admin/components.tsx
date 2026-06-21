@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Alert, Button, Descriptions, Empty, Result, Space, Tag, Typography } from 'antd';
 import { Link } from 'react-router-dom';
-import { formatMoney, safeStringify, statusColor } from './utils';
+import { formatDeliveryDisplayText, formatMoney, safeStringify, statusColor } from './utils';
 
 const { Text, Title } = Typography;
 
@@ -41,7 +41,7 @@ export function NotFoundPanel({ title, subtitle }: { title: string; subtitle?: s
 }
 
 export function StatusPill({ value }: { value?: string | null }) {
-  return <Tag color={statusColor(value)}>{value || '-'}</Tag>;
+  return <Tag color={statusColor(value)}>{formatDeliveryDisplayText(value)}</Tag>;
 }
 
 export function MoneyText({

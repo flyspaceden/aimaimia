@@ -27,7 +27,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { useQuery } from '@tanstack/react-query';
 import { getProducts } from '@/api/products';
 import { getPublicAppConfig } from '@/api/config';
-import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
+import { auditStatusMap, getStatusDisplay, productStatusMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
 
 const { Text } = Typography;
@@ -269,8 +269,8 @@ export default function ProductListPage() {
         ]),
       ),
       render: (_, r) => {
-        const s = productStatusMap[r.status];
-        return <Tag color={s?.color}>{s?.text || r.status}</Tag>;
+        const s = getStatusDisplay(productStatusMap, r.status);
+        return <Tag color={s.color}>{s.text}</Tag>;
       },
     },
     {
@@ -284,8 +284,8 @@ export default function ProductListPage() {
       render: (_, r) => {
         // 草稿尚未提交，不显示审核状态
         if (r.status === 'DRAFT') return <span style={{ color: '#bbb' }}>-</span>;
-        const s = auditStatusMap[r.auditStatus];
-        return <Tag color={s?.color}>{s?.text || r.auditStatus}</Tag>;
+        const s = getStatusDisplay(auditStatusMap, r.auditStatus);
+        return <Tag color={s.color}>{s.text}</Tag>;
       },
     },
     {

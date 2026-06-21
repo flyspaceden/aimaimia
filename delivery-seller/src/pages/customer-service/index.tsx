@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { App, Button, Form, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import { EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { ProCard } from '@ant-design/pro-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createConversation,
@@ -78,69 +79,76 @@ export default function CustomerServicePage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-        <Select
-          value={status}
-          style={{ width: 160 }}
-          onChange={setStatus}
-          options={[
-            { value: 'OPEN', label: '处理中' },
-            { value: 'CLOSED', label: '已关闭' },
+      <ProCard
+        title="客服中心"
+        headerBordered
+        style={{ borderTop: '3px solid #EA580C' }}
+        extra={(
+          <Space>
+            <Select
+              value={status}
+              style={{ width: 160 }}
+              onChange={setStatus}
+              options={[
+                { value: 'OPEN', label: '处理中' },
+                { value: 'CLOSED', label: '已关闭' },
+              ]}
+            />
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              新建工单
+            </Button>
+          </Space>
+        )}
+      >
+        <Table<DeliveryConversation>
+          rowKey="id"
+          loading={isLoading}
+          dataSource={data || []}
+          pagination={{ pageSize: 20, showSizeChanger: true }}
+          size="middle"
+          columns={[
+            {
+              title: '主题',
+              render: (_, row) => (
+                <Space direction="vertical" size={0}>
+                  <Typography.Text strong>{row.subject || '配送中心咨询'}</Typography.Text>
+                  <Typography.Text type="secondary">{row.lastMessagePreview || '-'}</Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              title: '关联订单',
+              width: 180,
+              render: (_, row) => row.subOrderId || row.orderId || '-',
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              width: 110,
+              render: (value: DeliveryConversation['status']) => (
+                <Tag color={value === 'OPEN' ? 'orange' : 'default'}>
+                  {value === 'OPEN' ? '处理中' : '已关闭'}
+                </Tag>
+              ),
+            },
+            {
+              title: '最后更新',
+              dataIndex: 'lastMessageAt',
+              width: 170,
+              render: (value?: string | null) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-',
+            },
+            {
+              title: '操作',
+              width: 120,
+              render: (_, row) => (
+                <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(row)}>
+                  处理
+                </Button>
+              ),
+            },
           ]}
         />
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新建工单
-        </Button>
-      </Space>
-
-      <Table<DeliveryConversation>
-        rowKey="id"
-        loading={isLoading}
-        dataSource={data || []}
-        pagination={{ pageSize: 20, showSizeChanger: true }}
-        size="middle"
-        columns={[
-          {
-            title: '主题',
-            render: (_, row) => (
-              <Space direction="vertical" size={0}>
-                <Typography.Text strong>{row.subject || '配送中心咨询'}</Typography.Text>
-                <Typography.Text type="secondary">{row.lastMessagePreview || '-'}</Typography.Text>
-              </Space>
-            ),
-          },
-          {
-            title: '关联订单',
-            width: 180,
-            render: (_, row) => row.subOrderId || row.orderId || '-',
-          },
-          {
-            title: '状态',
-            dataIndex: 'status',
-            width: 110,
-            render: (value: DeliveryConversation['status']) => (
-              <Tag color={value === 'OPEN' ? 'orange' : 'default'}>
-                {value === 'OPEN' ? '处理中' : '已关闭'}
-              </Tag>
-            ),
-          },
-          {
-            title: '最后更新',
-            dataIndex: 'lastMessageAt',
-            width: 170,
-            render: (value?: string | null) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-',
-          },
-          {
-            title: '操作',
-            width: 120,
-            render: (_, row) => (
-              <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(row)}>
-                处理
-              </Button>
-            ),
-          },
-        ]}
-      />
+      </ProCard>
 
       <Modal
         title={editing ? '处理工单' : '新建工单'}

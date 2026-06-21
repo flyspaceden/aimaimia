@@ -77,7 +77,7 @@
 - 已新增独立 `delivery-admin/` 前端包，作为配送管理后台壳。
 - 认证本地存储与持久化键独立为 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth`。
 - 登录认证接口改到 `/api/v1/delivery-admin/auth/*`，登录页与爱买买管理后台登录页已互相增加切换按钮。
-- 当前仅保留壳层路由、浅蓝主题和基础可访问菜单；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块已从路由和菜单裁掉。
+- 配送管理后台已升级为接近现有管理后台的信息架构：侧边栏按“用户与单位 / 商家与商品 / 订单与履约 / 客服中心 / 系统管理”分组，核心列表页使用 `ProTable` 搜索、分页请求、工具栏和固定操作列；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块仍从路由和菜单裁掉。
 - 清单模板页已补逐单自定义列操作区，可按 `BUYER_FULL` / `SELLER_FULFILLMENT` 目标单号维护自定义列名、排序、显示与内容；卖家配货清单由后端限制金额敏感字段。
 
 ### 0.7 集成验证记录（2026-06-19 / Task 20）
@@ -95,7 +95,11 @@
 - 买家配送客服新增 `/delivery/cs` 页面和 Repo，只读写 delivery 客服表，支持从配送 App 我的页进入。
 - 合并前审查修复（2026-06-20）：配送 checkout 改成“锁定费用 -> 核对 -> 支付”两步；新增 `src/utils/deliveryCheckoutSummary.ts` 锁定金额摘要测试；配送中心下载 helper 增加 `delivery/waybills/`、`delivery/manifests/`、`delivery/settlements/` 前缀，清单/面单下载继续走后端商家归属校验。
 - 全面审查补充（2026-06-20）：配送管理后台新增 `deliveryAdminContracts.test.ts`，锁定活跃路由/API 只暴露配送管理模块；配送中心删除未路由的售后/统计页面和 API，并用 `deliveryCenterContracts.test.ts` 锁定不暴露售后、退款、平台售价等非配送内容；配送中心结算文件下载增加 `delivery/settlements/` 回归测试；活跃代码中“采购/团购/配送卖家中心”文案残留已清理。
-- 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
+- Web 前端重做补充（2026-06-20）：配送管理后台核心运营列表从普通 `Table` 升级到 `ProTable`；配送中心侧边栏调整为“商品管理 / 订单履约 / 经营导出 / 企业与人员 / 客服中心”，工作台、物流、导出、企业资料、员工、客服页面使用 `ProCard` 分区并保持橙色身份；配送中心合同测试继续锁定不出现平台最终售价、加价率、平台利润等字段。
+- 配送 Web 中文显示口径（2026-06-20）：配送管理后台与配送中心用户可见文案不得直接展示后端英文枚举或技术字段名；状态标签、筛选下拉、配置范围、规则类型、清单字段、权限名称、编号列、校验提示统一转换为中文说明。内部 API 字段名和 TypeScript 类型仍可保留英文，以保持接口兼容。
+- 配送设置页 UX 收口（2026-06-20）：配送管理后台 `/config` 从 Tab + Modal 改为左侧分类、右侧设置面板，配置中心只保留配送单位字段、清单导出、平台规则；平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在页面内直接使用数字输入和开关修改，顶部统一保存，不再暴露内部配置标识、配置范围或 JSON 内容；配送单位字段的下拉选项改为每行一个选项；客服相关配置移入客服中心。配送中心企业资料页改为当前状态、基础资料、联系方式、操作权限分块；员工权限页改为“新增员工 / 分配权限 / 禁用员工”工作区和中文权限分组勾选，账号启用状态使用开关。
+- 配送客服中心补齐（2026-06-20）：配送管理后台客服中心对齐现有爱买买管理后台 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已提供会话列表/详情/更新和客服默认配置，前端先接真实会话数据与默认配置，FAQ/快捷入口独立 CRUD 等待后端配送接口后续补齐。
+- 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
 
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
