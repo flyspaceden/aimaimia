@@ -47,9 +47,9 @@ test('delivery center layout shows the full operational menu in the sidebar', ()
   }
 
   for (const [group, path] of [
-    ['商品管理', '/products'],
-    ['订单履约', '/orders'],
-    ['企业与人员', '/company/settings'],
+    ['商品管理', '/delivery-products'],
+    ['订单履约', '/delivery-orders'],
+    ['企业与人员', '/delivery-company'],
   ]) {
     assert.match(
       layout,
@@ -57,6 +57,10 @@ test('delivery center layout shows the full operational menu in the sidebar', ()
       `grouped sidebar menu ${group} should have its own path so ProLayout renders it`,
     );
   }
+
+  const routePathMatches = [...layout.matchAll(/path:\s*['"]([^'"]+)['"]/g)];
+  const routePaths = routePathMatches.map((match) => match[1]);
+  assert.equal(new Set(routePaths).size, routePaths.length, 'sidebar menu paths must be unique to avoid Ant Menu key collisions');
 
   assert.match(layout, /layout="side"/);
   assert.doesNotMatch(layout, /layout="mix"/);
