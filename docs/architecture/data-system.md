@@ -86,6 +86,7 @@
 
 ### 2.5 商品域（Product）
 - Category / Tag / Product / ProductSKU / ProductMedia / ProductTag
+- ProductBundleItem（组合商品组成项）
 - InventoryLedger / (可选) PriceHistory / ProductAttribute
 
 ### 2.6 溯源确权域（Traceability）
@@ -549,6 +550,15 @@ CartItem
 - (merchantOrderNo)
 - (expiresAt, status)
 
+**2026-06-22 组合商品补充**
+- `itemsSnapshot[].productSnapshot.productType` 支持 `SIMPLE/BUNDLE`
+- 当 `productType=BUNDLE` 时，`productSnapshot.bundleItems[]` 固化下单时的组件快照：
+  - `skuId / productId / productTitle / skuTitle`
+  - `quantityPerBundle / bundleQuantity / totalQuantity`
+  - `unitPriceAtCheckout / image / weightGram`
+- 结算前的可售库存校验不看 bundle 售卖 SKU 自身 `stock`，而是按组件 SKU 当前库存推导 `availability = min(floor(componentStock / quantityPerBundle))`
+- 支付成功后的库存扣减、未发货取消回补、售后退款回补都基于这份组件快照展开到真实 SIMPLE SKU，避免后续商品改名、改图、改组成后影响历史订单
+
 ## G3. Order
 - id (uuid, PK)
 - userId (uuid FK User)
@@ -575,6 +585,42 @@ CartItem
 - quantity (int)
 - companyId (uuid) — 冗余加速
 - createdAt
+
+**2026-06-22 组合商品补充**
+- `skuId` 仍指向买家下单看到的父售卖 SKU；订单、支付、售后、打印都以父 `OrderItem` 作为身份主体
+- `productSnapshot` 需要固定以下 buyer/seller/after-sale 共用字段：
+  - `productId / companyId / title / skuTitle / image / price`
+  - `productType`
+  - `bundleTotalWeightGram`
+  - `bundleItems[]`（历史组件快照）
+- 售后规则保持整套处理：组合商品只能对父 `OrderItem` 申请一次售后，不开放组件级拆单售后；库存恢复时再按 `bundleItems[]` 逐个 SIMPLE SKU 幂等回填
+
+## G4.1 组合商品数据补充（2026-06-22）
+
+### Product.type
+- enum `ProductType`: `SIMPLE / BUNDLE`
+- `SIMPLE` 为默认普通商品
+- `BUNDLE` 为卖家创建的普通可售组合商品；买家看到的仍是一个父商品/父 SKU
+
+### ProductBundleItem
+- id (uuid, PK)
+- bundleProductId (uuid FK Product)
+- skuId (uuid FK ProductSKU)
+- quantity (int, > 0) — 每 1 份组合内包含的组件数量
+- sortOrder (int)
+- createdAt, updatedAt
+
+**约束**
+- unique(bundleProductId, skuId) — 同一组合内同一 SKU 只能出现一次，重复选择时在服务层合并数量
+- `quantity > 0`
+- 只允许引用同商户、在售、审核通过、`Product.type=SIMPLE` 的 SKU
+- 不允许 bundle 嵌套，不允许跨商户引用
+
+**派生口径**
+- 组合父商品只有一个销售 SKU；卖家像普通商品一样填写成本价
+- 可组合库存 = `min(floor(component.stock / quantity))`
+- 组合总重量 = `sum(component.weightGram * quantity)`
+- 组件当前售价合计仅作为卖家侧参考值，不改变父商品售价事实来源
 
 ## G5. OrderStatusHistory
 - id (uuid, PK)

@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **组合商品架构文档与安全清单补齐**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 15
+  - **实际做了**: 更新 `docs/architecture/data-system.md`、`seller.md`、`frontend.md`、`responsive-design.md`，补齐 `ProductType` / `ProductBundleItem`、卖家组合编辑器、买家组合展示、结算组件库存展开、整套售后规则与卖家拣货汇总说明；并按 `docs/issues/tofix-safe.md` checklist 完成组合商品安全审阅，结论为本任务不需要新增或改写 tracked issue
+  - **验证**: `git diff --check`、bundle 相关实现 grep 对齐、文档最小一致性复核
+
 - [x] **买家端组合商品购物车/订单/售后展示**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 14
   - **实际做了**: `ServerCartItem` / `OrderItem` / `useCartStore` 补齐 `productType` / `bundleItems` snapshot；购物车、结算、订单卡片/详情、售后申请和售后详情统一复用紧凑只读“组合内容”摘要，保持父商品行结算/价格/售后身份不变，不开放组件级售后动作
