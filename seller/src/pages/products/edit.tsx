@@ -4,17 +4,19 @@ import {
   App, Card, Button, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
   Breadcrumb, Select, Collapse, Switch, Row, Col,
-  Modal, Image,
+  Modal, Image, Segmented, Table, Tooltip,
 } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
   SaveOutlined, CloudUploadOutlined, DownloadOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/api/client';
 import {
   getProduct,
+  getProducts,
   createProduct,
   updateProduct,
   updateProductSkus,
@@ -32,6 +34,7 @@ import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
+import type { Product, ProductBundleItem, ProductType } from '@/types';
 
 const { Text } = Typography;
 
@@ -101,6 +104,63 @@ function hydrateDraftWeightGram(sku: { skuCode?: string | null; weightGram?: num
   return isDraftWeightPlaceholderSkuCode(sku.skuCode) ? undefined : sku.weightGram;
 }
 
+function productTypeOf(product?: Pick<Product, 'type'> | null): ProductType {
+  return product?.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
+}
+
+function normalizeBundleItems(items: ProductBundleItem[]): ProductBundleItem[] {
+  const merged = new Map<string, ProductBundleItem>();
+  for (const item of items) {
+    if (!item.skuId) continue;
+    const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+    const existing = merged.get(item.skuId);
+    if (existing) {
+      merged.set(item.skuId, {
+        ...existing,
+        ...item,
+        quantity: existing.quantity + quantity,
+      });
+    } else {
+      merged.set(item.skuId, { ...item, quantity });
+    }
+  }
+  return Array.from(merged.values()).map((item, index) => ({
+    ...item,
+    sortOrder: index,
+  }));
+}
+
+function buildBundlePayloadItems(items: ProductBundleItem[]) {
+  return normalizeBundleItems(items).map((item, index) => ({
+    skuId: item.skuId,
+    quantity: item.quantity,
+    sortOrder: item.sortOrder ?? index,
+  }));
+}
+
+function getBundleReferenceTotal(items: ProductBundleItem[]) {
+  return items.reduce((sum, item) => sum + (Number(item.price) || 0) * item.quantity, 0);
+}
+
+function getBundleAvailableStock(items: ProductBundleItem[]) {
+  if (items.length === 0) return null;
+  return Math.min(
+    ...items.map((item) => {
+      const stock = Number(item.stock);
+      if (!Number.isFinite(stock)) return 0;
+      return Math.floor(stock / Math.max(1, item.quantity));
+    }),
+  );
+}
+
+function getBundleTotalWeightGram(items: ProductBundleItem[]) {
+  return items.reduce((sum, item) => sum + (Number(item.weightGram) || 0) * item.quantity, 0);
+}
+
+function getProductCover(product: Product) {
+  return product.media?.[0]?.url ?? product.bundleItems?.[0]?.imageUrl ?? null;
+}
+
 // 轻量 debounce（避免引入 lodash 类型依赖）
 function makeDebounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -150,6 +210,240 @@ function SellingPriceDisplay({ cost, markupRate }: { cost: number | undefined; m
       placeholder="自动计算"
       addonAfter={`= 成本 × ${markupRate}`}
     />
+  );
+}
+
+// ============================================================
+// 共享：组合商品内容编辑器
+// ============================================================
+function BundleItemsEditor({
+  products,
+  currentProductId,
+  items,
+  onChange,
+}: {
+  products: Product[];
+  currentProductId?: string;
+  items: ProductBundleItem[];
+  onChange: (items: ProductBundleItem[]) => void;
+}) {
+  const simpleSkuOptions = useMemo(() => {
+    return products
+      .filter((product) => product.id !== currentProductId)
+      .filter((product) => productTypeOf(product) === 'SIMPLE')
+      .filter((product) => product.status === 'ACTIVE')
+      .flatMap((product) =>
+        (product.skus || [])
+          .filter((sku) => sku.status === 'ACTIVE')
+          .map((sku) => ({
+            value: sku.id,
+            label: `${product.title} / ${sku.title || '默认规格'}`,
+            product,
+            sku,
+          })),
+      );
+  }, [products, currentProductId]);
+
+  const skuMap = useMemo(
+    () => new Map(simpleSkuOptions.map((option) => [option.value, option])),
+    [simpleSkuOptions],
+  );
+
+  const bundleSourceOptions = useMemo(() => {
+    return products
+      .filter((product) => product.id !== currentProductId)
+      .filter((product) => productTypeOf(product) === 'BUNDLE')
+      .filter((product) => product.status === 'ACTIVE')
+      .filter((product) => (product.bundleItems?.length ?? 0) > 0)
+      .map((product) => ({
+        value: product.id,
+        label: `${product.title}（${product.bundleItems?.length ?? 0} 项）`,
+      }));
+  }, [products, currentProductId]);
+
+  const productMap = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products],
+  );
+
+  const commitItems = (nextItems: ProductBundleItem[]) => {
+    onChange(normalizeBundleItems(nextItems));
+  };
+
+  const addSku = (skuId: string) => {
+    const option = skuMap.get(skuId);
+    if (!option) return;
+    commitItems([
+      ...items,
+      {
+        skuId,
+        quantity: 1,
+        productTitle: option.product.title,
+        skuTitle: option.sku.title || '默认规格',
+        imageUrl: getProductCover(option.product),
+        price: option.sku.price,
+        stock: option.sku.stock,
+        weightGram: option.sku.weightGram,
+      },
+    ]);
+  };
+
+  const expandBundleSource = (productId: string) => {
+    const source = productMap.get(productId);
+    if (!source || productTypeOf(source) !== 'BUNDLE') return;
+    commitItems([...(items || []), ...(source.bundleItems || [])]);
+  };
+
+  const updateQuantity = (skuId: string, quantity: number | null) => {
+    commitItems(
+      items.map((item) =>
+        item.skuId === skuId
+          ? { ...item, quantity: Math.max(1, Math.floor(Number(quantity) || 1)) }
+          : item,
+      ),
+    );
+  };
+
+  const removeItem = (skuId: string) => {
+    onChange(items.filter((item) => item.skuId !== skuId));
+  };
+
+  const referenceTotal = getBundleReferenceTotal(items);
+  const availableStock = getBundleAvailableStock(items);
+  const totalWeightGram = getBundleTotalWeightGram(items);
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Space wrap>
+        <Select
+          showSearch
+          allowClear
+          placeholder="添加商品规格"
+          optionFilterProp="label"
+          options={simpleSkuOptions.map(({ value, label }) => ({ value, label }))}
+          onChange={(value) => {
+            if (value) addSku(value);
+          }}
+          value={undefined}
+          style={{ width: 320 }}
+        />
+        <Select
+          showSearch
+          allowClear
+          placeholder="从已有组合复制"
+          optionFilterProp="label"
+          options={bundleSourceOptions}
+          onChange={(value) => {
+            if (value) expandBundleSource(value);
+          }}
+          value={undefined}
+          style={{ width: 240 }}
+        />
+        <Tooltip title="重复规格会自动合并数量">
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {items.length} 项
+          </Text>
+        </Tooltip>
+      </Space>
+      <Table<ProductBundleItem>
+        rowKey="skuId"
+        size="small"
+        pagination={false}
+        dataSource={items}
+        locale={{ emptyText: '请选择组合内容' }}
+        columns={[
+          {
+            title: '商品 / 规格',
+            dataIndex: 'productTitle',
+            render: (_, item) => (
+              <Space size={8}>
+                {item.imageUrl ? (
+                  <Image
+                    src={item.imageUrl}
+                    width={32}
+                    height={32}
+                    style={{ objectFit: 'cover', borderRadius: 4 }}
+                    preview={false}
+                  />
+                ) : (
+                  <div style={{ width: 32, height: 32, borderRadius: 4, background: '#f5f5f5' }} />
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 500 }}>{item.productTitle || '-'}</div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {item.skuTitle || item.skuId}
+                  </Text>
+                </div>
+              </Space>
+            ),
+          },
+          {
+            title: '参考售价',
+            width: 100,
+            align: 'right',
+            render: (_, item) => (
+              <span style={{ fontFamily: 'monospace' }}>
+                ¥{(Number(item.price) || 0).toFixed(2)}
+              </span>
+            ),
+          },
+          {
+            title: '库存',
+            width: 80,
+            align: 'right',
+            render: (_, item) => Number(item.stock) || 0,
+          },
+          {
+            title: '数量',
+            width: 110,
+            render: (_, item) => (
+              <InputNumber
+                min={1}
+                precision={0}
+                value={item.quantity}
+                onChange={(value) => updateQuantity(item.skuId, value)}
+                style={{ width: 82 }}
+              />
+            ),
+          },
+          {
+            title: '小计',
+            width: 110,
+            align: 'right',
+            render: (_, item) => (
+              <span style={{ fontFamily: 'monospace' }}>
+                ¥{((Number(item.price) || 0) * item.quantity).toFixed(2)}
+              </span>
+            ),
+          },
+          {
+            title: '',
+            width: 48,
+            align: 'center',
+            render: (_, item) => (
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                aria-label="移除组合规格"
+                onClick={() => removeItem(item.skuId)}
+              />
+            ),
+          },
+        ]}
+      />
+      <Space size={16} wrap>
+        <Text>
+          参考合计 <Text strong style={{ fontFamily: 'monospace' }}>¥{referenceTotal.toFixed(2)}</Text>
+        </Text>
+        <Text>
+          可组合库存 <Text strong>{availableStock ?? '-'}</Text>
+        </Text>
+        <Text>
+          组合重量 <Text strong>{totalWeightGram || '-'}g</Text>
+        </Text>
+      </Space>
+    </Space>
   );
 }
 
@@ -507,6 +801,8 @@ function buildPayload(
   skuList: Array<Record<string, unknown>>,
   markupRate: number,
   fileList: UploadFile[],
+  productType: ProductType,
+  bundleItems: ProductBundleItem[],
 ) {
   // 处理标签（使用标签池 ID 列表）
   const tagIds = (values.tagIds as string[] | undefined) || undefined;
@@ -562,6 +858,8 @@ function buildPayload(
     dietaryTags: (values.dietaryTags as string[] | undefined) || undefined,
     originRegion: (values.originText as string | undefined) || undefined,
     skus,
+    productType,
+    bundleItems: productType === 'BUNDLE' ? buildBundlePayloadItems(bundleItems) : undefined,
   };
 }
 
@@ -589,6 +887,8 @@ function ProductEditForm({ id }: { id: string }) {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [saving, setSaving] = useState(false);
   const [multiSpec, setMultiSpec] = useState(false);
+  const [productType, setProductType] = useState<ProductType>('SIMPLE');
+  const [bundleItems, setBundleItems] = useState<ProductBundleItem[]>([]);
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -641,11 +941,22 @@ function ProductEditForm({ id }: { id: string }) {
     [productUnits, product?.unit],
   );
 
+  const { data: bundleCatalogData } = useQuery({
+    queryKey: ['seller-products-bundle-catalog'],
+    queryFn: () => getProducts({ page: 1, pageSize: 500, status: 'ACTIVE' }),
+    staleTime: 60_000,
+  });
+  const bundleCatalog = bundleCatalogData?.items ?? [];
+
   // 商品数据加载后填充表单并判断是否多规格
   useEffect(() => {
     if (!product) return;
 
-    const isMulti = (product.skus?.length ?? 0) > 1;
+    const nextProductType = productTypeOf(product);
+    setProductType(nextProductType);
+    setBundleItems(normalizeBundleItems(product.bundleItems || []));
+
+    const isMulti = nextProductType === 'SIMPLE' && (product.skus?.length ?? 0) > 1;
     setMultiSpec(isMulti);
 
     const originText = typeof product.origin === 'object' && product.origin
@@ -666,6 +977,8 @@ function ProductEditForm({ id }: { id: string }) {
       subtitle: product.subtitle,
       description: product.description,
       unit: product.unit || DEFAULT_PRODUCT_UNIT,
+      productType: nextProductType,
+      bundleItems: product.bundleItems || [],
       categoryId: product.categoryId,
       returnPolicy: (product as any).returnPolicy || 'INHERIT',
       originText,
@@ -675,8 +988,10 @@ function ProductEditForm({ id }: { id: string }) {
       // 单规格字段
       ...(!isMulti && firstSku ? {
         singleCost: firstSku.cost,
-        singleStock: firstSku.stock,
-        singleWeightGram: firstSku.weightGram,
+        singleStock: nextProductType === 'BUNDLE' ? 0 : firstSku.stock,
+        singleWeightGram: nextProductType === 'BUNDLE'
+          ? (product.bundleTotalWeightGram ?? getBundleTotalWeightGram(product.bundleItems || []))
+          : firstSku.weightGram,
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
       } : {}),
       // 多规格字段
@@ -713,10 +1028,23 @@ function ProductEditForm({ id }: { id: string }) {
     setSaving(true);
     try {
       const values = await form.validateFields();
+      if (productType === 'BUNDLE' && bundleItems.length === 0) {
+        message.error('请先添加组合内容');
+        return;
+      }
 
       // 构造 SKU 列表：单规格 vs 多规格
       let skuList: Array<Record<string, unknown>>;
-      if (multiSpec) {
+      if (productType === 'BUNDLE') {
+        skuList = [{
+          id: product?.skus?.[0]?.id,
+          specName: '默认规格',
+          cost: values.singleCost,
+          stock: 0,
+          weightGram: getBundleTotalWeightGram(bundleItems),
+          maxPerOrder: values.singleMaxPerOrder,
+        }];
+      } else if (multiSpec) {
         skuList = values.skus as Array<Record<string, unknown>>;
       } else {
         // 单规格：使用主表单里的 singleCost/singleStock/singleWeightGram
@@ -731,7 +1059,7 @@ function ProductEditForm({ id }: { id: string }) {
         }];
       }
 
-      const payload = buildPayload(values, skuList, markupRate, fileList);
+      const payload = buildPayload(values, skuList, markupRate, fileList, productType, bundleItems);
       const { skus, ...productData } = payload;
 
       await updateProduct(id, productData);
@@ -840,6 +1168,16 @@ function ProductEditForm({ id }: { id: string }) {
           >
             <Input placeholder="请输入商品标题" maxLength={100} />
           </Form.Item>
+          <Form.Item label="商品类型" name="productType">
+            <Segmented
+              disabled
+              value={productType}
+              options={[
+                { label: '普通商品', value: 'SIMPLE' },
+                { label: '组合商品', value: 'BUNDLE' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item
             label="商品分类"
             name="categoryId"
@@ -910,37 +1248,41 @@ function ProductEditForm({ id }: { id: string }) {
                   />
                 </Form.Item>
               </Space>
-              <Text type="secondary">多规格商品</Text>
-              <Switch
-                checked={multiSpec}
-                onChange={(checked) => {
-                  setMultiSpec(checked);
-                  if (checked) {
-                    // 切换到多规格：从单规格数据初始化一行
-                    const cost = form.getFieldValue('singleCost');
-                    const stock = form.getFieldValue('singleStock');
-                    const weightGram = form.getFieldValue('singleWeightGram');
-                    const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
-                    if (cost || stock) {
-                      form.setFieldsValue({
-                        skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
-                      });
-                    }
-                  } else {
-                    // 切换到单规格：从第一行多规格数据恢复
-                    const skus = form.getFieldValue('skus') as Array<Record<string, unknown>> | undefined;
-                    const first = skus?.[0];
-                    if (first) {
-                      form.setFieldsValue({
-                        singleCost: first.cost,
-                        singleStock: first.stock,
-                        singleWeightGram: first.weightGram,
-                        singleMaxPerOrder: first.maxPerOrder,
-                      });
-                    }
-                  }
-                }}
-              />
+              {productType === 'SIMPLE' && (
+                <>
+                  <Text type="secondary">多规格商品</Text>
+                  <Switch
+                    checked={multiSpec}
+                    onChange={(checked) => {
+                      setMultiSpec(checked);
+                      if (checked) {
+                        // 切换到多规格：从单规格数据初始化一行
+                        const cost = form.getFieldValue('singleCost');
+                        const stock = form.getFieldValue('singleStock');
+                        const weightGram = form.getFieldValue('singleWeightGram');
+                        const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
+                        if (cost || stock) {
+                          form.setFieldsValue({
+                            skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
+                          });
+                        }
+                      } else {
+                        // 切换到单规格：从第一行多规格数据恢复
+                        const skus = form.getFieldValue('skus') as Array<Record<string, unknown>> | undefined;
+                        const first = skus?.[0];
+                        if (first) {
+                          form.setFieldsValue({
+                            singleCost: first.cost,
+                            singleStock: first.stock,
+                            singleWeightGram: first.weightGram,
+                            singleMaxPerOrder: first.maxPerOrder,
+                          });
+                        }
+                      }
+                    }}
+                  />
+                </>
+              )}
             </Space>
           }
         >
@@ -948,7 +1290,62 @@ function ProductEditForm({ id }: { id: string }) {
             售价由平台按成本 × 加价率（{markupRate}）自动计算，卖家只需填写成本价。
           </Text>
 
-          {!multiSpec ? (
+          {productType === 'BUNDLE' ? (
+            <>
+              <Row gutter={16}>
+                <Col xs={24} sm={12} md={6}>
+                  <Form.Item
+                    label="组合成本价"
+                    name="singleCost"
+                    rules={[
+                      { required: true, message: '请输入组合成本价' },
+                      { type: 'number', min: 0.01, message: '成本必须大于 0' },
+                    ]}
+                  >
+                    <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} md={8}>
+                  <Form.Item shouldUpdate noStyle>
+                    {({ getFieldValue }) => {
+                      const cost = getFieldValue('singleCost');
+                      return (
+                        <Form.Item label="售价（自动计算）">
+                          <SellingPriceDisplay cost={cost} markupRate={markupRate} />
+                        </Form.Item>
+                      );
+                    }}
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} md={5}>
+                  <Form.Item label="可组合库存">
+                    <InputNumber
+                      value={getBundleAvailableStock(bundleItems) ?? undefined}
+                      disabled
+                      style={{ width: '100%' }}
+                      placeholder="-"
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} md={5}>
+                  <Form.Item label="单笔限购" name="singleMaxPerOrder" rules={[{ type: 'number', min: 1, message: '最少为1' }]}>
+                    <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item label="组合内容" required>
+                <BundleItemsEditor
+                  products={bundleCatalog}
+                  currentProductId={id}
+                  items={bundleItems}
+                  onChange={(nextItems) => {
+                    setBundleItems(nextItems);
+                    form.setFieldValue('bundleItems', nextItems);
+                  }}
+                />
+              </Form.Item>
+            </>
+          ) : !multiSpec ? (
             /* 单规格模式 */
             <Row gutter={16}>
               <Col span={6}>
@@ -1053,6 +1450,8 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [multiSpec, setMultiSpec] = useState(false);
+  const [productType, setProductType] = useState<ProductType>('SIMPLE');
+  const [bundleItems, setBundleItems] = useState<ProductBundleItem[]>([]);
 
   // 草稿状态
   const [draftId, setDraftId] = useState<string | null>(draftInitialId ?? null);
@@ -1122,12 +1521,23 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     [productUnits, draftProduct?.unit],
   );
 
+  const { data: bundleCatalogData } = useQuery({
+    queryKey: ['seller-products-bundle-catalog'],
+    queryFn: () => getProducts({ page: 1, pageSize: 500, status: 'ACTIVE' }),
+    staleTime: 60_000,
+  });
+  const bundleCatalog = bundleCatalogData?.items ?? [];
+
   // 草稿加载后回填表单（仅执行一次）
   useEffect(() => {
     if (!draftProduct) return;
     hydratingRef.current = true;
 
-    const isMulti = (draftProduct.skus?.length ?? 0) > 1;
+    const nextProductType = productTypeOf(draftProduct);
+    setProductType(nextProductType);
+    setBundleItems(normalizeBundleItems(draftProduct.bundleItems || []));
+
+    const isMulti = nextProductType === 'SIMPLE' && (draftProduct.skus?.length ?? 0) > 1;
     setMultiSpec(isMulti);
 
     const originText = typeof draftProduct.origin === 'object' && draftProduct.origin
@@ -1147,6 +1557,8 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       subtitle: draftProduct.subtitle,
       description: draftProduct.description,
       unit: draftProduct.unit || DEFAULT_PRODUCT_UNIT,
+      productType: nextProductType,
+      bundleItems: draftProduct.bundleItems || [],
       categoryId: draftProduct.categoryId,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       returnPolicy: (draftProduct as any).returnPolicy || 'INHERIT',
@@ -1157,8 +1569,10 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       attributes: attrPairs.length > 0 ? attrPairs : [],
       ...(!isMulti && firstSku ? {
         singleCost: firstSku.cost || undefined,
-        singleStock: firstSku.stock,
-        singleWeightGram: hydrateDraftWeightGram(firstSku),
+        singleStock: nextProductType === 'BUNDLE' ? 0 : firstSku.stock,
+        singleWeightGram: nextProductType === 'BUNDLE'
+          ? (draftProduct.bundleTotalWeightGram ?? getBundleTotalWeightGram(draftProduct.bundleItems || []))
+          : hydrateDraftWeightGram(firstSku),
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
       } : {}),
       ...(isMulti ? {
@@ -1208,7 +1622,21 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
 
     // SKU：保留 form 里的全部行（含只填了规格名的、空行），后端 DraftSkuDto 全字段可选
     let skuList: Array<Record<string, unknown>> = [];
-    if (multiSpec) {
+    if (productType === 'BUNDLE') {
+      const { singleCost, singleMaxPerOrder } = values;
+      const hasAnyBundleSku =
+        singleCost !== undefined && singleCost !== null && singleCost !== ''
+        || singleMaxPerOrder !== undefined && singleMaxPerOrder !== null && singleMaxPerOrder !== '';
+      if (hasAnyBundleSku) {
+        skuList = [{
+          specName: '默认规格',
+          cost: singleCost,
+          stock: 0,
+          weightGram: getBundleTotalWeightGram(bundleItems),
+          maxPerOrder: singleMaxPerOrder,
+        }];
+      }
+    } else if (multiSpec) {
       skuList = (values.skus as Array<Record<string, unknown>>) || [];
     } else {
       const { singleCost, singleStock, singleWeightGram, singleMaxPerOrder } = values;
@@ -1276,8 +1704,10 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       dietaryTags: (values.dietaryTags as string[] | undefined) ?? [],
       originRegion: originText || null,
       skus,
+      productType,
+      bundleItems: productType === 'BUNDLE' ? buildBundlePayloadItems(bundleItems) : [],
     };
-  }, [form, fileList, multiSpec]);
+  }, [form, fileList, multiSpec, productType, bundleItems]);
 
   const handleSaveDraft = useCallback(async (silent = false) => {
     if (draftLimitReached && !draftId) {
@@ -1340,7 +1770,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     if (!dirtySinceSave) return; // 已保存到最新状态就不再触发自动保存
     debouncedAutoSave();
     return () => debouncedAutoSave.cancel();
-  }, [watchedValues, fileList, debouncedAutoSave, dirtySinceSave]);
+  }, [watchedValues, fileList, bundleItems, debouncedAutoSave, dirtySinceSave]);
 
   // 卸载时取消未执行的 debounce
   useEffect(() => () => { debouncedAutoSave.cancel(); }, [debouncedAutoSave]);
@@ -1352,6 +1782,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       if (path === 'origin' || path.startsWith('origin.')) return ['originText'];
       // skus 整体错误（如最少 1 项）→ 单规格映射到 singleCost，多规格无单一字段
       if (path === 'skus') return multiSpec ? null : ['singleCost'];
+      if (path === 'bundleItems' || path.startsWith('bundleItems.')) return ['singleCost'];
       // skus.<idx>.<field>
       const m = /^skus\.(\d+)\.(\w+)$/.exec(path);
       if (m) {
@@ -1382,6 +1813,10 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     setLoading(true);
     try {
       const values = await form.validateFields();
+      if (productType === 'BUNDLE' && bundleItems.length === 0) {
+        message.error('请先添加组合内容');
+        return;
+      }
 
       if (draftId) {
         // 草稿分支：用 buildDraftPayload（全量覆盖语义），否则被清空的字段会被
@@ -1391,7 +1826,15 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       } else {
         // 全新商品创建：用 buildPayload（含自动定价 basePrice 计算）
         let skuList: Array<Record<string, unknown>>;
-        if (multiSpec) {
+        if (productType === 'BUNDLE') {
+          skuList = [{
+            specName: '默认规格',
+            cost: values.singleCost,
+            stock: 0,
+            weightGram: getBundleTotalWeightGram(bundleItems),
+            maxPerOrder: values.singleMaxPerOrder,
+          }];
+        } else if (multiSpec) {
           skuList = values.skus as Array<Record<string, unknown>>;
         } else {
           skuList = [{
@@ -1402,7 +1845,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             maxPerOrder: values.singleMaxPerOrder,
           }];
         }
-        const payload = buildPayload(values, skuList, markupRate, fileList);
+        const payload = buildPayload(values, skuList, markupRate, fileList, productType, bundleItems);
         await createProduct(payload);
       }
       // 提交成功 → 清 dirty 防止跳转时弹未保存提醒
@@ -1502,6 +1945,23 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           >
             <Input placeholder="请输入商品标题" maxLength={100} />
           </Form.Item>
+          <Form.Item label="商品类型" name="productType" initialValue="SIMPLE">
+            <Segmented
+              disabled={!!draftId}
+              value={productType}
+              onChange={(value) => {
+                const nextType = value as ProductType;
+                setProductType(nextType);
+                form.setFieldValue('productType', nextType);
+                if (nextType === 'BUNDLE') setMultiSpec(false);
+                if (!hydratingRef.current) setDirtySinceSave(true);
+              }}
+              options={[
+                { label: '普通商品', value: 'SIMPLE' },
+                { label: '组合商品', value: 'BUNDLE' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item
             label="商品分类"
             name="categoryId"
@@ -1573,35 +2033,39 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   />
                 </Form.Item>
               </Space>
-              <Text type="secondary">多规格商品</Text>
-              <Switch
-                checked={multiSpec}
-                onChange={(checked) => {
-                  setMultiSpec(checked);
-                  if (checked) {
-                    // 切换到多规格：从单规格数据初始化一行
-                    const cost = form.getFieldValue('singleCost');
-                    const stock = form.getFieldValue('singleStock');
-                    const weightGram = form.getFieldValue('singleWeightGram');
-                    const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
-                    form.setFieldsValue({
-                      skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
-                    });
-                  } else {
-                    // 切换到单规格：从第一行多规格数据恢复
-                    const skus = form.getFieldValue('skus') as Array<Record<string, unknown>> | undefined;
-                    const first = skus?.[0];
-                    if (first) {
-                      form.setFieldsValue({
-                        singleCost: first.cost,
-                        singleStock: first.stock,
-                        singleWeightGram: first.weightGram,
-                        singleMaxPerOrder: first.maxPerOrder,
-                      });
-                    }
-                  }
-                }}
-              />
+              {productType === 'SIMPLE' && (
+                <>
+                  <Text type="secondary">多规格商品</Text>
+                  <Switch
+                    checked={multiSpec}
+                    onChange={(checked) => {
+                      setMultiSpec(checked);
+                      if (checked) {
+                        // 切换到多规格：从单规格数据初始化一行
+                        const cost = form.getFieldValue('singleCost');
+                        const stock = form.getFieldValue('singleStock');
+                        const weightGram = form.getFieldValue('singleWeightGram');
+                        const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
+                        form.setFieldsValue({
+                          skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
+                        });
+                      } else {
+                        // 切换到单规格：从第一行多规格数据恢复
+                        const skus = form.getFieldValue('skus') as Array<Record<string, unknown>> | undefined;
+                        const first = skus?.[0];
+                        if (first) {
+                          form.setFieldsValue({
+                            singleCost: first.cost,
+                            singleStock: first.stock,
+                            singleWeightGram: first.weightGram,
+                            singleMaxPerOrder: first.maxPerOrder,
+                          });
+                        }
+                      }
+                    }}
+                  />
+                </>
+              )}
             </Space>
           }
         >
@@ -1609,7 +2073,63 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             售价由平台按成本 × 加价率（{markupRate}）自动计算，卖家只需填写成本价。
           </Text>
 
-          {!multiSpec ? (
+          {productType === 'BUNDLE' ? (
+            <>
+              <Row gutter={16}>
+                <Col xs={24} sm={12} md={6}>
+                  <Form.Item
+                    label="组合成本价"
+                    name="singleCost"
+                    rules={[
+                      { required: true, message: '请输入组合成本价' },
+                      { type: 'number', min: 0.01, message: '成本必须大于 0' },
+                    ]}
+                  >
+                    <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} md={8}>
+                  <Form.Item shouldUpdate noStyle>
+                    {({ getFieldValue }) => {
+                      const cost = getFieldValue('singleCost');
+                      return (
+                        <Form.Item label="售价（自动计算）">
+                          <SellingPriceDisplay cost={cost} markupRate={markupRate} />
+                        </Form.Item>
+                      );
+                    }}
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} md={5}>
+                  <Form.Item label="可组合库存">
+                    <InputNumber
+                      value={getBundleAvailableStock(bundleItems) ?? undefined}
+                      disabled
+                      style={{ width: '100%' }}
+                      placeholder="-"
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} md={5}>
+                  <Form.Item label="单笔限购" name="singleMaxPerOrder" rules={[{ type: 'number', min: 1, message: '最少为1' }]}>
+                    <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item label="组合内容" required>
+                <BundleItemsEditor
+                  products={bundleCatalog}
+                  currentProductId={draftId ?? undefined}
+                  items={bundleItems}
+                  onChange={(nextItems) => {
+                    setBundleItems(nextItems);
+                    form.setFieldValue('bundleItems', nextItems);
+                    if (!hydratingRef.current) setDirtySinceSave(true);
+                  }}
+                />
+              </Form.Item>
+            </>
+          ) : !multiSpec ? (
             /* 单规格模式 */
             <Row gutter={16}>
               <Col span={6}>

@@ -73,6 +73,20 @@ export interface SelectCompanyResponse {
 // 商品
 // ============================================================
 
+export type ProductType = 'SIMPLE' | 'BUNDLE';
+
+export interface ProductBundleItem {
+  skuId: string;
+  quantity: number;
+  sortOrder?: number;
+  productTitle?: string;
+  skuTitle?: string;
+  imageUrl?: string | null;
+  price?: number;
+  stock?: number;
+  weightGram?: number;
+}
+
 export interface Product {
   id: string;
   companyId: string;
@@ -81,6 +95,11 @@ export interface Product {
   description?: string;
   basePrice: number;
   unit?: string;
+  type: ProductType;
+  bundleItems?: ProductBundleItem[];
+  bundleReferenceTotal?: number | null;
+  bundleAvailableStock?: number | null;
+  bundleTotalWeightGram?: number | null;
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
