@@ -44,6 +44,7 @@ import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { PERMISSIONS } from '@/constants/permissions';
 import { usePermission } from '@/hooks/usePermission';
+import { getDigitalAssetLedgerStatusMeta } from './ledgerDisplay';
 import type {
   DigitalAssetAccountRow,
   DigitalAssetAdjustPayload,
@@ -754,6 +755,25 @@ export default function DigitalAssetsPage() {
                   render: (value: string) => {
                     const meta = sourceMap[value] || { text: value, color: 'default' };
                     return <Tag color={meta.color}>{meta.text}</Tag>;
+                  },
+                },
+                {
+                  title: '状态',
+                  dataIndex: 'status',
+                  width: 120,
+                  render: (_: unknown, record) => {
+                    const meta = getDigitalAssetLedgerStatusMeta(record);
+                    if (!meta) return <Typography.Text type="secondary">-</Typography.Text>;
+                    return (
+                      <Space direction="vertical" size={0}>
+                        <Tag color={meta.color}>{meta.text}</Tag>
+                        {meta.description ? (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {meta.description}
+                          </Typography.Text>
+                        ) : null}
+                      </Space>
+                    );
                   },
                 },
                 {
