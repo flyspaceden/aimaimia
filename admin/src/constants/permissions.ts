@@ -76,6 +76,10 @@ export const PERMISSIONS = {
   REWARD_PRODUCTS_UPDATE: 'reward_products:update',
   REWARD_PRODUCTS_DELETE: 'reward_products:delete',
 
+  // 团购分享回馈
+  GROUP_BUY_READ: 'group_buy:read',
+  GROUP_BUY_MANAGE: 'group_buy:manage',
+
   // 运费规则
   SHIPPING_READ: 'shipping:read',
   SHIPPING_CREATE: 'shipping:create',

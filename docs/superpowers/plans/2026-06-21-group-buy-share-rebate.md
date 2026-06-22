@@ -921,18 +921,20 @@ git commit -m "feat: add group buy app entry"
 - Modify: `admin/src/types/index.ts`
 - Modify: `admin/src/constants/permissions.ts`
 
-- [ ] **Step 1: Implement types and API wrappers**
+- [x] **Step 1: Implement types and API wrappers**
 
 Cover activities, instances, orders, ledgers, settings.
 
-- [ ] **Step 2: Typecheck**
+Implementation note: the current backend only exposes `admin/group-buy/activities` CRUD/status endpoints. This step implemented activity types/API wrappers and `group_buy:read/manage` frontend permission constants. Instance/order/ledger/settings admin APIs remain pending until matching backend endpoints exist.
+
+- [x] **Step 2: Typecheck**
 
 ```bash
 cd admin
 npm run build
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add admin/src/api/group-buy.ts admin/src/types/index.ts admin/src/constants/permissions.ts
