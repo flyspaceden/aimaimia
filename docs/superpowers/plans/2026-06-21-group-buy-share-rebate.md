@@ -853,7 +853,7 @@ git commit -m "feat: add group buy app shelf UI"
 - Modify: `src/store/useCheckoutStore.ts` only if needed for payment handoff
 - Modify: `app/payment-success.tsx` if success routing needs group-buy copy
 
-- [ ] **Step 1: Implement `/gb/{code}` landing**
+- [x] **Step 1: Implement `/gb/{code}` landing**
 
 Rules:
 
@@ -861,7 +861,7 @@ Rules:
 - Self-code shows clear error.
 - Valid code goes directly to group-buy checkout confirmation.
 
-- [ ] **Step 2: Implement group-buy checkout page**
+- [x] **Step 2: Implement group-buy checkout page**
 
 Rules:
 
@@ -870,13 +870,13 @@ Rules:
 - Show recommender identity if from code, masked and compliant.
 - Confirm payment through group-buy checkout API.
 
-- [ ] **Step 3: Verify typecheck**
+- [x] **Step 3: Verify typecheck**
 
 ```bash
 npx tsc -b
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/gb app/group-buy src/store app/payment-success.tsx
