@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 
 import { encryptJsonValue } from '../../common/security/encryption';
+import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 import { parseChineseAddress } from '../../common/utils/parse-region';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
@@ -34,6 +35,7 @@ export class GroupBuyCheckoutService {
 
   private alipayService: any = null;
   private wechatPayService: any = null;
+  private shippingRuleService: any = null;
 
   private readonly serializableTransactionOptions = {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -45,6 +47,10 @@ export class GroupBuyCheckoutService {
 
   setWechatPayService(service: any) {
     this.wechatPayService = service;
+  }
+
+  setShippingRuleService(service: any) {
+    this.shippingRuleService = service;
   }
 
   async createCheckout(userId: string, dto: GroupBuyCheckoutDto) {
@@ -147,7 +153,7 @@ export class GroupBuyCheckoutService {
         throw new BadRequestException('收货地址无效');
       }
 
-      const shippingFee = activity.freeShipping ? 0 : 0;
+      const shippingFee = await this.calculateShippingFee(activity, address, tx);
       const expectedTotal = Number((activity.price + shippingFee).toFixed(2));
       if (dto.expectedTotal !== undefined && Math.abs(dto.expectedTotal - expectedTotal) > 0.01) {
         throw new BadRequestException(
@@ -261,6 +267,26 @@ export class GroupBuyCheckoutService {
     if (activity.sku.stock <= 0) {
       throw new BadRequestException('团购活动商品库存不足');
     }
+  }
+
+  private async calculateShippingFee(activity: any, address: any, tx: Prisma.TransactionClient) {
+    if (activity.freeShipping) return 0;
+    if (!this.shippingRuleService?.calculateShippingDetail) {
+      throw new BadRequestException('团购运费服务暂不可用，请稍后重试');
+    }
+
+    const totalWeight = Math.max(0, Number(activity.sku.weightGram ?? DEFAULT_SKU_WEIGHT_GRAM));
+    const detail = await this.shippingRuleService.calculateShippingDetail(
+      Number(activity.price ?? 0),
+      address.regionCode,
+      totalWeight,
+      tx,
+    );
+    const fee = Number(detail?.fee);
+    if (!Number.isFinite(fee) || fee < 0) {
+      throw new BadRequestException('团购运费计算失败，请稍后重试');
+    }
+    return Number(fee.toFixed(2));
   }
 
   private async resolveShareCode(

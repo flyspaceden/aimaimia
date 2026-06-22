@@ -34,6 +34,12 @@ describe('GroupBuyLifecycleService', () => {
     };
     const prisma = {
       $transaction: jest.fn((fn) => fn(tx)),
+      groupBuyInstance: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      groupBuyReferral: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     const rebateService = {
       releaseReferralByOrderIfValid: jest.fn().mockResolvedValue({ status: 'NOT_FOUND' }),
@@ -177,5 +183,34 @@ describe('GroupBuyLifecycleService', () => {
         disabledAt: expect.any(Date),
       }),
     }));
+  });
+
+  it('rescans matured group-buy orders after the return window expires', async () => {
+    const { prisma, service, rebateService } = buildPrisma();
+    prisma.groupBuyInstance.findMany.mockResolvedValueOnce([
+      { initiatorOrderId: 'own_order_1' },
+      { initiatorOrderId: 'own_order_2' },
+    ]);
+    prisma.groupBuyReferral.findMany.mockResolvedValueOnce([
+      { referredOrderId: 'referred_order_1' },
+    ]);
+    const evaluateInitiatorSpy = jest
+      .spyOn(service, 'evaluateInitiatorOrder')
+      .mockResolvedValue({ status: 'ACTIVATED', code: 'GB12345678' } as any);
+
+    const result = await (service as any).processMaturedOrders(expiredAt, 20);
+
+    expect(prisma.groupBuyInstance.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'QUALIFICATION_PENDING' }),
+      take: 20,
+    }));
+    expect(prisma.groupBuyReferral.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'CANDIDATE' }),
+      take: 20,
+    }));
+    expect(evaluateInitiatorSpy).toHaveBeenCalledWith('own_order_1', expiredAt);
+    expect(evaluateInitiatorSpy).toHaveBeenCalledWith('own_order_2', expiredAt);
+    expect(rebateService.releaseReferralByOrderIfValid).toHaveBeenCalledWith('referred_order_1', expiredAt);
+    expect(result).toEqual({ initiatorScanned: 2, referralScanned: 1 });
   });
 });

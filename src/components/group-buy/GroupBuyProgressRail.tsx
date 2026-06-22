@@ -3,18 +3,16 @@ import { StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { compactActionTextProps, fitTextProps, useTheme } from '../../theme';
 import type { GroupBuyCurrentInstance } from '../../types';
+import { calculateGroupBuyProgressTargetCount } from '../../utils/groupBuyProgress';
 import { GROUP_BUY_COLORS } from './constants';
 
 type GroupBuyProgressRailProps = {
   current: GroupBuyCurrentInstance;
 };
 
-const getTargetCount = (current: GroupBuyCurrentInstance) =>
-  Math.max(current.activity.tiers.length, 3);
-
 export const GroupBuyProgressRail = ({ current }: GroupBuyProgressRailProps) => {
   const { colors, spacing, typography } = useTheme();
-  const targetCount = getTargetCount(current);
+  const targetCount = calculateGroupBuyProgressTargetCount(current.activity.tiers);
   const steps = useMemo(
     () => Array.from({ length: targetCount }, (_, index) => {
       const sequence = index + 1;

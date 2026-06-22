@@ -91,6 +91,11 @@
   - **实际做了**: 后端团购 checkout 从 `RuleConfig.GROUP_BUY_MAX_MONTHLY_LAUNCHES` 读取月度发起次数上限，缺省为 4；管理端新增 `GET/PUT /admin/group-buy/settings`；管理后台新增“团购设置”页，可配置每个用户每月最多发起次数。
   - **验证**: `backend npx jest src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`、`backend npm run build`、`admin npm run build` 通过。
 
+- [x] **团购补偿扫描、运费和进度口径修正**（2026-06-22 新增并完成）
+  - **来源**: 团购代码复审发现售后期满后二次评估缺失、非包邮团购静默 0 运费、候选/有效计数混淆、App 进度固定 3 档、档位合计仍限制 100%。
+  - **实际做了**: 新增团购售后期满补偿扫描；扫码落地页按 `GroupBuyReferral` 明细判断名额；候选订单转有效后回算待确认数量；非包邮团购结算接入平台运费规则并锁定运费快照；App 进度按后台档位数动态显示；后台档位合计允许超过 100%。
+  - **验证**: `backend npx jest src/modules/group-buy/group-buy.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/group-buy/group-buy-rebate.service.spec.ts src/modules/group-buy/group-buy-lifecycle.service.spec.ts src/modules/group-buy/group-buy-concurrency.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`、`npx jest src/utils/__tests__/groupBuyProgress.test.ts --runInBand` 通过。
+
 - [x] **数字资产付款冻结与确认释放**（2026-06-21 新增并完成）
   - **来源**: 用户要求普通商品付款后立即在数字资产页看到消费资产记录，但处于冻结状态，并显示“确认收货后释放”；确认收货后再释放为正式消费资产。
   - **实际做了**: 后端新增 `frozenCreditAssetBalance` / `frozenCumulativeSpendAmount` 与冻结、释放、作废三类流水；普通商品支付成功建单后触发冻结消费资产，确认收货优先释放冻结资产，确认前退款/取消作废冻结资产，确认后退款继续扣回已释放资产；数字资产总额仍只统计种子资产 + 已释放消费资产；买家 App 数字资产页和资产流水页展示冻结资产、释放提示和冻结分类；管理后台总览、账户列表、详情、导出和流水来源同步冻结资产口径。

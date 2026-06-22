@@ -119,6 +119,7 @@ export default function GroupBuyCheckoutScreen() {
         activityId: target.id,
         addressId: selectedAddress.id,
         paymentChannel: paymentMethod,
+        expectedTotal: target.freeShipping ? target.price : undefined,
         shareCode,
         idempotencyKey: idempotencyKeyRef.current,
       });
