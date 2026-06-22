@@ -224,6 +224,37 @@ describe('CartService stock availability', () => {
     });
   });
 
+  it('rejects selecting bundle when cart quantity exceeds positive component-derived availability', async () => {
+    const bundleSku = createBundleSku({
+      sellingStock: 20,
+      componentStocks: [1, 10],
+    });
+    const bundleCartItem = {
+      id: 'ci-bundle',
+      cartId: 'cart1',
+      skuId: 'bundle-sku',
+      quantity: 2,
+      isPrize: false,
+      isSelected: true,
+      sku: bundleSku,
+    };
+    const { service, prisma, productBundleService } = createService(0, {
+      sku: bundleSku,
+      cartItem: bundleCartItem,
+    });
+
+    await expect(service.toggleSelect('user1', 'bundle-sku', true)).rejects.toThrow('暂无库存');
+
+    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+      { stock: 1, quantity: 1 },
+      { stock: 10, quantity: 1 },
+    ]);
+    expect(prisma.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci-bundle' },
+      data: { isSelected: false },
+    });
+  });
+
   it('allows reducing an existing quantity even when current stock is lower', async () => {
     const { service, prisma } = createService(1);
     await service.updateItemQuantity('user1', 'sku-zero', 1);
@@ -390,6 +421,47 @@ describe('CartService stock availability', () => {
         },
       },
     ]);
+  });
+
+  it('marks bundle cart item OUT_OF_STOCK when cart quantity exceeds positive component-derived availability', async () => {
+    const bundleSku = createBundleSku({
+      sellingStock: 99,
+      componentStocks: [1, 8],
+    });
+    const bundleItem = {
+      id: 'ci-bundle',
+      cartId: 'cart1',
+      skuId: 'bundle-sku',
+      quantity: 2,
+      isPrize: false,
+      isSelected: true,
+      sku: bundleSku,
+    };
+    const { service, prisma, productBundleService } = createService(0, {
+      mockGetCart: false,
+      sku: bundleSku,
+      cartItem: bundleItem,
+    });
+    prisma.cartItem.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([bundleItem])
+      .mockResolvedValueOnce([{ ...bundleItem, isSelected: false }]);
+
+    const cart = await service.getCart('user1');
+
+    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+      { stock: 1, quantity: 1 },
+      { stock: 8, quantity: 1 },
+    ]);
+    expect(prisma.cartItem.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['ci-bundle'] } },
+      data: { isSelected: false },
+    });
+    expect(cart.items[0].stockStatus).toBe('OUT_OF_STOCK');
+    expect(cart.items[0].unavailableReason).toBe('OUT_OF_STOCK');
+    expect(cart.items[0].selectable).toBe(false);
+    expect(cart.items[0].isSelected).toBe(false);
+    expect(cart.items[0].product.stock).toBe(1);
   });
 
   it('retries update quantity when Serializable transaction hits P2034', async () => {

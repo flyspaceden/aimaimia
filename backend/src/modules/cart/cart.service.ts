@@ -612,10 +612,14 @@ export class CartService {
     return null;
   }
 
-  private getNormalStockUnavailableReason(item: any): 'OUT_OF_STOCK' | null {
-    if (item.isPrize) return null;
-    const stock = this.getAvailableStockForSku(item.sku);
-    return stock <= 0 ? 'OUT_OF_STOCK' : null;
+  private isNormalItemOutOfStock(item: any, availableStock?: number) {
+    if (item.isPrize) return false;
+    const stock = availableStock ?? this.getAvailableStockForSku(item.sku);
+    return stock <= 0 || item.quantity > stock;
+  }
+
+  private getNormalStockUnavailableReason(item: any, availableStock?: number): 'OUT_OF_STOCK' | null {
+    return this.isNormalItemOutOfStock(item, availableStock) ? 'OUT_OF_STOCK' : null;
   }
 
   private async forceOutOfStockNormalItemsUnselected(cartId: string) {
@@ -658,7 +662,7 @@ export class CartService {
             });
             if (!freshItem) throw new NotFoundException('购物车中没有该商品');
             const availableStock = this.getAvailableStockForSku(freshItem.sku);
-            if (isSelected && availableStock <= 0) {
+            if (isSelected && (availableStock <= 0 || freshItem.quantity > availableStock)) {
               await tx.cartItem.update({
                 where: { id: freshItem.id },
                 data: { isSelected: false },
@@ -1215,8 +1219,8 @@ export class CartService {
         }
       }
     }
-    unavailableReason = unavailableReason ?? this.getNormalStockUnavailableReason(item);
-    const isNormalOutOfStock = !item.isPrize && availableStock <= 0;
+    unavailableReason = unavailableReason ?? this.getNormalStockUnavailableReason(item, availableStock);
+    const isNormalOutOfStock = this.isNormalItemOutOfStock(item, availableStock);
 
     return {
       id: item.id,
