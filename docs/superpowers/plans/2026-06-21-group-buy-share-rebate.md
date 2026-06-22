@@ -467,7 +467,7 @@ git commit -m "feat: add cash-only group buy checkout"
 - Test: `backend/src/modules/payment/__tests__/payment.service.confirm-checkout.spec.ts`
 - Test: `backend/src/modules/group-buy/group-buy-checkout.service.spec.ts`
 
-- [ ] **Step 1: Add failing tests**
+- [x] **Step 1: Add failing tests**
 
 Cover:
 
@@ -477,25 +477,25 @@ Cover:
 - If checkout used share code, creates `GroupBuyReferral` candidate for the original instance.
 - Candidate count cannot exceed tier count.
 
-- [ ] **Step 2: Implement callback path**
+- [x] **Step 2: Implement callback path**
 
-Preferred implementation: keep `CheckoutService.handlePaymentSuccess()` as router and delegate group-buy-specific creation to `GroupBuyCheckoutService.handlePaymentSuccess(tx, session)`.
+Implemented as a private `CheckoutService.createGroupBuyRecordsAfterPayment()` helper inside the existing payment-success transaction to avoid adding a new module cycle; extraction to `GroupBuyCheckoutService` can be done later if the module graph is reorganized.
 
-- [ ] **Step 3: Ensure idempotency**
+- [x] **Step 3: Ensure idempotency**
 
-Use keys:
+Use the existing CheckoutSession CAS plus schema uniqueness:
 
-- `GROUP_BUY_ORDER:{session.id}`
-- `GROUP_BUY_REFERRAL:{instanceId}:{orderId}`
+- `GroupBuyInstance.initiatorOrderId` prevents duplicate own instances for the same paid order.
+- `GroupBuyReferral.referredOrderId` prevents duplicate referral candidates for the same paid order.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 cd backend
 npx jest src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/payment/__tests__/payment.service.confirm-checkout.spec.ts --runInBand
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/group-buy backend/src/modules/order/checkout.service.ts backend/src/modules/payment
