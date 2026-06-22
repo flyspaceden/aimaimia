@@ -105,6 +105,11 @@ enum VerifyStatus {
 }
 
 // --- E 域：商品 ---
+enum ProductType {
+  SIMPLE
+  BUNDLE
+}
+
 enum ProductStatus {
   DRAFT
   ACTIVE
@@ -182,11 +187,13 @@ enum CheckoutSessionStatus {
 enum CheckoutBizType {
   NORMAL_GOODS  // 普通商品结算
   VIP_PACKAGE   // VIP 礼包结算
+  GROUP_BUY     // 团购分享回馈结算
 }
 
 enum OrderBizType {
   NORMAL_GOODS  // 普通商品订单
   VIP_PACKAGE   // VIP 礼包订单
+  GROUP_BUY     // 团购分享回馈订单
 }
 
 enum OrderStatus {
@@ -197,6 +204,57 @@ enum OrderStatus {
   RECEIVED
   CANCELED
   REFUNDED
+}
+
+enum GroupBuyActivityStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum GroupBuyInstanceStatus {
+  QUALIFICATION_PENDING
+  SHARING
+  COMPLETED
+  TERMINATED
+  QUALIFICATION_ABANDONED
+  QUALIFICATION_INVALID
+  EXPIRED
+}
+
+enum GroupBuyCodeStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+  COMPLETED
+  EXPIRED
+}
+
+enum GroupBuyReferralStatus {
+  CANDIDATE
+  VALID
+  INVALID
+  VOIDED
+}
+
+enum GroupBuyRebateLedgerType {
+  PENDING_REBATE
+  RELEASE
+  VOID
+  WITHDRAW
+  DEDUCT
+  REFUND_RETURN
+  ADMIN_ADJUST
+}
+
+enum GroupBuyRebateLedgerStatus {
+  PENDING
+  AVAILABLE
+  RESERVED
+  COMPLETED
+  VOIDED
+  FAILED
 }
 
 enum PaymentChannel {
@@ -641,6 +699,12 @@ model User {
   // 数字资产累计消费（独立于 Reward/Coupon/分润）
   digitalAssetAccount DigitalAssetAccount?
   digitalAssetLedgers DigitalAssetLedger[]
+
+  // 团购分享回馈（独立于 Reward/Coupon/VIP 推荐）
+  groupBuyInstances     GroupBuyInstance[]     @relation("GroupBuyInitiator")
+  groupBuyReferrals     GroupBuyReferral[]     @relation("GroupBuyReferredUser")
+  groupBuyRebateAccount GroupBuyRebateAccount?
+  groupBuyRebateLedgers GroupBuyRebateLedger[]
 
   // J 域关系（普通用户系统改造）
   normalProgress       NormalProgress?
@@ -1167,6 +1231,7 @@ model Product {
   subtitle           String?
   description        String?
   detailRich         Json? // 富文本详情
+  type               ProductType        @default(SIMPLE)
   status             ProductStatus      @default(DRAFT)
   auditStatus        ProductAuditStatus @default(PENDING)
   auditNote          String?
@@ -1191,11 +1256,13 @@ model Product {
   updatedAt          DateTime           @updatedAt
 
   // 关系
-  skus              ProductSKU[]
-  media             ProductMedia[]
-  tags              ProductTag[]
-  productTraceLinks ProductTraceLink[]
-  lotteryPrizes     LotteryPrize[]
+  skus               ProductSKU[]
+  bundleItems        ProductBundleItem[] @relation("ProductBundleItems")
+  media              ProductMedia[]
+  tags               ProductTag[]
+  productTraceLinks  ProductTraceLink[]
+  lotteryPrizes      LotteryPrize[]
+  groupBuyActivities GroupBuyActivity[]
 
   @@index([companyId, status, createdAt]) // 卖家商品列表查询
   @@index([status, createdAt]) // 买家商品列表按状态+时间过滤
@@ -1231,9 +1298,27 @@ model ProductSKU {
   // 关系
   cartItems        CartItem[]
   orderItems       OrderItem[]
+  bundleItems      ProductBundleItem[]
   inventoryLedgers InventoryLedger[]
   lotteryPrizes    LotteryPrize[]
   vipGiftItems     VipGiftItem[]
+  groupBuyActivities GroupBuyActivity[]
+}
+
+model ProductBundleItem {
+  id              String     @id @default(cuid())
+  bundleProductId String
+  bundleProduct   Product    @relation("ProductBundleItems", fields: [bundleProductId], references: [id], onDelete: Cascade)
+  skuId           String
+  sku             ProductSKU @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  quantity        Int
+  sortOrder       Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([bundleProductId, skuId])
+  @@index([bundleProductId])
+  @@index([skuId])
 }
 
 model ProductMedia {
@@ -1270,7 +1355,7 @@ model InventoryLedger {
 
   @@index([skuId]) // M5: 外键索引，加速库存流水查询
   // 退货退款回填幂等依赖手写部分唯一索引，Prisma schema 暂不能表达：
-  // InventoryLedger_after_sale_release_once_idx(refType, refId)
+  // InventoryLedger_after_sale_release_once_idx(refType, refId, skuId)
   // WHERE type='RELEASE' AND refType='AFTER_SALE' AND refId IS NOT NULL
 }
 
@@ -1486,6 +1571,11 @@ model Order {
   totalCouponDiscount Float?               // 平台红包总抵扣金额
   digitalAssetLedgers DigitalAssetLedger[]
 
+  // 团购分享回馈订单关联
+  groupBuyInitiatedInstance GroupBuyInstance?      @relation("GroupBuyInitiatorOrder")
+  groupBuyReferredPurchase  GroupBuyReferral?      @relation("GroupBuyReferredOrder")
+  groupBuyRebateLedgers     GroupBuyRebateLedger[]
+
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
   @@index([createdAt]) // 管理端销售趋势按日期范围查询
@@ -1526,6 +1616,184 @@ model OrderStatusHistory {
   meta       Json?
   createdAt  DateTime @default(now())
 
+  @@index([orderId])
+}
+
+model GroupBuyActivity {
+  id           String                 @id @default(cuid())
+  title        String
+  productId    String
+  product      Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  skuId        String
+  sku          ProductSKU             @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  price        Float
+  freeShipping Boolean                @default(false)
+  status       GroupBuyActivityStatus @default(DRAFT)
+  startAt      DateTime?
+  endAt        DateTime?
+  displayOrder Int                    @default(0)
+  ruleSummary  String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  deletedAt    DateTime?
+
+  tiers     GroupBuyTier[]
+  instances GroupBuyInstance[]
+
+  @@index([status, startAt, endAt])
+  @@index([productId, skuId])
+}
+
+model GroupBuyTier {
+  id          String           @id @default(cuid())
+  activityId  String
+  activity    GroupBuyActivity @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  sequence    Int
+  basisPoints Int
+  label       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([activityId, sequence])
+  @@index([activityId])
+}
+
+model GroupBuyInstance {
+  id               String                 @id @default(cuid())
+  userId           String
+  user             User                   @relation("GroupBuyInitiator", fields: [userId], references: [id], onDelete: Restrict)
+  activityId       String
+  activity         GroupBuyActivity       @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  initiatorOrderId String                 @unique
+  initiatorOrder   Order                  @relation("GroupBuyInitiatorOrder", fields: [initiatorOrderId], references: [id], onDelete: Restrict)
+  status           GroupBuyInstanceStatus @default(QUALIFICATION_PENDING)
+
+  priceSnapshot        Float
+  shippingFeeSnapshot  Float   @default(0)
+  freeShippingSnapshot Boolean @default(false)
+  tierSnapshot         Json
+  activitySnapshot     Json?
+
+  validReferralCount Int @default(0)
+  candidateCount     Int @default(0)
+
+  sourceReferral GroupBuyReferral?  @relation("GroupBuyReferralCreatedInstance")
+  code           GroupBuyCode?
+  referrals      GroupBuyReferral[] @relation("GroupBuyInstanceReferrals")
+  rebateLedgers  GroupBuyRebateLedger[]
+
+  activatedAt   DateTime?
+  completedAt   DateTime?
+  terminatedAt  DateTime?
+  abandonedAt   DateTime?
+  expiredAt     DateTime?
+  invalidatedAt DateTime?
+  invalidReason String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@index([activityId, status])
+  @@index([status, createdAt])
+}
+
+model GroupBuyCode {
+  id          String             @id @default(cuid())
+  instanceId  String             @unique
+  instance    GroupBuyInstance   @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  code        String             @unique
+  status      GroupBuyCodeStatus @default(PENDING)
+  activatedAt DateTime?
+  disabledAt  DateTime?
+  completedAt DateTime?
+  expiredAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  referrals GroupBuyReferral[]
+
+  @@index([status, createdAt])
+}
+
+model GroupBuyReferral {
+  id         String                 @id @default(cuid())
+  instanceId String
+  instance   GroupBuyInstance       @relation("GroupBuyInstanceReferrals", fields: [instanceId], references: [id], onDelete: Restrict)
+  codeId     String?
+  code       GroupBuyCode?          @relation(fields: [codeId], references: [id], onDelete: Restrict)
+  status     GroupBuyReferralStatus @default(CANDIDATE)
+
+  referredUserId  String
+  referredUser    User   @relation("GroupBuyReferredUser", fields: [referredUserId], references: [id], onDelete: Restrict)
+  referredOrderId String @unique
+  referredOrder   Order  @relation("GroupBuyReferredOrder", fields: [referredOrderId], references: [id], onDelete: Restrict)
+
+  referredInstanceId String?           @unique
+  referredInstance   GroupBuyInstance? @relation("GroupBuyReferralCreatedInstance", fields: [referredInstanceId], references: [id], onDelete: SetNull)
+
+  candidateSequence Int?
+  effectiveSequence Int?
+  amountSnapshot    Float?
+  invalidReason     String?
+  validAt           DateTime?
+  invalidatedAt     DateTime?
+  voidedAt          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  ledgers GroupBuyRebateLedger[]
+
+  @@index([instanceId, status])
+  @@index([codeId, status])
+  @@index([referredUserId, createdAt])
+}
+
+model GroupBuyRebateAccount {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  balance   Float    @default(0)
+  reserved  Float    @default(0)
+  withdrawn Float    @default(0)
+  deducted  Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledgers GroupBuyRebateLedger[]
+
+  @@index([balance])
+  @@index([updatedAt])
+}
+
+model GroupBuyRebateLedger {
+  id             String                     @id @default(cuid())
+  accountId      String
+  account        GroupBuyRebateAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  userId         String
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  instanceId     String?
+  instance       GroupBuyInstance?          @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+  referralId     String?
+  referral       GroupBuyReferral?          @relation(fields: [referralId], references: [id], onDelete: Restrict)
+  orderId        String?
+  order          Order?                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  type           GroupBuyRebateLedgerType
+  status         GroupBuyRebateLedgerStatus
+  amount         Float
+  balanceBefore  Float
+  balanceAfter   Float
+  idempotencyKey String                     @unique
+  refType        String?
+  refId          String?
+  meta           Json?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  deletedAt      DateTime?
+
+  @@index([userId, status, createdAt])
+  @@index([accountId, createdAt])
+  @@index([instanceId])
+  @@index([referralId])
   @@index([orderId])
 }
 
