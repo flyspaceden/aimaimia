@@ -24,10 +24,16 @@ import PermissionGate from '@/components/PermissionGate';
 import {
   extractConfigValue,
   type Product,
-  type ProductBundleItem,
   type ProductSKU,
-  type ProductType,
 } from '@/types';
+import {
+  type BundleReviewRow,
+  formatMoney,
+  formatWeightGram,
+  getBundleSummaryText,
+  productTypeOf,
+  toBundleReviewRows,
+} from './bundleReview';
 import {
   productStatusMap as statusMap,
   auditStatusMap,
@@ -38,68 +44,6 @@ import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
-
-type BundleReviewRow = {
-  key: string;
-  skuId: string;
-  quantity: number;
-  productTitle: string;
-  skuTitle: string;
-  price: number | null;
-  stock: number | null;
-  subtotal: number | null;
-  weightGram: number | null;
-  totalWeightGram: number | null;
-};
-
-function productTypeOf(product?: Pick<Product, 'type'> | null): ProductType {
-  return product?.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
-}
-
-function toBundleReviewRows(items?: ProductBundleItem[] | null): BundleReviewRow[] {
-  return (items ?? []).map((item, index) => {
-    const sku = item.sku;
-    const product = sku?.product;
-    const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
-    const price = item.price ?? sku?.price ?? null;
-    const weightGram = item.weightGram ?? sku?.weightGram ?? null;
-    const subtotal = typeof price === 'number' ? +(price * quantity).toFixed(2) : null;
-    const totalWeightGram = typeof weightGram === 'number' ? weightGram * quantity : null;
-
-    return {
-      key: item.skuId || sku?.id || `${index}`,
-      skuId: item.skuId || sku?.id || '-',
-      quantity,
-      productTitle: item.productTitle ?? product?.title ?? '-',
-      skuTitle: item.skuTitle ?? sku?.title ?? '-',
-      price,
-      stock: item.stock ?? sku?.stock ?? null,
-      subtotal,
-      weightGram,
-      totalWeightGram,
-    };
-  });
-}
-
-function formatMoney(value?: number | null) {
-  return typeof value === 'number' ? `¥${value.toFixed(2)}` : '-';
-}
-
-function formatWeightGram(value?: number | null) {
-  return typeof value === 'number' ? `${value}g` : '-';
-}
-
-function getBundleSummaryText(product: Product) {
-  const rows = toBundleReviewRows(product.bundleItems);
-  if (rows.length === 0) return '组合内容待补充';
-
-  const preview = rows
-    .slice(0, 2)
-    .map((row) => `${row.productTitle} / ${row.skuTitle} ×${row.quantity}`)
-    .join('；');
-
-  return rows.length > 2 ? `${preview} 等 ${rows.length} 项` : preview;
-}
 
 function getStockSummary(product: Product, threshold: number) {
   const skus = product.skus ?? [];
@@ -808,6 +752,19 @@ export default function ProductListPage() {
                       dataIndex: 'subtotal',
                       width: 110,
                       render: (value: number | null) => formatMoney(value),
+                    },
+                    {
+                      title: '重量',
+                      key: 'weight',
+                      width: 140,
+                      render: (_value, row) => (
+                        <Space direction="vertical" size={0}>
+                          <Text>{formatWeightGram(row.totalWeightGram)}</Text>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            单件 {formatWeightGram(row.weightGram)}
+                          </Text>
+                        </Space>
+                      ),
                     },
                   ]}
                   locale={{ emptyText: '暂无组合内容' }}
