@@ -105,6 +105,7 @@ export class OrderModule implements OnModuleInit {
     if (digitalAssetService) {
       this.orderService.setDigitalAssetService(digitalAssetService);
       this.orderAutoConfirmService.setDigitalAssetService(digitalAssetService);
+      this.checkoutService.setDigitalAssetService(digitalAssetService);
     } else {
       console.warn('[OrderModule] DigitalAssetService 未注入，数字资产累计消费不可用');
     }

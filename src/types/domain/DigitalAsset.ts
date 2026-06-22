@@ -6,6 +6,9 @@ export type DigitalAssetSubjectType =
 export type DigitalAssetSourceType =
   | 'CONSUMPTION_CONFIRMED'
   | 'ORDER_RECEIVED'
+  | 'CONSUMPTION_PAID_FROZEN'
+  | 'CONSUMPTION_FROZEN_RELEASED'
+  | 'CONSUMPTION_FROZEN_VOIDED'
   | 'REFUND_REVERSAL'
   | 'SELF_VIP_PURCHASE'
   | 'REFERRAL_VIP_PURCHASE'
@@ -51,6 +54,7 @@ export interface DigitalAssetSummary {
   totalAssetBalance: number;
   seedAssetBalance: number;
   creditAssetBalance: number;
+  frozenCreditAssetBalance: number;
   cumulativeSpendAmount: number;
   activationPrompt?: DigitalAssetActivationPrompt;
   currentCreditTier?: DigitalAssetCreditTierInfo;
@@ -69,6 +73,10 @@ export interface DigitalAssetLedger {
   amount: number;
   assetAmount?: number | null;
   balanceAfter: number;
+  frozenCreditAssetBalanceAfter?: number | null;
+  frozenCumulativeSpendAfter?: number | null;
+  status?: 'FROZEN' | 'RELEASED' | 'VOIDED';
+  releaseHint?: string;
   title: string;
   description?: string;
   orderId?: string;

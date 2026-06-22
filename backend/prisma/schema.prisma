@@ -238,6 +238,9 @@ enum DigitalAssetLedgerType {
   ADMIN_ADJUSTMENT
   BACKFILL
   CONSUMPTION_CONFIRMED
+  CONSUMPTION_PAID_FROZEN
+  CONSUMPTION_FROZEN_RELEASED
+  CONSUMPTION_FROZEN_VOIDED
   SELF_VIP_PURCHASE
   REFERRAL_VIP_PURCHASE
   HISTORICAL_CONSUMPTION_GRANT
@@ -2031,6 +2034,8 @@ model DigitalAssetAccount {
   cumulativeSpendAmount        Float     @default(0)
   seedAssetBalance             Int       @default(0)
   creditAssetBalance           Int       @default(0)
+  frozenCreditAssetBalance     Int       @default(0)
+  frozenCumulativeSpendAmount  Float     @default(0)
   historicalCreditGrantedAt    DateTime?
   historicalCreditGrantLedgerId String?
   createdAt                    DateTime  @default(now())
@@ -2041,6 +2046,7 @@ model DigitalAssetAccount {
   @@index([cumulativeSpendAmount])
   @@index([seedAssetBalance])
   @@index([creditAssetBalance])
+  @@index([frozenCreditAssetBalance])
   @@index([updatedAt])
 }
 
@@ -2059,6 +2065,8 @@ model DigitalAssetLedger {
   cumulativeSpendAfter   Float?
   seedAssetBalanceAfter  Int?
   creditAssetBalanceAfter Int?
+  frozenCreditAssetBalanceAfter Int?
+  frozenCumulativeSpendAfter Float?
   ruleSnapshot           Json?
   orderId                String?
   order                  Order?                       @relation(fields: [orderId], references: [id], onDelete: Restrict)

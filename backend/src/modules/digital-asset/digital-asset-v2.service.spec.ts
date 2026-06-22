@@ -126,6 +126,8 @@ const makeHarness = (initial?: Partial<DataSet>) => {
           cumulativeSpendAmount: 0,
           seedAssetBalance: 0,
           creditAssetBalance: 0,
+          frozenCreditAssetBalance: 0,
+          frozenCumulativeSpendAmount: 0,
           historicalCreditGrantedAt: null,
           historicalCreditGrantLedgerId: null,
           createdAt: new Date(),
@@ -322,6 +324,271 @@ describe('DigitalAssetService V2 semantics', () => {
       assetAmount: 460,
       creditAssetBalanceAfter: 460,
       balanceAfter: 460,
+    });
+  });
+
+  it('VIP user paid normal goods freezes credit assets without changing released balances', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{
+        id: 'account-1',
+        userId: 'vip-user',
+        cumulativeSpendAmount: 480,
+        frozenCumulativeSpendAmount: 0,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        historicalCreditGrantedAt: new Date('2026-06-01T00:00:00.000Z'),
+        historicalCreditGrantLedgerId: 'ledger-historical',
+      }],
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      orders: [{
+        id: 'order-paid',
+        userId: 'vip-user',
+        bizType: 'NORMAL_GOODS',
+        status: 'PAID',
+        receivedAt: null,
+        goodsAmount: 100,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 100, isPrize: false, createdAt: new Date('2026-06-02') },
+        ],
+      }],
+    });
+
+    await service.recordOrderPaid('order-paid');
+    const summary = await service.getSummary('vip-user');
+
+    expect(data.accounts[0]).toMatchObject({
+      cumulativeSpendAmount: 480,
+      frozenCumulativeSpendAmount: 100,
+      seedAssetBalance: 1000,
+      creditAssetBalance: 0,
+      frozenCreditAssetBalance: 460,
+    });
+    expect(summary).toMatchObject({
+      totalAssetBalance: 1000,
+      seedAssetBalance: 1000,
+      creditAssetBalance: 0,
+      frozenCreditAssetBalance: 460,
+      cumulativeSpendAmount: 480,
+    });
+    expect(data.ledgers).toHaveLength(1);
+    expect(data.ledgers[0]).toMatchObject({
+      type: 'CONSUMPTION_PAID_FROZEN',
+      subjectType: 'CREDIT_ASSET',
+      amount: 460,
+      assetAmount: 460,
+      balanceAfter: 460,
+      creditAssetBalanceAfter: 0,
+      frozenCreditAssetBalanceAfter: 460,
+      frozenCumulativeSpendAfter: 100,
+      idempotencyKey: 'order:order-paid:credit-asset-frozen',
+    });
+  });
+
+  it('received order releases existing frozen credit assets instead of minting twice', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{
+        id: 'account-1',
+        userId: 'vip-user',
+        cumulativeSpendAmount: 480,
+        frozenCumulativeSpendAmount: 0,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        historicalCreditGrantedAt: new Date('2026-06-01T00:00:00.000Z'),
+        historicalCreditGrantLedgerId: 'ledger-historical',
+      }],
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      orders: [{
+        id: 'order-release',
+        userId: 'vip-user',
+        bizType: 'NORMAL_GOODS',
+        status: 'PAID',
+        receivedAt: null,
+        goodsAmount: 100,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 100, isPrize: false, createdAt: new Date('2026-06-02') },
+        ],
+      }],
+    });
+
+    await service.recordOrderPaid('order-release');
+    data.orders[0].status = 'RECEIVED';
+    data.orders[0].receivedAt = new Date('2026-06-21T00:00:00.000Z');
+    await service.recordOrderReceived('order-release', 'ORDER_RECEIVED');
+    await service.recordOrderReceived('order-release', 'ORDER_RECEIVED');
+
+    expect(data.accounts[0]).toMatchObject({
+      cumulativeSpendAmount: 580,
+      frozenCumulativeSpendAmount: 0,
+      seedAssetBalance: 1000,
+      creditAssetBalance: 460,
+      frozenCreditAssetBalance: 0,
+    });
+    expect(data.ledgers).toHaveLength(3);
+    expect(data.ledgers[1]).toMatchObject({
+      type: 'CONSUMPTION_CONFIRMED',
+      subjectType: 'CUMULATIVE_SPEND',
+      amount: 100,
+      cumulativeSpendAfter: 580,
+      frozenCumulativeSpendAfter: 0,
+      idempotencyKey: 'order:order-release:spend-credit',
+    });
+    expect(data.ledgers[2]).toMatchObject({
+      type: 'CONSUMPTION_FROZEN_RELEASED',
+      subjectType: 'CREDIT_ASSET',
+      amount: 460,
+      assetAmount: 460,
+      balanceAfter: 460,
+      creditAssetBalanceAfter: 460,
+      frozenCreditAssetBalanceAfter: 0,
+      idempotencyKey: 'order:order-release:credit-asset-release',
+    });
+  });
+
+  it('refund before receipt voids frozen assets without touching released balances', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{
+        id: 'account-1',
+        userId: 'vip-user',
+        cumulativeSpendAmount: 480,
+        frozenCumulativeSpendAmount: 0,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        historicalCreditGrantedAt: new Date('2026-06-01T00:00:00.000Z'),
+        historicalCreditGrantLedgerId: 'ledger-historical',
+      }],
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      orders: [{
+        id: 'order-refund-before-receipt',
+        userId: 'vip-user',
+        bizType: 'NORMAL_GOODS',
+        status: 'PAID',
+        receivedAt: null,
+        goodsAmount: 100,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 100, isPrize: false, createdAt: new Date('2026-06-02') },
+        ],
+      }],
+      refunds: [{
+        id: 'refund-before-receipt',
+        orderId: 'order-refund-before-receipt',
+        afterSaleId: null,
+        amount: 100,
+        items: [{ orderItemId: 'item-1', quantity: 1, amount: 100 }],
+      }],
+    });
+
+    await service.recordOrderPaid('order-refund-before-receipt');
+    await service.reverseRefund('refund-before-receipt');
+
+    expect(data.accounts[0]).toMatchObject({
+      cumulativeSpendAmount: 480,
+      frozenCumulativeSpendAmount: 0,
+      creditAssetBalance: 0,
+      frozenCreditAssetBalance: 0,
+    });
+    expect(data.ledgers).toHaveLength(2);
+    expect(data.ledgers[1]).toMatchObject({
+      type: 'CONSUMPTION_FROZEN_VOIDED',
+      subjectType: 'CREDIT_ASSET',
+      direction: 'DEBIT',
+      amount: 460,
+      assetAmount: 460,
+      balanceAfter: 0,
+      creditAssetBalanceAfter: 0,
+      frozenCreditAssetBalanceAfter: 0,
+      frozenCumulativeSpendAfter: 0,
+      refundId: 'refund-before-receipt',
+      idempotencyKey: 'refund:refund-before-receipt:digital-asset-frozen-void:credit',
+    });
+  });
+
+  it('partial refund before receipt only releases the remaining frozen assets after receipt', async () => {
+    const { data, service } = makeHarness({
+      accounts: [{
+        id: 'account-1',
+        userId: 'vip-user',
+        cumulativeSpendAmount: 480,
+        frozenCumulativeSpendAmount: 0,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        historicalCreditGrantedAt: new Date('2026-06-01T00:00:00.000Z'),
+        historicalCreditGrantLedgerId: 'ledger-historical',
+      }],
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      orders: [{
+        id: 'order-partial-refund-before-receipt',
+        userId: 'vip-user',
+        bizType: 'NORMAL_GOODS',
+        status: 'PAID',
+        receivedAt: null,
+        goodsAmount: 100,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 100, isPrize: false, createdAt: new Date('2026-06-02') },
+        ],
+      }],
+      refunds: [{
+        id: 'refund-partial-before-receipt',
+        orderId: 'order-partial-refund-before-receipt',
+        afterSaleId: null,
+        amount: 30,
+        items: [{ orderItemId: 'item-1', quantity: 1, amount: 30 }],
+      }],
+    });
+
+    await service.recordOrderPaid('order-partial-refund-before-receipt');
+    await service.reverseRefund('refund-partial-before-receipt');
+    data.orders[0].status = 'RECEIVED';
+    data.orders[0].receivedAt = new Date('2026-06-21T00:00:00.000Z');
+    await service.recordOrderReceived('order-partial-refund-before-receipt', 'ORDER_RECEIVED');
+
+    expect(data.accounts[0]).toMatchObject({
+      cumulativeSpendAmount: 550,
+      frozenCumulativeSpendAmount: 0,
+      creditAssetBalance: 322,
+      frozenCreditAssetBalance: 0,
+    });
+    expect(data.ledgers).toHaveLength(4);
+    expect(data.ledgers[1]).toMatchObject({
+      type: 'CONSUMPTION_FROZEN_VOIDED',
+      amount: 138,
+      frozenCreditAssetBalanceAfter: 322,
+      frozenCumulativeSpendAfter: 70,
+      refundId: 'refund-partial-before-receipt',
+    });
+    expect(data.ledgers[2]).toMatchObject({
+      type: 'CONSUMPTION_CONFIRMED',
+      subjectType: 'CUMULATIVE_SPEND',
+      amount: 70,
+      cumulativeSpendAfter: 550,
+      frozenCumulativeSpendAfter: 0,
+    });
+    expect(data.ledgers[3]).toMatchObject({
+      type: 'CONSUMPTION_FROZEN_RELEASED',
+      subjectType: 'CREDIT_ASSET',
+      amount: 322,
+      assetAmount: 322,
+      creditAssetBalanceAfter: 322,
+      frozenCreditAssetBalanceAfter: 0,
     });
   });
 

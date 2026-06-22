@@ -36,6 +36,11 @@
   - **实际做了**: 新建 `codex/delivery-frontend-rebuild` worktree；配送管理后台侧边栏改为业务分组，核心运营列表页从基础 `Table` 升级为 `ProTable`；配送中心菜单改为商品管理 / 订单履约 / 经营导出 / 企业与人员 / 客服中心，工作台、物流、导出、企业资料、员工、客服页使用 `ProCard` 分区并保持橙色主题；本地 dev proxy 默认改为测试 API，修复本地预览验证码/登录请求打到未启动 `localhost:3000` 的问题；新增合同测试锁定不回退成简化版，并继续限制配送中心不展示平台最终售价、加价率、平台利润等字段；配送管理后台和配送中心新增中文显示口径，状态枚举、配置范围、字段标识、权限、编号列和校验提示不再直接展示后端英文枚举或技术字段名；配置中心从 Tab + Modal 改为左侧分类和右侧设置面板，只保留配送单位字段 / 清单导出 / 平台规则，平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在页面内直接用数字输入 / 开关修改后统一保存，不向管理人员暴露内部配置标识、配置范围或 JSON 内容；客服相关配置移入客服中心；配送管理后台客服中心补齐为对话工作台 / 工单管理 / FAQ 管理 / 快捷入口配置 / 坐席快捷回复 / 数据看板 6 个页面；配送中心企业资料页改为当前状态、基础资料、联系方式、操作权限分块；员工页改为新增员工 / 分配权限 / 禁用员工工作区，权限用中文分组勾选，账号启用状态用开关。
   - **验证**: `cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm test && npm run build`、`git diff --check` 均通过；Vite 仅输出已有 vendor chunk 体积提示。
 
+- [x] **数字资产付款冻结与确认释放**（2026-06-21 新增并完成）
+  - **来源**: 用户要求普通商品付款后立即在数字资产页看到消费资产记录，但处于冻结状态，并显示“确认收货后释放”；确认收货后再释放为正式消费资产。
+  - **实际做了**: 后端新增 `frozenCreditAssetBalance` / `frozenCumulativeSpendAmount` 与冻结、释放、作废三类流水；普通商品支付成功建单后触发冻结消费资产，确认收货优先释放冻结资产，确认前退款/取消作废冻结资产，确认后退款继续扣回已释放资产；数字资产总额仍只统计种子资产 + 已释放消费资产；买家 App 数字资产页和资产流水页展示冻结资产、释放提示和冻结分类；管理后台总览、账户列表、详情、导出和流水来源同步冻结资产口径。
+  - **验证**: `cd backend && npm test -- digital-asset-v2.service.spec.ts checkout-digital-asset.spec.ts --runInBand`、`cd backend && DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai?schema=public' npx prisma validate`、`cd backend && DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai?schema=public' npm run build`、`cd admin && npm run build` 通过；根目录目标文件 TypeScript 检查命中既有 `BonusRepo` / `LotteryRepo` / `useAuthStore` 类型问题，资产页自身无新增 TypeScript 报错。
+
 - [x] **资产流水分类 Tab 与类型配色**（2026-06-19 新增并完成）
   - **来源**: 用户要求资产流水里加 Tab 切换不同种类，下面不同类使用不同颜色
   - **实际做了**: 买家 App `/me/consumption-records` 从“消费记录”统一改为“资产流水”，新增横向分类 Tab（全部 / 种子资产 / 消费资产 / 累计消费 / 扣回 / 调整），按选中类型过滤当前已加载流水；列表卡片左侧色条、图标底色、图标和金额按类型使用固定颜色

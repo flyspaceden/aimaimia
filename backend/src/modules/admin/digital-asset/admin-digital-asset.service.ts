@@ -49,10 +49,11 @@ export class AdminDigitalAssetService {
           cumulativeSpendAmount: true,
           seedAssetBalance: true,
           creditAssetBalance: true,
+          frozenCreditAssetBalance: true,
         },
       }),
       (this.prisma as any).digitalAssetLedger.groupBy({
-        by: ['subjectType', 'direction'],
+        by: ['subjectType', 'direction', 'type'],
         where: { createdAt: { gte: startOfDay } },
         _sum: { amount: true, assetAmount: true },
       }),
@@ -60,26 +61,36 @@ export class AdminDigitalAssetService {
 
     const totalSeedAssetBalance = accounts?._sum?.seedAssetBalance ?? 0;
     const totalCreditAssetBalance = accounts?._sum?.creditAssetBalance ?? 0;
-    const sumGroup = (subjectType: string, direction: 'CREDIT' | 'DEBIT', field: 'amount' | 'assetAmount') => {
-      const group = (todayGroups ?? []).find((item: any) => item.subjectType === subjectType && item.direction === direction);
-      return group?._sum?.[field] ?? 0;
-    };
+    const totalFrozenCreditAssetBalance = accounts?._sum?.frozenCreditAssetBalance ?? 0;
+    const sumGroup = (
+      subjectType: string,
+      direction: 'CREDIT' | 'DEBIT',
+      field: 'amount' | 'assetAmount',
+      acceptType: (type: string | null | undefined) => boolean = () => true,
+    ) => (todayGroups ?? [])
+      .filter((item: any) => item.subjectType === subjectType && item.direction === direction && acceptType(item.type))
+      .reduce((sum: number, item: any) => sum + (item?._sum?.[field] ?? 0), 0);
+    const isFrozenCreditType = (type: string | null | undefined) => type === 'CONSUMPTION_PAID_FROZEN';
+    const isFrozenDebitType = (type: string | null | undefined) => type === 'CONSUMPTION_FROZEN_VOIDED';
     const todaySeedAssetCreditAmount = sumGroup('SEED_ASSET', 'CREDIT', 'assetAmount');
-    const todayCreditAssetCreditAmount = sumGroup('CREDIT_ASSET', 'CREDIT', 'assetAmount');
+    const todayCreditAssetCreditAmount = sumGroup('CREDIT_ASSET', 'CREDIT', 'assetAmount', (type) => !isFrozenCreditType(type));
+    const todayFrozenCreditAssetCreditAmount = sumGroup('CREDIT_ASSET', 'CREDIT', 'assetAmount', isFrozenCreditType);
     const todaySeedAssetDebitAmount = sumGroup('SEED_ASSET', 'DEBIT', 'assetAmount');
-    const todayCreditAssetDebitAmount = sumGroup('CREDIT_ASSET', 'DEBIT', 'assetAmount');
+    const todayCreditAssetDebitAmount = sumGroup('CREDIT_ASSET', 'DEBIT', 'assetAmount', (type) => !isFrozenDebitType(type));
 
     return {
       accountCount: accounts?._count?._all ?? 0,
       totalCumulativeSpendAmount: accounts?._sum?.cumulativeSpendAmount ?? 0,
       totalSeedAssetBalance,
       totalCreditAssetBalance,
+      totalFrozenCreditAssetBalance,
       totalAssetBalance: totalSeedAssetBalance + totalCreditAssetBalance,
       todayCumulativeSpendCreditAmount: sumGroup('CUMULATIVE_SPEND', 'CREDIT', 'amount'),
       todayCumulativeSpendDebitAmount: sumGroup('CUMULATIVE_SPEND', 'DEBIT', 'amount'),
       todaySeedAssetCreditAmount,
       todaySeedAssetDebitAmount,
       todayCreditAssetCreditAmount,
+      todayFrozenCreditAssetCreditAmount,
       todayCreditAssetDebitAmount,
       todayAssetCreditAmount: todaySeedAssetCreditAmount + todayCreditAssetCreditAmount,
       todayAssetDebitAmount: todaySeedAssetDebitAmount + todayCreditAssetDebitAmount,
@@ -131,6 +142,7 @@ export class AdminDigitalAssetService {
     if (!user) throw new NotFoundException('用户不存在');
     const seedAssetBalance = (user as any).digitalAssetAccount?.seedAssetBalance ?? 0;
     const creditAssetBalance = (user as any).digitalAssetAccount?.creditAssetBalance ?? 0;
+    const frozenCreditAssetBalance = (user as any).digitalAssetAccount?.frozenCreditAssetBalance ?? 0;
     const cumulativeSpendAmount = (user as any).digitalAssetAccount?.cumulativeSpendAmount ?? 0;
 
     return {
@@ -148,6 +160,7 @@ export class AdminDigitalAssetService {
         totalAssetBalance: seedAssetBalance + creditAssetBalance,
         seedAssetBalance,
         creditAssetBalance,
+        frozenCreditAssetBalance,
         cumulativeSpendAmount,
         updatedAt: (user as any).digitalAssetAccount?.updatedAt ?? null,
       },
@@ -186,7 +199,7 @@ export class AdminDigitalAssetService {
       include: this.accountInclude(),
     });
     const rows = [
-      ['买家编号', '用户ID', '昵称', '手机号', 'VIP状态', '数字资产总额', '种子资产', '消费资产', '累计消费', '账户更新时间'],
+      ['买家编号', '用户ID', '昵称', '手机号', 'VIP状态', '数字资产总额', '种子资产', '消费资产', '冻结资产', '累计消费', '账户更新时间'],
       ...items.map((item: any) => [
         item.user?.buyerNo ?? '',
         item.userId,
@@ -196,6 +209,7 @@ export class AdminDigitalAssetService {
         String((item.seedAssetBalance ?? 0) + (item.creditAssetBalance ?? 0)),
         String(item.seedAssetBalance ?? 0),
         String(item.creditAssetBalance ?? 0),
+        String(item.frozenCreditAssetBalance ?? 0),
         String(item.cumulativeSpendAmount ?? 0),
         item.updatedAt ? new Date(item.updatedAt).toISOString() : '',
       ]),
@@ -308,6 +322,7 @@ export class AdminDigitalAssetService {
       cumulativeSpendAmount: item.cumulativeSpendAmount,
       seedAssetBalance: item.seedAssetBalance ?? 0,
       creditAssetBalance: item.creditAssetBalance ?? 0,
+      frozenCreditAssetBalance: item.frozenCreditAssetBalance ?? 0,
       totalAssetBalance: (item.seedAssetBalance ?? 0) + (item.creditAssetBalance ?? 0),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,

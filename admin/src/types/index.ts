@@ -221,6 +221,9 @@ export type DigitalAssetSubjectType =
 export type DigitalAssetLedgerType =
   | 'ORDER_RECEIVED'
   | 'CONSUMPTION_CONFIRMED'
+  | 'CONSUMPTION_PAID_FROZEN'
+  | 'CONSUMPTION_FROZEN_RELEASED'
+  | 'CONSUMPTION_FROZEN_VOIDED'
   | 'REFUND_REVERSAL'
   | 'SELF_VIP_PURCHASE'
   | 'REFERRAL_VIP_PURCHASE'
@@ -236,12 +239,14 @@ export interface DigitalAssetOverview {
   totalAssetBalance: number;
   totalSeedAssetBalance: number;
   totalCreditAssetBalance: number;
+  totalFrozenCreditAssetBalance: number;
   totalCumulativeSpendAmount: number;
   todayCumulativeSpendCreditAmount: number;
   todayCumulativeSpendDebitAmount: number;
   todaySeedAssetCreditAmount: number;
   todaySeedAssetDebitAmount: number;
   todayCreditAssetCreditAmount: number;
+  todayFrozenCreditAssetCreditAmount: number;
   todayCreditAssetDebitAmount: number;
   todayAssetCreditAmount: number;
   todayAssetDebitAmount: number;
@@ -265,6 +270,7 @@ export interface DigitalAssetAccountRow {
   totalAssetBalance: number;
   seedAssetBalance: number;
   creditAssetBalance: number;
+  frozenCreditAssetBalance: number;
   cumulativeSpendAmount: number;
   createdAt: string;
   updatedAt: string;
@@ -302,6 +308,7 @@ export interface DigitalAssetAccountDetail {
     totalAssetBalance: number;
     seedAssetBalance: number;
     creditAssetBalance: number;
+    frozenCreditAssetBalance: number;
     cumulativeSpendAmount: number;
     updatedAt: string | null;
   };
@@ -323,6 +330,10 @@ export interface DigitalAssetLedger {
   amount: number;
   assetAmount: number | null;
   balanceAfter: number;
+  frozenCreditAssetBalanceAfter?: number | null;
+  frozenCumulativeSpendAfter?: number | null;
+  status?: 'FROZEN' | 'RELEASED' | 'VOIDED';
+  releaseHint?: string;
   title: string;
   description?: string;
   orderId?: string;
