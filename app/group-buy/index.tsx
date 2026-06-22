@@ -272,7 +272,7 @@ export default function GroupBuyIndexScreen() {
         <View style={[styles.complianceBar, { borderColor: GROUP_BUY_COLORS.mist, backgroundColor: colors.surface }]}>
           <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
           <Text style={[typography.caption, styles.complianceText, { color: colors.text.secondary }]}>
-            仅一级直接推荐；无多层级奖励；好友订单退换货不计入有效名额。
+            仅一级直接推荐；无跨级奖励；好友订单退换货不计入有效名额。
           </Text>
         </View>
 
