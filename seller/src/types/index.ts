@@ -175,6 +175,7 @@ export interface Order {
 export interface OrderItem {
   id: string;
   title: string;
+  skuId?: string;
   skuTitle?: string;
   unitPrice: number;
   quantity: number;

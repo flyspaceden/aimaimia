@@ -297,6 +297,8 @@ export class SellerOrdersService {
         return {
           id: item.id,
           title: ps?.title || item.sku?.product?.title || '',
+          skuId: ps?.skuId || item.sku?.id || undefined,
+          skuTitle: ps?.skuTitle || item.sku?.title || undefined,
           imageUrl: ps?.image || liveMediaUrl || null,
           unitPrice: item.unitPrice,
           quantity: item.quantity,

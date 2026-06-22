@@ -86,3 +86,95 @@ test('aggregates normal and bundle quantities and falls back to quantityPerBundl
   assert.match(html, /拣货汇总[\s\S]*红富士苹果[\s\S]*5斤装[\s\S]*x5/);
   assert.match(html, /拣货汇总[\s\S]*皇冠梨[\s\S]*3斤装[\s\S]*x2/);
 });
+
+test('shows skuTitle in picking summary for live seller detail normal items', () => {
+  const order: Order = {
+    id: 'order-live-normal-1',
+    status: 'PAID',
+    bizType: 'NORMAL_GOODS',
+    totalAmount: 36,
+    goodsAmount: 36,
+    shippingFee: 0,
+    createdDate: '2026-06-22',
+    buyerAlias: '买家003',
+    buyerNo: 'AIMM00000000000003',
+    regionText: '山东省烟台市福山区',
+    items: [
+      {
+        id: 'item-normal-live-shape',
+        title: '烟台苹果',
+        skuId: 'live-sku-apple-1',
+        skuTitle: '脆甜款',
+        unitPrice: 18,
+        quantity: 2,
+        productType: 'SIMPLE',
+        bundleItems: [],
+      },
+    ],
+    shipment: null,
+    refundSummary: null,
+    invoiceStatus: null,
+  };
+
+  const html = buildPickingSheetHtml(order);
+
+  assert.match(html, /拣货汇总[\s\S]*烟台苹果[\s\S]*脆甜款[\s\S]*x2/);
+});
+
+test('does not merge picking rows when distinct skuIds share the same title and skuTitle', () => {
+  const order: Order = {
+    id: 'order-sku-split-1',
+    status: 'PAID',
+    bizType: 'NORMAL_GOODS',
+    totalAmount: 126,
+    goodsAmount: 126,
+    shippingFee: 0,
+    createdDate: '2026-06-22',
+    buyerAlias: '买家004',
+    buyerNo: null,
+    regionText: '陕西省西安市雁塔区',
+    items: [
+      {
+        id: 'item-normal-1',
+        title: '红富士苹果',
+        skuId: 'sku-normal-1',
+        skuTitle: '礼盒装',
+        unitPrice: 20,
+        quantity: 1,
+        productType: 'SIMPLE',
+        bundleItems: [],
+      },
+      {
+        id: 'item-bundle-1',
+        title: '水果礼盒A',
+        unitPrice: 50,
+        quantity: 1,
+        productType: 'BUNDLE',
+        bundleItems: [
+          { productTitle: '红富士苹果', skuId: 'sku-bundle-2', skuTitle: '礼盒装', quantityPerBundle: 2 },
+        ],
+      },
+      {
+        id: 'item-bundle-2',
+        title: '水果礼盒B',
+        unitPrice: 56,
+        quantity: 1,
+        productType: 'BUNDLE',
+        bundleItems: [
+          { productTitle: '红富士苹果', skuId: 'sku-bundle-3', skuTitle: '礼盒装', totalQuantity: 3 },
+        ],
+      },
+    ],
+    shipment: null,
+    refundSummary: null,
+    invoiceStatus: null,
+  };
+
+  const html = buildPickingSheetHtml(order);
+  const summarySection = html.match(/<h2>拣货汇总<\/h2>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? '';
+  const appleRows = Array.from(summarySection.matchAll(/红富士苹果[\s\S]*?礼盒装[\s\S]*?x(\d+)/g))
+    .map((match) => Number(match[1]))
+    .sort((a, b) => a - b);
+
+  assert.deepEqual(appleRows, [1, 2, 3]);
+});

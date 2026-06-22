@@ -191,6 +191,117 @@ describe('SellerOrdersService invoice privacy', () => {
     );
   });
 
+  it('returns sku identity for normal seller order detail items and preserves bundle fields', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-2',
+      userId: 'buyer-2',
+      status: 'PAID',
+      bizType: 'NORMAL_GOODS',
+      shippingFee: 0,
+      createdAt: new Date('2026-06-18T12:00:00.000Z'),
+      addressSnapshot: { province: '浙江省', city: '杭州市' },
+      invoice: null,
+      refunds: [],
+      shipments: [],
+      items: [
+        {
+          id: 'item-normal-snapshot',
+          companyId: 'company-1',
+          unitPrice: 18,
+          quantity: 2,
+          isPrize: false,
+          prizeType: null,
+          productSnapshot: {
+            title: '烟台苹果',
+            skuId: 'snapshot-sku-1',
+            skuTitle: '脆甜款',
+          },
+          sku: {
+            id: 'live-sku-1',
+            title: '直播间规格',
+            product: {
+              title: '烟台苹果',
+              media: [{ url: 'http://localhost/apple-live.jpg' }],
+            },
+          },
+        },
+        {
+          id: 'item-normal-live',
+          companyId: 'company-1',
+          unitPrice: 36,
+          quantity: 1,
+          isPrize: false,
+          prizeType: null,
+          productSnapshot: null,
+          sku: {
+            id: 'live-sku-2',
+            title: '精品果',
+            product: {
+              title: '库尔勒香梨',
+              media: [{ url: 'http://localhost/pear-live.jpg' }],
+            },
+          },
+        },
+        {
+          id: 'item-bundle',
+          companyId: 'company-1',
+          unitPrice: 88,
+          quantity: 1,
+          isPrize: false,
+          prizeType: null,
+          productSnapshot: {
+            title: '精选水果礼盒',
+            image: 'http://localhost/snapshot-bundle.jpg',
+            productType: 'BUNDLE',
+            bundleItems: [
+              { productId: 'p1', productTitle: '苹果', skuId: 'sku-1', skuName: '红富士', quantity: 2 },
+            ],
+          },
+          sku: {
+            id: 'bundle-live-sku',
+            title: '组合规格',
+            product: {
+              title: '秋季组合装',
+              media: [{ url: 'http://localhost/live-bundle.jpg' }],
+            },
+          },
+        },
+      ],
+    });
+    prisma.buyerAlias.findMany.mockResolvedValue([{ userId: 'buyer-2', alias: '买家002' }]);
+
+    const out = await service.findById('company-1', 'staff-1', 'order-2');
+
+    expect(out.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'item-normal-snapshot',
+          title: '烟台苹果',
+          skuId: 'snapshot-sku-1',
+          skuTitle: '脆甜款',
+          productType: 'SIMPLE',
+          bundleItems: [],
+        }),
+        expect.objectContaining({
+          id: 'item-normal-live',
+          title: '库尔勒香梨',
+          skuId: 'live-sku-2',
+          skuTitle: '精品果',
+          productType: 'SIMPLE',
+          bundleItems: [],
+        }),
+        expect.objectContaining({
+          id: 'item-bundle',
+          title: '精选水果礼盒',
+          productType: 'BUNDLE',
+          bundleItems: [
+            { productId: 'p1', productTitle: '苹果', skuId: 'sku-1', skuName: '红富士', quantity: 2 },
+          ],
+        }),
+      ]),
+    );
+  });
+
   it('filters order list by buyer public id inside company scope', async () => {
     prisma.order.findMany.mockResolvedValue([]);
     prisma.order.count.mockResolvedValue(0);

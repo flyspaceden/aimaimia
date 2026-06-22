@@ -1,6 +1,7 @@
 import type { Order, OrderItem, OrderItemBundleComponent } from '../types/index.ts';
 
 type PickingComponentSummary = {
+  skuId?: string;
   title: string;
   skuTitle: string;
   quantity: number;
@@ -54,6 +55,14 @@ function bundleComponentsOf(item: OrderItem): OrderItemBundleComponent[] {
   return Array.isArray(item.bundleItems) ? item.bundleItems : [];
 }
 
+function summaryKeyOf(input: { skuId?: string; title: string; skuTitle: string }): string {
+  const skuId = input.skuId?.trim();
+  if (skuId) {
+    return `sku:${skuId}`;
+  }
+  return `text:${input.title}__${input.skuTitle}`;
+}
+
 function renderBundleDetails(item: OrderItem): string {
   if (item.productType !== 'BUNDLE') {
     return '';
@@ -98,13 +107,14 @@ function buildPickingSummary(items: OrderItem[]): PickingComponentSummary[] {
 
         const title = componentDisplayTitle(component);
         const skuTitle = componentDisplaySku(component);
-        const key = `${title}__${skuTitle}`;
+        const skuId = component.skuId?.trim() || undefined;
+        const key = summaryKeyOf({ skuId, title, skuTitle });
         const existing = summary.get(key);
         if (existing) {
           existing.quantity += quantity;
           return;
         }
-        summary.set(key, { title, skuTitle, quantity });
+        summary.set(key, { skuId, title, skuTitle, quantity });
       });
       return;
     }
@@ -115,19 +125,24 @@ function buildPickingSummary(items: OrderItem[]): PickingComponentSummary[] {
     }
 
     const title = item.title?.trim() || '未命名商品';
+    const skuId = item.skuId?.trim() || undefined;
     const skuTitle = item.skuTitle?.trim() || '-';
-    const key = `${title}__${skuTitle}`;
+    const key = summaryKeyOf({ skuId, title, skuTitle });
     const existing = summary.get(key);
     if (existing) {
       existing.quantity += quantity;
       return;
     }
-    summary.set(key, { title, skuTitle, quantity });
+    summary.set(key, { skuId, title, skuTitle, quantity });
   });
 
   return Array.from(summary.values()).sort((a, b) => {
     if (a.title === b.title) {
-      return a.skuTitle.localeCompare(b.skuTitle, 'zh-CN');
+      const skuTitleCompare = a.skuTitle.localeCompare(b.skuTitle, 'zh-CN');
+      if (skuTitleCompare !== 0) {
+        return skuTitleCompare;
+      }
+      return (a.skuId || '').localeCompare(b.skuId || '', 'zh-CN');
     }
     return a.title.localeCompare(b.title, 'zh-CN');
   });
