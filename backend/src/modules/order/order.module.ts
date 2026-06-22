@@ -25,6 +25,7 @@ import { InboxService } from '../inbox/inbox.service';
 import { CartModule } from '../cart/cart.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { ProductModule } from '../product/product.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
     InboxModule,
     CartModule,
     DigitalAssetModule,
+    ProductModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],

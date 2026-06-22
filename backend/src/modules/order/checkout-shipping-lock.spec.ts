@@ -447,4 +447,286 @@ describe('CheckoutService shipping lock-in', () => {
       undefined,
     );
   });
+
+  it('uses component SKU weights for bundle shipping detail', async () => {
+    let createdSessionData: any;
+    const bundleItems = [
+      {
+        skuId: 'component-sku-a',
+        quantity: 2,
+        sortOrder: 0,
+        sku: {
+          id: 'component-sku-a',
+          title: '苹果 2kg',
+          weightGram: 500,
+          stock: 20,
+          status: 'ACTIVE',
+          price: 18,
+          product: {
+            id: 'component-product-a',
+            title: '苹果',
+            companyId: 'bundle-company',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'SIMPLE',
+            media: [{ url: 'https://img.example.com/apple.jpg' }],
+          },
+        },
+      },
+      {
+        skuId: 'component-sku-b',
+        quantity: 1,
+        sortOrder: 1,
+        sku: {
+          id: 'component-sku-b',
+          title: '橙子礼盒',
+          weightGram: 1200,
+          stock: 20,
+          status: 'ACTIVE',
+          price: 26,
+          product: {
+            id: 'component-product-b',
+            title: '橙子',
+            companyId: 'bundle-company',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'SIMPLE',
+            media: [{ url: 'https://img.example.com/orange.jpg' }],
+          },
+        },
+      },
+    ];
+    const bundleSku = buildSku({
+      id: 'bundle-sku',
+      productId: 'bundle-product',
+      title: '家庭组合装',
+      price: 88,
+      weightGram: 1,
+      product: {
+        id: 'bundle-product',
+        title: '家庭组合装',
+        status: 'ACTIVE',
+        companyId: 'bundle-company',
+        type: 'BUNDLE',
+        auditStatus: 'APPROVED',
+        media: [{ url: 'https://img.example.com/bundle-cover.jpg' }],
+        bundleItems,
+      },
+    });
+    const prisma: any = {
+      productSKU: {
+        findMany: jest.fn().mockImplementation(async (args: any) => {
+          const ids = args.where?.id?.in ?? [];
+          if (ids.includes('bundle-sku')) return [bundleSku];
+          if (ids.includes('component-sku-a') || ids.includes('component-sku-b')) {
+            return bundleItems.map((item: any) => item.sku);
+          }
+          return [];
+        }),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([{ id: 'ci-bundle', cartId: 'cart1', skuId: 'bundle-sku', quantity: 2, isPrize: false }]) },
+      address: { findUnique: jest.fn().mockResolvedValue(validAddress) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn(async (cb: any) => cb({
+        checkoutSession: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn(async ({ data }: any) => {
+            createdSessionData = data;
+            return { id: 'sess-bundle', userId: 'user1', status: 'ACTIVE', bizType: 'NORMAL_GOODS', ...data };
+          }),
+        },
+        rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      })),
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 9.9 }),
+      calculateShippingFee: jest.fn(),
+    };
+    const service = new CheckoutService(prisma, bonusConfig);
+    service.setShippingRuleService(shippingRuleService);
+
+    await service.checkout('user1', {
+      items: [{ skuId: 'bundle-sku', quantity: 2, cartItemId: 'ci-bundle' }],
+      addressId: 'addr1',
+      expectedTotal: 185.9,
+    } as any);
+
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      176,
+      '110000',
+      4400,
+      undefined,
+    );
+    expect(createdSessionData.shippingFee).toBe(9.9);
+  });
+
+  it('stores bundleItems in productSnapshot', async () => {
+    let createdSessionData: any;
+    const bundleItems = [
+      {
+        skuId: 'component-sku-a',
+        quantity: 2,
+        sortOrder: 0,
+        sku: {
+          id: 'component-sku-a',
+          title: '苹果 2kg',
+          weightGram: 500,
+          stock: 20,
+          status: 'ACTIVE',
+          price: 18,
+          product: {
+            id: 'component-product-a',
+            title: '苹果',
+            companyId: 'bundle-company',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'SIMPLE',
+            media: [{ url: 'https://img.example.com/apple.jpg' }],
+          },
+        },
+      },
+      {
+        skuId: 'component-sku-b',
+        quantity: 1,
+        sortOrder: 1,
+        sku: {
+          id: 'component-sku-b',
+          title: '橙子礼盒',
+          weightGram: 1200,
+          stock: 20,
+          status: 'ACTIVE',
+          price: 26,
+          product: {
+            id: 'component-product-b',
+            title: '橙子',
+            companyId: 'bundle-company',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'SIMPLE',
+            media: [{ url: 'https://img.example.com/orange.jpg' }],
+          },
+        },
+      },
+    ];
+    const bundleSku = buildSku({
+      id: 'bundle-sku',
+      productId: 'bundle-product',
+      title: '家庭组合装',
+      price: 88,
+      weightGram: 1,
+      product: {
+        id: 'bundle-product',
+        title: '家庭组合装',
+        status: 'ACTIVE',
+        companyId: 'bundle-company',
+        type: 'BUNDLE',
+        auditStatus: 'APPROVED',
+        media: [{ url: 'https://img.example.com/bundle-cover.jpg' }],
+        bundleItems,
+      },
+    });
+    const prisma: any = {
+      productSKU: {
+        findMany: jest.fn().mockImplementation(async (args: any) => {
+          const ids = args.where?.id?.in ?? [];
+          if (ids.includes('bundle-sku')) return [bundleSku];
+          if (ids.includes('component-sku-a') || ids.includes('component-sku-b')) {
+            return bundleItems.map((item: any) => item.sku);
+          }
+          return [];
+        }),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([{ id: 'ci-bundle', cartId: 'cart1', skuId: 'bundle-sku', quantity: 2, isPrize: false }]) },
+      address: { findUnique: jest.fn().mockResolvedValue(validAddress) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn(async (cb: any) => cb({
+        checkoutSession: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn(async ({ data }: any) => {
+            createdSessionData = data;
+            return { id: 'sess-bundle', userId: 'user1', status: 'ACTIVE', bizType: 'NORMAL_GOODS', ...data };
+          }),
+        },
+        rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      })),
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 9.9 }),
+      calculateShippingFee: jest.fn(),
+    };
+    const service = new CheckoutService(prisma, bonusConfig);
+    service.setShippingRuleService(shippingRuleService);
+
+    await service.checkout('user1', {
+      items: [{ skuId: 'bundle-sku', quantity: 2, cartItemId: 'ci-bundle' }],
+      addressId: 'addr1',
+      expectedTotal: 185.9,
+    } as any);
+
+    expect(createdSessionData.itemsSnapshot).toEqual([
+      expect.objectContaining({
+        skuId: 'bundle-sku',
+        quantity: 2,
+        companyId: 'bundle-company',
+        productSnapshot: expect.objectContaining({
+          productId: 'bundle-product',
+          companyId: 'bundle-company',
+          productType: 'BUNDLE',
+          title: '家庭组合装',
+          skuTitle: '家庭组合装',
+          image: 'https://img.example.com/bundle-cover.jpg',
+          price: 88,
+          bundleTotalWeightGram: 2200,
+          bundleItems: [
+            {
+              skuId: 'component-sku-a',
+              productId: 'component-product-a',
+              productTitle: '苹果',
+              skuTitle: '苹果 2kg',
+              quantityPerBundle: 2,
+              bundleQuantity: 2,
+              totalQuantity: 4,
+              unitPriceAtCheckout: 18,
+              image: 'https://img.example.com/apple.jpg',
+              weightGram: 500,
+            },
+            {
+              skuId: 'component-sku-b',
+              productId: 'component-product-b',
+              productTitle: '橙子',
+              skuTitle: '橙子礼盒',
+              quantityPerBundle: 1,
+              bundleQuantity: 2,
+              totalQuantity: 2,
+              unitPriceAtCheckout: 26,
+              image: 'https://img.example.com/orange.jpg',
+              weightGram: 1200,
+            },
+          ],
+        }),
+      }),
+    ]);
+  });
 });
