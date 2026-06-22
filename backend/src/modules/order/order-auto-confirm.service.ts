@@ -6,6 +6,7 @@ import { BonusAllocationService } from '../bonus/engine/bonus-allocation.service
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 
 /**
  * 自动确认收货定时任务
@@ -15,6 +16,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 export class OrderAutoConfirmService {
   private readonly logger = new Logger(OrderAutoConfirmService.name);
   private digitalAssetService: DigitalAssetService | null = null;
+  private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -23,6 +25,10 @@ export class OrderAutoConfirmService {
 
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setGroupBuyLifecycleService(service: GroupBuyLifecycleService) {
+    this.groupBuyLifecycleService = service;
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -129,6 +135,7 @@ export class OrderAutoConfirmService {
       this.logger.error(`订单 ${orderId} 分润分配失败: ${safeErr.message}`, safeErr.stack);
     });
     this.creditDigitalAssetAfterReceive(orderId);
+    this.evaluateGroupBuyAfterReceive(orderId);
     this.logger.log(`订单 ${orderId} 已自动确认收货`);
   }
 
@@ -152,6 +159,13 @@ export class OrderAutoConfirmService {
           },
         },
       })).catch(() => undefined);
+    });
+  }
+
+  private evaluateGroupBuyAfterReceive(orderId: string) {
+    this.groupBuyLifecycleService?.evaluateInitiatorOrder(orderId).catch((err: any) => {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(`团购资格评估失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
     });
   }
 }
