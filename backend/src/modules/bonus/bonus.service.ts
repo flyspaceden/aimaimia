@@ -608,7 +608,7 @@ export class BonusService {
   /** 提现记录 */
   async getWithdrawHistory(userId: string) {
     const requests = await this.prisma.withdrawRequest.findMany({
-      where: { userId },
+      where: { userId, accountType: { not: 'GROUP_BUY_REBATE' } },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });

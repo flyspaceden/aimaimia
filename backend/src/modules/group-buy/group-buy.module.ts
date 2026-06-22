@@ -7,10 +7,12 @@ import { GroupBuyLifecycleService } from './group-buy-lifecycle.service';
 import { GroupBuyRebateDeductionService } from './group-buy-rebate-deduction.service';
 import { GroupBuyRebateService } from './group-buy-rebate.service';
 import { GroupBuyService } from './group-buy.service';
+import { BonusModule } from '../bonus/bonus.module';
 import { AlipayService } from '../payment/alipay.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
 
 @Module({
+  imports: [BonusModule],
   controllers: [GroupBuyController],
   providers: [
     GroupBuyService,

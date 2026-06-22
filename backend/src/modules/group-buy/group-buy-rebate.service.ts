@@ -55,6 +55,43 @@ export class GroupBuyRebateService {
     };
   }
 
+  async listWithdrawals(userId: string, page = 1, pageSize = 20) {
+    const safePage = Math.max(1, Number.isFinite(Number(page)) ? Number(page) : 1);
+    const safePageSize = Math.min(100, Math.max(1, Number.isFinite(Number(pageSize)) ? Number(pageSize) : 20));
+    const skip = (safePage - 1) * safePageSize;
+    const where = {
+      userId,
+      accountType: 'GROUP_BUY_REBATE',
+      deletedAt: null,
+    };
+
+    const [items, total] = await Promise.all([
+      (this.prisma.withdrawRequest as any).findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: safePageSize,
+      }),
+      (this.prisma.withdrawRequest as any).count({ where }),
+    ]);
+
+    return {
+      items: items.map((withdraw: any) => ({
+        id: withdraw.id,
+        amount: withdraw.amount,
+        netAmount: withdraw.netAmount,
+        taxAmount: withdraw.taxAmount,
+        channel: withdraw.channel,
+        status: withdraw.status,
+        createdAt: withdraw.createdAt.toISOString(),
+      })),
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+      nextPage: skip + safePageSize < total ? safePage + 1 : undefined,
+    };
+  }
+
   private async releaseReferralInTransaction(
     tx: Prisma.TransactionClient,
     where: { id: string } | { referredOrderId: string },
