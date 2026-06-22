@@ -309,21 +309,27 @@ export class AfterSaleRefundService {
             request.orderItem.quantity > 0;
 
           if (shouldRestockReturnedItem && request.orderItem) {
-            for (const movement of this.buildRestockMovements(request.orderItem)) {
-              const existingRestockLedger = await tx.inventoryLedger.findFirst({
-                where: {
-                  skuId: movement.skuId,
-                  type: InventoryType.RELEASE,
-                  refType: 'AFTER_SALE',
-                  refId: request.id,
-                },
-                select: { id: true },
-              });
+            const restockMovements = this.buildRestockMovements(request.orderItem);
+            const restockSkuIds = [...new Set(restockMovements.map((movement) => movement.skuId))];
+            const existingRestockLedgers = restockSkuIds.length > 0
+              ? await tx.inventoryLedger.findMany({
+                  where: {
+                    skuId: { in: restockSkuIds },
+                    type: InventoryType.RELEASE,
+                    refType: 'AFTER_SALE',
+                    refId: request.id,
+                  },
+                  select: { skuId: true },
+                })
+              : [];
+            const existingRestockSkuIds = new Set(
+              existingRestockLedgers.map((ledger: { skuId: string }) => ledger.skuId),
+            );
 
-              if (existingRestockLedger) {
+            for (const movement of restockMovements) {
+              if (existingRestockSkuIds.has(movement.skuId)) {
                 continue;
               }
-
               const restockLedger = await tx.inventoryLedger.createMany({
                 data: [{
                   skuId: movement.skuId,

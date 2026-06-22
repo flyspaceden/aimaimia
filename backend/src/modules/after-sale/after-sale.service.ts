@@ -134,6 +134,18 @@ export class AfterSaleService {
     return Math.max(0, Math.round(amount * 100) / 100);
   }
 
+  private normalizeOrderItemProductSnapshot(productSnapshot: unknown): Record<string, any> {
+    const ps =
+      productSnapshot && typeof productSnapshot === 'object' && !Array.isArray(productSnapshot)
+        ? { ...(productSnapshot as Record<string, unknown>) }
+        : {};
+    return {
+      ...ps,
+      productType: ps.productType || 'SIMPLE',
+      bundleItems: Array.isArray(ps.bundleItems) ? ps.bundleItems : [],
+    };
+  }
+
   private normalizeSkuWeightGram(value: unknown): number {
     const weightGram = Number(value);
     return Number.isFinite(weightGram) && weightGram > 0
@@ -277,7 +289,7 @@ export class AfterSaleService {
 
       const returnPolicy = await resolveReturnPolicy(this.prisma as any, productId);
       const itemAmount = orderItem.unitPrice * orderItem.quantity;
-      const productSnapshot = (orderItem.productSnapshot as any) || {};
+      const productSnapshot = this.normalizeOrderItemProductSnapshot(orderItem.productSnapshot);
       const estimatedBuyerReturnShippingFee = await this.estimateBuyerReturnShippingFee(
         order,
         orderItem,
@@ -415,7 +427,7 @@ export class AfterSaleService {
         skuId: orderItem.skuId,
         productId,
         productTitle: productSnapshot.title || '未知商品',
-        productSnapshot: orderItem.productSnapshot,
+        productSnapshot,
         quantity: orderItem.quantity,
         unitPrice: orderItem.unitPrice,
         itemAmount,
@@ -1114,7 +1126,10 @@ export class AfterSaleService {
     );
 
     items.forEach((req) => {
-      const ps = req.orderItem?.productSnapshot as any;
+      const ps = this.normalizeOrderItemProductSnapshot(req.orderItem?.productSnapshot);
+      if (req.orderItem) {
+        (req.orderItem as any).productSnapshot = ps;
+      }
       const cid = req.orderItem?.companyId || ps?.companyId;
       if (cid && companyMap.has(cid) && ps) {
         ps.companyName = companyMap.get(cid);
@@ -1168,6 +1183,9 @@ export class AfterSaleService {
 
     // 把 sku.product.company 提到 orderItem.company 让前端访问更直接
     if (request.orderItem) {
+      (request.orderItem as any).productSnapshot = this.normalizeOrderItemProductSnapshot(
+        request.orderItem.productSnapshot,
+      );
       const company = (request.orderItem as any).sku?.product?.company;
       if (company) {
         (request.orderItem as any).company = company;

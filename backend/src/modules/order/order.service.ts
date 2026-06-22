@@ -732,6 +732,42 @@ export class OrderService {
     return [{ skuId: item.skuId, quantity: item.quantity }];
   }
 
+  private normalizeOrderItemProductSnapshot(productSnapshot: any) {
+    const ps = (productSnapshot as any) || {};
+    return {
+      productType: ps.productType || 'SIMPLE',
+      bundleItems: Array.isArray(ps.bundleItems) ? ps.bundleItems : [],
+    };
+  }
+
+  private resolveRepurchaseAvailableStock(item: any, sku: any): number {
+    const snapshotMeta = this.normalizeOrderItemProductSnapshot(item.productSnapshot);
+    const isBundle =
+      snapshotMeta.productType === 'BUNDLE' ||
+      sku?.product?.type === 'BUNDLE';
+    if (!isBundle) {
+      return Number(sku?.stock ?? 0);
+    }
+
+    const bundleItems = Array.isArray(sku?.product?.bundleItems)
+      ? sku.product.bundleItems
+      : [];
+    if (bundleItems.length === 0) {
+      return 0;
+    }
+
+    try {
+      return this.productBundleService.calculateAvailability(
+        bundleItems.map((bundleItem: any) => ({
+          stock: Number(bundleItem?.sku?.stock ?? 0),
+          quantity: Number(bundleItem?.quantity ?? 0),
+        })),
+      );
+    } catch {
+      return 0;
+    }
+  }
+
   async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
     const resultKey = `order:repurchase:result:${userId}:${orderId}`;
     const lockKey = `order:repurchase:lock:${userId}:${orderId}`;
@@ -807,6 +843,19 @@ export class OrderService {
                       include: {
                         company: true,
                         media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+                        bundleItems: {
+                          orderBy: { sortOrder: 'asc' },
+                          select: {
+                            skuId: true,
+                            quantity: true,
+                            sortOrder: true,
+                            sku: {
+                              select: {
+                                stock: true,
+                              },
+                            },
+                          },
+                        },
                       },
                     },
                   },
@@ -868,11 +917,17 @@ export class OrderService {
             }
 
             for (const [skuId, group] of purchasableBySkuId.entries()) {
-              const currentStock = Number(group.sku.stock ?? 0);
+              const currentStock = this.resolveRepurchaseAvailableStock(
+                group.items[0],
+                group.sku,
+              );
               const existingRows = existingGroupsBySkuId.get(skuId) ?? [];
               const existing = existingRows[0] as any | undefined;
               const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
               const desiredQuantity = existingQuantity + group.totalQuantity;
+              const isBundle =
+                this.normalizeOrderItemProductSnapshot(group.items[0]?.productSnapshot).productType === 'BUNDLE' ||
+                group.sku.product?.type === 'BUNDLE';
               const duplicateIds = existingRows.slice(1).map((item) => item.id);
               if (duplicateIds.length > 0) {
                 await tx.cartItem.deleteMany({
@@ -900,6 +955,30 @@ export class OrderService {
 
               if (currentStock <= 0) {
                 if (existing) {
+                  await tx.cartItem.update({
+                    where: { id: existing.id },
+                    data: { quantity: existingQuantity, isSelected: false },
+                  });
+                }
+                for (const item of group.items) {
+                  output.push({
+                    orderItemId: item.id,
+                    skuId,
+                    title: this.repurchaseTitle(item),
+                    quantity: item.quantity,
+                    status: 'SKIPPED',
+                    reason: 'OUT_OF_STOCK_VIRTUAL',
+                    stockStatus: 'OUT_OF_STOCK',
+                    stock: currentStock,
+                    virtual: true,
+                    message: '商品暂无库存，未加入购物车',
+                  });
+                }
+                continue;
+              }
+
+              if (isBundle && desiredQuantity > currentStock) {
+                if (existing && currentStock <= 0) {
                   await tx.cartItem.update({
                     where: { id: existing.id },
                     data: { quantity: existingQuantity, isSelected: false },
@@ -2354,6 +2433,7 @@ export class OrderService {
   private mapOrder(order: any, companyMap?: Map<string, { id: string; name: string; logoUrl: string | null }>) {
     const snapshot = (item: any) => {
       const ps = (item.productSnapshot as any) || {};
+      const normalizedSnapshot = this.normalizeOrderItemProductSnapshot(ps);
       const company = companyMap?.get(item.companyId);
       return {
         id: item.id,
@@ -2368,6 +2448,8 @@ export class OrderService {
         companyName: company?.name,            // 新增：店铺名称（Phase 2，list() 批量 join）
         companyLogo: company?.logoUrl ?? null, // 新增：店铺 logo（Phase 2）
         isPrize: !!item.isPrize,               // 新增：是否奖品（前端区分样式 + 禁用售后）
+        productType: normalizedSnapshot.productType,
+        bundleItems: normalizedSnapshot.bundleItems,
         // 注：isPostReplacement 在 AfterSaleRequest 上，不在 OrderItem。
         //     Phase 2 通过反查 afterSaleRequests 派生。
       };
