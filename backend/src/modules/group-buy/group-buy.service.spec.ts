@@ -3,12 +3,14 @@ import { GroupBuyService } from './group-buy.service';
 
 describe('GroupBuyService', () => {
   describe('assertTierBasisPointsTotal', () => {
-    it('accepts tiers whose basis points total exactly 10000', () => {
+    it('accepts any positive configured tier total', () => {
       expect(() => GroupBuyService.assertTierBasisPointsTotal([1000, 2000, 7000])).not.toThrow();
+      expect(() => GroupBuyService.assertTierBasisPointsTotal([1000, 2000, 8000])).not.toThrow();
+      expect(() => GroupBuyService.assertTierBasisPointsTotal([2500, 2500])).not.toThrow();
     });
 
-    it('rejects tiers whose basis points total is not exactly 10000', () => {
-      expect(() => GroupBuyService.assertTierBasisPointsTotal([1000, 2000, 8000])).toThrow(
+    it('rejects tiers whose basis points total is not positive', () => {
+      expect(() => GroupBuyService.assertTierBasisPointsTotal([])).toThrow(
         BadRequestException,
       );
     });
@@ -55,6 +57,9 @@ describe('GroupBuyService', () => {
         },
         groupBuyCode: {
           findUnique: jest.fn(),
+        },
+        groupBuyReferral: {
+          count: jest.fn().mockResolvedValue(0),
         },
       };
 
@@ -205,6 +210,44 @@ describe('GroupBuyService', () => {
         ],
       }));
       expect(result.activity?.tiers[0]).not.toHaveProperty('basisPoints');
+    });
+
+    it('uses direct referral records to reject a share landing when all slots are occupied', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyCode.findUnique.mockResolvedValueOnce({
+        code: 'GB123456',
+        status: 'ACTIVE',
+        instance: {
+          id: 'instance_1',
+          userId: 'user_sharer',
+          status: 'SHARING',
+          validReferralCount: 2,
+          candidateCount: 0,
+          activity: buildInstance('SHARING').activity,
+          user: {
+            id: 'user_sharer',
+            buyerNo: 'AIMM202606220001',
+            profile: { nickname: '分享用户' },
+          },
+        },
+      });
+      prisma.groupBuyReferral.count.mockResolvedValueOnce(3);
+
+      const result = await service.getLandingByCode('GB123456');
+
+      expect(prisma.groupBuyReferral.count).toHaveBeenCalledWith({
+        where: {
+          instanceId: 'instance_1',
+          status: { in: ['CANDIDATE', 'VALID'] },
+        },
+      });
+      expect(result).toEqual({
+        code: 'GB123456',
+        valid: false,
+        activity: null,
+        inviter: null,
+        reason: '团购推荐码名额已满',
+      });
     });
 
     it('returns invalid landing info when the share code is completed or not sharing', async () => {

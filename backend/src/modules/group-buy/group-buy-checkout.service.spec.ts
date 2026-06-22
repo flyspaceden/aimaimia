@@ -231,6 +231,45 @@ describe('GroupBuyCheckoutService', () => {
       description: expect.stringMatching(/^爱买买团购订单-/),
     }));
   });
+
+  it('charges configured shipping for non-free-shipping group-buy activities', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivity.findUnique.mockResolvedValueOnce({
+      ...buildActivity(),
+      freeShipping: false,
+    });
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 12.34 }),
+    };
+    (service as any).setShippingRuleService(shippingRuleService);
+
+    const result = await service.createCheckout('user_1', {
+      ...dto,
+      expectedTotal: 1012.34,
+    } as any);
+
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      1000,
+      '110101',
+      1500,
+      tx,
+    );
+    expect(tx.checkoutSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        goodsAmount: 1000,
+        shippingFee: 12.34,
+        expectedTotal: 1012.34,
+        bizMeta: expect.objectContaining({
+          freeShippingSnapshot: false,
+          shippingFeeSnapshot: 12.34,
+        }),
+      }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      expectedTotal: 1012.34,
+      shippingFee: 12.34,
+    }));
+  });
 });
 
 describe('CheckoutService group-buy payment success integration', () => {

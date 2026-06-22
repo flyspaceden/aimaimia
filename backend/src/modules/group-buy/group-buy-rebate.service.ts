@@ -235,9 +235,18 @@ export class GroupBuyRebateService {
         invalidatedAt: null,
       },
     });
+    const pendingCandidateCount = await tx.groupBuyReferral.count({
+      where: {
+        instanceId: instance.id,
+        status: 'CANDIDATE',
+      },
+    });
     await tx.groupBuyInstance.update({
       where: { id: instance.id },
-      data: { validReferralCount: { increment: 1 } },
+      data: {
+        validReferralCount: { increment: 1 },
+        candidateCount: pendingCandidateCount,
+      },
     });
 
     if (instance.status === 'SHARING' && effectiveSequence >= tiers.length) {

@@ -165,18 +165,27 @@ describe('AdminGroupBuyService', () => {
     expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
   });
 
-  it('rejects tier totals other than 10000 basis points', async () => {
+  it('accepts tier totals above 10000 basis points for admin-configured activities', async () => {
     const { tx, service } = buildPrisma();
 
-    await expect(service.create({
+    await service.create({
       ...createDto,
       tiers: [
         { sequence: 1, basisPoints: 1000 },
         { sequence: 2, basisPoints: 2000 },
         { sequence: 3, basisPoints: 8000 },
       ],
-    } as any)).rejects.toBeInstanceOf(BadRequestException);
-    expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
+    } as any);
+
+    expect(tx.groupBuyActivity.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        tiers: expect.objectContaining({
+          create: expect.arrayContaining([
+            expect.objectContaining({ sequence: 3, basisPoints: 8000 }),
+          ]),
+        }),
+      }),
+    }));
   });
 
   it('updates activity price and tiers without mutating existing instances', async () => {

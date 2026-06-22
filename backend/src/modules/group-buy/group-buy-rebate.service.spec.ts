@@ -43,7 +43,11 @@ describe('GroupBuyRebateService', () => {
       groupBuyReferral: {
         findUnique: jest.fn().mockResolvedValue(buildReferral(overrides.referral)),
         findFirst: jest.fn().mockResolvedValue(buildReferral(overrides.referral)),
-        count: jest.fn().mockResolvedValue(overrides.validCount ?? 0),
+        count: jest.fn().mockImplementation((args) => {
+          if (args?.where?.status === 'VALID') return Promise.resolve(overrides.validCount ?? 0);
+          if (args?.where?.status === 'CANDIDATE') return Promise.resolve(overrides.pendingCount ?? 0);
+          return Promise.resolve(overrides.validCount ?? 0);
+        }),
         update: jest.fn().mockResolvedValue({ id: 'referral_1' }),
       },
       groupBuyRebateAccount: {
@@ -136,7 +140,10 @@ describe('GroupBuyRebateService', () => {
     }));
     expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'instance_1' },
-      data: { validReferralCount: { increment: 1 } },
+      data: {
+        validReferralCount: { increment: 1 },
+        candidateCount: 0,
+      },
     }));
     expect(tx.groupBuyCode.update).not.toHaveBeenCalled();
   });
@@ -246,7 +253,10 @@ describe('GroupBuyRebateService', () => {
     expect(result.status).toBe('RELEASED');
     expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'instance_1' },
-      data: { validReferralCount: { increment: 1 } },
+      data: {
+        validReferralCount: { increment: 1 },
+        candidateCount: 0,
+      },
     }));
     expect(tx.groupBuyInstance.update).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'COMPLETED' }),

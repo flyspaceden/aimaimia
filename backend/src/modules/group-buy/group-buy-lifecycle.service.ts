@@ -1,5 +1,6 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { OrderStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { generateGroupBuyCode } from './group-buy-code.util';
@@ -7,6 +8,8 @@ import { GroupBuyRebateService } from './group-buy-rebate.service';
 
 @Injectable()
 export class GroupBuyLifecycleService {
+  private readonly logger = new Logger(GroupBuyLifecycleService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly rebateService: GroupBuyRebateService,
@@ -91,6 +94,67 @@ export class GroupBuyLifecycleService {
 
       return { status: 'ACTIVATED', code };
     }, this.serializableTransactionOptions);
+  }
+
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async processMaturedOrders(now = new Date(), limit = 200) {
+    const maturedOrInvalidOrderWhere: Prisma.OrderWhereInput = {
+      OR: [
+        {
+          status: OrderStatus.RECEIVED,
+          returnWindowExpiresAt: { lte: now },
+        },
+        { status: { in: [OrderStatus.REFUNDED, OrderStatus.CANCELED] } },
+        { afterSaleRequests: { some: {} } },
+        { refunds: { some: {} } },
+      ],
+    };
+
+    const [initiatorInstances, candidateReferrals] = await Promise.all([
+      this.prisma.groupBuyInstance.findMany({
+        where: {
+          status: 'QUALIFICATION_PENDING',
+          initiatorOrder: { is: maturedOrInvalidOrderWhere },
+        },
+        select: { initiatorOrderId: true },
+        orderBy: { updatedAt: 'asc' },
+        take: limit,
+      }),
+      this.prisma.groupBuyReferral.findMany({
+        where: {
+          status: 'CANDIDATE',
+          referredOrder: { is: maturedOrInvalidOrderWhere },
+        },
+        select: { referredOrderId: true },
+        orderBy: { createdAt: 'asc' },
+        take: limit,
+      }),
+    ]);
+
+    for (const instance of initiatorInstances) {
+      try {
+        await this.evaluateInitiatorOrder(instance.initiatorOrderId, now);
+      } catch (err: any) {
+        this.logger.warn(
+          `团购发起资格补偿评估失败: orderId=${instance.initiatorOrderId}; error=${err?.message ?? err}`,
+        );
+      }
+    }
+
+    for (const referral of candidateReferrals) {
+      try {
+        await this.rebateService.releaseReferralByOrderIfValid(referral.referredOrderId, now);
+      } catch (err: any) {
+        this.logger.warn(
+          `团购推荐订单补偿评估失败: orderId=${referral.referredOrderId}; error=${err?.message ?? err}`,
+        );
+      }
+    }
+
+    return {
+      initiatorScanned: initiatorInstances.length,
+      referralScanned: candidateReferrals.length,
+    };
   }
 
   async abandonCurrent(userId: string, now = new Date()) {

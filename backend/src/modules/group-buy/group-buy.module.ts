@@ -8,11 +8,13 @@ import { GroupBuyRebateDeductionService } from './group-buy-rebate-deduction.ser
 import { GroupBuyRebateService } from './group-buy-rebate.service';
 import { GroupBuyService } from './group-buy.service';
 import { BonusModule } from '../bonus/bonus.module';
+import { ShippingRuleModule } from '../admin/shipping-rule/shipping-rule.module';
+import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.service';
 import { AlipayService } from '../payment/alipay.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
 
 @Module({
-  imports: [BonusModule],
+  imports: [BonusModule, ShippingRuleModule],
   controllers: [GroupBuyController],
   providers: [
     GroupBuyService,
@@ -43,6 +45,11 @@ export class GroupBuyModule implements OnModuleInit {
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {
       this.checkoutService.setWechatPayService(wechatPayService);
+    }
+
+    const shippingRuleService = this.moduleRef.get(ShippingRuleService, { strict: false });
+    if (shippingRuleService) {
+      this.checkoutService.setShippingRuleService(shippingRuleService);
     }
   }
 }
