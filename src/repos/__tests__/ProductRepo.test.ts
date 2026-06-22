@@ -22,6 +22,75 @@ describe('ProductRepo normalization', () => {
     jest.clearAllMocks();
   });
 
+  test('normalizes remote list payloads and preserves bundle metadata', async () => {
+    (ApiClient.get as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: 'bundle-list-1',
+            title: '远端组合列表商品',
+            price: 188,
+            imageUrl: 'https://example.com/list-bundle.png',
+            unit: '盒',
+            origin: '测试产地',
+            tags: ['组合'],
+            type: 'BUNDLE',
+            bundleAvailableStock: 6,
+            bundleTotalWeightGram: 1800,
+            bundleItems: [
+              {
+                skuId: 'bundle-item-sku-1',
+                productId: 'child-list-1',
+                productTitle: '组合子商品 A',
+                skuTitle: '默认规格',
+                quantity: 3,
+                imageUrl: 'https://example.com/list-item-1.png',
+              },
+            ],
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 8,
+      },
+    });
+
+    const result = await ProductRepo.list();
+
+    expect(ApiClient.get).toHaveBeenCalledWith('/products', {
+      page: 1,
+      pageSize: 8,
+      categoryId: undefined,
+      keyword: undefined,
+      preferRecommended: undefined,
+      constraints: undefined,
+      maxPrice: undefined,
+      recommendThemes: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.items).toEqual([
+      expect.objectContaining({
+        id: 'bundle-list-1',
+        type: 'BUNDLE',
+        image: 'https://example.com/list-bundle.png',
+        bundleAvailableStock: 6,
+        bundleTotalWeightGram: 1800,
+        bundleItems: [
+          {
+            skuId: 'bundle-item-sku-1',
+            productId: 'child-list-1',
+            productTitle: '组合子商品 A',
+            skuTitle: '默认规格',
+            quantity: 3,
+            image: 'https://example.com/list-item-1.png',
+          },
+        ],
+      }),
+    ]);
+  });
+
   test('normalizes remote legacy payloads with missing type and imageUrl fields', async () => {
     (ApiClient.get as jest.Mock).mockResolvedValue({
       ok: true,

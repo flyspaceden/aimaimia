@@ -1,11 +1,11 @@
 /**
  * 买家 App 单元测试配置（轻量版）
  *
- * 仅覆盖 src/utils/ 下的纯 TS 工具测试。
+ * 覆盖 src 目录内 __tests__ 子目录下的轻量纯 TS 单元测试。
  * 不接 jest-expo / @testing-library/react-native 等 RN 完整渲染栈，
  * 因为这些会拉一大堆原生依赖且经常和 EAS prebuild 打架。
  *
- * 范围：纯函数 / 工具 / 类型守卫的 unit test。
+ * 范围：Repo 归一化、纯函数、工具、类型守卫等不依赖 RN 渲染的 unit test。
  * UI 组件测试请走真机 / @testing-library/react-native（未引入）。
  */
 module.exports = {

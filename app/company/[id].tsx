@@ -29,6 +29,7 @@ import { BookingRepo, CompanyEventRepo, CompanyRepo, FollowRepo, GroupRepo } fro
 import { useAuthStore, useCartStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 import type { AppError, CompanyEvent, CompanyProduct, CompanyProductsResponse, Group, PaymentMethod, Product } from '../../src/types';
+import { toCartProductFromCompanyCardProduct } from '../../src/utils/companyProductMappers';
 
 // 日期工具函数
 const formatDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -256,22 +257,10 @@ export default function CompanyDetailScreen() {
   }, [company?.servicePhone]);
 
   // CompanyProduct 转 Product（供 ProductCard 使用）
-  const toProduct = useCallback((item: CompanyProduct): Product => ({
-    id: item.id,
-    title: item.title,
-    price: item.price,
-    type: item.type ?? 'SIMPLE',
-    image: item.image,
-    bundleItems: item.bundleItems,
-    bundleAvailableStock: item.bundleAvailableStock,
-    bundleTotalWeightGram: item.bundleTotalWeightGram,
-    defaultSkuId: item.defaultSkuId,
-    tags: item.tags,
-    unit: item.unit,
-    origin: item.origin,
-    stock: item.stock,
-    maxPerOrder: item.maxPerOrder,
-  }), []);
+  const toProduct = useCallback(
+    (item: CompanyProduct): Product => toCartProductFromCompanyCardProduct(item),
+    [],
+  );
 
   // ---- 加载态 ----
   if (isLoading) {
