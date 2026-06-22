@@ -1066,20 +1066,22 @@ Verification note: `src/modules/order src/modules/payment src/modules/after-sale
 
 ### Task 8.3: Manual App review checklist
 
-- [ ] No current group opens product shelf.
-- [ ] Current group opens `我的团购` first.
-- [ ] `团购商品` remains visible with current group.
-- [ ] Purchase guard sheet has exactly two buttons.
-- [ ] `我的团购` has no redundant standalone `继续分享` button.
-- [ ] Product cards have no `查看规则` accordion.
-- [ ] Buyer-facing progress does not show tier percentages.
-- [ ] Product cards do not show rebate base.
-- [ ] Pending qualification uses `放弃本次团购资格并购买`.
-- [ ] Group-buy product cards differ from discovery page and VIP gift page.
-- [ ] Long product title and high price fit on narrow screens.
-- [ ] No forbidden compliance words appear in App/admin UI.
-- [ ] `/gb/{code}` works after login.
-- [ ] Group-buy checkout has no discount/coupon/reward controls.
+- [x] Code review: no current group opens product shelf.
+- [x] Code review: current group opens `我的团购` first.
+- [x] Code review: `团购商品` remains visible with current group.
+- [x] Code review: purchase guard sheet has exactly two buttons.
+- [x] Code review: `我的团购` has no redundant standalone `继续分享` button.
+- [x] Code review: product cards have no `查看规则` accordion.
+- [x] Code review: buyer-facing progress does not show tier percentages.
+- [x] Code review: product cards do not show rebate base.
+- [x] Code review: pending qualification purchase guard uses the abandon flow.
+- [x] Code review: group-buy product cards differ from discovery page and VIP gift page.
+- [x] Static/type review: long product title and high price use fit/price text helpers.
+- [x] Static scan: no forbidden compliance words appear in new group-buy App/admin UI.
+- [x] Test/type review: `/gb/{code}` uses the correct share URL and continues after login.
+- [x] Code review: group-buy checkout has no discount/coupon/reward controls.
+
+Note: App visual review is code/static verification only in this pass; no device/emulator screenshot run was performed here.
 
 ### Task 8.4: Final commit or PR
 

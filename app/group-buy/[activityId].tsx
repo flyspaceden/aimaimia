@@ -130,6 +130,25 @@ export default function GroupBuyActivityDetailScreen() {
     navigateToCheckout(activity);
   };
 
+  const handleAuthSuccess = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
+    if (!activity) return;
+
+    const latestCurrent = await GroupBuyRepo.getCurrent();
+    if (!latestCurrent.ok) {
+      show({ message: latestCurrent.error.displayMessage ?? '团购状态加载失败，请重试', type: 'error' });
+      return;
+    }
+
+    queryClient.setQueryData(['group-buy-current'], latestCurrent);
+    if (latestCurrent.data.occupiesSlot) {
+      setGuardOpen(true);
+      return;
+    }
+
+    navigateToCheckout(activity);
+  };
+
   if (activityQuery.isLoading || (isLoggedIn && currentQuery.isLoading)) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
@@ -314,10 +333,7 @@ export default function GroupBuyActivityDetailScreen() {
       <AuthModal
         open={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
-        onSuccess={async () => {
-          await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
-          setTimeout(handleCheckoutPress, 180);
-        }}
+        onSuccess={handleAuthSuccess}
       />
     </Screen>
   );
