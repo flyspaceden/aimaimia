@@ -351,6 +351,9 @@ export class OrderService {
         bundleItems.map((item: any) => ({
           stock: Number(item?.sku?.stock ?? 0),
           quantity: Number(item?.quantity ?? 0),
+          skuStatus: item?.sku?.status,
+          productStatus: item?.sku?.product?.status,
+          productAuditStatus: item?.sku?.product?.auditStatus,
         })),
       ),
       totalWeightGram: bundleItems.length === 0
@@ -795,6 +798,9 @@ export class OrderService {
         bundleItems.map((bundleItem: any) => ({
           stock: Number(bundleItem?.sku?.stock ?? 0),
           quantity: Number(bundleItem?.quantity ?? 0),
+          skuStatus: bundleItem?.sku?.status,
+          productStatus: bundleItem?.sku?.product?.status,
+          productAuditStatus: bundleItem?.sku?.product?.auditStatus,
         })),
       );
     } catch {
@@ -886,6 +892,13 @@ export class OrderService {
                             sku: {
                               select: {
                                 stock: true,
+                                status: true,
+                                product: {
+                                  select: {
+                                    status: true,
+                                    auditStatus: true,
+                                  },
+                                },
                               },
                             },
                           },
@@ -1123,7 +1136,14 @@ export class OrderService {
                   select: {
                     id: true,
                     stock: true,
+                    status: true,
                     weightGram: true,
+                    product: {
+                      select: {
+                        status: true,
+                        auditStatus: true,
+                      },
+                    },
                   },
                 },
               },
@@ -1151,7 +1171,14 @@ export class OrderService {
                     select: {
                       id: true,
                       stock: true,
+                      status: true,
                       weightGram: true,
+                      product: {
+                        select: {
+                          status: true,
+                          auditStatus: true,
+                        },
+                      },
                     },
                   },
                 },

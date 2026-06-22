@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Prisma, ProductType, ReturnPolicy } from '@prisma/client';
+import { Prisma, ProductAuditStatus, ProductStatus, ProductType, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductBundleService } from '../../product/product-bundle.service';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
@@ -48,6 +48,45 @@ export class AdminProductsService {
     }
   }
 
+  private async assertBundleHasExactlyOneSellingSku(tx: any, productId: string) {
+    const activeSellingSkuCount = await tx.productSKU.count({
+      where: { productId, status: 'ACTIVE' },
+    });
+    if (activeSellingSkuCount !== 1) {
+      throw new BadRequestException('组合商品必须且只能有一个销售规格');
+    }
+  }
+
+  private async assertPersistedBundleReadyForSale(
+    tx: any,
+    product: { id: string; companyId: string },
+  ) {
+    await this.assertBundleHasExactlyOneSellingSku(tx, product.id);
+
+    const persistedBundleItems = await tx.productBundleItem.findMany({
+      where: { bundleProductId: product.id },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        skuId: true,
+        quantity: true,
+        sortOrder: true,
+      },
+    });
+    if (persistedBundleItems.length === 0) {
+      throw new BadRequestException('组合商品至少需要一个组成规格');
+    }
+
+    await this.productBundleService.validateSellerBundleItems(
+      tx as any,
+      product.companyId,
+      persistedBundleItems.map((item: any) => ({
+        skuId: item.skuId,
+        quantity: item.quantity,
+        sortOrder: item.sortOrder ?? undefined,
+      })),
+    );
+  }
+
   private decorateProductForAdmin<T extends Record<string, any>>(product: T): T & {
     bundleReferenceTotal: number | null;
     bundleAvailableStock: number | null;
@@ -76,6 +115,9 @@ export class AdminProductsService {
           bundleItems.map((item: any) => ({
             stock: item.sku?.stock ?? 0,
             quantity: item.quantity,
+            skuStatus: item.sku?.status,
+            productStatus: item.sku?.product?.status,
+            productAuditStatus: item.sku?.product?.auditStatus,
           })),
         );
 
@@ -230,8 +272,20 @@ export class AdminProductsService {
       ...rest,
       ...(returnPolicy !== undefined ? { returnPolicy: returnPolicy as ReturnPolicy } : {}),
     };
+    const shouldValidateBundleForSale =
+      product.type === ProductType.BUNDLE &&
+      (dto.status === ProductStatus.ACTIVE || dto.auditStatus === ProductAuditStatus.APPROVED);
+    const nextStatus = (dto.status ?? product.status) as ProductStatus;
+    const nextAuditStatus = (dto.auditStatus ?? product.auditStatus) as ProductAuditStatus;
 
     return this.prisma.$transaction(async (tx) => {
+      if (shouldValidateBundleForSale) {
+        if (nextStatus === ProductStatus.ACTIVE && nextAuditStatus !== ProductAuditStatus.APPROVED) {
+          throw new BadRequestException('组合商品审核通过后才能上架');
+        }
+        await this.assertPersistedBundleReadyForSale(tx, product);
+      }
+
       const updated = await tx.product.update({
         where: { id },
         data: productData,
@@ -312,6 +366,19 @@ export class AdminProductsService {
   async toggleStatus(id: string, status: 'ACTIVE' | 'INACTIVE') {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
+
+    if (product.type === ProductType.BUNDLE && status === ProductStatus.ACTIVE) {
+      if (product.auditStatus !== ProductAuditStatus.APPROVED) {
+        throw new BadRequestException('组合商品审核通过后才能上架');
+      }
+      return this.prisma.$transaction(async (tx) => {
+        await this.assertPersistedBundleReadyForSale(tx, product);
+        return tx.product.update({
+          where: { id },
+          data: { status },
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }
 
     return this.prisma.product.update({
       where: { id },
@@ -401,28 +468,7 @@ export class AdminProductsService {
 
     if (auditStatus === 'APPROVED' && product.type === ProductType.BUNDLE) {
       return this.prisma.$transaction(async (tx) => {
-        const persistedBundleItems = await tx.productBundleItem.findMany({
-          where: { bundleProductId: id },
-          orderBy: { sortOrder: 'asc' },
-          select: {
-            skuId: true,
-            quantity: true,
-            sortOrder: true,
-          },
-        });
-        if (persistedBundleItems.length === 0) {
-          throw new BadRequestException('组合商品至少需要一个组成规格');
-        }
-
-        await this.productBundleService.validateSellerBundleItems(
-          tx as any,
-          product.companyId,
-          persistedBundleItems.map((item) => ({
-            skuId: item.skuId,
-            quantity: item.quantity,
-            sortOrder: item.sortOrder ?? undefined,
-          })),
-        );
+        await this.assertPersistedBundleReadyForSale(tx, product);
 
         return tx.product.update({
           where: { id },
@@ -448,6 +494,9 @@ export class AdminProductsService {
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
     for (const sku of dto.skus) {
       this.assertSkuWeightGram(sku.weightGram);
+    }
+    if (product.type === ProductType.BUNDLE && dto.skus.length !== 1) {
+      throw new BadRequestException('组合商品必须且只能有一个销售规格');
     }
 
     return this.prisma.$transaction(
@@ -497,6 +546,9 @@ export class AdminProductsService {
           where: { productId, status: 'ACTIVE' },
           select: { price: true },
         });
+        if (product.type === ProductType.BUNDLE && allActiveSkus.length !== 1) {
+          throw new BadRequestException('组合商品必须且只能有一个销售规格');
+        }
         if (allActiveSkus.length > 0) {
           const minPrice = Math.min(...allActiveSkus.map((s) => s.price));
           await tx.product.update({

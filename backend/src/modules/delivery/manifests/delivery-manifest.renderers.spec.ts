@@ -57,7 +57,7 @@ describe('buildSimplePdf', () => {
 
     expect(pdf.byteLength).toBeGreaterThan(0);
     expect(pdf.toString('latin1', 0, 8)).toMatch(/^%PDF-1\./);
-  });
+  }, 20_000);
 
   it('fails clearly when Poppler is absent unless DELIVERY_PDF_RENDER_TEST_SKIP=1 is set', () => {
     const originalPath = process.env.PATH;

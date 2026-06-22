@@ -633,6 +633,26 @@ describe('SellerProductsService SKU weight validation', () => {
     ]);
   });
 
+  it('create rejects BUNDLE product with multiple selling SKUs', async () => {
+    const { service, tx } = buildBundleCreateService();
+
+    await expect(service.create('company_1', {
+      title: '水果礼盒',
+      description: '组合商品描述需要足够长，确保通过校验。',
+      categoryId: 'category_1',
+      origin: { text: '山东烟台' },
+      productType: 'BUNDLE',
+      skus: [
+        { specName: '礼盒 A', cost: 20, stock: 99, weightGram: 1 },
+        { specName: '礼盒 B', cost: 30, stock: 99, weightGram: 1 },
+      ],
+      bundleItems: [
+        { skuId: 'component_sku_1', quantity: 1 },
+      ],
+    } as any)).rejects.toThrow('组合商品只能设置一个销售规格');
+    expect(tx.product.create).not.toHaveBeenCalled();
+  });
+
   it('create wraps bundle validation errors onto bundleItems field', async () => {
     const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
     const { service } = buildBundleCreateService(bundleValidationRows(), productBundleService);

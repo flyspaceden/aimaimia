@@ -120,12 +120,15 @@ export class CartService {
             select: {
               id: true,
               title: true,
+              status: true,
               stock: true,
               weightGram: true,
               product: {
                 select: {
                   id: true,
                   title: true,
+                  status: true,
+                  auditStatus: true,
                   media: {
                     where: { type: 'IMAGE' as const },
                     orderBy: { sortOrder: 'asc' as const },
@@ -175,6 +178,9 @@ export class CartService {
       bundleItems.map((item: any) => ({
         stock: Number(item.sku?.stock ?? 0),
         quantity: Number(item.quantity ?? 0),
+        skuStatus: item.sku?.status,
+        productStatus: item.sku?.product?.status,
+        productAuditStatus: item.sku?.product?.auditStatus,
       })),
     );
   }
@@ -200,18 +206,10 @@ export class CartService {
   private mapBundleItems(bundleItems: any[] = []) {
     return bundleItems.map((item: any) => ({
       skuId: item.skuId,
-      quantity: item.quantity,
-      sku: {
-        id: item.sku?.id ?? '',
-        title: item.sku?.title ?? '',
-        stock: item.sku?.stock ?? 0,
-        weightGram: item.sku?.weightGram ?? 0,
-        product: {
-          id: item.sku?.product?.id ?? '',
-          title: item.sku?.product?.title ?? '',
-          image: item.sku?.product?.media?.[0]?.url ?? null,
-        },
-      },
+      productTitle: item.sku?.product?.title ?? '',
+      skuTitle: item.sku?.title ?? '',
+      quantityPerBundle: item.quantity,
+      image: item.sku?.product?.media?.[0]?.url ?? '',
     }));
   }
 

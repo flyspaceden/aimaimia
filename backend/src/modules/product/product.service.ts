@@ -44,11 +44,14 @@ type ListableProduct = {
       id: string;
       title?: string | null;
       price?: number | null;
+      status?: string | null;
       stock?: number | null;
       weightGram?: number | null;
       product?: {
         id: string;
         title?: string | null;
+        status?: string | null;
+        auditStatus?: string | null;
         media?: Array<{ url: string }>;
       } | null;
     } | null;
@@ -172,12 +175,15 @@ export class ProductService {
               id: true,
               title: true,
               price: true,
+              status: true,
               stock: true,
               weightGram: true,
               product: {
                 select: {
                   id: true,
                   title: true,
+                  status: true,
+                  auditStatus: true,
                   media: {
                     where: { type: 'IMAGE' as const },
                     orderBy: { sortOrder: 'asc' as const },
@@ -372,12 +378,15 @@ export class ProductService {
                 id: true,
                 title: true,
                 price: true,
+                status: true,
                 stock: true,
                 weightGram: true,
                 product: {
                   select: {
                     id: true,
                     title: true,
+                    status: true,
+                    auditStatus: true,
                     media: {
                       where: { type: 'IMAGE' as const },
                       orderBy: { sortOrder: 'asc' as const },
@@ -1098,6 +1107,9 @@ export class ProductService {
       bundleItems.map((item: any) => ({
         stock: item.sku?.stock ?? 0,
         quantity: item.quantity,
+        skuStatus: item.sku?.status,
+        productStatus: item.sku?.product?.status,
+        productAuditStatus: item.sku?.product?.auditStatus,
       })),
     );
 

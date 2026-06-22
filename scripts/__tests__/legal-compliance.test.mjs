@@ -10,6 +10,19 @@ const websitePrivacyPath = 'website/src/content/legal/privacyPolicy.ts';
 const appTermsPath = 'src/content/legal/termsOfService.ts';
 const websiteTermsPath = 'website/src/content/legal/termsOfService.ts';
 
+function ensureWebsiteStaticLegalPages() {
+  if (
+    existsSync('website/public/privacy/index.html') &&
+    existsSync('website/public/privacy.html') &&
+    existsSync('website/public/terms/index.html') &&
+    existsSync('website/public/terms.html')
+  ) {
+    return;
+  }
+
+  execFileSync('node', ['website/scripts/build-legal-static.mjs'], { encoding: 'utf8' });
+}
+
 test('app and website legal source files stay byte-for-byte aligned', () => {
   assert.equal(read(appPrivacyPath), read(websitePrivacyPath));
   assert.equal(read(appTermsPath), read(websiteTermsPath));
@@ -57,6 +70,8 @@ test('privacy policy discloses OPPO-required payment SDK metadata', () => {
 });
 
 test('privacy policy does not disclose unused map provider services', () => {
+  execFileSync('node', ['website/scripts/build-legal-static.mjs'], { encoding: 'utf8' });
+
   const appPrivacy = read(appPrivacyPath);
   const websitePrivacy = read(websitePrivacyPath);
   const staticPrivacy = read('website/public/privacy.html');
@@ -88,7 +103,7 @@ test('website build generates crawler-readable static legal pages', () => {
   assert.equal(existsSync('website/scripts/build-legal-static.mjs'), true);
   assert.match(websitePackageJson.scripts.prebuild, /build-legal-static\.mjs/);
 
-  execFileSync('node', ['website/scripts/build-legal-static.mjs'], { encoding: 'utf8' });
+  ensureWebsiteStaticLegalPages();
 
   const staticPrivacy = read('website/public/privacy/index.html');
   const staticPrivacyAlias = read('website/public/privacy.html');

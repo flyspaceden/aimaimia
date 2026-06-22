@@ -14,6 +14,7 @@ import { showToast } from '../components/feedback';
 import { CartMergeResultItem, Product, ServerCart, ServerCartItem } from '../types';
 import { CartRepo } from '../repos/CartRepo';
 import { useAuthStore } from './useAuthStore';
+import { buildOptimisticCartItem, mapServerCartItemToLocal } from './cartItemMapping';
 import type { ProductType } from '../types/domain/Product';
 import type { BundleSnapshotItem } from '../types/domain/BundleSnapshot';
 
@@ -108,31 +109,6 @@ const itemKey = (item: CartItem) => cartKey(item.productId, item.skuId);
 
 export const isSelectableCartItem = (item: CartItem) => !item.unavailableReason && !item.isLocked;
 
-// 将服务端项转为本地 CartItem
-const serverToLocal = (si: ServerCartItem): CartItem => ({
-  id: si.id,
-  productId: si.product.id,
-  skuId: si.skuId,
-  productType: si.productType,
-  bundleItems: si.bundleItems,
-  categoryId: si.product.categoryId ?? undefined,
-  companyId: si.product.companyId ?? undefined,
-  title: si.product.title,
-  price: si.product.price,
-  image: si.product.image || '',
-  quantity: si.quantity,
-  isPrize: si.isPrize,
-  isLocked: si.isLocked,
-  expiresAt: si.expiresAt,
-  threshold: si.threshold,
-  prizeRecordId: si.prizeRecordId,
-  prizeType: si.prizeType,
-  originalPrice: si.product.originalPrice,
-  maxPerOrder: si.product.maxPerOrder ?? null,
-  unavailableReason: si.unavailableReason ?? null,
-  stock: si.sku?.stock ?? si.product.stock,
-});
-
 type CartState = {
   items: CartItem[];
   selectedIds: Set<string>;
@@ -197,7 +173,7 @@ export const useCartStore = create<CartState>()(
       replaceFromServer: (cart, forceSelectedSkuIds = []) => {
         const forceSelected = new Set(forceSelectedSkuIds);
         const entries = cart.items.map((source) => {
-          const local = serverToLocal(source);
+          const local = mapServerCartItemToLocal(source) as CartItem;
           return { source, local };
         });
         set((state) => {
@@ -231,7 +207,7 @@ export const useCartStore = create<CartState>()(
         try {
           const result = await CartRepo.get();
           if (result.ok) {
-            const serverItems = result.data.items.map(serverToLocal);
+            const serverItems = result.data.items.map((item) => mapServerCartItemToLocal(item) as CartItem);
             set((state) => {
               const oldKeys = new Set(state.items.map(itemKey));
               const validKeys = new Set(serverItems.map(itemKey));
@@ -297,17 +273,7 @@ export const useCartStore = create<CartState>()(
           return {
             items: [
               ...state.items,
-              {
-                productId: product.id,
-                skuId,
-                categoryId: product.categoryId,
-                companyId: product.companyId,
-                title: product.title,
-                price: skuPrice ?? product.price,
-                image: product.image,
-                quantity: Math.max(1, quantity),
-                maxPerOrder: product.maxPerOrder ?? null,
-              },
+              buildOptimisticCartItem({ product, quantity, skuId, skuPrice }) as CartItem,
             ],
             selectedIds: newSelectedIds,
           };
@@ -324,7 +290,7 @@ export const useCartStore = create<CartState>()(
           }).then((result) => {
             if (result.ok) {
               // 用服务端响应覆盖本地数据
-              const serverItems = result.data.items.map(serverToLocal);
+              const serverItems = result.data.items.map((item) => mapServerCartItemToLocal(item) as CartItem);
               set((state) => {
                 const validKeys = new Set(serverItems.map(itemKey));
                 const newSelectedIds = new Set<string>();
@@ -397,7 +363,7 @@ export const useCartStore = create<CartState>()(
           CartRepo.removePrizeItem(cartItemId).then((result) => {
             if (result.ok) {
               // 用服务端响应覆盖本地数据
-              const serverItems = result.data.items.map(serverToLocal);
+              const serverItems = result.data.items.map((item) => mapServerCartItemToLocal(item) as CartItem);
               set((state) => {
                 const validKeys = new Set(serverItems.map(itemKey));
                 const newSelectedIds = new Set<string>();
@@ -507,7 +473,7 @@ export const useCartStore = create<CartState>()(
         }));
         const result = await CartRepo.mergeItems(mergePayload);
         if (result.ok) {
-          const serverItems = result.data.items.map(serverToLocal);
+          const serverItems = result.data.items.map((item) => mapServerCartItemToLocal(item) as CartItem);
           set({
             items: serverItems,
             selectedIds: new Set(serverItems.filter(isSelectableCartItem).map(itemKey)),

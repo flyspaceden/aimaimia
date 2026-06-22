@@ -8,7 +8,7 @@ import { AdminProductsService } from './admin-products.service';
 import { SkuUpdateItem, UpdateProductSkusDto } from './dto/update-sku.dto';
 
 describe('AdminProductsService SKU weight validation', () => {
-  const buildService = () => {
+  const buildService = (productOverrides: Record<string, any> = {}) => {
     const tx = {
       productSKU: {
         findMany: jest
@@ -28,6 +28,10 @@ describe('AdminProductsService SKU weight validation', () => {
         findUnique: jest.fn().mockResolvedValue({
           id: 'product_1',
           status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          type: 'SIMPLE',
+          companyId: 'company_1',
+          ...productOverrides,
         }),
       },
       $transaction: jest.fn((fn) => fn(tx)),
@@ -168,6 +172,32 @@ describe('AdminProductsService SKU weight validation', () => {
       data: expect.objectContaining({ maxPerOrder: null }),
     }));
   });
+
+  it('rejects multiple selling SKU updates for BUNDLE products before writing changes', async () => {
+    const { service, prisma, tx } = buildService({ type: 'BUNDLE' });
+
+    await expect(service.updateSkus('product_1', {
+      skus: [
+        {
+          id: 'sku_1',
+          specText: '默认规格',
+          price: 18,
+          stock: 5,
+          weightGram: 650,
+        },
+        {
+          specText: '新增规格',
+          price: 28,
+          stock: 3,
+          weightGram: 900,
+        },
+      ],
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(tx.productSKU.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('AdminProductsService bundle review reads and audit', () => {
@@ -271,6 +301,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
         ]),
       },
       productSKU: {
+        count: jest.fn().mockResolvedValue(1),
         findMany: jest.fn().mockResolvedValue(options.componentRows ?? [
           {
             id: 'component_sku_1',
@@ -493,6 +524,63 @@ describe('AdminProductsService bundle review reads and audit', () => {
     });
 
     await expect(service.audit('bundle_1', 'APPROVED')).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects generic BUNDLE update approval when persisted components are invalid', async () => {
+    const { service, tx, prisma } = buildBundleReviewService({
+      componentRows: [
+        {
+          id: 'component_sku_1',
+          title: '苹果 5斤',
+          weightGram: 500,
+          status: 'INACTIVE',
+          product: {
+            id: 'component_product_1',
+            title: '烟台苹果',
+            companyId: 'company_1',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'SIMPLE',
+          },
+        },
+      ],
+    });
+
+    await expect(service.update('bundle_1', {
+      auditStatus: 'APPROVED',
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects generic BUNDLE activation when persisted components are invalid', async () => {
+    const { service, tx, prisma } = buildBundleReviewService({
+      detailProduct: createBundleProduct({ auditStatus: 'APPROVED' }),
+      componentRows: [
+        {
+          id: 'component_sku_1',
+          title: '苹果 5斤',
+          weightGram: 500,
+          status: 'ACTIVE',
+          product: {
+            id: 'component_product_1',
+            title: '烟台苹果',
+            companyId: 'company_1',
+            status: 'INACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'SIMPLE',
+          },
+        },
+      ],
+    });
+
+    await expect(service.toggleStatus('bundle_1', 'ACTIVE')).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
     expect(tx.product.update).not.toHaveBeenCalled();
   });
 

@@ -255,6 +255,24 @@ describe('ProductBundleService', () => {
     ])).toBe(3);
   });
 
+  it('treats inactive component SKU as zero bundle availability', () => {
+    expect(service.calculateAvailability([
+      { stock: 11, quantity: 2, skuStatus: 'ACTIVE' },
+      { stock: 10, quantity: 1, skuStatus: 'INACTIVE' },
+    ])).toBe(0);
+  });
+
+  it('treats inactive or unapproved component product as zero bundle availability', () => {
+    expect(service.calculateAvailability([
+      { stock: 11, quantity: 2, productStatus: 'ACTIVE', productAuditStatus: 'APPROVED' },
+      { stock: 10, quantity: 1, productStatus: 'INACTIVE', productAuditStatus: 'APPROVED' },
+    ])).toBe(0);
+    expect(service.calculateAvailability([
+      { stock: 11, quantity: 2, productStatus: 'ACTIVE', productAuditStatus: 'APPROVED' },
+      { stock: 10, quantity: 1, productStatus: 'ACTIVE', productAuditStatus: 'PENDING' },
+    ])).toBe(0);
+  });
+
   it('clamps negative availability to 0', () => {
     expect(service.calculateAvailability([
       { stock: -1, quantity: 2 },

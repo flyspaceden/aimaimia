@@ -12,10 +12,12 @@ export interface ServerCartItem {
   product: {
     id: string;
     title: string;
+    type?: ProductType;
     image: string | null;
     price: number;
     categoryId?: string | null;
     companyId?: string | null;
+    bundleItems?: BundleSnapshotItem[];
     /** 奖品项的 SKU 原价（用于划线展示），普通商品项为 null */
     originalPrice: number | null;
     /** @deprecated compatibility mirror of sku.stock; use item.sku.stock for SKU-level stock */

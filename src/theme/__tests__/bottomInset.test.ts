@@ -95,4 +95,6 @@ function run() {
   );
 }
 
-run();
+it('calculates stable bottom inset across safe-area cases', () => {
+  run();
+});

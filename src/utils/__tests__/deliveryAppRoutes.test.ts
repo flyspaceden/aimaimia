@@ -1,5 +1,12 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+declare const require: (moduleName: string) => any;
+declare const __dirname: string;
+
+const { readFileSync } = require('fs') as {
+  readFileSync: (path: string, encoding: string) => string;
+};
+const { join } = require('path') as {
+  join: (...paths: string[]) => string;
+};
 
 const root = join(__dirname, '../../..');
 

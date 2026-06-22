@@ -1,9 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
 import { UserStatus } from '@prisma/client';
 
-// CaptchaService 顶层 import 了 ESM-only 的 @paralleldrive/cuid2 / svg-captcha，
-// ts-jest（commonjs）无法转译。本单测只手工注入 captcha mock，不需要真实实现，
-// 故在 import AuthService 之前 stub 掉该模块，切断 ESM 依赖链。
+// 本单测只手工注入 captcha mock，不需要真实验证码实现，
+// 故在 import AuthService 之前 stub 掉该模块，避免加载验证码图片依赖。
 jest.mock('../captcha/captcha.service', () => ({ CaptchaService: class {} }));
 
 // eslint-disable-next-line import/first

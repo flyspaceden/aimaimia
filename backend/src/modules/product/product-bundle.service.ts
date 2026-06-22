@@ -3,6 +3,13 @@ import { ProductAuditStatus, ProductStatus, ProductType, SkuStatus } from '@pris
 
 export type BundleItemInput = { skuId: string; quantity: number; sortOrder?: number };
 export type NormalizedBundleItem = { skuId: string; quantity: number; sortOrder: number };
+export type BundleAvailabilityInput = {
+  stock: number;
+  quantity: number;
+  skuStatus?: SkuStatus | `${SkuStatus}` | string | null;
+  productStatus?: ProductStatus | `${ProductStatus}` | string | null;
+  productAuditStatus?: ProductAuditStatus | `${ProductAuditStatus}` | string | null;
+};
 export type BundleSnapshotItem = {
   skuId: string;
   productId: string;
@@ -88,7 +95,28 @@ export class ProductBundleService {
     return Array.from(merged.values());
   }
 
-  calculateAvailability(items: Array<{ stock: number; quantity: number }>): number {
+  private isSellableAvailabilityInput(item: BundleAvailabilityInput): boolean {
+    if (item.skuStatus !== undefined && item.skuStatus !== null && item.skuStatus !== SkuStatus.ACTIVE) {
+      return false;
+    }
+    if (
+      item.productStatus !== undefined &&
+      item.productStatus !== null &&
+      item.productStatus !== ProductStatus.ACTIVE
+    ) {
+      return false;
+    }
+    if (
+      item.productAuditStatus !== undefined &&
+      item.productAuditStatus !== null &&
+      item.productAuditStatus !== ProductAuditStatus.APPROVED
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  calculateAvailability(items: BundleAvailabilityInput[]): number {
     if (items.length === 0) return 0;
 
     return Math.max(0, items.reduce((minAvailability, item) => {
@@ -96,7 +124,8 @@ export class ProductBundleService {
         throw new BadRequestException('组合商品组件数量必须大于 0');
       }
 
-      const availability = Math.floor(item.stock / item.quantity);
+      const stock = this.isSellableAvailabilityInput(item) ? item.stock : 0;
+      const availability = Math.floor(stock / item.quantity);
       return Math.min(minAvailability, availability);
     }, Number.POSITIVE_INFINITY));
   }

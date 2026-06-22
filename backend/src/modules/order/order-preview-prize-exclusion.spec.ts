@@ -336,6 +336,96 @@ describe('OrderService.previewOrder shipping weight', () => {
     );
   });
 
+  it('excludes a bundle selling sku when a component sku is inactive', async () => {
+    const bundleSku = {
+      id: 'bundle-sku',
+      productId: 'bundle-product',
+      title: '水果礼盒',
+      price: 66,
+      stock: 0,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1,
+      product: {
+        id: 'bundle-product',
+        type: 'BUNDLE',
+        title: '水果礼盒',
+        status: 'ACTIVE',
+        companyId: 'bundle-company',
+        company: { name: '礼盒商户' },
+        media: [{ type: 'IMAGE', url: 'https://img.example.com/bundle.jpg' }],
+        bundleItems: [
+          {
+            skuId: 'component-apple',
+            quantity: 2,
+            sortOrder: 0,
+            sku: {
+              id: 'component-apple',
+              stock: 9,
+              status: 'INACTIVE',
+              weightGram: 500,
+              product: { status: 'ACTIVE', auditStatus: 'APPROVED' },
+            },
+          },
+          {
+            skuId: 'component-orange',
+            quantity: 1,
+            sortOrder: 1,
+            sku: {
+              id: 'component-orange',
+              stock: 4,
+              status: 'ACTIVE',
+              weightGram: 300,
+              product: { status: 'ACTIVE', auditStatus: 'APPROVED' },
+            },
+          },
+        ],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([bundleSku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingFee: jest.fn().mockResolvedValue(12),
+    };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'bundle-sku', quantity: 1, cartItemId: 'ci-bundle' }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual([]);
+    expect((result as any).excludedItems).toEqual([
+      expect.objectContaining({
+        cartItemId: 'ci-bundle',
+        skuId: 'bundle-sku',
+        reason: '商品暂无库存',
+        isPrize: false,
+      }),
+    ]);
+    expect(shippingRuleService.calculateShippingFee).toHaveBeenCalledWith(
+      0,
+      '110000',
+      0,
+      undefined,
+    );
+  });
+
   it('adds bundle derived weight into mixed-cart preview shipping totals', async () => {
     const bundleSku = {
       id: 'bundle-sku',
