@@ -1,3 +1,5 @@
+import type { ProductBundleItem, ProductType } from './Product';
+
 /**
  * 域模型：企业（Company）
  *
@@ -45,6 +47,10 @@ export type Company = {
     title: string;
     price: number;
     image: string;
+    type?: ProductType;
+    bundleItems?: ProductBundleItem[];
+    bundleAvailableStock?: number | null;
+    bundleTotalWeightGram?: number | null;
     defaultSkuId?: string;
   }>;
   isFollowed?: boolean;
@@ -55,6 +61,10 @@ export type CompanyProduct = {
   title: string;
   price: number;
   image: string;
+  type?: ProductType;
+  bundleItems?: ProductBundleItem[];
+  bundleAvailableStock?: number | null;
+  bundleTotalWeightGram?: number | null;
   defaultSkuId: string;
   tags: string[];
   unit: string;

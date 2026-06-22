@@ -46,6 +46,10 @@ const normalizeBundleItems = (bundleItems: unknown): Product['bundleItems'] => {
 
 const normalizeProduct = <T extends Product | ProductDetail>(product: T): T => ({
   ...product,
+  image:
+    product.image ||
+    ((product as unknown as Record<string, unknown>).imageUrl as string | undefined) ||
+    '',
   type: product.type ?? DEFAULT_PRODUCT_TYPE,
   bundleItems: normalizeBundleItems(product.bundleItems),
   bundleAvailableStock:
