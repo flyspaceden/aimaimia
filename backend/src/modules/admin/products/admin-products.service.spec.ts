@@ -234,12 +234,30 @@ describe('AdminProductsService bundle review reads and audit', () => {
     ...overrides,
   });
 
+  const createSimpleProduct = (overrides: Partial<any> = {}) => ({
+    id: 'simple_1',
+    companyId: 'company_1',
+    status: 'ACTIVE',
+    auditStatus: 'APPROVED',
+    type: 'SIMPLE',
+    company: { id: 'company_1', name: '果园' },
+    category: { id: 'cat_1', name: '水果', returnPolicy: 'RETURNABLE', parentId: null },
+    skus: [{ id: 'simple_sku_1', price: 19.9, cost: 10, stock: 11, maxPerOrder: 2 }],
+    media: [{ url: 'https://example.com/simple.jpg' }],
+    tags: [],
+    bundleItems: [],
+    ...overrides,
+  });
+
   const buildBundleReviewService = (options: {
     listItems?: any[];
     detailProduct?: any;
     auditProduct?: any;
+    updateResult?: any;
     persistedBundleItems?: any[];
     componentRows?: any[];
+    statusGroups?: Array<{ status: string; _count: number }>;
+    auditGroups?: Array<{ auditStatus: string; _count: number }>;
   } = {}) => {
     const tx = {
       product: {
@@ -291,7 +309,21 @@ describe('AdminProductsService bundle review reads and audit', () => {
         findMany: jest.fn().mockResolvedValue(options.listItems ?? [createBundleProduct()]),
         count: jest.fn().mockResolvedValue((options.listItems ?? [createBundleProduct()]).length),
         findUnique: jest.fn().mockResolvedValue(options.detailProduct ?? createBundleProduct()),
-        update: jest.fn().mockResolvedValue({ id: 'bundle_1', auditStatus: 'APPROVED', status: 'ACTIVE' }),
+        update: jest.fn().mockResolvedValue(options.updateResult ?? { id: 'bundle_1', auditStatus: 'APPROVED', status: 'ACTIVE' }),
+        groupBy: jest
+          .fn()
+          .mockImplementation(({ by }: { by: Array<'status' | 'auditStatus'> }) => {
+            if (by.includes('status')) {
+              return Promise.resolve(options.statusGroups ?? [
+                { status: 'ACTIVE', _count: 2 },
+                { status: 'INACTIVE', _count: 1 },
+              ]);
+            }
+            return Promise.resolve(options.auditGroups ?? [
+              { auditStatus: 'APPROVED', _count: 2 },
+              { auditStatus: 'PENDING', _count: 1 },
+            ]);
+          }),
       },
       category: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -309,6 +341,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
   it('returns bundleItems on product detail for admin review', async () => {
     const { service, prisma } = buildBundleReviewService();
 
+    const result = await service.findAll();
     const product = await service.findById('bundle_1');
 
     expect(prisma.product.findUnique).toHaveBeenCalledWith(expect.objectContaining({
@@ -316,6 +349,12 @@ describe('AdminProductsService bundle review reads and audit', () => {
         bundleItems: expect.any(Object),
       }),
     }));
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({
+        bundleItems: expect.any(Object),
+      }),
+    }));
+    expect(result.items[0].bundleItems).toHaveLength(2);
     expect(product.bundleItems).toHaveLength(2);
     expect(product.bundleItems[0]).toMatchObject({
       skuId: 'component_sku_1',
@@ -325,6 +364,18 @@ describe('AdminProductsService bundle review reads and audit', () => {
         title: '苹果 5斤',
         product: { id: 'component_product_1', title: '烟台苹果' },
       },
+    });
+  });
+
+  it('returns derived bundle review fields on product detail', async () => {
+    const { service } = buildBundleReviewService();
+
+    const product = await service.findById('bundle_1');
+
+    expect(product).toMatchObject({
+      bundleReferenceTotal: 33,
+      bundleTotalWeightGram: 1300,
+      bundleAvailableStock: 4,
     });
   });
 
@@ -359,6 +410,31 @@ describe('AdminProductsService bundle review reads and audit', () => {
     });
   });
 
+  it('excludes DRAFT bundle products from stats aggregation', async () => {
+    const { service, prisma } = buildBundleReviewService({
+      statusGroups: [
+        { status: 'ACTIVE', _count: 2 },
+        { status: 'INACTIVE', _count: 1 },
+      ],
+      auditGroups: [
+        { auditStatus: 'APPROVED', _count: 2 },
+        { auditStatus: 'PENDING', _count: 1 },
+      ],
+    });
+
+    const stats = await service.getStats();
+
+    expect(prisma.product.groupBy).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      by: ['status'],
+      where: { status: { not: 'DRAFT' } },
+    }));
+    expect(prisma.product.groupBy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      by: ['auditStatus'],
+      where: { status: { not: 'DRAFT' } },
+    }));
+    expect(stats.ALL).toBe(3);
+  });
+
   it('rejects BUNDLE audit approval when persisted bundle components are missing', async () => {
     const { service, tx, prisma } = buildBundleReviewService({
       persistedBundleItems: [],
@@ -370,5 +446,81 @@ describe('AdminProductsService bundle review reads and audit', () => {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
     expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects BUNDLE audit approval when a persisted component is inactive or unapproved', async () => {
+    const { service, tx } = buildBundleReviewService({
+      componentRows: [
+        {
+          id: 'component_sku_1',
+          title: '苹果 5斤',
+          weightGram: 500,
+          status: 'INACTIVE',
+          product: {
+            id: 'component_product_1',
+            title: '烟台苹果',
+            companyId: 'company_1',
+            status: 'INACTIVE',
+            auditStatus: 'PENDING',
+            type: 'SIMPLE',
+          },
+        },
+      ],
+    });
+
+    await expect(service.audit('bundle_1', 'APPROVED')).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects BUNDLE audit approval when a persisted component is another bundle', async () => {
+    const { service, tx } = buildBundleReviewService({
+      componentRows: [
+        {
+          id: 'component_sku_1',
+          title: '礼盒组件',
+          weightGram: 500,
+          status: 'ACTIVE',
+          product: {
+            id: 'component_product_1',
+            title: '礼盒A',
+            companyId: 'company_1',
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            type: 'BUNDLE',
+          },
+        },
+      ],
+    });
+
+    await expect(service.audit('bundle_1', 'APPROVED')).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps SIMPLE review reads and audit approval behavior unchanged', async () => {
+    const simpleProduct = createSimpleProduct();
+    const { service, prisma } = buildBundleReviewService({
+      listItems: [simpleProduct],
+      detailProduct: simpleProduct,
+      auditProduct: simpleProduct,
+      updateResult: { id: 'simple_1', auditStatus: 'APPROVED', status: 'ACTIVE' },
+    });
+
+    const listResult = await service.findAll();
+    const approved = await service.audit('simple_1', 'APPROVED', '通过');
+
+    expect(listResult.items[0]).toMatchObject({
+      id: 'simple_1',
+      bundleReferenceTotal: null,
+      bundleAvailableStock: null,
+      bundleTotalWeightGram: null,
+    });
+    expect(prisma.product.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'simple_1' },
+      data: expect.objectContaining({
+        auditStatus: 'APPROVED',
+        status: 'ACTIVE',
+      }),
+    }));
+    expect(approved).toMatchObject({ id: 'simple_1', auditStatus: 'APPROVED', status: 'ACTIVE' });
   });
 });
