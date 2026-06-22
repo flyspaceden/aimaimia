@@ -123,6 +123,60 @@ describe('ProductBundleService', () => {
     )).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects inactive component SKUs by default', async () => {
+    const tx = {
+      productSKU: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sku-offline',
+            status: 'INACTIVE',
+            weightGram: 500,
+            product: {
+              id: 'product-offline',
+              companyId: 'company-self',
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              type: 'SIMPLE',
+            },
+          },
+        ]),
+      },
+    };
+
+    await expect(service.validateSellerBundleItems(
+      tx as any,
+      'company-self',
+      [{ skuId: 'sku-offline', quantity: 1 }],
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects non-positive component weights by default', async () => {
+    const tx = {
+      productSKU: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sku-zero-weight',
+            status: 'ACTIVE',
+            weightGram: 0,
+            product: {
+              id: 'product-zero-weight',
+              companyId: 'company-self',
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              type: 'SIMPLE',
+            },
+          },
+        ]),
+      },
+    };
+
+    await expect(service.validateSellerBundleItems(
+      tx as any,
+      'company-self',
+      [{ skuId: 'sku-zero-weight', quantity: 1 }],
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('allows draft-save validation to relax only product status and audit', async () => {
     const tx = {
       productSKU: {
@@ -328,6 +382,23 @@ describe('ProductBundleService', () => {
             skuId: 'sku-c',
             skuTitle: '葡萄礼盒',
             totalQuantity: 1.5,
+          },
+        ],
+      },
+    })).toThrow(BadRequestException);
+  });
+
+  it.each([0, -1, 1.5])('rejects invalid quantityPerBundle %s when totalQuantity is absent', (quantityPerBundle) => {
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity: 2,
+      companyId: 'company-self',
+      productSnapshot: {
+        bundleItems: [
+          {
+            skuId: 'sku-a',
+            skuTitle: '苹果 5kg',
+            quantityPerBundle,
           },
         ],
       },
