@@ -123,6 +123,14 @@
 
 > **注意**：平台红包与分润奖励是完全独立的系统。红包只能结算抵扣，奖励只能提现。
 
+### 2.11 团购分享回馈域（Group Buy）
+- GroupBuyActivity / GroupBuyTier（后台指定平台商品、SKU、团购价、包邮、返还档位）
+- GroupBuyInstance / GroupBuyCode（用户购买指定团购商品后，确认收货且售后期结束无退换货才生成分享码）
+- GroupBuyReferral（仅统计一级直接推荐好友购买同款商品；被推荐订单确认收货且售后期结束无退换货后才有效）
+- GroupBuyRebateAccount / GroupBuyRebateLedger（独立团购返还余额和流水，可提现、可在普通商品结算抵扣，团购商品本身现金购买）
+
+> **注意**：团购分享回馈独立于 Reward 消费积分、Coupon 平台红包、VIP 推荐码、普通/VIP 分润树；不记录二级及以上关系链。月度发起次数由 `RuleConfig.GROUP_BUY_MAX_MONTHLY_LAUNCHES` 配置，默认 4。
+
 ---
 
 ## 3. 通用字段与约束
@@ -524,8 +532,8 @@ CartItem
 - id (uuid, PK)
 - userId (uuid FK User)
 - status (enum CheckoutSessionStatus: ACTIVE/PAID/COMPLETED/EXPIRED/FAILED)
-- bizType (enum CheckoutBizType: NORMAL_GOODS/VIP_PACKAGE, default NORMAL_GOODS) — 业务类型
-- bizMeta (jsonb nullable) — 业务元数据，VIP_PACKAGE 时存 {vipGiftOptionId, giftSkuId, giftTitle, snapshotPrice}
+- bizType (enum CheckoutBizType: NORMAL_GOODS/VIP_PACKAGE/GROUP_BUY, default NORMAL_GOODS) — 业务类型
+- bizMeta (jsonb nullable) — 业务元数据，VIP_PACKAGE 时存 {vipGiftOptionId, giftSkuId, giftTitle, snapshotPrice}；GROUP_BUY 时存 groupBuyActivityId、groupBuyCodeId、referredByInstanceId、价格/包邮/档位快照
 - itemsSnapshot (jsonb) — [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
 - addressSnapshot (jsonb) — 完整地址快照
 - redPackId (text nullable) — 选用的奖励 ID
@@ -564,7 +572,7 @@ CartItem
 - userId (uuid FK User)
 - status (enum: PENDING_PAYMENT/PAID/SHIPPED/DELIVERED/RECEIVED/CANCELED/REFUNDED)
 - status transition note (2026-05-08): `PAID -> CANCELED` 仅用于买家未发货取消订单，成功后由 `Refund.status` 承载退款进度；已发货后的退货/换货仍走售后状态机，不复用未发货取消语义。
-- bizType (enum OrderBizType: NORMAL_GOODS/VIP_PACKAGE, default NORMAL_GOODS) — 业务类型
+- bizType (enum OrderBizType: NORMAL_GOODS/VIP_PACKAGE/GROUP_BUY, default NORMAL_GOODS) — 业务类型
 - bizMeta (jsonb nullable) — 业务元数据
 - addressSnapshot (jsonb)
 - totalAmount (int)
@@ -984,6 +992,55 @@ Invoice
   - 退款/退货成功按原入账行与快照可审计扣回；若退款主链路已成功但扣回失败，写 `DigitalAssetRefundReversalFailure`，定时重试同一个幂等 `reverseRefund(refundId)`，成功后标记 RESOLVED，超限后转 FAILED 人工核查；后台人工调整只能调整具体 subject，不能直接改“数字资产总额”。
   - 该体系独立于 Reward 消费积分、Coupon 平台红包和普通/VIP 分润计数；未来现金使用、收益、股权/期权/工资/兑换规则另起设计，当前不承诺固定价值或回报。
 
+## I9.6 GroupBuyActivity / GroupBuyInstance / GroupBuyRebate（团购分享回馈）
+- GroupBuyActivity
+  - id (uuid, PK)
+  - title (text)
+  - productId (uuid FK Product, Restrict)
+  - skuId (uuid FK ProductSKU, Restrict)
+  - price (float) — 后台指定团购价和返还计算基数
+  - freeShipping (boolean)
+  - status (enum: DRAFT/ACTIVE/PAUSED/ENDED)
+  - startAt/endAt/displayOrder/ruleSummary/deletedAt
+- GroupBuyTier
+  - activityId (uuid FK GroupBuyActivity)
+  - sequence (int)
+  - basisPoints (int) — 1000 = 10%
+  - label (text nullable)
+  - unique(activityId, sequence)
+- GroupBuyInstance
+  - userId (uuid FK User)
+  - activityId (uuid FK GroupBuyActivity)
+  - initiatorOrderId (uuid unique FK Order)
+  - status (enum: QUALIFICATION_PENDING/SHARING/COMPLETED/TERMINATED/QUALIFICATION_ABANDONED/QUALIFICATION_INVALID/EXPIRED)
+  - priceSnapshot/freeShippingSnapshot/shippingFeeSnapshot/tierSnapshot/activitySnapshot
+  - validReferralCount/candidateCount
+  - activatedAt/completedAt/terminatedAt/abandonedAt/expiredAt/invalidatedAt/invalidReason
+- GroupBuyCode
+  - instanceId (uuid unique FK GroupBuyInstance)
+  - code (text unique)
+  - status (enum: PENDING/ACTIVE/DISABLED/COMPLETED/EXPIRED)
+  - activatedAt/disabledAt/completedAt/expiredAt
+- GroupBuyReferral
+  - instanceId (uuid FK GroupBuyInstance)
+  - codeId (uuid nullable FK GroupBuyCode)
+  - referredUserId (uuid FK User)
+  - referredOrderId (uuid unique FK Order)
+  - referredInstanceId (uuid unique nullable FK GroupBuyInstance)
+  - status (enum: CANDIDATE/VALID/INVALID/VOIDED)
+  - candidateSequence/effectiveSequence/amountSnapshot/invalidReason/validAt/invalidatedAt/voidedAt
+- GroupBuyRebateAccount
+  - userId (uuid unique FK User)
+  - balance/reserved/withdrawn/deducted (float)
+- GroupBuyRebateLedger
+  - accountId/userId/instanceId/referralId/orderId
+  - type (enum: PENDING_REBATE/RELEASE/VOID/WITHDRAW/DEDUCT/REFUND_RETURN/ADMIN_ADJUST)
+  - status (enum: PENDING/AVAILABLE/RESERVED/COMPLETED/VOIDED/FAILED)
+  - amount/balanceBefore/balanceAfter
+  - idempotencyKey (text unique)
+  - refType/refId/meta/deletedAt
+- 资金与状态口径：团购 checkout 必须现金购买，不允许消费积分、平台红包或团购返还余额抵扣；分享码和返还释放均等待订单 `RECEIVED`、`returnWindowExpiresAt < now` 且无售后/退款。所有涉及名额、分享码、返还余额和抵扣的写入必须使用 Serializable 事务或幂等键/CAS 保护。
+
 ## I10. NormalBucket
 - id (uuid, PK)
 - bucketKey (text unique)
@@ -1024,9 +1081,9 @@ Invoice
 - ProductAuditStatus: PENDING, APPROVED, REJECTED
 
 - CheckoutSessionStatus: ACTIVE, PAID, COMPLETED, EXPIRED, FAILED
-- CheckoutBizType: NORMAL_GOODS, VIP_PACKAGE
+- CheckoutBizType: NORMAL_GOODS, VIP_PACKAGE, GROUP_BUY
 - OrderStatus: PENDING_PAYMENT, PAID, SHIPPED, DELIVERED, RECEIVED, CANCELED, REFUNDED
-- OrderBizType: NORMAL_GOODS, VIP_PACKAGE
+- OrderBizType: NORMAL_GOODS, VIP_PACKAGE, GROUP_BUY
 - PaymentChannel: WECHAT_PAY, ALIPAY, UNIONPAY, AGGREGATOR
 - PaymentScene: APP, H5, JSAPI, MINI_PROGRAM
 - PaymentStatus: INIT, PENDING, PAID, FAILED, CLOSED, REFUNDED, PART_REFUNDED
@@ -1048,6 +1105,12 @@ Invoice
 - DigitalAssetLedgerSubjectType: CUMULATIVE_SPEND, SEED_ASSET, CREDIT_ASSET
 - DigitalAssetLedgerDirection: CREDIT, DEBIT
 - DigitalAssetRefundReversalFailureStatus: PENDING, RESOLVED, FAILED
+- GroupBuyActivityStatus: DRAFT, ACTIVE, PAUSED, ENDED
+- GroupBuyInstanceStatus: QUALIFICATION_PENDING, SHARING, COMPLETED, TERMINATED, QUALIFICATION_ABANDONED, QUALIFICATION_INVALID, EXPIRED
+- GroupBuyCodeStatus: PENDING, ACTIVE, DISABLED, COMPLETED, EXPIRED
+- GroupBuyReferralStatus: CANDIDATE, VALID, INVALID, VOIDED
+- GroupBuyRebateLedgerType: PENDING_REBATE, RELEASE, VOID, WITHDRAW, DEDUCT, REFUND_RETURN, ADMIN_ADJUST
+- GroupBuyRebateLedgerStatus: PENDING, AVAILABLE, RESERVED, COMPLETED, VOIDED, FAILED
 
 - LotteryPrizeType: DISCOUNT_BUY, THRESHOLD_GIFT, NO_PRIZE
 - LotteryResult: WON, NO_PRIZE
@@ -1090,6 +1153,13 @@ Invoice
 - DigitalAssetRefundReversalFailure(status, nextRetryAt)
 - DigitalAssetRefundReversalFailure(userId, createdAt)
 - DigitalAssetRefundReversalFailure(orderId, createdAt)
+- GroupBuyActivity(status, startAt, endAt)
+- GroupBuyTier(unique activityId+sequence)
+- GroupBuyInstance(userId, status, createdAt), GroupBuyInstance(activityId, status), GroupBuyInstance(unique initiatorOrderId)
+- GroupBuyCode(unique code), GroupBuyCode(unique instanceId), GroupBuyCode(status, createdAt)
+- GroupBuyReferral(instanceId, status), GroupBuyReferral(codeId, status), GroupBuyReferral(unique referredOrderId), GroupBuyReferral(unique referredInstanceId)
+- GroupBuyRebateAccount(unique userId)
+- GroupBuyRebateLedger(unique idempotencyKey), GroupBuyRebateLedger(userId, status, createdAt)
 - ReviewTask(status, createdAt)
 
 ---
@@ -1111,6 +1181,10 @@ Invoice
 | RewardAllocation | orderId | Order | 防止删除有分配记录的订单 |
 | DigitalAssetAccount | userId | User | 防止删除有数字资产账户的用户 |
 | DigitalAssetLedger | userId/accountId/orderId/refundId/vipPurchaseId | User/DigitalAssetAccount/Order/Refund/VipPurchase | 防止删除数字资产流水依赖的审计对象 |
+| GroupBuyActivity | productId/skuId | Product/ProductSKU | 防止删除仍被团购活动引用的平台商品/SKU |
+| GroupBuyInstance | userId/activityId/initiatorOrderId | User/GroupBuyActivity/Order | 防止删除团购发起记录依赖的用户、活动和订单 |
+| GroupBuyReferral | instanceId/codeId/referredUserId/referredOrderId/referredInstanceId | GroupBuyInstance/GroupBuyCode/User/Order | 防止删除直接推荐记录依赖的团购、用户和订单 |
+| GroupBuyRebateAccount / GroupBuyRebateLedger | userId/accountId/instanceId/referralId/orderId | User/GroupBuyRebateAccount/GroupBuyInstance/GroupBuyReferral/Order | 防止删除团购返还账户和流水依赖的审计对象 |
 
 ## 5.6 新增外键索引（v3.0 性能优化）
 
@@ -1133,5 +1207,6 @@ Invoice
 - 支付/退款/物流回调：落 rawPayload（脱敏），以 providerTxnId/providerRefundId/事件唯一键幂等
 - 奖励发放：写 RewardAllocation（幂等）→ 写 RewardLedger（冻结）→ 签收释放/解锁释放 → 退款作废与重算
 - 数字资产 V2：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger，并同步 `cumulativeSpendAmount` / `seedAssetBalance` / `creditAssetBalance`；VIP 激活与数字资产发放和会员升阶共事务；确认收货只累计普通商品实付金额，退款/退货成功按快照扣回；退款已成功但扣回失败时写 `DigitalAssetRefundReversalFailure` 并由 cron 重试幂等扣回；历史回填先 dry-run 再执行；后台只允许对具体 subject 做审计可追踪调整，禁止直接改总额。
+- 团购分享回馈：团购购买走 GROUP_BUY CheckoutSession 和 GROUP_BUY Order；支付成功后创建 QUALIFICATION_PENDING 实例，确认收货且售后期结束无退换货后生成分享码；仅一级直接推荐订单成为 CANDIDATE，满足同样收货/售后条件后按档位释放到独立 GroupBuyRebateAccount。分享码名额、月度发起次数、返还释放、抵扣和提现均需幂等与 Serializable 保护。
 
 ---

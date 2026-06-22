@@ -999,7 +999,7 @@ Implementation note: Added `/admin/group-buy/settings` and `admin/src/pages/grou
 - Modify: `docs/issues/tofix-safe.md`
 - Modify: `plan.md`
 
-- [ ] **Step 1: Update docs**
+- [x] **Step 1: Update docs**
 
 Document:
 
@@ -1010,23 +1010,25 @@ Document:
 - admin menu/pages
 - Serializable safety requirements
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/architecture/data-system.md docs/architecture/frontend.md docs/architecture/admin-frontend.md docs/issues/tofix-safe.md plan.md
 git commit -m "docs: sync group buy implementation docs"
 ```
 
+Implementation note: `docs/architecture/frontend.md`, `docs/architecture/admin-frontend.md`, and `plan.md` were updated during the feature chunks; final sync added `docs/architecture/data-system.md` and `docs/issues/tofix-safe.md`.
+
 ### Task 8.2: Run verification
 
-- [ ] **Step 1: Prisma**
+- [x] **Step 1: Prisma**
 
 ```bash
 cd backend
 npx prisma validate
 ```
 
-- [ ] **Step 2: Backend targeted tests**
+- [x] **Step 2: Backend targeted tests**
 
 ```bash
 cd backend
@@ -1034,31 +1036,33 @@ npx jest src/modules/group-buy src/modules/admin/group-buy --runInBand
 npx jest src/modules/order src/modules/payment src/modules/after-sale --runInBand
 ```
 
-- [ ] **Step 3: Backend build**
+- [x] **Step 3: Backend build**
 
 ```bash
 cd backend
 npm run build
 ```
 
-- [ ] **Step 4: App typecheck**
+- [x] **Step 4: App typecheck**
 
 ```bash
 npx tsc -b
 ```
 
-- [ ] **Step 5: Admin build**
+- [x] **Step 5: Admin build**
 
 ```bash
 cd admin
 npm run build
 ```
 
-- [ ] **Step 6: Legal/static tests**
+- [x] **Step 6: Legal/static tests**
 
 ```bash
 npm run test:legal
 ```
+
+Verification note: `src/modules/order src/modules/payment src/modules/after-sale` Jest run passed with 37 suites / 504 tests passed, 1 suite / 2 tests skipped; legal/static run passed 23 tests.
 
 ### Task 8.3: Manual App review checklist
 

@@ -387,3 +387,14 @@
 | DA11 | 法务文案暗示固定收益或可兑现 | 🟠 MEDIUM | 数字资产 V2 只定义记账与展示，不定义现金、股权或收益承诺。已检查：`termsOfService.ts`、`privacyPolicy.ts`、`memberServiceAgreement.ts` 明确数字资产不是现金/储值/证券，不可转让交易赠送倒卖；未来使用、折现、收益、股权/期权/工资转换均为待定规则，不承诺固定价值、固定回报或即时兑现。 | ✅ 已检查 |
 | DA12 | VIP 历史回填漏补直邀种子资产 | 🟠 MEDIUM | 2026-06-17 首次生产回填只给 VIP 购买人补了自购种子资产和历史消费资产，没有把购买人的 `inviterUserId` 传入 `grantVipActivationAssets()`，导致像“王永志推荐新用户买 VIP”这类历史记录缺少推荐人的 `REFERRAL_VIP_PURCHASE` 流水。已修：回填脚本按购买人的直接推荐人识别待补项，校验推荐人仍为 ACTIVE VIP 后在 Serializable 事务内用 `vip-purchase:*:referral-seed` 幂等键补发；dry-run/execute 统计新增 `referralWouldCredit` / `referralCredited`，重复执行不会重复入账。 | ✅ 已修 |
 | DA13 | 付款后冻结消费资产重复释放或误计总额 | 🔴 HIGH | 2026-06-21 新增付款冻结口径后，风险是支付成功重复回调重复冻结、确认收货重复释放、确认前退款与确认收货竞态导致冻结资产和正式消费资产同时存在，或把未履约冻结资产计入数字资产总额。已检查：冻结、释放、作废都在 `DigitalAssetService` 的 Serializable 事务内执行，分别使用 `order:{orderId}:credit-asset-frozen` / `order:{orderId}:credit-asset-release` / `refund:{refundId}:digital-asset-frozen-void:credit` 等业务幂等键；释放前按订单冻结流水扣除已释放/已作废部分，账户更新禁止冻结余额扣成负数；正式退款扣回只查询已释放流水，排除 `CONSUMPTION_PAID_FROZEN`；`totalAssetBalance` 仍只汇总 `seedAssetBalance + creditAssetBalance`，冻结资产单独展示。 | ✅ 已检查 |
+
+## 2026-06-22 团购分享回馈资金安全检查
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| GB01 | 分享码名额超发 | 🔴 HIGH | 团购分享码最多按后台档位数量接收直接推荐订单。已补前置校验：创建团购支付会话前统计 `CANDIDATE/VALID` 记录，名额已满则拒绝创建；支付回调建 `GroupBuyReferral` 时仍二次统计兜底。相关写入走 Serializable 事务。 | ✅ 已检查 |
+| GB02 | 发起次数绕过 | 🟠 HIGH | 每人每月最多发起次数不再硬编码，`GroupBuyCheckoutService` 从 `RuleConfig.GROUP_BUY_MAX_MONTHLY_LAUNCHES` 读取，默认 4；检查与支付会话创建在同一 Serializable 事务内完成。 | ✅ 已检查 |
+| GB03 | 返还提前释放或退换货后仍释放 | 🔴 HIGH | 发起人分享码生成和好友订单返还释放均等待订单 `RECEIVED`、`returnWindowExpiresAt < now` 且无售后/退款；任意售后/退款记录会使候选记录无效。终止分享只释放已满足条件的候选记录，不新增名额。 | ✅ 已检查 |
+| GB04 | 团购购买被抵扣导致返还基数失真 | 🔴 HIGH | 团购 checkout 明确拒绝消费积分、平台红包、团购返还余额和旧 `rewardId`；返还金额按后台配置团购价快照计算，不按被抵扣后的实付金额计算。 | ✅ 已检查 |
+| GB05 | 团购返还余额重复入账或抵扣 | 🔴 HIGH | 团购返还账户写入收口到 `GroupBuyRebateService` / `GroupBuyRebateDeductionService`；释放流水使用 `GROUP_BUY_REBATE:<referralId>` 幂等键，抵扣预占/确认/释放/退款走独立 ledger 和 groupId。 | ✅ 已检查 |
+| GB06 | 后台展示形成多层关系或敏感导向 | 🟡 MEDIUM | App 和管理后台只展示本人直接推荐记录、团购记录和流水；不展示二级关系链、排行榜或团队图。文案扫描未发现团购新增文件包含合规禁用词。 | ✅ 已检查 |
