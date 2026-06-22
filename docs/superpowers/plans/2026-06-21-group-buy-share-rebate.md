@@ -890,11 +890,11 @@ git commit -m "feat: add group buy share landing and checkout"
 - Modify: `docs/architecture/frontend.md`
 - Modify: `plan.md`
 
-- [ ] **Step 1: Add entry according to final product choice**
+- [x] **Step 1: Add entry according to final product choice**
 
 If bottom tab has capacity, add `团购` tab. If not, add a high-visibility home action. User requirement prefers home bottom entry; implement as bottom tab only if navigation structure supports it without breaking existing tabs.
 
-- [ ] **Step 2: Verify responsive behavior**
+- [x] **Step 2: Verify responsive behavior**
 
 Manual checks:
 
@@ -904,7 +904,7 @@ Manual checks:
 - long product title
 - long price / high amount
 
-- [ ] **Step 3: Typecheck and commit**
+- [x] **Step 3: Typecheck and commit**
 
 ```bash
 npx tsc -b
