@@ -745,7 +745,7 @@ Before starting this chunk, re-read `frontend-design:frontend-design` and `docs/
 - Modify: `src/repos/index.ts`
 - Test: `src/utils/__tests__/groupBuyCopy.test.ts` if copy helpers are extracted
 
-- [ ] **Step 1: Define types**
+- [x] **Step 1: Define types**
 
 Types include:
 
@@ -756,7 +756,7 @@ Types include:
 - `GroupBuyCheckoutResponse`
 - `GroupBuyLandingInfo`
 
-- [ ] **Step 2: Implement repo methods**
+- [x] **Step 2: Implement repo methods**
 
 Methods mirror buyer APIs:
 
@@ -770,13 +770,13 @@ Methods mirror buyer APIs:
 - `getRebateAccount`
 - `listRebateLedgers`
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 ```bash
 npx tsc -b
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/types/domain src/repos

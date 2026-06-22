@@ -13,6 +13,7 @@ export * from './Order';
 export * from './UserProfile';
 export * from './Booking';
 export * from './Group';
+export * from './GroupBuy';
 export * from './CompanyEvent';
 export * from './Payment';
 export * from './Comment';
