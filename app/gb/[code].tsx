@@ -45,6 +45,18 @@ export default function GroupBuyLandingScreen() {
   const landing = landingQuery.data?.ok ? landingQuery.data.data : null;
   const activity = landing?.activity ?? null;
 
+  const goToCheckout = () => {
+    if (!landing?.valid || !activity) {
+      show({ message: landing?.reason ?? '团购推荐码不可用', type: 'warning' });
+      return;
+    }
+    setNavigating(true);
+    router.replace({
+      pathname: '/group-buy/checkout' as any,
+      params: { activityId: activity.id, shareCode: landing.code },
+    });
+  };
+
   const proceed = () => {
     if (!landing?.valid || !activity) {
       show({ message: landing?.reason ?? '团购推荐码不可用', type: 'warning' });
@@ -54,11 +66,7 @@ export default function GroupBuyLandingScreen() {
       setAuthModalOpen(true);
       return;
     }
-    setNavigating(true);
-    router.replace({
-      pathname: '/group-buy/checkout' as any,
-      params: { activityId: activity.id, shareCode: landing.code },
-    });
+    goToCheckout();
   };
 
   if (landingQuery.isLoading) {
@@ -198,7 +206,7 @@ export default function GroupBuyLandingScreen() {
         onClose={() => setAuthModalOpen(false)}
         onSuccess={async () => {
           await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
-          setTimeout(proceed, 160);
+          setTimeout(goToCheckout, 160);
         }}
       />
     </Screen>

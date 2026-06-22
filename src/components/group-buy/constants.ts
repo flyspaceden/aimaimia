@@ -9,4 +9,4 @@ export const GROUP_BUY_COLORS = {
   ivory: '#FFFDF6',
 };
 
-export const GROUP_BUY_SHARE_URL = 'https://app.ai-maimai.com/group-buy';
+export const GROUP_BUY_SHARE_URL = 'https://app.ai-maimai.com/gb';
