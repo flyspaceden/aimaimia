@@ -150,7 +150,7 @@
 - Modify: `backend/prisma/schema.prisma`
 - Create: `backend/prisma/migrations/<timestamp>_group_buy_share_rebate/migration.sql`
 
-- [ ] **Step 1: Write the schema change**
+- [x] **Step 1: Write the schema change**
 
 Add enum values:
 
@@ -181,7 +181,7 @@ enum GroupBuyRebateLedgerStatus { PENDING AVAILABLE RESERVED COMPLETED VOIDED FA
 
 Use `Float` for amounts to match this project. Store tier percent as `Int basisPoints` instead of `Float percent` in implementation to avoid floating errors: 1000 = 10%, 10000 = 100%.
 
-- [ ] **Step 2: Generate migration**
+- [x] **Step 2: Generate migration**
 
 Run:
 
@@ -192,7 +192,9 @@ npx prisma migrate dev --name group_buy_share_rebate
 
 Expected: migration created and Prisma client regenerated.
 
-- [ ] **Step 3: Validate schema**
+Note: `prisma migrate dev --create-only` was blocked by an existing historical shadow-database replay issue in `20260423010000_add_buyer_seller_reset_purposes` (`SmsPurpose` type missing during full replay). The group-buy migration was written manually following this repo's existing hand-written migration style, then validated with `npx prisma validate` and `npx prisma generate`.
+
+- [x] **Step 3: Validate schema**
 
 Run:
 
@@ -203,7 +205,7 @@ npx prisma validate
 
 Expected: `The schema ... is valid`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/prisma/schema.prisma backend/prisma/migrations
@@ -222,7 +224,7 @@ git commit -m "feat: add group buy schema"
 - Create: `backend/src/modules/group-buy/group-buy-rebate.service.ts`
 - Modify: `backend/src/app.module.ts`
 
-- [ ] **Step 1: Add backend smoke tests**
+- [x] **Step 1: Add backend smoke tests**
 
 Create `backend/src/modules/group-buy/group-buy.service.spec.ts` with a skeleton test:
 
@@ -234,11 +236,11 @@ describe('GroupBuyService', () => {
 });
 ```
 
-- [ ] **Step 2: Create module and providers**
+- [x] **Step 2: Create module and providers**
 
 `GroupBuyModule` exports `GroupBuyCheckoutService`, `GroupBuyLifecycleService`, and `GroupBuyRebateService`.
 
-- [ ] **Step 3: Add seed permissions**
+- [x] **Step 3: Add seed permissions**
 
 Add permissions:
 
@@ -247,7 +249,7 @@ Add permissions:
 - `group_buy:export`
 - `group_buy:settings`
 
-- [ ] **Step 4: Run tests and build**
+- [x] **Step 4: Run tests and build**
 
 Run:
 
@@ -259,7 +261,7 @@ npm run build
 
 Expected: tests pass and Nest build succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/prisma/seed.ts backend/src/app.module.ts backend/src/modules/group-buy
