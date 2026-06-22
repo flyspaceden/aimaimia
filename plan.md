@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **卖家订单详情组合商品展示与拣货单打印**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 12
+  - **实际做了**: 卖家订单详情 `OrderItem` 类型补齐 `productType` / `bundleItems`；商品清单卡为组合商品保留父购买行并展开组件明细；新增 `waybillPrint.ts` 生成无价格拣货单 HTML，打印页同时展示原始订单、组合组件明细和普通商品 + 组合组件合并后的 SKU 级拣货汇总
+  - **验证**: `cd seller && node --test test/waybillPrint.test.ts`、`cd seller && npm run build`、`git diff --check`
+
 - [x] **管理后台组合商品审核/详情展示**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 11
   - **实际做了**: 管理后台商品类型补齐 `type` / `bundleItems` / `bundleReferenceTotal` / `bundleAvailableStock` / `bundleTotalWeightGram`；商品列表新增组合类型识别、组成项数量和参考合计提示；审核弹窗与商品详情页新增组合内容只读表格，展示组成商品/SKU、数量、当前单价小计、参考合计和总重量，并兼容后端 raw nested/flattened 两种返回形态

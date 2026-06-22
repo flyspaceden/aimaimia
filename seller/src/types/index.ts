@@ -175,11 +175,28 @@ export interface Order {
 export interface OrderItem {
   id: string;
   title: string;
+  skuTitle?: string;
   unitPrice: number;
   quantity: number;
   isPrize?: boolean;
   prizeType?: string;
   imageUrl?: string; // 商品首图
+  productType?: ProductType;
+  bundleItems?: OrderItemBundleComponent[];
+}
+
+export interface OrderItemBundleComponent {
+  skuId?: string;
+  productId?: string;
+  productTitle?: string;
+  skuTitle?: string;
+  skuName?: string;
+  quantity?: number;
+  quantityPerBundle?: number;
+  bundleQuantity?: number;
+  totalQuantity?: number;
+  image?: string | null;
+  imageUrl?: string | null;
 }
 
 // ============================================================
