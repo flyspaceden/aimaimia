@@ -925,7 +925,7 @@ git commit -m "feat: add group buy app entry"
 
 Cover activities, instances, orders, ledgers, settings.
 
-Implementation note: the current backend only exposes `admin/group-buy/activities` CRUD/status endpoints. This step implemented activity types/API wrappers and `group_buy:read/manage` frontend permission constants. Instance/order/ledger/settings admin APIs remain pending until matching backend endpoints exist.
+Implementation note: this step initially added activity wrappers and `group_buy:read/manage`; later in the same chunk backend admin endpoints and API client wrappers were extended to cover `instances`, `orders`, `rebate-ledgers`, and `settings`; frontend permissions now also include `group_buy:settings`.
 
 - [x] **Step 2: Typecheck**
 
@@ -950,19 +950,19 @@ git commit -m "feat: add group buy admin API client"
 - Modify: `docs/architecture/admin-frontend.md`
 - Modify: `plan.md`
 
-- [ ] **Step 1: Build pages**
+- [x] **Step 1: Build pages**
 
 Pages:
 
 - `团购活动`
-- `团购实例`
+- `团购记录`
 - `团购订单`
 - `团购返还流水`
 - `团购设置`
 
 UI must avoid sensitive words and team/tree/ranking visuals.
 
-- [ ] **Step 2: Build activity form**
+- [x] **Step 2: Build activity form**
 
 Use Ant Design form:
 
@@ -972,11 +972,11 @@ Use Ant Design form:
 - tiers editable table, sum must equal 100%
 - activity status/time
 
-- [ ] **Step 3: Build detail drawers**
+- [x] **Step 3: Build detail drawers**
 
 Instance detail shows only direct referral rows, no relationship graph.
 
-- [ ] **Step 4: Build and commit**
+- [x] **Step 4: Build and commit**
 
 ```bash
 cd admin
@@ -985,6 +985,8 @@ cd ..
 git add admin/src/pages/group-buy admin/src/App.tsx admin/src/layouts/AdminLayout.tsx docs/architecture/admin-frontend.md plan.md
 git commit -m "feat: add group buy admin pages"
 ```
+
+Implementation note: Added `/admin/group-buy/settings` and `admin/src/pages/group-buy/settings.tsx` for the configurable monthly launch limit. Verification used `backend npx jest src/modules/group-buy/group-buy.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`, `backend npx prisma validate`, `backend npm run build`, and `admin npm run build`.
 
 ## Chunk 8: Documentation, Safety, And Full Verification
 

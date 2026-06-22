@@ -56,6 +56,11 @@ const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
 const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 const DigitalAssetsPage = lazy(() => import('@/pages/digital-assets/index'));
+const GroupBuyActivitiesPage = lazy(() => import('@/pages/group-buy/activities'));
+const GroupBuyInstancesPage = lazy(() => import('@/pages/group-buy/instances'));
+const GroupBuyOrdersPage = lazy(() => import('@/pages/group-buy/orders'));
+const GroupBuyRebateLedgersPage = lazy(() => import('@/pages/group-buy/rebate-ledgers'));
+const GroupBuySettingsPage = lazy(() => import('@/pages/group-buy/settings'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -137,6 +142,11 @@ export default function App() {
             <Route path="invoices/:id" element={<InvoiceDetailPage />} />
             <Route path="after-sale" element={<AfterSaleListPage />} />
             <Route path="lottery" element={<LotteryPage />} />
+            <Route path="group-buy/activities" element={<GroupBuyActivitiesPage />} />
+            <Route path="group-buy/instances" element={<GroupBuyInstancesPage />} />
+            <Route path="group-buy/orders" element={<GroupBuyOrdersPage />} />
+            <Route path="group-buy/rebate-ledgers" element={<GroupBuyRebateLedgersPage />} />
+            <Route path="group-buy/settings" element={<GroupBuySettingsPage />} />
             <Route path="reward-products" element={<RewardProductsPage />} />
             <Route path="reward-products/:id/edit" element={<RewardProductEditPage />} />
             <Route path="shipping-rules" element={<ShippingRulesPage />} />

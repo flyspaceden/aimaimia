@@ -73,8 +73,23 @@
 
 - [x] **管理后台团购 API/类型/权限底座**（2026-06-22 新增并完成）
   - **来源**: 团购分享回馈功能 Chunk 7.1，需要先给管理端页面准备活动 API、类型和权限常量。
-  - **实际做了**: 新增 `admin/src/api/group-buy.ts`，接入真实后端已提供的团购活动列表/详情/创建/更新/状态/删除接口；新增管理端团购活动共享类型；新增 `group_buy:read/manage` 权限常量。当前后端尚未暴露团购实例、订单、返还流水和设置接口，后续管理页前需补对应后端查询接口。
+  - **实际做了**: 新增 `admin/src/api/group-buy.ts`，接入真实后端已提供的团购活动列表/详情/创建/更新/状态/删除接口；新增管理端团购活动共享类型；新增 `group_buy:read/manage` 权限常量。
   - **验证**: `admin npm run build` 通过。
+
+- [x] **团购扫码落地后端接口与名额前置校验**（2026-06-22 新增并完成）
+  - **来源**: 团购分享回馈功能 Chunk 6.3，App `/gb/[code]` 已接真实接口，需要后端提供推荐码落地查询；第三位好友购买后推荐码不能继续使用，需要在付款前挡住名额已满的分享码。
+  - **实际做了**: 新增公开 `GET /group-buy/landing/:code`，返回推荐码有效性、分享用户和活动商品安全快照；活动列表同步设为公开；团购 checkout 在生成支付会话前统计候选/有效直接推荐记录，名额已满时拒绝创建会话。
+  - **验证**: `backend npx jest src/modules/group-buy/group-buy.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts --runInBand`、`backend npm run build` 通过。
+
+- [x] **管理后台团购查询接口与页面**（2026-06-22 新增并完成）
+  - **来源**: 用户要求管理后台能清楚查看团购商品、每个团、团购订单和推荐码关系。
+  - **实际做了**: 后端新增管理端团购记录列表/详情、团购订单列表、返还流水列表接口；管理后台新增“团购活动 / 团购记录 / 团购订单 / 返还流水”四个页面和侧边栏入口，团购记录详情可查看直接推荐记录与返还流水。
+  - **验证**: `backend npx jest src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`、`backend npx prisma validate`、`backend npm run build`、`admin npm run build` 通过。
+
+- [x] **团购月度发起次数配置**（2026-06-22 新增并完成）
+  - **来源**: 用户确认“每人每月最多发起 4 次团购”需要后台可配置。
+  - **实际做了**: 后端团购 checkout 从 `RuleConfig.GROUP_BUY_MAX_MONTHLY_LAUNCHES` 读取月度发起次数上限，缺省为 4；管理端新增 `GET/PUT /admin/group-buy/settings`；管理后台新增“团购设置”页，可配置每个用户每月最多发起次数。
+  - **验证**: `backend npx jest src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`、`backend npm run build`、`admin npm run build` 通过。
 
 - [x] **数字资产付款冻结与确认释放**（2026-06-21 新增并完成）
   - **来源**: 用户要求普通商品付款后立即在数字资产页看到消费资产记录，但处于冻结状态，并显示“确认收货后释放”；确认收货后再释放为正式消费资产。

@@ -25,6 +25,9 @@ const CHANNEL_MAP: Record<string, string> = {
   bankcard: 'UNIONPAY',
 };
 
+const GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY = 'GROUP_BUY_MAX_MONTHLY_LAUNCHES';
+const DEFAULT_MAX_MONTHLY_LAUNCHES = 4;
+
 @Injectable()
 export class GroupBuyCheckoutService {
   constructor(private readonly prisma: PrismaService) {}
@@ -122,12 +125,19 @@ export class GroupBuyCheckoutService {
           createdAt: { gte: monthStart },
         },
       });
-      if (monthlyStartedCount >= 4) {
+      const maxMonthlyLaunches = await this.getMaxMonthlyLaunches(tx);
+      if (monthlyStartedCount >= maxMonthlyLaunches) {
         throw new BadRequestException('本月团购参与次数已用完');
       }
 
       const groupBuyCode = dto.shareCode
-        ? await this.resolveShareCode(tx, userId, dto.activityId, dto.shareCode)
+        ? await this.resolveShareCode(
+          tx,
+          userId,
+          dto.activityId,
+          dto.shareCode,
+          activity.tiers.length,
+        )
         : null;
 
       const address = await tx.address.findUnique({
@@ -258,6 +268,7 @@ export class GroupBuyCheckoutService {
     userId: string,
     activityId: string,
     shareCode: string,
+    tierCount: number,
   ) {
     const groupBuyCode = await tx.groupBuyCode.findUnique({
       where: { code: shareCode },
@@ -284,11 +295,43 @@ export class GroupBuyCheckoutService {
     if (groupBuyCode.instance.status !== GroupBuyInstanceStatus.SHARING) {
       throw new BadRequestException('团购推荐码当前不可用');
     }
+    const existingReferralCount = await tx.groupBuyReferral.count({
+      where: {
+        instanceId: groupBuyCode.instance.id,
+        status: { in: ['CANDIDATE', 'VALID'] },
+      },
+    });
+    if (existingReferralCount >= tierCount) {
+      throw new BadRequestException('团购推荐码名额已满');
+    }
     return groupBuyCode;
   }
 
   private getMonthStart(now = new Date()) {
     return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  private async getMaxMonthlyLaunches(tx: Prisma.TransactionClient) {
+    const row = await tx.ruleConfig.findUnique({
+      where: { key: GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY },
+      select: { value: true },
+    });
+    const value = this.unwrapRuleConfigNumber(row?.value);
+    if (!Number.isFinite(value) || !value || value < 1) {
+      return DEFAULT_MAX_MONTHLY_LAUNCHES;
+    }
+    return Math.max(1, Math.floor(value));
+  }
+
+  private unwrapRuleConfigNumber(raw: unknown) {
+    const value = raw
+      && typeof raw === 'object'
+      && !Array.isArray(raw)
+      && 'value' in raw
+      ? (raw as { value?: unknown }).value
+      : raw;
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
   }
 
   private async toCheckoutResponse(session: any) {

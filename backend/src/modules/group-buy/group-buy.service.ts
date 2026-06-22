@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { GroupBuyActivityStatus, GroupBuyInstanceStatus } from '@prisma/client';
+import { GroupBuyActivityStatus, GroupBuyCodeStatus, GroupBuyInstanceStatus } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -109,6 +109,64 @@ export class GroupBuyService {
     };
   }
 
+  async getLandingByCode(code: string, now = new Date()) {
+    const normalizedCode = code.trim().toUpperCase();
+    const groupBuyCode = await this.prisma.groupBuyCode.findUnique({
+      where: { code: normalizedCode },
+      include: {
+        instance: {
+          include: {
+            activity: {
+              include: this.activityInclude(),
+            },
+            user: {
+              select: {
+                id: true,
+                buyerNo: true,
+                profile: {
+                  select: { nickname: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!groupBuyCode) {
+      return this.invalidLanding(normalizedCode, '团购推荐码无效或已结束');
+    }
+
+    const instance = groupBuyCode.instance;
+    const activity = instance.activity;
+    if (
+      groupBuyCode.status !== GroupBuyCodeStatus.ACTIVE
+      || instance.status !== GroupBuyInstanceStatus.SHARING
+    ) {
+      return this.invalidLanding(normalizedCode, '团购推荐码已完成或不可用');
+    }
+
+    const totalSlots = activity.tiers.length;
+    if (instance.validReferralCount >= totalSlots || instance.candidateCount >= totalSlots) {
+      return this.invalidLanding(normalizedCode, '团购推荐码名额已满');
+    }
+
+    if (!this.isActivityVisibleForBuyer(activity, now)) {
+      return this.invalidLanding(normalizedCode, '团购活动未开始或已结束');
+    }
+
+    return {
+      code: normalizedCode,
+      valid: true,
+      activity: this.mapActivityForBuyer(activity),
+      inviter: {
+        userId: instance.user.id,
+        nickname: instance.user.profile?.nickname ?? null,
+        buyerNo: instance.user.buyerNo ?? null,
+      },
+    };
+  }
+
   private emptyCurrentState() {
     return {
       current: null,
@@ -116,6 +174,23 @@ export class GroupBuyService {
       defaultTab: 'PRODUCTS',
       canBuyNew: true,
     };
+  }
+
+  private invalidLanding(code: string, reason: string) {
+    return {
+      code,
+      valid: false,
+      activity: null,
+      inviter: null,
+      reason,
+    };
+  }
+
+  private isActivityVisibleForBuyer(activity: any, now: Date) {
+    return activity.status === GroupBuyActivityStatus.ACTIVE
+      && !activity.deletedAt
+      && (!activity.startAt || activity.startAt <= now)
+      && (!activity.endAt || activity.endAt > now);
   }
 
   private activityInclude() {

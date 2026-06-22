@@ -5,6 +5,9 @@ import {
 } from '@nestjs/common';
 import {
   GroupBuyActivityStatus,
+  GroupBuyInstanceStatus,
+  GroupBuyRebateLedgerStatus,
+  GroupBuyRebateLedgerType,
   Prisma,
   ProductStatus,
   SkuStatus,
@@ -17,12 +20,19 @@ import {
   CreateGroupBuyActivityDto,
   GroupBuyTierConfigDto,
   UpdateGroupBuyActivityDto,
+  UpdateGroupBuySettingsDto,
 } from './admin-group-buy.dto';
 
 type GroupBuyConfigClient = Pick<
   Prisma.TransactionClient,
   'product' | 'productSKU' | 'groupBuyActivity' | 'groupBuyTier'
 >;
+
+const GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY = 'GROUP_BUY_MAX_MONTHLY_LAUNCHES';
+const GROUP_BUY_MAX_MONTHLY_LAUNCHES_DESCRIPTION = '每个用户每月最多可发起的团购次数';
+const DEFAULT_GROUP_BUY_SETTINGS = {
+  maxMonthlyLaunches: 4,
+};
 
 @Injectable()
 export class AdminGroupBuyService {
@@ -207,6 +217,200 @@ export class AdminGroupBuyService {
     }, this.serializableTransactionOptions);
   }
 
+  async findInstances(options: {
+    page?: number;
+    pageSize?: number;
+    keyword?: string;
+    status?: string;
+    activityId?: string;
+    userId?: string;
+  } = {}) {
+    const { page, pageSize, skip } = this.normalizePagination(options.page, options.pageSize);
+    const where: Prisma.GroupBuyInstanceWhereInput = {};
+
+    if (options.status) {
+      where.status = options.status as GroupBuyInstanceStatus;
+    }
+    if (options.activityId) {
+      where.activityId = options.activityId;
+    }
+    if (options.userId) {
+      where.userId = options.userId;
+    }
+    if (options.keyword) {
+      const keyword = options.keyword.trim();
+      where.OR = [
+        { id: keyword },
+        { user: { buyerNo: { contains: keyword, mode: 'insensitive' } } },
+        { user: { profile: { is: { nickname: { contains: keyword, mode: 'insensitive' } } } } },
+        { activity: { title: { contains: keyword, mode: 'insensitive' } } },
+        { code: { is: { code: { contains: keyword, mode: 'insensitive' } } } },
+        { initiatorOrderId: keyword },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.groupBuyInstance.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: this.instanceListInclude,
+      }),
+      this.prisma.groupBuyInstance.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
+  }
+
+  async findInstance(id: string) {
+    const instance = await this.prisma.groupBuyInstance.findUnique({
+      where: { id },
+      include: this.instanceDetailInclude,
+    });
+    if (!instance) {
+      throw new NotFoundException('团购记录不存在');
+    }
+    return instance;
+  }
+
+  async findOrders(options: {
+    page?: number;
+    pageSize?: number;
+    keyword?: string;
+    status?: string;
+    activityId?: string;
+    userId?: string;
+  } = {}) {
+    const { page, pageSize, skip } = this.normalizePagination(options.page, options.pageSize);
+    const where: Prisma.OrderWhereInput = { bizType: 'GROUP_BUY' };
+
+    if (options.status) {
+      where.status = options.status as any;
+    }
+    if (options.userId) {
+      where.userId = options.userId;
+    }
+    if (options.activityId) {
+      where.OR = [
+        { groupBuyInitiatedInstance: { is: { activityId: options.activityId } } },
+        { groupBuyReferredPurchase: { is: { instance: { activityId: options.activityId } } } },
+      ];
+    }
+    if (options.keyword) {
+      const keyword = options.keyword.trim();
+      const keywordWhere: Prisma.OrderWhereInput[] = [
+        { id: keyword },
+        { user: { buyerNo: { contains: keyword, mode: 'insensitive' } } },
+        { user: { profile: { is: { nickname: { contains: keyword, mode: 'insensitive' } } } } },
+      ];
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        { OR: keywordWhere },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: this.orderInclude,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
+  }
+
+  async findRebateLedgers(options: {
+    page?: number;
+    pageSize?: number;
+    keyword?: string;
+    type?: string;
+    status?: string;
+    userId?: string;
+    instanceId?: string;
+  } = {}) {
+    const { page, pageSize, skip } = this.normalizePagination(options.page, options.pageSize);
+    const where: Prisma.GroupBuyRebateLedgerWhereInput = { deletedAt: null };
+
+    if (options.type) {
+      where.type = options.type as GroupBuyRebateLedgerType;
+    }
+    if (options.status) {
+      where.status = options.status as GroupBuyRebateLedgerStatus;
+    }
+    if (options.userId) {
+      where.userId = options.userId;
+    }
+    if (options.instanceId) {
+      where.instanceId = options.instanceId;
+    }
+    if (options.keyword) {
+      const keyword = options.keyword.trim();
+      where.OR = [
+        { id: keyword },
+        { refId: keyword },
+        { orderId: keyword },
+        { user: { buyerNo: { contains: keyword, mode: 'insensitive' } } },
+        { user: { profile: { is: { nickname: { contains: keyword, mode: 'insensitive' } } } } },
+        { instance: { activity: { title: { contains: keyword, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.groupBuyRebateLedger.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: this.ledgerInclude,
+      }),
+      this.prisma.groupBuyRebateLedger.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
+  }
+
+  async getSettings() {
+    const row = await this.prisma.ruleConfig.findUnique({
+      where: { key: GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY },
+      select: { value: true },
+    });
+    return {
+      maxMonthlyLaunches: this.unwrapRuleConfigNumber(row?.value)
+        ?? DEFAULT_GROUP_BUY_SETTINGS.maxMonthlyLaunches,
+    };
+  }
+
+  async updateSettings(dto: UpdateGroupBuySettingsDto) {
+    const maxMonthlyLaunches = Math.floor(Number(dto.maxMonthlyLaunches));
+    if (!Number.isFinite(maxMonthlyLaunches) || maxMonthlyLaunches < 1 || maxMonthlyLaunches > 100) {
+      throw new BadRequestException('每月发起次数必须在 1 到 100 之间');
+    }
+
+    await this.prisma.ruleConfig.upsert({
+      where: { key: GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY },
+      update: {
+        value: {
+          value: maxMonthlyLaunches,
+          description: GROUP_BUY_MAX_MONTHLY_LAUNCHES_DESCRIPTION,
+        },
+      },
+      create: {
+        key: GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY,
+        value: {
+          value: maxMonthlyLaunches,
+          description: GROUP_BUY_MAX_MONTHLY_LAUNCHES_DESCRIPTION,
+        },
+      },
+    });
+
+    return { maxMonthlyLaunches };
+  }
+
   private normalizeTiers(tiers: GroupBuyTierConfigDto[]) {
     const seenSequences = new Set<number>();
     const normalized = [...tiers]
@@ -229,6 +433,132 @@ export class AdminGroupBuyService {
     );
     return normalized;
   }
+
+  private normalizePagination(pageInput?: number, pageSizeInput?: number) {
+    const page = Math.max(pageInput ?? 1, 1);
+    const pageSize = Math.min(Math.max(pageSizeInput ?? 20, 1), 100);
+    return {
+      page,
+      pageSize,
+      skip: (page - 1) * pageSize,
+    };
+  }
+
+  private unwrapRuleConfigNumber(raw: unknown) {
+    const value = raw
+      && typeof raw === 'object'
+      && !Array.isArray(raw)
+      && 'value' in raw
+      ? (raw as { value?: unknown }).value
+      : raw;
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+
+  private readonly userSummarySelect: Prisma.UserSelect = {
+    id: true,
+    buyerNo: true,
+    profile: {
+      select: { nickname: true, avatarUrl: true },
+    },
+  };
+
+  private readonly instanceListInclude: Prisma.GroupBuyInstanceInclude = {
+    user: { select: this.userSummarySelect },
+    activity: {
+      select: { id: true, title: true, price: true, status: true },
+    },
+    code: {
+      select: { code: true, status: true, activatedAt: true, disabledAt: true, completedAt: true },
+    },
+    initiatorOrder: {
+      select: { id: true, status: true, totalAmount: true, goodsAmount: true, receivedAt: true, returnWindowExpiresAt: true, createdAt: true },
+    },
+    _count: {
+      select: { referrals: true, rebateLedgers: true },
+    },
+  };
+
+  private readonly instanceDetailInclude: Prisma.GroupBuyInstanceInclude = {
+    ...this.instanceListInclude,
+    referrals: {
+      orderBy: [{ candidateSequence: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        referredUser: { select: this.userSummarySelect },
+        referredOrder: {
+          select: { id: true, status: true, totalAmount: true, goodsAmount: true, receivedAt: true, returnWindowExpiresAt: true, createdAt: true },
+        },
+        referredInstance: {
+          select: { id: true, status: true, validReferralCount: true, candidateCount: true },
+        },
+      },
+    },
+    rebateLedgers: {
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    },
+  };
+
+  private readonly orderInclude: Prisma.OrderInclude = {
+    user: { select: this.userSummarySelect },
+    items: {
+      select: { id: true, skuId: true, productSnapshot: true, unitPrice: true, quantity: true },
+    },
+    groupBuyInitiatedInstance: {
+      select: {
+        id: true,
+        status: true,
+        validReferralCount: true,
+        candidateCount: true,
+        activity: { select: { id: true, title: true, price: true } },
+        code: { select: { code: true, status: true } },
+      },
+    },
+    groupBuyReferredPurchase: {
+      select: {
+        id: true,
+        status: true,
+        candidateSequence: true,
+        effectiveSequence: true,
+        amountSnapshot: true,
+        instance: {
+          select: {
+            id: true,
+            status: true,
+            user: { select: this.userSummarySelect },
+            activity: { select: { id: true, title: true, price: true } },
+            code: { select: { code: true, status: true } },
+          },
+        },
+      },
+    },
+  };
+
+  private readonly ledgerInclude: Prisma.GroupBuyRebateLedgerInclude = {
+    user: { select: this.userSummarySelect },
+    instance: {
+      select: {
+        id: true,
+        status: true,
+        activity: { select: { id: true, title: true, price: true } },
+        code: { select: { code: true, status: true } },
+      },
+    },
+    referral: {
+      select: {
+        id: true,
+        status: true,
+        candidateSequence: true,
+        effectiveSequence: true,
+        referredOrderId: true,
+        referredUser: { select: this.userSummarySelect },
+      },
+    },
+    order: {
+      select: { id: true, status: true, totalAmount: true, goodsAmount: true },
+    },
+  };
 
   private async assertPlatformProductSku(
     client: GroupBuyConfigClient,

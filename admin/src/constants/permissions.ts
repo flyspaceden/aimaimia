@@ -79,6 +79,7 @@ export const PERMISSIONS = {
   // 团购分享回馈
   GROUP_BUY_READ: 'group_buy:read',
   GROUP_BUY_MANAGE: 'group_buy:manage',
+  GROUP_BUY_SETTINGS: 'group_buy:settings',
 
   // 运费规则
   SHIPPING_READ: 'shipping:read',

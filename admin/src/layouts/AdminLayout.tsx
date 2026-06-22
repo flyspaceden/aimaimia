@@ -87,9 +87,15 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/operations',
       name: '运营活动',
       icon: <GiftOutlined />,
+      permissionAny: [PERMISSIONS.COUPON_READ, PERMISSIONS.LOTTERY_READ, PERMISSIONS.GROUP_BUY_READ, PERMISSIONS.GROUP_BUY_SETTINGS],
       routes: [
         { path: '/coupons', name: '红包管理', permission: PERMISSIONS.COUPON_READ },
         { path: '/lottery', name: '抽奖管理', permission: PERMISSIONS.LOTTERY_READ },
+        { path: '/group-buy/activities', name: '团购活动', permission: PERMISSIONS.GROUP_BUY_READ },
+        { path: '/group-buy/instances', name: '团购记录', permission: PERMISSIONS.GROUP_BUY_READ },
+        { path: '/group-buy/orders', name: '团购订单', permission: PERMISSIONS.GROUP_BUY_READ },
+        { path: '/group-buy/rebate-ledgers', name: '返还流水', permission: PERMISSIONS.GROUP_BUY_READ },
+        { path: '/group-buy/settings', name: '团购设置', permission: PERMISSIONS.GROUP_BUY_SETTINGS },
       ],
     },
     {

@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
   UseInterceptors,
@@ -21,6 +22,7 @@ import {
   CreateGroupBuyActivityDto,
   UpdateGroupBuyActivityDto,
   UpdateGroupBuyActivityStatusDto,
+  UpdateGroupBuySettingsDto,
 } from './admin-group-buy.dto';
 import { AdminGroupBuyService } from './admin-group-buy.service';
 
@@ -114,5 +116,97 @@ export class AdminGroupBuyController {
   })
   deleteActivity(@Param('id') id: string) {
     return this.groupBuyService.softDelete(id);
+  }
+
+  /** 团购设置 */
+  @Get('settings')
+  @RequirePermission('group_buy:settings')
+  getSettings() {
+    return this.groupBuyService.getSettings();
+  }
+
+  /** 更新团购设置 */
+  @Put('settings')
+  @RequirePermission('group_buy:settings')
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'group_buy',
+    targetType: 'RuleConfig',
+    isReversible: true,
+  })
+  updateSettings(@Body() dto: UpdateGroupBuySettingsDto) {
+    return this.groupBuyService.updateSettings(dto);
+  }
+
+  /** 团购记录列表 */
+  @Get('instances')
+  @RequirePermission('group_buy:read')
+  findInstances(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
+    @Query('activityId') activityId?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.groupBuyService.findInstances({
+      page: page ? parseInt(page, 10) : 1,
+      pageSize: pageSize ? parseInt(pageSize, 10) : 20,
+      keyword,
+      status,
+      activityId,
+      userId,
+    });
+  }
+
+  /** 团购记录详情 */
+  @Get('instances/:id')
+  @RequirePermission('group_buy:read')
+  findInstance(@Param('id') id: string) {
+    return this.groupBuyService.findInstance(id);
+  }
+
+  /** 团购订单列表 */
+  @Get('orders')
+  @RequirePermission('group_buy:read')
+  findOrders(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
+    @Query('activityId') activityId?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.groupBuyService.findOrders({
+      page: page ? parseInt(page, 10) : 1,
+      pageSize: pageSize ? parseInt(pageSize, 10) : 20,
+      keyword,
+      status,
+      activityId,
+      userId,
+    });
+  }
+
+  /** 团购返还流水 */
+  @Get('rebate-ledgers')
+  @RequirePermission('group_buy:read')
+  findRebateLedgers(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('keyword') keyword?: string,
+    @Query('type') type?: string,
+    @Query('status') status?: string,
+    @Query('userId') userId?: string,
+    @Query('instanceId') instanceId?: string,
+  ) {
+    return this.groupBuyService.findRebateLedgers({
+      page: page ? parseInt(page, 10) : 1,
+      pageSize: pageSize ? parseInt(pageSize, 10) : 20,
+      keyword,
+      type,
+      status,
+      userId,
+      instanceId,
+    });
   }
 }

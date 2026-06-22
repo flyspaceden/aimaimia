@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { WithdrawDto } from '../bonus/dto/withdraw.dto';
 import { WithdrawPayoutService } from '../bonus/withdraw-payout.service';
 import { GroupBuyCheckoutDto } from './dto/group-buy-checkout.dto';
@@ -20,8 +21,15 @@ export class GroupBuyController {
   ) {}
 
   @Get('activities')
+  @Public()
   findActiveActivities() {
     return this.groupBuyService.findActiveActivities();
+  }
+
+  @Get('landing/:code')
+  @Public()
+  getLanding(@Param('code') code: string) {
+    return this.groupBuyService.getLandingByCode(code);
   }
 
   @Get('me/current')
