@@ -18,9 +18,18 @@ export const getProduct = (id: string): Promise<Product> =>
   client.get(`/seller/products/${id}`);
 
 export type ProductBundlePayloadItem = { skuId: string; quantity: number; sortOrder?: number };
+export type ProductSkuPayloadItem = {
+  id?: string;
+  specName: string;
+  cost: number;
+  stock: number;
+  weightGram?: number;
+  maxPerOrder?: number;
+};
 export type ProductMutationPayload = Record<string, unknown> & {
   productType?: ProductType;
   bundleItems?: ProductBundlePayloadItem[];
+  skus?: ProductSkuPayloadItem[];
 };
 export type ProductDraftPayload = ProductMutationPayload & { title?: string };
 

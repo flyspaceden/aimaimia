@@ -299,6 +299,83 @@ export class SellerProductsService {
     }
   }
 
+  private assertPositiveSkuCosts(
+    skus: Array<{ specName?: string; title?: string; cost?: number }>,
+  ) {
+    for (const sku of skus) {
+      if (!sku.cost || sku.cost <= 0) {
+        throw new BadRequestException('商品成本必须大于 0');
+      }
+    }
+  }
+
+  private async upsertBundleSellingSku(
+    tx: any,
+    companyId: string,
+    productId: string,
+    skus: SkuItemDto[],
+    markupRate: number,
+    bundleState?: { bundleTotalWeightGram: number } | null,
+  ) {
+    if (skus.length !== 1) {
+      throw new BadRequestException('组合商品必须且只能保留一个销售规格');
+    }
+
+    const effectiveBundleState = bundleState
+      ?? await this.buildPersistedBundleState(tx, companyId, productId);
+    if (!effectiveBundleState) {
+      throw new BadRequestException('组合商品至少需要一个组成规格');
+    }
+    const existingSkus = await tx.productSKU.findMany({ where: { productId } });
+    const existingIds = new Set(existingSkus.map((s: any) => s.id));
+    const activeSkus = existingSkus.filter((sku: any) => sku.status === SkuStatus.ACTIVE);
+    const sellingSku = skus[0];
+    const bundleCost = sellingSku.cost;
+    const bundlePrice = +(bundleCost * markupRate).toFixed(2);
+    const targetExistingSku = sellingSku.id && existingIds.has(sellingSku.id)
+      ? existingSkus.find((sku: any) => sku.id === sellingSku.id)
+      : activeSkus[0];
+
+    const normalizedSkuData = {
+      title: sellingSku.specName || BUNDLE_DEFAULT_SPEC_NAME,
+      price: bundlePrice,
+      cost: bundleCost,
+      stock: 0,
+      weightGram: effectiveBundleState.bundleTotalWeightGram,
+      maxPerOrder: sellingSku.maxPerOrder ?? null,
+      status: SkuStatus.ACTIVE,
+    };
+
+    let keepActiveSkuId: string;
+    if (targetExistingSku) {
+      await tx.productSKU.update({
+        where: { id: targetExistingSku.id },
+        data: normalizedSkuData,
+      });
+      keepActiveSkuId = targetExistingSku.id;
+    } else {
+      const created = await tx.productSKU.create({
+        data: {
+          productId,
+          ...normalizedSkuData,
+        },
+      });
+      keepActiveSkuId = created.id;
+    }
+
+    const extraActiveSkuIds = activeSkus
+      .filter((sku: any) => sku.id !== keepActiveSkuId)
+      .map((sku: any) => sku.id);
+    if (extraActiveSkuIds.length > 0) {
+      await tx.productSKU.updateMany({
+        where: { id: { in: extraActiveSkuIds } },
+        data: { status: SkuStatus.INACTIVE },
+      });
+    }
+
+    return { bundleCost, bundlePrice };
+  }
+
   private normalizeDraftWeightGram(weightGram?: number) {
     return Number.isInteger(weightGram) && (weightGram ?? 0) > 0
       ? weightGram!
@@ -405,11 +482,7 @@ export class SellerProductsService {
     const productType = (dto.productType ?? ProductType.SIMPLE) as ProductType;
 
     // 服务层兜底校验：所有 SKU 成本必须大于 0（DTO 已有 @Min(0.01)，此处防止绕过）
-    for (const sku of dto.skus) {
-      if (!sku.cost || sku.cost <= 0) {
-        throw new BadRequestException('商品成本必须大于 0');
-      }
-    }
+    this.assertPositiveSkuCosts(dto.skus);
     if (!this.isBundleType(productType)) {
       this.assertPositiveSkuWeights(dto.skus);
     }
@@ -588,6 +661,12 @@ export class SellerProductsService {
     }
     this.assertNoTypeConversion(product.type, dto.productType);
     const productType = (dto.productType ?? product.type ?? ProductType.SIMPLE) as ProductType;
+    if (dto.skus !== undefined) {
+      if (!this.isBundleType(productType)) {
+        throw new BadRequestException('普通商品规格请使用规格更新接口');
+      }
+      this.assertPositiveSkuCosts(dto.skus);
+    }
 
     // 事务结果赋值给 updated 变量，以便事务提交后触发异步语义填充
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -597,6 +676,17 @@ export class SellerProductsService {
       const bundleState = this.isBundleType(productType) && dto.bundleItems !== undefined
         ? await this.buildBundleState(tx, companyId, dto.bundleItems, { requireItems: true })
         : null;
+      let markupRate: number | null = null;
+      let bundleCost: number | undefined;
+      let bundlePrice: number | undefined;
+      if (this.isBundleType(productType) && dto.skus !== undefined) {
+        if (dto.skus.length !== 1) {
+          throw new BadRequestException('组合商品必须且只能保留一个销售规格');
+        }
+        markupRate = (await this.bonusConfig.getSystemConfig()).markupRate;
+        bundleCost = dto.skus[0].cost;
+        bundlePrice = +(bundleCost * markupRate).toFixed(2);
+      }
 
       const result = await tx.product.update({
         where: { id: productId },
@@ -604,7 +694,8 @@ export class SellerProductsService {
           title: dto.title,
           subtitle: dto.subtitle,
           description: dto.description,
-          basePrice: dto.basePrice,
+          basePrice: bundlePrice ?? dto.basePrice,
+          cost: bundleCost,
           categoryId: dto.categoryId,
           // 计量单位：DTO 提供则更新，否则保持原值（undefined 不写）
           ...(dto.unit !== undefined && { unit: dto.unit }),
@@ -638,6 +729,18 @@ export class SellerProductsService {
             })),
           });
         }
+      }
+
+      if (this.isBundleType(productType) && dto.skus !== undefined) {
+        await this.upsertBundleSellingSku(
+          tx,
+          companyId,
+          productId,
+          dto.skus,
+          markupRate!,
+          bundleState,
+        );
+      } else if (this.isBundleType(productType) && dto.bundleItems !== undefined) {
         await tx.productSKU.updateMany({
           where: { productId, status: 'ACTIVE' },
           data: { weightGram: bundleState?.bundleTotalWeightGram ?? 0 },
@@ -873,58 +976,14 @@ export class SellerProductsService {
       const markupRate = sysConfig.markupRate;
 
       if (isBundleProduct) {
-        if (skus.length !== 1) {
-          throw new BadRequestException('组合商品必须且只能保留一个销售规格');
-        }
-
-        const bundleState = await this.buildPersistedBundleState(tx as any, companyId, productId);
-        const existingSkus = await tx.productSKU.findMany({ where: { productId } });
-        const existingIds = new Set(existingSkus.map((s) => s.id));
-        const activeSkus = existingSkus.filter((sku) => sku.status === SkuStatus.ACTIVE);
-        const sellingSku = skus[0];
-        const bundleCost = sellingSku.cost;
-        const bundlePrice = +(bundleCost * markupRate).toFixed(2);
-        const targetExistingSku = sellingSku.id && existingIds.has(sellingSku.id)
-          ? existingSkus.find((sku) => sku.id === sellingSku.id)
-          : activeSkus[0];
-
-        const normalizedSkuData = {
-          title: sellingSku.specName || BUNDLE_DEFAULT_SPEC_NAME,
-          price: bundlePrice,
-          cost: bundleCost,
-          stock: 0,
-          weightGram: bundleState!.bundleTotalWeightGram,
-          maxPerOrder: sellingSku.maxPerOrder ?? null,
-          status: SkuStatus.ACTIVE,
-        };
-
-        let keepActiveSkuId: string;
-        if (targetExistingSku) {
-          await tx.productSKU.update({
-            where: { id: targetExistingSku.id },
-            data: normalizedSkuData,
-          });
-          keepActiveSkuId = targetExistingSku.id;
-        } else {
-          const created = await tx.productSKU.create({
-            data: {
-              productId,
-              ...normalizedSkuData,
-            },
-          });
-          keepActiveSkuId = created.id;
-        }
-
-        const extraActiveSkuIds = activeSkus
-          .filter((sku) => sku.id !== keepActiveSkuId)
-          .map((sku) => sku.id);
-        if (extraActiveSkuIds.length > 0) {
-          await tx.productSKU.updateMany({
-            where: { id: { in: extraActiveSkuIds } },
-            data: { status: SkuStatus.INACTIVE },
-          });
-        }
-
+        const { bundlePrice, bundleCost } = await this.upsertBundleSellingSku(
+          tx,
+          companyId,
+          productId,
+          skus,
+          markupRate,
+          null,
+        );
         const productUpdateData: Prisma.ProductUncheckedUpdateInput = {
           basePrice: bundlePrice,
           cost: bundleCost,

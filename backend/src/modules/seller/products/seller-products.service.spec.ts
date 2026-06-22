@@ -233,6 +233,8 @@ describe('SellerProductsService SKU weight validation', () => {
       },
       productBundleItem: {
         findMany: jest.fn().mockResolvedValue(bundleItems),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany: jest.fn().mockResolvedValue({ count: bundleItems.length }),
       },
       productSKU: {
         findMany: jest.fn((args: any) => {
@@ -320,6 +322,8 @@ describe('SellerProductsService SKU weight validation', () => {
       },
       productBundleItem: {
         findMany: jest.fn().mockResolvedValue(bundleItems),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany: jest.fn().mockResolvedValue({ count: bundleItems.length }),
       },
       productSKU: {
         findMany: jest.fn((args: any) => {
@@ -856,5 +860,92 @@ describe('SellerProductsService SKU weight validation', () => {
         weightGram: 1800,
       }),
     });
+  });
+
+  it('update atomically updates BUNDLE bundleItems and the single selling SKU', async () => {
+    const { service, prisma, tx } = buildBundleUpdateSkusService();
+    (prisma.product.findUnique as jest.Mock)
+      .mockResolvedValueOnce({
+        id: 'bundle_1',
+        companyId: 'company_1',
+        status: 'INACTIVE',
+        auditStatus: 'APPROVED',
+        type: 'BUNDLE',
+      })
+      .mockResolvedValueOnce({
+        id: 'bundle_1',
+        companyId: 'company_1',
+        type: 'BUNDLE',
+        skus: [],
+        media: [],
+        tags: [],
+        category: null,
+        bundleItems: [
+          {
+            skuId: 'component_sku_1',
+            quantity: 1,
+            sortOrder: 0,
+            sku: { id: 'component_sku_1', price: 12, stock: 9, weightGram: 500, product: { media: [] } },
+          },
+          {
+            skuId: 'component_sku_2',
+            quantity: 2,
+            sortOrder: 1,
+            sku: { id: 'component_sku_2', price: 8, stock: 5, weightGram: 300, product: { media: [] } },
+          },
+        ],
+      });
+
+    await service.update('company_1', 'bundle_1', {
+      title: '新水果礼盒',
+      productType: 'BUNDLE',
+      bundleItems: [
+        { skuId: 'component_sku_1', quantity: 1, sortOrder: 0 },
+        { skuId: 'component_sku_2', quantity: 2, sortOrder: 1 },
+      ],
+      skus: [{
+        id: 'bundle_sku_active',
+        specName: '新礼盒装',
+        cost: 22,
+        stock: 99,
+        weightGram: 1,
+        maxPerOrder: 2,
+      }],
+    } as any);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    expect(tx.productBundleItem.deleteMany).toHaveBeenCalledWith({
+      where: { bundleProductId: 'bundle_1' },
+    });
+    expect(tx.productBundleItem.createMany).toHaveBeenCalledWith({
+      data: [
+        { skuId: 'component_sku_1', quantity: 1, sortOrder: 0, bundleProductId: 'bundle_1' },
+        { skuId: 'component_sku_2', quantity: 2, sortOrder: 1, bundleProductId: 'bundle_1' },
+      ],
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'bundle_sku_active' },
+      data: expect.objectContaining({
+        title: '新礼盒装',
+        price: 28.6,
+        cost: 22,
+        stock: 0,
+        weightGram: 1100,
+        maxPerOrder: 2,
+      }),
+    });
+    expect(tx.productSKU.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['bundle_sku_extra'] } },
+      data: { status: 'INACTIVE' },
+    });
+    expect(tx.product.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'bundle_1' },
+      data: expect.objectContaining({
+        basePrice: 28.6,
+        cost: 22,
+      }),
+    }));
   });
 });

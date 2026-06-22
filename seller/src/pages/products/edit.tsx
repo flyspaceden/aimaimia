@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   App, Card, Button, Space, InputNumber, Input, Form,
@@ -6,6 +7,7 @@ import {
   Breadcrumb, Select, Collapse, Switch, Row, Col,
   Modal, Image, Segmented, Table, Tooltip,
 } from 'antd';
+import type { FormInstance } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
   SaveOutlined, CloudUploadOutlined, DownloadOutlined,
@@ -130,6 +132,42 @@ function normalizeBundleItems(items: ProductBundleItem[]): ProductBundleItem[] {
   }));
 }
 
+type BundleEditorItemSource = ProductBundleItem & {
+  sku?: {
+    id?: string;
+    title?: string | null;
+    price?: number | null;
+    stock?: number | null;
+    weightGram?: number | null;
+    product?: {
+      title?: string | null;
+      imageUrl?: string | null;
+      coverUrl?: string | null;
+      media?: Array<{ url?: string | null }>;
+    } | null;
+  } | null;
+};
+
+function toBundleEditorItem(item: BundleEditorItemSource): ProductBundleItem {
+  const sku = item.sku;
+  const product = sku?.product;
+  return {
+    skuId: item.skuId || sku?.id || '',
+    quantity: item.quantity,
+    sortOrder: item.sortOrder,
+    productTitle: item.productTitle ?? product?.title ?? undefined,
+    skuTitle: item.skuTitle ?? sku?.title ?? undefined,
+    imageUrl: item.imageUrl ?? product?.imageUrl ?? product?.coverUrl ?? product?.media?.[0]?.url ?? null,
+    price: item.price ?? (sku?.price ?? undefined),
+    stock: item.stock ?? (sku?.stock ?? undefined),
+    weightGram: item.weightGram ?? (sku?.weightGram ?? undefined),
+  };
+}
+
+function toBundleEditorItems(items?: BundleEditorItemSource[] | null): ProductBundleItem[] {
+  return normalizeBundleItems((items || []).map(toBundleEditorItem));
+}
+
 function buildBundlePayloadItems(items: ProductBundleItem[]) {
   return normalizeBundleItems(items).map((item, index) => ({
     skuId: item.skuId,
@@ -159,6 +197,62 @@ function getBundleTotalWeightGram(items: ProductBundleItem[]) {
 
 function getProductCover(product: Product) {
   return product.media?.[0]?.url ?? product.bundleItems?.[0]?.imageUrl ?? null;
+}
+
+function mapBackendFieldToProductForm(path: string, multiSpec: boolean): (string | number)[] | null {
+  // origin -> 前端用 originText 单输入
+  if (path === 'origin' || path.startsWith('origin.')) return ['originText'];
+  // skus 整体错误（如最少 1 项）-> 单规格映射到 singleCost，多规格无单一字段
+  if (path === 'skus') return multiSpec ? null : ['singleCost'];
+  if (path === 'bundleItems' || path.startsWith('bundleItems.')) return ['bundleItems'];
+  // skus.<idx>.<field>
+  const m = /^skus\.(\d+)\.(\w+)$/.exec(path);
+  if (m) {
+    const idx = Number(m[1]);
+    const field = m[2];
+    if (multiSpec) return ['skus', idx, field];
+    // 单规格模式：只有 idx=0 有意义
+    if (idx === 0) {
+      const map: Record<string, string> = {
+        cost: 'singleCost',
+        stock: 'singleStock',
+        weightGram: 'singleWeightGram',
+        maxPerOrder: 'singleMaxPerOrder',
+      };
+      return map[field] ? [map[field]] : null;
+    }
+    return null;
+  }
+  // 顶层简单字段同名直传
+  const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'unit', 'categoryId', 'returnPolicy']);
+  if (TOP_LEVEL.has(path)) return [path];
+  return null;
+}
+
+function BundleItemsFormItem({
+  form,
+  children,
+}: {
+  form: FormInstance;
+  children: ReactNode;
+}) {
+  return (
+    <Form.Item shouldUpdate noStyle>
+      {() => {
+        const errors = form.getFieldError('bundleItems');
+        return (
+          <Form.Item
+            label="组合内容"
+            required
+            validateStatus={errors.length > 0 ? 'error' : undefined}
+            help={errors[0]}
+          >
+            {children}
+          </Form.Item>
+        );
+      }}
+    </Form.Item>
+  );
 }
 
 // 轻量 debounce（避免引入 lodash 类型依赖）
@@ -291,7 +385,7 @@ function BundleItemsEditor({
   const expandBundleSource = (productId: string) => {
     const source = productMap.get(productId);
     if (!source || productTypeOf(source) !== 'BUNDLE') return;
-    commitItems([...(items || []), ...(source.bundleItems || [])]);
+    commitItems([...(items || []), ...toBundleEditorItems(source.bundleItems)]);
   };
 
   const updateQuantity = (skuId: string, quantity: number | null) => {
@@ -953,8 +1047,9 @@ function ProductEditForm({ id }: { id: string }) {
     if (!product) return;
 
     const nextProductType = productTypeOf(product);
+    const nextBundleItems = toBundleEditorItems(product.bundleItems);
     setProductType(nextProductType);
-    setBundleItems(normalizeBundleItems(product.bundleItems || []));
+    setBundleItems(nextBundleItems);
 
     const isMulti = nextProductType === 'SIMPLE' && (product.skus?.length ?? 0) > 1;
     setMultiSpec(isMulti);
@@ -978,7 +1073,7 @@ function ProductEditForm({ id }: { id: string }) {
       description: product.description,
       unit: product.unit || DEFAULT_PRODUCT_UNIT,
       productType: nextProductType,
-      bundleItems: product.bundleItems || [],
+      bundleItems: nextBundleItems,
       categoryId: product.categoryId,
       returnPolicy: (product as any).returnPolicy || 'INHERIT',
       originText,
@@ -990,7 +1085,7 @@ function ProductEditForm({ id }: { id: string }) {
         singleCost: firstSku.cost,
         singleStock: nextProductType === 'BUNDLE' ? 0 : firstSku.stock,
         singleWeightGram: nextProductType === 'BUNDLE'
-          ? (product.bundleTotalWeightGram ?? getBundleTotalWeightGram(product.bundleItems || []))
+          ? (product.bundleTotalWeightGram ?? getBundleTotalWeightGram(nextBundleItems))
           : firstSku.weightGram,
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
       } : {}),
@@ -1060,13 +1155,32 @@ function ProductEditForm({ id }: { id: string }) {
       }
 
       const payload = buildPayload(values, skuList, markupRate, fileList, productType, bundleItems);
-      const { skus, ...productData } = payload;
-
-      await updateProduct(id, productData);
-      await updateProductSkus(id, skus);
+      if (productType === 'BUNDLE') {
+        await updateProduct(id, payload);
+      } else {
+        const { skus, ...productData } = payload;
+        await updateProduct(id, productData);
+        await updateProductSkus(id, skus);
+      }
       message.success('商品已更新');
       navigate('/products');
     } catch (err) {
+      if (err instanceof ApiError && err.fieldErrors && err.fieldErrors.length > 0) {
+        const fieldsToSet: Array<{ name: (string | number)[]; errors: string[] }> = [];
+        let firstName: (string | number)[] | null = null;
+        for (const fe of err.fieldErrors) {
+          const name = mapBackendFieldToProductForm(fe.field, multiSpec);
+          if (!name) continue;
+          fieldsToSet.push({ name, errors: [fe.message] });
+          if (!firstName) firstName = name;
+        }
+        if (fieldsToSet.length > 0) form.setFields(fieldsToSet);
+        message.error(err.message || '保存失败');
+        if (firstName) {
+          form.scrollToField(firstName, { behavior: 'smooth', block: 'center' });
+        }
+        return;
+      }
       if (err instanceof Error) {
         message.error(err.message || '保存失败');
       }
@@ -1333,7 +1447,7 @@ function ProductEditForm({ id }: { id: string }) {
                   </Form.Item>
                 </Col>
               </Row>
-              <Form.Item label="组合内容" required>
+              <BundleItemsFormItem form={form}>
                 <BundleItemsEditor
                   products={bundleCatalog}
                   currentProductId={id}
@@ -1343,7 +1457,7 @@ function ProductEditForm({ id }: { id: string }) {
                     form.setFieldValue('bundleItems', nextItems);
                   }}
                 />
-              </Form.Item>
+              </BundleItemsFormItem>
             </>
           ) : !multiSpec ? (
             /* 单规格模式 */
@@ -1534,8 +1648,9 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     hydratingRef.current = true;
 
     const nextProductType = productTypeOf(draftProduct);
+    const nextBundleItems = toBundleEditorItems(draftProduct.bundleItems);
     setProductType(nextProductType);
-    setBundleItems(normalizeBundleItems(draftProduct.bundleItems || []));
+    setBundleItems(nextBundleItems);
 
     const isMulti = nextProductType === 'SIMPLE' && (draftProduct.skus?.length ?? 0) > 1;
     setMultiSpec(isMulti);
@@ -1558,7 +1673,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       description: draftProduct.description,
       unit: draftProduct.unit || DEFAULT_PRODUCT_UNIT,
       productType: nextProductType,
-      bundleItems: draftProduct.bundleItems || [],
+      bundleItems: nextBundleItems,
       categoryId: draftProduct.categoryId,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       returnPolicy: (draftProduct as any).returnPolicy || 'INHERIT',
@@ -1571,7 +1686,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         singleCost: firstSku.cost || undefined,
         singleStock: nextProductType === 'BUNDLE' ? 0 : firstSku.stock,
         singleWeightGram: nextProductType === 'BUNDLE'
-          ? (draftProduct.bundleTotalWeightGram ?? getBundleTotalWeightGram(draftProduct.bundleItems || []))
+          ? (draftProduct.bundleTotalWeightGram ?? getBundleTotalWeightGram(nextBundleItems))
           : hydrateDraftWeightGram(firstSku),
         singleMaxPerOrder: firstSku.maxPerOrder ?? undefined,
       } : {}),
@@ -1777,35 +1892,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
 
   // 把后端字段路径（如 "skus.0.specName" / "origin"）映射到前端 form name 路径
   const mapBackendFieldToForm = useCallback(
-    (path: string): (string | number)[] | null => {
-      // origin → 前端用 originText 单输入
-      if (path === 'origin' || path.startsWith('origin.')) return ['originText'];
-      // skus 整体错误（如最少 1 项）→ 单规格映射到 singleCost，多规格无单一字段
-      if (path === 'skus') return multiSpec ? null : ['singleCost'];
-      if (path === 'bundleItems' || path.startsWith('bundleItems.')) return ['singleCost'];
-      // skus.<idx>.<field>
-      const m = /^skus\.(\d+)\.(\w+)$/.exec(path);
-      if (m) {
-        const idx = Number(m[1]);
-        const field = m[2];
-        if (multiSpec) return ['skus', idx, field];
-        // 单规格模式：只有 idx=0 有意义
-        if (idx === 0) {
-          const map: Record<string, string> = {
-            cost: 'singleCost',
-            stock: 'singleStock',
-            weightGram: 'singleWeightGram',
-            maxPerOrder: 'singleMaxPerOrder',
-          };
-          return map[field] ? [map[field]] : null;
-        }
-        return null;
-      }
-      // 顶层简单字段同名直传
-      const TOP_LEVEL = new Set(['title', 'subtitle', 'description', 'unit', 'categoryId', 'returnPolicy']);
-      if (TOP_LEVEL.has(path)) return [path];
-      return null;
-    },
+    (path: string): (string | number)[] | null => mapBackendFieldToProductForm(path, multiSpec),
     [multiSpec],
   );
 
@@ -2116,7 +2203,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   </Form.Item>
                 </Col>
               </Row>
-              <Form.Item label="组合内容" required>
+              <BundleItemsFormItem form={form}>
                 <BundleItemsEditor
                   products={bundleCatalog}
                   currentProductId={draftId ?? undefined}
@@ -2127,7 +2214,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                     if (!hydratingRef.current) setDirtySinceSave(true);
                   }}
                 />
-              </Form.Item>
+              </BundleItemsFormItem>
             </>
           ) : !multiSpec ? (
             /* 单规格模式 */

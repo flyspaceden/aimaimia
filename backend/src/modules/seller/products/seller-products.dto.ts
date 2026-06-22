@@ -257,6 +257,12 @@ export class UpdateProductDto {
   @ValidateNested({ each: true })
   @Type(() => BundleItemDto)
   bundleItems?: BundleItemDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SkuItemDto)
+  skus?: SkuItemDto[];
 }
 
 /** 更新 SKU 列表 */
