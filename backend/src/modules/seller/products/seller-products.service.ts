@@ -856,11 +856,15 @@ export class SellerProductsService {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
-    this.assertPositiveSkuWeights(skus);
 
     // SKU 变更同样触发重新审核（APPROVED/REJECTED 状态下）
     const needReAudit =
       product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
+    const isBundleProduct = this.isBundleType(product.type);
+
+    if (!isBundleProduct) {
+      this.assertPositiveSkuWeights(skus);
+    }
 
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
@@ -868,7 +872,7 @@ export class SellerProductsService {
       const sysConfig = await this.bonusConfig.getSystemConfig();
       const markupRate = sysConfig.markupRate;
 
-      if (this.isBundleType(product.type)) {
+      if (isBundleProduct) {
         if (skus.length !== 1) {
           throw new BadRequestException('组合商品必须且只能保留一个销售规格');
         }
@@ -947,6 +951,7 @@ export class SellerProductsService {
       // 更新或创建
       const newSkuIds = new Set<string>();
       for (const sku of skus) {
+        const weightGram = sku.weightGram!;
         const autoPrice = +(sku.cost * markupRate).toFixed(2);
         if (sku.id && existingIds.has(sku.id)) {
           // 更新现有 SKU
@@ -957,7 +962,7 @@ export class SellerProductsService {
               price: autoPrice, // 自动定价
               cost: sku.cost,
               stock: sku.stock,
-              weightGram: sku.weightGram,
+              weightGram,
               maxPerOrder: sku.maxPerOrder ?? null,
             },
           });
@@ -971,7 +976,7 @@ export class SellerProductsService {
               price: autoPrice, // 自动定价
               cost: sku.cost,
               stock: sku.stock,
-              weightGram: sku.weightGram,
+              weightGram,
               maxPerOrder: sku.maxPerOrder ?? null,
             },
           });

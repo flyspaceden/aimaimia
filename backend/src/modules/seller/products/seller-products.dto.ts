@@ -290,9 +290,10 @@ export class SkuItemDto {
   @Min(1)
   maxPerOrder?: number;
 
+  @IsOptional()
   @IsInt()
   @IsPositive()
-  weightGram: number; // 包装后重量（克），用于计算运费和顺丰面单
+  weightGram?: number; // 包装后重量（克），用于计算运费和顺丰面单
 }
 
 /** 商品状态变更 */

@@ -797,7 +797,7 @@ describe('SellerProductsService SKU weight validation', () => {
     expect(tx.productSKU.create).not.toHaveBeenCalled();
   });
 
-  it('updateSkus forces BUNDLE selling SKU stock and weight from bundle components', async () => {
+  it('updateSkus lets BUNDLE selling SKU omit weightGram and derives weight from bundle components', async () => {
     const { service, tx } = buildBundleUpdateSkusService();
 
     await service.updateSkus('company_1', 'bundle_1', [
@@ -806,7 +806,6 @@ describe('SellerProductsService SKU weight validation', () => {
         specName: '新礼盒装',
         cost: 20,
         stock: 99,
-        weightGram: 1,
         maxPerOrder: 3,
       },
     ]);
@@ -835,6 +834,27 @@ describe('SellerProductsService SKU weight validation', () => {
         auditNote: null,
         submissionCount: { increment: 1 },
       },
+    });
+  });
+
+  it('updateSkus ignores caller-provided BUNDLE weightGram and keeps component-derived weight', async () => {
+    const { service, tx } = buildBundleUpdateSkusService();
+
+    await service.updateSkus('company_1', 'bundle_1', [
+      {
+        id: 'bundle_sku_active',
+        specName: '新礼盒装',
+        cost: 20,
+        stock: 99,
+        weightGram: 1,
+      },
+    ]);
+
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'bundle_sku_active' },
+      data: expect.objectContaining({
+        weightGram: 1800,
+      }),
     });
   });
 });

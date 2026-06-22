@@ -61,12 +61,12 @@ describe('正式 SKU weightGram 字段校验', () => {
     expect(weightErrors.length).toBeGreaterThan(0);
   });
 
-  it('SkuItemDto 缺少 weightGram → 应有校验错误', async () => {
+  it('SkuItemDto 缺少 weightGram → DTO 校验通过（由服务层按商品类型决定是否必填）', async () => {
     const { weightGram: _weightGram, ...payload } = basePayload();
     const dto = plainToInstance(SkuItemDto, payload);
     const errors = await validate(dto);
     const weightErrors = errors.filter((e) => e.property === 'weightGram');
-    expect(weightErrors.length).toBeGreaterThan(0);
+    expect(weightErrors).toHaveLength(0);
   });
 
   it('SkuItemDto weightGram=1.5 → 应有校验错误', async () => {
