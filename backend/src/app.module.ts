@@ -13,6 +13,7 @@ import { UserModule } from './modules/user/user.module';
 import { OrderModule } from './modules/order/order.module';
 import { BookingModule } from './modules/booking/booking.module';
 import { GroupModule } from './modules/group/group.module';
+import { GroupBuyModule } from './modules/group-buy/group-buy.module';
 import { FollowModule } from './modules/follow/follow.module';
 import { TaskModule } from './modules/task/task.module';
 import { CheckInModule } from './modules/check-in/check-in.module';
@@ -72,6 +73,7 @@ import { EmailModule } from './common/email/email.module';
     OrderModule,
     BookingModule,
     GroupModule,
+    GroupBuyModule,
     FollowModule,
     TaskModule,
     CheckInModule,

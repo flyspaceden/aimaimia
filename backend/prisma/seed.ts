@@ -1403,6 +1403,10 @@ async function main() {
     { code: 'digital_assets:adjust', module: 'digital_assets', action: 'adjust', description: '数字资产-手动调整' },
     { code: 'digital_assets:export', module: 'digital_assets', action: 'export', description: '数字资产-导出' },
     { code: 'digital_assets:settings', module: 'digital_assets', action: 'settings', description: '数字资产-规则占位配置' },
+    { code: 'group_buy:read', module: 'group_buy', action: 'read', description: '团购-查看' },
+    { code: 'group_buy:manage', module: 'group_buy', action: 'manage', description: '团购-管理' },
+    { code: 'group_buy:export', module: 'group_buy', action: 'export', description: '团购-导出' },
+    { code: 'group_buy:settings', module: 'group_buy', action: 'settings', description: '团购-设置' },
   ];
 
   const permissionRecords: Record<string, string> = {};
