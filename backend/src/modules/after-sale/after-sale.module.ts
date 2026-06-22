@@ -21,6 +21,7 @@ import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { ProductModule } from '../product/product.module';
+import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 
 @Module({
   imports: [
@@ -81,6 +82,15 @@ export class AfterSaleModule implements OnModuleInit {
     const digitalAssetService = this.moduleRef.get(DigitalAssetService, { strict: false });
     if (digitalAssetService) {
       this.afterSaleRefundService.setDigitalAssetService(digitalAssetService);
+    }
+    const groupBuyRebateDeductionService = this.moduleRef.get(
+      GroupBuyRebateDeductionService,
+      { strict: false },
+    );
+    if (groupBuyRebateDeductionService) {
+      this.afterSaleRefundService.setGroupBuyRebateDeductionService(
+        groupBuyRebateDeductionService,
+      );
     }
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {

@@ -220,6 +220,9 @@ export class GroupBuyCheckoutService {
     if ((dto.deductionAmount ?? 0) > 0 || dto.rewardId) {
       throw new BadRequestException('团购商品必须现金购买，不能使用消费积分抵扣');
     }
+    if ((dto.groupBuyRebateDeductionAmount ?? 0) > 0) {
+      throw new BadRequestException('团购商品必须现金购买，不能使用团购返还余额抵扣');
+    }
     if (dto.couponInstanceIds && dto.couponInstanceIds.length > 0) {
       throw new BadRequestException('团购商品不能使用平台红包');
     }

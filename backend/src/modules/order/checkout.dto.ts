@@ -56,6 +56,13 @@ export class CheckoutDto {
   @Min(0)
   deductionAmount?: number;
 
+  /** 团购返还余额抵扣金额（元），仅普通商品结算可用 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  groupBuyRebateDeductionAmount?: number;
+
   /** 支付渠道: wechat / alipay / bankcard */
   @IsOptional()
   @IsString()

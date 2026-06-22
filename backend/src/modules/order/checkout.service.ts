@@ -12,6 +12,7 @@ import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
+import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
@@ -81,6 +82,8 @@ export class CheckoutService {
   // RewardDeductionService 通过 setter 注入，避免扩大构造函数循环依赖面
   private rewardDeductionService: RewardDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
+  // GroupBuyRebateDeductionService 通过 setter 注入，保持与消费积分账户隔离
+  private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -133,6 +136,11 @@ export class CheckoutService {
     this.digitalAssetService = service;
   }
 
+  /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
+    this.groupBuyRebateDeductionService = service;
+  }
+
   private extractWechatAmountFen(queryResult: any): number | null {
     const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
     return (
@@ -179,6 +187,7 @@ export class CheckoutService {
       vipDiscountAmount?: number;
       totalCouponDiscount?: number;
       couponInstanceIds?: string[];
+      groupBuyRebateDeductionAmount?: number;
     }) => {
       let paymentParams: Record<string, any> = {};
 
@@ -214,6 +223,7 @@ export class CheckoutService {
         goodsAmount: session.goodsAmount,
         shippingFee: session.shippingFee,
         discountAmount: session.discountAmount,
+        groupBuyRebateDeductionAmount: session.groupBuyRebateDeductionAmount ?? 0,
         vipDiscountAmount: session.vipDiscountAmount ?? 0,
         totalCouponDiscount: session.totalCouponDiscount ?? 0,
         couponInstanceIds: session.couponInstanceIds ?? [],
@@ -701,6 +711,20 @@ export class CheckoutService {
       }
     }
 
+    // 团购返还余额抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
+    if (dto.groupBuyRebateDeductionAmount && dto.groupBuyRebateDeductionAmount > 0) {
+      if (!this.groupBuyRebateDeductionService) {
+        throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
+      }
+      const maxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
+        userId,
+        totalGoodsAmount,
+      );
+      if (dto.groupBuyRebateDeductionAmount > maxDeduction.maxDeductible) {
+        throw new BadRequestException('团购返还余额抵扣金额超出上限');
+      }
+    }
+
     // 10. 生成 merchantOrderNo（在事务外生成，事务内使用）
     const merchantOrderNo = `CS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const paymentChannel = dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] : null;
@@ -734,6 +758,8 @@ export class CheckoutService {
           let discountAmount = 0;
           let reservedRewardId: string | null = null;
           let deductionGroupId: string | null = null;
+          let groupBuyRebateDeductionGroupId: string | null = null;
+          let groupBuyRebateDeductionAmount = 0;
 
           if (dto.deductionAmount && dto.deductionAmount > 0) {
             if (!this.rewardDeductionService) {
@@ -752,13 +778,36 @@ export class CheckoutService {
             }
           }
 
-          // 计算应付总额（按商户分摊分润奖励抵扣 + 平台红包抵扣）
+          if (dto.groupBuyRebateDeductionAmount && dto.groupBuyRebateDeductionAmount > 0) {
+            if (!this.groupBuyRebateDeductionService) {
+              throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
+            }
+            const reserved = await this.groupBuyRebateDeductionService.reserveDeduction(
+              tx,
+              userId,
+              totalGoodsAmount,
+              dto.groupBuyRebateDeductionAmount,
+            );
+            if (reserved) {
+              groupBuyRebateDeductionGroupId = reserved.groupId;
+              groupBuyRebateDeductionAmount = Number(reserved.amount.toFixed(2));
+            }
+          }
+
+          // 计算应付总额（按商户分摊消费积分 + 团购返还余额 + 平台红包抵扣）
           const rewardDiscountAllocations = this.allocateDiscountByCapacities(
             companyGroups.map((group) => group.goodsAmount),
             discountAmount,
           );
-          const remainingCapacities = companyGroups.map((group, idx) =>
+          const remainingAfterReward = companyGroups.map((group, idx) =>
             Math.max(0, group.goodsAmount - rewardDiscountAllocations[idx]),
+          );
+          const groupBuyRebateDiscountAllocations = this.allocateDiscountByCapacities(
+            remainingAfterReward,
+            groupBuyRebateDeductionAmount,
+          );
+          const remainingCapacities = remainingAfterReward.map((value, idx) =>
+            Math.max(0, value - groupBuyRebateDiscountAllocations[idx]),
           );
           const couponDiscountAllocations = this.allocateDiscountByCapacities(
             remainingCapacities,
@@ -775,7 +824,10 @@ export class CheckoutService {
             effectiveTotalCouponDiscount,
           );
           const totalGroupDiscount = companyGroups.reduce((total, _, idx) => {
-            return total + rewardDiscountAllocations[idx] + couponDiscountAllocations[idx];
+            return total
+              + rewardDiscountAllocations[idx]
+              + groupBuyRebateDiscountAllocations[idx]
+              + couponDiscountAllocations[idx];
           }, 0);
           const expectedTotal = Math.max(0, totalGoodsForShipping - vipDiscountAmount - totalGroupDiscount + totalShippingFee);
 
@@ -812,10 +864,12 @@ export class CheckoutService {
               addressSnapshot: encryptedAddressSnapshot as any,
               rewardId: reservedRewardId && discountAmount > 0 ? reservedRewardId : null,
               deductionGroupId,
+              groupBuyRebateDeductionGroupId,
               expectedTotal,
               goodsAmount: totalGoodsAmount,
               shippingFee: totalShippingFee,
               discountAmount,
+              groupBuyRebateDeductionAmount,
               vipDiscountAmount,
               // 平台红包
               couponInstanceIds: reservedCouponIds,
@@ -1500,6 +1554,15 @@ export class CheckoutService {
               data: { status: 'AVAILABLE', refType: null, refId: null },
             });
           }
+
+          const groupBuyRebateDeductionGroupId =
+            (session as any).groupBuyRebateDeductionGroupId as string | null | undefined;
+          if (groupBuyRebateDeductionGroupId && this.groupBuyRebateDeductionService) {
+            await this.groupBuyRebateDeductionService.releaseDeduction(
+              tx,
+              groupBuyRebateDeductionGroupId,
+            );
+          }
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         // 事务成功后，释放已锁定的平台红包（在事务外执行，CouponService 有自己的事务）
@@ -1769,6 +1832,13 @@ export class CheckoutService {
             if (isVipPackageSession && (session as any).deductionGroupId) {
               throw new InternalServerErrorException('VIP 礼包不应有 deductionGroupId，数据异常');
             }
+            if (
+              isVipPackageSession
+              && ((session as any).groupBuyRebateDeductionGroupId
+                || Number((session as any).groupBuyRebateDeductionAmount ?? 0) > 0)
+            ) {
+              throw new InternalServerErrorException('VIP 礼包不应有团购返还余额抵扣，数据异常');
+            }
 
             // 4. 按 companyId 分组
             const itemsByCompany = new Map<string, SnapshotItem[]>();
@@ -1817,12 +1887,22 @@ export class CheckoutService {
 
             // 红包抵扣金额（从 session 中读取）
             const sessionCouponDiscount = session.totalCouponDiscount ?? 0;
+            const sessionGroupBuyRebateDeduction = Number(
+              (session as any).groupBuyRebateDeductionAmount ?? 0,
+            );
             const rewardDiscountAllocations = this.allocateDiscountByCapacities(
               companyGroups.map((group) => group.goodsAmount),
               session.discountAmount,
             );
-            const remainingCapacities = companyGroups.map((group, idx) =>
+            const remainingAfterReward = companyGroups.map((group, idx) =>
               Math.max(0, group.goodsAmount - rewardDiscountAllocations[idx]),
+            );
+            const groupBuyRebateDiscountAllocations = this.allocateDiscountByCapacities(
+              remainingAfterReward,
+              sessionGroupBuyRebateDeduction,
+            );
+            const remainingCapacities = remainingAfterReward.map((value, idx) =>
+              Math.max(0, value - groupBuyRebateDiscountAllocations[idx]),
             );
             const couponDiscountAllocations = this.allocateDiscountByCapacities(
               remainingCapacities,
@@ -1841,9 +1921,10 @@ export class CheckoutService {
               const groupShippingFee = groupShippingFees[idx];
               // 分润奖励 + 平台红包按商户金额分摊
               const groupRewardDiscount = rewardDiscountAllocations[idx] || 0;
+              const groupBuyRebateDiscount = groupBuyRebateDiscountAllocations[idx] || 0;
               const groupCouponDiscount = couponDiscountAllocations[idx] || 0;
               const groupVipDiscount = vipDiscountAllocations[idx] || 0;
-              const groupTotalDiscount = groupRewardDiscount + groupCouponDiscount;
+              const groupTotalDiscount = groupRewardDiscount + groupBuyRebateDiscount + groupCouponDiscount;
               const groupTotal = isVipPackageSession
                 ? (idx === 0 ? Number(session.expectedTotal || group.goodsAmount || 0) : 0)
                 : Math.max(
@@ -1900,6 +1981,21 @@ export class CheckoutService {
                 } else if (session.rewardId) {
                   await tx.rewardLedger.update({
                     where: { id: session.rewardId },
+                    data: { refType: 'ORDER', refId: order.id },
+                  });
+                }
+              }
+
+              // 团购返还余额抵扣关联主订单，账户和流水保持独立。
+              if (isPrimary && sessionGroupBuyRebateDeduction > 0) {
+                const groupBuyRebateDeductionGroupId =
+                  (session as any).groupBuyRebateDeductionGroupId as string | null | undefined;
+                if (groupBuyRebateDeductionGroupId) {
+                  await (tx as any).groupBuyRebateLedger.updateMany({
+                    where: {
+                      type: 'DEDUCT',
+                      meta: { path: ['groupId'], equals: groupBuyRebateDeductionGroupId },
+                    },
                     data: { refType: 'ORDER', refId: order.id },
                   });
                 }
@@ -2019,6 +2115,18 @@ export class CheckoutService {
                 where: { id: session.rewardId, status: 'RESERVED' },
                 data: { status: 'VOIDED' },
               });
+            }
+            const groupBuyRebateDeductionGroupId =
+              (session as any).groupBuyRebateDeductionGroupId as string | null | undefined;
+            if (
+              groupBuyRebateDeductionGroupId
+              && Number((session as any).groupBuyRebateDeductionAmount ?? 0) > 0
+              && this.groupBuyRebateDeductionService
+            ) {
+              await this.groupBuyRebateDeductionService.confirmDeduction(
+                tx,
+                groupBuyRebateDeductionGroupId,
+              );
             }
 
             // 9. C3修复：按 cartItemId 精确删除购物车项（避免误删结算后新增的同 SKU 商品）

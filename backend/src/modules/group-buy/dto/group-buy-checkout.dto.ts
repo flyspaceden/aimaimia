@@ -49,6 +49,13 @@ export class GroupBuyCheckoutDto {
   @Min(0)
   deductionAmount?: number;
 
+  /** 明确拒绝：团购不能使用团购返还余额抵扣。 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  groupBuyRebateDeductionAmount?: number;
+
   /** 明确拒绝：团购不能使用旧 rewardId 抵扣。 */
   @IsOptional()
   @IsString()

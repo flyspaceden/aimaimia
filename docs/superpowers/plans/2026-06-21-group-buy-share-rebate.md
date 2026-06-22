@@ -672,7 +672,7 @@ git commit -m "feat: expose group buy rebate account"
 - Test: `backend/src/modules/group-buy/group-buy-rebate-deduction.service.spec.ts`
 - Test: `backend/src/modules/order/checkout-money-safety.spec.ts`
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Cover:
 
@@ -681,15 +681,15 @@ Cover:
 - Cancel/expire restores reserved group-buy rebate.
 - Refund success restores proportional group-buy rebate for ordinary orders.
 
-- [ ] **Step 2: Implement deduction service**
+- [x] **Step 2: Implement deduction service**
 
 Mirror `RewardDeductionService` patterns, but use `GroupBuyRebateAccount` and `GroupBuyRebateLedger`.
 
-- [ ] **Step 3: Wire ordinary checkout only**
+- [x] **Step 3: Wire ordinary checkout only**
 
 Add a new checkout DTO field such as `groupBuyRebateDeductionAmount`. Do not overload `discountAmount`.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```bash
 cd backend

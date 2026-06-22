@@ -1510,10 +1510,12 @@ model CheckoutSession {
   addressSnapshot Json                  // 完整地址快照
   rewardId        String?  @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
   deductionGroupId String?              // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
+  groupBuyRebateDeductionGroupId String? // 团购返还余额抵扣组 ID
   expectedTotal   Float                 // 服务端计算的应付总额
   goodsAmount     Float                 // 商品金额
   shippingFee     Float                 // 运费
   discountAmount  Float    @default(0)  // 分润奖励抵扣
+  groupBuyRebateDeductionAmount Float @default(0) // 团购返还余额抵扣
   vipDiscountAmount Float  @default(0) // VIP折扣金额（元），平台补贴
 
   // 支付信息

@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
+import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
 
 /**
@@ -27,6 +28,8 @@ export class CheckoutExpireService {
   private paymentService: any = null;
   // RewardDeductionService 通过可选注入（释放消费积分抵扣）
   private rewardDeductionService: RewardDeductionService | null = null;
+  // GroupBuyRebateDeductionService 通过可选注入（释放团购返还余额抵扣）
+  private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
 
   constructor(private prisma: PrismaService) {}
 
@@ -60,6 +63,11 @@ export class CheckoutExpireService {
     this.rewardDeductionService = service;
   }
 
+  /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
+  setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
+    this.groupBuyRebateDeductionService = service;
+  }
+
   private extractWechatAmountFen(queryResult: any): number | null {
     const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
     return (
@@ -89,15 +97,17 @@ export class CheckoutExpireService {
         id: true,
         rewardId: true,
         deductionGroupId: true,
+        groupBuyRebateDeductionGroupId: true,
+        groupBuyRebateDeductionAmount: true,
         couponInstanceIds: true,
         bizType: true,
         itemsSnapshot: true,
         merchantOrderNo: true,
         paymentChannel: true,
         expectedTotal: true,
-      },
+      } as any,
       take: 200,
-    });
+    }) as any[];
 
     if (expiredSessions.length === 0) return;
 
@@ -253,6 +263,8 @@ export class CheckoutExpireService {
     id: string;
     rewardId: string | null;
     deductionGroupId?: string | null;
+    groupBuyRebateDeductionGroupId?: string | null;
+    groupBuyRebateDeductionAmount?: number | null;
     couponInstanceIds: string[];
     bizType: string;
     itemsSnapshot: unknown;
@@ -563,6 +575,16 @@ export class CheckoutExpireService {
             data: { status: 'AVAILABLE', refType: null, refId: null },
           });
           this.logger.log(`已释放预留奖励: ledgerId=${session.rewardId}`);
+        }
+
+        if (session.groupBuyRebateDeductionGroupId && this.groupBuyRebateDeductionService) {
+          await this.groupBuyRebateDeductionService.releaseDeduction(
+            tx,
+            session.groupBuyRebateDeductionGroupId,
+          );
+          this.logger.log(
+            `已释放团购返还余额抵扣组: groupId=${session.groupBuyRebateDeductionGroupId}`,
+          );
         }
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

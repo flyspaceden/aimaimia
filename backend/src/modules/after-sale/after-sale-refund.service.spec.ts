@@ -35,6 +35,19 @@ describe('AfterSaleRefundService', () => {
     order: {
       findUnique: jest.fn(),
     },
+    checkoutSession: {
+      findUnique: jest.fn(),
+    },
+    rewardLedger: {
+      findMany: jest.fn(),
+    },
+    groupBuyRebateLedger: {
+      findMany: jest.fn(),
+    },
+    orderItem: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
     $executeRaw: jest.fn(),
   };
 
@@ -113,6 +126,11 @@ describe('AfterSaleRefundService', () => {
     tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
     tx.productSKU.update.mockResolvedValue({ id: 'sku_001', stock: 12 });
     tx.order.findUnique.mockResolvedValue({ userId: 'user_001' });
+    tx.checkoutSession.findUnique.mockResolvedValue(null);
+    tx.rewardLedger.findMany.mockResolvedValue([]);
+    tx.groupBuyRebateLedger.findMany.mockResolvedValue([]);
+    tx.orderItem.findFirst.mockResolvedValue(null);
+    tx.orderItem.findMany.mockResolvedValue([]);
     prisma.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
       orderId: 'order_001',
@@ -473,6 +491,62 @@ describe('AfterSaleRefundService', () => {
       { source: 'AFTER_SALE_REFUND' },
     );
     expect(inboxService.send).toHaveBeenCalled();
+  });
+
+  it('handleRefundSuccess restores proportional group-buy rebate deduction after ordinary order refund succeeds', async () => {
+    const groupBuyRebateDeductionService = {
+      refundDeduction: jest.fn().mockResolvedValue(undefined),
+    };
+    (service as any).setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: false,
+      orderItem: {
+        skuId: 'sku_001',
+        quantity: 1,
+        isPrize: false,
+      },
+    });
+    tx.order.findUnique.mockResolvedValue({ checkoutSessionId: 'cs_001' });
+    tx.checkoutSession.findUnique.mockResolvedValue({
+      deductionGroupId: null,
+      discountAmount: 0,
+      groupBuyRebateDeductionGroupId: 'GBD-1',
+      groupBuyRebateDeductionAmount: 20,
+      goodsAmount: 200,
+    });
+    tx.orderItem.findFirst.mockResolvedValue({ unitPrice: 100 });
+    tx.groupBuyRebateLedger.findMany.mockResolvedValue([]);
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(groupBuyRebateDeductionService.refundDeduction).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        refundId: 'refund_001',
+        orderId: 'order_001',
+        originalGoodsAmount: 200,
+        originalGoodsRefundAmount: 100,
+        originalDeductAmount: 20,
+        deductionGroupId: 'GBD-1',
+        isFinalRefund: false,
+        cumulativeGoodsRefundAmount: 100,
+      }),
+    );
   });
 
   it('handleRefundSuccess 对 bundle 退货按组件幂等回填库存，不回填 bundle 售卖 SKU', async () => {
