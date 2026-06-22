@@ -1,17 +1,99 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Prisma, ReturnPolicy } from '@prisma/client';
+import { Prisma, ProductType, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ProductBundleService } from '../../product/product-bundle.service';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductSkusDto } from './dto/update-sku.dto';
 
 @Injectable()
 export class AdminProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private productBundleService: ProductBundleService,
+  ) {}
+
+  private readonly bundleReviewInclude = {
+    orderBy: { sortOrder: 'asc' as const },
+    select: {
+      skuId: true,
+      quantity: true,
+      sortOrder: true,
+      sku: {
+        select: {
+          id: true,
+          title: true,
+          price: true,
+          cost: true,
+          stock: true,
+          weightGram: true,
+          status: true,
+          product: {
+            select: {
+              id: true,
+              title: true,
+              companyId: true,
+              status: true,
+              auditStatus: true,
+              type: true,
+            },
+          },
+        },
+      },
+    },
+  };
 
   private assertSkuWeightGram(weightGram?: number | null): asserts weightGram is number {
     if (typeof weightGram !== 'number' || !Number.isInteger(weightGram) || weightGram <= 0) {
       throw new BadRequestException('SKU 重量必须为正整数克');
     }
+  }
+
+  private decorateProductForAdmin<T extends Record<string, any>>(product: T): T & {
+    bundleReferenceTotal: number | null;
+    bundleAvailableStock: number | null;
+    bundleTotalWeightGram: number | null;
+  } {
+    if ((product.type ?? ProductType.SIMPLE) !== ProductType.BUNDLE) {
+      return {
+        ...product,
+        bundleReferenceTotal: null,
+        bundleAvailableStock: null,
+        bundleTotalWeightGram: null,
+      };
+    }
+
+    const bundleItems = product.bundleItems ?? [];
+    const bundleReferenceTotal = +bundleItems
+      .reduce(
+        (sum: number, item: any) => sum + ((item.sku?.price ?? 0) as number) * (item.quantity ?? 0),
+        0,
+      )
+      .toFixed(2);
+
+    const bundleAvailableStock = bundleItems.length === 0
+      ? 0
+      : this.productBundleService.calculateAvailability(
+          bundleItems.map((item: any) => ({
+            stock: item.sku?.stock ?? 0,
+            quantity: item.quantity,
+          })),
+        );
+
+    const bundleTotalWeightGram = bundleItems.length === 0
+      ? 0
+      : this.productBundleService.calculateTotalWeightGram(
+          bundleItems.map((item: any) => ({
+            weightGram: item.sku?.weightGram ?? 0,
+            quantity: item.quantity,
+          })),
+        );
+
+    return {
+      ...product,
+      bundleReferenceTotal,
+      bundleAvailableStock,
+      bundleTotalWeightGram,
+    };
   }
 
   /** 商品列表（管理端） */
@@ -57,6 +139,7 @@ export class AdminProductsService {
           category: { select: { id: true, name: true, returnPolicy: true, parentId: true } },
           skus: { where: { status: 'ACTIVE' }, select: { id: true, price: true, cost: true, stock: true, maxPerOrder: true } },
           media: { select: { url: true }, take: 1 },
+          bundleItems: this.bundleReviewInclude,
         },
       }),
       this.prisma.product.count({ where }),
@@ -78,7 +161,7 @@ export class AdminProductsService {
     const enriched = items.map((item) => {
       const policy = (item as any).returnPolicy || 'INHERIT';
       if (policy !== 'INHERIT') {
-        return { ...item, effectiveReturnPolicy: policy };
+        return { ...this.decorateProductForAdmin(item), effectiveReturnPolicy: policy };
       }
       // 沿分类链内存查找
       let catPolicy: ReturnPolicy | undefined = item.category?.returnPolicy as ReturnPolicy | undefined;
@@ -90,7 +173,7 @@ export class AdminProductsService {
         parentId = parent.parentId;
       }
       return {
-        ...item,
+        ...this.decorateProductForAdmin(item),
         effectiveReturnPolicy: catPolicy === 'INHERIT' ? 'RETURNABLE' : catPolicy,
       };
     });
@@ -128,11 +211,12 @@ export class AdminProductsService {
         skus: { where: { status: 'ACTIVE' } },
         media: true,
         tags: { include: { tag: true } },
+        bundleItems: this.bundleReviewInclude,
       },
     });
     // 草稿对管理端不可见，统一返回 404（不泄露草稿存在）
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
-    return product;
+    return this.decorateProductForAdmin(product);
   }
 
   /** 更新商品 */
@@ -298,13 +382,53 @@ export class AdminProductsService {
 
   /** 审核 */
   async audit(id: string, auditStatus: 'APPROVED' | 'REJECTED', auditNote?: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        companyId: true,
+        status: true,
+        type: true,
+      },
+    });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     // C20: 审核通过自动上架（status -> ACTIVE）；拒绝保持原状态
     const updateData: Prisma.ProductUncheckedUpdateInput = { auditStatus, auditNote };
     if (auditStatus === 'APPROVED') {
       updateData.status = 'ACTIVE';
+    }
+
+    if (auditStatus === 'APPROVED' && product.type === ProductType.BUNDLE) {
+      return this.prisma.$transaction(async (tx) => {
+        const persistedBundleItems = await tx.productBundleItem.findMany({
+          where: { bundleProductId: id },
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            skuId: true,
+            quantity: true,
+            sortOrder: true,
+          },
+        });
+        if (persistedBundleItems.length === 0) {
+          throw new BadRequestException('组合商品至少需要一个组成规格');
+        }
+
+        await this.productBundleService.validateSellerBundleItems(
+          tx as any,
+          product.companyId,
+          persistedBundleItems.map((item) => ({
+            skuId: item.skuId,
+            quantity: item.quantity,
+            sortOrder: item.sortOrder ?? undefined,
+          })),
+        );
+
+        return tx.product.update({
+          where: { id },
+          data: updateData,
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     }
 
     return this.prisma.product.update({
