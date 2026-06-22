@@ -165,6 +165,34 @@ describe('ProductBundleService', () => {
     ]);
   });
 
+  it('rejects draft-save validation when a component product is itself a bundle', async () => {
+    const tx = {
+      productSKU: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sku-draft-bundle',
+            status: 'ACTIVE',
+            weightGram: 500,
+            product: {
+              id: 'product-draft-bundle',
+              companyId: 'company-self',
+              status: 'DRAFT',
+              auditStatus: 'PENDING',
+              type: 'BUNDLE',
+            },
+          },
+        ]),
+      },
+    };
+
+    await expect(service.validateSellerBundleItems(
+      tx as any,
+      'company-self',
+      [{ skuId: 'sku-draft-bundle', quantity: 1 }],
+      { allowDraft: true },
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('computes availability as min(floor(stock / quantity))', () => {
     expect(service.calculateAvailability([
       { stock: 11, quantity: 2 },
@@ -238,6 +266,53 @@ describe('ProductBundleService', () => {
       companyId: 'company-self',
       productSnapshot: {
         bundleItems: [],
+      },
+    })).toThrow(BadRequestException);
+  });
+
+  it('rejects bundle snapshot component items with invalid totalQuantity', () => {
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity: 2,
+      companyId: 'company-self',
+      productSnapshot: {
+        bundleItems: [
+          {
+            skuId: 'sku-a',
+            skuTitle: '苹果 5kg',
+            totalQuantity: 0,
+          },
+        ],
+      },
+    })).toThrow(BadRequestException);
+
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity: 2,
+      companyId: 'company-self',
+      productSnapshot: {
+        bundleItems: [
+          {
+            skuId: 'sku-b',
+            skuTitle: '橙子礼盒',
+            totalQuantity: -1,
+          },
+        ],
+      },
+    })).toThrow(BadRequestException);
+
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity: 2,
+      companyId: 'company-self',
+      productSnapshot: {
+        bundleItems: [
+          {
+            skuId: 'sku-c',
+            skuTitle: '葡萄礼盒',
+            totalQuantity: 1.5,
+          },
+        ],
       },
     })).toThrow(BadRequestException);
   });

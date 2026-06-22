@@ -129,6 +129,9 @@ export class ProductBundleService {
 
     return bundleItems.map((item) => {
       const quantityPerBundle = item.quantityPerBundle;
+      if (item.totalQuantity !== undefined && (!Number.isInteger(item.totalQuantity) || item.totalQuantity <= 0)) {
+        throw new BadRequestException('组合商品订单快照组件总数量必须大于 0');
+      }
       if (
         item.totalQuantity === undefined &&
         (!Number.isInteger(quantityPerBundle) || (quantityPerBundle ?? 0) <= 0)
