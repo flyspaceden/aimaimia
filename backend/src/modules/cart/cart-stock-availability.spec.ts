@@ -394,7 +394,6 @@ describe('CartService stock availability', () => {
         sku: {
           id: 'component-sku-1',
           title: '组件规格 1',
-          price: 100,
           stock: 0,
           weightGram: 200,
           product: {
@@ -410,7 +409,6 @@ describe('CartService stock availability', () => {
         sku: {
           id: 'component-sku-2',
           title: '组件规格 2',
-          price: 101,
           stock: 8,
           weightGram: 201,
           product: {

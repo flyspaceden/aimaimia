@@ -120,7 +120,6 @@ export class CartService {
             select: {
               id: true,
               title: true,
-              price: true,
               stock: true,
               weightGram: true,
               product: {
@@ -205,7 +204,6 @@ export class CartService {
       sku: {
         id: item.sku?.id ?? '',
         title: item.sku?.title ?? '',
-        price: item.sku?.price ?? 0,
         stock: item.sku?.stock ?? 0,
         weightGram: item.sku?.weightGram ?? 0,
         product: {
