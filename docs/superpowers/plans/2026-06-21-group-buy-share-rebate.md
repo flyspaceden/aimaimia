@@ -411,11 +411,12 @@ git commit -m "feat: expose group buy buyer state APIs"
 
 **Files:**
 - Modify: `backend/src/modules/group-buy/group-buy-checkout.service.ts`
-- Modify: `backend/src/modules/order/checkout.service.ts`
+- Modify: `backend/src/modules/group-buy/group-buy.controller.ts`
+- Modify: `backend/src/modules/group-buy/group-buy.module.ts`
+- Create: `backend/src/modules/group-buy/dto/group-buy-checkout.dto.ts`
 - Test: `backend/src/modules/group-buy/group-buy-checkout.service.spec.ts`
-- Test: `backend/src/modules/order/checkout-money-safety.spec.ts`
 
-- [ ] **Step 1: Add failing tests**
+- [x] **Step 1: Add failing tests**
 
 Cover:
 
@@ -425,7 +426,7 @@ Cover:
 - Through share code: reject own code.
 - Through share code: referred purchase creates buyer's own pending instance after payment success, not at checkout creation.
 
-- [ ] **Step 2: Implement `createCheckout(userId, dto)`**
+- [x] **Step 2: Implement `createCheckout(userId, dto)`**
 
 Use Serializable transaction:
 
@@ -439,11 +440,11 @@ Use Serializable transaction:
 8. Set all discount fields to zero.
 9. `bizMeta` stores `{ groupBuyActivityId, groupBuyCodeId?, groupBuyPriceSnapshot, freeShippingSnapshot, tierSnapshot }`.
 
-- [ ] **Step 3: Generate payment params**
+- [x] **Step 3: Generate payment params**
 
 Reuse existing Alipay/Wechat App order creation, but subject/description should be neutral: `爱买买团购订单-{merchantOrderNo}`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 cd backend
@@ -451,10 +452,10 @@ npx jest src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/or
 npm run build
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add backend/src/modules/group-buy backend/src/modules/order/checkout.service.ts
+git add backend/src/modules/group-buy
 git commit -m "feat: add cash-only group buy checkout"
 ```
 
