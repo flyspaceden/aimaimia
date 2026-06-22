@@ -83,6 +83,66 @@ export class GroupBuyLifecycleService {
     }, this.serializableTransactionOptions);
   }
 
+  async abandonCurrent(userId: string, now = new Date()) {
+    return this.prisma.$transaction(async (tx) => {
+      const instance = await tx.groupBuyInstance.findFirst({
+        where: {
+          userId,
+          status: 'QUALIFICATION_PENDING',
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (!instance) {
+        return { status: 'NOOP' };
+      }
+
+      await tx.groupBuyInstance.update({
+        where: { id: instance.id },
+        data: {
+          status: 'QUALIFICATION_ABANDONED',
+          abandonedAt: now,
+        },
+      });
+      return { status: 'ABANDONED' };
+    }, this.serializableTransactionOptions);
+  }
+
+  async terminateCurrent(userId: string, now = new Date()) {
+    return this.prisma.$transaction(async (tx) => {
+      const instance = await tx.groupBuyInstance.findFirst({
+        where: {
+          userId,
+          status: 'SHARING',
+        },
+        orderBy: { updatedAt: 'desc' },
+        include: { code: true },
+      });
+      if (!instance) {
+        return { status: 'NOOP' };
+      }
+
+      await tx.groupBuyInstance.update({
+        where: { id: instance.id },
+        data: {
+          status: 'TERMINATED',
+          terminatedAt: now,
+        },
+      });
+      if (instance.code && instance.code.status === 'ACTIVE') {
+        await tx.groupBuyCode.update({
+          where: { id: instance.code.id },
+          data: {
+            status: 'DISABLED',
+            disabledAt: now,
+          },
+        });
+      }
+
+      return { status: 'TERMINATED' };
+    }, this.serializableTransactionOptions);
+  }
+
   private async generateUniqueCode(tx: Prisma.TransactionClient) {
     for (let attempt = 0; attempt < 5; attempt++) {
       const code = generateGroupBuyCode();

@@ -604,7 +604,7 @@ git commit -m "feat: release group buy rebates after valid referrals"
 - Modify: `backend/src/modules/group-buy/group-buy-lifecycle.service.ts`
 - Test: `backend/src/modules/group-buy/group-buy-lifecycle.service.spec.ts`
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Cover:
 
@@ -613,14 +613,14 @@ Cover:
 - Terminated instance no longer occupies purchase slot.
 - Existing candidates continue observation.
 
-- [ ] **Step 2: Implement endpoints**
+- [x] **Step 2: Implement endpoints**
 
 - `POST /group-buy/me/current/abandon`
 - `POST /group-buy/me/current/terminate`
 
 Both must be idempotent and use Serializable transaction.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```bash
 cd backend
