@@ -134,6 +134,8 @@ describe('SellerOrdersService invoice privacy', () => {
           isPrize: false,
           prizeType: null,
           productSnapshot: {
+            title: '精选水果礼盒',
+            image: 'http://localhost/snapshot-bundle.jpg',
             productType: 'BUNDLE',
             bundleItems: [
               { productId: 'p1', productTitle: '苹果', skuId: 'sku-1', skuName: '红富士', quantity: 2 },
@@ -143,7 +145,7 @@ describe('SellerOrdersService invoice privacy', () => {
           sku: {
             product: {
               title: '秋季组合装',
-              media: [],
+              media: [{ url: 'http://localhost/live-bundle.jpg' }],
             },
           },
         },
@@ -172,6 +174,8 @@ describe('SellerOrdersService invoice privacy', () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: 'item-bundle',
+          title: '精选水果礼盒',
+          imageUrl: 'http://localhost/snapshot-bundle.jpg',
           productType: 'BUNDLE',
           bundleItems: [
             { productId: 'p1', productTitle: '苹果', skuId: 'sku-1', skuName: '红富士', quantity: 2 },

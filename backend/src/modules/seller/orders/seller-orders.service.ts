@@ -293,10 +293,11 @@ export class SellerOrdersService {
       regionText: extractRegionText(order.addressSnapshot),
       items: order.items.map((item) => {
         const ps = item.productSnapshot as any;
+        const liveMediaUrl = (item.sku?.product as any)?.media?.[0]?.url || null;
         return {
           id: item.id,
-          title: item.sku?.product?.title || '',
-          imageUrl: (item.sku?.product as any)?.media?.[0]?.url || null,
+          title: ps?.title || item.sku?.product?.title || '',
+          imageUrl: ps?.image || liveMediaUrl || null,
           unitPrice: item.unitPrice,
           quantity: item.quantity,
           isPrize: item.isPrize,
