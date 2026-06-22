@@ -24,6 +24,7 @@ import { RepurchaseResult, RepurchaseResultItem, RepurchaseSkipReason } from './
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
+import { ProductBundleService } from '../product/product-bundle.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -105,6 +106,7 @@ export class OrderService {
     private bonusConfig: BonusConfigService,
     private redisCoord: RedisCoordinatorService,
     private cartService: CartService,
+    private productBundleService: ProductBundleService = new ProductBundleService(),
   ) {}
 
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -333,6 +335,33 @@ export class OrderService {
     return Number.isFinite(weightGram) && weightGram > 0
       ? Math.trunc(weightGram)
       : DEFAULT_SKU_WEIGHT_GRAM;
+  }
+
+  private getPreviewBundleMetrics(sku: any): { availability: number; totalWeightGram: number } | null {
+    if (sku?.product?.type !== 'BUNDLE') {
+      return null;
+    }
+
+    const bundleItems = Array.isArray(sku?.product?.bundleItems)
+      ? sku.product.bundleItems
+      : [];
+
+    return {
+      availability: this.productBundleService.calculateAvailability(
+        bundleItems.map((item: any) => ({
+          stock: Number(item?.sku?.stock ?? 0),
+          quantity: Number(item?.quantity ?? 0),
+        })),
+      ),
+      totalWeightGram: bundleItems.length === 0
+        ? 0
+        : this.productBundleService.calculateTotalWeightGram(
+            bundleItems.map((item: any) => ({
+              weightGram: Number(item?.sku?.weightGram ?? 0),
+              quantity: Number(item?.quantity ?? 0),
+            })),
+          ),
+    };
   }
 
   /**
@@ -713,6 +742,66 @@ export class OrderService {
     };
   }
 
+  private buildInventoryReleaseMovements(item: {
+    skuId: string;
+    quantity: number;
+    companyId?: string | null;
+    productSnapshot?: any;
+  }): Array<{ skuId: string; quantity: number }> {
+    const bundleItems = item.productSnapshot?.bundleItems;
+    if (Array.isArray(bundleItems) && bundleItems.length > 0) {
+      return this.productBundleService
+        .buildInventoryMovements({
+          skuId: item.skuId,
+          quantity: item.quantity,
+          companyId: item.companyId ?? '',
+          productSnapshot: item.productSnapshot,
+        })
+        .map((movement) => ({
+          skuId: movement.skuId,
+          quantity: movement.quantity,
+        }));
+    }
+
+    return [{ skuId: item.skuId, quantity: item.quantity }];
+  }
+
+  private normalizeOrderItemProductSnapshot(productSnapshot: any) {
+    const ps = (productSnapshot as any) || {};
+    return {
+      productType: ps.productType || 'SIMPLE',
+      bundleItems: Array.isArray(ps.bundleItems) ? ps.bundleItems : [],
+    };
+  }
+
+  private resolveRepurchaseAvailableStock(item: any, sku: any): number {
+    const snapshotMeta = this.normalizeOrderItemProductSnapshot(item.productSnapshot);
+    const isBundle =
+      snapshotMeta.productType === 'BUNDLE' ||
+      sku?.product?.type === 'BUNDLE';
+    if (!isBundle) {
+      return Number(sku?.stock ?? 0);
+    }
+
+    const bundleItems = Array.isArray(sku?.product?.bundleItems)
+      ? sku.product.bundleItems
+      : [];
+    if (bundleItems.length === 0) {
+      return 0;
+    }
+
+    try {
+      return this.productBundleService.calculateAvailability(
+        bundleItems.map((bundleItem: any) => ({
+          stock: Number(bundleItem?.sku?.stock ?? 0),
+          quantity: Number(bundleItem?.quantity ?? 0),
+        })),
+      );
+    } catch {
+      return 0;
+    }
+  }
+
   async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
     const resultKey = `order:repurchase:result:${userId}:${orderId}`;
     const lockKey = `order:repurchase:lock:${userId}:${orderId}`;
@@ -788,6 +877,19 @@ export class OrderService {
                       include: {
                         company: true,
                         media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+                        bundleItems: {
+                          orderBy: { sortOrder: 'asc' },
+                          select: {
+                            skuId: true,
+                            quantity: true,
+                            sortOrder: true,
+                            sku: {
+                              select: {
+                                stock: true,
+                              },
+                            },
+                          },
+                        },
                       },
                     },
                   },
@@ -849,7 +951,10 @@ export class OrderService {
             }
 
             for (const [skuId, group] of purchasableBySkuId.entries()) {
-              const currentStock = Number(group.sku.stock ?? 0);
+              const currentStock = this.resolveRepurchaseAvailableStock(
+                group.items[0],
+                group.sku,
+              );
               const existingRows = existingGroupsBySkuId.get(skuId) ?? [];
               const existing = existingRows[0] as any | undefined;
               const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
@@ -1011,6 +1116,18 @@ export class OrderService {
           include: {
             company: { select: { id: true, name: true } },
             media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+            bundleItems: {
+              orderBy: { sortOrder: 'asc' },
+              include: {
+                sku: {
+                  select: {
+                    id: true,
+                    stock: true,
+                    weightGram: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -1027,6 +1144,18 @@ export class OrderService {
             include: {
               company: { select: { id: true, name: true } },
               media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+              bundleItems: {
+                orderBy: { sortOrder: 'asc' },
+                include: {
+                  sku: {
+                    select: {
+                      id: true,
+                      stock: true,
+                      weightGram: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -1067,7 +1196,20 @@ export class OrderService {
     const previewMatchedIds = new Set<string>();
 
     // 构建预览行
-    type PreviewItem = { skuId: string; title: string; image: string; unitPrice: number; quantity: number; companyId: string; companyName: string; isPrize: boolean; prizeType: string | null; cartItemId?: string; prizeRecordId?: string | null };
+    type PreviewItem = {
+      skuId: string;
+      title: string;
+      image: string;
+      unitPrice: number;
+      quantity: number;
+      companyId: string;
+      companyName: string;
+      totalWeightPerUnit: number;
+      isPrize: boolean;
+      prizeType: string | null;
+      cartItemId?: string;
+      prizeRecordId?: string | null;
+    };
     const excludedItems: Array<{
       cartItemId?: string;
       skuId: string;
@@ -1080,6 +1222,10 @@ export class OrderService {
     for (const item of dto.items) {
       const sku = skuMap.get(item.skuId);
       if (!sku) throw new BadRequestException(`商品规格 ${item.skuId} 不存在`);
+      const bundleMetrics = this.getPreviewBundleMetrics(sku);
+      const availableStock = bundleMetrics?.availability ?? Number(sku.stock ?? 0);
+      const totalWeightPerUnit =
+        bundleMetrics?.totalWeightGram ?? this.normalizeSkuWeightGram((sku as any).weightGram);
 
       // 判断是否为奖品项
       let prizeCi: typeof previewPrizeItems[0] | null = null;
@@ -1114,7 +1260,7 @@ export class OrderService {
       }
 
       if (!prizeCi) {
-        if (sku.stock <= 0) {
+        if (availableStock <= 0) {
           excludedItems.push({
             cartItemId: (item as any).cartItemId,
             skuId: sku.id,
@@ -1123,11 +1269,11 @@ export class OrderService {
           });
           continue;
         }
-        if (item.quantity > sku.stock) {
+        if (item.quantity > availableStock) {
           excludedItems.push({
             cartItemId: (item as any).cartItemId,
             skuId: sku.id,
-            reason: `商品当前仅剩 ${sku.stock} 件`,
+            reason: `商品当前仅剩 ${availableStock} 件`,
             isPrize: false,
           });
           continue;
@@ -1184,6 +1330,7 @@ export class OrderService {
         quantity: item.quantity,
         companyId: sku.product.companyId,
         companyName: sku.product.company?.name || '',
+        totalWeightPerUnit,
         isPrize: isPrizeItem,
         prizeType: itemPrizeType,
         cartItemId: prizeCi?.id,
@@ -1242,22 +1389,13 @@ export class OrderService {
       groupMap.get(pi.companyId)!.push(pi);
     }
 
-    // 构建 skuId → weightGram 映射，用于计算分组总重量
-    const skuWeightMap = new Map<string, number>();
-    for (const [skuId, sku] of skuMap.entries()) {
-      const weightGram = this.normalizeSkuWeightGram((sku as any).weightGram);
-      skuWeightMap.set(skuId, weightGram);
-      // fallback SKU 查询会用 productId 作为 skuMap key；分组项里仍保存真实 sku.id。
-      skuWeightMap.set((sku as any).id, weightGram);
-    }
-
     const companyGroups = [...groupMap.entries()]
       .map(([companyId, items]) => ({
         companyId,
         companyName: items[0].companyName,
         items: items.map((i) => ({ skuId: i.skuId, title: i.title, image: i.image, unitPrice: i.unitPrice, quantity: i.quantity })),
         goodsAmount: items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
-        totalWeight: items.reduce((sum, i) => sum + i.quantity * (skuWeightMap.get(i.skuId) ?? 0), 0),
+        totalWeight: items.reduce((sum, i) => sum + i.quantity * i.totalWeightPerUnit, 0),
       }))
       .sort((a, b) => b.goodsAmount - a.goodsAmount);
 
@@ -1821,19 +1959,21 @@ export class OrderService {
 
       // 释放库存
       for (const item of order.items) {
-        await tx.productSKU.update({
-          where: { id: item.skuId },
-          data: { stock: { increment: item.quantity } },
-        });
-        await tx.inventoryLedger.create({
-          data: {
-            skuId: item.skuId,
-            type: 'RELEASE',
-            qty: item.quantity,
-            refType: 'ORDER',
-            refId: id,
-          },
-        });
+        for (const movement of this.buildInventoryReleaseMovements(item)) {
+          await tx.productSKU.update({
+            where: { id: movement.skuId },
+            data: { stock: { increment: movement.quantity } },
+          });
+          await tx.inventoryLedger.create({
+            data: {
+              skuId: movement.skuId,
+              type: 'RELEASE',
+              qty: movement.quantity,
+              refType: 'ORDER',
+              refId: id,
+            },
+          });
+        }
       }
 
       // 创建 Refund 行（status=REFUNDING；merchantRefundNo 'AUTO-' 前缀让 cron 兜底重试）
@@ -1999,7 +2139,7 @@ export class OrderService {
     const orders = await this.prisma.order.findMany({
       where: { checkoutSessionId: sessionId, userId },
       include: {
-        items: { select: { skuId: true, quantity: true, companyId: true } },
+        items: { select: { skuId: true, quantity: true, companyId: true, productSnapshot: true } },
       },
     });
     if (orders.length === 0) {
@@ -2087,19 +2227,21 @@ export class OrderService {
       // 释放每个 Order 的库存
       for (const o of orders) {
         for (const item of o.items) {
-          await tx.productSKU.update({
-            where: { id: item.skuId },
-            data: { stock: { increment: item.quantity } },
-          });
-          await tx.inventoryLedger.create({
-            data: {
-              skuId: item.skuId,
-              type: 'RELEASE',
-              qty: item.quantity,
-              refType: 'ORDER',
-              refId: o.id,
-            },
-          });
+          for (const movement of this.buildInventoryReleaseMovements(item)) {
+            await tx.productSKU.update({
+              where: { id: movement.skuId },
+              data: { stock: { increment: movement.quantity } },
+            });
+            await tx.inventoryLedger.create({
+              data: {
+                skuId: movement.skuId,
+                type: 'RELEASE',
+                qty: movement.quantity,
+                refType: 'ORDER',
+                refId: o.id,
+              },
+            });
+          }
         }
       }
 
@@ -2341,6 +2483,7 @@ export class OrderService {
   private mapOrder(order: any, companyMap?: Map<string, { id: string; name: string; logoUrl: string | null }>) {
     const snapshot = (item: any) => {
       const ps = (item.productSnapshot as any) || {};
+      const normalizedSnapshot = this.normalizeOrderItemProductSnapshot(ps);
       const company = companyMap?.get(item.companyId);
       return {
         id: item.id,
@@ -2355,6 +2498,8 @@ export class OrderService {
         companyName: company?.name,            // 新增：店铺名称（Phase 2，list() 批量 join）
         companyLogo: company?.logoUrl ?? null, // 新增：店铺 logo（Phase 2）
         isPrize: !!item.isPrize,               // 新增：是否奖品（前端区分样式 + 禁用售后）
+        productType: normalizedSnapshot.productType,
+        bundleItems: normalizedSnapshot.bundleItems,
         // 注：isPostReplacement 在 AfterSaleRequest 上，不在 OrderItem。
         //     Phase 2 通过反查 afterSaleRequests 派生。
       };

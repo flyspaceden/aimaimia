@@ -28,6 +28,7 @@ import { useTheme, useBottomInset } from '../../../src/theme';
 import { afterSaleTypeLabels } from '../../../src/constants/statuses';
 import { showPermissionRationale } from '../../../src/components/overlay/PermissionRationaleModal';
 import type { AfterSaleType, OrderItem } from '../../../src/types/domain/Order';
+import { BundleSummary } from '../../../src/components/orders/BundleSummary';
 
 // ─── 质量问题原因选项（QUALITY_RETURN / QUALITY_EXCHANGE 必选）─────
 const qualityReasons = [
@@ -535,6 +536,7 @@ export default function AfterSaleScreen() {
                         <Text style={[typography.bodySm, { color: colors.text.primary }]} numberOfLines={2}>
                           {item.title}
                         </Text>
+                        <BundleSummary productType={item.productType} bundleItems={item.bundleItems} />
                         <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
                           ¥{item.price.toFixed(2)} x{item.quantity}
                         </Text>
@@ -568,6 +570,7 @@ export default function AfterSaleScreen() {
                       <Text style={[typography.bodySm, { color: colors.text.tertiary }]} numberOfLines={2}>
                         {item.title}
                       </Text>
+                      <BundleSummary productType={item.productType} bundleItems={item.bundleItems} />
                       <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 4 }]}>
                         已有售后或暂不支持申请
                       </Text>
@@ -600,6 +603,7 @@ export default function AfterSaleScreen() {
                       <Text style={[typography.bodySm, { color: colors.text.tertiary }]} numberOfLines={2}>
                         {item.title}
                       </Text>
+                      <BundleSummary productType={item.productType} bundleItems={item.bundleItems} />
                       <Text style={[typography.caption, { color: colors.danger, marginTop: 4 }]}>
                         奖品不支持退换
                       </Text>
@@ -874,6 +878,14 @@ export default function AfterSaleScreen() {
                     {selectedItem?.title ?? '-'}
                   </Text>
                 </View>
+                {selectedItem?.productType === 'BUNDLE' && selectedItem.bundleItems?.length ? (
+                  <View style={[styles.summaryRow, { alignItems: 'flex-start' }]}>
+                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>组合内容</Text>
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <BundleSummary productType={selectedItem.productType} bundleItems={selectedItem.bundleItems} showLabel={false} />
+                    </View>
+                  </View>
+                ) : null}
                 {/* 售后类型 */}
                 <View style={styles.summaryRow}>
                   <Text style={[typography.caption, { color: colors.text.secondary }]}>售后类型</Text>

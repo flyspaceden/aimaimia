@@ -13,6 +13,7 @@ import { EmptyState, useToast } from '../src/components/feedback';
 import { AiDivider } from '../src/components/ui/AiDivider';
 import { GiftCoverImage } from '../src/components/cards';
 import { OrderItemRow } from '../src/components/cards/OrderItemRow';
+import { BundleSummary } from '../src/components/orders/BundleSummary';
 import { Countdown } from '../src/components/ui/Countdown';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
@@ -297,6 +298,8 @@ export default function CheckoutScreen() {
         productId: item.productId,
         // 传递 skuId，后端需要根据 skuId 查询真实价格和库存
         skuId: item.skuId ?? item.productId,
+        productType: item.productType,
+        bundleItems: item.bundleItems,
         title: item.title,
         image: item.image,
         price: item.price,
@@ -1096,12 +1099,13 @@ export default function CheckoutScreen() {
                   const cartItem = cartItems.find((candidate) => (candidate.skuId ?? candidate.productId) === item.skuId);
                   const stockText = getStockText(cartItem?.stock, lowStockThreshold);
                   return (
-                    <View key={`${item.skuId}-${ii}`} style={styles.itemRow}>
+                  <View key={`${item.skuId}-${ii}`} style={styles.itemRow}>
                       <Image source={{ uri: item.image }} style={[styles.cover, { borderRadius: radius.md }]} contentFit="cover" />
                       <View style={{ flex: 1, marginLeft: spacing.md }}>
                         <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
                           {item.title}
                         </Text>
+                        <BundleSummary productType={cartItem?.productType} bundleItems={cartItem?.bundleItems} />
                         {stockText && (
                           <Text style={[typography.captionSm, { color: Number(cartItem?.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
                             {stockText}
@@ -1145,6 +1149,7 @@ export default function CheckoutScreen() {
                       <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
                         {item.title}
                       </Text>
+                      <BundleSummary productType={item.productType} bundleItems={item.bundleItems} />
                       {stockText && (
                         <Text style={[typography.captionSm, { color: Number(item.stock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
                           {stockText}

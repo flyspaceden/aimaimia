@@ -20,6 +20,7 @@ export interface QueryParams {
   pageSize?: number;
   keyword?: string;
   status?: string;
+  productType?: 'SIMPLE' | 'BUNDLE';
   [key: string]: string | number | undefined;
 }
 
@@ -73,6 +74,20 @@ export interface SelectCompanyResponse {
 // 商品
 // ============================================================
 
+export type ProductType = 'SIMPLE' | 'BUNDLE';
+
+export interface ProductBundleItem {
+  skuId: string;
+  quantity: number;
+  sortOrder?: number;
+  productTitle?: string;
+  skuTitle?: string;
+  imageUrl?: string | null;
+  price?: number;
+  stock?: number;
+  weightGram?: number;
+}
+
 export interface Product {
   id: string;
   companyId: string;
@@ -81,6 +96,11 @@ export interface Product {
   description?: string;
   basePrice: number;
   unit?: string;
+  type: ProductType;
+  bundleItems?: ProductBundleItem[];
+  bundleReferenceTotal?: number | null;
+  bundleAvailableStock?: number | null;
+  bundleTotalWeightGram?: number | null;
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
   auditStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   auditNote?: string;
@@ -157,11 +177,29 @@ export interface OrderItem {
   id: string;
   title: string;
   description?: string | null;
+  skuId?: string;
+  skuTitle?: string;
   unitPrice: number;
   quantity: number;
   isPrize?: boolean;
   prizeType?: string;
   imageUrl?: string; // 商品首图
+  productType?: ProductType;
+  bundleItems?: OrderItemBundleComponent[];
+}
+
+export interface OrderItemBundleComponent {
+  skuId?: string;
+  productId?: string;
+  productTitle?: string;
+  skuTitle?: string;
+  skuName?: string;
+  quantity?: number;
+  quantityPerBundle?: number;
+  bundleQuantity?: number;
+  totalQuantity?: number;
+  image?: string | null;
+  imageUrl?: string | null;
 }
 
 // ============================================================

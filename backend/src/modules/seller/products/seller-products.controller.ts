@@ -42,6 +42,7 @@ export class SellerProductsController {
     @Query('status') status?: string,
     @Query('auditStatus') auditStatus?: string,
     @Query('keyword') keyword?: string,
+    @Query('productType') productType?: string,
   ) {
     return this.productsService.findAll(
       companyId,
@@ -50,6 +51,7 @@ export class SellerProductsController {
       status,
       auditStatus,
       keyword,
+      productType,
     );
   }
 

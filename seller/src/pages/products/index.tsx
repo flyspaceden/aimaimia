@@ -38,6 +38,20 @@ import { getOverview } from '@/api/analytics';
 const { Text } = Typography;
 
 function getStockSummary(product: Product, threshold: number) {
+  if (product.type === 'BUNDLE') {
+    const bundleItems = product.bundleItems ?? [];
+    const derivedStock = product.bundleAvailableStock
+      ?? (bundleItems.length > 0
+        ? Math.min(
+            ...bundleItems.map((item) =>
+              Math.floor((Number(item.stock) || 0) / Math.max(1, item.quantity)),
+            ),
+          )
+        : 0);
+    const zeroCount = derivedStock <= 0 ? 1 : 0;
+    const lowCount = threshold > 0 && derivedStock > 0 && derivedStock <= threshold ? 1 : 0;
+    return { total: derivedStock, minSku: undefined, owedSkus: [], zeroCount, lowCount };
+  }
   const skus = product.skus ?? [];
   const total = skus.reduce((sum, sku) => sum + (sku.stock ?? 0), 0);
   const minSku = skus.reduce<ProductSKU | undefined>((min, sku) => {
@@ -174,6 +188,8 @@ export default function ProductListPage() {
         const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
         const hasOwed = (minSku?.stock ?? 0) < 0;
         const hasStockWarning = zeroCount > 0 || lowCount > 0;
+        const isBundle = r.type === 'BUNDLE';
+        const bundleItemCount = r.bundleItems?.length ?? 0;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {cover ? (
@@ -217,15 +233,23 @@ export default function ProductListPage() {
                 {r.skus?.length > 1 && (
                   <span>{r.skus.length} 规格</span>
                 )}
+                {isBundle && (
+                  <>
+                    <Tag color="blue" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                      组合
+                    </Tag>
+                    <span>{bundleItemCount} 项</span>
+                  </>
+                )}
                 {(hasOwed || hasStockWarning) && (
                   <span style={{ color: '#ff4d4f' }}>
                     <WarningOutlined style={{ marginRight: 2 }} />
                     {[
                       hasOwed ? `${owedSkus.length} 规格欠货` : null,
-                      zeroCount > 0 ? `${zeroCount} 规格无库存` : null,
-                      lowCount > 0 ? `${lowCount} 规格低库存` : null,
+                      zeroCount > 0 ? `${zeroCount} ${isBundle ? '组合不可售' : '规格无库存'}` : null,
+                      lowCount > 0 ? `${lowCount} ${isBundle ? '组合库存低' : '规格低库存'}` : null,
                     ].filter(Boolean).join(' / ')}
-                    <span style={{ marginLeft: 4 }}>库存 {total}</span>
+                    <span style={{ marginLeft: 4 }}>{isBundle ? '可组合' : '库存'} {total}</span>
                   </span>
                 )}
               </div>
@@ -294,6 +318,23 @@ export default function ProductListPage() {
       sorter: true,
       render: (_, r) => {
         const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
+        if (r.type === 'BUNDLE') {
+          return (
+            <Space direction="vertical" size={0}>
+              <Text type={zeroCount > 0 ? 'danger' : lowCount > 0 ? 'warning' : undefined}>
+                {total}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                可组合库存
+              </Text>
+              {(r.bundleItems?.length ?? 0) > 0 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {r.bundleItems?.length ?? 0} 项
+                </Text>
+              )}
+            </Space>
+          );
+        }
         const hasOwed = (minSku?.stock ?? 0) < 0;
         const owedText = owedSkus
           .map((sku) => `${sku.title || sku.id}: 欠货 ${Math.abs(sku.stock ?? 0)} 件`)

@@ -27,6 +27,7 @@ describe('AfterSaleRefundService', () => {
       create: jest.fn(),
       createMany: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     productSKU: {
       update: jest.fn(),
@@ -59,10 +60,15 @@ describe('AfterSaleRefundService', () => {
     send: jest.fn(),
   };
 
+  const productBundleService = {
+    buildInventoryMovements: jest.fn(),
+  };
+
   let service: AfterSaleRefundService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    productBundleService.buildInventoryMovements.mockReset();
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
       orderId: 'order_001',
@@ -103,6 +109,7 @@ describe('AfterSaleRefundService', () => {
     tx.refundStatusHistory.findFirst.mockResolvedValue(null);
     tx.inventoryLedger.create.mockResolvedValue({ id: 'inv_ledger_001' });
     tx.inventoryLedger.findFirst.mockResolvedValue(null);
+    tx.inventoryLedger.findMany.mockResolvedValue([]);
     tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
     tx.productSKU.update.mockResolvedValue({ id: 'sku_001', stock: 12 });
     tx.order.findUnique.mockResolvedValue({ userId: 'user_001' });
@@ -131,6 +138,7 @@ describe('AfterSaleRefundService', () => {
       rewardService as any,
       new AfterSaleStatusHistoryService(),
       inboxService as any,
+      productBundleService as any,
     );
   });
 
@@ -467,6 +475,189 @@ describe('AfterSaleRefundService', () => {
     expect(inboxService.send).toHaveBeenCalled();
   });
 
+  it('handleRefundSuccess 对 bundle 退货按组件幂等回填库存，不回填 bundle 售卖 SKU', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_bundle_001',
+      afterSaleId: 'as_bundle_001',
+      orderId: 'order_bundle_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_bundle_001',
+      orderId: 'order_bundle_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_bundle_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'bundle-selling-sku',
+        quantity: 2,
+        isPrize: false,
+        productSnapshot: {
+          productType: 'BUNDLE',
+          bundleItems: [
+            { skuId: 'component-sku-a', quantityPerBundle: 2 },
+            { skuId: 'component-sku-b', quantityPerBundle: 1 },
+          ],
+        },
+      },
+    });
+    productBundleService.buildInventoryMovements.mockReturnValue([
+      { skuId: 'component-sku-a', quantity: 4, companyId: 'company-1', label: 'A' },
+      { skuId: 'component-sku-b', quantity: 2, companyId: 'company-1', label: 'B' },
+    ]);
+    tx.inventoryLedger.createMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    await service.handleRefundSuccess('refund_bundle_001', 'provider_refund_bundle_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'as_bundle_001' },
+      include: expect.objectContaining({
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            companyId: true,
+            isPrize: true,
+            productSnapshot: true,
+          },
+        },
+      }),
+    }));
+    expect(productBundleService.buildInventoryMovements).toHaveBeenCalledWith({
+      skuId: 'bundle-selling-sku',
+      quantity: 2,
+      companyId: '',
+      productSnapshot: {
+        productType: 'BUNDLE',
+        bundleItems: [
+          { skuId: 'component-sku-a', quantityPerBundle: 2 },
+          { skuId: 'component-sku-b', quantityPerBundle: 1 },
+        ],
+      },
+    });
+    expect(tx.inventoryLedger.findMany).toHaveBeenCalledWith({
+      where: {
+        skuId: { in: ['component-sku-a', 'component-sku-b'] },
+        type: 'RELEASE',
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      },
+      select: { skuId: true },
+    });
+    expect(tx.inventoryLedger.createMany).toHaveBeenNthCalledWith(1, {
+      data: [{
+        skuId: 'component-sku-a',
+        type: 'RELEASE',
+        qty: 4,
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.inventoryLedger.createMany).toHaveBeenNthCalledWith(2, {
+      data: [{
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(2);
+    expect(tx.productSKU.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'component-sku-a' },
+      data: { stock: { increment: 4 } },
+    });
+    expect(tx.productSKU.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'component-sku-b' },
+      data: { stock: { increment: 2 } },
+    });
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'bundle-selling-sku' },
+    }));
+  });
+
+  it('handleRefundSuccess 对 bundle 退货仅回填缺失的组件 ledger', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_bundle_partial_001',
+      afterSaleId: 'as_bundle_partial_001',
+      orderId: 'order_bundle_partial_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_bundle_partial_001',
+      orderId: 'order_bundle_partial_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_bundle_partial_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'bundle-selling-sku',
+        quantity: 2,
+        isPrize: false,
+        productSnapshot: {
+          productType: 'BUNDLE',
+          bundleItems: [
+            { skuId: 'component-sku-a', quantityPerBundle: 2 },
+            { skuId: 'component-sku-b', quantityPerBundle: 1 },
+          ],
+        },
+      },
+    });
+    productBundleService.buildInventoryMovements.mockReturnValue([
+      { skuId: 'component-sku-a', quantity: 4, companyId: 'company-1', label: 'A' },
+      { skuId: 'component-sku-b', quantity: 2, companyId: 'company-1', label: 'B' },
+    ]);
+    tx.inventoryLedger.findMany.mockResolvedValue([{ skuId: 'component-sku-a' }]);
+    tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
+
+    await service.handleRefundSuccess(
+      'refund_bundle_partial_001',
+      'provider_refund_bundle_partial_001',
+    );
+
+    expect(tx.inventoryLedger.findMany).toHaveBeenCalledWith({
+      where: {
+        skuId: { in: ['component-sku-a', 'component-sku-b'] },
+        type: 'RELEASE',
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_partial_001',
+      },
+      select: { skuId: true },
+    });
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [{
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_partial_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(1);
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'component-sku-b' },
+      data: { stock: { increment: 2 } },
+    });
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'component-sku-a' },
+    }));
+  });
+
   it('handleRefundSuccess restocks returned normal items exactly once when returned-goods refund succeeds', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
@@ -501,19 +692,22 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
     }));
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
-    expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
+    expect(tx.inventoryLedger.findMany).toHaveBeenCalledWith({
       where: {
+        skuId: { in: ['sku_001'] },
         type: 'RELEASE',
         refType: 'AFTER_SALE',
         refId: 'as_001',
       },
-      select: { id: true },
+      select: { skuId: true },
     });
     expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
     expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
@@ -595,57 +789,46 @@ describe('AfterSaleRefundService', () => {
     expect(inboxService.send).toHaveBeenCalledTimes(1);
   });
 
-  it('handleRefundSuccess does not restock when after-sale release ledger already exists', async () => {
+  it('does not double-restock bundle components on duplicate refund notifications', async () => {
     tx.refund.findUnique.mockResolvedValue({
-      id: 'refund_001',
-      afterSaleId: 'as_001',
-      orderId: 'order_001',
+      id: 'refund_bundle_002',
+      afterSaleId: 'as_bundle_002',
+      orderId: 'order_bundle_002',
       amount: 88,
       status: 'REFUNDING',
       providerRefundId: null,
     });
     tx.afterSaleRequest.findUnique.mockResolvedValue({
-      id: 'as_001',
-      orderId: 'order_001',
+      id: 'as_bundle_002',
+      orderId: 'order_bundle_002',
       userId: 'user_001',
-      status: 'RECEIVED_BY_SELLER',
+      status: 'REFUNDED',
       refundAmount: 88,
-      refundId: 'refund_001',
-      afterSaleType: 'NO_REASON_RETURN',
+      refundId: 'refund_bundle_002',
+      afterSaleType: 'QUALITY_RETURN',
       requiresReturn: true,
       orderItem: {
-        skuId: 'sku_001',
+        skuId: 'bundle-selling-sku',
         quantity: 2,
         isPrize: false,
-      },
-    });
-    tx.inventoryLedger.findFirst.mockResolvedValue({ id: 'ledger_existing' });
-
-    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
-
-    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      include: expect.objectContaining({
-        orderItem: {
-          select: {
-            skuId: true,
-            quantity: true,
-            isPrize: true,
-          },
+        productSnapshot: {
+          productType: 'BUNDLE',
+          bundleItems: [
+            { skuId: 'component-sku-a', quantityPerBundle: 2 },
+            { skuId: 'component-sku-b', quantityPerBundle: 1 },
+          ],
         },
-      }),
-    }));
-    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
-    expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
-      where: {
-        type: 'RELEASE',
-        refType: 'AFTER_SALE',
-        refId: 'as_001',
       },
-      select: { id: true },
     });
+
+    await service.handleRefundSuccess('refund_bundle_002', 'provider_refund_bundle_002');
+
+    expect(productBundleService.buildInventoryMovements).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
+    expect(tx.inventoryLedger.findMany).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(rewardService.voidRewardsForOrder).not.toHaveBeenCalled();
   });
 
   it('handleRefundSuccess does not restock exchange types', async () => {
@@ -681,7 +864,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
@@ -725,7 +910,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
@@ -769,7 +956,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),

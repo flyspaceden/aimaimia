@@ -1,3 +1,4 @@
+import type { CompanyCardCartProductInput } from '../../utils/companyProductMappers';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
@@ -11,7 +12,7 @@ type CompanyCardProps = {
   company: Company;
   onPress?: (company: Company) => void;
   onProductPress?: (productId: string) => void;
-  onAddToCart?: (product: { id: string; title: string; price: number; image: string; defaultSkuId?: string }) => void;
+  onAddToCart?: (product: CompanyCardCartProductInput) => void;
 };
 
 // 企业卡片：全宽布局，含横滑商品缩略图行

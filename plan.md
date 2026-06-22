@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-21
+> **最后更新**: 2026-06-22
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -112,6 +112,35 @@
   - **本地验证**: `cd backend && npm run prisma:generate`、`cd backend && npm run prisma:delivery:generate`、`cd backend && npm run build`、`cd backend && npx jest src/modules/delivery --runInBand`（43 suites / 196 tests）、根目录 `npx tsc --noEmit`、根目录 `npm test -- --runInBand`（App Jest 9 suites / 51 tests + legal node tests 22 tests）、`cd admin && npm run build`、`cd seller && npm run build`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build` 均通过。
   - **环境说明**: 当前本地没有真实 `DATABASE_URL` / `DELIVERY_DATABASE_URL`，原始 `npx prisma validate` 两条命令会停在环境变量缺失；已用本地占位 PostgreSQL URL 复跑主库和配送库 schema validate，均通过且未连接 staging/production 数据库。
   - **发布前人工待办**: 阿里云 DNS 解析 `delivery-admin` / `delivery-seller` / `test-delivery-admin` / `test-delivery-seller`；宝塔站点和 SSL；staging/production `DELIVERY_DATABASE_URL`、配送 JWT secrets、CORS；配送 migration 部署；staging 配送库连续两次 seed 幂等验证；配送支付/SF 月结实链路；App/后台/配送中心 staging E2E；私有 `docs/operations/阿里云部署.md` 上线时同步实际配置。
+- [x] **组合商品架构文档与安全清单补齐**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 15
+  - **实际做了**: 更新 `docs/architecture/data-system.md`、`seller.md`、`frontend.md`、`responsive-design.md`，补齐 `ProductType` / `ProductBundleItem`、卖家组合编辑器、买家组合展示、结算组件库存展开、整套售后规则与卖家拣货汇总说明；并按 `docs/issues/tofix-safe.md` checklist 完成组合商品安全审阅，结论为本任务不需要新增或改写 tracked issue
+  - **验证**: `git diff --check`、bundle 相关实现 grep 对齐、文档最小一致性复核
+
+- [x] **买家端组合商品购物车/订单/售后展示**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 14
+  - **实际做了**: `ServerCartItem` / `OrderItem` / `useCartStore` 补齐 `productType` / `bundleItems` snapshot；购物车、结算、订单卡片/详情、售后申请和售后详情统一复用紧凑只读“组合内容”摘要，保持父商品行结算/价格/售后身份不变，不开放组件级售后动作
+  - **验证**: `npx jest --runInBand src/utils/__tests__/bundleSnapshot.test.ts`、`npx tsc --noEmit --pretty false`、`git diff --check`
+
+- [x] **买家端组合商品详情展示**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 13
+  - **实际做了**: 买家端 `Product` / `ProductDetail` 类型补齐 `type` / `bundleItems` / `bundleAvailableStock` / `bundleTotalWeightGram`；`ProductRepo` 统一默认 `SIMPLE` 并归一化组合内容字段；商品详情页在组合商品下新增紧凑“组合内容”只读区，只展示组成商品、SKU 和数量，不暴露组件价格
+  - **验证**: `npx tsc --noEmit --pretty false`、`git diff --check`
+
+- [x] **卖家订单详情组合商品展示与拣货单打印**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 12
+  - **实际做了**: 卖家订单详情 `OrderItem` 类型补齐 `productType` / `bundleItems`；商品清单卡为组合商品保留父购买行并展开组件明细；新增 `waybillPrint.ts` 生成无价格拣货单 HTML，打印页同时展示原始订单、组合组件明细和普通商品 + 组合组件合并后的 SKU 级拣货汇总
+  - **验证**: `cd seller && node --test test/waybillPrint.test.ts`、`cd seller && npm run build`、`git diff --check`
+
+- [x] **管理后台组合商品审核/详情展示**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 11
+  - **实际做了**: 管理后台商品类型补齐 `type` / `bundleItems` / `bundleReferenceTotal` / `bundleAvailableStock` / `bundleTotalWeightGram`；商品列表新增组合类型识别、组成项数量和参考合计提示；审核弹窗与商品详情页新增组合内容只读表格，展示组成商品/SKU、数量、当前单价小计、参考合计和总重量，并兼容后端 raw nested/flattened 两种返回形态
+  - **验证**: `cd admin && npm run build`、`git diff --check` 通过
+
+- [x] **卖家组合商品创建/编辑 UI**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 10
+  - **实际做了**: 卖家商品创建/草稿/编辑页新增普通商品 / 组合商品 Segmented、组合内容 SKU 表、已有组合展开合并、组合成本价、参考合计和可组合库存展示；列表页展示「组合」Tag、组合项数量和推导库存；API 类型补齐 `productType` / `bundleItems`
+  - **验证**: `cd seller && npm run build` 通过
 
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀

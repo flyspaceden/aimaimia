@@ -271,6 +271,163 @@ describe('CheckoutService handlePaymentSuccess VIP 抵扣隔离', () => {
   });
 });
 
+describe('CheckoutService handlePaymentSuccess bundle inventory deduction', () => {
+  function buildBundleSession() {
+    return {
+      id: 'cs-bundle-1',
+      userId: 'user1',
+      status: 'ACTIVE',
+      bizType: 'NORMAL_GOODS',
+      merchantOrderNo: 'BUNDLE-001',
+      expectedTotal: 185.9,
+      goodsAmount: 176,
+      shippingFee: 9.9,
+      discountAmount: 0,
+      totalCouponDiscount: 0,
+      vipDiscountAmount: 0,
+      couponInstanceIds: [],
+      addressSnapshot: {},
+      itemsSnapshot: [
+        {
+          skuId: 'bundle-sku',
+          quantity: 2,
+          cartItemId: 'ci-bundle',
+          isPrize: false,
+          unitPrice: 88,
+          companyId: 'bundle-company',
+          productSnapshot: {
+            productId: 'bundle-product',
+            companyId: 'bundle-company',
+            productType: 'BUNDLE',
+            title: '家庭组合装',
+            skuTitle: '家庭组合装',
+            image: 'https://img.example.com/bundle-cover.jpg',
+            price: 88,
+            bundleTotalWeightGram: 2200,
+            bundleItems: [
+              {
+                skuId: 'component-sku-a',
+                productId: 'component-product-a',
+                productTitle: '苹果',
+                skuTitle: '苹果 2kg',
+                quantityPerBundle: 2,
+                bundleQuantity: 2,
+                totalQuantity: 4,
+                unitPriceAtCheckout: 18,
+                image: 'https://img.example.com/apple.jpg',
+                weightGram: 500,
+              },
+              {
+                skuId: 'component-sku-b',
+                productId: 'component-product-b',
+                productTitle: '橙子',
+                skuTitle: '橙子礼盒',
+                quantityPerBundle: 1,
+                bundleQuantity: 2,
+                totalQuantity: 2,
+                unitPriceAtCheckout: 26,
+                image: 'https://img.example.com/orange.jpg',
+                weightGram: 1200,
+              },
+            ],
+          },
+        },
+      ],
+    };
+  }
+
+  function buildBundleTx(session: any) {
+    return {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        create: jest.fn(async ({ data }: any) => ({ id: 'order-bundle-1', ...data })),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      orderStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+      productSKU: {
+        update: jest.fn().mockResolvedValue({ stock: 10 }),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      inventoryLedger: { create: jest.fn().mockResolvedValue({}) },
+      rewardLedger: {
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1' }) },
+      cartItem: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      lotteryRecord: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+  }
+
+  it('deducts component SKU inventory on payment success', async () => {
+    const session = buildBundleSession();
+    const tx = buildBundleTx(session);
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+    const svc = new CheckoutService(prisma, {} as any);
+
+    await svc.handlePaymentSuccess('BUNDLE-001', 'trade-bundle-1', '2026-06-22T12:00:00.000Z');
+
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(2);
+    expect(tx.productSKU.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'component-sku-a' },
+      data: { stock: { decrement: 4 } },
+    });
+    expect(tx.productSKU.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'component-sku-b' },
+      data: { stock: { decrement: 2 } },
+    });
+    expect(tx.inventoryLedger.create).toHaveBeenCalledWith({
+      data: {
+        skuId: 'component-sku-a',
+        type: 'RESERVE',
+        qty: -4,
+        refType: 'ORDER',
+        refId: 'order-bundle-1',
+      },
+    });
+    expect(tx.inventoryLedger.create).toHaveBeenCalledWith({
+      data: {
+        skuId: 'component-sku-b',
+        type: 'RESERVE',
+        qty: -2,
+        refType: 'ORDER',
+        refId: 'order-bundle-1',
+      },
+    });
+  });
+
+  it('does not deduct bundle selling SKU stock on payment success', async () => {
+    const session = buildBundleSession();
+    const tx = buildBundleTx(session);
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+    const svc = new CheckoutService(prisma, {} as any);
+
+    await svc.handlePaymentSuccess('BUNDLE-001', 'trade-bundle-2', '2026-06-22T12:00:00.000Z');
+
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith({
+      where: { id: 'bundle-sku' },
+      data: { stock: { decrement: 2 } },
+    });
+    expect(tx.inventoryLedger.create).not.toHaveBeenCalledWith({
+      data: {
+        skuId: 'bundle-sku',
+        type: 'RESERVE',
+        qty: -2,
+        refType: 'ORDER',
+        refId: 'order-bundle-1',
+      },
+    });
+  });
+});
+
 describe('CheckoutExpireService expireSession 资金安全', () => {
   function buildSession(overrides: Partial<any> = {}) {
     return {

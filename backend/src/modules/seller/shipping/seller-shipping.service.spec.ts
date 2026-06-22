@@ -1511,6 +1511,43 @@ describe('createCarrierWaybill — 快递面单创建', () => {
     expect(result.weightGramSent).toBe(1800);
   });
 
+  it('generateWaybill 优先使用订单快照中的 bundle 重量而不是已漂移的售卖 SKU 重量', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    prisma.orderItem.findMany.mockResolvedValue([
+      {
+        companyId: COMPANY_ID,
+        quantity: 2,
+        productSnapshot: {
+          title: '水果礼盒',
+          productType: 'BUNDLE',
+          bundleTotalWeightGram: 1300,
+          bundleItems: [
+            { skuId: 'component-apple', quantityPerBundle: 2, weightGram: 500 },
+            { skuId: 'component-orange', quantityPerBundle: 1, weightGram: 300 },
+          ],
+        },
+        sku: {
+          weightGram: 1,
+          product: { title: '已漂移礼盒标题' },
+        },
+      },
+    ]);
+    sfExpress.createOrder.mockResolvedValue({
+      waybillNo: 'SFBUNDLE001',
+      sfOrderId: 'sf-bundle-order-001',
+      originCode: '755',
+      destCode: '871',
+    });
+
+    const result = await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(sfExpress.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      totalWeight: 2.6,
+    }));
+    expect(result.waybillNo).toContain('***');
+  });
+
   it('正确组装发件人和收件人信息传给顺丰', async () => {
     const { service, prisma, sfExpress } = createMocks();
 

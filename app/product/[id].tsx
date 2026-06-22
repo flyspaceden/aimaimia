@@ -30,6 +30,7 @@ import { AppConfigRepo } from '../../src/repos/AppConfigRepo';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
+import { resolveBundleAwareStock } from '../../src/utils/bundleSnapshot';
 import { getStockStatus, getStockText } from '../../src/utils/stockDisplay';
 
 import type { ProductDetail } from '../../src/types';
@@ -114,10 +115,19 @@ export default function ProductDetailScreen() {
   // 多规格必须先选规格才能加购/购买；单规格已自动选中视为已选
   const needsSkuSelection = skus.length > 0 && !selectedSku;
   const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
-  const activeStockStatus = getStockStatus(selectedSku?.stock, lowStockThreshold);
-  const activeStockText = getStockText(selectedSku?.stock, lowStockThreshold);
+  const activeStock = resolveBundleAwareStock(detail?.type, selectedSku?.stock, detail?.bundleAvailableStock);
+  const activeStockStatus = getStockStatus(activeStock, lowStockThreshold);
+  const activeStockText = getStockText(activeStock, lowStockThreshold);
   // 未选规格时不以库存判定按钮置灰（库存随规格而定），由 needsSkuSelection 守门
   const canBuyActiveSku = selectedSku ? activeStockStatus !== 'OUT_OF_STOCK' : true;
+  const bundleItems = detail?.type === 'BUNDLE' ? detail.bundleItems ?? [] : [];
+  const showBundleContents = bundleItems.length > 0;
+  const cartProduct = product
+    ? {
+        ...product,
+        stock: detail?.type === 'BUNDLE' ? activeStock ?? product.stock : product.stock,
+      }
+    : null;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -141,7 +151,7 @@ export default function ProductDetailScreen() {
       show({ message: '商品暂无库存，无法购买', type: 'info' });
       return;
     }
-    const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+    const added = addItem({ ...cartProduct!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
     if (added) {
       router.push('/checkout');
     }
@@ -308,7 +318,8 @@ export default function ProductDetailScreen() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
                 {skus.map((sku) => {
                   const active = activeSkuId === sku.id;
-                  const stockText = getStockText(sku.stock, lowStockThreshold);
+                  const skuStock = resolveBundleAwareStock(detail?.type, sku.stock, detail?.bundleAvailableStock);
+                  const stockText = getStockText(skuStock, lowStockThreshold);
                   return (
                     <Pressable
                       key={sku.id}
@@ -335,7 +346,7 @@ export default function ProductDetailScreen() {
                         ¥{sku.price}
                       </Text>
                       {stockText && (
-                        <Text style={[typography.captionSm, { color: sku.stock <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
+                        <Text style={[typography.captionSm, { color: Number(skuStock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
                           {stockText}
                         </Text>
                       )}
@@ -354,6 +365,90 @@ export default function ProductDetailScreen() {
                   {activeStockText}
                 </Text>
               )}
+            </Animated.View>
+          )}
+
+          {showBundleContents && (
+            <Animated.View entering={FadeInDown.duration(300).delay(275)} style={{ marginTop: spacing.xl }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md }}>
+                <View style={[styles.sectionLine, { backgroundColor: colors.brand.primary }]} />
+                <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: spacing.sm }]}>
+                  组合内容
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.bundleSection,
+                  {
+                    backgroundColor: colors.surface,
+                    borderRadius: radius.lg,
+                    padding: spacing.lg,
+                    ...shadow.sm,
+                  },
+                ]}
+              >
+                {bundleItems.map((item, index) => (
+                  <View
+                    key={`${item.skuId}-${index}`}
+                    style={[
+                      styles.bundleRow,
+                      index > 0 && {
+                        marginTop: spacing.md,
+                        paddingTop: spacing.md,
+                        borderTopWidth: StyleSheet.hairlineWidth,
+                        borderTopColor: colors.border,
+                      },
+                    ]}
+                  >
+                    {item.image ? (
+                      <Image
+                        source={{ uri: item.image }}
+                        style={[
+                          styles.bundleThumb,
+                          { borderRadius: radius.md, backgroundColor: colors.bgSecondary },
+                        ]}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.bundleThumb,
+                          styles.bundleThumbFallback,
+                          {
+                            borderRadius: radius.md,
+                            backgroundColor: colors.brand.primarySoft,
+                          },
+                        ]}
+                      >
+                        <MaterialCommunityIcons
+                          name="package-variant-closed"
+                          size={18}
+                          color={colors.brand.primary}
+                        />
+                      </View>
+                    )}
+                    <View style={styles.bundleInfo}>
+                      <Text
+                        style={[typography.bodySm, { color: colors.text.primary }]}
+                        numberOfLines={2}
+                      >
+                        {item.productTitle}
+                      </Text>
+                      <Text
+                        style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}
+                        numberOfLines={2}
+                      >
+                        {item.skuTitle}
+                      </Text>
+                    </View>
+                    <View style={styles.bundleQty}>
+                      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                        x{item.quantity}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
             </Animated.View>
           )}
 
@@ -538,7 +633,7 @@ export default function ProductDetailScreen() {
                 show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
                 return;
               }
-              const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+              const added = addItem({ ...cartProduct!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               if (added) {
                 show({ message: '已加入购物车', type: 'success' });
               }
@@ -600,7 +695,7 @@ export default function ProductDetailScreen() {
                 show({ message: '商品暂无库存，无法加入购物车', type: 'info' });
                 return;
               }
-              const added = addItem({ ...product!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
+              const added = addItem({ ...cartProduct!, maxPerOrder: selectedSku?.maxPerOrder ?? null }, 1, activeSkuId, activeSkuPrice);
               if (added) {
                 show({ message: '已加入购物车', type: 'success' });
               }
@@ -731,6 +826,34 @@ const styles = StyleSheet.create({
   },
   companyCard: {
     padding: 16,
+  },
+  bundleSection: {
+    gap: 0,
+  },
+  bundleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bundleThumb: {
+    width: 56,
+    height: 56,
+    flexShrink: 0,
+  },
+  bundleThumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bundleInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 12,
+  },
+  bundleQty: {
+    width: 44,
+    marginLeft: 12,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   companyDot: {
     width: 3,

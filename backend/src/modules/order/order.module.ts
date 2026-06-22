@@ -26,6 +26,7 @@ import { CartModule } from '../cart/cart.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
+import { ProductModule } from '../product/product.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.servi
     InboxModule,
     CartModule,
     DigitalAssetModule,
+    ProductModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],

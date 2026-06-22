@@ -157,6 +157,54 @@ describe('AfterSaleService.getEligibility', () => {
     );
   });
 
+  it('无理由退货资格预估对 bundle 商品优先使用订单快照重量', async () => {
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 19.876 }),
+    };
+    const service = makeServiceWithShippingRule(
+      makeOrder({
+        addressSnapshot: {
+          regionCode: '440305',
+          regionText: '广东省/深圳市/南山区',
+        },
+        items: [
+          {
+            id: 'item-1',
+            skuId: 'bundle-sku',
+            sku: { productId: 'bundle-product', weightGram: 1 },
+            productSnapshot: {
+              title: '水果礼盒',
+              productType: 'BUNDLE',
+              bundleTotalWeightGram: 1300,
+              bundleItems: [
+                { skuId: 'component-apple', quantityPerBundle: 2, weightGram: 500 },
+                { skuId: 'component-orange', quantityPerBundle: 1, weightGram: 300 },
+              ],
+            },
+            unitPrice: 66,
+            quantity: 2,
+            isPrize: false,
+            afterSaleRequests: [],
+          },
+        ],
+      }),
+      shippingRuleService,
+    );
+
+    const result = await service.getEligibility('user-1', 'order-1');
+    const option = result.items[0].options.find(
+      (item: any) => item.afterSaleType === AfterSaleType.NO_REASON_RETURN,
+    );
+
+    expect(option.estimatedReturnShippingFee).toBe(19.88);
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      0,
+      '440305',
+      2600,
+      undefined,
+    );
+  });
+
   it('完成无理由换货后只允许质量退货资格继续启用', async () => {
     const service = makeService(makeOrder({
       items: [

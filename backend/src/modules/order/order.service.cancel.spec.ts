@@ -25,8 +25,18 @@ describe('OrderService cancel PAID orders', () => {
       },
       $transaction: jest.fn(),
     };
-    const service = new OrderService(prisma as any, bonusAllocation as any, {} as any, {} as any, {} as any);
-    return { service, prisma, bonusAllocation };
+    const productBundleService = {
+      buildInventoryMovements: jest.fn(),
+    };
+    const service = new OrderService(
+      prisma as any,
+      bonusAllocation as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      productBundleService as any,
+    );
+    return { service, prisma, bonusAllocation, productBundleService };
   };
 
   const injectInboxService = (service: OrderService) => {
@@ -207,6 +217,113 @@ describe('OrderService cancel PAID orders', () => {
     }));
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r1');
     expect(bonusAllocation.allocateForOrder).not.toHaveBeenCalled();
+  });
+
+  it('PAID 未发货 bundle 单订单取消会回填组件库存而不是 bundle 售卖 SKU', async () => {
+    const { service, prisma, productBundleService } = makeService();
+    const order = {
+      id: 'bundle-order-1',
+      userId: 'u1',
+      status: 'PAID',
+      checkoutSessionId: 'cs-bundle-1',
+      totalAmount: 88,
+      goodsAmount: 88,
+      discountAmount: 0,
+      items: [{
+        skuId: 'bundle-selling-sku',
+        quantity: 2,
+        companyId: 'bundle-company',
+        productSnapshot: {
+          productType: 'BUNDLE',
+          bundleItems: [
+            { skuId: 'component-sku-a', quantityPerBundle: 2 },
+            { skuId: 'component-sku-b', quantityPerBundle: 1 },
+          ],
+        },
+      }],
+    };
+    const refund = {
+      id: 'refund-bundle-1',
+      merchantRefundNo: 'AUTO-CANCEL-bundle-order-1',
+    };
+    const initialTx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          deductionGroupId: null,
+          goodsAmount: 88,
+          discountAmount: 0,
+        }),
+      },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: {
+        create: jest.fn().mockResolvedValue(refund),
+        update: jest.fn(),
+      },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    const finalTx = {
+      refund: { update: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+    };
+    prisma.order.findUnique
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce({
+        ...order,
+        createdAt: new Date(),
+        afterSaleRequests: [],
+        refunds: [],
+        shipments: [],
+      });
+    prisma.order.findMany.mockResolvedValue([]);
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction
+      .mockImplementationOnce(async (callback: any) => callback(initialTx))
+      .mockImplementationOnce(async (callback: any) => callback(finalTx));
+    productBundleService.buildInventoryMovements.mockReturnValue([
+      { skuId: 'component-sku-a', quantity: 4, companyId: 'bundle-company', label: 'A' },
+      { skuId: 'component-sku-b', quantity: 2, companyId: 'bundle-company', label: 'B' },
+    ]);
+
+    await service.cancelOrder('bundle-order-1', 'u1');
+
+    expect(productBundleService.buildInventoryMovements).toHaveBeenCalledWith(order.items[0]);
+    expect(initialTx.productSKU.update).toHaveBeenCalledTimes(2);
+    expect(initialTx.productSKU.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'component-sku-a' },
+      data: { stock: { increment: 4 } },
+    });
+    expect(initialTx.productSKU.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'component-sku-b' },
+      data: { stock: { increment: 2 } },
+    });
+    expect(initialTx.inventoryLedger.create).toHaveBeenNthCalledWith(1, {
+      data: {
+        skuId: 'component-sku-a',
+        type: 'RELEASE',
+        qty: 4,
+        refType: 'ORDER',
+        refId: 'bundle-order-1',
+      },
+    });
+    expect(initialTx.inventoryLedger.create).toHaveBeenNthCalledWith(2, {
+      data: {
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'ORDER',
+        refId: 'bundle-order-1',
+      },
+    });
+    expect(initialTx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'bundle-selling-sku' },
+    }));
   });
 
   it('PAID 未发货单微信退款 pending 时保持 REFUNDING 并不返还抵扣积分', async () => {
@@ -574,5 +691,130 @@ describe('OrderService cancel PAID orders', () => {
     }));
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledTimes(1);
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r-session-1');
+  });
+
+  it('PAID bundle 整 session 取消会回填组件库存而不是 bundle 售卖 SKU', async () => {
+    const { service, prisma, productBundleService } = makeService();
+    const orders = [
+      {
+        id: 'bundle-session-order-1',
+        userId: 'u1',
+        status: 'PAID',
+        checkoutSessionId: 'cs-bundle-session',
+        totalAmount: 30,
+        goodsAmount: 30,
+        discountAmount: 0,
+        items: [{
+          skuId: 'bundle-selling-sku-1',
+          quantity: 1,
+          companyId: 'company-1',
+          productSnapshot: {
+            productType: 'BUNDLE',
+            bundleItems: [{ skuId: 'component-sku-a', quantityPerBundle: 2 }],
+          },
+        }],
+      },
+      {
+        id: 'bundle-session-order-2',
+        userId: 'u1',
+        status: 'PAID',
+        checkoutSessionId: 'cs-bundle-session',
+        totalAmount: 40,
+        goodsAmount: 40,
+        discountAmount: 0,
+        items: [{
+          skuId: 'bundle-selling-sku-2',
+          quantity: 3,
+          companyId: 'company-2',
+          productSnapshot: {
+            productType: 'BUNDLE',
+            bundleItems: [{ skuId: 'component-sku-b', quantityPerBundle: 1 }],
+          },
+        }],
+      },
+    ];
+    const tx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: { findUnique: jest.fn().mockResolvedValue(null) },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: { create: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    tx.refund.create
+      .mockResolvedValueOnce({
+        id: 'refund-session-1',
+        merchantRefundNo: 'AUTO-CANCEL-bundle-session-order-1',
+      })
+      .mockResolvedValueOnce({
+        id: 'refund-session-2',
+        merchantRefundNo: 'AUTO-CANCEL-bundle-session-order-2',
+      });
+    prisma.order.findMany
+      .mockResolvedValueOnce(orders)
+      .mockResolvedValueOnce([]);
+    prisma.order.findUnique.mockResolvedValue({
+      ...orders[0],
+      createdAt: new Date(),
+      afterSaleRequests: [],
+      refunds: [],
+      shipments: [],
+      statusHistory: [],
+      payments: [],
+    });
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    productBundleService.buildInventoryMovements
+      .mockReturnValueOnce([
+        { skuId: 'component-sku-a', quantity: 2, companyId: 'company-1', label: 'A' },
+      ])
+      .mockReturnValueOnce([
+        { skuId: 'component-sku-b', quantity: 3, companyId: 'company-2', label: 'B' },
+      ]);
+    service.setPaymentService({
+      initiateRefund: jest.fn().mockResolvedValue({ success: false, message: 'later' }),
+    } as any);
+
+    await (service as any).cancelEntireSessionUnshipped('cs-bundle-session', 'u1');
+
+    expect(productBundleService.buildInventoryMovements).toHaveBeenNthCalledWith(1, orders[0].items[0]);
+    expect(productBundleService.buildInventoryMovements).toHaveBeenNthCalledWith(2, orders[1].items[0]);
+    expect(tx.productSKU.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'component-sku-a' },
+      data: { stock: { increment: 2 } },
+    });
+    expect(tx.productSKU.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'component-sku-b' },
+      data: { stock: { increment: 3 } },
+    });
+    expect(tx.inventoryLedger.create).toHaveBeenNthCalledWith(1, {
+      data: {
+        skuId: 'component-sku-a',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'ORDER',
+        refId: 'bundle-session-order-1',
+      },
+    });
+    expect(tx.inventoryLedger.create).toHaveBeenNthCalledWith(2, {
+      data: {
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        qty: 3,
+        refType: 'ORDER',
+        refId: 'bundle-session-order-2',
+      },
+    });
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'bundle-selling-sku-1' },
+    }));
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'bundle-selling-sku-2' },
+    }));
   });
 });

@@ -20,6 +20,7 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { isSelectableCartItem } from '../src/store/useCartStore';
 import { AuthModal } from '../src/components/overlay';
 import { PendingCheckoutBanner } from '../src/components/overlay/PendingCheckoutBanner';
+import { BundleSummary } from '../src/components/orders/BundleSummary';
 import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { getPrizeMergeNotice } from '../src/utils/cartMerge';
@@ -412,6 +413,7 @@ export default function CartScreen() {
                     已加入本地购物车，登录后确认领取
                   </Text>
                 )}
+                <BundleSummary productType={item.productType} bundleItems={item.bundleItems} />
                 {isUnavailable && (
                   <Text style={[typography.captionSm, { color: colors.danger, marginTop: 2 }]}>
                     {unavailableText(unavailableReason)}，仅可移除

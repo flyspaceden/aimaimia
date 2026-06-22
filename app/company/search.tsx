@@ -20,6 +20,7 @@ import { useRecentSearches } from '../../src/hooks/useRecentSearches';
 import { useCartStore } from '../../src/store';
 import { AppError } from '../../src/types';
 import { useTheme } from '../../src/theme';
+import { toCartProductFromCompanyCardProduct } from '../../src/utils/companyProductMappers';
 
 const normalizeCompanySearchText = (value: string) =>
   value
@@ -413,12 +414,8 @@ export default function CompanySearchScreen() {
                     router.push({ pathname: '/product/[id]', params: { id: productId } })
                   }
                   onAddToCart={(product) => {
-                    addItem(
-                      { id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' },
-                      1,
-                      product.defaultSkuId,
-                      product.price,
-                    );
+                    const cartProduct = toCartProductFromCompanyCardProduct(product);
+                    addItem(cartProduct, 1, product.defaultSkuId, product.price);
                     show({ message: '已加入购物车', type: 'success' });
                   }}
                 />

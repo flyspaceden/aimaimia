@@ -1043,6 +1043,11 @@ Tab 栏设计：
   - 「加入购物车」：`surface` 底色 + `primary` 边框
   - 「立即购买」：`goldGradient` 渐变底色，文字白色
   - 固定在底部，有毛玻璃背景
+- **组合商品详情（2026-06-22 补充）**：
+  - 当 `type=BUNDLE` 且 `bundleItems.length>0` 时，在规格选择后插入紧凑的“组合内容”卡片
+  - 每行固定左侧缩略图、中间商品名+SKU 名、右侧数量 `xN`，仅展示组成与数量，不展示组件价格、卖家成本或平台毛利
+  - 行内容必须支持大字体和窄屏：缩略图固定尺寸，文案列 `minWidth: 0`，最多两行换行，不使用绝对定位
+  - 父商品仍是加入购物车、立即购买、订单和售后的唯一身份；组件只作为只读说明，不提供单独点击、勾选或跳转动作
 
 ---
 
@@ -1114,6 +1119,7 @@ Tab 栏设计：
 - 免邮差额提示不在购物车展示；进入结算页后使用后端预结算返回的真实运费与免邮差额。
 - 空购物车状态：展示 AI 光球 + 「让脉脉帮你挑点好的？」+ 快捷指令按钮
 - 上下架兜底（2026-05-07）：服务端返回 `unavailableReason` 的商品/奖品显示"已下架/已停发"角标，禁勾选和数量调整，仅保留删除入口；仍锁定且可用的门槛赠品继续按锁定态保留；购物车已选/可选计数统一走 `isSelectableCartItem`
+- 组合商品展示（2026-06-22）：购物车父购买行保持普通商品行为不变，仅在行内追加紧凑“组合内容”只读区，展示组件图片、标题、规格和数量；不暴露组件价格，不新增子项勾选/删除/售后动作。
 
 ---
 
@@ -1251,6 +1257,10 @@ Tab 栏设计：
 
 实施状态（2026-05-10）：售后链路收口 Task 9 已接入 `afterSaleSummary`。订单详情的“查看售后”在存在 summary 时直达 `/orders/after-sale-detail/[id]`，换货确认改为调用 `AfterSaleRepo.confirmReceive(afterSaleSummary.id)`，不再走旧订单换货确认端点。
 
+补充状态（2026-06-22）：`OrderItem` / `ServerCartItem` 已补齐 `productType` / `bundleItems` snapshot。订单列表卡片、订单详情商户分组、结算页和售后页对组合商品只在父购买行内增加只读组件摘要，售后仍按父订单项一条记录申请，不开放组件级售后。
+
+补充口径（2026-06-22）：买家端所有组合商品展示都依赖订单/结算快照中的 `bundleItems`，不依赖当前商品实时组成回填。这样卖家后续改组合、改图或下架组件后，历史订单、售后详情和退款说明仍保持下单时视图。
+
 ---
 
 ### 5.12 物流追踪 `/orders/track`
@@ -1318,6 +1328,10 @@ Tab 栏设计：
 实施状态（2026-05-10）：申请售后页改为以后端 `GET /after-sale/orders/:orderId/eligibility` 作为资格真相源，商品可申请项与售后类型只渲染后端 enabled options；四类售后类型（七天无理由退货/换货、质量退货/换货）已对齐类型与标签。售后详情页移除手填退货物流作为新主流程，改为退货运费支付 `POST /after-sale/:id/return-shipping-payment` + 平台顺丰退货面单 `POST /after-sale/:id/return-waybill`，并展示质量售后商家承担运费说明、退款处理中/完成/转人工状态。最终验证时根 `npx tsc -b` 仍被既有 `tests/e2e` Playwright/Node 类型缺失阻断，过滤后无买家 App 目录新增 TypeScript 错误；买家端仍待真机验证退货运费支付、顺丰退货面单和售后退款到账。
 
 补充状态（2026-06-02）：上传凭证入口改为先选择来源，支持拍照和从相册选择；拍照走 `launchCameraAsync` 并独立申请相机权限，相册走 `launchImageLibraryAsync` 并保留华为权限说明与设置兜底，上传数量上限与页面逻辑统一为 10 张。提交按钮增加同步 `ref` 防重复提交，成功后直接 `replace` 到售后详情页。售后详情页对金额、图片数组、物流轨迹数组做渲染前归一化，并增加路由级 `ErrorBoundary`，避免后端成功创建售后后详情数据存在空值/字符串金额/异常数组时触发整页白屏。
+
+补充状态（2026-06-22）：组合商品在申请售后页仅允许选择父订单项；若所选商品为 `BUNDLE`，页面展示组件只读摘要作为上下文，组件级别不提供单独售后入口。售后详情页同步展示历史 `bundleItems` snapshot，避免依赖当前商品配置回填。
+
+补充口径（2026-06-22）：组合商品售后保持“整套处理”规则。买家不能只退其中一个组件；页面文案与布局只展示组成清单、数量和售后状态，不展示组件价格拆分。
 
 ---
 
@@ -2391,6 +2405,8 @@ src/components/ai/   → 新增目录
 | 发票链路收口 | 我的页增加“我的发票”入口；订单详情接入 `InvoiceSection`，按后端 `invoiceEligible` 判断申请入口，显示 REQUESTED/ISSUED/FAILED/CANCELED 状态；发票列表/详情通过 `expo-web-browser` 打开 PDF，取消申请后刷新发票与订单缓存 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/orders/[id].tsx`, `app/invoices/index.tsx`, `app/invoices/[id].tsx`, `src/components/cards/InvoiceSection.tsx`, `src/types/domain/Invoice.ts`, `src/types/domain/Order.ts`, `src/repos/InvoiceRepo.ts`, `src/repos/OrderRepo.ts` |
 | 数字资产中心 | 我的页常用工具新增“数字资产”入口；`/me/digital-assets` 按会员态分流：普通用户只展示累计消费金额和“开通 VIP 激活资产”引导，VIP 用户展示 C v2 农业科技感数字资产卡，包含数字资产总额、种子资产、消费资产、冻结资产、累计消费金额和最近 5 条资产流水；数字资产总额只包含已释放的种子资产 + 消费资产，不包含冻结资产；付款后产生的冻结消费资产显示“确认收货后释放”，确认收货后释放为正式消费资产，确认前退款/取消显示冻结作废；App 前台不展示消费资产倍率、VIP 种子资产套餐规则、档位进度、长期权益模块或资产说明，具体规则仅在后台配置和系统结算中生效；最近资产流水按类型配色（种子资产青绿、消费资产湖蓝、冻结资产雾蓝、累计消费麦金、扣回柔红、后台调整灰）；“查看全部”进入 `/me/consumption-records` 资产流水页，提供横向分类 Tab（全部 / 种子资产 / 消费资产 / 冻结资产 / 累计消费 / 扣回 / 调整）并让列表卡片、图标和金额继续按类型配色；非 VIP 只可查看 `CUMULATIVE_SPEND` 流水，VIP 可查看累计消费/种子资产/消费资产/冻结资产全量流水；通过 `DigitalAssetRepo` 调用 `/me/digital-assets/summary` 与 `/me/digital-assets/ledgers`，使用 React Query 刷新，金额文本使用 `priceTextProps`，列表底部使用 `useBottomInset` 适配安全区 | 2026-06-21 | `app/(tabs)/me.tsx`, `app/me/digital-assets.tsx`, `app/me/consumption-records.tsx`, `src/types/domain/DigitalAsset.ts`, `src/types/domain/index.ts`, `src/repos/DigitalAssetRepo.ts`, `src/repos/index.ts` |
 | 我的页身份卡排版 | 我的页身份卡移除时段问候语，昵称作为主标题；买家公开编号单独成行展示为 `ID: AIMM...` 并支持点击复制，推荐码入口下移为独立 chip，右侧“扫一扫/编辑”固定宽度对齐 | 2026-06-15 | `app/(tabs)/me.tsx`, `scripts/__tests__/me-identity-card-layout.test.mjs` |
+| 组合商品买家详情展示 | 买家端 `Product` / `ProductDetail` 类型补齐 `type` / `bundleItems` / `bundleAvailableStock` / `bundleTotalWeightGram`；商品详情页在组合商品下新增“组合内容”只读区，展示组成商品、规格名和数量，不暴露组件价格 | 2026-06-22 | `src/types/domain/Product.ts`, `src/repos/ProductRepo.ts`, `app/product/[id].tsx` |
+| 组合商品买家购物车/订单/售后展示 | `ServerCartItem` / `OrderItem` 补齐 `productType` / `bundleItems` snapshot；购物车、结算、订单卡片/详情、售后申请和售后详情在父商品行内展示紧凑组合摘要，售后仍按父订单项处理 | 2026-06-22 | `src/types/domain/ServerCart.ts`, `src/types/domain/Order.ts`, `src/store/useCartStore.ts`, `src/components/orders/BundleSummary.tsx`, `src/components/cards/OrderItemRow.tsx`, `app/cart.tsx`, `app/checkout.tsx`, `app/orders/after-sale/[id].tsx`, `app/orders/after-sale-detail/[id].tsx` |
 | 买家公开编号 | 我的页身份卡头像右侧显示 `buyerNo`（`AIMM` + 14 位数字）并支持点击复制；替代原成长等级展示位，后端暂未返回时展示“ID: 用户编号生成中”，不暴露内部 `User.id` | 2026-06-15 | `app/(tabs)/me.tsx`, `src/types/domain/UserProfile.ts`, `src/mocks/userProfile.ts` |
 | 订单号脱敏展示+展开+复制 | 抽共享组件 `OrderNoReveal`：默认显示订单号后 6 位（`…` 前缀等宽字），眼睛图标在收起↔展开完整订单号间切换，复制按钮始终复制完整订单号+toast「已复制」；接入订单详情页订单号行（替换原完整号+复制 pill）/ 支付成功页总订单号 / 物流追踪页头部新增订单号行，物流页标题后 8 位→后 6 位统一 | 2026-06-08 | `src/components/orders/OrderNoReveal.tsx`, `src/components/orders/OrderInfoBlock.tsx`, `app/payment-success.tsx`, `app/orders/track.tsx` |
 
