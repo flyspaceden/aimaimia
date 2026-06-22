@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import {
+  CreateProductDto,
   CreateSkuDto,
   CreateDraftDto,
   UpdateDraftDto,
@@ -29,6 +30,17 @@ function basePayload(extra: Record<string, unknown> = {}) {
     cost: 10,
     stock: 100,
     weightGram: 1000,
+    ...extra,
+  };
+}
+
+function baseCreateProductPayload(extra: Record<string, unknown> = {}) {
+  return {
+    title: '烟台苹果礼盒',
+    description: '这是一段足够长的商品描述，用于通过正式商品校验。',
+    categoryId: 'category_1',
+    origin: { text: '山东烟台' },
+    skus: [basePayload()],
     ...extra,
   };
 }
@@ -182,6 +194,36 @@ describe('CreateDraftDto — 草稿创建校验', () => {
     const dto = plainToInstance(CreateDraftDto, { title: 'X', skus: [] });
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+});
+
+describe('CreateProductDto — bundle 字段校验', () => {
+  it('BUNDLE create 缺少 bundleItems → 校验失败', async () => {
+    const dto = plainToInstance(CreateProductDto, baseCreateProductPayload({
+      productType: 'BUNDLE',
+    }));
+    const errors = await validate(dto);
+    const bundleErrors = errors.filter((e) => e.property === 'bundleItems');
+    expect(bundleErrors.length).toBeGreaterThan(0);
+  });
+
+  it('bundle item quantity <= 0 → 校验失败', async () => {
+    const dto = plainToInstance(CreateProductDto, baseCreateProductPayload({
+      productType: 'BUNDLE',
+      bundleItems: [{ skuId: 'sku_1', quantity: 0 }],
+    }));
+    const errors = await validate(dto);
+    const bundleErrors = errors.find((e) => e.property === 'bundleItems');
+    expect(bundleErrors?.children?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('SIMPLE create 不传 bundleItems → 校验通过', async () => {
+    const dto = plainToInstance(CreateProductDto, baseCreateProductPayload({
+      productType: 'SIMPLE',
+    }));
+    const errors = await validate(dto);
+    const bundleErrors = errors.filter((e) => e.property === 'bundleItems');
+    expect(bundleErrors).toHaveLength(0);
   });
 });
 

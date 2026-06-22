@@ -7,11 +7,16 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Prisma, ReturnPolicy } from '@prisma/client';
+import { Prisma, ProductType, ReturnPolicy, SkuStatus } from '@prisma/client';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
+import {
+  BundleItemInput,
+  ProductBundleService,
+  ValidatedSellerBundleItem,
+} from '../../product/product-bundle.service';
 import { SemanticFillService } from '../../product/semantic-fill.service';
 import {
   CreateProductDto,
@@ -26,6 +31,8 @@ const DRAFT_LIMIT_PER_COMPANY = 5;
 const DRAFT_WEIGHT_PLACEHOLDER_GRAM = 1000;
 const DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX = '__DRAFT_WEIGHT_PLACEHOLDER__:';
 const LEGACY_DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE = '__DRAFT_WEIGHT_PLACEHOLDER__';
+const BUNDLE_DEFAULT_SPEC_NAME = '组合默认规格';
+const BUNDLE_SKU_REMOVE_MESSAGE = '该规格已被组合商品引用，请先修改组合商品';
 
 @Injectable()
 export class SellerProductsService {
@@ -35,7 +42,204 @@ export class SellerProductsService {
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
     private semanticFillService: SemanticFillService,
+    private productBundleService: ProductBundleService,
   ) {}
+
+  private sellerProductInclude(): any {
+    return {
+      skus: { where: { status: SkuStatus.ACTIVE } },
+      media: { orderBy: { sortOrder: 'asc' as const } },
+      tags: { include: { tag: true } },
+      category: {
+        select: {
+          id: true,
+          name: true,
+          path: true,
+          returnPolicy: true,
+          parentId: true,
+        },
+      },
+      bundleItems: {
+        orderBy: { sortOrder: 'asc' as const },
+        include: {
+          sku: {
+            include: {
+              product: {
+                include: {
+                  media: {
+                    where: { type: 'IMAGE' as const },
+                    orderBy: { sortOrder: 'asc' as const },
+                    take: 1,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  private isBundleType(type?: ProductType | string | null): boolean {
+    return (type ?? ProductType.SIMPLE) === ProductType.BUNDLE;
+  }
+
+  private assertNoTypeConversion(
+    currentType: ProductType | string | null | undefined,
+    nextType?: ProductType | string,
+  ) {
+    if (nextType && currentType && nextType !== currentType) {
+      throw new BadRequestException('第一版暂不支持普通商品与组合商品互相转换');
+    }
+  }
+
+  private normalizeBundleItemsInput(
+    bundleItems?: Array<{ skuId: string; quantity: number; sortOrder?: number }>,
+  ): BundleItemInput[] {
+    return (bundleItems ?? []).map((item) => ({
+      skuId: item.skuId,
+      quantity: item.quantity,
+      sortOrder: item.sortOrder,
+    }));
+  }
+
+  private async buildBundleState(
+    tx: {
+      productSKU: {
+        findMany(args: unknown): Promise<Array<{
+          id: string;
+          price?: number | null;
+          stock?: number | null;
+          weightGram: number;
+          title?: string | null;
+          status?: string;
+          product?: unknown;
+        }>>;
+      };
+    },
+    companyId: string,
+    bundleItems: BundleItemInput[] | undefined,
+    options: { allowDraft?: boolean; requireItems?: boolean } = {},
+  ) {
+    const normalizedInput = this.normalizeBundleItemsInput(bundleItems);
+    if (normalizedInput.length === 0) {
+      if (options.requireItems) {
+        throw new BadRequestException('组合商品至少需要一个组成规格');
+      }
+      return null;
+    }
+
+    const validatedItems = await this.productBundleService.validateSellerBundleItems(
+      tx as any,
+      companyId,
+      normalizedInput,
+      { allowDraft: options.allowDraft },
+    );
+
+    const skuRows = await tx.productSKU.findMany({
+      where: { id: { in: validatedItems.map((item) => item.skuId) } },
+      select: {
+        id: true,
+        price: true,
+        stock: true,
+        weightGram: true,
+      },
+    });
+    const skuMap = new Map(skuRows.map((sku) => [sku.id, sku]));
+
+    const bundleReferenceTotal = +validatedItems
+      .reduce((sum, item) => sum + (skuMap.get(item.skuId)?.price ?? 0) * item.quantity, 0)
+      .toFixed(2);
+    const bundleAvailableStock = this.productBundleService.calculateAvailability(
+      validatedItems.map((item) => ({
+        stock: skuMap.get(item.skuId)?.stock ?? 0,
+        quantity: item.quantity,
+      })),
+    );
+    const bundleTotalWeightGram = this.productBundleService.calculateTotalWeightGram(
+      validatedItems.map((item) => ({
+        weightGram: skuMap.get(item.skuId)?.weightGram ?? item.sku.weightGram,
+        quantity: item.quantity,
+      })),
+    );
+
+    return {
+      validatedItems,
+      bundleReferenceTotal,
+      bundleAvailableStock,
+      bundleTotalWeightGram,
+    };
+  }
+
+  private bundleItemsCreateData(validatedItems: ValidatedSellerBundleItem[]) {
+    return validatedItems.map((item) => ({
+      skuId: item.skuId,
+      quantity: item.quantity,
+      sortOrder: item.sortOrder,
+    }));
+  }
+
+  private decorateProductForSeller<T extends Record<string, any>>(product: T): T & {
+    bundleReferenceTotal: number | null;
+    bundleAvailableStock: number | null;
+    bundleTotalWeightGram: number | null;
+  } {
+    if (!this.isBundleType(product.type)) {
+      return {
+        ...product,
+        bundleReferenceTotal: null,
+        bundleAvailableStock: null,
+        bundleTotalWeightGram: null,
+      };
+    }
+
+    const bundleItems = product.bundleItems ?? [];
+    const bundleReferenceTotal = +bundleItems
+      .reduce(
+        (sum: number, item: any) => sum + ((item.sku?.price ?? 0) as number) * (item.quantity ?? 0),
+        0,
+      )
+      .toFixed(2);
+
+    const bundleAvailableStock = bundleItems.length === 0
+      ? 0
+      : this.productBundleService.calculateAvailability(
+          bundleItems.map((item: any) => ({
+            stock: item.sku?.stock ?? 0,
+            quantity: item.quantity,
+          })),
+        );
+
+    const bundleTotalWeightGram = bundleItems.length === 0
+      ? 0
+      : this.productBundleService.calculateTotalWeightGram(
+          bundleItems.map((item: any) => ({
+            weightGram: item.sku?.weightGram ?? 0,
+            quantity: item.quantity,
+          })),
+        );
+
+    return {
+      ...product,
+      bundleReferenceTotal,
+      bundleAvailableStock,
+      bundleTotalWeightGram,
+    };
+  }
+
+  private async loadSellerProduct(
+    reader: { product: { findUnique(args: unknown): Promise<any> } },
+    productId: string,
+  ) {
+    const product = await reader.product.findUnique({
+      where: { id: productId },
+      include: this.sellerProductInclude(),
+    });
+    if (!product) {
+      throw new NotFoundException('商品不存在');
+    }
+    return this.decorateProductForSeller(product);
+  }
 
   private assertPositiveSkuWeights(
     skus: Array<{ specName?: string; title?: string; weightGram?: number }>,
@@ -93,18 +297,13 @@ export class SellerProductsService {
     const [items, total] = await Promise.all([
       this.prisma.product.findMany({
         where,
-        include: {
-          skus: { where: { status: 'ACTIVE' } },
-          media: { orderBy: { sortOrder: 'asc' } },
-          tags: { include: { tag: true } },
-          category: { select: { id: true, name: true, path: true, returnPolicy: true, parentId: true } },
-        },
+        include: this.sellerProductInclude(),
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
       this.prisma.product.count({ where }),
-    ]);
+    ]) as [any[], number];
 
     // 解析每个商品的最终生效退货政策
     // 批量加载所有分类（避免 N+1），分类数量有限可全量缓存
@@ -121,8 +320,9 @@ export class SellerProductsService {
 
     const enriched = items.map((item) => {
       const policy = item.returnPolicy || 'INHERIT';
+      const base = this.decorateProductForSeller(item);
       if (policy !== 'INHERIT') {
-        return { ...item, effectiveReturnPolicy: policy };
+        return { ...base, effectiveReturnPolicy: policy };
       }
       let catPolicy: ReturnPolicy | undefined = item.category?.returnPolicy as ReturnPolicy | undefined;
       let parentId = item.category?.parentId as string | null;
@@ -133,7 +333,7 @@ export class SellerProductsService {
         parentId = parent.parentId;
       }
       return {
-        ...item,
+        ...base,
         effectiveReturnPolicy: catPolicy === 'INHERIT' ? 'RETURNABLE' : catPolicy,
       };
     });
@@ -145,29 +345,28 @@ export class SellerProductsService {
   async findById(companyId: string, productId: string) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      include: {
-        skus: { where: { status: 'ACTIVE' } },
-        media: { orderBy: { sortOrder: 'asc' } },
-        tags: { include: { tag: true } },
-        category: { select: { id: true, name: true, path: true } },
-      },
+      include: this.sellerProductInclude(),
     });
 
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权访问该商品');
 
-    return product;
+    return this.decorateProductForSeller(product);
   }
 
   /** 创建商品 */
   async create(companyId: string, dto: CreateProductDto) {
+    const productType = (dto.productType ?? ProductType.SIMPLE) as ProductType;
+
     // 服务层兜底校验：所有 SKU 成本必须大于 0（DTO 已有 @Min(0.01)，此处防止绕过）
     for (const sku of dto.skus) {
       if (!sku.cost || sku.cost <= 0) {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
-    this.assertPositiveSkuWeights(dto.skus);
+    if (!this.isBundleType(productType)) {
+      this.assertPositiveSkuWeights(dto.skus);
+    }
 
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
@@ -175,9 +374,19 @@ export class SellerProductsService {
     const product = await this.prisma.$transaction(async (tx) => {
       const sysConfig = await this.bonusConfig.getSystemConfig();
       const markupRate = sysConfig.markupRate;
+      const bundleState = this.isBundleType(productType)
+        ? await this.buildBundleState(tx, companyId, dto.bundleItems, { requireItems: true })
+        : null;
 
-      // 计算每个 SKU 的自动售价
-      const skuPrices = dto.skus.map((s) => +(s.cost * markupRate).toFixed(2));
+      const bundleSeedSku = dto.skus[0];
+      const bundleCost = bundleSeedSku?.cost ?? 0;
+      const bundlePrice = +(bundleCost * markupRate).toFixed(2);
+      const skuPrices = this.isBundleType(productType)
+        ? [bundlePrice]
+        : dto.skus.map((s) => +(s.cost * markupRate).toFixed(2));
+      const minCost = this.isBundleType(productType)
+        ? bundleCost
+        : Math.min(...dto.skus.map((s) => s.cost));
 
       // 创建商品
       const product = await tx.product.create({
@@ -187,9 +396,12 @@ export class SellerProductsService {
           subtitle: dto.subtitle,
           description: dto.description,
           // 基准价取所有 SKU 自动售价中的最低价
-          basePrice: dto.basePrice ?? Math.min(...skuPrices),
-          cost: Math.min(...dto.skus.map((s) => s.cost)),
+          basePrice: this.isBundleType(productType)
+            ? bundlePrice
+            : (dto.basePrice ?? Math.min(...skuPrices)),
+          cost: minCost,
           categoryId: dto.categoryId,
+          type: productType,
           // 计量单位：DTO 提供则写入，否则交由 DB 默认值 '斤'
           ...(dto.unit !== undefined && { unit: dto.unit }),
           returnPolicy: (dto.returnPolicy ?? 'INHERIT') as any,
@@ -204,15 +416,29 @@ export class SellerProductsService {
           status: 'INACTIVE', // 新建商品默认下架
           auditStatus: 'PENDING', // 需管理员审核
           skus: {
-            create: dto.skus.map((sku) => ({
-              title: sku.specName,
-              price: +(sku.cost * markupRate).toFixed(2), // 自动定价
-              cost: sku.cost,
-              stock: sku.stock,
-              weightGram: sku.weightGram,
-              maxPerOrder: sku.maxPerOrder ?? null,
-            })),
+            create: this.isBundleType(productType)
+              ? [{
+                  title: bundleSeedSku?.specName || BUNDLE_DEFAULT_SPEC_NAME,
+                  price: bundlePrice,
+                  cost: bundleCost,
+                  stock: 0,
+                  weightGram: bundleState?.bundleTotalWeightGram ?? 0,
+                  maxPerOrder: bundleSeedSku?.maxPerOrder ?? null,
+                }]
+              : dto.skus.map((sku) => ({
+                  title: sku.specName,
+                  price: +(sku.cost * markupRate).toFixed(2), // 自动定价
+                  cost: sku.cost,
+                  stock: sku.stock,
+                  weightGram: sku.weightGram,
+                  maxPerOrder: sku.maxPerOrder ?? null,
+                })),
           },
+          bundleItems: bundleState
+            ? {
+                create: this.bundleItemsCreateData(bundleState.validatedItems),
+              }
+            : undefined,
           media: dto.mediaUrls
             ? {
                 create: dto.mediaUrls.map((url, i) => ({
@@ -223,7 +449,7 @@ export class SellerProductsService {
               }
             : undefined,
         },
-        include: { skus: true, media: true },
+        include: { skus: true, media: true, bundleItems: true },
       });
 
       // 创建商品标签关联（通过 tagId）
@@ -303,7 +529,7 @@ export class SellerProductsService {
       this.logger.warn(`Async semantic fill failed: ${err.message}`);
     });
 
-    return product;
+    return this.loadSellerProduct(this.prisma, product.id);
   }
 
   /** 编辑商品 */
@@ -314,12 +540,17 @@ export class SellerProductsService {
     if (product.status === 'DRAFT') {
       throw new BadRequestException('草稿商品请使用草稿更新接口');
     }
+    this.assertNoTypeConversion(product.type, dto.productType);
+    const productType = (dto.productType ?? product.type ?? ProductType.SIMPLE) as ProductType;
 
     // 事务结果赋值给 updated 变量，以便事务提交后触发异步语义填充
     const updated = await this.prisma.$transaction(async (tx) => {
       // 编辑已审核通过或已驳回的商品需重新进入审核队列；PENDING 状态编辑不计次
       const needReAudit =
         product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
+      const bundleState = this.isBundleType(productType) && dto.bundleItems !== undefined
+        ? await this.buildBundleState(tx, companyId, dto.bundleItems, { requireItems: true })
+        : null;
 
       const result = await tx.product.update({
         where: { id: productId },
@@ -340,6 +571,7 @@ export class SellerProductsService {
           usageScenarios: dto.usageScenarios ?? undefined,
           dietaryTags: dto.dietaryTags ?? undefined,
           originRegion: dto.originRegion,
+          ...(dto.productType !== undefined && { type: productType }),
           // 重新进入审核：状态回 PENDING、清空上轮驳回备注、提交次数 +1
           ...(needReAudit && {
             auditStatus: 'PENDING',
@@ -347,8 +579,24 @@ export class SellerProductsService {
             submissionCount: { increment: 1 },
           }),
         },
-        include: { skus: { where: { status: 'ACTIVE' } }, media: true, tags: { include: { tag: true } } },
+        include: { skus: { where: { status: 'ACTIVE' } }, media: true, tags: { include: { tag: true } }, bundleItems: true },
       });
+
+      if (this.isBundleType(productType) && dto.bundleItems !== undefined) {
+        await tx.productBundleItem.deleteMany({ where: { bundleProductId: productId } });
+        if (bundleState) {
+          await tx.productBundleItem.createMany({
+            data: this.bundleItemsCreateData(bundleState.validatedItems).map((item) => ({
+              ...item,
+              bundleProductId: productId,
+            })),
+          });
+        }
+        await tx.productSKU.updateMany({
+          where: { productId, status: 'ACTIVE' },
+          data: { weightGram: bundleState?.bundleTotalWeightGram ?? 0 },
+        });
+      }
 
       // 更新媒体
       if (dto.mediaUrls) {
@@ -439,14 +687,14 @@ export class SellerProductsService {
       });
 
       return result;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     // 事务提交后异步触发 AI 语义填充（fire-and-forget）
     this.semanticFillService.fillProduct(productId).catch((err: Error) => {
       this.logger.warn(`Async semantic fill failed: ${err.message}`);
     });
 
-    return updated;
+    return this.loadSellerProduct(this.prisma, updated.id);
   }
 
   /** 上架/下架 */
@@ -621,6 +869,20 @@ export class SellerProductsService {
       // 删除不再需要的 SKU（注意：有关联 OrderItem 的不能删除）
       const toDelete = [...existingIds].filter((id) => !newSkuIds.has(id));
       if (toDelete.length > 0) {
+        if (!this.isBundleType(product.type)) {
+          const bundleReference = await tx.productBundleItem.findFirst({
+            where: {
+              skuId: { in: toDelete },
+              bundleProduct: {
+                status: { not: 'DRAFT' },
+              },
+            },
+            select: { id: true },
+          });
+          if (bundleReference) {
+            throw new BadRequestException(BUNDLE_SKU_REMOVE_MESSAGE);
+          }
+        }
         // 软处理：将状态标记为 INACTIVE 而非物理删除
         await tx.productSKU.updateMany({
           where: { id: { in: toDelete } },
@@ -643,6 +905,7 @@ export class SellerProductsService {
    * 事务内统计并校验商户草稿数量上限，防止并发写入越限。
    */
   async createDraft(companyId: string, dto: CreateDraftDto) {
+    const productType = (dto.productType ?? ProductType.SIMPLE) as ProductType;
     return this.prisma.$transaction(
       async (tx) => {
         const draftCount = await tx.product.count({
@@ -658,6 +921,7 @@ export class SellerProductsService {
           data: {
             companyId,
             title: dto.title,
+            type: productType,
             subtitle: dto.subtitle,
             description: dto.description,
             basePrice: 0, // 草稿占位，提交审核时按成本重新计算
@@ -689,6 +953,14 @@ export class SellerProductsService {
                     })),
                   }
                 : undefined,
+            bundleItems: this.isBundleType(productType) && dto.bundleItems && dto.bundleItems.length > 0
+              ? {
+                  create: this.bundleItemsCreateData(
+                    (await this.buildBundleState(tx, companyId, dto.bundleItems, { allowDraft: true }))
+                      ?.validatedItems ?? [],
+                  ),
+                }
+              : undefined,
             media:
               dto.mediaUrls && dto.mediaUrls.length > 0
                 ? {
@@ -700,7 +972,7 @@ export class SellerProductsService {
                   }
                 : undefined,
           },
-          include: { skus: true, media: true },
+          include: { skus: true, media: true, bundleItems: true },
         });
 
         let tagsCreated = false;
@@ -725,12 +997,9 @@ export class SellerProductsService {
         // 若有 tag 写入，重读一次返回完整对象——前端会把响应直接塞进 React Query
         // cache 用于后续水合，缺 tags 会导致下次保存把已选标签覆盖为空数组。
         if (tagsCreated) {
-          return tx.product.findUniqueOrThrow({
-            where: { id: product.id },
-            include: { skus: true, media: true, tags: { include: { tag: true } } },
-          });
+          return this.loadSellerProduct(tx, product.id);
         }
-        return { ...product, tags: [] as Array<unknown> };
+        return this.decorateProductForSeller({ ...product, tags: [] as Array<unknown> });
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -750,6 +1019,8 @@ export class SellerProductsService {
         throw new ForbiddenException('无权操作该商品');
       if (product.status !== 'DRAFT')
         throw new BadRequestException('该商品非草稿状态，不能用此接口更新');
+      this.assertNoTypeConversion(product.type, dto.productType);
+      const productType = (dto.productType ?? product.type ?? ProductType.SIMPLE) as ProductType;
 
       // 全量覆盖：dto 里出现的字段一律落库（含 null / 空数组）；只有 undefined 才视为"未触达"
       // Prisma 对 Json? 字段直接传 null 会写入 DB null，符合"清空"语义
@@ -768,6 +1039,7 @@ export class SellerProductsService {
       if (dto.usageScenarios !== undefined) updateData.usageScenarios = dto.usageScenarios;
       if (dto.dietaryTags !== undefined) updateData.dietaryTags = dto.dietaryTags;
       if (dto.originRegion !== undefined) updateData.originRegion = dto.originRegion;
+      if (dto.productType !== undefined) updateData.type = productType;
       if (Object.keys(updateData).length > 0) {
         await tx.product.update({ where: { id: productId }, data: updateData });
       }
@@ -786,6 +1058,21 @@ export class SellerProductsService {
               skuCode: this.draftSkuCodeForWeight(s.weightGram),
               weightGram: this.normalizeDraftWeightGram(s.weightGram),
               maxPerOrder: s.maxPerOrder ?? null,
+            })),
+          });
+        }
+      }
+
+      if (this.isBundleType(productType) && dto.bundleItems !== undefined) {
+        await tx.productBundleItem.deleteMany({ where: { bundleProductId: productId } });
+        const bundleState = await this.buildBundleState(tx, companyId, dto.bundleItems, {
+          allowDraft: true,
+        });
+        if (bundleState) {
+          await tx.productBundleItem.createMany({
+            data: this.bundleItemsCreateData(bundleState.validatedItems).map((item) => ({
+              ...item,
+              bundleProductId: productId,
             })),
           });
         }
@@ -826,10 +1113,7 @@ export class SellerProductsService {
         }
       }
 
-      return tx.product.findUnique({
-        where: { id: productId },
-        include: { skus: true, media: true, tags: { include: { tag: true } } },
-      });
+      return this.loadSellerProduct(tx, productId);
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
@@ -842,7 +1126,12 @@ export class SellerProductsService {
       async (tx) => {
         const product = await tx.product.findUnique({
           where: { id: productId },
-          include: { skus: true, media: { orderBy: { sortOrder: 'asc' } }, tags: true },
+          include: {
+            skus: true,
+            media: { orderBy: { sortOrder: 'asc' } },
+            tags: true,
+            bundleItems: { orderBy: { sortOrder: 'asc' } },
+          },
         });
         if (!product) throw new NotFoundException('商品不存在');
         if (product.companyId !== companyId)
@@ -850,18 +1139,36 @@ export class SellerProductsService {
         if (product.status !== 'DRAFT')
           throw new BadRequestException('该商品非草稿状态，不能提交');
 
-        const missingWeightSkuIndex = product.skus.findIndex(
-          (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
-        );
-        if (missingWeightSkuIndex >= 0) {
-          throw new BadRequestException({
-            message: '提交前请补全以下字段：规格(包装后重量（克）)',
-            fieldErrors: [{
-              field: `skus.${missingWeightSkuIndex}.weightGram`,
-              message: '包装后重量（克）必须填写且大于 0',
-            }],
-          });
+        const isBundleProduct = this.isBundleType(product.type);
+        const bundleState = isBundleProduct
+          ? await this.buildBundleState(
+              tx,
+              companyId,
+              product.bundleItems.map((item) => ({
+                skuId: item.skuId,
+                quantity: item.quantity,
+                sortOrder: item.sortOrder,
+              })),
+              { requireItems: true },
+            )
+          : null;
+
+        if (!isBundleProduct) {
+          const missingWeightSkuIndex = product.skus.findIndex(
+            (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
+          );
+          if (missingWeightSkuIndex >= 0) {
+            throw new BadRequestException({
+              message: '提交前请补全以下字段：规格(包装后重量（克）)',
+              fieldErrors: [{
+                field: `skus.${missingWeightSkuIndex}.weightGram`,
+                message: '包装后重量（克）必须填写且大于 0',
+              }],
+            });
+          }
         }
+
+        const bundleSeedSku = product.skus[0];
 
         // 组装 CreateProductDto 形状跑全量校验
         const candidate = {
@@ -872,13 +1179,31 @@ export class SellerProductsService {
           returnPolicy: product.returnPolicy,
           origin: product.origin ?? undefined,
           tagIds: product.tags.map((t) => t.tagId),
-          skus: product.skus.map((s) => ({
-            specName: s.title,
-            cost: s.cost ?? 0,
-            stock: s.stock,
-            maxPerOrder: s.maxPerOrder ?? undefined,
-            weightGram: s.weightGram,
-          })),
+          productType: product.type,
+          skus: isBundleProduct
+            ? (bundleSeedSku
+                ? [{
+                    specName: bundleSeedSku.title || BUNDLE_DEFAULT_SPEC_NAME,
+                    cost: bundleSeedSku.cost ?? 0,
+                    stock: 0,
+                    maxPerOrder: bundleSeedSku.maxPerOrder ?? undefined,
+                    weightGram: bundleState?.bundleTotalWeightGram ?? 0,
+                  }]
+                : [])
+            : product.skus.map((s) => ({
+                specName: s.title,
+                cost: s.cost ?? 0,
+                stock: s.stock,
+                maxPerOrder: s.maxPerOrder ?? undefined,
+                weightGram: s.weightGram,
+              })),
+          bundleItems: isBundleProduct
+            ? product.bundleItems.map((item) => ({
+                skuId: item.skuId,
+                quantity: item.quantity,
+                sortOrder: item.sortOrder,
+              }))
+            : undefined,
           attributes: product.attributes ?? undefined,
           aiKeywords: product.aiKeywords,
           mediaUrls: product.media.map((m) => m.url),
@@ -946,19 +1271,40 @@ export class SellerProductsService {
         const sysConfig = await this.bonusConfig.getSystemConfig();
         const markupRate = sysConfig.markupRate;
 
-        // 更新每个 SKU 的 price = cost × markupRate
-        for (const sku of product.skus) {
-          const cost = sku.cost ?? 0;
-          await tx.productSKU.update({
-            where: { id: sku.id },
-            data: { price: +(cost * markupRate).toFixed(2) },
+        let basePrice = 0;
+        let minCost = 0;
+
+        if (isBundleProduct) {
+          const bundleCost = bundleSeedSku?.cost ?? 0;
+          basePrice = +(bundleCost * markupRate).toFixed(2);
+          minCost = bundleCost;
+
+          await tx.productSKU.deleteMany({ where: { productId } });
+          await tx.productSKU.create({
+            data: {
+              productId,
+              title: bundleSeedSku?.title || BUNDLE_DEFAULT_SPEC_NAME,
+              price: basePrice,
+              cost: bundleCost,
+              stock: 0,
+              weightGram: bundleState?.bundleTotalWeightGram ?? 0,
+              maxPerOrder: bundleSeedSku?.maxPerOrder ?? null,
+            },
           });
+        } else {
+          // 更新每个 SKU 的 price = cost × markupRate
+          for (const sku of product.skus) {
+            const cost = sku.cost ?? 0;
+            await tx.productSKU.update({
+              where: { id: sku.id },
+              data: { price: +(cost * markupRate).toFixed(2) },
+            });
+          }
+          minCost = Math.min(...product.skus.map((s) => s.cost ?? 0));
+          basePrice = +(minCost * markupRate).toFixed(2);
         }
 
-        const minCost = Math.min(...product.skus.map((s) => s.cost ?? 0));
-        const basePrice = +(minCost * markupRate).toFixed(2);
-
-        return tx.product.update({
+        await tx.product.update({
           where: { id: productId },
           data: {
             status: 'INACTIVE',
@@ -967,8 +1313,8 @@ export class SellerProductsService {
             basePrice,
             cost: minCost,
           },
-          include: { skus: true, media: true },
         });
+        return this.loadSellerProduct(tx, productId);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );

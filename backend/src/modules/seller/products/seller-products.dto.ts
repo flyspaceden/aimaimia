@@ -11,6 +11,8 @@ import {
   Min,
   MaxLength,
   ArrayMinSize,
+  IsIn,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -52,6 +54,21 @@ export class CreateSkuDto {
   @IsInt()
   @Min(1)
   maxPerOrder?: number; // 单笔限购，null/不传 = 不限制
+}
+
+export class BundleItemDto {
+  @IsString()
+  @IsNotEmpty()
+  skuId: string;
+
+  @IsInt()
+  @Min(1)
+  quantity: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
 }
 
 /** 创建商品 */
@@ -99,6 +116,17 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSkuDto)
   skus: CreateSkuDto[];
+
+  @IsOptional()
+  @IsIn(['SIMPLE', 'BUNDLE'])
+  productType?: 'SIMPLE' | 'BUNDLE';
+
+  @ValidateIf((o) => o.productType === 'BUNDLE' || o.bundleItems !== undefined)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => BundleItemDto)
+  bundleItems?: BundleItemDto[];
 
   @IsOptional()
   attributes?: any; // JSON 自定义属性 { key: value }
@@ -219,6 +247,16 @@ export class UpdateProductDto {
   @IsString()
   @MaxLength(20)
   unit?: string;
+
+  @IsOptional()
+  @IsIn(['SIMPLE', 'BUNDLE'])
+  productType?: 'SIMPLE' | 'BUNDLE';
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BundleItemDto)
+  bundleItems?: BundleItemDto[];
 }
 
 /** 更新 SKU 列表 */
@@ -338,6 +376,16 @@ export class CreateDraftDto {
   skus?: DraftSkuDto[];
 
   @IsOptional()
+  @IsIn(['SIMPLE', 'BUNDLE'])
+  productType?: 'SIMPLE' | 'BUNDLE';
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BundleItemDto)
+  bundleItems?: BundleItemDto[];
+
+  @IsOptional()
   attributes?: any;
 
   @IsOptional()
@@ -413,6 +461,16 @@ export class UpdateDraftDto {
   @ValidateNested({ each: true })
   @Type(() => DraftSkuDto)
   skus?: DraftSkuDto[];
+
+  @IsOptional()
+  @IsIn(['SIMPLE', 'BUNDLE'])
+  productType?: 'SIMPLE' | 'BUNDLE';
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BundleItemDto)
+  bundleItems?: BundleItemDto[];
 
   @IsOptional()
   attributes?: any;
