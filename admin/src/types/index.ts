@@ -556,6 +556,7 @@ export interface AdminGroupBuyInstance {
   priceSnapshot: number;
   shippingFeeSnapshot: number;
   freeShippingSnapshot: boolean;
+  tierSnapshot?: Array<{ sequence?: number; basisPoints?: number; label?: string | null }> | null;
   validReferralCount: number;
   candidateCount: number;
   activatedAt: string | null;

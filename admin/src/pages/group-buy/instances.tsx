@@ -20,6 +20,13 @@ import {
   referralStatusMap,
 } from './common';
 
+const getTargetCount = (record: AdminGroupBuyInstance) => {
+  if (Array.isArray(record.tierSnapshot) && record.tierSnapshot.length > 0) {
+    return record.tierSnapshot.length;
+  }
+  return Math.max(record.validReferralCount, record._count?.referrals ?? 0, record.candidateCount ?? 0);
+};
+
 export default function GroupBuyInstancesPage() {
   const actionRef = useRef<ActionType>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -80,10 +87,10 @@ export default function GroupBuyInstancesPage() {
       render: (_: unknown, record) => <StatusTag value={record.status} map={instanceStatusMap} />,
     },
     {
-      title: '进度',
+      title: '有效进度',
       search: false,
       width: 120,
-      render: (_: unknown, record) => `${record.validReferralCount}/${record.candidateCount}`,
+      render: (_: unknown, record) => `${record.validReferralCount}/${getTargetCount(record)}`,
     },
     {
       title: '初始订单',
@@ -155,8 +162,8 @@ export default function GroupBuyInstancesPage() {
                     </Space>
                   ) : '待生成'}
                 </Descriptions.Item>
-                <Descriptions.Item label="有效推荐">{detail.validReferralCount}</Descriptions.Item>
-                <Descriptions.Item label="候选记录">{detail.candidateCount}</Descriptions.Item>
+                <Descriptions.Item label="有效进度">{detail.validReferralCount}/{getTargetCount(detail)}</Descriptions.Item>
+                <Descriptions.Item label="待确认订单">{detail.candidateCount}</Descriptions.Item>
                 <Descriptions.Item label="初始订单">{detail.initiatorOrderId}</Descriptions.Item>
                 <Descriptions.Item label="记录时间">{dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
               </Descriptions>
