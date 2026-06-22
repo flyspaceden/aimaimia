@@ -251,6 +251,23 @@ describe('ProductBundleService', () => {
     ]);
   });
 
+  it.each([0, -1, 1.5])('rejects invalid parent bundle quantity %s', (quantity) => {
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity,
+      companyId: 'company-self',
+      productSnapshot: {
+        bundleItems: [
+          {
+            skuId: 'sku-a',
+            skuTitle: '苹果 5kg',
+            quantityPerBundle: 3,
+          },
+        ],
+      },
+    })).toThrow(BadRequestException);
+  });
+
   it('rejects inventory fallback when bundle snapshot is missing', () => {
     expect(() => service.buildInventoryMovements({
       skuId: 'bundle-sku',

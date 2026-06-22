@@ -122,6 +122,10 @@ export class ProductBundleService {
       bundleItems?: Array<Pick<BundleSnapshotItem, 'skuId'> & Partial<BundleSnapshotItem>>;
     } | null;
   }): InventoryMovement[] {
+    if (!Number.isInteger(snapshotItem.quantity) || snapshotItem.quantity <= 0) {
+      throw new BadRequestException('组合商品订单快照父商品数量必须大于 0');
+    }
+
     const bundleItems = snapshotItem.productSnapshot?.bundleItems ?? [];
     if (bundleItems.length === 0) {
       throw new BadRequestException('组合商品订单快照缺少组件信息');
