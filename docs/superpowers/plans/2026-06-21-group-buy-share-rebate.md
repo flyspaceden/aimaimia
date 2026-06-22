@@ -638,7 +638,7 @@ git commit -m "feat: add group buy abandon and terminate flows"
 - Modify: `backend/src/modules/group-buy/group-buy-rebate.service.ts`
 - Test: `backend/src/modules/group-buy/group-buy-rebate.service.spec.ts`
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Cover:
 
@@ -646,14 +646,14 @@ Cover:
 - Lists ledgers paginated.
 - Does not merge with `RewardAccount`.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Endpoints:
 
 - `GET /group-buy/me/rebate-account`
 - `GET /group-buy/me/rebate-ledgers`
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```bash
 cd backend

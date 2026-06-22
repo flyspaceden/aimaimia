@@ -23,6 +23,38 @@ export class GroupBuyRebateService {
     );
   }
 
+  async getAccount(userId: string) {
+    const account = await this.prisma.groupBuyRebateAccount.findUnique({
+      where: { userId },
+    });
+    return this.mapAccount(account);
+  }
+
+  async listLedgers(userId: string, page = 1, pageSize = 20) {
+    const safePage = Math.max(1, Number.isFinite(Number(page)) ? Number(page) : 1);
+    const safePageSize = Math.min(100, Math.max(1, Number.isFinite(Number(pageSize)) ? Number(pageSize) : 20));
+    const skip = (safePage - 1) * safePageSize;
+    const where = { userId, deletedAt: null };
+
+    const [items, total] = await Promise.all([
+      this.prisma.groupBuyRebateLedger.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: safePageSize,
+      }),
+      this.prisma.groupBuyRebateLedger.count({ where }),
+    ]);
+
+    return {
+      items: items.map((ledger) => this.mapLedger(ledger)),
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+      nextPage: skip + safePageSize < total ? safePage + 1 : undefined,
+    };
+  }
+
   private async releaseReferralInTransaction(
     tx: Prisma.TransactionClient,
     where: { id: string } | { referredOrderId: string },
@@ -213,6 +245,41 @@ export class GroupBuyRebateService {
           refunds: { select: { id: true }, take: 1 },
         },
       },
+    };
+  }
+
+  private mapAccount(account: any) {
+    const balance = this.roundMoney(Number(account?.balance ?? 0));
+    const reserved = this.roundMoney(Number(account?.reserved ?? 0));
+    const withdrawn = this.roundMoney(Number(account?.withdrawn ?? 0));
+    const deducted = this.roundMoney(Number(account?.deducted ?? 0));
+    return {
+      balance,
+      reserved,
+      withdrawn,
+      deducted,
+      available: this.roundMoney(Math.max(0, balance - reserved)),
+      total: this.roundMoney(balance + reserved + withdrawn + deducted),
+    };
+  }
+
+  private mapLedger(ledger: any) {
+    return {
+      id: ledger.id,
+      type: ledger.type,
+      status: ledger.status,
+      amount: Number(ledger.amount ?? 0),
+      balanceBefore: Number(ledger.balanceBefore ?? 0),
+      balanceAfter: Number(ledger.balanceAfter ?? 0),
+      instanceId: ledger.instanceId ?? null,
+      referralId: ledger.referralId ?? null,
+      orderId: ledger.orderId ?? null,
+      refType: ledger.refType ?? null,
+      refId: ledger.refId ?? null,
+      meta: ledger.meta ?? null,
+      createdAt: ledger.createdAt instanceof Date
+        ? ledger.createdAt.toISOString()
+        : ledger.createdAt,
     };
   }
 
