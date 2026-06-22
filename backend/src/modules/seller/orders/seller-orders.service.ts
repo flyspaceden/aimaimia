@@ -291,15 +291,20 @@ export class SellerOrdersService {
       buyerAlias: aliasMap.get(order.userId) || '买家',
       buyerNo: buyerNoMap.get(order.userId) || null,
       regionText: extractRegionText(order.addressSnapshot),
-      items: order.items.map((item) => ({
-        id: item.id,
-        title: item.sku?.product?.title || '',
-        imageUrl: (item.sku?.product as any)?.media?.[0]?.url || null,
-        unitPrice: item.unitPrice,
-        quantity: item.quantity,
-        isPrize: item.isPrize,
-        prizeType: item.prizeType,
-      })),
+      items: order.items.map((item) => {
+        const ps = item.productSnapshot as any;
+        return {
+          id: item.id,
+          title: item.sku?.product?.title || '',
+          imageUrl: (item.sku?.product as any)?.media?.[0]?.url || null,
+          unitPrice: item.unitPrice,
+          quantity: item.quantity,
+          isPrize: item.isPrize,
+          prizeType: item.prizeType,
+          productType: ps?.productType || 'SIMPLE',
+          bundleItems: ps?.bundleItems || [],
+        };
+      }),
       shipment: shipment
         ? {
             id: shipment.id,

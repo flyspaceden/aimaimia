@@ -113,6 +113,80 @@ describe('SellerOrdersService invoice privacy', () => {
     expect(serialized).not.toContain('buyer-1');
   });
 
+  it('returns bundle snapshot fields for seller order detail with defaults', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      userId: 'buyer-1',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      shippingFee: 0,
+      createdAt: new Date('2026-05-15T12:00:00.000Z'),
+      addressSnapshot: { province: '广东省', city: '深圳市' },
+      invoice: null,
+      refunds: [],
+      shipments: [],
+      items: [
+        {
+          id: 'item-bundle',
+          companyId: 'company-1',
+          unitPrice: 88,
+          quantity: 1,
+          isPrize: false,
+          prizeType: null,
+          productSnapshot: {
+            productType: 'BUNDLE',
+            bundleItems: [
+              { productId: 'p1', productTitle: '苹果', skuId: 'sku-1', skuName: '红富士', quantity: 2 },
+              { productId: 'p2', productTitle: '梨', skuId: 'sku-2', skuName: '皇冠梨', quantity: 1 },
+            ],
+          },
+          sku: {
+            product: {
+              title: '秋季组合装',
+              media: [],
+            },
+          },
+        },
+        {
+          id: 'item-simple',
+          companyId: 'company-1',
+          unitPrice: 20,
+          quantity: 3,
+          isPrize: false,
+          prizeType: null,
+          productSnapshot: null,
+          sku: {
+            product: {
+              title: '香蕉',
+              media: [],
+            },
+          },
+        },
+      ],
+    });
+    prisma.buyerAlias.findMany.mockResolvedValue([{ userId: 'buyer-1', alias: '买家001' }]);
+
+    const out = await service.findById('company-1', 'staff-1', 'order-1');
+
+    expect(out.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'item-bundle',
+          productType: 'BUNDLE',
+          bundleItems: [
+            { productId: 'p1', productTitle: '苹果', skuId: 'sku-1', skuName: '红富士', quantity: 2 },
+            { productId: 'p2', productTitle: '梨', skuId: 'sku-2', skuName: '皇冠梨', quantity: 1 },
+          ],
+        }),
+        expect.objectContaining({
+          id: 'item-simple',
+          productType: 'SIMPLE',
+          bundleItems: [],
+        }),
+      ]),
+    );
+  });
+
   it('filters order list by buyer public id inside company scope', async () => {
     prisma.order.findMany.mockResolvedValue([]);
     prisma.order.count.mockResolvedValue(0);
