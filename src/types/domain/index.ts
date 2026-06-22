@@ -6,6 +6,7 @@
  * - 后端对接时，建议以这些字段为第一版契约（后续可在不破坏前端的前提下扩展字段）
  */
 export * from './Author';
+export * from './BundleSnapshot';
 export * from './Product';
 export * from './Company';
 export * from './Order';

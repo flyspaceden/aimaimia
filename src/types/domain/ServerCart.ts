@@ -1,8 +1,13 @@
+import type { ProductType } from './Product';
+import type { BundleSnapshotItem } from './BundleSnapshot';
+
 /** 服务端购物车项（含商品快照 + 奖品/赠品字段） */
 export interface ServerCartItem {
   id: string;
   skuId: string;
   quantity: number;
+  productType?: ProductType;
+  bundleItems?: BundleSnapshotItem[];
   /** SKU 关联的商品信息 */
   product: {
     id: string;

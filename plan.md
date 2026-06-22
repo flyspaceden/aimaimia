@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **买家端组合商品购物车/订单/售后展示**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 14
+  - **实际做了**: `ServerCartItem` / `OrderItem` / `useCartStore` 补齐 `productType` / `bundleItems` snapshot；购物车、结算、订单卡片/详情、售后申请和售后详情统一复用紧凑只读“组合内容”摘要，保持父商品行结算/价格/售后身份不变，不开放组件级售后动作
+  - **验证**: `npx jest --runInBand src/utils/__tests__/bundleSnapshot.test.ts`、`npx tsc --noEmit --pretty false`、`git diff --check`
+
 - [x] **买家端组合商品详情展示**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 13
   - **实际做了**: 买家端 `Product` / `ProductDetail` 类型补齐 `type` / `bundleItems` / `bundleAvailableStock` / `bundleTotalWeightGram`；`ProductRepo` 统一默认 `SIMPLE` 并归一化组合内容字段；商品详情页在组合商品下新增紧凑“组合内容”只读区，只展示组成商品、SKU 和数量，不暴露组件价格

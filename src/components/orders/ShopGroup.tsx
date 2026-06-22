@@ -31,6 +31,8 @@ export function ShopGroup({ companyName, items, isVipPackage, onContactSeller, s
           image={item.image}
           title={item.title}
           skuTitle={item.skuTitle}
+          productType={item.productType}
+          bundleItems={item.bundleItems}
           unitPrice={item.price}
           quantity={item.quantity}
           priceLabel={isVipPackage ? 'VIP礼包' : undefined}
