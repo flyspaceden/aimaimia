@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **买家端组合商品详情展示**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 13
+  - **实际做了**: 买家端 `Product` / `ProductDetail` 类型补齐 `type` / `bundleItems` / `bundleAvailableStock` / `bundleTotalWeightGram`；`ProductRepo` 统一默认 `SIMPLE` 并归一化组合内容字段；商品详情页在组合商品下新增紧凑“组合内容”只读区，只展示组成商品、SKU 和数量，不暴露组件价格
+  - **验证**: `npx tsc --noEmit --pretty false`、`git diff --check`
+
 - [x] **卖家订单详情组合商品展示与拣货单打印**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 12
   - **实际做了**: 卖家订单详情 `OrderItem` 类型补齐 `productType` / `bundleItems`；商品清单卡为组合商品保留父购买行并展开组件明细；新增 `waybillPrint.ts` 生成无价格拣货单 HTML，打印页同时展示原始订单、组合组件明细和普通商品 + 组合组件合并后的 SKU 级拣货汇总

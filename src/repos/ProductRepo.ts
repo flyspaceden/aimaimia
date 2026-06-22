@@ -18,6 +18,41 @@ import { normalizePagination } from './http/pagination';
 
 const PAGE_SIZE = 8;
 const TOTAL_PAGES = 4;
+const DEFAULT_PRODUCT_TYPE = 'SIMPLE' as const;
+
+const normalizeBundleItems = (bundleItems: unknown): Product['bundleItems'] => {
+  if (!Array.isArray(bundleItems)) return [];
+  return bundleItems.reduce<NonNullable<Product['bundleItems']>>((items, item) => {
+    if (!item || typeof item !== 'object') return items;
+    const raw = item as Record<string, unknown>;
+    const normalizedItem = {
+      skuId: typeof raw.skuId === 'string' ? raw.skuId : '',
+      productId: typeof raw.productId === 'string' ? raw.productId : '',
+      productTitle: typeof raw.productTitle === 'string' ? raw.productTitle : '',
+      skuTitle: typeof raw.skuTitle === 'string' ? raw.skuTitle : '',
+      quantity: typeof raw.quantity === 'number' ? raw.quantity : 0,
+      image:
+        typeof raw.image === 'string'
+          ? raw.image
+          : typeof raw.imageUrl === 'string'
+            ? raw.imageUrl
+            : undefined,
+    };
+    if (!normalizedItem.skuId || normalizedItem.quantity <= 0) return items;
+    items.push(normalizedItem);
+    return items;
+  }, []);
+};
+
+const normalizeProduct = <T extends Product | ProductDetail>(product: T): T => ({
+  ...product,
+  type: product.type ?? DEFAULT_PRODUCT_TYPE,
+  bundleItems: normalizeBundleItems(product.bundleItems),
+  bundleAvailableStock:
+    typeof product.bundleAvailableStock === 'number' ? product.bundleAvailableStock : null,
+  bundleTotalWeightGram:
+    typeof product.bundleTotalWeightGram === 'number' ? product.bundleTotalWeightGram : null,
+});
 
 const buildPagedProducts = () => {
   const items: Product[] = [];
@@ -25,12 +60,12 @@ const buildPagedProducts = () => {
   for (let page = 1; page <= TOTAL_PAGES; page += 1) {
     mockProducts.forEach((product, index) => {
       const suffix = page > 1 ? `-p${page}` : '';
-      items.push({
+      items.push(normalizeProduct({
         ...product,
         id: `${product.id}${suffix}`,
         title: page > 1 ? `${product.title} · 批次${page}` : product.title,
         rating: product.rating ?? 4.6 + (index % 3) * 0.1,
-      });
+      }));
     });
   }
 
@@ -177,7 +212,14 @@ export const ProductRepo = {
       ...(options?.categoryHint && { categoryHint: options.categoryHint }),
     });
     if (res.ok) {
-      return { ok: true, data: normalizePagination(res.data) };
+      const normalized = normalizePagination(res.data);
+      return {
+        ok: true,
+        data: {
+          ...normalized,
+          items: normalized.items.map((item) => normalizeProduct(item)),
+        },
+      };
     }
     return res as Result<PaginationResult<Product>>;
   },
@@ -196,7 +238,7 @@ export const ProductRepo = {
       }
       // Mock 兼容：将简单 Product 包装为 ProductDetail
       return simulateRequest({
-        ...product,
+        ...normalizeProduct(product),
         id,
         basePrice: product.price,
         images: product.image ? [{ id: '1', url: product.image }] : [],
@@ -209,6 +251,11 @@ export const ProductRepo = {
       } as ProductDetail);
     }
 
-    return ApiClient.get<ProductDetail>(`/products/${id}`);
+    const res = await ApiClient.get<ProductDetail>(`/products/${id}`);
+    if (!res.ok) return res;
+    return {
+      ok: true,
+      data: normalizeProduct(res.data),
+    };
   },
 };

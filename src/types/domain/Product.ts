@@ -4,10 +4,25 @@
  * 用途：
  * - 首页/分类/搜索商品流、商品详情、购物车与订单项引用
  */
+export type ProductType = 'SIMPLE' | 'BUNDLE';
+
+export type ProductBundleItem = {
+  skuId: string;
+  productId: string;
+  productTitle: string;
+  skuTitle: string;
+  quantity: number;
+  image?: string;
+};
+
 export type Product = {
   id: string;
   title: string;
   price: number;
+  type?: ProductType;
+  bundleItems?: ProductBundleItem[];
+  bundleAvailableStock?: number | null;
+  bundleTotalWeightGram?: number | null;
   /** 列表接口返回的默认 SKU ID（首个 ACTIVE SKU） */
   defaultSkuId?: string;
   unit: string;

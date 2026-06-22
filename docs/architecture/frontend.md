@@ -955,6 +955,10 @@ Tab 栏设计：
   - 「加入购物车」：`surface` 底色 + `primary` 边框
   - 「立即购买」：`goldGradient` 渐变底色，文字白色
   - 固定在底部，有毛玻璃背景
+- **组合商品详情（2026-06-22 补充）**：
+  - 当 `type=BUNDLE` 且 `bundleItems.length>0` 时，在规格选择后插入紧凑的“组合内容”卡片
+  - 每行固定左侧缩略图、中间商品名+SKU 名、右侧数量 `xN`，仅展示组成与数量，不展示组件价格、卖家成本或平台毛利
+  - 行内容必须支持大字体和窄屏：缩略图固定尺寸，文案列 `minWidth: 0`，最多两行换行，不使用绝对定位
 
 ---
 
@@ -2302,6 +2306,7 @@ src/components/ai/   → 新增目录
 | 发票链路收口 | 我的页增加“我的发票”入口；订单详情接入 `InvoiceSection`，按后端 `invoiceEligible` 判断申请入口，显示 REQUESTED/ISSUED/FAILED/CANCELED 状态；发票列表/详情通过 `expo-web-browser` 打开 PDF，取消申请后刷新发票与订单缓存 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/orders/[id].tsx`, `app/invoices/index.tsx`, `app/invoices/[id].tsx`, `src/components/cards/InvoiceSection.tsx`, `src/types/domain/Invoice.ts`, `src/types/domain/Order.ts`, `src/repos/InvoiceRepo.ts`, `src/repos/OrderRepo.ts` |
 | 数字资产中心 | 我的页常用工具新增“数字资产”入口；新增 `/me/digital-assets` 页面，展示“累计消费金额”、未来资产/等级/兑换/股权期权模块占位和资产流水；通过 `DigitalAssetRepo` 调用 `/me/digital-assets/summary` 与 `/me/digital-assets/ledgers`，使用 React Query 刷新，金额文本使用 `priceTextProps`，列表底部使用 `useBottomInset` 适配安全区 | 2026-06-14 | `app/(tabs)/me.tsx`, `app/me/digital-assets.tsx`, `src/types/domain/DigitalAsset.ts`, `src/types/domain/index.ts`, `src/repos/DigitalAssetRepo.ts`, `src/repos/index.ts` |
 | 我的页身份卡排版 | 我的页身份卡移除时段问候语，昵称作为主标题；买家公开编号单独成行展示为 `ID: AIMM...` 并支持点击复制，推荐码入口下移为独立 chip，右侧“扫一扫/编辑”固定宽度对齐 | 2026-06-15 | `app/(tabs)/me.tsx`, `scripts/__tests__/me-identity-card-layout.test.mjs` |
+| 组合商品买家详情展示 | 买家端 `Product` / `ProductDetail` 类型补齐 `type` / `bundleItems` / `bundleAvailableStock` / `bundleTotalWeightGram`；商品详情页在组合商品下新增“组合内容”只读区，展示组成商品、规格名和数量，不暴露组件价格 | 2026-06-22 | `src/types/domain/Product.ts`, `src/repos/ProductRepo.ts`, `app/product/[id].tsx` |
 | 买家公开编号 | 我的页身份卡头像右侧显示 `buyerNo`（`AIMM` + 14 位数字）并支持点击复制；替代原成长等级展示位，后端暂未返回时展示“ID: 用户编号生成中”，不暴露内部 `User.id` | 2026-06-15 | `app/(tabs)/me.tsx`, `src/types/domain/UserProfile.ts`, `src/mocks/userProfile.ts` |
 | 订单号脱敏展示+展开+复制 | 抽共享组件 `OrderNoReveal`：默认显示订单号后 6 位（`…` 前缀等宽字），眼睛图标在收起↔展开完整订单号间切换，复制按钮始终复制完整订单号+toast「已复制」；接入订单详情页订单号行（替换原完整号+复制 pill）/ 支付成功页总订单号 / 物流追踪页头部新增订单号行，物流页标题后 8 位→后 6 位统一 | 2026-06-08 | `src/components/orders/OrderNoReveal.tsx`, `src/components/orders/OrderInfoBlock.tsx`, `app/payment-success.tsx`, `app/orders/track.tsx` |
 

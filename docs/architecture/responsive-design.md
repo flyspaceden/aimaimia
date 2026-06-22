@@ -522,6 +522,10 @@ src/components/overlay/PrivacyConsentModal.tsx / MapView.tsx / VoiceOverlay.tsx
 - R-RS04~07 顺序无强依赖，可按可用时间穿插
 - 每个 sprint 完成 → 跑 §4 真机测试矩阵 10 场景 → OTA
 
+**2026-06-22 补充：组合商品详情行约束**
+- `app/product/[id].tsx` 的“组合内容”行必须固定缩略图宽高，文本列设置 `flex: 1` + `minWidth: 0`，数量列固定宽度右对齐。
+- 不允许通过绝对定位叠放商品名、SKU 名和数量；大字体下文本最多两行换行，避免与缩略图或数量列重叠。
+
 ---
 
 ### 6.3 修复进度表（每文件一行，commit 落实后回填）
