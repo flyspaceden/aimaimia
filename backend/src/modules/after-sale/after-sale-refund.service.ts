@@ -347,10 +347,10 @@ export class AfterSaleRefundService {
                   data: { stock: { increment: movement.quantity } },
                 });
               } else {
-                // findFirst 未命中却被 partial unique index 拦截 = ledger 已存在但前面漏判；
+                // findMany 预查未命中却被 partial unique index 拦截 = ledger 已存在但前面漏判；
                 // 不能 increment（避免双发），但必须留下告警让监控可见。
                 this.logger.warn(
-                  `售后回填库存被静默跳过（findFirst 漏判，partial unique index 拦截）: afterSaleId=${request.id}, skuId=${movement.skuId}, quantity=${movement.quantity}`,
+                  `售后回填库存被静默跳过（findMany 漏判，partial unique index 拦截）: afterSaleId=${request.id}, skuId=${movement.skuId}, quantity=${movement.quantity}`,
                 );
               }
             }

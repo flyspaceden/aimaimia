@@ -578,6 +578,79 @@ describe('AfterSaleRefundService', () => {
     }));
   });
 
+  it('handleRefundSuccess 对 bundle 退货仅回填缺失的组件 ledger', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_bundle_partial_001',
+      afterSaleId: 'as_bundle_partial_001',
+      orderId: 'order_bundle_partial_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_bundle_partial_001',
+      orderId: 'order_bundle_partial_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_bundle_partial_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'bundle-selling-sku',
+        quantity: 2,
+        isPrize: false,
+        productSnapshot: {
+          productType: 'BUNDLE',
+          bundleItems: [
+            { skuId: 'component-sku-a', quantityPerBundle: 2 },
+            { skuId: 'component-sku-b', quantityPerBundle: 1 },
+          ],
+        },
+      },
+    });
+    productBundleService.buildInventoryMovements.mockReturnValue([
+      { skuId: 'component-sku-a', quantity: 4, companyId: 'company-1', label: 'A' },
+      { skuId: 'component-sku-b', quantity: 2, companyId: 'company-1', label: 'B' },
+    ]);
+    tx.inventoryLedger.findMany.mockResolvedValue([{ skuId: 'component-sku-a' }]);
+    tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });
+
+    await service.handleRefundSuccess(
+      'refund_bundle_partial_001',
+      'provider_refund_bundle_partial_001',
+    );
+
+    expect(tx.inventoryLedger.findMany).toHaveBeenCalledWith({
+      where: {
+        skuId: { in: ['component-sku-a', 'component-sku-b'] },
+        type: 'RELEASE',
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_partial_001',
+      },
+      select: { skuId: true },
+    });
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [{
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_partial_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(1);
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'component-sku-b' },
+      data: { stock: { increment: 2 } },
+    });
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'component-sku-a' },
+    }));
+  });
+
   it('handleRefundSuccess restocks returned normal items exactly once when returned-goods refund succeeds', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',

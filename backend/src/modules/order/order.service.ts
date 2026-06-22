@@ -925,9 +925,6 @@ export class OrderService {
               const existing = existingRows[0] as any | undefined;
               const existingQuantity = existingRows.reduce((sum, item) => sum + item.quantity, 0);
               const desiredQuantity = existingQuantity + group.totalQuantity;
-              const isBundle =
-                this.normalizeOrderItemProductSnapshot(group.items[0]?.productSnapshot).productType === 'BUNDLE' ||
-                group.sku.product?.type === 'BUNDLE';
               const duplicateIds = existingRows.slice(1).map((item) => item.id);
               if (duplicateIds.length > 0) {
                 await tx.cartItem.deleteMany({
@@ -955,30 +952,6 @@ export class OrderService {
 
               if (currentStock <= 0) {
                 if (existing) {
-                  await tx.cartItem.update({
-                    where: { id: existing.id },
-                    data: { quantity: existingQuantity, isSelected: false },
-                  });
-                }
-                for (const item of group.items) {
-                  output.push({
-                    orderItemId: item.id,
-                    skuId,
-                    title: this.repurchaseTitle(item),
-                    quantity: item.quantity,
-                    status: 'SKIPPED',
-                    reason: 'OUT_OF_STOCK_VIRTUAL',
-                    stockStatus: 'OUT_OF_STOCK',
-                    stock: currentStock,
-                    virtual: true,
-                    message: '商品暂无库存，未加入购物车',
-                  });
-                }
-                continue;
-              }
-
-              if (isBundle && desiredQuantity > currentStock) {
-                if (existing && currentStock <= 0) {
                   await tx.cartItem.update({
                     where: { id: existing.id },
                     data: { quantity: existingQuantity, isSelected: false },
