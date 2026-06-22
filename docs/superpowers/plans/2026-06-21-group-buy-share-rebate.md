@@ -557,7 +557,7 @@ git commit -m "feat: generate group buy share codes after return window"
 - Test: `backend/src/modules/group-buy/group-buy-rebate.service.spec.ts`
 - Test: `backend/src/modules/group-buy/group-buy-concurrency.spec.ts`
 
-- [ ] **Step 1: Add failing tests**
+- [x] **Step 1: Add failing tests**
 
 Cover:
 
@@ -568,7 +568,7 @@ Cover:
 - Concurrent valid referrals cannot allocate same sequence.
 - Terminated instance still releases already-paid candidates.
 
-- [ ] **Step 2: Implement `releaseReferralIfValid(referralId)`**
+- [x] **Step 2: Implement `releaseReferralIfValid(referralId)`**
 
 Use Serializable transaction:
 
@@ -583,14 +583,14 @@ Use Serializable transaction:
 9. Mark referral `VALID`.
 10. Complete instance/code when all tiers are valid.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 cd backend
 npx jest src/modules/group-buy/group-buy-rebate.service.spec.ts src/modules/group-buy/group-buy-concurrency.spec.ts --runInBand
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/src/modules/group-buy

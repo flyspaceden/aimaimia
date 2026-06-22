@@ -3,14 +3,24 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { generateGroupBuyCode } from './group-buy-code.util';
+import { GroupBuyRebateService } from './group-buy-rebate.service';
 
 @Injectable()
 export class GroupBuyLifecycleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rebateService: GroupBuyRebateService,
+  ) {}
 
   private readonly serializableTransactionOptions = {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
   };
+
+  async evaluateOrderAfterReceive(orderId: string, now = new Date()) {
+    const initiator = await this.evaluateInitiatorOrder(orderId, now);
+    const referral = await this.rebateService.releaseReferralByOrderIfValid(orderId, now);
+    return { initiator, referral };
+  }
 
   async evaluateInitiatorOrder(orderId: string, now = new Date()) {
     return this.prisma.$transaction(async (tx) => {

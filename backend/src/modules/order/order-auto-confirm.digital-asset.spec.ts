@@ -23,8 +23,9 @@ describe('OrderAutoConfirmService digital asset hook', () => {
     };
     const bonusAllocation = { allocateForOrder: jest.fn().mockResolvedValue(undefined) };
     const digitalAsset = { creditOrderReceived: jest.fn().mockResolvedValue(undefined) };
+    const groupBuyLifecycle = { evaluateOrderAfterReceive: jest.fn().mockResolvedValue(undefined) };
     const service = new OrderAutoConfirmService(prisma as any, bonusAllocation as any);
-    return { service, digitalAsset };
+    return { service, digitalAsset, groupBuyLifecycle };
   };
 
   it('credits digital asset after automatic confirm receive succeeds', async () => {
@@ -42,5 +43,14 @@ describe('OrderAutoConfirmService digital asset hook', () => {
     service.setDigitalAssetService(digitalAsset as any);
 
     await expect((service as any).confirmOrder('order-1', 'DELIVERED')).resolves.toBeUndefined();
+  });
+
+  it('evaluates group-buy qualification and referral rebate after automatic confirm receive succeeds', async () => {
+    const { service, groupBuyLifecycle } = makeService();
+    service.setGroupBuyLifecycleService(groupBuyLifecycle as any);
+
+    await (service as any).confirmOrder('order-1', 'DELIVERED');
+
+    expect(groupBuyLifecycle.evaluateOrderAfterReceive).toHaveBeenCalledWith('order-1');
   });
 });
