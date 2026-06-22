@@ -11,7 +11,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/src/utils/__tests__/**/*.test.ts'],
+  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // mock RN 原生模块，避免 ts-jest 编译时报 import 错
   moduleNameMapper: {

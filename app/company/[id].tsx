@@ -260,6 +260,7 @@ export default function CompanyDetailScreen() {
     id: item.id,
     title: item.title,
     price: item.price,
+    type: 'SIMPLE',
     image: item.image,
     defaultSkuId: item.defaultSkuId,
     tags: item.tags,

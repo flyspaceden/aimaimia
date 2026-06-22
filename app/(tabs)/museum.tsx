@@ -322,7 +322,16 @@ export default function MuseumScreen() {
             }
             onAddToCart={(product) => {
               addItem(
-                { id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' },
+                {
+                  id: product.id,
+                  title: product.title,
+                  price: product.price,
+                  type: 'SIMPLE',
+                  image: product.image,
+                  tags: [],
+                  unit: '',
+                  origin: '',
+                },
                 1,
                 product.defaultSkuId,
                 product.price,

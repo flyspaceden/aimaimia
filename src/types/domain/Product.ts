@@ -19,7 +19,7 @@ export type Product = {
   id: string;
   title: string;
   price: number;
-  type?: ProductType;
+  type: ProductType;
   bundleItems?: ProductBundleItem[];
   bundleAvailableStock?: number | null;
   bundleTotalWeightGram?: number | null;
