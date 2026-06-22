@@ -706,14 +706,16 @@ git commit -m "feat: allow group buy rebate deduction on ordinary checkout"
 - Test: `backend/src/modules/bonus/withdraw-payout.service.spec.ts`
 - Test: `backend/src/modules/group-buy/group-buy-rebate.service.spec.ts`
 
-- [ ] **Step 1: Decide implementation boundary during execution**
+- [x] **Step 1: Decide implementation boundary during execution**
 
 Use one of these, based on current withdrawal service shape:
 
 - Preferred: generic withdrawal source enum supports `REWARD` and `GROUP_BUY_REBATE`.
 - Fallback: dedicated group-buy withdrawal endpoints that reuse payout provider code but not `RewardAccount`.
 
-- [ ] **Step 2: Add tests**
+Implementation note: current schema already stores withdrawal source-like data in `WithdrawRequest.accountType`, so group-buy withdrawals use `accountType=GROUP_BUY_REBATE` on the shared withdrawal table and shared payout retry path, while balance mutations and ledgers use `GroupBuyRebateAccount` / `GroupBuyRebateLedger` only.
+
+- [x] **Step 2: Add tests**
 
 Cover:
 
@@ -721,7 +723,7 @@ Cover:
 - Account balance/frozen changes are independent from Reward.
 - In-flight withdrawal blocks account deletion if existing deletion blocker framework supports it.
 
-- [ ] **Step 3: Implement and commit**
+- [x] **Step 3: Implement and commit**
 
 ```bash
 cd backend

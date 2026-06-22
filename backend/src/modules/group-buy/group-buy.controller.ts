@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { WithdrawDto } from '../bonus/dto/withdraw.dto';
+import { WithdrawPayoutService } from '../bonus/withdraw-payout.service';
 import { GroupBuyCheckoutDto } from './dto/group-buy-checkout.dto';
 import { GroupBuyCheckoutService } from './group-buy-checkout.service';
 import { GroupBuyLifecycleService } from './group-buy-lifecycle.service';
@@ -14,6 +16,7 @@ export class GroupBuyController {
     private readonly checkoutService: GroupBuyCheckoutService,
     private readonly lifecycleService: GroupBuyLifecycleService,
     private readonly rebateService: GroupBuyRebateService,
+    private readonly withdrawPayoutService: WithdrawPayoutService,
   ) {}
 
   @Get('activities')
@@ -56,6 +59,35 @@ export class GroupBuyController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.rebateService.listLedgers(
+      userId,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+    );
+  }
+
+  @Post('me/rebate-withdraw')
+  requestRebateWithdraw(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: WithdrawDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    if (!idempotencyKey || idempotencyKey.trim().length < 8) {
+      throw new BadRequestException('Idempotency-Key header required');
+    }
+    return this.withdrawPayoutService.requestGroupBuyRebateWithdraw(
+      userId,
+      dto,
+      idempotencyKey.trim(),
+    );
+  }
+
+  @Get('me/rebate-withdraw/history')
+  listRebateWithdrawals(
+    @CurrentUser('sub') userId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.rebateService.listWithdrawals(
       userId,
       page ? parseInt(page, 10) : 1,
       pageSize ? parseInt(pageSize, 10) : 20,

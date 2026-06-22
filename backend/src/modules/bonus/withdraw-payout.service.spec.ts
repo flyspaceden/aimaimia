@@ -35,6 +35,10 @@ function buildService(overrides: {
         findUnique: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      groupBuyRebateAccount: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       withdrawRequest: {
         aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
         count: jest.fn().mockResolvedValue(0),
@@ -46,6 +50,11 @@ function buildService(overrides: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       rewardLedger: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      groupBuyRebateLedger: {
         create: jest.fn(),
         findMany: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -367,6 +376,86 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
       }),
     }));
   });
+
+  it('freezes group-buy rebate balance independently from Reward and finalizes paid', async () => {
+    const { service, prisma, paymentService } = buildService();
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue({
+      id: 'gba-1',
+      userId: 'u1',
+      balance: 100,
+      reserved: 0,
+      withdrawn: 0,
+    });
+    prisma.withdrawRequest.create.mockImplementation(async ({ data }: any) => ({
+      ...data,
+      createdAt: new Date('2026-06-22T00:00:00.000Z'),
+      updatedAt: new Date('2026-06-22T00:00:00.000Z'),
+    }));
+    prisma.withdrawRequest.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'w-gb-1',
+        userId: 'u1',
+        amount: 80,
+        taxAmount: 16,
+        netAmount: 64,
+        taxRate: 0.2,
+        status: 'PAID',
+        accountType: 'GROUP_BUY_REBATE',
+      });
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([
+      { accountId: 'gba-1', amount: 80 },
+    ]);
+
+    const result = await (service as any).requestGroupBuyRebateWithdraw('u1', {
+      amount: 80,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'gb-idemp-1');
+
+    expect(result).toMatchObject({
+      grossAmount: 80,
+      taxAmount: 16,
+      netAmount: 64,
+      status: 'PAID',
+    });
+    expect(prisma.rewardAccount.findUnique).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 'gba-1', balance: { gte: 80 } },
+      data: {
+        balance: { decrement: 80 },
+        reserved: { increment: 80 },
+      },
+    });
+    expect(prisma.groupBuyRebateLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'gba-1',
+        userId: 'u1',
+        type: 'WITHDRAW',
+        status: 'RESERVED',
+        amount: 80,
+        refType: 'WITHDRAW',
+        refId: expect.any(String),
+        idempotencyKey: expect.stringMatching(/^GROUP_BUY_WITHDRAW:/),
+        meta: expect.objectContaining({
+          scheme: 'GROUP_BUY_REBATE_WITHDRAW',
+          accountType: 'GROUP_BUY_REBATE',
+        }),
+      }),
+    });
+    expect(prisma.withdrawRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountType: 'GROUP_BUY_REBATE',
+        amount: 80,
+        status: 'PROCESSING',
+        clientIdempotencyKey: 'gb-idemp-1',
+      }),
+    }));
+    expect(paymentService.initiateTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      remark: '爱买买团购返还余额提现',
+    }));
+  });
 });
 
 describe('WithdrawPayoutService.finalize', () => {
@@ -469,6 +558,74 @@ describe('WithdrawPayoutService.finalize', () => {
       userId: 'u1',
       type: 'withdraw_failed',
     }));
+  });
+
+  it('marks group-buy rebate withdrawal paid and moves reserved balance to withdrawn', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-gb-1',
+      userId: 'u1',
+      amount: 80,
+      netAmount: 64,
+      taxAmount: 16,
+      accountType: 'GROUP_BUY_REBATE',
+    });
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([
+      { accountId: 'gba-1', amount: 80 },
+    ]);
+
+    await service.finalizeWithdrawalPaid('w-gb-1', {
+      providerOrderId: 'po-1',
+      providerFundOrderId: 'pf-1',
+      providerStatus: 'SUCCESS',
+    });
+
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'gba-1', reserved: { gte: 80 } },
+      data: {
+        reserved: { decrement: 80 },
+        withdrawn: { increment: 80 },
+      },
+    });
+    expect(prisma.groupBuyRebateLedger.updateMany).toHaveBeenCalledWith({
+      where: { refType: 'WITHDRAW', refId: 'w-gb-1', status: 'RESERVED' },
+      data: { status: 'COMPLETED' },
+    });
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(prisma.rewardLedger.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('marks group-buy rebate withdrawal failed and restores reserved balance', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-gb-1',
+      userId: 'u1',
+      amount: 80,
+      accountType: 'GROUP_BUY_REBATE',
+    });
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([
+      { accountId: 'gba-1', amount: 80 },
+    ]);
+
+    await service.finalizeWithdrawalFailed('w-gb-1', {
+      errorCode: 'PAYEE_NOT_EXIST',
+      errorMessage: '收款账户不存在',
+      providerStatus: 'FAIL',
+    });
+
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'gba-1', reserved: { gte: 80 } },
+      data: {
+        reserved: { decrement: 80 },
+        balance: { increment: 80 },
+      },
+    });
+    expect(prisma.groupBuyRebateLedger.updateMany).toHaveBeenCalledWith({
+      where: { refType: 'WITHDRAW', refId: 'w-gb-1', status: 'RESERVED' },
+      data: { status: 'VOIDED' },
+    });
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(prisma.rewardLedger.updateMany).not.toHaveBeenCalled();
   });
 
   it('short-circuits repeated finalize calls through PROCESSING CAS', async () => {

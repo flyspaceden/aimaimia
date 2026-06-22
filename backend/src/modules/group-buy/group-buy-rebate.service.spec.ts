@@ -81,6 +81,10 @@ describe('GroupBuyRebateService', () => {
       rewardAccount: {
         findMany: jest.fn().mockResolvedValue(overrides.rewardAccounts ?? []),
       },
+      withdrawRequest: {
+        findMany: jest.fn().mockResolvedValue(overrides.withdrawals ?? []),
+        count: jest.fn().mockResolvedValue(overrides.withdrawalTotal ?? 0),
+      },
     };
     return { prisma, tx, service: new (GroupBuyRebateService as any)(prisma) as GroupBuyRebateService };
   };
@@ -371,5 +375,54 @@ describe('GroupBuyRebateService', () => {
       total: 24,
     });
     expect(prisma.rewardAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('lists only group-buy rebate withdrawal history', async () => {
+    const createdAt = new Date('2026-06-22T12:30:00.000Z');
+    const { prisma, service } = buildPrisma({
+      withdrawals: [
+        {
+          id: 'withdraw_1',
+          amount: 80,
+          netAmount: 64,
+          taxAmount: 16,
+          channel: 'ALIPAY',
+          status: 'PROCESSING',
+          accountType: 'GROUP_BUY_REBATE',
+          createdAt,
+        },
+      ],
+      withdrawalTotal: 1,
+    });
+
+    const result = await (service as any).listWithdrawals('user_1', 1, 20);
+
+    expect(prisma.withdrawRequest.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user_1',
+        accountType: 'GROUP_BUY_REBATE',
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: 0,
+      take: 20,
+    });
+    expect(result).toEqual({
+      items: [
+        {
+          id: 'withdraw_1',
+          amount: 80,
+          netAmount: 64,
+          taxAmount: 16,
+          channel: 'ALIPAY',
+          status: 'PROCESSING',
+          createdAt: createdAt.toISOString(),
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      nextPage: undefined,
+    });
   });
 });
