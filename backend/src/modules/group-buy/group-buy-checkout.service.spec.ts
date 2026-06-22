@@ -1,0 +1,341 @@
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+
+import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
+import { CheckoutService } from '../order/checkout.service';
+import { GroupBuyCheckoutService } from './group-buy-checkout.service';
+
+describe('GroupBuyCheckoutService', () => {
+  const serializableOptions = {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  };
+
+  const dto = {
+    activityId: 'activity_1',
+    addressId: 'address_1',
+    paymentChannel: 'wechat',
+    expectedTotal: 1000,
+    idempotencyKey: 'idem_1',
+  };
+
+  const buildActivity = () => ({
+    id: 'activity_1',
+    title: '大龙虾团购',
+    productId: 'product_1',
+    skuId: 'sku_1',
+    price: 1000,
+    freeShipping: true,
+    status: 'ACTIVE',
+    startAt: null,
+    endAt: null,
+    product: {
+      id: 'product_1',
+      title: '大龙虾',
+      companyId: PLATFORM_COMPANY_ID,
+      status: 'ACTIVE',
+      media: [{ url: 'https://example.com/lobster.jpg' }],
+    },
+    sku: {
+      id: 'sku_1',
+      title: '一只装',
+      status: 'ACTIVE',
+      stock: 8,
+      weightGram: 1500,
+    },
+    tiers: [
+      { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+      { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+      { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+    ],
+  });
+
+  const buildPrisma = () => {
+    const tx = {
+      groupBuyActivity: {
+        findUnique: jest.fn().mockResolvedValue(buildActivity()),
+      },
+      groupBuyInstance: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      groupBuyCode: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      address: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'address_1',
+          userId: 'user_1',
+          recipientName: '张三',
+          phone: '13800000000',
+          regionCode: '110101',
+          regionText: '北京市 东城区',
+          detail: '测试地址 1 号',
+        }),
+      },
+      checkoutSession: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation(({ data }) => ({
+          id: 'session_1',
+          ...data,
+        })),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((fn) => fn(tx)),
+      checkoutSession: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    return { prisma, tx, service: new (GroupBuyCheckoutService as any)(prisma) as GroupBuyCheckoutService };
+  };
+
+  it('rejects reward deduction and coupon fields because group-buy checkout is cash-only', async () => {
+    const { tx, service } = buildPrisma();
+
+    await expect(service.createCheckout('user_1', {
+      ...dto,
+      deductionAmount: 1,
+      couponInstanceIds: ['coupon_1'],
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects checkout when the user already has an occupying group-buy instance', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyInstance.findFirst.mockResolvedValueOnce({ id: 'instance_1', status: 'SHARING' });
+
+    await expect(service.createCheckout('user_1', dto as any)).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects using the buyer own share code', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyCode.findUnique.mockResolvedValueOnce({
+      id: 'code_1',
+      code: 'GB123456',
+      status: 'ACTIVE',
+      instance: {
+        id: 'instance_referrer',
+        userId: 'user_1',
+        activityId: 'activity_1',
+        status: 'SHARING',
+      },
+    });
+
+    await expect(service.createCheckout('user_1', {
+      ...dto,
+      shareCode: 'GB123456',
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a cash-only GROUP_BUY checkout session with locked activity snapshots', async () => {
+    const { prisma, tx, service } = buildPrisma();
+    const wechatPayService = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      createAppOrder: jest.fn().mockResolvedValue({ prepayId: 'prepay_1' }),
+    };
+    service.setWechatPayService(wechatPayService as any);
+
+    const result = await service.createCheckout('user_1', dto as any);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), serializableOptions);
+    expect(tx.checkoutSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        userId: 'user_1',
+        bizType: 'GROUP_BUY',
+        goodsAmount: 1000,
+        expectedTotal: 1000,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        rewardId: null,
+        deductionGroupId: null,
+        couponInstanceIds: [],
+        totalCouponDiscount: 0,
+        bizMeta: expect.objectContaining({
+          groupBuyActivityId: 'activity_1',
+          groupBuyCodeId: null,
+          groupBuyPriceSnapshot: 1000,
+          freeShippingSnapshot: true,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+            { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+            { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+          ],
+        }),
+      }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      sessionId: 'session_1',
+      expectedTotal: 1000,
+      goodsAmount: 1000,
+      discountAmount: 0,
+      paymentParams: { channel: 'wechat', prepayId: 'prepay_1' },
+    }));
+    expect(wechatPayService.createAppOrder).toHaveBeenCalledWith(expect.objectContaining({
+      outTradeNo: expect.stringMatching(/^GB/),
+      amount: 1000,
+      description: expect.stringMatching(/^爱买买团购订单-/),
+    }));
+  });
+});
+
+describe('CheckoutService group-buy payment success integration', () => {
+  const buildCheckoutHarness = (bizMetaOverrides: Record<string, unknown> = {}) => {
+    const session = {
+      id: 'session_1',
+      userId: 'user_1',
+      status: 'ACTIVE',
+      bizType: 'GROUP_BUY',
+      merchantOrderNo: 'GB_ORDER_1',
+      providerTxnId: null,
+      expectedTotal: 1000,
+      goodsAmount: 1000,
+      shippingFee: 0,
+      discountAmount: 0,
+      vipDiscountAmount: 0,
+      totalCouponDiscount: 0,
+      couponInstanceIds: [],
+      couponPerAmounts: [],
+      rewardId: null,
+      deductionGroupId: null,
+      buyerNote: null,
+      addressSnapshot: { encrypted: true },
+      bizMeta: {
+        groupBuyActivityId: 'activity_1',
+        groupBuyCodeId: null,
+        referredByInstanceId: null,
+        groupBuyPriceSnapshot: 1000,
+        freeShippingSnapshot: true,
+        shippingFeeSnapshot: 0,
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+          { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+          { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+        ],
+        ...bizMetaOverrides,
+      },
+      itemsSnapshot: [
+        {
+          skuId: 'sku_1',
+          quantity: 1,
+          isPrize: false,
+          unitPrice: 1000,
+          companyId: PLATFORM_COMPANY_ID,
+          productSnapshot: {
+            productId: 'product_1',
+            title: '大龙虾',
+            skuTitle: '一只装',
+            image: '',
+            price: 1000,
+            isPrize: false,
+          },
+        },
+      ],
+    };
+
+    const tx = {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({ id: session.id }),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({ id: 'order_1' }),
+      },
+      orderStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'history_1' }),
+      },
+      productSKU: {
+        update: jest.fn().mockResolvedValue({ id: 'sku_1', stock: 7 }),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      inventoryLedger: {
+        create: jest.fn().mockResolvedValue({ id: 'ledger_1' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      cart: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      cartItem: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      lotteryRecord: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      groupBuyInstance: {
+        create: jest.fn().mockResolvedValue({ id: 'new_instance_1' }),
+        update: jest.fn().mockResolvedValue({ id: 'referrer_instance_1' }),
+      },
+      groupBuyReferral: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 'referral_1' }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((fn) => fn(tx)),
+    };
+    const service = new CheckoutService(prisma as any, {} as any);
+    return { service, tx };
+  };
+
+  it('creates a group-buy order and pending own instance after payment success', async () => {
+    const { service, tx } = buildCheckoutHarness();
+
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bizType: 'GROUP_BUY' }),
+    }));
+    expect(tx.groupBuyInstance.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        userId: 'user_1',
+        activityId: 'activity_1',
+        initiatorOrderId: 'order_1',
+        status: 'QUALIFICATION_PENDING',
+        priceSnapshot: 1000,
+        freeShippingSnapshot: true,
+      }),
+    }));
+  });
+
+  it('creates a candidate referral when the paid checkout used a share code', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        instanceId: 'referrer_instance_1',
+        codeId: 'code_1',
+        status: 'CANDIDATE',
+        referredUserId: 'user_1',
+        referredOrderId: 'order_1',
+        referredInstanceId: 'new_instance_1',
+        candidateSequence: 1,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referrer_instance_1' },
+      data: { candidateCount: { increment: 1 } },
+    }));
+  });
+
+  it('rejects candidate referral creation when the share code has no remaining slots', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+    tx.groupBuyReferral.count.mockResolvedValueOnce(3);
+
+    await expect(service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1'))
+      .rejects.toThrow('团购推荐码名额已满');
+    expect(tx.groupBuyReferral.create).not.toHaveBeenCalled();
+  });
+});

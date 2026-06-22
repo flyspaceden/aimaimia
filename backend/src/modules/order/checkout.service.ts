@@ -1859,6 +1859,14 @@ export class CheckoutService {
               companyOrderIdMap.set(group.companyId, order.id);
             }
 
+            if (sessionBizType === 'GROUP_BUY') {
+              await this.createGroupBuyRecordsAfterPayment(
+                tx,
+                session as any,
+                createdOrderIds[0],
+              );
+            }
+
             // 7. R12 超卖容忍：逐 SKU 扣库存（VIP 礼包会话已预留库存，这里转换预留引用）
             for (const item of items) {
               const companyKey = item.companyId ?? '__NO_COMPANY__';
@@ -2268,6 +2276,67 @@ export class CheckoutService {
   }
 
   // ---------- 私有方法 ----------
+
+  private async createGroupBuyRecordsAfterPayment(
+    tx: Prisma.TransactionClient,
+    session: {
+      id: string;
+      userId: string;
+      goodsAmount: number;
+      shippingFee: number;
+      bizMeta?: any;
+    },
+    orderId: string,
+  ) {
+    const bizMeta = session.bizMeta;
+    if (!bizMeta?.groupBuyActivityId || !Array.isArray(bizMeta.tierSnapshot)) {
+      throw new InternalServerErrorException('团购支付会话元数据不完整');
+    }
+
+    const ownInstance = await tx.groupBuyInstance.create({
+      data: {
+        userId: session.userId,
+        activityId: bizMeta.groupBuyActivityId,
+        initiatorOrderId: orderId,
+        status: 'QUALIFICATION_PENDING',
+        priceSnapshot: Number(bizMeta.groupBuyPriceSnapshot ?? session.goodsAmount),
+        shippingFeeSnapshot: Number(bizMeta.shippingFeeSnapshot ?? session.shippingFee ?? 0),
+        freeShippingSnapshot: Boolean(bizMeta.freeShippingSnapshot),
+        tierSnapshot: bizMeta.tierSnapshot,
+        activitySnapshot: bizMeta,
+      },
+    });
+
+    if (!bizMeta.groupBuyCodeId || !bizMeta.referredByInstanceId) {
+      return;
+    }
+
+    const existingReferralCount = await tx.groupBuyReferral.count({
+      where: {
+        instanceId: bizMeta.referredByInstanceId,
+        status: { in: ['CANDIDATE', 'VALID'] },
+      },
+    });
+    if (existingReferralCount >= bizMeta.tierSnapshot.length) {
+      throw new BadRequestException('团购推荐码名额已满');
+    }
+
+    await tx.groupBuyReferral.create({
+      data: {
+        instanceId: bizMeta.referredByInstanceId,
+        codeId: bizMeta.groupBuyCodeId,
+        status: 'CANDIDATE',
+        referredUserId: session.userId,
+        referredOrderId: orderId,
+        referredInstanceId: ownInstance.id,
+        candidateSequence: existingReferralCount + 1,
+      },
+    });
+    await tx.groupBuyInstance.update({
+      where: { id: bizMeta.referredByInstanceId },
+      data: { candidateCount: { increment: 1 } },
+    });
+  }
 
   private getExcludedPrizeCleanupItems(session: {
     bizMeta?: unknown;

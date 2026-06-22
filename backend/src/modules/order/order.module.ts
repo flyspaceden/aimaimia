@@ -25,6 +25,7 @@ import { InboxService } from '../inbox/inbox.service';
 import { CartModule } from '../cart/cart.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 
 @Module({
   imports: [
@@ -108,6 +109,12 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setDigitalAssetService(digitalAssetService);
     } else {
       console.warn('[OrderModule] DigitalAssetService 未注入，数字资产累计消费不可用');
+    }
+
+    const groupBuyLifecycleService = this.moduleRef.get(GroupBuyLifecycleService, { strict: false });
+    if (groupBuyLifecycleService) {
+      this.orderService.setGroupBuyLifecycleService(groupBuyLifecycleService);
+      this.orderAutoConfirmService.setGroupBuyLifecycleService(groupBuyLifecycleService);
     }
 
     // C13修复：InboxService 改硬依赖，确保通知功能可用

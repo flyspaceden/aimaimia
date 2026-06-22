@@ -23,6 +23,7 @@ import { CartService } from '../cart/cart.service';
 import { RepurchaseResult, RepurchaseResultItem, RepurchaseSkipReason } from './repurchase.types';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -95,6 +96,8 @@ export class OrderService {
   private rewardDeductionService: RewardDeductionService | null = null;
   // DigitalAssetService 通过 setter 注入（确认收货后累计消费金额）
   private digitalAssetService: DigitalAssetService | null = null;
+  // GroupBuyLifecycleService 通过 setter 注入，确认收货后异步评估团购资格
+  private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -127,6 +130,10 @@ export class OrderService {
   /** 注入站内信服务（PAID 取消通知商户 OWNER 用） */
   setInboxService(service: any) {
     this.inboxService = service;
+  }
+
+  setGroupBuyLifecycleService(service: GroupBuyLifecycleService) {
+    this.groupBuyLifecycleService = service;
   }
 
   /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -1554,6 +1561,7 @@ export class OrderService {
     attemptBonus(1).catch(() => {});
 
     this.creditDigitalAssetAfterReceive(orderId);
+    this.evaluateGroupBuyAfterReceive(orderId);
 
     // Phase F: 红包触发事件（fire-and-forget，不阻塞确认收货流程）
     if (this.couponEngineService && updated) {
@@ -1618,6 +1626,13 @@ export class OrderService {
           `数字资产死信记录写入失败: orderId=${orderId}; error=${JSON.stringify(sanitizeForLog(dlErr))}`,
         );
       });
+    });
+  }
+
+  private evaluateGroupBuyAfterReceive(orderId: string) {
+    this.groupBuyLifecycleService?.evaluateInitiatorOrder(orderId).catch((err: any) => {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(`团购资格评估失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
     });
   }
 
