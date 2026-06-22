@@ -371,12 +371,11 @@ git commit -m "fix: protect products used by group buy activities"
 ### Task 3.1: Implement buyer activity and current-state APIs
 
 **Files:**
-- Create DTOs under `backend/src/modules/group-buy/dto/`
 - Modify/Create: `backend/src/modules/group-buy/group-buy.controller.ts`
 - Modify: `backend/src/modules/group-buy/group-buy.service.ts`
 - Test: `backend/src/modules/group-buy/group-buy.service.spec.ts`
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Cover:
 
@@ -384,7 +383,7 @@ Cover:
 - `GET /group-buy/me/current` returns no current group when none exists.
 - Current-state logic marks `QUALIFICATION_PENDING` and `SHARING` as occupying; `TERMINATED` with pending referrals is visible but not occupying.
 
-- [ ] **Step 2: Implement mapper**
+- [x] **Step 2: Implement mapper**
 
 Return App-ready fields:
 
@@ -394,14 +393,14 @@ Return App-ready fields:
 - rule summary
 - current-state object with `occupiesSlot`, `defaultTab`, `canBuyNew`
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 cd backend
 npx jest src/modules/group-buy/group-buy.service.spec.ts --runInBand
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/src/modules/group-buy
