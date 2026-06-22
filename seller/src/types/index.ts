@@ -20,6 +20,7 @@ export interface QueryParams {
   pageSize?: number;
   keyword?: string;
   status?: string;
+  productType?: 'SIMPLE' | 'BUNDLE';
   [key: string]: string | number | undefined;
 }
 

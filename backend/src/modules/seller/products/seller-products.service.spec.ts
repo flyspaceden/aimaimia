@@ -105,6 +105,45 @@ describe('SellerProductsService SKU weight validation', () => {
     return { service, prisma, tx };
   };
 
+  it('filters product list by product type before pagination', async () => {
+    const prisma = {
+      product: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      category: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const bonusConfig = { getSystemConfig: jest.fn() };
+    const semanticFillService = { fillProduct: jest.fn().mockResolvedValue(undefined) };
+    const service = new SellerProductsService(
+      prisma as any,
+      bonusConfig as any,
+      semanticFillService as any,
+      new ProductBundleService() as any,
+    );
+
+    await (service.findAll as any)('company_1', 2, 50, 'ACTIVE', undefined, '苹果', 'SIMPLE');
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        companyId: 'company_1',
+        status: 'ACTIVE',
+        type: 'SIMPLE',
+      }),
+      skip: 50,
+      take: 50,
+    }));
+    expect(prisma.product.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        companyId: 'company_1',
+        status: 'ACTIVE',
+        type: 'SIMPLE',
+      }),
+    });
+  });
+
   const bundleValidationRows = (overrides: Array<Record<string, any>> = []) => ([
     {
       id: 'component_sku_1',

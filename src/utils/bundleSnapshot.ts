@@ -15,3 +15,14 @@ export const formatBundleQuantityLabel = (item: Pick<BundleSnapshotItem, 'quanti
   }
   return 'x1';
 };
+
+export const resolveBundleAwareStock = (
+  productType: ProductType | undefined,
+  skuStock: number | null | undefined,
+  bundleAvailableStock: number | null | undefined,
+): number | null | undefined => {
+  if (isBundleProductType(productType) && typeof bundleAvailableStock === 'number' && Number.isFinite(bundleAvailableStock)) {
+    return bundleAvailableStock;
+  }
+  return skuStock;
+};

@@ -37,6 +37,7 @@ import useAuthStore from '@/store/useAuthStore';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 import type { Product, ProductBundleItem, ProductType } from '@/types';
+import { buildBundleCatalogQuery } from './bundleCatalog';
 
 const { Text } = Typography;
 
@@ -320,18 +321,22 @@ function SellingPriceDisplay({ cost, markupRate }: { cost: number | undefined; m
 // 共享：组合商品内容编辑器
 // ============================================================
 function BundleItemsEditor({
-  products,
+  simpleProducts,
+  bundleProducts,
   currentProductId,
   items,
   onChange,
+  onCatalogSearch,
 }: {
-  products: Product[];
+  simpleProducts: Product[];
+  bundleProducts: Product[];
   currentProductId?: string;
   items: ProductBundleItem[];
   onChange: (items: ProductBundleItem[]) => void;
+  onCatalogSearch?: (keyword: string) => void;
 }) {
   const simpleSkuOptions = useMemo(() => {
-    return products
+    return simpleProducts
       .filter((product) => product.id !== currentProductId)
       .filter((product) => productTypeOf(product) === 'SIMPLE')
       .filter((product) => product.status === 'ACTIVE')
@@ -345,7 +350,7 @@ function BundleItemsEditor({
             sku,
           })),
       );
-  }, [products, currentProductId]);
+  }, [simpleProducts, currentProductId]);
 
   const skuMap = useMemo(
     () => new Map(simpleSkuOptions.map((option) => [option.value, option])),
@@ -353,7 +358,7 @@ function BundleItemsEditor({
   );
 
   const bundleSourceOptions = useMemo(() => {
-    return products
+    return bundleProducts
       .filter((product) => product.id !== currentProductId)
       .filter((product) => productTypeOf(product) === 'BUNDLE')
       .filter((product) => product.status === 'ACTIVE')
@@ -362,11 +367,11 @@ function BundleItemsEditor({
         value: product.id,
         label: `${product.title}（${product.bundleItems?.length ?? 0} 项）`,
       }));
-  }, [products, currentProductId]);
+  }, [bundleProducts, currentProductId]);
 
   const productMap = useMemo(
-    () => new Map(products.map((product) => [product.id, product])),
-    [products],
+    () => new Map(bundleProducts.map((product) => [product.id, product])),
+    [bundleProducts],
   );
 
   const commitItems = (nextItems: ProductBundleItem[]) => {
@@ -424,8 +429,14 @@ function BundleItemsEditor({
           placeholder="添加商品规格"
           optionFilterProp="label"
           options={simpleSkuOptions.map(({ value, label }) => ({ value, label }))}
+          filterOption={false}
+          onSearch={onCatalogSearch}
+          onClear={() => onCatalogSearch?.('')}
           onChange={(value) => {
-            if (value) addSku(value);
+            if (value) {
+              addSku(value);
+              onCatalogSearch?.('');
+            }
           }}
           value={undefined}
           style={{ width: 320 }}
@@ -436,8 +447,14 @@ function BundleItemsEditor({
           placeholder="从已有组合复制"
           optionFilterProp="label"
           options={bundleSourceOptions}
+          filterOption={false}
+          onSearch={onCatalogSearch}
+          onClear={() => onCatalogSearch?.('')}
           onChange={(value) => {
-            if (value) expandBundleSource(value);
+            if (value) {
+              expandBundleSource(value);
+              onCatalogSearch?.('');
+            }
           }}
           value={undefined}
           style={{ width: 240 }}
@@ -992,6 +1009,7 @@ function ProductEditForm({ id }: { id: string }) {
   const [multiSpec, setMultiSpec] = useState(false);
   const [productType, setProductType] = useState<ProductType>('SIMPLE');
   const [bundleItems, setBundleItems] = useState<ProductBundleItem[]>([]);
+  const [bundleCatalogKeyword, setBundleCatalogKeyword] = useState('');
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -1044,12 +1062,18 @@ function ProductEditForm({ id }: { id: string }) {
     [productUnits, product?.unit],
   );
 
-  const { data: bundleCatalogData } = useQuery({
-    queryKey: ['seller-products-bundle-catalog'],
-    queryFn: () => getProducts({ page: 1, pageSize: 500, status: 'ACTIVE' }),
+  const { data: bundleSimpleCatalogData } = useQuery({
+    queryKey: ['seller-products-bundle-catalog', 'SIMPLE', bundleCatalogKeyword],
+    queryFn: () => getProducts(buildBundleCatalogQuery(bundleCatalogKeyword, 'SIMPLE')),
     staleTime: 60_000,
   });
-  const bundleCatalog = bundleCatalogData?.items ?? [];
+  const { data: bundleSourceCatalogData } = useQuery({
+    queryKey: ['seller-products-bundle-catalog', 'BUNDLE', bundleCatalogKeyword],
+    queryFn: () => getProducts(buildBundleCatalogQuery(bundleCatalogKeyword, 'BUNDLE')),
+    staleTime: 60_000,
+  });
+  const bundleSimpleCatalog = bundleSimpleCatalogData?.items ?? [];
+  const bundleSourceCatalog = bundleSourceCatalogData?.items ?? [];
 
   // 商品数据加载后填充表单并判断是否多规格
   useEffect(() => {
@@ -1458,9 +1482,11 @@ function ProductEditForm({ id }: { id: string }) {
               </Row>
               <BundleItemsFormItem form={form}>
                 <BundleItemsEditor
-                  products={bundleCatalog}
+                  simpleProducts={bundleSimpleCatalog}
+                  bundleProducts={bundleSourceCatalog}
                   currentProductId={id}
                   items={bundleItems}
+                  onCatalogSearch={setBundleCatalogKeyword}
                   onChange={(nextItems) => {
                     setBundleItems(nextItems);
                     form.setFieldValue('bundleItems', nextItems);
@@ -1578,6 +1604,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   const [multiSpec, setMultiSpec] = useState(false);
   const [productType, setProductType] = useState<ProductType>('SIMPLE');
   const [bundleItems, setBundleItems] = useState<ProductBundleItem[]>([]);
+  const [bundleCatalogKeyword, setBundleCatalogKeyword] = useState('');
 
   // 草稿状态
   const [draftId, setDraftId] = useState<string | null>(draftInitialId ?? null);
@@ -1647,12 +1674,18 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     [productUnits, draftProduct?.unit],
   );
 
-  const { data: bundleCatalogData } = useQuery({
-    queryKey: ['seller-products-bundle-catalog'],
-    queryFn: () => getProducts({ page: 1, pageSize: 500, status: 'ACTIVE' }),
+  const { data: bundleSimpleCatalogData } = useQuery({
+    queryKey: ['seller-products-bundle-catalog', 'SIMPLE', bundleCatalogKeyword],
+    queryFn: () => getProducts(buildBundleCatalogQuery(bundleCatalogKeyword, 'SIMPLE')),
     staleTime: 60_000,
   });
-  const bundleCatalog = bundleCatalogData?.items ?? [];
+  const { data: bundleSourceCatalogData } = useQuery({
+    queryKey: ['seller-products-bundle-catalog', 'BUNDLE', bundleCatalogKeyword],
+    queryFn: () => getProducts(buildBundleCatalogQuery(bundleCatalogKeyword, 'BUNDLE')),
+    staleTime: 60_000,
+  });
+  const bundleSimpleCatalog = bundleSimpleCatalogData?.items ?? [];
+  const bundleSourceCatalog = bundleSourceCatalogData?.items ?? [];
 
   // 草稿加载后回填表单（仅执行一次）
   useEffect(() => {
@@ -2248,9 +2281,11 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
               </Row>
               <BundleItemsFormItem form={form}>
                 <BundleItemsEditor
-                  products={bundleCatalog}
+                  simpleProducts={bundleSimpleCatalog}
+                  bundleProducts={bundleSourceCatalog}
                   currentProductId={draftId ?? undefined}
                   items={bundleItems}
+                  onCatalogSearch={setBundleCatalogKeyword}
                   onChange={(nextItems) => {
                     setBundleItems(nextItems);
                     form.setFieldValue('bundleItems', nextItems);

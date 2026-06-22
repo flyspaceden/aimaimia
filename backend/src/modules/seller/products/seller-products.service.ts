@@ -431,6 +431,7 @@ export class SellerProductsService {
     status?: string,
     auditStatus?: string,
     keyword?: string,
+    productType?: string,
   ) {
     const where: any = { companyId };
     if (status) {
@@ -440,6 +441,9 @@ export class SellerProductsService {
       where.status = { not: 'DRAFT' };
     }
     if (auditStatus) where.auditStatus = auditStatus;
+    if (productType === ProductType.SIMPLE || productType === ProductType.BUNDLE) {
+      where.type = productType;
+    }
     if (keyword) {
       where.OR = [
         { title: { contains: keyword, mode: 'insensitive' } },

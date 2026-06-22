@@ -5,6 +5,7 @@ declare const expect: any;
 import {
   formatBundleQuantityLabel,
   isBundleProductType,
+  resolveBundleAwareStock,
 } from '../bundleSnapshot';
 
 describe('isBundleProductType', () => {
@@ -27,5 +28,24 @@ describe('formatBundleQuantityLabel', () => {
   it('returns x1 when no valid quantity snapshot exists', () => {
     expect(formatBundleQuantityLabel({})).toBe('x1');
     expect(formatBundleQuantityLabel({ totalQuantity: 0, quantityPerBundle: 0 })).toBe('x1');
+  });
+});
+
+describe('resolveBundleAwareStock', () => {
+  it('uses derived bundle availability instead of selling sku stock for bundle products', () => {
+    expect(resolveBundleAwareStock('BUNDLE', 0, 4)).toBe(4);
+  });
+
+  it('keeps zero derived bundle availability as sold out', () => {
+    expect(resolveBundleAwareStock('BUNDLE', 8, 0)).toBe(0);
+  });
+
+  it('uses sku stock for simple products', () => {
+    expect(resolveBundleAwareStock('SIMPLE', 8, 0)).toBe(8);
+  });
+
+  it('falls back to sku stock when bundle availability is missing', () => {
+    expect(resolveBundleAwareStock('BUNDLE', 3, null)).toBe(3);
+    expect(resolveBundleAwareStock(undefined, 2, 9)).toBe(2);
   });
 });
