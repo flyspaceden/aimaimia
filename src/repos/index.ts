@@ -16,6 +16,7 @@ export * from './OrderRepo';
 export * from './UserRepo';
 export * from './BookingRepo';
 export * from './GroupRepo';
+export * from './GroupBuyRepo';
 export * from './CompanyEventRepo';
 export * from './TaskRepo';
 export * from './CheckInRepo';
