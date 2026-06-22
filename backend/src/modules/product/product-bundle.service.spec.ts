@@ -69,12 +69,115 @@ describe('ProductBundleService', () => {
     )).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects non-active or non-approved component products for submit or sell', async () => {
+    const tx = {
+      productSKU: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sku-pending',
+            status: 'ACTIVE',
+            weightGram: 500,
+            product: {
+              id: 'product-pending',
+              companyId: 'company-self',
+              status: 'ACTIVE',
+              auditStatus: 'PENDING',
+              type: 'SIMPLE',
+            },
+          },
+        ]),
+      },
+    };
+
+    await expect(service.validateSellerBundleItems(
+      tx as any,
+      'company-self',
+      [{ skuId: 'sku-pending', quantity: 1 }],
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects inactive component products for submit or sell', async () => {
+    const tx = {
+      productSKU: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sku-inactive-product',
+            status: 'ACTIVE',
+            weightGram: 500,
+            product: {
+              id: 'product-inactive',
+              companyId: 'company-self',
+              status: 'INACTIVE',
+              auditStatus: 'APPROVED',
+              type: 'SIMPLE',
+            },
+          },
+        ]),
+      },
+    };
+
+    await expect(service.validateSellerBundleItems(
+      tx as any,
+      'company-self',
+      [{ skuId: 'sku-inactive-product', quantity: 1 }],
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('allows draft-save validation to relax only product status and audit', async () => {
+    const tx = {
+      productSKU: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'sku-draft',
+            status: 'ACTIVE',
+            weightGram: 500,
+            product: {
+              id: 'product-draft',
+              companyId: 'company-self',
+              status: 'DRAFT',
+              auditStatus: 'PENDING',
+              type: 'SIMPLE',
+            },
+          },
+        ]),
+      },
+    };
+
+    await expect(service.validateSellerBundleItems(
+      tx as any,
+      'company-self',
+      [{ skuId: 'sku-draft', quantity: 1 }],
+      { allowDraft: true },
+    )).resolves.toMatchObject([
+      {
+        skuId: 'sku-draft',
+        quantity: 1,
+        sku: {
+          id: 'sku-draft',
+          product: {
+            id: 'product-draft',
+            status: 'DRAFT',
+            auditStatus: 'PENDING',
+            type: 'SIMPLE',
+          },
+        },
+      },
+    ]);
+  });
+
   it('computes availability as min(floor(stock / quantity))', () => {
     expect(service.calculateAvailability([
       { stock: 11, quantity: 2 },
       { stock: 10, quantity: 3 },
       { stock: 12, quantity: 4 },
     ])).toBe(3);
+  });
+
+  it('clamps negative availability to 0', () => {
+    expect(service.calculateAvailability([
+      { stock: -1, quantity: 2 },
+      { stock: 10, quantity: 1 },
+    ])).toBe(0);
   });
 
   it('computes total weight from component weights', () => {
@@ -118,5 +221,24 @@ describe('ProductBundleService', () => {
         label: 'Bundle component: 橙子礼盒',
       },
     ]);
+  });
+
+  it('rejects inventory fallback when bundle snapshot is missing', () => {
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity: 2,
+      companyId: 'company-self',
+    })).toThrow(BadRequestException);
+  });
+
+  it('rejects inventory fallback when bundle snapshot items are empty', () => {
+    expect(() => service.buildInventoryMovements({
+      skuId: 'bundle-sku',
+      quantity: 2,
+      companyId: 'company-self',
+      productSnapshot: {
+        bundleItems: [],
+      },
+    })).toThrow(BadRequestException);
   });
 });

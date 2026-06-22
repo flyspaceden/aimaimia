@@ -91,14 +91,14 @@ export class ProductBundleService {
   calculateAvailability(items: Array<{ stock: number; quantity: number }>): number {
     if (items.length === 0) return 0;
 
-    return items.reduce((minAvailability, item) => {
+    return Math.max(0, items.reduce((minAvailability, item) => {
       if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
         throw new BadRequestException('组合商品组件数量必须大于 0');
       }
 
       const availability = Math.floor(item.stock / item.quantity);
       return Math.min(minAvailability, availability);
-    }, Number.POSITIVE_INFINITY);
+    }, Number.POSITIVE_INFINITY));
   }
 
   calculateTotalWeightGram(items: Array<{ weightGram: number; quantity: number }>): number {
@@ -124,12 +124,7 @@ export class ProductBundleService {
   }): InventoryMovement[] {
     const bundleItems = snapshotItem.productSnapshot?.bundleItems ?? [];
     if (bundleItems.length === 0) {
-      return [{
-        skuId: snapshotItem.skuId,
-        quantity: snapshotItem.quantity,
-        companyId: snapshotItem.companyId,
-        label: 'Bundle SKU',
-      }];
+      throw new BadRequestException('组合商品订单快照缺少组件信息');
     }
 
     return bundleItems.map((item) => {
@@ -192,8 +187,8 @@ export class ProductBundleService {
       if (sku.status !== SkuStatus.ACTIVE) {
         throw new BadRequestException('组合商品组件规格已下架');
       }
-      if (!options.allowDraft && sku.product.status === ProductStatus.DRAFT) {
-        throw new BadRequestException('提交或上架前，组合商品组件不能引用草稿商品');
+      if (!options.allowDraft && sku.product.status !== ProductStatus.ACTIVE) {
+        throw new BadRequestException('提交或上架前，组合商品组件必须来自启用中的商品');
       }
       if (!options.allowDraft && sku.product.auditStatus !== ProductAuditStatus.APPROVED) {
         throw new BadRequestException('提交或上架前，组合商品组件必须来自审核通过商品');
