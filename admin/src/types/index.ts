@@ -436,6 +436,99 @@ export interface Product {
   updatedAt: string;
 }
 
+// ========== 团购分享回馈 ==========
+
+export type GroupBuyActivityStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ENDED';
+
+export interface AdminGroupBuyTier {
+  id: string;
+  activityId: string;
+  sequence: number;
+  basisPoints: number;
+  label: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminGroupBuyProductSnapshot {
+  id: string;
+  title: string;
+  status: ProductStatus | string;
+  companyId: string;
+  media?: ProductMedia[];
+}
+
+export interface AdminGroupBuySkuSnapshot {
+  id: string;
+  title: string;
+  status: string;
+  price: number;
+  stock: number;
+  weightGram: number | null;
+}
+
+export interface AdminGroupBuyActivity {
+  id: string;
+  title: string;
+  productId: string;
+  skuId: string;
+  price: number;
+  freeShipping: boolean;
+  status: GroupBuyActivityStatus;
+  startAt: string | null;
+  endAt: string | null;
+  displayOrder: number;
+  ruleSummary: string | null;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product?: AdminGroupBuyProductSnapshot | null;
+  sku?: AdminGroupBuySkuSnapshot | null;
+  tiers: AdminGroupBuyTier[];
+  _count?: {
+    instances: number;
+  };
+}
+
+export interface GroupBuyActivityQueryParams extends PaginationParams {
+  keyword?: string;
+  status?: GroupBuyActivityStatus;
+}
+
+export interface GroupBuyTierInput {
+  sequence: number;
+  basisPoints: number;
+  label?: string | null;
+}
+
+export interface CreateGroupBuyActivityInput {
+  title: string;
+  productId: string;
+  skuId: string;
+  price: number;
+  freeShipping?: boolean;
+  status?: GroupBuyActivityStatus;
+  startAt?: string | Date | null;
+  endAt?: string | Date | null;
+  displayOrder?: number;
+  ruleSummary?: string | null;
+  tiers: GroupBuyTierInput[];
+}
+
+export interface UpdateGroupBuyActivityInput {
+  title?: string;
+  productId?: string;
+  skuId?: string;
+  price?: number;
+  freeShipping?: boolean;
+  status?: GroupBuyActivityStatus;
+  startAt?: string | Date | null;
+  endAt?: string | Date | null;
+  displayOrder?: number;
+  ruleSummary?: string | null;
+  tiers?: GroupBuyTierInput[];
+}
+
 // ========== 订单 ==========
 
 export type OrderStatus =

@@ -1176,3 +1176,9 @@
 | 配送管理后台配置中心 | 配置中心从 Tab + Modal 改为左侧业务分类、右侧设置面板；分类只保留配送单位字段、清单与导出、平台规则；字段启用、必填、买家端显示、管理后台显示、PDF 清单、表格导出改为开关维护；平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在卡片内直接使用数字输入和开关修改，顶部统一保存，不再把内部配置标识、配置范围或 JSON 内容暴露给管理人员；字段下拉选项改为每行一个选项；客服配置从配置中心移入客服中心 | `delivery-admin/src/pages/delivery-admin/config.tsx`, `delivery-admin/test/deliveryAdminContracts.test.ts` |
 | 配送管理后台客服中心 | 对齐现有爱买买管理后台客服中心 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已有会话接口和客服默认配置接口，前端先接真实会话数据与默认客服配置，FAQ/快捷入口独立 CRUD 待后端配送接口补齐后再升级 | `delivery-admin/src/layouts/AdminLayout.tsx`, `delivery-admin/src/App.tsx`, `delivery-admin/src/pages/delivery-admin/cs-*.tsx`, `delivery-admin/test/deliveryAdminContracts.test.ts` |
 | 配送中心 | 订单、物流、商品、库存、公司资料和员工权限页面统一中文化状态兜底；未知后端枚举显示“未知状态”而不是原始英文值；权限码在员工表格中展示为中文权限名称；商品和公司编号列不再使用英文 `ID` | `delivery-seller/src/pages/**`, `delivery-seller/src/constants/statusMaps.ts`, `delivery-seller/test/deliveryCenterContracts.test.ts` |
+
+### 2026-06-22 团购分享回馈
+
+| 页面 | 完成内容 | 文件 |
+|------|----------|------|
+| API/类型/权限底座 | 新增管理端团购活动 API client、共享类型和 `group_buy:read/manage` 权限常量；当前后端仅暴露活动 CRUD/status 接口，团购实例、订单、返还流水和设置页需等后端查询接口补齐后再接页面 | `admin/src/api/group-buy.ts`, `admin/src/types/index.ts`, `admin/src/constants/permissions.ts` |
