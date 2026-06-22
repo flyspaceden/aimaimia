@@ -71,6 +71,16 @@ describe('GroupBuyRebateService', () => {
     };
     const prisma = {
       $transaction: jest.fn((fn) => fn(tx)),
+      groupBuyRebateAccount: {
+        findUnique: jest.fn().mockResolvedValue(overrides.readAccount ?? null),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue(overrides.readLedgers ?? []),
+        count: jest.fn().mockResolvedValue(overrides.readLedgerTotal ?? 0),
+      },
+      rewardAccount: {
+        findMany: jest.fn().mockResolvedValue(overrides.rewardAccounts ?? []),
+      },
     };
     return { prisma, tx, service: new (GroupBuyRebateService as any)(prisma) as GroupBuyRebateService };
   };
@@ -258,5 +268,108 @@ describe('GroupBuyRebateService', () => {
     expect(result).toEqual({ status: 'WAITING_RETURN_WINDOW' });
     expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
     expect(tx.groupBuyReferral.update).not.toHaveBeenCalled();
+  });
+
+  it('returns a zero group-buy rebate account when none exists', async () => {
+    const { prisma, service } = buildPrisma();
+
+    const result = await service.getAccount('user_1');
+
+    expect(result).toEqual({
+      balance: 0,
+      reserved: 0,
+      withdrawn: 0,
+      deducted: 0,
+      available: 0,
+      total: 0,
+    });
+    expect(prisma.groupBuyRebateAccount.findUnique).toHaveBeenCalledWith({
+      where: { userId: 'user_1' },
+    });
+    expect(prisma.rewardAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('lists group-buy rebate ledgers with pagination', async () => {
+    const createdAt = new Date('2026-06-22T12:10:00.000Z');
+    const { prisma, service } = buildPrisma({
+      readLedgers: [
+        {
+          id: 'ledger_1',
+          type: 'RELEASE',
+          status: 'AVAILABLE',
+          amount: 100,
+          balanceBefore: 0,
+          balanceAfter: 100,
+          instanceId: 'instance_1',
+          referralId: 'referral_1',
+          orderId: 'order_1',
+          refType: 'GROUP_BUY_REFERRAL',
+          refId: 'referral_1',
+          meta: { tierSequence: 1 },
+          createdAt,
+        },
+      ],
+      readLedgerTotal: 3,
+    });
+
+    const result = await service.listLedgers('user_1', 2, 1);
+
+    expect(prisma.groupBuyRebateLedger.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user_1', deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      skip: 1,
+      take: 1,
+    });
+    expect(result).toEqual({
+      items: [
+        {
+          id: 'ledger_1',
+          type: 'RELEASE',
+          status: 'AVAILABLE',
+          amount: 100,
+          balanceBefore: 0,
+          balanceAfter: 100,
+          instanceId: 'instance_1',
+          referralId: 'referral_1',
+          orderId: 'order_1',
+          refType: 'GROUP_BUY_REFERRAL',
+          refId: 'referral_1',
+          meta: { tierSequence: 1 },
+          createdAt: createdAt.toISOString(),
+        },
+      ],
+      total: 3,
+      page: 2,
+      pageSize: 1,
+      nextPage: 3,
+    });
+  });
+
+  it('does not merge RewardAccount balances into group-buy rebate account', async () => {
+    const { prisma, service } = buildPrisma({
+      readAccount: {
+        id: 'account_1',
+        userId: 'user_1',
+        balance: 12,
+        reserved: 3,
+        withdrawn: 4,
+        deducted: 5,
+      },
+      rewardAccounts: [
+        { balance: 999, frozen: 99 },
+      ],
+    });
+
+    const result = await service.getAccount('user_1');
+
+    expect(result).toEqual({
+      balance: 12,
+      reserved: 3,
+      withdrawn: 4,
+      deducted: 5,
+      available: 9,
+      total: 24,
+    });
+    expect(prisma.rewardAccount.findMany).not.toHaveBeenCalled();
   });
 });
