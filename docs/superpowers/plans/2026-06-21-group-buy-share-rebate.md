@@ -276,11 +276,11 @@ git commit -m "feat: add group buy backend module skeleton"
 - Create: `backend/src/modules/admin/group-buy/admin-group-buy.module.ts`
 - Create: `backend/src/modules/admin/group-buy/admin-group-buy.controller.ts`
 - Create: `backend/src/modules/admin/group-buy/admin-group-buy.service.ts`
-- Create: `backend/src/modules/admin/group-buy/dto/admin-group-buy.dto.ts`
+- Create: `backend/src/modules/admin/group-buy/admin-group-buy.dto.ts`
 - Modify: `backend/src/modules/admin/admin.module.ts`
 - Test: `backend/src/modules/admin/group-buy/admin-group-buy.service.spec.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Cover:
 
@@ -298,7 +298,7 @@ npx jest src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand
 
 Expected: fail before implementation.
 
-- [ ] **Step 2: Implement DTO validation**
+- [x] **Step 2: Implement DTO validation**
 
 DTO fields:
 
@@ -314,7 +314,7 @@ DTO fields:
 - `displayOrder`
 - `ruleSummary`
 
-- [ ] **Step 3: Implement service**
+- [x] **Step 3: Implement service**
 
 Important implementation rules:
 
@@ -323,7 +323,7 @@ Important implementation rules:
 - Use transaction for activity + tiers.
 - Store snapshots only when instances are created, not on activity itself.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 cd backend
@@ -331,7 +331,7 @@ npx jest src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand
 npm run build
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/admin/group-buy backend/src/modules/admin/admin.module.ts
