@@ -24,6 +24,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../src/components/layout';
+import { GROUP_BUY_COLORS } from '../../src/components/group-buy';
 import { VipHomePromoCarousel } from '../../src/components/data';
 import { AuthModal } from '../../src/components/overlay';
 import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
@@ -32,7 +33,7 @@ import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
 import { BonusRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
-import { useTheme, priceTextProps } from '../../src/theme';
+import { compactActionTextProps, fitTextProps, useTheme, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
 import { HOME_HERO_STATEMENT, HOME_MISSION_LINES } from '../../src/utils/homeHero';
 import { buildVipReferralHomePrompt, type VipHomePromoCard, type VipPromoMode } from '../../src/utils/vipHomePromo';
@@ -244,6 +245,10 @@ export default function HomeScreen() {
 
   const handleVipReferralPress = useCallback(() => {
     router.push('/me/referral');
+  }, [router]);
+
+  const handleGroupBuyPress = useCallback(() => {
+    router.push('/group-buy');
   }, [router]);
 
   // --- 录音按钮动画 ---
@@ -474,6 +479,41 @@ export default function HomeScreen() {
             </Pressable>
           </Animated.View>
         ) : null}
+
+        <Animated.View entering={FadeInDown.duration(300).delay(80)}>
+          <Pressable
+            onPress={handleGroupBuyPress}
+            accessibilityRole="button"
+            accessibilityLabel="精选团购，查看当前团购商品"
+            style={[
+              styles.groupBuyEntry,
+              {
+                marginTop: spacing.lg,
+                borderRadius: 8,
+                borderColor: GROUP_BUY_COLORS.mist,
+                backgroundColor: GROUP_BUY_COLORS.porcelain,
+              },
+              shadow.sm,
+            ]}
+          >
+            <View style={[styles.groupBuyIcon, { backgroundColor: `${GROUP_BUY_COLORS.tide}14` }]}>
+              <MaterialCommunityIcons name="ticket-confirmation-outline" size={24} color={GROUP_BUY_COLORS.tide} />
+            </View>
+            <View style={styles.groupBuyCopy}>
+              <Text {...fitTextProps} style={[typography.bodyStrong, { color: GROUP_BUY_COLORS.pine }]}>
+                精选团购
+              </Text>
+              <Text {...fitTextProps} style={[typography.caption, { color: GROUP_BUY_COLORS.inkSoft, marginTop: 2 }]}>
+                指定商品 · 分享回馈
+              </Text>
+            </View>
+            <View style={[styles.groupBuyCta, { backgroundColor: GROUP_BUY_COLORS.pine }]}>
+              <Text {...compactActionTextProps} style={[typography.caption, { color: '#FFFFFF', fontWeight: '700' }]}>
+                查看
+              </Text>
+            </View>
+          </Pressable>
+        </Animated.View>
 
         {/* AI光球 + 抽奖按钮区域 */}
         <Animated.View entering={FadeInDown.duration(300)}>
@@ -990,6 +1030,34 @@ const styles = StyleSheet.create({
     color: '#13231A',
     fontSize: 11,
     fontWeight: '800',
+  },
+  groupBuyEntry: {
+    minHeight: 72,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  groupBuyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupBuyCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 12,
+  },
+  groupBuyCta: {
+    minWidth: 56,
+    minHeight: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   lotteryInline: {
     alignItems: 'center',
