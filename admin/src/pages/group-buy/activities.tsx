@@ -32,17 +32,18 @@ import type {
   AdminGroupBuyActivity,
   CreateGroupBuyActivityInput,
   GroupBuyActivityStatus,
-  GroupBuyTierInput,
 } from '@/types';
 import { StatusTag, activityStatusMap, money } from './common';
+import { toTierFormValues, toTierPayloadValues, type TierPercentValue } from './tierPercent';
 
-const defaultTiers: GroupBuyTierInput[] = [
-  { sequence: 1, basisPoints: 1000, label: '第一位好友' },
-  { sequence: 2, basisPoints: 2000, label: '第二位好友' },
-  { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+const defaultTiers: TierPercentValue[] = [
+  { sequence: 1, percent: 10, label: '第一位好友' },
+  { sequence: 2, percent: 20, label: '第二位好友' },
+  { sequence: 3, percent: 70, label: '第三位好友' },
 ];
 
-type ActivityFormValues = Omit<CreateGroupBuyActivityInput, 'startAt' | 'endAt'> & {
+type ActivityFormValues = Omit<CreateGroupBuyActivityInput, 'startAt' | 'endAt' | 'tiers'> & {
+  tiers?: TierPercentValue[];
   timeRange?: [dayjs.Dayjs, dayjs.Dayjs];
 };
 
@@ -93,11 +94,7 @@ export default function GroupBuyActivitiesPage() {
       status: record.status,
       displayOrder: record.displayOrder,
       ruleSummary: record.ruleSummary,
-      tiers: record.tiers.map((tier) => ({
-        sequence: tier.sequence,
-        basisPoints: tier.basisPoints,
-        label: tier.label,
-      })),
+      tiers: toTierFormValues(record.tiers),
       timeRange: record.startAt && record.endAt
         ? [dayjs(record.startAt), dayjs(record.endAt)]
         : undefined,
@@ -120,11 +117,7 @@ export default function GroupBuyActivitiesPage() {
     status: values.status,
     displayOrder: Number(values.displayOrder ?? 0),
     ruleSummary: values.ruleSummary || null,
-    tiers: (values.tiers || []).map((tier) => ({
-      sequence: Number(tier.sequence),
-      basisPoints: Number(tier.basisPoints),
-      label: tier.label || null,
-    })),
+    tiers: toTierPayloadValues(values.tiers || []),
     startAt: values.timeRange?.[0]?.toISOString() ?? null,
     endAt: values.timeRange?.[1]?.toISOString() ?? null,
   });
@@ -365,15 +358,15 @@ export default function GroupBuyActivitiesPage() {
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Space>
                   <Typography.Text strong>返还档位</Typography.Text>
-                  <Button size="small" onClick={() => add({ sequence: fields.length + 1, basisPoints: 1000, label: '' })}>添加档位</Button>
+                  <Button size="small" onClick={() => add({ sequence: fields.length + 1, percent: 10, label: '' })}>添加档位</Button>
                 </Space>
                 {fields.map((field) => (
                   <Space key={field.key} align="baseline" style={{ display: 'flex' }}>
                     <Form.Item {...field} name={[field.name, 'sequence']} rules={[{ required: true, message: '序号必填' }]}>
                       <InputNumber min={1} placeholder="序号" />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'basisPoints']} rules={[{ required: true, message: '比例必填' }]}>
-                      <InputNumber min={1} max={10000} placeholder="基点" addonAfter="基点" />
+                    <Form.Item {...field} name={[field.name, 'percent']} rules={[{ required: true, message: '比例必填' }]}>
+                      <InputNumber min={0.01} max={100} precision={2} placeholder="比例" addonAfter="%" />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'label']}>
                       <Input placeholder="展示文案" style={{ width: 180 }} />
@@ -382,7 +375,7 @@ export default function GroupBuyActivitiesPage() {
                   </Space>
                 ))}
                 <Typography.Text type="secondary">
-                  1000 基点代表 10%。全部档位合计可按活动规则配置，允许超过 10000 基点。
+                  直接填写百分比，例如 10 代表 10%。全部档位合计可按活动规则配置，允许超过 100%。
                 </Typography.Text>
               </Space>
             )}
