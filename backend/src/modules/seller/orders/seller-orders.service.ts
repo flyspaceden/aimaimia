@@ -229,7 +229,7 @@ export class SellerOrdersService {
         // 只返回属于本公司的订单项
         items: {
           where: { companyId },
-          include: { sku: { include: { product: { select: { id: true, title: true, companyId: true, media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1, select: { url: true } } } } } } },
+          include: { sku: { include: { product: { select: { id: true, title: true, description: true, companyId: true, media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1, select: { url: true } } } } } } },
         },
         shipments: {
           where: { companyId },
@@ -294,6 +294,7 @@ export class SellerOrdersService {
       items: order.items.map((item) => ({
         id: item.id,
         title: item.sku?.product?.title || '',
+        description: item.sku?.product?.description || '',
         imageUrl: (item.sku?.product as any)?.media?.[0]?.url || null,
         unitPrice: item.unitPrice,
         quantity: item.quantity,

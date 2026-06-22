@@ -75,6 +75,63 @@ describe('SellerOrdersService invoice privacy', () => {
     expect(serialized).not.toContain('buyer@example.com');
   });
 
+  it('returns product description for seller picking slip item details', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      userId: 'buyer-1',
+      status: 'PAID',
+      bizType: 'NORMAL_GOODS',
+      shippingFee: 0,
+      createdAt: new Date('2026-06-21T12:00:00.000Z'),
+      addressSnapshot: { province: '云南省', city: '昆明市', district: '盘龙区' },
+      invoice: null,
+      refunds: [],
+      shipments: [],
+      items: [{
+        id: 'item-1',
+        companyId: 'company-1',
+        unitPrice: 699.01,
+        quantity: 1,
+        isPrize: false,
+        prizeType: null,
+        sku: {
+          product: {
+            title: '印度小青龙699/10件产品套装',
+            description: '多样海产品组合：有进口印度小青龙300克4只，苏丹鱼-忘不了鱼500克2条。',
+            media: [],
+          },
+        },
+      }],
+    });
+    prisma.buyerAlias.findMany.mockResolvedValue([{ userId: 'buyer-1', alias: '买家001' }]);
+
+    const out = await service.findById('company-1', 'staff-1', 'order-1');
+
+    expect(prisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          items: expect.objectContaining({
+            include: expect.objectContaining({
+              sku: expect.objectContaining({
+                include: expect.objectContaining({
+                  product: expect.objectContaining({
+                    select: expect.objectContaining({
+                      description: true,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(out.items[0]).toMatchObject({
+      title: '印度小青龙699/10件产品套装',
+      description: '多样海产品组合：有进口印度小青龙300克4只，苏丹鱼-忘不了鱼500克2条。',
+    });
+  });
+
   it('returns buyer public id without leaking internal user id', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'order-1',

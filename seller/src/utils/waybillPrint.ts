@@ -22,15 +22,21 @@ function itemLabel(item: Order['items'][number]): string {
   return item.prizeType ? (PRIZE_TYPE_LABELS[item.prizeType] ?? '奖品') : '奖品';
 }
 
+function itemDescription(item: Order['items'][number]): string {
+  return typeof item.description === 'string' ? item.description.trim() : '';
+}
+
 export function buildSellerWaybillPrintHtml(order: Order): string {
   const rows = order.items
     .map((item, index) => {
       const label = itemLabel(item);
+      const description = itemDescription(item);
       return `
         <tr>
           <td class="index">${index + 1}</td>
           <td>
             <div class="item-title">${escapeHtml(item.title || '-')}</div>
+            ${description ? `<div class="item-detail"><span>详情清单：</span>${escapeHtml(description)}</div>` : ''}
             ${label ? `<div class="item-meta">${escapeHtml(label)}</div>` : ''}
           </td>
           <td class="quantity">${item.quantity}</td>
@@ -135,6 +141,18 @@ export function buildSellerWaybillPrintHtml(order: Order): string {
         color: #5f6b7a;
         font-size: 15px;
         margin-top: 5px;
+      }
+      .item-detail {
+        color: #374151;
+        font-size: 16px;
+        line-height: 1.5;
+        margin-top: 8px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .item-detail span {
+        color: #111827;
+        font-weight: 700;
       }
       .quantity {
         width: 104px;

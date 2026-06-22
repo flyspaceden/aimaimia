@@ -156,6 +156,7 @@ export interface Order {
 export interface OrderItem {
   id: string;
   title: string;
+  description?: string | null;
   unitPrice: number;
   quantity: number;
   isPrize?: boolean;
