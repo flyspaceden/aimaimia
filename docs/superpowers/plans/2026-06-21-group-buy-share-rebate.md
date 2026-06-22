@@ -790,7 +790,7 @@ git commit -m "feat: add group buy app repository"
 - Create: `app/group-buy/[activityId].tsx`
 - Create components under `src/components/group-buy/`
 
-- [ ] **Step 1: Build visual components**
+- [x] **Step 1: Build visual components**
 
 Components:
 
@@ -812,7 +812,7 @@ const GROUP_BUY_COLORS = {
 };
 ```
 
-- [ ] **Step 2: Build page states**
+- [x] **Step 2: Build page states**
 
 `app/group-buy/index.tsx`:
 
@@ -822,7 +822,7 @@ const GROUP_BUY_COLORS = {
 - `我的团购` page shows share voucher/copy controls and terminate/abandon actions, but no standalone `继续分享` button.
 - `团购商品` page keeps product filtering and per-card purchase actions, but no product-card `查看规则` / accordion interaction.
 
-- [ ] **Step 3: Build detail page**
+- [x] **Step 3: Build detail page**
 
 `app/group-buy/[activityId].tsx` shows:
 
@@ -832,13 +832,13 @@ const GROUP_BUY_COLORS = {
 - Share condition summary without tier percentages.
 - Fixed bottom CTA with `useBottomInset`.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 ```bash
 npx tsc -b
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/group-buy src/components/group-buy
