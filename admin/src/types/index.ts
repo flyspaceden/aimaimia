@@ -308,6 +308,7 @@ export interface DigitalAssetSettings {
 
 export type ProductStatus = 'ACTIVE' | 'INACTIVE';
 export type ProductAuditStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type ProductType = 'SIMPLE' | 'BUNDLE';
 
 export interface ProductMedia {
   id: string;
@@ -329,12 +330,40 @@ export interface ProductSKU {
   maxPerOrder?: number | null;
 }
 
+export interface ProductBundleItem {
+  skuId: string;
+  quantity: number;
+  sortOrder?: number;
+  productTitle?: string;
+  skuTitle?: string;
+  imageUrl?: string | null;
+  price?: number | null;
+  stock?: number | null;
+  weightGram?: number | null;
+  sku?: {
+    id?: string;
+    title?: string | null;
+    price?: number | null;
+    stock?: number | null;
+    weightGram?: number | null;
+    product?: {
+      id?: string;
+      title?: string | null;
+    } | null;
+  } | null;
+}
+
 export interface Product {
   id: string;
   title: string;
   subtitle: string | null;
   description: string | null;
   basePrice: number;
+  type: ProductType;
+  bundleItems?: ProductBundleItem[];
+  bundleReferenceTotal?: number | null;
+  bundleAvailableStock?: number | null;
+  bundleTotalWeightGram?: number | null;
   categoryId: string | null;
   category?: { id: string; name: string; returnPolicy?: string } | null;
   origin: Record<string, any> | null;

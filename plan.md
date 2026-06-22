@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **管理后台组合商品审核/详情展示**（2026-06-22 新增并完成）
+  - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 11
+  - **实际做了**: 管理后台商品类型补齐 `type` / `bundleItems` / `bundleReferenceTotal` / `bundleAvailableStock` / `bundleTotalWeightGram`；商品列表新增组合类型识别、组成项数量和参考合计提示；审核弹窗与商品详情页新增组合内容只读表格，展示组成商品/SKU、数量、当前单价小计、参考合计和总重量，并兼容后端 raw nested/flattened 两种返回形态
+  - **验证**: `cd admin && npm run build`、`git diff --check` 通过
+
 - [x] **卖家组合商品创建/编辑 UI**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 10
   - **实际做了**: 卖家商品创建/草稿/编辑页新增普通商品 / 组合商品 Segmented、组合内容 SKU 表、已有组合展开合并、组合成本价、参考合计和可组合库存展示；列表页展示「组合」Tag、组合项数量和推导库存；API 类型补齐 `productType` / `bundleItems`

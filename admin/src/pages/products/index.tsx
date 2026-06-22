@@ -5,7 +5,7 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
   App, Button, Tag, Modal, Space, Switch, Input, Badge, Popconfirm,
-  Descriptions, Card, Row, Col, Select, Statistic, Tooltip, Typography, Image,
+  Descriptions, Card, Row, Col, Select, Statistic, Tooltip, Typography, Image, Table,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -21,7 +21,13 @@ import { getProducts, getProductStats, auditProduct, deleteProduct } from '@/api
 import { getCompanies } from '@/api/companies';
 import { getConfigs } from '@/api/config';
 import PermissionGate from '@/components/PermissionGate';
-import { extractConfigValue, type Product, type ProductSKU } from '@/types';
+import {
+  extractConfigValue,
+  type Product,
+  type ProductBundleItem,
+  type ProductSKU,
+  type ProductType,
+} from '@/types';
 import {
   productStatusMap as statusMap,
   auditStatusMap,
@@ -32,6 +38,68 @@ import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
+
+type BundleReviewRow = {
+  key: string;
+  skuId: string;
+  quantity: number;
+  productTitle: string;
+  skuTitle: string;
+  price: number | null;
+  stock: number | null;
+  subtotal: number | null;
+  weightGram: number | null;
+  totalWeightGram: number | null;
+};
+
+function productTypeOf(product?: Pick<Product, 'type'> | null): ProductType {
+  return product?.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
+}
+
+function toBundleReviewRows(items?: ProductBundleItem[] | null): BundleReviewRow[] {
+  return (items ?? []).map((item, index) => {
+    const sku = item.sku;
+    const product = sku?.product;
+    const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+    const price = item.price ?? sku?.price ?? null;
+    const weightGram = item.weightGram ?? sku?.weightGram ?? null;
+    const subtotal = typeof price === 'number' ? +(price * quantity).toFixed(2) : null;
+    const totalWeightGram = typeof weightGram === 'number' ? weightGram * quantity : null;
+
+    return {
+      key: item.skuId || sku?.id || `${index}`,
+      skuId: item.skuId || sku?.id || '-',
+      quantity,
+      productTitle: item.productTitle ?? product?.title ?? '-',
+      skuTitle: item.skuTitle ?? sku?.title ?? '-',
+      price,
+      stock: item.stock ?? sku?.stock ?? null,
+      subtotal,
+      weightGram,
+      totalWeightGram,
+    };
+  });
+}
+
+function formatMoney(value?: number | null) {
+  return typeof value === 'number' ? `¥${value.toFixed(2)}` : '-';
+}
+
+function formatWeightGram(value?: number | null) {
+  return typeof value === 'number' ? `${value}g` : '-';
+}
+
+function getBundleSummaryText(product: Product) {
+  const rows = toBundleReviewRows(product.bundleItems);
+  if (rows.length === 0) return '组合内容待补充';
+
+  const preview = rows
+    .slice(0, 2)
+    .map((row) => `${row.productTitle} / ${row.skuTitle} ×${row.quantity}`)
+    .join('；');
+
+  return rows.length > 2 ? `${preview} 等 ${rows.length} 项` : preview;
+}
 
 function getStockSummary(product: Product, threshold: number) {
   const skus = product.skus ?? [];
@@ -216,7 +284,45 @@ export default function ProductListPage() {
       title: '商品名称',
       dataIndex: 'title',
       ellipsis: true,
-      width: 200,
+      width: 260,
+      render: (_: unknown, r: Product) => {
+        const isBundle = productTypeOf(r) === 'BUNDLE';
+        return (
+          <Space direction="vertical" size={2}>
+            <Space size={6} wrap>
+              <Text>{r.title}</Text>
+              {isBundle && <Tag color="processing" style={{ marginInlineEnd: 0 }}>组合</Tag>}
+            </Space>
+            {isBundle && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {getBundleSummaryText(r)}
+              </Text>
+            )}
+          </Space>
+        );
+      },
+    },
+    {
+      title: '类型',
+      dataIndex: 'type',
+      width: 90,
+      search: false,
+      render: (_: unknown, r: Product) => {
+        const isBundle = productTypeOf(r) === 'BUNDLE';
+        const bundleCount = toBundleReviewRows(r.bundleItems).length;
+        return (
+          <Space direction="vertical" size={0}>
+            <Tag color={isBundle ? 'processing' : 'default'} style={{ marginInlineEnd: 0 }}>
+              {isBundle ? '组合' : '普通'}
+            </Tag>
+            {isBundle && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {bundleCount} 项
+              </Text>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '售价',
@@ -224,16 +330,25 @@ export default function ProductListPage() {
       width: 120,
       search: false,
       render: (_: unknown, r: Product) => {
+        const isBundle = productTypeOf(r) === 'BUNDLE';
         const prices = r.skus?.map((sku) => sku.price).filter((p): p is number => p != null && p > 0) ?? [];
-        if (prices.length === 0) {
-          return <Text strong style={{ color: '#059669' }}>¥{r.basePrice.toFixed(2)}</Text>;
+        let priceLabel = formatMoney(r.basePrice);
+        if (prices.length > 0) {
+          const min = Math.min(...prices);
+          const max = Math.max(...prices);
+          priceLabel = min === max ? formatMoney(min) : `¥${min.toFixed(2)}~${max.toFixed(2)}`;
         }
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
         return (
-          <Text strong style={{ color: '#059669' }}>
-            {min === max ? `¥${min.toFixed(2)}` : `¥${min.toFixed(2)}~${max.toFixed(2)}`}
-          </Text>
+          <Space direction="vertical" size={0}>
+            <Text strong style={{ color: '#059669' }}>
+              {priceLabel}
+            </Text>
+            {isBundle && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                参考合计 {formatMoney(r.bundleReferenceTotal)}
+              </Text>
+            )}
+          </Space>
         );
       },
     },
@@ -314,6 +429,18 @@ export default function ProductListPage() {
       width: 80,
       search: false,
       render: (_: unknown, r: Product) => {
+        if (productTypeOf(r) === 'BUNDLE') {
+          const bundleStock = r.bundleAvailableStock;
+          const stockType = typeof bundleStock === 'number' && bundleStock <= 0 ? 'danger' : undefined;
+          return (
+            <Space direction="vertical" size={0}>
+              <Text type={stockType}>{bundleStock ?? '-'}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                按组成库存
+              </Text>
+            </Space>
+          );
+        }
         const { total, minSku, owedSkus, zeroCount, lowCount } = getStockSummary(r, lowStockThreshold);
         const hasOwed = (minSku?.stock ?? 0) < 0;
         const owedText = owedSkus
@@ -571,7 +698,7 @@ export default function ProductListPage() {
           });
           return { data: res.items, total: res.total, success: true };
         }}
-        scroll={{ x: 1500 }}
+        scroll={{ x: 1680 }}
         search={{ labelWidth: 'auto', defaultCollapsed: false }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true, showQuickJumper: true }}
         rowClassName={rowClassName}
@@ -589,7 +716,7 @@ export default function ProductListPage() {
           </Space>
         }
         open={auditModalOpen}
-        width={560}
+        width={760}
         onCancel={() => { setAuditModalOpen(false); setAuditNote(''); }}
         footer={[
           <Button key="reject" danger icon={<CloseCircleOutlined />} loading={auditLoading} onClick={() => handleAudit('REJECTED')}>
@@ -600,34 +727,95 @@ export default function ProductListPage() {
           </Button>,
         ]}
       >
-        {currentProduct && (
-          <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="商品名称" span={2}>{currentProduct.title}</Descriptions.Item>
-            <Descriptions.Item label="价格">¥{currentProduct.basePrice.toFixed(2)}</Descriptions.Item>
-            <Descriptions.Item label="所属企业">
-              {currentProduct.company ? (
-                <Space size={4}>
-                  <span>{currentProduct.company.name}</span>
-                  {currentProduct.company.status && (
-                    <Tag color={companyStatusMap[currentProduct.company.status]?.color} style={{ marginLeft: 0 }}>
-                      {companyStatusMap[currentProduct.company.status]?.text}
-                    </Tag>
-                  )}
-                </Space>
-              ) : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="分类">{currentProduct.category?.name || '-'}</Descriptions.Item>
-            <Descriptions.Item label="提交时间">{dayjs(currentProduct.createdAt).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
-            <Descriptions.Item label="当前状态">
-              <Tag color={statusMap[currentProduct.status]?.color}>{statusMap[currentProduct.status]?.text}</Tag>
-            </Descriptions.Item>
-            {currentProduct.auditNote && (
-              <Descriptions.Item label="上次审核备注" span={2}>
-                <Text type="warning">{currentProduct.auditNote}</Text>
-              </Descriptions.Item>
-            )}
-          </Descriptions>
-        )}
+        {currentProduct && (() => {
+          const isBundle = productTypeOf(currentProduct) === 'BUNDLE';
+          const bundleRows = toBundleReviewRows(currentProduct.bundleItems);
+
+          return (
+            <>
+              <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
+                <Descriptions.Item label="商品名称" span={2}>{currentProduct.title}</Descriptions.Item>
+                <Descriptions.Item label="商品类型">
+                  <Tag color={isBundle ? 'processing' : 'default'}>
+                    {isBundle ? '组合商品' : '普通商品'}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="价格">{formatMoney(currentProduct.basePrice)}</Descriptions.Item>
+                <Descriptions.Item label="所属企业">
+                  {currentProduct.company ? (
+                    <Space size={4}>
+                      <span>{currentProduct.company.name}</span>
+                      {currentProduct.company.status && (
+                        <Tag color={companyStatusMap[currentProduct.company.status]?.color} style={{ marginLeft: 0 }}>
+                          {companyStatusMap[currentProduct.company.status]?.text}
+                        </Tag>
+                      )}
+                    </Space>
+                  ) : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="分类">{currentProduct.category?.name || '-'}</Descriptions.Item>
+                <Descriptions.Item label="提交时间">{dayjs(currentProduct.createdAt).format('YYYY-MM-DD HH:mm')}</Descriptions.Item>
+                <Descriptions.Item label="当前状态">
+                  <Tag color={statusMap[currentProduct.status]?.color}>{statusMap[currentProduct.status]?.text}</Tag>
+                </Descriptions.Item>
+                {isBundle && (
+                  <>
+                    <Descriptions.Item label="组成 SKU">{bundleRows.length} 项</Descriptions.Item>
+                    <Descriptions.Item label="参考合计">{formatMoney(currentProduct.bundleReferenceTotal)}</Descriptions.Item>
+                    <Descriptions.Item label="总重量">{formatWeightGram(currentProduct.bundleTotalWeightGram)}</Descriptions.Item>
+                    <Descriptions.Item label="当前可组合库存">{currentProduct.bundleAvailableStock ?? '-'}</Descriptions.Item>
+                  </>
+                )}
+                {currentProduct.auditNote && (
+                  <Descriptions.Item label="上次审核备注" span={2}>
+                    <Text type="warning">{currentProduct.auditNote}</Text>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+              {isBundle && (
+                <Table<BundleReviewRow>
+                  size="small"
+                  pagination={false}
+                  rowKey="key"
+                  dataSource={bundleRows}
+                  style={{ marginBottom: 16 }}
+                  columns={[
+                    {
+                      title: '组成商品 / 规格',
+                      dataIndex: 'productTitle',
+                      render: (_value, row) => (
+                        <Space direction="vertical" size={0}>
+                          <Text>{row.productTitle}</Text>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {row.skuTitle}
+                          </Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '数量',
+                      dataIndex: 'quantity',
+                      width: 72,
+                    },
+                    {
+                      title: '当前单价',
+                      dataIndex: 'price',
+                      width: 110,
+                      render: (value: number | null) => formatMoney(value),
+                    },
+                    {
+                      title: '当前小计',
+                      dataIndex: 'subtotal',
+                      width: 110,
+                      render: (value: number | null) => formatMoney(value),
+                    },
+                  ]}
+                  locale={{ emptyText: '暂无组合内容' }}
+                />
+              )}
+            </>
+          );
+        })()}
         <Input.TextArea
           rows={3}
           placeholder="审核备注（可选）"

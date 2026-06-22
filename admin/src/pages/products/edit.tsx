@@ -21,6 +21,7 @@ import {
   Typography,
   Modal,
   Image,
+  Table,
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined, DownloadOutlined } from '@ant-design/icons';
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
@@ -33,12 +34,64 @@ import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
-import { extractConfigValue, type AuditLog } from '@/types';
+import {
+  extractConfigValue,
+  type AuditLog,
+  type Product,
+  type ProductBundleItem,
+  type ProductType,
+} from '@/types';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
 
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
+
+type BundleReviewRow = {
+  key: string;
+  skuId: string;
+  quantity: number;
+  productTitle: string;
+  skuTitle: string;
+  price: number | null;
+  subtotal: number | null;
+  weightGram: number | null;
+  totalWeightGram: number | null;
+};
+
+function productTypeOf(product?: Pick<Product, 'type'> | null): ProductType {
+  return product?.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
+}
+
+function toBundleReviewRows(items?: ProductBundleItem[] | null): BundleReviewRow[] {
+  return (items ?? []).map((item, index) => {
+    const sku = item.sku;
+    const product = sku?.product;
+    const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+    const price = item.price ?? sku?.price ?? null;
+    const weightGram = item.weightGram ?? sku?.weightGram ?? null;
+
+    return {
+      key: item.skuId || sku?.id || `${index}`,
+      skuId: item.skuId || sku?.id || '-',
+      quantity,
+      productTitle: item.productTitle ?? product?.title ?? '-',
+      skuTitle: item.skuTitle ?? sku?.title ?? '-',
+      price,
+      subtotal: typeof price === 'number' ? +(price * quantity).toFixed(2) : null,
+      weightGram,
+      totalWeightGram: typeof weightGram === 'number' ? weightGram * quantity : null,
+    };
+  });
+}
+
+function formatMoney(value?: number | null) {
+  return typeof value === 'number' ? `¥${value.toFixed(2)}` : '-';
+}
+
+function formatWeightGram(value?: number | null) {
+  return typeof value === 'number' ? `${value}g` : '-';
+}
 
 function normalizeLowStockThreshold(value: unknown): number {
   const threshold = Number(value);
@@ -226,6 +279,8 @@ export default function ProductEditPage() {
 
   const status = statusMap[product.status];
   const auditStatus = auditStatusMap[product.auditStatus];
+  const isBundleProduct = productTypeOf(product) === 'BUNDLE';
+  const bundleRows = toBundleReviewRows(product.bundleItems);
 
   // 解析产地
   const originText = typeof product.origin === 'object' && product.origin
@@ -336,6 +391,11 @@ export default function ProductEditPage() {
       <Card title="商品状态" style={{ marginBottom: 16 }}>
         <Descriptions column={{ xs: 1, sm: 3 }}>
           <Descriptions.Item label="商品 ID">{product.id}</Descriptions.Item>
+          <Descriptions.Item label="商品类型">
+            <Tag color={isBundleProduct ? 'processing' : 'default'}>
+              {isBundleProduct ? '组合商品' : '普通商品'}
+            </Tag>
+          </Descriptions.Item>
           <Descriptions.Item label="上架状态">
             <Tag color={status?.color}>{status?.text}</Tag>
           </Descriptions.Item>
@@ -547,7 +607,74 @@ export default function ProductEditPage() {
         </Form>
       </Card>
 
-      {/* 3. 商品图片 */}
+      {/* 3. 组合内容（只读） */}
+      {isBundleProduct && (
+        <Card title="组合内容（只读）" style={{ marginBottom: 16 }}>
+          <Descriptions
+            size="small"
+            column={{ xs: 1, sm: 2, lg: 4 }}
+            style={{ marginBottom: 16 }}
+          >
+            <Descriptions.Item label="组成 SKU">{bundleRows.length} 项</Descriptions.Item>
+            <Descriptions.Item label="参考合计">{formatMoney(product.bundleReferenceTotal)}</Descriptions.Item>
+            <Descriptions.Item label="总重量">{formatWeightGram(product.bundleTotalWeightGram)}</Descriptions.Item>
+            <Descriptions.Item label="当前可组合库存">{product.bundleAvailableStock ?? '-'}</Descriptions.Item>
+          </Descriptions>
+          <Table<BundleReviewRow>
+            size="small"
+            pagination={false}
+            rowKey="key"
+            dataSource={bundleRows}
+            scroll={{ x: 820 }}
+            columns={[
+              {
+                title: '组成商品',
+                dataIndex: 'productTitle',
+                width: 220,
+                render: (value: string) => value || '-',
+              },
+              {
+                title: 'SKU 规格',
+                dataIndex: 'skuTitle',
+                width: 220,
+                render: (value: string) => value || '-',
+              },
+              {
+                title: '数量',
+                dataIndex: 'quantity',
+                width: 80,
+              },
+              {
+                title: '当前单价',
+                dataIndex: 'price',
+                width: 110,
+                render: (value: number | null) => formatMoney(value),
+              },
+              {
+                title: '当前小计',
+                dataIndex: 'subtotal',
+                width: 110,
+                render: (value: number | null) => formatMoney(value),
+              },
+              {
+                title: '单件重量',
+                dataIndex: 'weightGram',
+                width: 100,
+                render: (value: number | null) => formatWeightGram(value),
+              },
+              {
+                title: '总重量',
+                dataIndex: 'totalWeightGram',
+                width: 100,
+                render: (value: number | null) => formatWeightGram(value),
+              },
+            ]}
+            locale={{ emptyText: '暂无组合内容' }}
+          />
+        </Card>
+      )}
+
+      {/* 4. 商品图片 */}
       {mediaList && mediaList.length > 0 && (
         <Card title="商品图片" style={{ marginBottom: 16 }}>
           <Space wrap>
@@ -588,7 +715,7 @@ export default function ProductEditPage() {
         </Card>
       )}
 
-      {/* 4. 商品规格列表（可编辑） */}
+      {/* 5. 商品规格列表（可编辑） */}
       <Card
         title="商品规格（不同包装/重量/口味等销售单元）"
         style={{ marginBottom: 16 }}
@@ -716,7 +843,7 @@ export default function ProductEditPage() {
         </Form>
       </Card>
 
-      {/* 5. 审核记录 */}
+      {/* 6. 审核记录 */}
       <Card title="审核记录">
         {auditLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}>
