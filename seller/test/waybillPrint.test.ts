@@ -172,9 +172,20 @@ test('does not merge picking rows when distinct skuIds share the same title and 
 
   const html = buildPickingSheetHtml(order);
   const summarySection = html.match(/<h2>拣货汇总<\/h2>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? '';
-  const appleRows = Array.from(summarySection.matchAll(/红富士苹果[\s\S]*?礼盒装[\s\S]*?x(\d+)/g))
-    .map((match) => Number(match[1]))
-    .sort((a, b) => a - b);
+  const appleRows = Array.from(
+    summarySection.matchAll(/红富士苹果[\s\S]*?礼盒装\s*\(([^)]*?)\)[\s\S]*?x(\d+)/g),
+  ).map((match) => ({
+    label: match[1],
+    qty: Number(match[2]),
+  }));
 
-  assert.deepEqual(appleRows, [1, 2, 3]);
+  assert.equal(appleRows.length, 3);
+  assert.deepEqual(
+    appleRows.map((row) => row.qty).sort((a, b) => a - b),
+    [1, 2, 3],
+  );
+  appleRows.forEach((row) => {
+    assert.match(row.label, /^#/);
+  });
+  assert.deepEqual(new Set(appleRows.map((row) => row.label)).size, 3);
 });

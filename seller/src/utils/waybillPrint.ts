@@ -2,6 +2,7 @@ import type { Order, OrderItem, OrderItemBundleComponent } from '../types/index.
 
 type PickingComponentSummary = {
   skuId?: string;
+  disambiguator?: string;
   title: string;
   skuTitle: string;
   quantity: number;
@@ -18,6 +19,41 @@ function escapeHtml(value: string): string {
 
 function toPositiveInteger(value: unknown): number | null {
   return Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
+}
+
+function trimOptional(value?: string | null): string | undefined {
+  const text = value?.trim();
+  return text ? text : undefined;
+}
+
+function resolveMerchantSkuCode(
+  source?: unknown,
+): string | undefined {
+  const sourceObj = source as { skuCode?: string | null; merchantSkuCode?: string | null } | undefined;
+  const skuCode = trimOptional(sourceObj?.skuCode);
+  if (skuCode) {
+    return skuCode;
+  }
+  return trimOptional(sourceObj?.merchantSkuCode);
+}
+
+function shortSkuSuffix(skuId?: string): string | undefined {
+  const text = trimOptional(skuId);
+  if (!text) {
+    return undefined;
+  }
+  return text.length > 6 ? text.slice(-6) : text;
+}
+
+function visibleSummaryLabel(entry: PickingComponentSummary): string {
+  return `${entry.title}__${entry.skuTitle}`;
+}
+
+function disambiguatorForEntry(entry: PickingComponentSummary): string {
+  if (!entry.disambiguator) {
+    return '';
+  }
+  return ` (${entry.disambiguator})`;
 }
 
 export function resolveBundleComponentQuantity(
@@ -108,13 +144,15 @@ function buildPickingSummary(items: OrderItem[]): PickingComponentSummary[] {
         const title = componentDisplayTitle(component);
         const skuTitle = componentDisplaySku(component);
         const skuId = component.skuId?.trim() || undefined;
+        const shortId = shortSkuSuffix(skuId);
+        const disambiguator = resolveMerchantSkuCode(component) ?? (shortId ? `#${shortId}` : undefined);
         const key = summaryKeyOf({ skuId, title, skuTitle });
         const existing = summary.get(key);
         if (existing) {
           existing.quantity += quantity;
           return;
         }
-        summary.set(key, { skuId, title, skuTitle, quantity });
+        summary.set(key, { skuId, disambiguator, title, skuTitle, quantity });
       });
       return;
     }
@@ -127,13 +165,18 @@ function buildPickingSummary(items: OrderItem[]): PickingComponentSummary[] {
     const title = item.title?.trim() || '未命名商品';
     const skuId = item.skuId?.trim() || undefined;
     const skuTitle = item.skuTitle?.trim() || '-';
+    const shortId = shortSkuSuffix(skuId);
+    const disambiguator = resolveMerchantSkuCode(item as {
+      skuCode?: string | null;
+      merchantSkuCode?: string | null;
+    }) ?? (shortId ? `#${shortId}` : undefined);
     const key = summaryKeyOf({ skuId, title, skuTitle });
     const existing = summary.get(key);
     if (existing) {
       existing.quantity += quantity;
       return;
     }
-    summary.set(key, { skuId, title, skuTitle, quantity });
+    summary.set(key, { skuId, disambiguator, title, skuTitle, quantity });
   });
 
   return Array.from(summary.values()).sort((a, b) => {
@@ -167,14 +210,25 @@ export function buildPickingSheetHtml(
     `)
     .join('');
 
-  const summaryRows = buildPickingSummary(order.items)
-    .map((entry) => `
+  const summaryEntries = buildPickingSummary(order.items);
+  const visibleLabelCount = new Map<string, number>();
+  for (const entry of summaryEntries) {
+    const key = visibleSummaryLabel(entry);
+    visibleLabelCount.set(key, (visibleLabelCount.get(key) ?? 0) + 1);
+  }
+
+  const summaryRows = summaryEntries
+    .map((entry) => {
+      const shouldDisambiguate = (visibleLabelCount.get(visibleSummaryLabel(entry)) ?? 0) > 1;
+      const suffix = shouldDisambiguate ? disambiguatorForEntry(entry) : '';
+      return `
       <tr>
         <td>${escapeHtml(entry.title)}</td>
-        <td>${escapeHtml(entry.skuTitle)}</td>
+        <td>${escapeHtml(entry.skuTitle)}${escapeHtml(suffix)}</td>
         <td class="align-right">x${entry.quantity}</td>
       </tr>
-    `)
+    `;
+    })
     .join('');
 
   return `
