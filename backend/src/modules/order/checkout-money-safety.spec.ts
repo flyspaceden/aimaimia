@@ -224,6 +224,33 @@ describe('CheckoutService cancelSession 资金安全', () => {
     expect(caught).toBeInstanceOf(BadRequestException);
     expect((caught as BadRequestException).message).toContain('订单已自动创建');
   });
+
+  it('取消会话有 groupBuyRebateDeductionGroupId 时释放团购返还余额抵扣组', async () => {
+    const session = buildSession({
+      paymentChannel: null,
+      merchantOrderNo: null,
+      rewardId: null,
+      deductionGroupId: null,
+      groupBuyRebateDeductionGroupId: 'GBD-1',
+      groupBuyRebateDeductionAmount: 18,
+    });
+    const releaseDeduction = jest.fn().mockResolvedValue(undefined);
+    const tx = {
+      checkoutSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      rewardLedger: { updateMany: jest.fn() },
+    };
+    const prisma: any = {
+      checkoutSession: { findUnique: async () => session },
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+    const svc = new CheckoutService(prisma, {} as any);
+    (svc as any).setGroupBuyRebateDeductionService({ releaseDeduction });
+
+    await svc.cancelSession('user1', 'sess1');
+
+    expect(releaseDeduction).toHaveBeenCalledWith(tx, 'GBD-1');
+    expect(tx.rewardLedger.updateMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('CheckoutService handlePaymentSuccess VIP 抵扣隔离', () => {
@@ -428,6 +455,206 @@ describe('CheckoutService handlePaymentSuccess bundle inventory deduction', () =
   });
 });
 
+describe('CheckoutService group-buy rebate deduction on ordinary checkout', () => {
+  it('reserves group-buy rebate deduction separately from Reward discount', async () => {
+    const sku = {
+      id: 'sku-gb-deduct',
+      productId: 'product-gb-deduct',
+      title: '普通商品 SKU',
+      price: 200,
+      stock: 20,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1000,
+      product: {
+        id: 'product-gb-deduct',
+        title: '普通商品',
+        status: 'ACTIVE',
+        companyId: 'company-1',
+        media: [],
+      },
+    };
+    let createdSessionData: any;
+    let transactionTx: any;
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([sku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'addr1',
+          userId: 'user1',
+          regionText: '北京市/北京市/朝阳区',
+          regionCode: '110000',
+          recipientName: '张三',
+          phone: '13800000000',
+          detail: '街道一号',
+        }),
+      },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn(async (cb: any) => {
+        transactionTx = {
+          checkoutSession: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn(async ({ data }: any) => {
+              createdSessionData = {
+                id: 'sess-gb-deduct',
+                userId: 'user1',
+                status: 'ACTIVE',
+                bizType: 'NORMAL_GOODS',
+                ...data,
+              };
+              return createdSessionData;
+            }),
+          },
+          rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        };
+        return cb(transactionTx);
+      }),
+    };
+    const service = new CheckoutService(prisma, {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        vipDiscountRate: 1,
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 0,
+      }),
+    } as any);
+    service.setShippingRuleService({
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 0 }),
+    });
+    const groupBuyRebateDeductionService = {
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        rebateBalance: 100,
+        rebateRatio: 0.1,
+        maxDeductible: 20,
+      }),
+      reserveDeduction: jest.fn().mockResolvedValue({
+        groupId: 'GBD-1',
+        ledgerId: 'gbdl_1',
+        amount: 18,
+      }),
+    };
+    (service as any).setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
+
+    const result = await service.checkout('user1', {
+      items: [{ skuId: 'sku-gb-deduct', quantity: 1 }],
+      addressId: 'addr1',
+      groupBuyRebateDeductionAmount: 18,
+      expectedTotal: 182,
+    } as any);
+
+    expect(groupBuyRebateDeductionService.calculateMaxDeductible)
+      .toHaveBeenCalledWith('user1', 200);
+    expect(groupBuyRebateDeductionService.reserveDeduction)
+      .toHaveBeenCalledWith(transactionTx, 'user1', 200, 18);
+    expect(createdSessionData).toEqual(expect.objectContaining({
+      expectedTotal: 182,
+      discountAmount: 0,
+      groupBuyRebateDeductionGroupId: 'GBD-1',
+      groupBuyRebateDeductionAmount: 18,
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      expectedTotal: 182,
+      discountAmount: 0,
+    }));
+  });
+
+  it('confirms group-buy rebate deduction and applies it to paid order totals', async () => {
+    const session = {
+      id: 'sess-gb-paid',
+      userId: 'user1',
+      status: 'ACTIVE',
+      bizType: 'NORMAL_GOODS',
+      merchantOrderNo: 'M-GB-PAID',
+      providerTxnId: null,
+      expectedTotal: 82,
+      goodsAmount: 100,
+      shippingFee: 0,
+      discountAmount: 0,
+      groupBuyRebateDeductionAmount: 18,
+      groupBuyRebateDeductionGroupId: 'GBD-1',
+      vipDiscountAmount: 0,
+      totalCouponDiscount: 0,
+      couponInstanceIds: [],
+      couponPerAmounts: [],
+      rewardId: null,
+      deductionGroupId: null,
+      buyerNote: null,
+      addressSnapshot: {},
+      bizMeta: null,
+      itemsSnapshot: [
+        {
+          skuId: 'sku1',
+          quantity: 1,
+          unitPrice: 100,
+          companyId: 'company1',
+          productSnapshot: {},
+        },
+      ],
+    };
+    const createdOrders: any[] = [];
+    let txRef: any;
+    const tx = {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async ({ data }: any) => {
+          const order = { id: 'order_1', ...data };
+          createdOrders.push(order);
+          return order;
+        }),
+      },
+      orderStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+      productSKU: {
+        update: jest.fn().mockResolvedValue({ stock: 9 }),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      inventoryLedger: {
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      rewardLedger: {
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      groupBuyRebateLedger: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue(null) },
+      cartItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      lotteryRecord: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    txRef = tx;
+    const prisma: any = {
+      $transaction: jest.fn(async (cb: any) => cb(txRef)),
+    };
+    const service = new CheckoutService(prisma, {} as any);
+    const groupBuyRebateDeductionService = {
+      confirmDeduction: jest.fn().mockResolvedValue(undefined),
+    };
+    (service as any).setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
+
+    const result = await service.handlePaymentSuccess('M-GB-PAID', 'trade-1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(createdOrders[0]).toEqual(expect.objectContaining({
+      totalAmount: 82,
+      goodsAmount: 100,
+      discountAmount: 0,
+    }));
+    expect(groupBuyRebateDeductionService.confirmDeduction)
+      .toHaveBeenCalledWith(tx, 'GBD-1');
+  });
+});
+
 describe('CheckoutExpireService expireSession 资金安全', () => {
   function buildSession(overrides: Partial<any> = {}) {
     return {
@@ -591,6 +818,31 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
     }));
 
     expect(releaseDeduction).toHaveBeenCalledWith(tx, 'DG-1');
+    expect(tx.rewardLedger.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('过期会话有 groupBuyRebateDeductionGroupId 时释放团购返还余额抵扣组', async () => {
+    const releaseDeduction = jest.fn().mockResolvedValue(undefined);
+    const tx = {
+      checkoutSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      rewardLedger: { updateMany: jest.fn() },
+    };
+    const prisma: any = {
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+    const svc = new CheckoutExpireService(prisma);
+    (svc as any).setGroupBuyRebateDeductionService({ releaseDeduction });
+
+    await (svc as any).expireSession(buildSession({
+      paymentChannel: null,
+      merchantOrderNo: null,
+      rewardId: null,
+      deductionGroupId: null,
+      groupBuyRebateDeductionGroupId: 'GBD-1',
+      groupBuyRebateDeductionAmount: 18,
+    }));
+
+    expect(releaseDeduction).toHaveBeenCalledWith(tx, 'GBD-1');
     expect(tx.rewardLedger.updateMany).not.toHaveBeenCalled();
   });
 });

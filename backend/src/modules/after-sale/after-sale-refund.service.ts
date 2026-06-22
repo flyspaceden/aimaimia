@@ -20,6 +20,7 @@ import { AfterSaleStatusHistoryService } from './after-sale-status-history.servi
 import { InboxService } from '../inbox/inbox.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { ProductBundleService } from '../product/product-bundle.service';
 
@@ -49,6 +50,7 @@ export class AfterSaleRefundService {
   private readonly pendingRefundReconcileDelaysMs = [15_000, 45_000, 90_000];
   private rewardDeductionService: RewardDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
+  private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -65,6 +67,10 @@ export class AfterSaleRefundService {
 
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
+    this.groupBuyRebateDeductionService = service;
   }
 
   private buildRestockMovements(orderItem: {
@@ -357,6 +363,7 @@ export class AfterSaleRefundService {
           }
 
           await this.restoreDeductedPointsInTx(tx, refundId, request);
+          await this.restoreGroupBuyRebateDeductionInTx(tx, refundId, request);
 
           return {
             orderId: request.orderId,
@@ -480,6 +487,79 @@ export class AfterSaleRefundService {
       originalGoodsRefundAmount: refundGoodsAmount,
       originalDeductAmount: session.discountAmount,
       deductionGroupId: session.deductionGroupId,
+      isFinalRefund,
+      cumulativeGoodsRefundAmount,
+    });
+  }
+
+  private async restoreGroupBuyRebateDeductionInTx(
+    tx: Tx,
+    refundId: string,
+    request: any,
+  ): Promise<void> {
+    if (!this.groupBuyRebateDeductionService) return;
+
+    const order = await tx.order.findUnique({
+      where: { id: request.orderId },
+      select: { checkoutSessionId: true },
+    });
+    if (!order?.checkoutSessionId) return;
+
+    const session = await (tx as any).checkoutSession.findUnique({
+      where: { id: order.checkoutSessionId },
+      select: {
+        groupBuyRebateDeductionGroupId: true,
+        groupBuyRebateDeductionAmount: true,
+        goodsAmount: true,
+      },
+    });
+    if (
+      !session?.groupBuyRebateDeductionGroupId ||
+      (session.groupBuyRebateDeductionAmount ?? 0) <= 0
+    ) {
+      return;
+    }
+
+    const refundGoodsAmount = await this.resolveOriginalGoodsRefundAmount(tx, request);
+    if (refundGoodsAmount === null || refundGoodsAmount <= 0) {
+      this.logger.warn(
+        `跳过退款团购返还余额抵扣返还（缺商品原价口径金额）：refundId=${refundId}, afterSaleId=${request.id}`,
+      );
+      return;
+    }
+
+    const priorRestoredLedgers = await (tx as any).groupBuyRebateLedger.findMany({
+      where: {
+        refType: 'REFUND_RESTORE',
+        meta: { path: ['groupId'], equals: session.groupBuyRebateDeductionGroupId },
+        deletedAt: null,
+      },
+      select: {
+        refId: true,
+        meta: true,
+      },
+    });
+    const seenRefundIds = new Set<string>();
+    const priorGoodsRefundAmount = priorRestoredLedgers.reduce((sum: number, ledger: any) => {
+      if (ledger.refId && seenRefundIds.has(ledger.refId)) return sum;
+      if (ledger.refId) seenRefundIds.add(ledger.refId);
+      const amount = Number(ledger.meta?.originalGoodsRefundAmount ?? 0);
+      return Number.isFinite(amount) ? sum + amount : sum;
+    }, 0);
+    const cumulativeGoodsRefundAmount = Number(
+      (priorGoodsRefundAmount + refundGoodsAmount).toFixed(2),
+    );
+    const originalGoodsCents = Math.round(Number(session.goodsAmount || 0) * 100);
+    const cumulativeGoodsRefundCents = Math.round(cumulativeGoodsRefundAmount * 100);
+    const isFinalRefund = cumulativeGoodsRefundCents >= originalGoodsCents;
+
+    await this.groupBuyRebateDeductionService.refundDeduction(tx, {
+      refundId,
+      orderId: request.orderId,
+      originalGoodsAmount: session.goodsAmount,
+      originalGoodsRefundAmount: refundGoodsAmount,
+      originalDeductAmount: session.groupBuyRebateDeductionAmount,
+      deductionGroupId: session.groupBuyRebateDeductionGroupId,
       isFinalRefund,
       cumulativeGoodsRefundAmount,
     });

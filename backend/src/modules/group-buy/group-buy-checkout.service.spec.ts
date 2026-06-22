@@ -95,7 +95,18 @@ describe('GroupBuyCheckoutService', () => {
     await expect(service.createCheckout('user_1', {
       ...dto,
       deductionAmount: 1,
+      groupBuyRebateDeductionAmount: 1,
       couponInstanceIds: ['coupon_1'],
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects group-buy rebate deduction because group-buy checkout is cash-only', async () => {
+    const { tx, service } = buildPrisma();
+
+    await expect(service.createCheckout('user_1', {
+      ...dto,
+      groupBuyRebateDeductionAmount: 1,
     } as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
   });

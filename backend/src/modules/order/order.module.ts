@@ -27,6 +27,7 @@ import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { ProductModule } from '../product/product.module';
+import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 
 @Module({
   imports: [
@@ -117,6 +118,19 @@ export class OrderModule implements OnModuleInit {
     if (groupBuyLifecycleService) {
       this.orderService.setGroupBuyLifecycleService(groupBuyLifecycleService);
       this.orderAutoConfirmService.setGroupBuyLifecycleService(groupBuyLifecycleService);
+    }
+
+    const groupBuyRebateDeductionService = this.moduleRef.get(
+      GroupBuyRebateDeductionService,
+      { strict: false },
+    );
+    if (groupBuyRebateDeductionService) {
+      this.checkoutService.setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
+      this.checkoutExpireService.setGroupBuyRebateDeductionService(
+        groupBuyRebateDeductionService,
+      );
+    } else {
+      console.warn('[OrderModule] GroupBuyRebateDeductionService 未注入，团购返还余额抵扣不可用');
     }
 
     // C13修复：InboxService 改硬依赖，确保通知功能可用
