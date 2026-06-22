@@ -23,11 +23,13 @@ describe('GroupBuyLifecycleService', () => {
     const tx = {
       groupBuyInstance: {
         findUnique: jest.fn().mockResolvedValue(buildInstance()),
+        findFirst: jest.fn().mockResolvedValue(null),
         update: jest.fn().mockResolvedValue({ id: 'instance_1' }),
       },
       groupBuyCode: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ code: 'GB12345678' }),
+        update: jest.fn().mockResolvedValue({ id: 'code_1' }),
       },
     };
     const prisma = {
@@ -109,5 +111,51 @@ describe('GroupBuyLifecycleService', () => {
 
     expect(result).toEqual({ status: 'SKIPPED' });
     expect(tx.groupBuyCode.create).not.toHaveBeenCalled();
+  });
+
+  it('abandons the current pending qualification', async () => {
+    const { prisma, tx, service } = buildPrisma();
+    tx.groupBuyInstance.findFirst.mockResolvedValueOnce({
+      id: 'instance_1',
+      status: 'QUALIFICATION_PENDING',
+    });
+
+    const result = await service.abandonCurrent('user_1');
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(result).toEqual({ status: 'ABANDONED' });
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'instance_1' },
+      data: expect.objectContaining({
+        status: 'QUALIFICATION_ABANDONED',
+        abandonedAt: expect.any(Date),
+      }),
+    }));
+  });
+
+  it('terminates the current sharing instance and disables its code', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyInstance.findFirst.mockResolvedValueOnce({
+      id: 'instance_1',
+      status: 'SHARING',
+      code: { id: 'code_1', status: 'ACTIVE' },
+    });
+    const result = await service.terminateCurrent('user_1');
+
+    expect(result).toEqual({ status: 'TERMINATED' });
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'instance_1' },
+      data: expect.objectContaining({
+        status: 'TERMINATED',
+        terminatedAt: expect.any(Date),
+      }),
+    }));
+    expect(tx.groupBuyCode.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'code_1' },
+      data: expect.objectContaining({
+        status: 'DISABLED',
+        disabledAt: expect.any(Date),
+      }),
+    }));
   });
 });
