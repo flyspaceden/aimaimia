@@ -512,7 +512,7 @@ git commit -m "feat: create group buy orders on payment success"
 - Modify: `backend/src/modules/order/order-auto-confirm.service.ts`
 - Test: `backend/src/modules/group-buy/group-buy-lifecycle.service.spec.ts`
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Cover:
 
@@ -521,7 +521,7 @@ Cover:
 - Own refund/return/exchange invalidates qualification.
 - Abandoned qualification never generates code.
 
-- [ ] **Step 2: Implement `evaluateInitiatorOrder(orderId)`**
+- [x] **Step 2: Implement `evaluateInitiatorOrder(orderId)`**
 
 Logic:
 
@@ -531,18 +531,18 @@ Logic:
 4. Generate unique code using `GroupBuyCodeUtil`.
 5. Set instance `SHARING`, code `ACTIVE`, timestamps.
 
-- [ ] **Step 3: Hook order receipt**
+- [x] **Step 3: Hook order receipt**
 
 After manual and auto receive succeed, call lifecycle service asynchronously. A cron/evaluate endpoint should also exist for missed events.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 cd backend
 npx jest src/modules/group-buy/group-buy-lifecycle.service.spec.ts --runInBand
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/group-buy backend/src/modules/order
