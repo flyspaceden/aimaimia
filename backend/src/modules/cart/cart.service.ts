@@ -1,11 +1,12 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProductType } from '@prisma/client';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { verifyClaimToken, claimTokenHash } from '../../common/utils/claim-token.util';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { MergeCartItemDto } from './dto/cart.dto';
+import { ProductBundleService } from '../product/product-bundle.service';
 import {
   getPrizeUnavailableReason,
   getUnavailableReasonText,
@@ -45,6 +46,7 @@ export class CartService {
     private config: ConfigService,
     private redisCoord: RedisCoordinatorService,
     private bonusConfig: BonusConfigService,
+    @Optional() private readonly productBundleService?: ProductBundleService,
   ) {
     // HC-6: 生产环境强制要求 LOTTERY_CLAIM_SECRET
     const secret = this.config.get<string>('LOTTERY_CLAIM_SECRET');
@@ -106,6 +108,115 @@ export class CartService {
     return code === 'P2034' || (includeUniqueConflict && code === 'P2002');
   }
 
+  private getCartProductInclude() {
+    return {
+      media: { where: { type: 'IMAGE' as const }, orderBy: { sortOrder: 'asc' as const }, take: 1 },
+      bundleItems: {
+        orderBy: { sortOrder: 'asc' as const },
+        select: {
+          skuId: true,
+          quantity: true,
+          sku: {
+            select: {
+              id: true,
+              title: true,
+              price: true,
+              stock: true,
+              weightGram: true,
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  media: {
+                    where: { type: 'IMAGE' as const },
+                    orderBy: { sortOrder: 'asc' as const },
+                    take: 1,
+                    select: { url: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  private getCartSkuInclude() {
+    return {
+      product: {
+        include: this.getCartProductInclude(),
+      },
+    };
+  }
+
+  private isBundleProduct(product?: { type?: ProductType | string | null } | null) {
+    return (product?.type ?? ProductType.SIMPLE) === ProductType.BUNDLE;
+  }
+
+  private requireProductBundleService() {
+    if (!this.productBundleService) {
+      throw new Error('ProductBundleService is required for bundle cart availability');
+    }
+    return this.productBundleService;
+  }
+
+  private getAvailableStockForSku(sku: any): number {
+    if (!sku) return 0;
+    if (!this.isBundleProduct(sku.product)) {
+      return Number(sku.stock ?? 0);
+    }
+
+    const bundleItems = sku.product?.bundleItems ?? [];
+    if (bundleItems.length === 0) {
+      return 0;
+    }
+
+    return this.requireProductBundleService().calculateAvailability(
+      bundleItems.map((item: any) => ({
+        stock: Number(item.sku?.stock ?? 0),
+        quantity: Number(item.quantity ?? 0),
+      })),
+    );
+  }
+
+  private getOutOfStockMessage(
+    sku: any,
+    action: 'add_to_cart' | 'increase_quantity' | 'select_checkout',
+  ) {
+    const subject = this.isBundleProduct(sku?.product) ? '组合商品' : '商品';
+    const actionText = action === 'add_to_cart'
+      ? '无法加入购物车'
+      : action === 'increase_quantity'
+        ? '无法增加数量'
+        : '无法选择结算';
+    return `${subject}暂无库存，${actionText}`;
+  }
+
+  private getRemainingStockMessage(sku: any, availableStock: number) {
+    const subject = this.isBundleProduct(sku?.product) ? '组合商品' : '商品';
+    return `${subject}当前仅剩 ${availableStock} 件`;
+  }
+
+  private mapBundleItems(bundleItems: any[] = []) {
+    return bundleItems.map((item: any) => ({
+      skuId: item.skuId,
+      quantity: item.quantity,
+      sku: {
+        id: item.sku?.id ?? '',
+        title: item.sku?.title ?? '',
+        price: item.sku?.price ?? 0,
+        stock: item.sku?.stock ?? 0,
+        weightGram: item.sku?.weightGram ?? 0,
+        product: {
+          id: item.sku?.product?.id ?? '',
+          title: item.sku?.product?.title ?? '',
+          image: item.sku?.product?.media?.[0]?.url ?? null,
+        },
+      },
+    }));
+  }
+
   /** 获取购物车（含商品信息） */
   async getCart(userId: string) {
     const cart = await this.ensureCart(userId);
@@ -118,13 +229,7 @@ export class CartService {
       where: { cartId: cart.id },
       include: {
         sku: {
-          include: {
-            product: {
-              include: {
-                media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
-              },
-            },
-          },
+          include: this.getCartSkuInclude(),
         },
       },
     });
@@ -192,13 +297,14 @@ export class CartService {
     // 验证 SKU 存在且有货
     const sku = await this.prisma.productSKU.findUnique({
       where: { id: skuId },
-      include: { product: true },
+      include: this.getCartSkuInclude(),
     });
     if (!sku) throw new NotFoundException('商品规格不存在');
     if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
     if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
-    if (sku.stock <= 0) {
-      throw new BadRequestException('商品暂无库存，无法加入购物车');
+    const availableStock = this.getAvailableStockForSku(sku);
+    if (availableStock <= 0) {
+      throw new BadRequestException(this.getOutOfStockMessage(sku, 'add_to_cart'));
     }
 
     // 单笔限购校验（放在事务外做初步检查，事务内做精确检查）
@@ -216,13 +322,14 @@ export class CartService {
           async (tx) => {
             const freshSku = await tx.productSKU.findUnique({
               where: { id: skuId },
-              include: { product: true },
+              include: this.getCartSkuInclude(),
             });
             if (!freshSku) throw new NotFoundException('商品规格不存在');
             if (freshSku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
             if (freshSku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
-            if (freshSku.stock <= 0) {
-              throw new BadRequestException('商品暂无库存，无法加入购物车');
+            const freshAvailableStock = this.getAvailableStockForSku(freshSku);
+            if (freshAvailableStock <= 0) {
+              throw new BadRequestException(this.getOutOfStockMessage(freshSku, 'add_to_cart'));
             }
 
             const existing = await tx.cartItem.findFirst({
@@ -236,7 +343,9 @@ export class CartService {
                   `该商品每单限购 ${freshSku.maxPerOrder} 件，购物车已有 ${existing.quantity} 件`,
                 );
               }
-              if (newQty > freshSku.stock) throw new BadRequestException('库存不足');
+              if (newQty > freshAvailableStock) {
+                throw new BadRequestException(this.getRemainingStockMessage(freshSku, freshAvailableStock));
+              }
 
               await tx.cartItem.update({
                 where: { id: existing.id },
@@ -246,7 +355,9 @@ export class CartService {
               if (freshSku.maxPerOrder !== null && quantity > freshSku.maxPerOrder) {
                 throw new BadRequestException(`该商品每单限购 ${freshSku.maxPerOrder} 件`);
               }
-              if (quantity > freshSku.stock) throw new BadRequestException('库存不足');
+              if (quantity > freshAvailableStock) {
+                throw new BadRequestException(this.getRemainingStockMessage(freshSku, freshAvailableStock));
+              }
 
               await tx.cartItem.create({
                 data: { cartId: cart.id, skuId, quantity },
@@ -285,18 +396,19 @@ export class CartService {
 
             const sku = await tx.productSKU.findUnique({
               where: { id: skuId },
-              include: { product: true },
+              include: this.getCartSkuInclude(),
             });
             if (!sku) throw new NotFoundException('商品规格不存在');
             if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
             if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
+            const availableStock = this.getAvailableStockForSku(sku);
 
             const isIncreasingQuantity = quantity > item.quantity;
-            if (isIncreasingQuantity && sku.stock <= 0) {
-              throw new BadRequestException('商品暂无库存，无法增加数量');
+            if (isIncreasingQuantity && availableStock <= 0) {
+              throw new BadRequestException(this.getOutOfStockMessage(sku, 'increase_quantity'));
             }
-            if (isIncreasingQuantity && quantity > sku.stock) {
-              throw new BadRequestException(`商品当前仅剩 ${sku.stock} 件`);
+            if (isIncreasingQuantity && quantity > availableStock) {
+              throw new BadRequestException(this.getRemainingStockMessage(sku, availableStock));
             }
             if (sku.maxPerOrder !== null && quantity > sku.maxPerOrder) {
               throw new BadRequestException(`该商品每单限购 ${sku.maxPerOrder} 件`);
@@ -502,20 +614,24 @@ export class CartService {
 
   private getNormalStockUnavailableReason(item: any): 'OUT_OF_STOCK' | null {
     if (item.isPrize) return null;
-    const stock = Number(item.sku?.stock ?? 0);
+    const stock = this.getAvailableStockForSku(item.sku);
     return stock <= 0 ? 'OUT_OF_STOCK' : null;
   }
 
   private async forceOutOfStockNormalItemsUnselected(cartId: string) {
-    const blocked = await this.prisma.cartItem.findMany({
+    const items = await this.prisma.cartItem.findMany({
       where: {
         cartId,
         isPrize: false,
         isSelected: true,
-        sku: { stock: { lte: 0 } },
       },
-      select: { id: true },
+      include: {
+        sku: {
+          include: this.getCartSkuInclude(),
+        },
+      },
     });
+    const blocked = items.filter((item) => this.getNormalStockUnavailableReason(item) === 'OUT_OF_STOCK');
     const ids = blocked.map((item) => item.id);
     if (ids.length === 0) return;
     await this.prisma.cartItem.updateMany({
@@ -534,15 +650,20 @@ export class CartService {
           async (tx) => {
             const freshItem = await tx.cartItem.findFirst({
               where: { cartId: cart.id, skuId, isPrize: false },
-              include: { sku: true },
+              include: {
+                sku: {
+                  include: this.getCartSkuInclude(),
+                },
+              },
             });
             if (!freshItem) throw new NotFoundException('购物车中没有该商品');
-            if (isSelected && Number(freshItem.sku?.stock ?? 0) <= 0) {
+            const availableStock = this.getAvailableStockForSku(freshItem.sku);
+            if (isSelected && availableStock <= 0) {
               await tx.cartItem.update({
                 where: { id: freshItem.id },
                 data: { isSelected: false },
               });
-              throw new BadRequestException('商品暂无库存，无法选择结算');
+              throw new BadRequestException(this.getOutOfStockMessage(freshItem.sku, 'select_checkout'));
             }
             await tx.cartItem.update({
               where: { id: freshItem.id },
@@ -669,7 +790,7 @@ export class CartService {
     // 验证 SKU 存在且有效
     const sku = await this.prisma.productSKU.findUnique({
       where: { id: item.skuId },
-      include: { product: true },
+      include: this.getCartSkuInclude(),
     });
     if (!sku) {
       this.logger.warn(
@@ -693,7 +814,8 @@ export class CartService {
       );
       return false; // 跳过已下架商品
     }
-    if (sku.stock <= 0) {
+    const availableStock = this.getAvailableStockForSku(sku);
+    if (availableStock <= 0) {
       this.logger.warn(
         JSON.stringify({
           action: 'cart_merge_rejected',
@@ -715,14 +837,18 @@ export class CartService {
           async (tx) => {
             const freshSku = await tx.productSKU.findUnique({
               where: { id: item.skuId },
-              include: { product: true },
+              include: this.getCartSkuInclude(),
             });
             if (
               !freshSku ||
               freshSku.status !== 'ACTIVE' ||
-              freshSku.product.status !== 'ACTIVE' ||
-              freshSku.stock <= 0
+              freshSku.product.status !== 'ACTIVE'
             ) {
+              merged = false;
+              return;
+            }
+            const freshAvailableStock = this.getAvailableStockForSku(freshSku);
+            if (freshAvailableStock <= 0) {
               merged = false;
               return;
             }
@@ -733,16 +859,16 @@ export class CartService {
 
             if (existing) {
               const newQty = existing.quantity + item.quantity;
-              if (newQty > freshSku.stock) {
-                throw new BadRequestException(`商品当前仅剩 ${freshSku.stock} 件`);
+              if (newQty > freshAvailableStock) {
+                throw new BadRequestException(this.getRemainingStockMessage(freshSku, freshAvailableStock));
               }
               await tx.cartItem.update({
                 where: { id: existing.id },
                 data: { quantity: newQty },
               });
             } else {
-              if (item.quantity > freshSku.stock) {
-                throw new BadRequestException(`商品当前仅剩 ${freshSku.stock} 件`);
+              if (item.quantity > freshAvailableStock) {
+                throw new BadRequestException(this.getRemainingStockMessage(freshSku, freshAvailableStock));
               }
               await tx.cartItem.create({
                 data: { cartId: cart.id, skuId: item.skuId, quantity: item.quantity },
@@ -1053,6 +1179,8 @@ export class CartService {
     const product = sku?.product;
     const firstImage = product?.media?.[0]?.url || '';
     const skuPrice = sku?.price || 0;
+    const isBundle = this.isBundleProduct(product);
+    const availableStock = item.isPrize ? Number(sku?.stock ?? 0) : this.getAvailableStockForSku(sku);
 
     // 判断是否为奖品项，若是则从 LotteryRecord 获取奖品价格
     let price = skuPrice;
@@ -1088,7 +1216,7 @@ export class CartService {
       }
     }
     unavailableReason = unavailableReason ?? this.getNormalStockUnavailableReason(item);
-    const isNormalOutOfStock = !item.isPrize && (sku?.stock ?? 0) <= 0;
+    const isNormalOutOfStock = !item.isPrize && availableStock <= 0;
 
     return {
       id: item.id,
@@ -1103,7 +1231,7 @@ export class CartService {
       isSelected: item.isSelected ?? true,
       expiresAt: item.expiresAt ? item.expiresAt.toISOString() : null,
       sku: {
-        stock: sku?.stock || 0,
+        stock: item.isPrize ? (sku?.stock || 0) : availableStock,
         maxPerOrder: sku?.maxPerOrder ?? null,
       },
       stockStatus: isNormalOutOfStock ? 'OUT_OF_STOCK' : 'NORMAL',
@@ -1111,13 +1239,15 @@ export class CartService {
       product: {
         id: product?.id || '',
         title: product?.title || '',
+        type: isBundle ? 'BUNDLE' : (product?.type ?? 'SIMPLE'),
         image: firstImage || null,
         price,
         originalPrice, // 奖品项为 SKU 原价（前端划线展示），普通商品项为 null
-        stock: sku?.stock || 0,
+        stock: availableStock,
         maxPerOrder: sku?.maxPerOrder ?? null,
         categoryId: product?.categoryId || null,
         companyId: product?.companyId || null,
+        bundleItems: isBundle ? this.mapBundleItems(product?.bundleItems ?? []) : [],
       },
     };
   }
