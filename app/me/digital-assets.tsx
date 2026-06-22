@@ -24,7 +24,7 @@ const NON_VIP_ACTIVATION_PROMPT = {
   actionLabel: '开通 VIP 激活资产',
 } as const;
 
-type LedgerTone = 'seed' | 'consumption' | 'spend' | 'refund' | 'adjustment';
+type LedgerTone = 'seed' | 'consumption' | 'frozen' | 'spend' | 'refund' | 'adjustment';
 
 const ASSET_VISUAL = {
   heroGradient: ['#15364B', '#116150', '#C2A03E'] as const,
@@ -48,6 +48,13 @@ const ASSET_VISUAL = {
       border: 'rgba(38,123,147,0.28)',
       icon: 'chart-line',
       badge: '消',
+    },
+    frozen: {
+      color: '#4A79A8',
+      bg: '#E1ECF6',
+      border: 'rgba(74,121,168,0.28)',
+      icon: 'timer-sand',
+      badge: '冻',
     },
     spend: {
       color: '#A87918',
@@ -98,10 +105,13 @@ const formatLedgerAmount = (item: DigitalAssetLedger) => {
 const formatLedgerBalance = (item: DigitalAssetLedger) =>
   isCurrencyLedger(item)
     ? `累计 ${formatCurrency(item.balanceAfter)}`
+    : item.status === 'FROZEN' || item.status === 'VOIDED'
+      ? `冻结 ${formatAssetValue(item.frozenCreditAssetBalanceAfter ?? item.balanceAfter)}`
     : `余额 ${formatAssetValue(item.balanceAfter)}`;
 
 const getLedgerTone = (item: DigitalAssetLedger): LedgerTone => {
   if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'adjustment';
+  if (item.sourceType === 'CONSUMPTION_PAID_FROZEN') return 'frozen';
   if (item.direction === 'DEBIT' || item.sourceType === 'REFUND_REVERSAL') return 'refund';
   if (item.subjectType === 'SEED_ASSET') return 'seed';
   if (item.subjectType === 'CREDIT_ASSET') return 'consumption';
@@ -124,7 +134,7 @@ export default function DigitalAssetsScreen() {
   });
 
   const summary = summaryQuery.data?.ok ? summaryQuery.data.data : null;
-  const loadError = summaryQuery.data && !summaryQuery.data.ok ? summaryQuery.data.error : null;
+  const loadError = summaryQuery.data?.ok === false ? summaryQuery.data.error : null;
   const isVip = summary?.isVip ?? false;
   const recentRecords = (summary?.recentRecords ?? [])
     .filter((item) => isVip || item.subjectType === 'CUMULATIVE_SPEND')
@@ -253,7 +263,11 @@ export default function DigitalAssetsScreen() {
           <View style={styles.heroAssetGrid}>
             {renderAssetTile('种子资产', summary?.seedAssetBalance ?? 0)}
             {renderAssetTile('消费资产', summary?.creditAssetBalance ?? 0)}
+            {renderAssetTile('冻结资产', summary?.frozenCreditAssetBalance ?? 0)}
           </View>
+          {(summary?.frozenCreditAssetBalance ?? 0) > 0 ? (
+            <Text style={styles.heroFrozenHint}>确认收货后释放</Text>
+          ) : null}
         </LinearGradient>
       ) : (
         <LinearGradient
@@ -507,6 +521,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     lineHeight: 25,
     marginTop: 6,
+  },
+  heroFrozenHint: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
   },
   sectionBlock: {
     marginTop: 22,

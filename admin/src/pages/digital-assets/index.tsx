@@ -67,6 +67,9 @@ const subjectMap: Record<DigitalAssetSubjectType, { text: string; color: string 
 const sourceMap: Record<string, { text: string; color: string }> = {
   ORDER_RECEIVED: { text: '确认收货', color: 'green' },
   CONSUMPTION_CONFIRMED: { text: '确认消费', color: 'green' },
+  CONSUMPTION_PAID_FROZEN: { text: '付款冻结', color: 'cyan' },
+  CONSUMPTION_FROZEN_RELEASED: { text: '确认释放', color: 'green' },
+  CONSUMPTION_FROZEN_VOIDED: { text: '冻结作废', color: 'red' },
   REFUND_REVERSAL: { text: '退款扣回', color: 'red' },
   SELF_VIP_PURCHASE: { text: '自购 VIP', color: 'gold' },
   REFERRAL_VIP_PURCHASE: { text: '推荐 VIP', color: 'orange' },
@@ -93,6 +96,9 @@ function formatLedgerAmount(record: DigitalAssetLedger) {
 function formatLedgerBalance(record: DigitalAssetLedger) {
   if (record.subjectType === 'CUMULATIVE_SPEND') {
     return formatCurrency(record.balanceAfter);
+  }
+  if (record.status === 'FROZEN' || record.status === 'VOIDED') {
+    return formatAsset(record.frozenCreditAssetBalanceAfter ?? record.balanceAfter);
   }
   return formatAsset(record.balanceAfter);
 }
@@ -340,6 +346,13 @@ export default function DigitalAssetsPage() {
       render: (_: unknown, record) => formatAsset(record.creditAssetBalance),
     },
     {
+      title: '冻结资产',
+      dataIndex: 'frozenCreditAssetBalance',
+      search: false,
+      width: 120,
+      render: (_: unknown, record) => formatAsset(record.frozenCreditAssetBalance),
+    },
+    {
       title: '累计消费',
       dataIndex: 'cumulativeSpendAmount',
       search: false,
@@ -508,6 +521,16 @@ export default function DigitalAssetsPage() {
           <Card>
             <Statistic
               loading={overviewLoading}
+              title="冻结资产总额"
+              value={overview?.totalFrozenCreditAssetBalance ?? 0}
+              formatter={(value) => formatAsset(Number(value ?? 0))}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic
+              loading={overviewLoading}
               title="累计消费总额"
               value={overview?.totalCumulativeSpendAmount ?? 0}
               precision={2}
@@ -523,6 +546,17 @@ export default function DigitalAssetsPage() {
               value={overview?.todayAssetCreditAmount ?? 0}
               formatter={(value) => formatAsset(Number(value ?? 0))}
               valueStyle={{ color: '#16a34a' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic
+              loading={overviewLoading}
+              title="今日冻结入账"
+              value={overview?.todayFrozenCreditAssetCreditAmount ?? 0}
+              formatter={(value) => formatAsset(Number(value ?? 0))}
+              valueStyle={{ color: '#0891b2' }}
             />
           </Card>
         </Col>
@@ -656,6 +690,9 @@ export default function DigitalAssetsPage() {
                 </Col>
                 <Col xs={24} sm={12}>
                   <Statistic title="消费资产" value={detail.account.creditAssetBalance} formatter={(value) => formatAsset(Number(value ?? 0))} />
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Statistic title="冻结资产" value={detail.account.frozenCreditAssetBalance} formatter={(value) => formatAsset(Number(value ?? 0))} />
                 </Col>
                 <Col xs={24} sm={12}>
                   <Statistic title="累计消费" value={detail.account.cumulativeSpendAmount} precision={2} prefix="¥" />

@@ -192,14 +192,17 @@ describe('AdminDigitalAssetService V2', () => {
         cumulativeSpendAmount: 880.5,
         seedAssetBalance: 3000,
         creditAssetBalance: 4600,
+        frozenCreditAssetBalance: 300,
       },
     });
     prisma.digitalAssetLedger.groupBy.mockResolvedValue([
-      { subjectType: 'CUMULATIVE_SPEND', direction: 'CREDIT', _sum: { amount: 120, assetAmount: null } },
-      { subjectType: 'SEED_ASSET', direction: 'CREDIT', _sum: { amount: 1000, assetAmount: 1000 } },
-      { subjectType: 'CREDIT_ASSET', direction: 'CREDIT', _sum: { amount: 460, assetAmount: 460 } },
-      { subjectType: 'CUMULATIVE_SPEND', direction: 'DEBIT', _sum: { amount: 20, assetAmount: null } },
-      { subjectType: 'CREDIT_ASSET', direction: 'DEBIT', _sum: { amount: 60, assetAmount: 60 } },
+      { subjectType: 'CUMULATIVE_SPEND', direction: 'CREDIT', type: 'CONSUMPTION_FROZEN_RELEASED', _sum: { amount: 120, assetAmount: null } },
+      { subjectType: 'SEED_ASSET', direction: 'CREDIT', type: 'ADMIN_ADJUSTMENT', _sum: { amount: 1000, assetAmount: 1000 } },
+      { subjectType: 'CREDIT_ASSET', direction: 'CREDIT', type: 'CONSUMPTION_FROZEN_RELEASED', _sum: { amount: 460, assetAmount: 460 } },
+      { subjectType: 'CREDIT_ASSET', direction: 'CREDIT', type: 'CONSUMPTION_PAID_FROZEN', _sum: { amount: 300, assetAmount: 300 } },
+      { subjectType: 'CUMULATIVE_SPEND', direction: 'DEBIT', type: 'REFUND_REVERSAL', _sum: { amount: 20, assetAmount: null } },
+      { subjectType: 'CREDIT_ASSET', direction: 'DEBIT', type: 'REFUND_REVERSAL', _sum: { amount: 60, assetAmount: 60 } },
+      { subjectType: 'CREDIT_ASSET', direction: 'DEBIT', type: 'CONSUMPTION_FROZEN_VOIDED', _sum: { amount: 20, assetAmount: 20 } },
     ]);
 
     await expect(service.getOverview()).resolves.toEqual(expect.objectContaining({
@@ -207,12 +210,14 @@ describe('AdminDigitalAssetService V2', () => {
       totalCumulativeSpendAmount: 880.5,
       totalSeedAssetBalance: 3000,
       totalCreditAssetBalance: 4600,
+      totalFrozenCreditAssetBalance: 300,
       totalAssetBalance: 7600,
       todayCumulativeSpendCreditAmount: 120,
       todayCumulativeSpendDebitAmount: 20,
       todaySeedAssetCreditAmount: 1000,
       todaySeedAssetDebitAmount: 0,
       todayCreditAssetCreditAmount: 460,
+      todayFrozenCreditAssetCreditAmount: 300,
       todayCreditAssetDebitAmount: 60,
       todayAssetCreditAmount: 1460,
       todayAssetDebitAmount: 60,
@@ -264,6 +269,7 @@ describe('AdminDigitalAssetService V2', () => {
         cumulativeSpendAmount: 880.5,
         seedAssetBalance: 3000,
         creditAssetBalance: 4600,
+        frozenCreditAssetBalance: 120,
         updatedAt: new Date('2026-06-16T01:00:00.000Z'),
         user: {
           buyerNo: 'AIMM20260616000001',
@@ -277,12 +283,13 @@ describe('AdminDigitalAssetService V2', () => {
     const csv = await service.exportAccounts({});
 
     expect(csv.split('\n')[0]).toBe(
-      '买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,消费资产,累计消费,账户更新时间',
+      '买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,消费资产,冻结资产,累计消费,账户更新时间',
     );
     expect(csv).toContain('VIP');
     expect(csv).toContain('7600');
     expect(csv).toContain('3000');
     expect(csv).toContain('4600');
+    expect(csv).toContain('120');
   });
 
   it('getAccount returns raw V2 balances for VIP admins', async () => {

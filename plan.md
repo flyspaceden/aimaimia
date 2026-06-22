@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-18
+> **最后更新**: 2026-06-21
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -20,6 +20,11 @@
 | 时间 | 无硬 deadline，质量优先 |
 
 ### 近期完成补充
+
+- [x] **数字资产付款冻结与确认释放**（2026-06-21 新增并完成）
+  - **来源**: 用户要求普通商品付款后立即在数字资产页看到消费资产记录，但处于冻结状态，并显示“确认收货后释放”；确认收货后再释放为正式消费资产。
+  - **实际做了**: 后端新增 `frozenCreditAssetBalance` / `frozenCumulativeSpendAmount` 与冻结、释放、作废三类流水；普通商品支付成功建单后触发冻结消费资产，确认收货优先释放冻结资产，确认前退款/取消作废冻结资产，确认后退款继续扣回已释放资产；数字资产总额仍只统计种子资产 + 已释放消费资产；买家 App 数字资产页和资产流水页展示冻结资产、释放提示和冻结分类；管理后台总览、账户列表、详情、导出和流水来源同步冻结资产口径。
+  - **验证**: `cd backend && npm test -- digital-asset-v2.service.spec.ts checkout-digital-asset.spec.ts --runInBand`、`cd backend && DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai?schema=public' npx prisma validate`、`cd backend && DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai?schema=public' npm run build`、`cd admin && npm run build` 通过；根目录目标文件 TypeScript 检查命中既有 `BonusRepo` / `LotteryRepo` / `useAuthStore` 类型问题，资产页自身无新增 TypeScript 报错。
 
 - [x] **资产流水分类 Tab 与类型配色**（2026-06-19 新增并完成）
   - **来源**: 用户要求资产流水里加 Tab 切换不同种类，下面不同类使用不同颜色

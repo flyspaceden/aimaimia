@@ -23,6 +23,13 @@ type LedgerDirection = 'CREDIT' | 'DEBIT';
 type ReceiveSource = 'ORDER_RECEIVED' | 'BACKFILL';
 type AdminAdjustSubjectType = DigitalAssetSubjectType;
 type RefundReversalFailureSource = 'AFTER_SALE_REFUND' | 'AUTO_REFUND' | string;
+type AllocationSnapshot = {
+  orderItemId: string;
+  skuId: string | null;
+  quantity: number;
+  grossAmount: number;
+  assetAmount: number;
+};
 
 const SERIALIZABLE_MAX_RETRIES = 3;
 const REFUND_REVERSAL_RETRY_DELAY_MS = 10 * 60_000;
@@ -63,8 +70,111 @@ export class DigitalAssetService {
     await this.recordOrderReceived(orderId, source);
   }
 
+  async recordOrderPaid(orderId: string): Promise<void> {
+    await this.withSerializableRetry(async (tx) => {
+      const idempotencyKey = `order:${orderId}:credit-asset-frozen`;
+      const existing = await tx.digitalAssetLedger.findUnique({ where: { idempotencyKey } });
+      if (existing) return;
+
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      });
+      if (!order) throw new NotFoundException('订单不存在');
+      if ((order as any).bizType === 'VIP_PACKAGE') return;
+      if (['CANCELED', 'REFUNDED'].includes(order.status)) return;
+      if (Boolean((order as any).receivedAt) || order.status === 'RECEIVED') return;
+
+      const member = tx.memberProfile?.findUnique
+        ? await tx.memberProfile.findUnique({ where: { userId: order.userId } })
+        : null;
+      if (member?.tier !== 'VIP') return;
+
+      const cumulativeSpendAmount = calculateOrderAssetAmount(order as any);
+      if (cumulativeSpendAmount <= 0) return;
+
+      const account = await this.findOrCreateAccount(tx, order.userId);
+      const tiers = await this.getCreditTiers(tx);
+      const previousCumulativeSpend = roundMoney(
+        (account.cumulativeSpendAmount ?? 0) + (account.frozenCumulativeSpendAmount ?? 0),
+      );
+      const creditResult = calculateCreditAsset({
+        previousCumulativeSpend,
+        addedSpend: cumulativeSpendAmount,
+        tiers,
+      });
+      if (creditResult.assetAmount <= 0) return;
+
+      const spendAllocations = allocateOrderAssetAmount({
+        orderAssetAmount: cumulativeSpendAmount,
+        items: (order.items ?? []).map((item: any) => ({
+          orderItemId: item.id,
+          skuId: item.skuId ?? null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          isPrize: Boolean(item.isPrize),
+          createdAt: item.createdAt,
+        })),
+      });
+      const creditAllocations = this.allocateFromExistingAllocations(
+        spendAllocations.allocations,
+        creditResult.assetAmount,
+      );
+      const nextFrozenCreditAssetBalance =
+        (account.frozenCreditAssetBalance ?? 0) + creditResult.assetAmount;
+      const nextFrozenCumulativeSpendAmount = roundMoney(
+        (account.frozenCumulativeSpendAmount ?? 0) + cumulativeSpendAmount,
+      );
+
+      await tx.digitalAssetLedger.create({
+        data: {
+          accountId: account.id,
+          userId: order.userId,
+          type: 'CONSUMPTION_PAID_FROZEN',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: creditResult.assetAmount,
+          assetAmount: creditResult.assetAmount,
+          balanceAfter: nextFrozenCreditAssetBalance,
+          cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+          seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
+          creditAssetBalanceAfter: account.creditAssetBalance ?? 0,
+          frozenCreditAssetBalanceAfter: nextFrozenCreditAssetBalance,
+          frozenCumulativeSpendAfter: nextFrozenCumulativeSpendAmount,
+          orderId,
+          idempotencyKey,
+          ruleSnapshot: {
+            tiers,
+            segments: creditResult.segments,
+            rawAssetAmount: creditResult.rawAssetAmount,
+          },
+          meta: {
+            itemAllocations: creditAllocations.allocations,
+            spendItemAllocations: spendAllocations.allocations,
+            residualOrderItemId: creditAllocations.residualOrderItemId,
+            spendResidualOrderItemId: spendAllocations.residualOrderItemId,
+            cumulativeSpendAmount,
+            releaseHint: '确认收货后释放',
+            source: 'ORDER_PAID',
+          },
+        },
+      });
+
+      await tx.digitalAssetAccount.update({
+        where: { id: account.id },
+        data: {
+          frozenCreditAssetBalance: nextFrozenCreditAssetBalance,
+          frozenCumulativeSpendAmount: nextFrozenCumulativeSpendAmount,
+        },
+      });
+    });
+  }
+
   async recordOrderReceived(orderId: string, source: ReceiveSource): Promise<void> {
     await this.withSerializableRetry(async (tx) => {
+      const releasedFrozen = await this.releaseFrozenOrderCredit(tx, orderId, source);
+      if (releasedFrozen) return;
+
       const cumulativeIdempotencyKey = `order:${orderId}:spend-credit`;
       const legacyCumulativeIdempotencyKey = `order:${orderId}:cumulative-spend-credit`;
       const creditIdempotencyKey = `order:${orderId}:credit-asset`;
@@ -131,6 +241,8 @@ export class DigitalAssetService {
             cumulativeSpendAfter: nextCumulativeSpendAmount,
             seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
             creditAssetBalanceAfter: account.creditAssetBalance ?? 0,
+            frozenCreditAssetBalanceAfter: account.frozenCreditAssetBalance ?? 0,
+            frozenCumulativeSpendAfter: account.frozenCumulativeSpendAmount ?? 0,
             orderId,
             idempotencyKey: cumulativeIdempotencyKey,
             meta: {
@@ -170,6 +282,8 @@ export class DigitalAssetService {
               cumulativeSpendAfter: nextCumulativeSpendAmount,
               seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
               creditAssetBalanceAfter: nextCreditAssetBalance,
+              frozenCreditAssetBalanceAfter: account.frozenCreditAssetBalance ?? 0,
+              frozenCumulativeSpendAfter: account.frozenCumulativeSpendAmount ?? 0,
               orderId,
               idempotencyKey: creditIdempotencyKey,
               ruleSnapshot: {
@@ -219,6 +333,13 @@ export class DigitalAssetService {
         });
       const afterSaleId = refund.afterSaleId ?? afterSale?.id ?? null;
 
+      await this.writeFrozenCreditVoid(tx, {
+        idempotencyKey: `refund:${refundId}:digital-asset-frozen-void:credit`,
+        refund,
+        refundId,
+        afterSale,
+        afterSaleId,
+      });
       await this.writeRefundReversal(tx, {
         subjectType: 'CUMULATIVE_SPEND',
         idempotencyKey: `refund:${refundId}:digital-asset-reversal:cumulative`,
@@ -383,6 +504,13 @@ export class DigitalAssetService {
       });
       if (!currentAfterSale) throw new NotFoundException('售后单不存在');
 
+      await this.writeFrozenCreditVoid(tx, {
+        idempotencyKey: `after-sale:${afterSaleId}:digital-asset-frozen-void:credit`,
+        refund: null,
+        refundId: null,
+        afterSale: currentAfterSale,
+        afterSaleId,
+      });
       await this.writeRefundReversal(tx, {
         subjectType: 'CUMULATIVE_SPEND',
         idempotencyKey: `after-sale:${afterSaleId}:cumulative-spend-reversal`,
@@ -733,10 +861,12 @@ export class DigitalAssetService {
 
     const seedAssetBalance = account.seedAssetBalance ?? 0;
     const creditAssetBalance = account.creditAssetBalance ?? 0;
-    if (seedAssetBalance <= 0 && creditAssetBalance <= 0) return;
+    const frozenCreditAssetBalance = account.frozenCreditAssetBalance ?? 0;
+    if (seedAssetBalance <= 0 && creditAssetBalance <= 0 && frozenCreditAssetBalance <= 0) return;
 
     let nextSeedAssetBalance = seedAssetBalance;
     let nextCreditAssetBalance = creditAssetBalance;
+    let nextFrozenCreditAssetBalance = frozenCreditAssetBalance;
 
     if (seedAssetBalance > 0) {
       const seedKey = `${params.idempotencyKey}:seed`;
@@ -756,6 +886,8 @@ export class DigitalAssetService {
             cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
             seedAssetBalanceAfter: nextSeedAssetBalance,
             creditAssetBalanceAfter: nextCreditAssetBalance,
+            frozenCreditAssetBalanceAfter: nextFrozenCreditAssetBalance,
+            frozenCumulativeSpendAfter: account.frozenCumulativeSpendAmount ?? 0,
             adminUserId: params.adminUserId ?? null,
             reason: params.reason,
             idempotencyKey: seedKey,
@@ -789,6 +921,8 @@ export class DigitalAssetService {
             cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
             seedAssetBalanceAfter: nextSeedAssetBalance,
             creditAssetBalanceAfter: nextCreditAssetBalance,
+            frozenCreditAssetBalanceAfter: nextFrozenCreditAssetBalance,
+            frozenCumulativeSpendAfter: account.frozenCumulativeSpendAmount ?? 0,
             adminUserId: params.adminUserId ?? null,
             reason: params.reason,
             idempotencyKey: creditKey,
@@ -804,11 +938,50 @@ export class DigitalAssetService {
       }
     }
 
+    if (frozenCreditAssetBalance > 0) {
+      const frozenCreditKey = `${params.idempotencyKey}:frozen-credit`;
+      const existingFrozenCreditLedger = await tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: frozenCreditKey } });
+      if (!existingFrozenCreditLedger) {
+        nextFrozenCreditAssetBalance = 0;
+        await tx.digitalAssetLedger.create({
+          data: {
+            accountId: account.id,
+            userId: params.userId,
+            type: 'ADMIN_ADJUSTMENT',
+            subjectType: 'CREDIT_ASSET',
+            direction: 'DEBIT',
+            amount: frozenCreditAssetBalance,
+            assetAmount: frozenCreditAssetBalance,
+            balanceAfter: nextFrozenCreditAssetBalance,
+            cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+            seedAssetBalanceAfter: nextSeedAssetBalance,
+            creditAssetBalanceAfter: nextCreditAssetBalance,
+            frozenCreditAssetBalanceAfter: nextFrozenCreditAssetBalance,
+            frozenCumulativeSpendAfter: 0,
+            adminUserId: params.adminUserId ?? null,
+            reason: params.reason,
+            idempotencyKey: frozenCreditKey,
+            meta: {
+              reason: params.reason,
+              clearFrozen: true,
+              originalSeedAssetBalance: seedAssetBalance,
+              originalCreditAssetBalance: creditAssetBalance,
+              originalFrozenCreditAssetBalance: frozenCreditAssetBalance,
+            },
+          },
+        });
+      } else {
+        nextFrozenCreditAssetBalance = 0;
+      }
+    }
+
     await tx.digitalAssetAccount.update({
       where: { id: account.id },
       data: {
         seedAssetBalance: nextSeedAssetBalance,
         creditAssetBalance: nextCreditAssetBalance,
+        frozenCreditAssetBalance: nextFrozenCreditAssetBalance,
+        frozenCumulativeSpendAmount: 0,
       },
     });
   }
@@ -827,6 +1000,7 @@ export class DigitalAssetService {
     const isVip = member?.tier === 'VIP';
     const seedAssetBalance = isVip ? account?.seedAssetBalance ?? 0 : 0;
     const creditAssetBalance = isVip ? account?.creditAssetBalance ?? 0 : 0;
+    const frozenCreditAssetBalance = isVip ? account?.frozenCreditAssetBalance ?? 0 : 0;
     const totalAssetBalance = seedAssetBalance + creditAssetBalance;
     const currentCreditTier = this.getCurrentCreditTierInfo(cumulativeSpendAmount, tiers);
     const nextCreditTier = this.getNextCreditTierInfo(cumulativeSpendAmount, tiers);
@@ -836,6 +1010,7 @@ export class DigitalAssetService {
       totalAssetBalance,
       seedAssetBalance,
       creditAssetBalance,
+      frozenCreditAssetBalance,
       cumulativeSpendAmount,
       activationPrompt: isVip ? undefined : ACTIVATION_PROMPT,
       currentCreditTier,
@@ -972,7 +1147,12 @@ export class DigitalAssetService {
     if (!account) return;
 
     const creditLedgers = await tx.digitalAssetLedger.findMany({
-      where: { orderId, direction: 'CREDIT', subjectType: params.subjectType },
+      where: {
+        orderId,
+        direction: 'CREDIT',
+        subjectType: params.subjectType,
+        type: { in: this.getReleasedCreditLedgerTypes(params.subjectType) },
+      },
     });
     const itemAllocations = creditLedgers.flatMap((ledger: any) => (ledger.meta?.itemAllocations ?? []) as any[]);
     if (itemAllocations.length === 0) return;
@@ -984,7 +1164,12 @@ export class DigitalAssetService {
     ) as any[]);
 
     const debitLedgers = await tx.digitalAssetLedger.findMany({
-      where: { orderId, direction: 'DEBIT', subjectType: params.subjectType },
+      where: {
+        orderId,
+        direction: 'DEBIT',
+        subjectType: params.subjectType,
+        type: 'REFUND_REVERSAL',
+      },
     });
     const alreadyReversedByItem = new Map<string, number>();
     for (const ledger of debitLedgers) {
@@ -1038,6 +1223,8 @@ export class DigitalAssetService {
         cumulativeSpendAfter: nextCumulativeSpendAmount,
         seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
         creditAssetBalanceAfter: nextCreditAssetBalance,
+        frozenCreditAssetBalanceAfter: account.frozenCreditAssetBalance ?? 0,
+        frozenCumulativeSpendAfter: account.frozenCumulativeSpendAmount ?? 0,
         orderId,
         refundId: params.refundId,
         afterSaleId: params.afterSaleId,
@@ -1054,6 +1241,337 @@ export class DigitalAssetService {
         creditAssetBalance: nextCreditAssetBalance,
       },
     });
+  }
+
+  private async releaseFrozenOrderCredit(tx: any, orderId: string, source: ReceiveSource): Promise<boolean> {
+    const position = await this.getFrozenOrderPosition(tx, orderId);
+    if (!position) return false;
+
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) throw new NotFoundException('订单不存在');
+
+    const hasReceivedFact = Boolean((order as any).receivedAt) || order.status === 'RECEIVED';
+    if (!hasReceivedFact) {
+      if (source === 'BACKFILL') {
+        this.logger.warn(`跳过无收货事实订单数字资产冻结释放: orderId=${orderId}`);
+        return true;
+      }
+      throw new BadRequestException('订单尚未确认收货，不能释放冻结数字资产');
+    }
+
+    const releaseIdempotencyKey = `order:${orderId}:credit-asset-release`;
+    const cumulativeIdempotencyKey = `order:${orderId}:spend-credit`;
+    const legacyCumulativeIdempotencyKey = `order:${orderId}:cumulative-spend-credit`;
+    const [existingRelease, existingCumulative, existingLegacyCumulative] = await Promise.all([
+      tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: releaseIdempotencyKey } }),
+      tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: cumulativeIdempotencyKey } }),
+      tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: legacyCumulativeIdempotencyKey } }),
+    ]);
+    if (existingRelease) return true;
+    if (position.remainingCreditAmount <= 0 && position.remainingSpendAmount <= 0) return true;
+
+    const account = await this.findOrCreateAccount(tx, order.userId);
+    const shouldCreditCumulative = !existingCumulative && !existingLegacyCumulative && position.remainingSpendAmount > 0;
+    const shouldReleaseCredit = position.remainingCreditAmount > 0;
+    const shouldReduceFrozenSpend = position.remainingSpendAmount > 0;
+    const nextCumulativeSpendAmount = shouldCreditCumulative
+      ? roundMoney((account.cumulativeSpendAmount ?? 0) + position.remainingSpendAmount)
+      : account.cumulativeSpendAmount ?? 0;
+    const nextCreditAssetBalance = shouldReleaseCredit
+      ? (account.creditAssetBalance ?? 0) + position.remainingCreditAmount
+      : account.creditAssetBalance ?? 0;
+    const nextFrozenCreditAssetBalance = shouldReleaseCredit
+      ? (account.frozenCreditAssetBalance ?? 0) - position.remainingCreditAmount
+      : account.frozenCreditAssetBalance ?? 0;
+    const nextFrozenCumulativeSpendAmount = shouldReduceFrozenSpend
+      ? roundMoney((account.frozenCumulativeSpendAmount ?? 0) - position.remainingSpendAmount)
+      : account.frozenCumulativeSpendAmount ?? 0;
+    if (nextFrozenCreditAssetBalance < 0) throw new BadRequestException('冻结消费资产不能扣成负数');
+    if (nextFrozenCumulativeSpendAmount < 0) throw new BadRequestException('冻结累计消费不能扣成负数');
+
+    if (shouldCreditCumulative) {
+      await tx.digitalAssetLedger.create({
+        data: {
+          accountId: account.id,
+          userId: order.userId,
+          type: source === 'BACKFILL' ? 'BACKFILL' : 'CONSUMPTION_CONFIRMED',
+          subjectType: 'CUMULATIVE_SPEND',
+          direction: 'CREDIT',
+          amount: position.remainingSpendAmount,
+          balanceAfter: nextCumulativeSpendAmount,
+          cumulativeSpendAfter: nextCumulativeSpendAmount,
+          seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
+          creditAssetBalanceAfter: account.creditAssetBalance ?? 0,
+          frozenCreditAssetBalanceAfter: account.frozenCreditAssetBalance ?? 0,
+          frozenCumulativeSpendAfter: nextFrozenCumulativeSpendAmount,
+          orderId,
+          idempotencyKey: cumulativeIdempotencyKey,
+          meta: {
+            itemAllocations: position.spendAllocations,
+            source,
+            frozenLedgerIds: position.frozenLedgerIds,
+            legacyIdempotencyKey: legacyCumulativeIdempotencyKey,
+          },
+        },
+      });
+    }
+
+    if (shouldReleaseCredit) {
+      await tx.digitalAssetLedger.create({
+        data: {
+          accountId: account.id,
+          userId: order.userId,
+          type: 'CONSUMPTION_FROZEN_RELEASED',
+          subjectType: 'CREDIT_ASSET',
+          direction: 'CREDIT',
+          amount: position.remainingCreditAmount,
+          assetAmount: position.remainingCreditAmount,
+          balanceAfter: nextCreditAssetBalance,
+          cumulativeSpendAfter: nextCumulativeSpendAmount,
+          seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
+          creditAssetBalanceAfter: nextCreditAssetBalance,
+          frozenCreditAssetBalanceAfter: nextFrozenCreditAssetBalance,
+          frozenCumulativeSpendAfter: nextFrozenCumulativeSpendAmount,
+          orderId,
+          idempotencyKey: releaseIdempotencyKey,
+          ruleSnapshot: position.ruleSnapshot,
+          meta: {
+            itemAllocations: position.creditAllocations,
+            spendItemAllocations: position.spendAllocations,
+            cumulativeSpendAmount: position.remainingSpendAmount,
+            source,
+            frozenLedgerIds: position.frozenLedgerIds,
+          },
+        },
+      });
+    }
+
+    await tx.digitalAssetAccount.update({
+      where: { id: account.id },
+      data: {
+        cumulativeSpendAmount: nextCumulativeSpendAmount,
+        creditAssetBalance: nextCreditAssetBalance,
+        frozenCreditAssetBalance: nextFrozenCreditAssetBalance,
+        frozenCumulativeSpendAmount: nextFrozenCumulativeSpendAmount,
+      },
+    });
+    return true;
+  }
+
+  private async writeFrozenCreditVoid(tx: any, params: {
+    idempotencyKey: string;
+    refund: any | null;
+    refundId: string | null;
+    afterSale: any | null;
+    afterSaleId: string | null;
+  }) {
+    const existing = await tx.digitalAssetLedger.findUnique({
+      where: { idempotencyKey: params.idempotencyKey },
+    });
+    if (existing) return;
+
+    const orderId = params.refund?.orderId ?? params.afterSale?.orderId;
+    if (!orderId) return;
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order || (order as any).bizType === 'VIP_PACKAGE') return;
+
+    const position = await this.getFrozenOrderPosition(tx, orderId);
+    if (!position || position.remainingCreditAmount <= 0 || position.remainingSpendAmount <= 0) return;
+
+    const account = await tx.digitalAssetAccount.findUnique({ where: { userId: order.userId } });
+    if (!account) return;
+
+    const creditReversedItems = this.calculateReversedItems({
+      subjectType: 'CREDIT_ASSET',
+      refund: params.refund,
+      afterSale: params.afterSale,
+      itemAllocations: position.creditAllocations,
+      spendItemAllocations: position.spendAllocations,
+      alreadyReversedByItem: new Map(),
+      orderRemainingAmount: position.remainingCreditAmount,
+    });
+    const spendReversedItems = this.calculateReversedItems({
+      subjectType: 'CUMULATIVE_SPEND',
+      refund: params.refund,
+      afterSale: params.afterSale,
+      itemAllocations: position.spendAllocations,
+      spendItemAllocations: position.spendAllocations,
+      alreadyReversedByItem: new Map(),
+      orderRemainingAmount: position.remainingSpendAmount,
+    });
+    const amount = roundAsset(creditReversedItems.reduce((sum, item) => sum + item.reversedAmount, 0));
+    const spendAmount = roundMoney(spendReversedItems.reduce((sum, item) => sum + item.reversedAmount, 0));
+    if (amount <= 0 || spendAmount <= 0) return;
+
+    const nextFrozenCreditAssetBalance = (account.frozenCreditAssetBalance ?? 0) - amount;
+    const nextFrozenCumulativeSpendAmount = roundMoney(
+      (account.frozenCumulativeSpendAmount ?? 0) - spendAmount,
+    );
+    if (nextFrozenCreditAssetBalance < 0) throw new BadRequestException('冻结消费资产不能扣成负数');
+    if (nextFrozenCumulativeSpendAmount < 0) throw new BadRequestException('冻结累计消费不能扣成负数');
+
+    await tx.digitalAssetLedger.create({
+      data: {
+        accountId: account.id,
+        userId: order.userId,
+        type: 'CONSUMPTION_FROZEN_VOIDED',
+        subjectType: 'CREDIT_ASSET',
+        direction: 'DEBIT',
+        amount,
+        assetAmount: amount,
+        balanceAfter: nextFrozenCreditAssetBalance,
+        cumulativeSpendAfter: account.cumulativeSpendAmount ?? 0,
+        seedAssetBalanceAfter: account.seedAssetBalance ?? 0,
+        creditAssetBalanceAfter: account.creditAssetBalance ?? 0,
+        frozenCreditAssetBalanceAfter: nextFrozenCreditAssetBalance,
+        frozenCumulativeSpendAfter: nextFrozenCumulativeSpendAmount,
+        orderId,
+        refundId: params.refundId,
+        afterSaleId: params.afterSaleId,
+        idempotencyKey: params.idempotencyKey,
+        meta: {
+          reversedItems: creditReversedItems,
+          spendReversedItems,
+          cumulativeSpendAmount: spendAmount,
+          frozenLedgerIds: position.frozenLedgerIds,
+        },
+      },
+    });
+
+    await tx.digitalAssetAccount.update({
+      where: { id: account.id },
+      data: {
+        frozenCreditAssetBalance: nextFrozenCreditAssetBalance,
+        frozenCumulativeSpendAmount: nextFrozenCumulativeSpendAmount,
+      },
+    });
+  }
+
+  private async getFrozenOrderPosition(tx: any, orderId: string): Promise<{
+    frozenLedgerIds: string[];
+    remainingCreditAmount: number;
+    remainingSpendAmount: number;
+    creditAllocations: AllocationSnapshot[];
+    spendAllocations: AllocationSnapshot[];
+    ruleSnapshot: any;
+  } | null> {
+    const ledgers = await tx.digitalAssetLedger.findMany({
+      where: {
+        orderId,
+        subjectType: 'CREDIT_ASSET',
+        type: {
+          in: [
+            'CONSUMPTION_PAID_FROZEN',
+            'CONSUMPTION_FROZEN_RELEASED',
+            'CONSUMPTION_FROZEN_VOIDED',
+          ],
+        },
+      },
+    });
+    const frozenLedgers = ledgers.filter((ledger: any) => ledger.type === 'CONSUMPTION_PAID_FROZEN');
+    if (frozenLedgers.length === 0) return null;
+    const closedLedgers = ledgers.filter((ledger: any) =>
+      ledger.type === 'CONSUMPTION_FROZEN_RELEASED' || ledger.type === 'CONSUMPTION_FROZEN_VOIDED',
+    );
+
+    const totalFrozenCredit = roundAsset(
+      frozenLedgers.reduce((sum: number, ledger: any) => sum + this.getLedgerAssetAmount(ledger), 0),
+    );
+    const totalFrozenSpend = roundMoney(
+      frozenLedgers.reduce((sum: number, ledger: any) => sum + this.getLedgerSpendAmount(ledger), 0),
+    );
+    const closedCredit = roundAsset(
+      closedLedgers.reduce((sum: number, ledger: any) => sum + this.getLedgerAssetAmount(ledger), 0),
+    );
+    const closedSpend = roundMoney(
+      closedLedgers.reduce((sum: number, ledger: any) => sum + this.getLedgerSpendAmount(ledger), 0),
+    );
+
+    let creditAllocations = this.collectLedgerAllocations(frozenLedgers, 'itemAllocations');
+    let spendAllocations = this.collectLedgerAllocations(frozenLedgers, 'spendItemAllocations');
+    for (const ledger of closedLedgers) {
+      creditAllocations = this.subtractAllocations(
+        creditAllocations,
+        ledger.meta?.reversedItems ?? ledger.meta?.itemAllocations ?? [],
+      );
+      spendAllocations = this.subtractAllocations(
+        spendAllocations,
+        ledger.meta?.spendReversedItems ?? ledger.meta?.spendItemAllocations ?? [],
+      );
+    }
+
+    return {
+      frozenLedgerIds: frozenLedgers.map((ledger: any) => ledger.id),
+      remainingCreditAmount: Math.max(0, roundAsset(totalFrozenCredit - closedCredit)),
+      remainingSpendAmount: Math.max(0, roundMoney(totalFrozenSpend - closedSpend)),
+      creditAllocations,
+      spendAllocations,
+      ruleSnapshot: frozenLedgers[frozenLedgers.length - 1]?.ruleSnapshot ?? null,
+    };
+  }
+
+  private getReleasedCreditLedgerTypes(subjectType: DigitalAssetSubjectType): string[] {
+    if (subjectType === 'CREDIT_ASSET') {
+      return ['CONSUMPTION_CONFIRMED', 'CONSUMPTION_FROZEN_RELEASED', 'ORDER_RECEIVED', 'BACKFILL'];
+    }
+    return ['CONSUMPTION_CONFIRMED', 'ORDER_RECEIVED', 'BACKFILL'];
+  }
+
+  private getLedgerAssetAmount(ledger: any): number {
+    return roundAsset(ledger.assetAmount ?? ledger.amount ?? 0);
+  }
+
+  private getLedgerSpendAmount(ledger: any): number {
+    if (typeof ledger.meta?.cumulativeSpendAmount === 'number') {
+      return roundMoney(ledger.meta.cumulativeSpendAmount);
+    }
+    const spendAllocations = ledger.meta?.spendItemAllocations ?? ledger.meta?.spendReversedItems ?? [];
+    if (Array.isArray(spendAllocations) && spendAllocations.length > 0) {
+      return roundMoney(spendAllocations.reduce((sum: number, item: any) =>
+        sum + Number(item.assetAmount ?? item.reversedAmount ?? 0), 0));
+    }
+    return 0;
+  }
+
+  private collectLedgerAllocations(ledgers: any[], key: 'itemAllocations' | 'spendItemAllocations'): AllocationSnapshot[] {
+    const byItem = new Map<string, AllocationSnapshot>();
+    for (const ledger of ledgers) {
+      const allocations = ledger.meta?.[key] ?? [];
+      for (const allocation of allocations) {
+        const current = byItem.get(allocation.orderItemId) ?? {
+          orderItemId: allocation.orderItemId,
+          skuId: allocation.skuId ?? null,
+          quantity: allocation.quantity ?? 0,
+          grossAmount: allocation.grossAmount ?? 0,
+          assetAmount: 0,
+        };
+        current.assetAmount = roundMoney(current.assetAmount + Number(allocation.assetAmount ?? 0));
+        byItem.set(current.orderItemId, current);
+      }
+    }
+    return [...byItem.values()].filter((item) => item.assetAmount > 0);
+  }
+
+  private subtractAllocations(
+    allocations: AllocationSnapshot[],
+    reductions: Array<{ orderItemId: string; assetAmount?: number; reversedAmount?: number }>,
+  ): AllocationSnapshot[] {
+    const byItem = new Map(allocations.map((item) => [item.orderItemId, { ...item }]));
+    for (const reduction of reductions) {
+      const current = byItem.get(reduction.orderItemId);
+      if (!current) continue;
+      current.assetAmount = roundMoney(
+        current.assetAmount - Number(reduction.assetAmount ?? reduction.reversedAmount ?? 0),
+      );
+      byItem.set(current.orderItemId, current);
+    }
+    return [...byItem.values()].filter((item) => item.assetAmount > 0);
   }
 
   private calculateReversedItems(params: {
@@ -1316,6 +1834,8 @@ export class DigitalAssetService {
         cumulativeSpendAmount: 0,
         seedAssetBalance: 0,
         creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        frozenCumulativeSpendAmount: 0,
         historicalCreditGrantedAt: null,
         historicalCreditGrantLedgerId: null,
       },
@@ -1332,17 +1852,31 @@ export class DigitalAssetService {
       amount: ledger.amount,
       assetAmount: ledger.assetAmount ?? null,
       balanceAfter: ledger.balanceAfter,
+      frozenCreditAssetBalanceAfter: ledger.frozenCreditAssetBalanceAfter ?? null,
+      frozenCumulativeSpendAfter: ledger.frozenCumulativeSpendAfter ?? null,
+      status: this.getLedgerStatus(ledger),
+      releaseHint: ledger.type === 'CONSUMPTION_PAID_FROZEN' ? '确认收货后释放' : undefined,
       title: this.getLedgerTitle(ledger),
-      description: ledger.reason ?? undefined,
+      description: ledger.reason ?? (ledger.type === 'CONSUMPTION_PAID_FROZEN' ? '确认收货后释放' : undefined),
       orderId: ledger.orderId ?? undefined,
       createdAt: ledger.createdAt,
     };
+  }
+
+  private getLedgerStatus(ledger: any): string | undefined {
+    if (ledger.type === 'CONSUMPTION_PAID_FROZEN') return 'FROZEN';
+    if (ledger.type === 'CONSUMPTION_FROZEN_RELEASED') return 'RELEASED';
+    if (ledger.type === 'CONSUMPTION_FROZEN_VOIDED') return 'VOIDED';
+    return undefined;
   }
 
   private getLedgerTitle(ledger: any): string {
     if (ledger.type === 'SELF_VIP_PURCHASE') return '自购 VIP 种子资产';
     if (ledger.type === 'REFERRAL_VIP_PURCHASE') return '推荐 VIP 种子资产';
     if (ledger.type === 'HISTORICAL_CONSUMPTION_GRANT') return '历史消费转入';
+    if (ledger.type === 'CONSUMPTION_PAID_FROZEN') return '消费资产冻结';
+    if (ledger.type === 'CONSUMPTION_FROZEN_RELEASED') return '消费资产释放';
+    if (ledger.type === 'CONSUMPTION_FROZEN_VOIDED') return '冻结资产作废';
     if (ledger.type === 'REFUND_REVERSAL') return '退款扣回';
     if (ledger.type === 'ADMIN_ADJUSTMENT') return '后台调整';
     if (ledger.type === 'CONSUMPTION_CONFIRMED' || ledger.type === 'ORDER_RECEIVED' || ledger.type === 'BACKFILL') {

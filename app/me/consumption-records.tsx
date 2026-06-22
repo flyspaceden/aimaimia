@@ -22,7 +22,7 @@ import type { AppError, DigitalAssetLedger } from '../../src/types';
 
 const PAGE_SIZE = 20;
 
-type LedgerTone = 'seed' | 'consumption' | 'spend' | 'refund' | 'adjustment';
+type LedgerTone = 'seed' | 'consumption' | 'frozen' | 'spend' | 'refund' | 'adjustment';
 type LedgerTabKey = 'all' | LedgerTone;
 
 const ASSET_LEDGER_TONES = {
@@ -37,6 +37,12 @@ const ASSET_LEDGER_TONES = {
     bg: '#DFF1F3',
     border: 'rgba(38,123,147,0.28)',
     icon: 'chart-line',
+  },
+  frozen: {
+    color: '#4A79A8',
+    bg: '#E1ECF6',
+    border: 'rgba(74,121,168,0.28)',
+    icon: 'timer-sand',
   },
   spend: {
     color: '#A87918',
@@ -69,6 +75,7 @@ const ASSET_LEDGER_TABS: ReadonlyArray<{ key: LedgerTabKey; label: string }> = [
   { key: 'all', label: '全部' },
   { key: 'seed', label: '种子资产' },
   { key: 'consumption', label: '消费资产' },
+  { key: 'frozen', label: '冻结资产' },
   { key: 'spend', label: '累计消费' },
   { key: 'refund', label: '扣回' },
   { key: 'adjustment', label: '调整' },
@@ -90,6 +97,9 @@ const formatAssetValue = (value: number) => `${Math.round(value).toLocaleString(
 const getLedgerTitle = (item: DigitalAssetLedger) => {
   if (item.sourceType === 'CONSUMPTION_CONFIRMED' && item.subjectType === 'CUMULATIVE_SPEND') return '消费累计';
   if (item.sourceType === 'CONSUMPTION_CONFIRMED' && item.subjectType === 'CREDIT_ASSET') return '消费资产入账';
+  if (item.sourceType === 'CONSUMPTION_PAID_FROZEN') return '消费资产冻结';
+  if (item.sourceType === 'CONSUMPTION_FROZEN_RELEASED') return '消费资产释放';
+  if (item.sourceType === 'CONSUMPTION_FROZEN_VOIDED') return '冻结资产作废';
   if (item.sourceType === 'SELF_VIP_PURCHASE') return '自购 VIP 种子资产';
   if (item.sourceType === 'REFERRAL_VIP_PURCHASE') return '推荐 VIP 种子资产';
   if (item.sourceType === 'HISTORICAL_CONSUMPTION_GRANT') return '历史消费转入';
@@ -100,6 +110,7 @@ const getLedgerTitle = (item: DigitalAssetLedger) => {
 
 const getLedgerTone = (item: DigitalAssetLedger): LedgerTone => {
   if (item.sourceType === 'ADMIN_ADJUSTMENT') return 'adjustment';
+  if (item.sourceType === 'CONSUMPTION_PAID_FROZEN') return 'frozen';
   if (item.direction === 'DEBIT' || item.sourceType === 'REFUND_REVERSAL') return 'refund';
   if (item.subjectType === 'SEED_ASSET') return 'seed';
   if (item.subjectType === 'CREDIT_ASSET') return 'consumption';
@@ -124,6 +135,8 @@ const formatLedgerAmount = (item: DigitalAssetLedger) => {
 const formatLedgerBalance = (item: DigitalAssetLedger) =>
   isCurrencyLedger(item)
     ? `累计 ${formatCurrency(item.balanceAfter)}`
+    : item.status === 'FROZEN' || item.status === 'VOIDED'
+      ? `冻结 ${formatAssetValue(item.frozenCreditAssetBalanceAfter ?? item.balanceAfter)}`
     : `余额 ${formatAssetValue(item.balanceAfter)}`;
 
 export default function ConsumptionRecordsScreen() {
@@ -147,7 +160,7 @@ export default function ConsumptionRecordsScreen() {
     queryKey: ['digital-assets-consumption-records'],
     queryFn: async ({ pageParam = 1 }) => {
       const result = await DigitalAssetRepo.getConsumptionRecords(pageParam as number, PAGE_SIZE);
-      if (!result.ok) throw result.error;
+      if (result.ok === false) throw result.error;
       return result.data;
     },
     initialPageParam: 1,

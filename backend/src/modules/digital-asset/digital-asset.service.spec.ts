@@ -19,11 +19,18 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     afterSales: initial?.afterSales ?? [],
   };
 
+  const matchesField = (actual: any, expected: any) => {
+    if (expected === undefined) return true;
+    if (expected && Array.isArray(expected.in)) return expected.in.includes(actual);
+    return actual === expected;
+  };
+
   const filterLedgers = (where: any) => data.ledgers.filter((ledger) => {
     if (where?.orderId && ledger.orderId !== where.orderId) return false;
     if (where?.userId && ledger.userId !== where.userId) return false;
-    if (where?.direction && ledger.direction !== where.direction) return false;
-    if (where?.type && ledger.type !== where.type) return false;
+    if (!matchesField(ledger.direction, where?.direction)) return false;
+    if (!matchesField(ledger.type, where?.type)) return false;
+    if (!matchesField(ledger.subjectType, where?.subjectType)) return false;
     if (where?.accountId && ledger.accountId !== where.accountId) return false;
     return true;
   });

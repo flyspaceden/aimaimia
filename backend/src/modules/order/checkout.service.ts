@@ -24,6 +24,7 @@ import {
   getUnavailableReasonText,
 } from '../lottery/prize-availability.util';
 import { WechatPayService } from '../payment/wechat-pay.service';
+import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -78,6 +79,7 @@ export class CheckoutService {
   private paymentService: any = null;
   // RewardDeductionService 通过 setter 注入，避免扩大构造函数循环依赖面
   private rewardDeductionService: RewardDeductionService | null = null;
+  private digitalAssetService: DigitalAssetService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -122,6 +124,11 @@ export class CheckoutService {
   /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  /** 注入数字资产服务（普通商品付款后冻结消费资产） */
+  setDigitalAssetService(service: DigitalAssetService) {
+    this.digitalAssetService = service;
   }
 
   private extractWechatAmountFen(queryResult: any): number | null {
@@ -2145,6 +2152,22 @@ export class CheckoutService {
               `红包确认使用最终失败（已保留待补偿）：session 对应订单 ${result.couponConfirmInfo.primaryOrderId}`,
             );
           }
+        }
+
+        if (
+          result.sessionBizType !== 'VIP_PACKAGE' &&
+          this.digitalAssetService &&
+          result.orderIds.length > 0
+        ) {
+          await Promise.all(result.orderIds.map(async (orderId: string) => {
+            try {
+              await this.digitalAssetService!.recordOrderPaid(orderId);
+            } catch (assetErr: any) {
+              this.logger.error(
+                `数字资产冻结失败（不阻断支付成功）：orderId=${orderId}, error=${assetErr.message}`,
+              );
+            }
+          }));
         }
 
         // VIP 礼包订单：触发 VIP 激活（在独立 Serializable 事务中，3 次重试）
