@@ -255,6 +255,15 @@ function BundleItemsFormItem({
   );
 }
 
+function setBundleItemsFieldError(form: FormInstance, errorMessage: string) {
+  form.setFields([{ name: ['bundleItems'], errors: [errorMessage] }]);
+  return errorMessage;
+}
+
+function clearBundleItemsFieldError(form: FormInstance) {
+  form.setFields([{ name: ['bundleItems'], errors: [] }]);
+}
+
 // 轻量 debounce（避免引入 lodash 类型依赖）
 function makeDebounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1124,7 +1133,7 @@ function ProductEditForm({ id }: { id: string }) {
     try {
       const values = await form.validateFields();
       if (productType === 'BUNDLE' && bundleItems.length === 0) {
-        message.error('请先添加组合内容');
+        message.error(setBundleItemsFieldError(form, '请先添加组合内容'));
         return;
       }
 
@@ -1455,6 +1464,9 @@ function ProductEditForm({ id }: { id: string }) {
                   onChange={(nextItems) => {
                     setBundleItems(nextItems);
                     form.setFieldValue('bundleItems', nextItems);
+                    if (nextItems.length > 0) {
+                      clearBundleItemsFieldError(form);
+                    }
                   }}
                 />
               </BundleItemsFormItem>
@@ -1901,7 +1913,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     try {
       const values = await form.validateFields();
       if (productType === 'BUNDLE' && bundleItems.length === 0) {
-        message.error('请先添加组合内容');
+        message.error(setBundleItemsFieldError(form, '请先添加组合内容'));
         return;
       }
 
@@ -2211,6 +2223,9 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   onChange={(nextItems) => {
                     setBundleItems(nextItems);
                     form.setFieldValue('bundleItems', nextItems);
+                    if (nextItems.length > 0) {
+                      clearBundleItemsFieldError(form);
+                    }
                     if (!hydratingRef.current) setDirtySinceSave(true);
                   }}
                 />

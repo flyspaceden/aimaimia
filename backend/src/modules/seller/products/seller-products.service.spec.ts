@@ -4,6 +4,12 @@ import { ProductBundleService } from '../../product/product-bundle.service';
 import { SellerProductsService } from './seller-products.service';
 
 describe('SellerProductsService SKU weight validation', () => {
+  const buildThrowingSellerBundleService = (message = '组合商品组成规格校验失败') => ({
+    validateSellerBundleItems: jest.fn().mockRejectedValue(new BadRequestException(message)),
+    calculateAvailability: jest.fn(),
+    calculateTotalWeightGram: jest.fn(),
+  });
+
   const buildService = () => {
     const prisma = {
       product: {
@@ -28,7 +34,7 @@ describe('SellerProductsService SKU weight validation', () => {
     );
   };
 
-  const buildDraftService = () => {
+  const buildDraftService = (productBundleService: any = new ProductBundleService()) => {
     const tx = {
       product: {
         count: jest.fn().mockResolvedValue(0),
@@ -90,12 +96,11 @@ describe('SellerProductsService SKU weight validation', () => {
     };
     const bonusConfig = { getSystemConfig: jest.fn().mockResolvedValue({ markupRate: 1.3 }) };
     const semanticFillService = { fillProduct: jest.fn().mockResolvedValue(undefined) };
-    const productBundleService = new ProductBundleService();
     const service = new SellerProductsService(
       prisma as any,
       bonusConfig as any,
       semanticFillService as any,
-      productBundleService as any,
+      productBundleService,
     );
     return { service, prisma, tx };
   };
@@ -136,7 +141,10 @@ describe('SellerProductsService SKU weight validation', () => {
     ...overrides,
   ]);
 
-  const buildBundleCreateService = (skuRows = bundleValidationRows()) => {
+  const buildBundleCreateService = (
+    skuRows = bundleValidationRows(),
+    productBundleService: any = new ProductBundleService(),
+  ) => {
     const tx = {
       product: {
         create: jest.fn().mockResolvedValue({
@@ -206,7 +214,7 @@ describe('SellerProductsService SKU weight validation', () => {
       prisma as any,
       bonusConfig as any,
       semanticFillService as any,
-      new ProductBundleService() as any,
+      productBundleService,
     );
     return { service, prisma, tx };
   };
@@ -270,7 +278,7 @@ describe('SellerProductsService SKU weight validation', () => {
     bundleItems?: Array<{ skuId: string; quantity: number; sortOrder?: number }>;
     componentRows?: any[];
     existingSkus?: Array<Record<string, any>>;
-  } = {}) => {
+  } = {}, productBundleService: any = new ProductBundleService()) => {
     const bundleItems = options.bundleItems ?? [
       { skuId: 'component_sku_1', quantity: 3, sortOrder: 4 },
       { skuId: 'component_sku_2', quantity: 1, sortOrder: 7 },
@@ -361,7 +369,7 @@ describe('SellerProductsService SKU weight validation', () => {
       prisma as any,
       { getSystemConfig: jest.fn().mockResolvedValue({ markupRate: 1.3 }) } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
-      new ProductBundleService() as any,
+      productBundleService,
     );
     return { service, prisma, tx };
   };
@@ -586,6 +594,26 @@ describe('SellerProductsService SKU weight validation', () => {
     ]);
   });
 
+  it('create wraps bundle validation errors onto bundleItems field', async () => {
+    const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
+    const { service } = buildBundleCreateService(bundleValidationRows(), productBundleService);
+
+    await expect(service.create('company_1', {
+      title: '水果礼盒',
+      description: '组合商品描述需要足够长，确保通过校验。',
+      categoryId: 'category_1',
+      origin: { text: '山东烟台' },
+      productType: 'BUNDLE',
+      skus: [{ specName: '礼盒装', cost: 20, stock: 0, weightGram: 1 }],
+      bundleItems: [{ skuId: 'component_sku_1', quantity: 1 }],
+    } as any)).rejects.toMatchObject({
+      response: {
+        message: '组合商品组成规格必须为本商家在售普通商品',
+        fieldErrors: [{ field: 'bundleItems', message: '组合商品组成规格必须为本商家在售普通商品' }],
+      },
+    });
+  });
+
   it('create rejects cross-company bundle component SKU', async () => {
     const { service, tx } = buildBundleCreateService(bundleValidationRows([
       {
@@ -698,6 +726,88 @@ describe('SellerProductsService SKU weight validation', () => {
 
     await expect(service.submitDraft('company_1', 'draft_1'))
       .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('createDraft wraps bundle validation errors onto bundleItems field', async () => {
+    const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
+    const { service } = buildDraftService(productBundleService);
+
+    await expect(service.createDraft('company_1', {
+      title: '组合草稿',
+      productType: 'BUNDLE',
+      skus: [{ specName: '礼盒装', cost: 20 }],
+      bundleItems: [{ skuId: 'component_sku_1', quantity: 1 }],
+    } as any)).rejects.toMatchObject({
+      response: {
+        message: '组合商品组成规格必须为本商家在售普通商品',
+        fieldErrors: [{ field: 'bundleItems', message: '组合商品组成规格必须为本商家在售普通商品' }],
+      },
+    });
+  });
+
+  it('updateDraft wraps bundle validation errors onto bundleItems field', async () => {
+    const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
+    const { service, tx } = buildDraftService(productBundleService);
+    tx.product.findUnique.mockResolvedValueOnce({
+      id: 'draft_1',
+      companyId: 'company_1',
+      status: 'DRAFT',
+      type: 'BUNDLE',
+    });
+
+    await expect(service.updateDraft('company_1', 'draft_1', {
+      productType: 'BUNDLE',
+      bundleItems: [{ skuId: 'component_sku_1', quantity: 1 }],
+    } as any)).rejects.toMatchObject({
+      response: {
+        message: '组合商品组成规格必须为本商家在售普通商品',
+        fieldErrors: [{ field: 'bundleItems', message: '组合商品组成规格必须为本商家在售普通商品' }],
+      },
+    });
+  });
+
+  it('submitDraft wraps bundle validation errors onto bundleItems field', async () => {
+    const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
+    const { service, tx } = buildDraftService(productBundleService);
+    tx.product.findUnique.mockResolvedValueOnce({
+      id: 'draft_1',
+      companyId: 'company_1',
+      status: 'DRAFT',
+      type: 'BUNDLE',
+      title: '组合草稿',
+      subtitle: null,
+      description: '这是一段足够长的商品描述',
+      categoryId: 'category_1',
+      returnPolicy: 'INHERIT',
+      origin: { text: '山东烟台' },
+      attributes: null,
+      aiKeywords: [],
+      flavorTags: [],
+      seasonalMonths: [],
+      usageScenarios: [],
+      dietaryTags: [],
+      originRegion: '山东烟台',
+      skus: [{
+        id: 'draft_bundle_sku',
+        title: '礼盒装',
+        cost: 20,
+        stock: 0,
+        maxPerOrder: null,
+        weightGram: 1000,
+        skuCode: null,
+      }],
+      media: [],
+      tags: [],
+      bundleItems: [{ skuId: 'component_sku_1', quantity: 1, sortOrder: 0 }],
+    });
+
+    await expect(service.submitDraft('company_1', 'draft_1'))
+      .rejects.toMatchObject({
+        response: {
+          message: '组合商品组成规格必须为本商家在售普通商品',
+          fieldErrors: [{ field: 'bundleItems', message: '组合商品组成规格必须为本商家在售普通商品' }],
+        },
+      });
   });
 
   it('updateSkus rejects removing a SIMPLE SKU referenced by non-DRAFT bundle products', async () => {
@@ -947,5 +1057,29 @@ describe('SellerProductsService SKU weight validation', () => {
         cost: 22,
       }),
     }));
+  });
+
+  it('update wraps bundle validation errors onto bundleItems field', async () => {
+    const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
+    const { service, prisma } = buildBundleUpdateSkusService({}, productBundleService);
+    (prisma.product.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 'bundle_1',
+      companyId: 'company_1',
+      status: 'INACTIVE',
+      auditStatus: 'APPROVED',
+      type: 'BUNDLE',
+    });
+
+    await expect(service.update('company_1', 'bundle_1', {
+      title: '新水果礼盒',
+      productType: 'BUNDLE',
+      bundleItems: [{ skuId: 'component_sku_1', quantity: 1, sortOrder: 0 }],
+      skus: [{ id: 'bundle_sku_active', specName: '新礼盒装', cost: 22, stock: 0, weightGram: 1 }],
+    } as any)).rejects.toMatchObject({
+      response: {
+        message: '组合商品组成规格必须为本商家在售普通商品',
+        fieldErrors: [{ field: 'bundleItems', message: '组合商品组成规格必须为本商家在售普通商品' }],
+      },
+    });
   });
 });

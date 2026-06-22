@@ -103,6 +103,29 @@ export class SellerProductsService {
     }));
   }
 
+  private bundleFieldError(message: string) {
+    return new BadRequestException({
+      message,
+      fieldErrors: [{ field: 'bundleItems', message }],
+    });
+  }
+
+  private extractBadRequestMessage(error: BadRequestException): string {
+    const response = error.getResponse();
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    const message = (response as { message?: string | string[] } | undefined)?.message;
+    if (Array.isArray(message)) {
+      return String(message[0] ?? error.message);
+    }
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
+    return error.message;
+  }
+
   private async buildBundleState(
     tx: {
       productSKU: {
@@ -121,54 +144,61 @@ export class SellerProductsService {
     bundleItems: BundleItemInput[] | undefined,
     options: { allowDraft?: boolean; requireItems?: boolean } = {},
   ) {
-    const normalizedInput = this.normalizeBundleItemsInput(bundleItems);
-    if (normalizedInput.length === 0) {
-      if (options.requireItems) {
-        throw new BadRequestException('组合商品至少需要一个组成规格');
+    try {
+      const normalizedInput = this.normalizeBundleItemsInput(bundleItems);
+      if (normalizedInput.length === 0) {
+        if (options.requireItems) {
+          throw this.bundleFieldError('组合商品至少需要一个组成规格');
+        }
+        return null;
       }
-      return null;
+
+      const validatedItems = await this.productBundleService.validateSellerBundleItems(
+        tx as any,
+        companyId,
+        normalizedInput,
+        { allowDraft: options.allowDraft },
+      );
+
+      const skuRows = await tx.productSKU.findMany({
+        where: { id: { in: validatedItems.map((item) => item.skuId) } },
+        select: {
+          id: true,
+          price: true,
+          stock: true,
+          weightGram: true,
+        },
+      });
+      const skuMap = new Map(skuRows.map((sku) => [sku.id, sku]));
+
+      const bundleReferenceTotal = +validatedItems
+        .reduce((sum, item) => sum + (skuMap.get(item.skuId)?.price ?? 0) * item.quantity, 0)
+        .toFixed(2);
+      const bundleAvailableStock = this.productBundleService.calculateAvailability(
+        validatedItems.map((item) => ({
+          stock: skuMap.get(item.skuId)?.stock ?? 0,
+          quantity: item.quantity,
+        })),
+      );
+      const bundleTotalWeightGram = this.productBundleService.calculateTotalWeightGram(
+        validatedItems.map((item) => ({
+          weightGram: skuMap.get(item.skuId)?.weightGram ?? item.sku.weightGram,
+          quantity: item.quantity,
+        })),
+      );
+
+      return {
+        validatedItems,
+        bundleReferenceTotal,
+        bundleAvailableStock,
+        bundleTotalWeightGram,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw this.bundleFieldError(this.extractBadRequestMessage(error));
+      }
+      throw error;
     }
-
-    const validatedItems = await this.productBundleService.validateSellerBundleItems(
-      tx as any,
-      companyId,
-      normalizedInput,
-      { allowDraft: options.allowDraft },
-    );
-
-    const skuRows = await tx.productSKU.findMany({
-      where: { id: { in: validatedItems.map((item) => item.skuId) } },
-      select: {
-        id: true,
-        price: true,
-        stock: true,
-        weightGram: true,
-      },
-    });
-    const skuMap = new Map(skuRows.map((sku) => [sku.id, sku]));
-
-    const bundleReferenceTotal = +validatedItems
-      .reduce((sum, item) => sum + (skuMap.get(item.skuId)?.price ?? 0) * item.quantity, 0)
-      .toFixed(2);
-    const bundleAvailableStock = this.productBundleService.calculateAvailability(
-      validatedItems.map((item) => ({
-        stock: skuMap.get(item.skuId)?.stock ?? 0,
-        quantity: item.quantity,
-      })),
-    );
-    const bundleTotalWeightGram = this.productBundleService.calculateTotalWeightGram(
-      validatedItems.map((item) => ({
-        weightGram: skuMap.get(item.skuId)?.weightGram ?? item.sku.weightGram,
-        quantity: item.quantity,
-      })),
-    );
-
-    return {
-      validatedItems,
-      bundleReferenceTotal,
-      bundleAvailableStock,
-      bundleTotalWeightGram,
-    };
   }
 
   private bundleItemsCreateData(validatedItems: ValidatedSellerBundleItem[]) {
