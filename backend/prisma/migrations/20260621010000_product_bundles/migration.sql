@@ -18,6 +18,7 @@ CREATE TABLE "ProductBundleItem" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "ProductBundleItem_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "ProductBundleItem_quantity_positive_check" CHECK ("quantity" > 0),
     CONSTRAINT "ProductBundleItem_bundleProductId_fkey" FOREIGN KEY ("bundleProductId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "ProductBundleItem_skuId_fkey" FOREIGN KEY ("skuId") REFERENCES "ProductSKU"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
