@@ -154,14 +154,31 @@ describe('GroupBuyService', () => {
       },
     );
 
-    it('keeps a terminated instance visible when referrals are still pending but frees the slot', async () => {
+    it('prefers the occupying instance even when older terminated referrals may still be pending', async () => {
       const { prisma, service } = buildPrisma();
       prisma.groupBuyInstance.findFirst.mockResolvedValueOnce(
-        buildInstance('TERMINATED', { candidateCount: 1, validReferralCount: 0 }),
+        buildInstance('SHARING', { id: 'active_instance' }),
       );
 
       const result = await service.getCurrentState('user_1');
 
+      expect(prisma.groupBuyInstance.findFirst).toHaveBeenCalledTimes(1);
+      expect(result.occupiesSlot).toBe(true);
+      expect(result.current).toEqual(expect.objectContaining({
+        id: 'active_instance',
+        status: 'SHARING',
+      }));
+    });
+
+    it('keeps a terminated instance visible when referrals are still pending but frees the slot', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyInstance.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(buildInstance('TERMINATED', { candidateCount: 1, validReferralCount: 1 }));
+
+      const result = await service.getCurrentState('user_1');
+
+      expect(prisma.groupBuyInstance.findFirst).toHaveBeenCalledTimes(2);
       expect(result.occupiesSlot).toBe(false);
       expect(result.canBuyNew).toBe(true);
       expect(result.defaultTab).toBe('CURRENT');

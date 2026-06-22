@@ -382,7 +382,7 @@ export default function GroupBuyActivitiesPage() {
                   </Space>
                 ))}
                 <Typography.Text type="secondary">
-                  1000 基点代表 10%。当前后端要求全部档位合计为 10000 基点。
+                  1000 基点代表 10%。全部档位合计可按活动规则配置，允许超过 10000 基点。
                 </Typography.Text>
               </Space>
             )}

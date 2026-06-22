@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { GroupBuyActivityStatus, GroupBuyCodeStatus, GroupBuyInstanceStatus } from '@prisma/client';
+import { GroupBuyActivityStatus, GroupBuyCodeStatus, GroupBuyInstanceStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -34,6 +34,25 @@ export class GroupBuyService {
   }
 
   async getCurrentState(userId: string) {
+    const include: Prisma.GroupBuyInstanceInclude = {
+      activity: {
+        include: this.activityInclude(),
+      },
+      code: {
+        select: { code: true, status: true },
+      },
+      referrals: {
+        select: {
+          id: true,
+          status: true,
+          candidateSequence: true,
+          effectiveSequence: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+    };
+
     const instance = await this.prisma.groupBuyInstance.findFirst({
       where: {
         userId,
@@ -41,29 +60,19 @@ export class GroupBuyService {
           in: [
             GroupBuyInstanceStatus.QUALIFICATION_PENDING,
             GroupBuyInstanceStatus.SHARING,
-            GroupBuyInstanceStatus.TERMINATED,
           ],
         },
       },
       orderBy: { updatedAt: 'desc' },
-      include: {
-        activity: {
-          include: this.activityInclude(),
-        },
-        code: {
-          select: { code: true, status: true },
-        },
-        referrals: {
-          select: {
-            id: true,
-            status: true,
-            candidateSequence: true,
-            effectiveSequence: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'asc' },
-        },
+      include,
+    }) ?? await this.prisma.groupBuyInstance.findFirst({
+      where: {
+        userId,
+        status: GroupBuyInstanceStatus.TERMINATED,
+        candidateCount: { gt: 0 },
       },
+      orderBy: { updatedAt: 'desc' },
+      include,
     });
 
     if (!instance) {
@@ -77,7 +86,7 @@ export class GroupBuyService {
     const occupiesSlot = occupyingStatuses.has(instance.status);
     const hasPendingTerminatedReferral =
       instance.status === GroupBuyInstanceStatus.TERMINATED
-      && instance.candidateCount > instance.validReferralCount;
+      && instance.candidateCount > 0;
 
     if (!occupiesSlot && !hasPendingTerminatedReferral) {
       return this.emptyCurrentState();
