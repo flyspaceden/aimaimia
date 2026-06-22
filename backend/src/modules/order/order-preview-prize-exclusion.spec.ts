@@ -251,6 +251,187 @@ describe('OrderService.previewOrder prize exclusion', () => {
 });
 
 describe('OrderService.previewOrder shipping weight', () => {
+  it('includes a bundle selling sku by derived component stock and weight even when parent sku stock is zero', async () => {
+    const bundleSku = {
+      id: 'bundle-sku',
+      productId: 'bundle-product',
+      title: '水果礼盒',
+      price: 66,
+      stock: 0,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1,
+      product: {
+        id: 'bundle-product',
+        type: 'BUNDLE',
+        title: '水果礼盒',
+        status: 'ACTIVE',
+        companyId: 'bundle-company',
+        company: { name: '礼盒商户' },
+        media: [{ type: 'IMAGE', url: 'https://img.example.com/bundle.jpg' }],
+        bundleItems: [
+          {
+            skuId: 'component-apple',
+            quantity: 2,
+            sortOrder: 0,
+            sku: { id: 'component-apple', stock: 9, weightGram: 500 },
+          },
+          {
+            skuId: 'component-orange',
+            quantity: 1,
+            sortOrder: 1,
+            sku: { id: 'component-orange', stock: 4, weightGram: 300 },
+          },
+        ],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([bundleSku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingFee: jest.fn().mockResolvedValue(12),
+    };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'bundle-sku', quantity: 2, cartItemId: 'ci-bundle' }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual([
+      expect.objectContaining({
+        companyId: 'bundle-company',
+        goodsAmount: 132,
+        totalWeight: 2600,
+        items: [
+          expect.objectContaining({
+            skuId: 'bundle-sku',
+            title: '水果礼盒',
+            unitPrice: 66,
+            quantity: 2,
+          }),
+        ],
+      }),
+    ]);
+    expect((result as any).excludedItems).toEqual([]);
+    expect(shippingRuleService.calculateShippingFee).toHaveBeenCalledWith(
+      132,
+      '110000',
+      2600,
+      undefined,
+    );
+  });
+
+  it('adds bundle derived weight into mixed-cart preview shipping totals', async () => {
+    const bundleSku = {
+      id: 'bundle-sku',
+      productId: 'bundle-product',
+      title: '水果礼盒',
+      price: 66,
+      stock: 0,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1,
+      product: {
+        id: 'bundle-product',
+        type: 'BUNDLE',
+        title: '水果礼盒',
+        status: 'ACTIVE',
+        companyId: 'bundle-company',
+        company: { name: '礼盒商户' },
+        media: [],
+        bundleItems: [
+          {
+            skuId: 'component-apple',
+            quantity: 2,
+            sortOrder: 0,
+            sku: { id: 'component-apple', stock: 9, weightGram: 500 },
+          },
+          {
+            skuId: 'component-orange',
+            quantity: 1,
+            sortOrder: 1,
+            sku: { id: 'component-orange', stock: 4, weightGram: 300 },
+          },
+        ],
+      },
+    };
+    const normalSku = {
+      id: 'simple-sku',
+      productId: 'simple-product',
+      title: '苹果 5斤',
+      price: 20,
+      stock: 10,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 500,
+      product: {
+        id: 'simple-product',
+        title: '苹果',
+        status: 'ACTIVE',
+        companyId: 'simple-company',
+        company: { name: '普通商户' },
+        media: [],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([bundleSku, normalSku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingFee: jest.fn().mockResolvedValue(12),
+    };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    const result = await service.previewOrder('user1', {
+      items: [
+        { skuId: 'bundle-sku', quantity: 1, cartItemId: 'ci-bundle' },
+        { skuId: 'simple-sku', quantity: 3, cartItemId: 'ci-simple' },
+      ],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ companyId: 'bundle-company', totalWeight: 1300 }),
+        expect.objectContaining({ companyId: 'simple-company', totalWeight: 1500 }),
+      ]),
+    );
+    expect(shippingRuleService.calculateShippingFee).toHaveBeenCalledWith(
+      126,
+      '110000',
+      2800,
+      undefined,
+    );
+  });
+
   it('uses the real fallback SKU id and shared default weight when preview input still carries productId', async () => {
     const fallbackSku = {
       id: 'sku-real',

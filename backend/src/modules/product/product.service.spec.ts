@@ -190,7 +190,6 @@ describe('ProductService bundle mapping', () => {
     expect(result).toMatchObject({
       id: 'bundle-product-1',
       type: 'BUNDLE',
-      bundleReferenceTotal: 33,
       bundleAvailableStock: 4,
       bundleTotalWeightGram: 1300,
       skus: [
@@ -210,7 +209,6 @@ describe('ProductService bundle mapping', () => {
         skuTitle: '苹果 5斤',
         quantity: 2,
         image: 'https://cdn.example.com/apple.jpg',
-        price: 12.5,
         stock: 9,
         weightGram: 500,
       },
@@ -221,11 +219,13 @@ describe('ProductService bundle mapping', () => {
         skuTitle: '橙子礼盒',
         quantity: 1,
         image: 'https://cdn.example.com/orange.jpg',
-        price: 8,
         stock: 4,
         weightGram: 300,
       },
     ]);
+    expect(result).not.toHaveProperty('bundleReferenceTotal');
+    expect(result.bundleItems[0]).not.toHaveProperty('price');
+    expect(result.bundleItems[1]).not.toHaveProperty('price');
   });
 
   it('still hides platform products from buyer detail', async () => {

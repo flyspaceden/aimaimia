@@ -258,6 +258,7 @@ export class SellerShippingService {
         select: {
           companyId: true,
           quantity: true,
+          productSnapshot: true,
           sku: {
             select: {
               weightGram: true,
@@ -294,9 +295,9 @@ export class SellerShippingService {
       const sfCustomerOrderId = this.buildSfCustomerOrderId(orderId, companyId, attempt);
       const marker = this.createWaybillGenerationMarker(attempt, sfCustomerOrderId);
       const items = orderItems.map((item) => ({
-        name: item.sku?.product?.title || '商品',
+        name: this.normalizeSnapshotProduct(item.productSnapshot)?.title || item.sku?.product?.title || '商品',
         quantity: item.quantity,
-        weightGram: this.normalizeReserveItemWeightGram(item.sku?.weightGram),
+        weightGram: this.resolveOrderItemWeightGram(item),
       }));
 
       let shipmentId: string;
@@ -818,6 +819,84 @@ export class SellerShippingService {
     return Number.isFinite(normalized) && normalized > 0
       ? Math.ceil(normalized)
       : DEFAULT_SKU_WEIGHT_GRAM;
+  }
+
+  private normalizeSnapshotProduct(productSnapshot: unknown): Record<string, any> | null {
+    if (!productSnapshot || Array.isArray(productSnapshot)) {
+      return null;
+    }
+    if (typeof productSnapshot === 'string') {
+      try {
+        const parsed = JSON.parse(productSnapshot);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, any>
+          : null;
+      } catch {
+        return null;
+      }
+    }
+    return typeof productSnapshot === 'object' ? productSnapshot as Record<string, any> : null;
+  }
+
+  private normalizePositiveInt(value: unknown): number {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) && normalized > 0
+      ? Math.trunc(normalized)
+      : 0;
+  }
+
+  private getBundleSnapshotWeightPerUnit(
+    productSnapshot: unknown,
+    orderItemQuantity: unknown,
+  ): number | null {
+    const snapshot = this.normalizeSnapshotProduct(productSnapshot);
+    if (snapshot?.productType !== 'BUNDLE') {
+      return null;
+    }
+
+    const bundleWeight = Number(snapshot.bundleTotalWeightGram);
+    if (Number.isFinite(bundleWeight) && bundleWeight > 0) {
+      return Math.ceil(bundleWeight);
+    }
+
+    const bundleItems = Array.isArray(snapshot.bundleItems) ? snapshot.bundleItems : [];
+    if (bundleItems.length === 0) {
+      return null;
+    }
+
+    const quantity = this.normalizePositiveInt(orderItemQuantity);
+    const derivedWeight = bundleItems.reduce((sum: number, item: any) => {
+      const weightGram = Number(item?.weightGram);
+      if (!Number.isFinite(weightGram) || weightGram <= 0) {
+        return sum;
+      }
+
+      const quantityPerBundle = this.normalizePositiveInt(item?.quantityPerBundle);
+      if (quantityPerBundle > 0) {
+        return sum + Math.ceil(weightGram) * quantityPerBundle;
+      }
+
+      const totalQuantity = this.normalizePositiveInt(item?.totalQuantity);
+      if (totalQuantity > 0 && quantity > 0) {
+        return sum + Math.ceil(weightGram) * Math.max(1, Math.round(totalQuantity / quantity));
+      }
+
+      return sum;
+    }, 0);
+
+    return derivedWeight > 0 ? derivedWeight : null;
+  }
+
+  private resolveOrderItemWeightGram(item: {
+    quantity?: number;
+    productSnapshot?: unknown;
+    sku?: { weightGram?: unknown };
+  }): number {
+    const snapshotWeight = this.getBundleSnapshotWeightPerUnit(item.productSnapshot, item.quantity);
+    if (snapshotWeight) {
+      return snapshotWeight;
+    }
+    return this.normalizeReserveItemWeightGram(item.sku?.weightGram);
   }
 
   private calculateTotalWeightGram(items: CarrierWaybillItem[]): number {

@@ -153,6 +153,81 @@ export class AfterSaleService {
       : DEFAULT_SKU_WEIGHT_GRAM;
   }
 
+  private normalizeSnapshotProduct(productSnapshot: unknown): Record<string, any> | null {
+    if (!productSnapshot || Array.isArray(productSnapshot)) {
+      return null;
+    }
+    if (typeof productSnapshot === 'string') {
+      try {
+        const parsed = JSON.parse(productSnapshot);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, any>
+          : null;
+      } catch {
+        return null;
+      }
+    }
+    return typeof productSnapshot === 'object' ? productSnapshot as Record<string, any> : null;
+  }
+
+  private normalizePositiveInt(value: unknown): number {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) && normalized > 0
+      ? Math.trunc(normalized)
+      : 0;
+  }
+
+  private getBundleSnapshotWeightPerUnit(
+    productSnapshot: unknown,
+    orderItemQuantity: unknown,
+  ): number | null {
+    const snapshot = this.normalizeSnapshotProduct(productSnapshot);
+    if (snapshot?.productType !== 'BUNDLE') {
+      return null;
+    }
+
+    const bundleWeight = Number(snapshot.bundleTotalWeightGram);
+    if (Number.isFinite(bundleWeight) && bundleWeight > 0) {
+      return Math.trunc(bundleWeight);
+    }
+
+    const bundleItems = Array.isArray(snapshot.bundleItems) ? snapshot.bundleItems : [];
+    if (bundleItems.length === 0) {
+      return null;
+    }
+
+    const quantity = this.normalizePositiveInt(orderItemQuantity);
+    const derivedWeight = bundleItems.reduce((sum: number, item: any) => {
+      const weightGram = Number(item?.weightGram);
+      if (!Number.isFinite(weightGram) || weightGram <= 0) {
+        return sum;
+      }
+
+      const quantityPerBundle = this.normalizePositiveInt(item?.quantityPerBundle);
+      if (quantityPerBundle > 0) {
+        return sum + Math.trunc(weightGram) * quantityPerBundle;
+      }
+
+      const totalQuantity = this.normalizePositiveInt(item?.totalQuantity);
+      if (totalQuantity > 0 && quantity > 0) {
+        return sum + Math.trunc(weightGram) * Math.max(1, Math.round(totalQuantity / quantity));
+      }
+
+      return sum;
+    }, 0);
+
+    return derivedWeight > 0 ? derivedWeight : null;
+  }
+
+  private getReturnItemWeightGram(item: any): number {
+    const quantity = this.normalizePositiveInt(item?.quantity) || 1;
+    const snapshotWeight = this.getBundleSnapshotWeightPerUnit(item?.productSnapshot, quantity);
+    if (snapshotWeight) {
+      return snapshotWeight * quantity;
+    }
+    return quantity * this.normalizeSkuWeightGram(item?.sku?.weightGram);
+  }
+
   private resolveRegionCode(addressSnapshot: unknown): string | undefined {
     const decrypted = decryptJsonValue<any>(addressSnapshot);
     let address = decrypted;
@@ -178,10 +253,7 @@ export class AfterSaleService {
   ): Promise<number> {
     if (this.shippingRuleService?.calculateShippingDetail) {
       try {
-        const quantity = Number(orderItem.quantity);
-        const totalWeightGram =
-          (Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 1) *
-          this.normalizeSkuWeightGram(orderItem.sku?.weightGram);
+        const totalWeightGram = this.getReturnItemWeightGram(orderItem);
         const detail = await this.shippingRuleService.calculateShippingDetail(
           0,
           this.resolveRegionCode(order.addressSnapshot),

@@ -1053,12 +1053,10 @@ export class ProductService {
             skuTitle: item.sku?.title ?? '',
             quantity: item.quantity,
             image: item.sku?.product?.media?.[0]?.url ?? '',
-            price: item.sku?.price ?? 0,
             stock: item.sku?.stock ?? 0,
             weightGram: item.sku?.weightGram ?? 0,
           }))
         : [],
-      bundleReferenceTotal: bundleMetrics.bundleReferenceTotal,
       bundleAvailableStock: bundleMetrics.bundleAvailableStock,
       bundleTotalWeightGram: bundleMetrics.bundleTotalWeightGram,
       attributes: product.attributes || {},

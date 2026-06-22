@@ -330,6 +330,33 @@ export class OrderService {
       : DEFAULT_SKU_WEIGHT_GRAM;
   }
 
+  private getPreviewBundleMetrics(sku: any): { availability: number; totalWeightGram: number } | null {
+    if (sku?.product?.type !== 'BUNDLE') {
+      return null;
+    }
+
+    const bundleItems = Array.isArray(sku?.product?.bundleItems)
+      ? sku.product.bundleItems
+      : [];
+
+    return {
+      availability: this.productBundleService.calculateAvailability(
+        bundleItems.map((item: any) => ({
+          stock: Number(item?.sku?.stock ?? 0),
+          quantity: Number(item?.quantity ?? 0),
+        })),
+      ),
+      totalWeightGram: bundleItems.length === 0
+        ? 0
+        : this.productBundleService.calculateTotalWeightGram(
+            bundleItems.map((item: any) => ({
+              weightGram: Number(item?.sku?.weightGram ?? 0),
+              quantity: Number(item?.quantity ?? 0),
+            })),
+          ),
+    };
+  }
+
   /**
    * 按容量（通常为各商户商品金额）分摊折扣，保证：
    * 1) 每组折扣不超过自身容量
@@ -1082,6 +1109,18 @@ export class OrderService {
           include: {
             company: { select: { id: true, name: true } },
             media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+            bundleItems: {
+              orderBy: { sortOrder: 'asc' },
+              include: {
+                sku: {
+                  select: {
+                    id: true,
+                    stock: true,
+                    weightGram: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -1098,6 +1137,18 @@ export class OrderService {
             include: {
               company: { select: { id: true, name: true } },
               media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+              bundleItems: {
+                orderBy: { sortOrder: 'asc' },
+                include: {
+                  sku: {
+                    select: {
+                      id: true,
+                      stock: true,
+                      weightGram: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -1138,7 +1189,20 @@ export class OrderService {
     const previewMatchedIds = new Set<string>();
 
     // 构建预览行
-    type PreviewItem = { skuId: string; title: string; image: string; unitPrice: number; quantity: number; companyId: string; companyName: string; isPrize: boolean; prizeType: string | null; cartItemId?: string; prizeRecordId?: string | null };
+    type PreviewItem = {
+      skuId: string;
+      title: string;
+      image: string;
+      unitPrice: number;
+      quantity: number;
+      companyId: string;
+      companyName: string;
+      totalWeightPerUnit: number;
+      isPrize: boolean;
+      prizeType: string | null;
+      cartItemId?: string;
+      prizeRecordId?: string | null;
+    };
     const excludedItems: Array<{
       cartItemId?: string;
       skuId: string;
@@ -1151,6 +1215,10 @@ export class OrderService {
     for (const item of dto.items) {
       const sku = skuMap.get(item.skuId);
       if (!sku) throw new BadRequestException(`商品规格 ${item.skuId} 不存在`);
+      const bundleMetrics = this.getPreviewBundleMetrics(sku);
+      const availableStock = bundleMetrics?.availability ?? Number(sku.stock ?? 0);
+      const totalWeightPerUnit =
+        bundleMetrics?.totalWeightGram ?? this.normalizeSkuWeightGram((sku as any).weightGram);
 
       // 判断是否为奖品项
       let prizeCi: typeof previewPrizeItems[0] | null = null;
@@ -1185,7 +1253,7 @@ export class OrderService {
       }
 
       if (!prizeCi) {
-        if (sku.stock <= 0) {
+        if (availableStock <= 0) {
           excludedItems.push({
             cartItemId: (item as any).cartItemId,
             skuId: sku.id,
@@ -1194,11 +1262,11 @@ export class OrderService {
           });
           continue;
         }
-        if (item.quantity > sku.stock) {
+        if (item.quantity > availableStock) {
           excludedItems.push({
             cartItemId: (item as any).cartItemId,
             skuId: sku.id,
-            reason: `商品当前仅剩 ${sku.stock} 件`,
+            reason: `商品当前仅剩 ${availableStock} 件`,
             isPrize: false,
           });
           continue;
@@ -1255,6 +1323,7 @@ export class OrderService {
         quantity: item.quantity,
         companyId: sku.product.companyId,
         companyName: sku.product.company?.name || '',
+        totalWeightPerUnit,
         isPrize: isPrizeItem,
         prizeType: itemPrizeType,
         cartItemId: prizeCi?.id,
@@ -1313,22 +1382,13 @@ export class OrderService {
       groupMap.get(pi.companyId)!.push(pi);
     }
 
-    // 构建 skuId → weightGram 映射，用于计算分组总重量
-    const skuWeightMap = new Map<string, number>();
-    for (const [skuId, sku] of skuMap.entries()) {
-      const weightGram = this.normalizeSkuWeightGram((sku as any).weightGram);
-      skuWeightMap.set(skuId, weightGram);
-      // fallback SKU 查询会用 productId 作为 skuMap key；分组项里仍保存真实 sku.id。
-      skuWeightMap.set((sku as any).id, weightGram);
-    }
-
     const companyGroups = [...groupMap.entries()]
       .map(([companyId, items]) => ({
         companyId,
         companyName: items[0].companyName,
         items: items.map((i) => ({ skuId: i.skuId, title: i.title, image: i.image, unitPrice: i.unitPrice, quantity: i.quantity })),
         goodsAmount: items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
-        totalWeight: items.reduce((sum, i) => sum + i.quantity * (skuWeightMap.get(i.skuId) ?? 0), 0),
+        totalWeight: items.reduce((sum, i) => sum + i.quantity * i.totalWeightPerUnit, 0),
       }))
       .sort((a, b) => b.goodsAmount - a.goodsAmount);
 

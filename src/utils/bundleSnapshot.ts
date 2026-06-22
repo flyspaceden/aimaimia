@@ -15,11 +15,3 @@ export const formatBundleQuantityLabel = (item: Pick<BundleSnapshotItem, 'quanti
   }
   return 'x1';
 };
-
-export const getBundleSummaryLines = (bundleItems?: BundleSnapshotItem[]): string[] => {
-  if (!Array.isArray(bundleItems)) return [];
-  return bundleItems.map((item) => {
-    const parts = [item.productTitle, item.skuTitle, formatBundleQuantityLabel(item)].filter(Boolean);
-    return parts.join(' · ');
-  });
-};
