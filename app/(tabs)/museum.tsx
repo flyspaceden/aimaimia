@@ -33,6 +33,7 @@ import { CategoryRepo, CompanyRepo, ProductRepo } from '../../src/repos';
 import { useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { Product, Company, AppError } from '../../src/types';
+import { toCartProductFromCompanyCardProduct } from '../../src/utils/companyProductMappers';
 
 const COLUMN_GAP = 10;
 const HORIZONTAL_PADDING = 16;
@@ -321,12 +322,8 @@ export default function MuseumScreen() {
               router.push({ pathname: '/product/[id]', params: { id: productId } })
             }
             onAddToCart={(product) => {
-              addItem(
-                { id: product.id, title: product.title, price: product.price, image: product.image, tags: [], unit: '', origin: '' },
-                1,
-                product.defaultSkuId,
-                product.price,
-              );
+              const cartProduct = toCartProductFromCompanyCardProduct(product);
+              addItem(cartProduct, 1, product.defaultSkuId, product.price);
               show({ message: '已加入购物车', type: 'success' });
             }}
           />

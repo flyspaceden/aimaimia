@@ -14,6 +14,8 @@ import { showToast } from '../components/feedback';
 import { CartMergeResultItem, Product, ServerCart, ServerCartItem } from '../types';
 import { CartRepo } from '../repos/CartRepo';
 import { useAuthStore } from './useAuthStore';
+import type { ProductType } from '../types/domain/Product';
+import type { BundleSnapshotItem } from '../types/domain/BundleSnapshot';
 
 /**
  * AsyncStorage 适配器（实现 Zustand StateStorage 接口）
@@ -46,6 +48,8 @@ const cartStorage: StateStorage = {
 export type CartItem = {
   productId: string;
   skuId?: string;
+  productType?: ProductType;
+  bundleItems?: BundleSnapshotItem[];
   categoryId?: string;
   companyId?: string;
   title: string;
@@ -109,6 +113,8 @@ const serverToLocal = (si: ServerCartItem): CartItem => ({
   id: si.id,
   productId: si.product.id,
   skuId: si.skuId,
+  productType: si.productType,
+  bundleItems: si.bundleItems,
   categoryId: si.product.categoryId ?? undefined,
   companyId: si.product.companyId ?? undefined,
   title: si.product.title,

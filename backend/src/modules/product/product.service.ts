@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TtlCache } from '../../common/ttl-cache';
 import type { AiRecommendTheme } from '../ai/voice-intent.types';
+import { ProductBundleService } from './product-bundle.service';
 import { computeSemanticScore, determineDegradeLevel, type SemanticSlots, type ProductSemanticFields } from './semantic-score';
 
 type ProductCategory = {
@@ -23,6 +24,7 @@ type SearchEntityResolution = {
 
 type ListableProduct = {
   id: string;
+  type?: 'SIMPLE' | 'BUNDLE';
   title: string;
   subtitle?: string | null;
   aiKeywords?: string[];
@@ -35,6 +37,22 @@ type ListableProduct = {
   skus?: Array<{ id: string; price: number; stock?: number | null; maxPerOrder?: number | null }>;
   category?: { id: string; name: string } | null;
   companyId?: string;
+  bundleItems?: Array<{
+    skuId: string;
+    quantity: number;
+    sku?: {
+      id: string;
+      title?: string | null;
+      price?: number | null;
+      stock?: number | null;
+      weightGram?: number | null;
+      product?: {
+        id: string;
+        title?: string | null;
+        media?: Array<{ url: string }>;
+      } | null;
+    } | null;
+  }>;
   // 语义搜索字段（Task 7 新增）
   flavorTags?: string[];
   seasonalMonths?: number[];
@@ -54,7 +72,10 @@ export class ProductService {
     process.env.AI_SEARCH_ENTITY_MODEL || process.env.AI_SEARCH_REWRITE_MODEL || 'qwen-flash';
   private readonly RECOMMEND_THEMES: AiRecommendTheme[] = ['hot', 'discount', 'tasty', 'seasonal', 'recent'];
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private productBundleService: ProductBundleService,
+  ) {}
 
   /** 商品分页列表 */
   async list(
@@ -141,6 +162,34 @@ export class ProductService {
       },
       category: { select: { id: true, name: true } },
       company: { select: { id: true, name: true } },
+      bundleItems: {
+        orderBy: { sortOrder: 'asc' as const },
+        select: {
+          skuId: true,
+          quantity: true,
+          sku: {
+            select: {
+              id: true,
+              title: true,
+              price: true,
+              stock: true,
+              weightGram: true,
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  media: {
+                    where: { type: 'IMAGE' as const },
+                    orderBy: { sortOrder: 'asc' as const },
+                    take: 1,
+                    select: { url: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     };
 
     let items: ListableProduct[] = [];
@@ -313,6 +362,34 @@ export class ProductService {
         skus: { where: { status: 'ACTIVE' }, orderBy: { price: 'asc' } },
         category: true,
         company: { select: { id: true, name: true, isPlatform: true } },
+        bundleItems: {
+          orderBy: { sortOrder: 'asc' as const },
+          select: {
+            skuId: true,
+            quantity: true,
+            sku: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                stock: true,
+                weightGram: true,
+                product: {
+                  select: {
+                    id: true,
+                    title: true,
+                    media: {
+                      where: { type: 'IMAGE' as const },
+                      orderBy: { sortOrder: 'asc' as const },
+                      take: 1,
+                      select: { url: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
     if (!product) throw new NotFoundException('商品已下架');
@@ -879,6 +956,8 @@ export class ProductService {
     const firstImage = product.media?.[0]?.url || '';
     const activeSkus: Array<{ id: string; price: number; stock?: number | null; maxPerOrder?: number | null }> =
       product.skus || [];
+    const productType = product.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
+    const bundleMetrics = this.getBundleMetrics(product);
     const origin = product.origin as any;
     const tagNames = (product.tags || []).map((pt: any) => pt.tag?.name).filter(Boolean);
 
@@ -888,11 +967,14 @@ export class ProductService {
     const maxPrice = prices.length ? Math.max(...prices) : product.basePrice;
     // 最便宜的 SKU（卡片快捷加购加这一个）；价格相等取第一个匹配
     const cheapestSku = activeSkus.find((s) => s.price === minPrice);
+    const defaultSku = productType === 'BUNDLE' ? activeSkus[0] : cheapestSku;
     // 多规格且价格存在差异时，App 展示「起」
     const priceFrom = activeSkus.length > 1 && maxPrice > minPrice;
 
     // 聚合库存：所有 ACTIVE SKU 库存之和（用于卡片「仅剩 x 件」展示）
-    const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+    const stock = productType === 'BUNDLE'
+      ? (bundleMetrics.bundleAvailableStock ?? 0)
+      : activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
 
     // 聚合单笔限购：仅当所有 ACTIVE SKU 都设了 maxPerOrder（> 0）时取 min；否则 null（卡片不展示限购）
     let maxPerOrder: number | null = null;
@@ -907,9 +989,10 @@ export class ProductService {
 
     return {
       id: product.id,
+      type: productType,
       title: product.title,
       price: minPrice,
-      defaultSkuId: cheapestSku?.id ?? null,
+      defaultSkuId: defaultSku?.id ?? null,
       priceFrom,
       unit: product.unit || '斤',
       origin: origin?.text || origin?.name || '',
@@ -930,9 +1013,12 @@ export class ProductService {
   private mapToDetail(product: any) {
     const origin = product.origin as any;
     const tagNames = (product.tags || []).map((pt: any) => pt.tag?.name).filter(Boolean);
+    const productType = product.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
+    const bundleMetrics = this.getBundleMetrics(product);
 
     return {
       id: product.id,
+      type: productType,
       title: product.title,
       subtitle: product.subtitle,
       description: product.description,
@@ -959,12 +1045,73 @@ export class ProductService {
         skuCode: s.skuCode,
         maxPerOrder: s.maxPerOrder ?? null,
       })),
+      bundleItems: productType === 'BUNDLE'
+        ? (product.bundleItems || []).map((item: any) => ({
+            skuId: item.skuId,
+            productId: item.sku?.product?.id ?? '',
+            productTitle: item.sku?.product?.title ?? '',
+            skuTitle: item.sku?.title ?? '',
+            quantity: item.quantity,
+            image: item.sku?.product?.media?.[0]?.url ?? '',
+            stock: item.sku?.stock ?? 0,
+            weightGram: item.sku?.weightGram ?? 0,
+          }))
+        : [],
+      bundleAvailableStock: bundleMetrics.bundleAvailableStock,
+      bundleTotalWeightGram: bundleMetrics.bundleTotalWeightGram,
       attributes: product.attributes || {},
       aiKeywords: product.aiKeywords || [],
       // 兼容前端旧 Product 类型
       price: product.skus?.[0]?.price ?? product.basePrice,
       image: product.media?.find((m: any) => m.type === 'IMAGE')?.url || '',
       effectiveReturnPolicy: null as string | null, // 由 getById 填充
+    };
+  }
+
+  private getBundleMetrics(product: any): {
+    bundleReferenceTotal: number | null;
+    bundleAvailableStock: number | null;
+    bundleTotalWeightGram: number | null;
+  } {
+    if (product.type !== 'BUNDLE') {
+      return {
+        bundleReferenceTotal: null,
+        bundleAvailableStock: null,
+        bundleTotalWeightGram: null,
+      };
+    }
+
+    const bundleItems = product.bundleItems ?? [];
+    if (bundleItems.length === 0) {
+      return {
+        bundleReferenceTotal: 0,
+        bundleAvailableStock: 0,
+        bundleTotalWeightGram: 0,
+      };
+    }
+
+    const bundleReferenceTotal = +bundleItems
+      .reduce((sum: number, item: any) => sum + (item.sku?.price ?? 0) * (item.quantity ?? 0), 0)
+      .toFixed(2);
+
+    const bundleAvailableStock = this.productBundleService.calculateAvailability(
+      bundleItems.map((item: any) => ({
+        stock: item.sku?.stock ?? 0,
+        quantity: item.quantity,
+      })),
+    );
+
+    const bundleTotalWeightGram = this.productBundleService.calculateTotalWeightGram(
+      bundleItems.map((item: any) => ({
+        weightGram: item.sku?.weightGram ?? 0,
+        quantity: item.quantity,
+      })),
+    );
+
+    return {
+      bundleReferenceTotal,
+      bundleAvailableStock,
+      bundleTotalWeightGram,
     };
   }
 }

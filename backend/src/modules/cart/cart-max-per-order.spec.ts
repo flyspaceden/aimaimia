@@ -62,6 +62,7 @@ function validateUpdateItemQuantity(
 describe('CartService.addItem — maxPerOrder 校验', () => {
   const skuWith3Limit = { maxPerOrder: 3, stock: 100 };
   const skuNoLimit = { maxPerOrder: null, stock: 100 };
+  const simpleSkuLowStock = { maxPerOrder: null, stock: 2 };
 
   it('maxPerOrder=3，加购数量=1，购物车为空 → 应成功', () => {
     expect(() => validateAddItem(skuWith3Limit, 1, null)).not.toThrow();
@@ -103,6 +104,10 @@ describe('CartService.addItem — maxPerOrder 校验', () => {
       '该商品每单限购 3 件，购物车已有 2 件',
     );
   });
+
+  it('SIMPLE 商品库存不足时仍按原逻辑抛出"库存不足"', () => {
+    expect(() => validateAddItem(simpleSkuLowStock, 3, null)).toThrow('库存不足');
+  });
 });
 
 // ================================================================
@@ -112,6 +117,7 @@ describe('CartService.addItem — maxPerOrder 校验', () => {
 describe('CartService.updateItemQuantity — maxPerOrder 校验', () => {
   const skuWith5Limit = { maxPerOrder: 5, stock: 100 };
   const skuNoLimit = { maxPerOrder: null, stock: 100 };
+  const simpleSkuLowStock = { maxPerOrder: null, stock: 1 };
 
   it('maxPerOrder=5，更新数量=5 → 恰好达到限额，应成功', () => {
     expect(() => validateUpdateItemQuantity(skuWith5Limit, 5)).not.toThrow();
@@ -136,5 +142,9 @@ describe('CartService.updateItemQuantity — maxPerOrder 校验', () => {
 
   it('SKU 不存在（null）时不做校验 → 应成功（由上层 NotFoundException 处理）', () => {
     expect(() => validateUpdateItemQuantity(null, 100)).not.toThrow();
+  });
+
+  it('SIMPLE 商品超出库存时仍按原逻辑抛出"库存不足"', () => {
+    expect(() => validateUpdateItemQuantity(simpleSkuLowStock, 2)).toThrow('库存不足');
   });
 });

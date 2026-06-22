@@ -134,6 +134,77 @@ describe('OrderService.mapOrder snapshot', () => {
     });
   });
 
+  it('maps bundle productType and bundleItems from productSnapshot into order list and detail items', () => {
+    const bundleItems = [
+      {
+        skuId: 'component-sku-a',
+        productId: 'product-a',
+        productTitle: '苹果',
+        skuTitle: '红富士',
+        quantityPerBundle: 2,
+        bundleQuantity: 1,
+        totalQuantity: 2,
+        unitPriceAtCheckout: 19.9,
+        image: 'http://img/a.jpg',
+        weightGram: 500,
+      },
+      {
+        skuId: 'component-sku-b',
+        productId: 'product-b',
+        productTitle: '橙子',
+        skuTitle: '脐橙',
+        quantityPerBundle: 1,
+        bundleQuantity: 1,
+        totalQuantity: 1,
+        unitPriceAtCheckout: 9.9,
+        image: 'http://img/b.jpg',
+        weightGram: 300,
+      },
+    ];
+    const order = {
+      id: 'o-bundle',
+      status: 'RECEIVED',
+      bizType: 'NORMAL_GOODS',
+      totalAmount: 39.8,
+      createdAt: new Date(),
+      items: [{
+        id: 'i-bundle',
+        skuId: 'bundle-selling-sku',
+        unitPrice: 39.8,
+        quantity: 1,
+        companyId: 'c1',
+        isPrize: false,
+        productSnapshot: {
+          productId: 'bundle-product',
+          title: '水果组合',
+          skuTitle: '默认规格',
+          image: 'http://img/bundle.jpg',
+          productType: 'BUNDLE',
+          bundleItems,
+        },
+      }],
+      afterSaleRequests: [],
+      refunds: [],
+      shipments: [],
+      statusHistory: [],
+      payments: [],
+    };
+
+    const listOut = (service as any).mapOrder(order);
+    const detailOut = (service as any).mapOrderDetail(order);
+
+    expect(listOut.items[0]).toMatchObject({
+      skuId: 'bundle-selling-sku',
+      productType: 'BUNDLE',
+      bundleItems,
+    });
+    expect(detailOut.items[0]).toMatchObject({
+      skuId: 'bundle-selling-sku',
+      productType: 'BUNDLE',
+      bundleItems,
+    });
+  });
+
   it('mapOrder marks all-prize completed orders as not repurchasable', () => {
     const order = {
       id: 'o-prize-only',

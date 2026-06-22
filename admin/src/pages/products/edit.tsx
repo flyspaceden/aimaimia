@@ -21,6 +21,7 @@ import {
   Typography,
   Modal,
   Image,
+  Table,
 } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined, DownloadOutlined } from '@ant-design/icons';
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
@@ -33,7 +34,19 @@ import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
-import { extractConfigValue, type AuditLog } from '@/types';
+import {
+  extractConfigValue,
+  type AuditLog,
+} from '@/types';
+import {
+  type BundleReviewRow,
+  formatMoney,
+  formatWeightGram,
+  getBundleBasePriceHelperText,
+  getBundleSellingSkuSummary,
+  productTypeOf,
+  toBundleReviewRows,
+} from './bundleReview';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -158,16 +171,16 @@ export default function ProductEditPage() {
 
   const handleSave = async () => {
     try {
-      // 同时校验基本信息表单和规格表单，任一失败不提交
-      const [values, skuValues] = await Promise.all([
-        form.validateFields(),
-        skuForm.validateFields(),
-      ]);
+      const values = await form.validateFields();
+      let skus: any[] | null = null;
 
-      const skus = (skuValues.skus as any[]) || [];
-      if (skus.length === 0) {
-        message.warning('至少保留一条规格');
-        return;
+      if (!isBundleProduct) {
+        const skuValues = await skuForm.validateFields();
+        skus = (skuValues.skus as any[]) || [];
+        if (skus.length === 0) {
+          message.warning('至少保留一条规格');
+          return;
+        }
       }
 
       // 转换产地为 Json 格式
@@ -188,9 +201,11 @@ export default function ProductEditPage() {
 
       // 先保存基本信息，再保存规格
       await updateProduct(id!, data);
-      await updateProductSkus(id!, skus);
+      if (skus) {
+        await updateProductSkus(id!, skus);
+      }
 
-      message.success('保存成功：基本信息与规格均已更新');
+      message.success(isBundleProduct ? '保存成功：基本信息已更新' : '保存成功：基本信息与规格均已更新');
       queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
       navigate('/products');
     } catch (err: any) {
@@ -226,6 +241,8 @@ export default function ProductEditPage() {
 
   const status = statusMap[product.status];
   const auditStatus = auditStatusMap[product.auditStatus];
+  const isBundleProduct = productTypeOf(product) === 'BUNDLE';
+  const bundleRows = toBundleReviewRows(product.bundleItems);
 
   // 解析产地
   const originText = typeof product.origin === 'object' && product.origin
@@ -260,6 +277,7 @@ export default function ProductEditPage() {
 
   // 保存 SKU
   const handleSaveSkus = async () => {
+    if (isBundleProduct) return;
     try {
       const values = await skuForm.validateFields();
       const skus = (values.skus as any[]) || [];
@@ -336,6 +354,11 @@ export default function ProductEditPage() {
       <Card title="商品状态" style={{ marginBottom: 16 }}>
         <Descriptions column={{ xs: 1, sm: 3 }}>
           <Descriptions.Item label="商品 ID">{product.id}</Descriptions.Item>
+          <Descriptions.Item label="商品类型">
+            <Tag color={isBundleProduct ? 'processing' : 'default'}>
+              {isBundleProduct ? '组合商品' : '普通商品'}
+            </Tag>
+          </Descriptions.Item>
           <Descriptions.Item label="上架状态">
             <Tag color={status?.color}>{status?.text}</Tag>
           </Descriptions.Item>
@@ -356,7 +379,7 @@ export default function ProductEditPage() {
               ¥{product.basePrice?.toFixed(2) ?? '-'}
             </Text>
             <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              自动 = 最低规格售价，保存规格后自动刷新
+              {getBundleBasePriceHelperText(isBundleProduct ? 'BUNDLE' : 'SIMPLE')}
             </Text>
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
@@ -547,7 +570,74 @@ export default function ProductEditPage() {
         </Form>
       </Card>
 
-      {/* 3. 商品图片 */}
+      {/* 3. 组合内容（只读） */}
+      {isBundleProduct && (
+        <Card title="组合内容（只读）" style={{ marginBottom: 16 }}>
+          <Descriptions
+            size="small"
+            column={{ xs: 1, sm: 2, lg: 4 }}
+            style={{ marginBottom: 16 }}
+          >
+            <Descriptions.Item label="组成 SKU">{bundleRows.length} 项</Descriptions.Item>
+            <Descriptions.Item label="参考合计">{formatMoney(product.bundleReferenceTotal)}</Descriptions.Item>
+            <Descriptions.Item label="总重量">{formatWeightGram(product.bundleTotalWeightGram)}</Descriptions.Item>
+            <Descriptions.Item label="当前可组合库存">{product.bundleAvailableStock ?? '-'}</Descriptions.Item>
+          </Descriptions>
+          <Table<BundleReviewRow>
+            size="small"
+            pagination={false}
+            rowKey="key"
+            dataSource={bundleRows}
+            scroll={{ x: 820 }}
+            columns={[
+              {
+                title: '组成商品',
+                dataIndex: 'productTitle',
+                width: 220,
+                render: (value: string) => value || '-',
+              },
+              {
+                title: 'SKU 规格',
+                dataIndex: 'skuTitle',
+                width: 220,
+                render: (value: string) => value || '-',
+              },
+              {
+                title: '数量',
+                dataIndex: 'quantity',
+                width: 80,
+              },
+              {
+                title: '当前单价',
+                dataIndex: 'price',
+                width: 110,
+                render: (value: number | null) => formatMoney(value),
+              },
+              {
+                title: '当前小计',
+                dataIndex: 'subtotal',
+                width: 110,
+                render: (value: number | null) => formatMoney(value),
+              },
+              {
+                title: '单件重量',
+                dataIndex: 'weightGram',
+                width: 100,
+                render: (value: number | null) => formatWeightGram(value),
+              },
+              {
+                title: '总重量',
+                dataIndex: 'totalWeightGram',
+                width: 100,
+                render: (value: number | null) => formatWeightGram(value),
+              },
+            ]}
+            locale={{ emptyText: '暂无组合内容' }}
+          />
+        </Card>
+      )}
+
+      {/* 4. 商品图片 */}
       {mediaList && mediaList.length > 0 && (
         <Card title="商品图片" style={{ marginBottom: 16 }}>
           <Space wrap>
@@ -588,11 +678,11 @@ export default function ProductEditPage() {
         </Card>
       )}
 
-      {/* 4. 商品规格列表（可编辑） */}
+      {/* 5. 商品规格 / 销售规格 */}
       <Card
-        title="商品规格（不同包装/重量/口味等销售单元）"
+        title={isBundleProduct ? '销售规格（只读）' : '商品规格（不同包装/重量/口味等销售单元）'}
         style={{ marginBottom: 16 }}
-        extra={
+        extra={(
           <Space>
             {/* 计量单位：与「基本信息」共用同一 form 实例（form），保证仍随基本信息一起提交 */}
             <Form form={form} component={false}>
@@ -613,110 +703,129 @@ export default function ProductEditPage() {
                 />
               </Form.Item>
             </Form>
-            <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
-              <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveSkus}>
-                保存规格
-              </Button>
-            </PermissionGate>
+            {!isBundleProduct && (
+              <PermissionGate permission={PERMISSIONS.PRODUCTS_UPDATE}>
+                <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveSkus}>
+                  保存规格
+                </Button>
+              </PermissionGate>
+            )}
           </Space>
-        }
+        )}
       >
-        <Form form={skuForm} layout="vertical" initialValues={{ skus: skuList }}>
-          <Form.List name="skus">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map((field) => (
-                  <Space
-                    key={field.key}
-                    align="start"
-                    style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }}
-                  >
-                    {/* 隐藏 id 字段（已存在 SKU 保留 id，新增则无） */}
-                    <Form.Item {...field} name={[field.name, 'id']} hidden>
-                      <Input />
-                    </Form.Item>
-                    <Form.Item
-                      {...field}
-                      label="规格名称"
-                      name={[field.name, 'specText']}
-                      rules={[{ required: true, message: '请输入规格名称' }]}
+        {isBundleProduct ? (
+          <>
+            <Descriptions
+              size="small"
+              column={{ xs: 1, sm: 2 }}
+              items={getBundleSellingSkuSummary(product).map(([label, children]) => ({
+                key: label,
+                label,
+                children,
+              }))}
+            />
+            <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+              组合商品的组成明细、重量与可售组合数以上方“组合内容”区块为准，此处仅展示买家端销售单元。
+            </Text>
+          </>
+        ) : (
+          <Form form={skuForm} layout="vertical" initialValues={{ skus: skuList }}>
+            <Form.List name="skus">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.map((field) => (
+                    <Space
+                      key={field.key}
+                      align="start"
+                      style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }}
                     >
-                      <Input placeholder="如：500g 礼盒装" style={{ width: 200 }} />
-                    </Form.Item>
-                    <Form.Item
-                      {...field}
-                      label="成本价（元）"
-                      name={[field.name, 'cost']}
-                    >
-                      <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
-                    </Form.Item>
-                    <Form.Item
-                      {...field}
-                      label="售价（元）"
-                      name={[field.name, 'price']}
-                      rules={[{ required: true, message: '请输入售价' }]}
-                    >
-                      <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
-                    </Form.Item>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {/* 隐藏 id 字段（已存在 SKU 保留 id，新增则无） */}
+                      <Form.Item {...field} name={[field.name, 'id']} hidden>
+                        <Input />
+                      </Form.Item>
                       <Form.Item
                         {...field}
-                        label="库存"
-                        name={[field.name, 'stock']}
-                        rules={[
-                          { required: true, message: '请输入库存' },
-                          { type: 'number', min: 0, message: '库存不能为负数' },
-                        ]}
-                        style={{ marginBottom: 0 }}
+                        label="规格名称"
+                        name={[field.name, 'specText']}
+                        rules={[{ required: true, message: '请输入规格名称' }]}
                       >
-                        <InputNumber min={0} precision={0} style={{ width: 120 }} />
+                        <Input placeholder="如：500g 礼盒装" style={{ width: 200 }} />
                       </Form.Item>
-                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
-                        {({ getFieldValue }) => {
-                          const stock = getFieldValue(['skus', field.name, 'stock']);
-                          return <StockHint value={stock} threshold={lowStockThreshold} />;
-                        }}
+                      <Form.Item
+                        {...field}
+                        label="成本价（元）"
+                        name={[field.name, 'cost']}
+                      >
+                        <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
                       </Form.Item>
-                    </div>
-                    <Form.Item
-                      {...field}
-                      label="包装后重量（克）"
-                      name={[field.name, 'weightGram']}
-                      rules={[{ required: true, message: '请输入包装后重量' }]}
-                    >
-                      <InputNumber min={1} precision={0} style={{ width: 150 }} placeholder="如：1000" />
-                    </Form.Item>
-                    <Form.Item
-                      {...field}
-                      label="单笔限购"
-                      name={[field.name, 'maxPerOrder']}
-                      rules={[{ type: 'number', min: 1, message: '最少为1' }]}
-                    >
-                      <InputNumber min={1} precision={0} style={{ width: 120 }} placeholder="不限" />
-                    </Form.Item>
-                    <MinusCircleOutlined
-                      style={{ marginTop: 38, color: '#999' }}
-                      onClick={() => remove(field.name)}
-                    />
-                  </Space>
-                ))}
-                <Button
-                  type="dashed"
-                  onClick={() => add({ price: 0, stock: 0, cost: 0, maxPerOrder: undefined })}
-                  icon={<PlusOutlined />}
-                >
-                  添加规格
-                </Button>
-                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                  注：UPSERT 模式，删除行仅从表单移除不会删除后端 SKU；如需停用请使用卖家后台的 SKU 状态切换。
-                </Text>
-              </>
-            )}
-          </Form.List>
-        </Form>
+                      <Form.Item
+                        {...field}
+                        label="售价（元）"
+                        name={[field.name, 'price']}
+                        rules={[{ required: true, message: '请输入售价' }]}
+                      >
+                        <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
+                      </Form.Item>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <Form.Item
+                          {...field}
+                          label="库存"
+                          name={[field.name, 'stock']}
+                          rules={[
+                            { required: true, message: '请输入库存' },
+                            { type: 'number', min: 0, message: '库存不能为负数' },
+                          ]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <InputNumber min={0} precision={0} style={{ width: 120 }} />
+                        </Form.Item>
+                        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skus?.[field.name]?.stock !== cur.skus?.[field.name]?.stock}>
+                          {({ getFieldValue }) => {
+                            const stock = getFieldValue(['skus', field.name, 'stock']);
+                            return <StockHint value={stock} threshold={lowStockThreshold} />;
+                          }}
+                        </Form.Item>
+                      </div>
+                      <Form.Item
+                        {...field}
+                        label="包装后重量（克）"
+                        name={[field.name, 'weightGram']}
+                        rules={[{ required: true, message: '请输入包装后重量' }]}
+                      >
+                        <InputNumber min={1} precision={0} style={{ width: 150 }} placeholder="如：1000" />
+                      </Form.Item>
+                      <Form.Item
+                        {...field}
+                        label="单笔限购"
+                        name={[field.name, 'maxPerOrder']}
+                        rules={[{ type: 'number', min: 1, message: '最少为1' }]}
+                      >
+                        <InputNumber min={1} precision={0} style={{ width: 120 }} placeholder="不限" />
+                      </Form.Item>
+                      <MinusCircleOutlined
+                        style={{ marginTop: 38, color: '#999' }}
+                        onClick={() => remove(field.name)}
+                      />
+                    </Space>
+                  ))}
+                  <Button
+                    type="dashed"
+                    onClick={() => add({ price: 0, stock: 0, cost: 0, maxPerOrder: undefined })}
+                    icon={<PlusOutlined />}
+                  >
+                    添加规格
+                  </Button>
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                    注：UPSERT 模式，删除行仅从表单移除不会删除后端 SKU；如需停用请使用卖家后台的 SKU 状态切换。
+                  </Text>
+                </>
+              )}
+            </Form.List>
+          </Form>
+        )}
       </Card>
 
-      {/* 5. 审核记录 */}
+      {/* 6. 审核记录 */}
       <Card title="审核记录">
         {auditLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}>

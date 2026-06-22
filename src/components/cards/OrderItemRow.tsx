@@ -1,11 +1,16 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../../theme';
+import type { ProductType } from '../../types/domain/Product';
+import type { BundleSnapshotItem } from '../../types/domain/BundleSnapshot';
+import { BundleSummary } from '../orders/BundleSummary';
 
 interface Props {
   image: string;
   title: string;
   skuTitle?: string;
+  productType?: ProductType;
+  bundleItems?: BundleSnapshotItem[];
   unitPrice: number;
   quantity: number;
   priceLabel?: string;
@@ -14,7 +19,18 @@ interface Props {
   onAfterSale?: () => void;
 }
 
-export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, priceLabel, showAfterSaleAction, onAfterSale }: Props) {
+export function OrderItemRow({
+  image,
+  title,
+  skuTitle,
+  productType,
+  bundleItems,
+  unitPrice,
+  quantity,
+  priceLabel,
+  showAfterSaleAction,
+  onAfterSale,
+}: Props) {
   const { colors, radius, typography } = useTheme();
   return (
     <View style={styles.row}>
@@ -30,6 +46,7 @@ export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, pric
             规格：{skuTitle}
           </Text>
         ) : null}
+        <BundleSummary productType={productType} bundleItems={bundleItems} />
         <View style={styles.metaRow}>
           <Text style={[typography.caption, { color: colors.text.secondary }]}>x{quantity}</Text>
           {showAfterSaleAction ? (
@@ -51,6 +68,6 @@ export function OrderItemRow({ image, title, skuTitle, unitPrice, quantity, pric
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8 },
   image: { width: 56, height: 56, marginRight: 10 },
-  body: { flex: 1, marginRight: 8 },
+  body: { flex: 1, marginRight: 8, minWidth: 0 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
 });

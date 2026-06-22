@@ -321,6 +321,8 @@ export class AdminOrdersService {
           productImage,
           skuName: item.sku?.title || null,
           productId: item.sku?.product?.id || null,
+          productType: snapshot?.productType || 'SIMPLE',
+          bundleItems: snapshot?.bundleItems || [],
         };
       }),
     };

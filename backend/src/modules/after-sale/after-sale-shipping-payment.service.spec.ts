@@ -192,6 +192,45 @@ describe('AfterSaleShippingPaymentService', () => {
     );
   });
 
+  it('estimates buyer return shipping fee from shipping rules using bundle snapshot weight when live sku weight drifts', async () => {
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 27.654 }),
+    };
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      ...afterSaleRequestFixture(),
+      order: {
+        addressSnapshot: {
+          regionCode: '440305',
+          regionText: '广东省/深圳市/南山区',
+        },
+      },
+      orderItem: {
+        quantity: 2,
+        sku: { weightGram: 1 },
+        productSnapshot: {
+          title: '水果礼盒',
+          productType: 'BUNDLE',
+          bundleTotalWeightGram: 1300,
+          bundleItems: [
+            { skuId: 'component-apple', quantityPerBundle: 2, weightGram: 500 },
+            { skuId: 'component-orange', quantityPerBundle: 1, weightGram: 300 },
+          ],
+        },
+      },
+    });
+    service = new AfterSaleShippingPaymentService(prisma as any, alipayService as any);
+    service.setShippingRuleService(shippingRuleService as any);
+
+    await expect(service.estimateReturnShippingFee('as_001')).resolves.toBe(27.65);
+
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      0,
+      '440305',
+      2600,
+      tx,
+    );
+  });
+
   it('estimates buyer return shipping fee by summing non-prize order item weights for full-order after sale', async () => {
     const shippingRuleService = {
       calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 31.234 }),
@@ -203,7 +242,15 @@ describe('AfterSaleShippingPaymentService', () => {
       order: {
         addressSnapshot: { regionCode: '440305' },
         items: [
-          { quantity: 2, isPrize: false, sku: { weightGram: 800 } },
+          {
+            quantity: 2,
+            isPrize: false,
+            sku: { weightGram: 1 },
+            productSnapshot: {
+              productType: 'BUNDLE',
+              bundleTotalWeightGram: 1300,
+            },
+          },
           { quantity: 1, isPrize: false, sku: { weightGram: 1000 } },
           { quantity: 99, isPrize: true, sku: { weightGram: 9999 } },
         ],
@@ -218,7 +265,7 @@ describe('AfterSaleShippingPaymentService', () => {
     expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
       0,
       '440305',
-      2600,
+      3600,
       tx,
     );
   });

@@ -25,6 +25,7 @@ import {
 } from '../lottery/prize-availability.util';
 import { WechatPayService } from '../payment/wechat-pay.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { BundleSnapshotItem, ProductBundleService } from '../product/product-bundle.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -84,6 +85,7 @@ export class CheckoutService {
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
+    private productBundleService: ProductBundleService = new ProductBundleService(),
   ) {}
 
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -245,6 +247,24 @@ export class CheckoutService {
         product: {
           include: {
             media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+            bundleItems: {
+              orderBy: { sortOrder: 'asc' },
+              include: {
+                sku: {
+                  include: {
+                    product: {
+                      include: {
+                        media: {
+                          where: { type: 'IMAGE' },
+                          orderBy: { sortOrder: 'asc' },
+                          take: 1,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -260,6 +280,24 @@ export class CheckoutService {
           product: {
             include: {
               media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
+              bundleItems: {
+                orderBy: { sortOrder: 'asc' },
+                include: {
+                  sku: {
+                    include: {
+                      product: {
+                        include: {
+                          media: {
+                            where: { type: 'IMAGE' },
+                            orderBy: { sortOrder: 'asc' },
+                            take: 1,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -354,11 +392,16 @@ export class CheckoutService {
       }
 
       if (!prizeCartItem) {
-        if (sku.stock <= 0) {
+        const bundleSnapshot = sku.product?.type === 'BUNDLE'
+          ? await this.buildBundleSnapshotItem(sku, item.quantity)
+          : null;
+        const availableQuantity = bundleSnapshot?.availability ?? sku.stock;
+
+        if (availableQuantity <= 0) {
           throw new BadRequestException(`商品「${sku.product.title}」暂无库存，请从购物车移除后再结算`);
         }
-        if (item.quantity > sku.stock) {
-          throw new BadRequestException(`商品「${sku.product.title}」当前仅剩 ${sku.stock} 件，请调整数量`);
+        if (item.quantity > availableQuantity) {
+          throw new BadRequestException(`商品「${sku.product.title}」当前仅剩 ${availableQuantity} 件，请调整数量`);
         }
       }
 
@@ -425,6 +468,10 @@ export class CheckoutService {
 
       // C3修复：为普通商品项也记录 cartItemId，避免支付回调时按 skuId 批量删除误伤
       const normalCartItem = !isPrize ? normalCartBySkuId.get(resolvedSkuId) || normalCartBySkuId.get(item.skuId) : undefined;
+      const bundleSnapshot = sku.product?.type === 'BUNDLE'
+        ? await this.buildBundleSnapshotItem(sku, item.quantity)
+        : null;
+      const snapshotCompanyId = bundleSnapshot?.companyId ?? sku.product.companyId;
       snapshotItems.push({
         skuId: resolvedSkuId,
         quantity: item.quantity,
@@ -433,17 +480,31 @@ export class CheckoutService {
         prizeRecordId: prizeRecordId || undefined,
         prizeType: prizeType || undefined,
         unitPrice,
-        companyId: sku.product.companyId,
-        productSnapshot: {
-          productId: sku.product.id,
-          companyId: sku.product.companyId,
-          title: sku.product.title,
-          skuTitle: sku.title,
-          image: sku.product.media?.[0]?.url || '',
-          price: unitPrice,
-          isPrize,
-          prizeType,
-        },
+        companyId: snapshotCompanyId,
+        productSnapshot: bundleSnapshot
+          ? {
+              productId: sku.product.id,
+              companyId: snapshotCompanyId,
+              productType: 'BUNDLE',
+              title: sku.product.title,
+              skuTitle: sku.title,
+              image: sku.product.media?.[0]?.url || '',
+              price: unitPrice,
+              bundleItems: bundleSnapshot.bundleItems,
+              bundleTotalWeightGram: bundleSnapshot.bundleTotalWeightGram,
+              isPrize,
+              prizeType,
+            }
+          : {
+              productId: sku.product.id,
+              companyId: sku.product.companyId,
+              title: sku.product.title,
+              skuTitle: sku.title,
+              image: sku.product.media?.[0]?.url || '',
+              price: unitPrice,
+              isPrize,
+              prizeType,
+            },
       });
     }
 
@@ -534,7 +595,7 @@ export class CheckoutService {
         items,
         goodsAmount: items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
         totalWeight: items.reduce(
-          (sum, i) => sum + i.quantity * (skuWeightMap.get(i.skuId) ?? 0),
+          (sum, i) => sum + this.getSnapshotItemShippingWeightGram(i, skuWeightMap),
           0,
         ),
       }))
@@ -1882,53 +1943,63 @@ export class CheckoutService {
                 }
               }
 
-              const updatedSku = await tx.productSKU.update({
-                where: { id: item.skuId },
-                data: { stock: { decrement: item.quantity } },
-              });
-              if (updatedSku.stock < 0) {
-                this.logger.warn(
-                  `R12 超卖: skuId=${item.skuId}, currentStock=${updatedSku.stock}`,
-                );
-                // C10修复：超卖通知卖家补货
-                if (this.inboxService && item.companyId) {
-                  const ownerStaff = await tx.companyStaff.findFirst({
-                    where: { companyId: item.companyId, role: 'OWNER', status: 'ACTIVE' },
-                    select: { userId: true },
-                  });
-                  if (ownerStaff) {
-                    const sku = await tx.productSKU.findUnique({
-                      where: { id: item.skuId },
-                      include: { product: { select: { title: true } } },
+              const inventoryMovements = item.productSnapshot?.productType === 'BUNDLE'
+                ? this.productBundleService.buildInventoryMovements(item)
+                : [{
+                    skuId: item.skuId,
+                    quantity: item.quantity,
+                    companyId: item.companyId,
+                  }];
+
+              for (const movement of inventoryMovements) {
+                const updatedSku = await tx.productSKU.update({
+                  where: { id: movement.skuId },
+                  data: { stock: { decrement: movement.quantity } },
+                });
+                if (updatedSku.stock < 0) {
+                  this.logger.warn(
+                    `R12 超卖: skuId=${movement.skuId}, currentStock=${updatedSku.stock}`,
+                  );
+                  // C10修复：超卖通知卖家补货
+                  if (this.inboxService && movement.companyId) {
+                    const ownerStaff = await tx.companyStaff.findFirst({
+                      where: { companyId: movement.companyId, role: 'OWNER', status: 'ACTIVE' },
+                      select: { userId: true },
                     });
-                    const skuLabel = sku?.title || sku?.product?.title || item.skuId;
-                    // setImmediate 避免阻塞事务
-                    const inboxService = this.inboxService;
-                    const userId = ownerStaff.userId;
-                    const oversoldQty = Math.abs(updatedSku.stock);
-                    setImmediate(() => {
-                      inboxService.send({
-                        userId,
-                        category: 'transaction',
-                        type: 'stock_shortage',
-                        title: '商品超卖补货提醒',
-                        content: `商品「${skuLabel}」超卖 ${oversoldQty} 件，当前库存 ${updatedSku.stock}，请尽快补货。`,
-                        // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
-                        // 卖家应在卖家后台 web 处理库存，将来可考虑发独立卖家通知渠道
-                      }).catch(() => {});
-                    });
+                    if (ownerStaff) {
+                      const sku = await tx.productSKU.findUnique({
+                        where: { id: movement.skuId },
+                        include: { product: { select: { title: true } } },
+                      });
+                      const skuLabel = sku?.title || sku?.product?.title || movement.skuId;
+                      // setImmediate 避免阻塞事务
+                      const inboxService = this.inboxService;
+                      const userId = ownerStaff.userId;
+                      const oversoldQty = Math.abs(updatedSku.stock);
+                      setImmediate(() => {
+                        inboxService.send({
+                          userId,
+                          category: 'transaction',
+                          type: 'stock_shortage',
+                          title: '商品超卖补货提醒',
+                          content: `商品「${skuLabel}」超卖 ${oversoldQty} 件，当前库存 ${updatedSku.stock}，请尽快补货。`,
+                          // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
+                          // 卖家应在卖家后台 web 处理库存，将来可考虑发独立卖家通知渠道
+                        }).catch(() => {});
+                      });
+                    }
                   }
                 }
+                await tx.inventoryLedger.create({
+                  data: {
+                    skuId: movement.skuId,
+                    type: 'RESERVE',
+                    qty: -movement.quantity,
+                    refType: 'ORDER',
+                    refId: refOrderId,
+                  },
+                });
               }
-              await tx.inventoryLedger.create({
-                data: {
-                  skuId: item.skuId,
-                  type: 'RESERVE',
-                  qty: -item.quantity,
-                  refType: 'ORDER',
-                  refId: refOrderId,
-                },
-              });
             }
 
             // 8. 消费积分抵扣：RESERVED → VOIDED
@@ -2460,6 +2531,78 @@ export class CheckoutService {
       return DEFAULT_SKU_WEIGHT_GRAM;
     }
     return Math.round(normalized);
+  }
+
+  private getSnapshotItemShippingWeightGram(
+    item: SnapshotItem,
+    skuWeightMap: Map<string, number>,
+  ): number {
+    const bundleWeight = Number(item.productSnapshot?.bundleTotalWeightGram);
+    if (item.productSnapshot?.productType === 'BUNDLE' && Number.isFinite(bundleWeight) && bundleWeight > 0) {
+      return Math.round(bundleWeight) * item.quantity;
+    }
+
+    return item.quantity * (skuWeightMap.get(item.skuId) ?? 0);
+  }
+
+  private async buildBundleSnapshotItem(
+    sku: any,
+    bundleQuantity: number,
+  ): Promise<{
+    availability: number;
+    companyId: string;
+    bundleTotalWeightGram: number;
+    bundleItems: BundleSnapshotItem[];
+  }> {
+    const bundleProduct = sku.product;
+    const configuredBundleItems = Array.isArray(bundleProduct?.bundleItems)
+      ? bundleProduct.bundleItems
+      : [];
+    const configuredBundleItemBySkuId = new Map<string, any>(
+      configuredBundleItems.map((item: any) => [item.skuId, item]),
+    );
+    const validatedBundleItems = await this.productBundleService.validateSellerBundleItems(
+      this.prisma as any,
+      bundleProduct.companyId,
+      configuredBundleItems.map((item: any) => ({
+        skuId: item.skuId,
+        quantity: item.quantity,
+        sortOrder: item.sortOrder ?? 0,
+      })),
+    );
+    const availability = this.productBundleService.calculateAvailability(
+      validatedBundleItems.map((item) => ({
+        stock: configuredBundleItemBySkuId.get(item.sku.id)?.sku?.stock ?? 0,
+        quantity: item.quantity,
+      })),
+    );
+    const bundleTotalWeightGram = this.productBundleService.calculateTotalWeightGram(
+      validatedBundleItems.map((item) => ({
+        weightGram: item.sku.weightGram,
+        quantity: item.quantity,
+      })),
+    );
+
+    return {
+      availability,
+      companyId: bundleProduct.companyId,
+      bundleTotalWeightGram,
+      bundleItems: validatedBundleItems.map((item) => {
+        const configuredBundleItem = configuredBundleItemBySkuId.get(item.sku.id);
+        return {
+          skuId: item.sku.id,
+          productId: item.sku.product.id,
+          productTitle: item.sku.product.title,
+          skuTitle: item.sku.title,
+          quantityPerBundle: item.quantity,
+          bundleQuantity,
+          totalQuantity: item.quantity * bundleQuantity,
+          unitPriceAtCheckout: configuredBundleItem?.sku?.price ?? 0,
+          image: configuredBundleItem?.sku?.product?.media?.[0]?.url ?? '',
+          weightGram: item.sku.weightGram,
+        };
+      }),
+    };
   }
 
   private allocateShippingFeeByGoodsAmount(

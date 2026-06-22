@@ -36,6 +36,7 @@ import { asStringArray, formatMoneyValue, getTrackingEvents, toFiniteNumber } fr
 import { isAfterSaleRefundPollingActive, isAfterSaleRefundTerminal } from '../../../src/utils/afterSaleRefundSync';
 import { payWithAlipay } from '../../../src/utils/alipay';
 import { payWithWechat } from '../../../src/utils/wechat-pay';
+import { BundleSummary } from '../../../src/components/orders/BundleSummary';
 import type {
   AfterSaleDetailStatus,
   AfterSaleRequest,
@@ -468,6 +469,8 @@ export default function AfterSaleDetailScreen() {
   const snapshot = as.orderItem?.productSnapshot;
   const productImage = snapshot?.image ?? snapshot?.images?.[0];
   const productTitle = snapshot?.title ?? '商品';
+  const snapshotProductType = snapshot?.productType;
+  const snapshotBundleItems = Array.isArray(snapshot?.bundleItems) ? snapshot.bundleItems : undefined;
   const unitPrice = toFiniteNumber(as.orderItem?.unitPrice);
   const quantity = toFiniteNumber(as.orderItem?.quantity, 1);
   const companyName = as.orderItem?.company?.name ?? snapshot?.companyName ?? null;
@@ -568,6 +571,7 @@ export default function AfterSaleDetailScreen() {
                 <Text style={[typography.bodySm, { color: colors.text.primary }]} numberOfLines={2}>
                   {productTitle}
                 </Text>
+                <BundleSummary productType={snapshotProductType} bundleItems={snapshotBundleItems} />
                 {companyName && (
                   <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]} numberOfLines={1}>
                     商家：{companyName}

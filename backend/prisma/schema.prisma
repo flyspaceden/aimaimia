@@ -111,6 +111,11 @@ enum ProductStatus {
   INACTIVE
 }
 
+enum ProductType {
+  SIMPLE
+  BUNDLE
+}
+
 enum ProductAuditStatus {
   PENDING
   APPROVED
@@ -1189,6 +1194,7 @@ model Product {
   description        String?
   detailRich         Json? // 富文本详情
   status             ProductStatus      @default(DRAFT)
+  type               ProductType        @default(SIMPLE)
   auditStatus        ProductAuditStatus @default(PENDING)
   auditNote          String?
   submissionCount    Int                @default(1) // 当前审核提交次数（REJECTED/APPROVED 后卖家编辑重新提交时 +1）
@@ -1215,6 +1221,7 @@ model Product {
   skus              ProductSKU[]
   media             ProductMedia[]
   tags              ProductTag[]
+  bundleItems       ProductBundleItem[] @relation("ProductBundleItems")
   productTraceLinks ProductTraceLink[]
   lotteryPrizes     LotteryPrize[]
 
@@ -1255,6 +1262,23 @@ model ProductSKU {
   inventoryLedgers InventoryLedger[]
   lotteryPrizes    LotteryPrize[]
   vipGiftItems     VipGiftItem[]
+  bundleItems      ProductBundleItem[]
+}
+
+model ProductBundleItem {
+  id              String     @id @default(cuid())
+  bundleProductId String
+  bundleProduct   Product    @relation("ProductBundleItems", fields: [bundleProductId], references: [id], onDelete: Cascade)
+  skuId           String
+  sku             ProductSKU @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  quantity        Int
+  sortOrder       Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([bundleProductId, skuId])
+  @@index([bundleProductId])
+  @@index([skuId])
 }
 
 model ProductMedia {
@@ -1291,7 +1315,7 @@ model InventoryLedger {
 
   @@index([skuId]) // M5: 外键索引，加速库存流水查询
   // 退货退款回填幂等依赖手写部分唯一索引，Prisma schema 暂不能表达：
-  // InventoryLedger_after_sale_release_once_idx(refType, refId)
+  // InventoryLedger_after_sale_release_once_idx(refType, refId, skuId)
   // WHERE type='RELEASE' AND refType='AFTER_SALE' AND refId IS NOT NULL
 }
 

@@ -35,7 +35,11 @@ import {
 } from '@/api/orders';
 import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
-import { printSellerWaybill } from '@/utils/waybillPrint';
+import {
+  buildPickingSheetHtml,
+  printSellerWaybill,
+  resolveBundleComponentQuantity,
+} from '@/utils/waybillPrint';
 import dayjs from 'dayjs';
 
 // 根据订单状态和物流状态计算进度步骤
@@ -149,6 +153,25 @@ export default function OrderDetailPage() {
     } finally {
       setCallingBuyer(false);
     }
+  };
+
+  const handlePrintPickingSheet = () => {
+    if (!order) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!printWindow) {
+      message.warning('浏览器拦截了拣货单弹窗，请允许弹窗后重试');
+      return;
+    }
+
+    printWindow.document.write(buildPickingSheetHtml(order));
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.focus();
+      setTimeout(() => printWindow.print(), 200);
+    };
   };
 
   if (isLoading || !order) {
@@ -390,7 +413,16 @@ export default function OrderDetailPage() {
       </Card>
 
       {/* 商品清单 — 卡片式展示 */}
-      <Card title={`商品清单 (${order.items.length})`} size="small" style={{ marginBottom: 16 }}>
+      <Card
+        title={`商品清单 (${order.items.length})`}
+        extra={(
+          <Button icon={<PrinterOutlined />} onClick={handlePrintPickingSheet}>
+            打印拣货单
+          </Button>
+        )}
+        size="small"
+        style={{ marginBottom: 16 }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {order.items.map((item) => (
             <div
@@ -419,22 +451,75 @@ export default function OrderDetailPage() {
                 <div
                   style={{
                     fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {item.title || '-'}
-                </div>
-                <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
-                  {item.isPrize ? (
-                    <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
-                      {item.prizeType === 'THRESHOLD_GIFT' ? '满额赠品' : item.prizeType === 'DISCOUNT_BUY' ? '特价购' : '抽奖奖品'}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.title || '-'}
+                  </span>
+                  {item.productType === 'BUNDLE' && (
+                    <Tag color="blue" style={{ marginInlineEnd: 0, flexShrink: 0 }}>
+                      组合
                     </Tag>
-                  ) : (
-                    <Tag style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>普通</Tag>
                   )}
                 </div>
+                <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+                  <Space size={4} wrap>
+                    {item.isPrize ? (
+                      <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
+                        {item.prizeType === 'THRESHOLD_GIFT' ? '满额赠品' : item.prizeType === 'DISCOUNT_BUY' ? '特价购' : '抽奖奖品'}
+                      </Tag>
+                    ) : (
+                      <Tag style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>普通</Tag>
+                    )}
+                    {item.skuTitle && (
+                      <span style={{ color: '#8c8c8c' }}>{item.skuTitle}</span>
+                    )}
+                  </Space>
+                </div>
+                {item.productType === 'BUNDLE' && (item.bundleItems?.length ?? 0) > 0 && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      paddingLeft: 12,
+                      borderLeft: '2px solid #f0f0f0',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    {item.bundleItems?.map((bundleItem, index) => {
+                      const quantity = resolveBundleComponentQuantity(bundleItem, item.quantity);
+                      if (!quantity) return null;
+                      const skuTitle = bundleItem.skuTitle || bundleItem.skuName || '默认规格';
+                      return (
+                        <div
+                          key={`${bundleItem.skuId || bundleItem.productId || bundleItem.productTitle || 'bundle'}-${index}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            fontSize: 12,
+                            color: '#595959',
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <span style={{ color: '#8c8c8c', marginRight: 8 }}>组合明细</span>
+                            <span>{bundleItem.productTitle || '未命名组件'}</span>
+                            <span style={{ color: '#8c8c8c', marginLeft: 8 }}>{skuTitle}</span>
+                          </div>
+                          <span style={{ whiteSpace: 'nowrap', color: '#262626' }}>x{quantity}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontFamily: 'monospace' }}>

@@ -19,9 +19,11 @@ function makeSku(overrides: any = {}) {
       id: overrides.productId ?? 'p1',
       title: overrides.productTitle ?? '苹果',
       status: overrides.productStatus ?? 'ACTIVE',
+      type: overrides.productType ?? 'SIMPLE',
       companyId: company.id,
       company,
       media: [{ url: 'http://img/apple.jpg' }],
+      bundleItems: overrides.bundleItems ?? [],
     },
   };
 }
@@ -378,6 +380,206 @@ describe('OrderService.repurchase', () => {
       virtual: true,
     });
     expect(tx.cartItem.create).not.toHaveBeenCalled();
+  });
+
+  it('repurchases in-stock bundle items onto the bundle selling sku cart row', async () => {
+    const bundleSku = makeSku({
+      id: 'bundle-selling-sku',
+      title: '水果组合默认规格',
+      price: 39.8,
+      stock: 999,
+      productId: 'bundle-product',
+      productTitle: '水果组合',
+      productType: 'BUNDLE',
+      bundleItems: [
+        {
+          skuId: 'component-sku-a',
+          quantity: 2,
+          sortOrder: 1,
+          sku: { stock: 6 },
+        },
+        {
+          skuId: 'component-sku-b',
+          quantity: 1,
+          sortOrder: 2,
+          sku: { stock: 5 },
+        },
+      ],
+    });
+    const { service, tx } = createHarness({
+      order: makeOrder({
+        items: [{
+          id: 'oi-bundle',
+          skuId: 'bundle-selling-sku',
+          unitPrice: 39.8,
+          quantity: 2,
+          isPrize: false,
+          productSnapshot: {
+            title: '水果组合',
+            productType: 'BUNDLE',
+            bundleItems: [
+              { skuId: 'component-sku-a', quantityPerBundle: 2 },
+              { skuId: 'component-sku-b', quantityPerBundle: 1 },
+            ],
+          },
+        }],
+      }),
+      skus: [bundleSku],
+      cartItems: [],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(2);
+    expect(result.skippedQuantity).toBe(0);
+    expect(result.items[0]).toMatchObject({
+      skuId: 'bundle-selling-sku',
+      status: 'ADDED',
+      stockStatus: 'NORMAL',
+      stock: 3,
+    });
+    expect(tx.cartItem.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        skuId: 'bundle-selling-sku',
+        quantity: 2,
+        isSelected: true,
+      }),
+    }));
+    expect(tx.cartItem.create).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ skuId: 'component-sku-a' }),
+    }));
+    expect(tx.cartItem.create).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ skuId: 'component-sku-b' }),
+    }));
+  });
+
+  it('degrades positive low-stock bundle repurchase onto the bundle selling sku cart row', async () => {
+    const bundleSku = makeSku({
+      id: 'bundle-selling-sku',
+      title: '水果组合默认规格',
+      price: 39.8,
+      stock: 999,
+      productId: 'bundle-product',
+      productTitle: '水果组合',
+      productType: 'BUNDLE',
+      bundleItems: [
+        {
+          skuId: 'component-sku-a',
+          quantity: 2,
+          sortOrder: 1,
+          sku: { stock: 2 },
+        },
+        {
+          skuId: 'component-sku-b',
+          quantity: 1,
+          sortOrder: 2,
+          sku: { stock: 8 },
+        },
+      ],
+    });
+    const { service, tx } = createHarness({
+      order: makeOrder({
+        items: [{
+          id: 'oi-bundle',
+          skuId: 'bundle-selling-sku',
+          unitPrice: 39.8,
+          quantity: 2,
+          isPrize: false,
+          productSnapshot: {
+            title: '水果组合',
+            productType: 'BUNDLE',
+            bundleItems: [
+              { skuId: 'component-sku-a', quantityPerBundle: 2 },
+              { skuId: 'component-sku-b', quantityPerBundle: 1 },
+            ],
+          },
+        }],
+      }),
+      skus: [bundleSku],
+      cartItems: [],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(1);
+    expect(result.skippedQuantity).toBe(0);
+    expect(result.items[0]).toMatchObject({
+      skuId: 'bundle-selling-sku',
+      status: 'ADDED',
+      reason: 'LOW_STOCK_ADJUSTED',
+      stockStatus: 'LOW_STOCK',
+      stock: 1,
+      adjustedQuantity: 1,
+    });
+    expect(tx.cartItem.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        skuId: 'bundle-selling-sku',
+        quantity: 1,
+        isSelected: true,
+      }),
+    }));
+  });
+
+  it('returns virtual out-of-stock for a bundle when current derived component stock is insufficient', async () => {
+    const bundleSku = makeSku({
+      id: 'bundle-selling-sku',
+      title: '水果组合默认规格',
+      price: 39.8,
+      stock: 999,
+      productId: 'bundle-product',
+      productTitle: '水果组合',
+      productType: 'BUNDLE',
+      bundleItems: [
+        {
+          skuId: 'component-sku-a',
+          quantity: 2,
+          sortOrder: 1,
+          sku: { stock: 1 },
+        },
+        {
+          skuId: 'component-sku-b',
+          quantity: 1,
+          sortOrder: 2,
+          sku: { stock: 10 },
+        },
+      ],
+    });
+    const { service, tx } = createHarness({
+      order: makeOrder({
+        items: [{
+          id: 'oi-bundle',
+          skuId: 'bundle-selling-sku',
+          unitPrice: 39.8,
+          quantity: 1,
+          isPrize: false,
+          productSnapshot: {
+            title: '水果组合',
+            productType: 'BUNDLE',
+            bundleItems: [
+              { skuId: 'component-sku-a', quantityPerBundle: 2 },
+              { skuId: 'component-sku-b', quantityPerBundle: 1 },
+            ],
+          },
+        }],
+      }),
+      skus: [bundleSku],
+      cartItems: [],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(0);
+    expect(result.skippedQuantity).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      skuId: 'bundle-selling-sku',
+      status: 'SKIPPED',
+      reason: 'OUT_OF_STOCK_VIRTUAL',
+      stockStatus: 'OUT_OF_STOCK',
+      stock: 0,
+      virtual: true,
+    });
+    expect(tx.cartItem.create).not.toHaveBeenCalled();
+    expect(tx.cartItem.update).not.toHaveBeenCalled();
   });
 
   it('preserves duplicate cart quantity and unselects kept row when stock is zero', async () => {

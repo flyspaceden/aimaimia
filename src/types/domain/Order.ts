@@ -18,6 +18,8 @@ export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCE
 import { PaymentMethod } from './Payment';
 import { ServerCart } from './ServerCart';
 import type { Invoice, InvoiceStatus } from './Invoice';
+import type { ProductType } from './Product';
+import type { BundleSnapshotItem } from './BundleSnapshot';
 
 export type AfterSaleStatus =
   | 'applying'
@@ -48,6 +50,8 @@ export type OrderItem = {
   id: string;
   productId: string;
   skuId?: string;
+  productType?: ProductType;
+  bundleItems?: BundleSnapshotItem[];
   title: string;
   /** SKU 规格名（如 "5斤装"） */
   skuTitle?: string;
