@@ -35,7 +35,15 @@ describe('GroupBuyLifecycleService', () => {
     const prisma = {
       $transaction: jest.fn((fn) => fn(tx)),
     };
-    return { prisma, tx, service: new (GroupBuyLifecycleService as any)(prisma) as GroupBuyLifecycleService };
+    const rebateService = {
+      releaseReferralByOrderIfValid: jest.fn().mockResolvedValue({ status: 'NOT_FOUND' }),
+    };
+    return {
+      prisma,
+      tx,
+      rebateService,
+      service: new (GroupBuyLifecycleService as any)(prisma, rebateService) as GroupBuyLifecycleService,
+    };
   };
 
   it('does not generate a share code before the return window expires', async () => {
@@ -99,6 +107,18 @@ describe('GroupBuyLifecycleService', () => {
       }),
     }));
     expect(tx.groupBuyCode.create).not.toHaveBeenCalled();
+  });
+
+  it('evaluates both initiator qualification and referred purchase rebate after receive', async () => {
+    const { service, rebateService } = buildPrisma();
+
+    const result = await service.evaluateOrderAfterReceive('order_1', expiredAt);
+
+    expect(result).toEqual({
+      initiator: expect.objectContaining({ status: 'ACTIVATED' }),
+      referral: { status: 'NOT_FOUND' },
+    });
+    expect(rebateService.releaseReferralByOrderIfValid).toHaveBeenCalledWith('order_1', expiredAt);
   });
 
   it('skips abandoned qualifications', async () => {

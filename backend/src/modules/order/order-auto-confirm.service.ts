@@ -163,7 +163,7 @@ export class OrderAutoConfirmService {
   }
 
   private evaluateGroupBuyAfterReceive(orderId: string) {
-    this.groupBuyLifecycleService?.evaluateInitiatorOrder(orderId).catch((err: any) => {
+    this.groupBuyLifecycleService?.evaluateOrderAfterReceive(orderId).catch((err: any) => {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`团购资格评估失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
     });

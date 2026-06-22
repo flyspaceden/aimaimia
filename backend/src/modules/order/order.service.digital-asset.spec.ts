@@ -39,7 +39,8 @@ describe('OrderService digital asset hook', () => {
     );
     (service as any).mapOrder = jest.fn((order) => order);
     const digitalAsset = { creditOrderReceived: jest.fn().mockResolvedValue(undefined) };
-    return { service, prisma, digitalAsset };
+    const groupBuyLifecycle = { evaluateOrderAfterReceive: jest.fn().mockResolvedValue(undefined) };
+    return { service, prisma, digitalAsset, groupBuyLifecycle };
   };
 
   it('credits digital asset after manual confirm receive succeeds', async () => {
@@ -57,5 +58,14 @@ describe('OrderService digital asset hook', () => {
     service.setDigitalAssetService(digitalAsset as any);
 
     await expect(service.confirmReceive('order-1', 'user-1')).resolves.toMatchObject({ id: 'order-1' });
+  });
+
+  it('evaluates group-buy qualification and referral rebate after manual confirm receive succeeds', async () => {
+    const { service, groupBuyLifecycle } = makeService();
+    service.setGroupBuyLifecycleService(groupBuyLifecycle as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+
+    expect(groupBuyLifecycle.evaluateOrderAfterReceive).toHaveBeenCalledWith('order-1');
   });
 });
