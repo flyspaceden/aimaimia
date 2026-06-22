@@ -12,7 +12,7 @@ describe('home hero copy', () => {
   it('uses the two-line mission copy below the voice orb', () => {
     expect(HOME_MISSION_LINES).toEqual([
       '让消费者创造一个属于自己的世界',
-      '为全世界创造一个共生的未来',
+      '为大家创造一个共同富裕的平台',
     ]);
   });
 });
