@@ -101,7 +101,7 @@
 - Create: `app/group-buy/checkout.tsx`
 - Create: `app/gb/[code].tsx`
 - Create App components:
-  - `src/components/group-buy/GroupBuyPassportCard.tsx`
+  - `src/components/group-buy/GroupBuyProductCard.tsx`
   - `src/components/group-buy/GroupBuyProgressRail.tsx`
   - `src/components/group-buy/GroupBuyCurrentPanel.tsx`
   - `src/components/group-buy/GroupBuyPurchaseGuardSheet.tsx`
@@ -790,8 +790,8 @@ git commit -m "feat: add group buy app repository"
 
 Components:
 
-- `GroupBuyPassportCard`: large card with true product image, price tag, free-shipping tag, rebate-base tag.
-- `GroupBuyProgressRail`: dynamic tier rail, not hardcoded to 3.
+- `GroupBuyProductCard`: large selected-shelf card with true product image, group-buy price, shipping/sale-service tags, and per-card purchase button. It must not display rebate base, tier percentages, or a per-card rule accordion.
+- `GroupBuyProgressRail`: dynamic tier rail, not hardcoded to 3; buyer-facing progress shows state text only, not rebate percentages.
 - `GroupBuyCurrentPanel`: status panel for pending/code/terminated/completed.
 - `GroupBuyPurchaseGuardSheet`: two-button bottom sheet, no third cancel button.
 
@@ -815,15 +815,17 @@ const GROUP_BUY_COLORS = {
 - No current group: product shelf first.
 - Current group occupying: default tab `我的团购`, second tab `团购商品`.
 - Terminated but observing: default `我的团购` summary, but product purchase is allowed.
+- `我的团购` page shows share voucher/copy controls and terminate/abandon actions, but no standalone `继续分享` button.
+- `团购商品` page keeps product filtering and per-card purchase actions, but no product-card `查看规则` / accordion interaction.
 
 - [ ] **Step 3: Build detail page**
 
 `app/group-buy/[activityId].tsx` shows:
 
-- Passport hero.
+- Selected shelf product layout.
 - Product facts from real fields only.
 - Payment restrictions.
-- Tier card.
+- Share condition summary without tier percentages.
 - Fixed bottom CTA with `useBottomInset`.
 
 - [ ] **Step 4: Typecheck**
@@ -1056,8 +1058,12 @@ npm run test:legal
 - [ ] Current group opens `我的团购` first.
 - [ ] `团购商品` remains visible with current group.
 - [ ] Purchase guard sheet has exactly two buttons.
+- [ ] `我的团购` has no redundant standalone `继续分享` button.
+- [ ] Product cards have no `查看规则` accordion.
+- [ ] Buyer-facing progress does not show tier percentages.
+- [ ] Product cards do not show rebate base.
 - [ ] Pending qualification uses `放弃本次团购资格并购买`.
-- [ ] Product passport card differs from discovery page and VIP gift page.
+- [ ] Group-buy product cards differ from discovery page and VIP gift page.
 - [ ] Long product title and high price fit on narrow screens.
 - [ ] No forbidden compliance words appear in App/admin UI.
 - [ ] `/gb/{code}` works after login.
