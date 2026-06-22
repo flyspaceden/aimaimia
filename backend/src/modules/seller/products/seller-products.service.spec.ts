@@ -211,6 +211,157 @@ describe('SellerProductsService SKU weight validation', () => {
     return { service, prisma, tx };
   };
 
+  const buildBundleToggleService = (options: {
+    bundleItems?: Array<{ skuId: string; quantity: number; sortOrder?: number }>;
+    componentRows?: any[];
+  } = {}) => {
+    const bundleItems = options.bundleItems ?? [
+      { skuId: 'component_sku_1', quantity: 1, sortOrder: 0 },
+    ];
+    const componentRows = options.componentRows ?? bundleValidationRows().slice(0, 1);
+    const tx = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'bundle_1',
+          companyId: 'company_1',
+          status: 'INACTIVE',
+          auditStatus: 'APPROVED',
+          type: 'BUNDLE',
+          bundleItems,
+        }),
+        update: jest.fn().mockResolvedValue({ id: 'bundle_1', status: 'ACTIVE' }),
+      },
+      productBundleItem: {
+        findMany: jest.fn().mockResolvedValue(bundleItems),
+      },
+      productSKU: {
+        findMany: jest.fn((args: any) => {
+          if (args?.select?.product) {
+            return Promise.resolve(componentRows);
+          }
+          return Promise.resolve(componentRows.map((row) => ({
+            id: row.id,
+            price: row.price,
+            stock: row.stock,
+            weightGram: row.weightGram,
+          })));
+        }),
+      },
+    };
+    const prisma = {
+      product: {
+        findUnique: tx.product.findUnique,
+      },
+      $transaction: jest.fn((fn) => fn(tx)),
+    };
+    const service = new SellerProductsService(
+      prisma as any,
+      { getSystemConfig: jest.fn() } as any,
+      { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
+      new ProductBundleService() as any,
+    );
+    return { service, prisma, tx };
+  };
+
+  const buildBundleUpdateSkusService = (options: {
+    productAuditStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    bundleItems?: Array<{ skuId: string; quantity: number; sortOrder?: number }>;
+    componentRows?: any[];
+    existingSkus?: Array<Record<string, any>>;
+  } = {}) => {
+    const bundleItems = options.bundleItems ?? [
+      { skuId: 'component_sku_1', quantity: 3, sortOrder: 4 },
+      { skuId: 'component_sku_2', quantity: 1, sortOrder: 7 },
+    ];
+    const componentRows = options.componentRows ?? bundleValidationRows();
+    const existingSkus = options.existingSkus ?? [
+      {
+        id: 'bundle_sku_active',
+        title: '旧礼盒装',
+        price: 19.5,
+        cost: 15,
+        stock: 0,
+        weightGram: 1500,
+        maxPerOrder: null,
+        status: 'ACTIVE',
+      },
+      {
+        id: 'bundle_sku_extra',
+        title: '旧备用礼盒装',
+        price: 21.45,
+        cost: 16.5,
+        stock: 0,
+        weightGram: 1500,
+        maxPerOrder: null,
+        status: 'ACTIVE',
+      },
+      {
+        id: 'bundle_sku_inactive',
+        title: '历史礼盒装',
+        price: 18.2,
+        cost: 14,
+        stock: 0,
+        weightGram: 1200,
+        maxPerOrder: null,
+        status: 'INACTIVE',
+      },
+    ];
+    const tx = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'bundle_1',
+          companyId: 'company_1',
+          status: 'INACTIVE',
+          auditStatus: options.productAuditStatus ?? 'APPROVED',
+          type: 'BUNDLE',
+          bundleItems,
+        }),
+        update: jest.fn().mockResolvedValue({ id: 'bundle_1' }),
+      },
+      productBundleItem: {
+        findMany: jest.fn().mockResolvedValue(bundleItems),
+      },
+      productSKU: {
+        findMany: jest.fn((args: any) => {
+          if (args?.where?.productId) {
+            const rows = args.where.status
+              ? existingSkus.filter((sku) => sku.status === args.where.status)
+              : existingSkus;
+            if (args.select?.price) {
+              return Promise.resolve(rows.map((sku) => ({ price: sku.price })));
+            }
+            return Promise.resolve(rows);
+          }
+          if (args?.select?.product) {
+            return Promise.resolve(componentRows);
+          }
+          return Promise.resolve(componentRows.map((row) => ({
+            id: row.id,
+            price: row.price,
+            stock: row.stock,
+            weightGram: row.weightGram,
+          })));
+        }),
+        update: jest.fn().mockResolvedValue({ id: 'bundle_sku_active' }),
+        create: jest.fn().mockResolvedValue({ id: 'bundle_sku_created' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      product: {
+        findUnique: tx.product.findUnique,
+      },
+      $transaction: jest.fn((fn) => fn(tx)),
+    };
+    const service = new SellerProductsService(
+      prisma as any,
+      { getSystemConfig: jest.fn().mockResolvedValue({ markupRate: 1.3 }) } as any,
+      { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
+      new ProductBundleService() as any,
+    );
+    return { service, prisma, tx };
+  };
+
   it('create rejects SKU without positive weightGram before writing', async () => {
     const service = buildService();
 
@@ -592,5 +743,98 @@ describe('SellerProductsService SKU weight validation', () => {
     });
 
     expect(tx.productSKU.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('toggleStatus rejects ACTIVE for BUNDLE when persisted component is no longer sellable', async () => {
+    const { service, prisma, tx } = buildBundleToggleService({
+      componentRows: [{
+        id: 'component_sku_1',
+        title: '苹果 5斤',
+        price: 12,
+        stock: 9,
+        weightGram: 500,
+        status: 'ACTIVE',
+        product: {
+          id: 'component_product_1',
+          title: '苹果',
+          companyId: 'company_1',
+          status: 'INACTIVE',
+          auditStatus: 'APPROVED',
+          type: 'SIMPLE',
+        },
+      }],
+    });
+
+    await expect(service.toggleStatus('company_1', 'bundle_1', 'ACTIVE'))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('toggleStatus rejects ACTIVE for BUNDLE when persisted bundleItems are missing', async () => {
+    const { service, tx } = buildBundleToggleService({
+      bundleItems: [],
+    });
+
+    await expect(service.toggleStatus('company_1', 'bundle_1', 'ACTIVE'))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('updateSkus rejects multiple selling SKUs for BUNDLE products', async () => {
+    const { service, tx } = buildBundleUpdateSkusService();
+
+    await expect(service.updateSkus('company_1', 'bundle_1', [
+      { id: 'bundle_sku_active', specName: '礼盒装', cost: 20, stock: 99, weightGram: 1 },
+      { specName: '礼盒装-备用', cost: 22, stock: 88, weightGram: 2 },
+    ])).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.productSKU.update).not.toHaveBeenCalled();
+    expect(tx.productSKU.create).not.toHaveBeenCalled();
+  });
+
+  it('updateSkus forces BUNDLE selling SKU stock and weight from bundle components', async () => {
+    const { service, tx } = buildBundleUpdateSkusService();
+
+    await service.updateSkus('company_1', 'bundle_1', [
+      {
+        id: 'bundle_sku_active',
+        specName: '新礼盒装',
+        cost: 20,
+        stock: 99,
+        weightGram: 1,
+        maxPerOrder: 3,
+      },
+    ]);
+
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'bundle_sku_active' },
+      data: expect.objectContaining({
+        title: '新礼盒装',
+        price: 26,
+        cost: 20,
+        stock: 0,
+        weightGram: 1800,
+        maxPerOrder: 3,
+      }),
+    });
+    expect(tx.productSKU.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['bundle_sku_extra'] } },
+      data: { status: 'INACTIVE' },
+    });
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 'bundle_1' },
+      data: {
+        basePrice: 26,
+        cost: 20,
+        auditStatus: 'PENDING',
+        auditNote: null,
+        submissionCount: { increment: 1 },
+      },
+    });
   });
 });

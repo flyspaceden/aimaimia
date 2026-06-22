@@ -179,6 +179,52 @@ export class SellerProductsService {
     }));
   }
 
+  private async buildPersistedBundleState(
+    tx: {
+      productBundleItem: {
+        findMany(args: unknown): Promise<Array<{
+          skuId: string;
+          quantity: number;
+          sortOrder?: number | null;
+        }>>;
+      };
+      productSKU: {
+        findMany(args: unknown): Promise<Array<{
+          id: string;
+          price?: number | null;
+          stock?: number | null;
+          weightGram: number;
+          title?: string | null;
+          status?: string;
+          product?: unknown;
+        }>>;
+      };
+    },
+    companyId: string,
+    productId: string,
+  ) {
+    const persistedBundleItems = await tx.productBundleItem.findMany({
+      where: { bundleProductId: productId },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        skuId: true,
+        quantity: true,
+        sortOrder: true,
+      },
+    });
+
+    return this.buildBundleState(
+      tx,
+      companyId,
+      persistedBundleItems.map((item) => ({
+        skuId: item.skuId,
+        quantity: item.quantity,
+        sortOrder: item.sortOrder ?? undefined,
+      })),
+      { requireItems: true },
+    );
+  }
+
   private decorateProductForSeller<T extends Record<string, any>>(product: T): T & {
     bundleReferenceTotal: number | null;
     bundleAvailableStock: number | null;
@@ -699,22 +745,38 @@ export class SellerProductsService {
 
   /** 上架/下架 */
   async toggleStatus(companyId: string, productId: string, status: 'ACTIVE' | 'INACTIVE') {
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
-    if (product.status === 'DRAFT') {
-      throw new BadRequestException('草稿商品需先提交审核后才能上下架');
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.findUnique({
+        where: { id: productId },
+        select: {
+          id: true,
+          companyId: true,
+          status: true,
+          auditStatus: true,
+          type: true,
+        },
+      });
+      if (!product) throw new NotFoundException('商品不存在');
+      if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+      if (product.status === 'DRAFT') {
+        throw new BadRequestException('草稿商品需先提交审核后才能上下架');
+      }
 
-    // 上架需审核通过
-    if (status === 'ACTIVE' && product.auditStatus !== 'APPROVED') {
-      throw new BadRequestException('商品未通过审核，无法上架');
-    }
+      // 上架需审核通过
+      if (status === 'ACTIVE') {
+        if (product.auditStatus !== 'APPROVED') {
+          throw new BadRequestException('商品未通过审核，无法上架');
+        }
+        if (this.isBundleType(product.type)) {
+          await this.buildPersistedBundleState(tx as any, companyId, productId);
+        }
+      }
 
-    return this.prisma.product.update({
-      where: { id: productId },
-      data: { status },
-    });
+      return tx.product.update({
+        where: { id: productId },
+        data: { status },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /** 硬删除商品（要求已下架 + 无订单/购物车引用） */
@@ -805,6 +867,78 @@ export class SellerProductsService {
     return this.prisma.$transaction(async (tx) => {
       const sysConfig = await this.bonusConfig.getSystemConfig();
       const markupRate = sysConfig.markupRate;
+
+      if (this.isBundleType(product.type)) {
+        if (skus.length !== 1) {
+          throw new BadRequestException('组合商品必须且只能保留一个销售规格');
+        }
+
+        const bundleState = await this.buildPersistedBundleState(tx as any, companyId, productId);
+        const existingSkus = await tx.productSKU.findMany({ where: { productId } });
+        const existingIds = new Set(existingSkus.map((s) => s.id));
+        const activeSkus = existingSkus.filter((sku) => sku.status === SkuStatus.ACTIVE);
+        const sellingSku = skus[0];
+        const bundleCost = sellingSku.cost;
+        const bundlePrice = +(bundleCost * markupRate).toFixed(2);
+        const targetExistingSku = sellingSku.id && existingIds.has(sellingSku.id)
+          ? existingSkus.find((sku) => sku.id === sellingSku.id)
+          : activeSkus[0];
+
+        const normalizedSkuData = {
+          title: sellingSku.specName || BUNDLE_DEFAULT_SPEC_NAME,
+          price: bundlePrice,
+          cost: bundleCost,
+          stock: 0,
+          weightGram: bundleState!.bundleTotalWeightGram,
+          maxPerOrder: sellingSku.maxPerOrder ?? null,
+          status: SkuStatus.ACTIVE,
+        };
+
+        let keepActiveSkuId: string;
+        if (targetExistingSku) {
+          await tx.productSKU.update({
+            where: { id: targetExistingSku.id },
+            data: normalizedSkuData,
+          });
+          keepActiveSkuId = targetExistingSku.id;
+        } else {
+          const created = await tx.productSKU.create({
+            data: {
+              productId,
+              ...normalizedSkuData,
+            },
+          });
+          keepActiveSkuId = created.id;
+        }
+
+        const extraActiveSkuIds = activeSkus
+          .filter((sku) => sku.id !== keepActiveSkuId)
+          .map((sku) => sku.id);
+        if (extraActiveSkuIds.length > 0) {
+          await tx.productSKU.updateMany({
+            where: { id: { in: extraActiveSkuIds } },
+            data: { status: SkuStatus.INACTIVE },
+          });
+        }
+
+        const productUpdateData: Prisma.ProductUncheckedUpdateInput = {
+          basePrice: bundlePrice,
+          cost: bundleCost,
+        };
+        if (needReAudit) {
+          productUpdateData.auditStatus = 'PENDING';
+          productUpdateData.auditNote = null;
+          productUpdateData.submissionCount = { increment: 1 };
+        }
+        await tx.product.update({
+          where: { id: productId },
+          data: productUpdateData,
+        });
+
+        return tx.productSKU.findMany({
+          where: { productId, status: SkuStatus.ACTIVE },
+        });
+      }
 
       // 获取现有 SKU
       const existingSkus = await tx.productSKU.findMany({ where: { productId } });
