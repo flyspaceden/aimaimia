@@ -1,9 +1,17 @@
 import client from './client';
 import type {
   AdminGroupBuyActivity,
+  AdminGroupBuyInstance,
+  AdminGroupBuyOrder,
+  AdminGroupBuyRebateLedger,
   CreateGroupBuyActivityInput,
   GroupBuyActivityQueryParams,
   GroupBuyActivityStatus,
+  GroupBuyInstanceQueryParams,
+  GroupBuyOrderQueryParams,
+  GroupBuyRebateLedgerQueryParams,
+  GroupBuySettings,
+  UpdateGroupBuySettingsInput,
   PaginatedData,
   UpdateGroupBuyActivityInput,
 } from '@/types';
@@ -35,3 +43,29 @@ export const updateGroupBuyActivityStatus = (
 
 export const deleteGroupBuyActivity = (id: string): Promise<AdminGroupBuyActivity> =>
   client.delete(`/admin/group-buy/activities/${id}`);
+
+export const getGroupBuyInstances = (
+  params?: GroupBuyInstanceQueryParams,
+): Promise<PaginatedData<AdminGroupBuyInstance>> =>
+  client.get('/admin/group-buy/instances', { params });
+
+export const getGroupBuyInstance = (id: string): Promise<AdminGroupBuyInstance> =>
+  client.get(`/admin/group-buy/instances/${id}`);
+
+export const getGroupBuyOrders = (
+  params?: GroupBuyOrderQueryParams,
+): Promise<PaginatedData<AdminGroupBuyOrder>> =>
+  client.get('/admin/group-buy/orders', { params });
+
+export const getGroupBuyRebateLedgers = (
+  params?: GroupBuyRebateLedgerQueryParams,
+): Promise<PaginatedData<AdminGroupBuyRebateLedger>> =>
+  client.get('/admin/group-buy/rebate-ledgers', { params });
+
+export const getGroupBuySettings = (): Promise<GroupBuySettings> =>
+  client.get('/admin/group-buy/settings');
+
+export const updateGroupBuySettings = (
+  data: UpdateGroupBuySettingsInput,
+): Promise<GroupBuySettings> =>
+  client.put('/admin/group-buy/settings', data);

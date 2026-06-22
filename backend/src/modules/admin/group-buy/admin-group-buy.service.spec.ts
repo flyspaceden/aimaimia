@@ -69,6 +69,61 @@ describe('AdminGroupBuyService', () => {
         count: jest.fn().mockResolvedValue(0),
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      groupBuyInstance: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'instance_1',
+            status: 'SHARING',
+            validReferralCount: 1,
+            candidateCount: 2,
+            user: {
+              id: 'user_1',
+              buyerNo: 'AIMM202606220001',
+              profile: { nickname: '分享用户' },
+            },
+            activity: { id: 'activity_1', title: '大龙虾团购', price: 1000 },
+            code: { code: 'GB123456', status: 'ACTIVE' },
+            initiatorOrder: { id: 'order_1', status: 'RECEIVED', totalAmount: 1000 },
+            _count: { referrals: 2, rebateLedgers: 1 },
+          },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'order_1',
+            user: { id: 'user_1', buyerNo: 'AIMM202606220001', profile: { nickname: '分享用户' } },
+            status: 'RECEIVED',
+            bizType: 'GROUP_BUY',
+            totalAmount: 1000,
+            goodsAmount: 1000,
+            shippingFee: 0,
+            groupBuyInitiatedInstance: { id: 'instance_1', status: 'SHARING' },
+            groupBuyReferredPurchase: null,
+          },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'ledger_1',
+            user: { id: 'user_1', buyerNo: 'AIMM202606220001', profile: { nickname: '分享用户' } },
+            type: 'RELEASE',
+            status: 'AVAILABLE',
+            amount: 100,
+            instance: { id: 'instance_1', activity: { id: 'activity_1', title: '大龙虾团购' } },
+            referral: { id: 'referral_1', referredOrderId: 'order_2' },
+          },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      ruleConfig: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
     };
 
     return { prisma, tx, service: new AdminGroupBuyService(prisma as any) };
@@ -163,5 +218,89 @@ describe('AdminGroupBuyService', () => {
       where: { id: 'activity_1' },
       data: expect.objectContaining({ status: 'ENDED' }),
     }));
+  });
+
+  it('lists group-buy instances with share code and direct referral counters', async () => {
+    const { prisma, service } = buildPrisma();
+
+    const result = await service.findInstances({ page: 1, pageSize: 20, status: 'SHARING' });
+
+    expect(prisma.groupBuyInstance.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'SHARING' }),
+      include: expect.objectContaining({
+        user: expect.any(Object),
+        activity: expect.any(Object),
+        code: expect.any(Object),
+        _count: expect.any(Object),
+      }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      total: 1,
+      items: [expect.objectContaining({
+        id: 'instance_1',
+        code: expect.objectContaining({ code: 'GB123456' }),
+      })],
+    }));
+  });
+
+  it('lists only GROUP_BUY orders for the admin group-buy order page', async () => {
+    const { prisma, service } = buildPrisma();
+
+    const result = await service.findOrders({ page: 1, pageSize: 20, status: 'RECEIVED' });
+
+    expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ bizType: 'GROUP_BUY', status: 'RECEIVED' }),
+    }));
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      id: 'order_1',
+      bizType: 'GROUP_BUY',
+      groupBuyInitiatedInstance: expect.objectContaining({ id: 'instance_1' }),
+    }));
+  });
+
+  it('lists group-buy rebate ledgers with user and instance context', async () => {
+    const { prisma, service } = buildPrisma();
+
+    const result = await service.findRebateLedgers({ page: 1, pageSize: 20, type: 'RELEASE' });
+
+    expect(prisma.groupBuyRebateLedger.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ deletedAt: null, type: 'RELEASE' }),
+    }));
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      id: 'ledger_1',
+      type: 'RELEASE',
+      instance: expect.objectContaining({ id: 'instance_1' }),
+    }));
+  });
+
+  it('returns default group-buy settings when RuleConfig is absent', async () => {
+    const { service } = buildPrisma();
+
+    await expect(service.getSettings()).resolves.toEqual({
+      maxMonthlyLaunches: 4,
+    });
+  });
+
+  it('updates max monthly launches through RuleConfig', async () => {
+    const { prisma, service } = buildPrisma();
+
+    await service.updateSettings({ maxMonthlyLaunches: 6 });
+
+    expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith({
+      where: { key: 'GROUP_BUY_MAX_MONTHLY_LAUNCHES' },
+      update: {
+        value: {
+          value: 6,
+          description: '每个用户每月最多可发起的团购次数',
+        },
+      },
+      create: {
+        key: 'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+        value: {
+          value: 6,
+          description: '每个用户每月最多可发起的团购次数',
+        },
+      },
+    });
   });
 });

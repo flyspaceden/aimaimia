@@ -24,6 +24,10 @@ describe('GroupBuyService', () => {
               title: '大龙虾团购',
               price: 1000,
               freeShipping: true,
+              status: 'ACTIVE',
+              startAt: null,
+              endAt: null,
+              deletedAt: null,
               ruleSummary: '仅限直接推荐全新用户购买同款商品',
               product: {
                 id: 'product_1',
@@ -49,6 +53,9 @@ describe('GroupBuyService', () => {
         groupBuyInstance: {
           findFirst: jest.fn().mockResolvedValue(null),
         },
+        groupBuyCode: {
+          findUnique: jest.fn(),
+        },
       };
 
       return { prisma, service: new (GroupBuyService as any)(prisma) as GroupBuyService };
@@ -66,6 +73,10 @@ describe('GroupBuyService', () => {
         title: '大龙虾团购',
         price: 1000,
         freeShipping: true,
+        status: 'ACTIVE',
+        startAt: null,
+        endAt: null,
+        deletedAt: null,
         ruleSummary: '仅限直接推荐全新用户购买同款商品',
         product: {
           id: 'product_1',
@@ -153,6 +164,77 @@ describe('GroupBuyService', () => {
         status: 'TERMINATED',
         candidateCount: 1,
       }));
+    });
+
+    it('returns landing info for an active share code without buyer-facing percentages', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyCode.findUnique.mockResolvedValueOnce({
+        code: 'GB123456',
+        status: 'ACTIVE',
+        instance: {
+          id: 'instance_1',
+          userId: 'user_sharer',
+          status: 'SHARING',
+          validReferralCount: 1,
+          activity: buildInstance('SHARING').activity,
+          user: {
+            id: 'user_sharer',
+            buyerNo: 'AIMM202606220001',
+            profile: { nickname: '分享用户' },
+          },
+        },
+      });
+
+      const result = await service.getLandingByCode('GB123456');
+
+      expect(result).toEqual(expect.objectContaining({
+        code: 'GB123456',
+        valid: true,
+        inviter: {
+          userId: 'user_sharer',
+          nickname: '分享用户',
+          buyerNo: 'AIMM202606220001',
+        },
+      }));
+      expect(result.activity).toEqual(expect.objectContaining({
+        id: 'activity_1',
+        tiers: [
+          { sequence: 1, label: '第一位好友' },
+          { sequence: 2, label: '第二位好友' },
+          { sequence: 3, label: '第三位好友' },
+        ],
+      }));
+      expect(result.activity?.tiers[0]).not.toHaveProperty('basisPoints');
+    });
+
+    it('returns invalid landing info when the share code is completed or not sharing', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyCode.findUnique.mockResolvedValueOnce({
+        code: 'GB123456',
+        status: 'COMPLETED',
+        instance: {
+          id: 'instance_1',
+          userId: 'user_sharer',
+          status: 'COMPLETED',
+          validReferralCount: 3,
+          activity: buildInstance('SHARING').activity,
+          user: {
+            id: 'user_sharer',
+            buyerNo: 'AIMM202606220001',
+            profile: { nickname: '分享用户' },
+          },
+        },
+      });
+
+      const result = await service.getLandingByCode('GB123456');
+
+      expect(result).toEqual({
+        code: 'GB123456',
+        valid: false,
+        activity: null,
+        inviter: null,
+        reason: '团购推荐码已完成或不可用',
+      });
     });
   });
 });

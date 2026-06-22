@@ -61,6 +61,12 @@ describe('GroupBuyCheckoutService', () => {
       groupBuyCode: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      groupBuyReferral: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      ruleConfig: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       address: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'address_1',
@@ -119,6 +125,19 @@ describe('GroupBuyCheckoutService', () => {
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
   });
 
+  it('uses configured monthly launch limit instead of a hard-coded value', async () => {
+    const { tx, service } = buildPrisma();
+    tx.ruleConfig.findUnique.mockResolvedValueOnce({
+      key: 'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+      value: { value: 2 },
+    });
+    tx.groupBuyInstance.count.mockResolvedValueOnce(2);
+
+    await expect(service.createCheckout('user_1', dto as any))
+      .rejects.toThrow('本月团购参与次数已用完');
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
   it('rejects using the buyer own share code', async () => {
     const { tx, service } = buildPrisma();
     tx.groupBuyCode.findUnique.mockResolvedValueOnce({
@@ -137,6 +156,28 @@ describe('GroupBuyCheckoutService', () => {
       ...dto,
       shareCode: 'GB123456',
     } as any)).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects checkout before payment when a share code has no remaining slots', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyCode.findUnique.mockResolvedValueOnce({
+      id: 'code_1',
+      code: 'GB123456',
+      status: 'ACTIVE',
+      instance: {
+        id: 'instance_referrer',
+        userId: 'user_2',
+        activityId: 'activity_1',
+        status: 'SHARING',
+      },
+    });
+    tx.groupBuyReferral.count.mockResolvedValueOnce(3);
+
+    await expect(service.createCheckout('user_1', {
+      ...dto,
+      shareCode: 'GB123456',
+    } as any)).rejects.toThrow('团购推荐码名额已满');
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
   });
 

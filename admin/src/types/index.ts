@@ -439,6 +439,40 @@ export interface Product {
 // ========== 团购分享回馈 ==========
 
 export type GroupBuyActivityStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ENDED';
+export type GroupBuyInstanceStatus =
+  | 'QUALIFICATION_PENDING'
+  | 'SHARING'
+  | 'COMPLETED'
+  | 'TERMINATED'
+  | 'QUALIFICATION_ABANDONED'
+  | 'QUALIFICATION_INVALID'
+  | 'EXPIRED';
+export type GroupBuyCodeStatus = 'PENDING' | 'ACTIVE' | 'DISABLED' | 'COMPLETED' | 'EXPIRED';
+export type GroupBuyReferralStatus = 'CANDIDATE' | 'VALID' | 'INVALID' | 'VOIDED';
+export type GroupBuyRebateLedgerType =
+  | 'PENDING_REBATE'
+  | 'RELEASE'
+  | 'VOID'
+  | 'WITHDRAW'
+  | 'DEDUCT'
+  | 'REFUND_RETURN'
+  | 'ADMIN_ADJUST';
+export type GroupBuyRebateLedgerStatus =
+  | 'PENDING'
+  | 'AVAILABLE'
+  | 'RESERVED'
+  | 'COMPLETED'
+  | 'VOIDED'
+  | 'FAILED';
+
+export interface AdminGroupBuyUserSummary {
+  id: string;
+  buyerNo: string | null;
+  profile?: {
+    nickname: string | null;
+    avatarUrl?: string | null;
+  } | null;
+}
 
 export interface AdminGroupBuyTier {
   id: string;
@@ -493,6 +527,166 @@ export interface AdminGroupBuyActivity {
 export interface GroupBuyActivityQueryParams extends PaginationParams {
   keyword?: string;
   status?: GroupBuyActivityStatus;
+}
+
+export interface AdminGroupBuyCodeSummary {
+  code: string;
+  status: GroupBuyCodeStatus;
+  activatedAt?: string | null;
+  disabledAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface AdminGroupBuyOrderSummary {
+  id: string;
+  status: OrderStatus | string;
+  totalAmount: number;
+  goodsAmount?: number;
+  receivedAt?: string | null;
+  returnWindowExpiresAt?: string | null;
+  createdAt?: string;
+}
+
+export interface AdminGroupBuyInstance {
+  id: string;
+  userId: string;
+  activityId: string;
+  initiatorOrderId: string;
+  status: GroupBuyInstanceStatus;
+  priceSnapshot: number;
+  shippingFeeSnapshot: number;
+  freeShippingSnapshot: boolean;
+  validReferralCount: number;
+  candidateCount: number;
+  activatedAt: string | null;
+  completedAt: string | null;
+  terminatedAt: string | null;
+  abandonedAt: string | null;
+  expiredAt: string | null;
+  invalidatedAt: string | null;
+  invalidReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: AdminGroupBuyUserSummary;
+  activity?: Pick<AdminGroupBuyActivity, 'id' | 'title' | 'price' | 'status'>;
+  code?: AdminGroupBuyCodeSummary | null;
+  initiatorOrder?: AdminGroupBuyOrderSummary;
+  referrals?: AdminGroupBuyReferral[];
+  rebateLedgers?: AdminGroupBuyRebateLedger[];
+  _count?: {
+    referrals: number;
+    rebateLedgers: number;
+  };
+}
+
+export interface AdminGroupBuyReferral {
+  id: string;
+  instanceId: string;
+  codeId: string | null;
+  status: GroupBuyReferralStatus;
+  referredUserId: string;
+  referredOrderId: string;
+  referredInstanceId: string | null;
+  candidateSequence: number | null;
+  effectiveSequence: number | null;
+  amountSnapshot: number | null;
+  invalidReason: string | null;
+  validAt: string | null;
+  invalidatedAt: string | null;
+  voidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  referredUser?: AdminGroupBuyUserSummary;
+  referredOrder?: AdminGroupBuyOrderSummary;
+  referredInstance?: Pick<AdminGroupBuyInstance, 'id' | 'status' | 'validReferralCount' | 'candidateCount'> | null;
+}
+
+export interface GroupBuyInstanceQueryParams extends PaginationParams {
+  keyword?: string;
+  status?: GroupBuyInstanceStatus;
+  activityId?: string;
+  userId?: string;
+}
+
+export interface AdminGroupBuyOrder {
+  id: string;
+  userId: string;
+  status: OrderStatus | string;
+  bizType: 'GROUP_BUY';
+  totalAmount: number;
+  goodsAmount: number;
+  shippingFee: number;
+  discountAmount: number;
+  paidAt: string | null;
+  receivedAt: string | null;
+  returnWindowExpiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: AdminGroupBuyUserSummary;
+  groupBuyInitiatedInstance?: Pick<AdminGroupBuyInstance, 'id' | 'status' | 'validReferralCount' | 'candidateCount'> & {
+    activity?: Pick<AdminGroupBuyActivity, 'id' | 'title' | 'price'>;
+    code?: Pick<AdminGroupBuyCodeSummary, 'code' | 'status'> | null;
+  };
+  groupBuyReferredPurchase?: Pick<
+    AdminGroupBuyReferral,
+    'id' | 'status' | 'candidateSequence' | 'effectiveSequence' | 'amountSnapshot'
+  > & {
+    instance?: Pick<AdminGroupBuyInstance, 'id' | 'status'> & {
+      user?: AdminGroupBuyUserSummary;
+      activity?: Pick<AdminGroupBuyActivity, 'id' | 'title' | 'price'>;
+      code?: Pick<AdminGroupBuyCodeSummary, 'code' | 'status'> | null;
+    };
+  } | null;
+}
+
+export interface GroupBuyOrderQueryParams extends PaginationParams {
+  keyword?: string;
+  status?: OrderStatus;
+  activityId?: string;
+  userId?: string;
+}
+
+export interface AdminGroupBuyRebateLedger {
+  id: string;
+  userId: string;
+  instanceId: string | null;
+  referralId: string | null;
+  orderId: string | null;
+  type: GroupBuyRebateLedgerType;
+  status: GroupBuyRebateLedgerStatus;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  refType: string | null;
+  refId: string | null;
+  meta?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: AdminGroupBuyUserSummary;
+  instance?: Pick<AdminGroupBuyInstance, 'id' | 'status'> & {
+    activity?: Pick<AdminGroupBuyActivity, 'id' | 'title' | 'price'>;
+    code?: Pick<AdminGroupBuyCodeSummary, 'code' | 'status'> | null;
+  } | null;
+  referral?: Pick<AdminGroupBuyReferral, 'id' | 'status' | 'candidateSequence' | 'effectiveSequence' | 'referredOrderId'> & {
+    referredUser?: AdminGroupBuyUserSummary;
+  } | null;
+  order?: AdminGroupBuyOrderSummary | null;
+}
+
+export interface GroupBuyRebateLedgerQueryParams extends PaginationParams {
+  keyword?: string;
+  type?: GroupBuyRebateLedgerType;
+  status?: GroupBuyRebateLedgerStatus;
+  userId?: string;
+  instanceId?: string;
+}
+
+export interface GroupBuySettings {
+  maxMonthlyLaunches: number;
+}
+
+export interface UpdateGroupBuySettingsInput {
+  maxMonthlyLaunches: number;
 }
 
 export interface GroupBuyTierInput {

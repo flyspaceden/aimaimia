@@ -154,3 +154,11 @@ export class UpdateGroupBuyActivityStatusDto {
   @IsEnum(GroupBuyActivityStatus, { message: '活动状态不合法' })
   status: GroupBuyActivityStatus;
 }
+
+export class UpdateGroupBuySettingsDto {
+  @Type(() => Number)
+  @IsInt({ message: '每月发起次数必须为整数' })
+  @Min(1, { message: '每月发起次数至少为 1 次' })
+  @Max(100, { message: '每月发起次数不能超过 100 次' })
+  maxMonthlyLaunches: number;
+}
