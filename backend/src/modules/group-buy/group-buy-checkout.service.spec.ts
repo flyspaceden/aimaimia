@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
+import { CheckoutService } from '../order/checkout.service';
 import { GroupBuyCheckoutService } from './group-buy-checkout.service';
 
 describe('GroupBuyCheckoutService', () => {
@@ -177,5 +178,164 @@ describe('GroupBuyCheckoutService', () => {
       amount: 1000,
       description: expect.stringMatching(/^爱买买团购订单-/),
     }));
+  });
+});
+
+describe('CheckoutService group-buy payment success integration', () => {
+  const buildCheckoutHarness = (bizMetaOverrides: Record<string, unknown> = {}) => {
+    const session = {
+      id: 'session_1',
+      userId: 'user_1',
+      status: 'ACTIVE',
+      bizType: 'GROUP_BUY',
+      merchantOrderNo: 'GB_ORDER_1',
+      providerTxnId: null,
+      expectedTotal: 1000,
+      goodsAmount: 1000,
+      shippingFee: 0,
+      discountAmount: 0,
+      vipDiscountAmount: 0,
+      totalCouponDiscount: 0,
+      couponInstanceIds: [],
+      couponPerAmounts: [],
+      rewardId: null,
+      deductionGroupId: null,
+      buyerNote: null,
+      addressSnapshot: { encrypted: true },
+      bizMeta: {
+        groupBuyActivityId: 'activity_1',
+        groupBuyCodeId: null,
+        referredByInstanceId: null,
+        groupBuyPriceSnapshot: 1000,
+        freeShippingSnapshot: true,
+        shippingFeeSnapshot: 0,
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+          { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+          { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+        ],
+        ...bizMetaOverrides,
+      },
+      itemsSnapshot: [
+        {
+          skuId: 'sku_1',
+          quantity: 1,
+          isPrize: false,
+          unitPrice: 1000,
+          companyId: PLATFORM_COMPANY_ID,
+          productSnapshot: {
+            productId: 'product_1',
+            title: '大龙虾',
+            skuTitle: '一只装',
+            image: '',
+            price: 1000,
+            isPrize: false,
+          },
+        },
+      ],
+    };
+
+    const tx = {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({ id: session.id }),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({ id: 'order_1' }),
+      },
+      orderStatusHistory: {
+        create: jest.fn().mockResolvedValue({ id: 'history_1' }),
+      },
+      productSKU: {
+        update: jest.fn().mockResolvedValue({ id: 'sku_1', stock: 7 }),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      inventoryLedger: {
+        create: jest.fn().mockResolvedValue({ id: 'ledger_1' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      cart: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      cartItem: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      lotteryRecord: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      groupBuyInstance: {
+        create: jest.fn().mockResolvedValue({ id: 'new_instance_1' }),
+        update: jest.fn().mockResolvedValue({ id: 'referrer_instance_1' }),
+      },
+      groupBuyReferral: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 'referral_1' }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((fn) => fn(tx)),
+    };
+    const service = new CheckoutService(prisma as any, {} as any);
+    return { service, tx };
+  };
+
+  it('creates a group-buy order and pending own instance after payment success', async () => {
+    const { service, tx } = buildCheckoutHarness();
+
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bizType: 'GROUP_BUY' }),
+    }));
+    expect(tx.groupBuyInstance.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        userId: 'user_1',
+        activityId: 'activity_1',
+        initiatorOrderId: 'order_1',
+        status: 'QUALIFICATION_PENDING',
+        priceSnapshot: 1000,
+        freeShippingSnapshot: true,
+      }),
+    }));
+  });
+
+  it('creates a candidate referral when the paid checkout used a share code', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        instanceId: 'referrer_instance_1',
+        codeId: 'code_1',
+        status: 'CANDIDATE',
+        referredUserId: 'user_1',
+        referredOrderId: 'order_1',
+        referredInstanceId: 'new_instance_1',
+        candidateSequence: 1,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referrer_instance_1' },
+      data: { candidateCount: { increment: 1 } },
+    }));
+  });
+
+  it('rejects candidate referral creation when the share code has no remaining slots', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+    tx.groupBuyReferral.count.mockResolvedValueOnce(3);
+
+    await expect(service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1'))
+      .rejects.toThrow('团购推荐码名额已满');
+    expect(tx.groupBuyReferral.create).not.toHaveBeenCalled();
   });
 });
