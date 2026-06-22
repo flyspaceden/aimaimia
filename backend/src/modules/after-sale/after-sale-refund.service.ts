@@ -21,6 +21,7 @@ import { InboxService } from '../inbox/inbox.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
+import { ProductBundleService } from '../product/product-bundle.service';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
@@ -55,6 +56,7 @@ export class AfterSaleRefundService {
     private afterSaleRewardService: AfterSaleRewardService,
     private statusHistory: AfterSaleStatusHistoryService,
     private inboxService: InboxService,
+    private productBundleService: ProductBundleService = new ProductBundleService(),
   ) {}
 
   setRewardDeductionService(service: RewardDeductionService) {
@@ -63,6 +65,30 @@ export class AfterSaleRefundService {
 
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  private buildRestockMovements(orderItem: {
+    skuId: string;
+    quantity: number;
+    companyId?: string | null;
+    productSnapshot?: any;
+  }): Array<{ skuId: string; quantity: number }> {
+    const bundleItems = orderItem.productSnapshot?.bundleItems;
+    if (Array.isArray(bundleItems) && bundleItems.length > 0) {
+      return this.productBundleService
+        .buildInventoryMovements({
+          skuId: orderItem.skuId,
+          quantity: orderItem.quantity,
+          companyId: orderItem.companyId ?? '',
+          productSnapshot: orderItem.productSnapshot,
+        })
+        .map((movement) => ({
+          skuId: movement.skuId,
+          quantity: movement.quantity,
+        }));
+    }
+
+    return [{ skuId: orderItem.skuId, quantity: orderItem.quantity }];
   }
 
   async createOrGetRefund(afterSaleId: string): Promise<Refund> {
@@ -226,7 +252,9 @@ export class AfterSaleRefundService {
               select: {
                 skuId: true,
                 quantity: true,
+                companyId: true,
                 isPrize: true,
+                productSnapshot: true,
               },
             },
           },
@@ -281,21 +309,26 @@ export class AfterSaleRefundService {
             request.orderItem.quantity > 0;
 
           if (shouldRestockReturnedItem && request.orderItem) {
-            const existingRestockLedger = await tx.inventoryLedger.findFirst({
-              where: {
-                type: InventoryType.RELEASE,
-                refType: 'AFTER_SALE',
-                refId: request.id,
-              },
-              select: { id: true },
-            });
+            for (const movement of this.buildRestockMovements(request.orderItem)) {
+              const existingRestockLedger = await tx.inventoryLedger.findFirst({
+                where: {
+                  skuId: movement.skuId,
+                  type: InventoryType.RELEASE,
+                  refType: 'AFTER_SALE',
+                  refId: request.id,
+                },
+                select: { id: true },
+              });
 
-            if (!existingRestockLedger) {
+              if (existingRestockLedger) {
+                continue;
+              }
+
               const restockLedger = await tx.inventoryLedger.createMany({
                 data: [{
-                  skuId: request.orderItem.skuId,
+                  skuId: movement.skuId,
                   type: InventoryType.RELEASE,
-                  qty: request.orderItem.quantity,
+                  qty: movement.quantity,
                   refType: 'AFTER_SALE',
                   refId: request.id,
                 }],
@@ -304,14 +337,14 @@ export class AfterSaleRefundService {
 
               if (restockLedger.count === 1) {
                 await tx.productSKU.update({
-                  where: { id: request.orderItem.skuId },
-                  data: { stock: { increment: request.orderItem.quantity } },
+                  where: { id: movement.skuId },
+                  data: { stock: { increment: movement.quantity } },
                 });
               } else {
                 // findFirst 未命中却被 partial unique index 拦截 = ledger 已存在但前面漏判；
                 // 不能 increment（避免双发），但必须留下告警让监控可见。
                 this.logger.warn(
-                  `售后回填库存被静默跳过（findFirst 漏判，partial unique index 拦截）: afterSaleId=${request.id}, skuId=${request.orderItem.skuId}, quantity=${request.orderItem.quantity}`,
+                  `售后回填库存被静默跳过（findFirst 漏判，partial unique index 拦截）: afterSaleId=${request.id}, skuId=${movement.skuId}, quantity=${movement.quantity}`,
                 );
               }
             }

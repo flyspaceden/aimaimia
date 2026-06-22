@@ -23,6 +23,7 @@ import { CartService } from '../cart/cart.service';
 import { RepurchaseResult, RepurchaseResultItem, RepurchaseSkipReason } from './repurchase.types';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { ProductBundleService } from '../product/product-bundle.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -102,6 +103,7 @@ export class OrderService {
     private bonusConfig: BonusConfigService,
     private redisCoord: RedisCoordinatorService,
     private cartService: CartService,
+    private productBundleService: ProductBundleService = new ProductBundleService(),
   ) {}
 
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -704,6 +706,30 @@ export class OrderService {
       cart,
       items,
     };
+  }
+
+  private buildInventoryReleaseMovements(item: {
+    skuId: string;
+    quantity: number;
+    companyId?: string | null;
+    productSnapshot?: any;
+  }): Array<{ skuId: string; quantity: number }> {
+    const bundleItems = item.productSnapshot?.bundleItems;
+    if (Array.isArray(bundleItems) && bundleItems.length > 0) {
+      return this.productBundleService
+        .buildInventoryMovements({
+          skuId: item.skuId,
+          quantity: item.quantity,
+          companyId: item.companyId ?? '',
+          productSnapshot: item.productSnapshot,
+        })
+        .map((movement) => ({
+          skuId: movement.skuId,
+          quantity: movement.quantity,
+        }));
+    }
+
+    return [{ skuId: item.skuId, quantity: item.quantity }];
   }
 
   async repurchase(orderId: string, userId: string): Promise<RepurchaseResult> {
@@ -1804,19 +1830,21 @@ export class OrderService {
 
       // 释放库存
       for (const item of order.items) {
-        await tx.productSKU.update({
-          where: { id: item.skuId },
-          data: { stock: { increment: item.quantity } },
-        });
-        await tx.inventoryLedger.create({
-          data: {
-            skuId: item.skuId,
-            type: 'RELEASE',
-            qty: item.quantity,
-            refType: 'ORDER',
-            refId: id,
-          },
-        });
+        for (const movement of this.buildInventoryReleaseMovements(item)) {
+          await tx.productSKU.update({
+            where: { id: movement.skuId },
+            data: { stock: { increment: movement.quantity } },
+          });
+          await tx.inventoryLedger.create({
+            data: {
+              skuId: movement.skuId,
+              type: 'RELEASE',
+              qty: movement.quantity,
+              refType: 'ORDER',
+              refId: id,
+            },
+          });
+        }
       }
 
       // 创建 Refund 行（status=REFUNDING；merchantRefundNo 'AUTO-' 前缀让 cron 兜底重试）
@@ -1982,7 +2010,7 @@ export class OrderService {
     const orders = await this.prisma.order.findMany({
       where: { checkoutSessionId: sessionId, userId },
       include: {
-        items: { select: { skuId: true, quantity: true, companyId: true } },
+        items: { select: { skuId: true, quantity: true, companyId: true, productSnapshot: true } },
       },
     });
     if (orders.length === 0) {
@@ -2070,19 +2098,21 @@ export class OrderService {
       // 释放每个 Order 的库存
       for (const o of orders) {
         for (const item of o.items) {
-          await tx.productSKU.update({
-            where: { id: item.skuId },
-            data: { stock: { increment: item.quantity } },
-          });
-          await tx.inventoryLedger.create({
-            data: {
-              skuId: item.skuId,
-              type: 'RELEASE',
-              qty: item.quantity,
-              refType: 'ORDER',
-              refId: o.id,
-            },
-          });
+          for (const movement of this.buildInventoryReleaseMovements(item)) {
+            await tx.productSKU.update({
+              where: { id: movement.skuId },
+              data: { stock: { increment: movement.quantity } },
+            });
+            await tx.inventoryLedger.create({
+              data: {
+                skuId: movement.skuId,
+                type: 'RELEASE',
+                qty: movement.quantity,
+                refType: 'ORDER',
+                refId: o.id,
+              },
+            });
+          }
         }
       }
 

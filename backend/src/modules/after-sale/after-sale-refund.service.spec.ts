@@ -59,10 +59,15 @@ describe('AfterSaleRefundService', () => {
     send: jest.fn(),
   };
 
+  const productBundleService = {
+    buildInventoryMovements: jest.fn(),
+  };
+
   let service: AfterSaleRefundService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    productBundleService.buildInventoryMovements.mockReset();
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001',
       orderId: 'order_001',
@@ -131,6 +136,7 @@ describe('AfterSaleRefundService', () => {
       rewardService as any,
       new AfterSaleStatusHistoryService(),
       inboxService as any,
+      productBundleService as any,
     );
   });
 
@@ -460,6 +466,124 @@ describe('AfterSaleRefundService', () => {
     expect(inboxService.send).toHaveBeenCalled();
   });
 
+  it('handleRefundSuccess 对 bundle 退货按组件幂等回填库存，不回填 bundle 售卖 SKU', async () => {
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_bundle_001',
+      afterSaleId: 'as_bundle_001',
+      orderId: 'order_bundle_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_bundle_001',
+      orderId: 'order_bundle_001',
+      userId: 'user_001',
+      status: 'RECEIVED_BY_SELLER',
+      refundAmount: 88,
+      refundId: 'refund_bundle_001',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      orderItem: {
+        skuId: 'bundle-selling-sku',
+        quantity: 2,
+        isPrize: false,
+        productSnapshot: {
+          productType: 'BUNDLE',
+          bundleItems: [
+            { skuId: 'component-sku-a', quantityPerBundle: 2 },
+            { skuId: 'component-sku-b', quantityPerBundle: 1 },
+          ],
+        },
+      },
+    });
+    productBundleService.buildInventoryMovements.mockReturnValue([
+      { skuId: 'component-sku-a', quantity: 4, companyId: 'company-1', label: 'A' },
+      { skuId: 'component-sku-b', quantity: 2, companyId: 'company-1', label: 'B' },
+    ]);
+    tx.inventoryLedger.createMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+
+    await service.handleRefundSuccess('refund_bundle_001', 'provider_refund_bundle_001');
+
+    expect(tx.afterSaleRequest.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'as_bundle_001' },
+      include: expect.objectContaining({
+        orderItem: {
+          select: {
+            skuId: true,
+            quantity: true,
+            companyId: true,
+            isPrize: true,
+            productSnapshot: true,
+          },
+        },
+      }),
+    }));
+    expect(productBundleService.buildInventoryMovements).toHaveBeenCalledWith({
+      skuId: 'bundle-selling-sku',
+      quantity: 2,
+      companyId: '',
+      productSnapshot: {
+        productType: 'BUNDLE',
+        bundleItems: [
+          { skuId: 'component-sku-a', quantityPerBundle: 2 },
+          { skuId: 'component-sku-b', quantityPerBundle: 1 },
+        ],
+      },
+    });
+    expect(tx.inventoryLedger.findFirst).toHaveBeenNthCalledWith(1, {
+      where: {
+        skuId: 'component-sku-a',
+        type: 'RELEASE',
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      },
+      select: { id: true },
+    });
+    expect(tx.inventoryLedger.findFirst).toHaveBeenNthCalledWith(2, {
+      where: {
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      },
+      select: { id: true },
+    });
+    expect(tx.inventoryLedger.createMany).toHaveBeenNthCalledWith(1, {
+      data: [{
+        skuId: 'component-sku-a',
+        type: 'RELEASE',
+        qty: 4,
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.inventoryLedger.createMany).toHaveBeenNthCalledWith(2, {
+      data: [{
+        skuId: 'component-sku-b',
+        type: 'RELEASE',
+        qty: 2,
+        refType: 'AFTER_SALE',
+        refId: 'as_bundle_001',
+      }],
+      skipDuplicates: true,
+    });
+    expect(tx.productSKU.update).toHaveBeenCalledTimes(1);
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'component-sku-a' },
+      data: { stock: { increment: 4 } },
+    });
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'component-sku-b' },
+    }));
+    expect(tx.productSKU.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'bundle-selling-sku' },
+    }));
+  });
+
   it('handleRefundSuccess restocks returned normal items exactly once when returned-goods refund succeeds', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
@@ -494,7 +618,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
@@ -502,6 +628,7 @@ describe('AfterSaleRefundService', () => {
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
       where: {
+        skuId: 'sku_001',
         type: 'RELEASE',
         refType: 'AFTER_SALE',
         refId: 'as_001',
@@ -622,7 +749,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
@@ -630,6 +759,7 @@ describe('AfterSaleRefundService', () => {
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.findFirst).toHaveBeenCalledWith({
       where: {
+        skuId: 'sku_001',
         type: 'RELEASE',
         refType: 'AFTER_SALE',
         refId: 'as_001',
@@ -674,7 +804,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
@@ -718,7 +850,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),
@@ -762,7 +896,9 @@ describe('AfterSaleRefundService', () => {
           select: {
             skuId: true,
             quantity: true,
+            companyId: true,
             isPrize: true,
+            productSnapshot: true,
           },
         },
       }),

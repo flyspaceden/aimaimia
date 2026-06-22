@@ -20,6 +20,7 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import { ProductModule } from '../product/product.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
     ShipmentModule,
     ShippingRuleModule,
     DigitalAssetModule,
+    ProductModule,
   ],
   controllers: [AfterSaleController],
   providers: [
