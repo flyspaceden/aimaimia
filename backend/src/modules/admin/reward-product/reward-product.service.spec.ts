@@ -41,6 +41,9 @@ describe('RewardProductService transactional writes', () => {
       lotteryPrize: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      groupBuyActivity: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
 
     const prisma = {
@@ -54,6 +57,16 @@ describe('RewardProductService transactional writes', () => {
         create: jest.fn().mockResolvedValue({ id: 'sku_root' }),
         findUnique: jest.fn().mockResolvedValue(null),
         update: jest.fn().mockResolvedValue({ id: 'sku_root' }),
+        delete: jest.fn().mockResolvedValue({ id: 'sku_root' }),
+      },
+      vipGiftItem: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      lotteryPrize: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      groupBuyActivity: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
     };
 
@@ -215,6 +228,52 @@ describe('RewardProductService transactional writes', () => {
       weightGram: 0,
     })).rejects.toBeInstanceOf(NotFoundException);
     expect(tx.productSKU.update).not.toHaveBeenCalled();
+  });
+
+  it('shows active group-buy activity references in the reward product summary', async () => {
+    const { prisma, service } = buildPrisma();
+    prisma.product.findUnique.mockResolvedValueOnce({
+      id: 'product_1',
+      companyId: PLATFORM_COMPANY_ID,
+      skus: [{ id: 'sku_1' }],
+    });
+    prisma.groupBuyActivity.findMany.mockResolvedValueOnce([
+      { id: 'activity_1', title: '大龙虾团购', productId: 'product_1', skuId: 'sku_1' },
+    ]);
+
+    const result = await service.findOne('product_1');
+
+    expect(result.referenceSummary).toEqual(expect.objectContaining({
+      groupBuyActivityCount: 1,
+      totalReferences: 1,
+    }));
+  });
+
+  it('rejects product downstatus when referenced by an active group-buy activity', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivity.findMany.mockResolvedValueOnce([
+      { id: 'activity_1', title: '大龙虾团购', productId: 'product_1', skuId: 'sku_1' },
+    ]);
+
+    await expect(service.update('product_1', { status: 'INACTIVE' } as any)).rejects.toThrow(
+      '团购活动',
+    );
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects SKU deletion when referenced by an active group-buy activity', async () => {
+    const { prisma, service } = buildPrisma();
+    prisma.product.findUnique.mockResolvedValueOnce({
+      id: 'product_1',
+      companyId: PLATFORM_COMPANY_ID,
+      skus: [{ id: 'sku_1' }, { id: 'sku_2' }],
+    });
+    prisma.groupBuyActivity.findMany.mockResolvedValueOnce([
+      { id: 'activity_1', title: '大龙虾团购', productId: 'product_1', skuId: 'sku_1' },
+    ]);
+
+    await expect(service.deleteSku('product_1', 'sku_1')).rejects.toThrow('团购活动');
+    expect(prisma.productSKU.delete).not.toHaveBeenCalled();
   });
 });
 

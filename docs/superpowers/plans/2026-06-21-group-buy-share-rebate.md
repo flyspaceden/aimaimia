@@ -344,22 +344,22 @@ git commit -m "feat: add group buy admin activity APIs"
 - Modify: `backend/src/modules/admin/reward-product/reward-product.service.ts`
 - Test: `backend/src/modules/admin/reward-product/reward-product.service.spec.ts`
 
-- [ ] **Step 1: Add failing reference test**
+- [x] **Step 1: Add failing reference test**
 
 When an active group-buy activity references a product/SKU, deleting/downstatus should throw a `BadRequestException`.
 
-- [ ] **Step 2: Extend reference checks**
+- [x] **Step 2: Extend reference checks**
 
 Include active/paused group-buy activities in `buildReferenceSummaryMap()` and `assertProductNotReferenced()`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 cd backend
 npx jest src/modules/admin/reward-product/reward-product.service.spec.ts --runInBand
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/src/modules/admin/reward-product

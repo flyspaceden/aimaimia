@@ -13,7 +13,10 @@ import {
   UpdateRewardProductSkuDto,
 } from './reward-product.dto';
 
-type RewardProductReferenceClient = Pick<PrismaService, 'vipGiftItem' | 'lotteryPrize'>;
+type RewardProductReferenceClient = Pick<
+  PrismaService,
+  'vipGiftItem' | 'lotteryPrize' | 'groupBuyActivity'
+>;
 
 @Injectable()
 export class RewardProductService {
@@ -36,7 +39,7 @@ export class RewardProductService {
     const productIds = products.map((product) => product.id);
     const skuIds = products.flatMap((product) => product.skus.map((sku) => sku.id));
 
-    const [vipGiftItems, lotteryPrizes] = await Promise.all([
+    const [vipGiftItems, lotteryPrizes, groupBuyActivities] = await Promise.all([
       skuIds.length > 0
         ? this.prisma.vipGiftItem.findMany({
             where: {
@@ -50,6 +53,19 @@ export class RewardProductService {
         ? this.prisma.lotteryPrize.findMany({
             where: {
               isActive: true,
+              OR: [
+                ...(productIds.length > 0 ? [{ productId: { in: productIds } }] : []),
+                ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+              ],
+            },
+            select: { id: true, productId: true, skuId: true },
+          })
+        : Promise.resolve([]),
+      productIds.length > 0 || skuIds.length > 0
+        ? this.prisma.groupBuyActivity.findMany({
+            where: {
+              deletedAt: null,
+              status: { in: ['ACTIVE', 'PAUSED'] },
               OR: [
                 ...(productIds.length > 0 ? [{ productId: { in: productIds } }] : []),
                 ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
@@ -80,6 +96,30 @@ export class RewardProductService {
       }
     }
 
+    const productIdBySkuId = new Map<string, string>();
+    for (const product of products) {
+      for (const sku of product.skus) {
+        productIdBySkuId.set(sku.id, product.id);
+      }
+    }
+
+    const groupBuyByProductId = new Map<string, Set<string>>();
+    for (const activity of groupBuyActivities) {
+      const targetProductIds = new Set<string>();
+      if (activity.productId) {
+        targetProductIds.add(activity.productId);
+      }
+      if (activity.skuId && productIdBySkuId.has(activity.skuId)) {
+        targetProductIds.add(productIdBySkuId.get(activity.skuId)!);
+      }
+      for (const targetProductId of targetProductIds) {
+        if (!groupBuyByProductId.has(targetProductId)) {
+          groupBuyByProductId.set(targetProductId, new Set());
+        }
+        groupBuyByProductId.get(targetProductId)!.add(activity.id);
+      }
+    }
+
     return new Map(
       products.map((product) => {
         const vipGiftOptionCount = product.skus.reduce(
@@ -93,13 +133,15 @@ export class RewardProductService {
           }
         }
         const lotteryPrizeCount = lotteryIds.size;
+        const groupBuyActivityCount = groupBuyByProductId.get(product.id)?.size ?? 0;
 
         return [
           product.id,
           {
             vipGiftOptionCount,
             lotteryPrizeCount,
-            totalReferences: vipGiftOptionCount + lotteryPrizeCount,
+            groupBuyActivityCount,
+            totalReferences: vipGiftOptionCount + lotteryPrizeCount + groupBuyActivityCount,
           },
         ];
       }),
@@ -112,9 +154,10 @@ export class RewardProductService {
     action: string,
     client: RewardProductReferenceClient = this.prisma,
   ) {
-    const [vipGiftItems, lotteryPrizes]: [
+    const [vipGiftItems, lotteryPrizes, groupBuyActivities]: [
       Array<{ id: string; giftOption: { title: string } }>,
       Array<{ id: string; name: string }>,
+      Array<{ id: string; title: string }>,
     ] = await Promise.all([
       skuIds.length > 0
         ? client.vipGiftItem.findMany({
@@ -137,17 +180,35 @@ export class RewardProductService {
         select: { id: true, name: true },
         take: 5,
       }),
+      client.groupBuyActivity.findMany({
+        where: {
+          deletedAt: null,
+          status: { in: ['ACTIVE', 'PAUSED'] },
+          OR: [
+            { productId },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { id: true, title: true },
+        take: 5,
+      }),
     ]);
 
-    if (vipGiftItems.length === 0 && lotteryPrizes.length === 0) {
+    if (
+      vipGiftItems.length === 0
+      && lotteryPrizes.length === 0
+      && groupBuyActivities.length === 0
+    ) {
       return;
     }
 
     const vipSummary = vipGiftItems.map((item) => item.giftOption.title).join('、');
     const lotterySummary = lotteryPrizes.map((item) => item.name).join('、');
+    const groupBuySummary = groupBuyActivities.map((item) => item.title).join('、');
     const details = [
       vipGiftItems.length > 0 ? `VIP赠品：${vipSummary}` : null,
       lotteryPrizes.length > 0 ? `抽奖奖品：${lotterySummary}` : null,
+      groupBuyActivities.length > 0 ? `团购活动：${groupBuySummary}` : null,
     ]
       .filter(Boolean)
       .join('；');
@@ -197,6 +258,7 @@ export class RewardProductService {
         referenceSummary: referenceSummaryMap.get(item.id) ?? {
           vipGiftOptionCount: 0,
           lotteryPrizeCount: 0,
+          groupBuyActivityCount: 0,
           totalReferences: 0,
         },
       })),
@@ -237,6 +299,7 @@ export class RewardProductService {
       referenceSummary: referenceSummaryMap.get(product.id) ?? {
         vipGiftOptionCount: 0,
         lotteryPrizeCount: 0,
+        groupBuyActivityCount: 0,
         totalReferences: 0,
       },
     };
@@ -362,7 +425,13 @@ export class RewardProductService {
     const skuIds = product.skus.map((sku) => sku.id);
 
     // 硬删除前检查所有会违反外键的引用（不区分 active/inactive）
-    const [vipGiftItems, lotteryPrizes, orderItemCount, cartItemCount] = await Promise.all([
+    const [
+      vipGiftItems,
+      lotteryPrizes,
+      groupBuyActivities,
+      orderItemCount,
+      cartItemCount,
+    ] = await Promise.all([
       skuIds.length > 0
         ? this.prisma.vipGiftItem.findMany({
             where: { skuId: { in: skuIds } },
@@ -378,6 +447,17 @@ export class RewardProductService {
           ],
         },
         select: { name: true },
+        take: 5,
+      }),
+      this.prisma.groupBuyActivity.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { productId: id },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { title: true },
         take: 5,
       }),
       skuIds.length > 0
@@ -396,6 +476,10 @@ export class RewardProductService {
     if (lotteryPrizes.length > 0) {
       const summary = lotteryPrizes.map((i) => i.name).join('、');
       blockers.push(`抽奖奖品：${summary}`);
+    }
+    if (groupBuyActivities.length > 0) {
+      const summary = groupBuyActivities.map((i) => i.title).join('、');
+      blockers.push(`团购活动：${summary}`);
     }
     if (orderItemCount > 0) {
       blockers.push(`已有 ${orderItemCount} 条订单记录`);
