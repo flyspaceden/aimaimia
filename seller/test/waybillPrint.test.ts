@@ -13,6 +13,7 @@ const order = {
     {
       id: 'item-1',
       title: '龙虾 <鲜活>',
+      description: '多样海产品组合：有进口印度小青龙<300克>4只，苏丹鱼-忘不了鱼500克2条。',
       unitPrice: 84.5,
       quantity: 2,
     },
@@ -40,6 +41,8 @@ test('builds a one-page seller packing slip with order items and quantities', ()
   assert.match(html, /AIMM00000000000036/);
   assert.match(html, /广东省\/深圳市\/宝安区/);
   assert.match(html, /龙虾 &lt;鲜活&gt;/);
+  assert.match(html, /详情清单/);
+  assert.match(html, /多样海产品组合：有进口印度小青龙&lt;300克&gt;4只，苏丹鱼-忘不了鱼500克2条。/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.match(html, /满额赠品/);
   assert.doesNotMatch(html, /普通/);
