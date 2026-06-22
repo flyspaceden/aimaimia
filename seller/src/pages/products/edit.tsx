@@ -1868,6 +1868,37 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       setDirtySinceSave(false);
       if (!silent) message.success('草稿已保存');
     } catch (err: unknown) {
+      if (err instanceof ApiError && err.fieldErrors && err.fieldErrors.length > 0) {
+        const firstHighlightable: string | null = (() => {
+          const fieldsToSet: Array<{ name: (string | number)[]; errors: string[] }> = [];
+          let firstName: string | null = null;
+          for (const fe of err.fieldErrors) {
+            const name = mapBackendFieldToProductForm(fe.field, multiSpec);
+            if (!name) continue;
+            if (name.length === 1 && name[0] === 'bundleItems') {
+              setBundleItemsFieldError(form, fe.message);
+            } else {
+              fieldsToSet.push({ name, errors: [fe.message] });
+            }
+            if (!firstName) firstName = name.join('.');
+          }
+          if (fieldsToSet.length > 0) {
+            form.setFields(fieldsToSet);
+          }
+          return firstName;
+        })();
+        if (!silent) {
+          if (firstHighlightable) {
+            const namePath = firstHighlightable.split('.').map((s) => (/^\d+$/.test(s) ? Number(s) : s));
+            form.scrollToField(namePath, { behavior: 'smooth', block: 'center' });
+          }
+          message.error(err.message || '保存草稿失败');
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn('自动保存草稿失败', err);
+        }
+        return;
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const e = err as any;
       const status = e?.response?.status ?? e?.status;
@@ -1884,7 +1915,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     } finally {
       setDraftSaving(false);
     }
-  }, [draftId, draftLimitReached, buildDraftPayload, message, navigate, queryClient]);
+  }, [draftId, draftLimitReached, buildDraftPayload, message, multiSpec, navigate, queryClient]);
 
   // 30 秒 debounce 自动保存（表单 dirty 才触发）
   const debouncedAutoSave = useMemo(

@@ -246,8 +246,8 @@ export default function ProductListPage() {
                     <WarningOutlined style={{ marginRight: 2 }} />
                     {[
                       hasOwed ? `${owedSkus.length} 规格欠货` : null,
-                      zeroCount > 0 ? `${zeroCount} 规格无库存` : null,
-                      lowCount > 0 ? `${lowCount} 规格低库存` : null,
+                      zeroCount > 0 ? `${zeroCount} ${isBundle ? '组合不可售' : '规格无库存'}` : null,
+                      lowCount > 0 ? `${lowCount} ${isBundle ? '组合库存低' : '规格低库存'}` : null,
                     ].filter(Boolean).join(' / ')}
                     <span style={{ marginLeft: 4 }}>{isBundle ? '可组合' : '库存'} {total}</span>
                   </span>
