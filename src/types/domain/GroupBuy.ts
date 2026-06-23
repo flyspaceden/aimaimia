@@ -38,7 +38,6 @@ export interface GroupBuyActivity {
   price: number;
   freeShipping: boolean;
   shippingSummary: string;
-  ruleSummary: string | null;
   product: GroupBuyProductSnapshot;
   sku: GroupBuySkuSnapshot;
   tiers: GroupBuyTier[];

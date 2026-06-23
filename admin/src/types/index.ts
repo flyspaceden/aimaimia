@@ -512,7 +512,6 @@ export interface AdminGroupBuyActivity {
   startAt: string | null;
   endAt: string | null;
   displayOrder: number;
-  ruleSummary: string | null;
   deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -706,7 +705,6 @@ export interface CreateGroupBuyActivityInput {
   startAt?: string | Date | null;
   endAt?: string | Date | null;
   displayOrder?: number;
-  ruleSummary?: string | null;
   tiers: GroupBuyTierInput[];
 }
 
@@ -720,7 +718,6 @@ export interface UpdateGroupBuyActivityInput {
   startAt?: string | Date | null;
   endAt?: string | Date | null;
   displayOrder?: number;
-  ruleSummary?: string | null;
   tiers?: GroupBuyTierInput[];
 }
 

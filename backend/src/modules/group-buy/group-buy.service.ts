@@ -241,7 +241,6 @@ export class GroupBuyService {
       price: activity.price,
       freeShipping: activity.freeShipping,
       shippingSummary: activity.freeShipping ? '本活动商品包邮' : '按商品配置收取运费',
-      ruleSummary: activity.ruleSummary ?? null,
       product: {
         id: activity.product.id,
         title: activity.product.title,

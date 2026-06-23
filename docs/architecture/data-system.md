@@ -1001,7 +1001,7 @@ Invoice
   - price (float) — 后台指定团购价和返还计算基数
   - freeShipping (boolean)
   - status (enum: DRAFT/ACTIVE/PAUSED/ENDED)
-  - startAt/endAt/displayOrder/ruleSummary/deletedAt
+  - startAt/endAt/displayOrder/deletedAt
 - GroupBuyTier
   - activityId (uuid FK GroupBuyActivity)
   - sequence (int)

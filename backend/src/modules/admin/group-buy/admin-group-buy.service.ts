@@ -139,7 +139,6 @@ export class AdminGroupBuyService {
           startAt: dto.startAt ?? null,
           endAt: dto.endAt ?? null,
           displayOrder: dto.displayOrder ?? 0,
-          ruleSummary: dto.ruleSummary ?? null,
           tiers: {
             create: tiers,
           },
@@ -189,7 +188,6 @@ export class AdminGroupBuyService {
           startAt: dto.startAt,
           endAt: dto.endAt,
           displayOrder: dto.displayOrder,
-          ruleSummary: dto.ruleSummary,
         },
         include: this.activityInclude,
       });

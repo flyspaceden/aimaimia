@@ -312,7 +312,6 @@ DTO fields:
 - `status`
 - `tiers: { sequence: number; basisPoints: number; label?: string }[]`
 - `displayOrder`
-- `ruleSummary`
 
 - [x] **Step 3: Implement service**
 

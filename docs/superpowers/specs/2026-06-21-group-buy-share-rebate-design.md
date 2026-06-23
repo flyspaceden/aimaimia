@@ -137,7 +137,7 @@
 │        │ 包邮/运费 │    │
 │        │ 购买按钮  │    │
 ├────────────────────────┤
-│  规则摘要  商品细节     │
+│  商品细节               │
 │  底部固定：查看并购买   │
 └────────────────────────┘
 
@@ -233,7 +233,6 @@
 - 商品规格：重量、数量、产地 / 企业、发货方式，如后端有字段则展示真实字段，无字段不虚构。
 - 购买条件提示：现金购买、不可抵扣、同一时间一个当前团购。
 - 分享条件说明：展示“需直接分享有效好友购买同款并完成订单条件”，不在买家主页面展示返还档位百分比。
-- 活动规则摘要。
 - 关键限制：
   - 仅现金购买。
   - 不可使用消费积分、团购返还余额、红包、优惠券或 VIP 折扣。
@@ -589,7 +588,6 @@ model GroupBuyActivity {
   startAt        DateTime?
   endAt          DateTime?
   displayOrder   Int                    @default(0)
-  ruleSummary    String?
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
   deletedAt      DateTime?
@@ -834,7 +832,6 @@ model GroupBuyRebateLedger {
 - 活动状态：草稿、启用、暂停、结束。
 - 返还档位配置。
 - 排序和上下架。
-- 规则摘要。
 
 约束：
 

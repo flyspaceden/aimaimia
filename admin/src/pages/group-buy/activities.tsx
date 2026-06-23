@@ -76,7 +76,6 @@ export default function GroupBuyActivitiesPage() {
       freeShipping: true,
       status: 'DRAFT',
       displayOrder: 0,
-      ruleSummary: '仅限直接推荐全新用户购买同款商品，新客有效订单计入分享进度',
       tiers: defaultTiers,
       timeRange: undefined,
     });
@@ -93,7 +92,6 @@ export default function GroupBuyActivitiesPage() {
       freeShipping: record.freeShipping,
       status: record.status,
       displayOrder: record.displayOrder,
-      ruleSummary: record.ruleSummary,
       tiers: toTierFormValues(record.tiers),
       timeRange: record.startAt && record.endAt
         ? [dayjs(record.startAt), dayjs(record.endAt)]
@@ -116,7 +114,6 @@ export default function GroupBuyActivitiesPage() {
     freeShipping: Boolean(values.freeShipping),
     status: values.status,
     displayOrder: Number(values.displayOrder ?? 0),
-    ruleSummary: values.ruleSummary || null,
     tiers: toTierPayloadValues(values.tiers || []),
     startAt: values.timeRange?.[0]?.toISOString() ?? null,
     endAt: values.timeRange?.[1]?.toISOString() ?? null,
@@ -346,9 +343,6 @@ export default function GroupBuyActivitiesPage() {
           </Space>
           <Form.Item name="timeRange" label="活动时间">
             <DatePicker.RangePicker showTime style={{ width: '100%' }} allowEmpty={[true, true]} />
-          </Form.Item>
-          <Form.Item name="ruleSummary" label="规则摘要">
-            <Input.TextArea rows={3} maxLength={500} />
           </Form.Item>
           <Form.Item name="displayOrder" label="排序值">
             <InputNumber style={{ width: 160 }} />

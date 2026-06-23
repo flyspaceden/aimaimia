@@ -1096,7 +1096,7 @@
 | 页面 | 完成内容 | 文件 |
 |------|----------|------|
 | API/类型/权限底座 | 新增管理端团购活动、团购记录、团购订单、返还流水 API client 和共享类型；新增 `group_buy:read/manage` 权限常量 | `admin/src/api/group-buy.ts`, `admin/src/types/index.ts`, `admin/src/constants/permissions.ts` |
-| 团购活动 | 新增团购活动配置页，支持选择平台奖励商品/SKU、配置团购价、包邮、活动状态、时间、规则摘要和返还档位；表格展示活动状态、价格、档位和发起记录数 | `admin/src/pages/group-buy/activities.tsx` |
+| 团购活动 | 新增团购活动配置页，支持选择平台奖励商品/SKU、配置团购价、包邮、活动状态、时间和返还档位；表格展示活动状态、价格、档位和发起记录数 | `admin/src/pages/group-buy/activities.tsx` |
 | 团购记录 | 新增团购记录页，展示分享用户、活动商品、分享码、记录状态、有效推荐/候选记录、初始订单；详情 Drawer 展示直接推荐记录和返还流水 | `admin/src/pages/group-buy/instances.tsx` |
 | 团购订单 | 新增团购订单页，区分“发起团购”和“通过分享购买”，展示关联活动、分享码、订单状态、直接推荐状态和确认收货时间 | `admin/src/pages/group-buy/orders.tsx` |
 | 返还流水 | 新增返还流水页，展示团购返还账户相关流水、金额变化、活动商品、直接推荐记录和关联订单 | `admin/src/pages/group-buy/rebate-ledgers.tsx` |

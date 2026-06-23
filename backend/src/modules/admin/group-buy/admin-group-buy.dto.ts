@@ -79,11 +79,6 @@ export class CreateGroupBuyActivityDto {
   @IsInt({ message: '排序值必须为整数' })
   displayOrder?: number;
 
-  @IsOptional()
-  @IsString({ message: '规则摘要必须为字符串' })
-  @MaxLength(500, { message: '规则摘要不能超过 500 个字符' })
-  ruleSummary?: string;
-
   @IsArray({ message: '返还档位必须为数组' })
   @ArrayMinSize(1, { message: '至少需要一个返还档位' })
   @ArrayMaxSize(20, { message: '返还档位不能超过 20 个' })
@@ -135,11 +130,6 @@ export class UpdateGroupBuyActivityDto {
   @Type(() => Number)
   @IsInt({ message: '排序值必须为整数' })
   displayOrder?: number;
-
-  @IsOptional()
-  @IsString({ message: '规则摘要必须为字符串' })
-  @MaxLength(500, { message: '规则摘要不能超过 500 个字符' })
-  ruleSummary?: string | null;
 
   @IsOptional()
   @IsArray({ message: '返还档位必须为数组' })
