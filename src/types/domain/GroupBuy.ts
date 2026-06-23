@@ -116,6 +116,13 @@ export interface GroupBuyCheckoutResponse {
   paymentParams: GroupBuyPaymentParams;
 }
 
+export interface GroupBuyCheckoutPreview {
+  expectedTotal: number;
+  goodsAmount: number;
+  shippingFee: number;
+  discountAmount: number;
+}
+
 export interface GroupBuyLandingInfo {
   code: string;
   valid: boolean;

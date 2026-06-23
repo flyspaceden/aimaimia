@@ -21,6 +21,7 @@ import { InboxService } from '../inbox/inbox.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
+import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { ProductBundleService } from '../product/product-bundle.service';
 
@@ -51,6 +52,7 @@ export class AfterSaleRefundService {
   private rewardDeductionService: RewardDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
+  private groupBuyRebateService: GroupBuyRebateService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -71,6 +73,10 @@ export class AfterSaleRefundService {
 
   setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
     this.groupBuyRebateDeductionService = service;
+  }
+
+  setGroupBuyRebateService(service: GroupBuyRebateService) {
+    this.groupBuyRebateService = service;
   }
 
   private buildRestockMovements(orderItem: {
@@ -383,6 +389,7 @@ export class AfterSaleRefundService {
 
     await this.reverseDigitalAssetAfterRefund(refundId);
     await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
+    await this.voidGroupBuyRebateAfterRefund(completed.orderId, refundId);
     await this.afterSaleRewardService.checkAndMarkOrderRefunded(completed.orderId);
     await this.inboxService.send({
       userId: completed.userId,
@@ -392,6 +399,22 @@ export class AfterSaleRefundService {
       content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回${completed.refundDestination}。`,
       target: { route: '/orders' },
     }).catch(() => {});
+  }
+
+  private async voidGroupBuyRebateAfterRefund(orderId: string, refundId: string): Promise<void> {
+    if (!this.groupBuyRebateService) return;
+    try {
+      await this.groupBuyRebateService.voidReleasedReferralByOrderIfValid(
+        orderId,
+        'REFERRED_ORDER_AFTER_SALE_OR_REFUND',
+      );
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        `售后退款团购返还冲销失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
+        safeErr.stack,
+      );
+    }
   }
 
   private async reverseDigitalAssetAfterRefund(refundId: string): Promise<void> {

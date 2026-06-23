@@ -15,6 +15,19 @@ import { logoutAndClearClientState } from '../../utils/logout';
 
 const TIMEOUT_MS = 12000;
 
+type QueryParams = Record<string, string | number | undefined>;
+
+type RequestOptions = {
+  headers?: Record<string, string>;
+  noCache?: boolean;
+};
+
+const NO_CACHE_HEADERS: Record<string, string> = {
+  'Cache-Control': 'no-cache, no-store',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
 /** 防止并发刷新 Token */
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -108,8 +121,9 @@ async function rawRequest<T>(
   method: string,
   path: string,
   body?: unknown,
-  params?: Record<string, string | number | undefined>,
-  extraHeaders?: Record<string, string>,
+  params?: QueryParams,
+  options?: RequestOptions,
+  retryNotModified = true,
 ): Promise<{ result: Result<T>; status: number }> {
   // 构建 URL + query params
   let url = `${API_BASE_URL}${path}`;
@@ -126,12 +140,26 @@ async function rawRequest<T>(
 
   const response = await fetch(url, {
     method,
-    headers: buildHeaders(extraHeaders),
+    headers: buildHeaders({
+      ...(options?.noCache ? NO_CACHE_HEADERS : undefined),
+      ...options?.headers,
+    }),
     body: body ? JSON.stringify(body) : undefined,
     signal: controller.signal,
   });
 
   clearTimeout(timer);
+
+  if (response.status === 304 && method === 'GET' && options?.noCache && retryNotModified) {
+    return rawRequest<T>(
+      method,
+      path,
+      body,
+      { ...params, __t: Date.now() },
+      options,
+      false,
+    );
+  }
 
   const json = await response.json();
   return { result: json as Result<T>, status: response.status };
@@ -141,17 +169,17 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  params?: Record<string, string | number | undefined>,
-  extraHeaders?: Record<string, string>,
+  params?: QueryParams,
+  options?: RequestOptions,
 ): Promise<Result<T>> {
   try {
-    const { result, status } = await rawRequest<T>(method, path, body, params, extraHeaders);
+    const { result, status } = await rawRequest<T>(method, path, body, params, options);
 
     // 401 → 尝试刷新 Token 后重试一次（刷新请求本身不重试）
     if (status === 401 && !path.startsWith('/auth/')) {
       const refreshed = await refreshTokenOnce();
       if (refreshed) {
-        const retry = await rawRequest<T>(method, path, body, params, extraHeaders);
+        const retry = await rawRequest<T>(method, path, body, params, options);
         return retry.result;
       }
       // 刷新失败 → 登出
@@ -242,11 +270,11 @@ async function uploadRequest<T>(
 }
 
 export const ApiClient = {
-  get: <T>(path: string, params?: Record<string, string | number | undefined>) =>
-    request<T>('GET', path, undefined, params),
+  get: <T>(path: string, params?: QueryParams, options?: RequestOptions) =>
+    request<T>('GET', path, undefined, params, options),
 
   post: <T>(path: string, body?: unknown, options?: { headers?: Record<string, string> }) =>
-    request<T>('POST', path, body, undefined, options?.headers),
+    request<T>('POST', path, body, undefined, { headers: options?.headers }),
 
   patch: <T>(path: string, body?: unknown) =>
     request<T>('PATCH', path, body),

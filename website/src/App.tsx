@@ -54,7 +54,7 @@ function PageLoader() {
 
 export default function App() {
   const location = useLocation()
-  const isLandingPage = location.pathname.startsWith('/r/') || location.pathname === '/download' || location.pathname === '/resolve'
+  const isLandingPage = location.pathname.startsWith('/r/') || location.pathname.startsWith('/gb/') || location.pathname === '/download' || location.pathname === '/resolve'
 
   return (
     <>
@@ -71,6 +71,7 @@ export default function App() {
             <Route path="/merchants/apply" element={<MerchantApply />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/r/:code" element={<Download />} />
+            <Route path="/gb/:groupBuyCode" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />
             <Route path="/privacy" element={<Privacy />} />

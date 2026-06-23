@@ -62,6 +62,166 @@ export class GroupBuyCheckoutService {
     this.shippingRuleService = service;
   }
 
+  async previewCheckout(userId: string, dto: GroupBuyCheckoutDto) {
+    this.assertCashOnly(dto);
+
+    return this.prisma.$transaction(async (tx) => {
+      const activity = await tx.groupBuyActivity.findUnique({
+        where: { id: dto.activityId },
+        include: {
+          product: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              companyId: true,
+              status: true,
+              media: {
+                select: { url: true },
+                orderBy: { sortOrder: 'asc' },
+                take: 1,
+              },
+              bundleItems: {
+                orderBy: { sortOrder: 'asc' },
+                select: {
+                  quantity: true,
+                  sortOrder: true,
+                  sku: {
+                    select: {
+                      id: true,
+                      title: true,
+                      weightGram: true,
+                      product: { select: { id: true, title: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          sku: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              price: true,
+              stock: true,
+              weightGram: true,
+            },
+          },
+          items: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true,
+                  companyId: true,
+                  status: true,
+                  media: {
+                    select: { url: true },
+                    orderBy: { sortOrder: 'asc' },
+                    take: 1,
+                  },
+                  bundleItems: {
+                    orderBy: { sortOrder: 'asc' },
+                    select: {
+                      quantity: true,
+                      sortOrder: true,
+                      sku: {
+                        select: {
+                          id: true,
+                          title: true,
+                          weightGram: true,
+                          product: { select: { id: true, title: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              sku: {
+                select: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  price: true,
+                  stock: true,
+                  weightGram: true,
+                },
+              },
+            },
+          },
+          tiers: {
+            orderBy: { sequence: 'asc' },
+          },
+        },
+      });
+      if (!activity || activity.deletedAt) {
+        throw new NotFoundException('团购活动不存在');
+      }
+      const activityItems = this.normalizeActivityItems(activity);
+      this.assertActivityCanCheckout(activity, activityItems);
+
+      const occupying = await tx.groupBuyInstance.findFirst({
+        where: {
+          userId,
+          status: {
+            in: [
+              GroupBuyInstanceStatus.QUALIFICATION_PENDING,
+              GroupBuyInstanceStatus.SHARING,
+            ],
+          },
+        },
+        select: { id: true, status: true },
+      });
+      if (occupying) {
+        throw new ConflictException({
+          code: 'GROUP_BUY_SLOT_OCCUPIED',
+          message: '需要先结束本次分享，或完成本次分享后才能购买新的团购商品',
+        });
+      }
+
+      const monthStart = this.getMonthStart();
+      const monthlyStartedCount = await tx.groupBuyInstance.count({
+        where: {
+          userId,
+          createdAt: { gte: monthStart },
+        },
+      });
+      const maxMonthlyLaunches = await this.getMaxMonthlyLaunches(tx);
+      if (monthlyStartedCount >= maxMonthlyLaunches) {
+        throw new BadRequestException('本月团购参与次数已用完');
+      }
+
+      if (dto.shareCode) {
+        await this.resolveShareCode(
+          tx,
+          userId,
+          dto.activityId,
+          dto.shareCode,
+          activity.tiers.length,
+        );
+      }
+
+      const address = await tx.address.findUnique({
+        where: { id: dto.addressId, userId, deletedAt: null },
+      });
+      if (!address) {
+        throw new BadRequestException('收货地址无效');
+      }
+
+      const shippingFee = await this.calculateShippingFee(activity, address, tx, activityItems);
+      const expectedTotal = Number((activity.price + shippingFee).toFixed(2));
+      return {
+        expectedTotal,
+        goodsAmount: activity.price,
+        shippingFee,
+        discountAmount: 0,
+      };
+    }, this.serializableTransactionOptions);
+  }
+
   async createCheckout(userId: string, dto: GroupBuyCheckoutDto) {
     this.assertCashOnly(dto);
 

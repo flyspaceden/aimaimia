@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { getApiBaseUrl } from '@/lib/apiBase'
 import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
@@ -39,16 +39,18 @@ export default function Download() {
     return null
   }
 
-  const { code } = useParams<{ code?: string }>()
+  const { code } = useParams<{ code?: string; groupBuyCode?: string }>()
+  const location = useLocation()
   const [showWechatGuide, setShowWechatGuide] = useState(false)
   const [codeCopied, setCodeCopied] = useState(false)
   const platform = detectPlatform()
   const wechat = isWechat()
+  const isReferralLanding = location.pathname.startsWith('/r/')
   // 合法的 8 位推荐码（统一大写）；非推荐落地（/download）为 null
-  const referralCode = code && isValidReferralCode(code) ? code.toUpperCase() : null
+  const referralCode = isReferralLanding && code && isValidReferralCode(code) ? code.toUpperCase() : null
 
   useEffect(() => {
-    if (!code || !isValidReferralCode(code)) return
+    if (!isReferralLanding || !code || !isValidReferralCode(code)) return
 
     const reportFingerprint = async () => {
       try {
@@ -75,7 +77,7 @@ export default function Download() {
     }
 
     reportFingerprint()
-  }, [code])
+  }, [code, isReferralLanding])
 
   useEffect(() => {
     if (wechat) {

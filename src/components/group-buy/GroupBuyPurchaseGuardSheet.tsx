@@ -28,7 +28,15 @@ export const GroupBuyPurchaseGuardSheet = ({
   const { colors, radius, spacing, typography } = useTheme();
   const currentTitle = current?.activity.title ?? '当前团购';
   const targetTitle = targetActivity?.title ?? '新的团购商品';
-  const endLabel = current?.status === 'QUALIFICATION_PENDING' ? '放弃后购买' : '结束后购买';
+  const isPending = current?.status === 'QUALIFICATION_PENDING';
+  const heading = isPending ? '当前有待确认资格' : '当前有进行中的分享';
+  const description = isPending
+    ? `${currentTitle} 正在等待确认收货及售后期结束，暂未生成推荐码。同一时间只能保留一个团购资格，需要先放弃本次资格，才可以购买 ${targetTitle}。`
+    : `${currentTitle} 正在分享中。同一时间只能保留一个团购推荐码，需要先结束本次分享，才可以购买 ${targetTitle}。`;
+  const ruleCopy = isPending
+    ? '放弃后，本次资格不会再生成推荐码，也不会产生新的返还记录。'
+    : '已经产生的有效推荐订单，仍按确认收货且无退换货后的规则处理。';
+  const endLabel = isPending ? '放弃本次资格并购买' : '结束本次分享并购买';
 
   return (
     <AppBottomSheet open={open} onClose={onClose} mode="auto" title="需要先处理当前团购">
@@ -39,10 +47,10 @@ export const GroupBuyPurchaseGuardSheet = ({
           </View>
           <View style={styles.noticeText}>
             <Text {...fitTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>
-              当前已有团购推荐码
+              {heading}
             </Text>
             <Text style={[typography.bodySm, { color: colors.text.secondary, marginTop: 4 }]}>
-              {currentTitle} 正在处理中。同一时间只能保留一个团购推荐码，需要先结束本次分享，才可以购买 {targetTitle}。
+              {description}
             </Text>
           </View>
         </View>
@@ -50,7 +58,7 @@ export const GroupBuyPurchaseGuardSheet = ({
         <View style={[styles.ruleRow, { borderColor: colors.border }]}>
           <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
           <Text style={[typography.caption, styles.ruleText, { color: colors.text.secondary }]}>
-            已经产生的有效推荐订单，仍按确认收货且无退换货后的规则处理。
+            {ruleCopy}
           </Text>
         </View>
 

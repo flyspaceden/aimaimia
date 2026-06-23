@@ -2497,24 +2497,37 @@ export class CheckoutService {
       },
     });
     if (existingReferralCount >= bizMeta.tierSnapshot.length) {
-      throw new BadRequestException('团购推荐码名额已满');
+      this.logger.warn(
+        `团购推荐码付款后名额已满，跳过推荐记录但保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+      );
+      return;
     }
 
-    await tx.groupBuyReferral.create({
-      data: {
-        instanceId: bizMeta.referredByInstanceId,
-        codeId: bizMeta.groupBuyCodeId,
-        status: 'CANDIDATE',
-        referredUserId: session.userId,
-        referredOrderId: orderId,
-        referredInstanceId: ownInstance.id,
-        candidateSequence: existingReferralCount + 1,
-      },
-    });
-    await tx.groupBuyInstance.update({
-      where: { id: bizMeta.referredByInstanceId },
-      data: { candidateCount: { increment: 1 } },
-    });
+    try {
+      await tx.groupBuyReferral.create({
+        data: {
+          instanceId: bizMeta.referredByInstanceId,
+          codeId: bizMeta.groupBuyCodeId,
+          status: 'CANDIDATE',
+          referredUserId: session.userId,
+          referredOrderId: orderId,
+          referredInstanceId: ownInstance.id,
+          candidateSequence: existingReferralCount + 1,
+        },
+      });
+      await tx.groupBuyInstance.update({
+        where: { id: bizMeta.referredByInstanceId },
+        data: { candidateCount: { increment: 1 } },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        this.logger.warn(
+          `团购推荐记录唯一约束冲突，跳过推荐记录但保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+        );
+        return;
+      }
+      throw error;
+    }
   }
 
   private getExcludedPrizeCleanupItems(session: {
