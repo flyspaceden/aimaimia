@@ -200,7 +200,6 @@ export class GroupBuyCheckoutService {
           userId,
           dto.activityId,
           dto.shareCode,
-          activity.tiers.length,
         );
       }
 
@@ -373,7 +372,6 @@ export class GroupBuyCheckoutService {
           userId,
           dto.activityId,
           dto.shareCode,
-          activity.tiers.length,
         )
         : null;
 
@@ -628,7 +626,6 @@ export class GroupBuyCheckoutService {
     userId: string,
     activityId: string,
     shareCode: string,
-    tierCount: number,
   ) {
     const groupBuyCode = await tx.groupBuyCode.findUnique({
       where: { code: shareCode },
@@ -639,6 +636,7 @@ export class GroupBuyCheckoutService {
             userId: true,
             activityId: true,
             status: true,
+            tierSnapshot: true,
           },
         },
       },
@@ -655,6 +653,10 @@ export class GroupBuyCheckoutService {
     if (groupBuyCode.instance.status !== GroupBuyInstanceStatus.SHARING) {
       throw new BadRequestException('团购推荐码当前不可用');
     }
+    const tierCount = this.resolveTierSnapshotCount(groupBuyCode.instance.tierSnapshot);
+    if (tierCount <= 0) {
+      throw new BadRequestException('团购推荐码配置异常');
+    }
     const existingReferralCount = await tx.groupBuyReferral.count({
       where: {
         instanceId: groupBuyCode.instance.id,
@@ -665,6 +667,18 @@ export class GroupBuyCheckoutService {
       throw new BadRequestException('团购推荐码名额已满');
     }
     return groupBuyCode;
+  }
+
+  private resolveTierSnapshotCount(raw: unknown) {
+    if (!Array.isArray(raw)) return 0;
+    const sequences = new Set<number>();
+    for (const item of raw) {
+      const sequence = Number((item as any)?.sequence);
+      if (Number.isInteger(sequence) && sequence > 0) {
+        sequences.add(sequence);
+      }
+    }
+    return sequences.size;
   }
 
   private getMonthStart(now = new Date()) {

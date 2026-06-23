@@ -2490,39 +2490,180 @@ export class CheckoutService {
       return;
     }
 
-    const existingReferralCount = await tx.groupBuyReferral.count({
-      where: {
-        instanceId: bizMeta.referredByInstanceId,
-        status: { in: ['CANDIDATE', 'VALID'] },
+    const referrerInstance = await tx.groupBuyInstance.findUnique({
+      where: { id: bizMeta.referredByInstanceId },
+      select: {
+        id: true,
+        status: true,
+        tierSnapshot: true,
       },
     });
-    if (existingReferralCount >= bizMeta.tierSnapshot.length) {
+    if (!referrerInstance || referrerInstance.status !== 'SHARING') {
+      await this.createInvalidGroupBuyReferralAfterPayment(
+        tx,
+        session,
+        orderId,
+        ownInstance.id,
+        'REFERRER_NOT_SHARING_AFTER_PAYMENT',
+      );
       this.logger.warn(
-        `团购推荐码付款后名额已满，跳过推荐记录但保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+        `团购推荐码付款后推荐实例不可用，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
       );
       return;
     }
+
+    const referrerTierCount = this.resolveGroupBuyTierSnapshotCount(referrerInstance.tierSnapshot);
+    if (referrerTierCount <= 0) {
+      await this.createInvalidGroupBuyReferralAfterPayment(
+        tx,
+        session,
+        orderId,
+        ownInstance.id,
+        'REFERRER_TIER_SNAPSHOT_INVALID_AFTER_PAYMENT',
+      );
+      this.logger.warn(
+        `团购推荐码付款后推荐实例档位快照异常，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+      );
+      return;
+    }
+
+    for (let attempt = 0; attempt < referrerTierCount; attempt += 1) {
+      const candidateSequence = await this.resolveNextGroupBuyCandidateSequence(
+        tx,
+        bizMeta.referredByInstanceId,
+        referrerTierCount,
+      );
+      if (!candidateSequence) {
+        await this.createInvalidGroupBuyReferralAfterPayment(
+          tx,
+          session,
+          orderId,
+          ownInstance.id,
+          attempt === 0
+            ? 'SLOT_FULL_AFTER_PAYMENT'
+            : 'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+        );
+        this.logger.warn(
+          `团购推荐码付款后名额已满，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+        );
+        return;
+      }
+
+      try {
+        await tx.groupBuyReferral.create({
+          data: {
+            instanceId: bizMeta.referredByInstanceId,
+            codeId: bizMeta.groupBuyCodeId,
+            status: 'CANDIDATE',
+            referredUserId: session.userId,
+            referredOrderId: orderId,
+            referredInstanceId: ownInstance.id,
+            candidateSequence,
+          },
+        });
+        await tx.groupBuyInstance.update({
+          where: { id: bizMeta.referredByInstanceId },
+          data: { candidateCount: { increment: 1 } },
+        });
+        return;
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    await this.createInvalidGroupBuyReferralAfterPayment(
+      tx,
+      session,
+      orderId,
+      ownInstance.id,
+      'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+    );
+    this.logger.warn(
+      `团购推荐记录唯一约束冲突，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+    );
+  }
+
+  private async resolveNextGroupBuyCandidateSequence(
+    tx: Prisma.TransactionClient,
+    instanceId: string,
+    tierCount: number,
+  ): Promise<number | null> {
+    const safeTierCount = Math.max(0, Math.floor(Number(tierCount) || 0));
+    if (safeTierCount <= 0) return null;
+
+    const occupiedRows = await tx.groupBuyReferral.findMany({
+      where: {
+        instanceId,
+        status: { in: ['CANDIDATE', 'VALID'] },
+        candidateSequence: { not: null },
+      },
+      select: { candidateSequence: true },
+      orderBy: { candidateSequence: 'asc' },
+    });
+    const occupied = new Set(
+      occupiedRows
+        .map((row) => Number(row.candidateSequence))
+        .filter((sequence) =>
+          Number.isInteger(sequence)
+          && sequence >= 1
+          && sequence <= safeTierCount,
+        ),
+    );
+
+    for (let sequence = 1; sequence <= safeTierCount; sequence += 1) {
+      if (!occupied.has(sequence)) return sequence;
+    }
+    return null;
+  }
+
+  private resolveGroupBuyTierSnapshotCount(raw: unknown) {
+    if (!Array.isArray(raw)) return 0;
+    const sequences = new Set<number>();
+    for (const item of raw) {
+      const sequence = Number((item as any)?.sequence);
+      if (Number.isInteger(sequence) && sequence > 0) {
+        sequences.add(sequence);
+      }
+    }
+    return sequences.size;
+  }
+
+  private async createInvalidGroupBuyReferralAfterPayment(
+    tx: Prisma.TransactionClient,
+    session: {
+      id: string;
+      userId: string;
+      bizMeta?: any;
+    },
+    orderId: string,
+    ownInstanceId: string,
+    reason: string,
+  ) {
+    const bizMeta = session.bizMeta;
+    if (!bizMeta?.groupBuyCodeId || !bizMeta.referredByInstanceId) return;
 
     try {
       await tx.groupBuyReferral.create({
         data: {
           instanceId: bizMeta.referredByInstanceId,
           codeId: bizMeta.groupBuyCodeId,
-          status: 'CANDIDATE',
+          status: 'INVALID',
           referredUserId: session.userId,
           referredOrderId: orderId,
-          referredInstanceId: ownInstance.id,
-          candidateSequence: existingReferralCount + 1,
+          referredInstanceId: ownInstanceId,
+          candidateSequence: null,
+          effectiveSequence: null,
+          invalidReason: reason,
+          invalidatedAt: new Date(),
         },
-      });
-      await tx.groupBuyInstance.update({
-        where: { id: bizMeta.referredByInstanceId },
-        data: { candidateCount: { increment: 1 } },
       });
     } catch (error: any) {
       if (error?.code === 'P2002') {
         this.logger.warn(
-          `团购推荐记录唯一约束冲突，跳过推荐记录但保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
+          `团购无效推荐记录已存在，跳过重复审计记录: sessionId=${session.id}; orderId=${orderId}; reason=${reason}`,
         );
         return;
       }

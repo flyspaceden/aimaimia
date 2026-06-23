@@ -167,7 +167,10 @@ export class GroupBuyService {
       return this.invalidLanding(normalizedCode, '团购推荐码已完成或不可用');
     }
 
-    const totalSlots = activity.tiers.length;
+    const totalSlots = this.resolveTierSnapshotCount(instance.tierSnapshot);
+    if (totalSlots <= 0) {
+      return this.invalidLanding(normalizedCode, '团购推荐码配置异常');
+    }
     const occupiedReferralCount = await this.prisma.groupBuyReferral.count({
       where: {
         instanceId: instance.id,
@@ -218,6 +221,18 @@ export class GroupBuyService {
       && !activity.deletedAt
       && (!activity.startAt || activity.startAt <= now)
       && (!activity.endAt || activity.endAt > now);
+  }
+
+  private resolveTierSnapshotCount(raw: unknown) {
+    if (!Array.isArray(raw)) return 0;
+    const sequences = new Set<number>();
+    for (const item of raw) {
+      const sequence = Number((item as any)?.sequence);
+      if (Number.isInteger(sequence) && sequence > 0) {
+        sequences.add(sequence);
+      }
+    }
+    return sequences.size;
   }
 
   private activityInclude() {
