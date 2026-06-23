@@ -5,6 +5,7 @@ import type {
   AdminGroupBuyOrder,
   AdminGroupBuyRebateLedger,
   CreateGroupBuyActivityInput,
+  GroupBuyCatalogProduct,
   GroupBuyActivityQueryParams,
   GroupBuyActivityStatus,
   GroupBuyInstanceQueryParams,
@@ -23,6 +24,11 @@ export const getGroupBuyActivities = (
 
 export const getGroupBuyActivity = (id: string): Promise<AdminGroupBuyActivity> =>
   client.get(`/admin/group-buy/activities/${id}`);
+
+export const getGroupBuyProductCatalog = (
+  params?: { keyword?: string },
+): Promise<{ items: GroupBuyCatalogProduct[] }> =>
+  client.get('/admin/group-buy/product-catalog', { params });
 
 export const createGroupBuyActivity = (
   data: CreateGroupBuyActivityInput,

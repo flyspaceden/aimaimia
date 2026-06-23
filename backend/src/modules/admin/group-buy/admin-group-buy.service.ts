@@ -18,6 +18,7 @@ import { GroupBuyService } from '../../group-buy/group-buy.service';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import {
   CreateGroupBuyActivityDto,
+  GroupBuyActivityItemInputDto,
   GroupBuyTierConfigDto,
   UpdateGroupBuyActivityDto,
   UpdateGroupBuySettingsDto,
@@ -25,7 +26,7 @@ import {
 
 type GroupBuyConfigClient = Pick<
   Prisma.TransactionClient,
-  'product' | 'productSKU' | 'groupBuyActivity' | 'groupBuyTier'
+  'product' | 'productSKU' | 'groupBuyActivity' | 'groupBuyActivityItem' | 'groupBuyTier'
 >;
 
 const GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY = 'GROUP_BUY_MAX_MONTHLY_LAUNCHES';
@@ -65,6 +66,34 @@ export class AdminGroupBuyService {
         weightGram: true,
       },
     },
+    items: {
+      orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+      include: {
+        product: {
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+            companyId: true,
+            media: {
+              select: { id: true, type: true, url: true, sortOrder: true },
+              orderBy: { sortOrder: 'asc' as const },
+            },
+          },
+        },
+        sku: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            price: true,
+            stock: true,
+            weightGram: true,
+          },
+        },
+      },
+    },
     tiers: {
       orderBy: { sequence: 'asc' as const },
     },
@@ -91,6 +120,7 @@ export class AdminGroupBuyService {
         { title: { contains: options.keyword, mode: 'insensitive' } },
         { id: options.keyword },
         { product: { title: { contains: options.keyword, mode: 'insensitive' } } },
+        { items: { some: { product: { title: { contains: options.keyword, mode: 'insensitive' } } } } },
       ];
     }
     if (options.status) {
@@ -125,15 +155,17 @@ export class AdminGroupBuyService {
   async create(dto: CreateGroupBuyActivityDto) {
     return this.prisma.$transaction(async (tx) => {
       const tiers = this.normalizeTiers(dto.tiers);
-      await this.assertPlatformProductSku(tx, dto.productId, dto.skuId);
+      const activityItems = this.normalizeActivityItems(this.getRawActivityItems(dto));
+      await this.assertPlatformActivityItems(tx, activityItems);
+      const primaryItem = activityItems[0];
       this.assertActivityWindow(dto.startAt, dto.endAt);
 
-      return tx.groupBuyActivity.create({
+      const activity = await tx.groupBuyActivity.create({
         data: {
           title: dto.title,
           description: this.normalizeDescription(dto.description),
-          productId: dto.productId,
-          skuId: dto.skuId,
+          productId: primaryItem.productId,
+          skuId: primaryItem.skuId,
           price: dto.price,
           freeShipping: dto.freeShipping ?? false,
           status: dto.status ?? GroupBuyActivityStatus.DRAFT,
@@ -144,8 +176,19 @@ export class AdminGroupBuyService {
             create: tiers,
           },
         },
+      });
+      await tx.groupBuyActivityItem.createMany({
+        data: activityItems.map((item) => ({
+          ...item,
+          activityId: activity.id,
+        })),
+      });
+
+      const persisted = await tx.groupBuyActivity.findUnique({
+        where: { id: activity.id },
         include: this.activityInclude,
       });
+      return persisted ?? activity;
     }, this.serializableTransactionOptions);
   }
 
@@ -153,16 +196,20 @@ export class AdminGroupBuyService {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.groupBuyActivity.findUnique({
         where: { id },
-        include: { tiers: true },
+        include: { tiers: true, items: true },
       });
       if (!existing || existing.deletedAt) {
         throw new NotFoundException('团购活动不存在');
       }
 
-      const productId = dto.productId ?? existing.productId;
-      const skuId = dto.skuId ?? existing.skuId;
-      if (dto.productId || dto.skuId) {
-        await this.assertPlatformProductSku(tx, productId, skuId);
+      const shouldUpdateItems = dto.items !== undefined
+        || dto.productId !== undefined
+        || dto.skuId !== undefined;
+      const activityItems = shouldUpdateItems
+        ? this.normalizeActivityItems(this.getRawActivityItems(dto, existing))
+        : null;
+      if (activityItems) {
+        await this.assertPlatformActivityItems(tx, activityItems);
       }
       this.assertActivityWindow(
         dto.startAt === undefined ? existing.startAt : dto.startAt,
@@ -177,6 +224,16 @@ export class AdminGroupBuyService {
         });
       }
 
+      if (activityItems) {
+        await tx.groupBuyActivityItem.deleteMany({ where: { activityId: id } });
+        await tx.groupBuyActivityItem.createMany({
+          data: activityItems.map((item) => ({
+            ...item,
+            activityId: id,
+          })),
+        });
+      }
+
       return tx.groupBuyActivity.update({
         where: { id },
         data: {
@@ -184,8 +241,8 @@ export class AdminGroupBuyService {
           description: dto.description === undefined
             ? undefined
             : this.normalizeDescription(dto.description),
-          productId: dto.productId,
-          skuId: dto.skuId,
+          productId: activityItems?.[0]?.productId,
+          skuId: activityItems?.[0]?.skuId,
           price: dto.price,
           freeShipping: dto.freeShipping,
           status: dto.status,
@@ -200,6 +257,82 @@ export class AdminGroupBuyService {
 
   async updateStatus(id: string, status: GroupBuyActivityStatus) {
     return this.update(id, { status });
+  }
+
+  async getProductCatalog(keyword?: string) {
+    const where: Prisma.ProductWhereInput = {
+      companyId: PLATFORM_COMPANY_ID,
+      status: ProductStatus.ACTIVE,
+      skus: { some: { status: SkuStatus.ACTIVE } },
+    };
+    const normalizedKeyword = keyword?.trim();
+    if (normalizedKeyword) {
+      where.OR = [
+        { id: normalizedKeyword },
+        { title: { contains: normalizedKeyword, mode: 'insensitive' } },
+        { skus: { some: { title: { contains: normalizedKeyword, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const items = await this.prisma.product.findMany({
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 200,
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        basePrice: true,
+        unit: true,
+        media: {
+          select: { id: true, url: true, sortOrder: true },
+          orderBy: { sortOrder: 'asc' },
+          take: 4,
+        },
+        skus: {
+          where: { status: SkuStatus.ACTIVE },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            price: true,
+            stock: true,
+            weightGram: true,
+            status: true,
+          },
+        },
+        bundleItems: {
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            id: true,
+            quantity: true,
+            sortOrder: true,
+            sku: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                stock: true,
+                weightGram: true,
+                product: {
+                  select: {
+                    id: true,
+                    title: true,
+                    media: {
+                      select: { url: true, sortOrder: true },
+                      orderBy: { sortOrder: 'asc' },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return { items };
   }
 
   async softDelete(id: string) {
@@ -454,6 +587,52 @@ export class AdminGroupBuyService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private getRawActivityItems(
+    dto: CreateGroupBuyActivityDto | UpdateGroupBuyActivityDto,
+    existing?: { productId: string; skuId: string } | null,
+  ): GroupBuyActivityItemInputDto[] {
+    if (Array.isArray(dto.items)) {
+      return dto.items;
+    }
+    const productId = dto.productId ?? existing?.productId;
+    const skuId = dto.skuId ?? existing?.skuId;
+    if (!productId || !skuId) {
+      return [];
+    }
+    return [{ productId, skuId, quantity: 1, sortOrder: 0 }];
+  }
+
+  private normalizeActivityItems(items: GroupBuyActivityItemInputDto[]) {
+    if (items.length === 0) {
+      throw new BadRequestException('请至少添加一个团购商品');
+    }
+    const seenSkuIds = new Set<string>();
+    return items.map((item, index) => {
+      const productId = item.productId?.trim();
+      const skuId = item.skuId?.trim();
+      const quantity = Math.floor(Number(item.quantity));
+      const sortOrder = item.sortOrder === undefined
+        ? index
+        : Math.floor(Number(item.sortOrder));
+      if (!productId || !skuId) {
+        throw new BadRequestException('团购商品和规格不能为空');
+      }
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        throw new BadRequestException('团购商品数量必须大于 0');
+      }
+      if (seenSkuIds.has(skuId)) {
+        throw new BadRequestException('团购商品规格不能重复');
+      }
+      seenSkuIds.add(skuId);
+      return {
+        productId,
+        skuId,
+        quantity,
+        sortOrder: Number.isInteger(sortOrder) && sortOrder >= 0 ? sortOrder : index,
+      };
+    }).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
   private unwrapRuleConfigNumber(raw: unknown) {
     const value = raw
       && typeof raw === 'object'
@@ -570,37 +749,41 @@ export class AdminGroupBuyService {
     },
   };
 
-  private async assertPlatformProductSku(
+  private async assertPlatformActivityItems(
     client: GroupBuyConfigClient,
-    productId: string,
-    skuId: string,
+    items: Array<{ productId: string; skuId: string }>,
   ) {
-    const product = await client.product.findUnique({
-      where: { id: productId },
-      select: { id: true, companyId: true, status: true },
-    });
-    if (!product) {
-      throw new NotFoundException('商品不存在');
-    }
-    if (product.companyId !== PLATFORM_COMPANY_ID) {
-      throw new BadRequestException('团购活动只能选择平台商品');
-    }
-    if (product.status !== ProductStatus.ACTIVE) {
-      throw new BadRequestException('团购活动只能选择已上架的平台商品');
-    }
+    for (const item of items) {
+      const product = await client.product.findUnique({
+        where: { id: item.productId },
+        select: { id: true, companyId: true, status: true },
+      });
+      if (!product) {
+        throw new NotFoundException('商品不存在');
+      }
+      if (product.companyId !== PLATFORM_COMPANY_ID) {
+        throw new BadRequestException('团购活动只能选择平台商品');
+      }
+      if (product.status !== ProductStatus.ACTIVE) {
+        throw new BadRequestException('团购活动只能选择已上架的平台商品');
+      }
 
-    const sku = await client.productSKU.findUnique({
-      where: { id: skuId },
-      select: { id: true, productId: true, status: true },
-    });
-    if (!sku) {
-      throw new NotFoundException('SKU 不存在');
-    }
-    if (sku.productId !== productId) {
-      throw new BadRequestException('SKU 不属于所选商品');
-    }
-    if (sku.status !== SkuStatus.ACTIVE) {
-      throw new BadRequestException('团购活动只能选择已启用 SKU');
+      const sku = await client.productSKU.findUnique({
+        where: { id: item.skuId },
+        select: { id: true, productId: true, status: true, weightGram: true },
+      });
+      if (!sku) {
+        throw new NotFoundException('SKU 不存在');
+      }
+      if (sku.productId !== item.productId) {
+        throw new BadRequestException('SKU 不属于所选商品');
+      }
+      if (sku.status !== SkuStatus.ACTIVE) {
+        throw new BadRequestException('团购活动只能选择已启用 SKU');
+      }
+      if (!Number.isFinite(Number(sku.weightGram)) || Number(sku.weightGram) <= 0) {
+        throw new BadRequestException('团购活动商品必须配置有效重量');
+      }
     }
   }
 

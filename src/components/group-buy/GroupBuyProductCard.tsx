@@ -23,7 +23,9 @@ export const GroupBuyProductCard = ({
   featured = false,
 }: GroupBuyProductCardProps) => {
   const { colors, radius, shadow, spacing, typography } = useTheme();
-  const stockLabel = activity.sku.stock > 0 ? `库存 ${activity.sku.stock}` : '暂时无货';
+  const availableStock = activity.availableStock ?? activity.sku.stock;
+  const stockLabel = availableStock > 0 ? `可购 ${availableStock} 份` : '暂时无货';
+  const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
 
   return (
     <Pressable
@@ -90,7 +92,7 @@ export const GroupBuyProductCard = ({
           {...fitTextProps}
           style={[typography.bodySm, { color: colors.text.secondary, marginTop: 4 }]}
         >
-          {activity.product.title} · {activity.sku.title}
+          {itemSummary}
         </Text>
 
         <View style={[styles.infoRow, { marginTop: spacing.md }]}>
@@ -121,18 +123,18 @@ export const GroupBuyProductCard = ({
               event.stopPropagation();
               onPurchase?.();
             }}
-            disabled={activity.sku.stock <= 0}
+            disabled={availableStock <= 0}
             style={[
               styles.buyButton,
               {
                 borderRadius: radius.pill,
-                backgroundColor: activity.sku.stock > 0 ? GROUP_BUY_COLORS.pine : colors.bgSecondary,
+                backgroundColor: availableStock > 0 ? GROUP_BUY_COLORS.pine : colors.bgSecondary,
               },
             ]}
           >
             <Text
               {...compactActionTextProps}
-              style={[typography.bodyStrong, { color: activity.sku.stock > 0 ? '#FFFFFF' : colors.muted }]}
+              style={[typography.bodyStrong, { color: availableStock > 0 ? '#FFFFFF' : colors.muted }]}
             >
               购买
             </Text>

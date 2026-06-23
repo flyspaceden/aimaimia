@@ -270,6 +270,95 @@ describe('GroupBuyCheckoutService', () => {
       shippingFee: 12.34,
     }));
   });
+
+  it('creates multi-item snapshots whose line totals equal the configured group-buy price', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivity.findUnique.mockResolvedValueOnce({
+      ...buildActivity(),
+      price: 999,
+      freeShipping: false,
+      items: [
+        {
+          productId: 'product_1',
+          skuId: 'sku_1',
+          quantity: 1,
+          sortOrder: 0,
+          product: {
+            id: 'product_1',
+            title: '大龙虾',
+            companyId: PLATFORM_COMPANY_ID,
+            status: 'ACTIVE',
+            media: [{ url: 'https://example.com/lobster.jpg' }],
+          },
+          sku: {
+            id: 'sku_1',
+            title: '一只装',
+            status: 'ACTIVE',
+            price: 600,
+            stock: 8,
+            weightGram: 1500,
+          },
+        },
+        {
+          productId: 'product_2',
+          skuId: 'sku_2',
+          quantity: 2,
+          sortOrder: 1,
+          product: {
+            id: 'product_2',
+            title: '鲍鱼',
+            companyId: PLATFORM_COMPANY_ID,
+            status: 'ACTIVE',
+            media: [{ url: 'https://example.com/abalone.jpg' }],
+          },
+          sku: {
+            id: 'sku_2',
+            title: '六只装',
+            status: 'ACTIVE',
+            price: 200,
+            stock: 6,
+            weightGram: 500,
+          },
+        },
+      ],
+    });
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 20 }),
+    };
+    service.setShippingRuleService(shippingRuleService as any);
+
+    await service.createCheckout('user_1', {
+      ...dto,
+      expectedTotal: 1019,
+    } as any);
+
+    expect(shippingRuleService.calculateShippingDetail).toHaveBeenCalledWith(
+      999,
+      '110101',
+      2500,
+      tx,
+    );
+    const createdData = tx.checkoutSession.create.mock.calls[0][0].data;
+    expect(createdData.itemsSnapshot).toEqual([
+      expect.objectContaining({
+        skuId: 'sku_1',
+        quantity: 1,
+        unitPrice: 599.4,
+      }),
+      expect.objectContaining({
+        skuId: 'sku_2',
+        quantity: 2,
+        unitPrice: 199.8,
+      }),
+    ]);
+    const snapshotTotal = createdData.itemsSnapshot.reduce(
+      (sum: number, item: any) => sum + item.unitPrice * item.quantity,
+      0,
+    );
+    expect(Number(snapshotTotal.toFixed(2))).toBe(999);
+    expect(createdData.goodsAmount).toBe(999);
+    expect(createdData.expectedTotal).toBe(1019);
+  });
 });
 
 describe('CheckoutService group-buy payment success integration', () => {

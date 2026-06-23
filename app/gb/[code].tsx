@@ -108,6 +108,9 @@ export default function GroupBuyLandingScreen() {
     );
   }
 
+  const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
+  const activityItems = activity.items && activity.items.length > 0 ? activity.items : [];
+
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
       <AppHeader title="团购推荐" />
@@ -159,8 +162,21 @@ export default function GroupBuyLandingScreen() {
               {activity.title}
             </Text>
             <Text {...fitTextProps} style={[typography.bodySm, { color: colors.text.secondary, marginTop: 4 }]}>
-              {activity.product.title} · {activity.sku.title}
+              {itemSummary}
             </Text>
+            {activityItems.length > 1 ? (
+              <View style={styles.itemList}>
+                {activityItems.map((item) => (
+                  <Text
+                    key={`${item.productId}-${item.skuId}`}
+                    numberOfLines={1}
+                    style={[typography.caption, { color: colors.text.secondary }]}
+                  >
+                    {item.productTitle} x{item.quantity} · {item.skuTitle}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
             <View style={styles.productMeta}>
               <Text {...priceTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.coral, fontWeight: '800' }]}>
                 {formatPrice(activity.price)}
@@ -261,6 +277,10 @@ const styles = StyleSheet.create({
   },
   productBody: {
     padding: 16,
+  },
+  itemList: {
+    marginTop: 8,
+    gap: 3,
   },
   productMeta: {
     marginTop: 12,

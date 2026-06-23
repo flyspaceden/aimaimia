@@ -44,6 +44,9 @@ describe('RewardProductService transactional writes', () => {
       groupBuyActivity: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      groupBuyActivityItem: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
 
     const prisma = {
@@ -66,6 +69,9 @@ describe('RewardProductService transactional writes', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       groupBuyActivity: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      groupBuyActivityItem: {
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
@@ -249,10 +255,41 @@ describe('RewardProductService transactional writes', () => {
     }));
   });
 
+  it('shows group-buy item references in the reward product summary', async () => {
+    const { prisma, service } = buildPrisma();
+    prisma.product.findUnique.mockResolvedValueOnce({
+      id: 'product_2',
+      companyId: PLATFORM_COMPANY_ID,
+      skus: [{ id: 'sku_2' }],
+    });
+    prisma.groupBuyActivityItem.findMany.mockResolvedValueOnce([
+      { activityId: 'activity_1', productId: 'product_2', skuId: 'sku_2' },
+    ]);
+
+    const result = await service.findOne('product_2');
+
+    expect(result.referenceSummary).toEqual(expect.objectContaining({
+      groupBuyActivityCount: 1,
+      totalReferences: 1,
+    }));
+  });
+
   it('rejects product downstatus when referenced by an active group-buy activity', async () => {
     const { tx, service } = buildPrisma();
     tx.groupBuyActivity.findMany.mockResolvedValueOnce([
       { id: 'activity_1', title: '大龙虾团购', productId: 'product_1', skuId: 'sku_1' },
+    ]);
+
+    await expect(service.update('product_1', { status: 'INACTIVE' } as any)).rejects.toThrow(
+      '团购活动',
+    );
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects product downstatus when referenced by a group-buy item', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivityItem.findMany.mockResolvedValueOnce([
+      { activity: { id: 'activity_1', title: '大龙虾组合团购' } },
     ]);
 
     await expect(service.update('product_1', { status: 'INACTIVE' } as any)).rejects.toThrow(

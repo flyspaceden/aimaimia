@@ -8,6 +8,7 @@ import {
   DatePicker,
   Drawer,
   Form,
+  type FormInstance,
   Input,
   InputNumber,
   Popconfirm,
@@ -22,16 +23,18 @@ import {
   createGroupBuyActivity,
   deleteGroupBuyActivity,
   getGroupBuyActivities,
+  getGroupBuyProductCatalog,
   updateGroupBuyActivity,
   updateGroupBuyActivityStatus,
 } from '@/api/group-buy';
-import { getRewardProducts } from '@/api/reward-products';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import type {
   AdminGroupBuyActivity,
   CreateGroupBuyActivityInput,
+  GroupBuyActivityItemInput,
   GroupBuyActivityStatus,
+  GroupBuyCatalogProduct,
 } from '@/types';
 import { StatusTag, activityStatusMap, money } from './common';
 import { toTierFormValues, toTierPayloadValues, type TierPercentValue } from './tierPercent';
@@ -42,28 +45,164 @@ const defaultTiers: TierPercentValue[] = [
   { sequence: 3, percent: 70, label: '第三位好友' },
 ];
 
-type ActivityFormValues = Omit<CreateGroupBuyActivityInput, 'startAt' | 'endAt' | 'tiers'> & {
+type ActivityItemFormValue = {
+  productId?: string;
+  skuId?: string;
+  quantity?: number;
+  sortOrder?: number;
+};
+
+type ActivityFormValues = Omit<
+  CreateGroupBuyActivityInput,
+  'startAt' | 'endAt' | 'tiers' | 'items' | 'productId' | 'skuId'
+> & {
+  items?: ActivityItemFormValue[];
   tiers?: TierPercentValue[];
   timeRange?: [dayjs.Dayjs, dayjs.Dayjs];
 };
+
+function buildItemSummary(record: AdminGroupBuyActivity) {
+  const items = record.items && record.items.length > 0
+    ? record.items
+    : [{
+        productId: record.productId,
+        skuId: record.skuId,
+        quantity: 1,
+        product: record.product,
+        sku: record.sku,
+      }];
+  return items
+    .map((item) => `${item.product?.title || item.productId} x${item.quantity}`)
+    .join('、');
+}
+
+function normalizeActivityItems(values: ActivityItemFormValue[] | undefined): GroupBuyActivityItemInput[] {
+  return (values || []).map((item, index) => ({
+    productId: String(item.productId || ''),
+    skuId: String(item.skuId || ''),
+    quantity: Number(item.quantity || 1),
+    sortOrder: index,
+  }));
+}
+
+function GroupBuyItemsEditor({
+  form,
+  products,
+}: {
+  form: FormInstance<ActivityFormValues>;
+  products: GroupBuyCatalogProduct[];
+}) {
+  const productOptions = products.map((product) => ({
+    label: product.title,
+    value: product.id,
+  }));
+
+  return (
+    <Form.List
+      name="items"
+      rules={[
+        {
+          validator: async (_, items?: ActivityItemFormValue[]) => {
+            if (!items || items.length === 0) {
+              throw new Error('请至少添加一个团购商品');
+            }
+          },
+        },
+      ]}
+    >
+      {(fields, { add, remove }, { errors }) => (
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Space>
+            <Typography.Text strong>团购商品组合</Typography.Text>
+            <Button
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => add({ quantity: 1, sortOrder: fields.length })}
+            >
+              添加商品
+            </Button>
+          </Space>
+          {fields.map((field, index) => (
+            <Space key={field.key} align="start" style={{ display: 'flex', width: '100%' }}>
+              <Typography.Text type="secondary" style={{ width: 28, paddingTop: 6 }}>
+                {index + 1}
+              </Typography.Text>
+              <Form.Item
+                {...field}
+                name={[field.name, 'productId']}
+                rules={[{ required: true, message: '请选择平台商品' }]}
+                style={{ flex: 1, minWidth: 260, marginBottom: 0 }}
+              >
+                <Select
+                  showSearch
+                  placeholder="选择平台商品"
+                  optionFilterProp="label"
+                  options={productOptions}
+                  onChange={() => form.setFieldValue(['items', field.name, 'skuId'], undefined)}
+                />
+              </Form.Item>
+              <Form.Item noStyle shouldUpdate>
+                {({ getFieldValue }) => {
+                  const currentProductId = getFieldValue(['items', field.name, 'productId']);
+                  const selectedProduct = products.find((product) => product.id === currentProductId);
+                  return (
+                    <Form.Item
+                      {...field}
+                      name={[field.name, 'skuId']}
+                      rules={[{ required: true, message: '请选择 SKU' }]}
+                      style={{ flex: 1, minWidth: 220, marginBottom: 0 }}
+                    >
+                      <Select
+                        disabled={!selectedProduct}
+                        placeholder="选择规格"
+                        options={(selectedProduct?.skus || []).map((sku) => ({
+                          label: `${sku.title} / 库存 ${sku.stock} / ${sku.weightGram}g`,
+                          value: sku.id,
+                        }))}
+                      />
+                    </Form.Item>
+                  );
+                }}
+              </Form.Item>
+              <Form.Item
+                {...field}
+                name={[field.name, 'quantity']}
+                rules={[{ required: true, message: '数量必填' }]}
+                style={{ width: 110, marginBottom: 0 }}
+              >
+                <InputNumber min={1} precision={0} addonBefore="x" style={{ width: '100%' }} />
+              </Form.Item>
+              {fields.length > 1 ? (
+                <Button danger onClick={() => remove(field.name)}>删除</Button>
+              ) : null}
+            </Space>
+          ))}
+          <Form.ErrorList errors={errors} />
+          <Typography.Text type="secondary">
+            团购价按上方设置为准，不自动等于组合商品原价合计；返还也按团购价计算。
+          </Typography.Text>
+        </Space>
+      )}
+    </Form.List>
+  );
+}
 
 export default function GroupBuyActivitiesPage() {
   const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [form] = Form.useForm<ActivityFormValues>();
-  const productId = Form.useWatch('productId', form);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<AdminGroupBuyActivity | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const { data: rewardProducts } = useQuery({
-    queryKey: ['admin', 'reward-products', 'group-buy-selector'],
-    queryFn: () => getRewardProducts({ page: 1, pageSize: 100, status: 'ACTIVE' }),
+  const { data: productCatalog } = useQuery({
+    queryKey: ['admin', 'group-buy', 'product-catalog'],
+    queryFn: () => getGroupBuyProductCatalog(),
   });
 
-  const selectedProduct = useMemo(
-    () => rewardProducts?.items.find((item) => item.id === productId),
-    [productId, rewardProducts?.items],
+  const catalogProducts = useMemo(
+    () => productCatalog?.items || [],
+    [productCatalog?.items],
   );
 
   const openCreate = () => {
@@ -71,8 +210,7 @@ export default function GroupBuyActivitiesPage() {
     form.setFieldsValue({
       title: '',
       description: '',
-      productId: undefined,
-      skuId: undefined,
+      items: [{ quantity: 1, sortOrder: 0 }],
       price: 0,
       freeShipping: true,
       status: 'DRAFT',
@@ -88,8 +226,19 @@ export default function GroupBuyActivitiesPage() {
     form.setFieldsValue({
       title: record.title,
       description: record.description || '',
-      productId: record.productId,
-      skuId: record.skuId,
+      items: record.items && record.items.length > 0
+        ? record.items.map((item, index) => ({
+            productId: item.productId,
+            skuId: item.skuId,
+            quantity: item.quantity,
+            sortOrder: index,
+          }))
+        : [{
+            productId: record.productId,
+            skuId: record.skuId,
+            quantity: 1,
+            sortOrder: 0,
+          }],
       price: record.price,
       freeShipping: record.freeShipping,
       status: record.status,
@@ -108,19 +257,24 @@ export default function GroupBuyActivitiesPage() {
     form.resetFields();
   };
 
-  const buildPayload = (values: ActivityFormValues): CreateGroupBuyActivityInput => ({
-    title: values.title,
-    description: values.description?.trim() || null,
-    productId: values.productId,
-    skuId: values.skuId,
-    price: Number(values.price),
-    freeShipping: Boolean(values.freeShipping),
-    status: values.status,
-    displayOrder: Number(values.displayOrder ?? 0),
-    tiers: toTierPayloadValues(values.tiers || []),
-    startAt: values.timeRange?.[0]?.toISOString() ?? null,
-    endAt: values.timeRange?.[1]?.toISOString() ?? null,
-  });
+  const buildPayload = (values: ActivityFormValues): CreateGroupBuyActivityInput => {
+    const items = normalizeActivityItems(values.items);
+    const primaryItem = items[0];
+    return {
+      title: values.title,
+      description: values.description?.trim() || null,
+      productId: primaryItem?.productId,
+      skuId: primaryItem?.skuId,
+      items,
+      price: Number(values.price),
+      freeShipping: Boolean(values.freeShipping),
+      status: values.status,
+      displayOrder: Number(values.displayOrder ?? 0),
+      tiers: toTierPayloadValues(values.tiers || []),
+      startAt: values.timeRange?.[0]?.toISOString() ?? null,
+      endAt: values.timeRange?.[1]?.toISOString() ?? null,
+    };
+  };
 
   const handleSubmit = async () => {
     try {
@@ -175,7 +329,7 @@ export default function GroupBuyActivitiesPage() {
         <Space direction="vertical" size={0}>
           <Typography.Text strong>{record.title}</Typography.Text>
           <Typography.Text type="secondary">
-            {record.product?.title || record.productId} / {record.sku?.title || record.skuId}
+            {buildItemSummary(record)}
           </Typography.Text>
         </Space>
       ),
@@ -315,29 +469,7 @@ export default function GroupBuyActivitiesPage() {
               placeholder="填写展示在 App 团购商品详情页的介绍，例如商品规格、产地、口感、包装、配送说明等。"
             />
           </Form.Item>
-          <Space style={{ width: '100%' }} size={16} align="start">
-            <Form.Item name="productId" label="平台商品" style={{ flex: 1, minWidth: 300 }} rules={[{ required: true, message: '请选择平台商品' }]}>
-              <Select
-                showSearch
-                placeholder="选择后台奖励商品"
-                optionFilterProp="label"
-                options={(rewardProducts?.items || []).map((product) => ({
-                  label: product.title,
-                  value: product.id,
-                }))}
-                onChange={() => form.setFieldValue('skuId', undefined)}
-              />
-            </Form.Item>
-            <Form.Item name="skuId" label="SKU" style={{ flex: 1, minWidth: 220 }} rules={[{ required: true, message: '请选择 SKU' }]}>
-              <Select
-                placeholder="选择规格"
-                options={(selectedProduct?.skus || []).map((sku) => ({
-                  label: `${sku.title} / 库存 ${sku.stock}`,
-                  value: sku.id,
-                }))}
-              />
-            </Form.Item>
-          </Space>
+          <GroupBuyItemsEditor form={form} products={catalogProducts} />
           <Space style={{ width: '100%' }} size={16} align="start">
             <Form.Item name="price" label="团购价格" rules={[{ required: true, message: '请输入团购价格' }]} style={{ width: 180 }}>
               <InputNumber min={0.01} precision={2} prefix="¥" style={{ width: '100%' }} />

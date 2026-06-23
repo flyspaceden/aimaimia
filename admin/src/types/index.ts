@@ -501,6 +501,17 @@ export interface AdminGroupBuySkuSnapshot {
   weightGram: number | null;
 }
 
+export interface AdminGroupBuyActivityItem {
+  id?: string;
+  activityId?: string;
+  productId: string;
+  skuId: string;
+  quantity: number;
+  sortOrder: number;
+  product?: AdminGroupBuyProductSnapshot | null;
+  sku?: AdminGroupBuySkuSnapshot | null;
+}
+
 export interface AdminGroupBuyActivity {
   id: string;
   title: string;
@@ -518,6 +529,7 @@ export interface AdminGroupBuyActivity {
   updatedAt: string;
   product?: AdminGroupBuyProductSnapshot | null;
   sku?: AdminGroupBuySkuSnapshot | null;
+  items?: AdminGroupBuyActivityItem[];
   tiers: AdminGroupBuyTier[];
   _count?: {
     instances: number;
@@ -696,11 +708,19 @@ export interface GroupBuyTierInput {
   label?: string | null;
 }
 
+export interface GroupBuyActivityItemInput {
+  productId: string;
+  skuId: string;
+  quantity: number;
+  sortOrder?: number;
+}
+
 export interface CreateGroupBuyActivityInput {
   title: string;
   description?: string | null;
-  productId: string;
-  skuId: string;
+  productId?: string;
+  skuId?: string;
+  items?: GroupBuyActivityItemInput[];
   price: number;
   freeShipping?: boolean;
   status?: GroupBuyActivityStatus;
@@ -715,6 +735,7 @@ export interface UpdateGroupBuyActivityInput {
   description?: string | null;
   productId?: string;
   skuId?: string;
+  items?: GroupBuyActivityItemInput[];
   price?: number;
   freeShipping?: boolean;
   status?: GroupBuyActivityStatus;
@@ -722,6 +743,37 @@ export interface UpdateGroupBuyActivityInput {
   endAt?: string | Date | null;
   displayOrder?: number;
   tiers?: GroupBuyTierInput[];
+}
+
+export interface GroupBuyCatalogSku {
+  id: string;
+  title: string;
+  price: number;
+  stock: number;
+  weightGram: number;
+  status: string;
+}
+
+export interface GroupBuyCatalogProduct {
+  id: string;
+  title: string;
+  type: ProductType | string;
+  basePrice: number;
+  unit: string;
+  media?: Array<{ id?: string; url: string; sortOrder?: number }>;
+  skus: GroupBuyCatalogSku[];
+  bundleItems?: Array<{
+    id: string;
+    quantity: number;
+    sortOrder: number;
+    sku: GroupBuyCatalogSku & {
+      product?: {
+        id: string;
+        title: string;
+        media?: Array<{ url: string; sortOrder?: number }>;
+      };
+    };
+  }>;
 }
 
 // ========== 订单 ==========

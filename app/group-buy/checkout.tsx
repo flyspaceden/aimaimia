@@ -28,6 +28,21 @@ import type { GroupBuyActivity, PaymentMethod } from '../../src/types';
 
 const formatPrice = (value: number) => `¥${Number(value || 0).toFixed(2)}`;
 
+const getActivityItems = (activity: GroupBuyActivity) => (
+  activity.items && activity.items.length > 0
+    ? activity.items
+    : [{
+        productId: activity.product.id,
+        productTitle: activity.product.title,
+        imageUrl: activity.product.imageUrl,
+        skuId: activity.sku.id,
+        skuTitle: activity.sku.title,
+        stock: activity.sku.stock,
+        weightGram: activity.sku.weightGram,
+        quantity: 1,
+      }]
+);
+
 const createIdempotencyKey = () => `gb-app-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function GroupBuyCheckoutScreen() {
@@ -100,6 +115,10 @@ export default function GroupBuyCheckoutScreen() {
     if (occupiesSlot) {
       show({ message: '需要先结束当前团购，再购买新的团购商品', type: 'warning' });
       router.replace('/group-buy');
+      return;
+    }
+    if ((target.availableStock ?? target.sku.stock) <= 0) {
+      show({ message: '该团购商品暂无库存', type: 'info' });
       return;
     }
     if (!selectedAddress) {
@@ -286,6 +305,9 @@ export default function GroupBuyCheckoutScreen() {
     );
   }
 
+  const activityItems = getActivityItems(activity);
+  const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
+
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
       <AppHeader title="团购付款" subtitle="现金购买指定商品" />
@@ -306,8 +328,19 @@ export default function GroupBuyCheckoutScreen() {
               {activity.title}
             </Text>
             <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary, marginTop: 3 }]}>
-              {activity.product.title} · {activity.sku.title}
+              {itemSummary}
             </Text>
+            <View style={styles.itemList}>
+              {activityItems.map((item) => (
+                <Text
+                  key={`${item.productId}-${item.skuId}`}
+                  numberOfLines={1}
+                  style={[typography.caption, { color: colors.text.secondary }]}
+                >
+                  {item.productTitle} x{item.quantity} · {item.skuTitle}
+                </Text>
+              ))}
+            </View>
             <Text {...priceTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.coral, marginTop: 8, fontWeight: '800' }]}>
               {formatPrice(activity.price)}
             </Text>
@@ -507,6 +540,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
+  },
+  itemList: {
+    marginTop: 7,
+    gap: 2,
   },
   inviterBox: {
     borderWidth: 1,

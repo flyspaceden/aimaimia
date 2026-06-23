@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-22
+> **最后更新**: 2026-06-23
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -95,6 +95,11 @@
   - **来源**: 团购代码复审发现售后期满后二次评估缺失、非包邮团购静默 0 运费、候选/有效计数混淆、App 进度固定 3 档、档位合计仍限制 100%。
   - **实际做了**: 新增团购售后期满补偿扫描；扫码落地页按 `GroupBuyReferral` 明细判断名额；候选订单转有效后回算待确认数量；非包邮团购结算接入平台运费规则并锁定运费快照；App 进度按后台档位数动态显示；后台档位合计允许超过 100%。
   - **验证**: `backend npx jest src/modules/group-buy/group-buy.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/group-buy/group-buy-rebate.service.spec.ts src/modules/group-buy/group-buy-lifecycle.service.spec.ts src/modules/group-buy/group-buy-concurrency.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`、`npx jest src/utils/__tests__/groupBuyProgress.test.ts --runInBand` 通过。
+
+- [x] **团购活动支持多商品组合**（2026-06-23 新增并完成）
+  - **来源**: 用户要求团购活动可以像组合商品一样选择多个平台商品，返还金额仍按后台配置的团购活动价计算。
+  - **实际做了**: 新增 `GroupBuyActivityItem` 活动组合明细表并回填旧活动；管理后台团购活动新建/编辑支持多商品 SKU + 数量组合，列表展示组合摘要；买家活动接口返回 `items/itemSummary/availableStock/totalWeightGram`；团购 checkout 按组合明细生成多行 `itemsSnapshot`，运费按组合总重量计算，商品行金额分摊后合计等于团购价；奖励商品引用保护同步检查组合明细，避免被使用的非首件商品被下架/删除。
+  - **验证**: `backend npx jest src/modules/admin/group-buy/admin-group-buy.service.spec.ts src/modules/admin/reward-product/reward-product.service.spec.ts src/modules/group-buy/group-buy.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts --runInBand`、`backend npx prisma validate && npx prisma generate`、`admin npx tsc --noEmit`、`npx tsc --noEmit` 通过。
 
 - [x] **数字资产付款冻结与确认释放**（2026-06-21 新增并完成）
   - **来源**: 用户要求普通商品付款后立即在数字资产页看到消费资产记录，但处于冻结状态，并显示“确认收货后释放”；确认收货后再释放为正式消费资产。

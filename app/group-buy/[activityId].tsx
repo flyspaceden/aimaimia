@@ -38,6 +38,21 @@ const runResult = async <T,>(request: Promise<{ ok: true; data: T } | { ok: fals
 
 const formatPrice = (value: number) => `¥${Number(value || 0).toFixed(2)}`;
 
+const getActivityItems = (activity: GroupBuyActivity) => (
+  activity.items && activity.items.length > 0
+    ? activity.items
+    : [{
+        productId: activity.product.id,
+        productTitle: activity.product.title,
+        imageUrl: activity.product.imageUrl,
+        skuId: activity.sku.id,
+        skuTitle: activity.sku.title,
+        stock: activity.sku.stock,
+        weightGram: activity.sku.weightGram,
+        quantity: 1,
+      }]
+);
+
 export default function GroupBuyActivityDetailScreen() {
   const { activityId: rawActivityId, shareCode: rawShareCode } = useLocalSearchParams<{
     activityId: string;
@@ -109,7 +124,7 @@ export default function GroupBuyActivityDetailScreen() {
 
   const handleCheckoutPress = () => {
     if (!activity) return;
-    if (activity.sku.stock <= 0) {
+    if ((activity.availableStock ?? activity.sku.stock) <= 0) {
       show({ message: '该团购商品暂无库存', type: 'info' });
       return;
     }
@@ -178,6 +193,9 @@ export default function GroupBuyActivityDetailScreen() {
   }
 
   const activityDescription = activity.description?.trim();
+  const activityItems = getActivityItems(activity);
+  const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
+  const availableStock = activity.availableStock ?? activity.sku.stock;
 
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
@@ -214,7 +232,7 @@ export default function GroupBuyActivityDetailScreen() {
               {activity.title}
             </Text>
             <Text style={[typography.bodySm, { color: 'rgba(255,255,255,0.82)', marginTop: 4 }]}>
-              {activity.product.title} · {activity.sku.title}
+              {itemSummary}
             </Text>
           </View>
         </View>
@@ -246,8 +264,32 @@ export default function GroupBuyActivityDetailScreen() {
                 {activity.shippingSummary}
               </Text>
               <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 6 }]}>
-                库存 {activity.sku.stock} · 下单前请确认收货地址
+                可购 {availableStock} 份 · 下单前请确认收货地址
               </Text>
+            </View>
+          </View>
+
+          <View style={[styles.rulePanel, { borderRadius: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.ruleTitleRow}>
+              <MaterialCommunityIcons name="basket-outline" size={20} color={GROUP_BUY_COLORS.tide} />
+              <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: 7 }]}>
+                包含商品
+              </Text>
+            </View>
+            <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+              {activityItems.map((item) => (
+                <View key={`${item.productId}-${item.skuId}`} style={styles.itemRow}>
+                  <View style={[styles.itemDot, { backgroundColor: GROUP_BUY_COLORS.porcelain }]} />
+                  <View style={styles.itemCopy}>
+                    <Text {...fitTextProps} style={[typography.bodySm, { color: colors.text.primary }]}>
+                      {item.productTitle} x{item.quantity}
+                    </Text>
+                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                      {item.skuTitle} · 库存 {item.stock}
+                    </Text>
+                  </View>
+                </View>
+              ))}
             </View>
           </View>
 
@@ -314,17 +356,17 @@ export default function GroupBuyActivityDetailScreen() {
         </View>
         <Pressable
           onPress={handleCheckoutPress}
-          disabled={activity.sku.stock <= 0}
+          disabled={availableStock <= 0}
           style={[
             styles.cta,
             {
               borderRadius: radius.pill,
-              backgroundColor: activity.sku.stock > 0 ? GROUP_BUY_COLORS.pine : colors.bgSecondary,
+              backgroundColor: availableStock > 0 ? GROUP_BUY_COLORS.pine : colors.bgSecondary,
             },
           ]}
         >
-          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: activity.sku.stock > 0 ? '#FFFFFF' : colors.muted }]}>
-            {activity.sku.stock > 0 ? '去付款' : '暂无库存'}
+          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: availableStock > 0 ? '#FFFFFF' : colors.muted }]}>
+            {availableStock > 0 ? '去付款' : '暂无库存'}
           </Text>
         </Pressable>
       </View>
@@ -426,6 +468,21 @@ const styles = StyleSheet.create({
   detailCopy: {
     marginTop: 12,
     lineHeight: 22,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  itemDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 7,
+  },
+  itemCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   ruleTitleRow: {
     flexDirection: 'row',

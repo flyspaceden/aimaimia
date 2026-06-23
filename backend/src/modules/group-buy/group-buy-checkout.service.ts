@@ -29,6 +29,15 @@ const CHANNEL_MAP: Record<string, string> = {
 const GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY = 'GROUP_BUY_MAX_MONTHLY_LAUNCHES';
 const DEFAULT_MAX_MONTHLY_LAUNCHES = 4;
 
+type CheckoutGroupBuyActivityItem = {
+  productId: string;
+  product: any;
+  skuId: string;
+  sku: any;
+  quantity: number;
+  sortOrder: number;
+};
+
 @Injectable()
 export class GroupBuyCheckoutService {
   constructor(private readonly prisma: PrismaService) {}
@@ -77,12 +86,28 @@ export class GroupBuyCheckoutService {
             select: {
               id: true,
               title: true,
+              type: true,
               companyId: true,
               status: true,
               media: {
                 select: { url: true },
                 orderBy: { sortOrder: 'asc' },
                 take: 1,
+              },
+              bundleItems: {
+                orderBy: { sortOrder: 'asc' },
+                select: {
+                  quantity: true,
+                  sortOrder: true,
+                  sku: {
+                    select: {
+                      id: true,
+                      title: true,
+                      weightGram: true,
+                      product: { select: { id: true, title: true } },
+                    },
+                  },
+                },
               },
             },
           },
@@ -91,8 +116,53 @@ export class GroupBuyCheckoutService {
               id: true,
               title: true,
               status: true,
+              price: true,
               stock: true,
               weightGram: true,
+            },
+          },
+          items: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true,
+                  companyId: true,
+                  status: true,
+                  media: {
+                    select: { url: true },
+                    orderBy: { sortOrder: 'asc' },
+                    take: 1,
+                  },
+                  bundleItems: {
+                    orderBy: { sortOrder: 'asc' },
+                    select: {
+                      quantity: true,
+                      sortOrder: true,
+                      sku: {
+                        select: {
+                          id: true,
+                          title: true,
+                          weightGram: true,
+                          product: { select: { id: true, title: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              sku: {
+                select: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  price: true,
+                  stock: true,
+                  weightGram: true,
+                },
+              },
             },
           },
           tiers: {
@@ -103,7 +173,8 @@ export class GroupBuyCheckoutService {
       if (!activity || activity.deletedAt) {
         throw new NotFoundException('团购活动不存在');
       }
-      this.assertActivityCanCheckout(activity);
+      const activityItems = this.normalizeActivityItems(activity);
+      this.assertActivityCanCheckout(activity, activityItems);
 
       const occupying = await tx.groupBuyInstance.findFirst({
         where: {
@@ -153,7 +224,7 @@ export class GroupBuyCheckoutService {
         throw new BadRequestException('收货地址无效');
       }
 
-      const shippingFee = await this.calculateShippingFee(activity, address, tx);
+      const shippingFee = await this.calculateShippingFee(activity, address, tx, activityItems);
       const expectedTotal = Number((activity.price + shippingFee).toFixed(2));
       if (dto.expectedTotal !== undefined && Math.abs(dto.expectedTotal - expectedTotal) > 0.01) {
         throw new BadRequestException(
@@ -192,24 +263,7 @@ export class GroupBuyCheckoutService {
             shippingFeeSnapshot: shippingFee,
             tierSnapshot,
           },
-          itemsSnapshot: [
-            {
-              skuId: activity.skuId,
-              quantity: 1,
-              isPrize: false,
-              unitPrice: activity.price,
-              companyId: PLATFORM_COMPANY_ID,
-              productSnapshot: {
-                productId: activity.productId,
-                companyId: PLATFORM_COMPANY_ID,
-                title: activity.product.title,
-                skuTitle: activity.sku.title,
-                image: activity.product.media?.[0]?.url || '',
-                price: activity.price,
-                isPrize: false,
-              },
-            },
-          ],
+          itemsSnapshot: this.buildItemsSnapshot(activity, activityItems),
           addressSnapshot,
           rewardId: null,
           deductionGroupId: null,
@@ -244,7 +298,35 @@ export class GroupBuyCheckoutService {
     }
   }
 
-  private assertActivityCanCheckout(activity: any) {
+  private normalizeActivityItems(activity: any): CheckoutGroupBuyActivityItem[] {
+    const rawItems = Array.isArray(activity.items) && activity.items.length > 0
+      ? activity.items
+      : [{
+          productId: activity.productId,
+          skuId: activity.skuId,
+          quantity: 1,
+          sortOrder: 0,
+          product: activity.product,
+          sku: activity.sku,
+        }];
+
+    return rawItems
+      .map((item: any, index: number) => {
+        const product = item.product ?? activity.product;
+        const sku = item.sku ?? activity.sku;
+        return {
+          productId: item.productId ?? product?.id,
+          product,
+          skuId: item.skuId ?? sku?.id,
+          sku,
+          quantity: Math.max(1, Math.floor(Number(item.quantity ?? 1))),
+          sortOrder: item.sortOrder ?? index,
+        };
+      })
+      .sort((a: CheckoutGroupBuyActivityItem, b: CheckoutGroupBuyActivityItem) => a.sortOrder - b.sortOrder);
+  }
+
+  private assertActivityCanCheckout(activity: any, activityItems: CheckoutGroupBuyActivityItem[]) {
     const now = new Date();
     if (activity.status !== GroupBuyActivityStatus.ACTIVE) {
       throw new BadRequestException('团购活动未开始或已结束');
@@ -255,27 +337,49 @@ export class GroupBuyCheckoutService {
     if (activity.endAt && activity.endAt <= now) {
       throw new BadRequestException('团购活动已结束');
     }
-    if (activity.product.companyId !== PLATFORM_COMPANY_ID) {
+    if (activityItems.length === 0) {
       throw new BadRequestException('团购活动商品配置异常');
     }
-    if (activity.product.status !== ProductStatus.ACTIVE) {
-      throw new BadRequestException('团购活动商品已下架');
-    }
-    if (activity.sku.status !== SkuStatus.ACTIVE) {
-      throw new BadRequestException('团购活动商品规格已下架');
-    }
-    if (activity.sku.stock <= 0) {
-      throw new BadRequestException('团购活动商品库存不足');
+    for (const item of activityItems) {
+      if (!item.product || !item.sku || !item.productId || !item.skuId) {
+        throw new BadRequestException('团购活动商品配置异常');
+      }
+      if (item.product.companyId !== PLATFORM_COMPANY_ID) {
+        throw new BadRequestException('团购活动商品配置异常');
+      }
+      if (item.product.status !== ProductStatus.ACTIVE) {
+        throw new BadRequestException('团购活动商品已下架');
+      }
+      if (item.sku.status !== SkuStatus.ACTIVE) {
+        throw new BadRequestException('团购活动商品规格已下架');
+      }
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException('团购活动商品数量配置异常');
+      }
+      if (Number(item.sku.stock ?? 0) < item.quantity) {
+        throw new BadRequestException('团购活动商品库存不足');
+      }
     }
   }
 
-  private async calculateShippingFee(activity: any, address: any, tx: Prisma.TransactionClient) {
+  private async calculateShippingFee(
+    activity: any,
+    address: any,
+    tx: Prisma.TransactionClient,
+    activityItems: CheckoutGroupBuyActivityItem[],
+  ) {
     if (activity.freeShipping) return 0;
     if (!this.shippingRuleService?.calculateShippingDetail) {
       throw new BadRequestException('团购运费服务暂不可用，请稍后重试');
     }
 
-    const totalWeight = Math.max(0, Number(activity.sku.weightGram ?? DEFAULT_SKU_WEIGHT_GRAM));
+    const totalWeight = activityItems.reduce((sum, item) => {
+      const weightGram = Number(item.sku?.weightGram ?? DEFAULT_SKU_WEIGHT_GRAM);
+      const safeWeight = Number.isFinite(weightGram) && weightGram > 0
+        ? weightGram
+        : DEFAULT_SKU_WEIGHT_GRAM;
+      return sum + safeWeight * item.quantity;
+    }, 0);
     const detail = await this.shippingRuleService.calculateShippingDetail(
       Number(activity.price ?? 0),
       address.regionCode,
@@ -287,6 +391,76 @@ export class GroupBuyCheckoutService {
       throw new BadRequestException('团购运费计算失败，请稍后重试');
     }
     return Number(fee.toFixed(2));
+  }
+
+  private buildItemsSnapshot(
+    activity: any,
+    activityItems: CheckoutGroupBuyActivityItem[],
+  ) {
+    const lineAmounts = this.allocateActivityPrice(activity.price, activityItems);
+    return activityItems.map((item, index) => {
+      const product = item.product;
+      const sku = item.sku;
+      const unitPrice = Number((lineAmounts[index] / item.quantity).toFixed(4));
+      const productType = product.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE';
+      const bundleItems = productType === 'BUNDLE'
+        ? (product.bundleItems ?? []).map((bundleItem: any) => ({
+            skuId: bundleItem.sku.id,
+            productId: bundleItem.sku.product.id,
+            productTitle: bundleItem.sku.product.title,
+            skuTitle: bundleItem.sku.title,
+            quantityPerBundle: bundleItem.quantity,
+            totalQuantity: bundleItem.quantity * item.quantity,
+            weightGram: bundleItem.sku.weightGram,
+            sortOrder: bundleItem.sortOrder ?? 0,
+          }))
+        : undefined;
+
+      return {
+        skuId: item.skuId,
+        quantity: item.quantity,
+        isPrize: false,
+        unitPrice,
+        companyId: PLATFORM_COMPANY_ID,
+        productSnapshot: {
+          productId: item.productId,
+          companyId: PLATFORM_COMPANY_ID,
+          title: product.title,
+          skuTitle: sku.title,
+          image: product.media?.[0]?.url || '',
+          price: unitPrice,
+          isPrize: false,
+          productType,
+          ...(bundleItems && bundleItems.length > 0 ? { bundleItems } : {}),
+        },
+      };
+    });
+  }
+
+  private allocateActivityPrice(
+    activityPrice: number,
+    activityItems: CheckoutGroupBuyActivityItem[],
+  ) {
+    const totalCents = Math.round(Number(activityPrice) * 100);
+    const weights = activityItems.map((item) => {
+      const skuPrice = Number(item.sku?.price ?? 0);
+      const weight = skuPrice * item.quantity;
+      return Number.isFinite(weight) && weight > 0 ? weight : item.quantity;
+    });
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || activityItems.length;
+    let remainingCents = totalCents;
+
+    return activityItems.map((item, index) => {
+      const isLast = index === activityItems.length - 1;
+      const lineCents = isLast
+        ? remainingCents
+        : Math.max(0, Math.min(
+            remainingCents,
+            Math.round((totalCents * weights[index]) / totalWeight),
+          ));
+      remainingCents -= lineCents;
+      return Number((lineCents / 100).toFixed(2));
+    });
   }
 
   private async resolveShareCode(
