@@ -73,10 +73,12 @@ export default function GroupBuyActivityDetailScreen() {
   const current = currentState.current;
 
   const rules = useMemo(() => [
-    '仅购买本活动指定商品，确认收货且无退换货后生成专属推荐码。',
-    '仅统计直接推荐的全新用户购买同款商品，好友再推荐不计入您的名额。',
-    '返还货款按活动设定规则处理，运费、优惠券、赠品差价不计入返还。',
-    '无法保证一定推荐满指定人数，未达标不产生对应返还。',
+    '购买本商品并确认收货后，若没有退换货，会生成本次团购推荐码。',
+    '只有通过你的推荐码购买同一团购商品的其他用户，才会计入推荐人数。',
+    '团购无法使用红包，消费积分抵扣等优惠活动。',
+    '最多推荐3人，每次推荐都会获得相应奖励。',
+    '同一时间只能有1个团购推荐码。',
+    '可以随时终止团购，终止后未推荐的奖励即刻失效。',
   ], []);
 
   const endMutation = useMutation({
@@ -175,6 +177,8 @@ export default function GroupBuyActivityDetailScreen() {
     );
   }
 
+  const activityDescription = activity.description?.trim();
+
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
       <AppHeader title="团购详情" subtitle="指定商品活动" />
@@ -203,7 +207,7 @@ export default function GroupBuyActivityDetailScreen() {
             <View style={[styles.coverBadge, { backgroundColor: 'rgba(255,253,246,0.94)' }]}>
               <MaterialCommunityIcons name="shield-check-outline" size={14} color={GROUP_BUY_COLORS.tide} />
               <Text {...compactActionTextProps} style={[typography.caption, { color: GROUP_BUY_COLORS.pine, marginLeft: 5 }]}>
-                分享回馈活动
+                指定团购商品
               </Text>
             </View>
             <Text style={[typography.headingLg, styles.coverTitle, { color: '#FFFFFF' }]}>
@@ -247,6 +251,20 @@ export default function GroupBuyActivityDetailScreen() {
             </View>
           </View>
 
+          {activityDescription ? (
+            <View style={[styles.rulePanel, { borderRadius: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.ruleTitleRow}>
+                <MaterialCommunityIcons name="text-box-outline" size={20} color={GROUP_BUY_COLORS.tide} />
+                <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: 7 }]}>
+                  商品详情
+                </Text>
+              </View>
+              <Text style={[typography.bodySm, styles.detailCopy, { color: colors.text.secondary }]}>
+                {activityDescription}
+              </Text>
+            </View>
+          ) : null}
+
           {shareCode ? (
             <View style={[styles.inviterBox, { borderRadius: 8, backgroundColor: '#FFF7DF', borderColor: `${GROUP_BUY_COLORS.brass}55` }]}>
               <MaterialCommunityIcons name="account-check-outline" size={20} color={GROUP_BUY_COLORS.brass} />
@@ -279,12 +297,6 @@ export default function GroupBuyActivityDetailScreen() {
             </View>
           </View>
 
-          <View style={[styles.compliancePanel, { borderRadius: 8, backgroundColor: GROUP_BUY_COLORS.porcelain, borderColor: GROUP_BUY_COLORS.mist }]}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={18} color={GROUP_BUY_COLORS.inkSoft} />
-            <Text style={[typography.caption, styles.complianceCopy, { color: GROUP_BUY_COLORS.inkSoft }]}>
-              活动为品牌购物回馈，仅一级直接推荐；推广成功与否不保证，未满足条件不产生对应返还。
-            </Text>
-          </View>
         </View>
       </ScrollView>
 
@@ -410,6 +422,10 @@ const styles = StyleSheet.create({
   rulePanel: {
     borderWidth: 1,
     padding: 16,
+  },
+  detailCopy: {
+    marginTop: 12,
+    lineHeight: 22,
   },
   ruleTitleRow: {
     flexDirection: 'row',

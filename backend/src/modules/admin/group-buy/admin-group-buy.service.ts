@@ -131,6 +131,7 @@ export class AdminGroupBuyService {
       return tx.groupBuyActivity.create({
         data: {
           title: dto.title,
+          description: this.normalizeDescription(dto.description),
           productId: dto.productId,
           skuId: dto.skuId,
           price: dto.price,
@@ -180,6 +181,9 @@ export class AdminGroupBuyService {
         where: { id },
         data: {
           title: dto.title,
+          description: dto.description === undefined
+            ? undefined
+            : this.normalizeDescription(dto.description),
           productId: dto.productId,
           skuId: dto.skuId,
           price: dto.price,
@@ -440,6 +444,14 @@ export class AdminGroupBuyService {
       pageSize,
       skip: (page - 1) * pageSize,
     };
+  }
+
+  private normalizeDescription(value?: string | null) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private unwrapRuleConfigNumber(raw: unknown) {

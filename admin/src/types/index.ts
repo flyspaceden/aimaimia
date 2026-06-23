@@ -504,6 +504,7 @@ export interface AdminGroupBuySkuSnapshot {
 export interface AdminGroupBuyActivity {
   id: string;
   title: string;
+  description: string | null;
   productId: string;
   skuId: string;
   price: number;
@@ -697,6 +698,7 @@ export interface GroupBuyTierInput {
 
 export interface CreateGroupBuyActivityInput {
   title: string;
+  description?: string | null;
   productId: string;
   skuId: string;
   price: number;
@@ -710,6 +712,7 @@ export interface CreateGroupBuyActivityInput {
 
 export interface UpdateGroupBuyActivityInput {
   title?: string;
+  description?: string | null;
   productId?: string;
   skuId?: string;
   price?: number;

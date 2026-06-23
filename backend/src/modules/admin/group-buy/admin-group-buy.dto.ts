@@ -42,6 +42,11 @@ export class CreateGroupBuyActivityDto {
   @MaxLength(120, { message: '活动标题不能超过 120 个字符' })
   title: string;
 
+  @IsOptional()
+  @IsString({ message: '团购详情介绍必须为字符串' })
+  @MaxLength(2000, { message: '团购详情介绍不能超过 2000 个字符' })
+  description?: string | null;
+
   @IsString({ message: '商品 ID 必须为字符串' })
   @IsNotEmpty({ message: '商品 ID 不能为空' })
   productId: string;
@@ -92,6 +97,11 @@ export class UpdateGroupBuyActivityDto {
   @IsString({ message: '活动标题必须为字符串' })
   @MaxLength(120, { message: '活动标题不能超过 120 个字符' })
   title?: string;
+
+  @IsOptional()
+  @IsString({ message: '团购详情介绍必须为字符串' })
+  @MaxLength(2000, { message: '团购详情介绍不能超过 2000 个字符' })
+  description?: string | null;
 
   @IsOptional()
   @IsString({ message: '商品 ID 必须为字符串' })

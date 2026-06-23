@@ -59,7 +59,7 @@ export const GroupBuyProductCard = ({
           <View style={[styles.badge, { backgroundColor: 'rgba(255,253,246,0.92)' }]}>
             <MaterialCommunityIcons name="tag-outline" size={13} color={GROUP_BUY_COLORS.tide} />
             <Text {...compactActionTextProps} style={[typography.caption, styles.badgeText, { color: GROUP_BUY_COLORS.pine }]}>
-              分享回馈
+              团购商品
             </Text>
           </View>
           <View style={[styles.badge, { backgroundColor: activity.freeShipping ? GROUP_BUY_COLORS.tide : 'rgba(255,253,246,0.92)' }]}>
