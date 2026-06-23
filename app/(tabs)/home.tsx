@@ -504,7 +504,7 @@ export default function HomeScreen() {
                 精选团购
               </Text>
               <Text {...fitTextProps} style={[typography.caption, { color: GROUP_BUY_COLORS.inkSoft, marginTop: 2 }]}>
-                指定商品 · 分享回馈
+                指定商品 · 团购活动
               </Text>
             </View>
             <View style={[styles.groupBuyCta, { backgroundColor: GROUP_BUY_COLORS.pine }]}>

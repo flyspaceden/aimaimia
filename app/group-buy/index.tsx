@@ -160,7 +160,7 @@ export default function GroupBuyIndexScreen() {
   if (activitiesQuery.isLoading || (isLoggedIn && currentQuery.isLoading)) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="团购" subtitle="分享回馈活动" />
+        <AppHeader title="团购" />
         <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
           <Skeleton height={170} radius={8} />
           <Skeleton height={340} radius={8} />
@@ -173,7 +173,7 @@ export default function GroupBuyIndexScreen() {
   if (!activitiesQuery.data || !activitiesQuery.data.ok) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="团购" subtitle="分享回馈活动" />
+        <AppHeader title="团购" />
         <ErrorState
           title="团购加载失败"
           description={activitiesQuery.data?.ok === false ? activitiesQuery.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
@@ -234,7 +234,7 @@ export default function GroupBuyIndexScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
-      <AppHeader title="团购" subtitle="分享回馈活动" />
+      <AppHeader title="团购" />
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
@@ -255,26 +255,19 @@ export default function GroupBuyIndexScreen() {
         >
           <View style={styles.heroCopy}>
             <Text style={[typography.caption, { color: GROUP_BUY_COLORS.tide }]}>
-              爱买买 · 品牌购物回馈
+              爱买买 · 精选团购
             </Text>
             <Text style={[typography.headingLg, styles.heroTitle, { color: GROUP_BUY_COLORS.pine }]}>
               精选团购
             </Text>
             <Text style={[typography.bodySm, { color: GROUP_BUY_COLORS.inkSoft, marginTop: spacing.xs }]}>
-              活动绑定指定商品，仅统计本人直接推荐的新用户有效订单。
+              当前上架的指定团购商品，购买前可查看价格、运费和活动条件。
             </Text>
           </View>
           <View style={[styles.heroMark, { backgroundColor: `${GROUP_BUY_COLORS.tide}12` }]}>
             <MaterialCommunityIcons name="ticket-percent-outline" size={34} color={GROUP_BUY_COLORS.tide} />
           </View>
         </LinearGradient>
-
-        <View style={[styles.complianceBar, { borderColor: GROUP_BUY_COLORS.mist, backgroundColor: colors.surface }]}>
-          <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
-          <Text style={[typography.caption, styles.complianceText, { color: colors.text.secondary }]}>
-            仅一级直接推荐；无跨级奖励；好友订单退换货不计入有效名额。
-          </Text>
-        </View>
 
         {hasCurrent ? (
           <View style={[styles.segment, { backgroundColor: GROUP_BUY_COLORS.mist }]}>
@@ -380,20 +373,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 14,
-  },
-  complianceBar: {
-    minHeight: 46,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  complianceText: {
-    flex: 1,
-    minWidth: 0,
   },
   segment: {
     borderRadius: 8,

@@ -69,6 +69,7 @@ export default function GroupBuyActivitiesPage() {
     setEditing(null);
     form.setFieldsValue({
       title: '',
+      description: '',
       productId: undefined,
       skuId: undefined,
       price: 0,
@@ -86,6 +87,7 @@ export default function GroupBuyActivitiesPage() {
     setEditing(record);
     form.setFieldsValue({
       title: record.title,
+      description: record.description || '',
       productId: record.productId,
       skuId: record.skuId,
       price: record.price,
@@ -113,6 +115,7 @@ export default function GroupBuyActivitiesPage() {
 
   const buildPayload = (values: ActivityFormValues): CreateGroupBuyActivityInput => ({
     title: values.title,
+    description: values.description?.trim() || null,
     productId: values.productId,
     skuId: values.skuId,
     price: Number(values.price),
@@ -308,7 +311,19 @@ export default function GroupBuyActivitiesPage() {
       >
         <Form form={form} layout="vertical">
           <Form.Item name="title" label="活动标题" rules={[{ required: true, message: '请输入活动标题' }]}>
-            <Input maxLength={120} placeholder="例如：深海大龙虾分享回馈" />
+            <Input maxLength={120} placeholder="例如：深海大龙虾团购" />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label="团购详情介绍"
+            rules={[{ max: 2000, message: '团购详情介绍不能超过 2000 个字符' }]}
+          >
+            <Input.TextArea
+              rows={5}
+              maxLength={2000}
+              showCount
+              placeholder="填写展示在 App 团购商品详情页的介绍，例如商品规格、产地、口感、包装、配送说明等。"
+            />
           </Form.Item>
           <Space style={{ width: '100%' }} size={16} align="start">
             <Form.Item name="productId" label="平台商品" style={{ flex: 1, minWidth: 300 }} rules={[{ required: true, message: '请选择平台商品' }]}>

@@ -35,6 +35,7 @@ export interface GroupBuySkuSnapshot {
 export interface GroupBuyActivity {
   id: string;
   title: string;
+  description: string | null;
   price: number;
   freeShipping: boolean;
   shippingSummary: string;

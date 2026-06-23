@@ -1645,6 +1645,7 @@ model OrderStatusHistory {
 model GroupBuyActivity {
   id           String                 @id @default(cuid())
   title        String
+  description  String?
   productId    String
   product      Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
   skuId        String

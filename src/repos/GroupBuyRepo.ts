@@ -55,7 +55,8 @@ const createIdempotencyKey = () => {
 const mockActivities: GroupBuyActivity[] = [
   {
     id: 'gb-lobster-001',
-    title: '深海大龙虾分享回馈',
+    title: '深海大龙虾团购',
+    description: '鲜活大龙虾单只装，冷链配送到家。肉质紧实，适合清蒸、焗烤或家庭聚餐。',
     price: 1000,
     freeShipping: true,
     shippingSummary: '本活动商品包邮',
@@ -79,7 +80,8 @@ const mockActivities: GroupBuyActivity[] = [
   },
   {
     id: 'gb-melon-001',
-    title: '精品蜜瓜礼盒分享回馈',
+    title: '精品蜜瓜礼盒团购',
+    description: '精选当季蜜瓜双果礼盒，果香清甜，适合家庭自用或节日赠礼。',
     price: 268,
     freeShipping: false,
     shippingSummary: '按商品配置收取运费',

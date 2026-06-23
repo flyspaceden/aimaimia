@@ -110,7 +110,7 @@ export default function GroupBuyLandingScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
-      <AppHeader title="团购推荐" subtitle="分享回馈活动" />
+      <AppHeader title="团购推荐" />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: bottomPadding, gap: spacing.lg }}
@@ -128,7 +128,7 @@ export default function GroupBuyLandingScreen() {
             好友分享的团购商品
           </Text>
           <Text style={[typography.bodySm, styles.heroCopy, { color: GROUP_BUY_COLORS.inkSoft }]}>
-            你将购买同款商品，正常享受商品服务；本活动仅统计直接推荐的新用户有效订单。
+            你将购买同款商品，正常享受商品服务；付款页会标记本次推荐来源。
           </Text>
         </LinearGradient>
 
@@ -174,12 +174,6 @@ export default function GroupBuyLandingScreen() {
           </View>
         </View>
 
-        <View style={[styles.complianceBox, { borderRadius: 8, borderColor: GROUP_BUY_COLORS.mist, backgroundColor: GROUP_BUY_COLORS.porcelain }]}>
-          <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
-          <Text style={[typography.caption, styles.complianceText, { color: GROUP_BUY_COLORS.inkSoft }]}>
-            活动为品牌购物回馈，仅一级直接推荐；订单发生退换货不计入有效名额。
-          </Text>
-        </View>
       </ScrollView>
 
       <View
@@ -280,17 +274,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
-  },
-  complianceBox: {
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 13,
-    gap: 8,
-  },
-  complianceText: {
-    flex: 1,
-    minWidth: 0,
   },
   bottomBar: {
     position: 'absolute',

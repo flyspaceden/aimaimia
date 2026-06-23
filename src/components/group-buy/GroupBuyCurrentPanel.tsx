@@ -31,7 +31,7 @@ const statusCopy: Record<GroupBuyCurrentInstance['status'], {
   },
   SHARING: {
     title: '本次分享进行中',
-    description: '仅直接推荐的新用户购买同款并完成有效订单后计入。',
+    description: '好友通过本次推荐码购买同款并完成有效订单后计入。',
     tone: 'active',
   },
   COMPLETED: {

@@ -24,6 +24,7 @@ describe('GroupBuyService', () => {
             {
               id: 'activity_1',
               title: '大龙虾团购',
+              description: '鲜活大龙虾冷链配送到家',
               price: 1000,
               freeShipping: true,
               status: 'ACTIVE',
@@ -76,6 +77,7 @@ describe('GroupBuyService', () => {
       activity: {
         id: 'activity_1',
         title: '大龙虾团购',
+        description: '鲜活大龙虾冷链配送到家',
         price: 1000,
         freeShipping: true,
         status: 'ACTIVE',
@@ -111,6 +113,7 @@ describe('GroupBuyService', () => {
       expect(result.items[0]).toEqual(expect.objectContaining({
         id: 'activity_1',
         title: '大龙虾团购',
+        description: '鲜活大龙虾冷链配送到家',
         product: expect.objectContaining({
           id: 'product_1',
           title: '大龙虾',

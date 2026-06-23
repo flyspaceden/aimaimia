@@ -11,6 +11,7 @@ describe('AdminGroupBuyService', () => {
 
   const createDto = {
     title: '大龙虾团购',
+    description: '鲜活大龙虾冷链配送到家',
     productId: 'product_1',
     skuId: 'sku_1',
     price: 1000,
@@ -138,6 +139,7 @@ describe('AdminGroupBuyService', () => {
     expect(tx.groupBuyActivity.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         title: '大龙虾团购',
+        description: '鲜活大龙虾冷链配送到家',
         productId: 'product_1',
         skuId: 'sku_1',
         price: 1000,
@@ -193,6 +195,7 @@ describe('AdminGroupBuyService', () => {
 
     await service.update('activity_1', {
       price: 1200,
+      description: '  新的团购商品详情  ',
       tiers: [
         { sequence: 1, basisPoints: 5000 },
         { sequence: 2, basisPoints: 5000 },
@@ -208,7 +211,7 @@ describe('AdminGroupBuyService', () => {
     });
     expect(tx.groupBuyActivity.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'activity_1' },
-      data: expect.objectContaining({ price: 1200 }),
+      data: expect.objectContaining({ price: 1200, description: '新的团购商品详情' }),
     }));
     expect(tx.groupBuyInstance.updateMany).not.toHaveBeenCalled();
   });
