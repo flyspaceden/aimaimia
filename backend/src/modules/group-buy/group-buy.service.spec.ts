@@ -129,6 +129,53 @@ describe('GroupBuyService', () => {
       expect(result.items[0].tiers[0]).not.toHaveProperty('basisPoints');
     });
 
+    it('returns normalized group-buy item summaries and availability for multi-item activities', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyActivity.findMany.mockResolvedValueOnce([
+        {
+          ...buildInstance('SHARING').activity,
+          items: [
+            {
+              productId: 'product_1',
+              skuId: 'sku_1',
+              quantity: 1,
+              sortOrder: 0,
+              product: {
+                id: 'product_1',
+                title: '大龙虾',
+                media: [{ id: 'media_1', url: 'https://example.com/lobster.jpg', sortOrder: 0 }],
+              },
+              sku: { id: 'sku_1', title: '一只装', stock: 8, weightGram: 1500 },
+            },
+            {
+              productId: 'product_2',
+              skuId: 'sku_2',
+              quantity: 2,
+              sortOrder: 1,
+              product: {
+                id: 'product_2',
+                title: '鲍鱼',
+                media: [{ id: 'media_2', url: 'https://example.com/abalone.jpg', sortOrder: 0 }],
+              },
+              sku: { id: 'sku_2', title: '六只装', stock: 5, weightGram: 500 },
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.findActiveActivities();
+
+      expect(result.items[0]).toEqual(expect.objectContaining({
+        itemSummary: '大龙虾 x1、鲍鱼 x2',
+        availableStock: 2,
+        totalWeightGram: 2500,
+      }));
+      expect(result.items[0].items).toEqual([
+        expect.objectContaining({ productId: 'product_1', skuId: 'sku_1', quantity: 1 }),
+        expect.objectContaining({ productId: 'product_2', skuId: 'sku_2', quantity: 2 }),
+      ]);
+    });
+
     it('returns product tab state when the user has no current group-buy instance', async () => {
       const { service } = buildPrisma();
 

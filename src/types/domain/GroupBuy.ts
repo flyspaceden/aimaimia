@@ -32,6 +32,17 @@ export interface GroupBuySkuSnapshot {
   weightGram: number | null;
 }
 
+export interface GroupBuyActivityItem {
+  productId: string;
+  productTitle: string;
+  imageUrl: string | null;
+  skuId: string;
+  skuTitle: string;
+  stock: number;
+  weightGram: number | null;
+  quantity: number;
+}
+
 export interface GroupBuyActivity {
   id: string;
   title: string;
@@ -42,6 +53,10 @@ export interface GroupBuyActivity {
   ruleSummary: string | null;
   product: GroupBuyProductSnapshot;
   sku: GroupBuySkuSnapshot;
+  items?: GroupBuyActivityItem[];
+  itemSummary?: string;
+  availableStock?: number;
+  totalWeightGram?: number;
   tiers: GroupBuyTier[];
 }
 

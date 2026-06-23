@@ -1284,6 +1284,7 @@ model Product {
   productTraceLinks  ProductTraceLink[]
   lotteryPrizes      LotteryPrize[]
   groupBuyActivities GroupBuyActivity[]
+  groupBuyActivityItems GroupBuyActivityItem[]
 
   @@index([companyId, status, createdAt]) // 卖家商品列表查询
   @@index([status, createdAt]) // 买家商品列表按状态+时间过滤
@@ -1324,6 +1325,7 @@ model ProductSKU {
   lotteryPrizes    LotteryPrize[]
   vipGiftItems     VipGiftItem[]
   groupBuyActivities GroupBuyActivity[]
+  groupBuyActivityItems GroupBuyActivityItem[]
 }
 
 model ProductBundleItem {
@@ -1662,10 +1664,30 @@ model GroupBuyActivity {
   deletedAt    DateTime?
 
   tiers     GroupBuyTier[]
+  items     GroupBuyActivityItem[]
   instances GroupBuyInstance[]
 
   @@index([status, startAt, endAt])
   @@index([productId, skuId])
+}
+
+model GroupBuyActivityItem {
+  id         String           @id @default(cuid())
+  activityId String
+  activity   GroupBuyActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  skuId      String
+  sku        ProductSKU       @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  quantity   Int
+  sortOrder  Int              @default(0)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([activityId, skuId])
+  @@index([activityId])
+  @@index([productId])
+  @@index([skuId])
 }
 
 model GroupBuyTier {

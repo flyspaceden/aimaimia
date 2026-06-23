@@ -36,6 +36,27 @@ export class GroupBuyTierConfigDto {
   label?: string;
 }
 
+export class GroupBuyActivityItemInputDto {
+  @IsString({ message: '商品 ID 必须为字符串' })
+  @IsNotEmpty({ message: '商品 ID 不能为空' })
+  productId: string;
+
+  @IsString({ message: 'SKU ID 必须为字符串' })
+  @IsNotEmpty({ message: 'SKU ID 不能为空' })
+  skuId: string;
+
+  @Type(() => Number)
+  @IsInt({ message: '商品数量必须为整数' })
+  @Min(1, { message: '商品数量必须大于 0' })
+  quantity: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '排序值必须为整数' })
+  @Min(0, { message: '排序值不能小于 0' })
+  sortOrder?: number;
+}
+
 export class CreateGroupBuyActivityDto {
   @IsString({ message: '活动标题必须为字符串' })
   @IsNotEmpty({ message: '活动标题不能为空' })
@@ -47,13 +68,20 @@ export class CreateGroupBuyActivityDto {
   @MaxLength(2000, { message: '团购详情介绍不能超过 2000 个字符' })
   description?: string | null;
 
+  @IsOptional()
   @IsString({ message: '商品 ID 必须为字符串' })
-  @IsNotEmpty({ message: '商品 ID 不能为空' })
-  productId: string;
+  productId?: string;
 
+  @IsOptional()
   @IsString({ message: 'SKU ID 必须为字符串' })
-  @IsNotEmpty({ message: 'SKU ID 不能为空' })
-  skuId: string;
+  skuId?: string;
+
+  @IsOptional()
+  @IsArray({ message: '团购商品组合必须为数组' })
+  @ArrayMaxSize(50, { message: '团购商品组合不能超过 50 个' })
+  @ValidateNested({ each: true })
+  @Type(() => GroupBuyActivityItemInputDto)
+  items?: GroupBuyActivityItemInputDto[];
 
   @Type(() => Number)
   @IsNumber({}, { message: '团购价格必须为数字' })
@@ -115,6 +143,13 @@ export class UpdateGroupBuyActivityDto {
   @IsOptional()
   @IsString({ message: 'SKU ID 必须为字符串' })
   skuId?: string;
+
+  @IsOptional()
+  @IsArray({ message: '团购商品组合必须为数组' })
+  @ArrayMaxSize(50, { message: '团购商品组合不能超过 50 个' })
+  @ValidateNested({ each: true })
+  @Type(() => GroupBuyActivityItemInputDto)
+  items?: GroupBuyActivityItemInputDto[];
 
   @IsOptional()
   @Type(() => Number)

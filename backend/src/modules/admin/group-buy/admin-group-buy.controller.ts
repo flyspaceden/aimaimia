@@ -50,6 +50,13 @@ export class AdminGroupBuyController {
     });
   }
 
+  /** 团购商品目录 */
+  @Get('product-catalog')
+  @RequirePermission('group_buy:read')
+  getProductCatalog(@Query('keyword') keyword?: string) {
+    return this.groupBuyService.getProductCatalog(keyword);
+  }
+
   /** 团购活动详情 */
   @Get('activities/:id')
   @RequirePermission('group_buy:read')

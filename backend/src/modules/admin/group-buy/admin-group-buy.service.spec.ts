@@ -18,6 +18,10 @@ describe('AdminGroupBuyService', () => {
     freeShipping: true,
     status: 'ACTIVE',
     displayOrder: 10,
+    items: [
+      { productId: 'product_1', skuId: 'sku_1', quantity: 1, sortOrder: 0 },
+      { productId: 'product_2', skuId: 'sku_2', quantity: 2, sortOrder: 1 },
+    ],
     tiers: [
       { sequence: 1, basisPoints: 1000, label: '第一位好友' },
       { sequence: 2, basisPoints: 2000, label: '第二位好友' },
@@ -28,18 +32,19 @@ describe('AdminGroupBuyService', () => {
   const buildPrisma = () => {
     const tx = {
       product: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'product_1',
+        findUnique: jest.fn().mockImplementation(({ where }) => Promise.resolve({
+          id: where.id,
           companyId: PLATFORM_COMPANY_ID,
           status: 'ACTIVE',
-        }),
+        })),
       },
       productSKU: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'sku_1',
-          productId: 'product_1',
+        findUnique: jest.fn().mockImplementation(({ where }) => Promise.resolve({
+          id: where.id,
+          productId: where.id === 'sku_2' ? 'product_2' : 'product_1',
           status: 'ACTIVE',
-        }),
+          weightGram: 1000,
+        })),
       },
       groupBuyActivity: {
         create: jest.fn().mockResolvedValue({ id: 'activity_1' }),
@@ -53,6 +58,10 @@ describe('AdminGroupBuyService', () => {
           tiers: [],
         }),
         update: jest.fn().mockResolvedValue({ id: 'activity_1' }),
+      },
+      groupBuyActivityItem: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
       groupBuyTier: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -153,6 +162,24 @@ describe('AdminGroupBuyService', () => {
         }),
       }),
     }));
+    expect(tx.groupBuyActivityItem.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          activityId: 'activity_1',
+          productId: 'product_1',
+          skuId: 'sku_1',
+          quantity: 1,
+          sortOrder: 0,
+        }),
+        expect.objectContaining({
+          activityId: 'activity_1',
+          productId: 'product_2',
+          skuId: 'sku_2',
+          quantity: 2,
+          sortOrder: 1,
+        }),
+      ],
+    });
   });
 
   it('rejects non-platform products before writing', async () => {
@@ -165,6 +192,28 @@ describe('AdminGroupBuyService', () => {
 
     await expect(service.create(createDto as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty activity items', async () => {
+    const { tx, service } = buildPrisma();
+
+    await expect(service.create({ ...createDto, items: [] } as any)).rejects.toThrow('请至少添加一个团购商品');
+    expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an item whose sku does not belong to the selected product', async () => {
+    const { tx, service } = buildPrisma();
+    tx.productSKU.findUnique.mockResolvedValueOnce({
+      id: 'sku_2',
+      productId: 'other_product',
+      status: 'ACTIVE',
+      weightGram: 1000,
+    });
+
+    await expect(service.create({
+      ...createDto,
+      items: [{ productId: 'product_1', skuId: 'sku_2', quantity: 1 }],
+    } as any)).rejects.toThrow('SKU 不属于所选商品');
   });
 
   it('accepts tier totals above 10000 basis points for admin-configured activities', async () => {

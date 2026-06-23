@@ -3,6 +3,18 @@ import { GroupBuyActivityStatus, GroupBuyCodeStatus, GroupBuyInstanceStatus, Pri
 
 import { PrismaService } from '../../prisma/prisma.service';
 
+type BuyerGroupBuyActivityItem = {
+  productId: string;
+  productTitle: string;
+  imageUrl: string | null;
+  skuId: string;
+  skuTitle: string;
+  stock: number;
+  weightGram: number;
+  quantity: number;
+  sortOrder: number;
+};
+
 @Injectable()
 export class GroupBuyService {
   constructor(private readonly prisma: PrismaService) {}
@@ -228,6 +240,29 @@ export class GroupBuyService {
           weightGram: true,
         },
       },
+      items: {
+        orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+        include: {
+          product: {
+            select: {
+              id: true,
+              title: true,
+              media: {
+                select: { id: true, url: true, sortOrder: true },
+                orderBy: { sortOrder: 'asc' as const },
+              },
+            },
+          },
+          sku: {
+            select: {
+              id: true,
+              title: true,
+              stock: true,
+              weightGram: true,
+            },
+          },
+        },
+      },
       tiers: {
         orderBy: { sequence: 'asc' as const },
       },
@@ -235,6 +270,16 @@ export class GroupBuyService {
   }
 
   private mapActivityForBuyer(activity: any) {
+    const activityItems = this.normalizeActivityItems(activity);
+    const availableStock = this.calculateAvailableStock(activityItems);
+    const totalWeightGram = activityItems.reduce(
+      (sum: number, item: BuyerGroupBuyActivityItem) => sum + item.weightGram * item.quantity,
+      0,
+    );
+    const itemSummary = activityItems
+      .map((item: BuyerGroupBuyActivityItem) => `${item.productTitle} x${item.quantity}`)
+      .join('、');
+
     return {
       id: activity.id,
       title: activity.title,
@@ -254,10 +299,64 @@ export class GroupBuyService {
         stock: activity.sku.stock,
         weightGram: activity.sku.weightGram,
       },
+      items: activityItems.map((item: BuyerGroupBuyActivityItem) => ({
+        productId: item.productId,
+        productTitle: item.productTitle,
+        imageUrl: item.imageUrl,
+        skuId: item.skuId,
+        skuTitle: item.skuTitle,
+        stock: item.stock,
+        weightGram: item.weightGram,
+        quantity: item.quantity,
+      })),
+      itemSummary,
+      availableStock,
+      totalWeightGram,
       tiers: activity.tiers.map((tier: any) => ({
         sequence: tier.sequence,
         label: tier.label ?? `第${tier.sequence}位好友`,
       })),
     };
+  }
+
+  private normalizeActivityItems(activity: any): BuyerGroupBuyActivityItem[] {
+    const rawItems = Array.isArray(activity.items) && activity.items.length > 0
+      ? activity.items
+      : [{
+          productId: activity.productId ?? activity.product?.id,
+          skuId: activity.skuId ?? activity.sku?.id,
+          quantity: 1,
+          sortOrder: 0,
+          product: activity.product,
+          sku: activity.sku,
+        }];
+
+    return rawItems
+      .map((item: any, index: number) => {
+        const product = item.product ?? activity.product;
+        const sku = item.sku ?? activity.sku;
+        const quantity = Math.max(1, Math.floor(Number(item.quantity ?? 1)));
+        return {
+          productId: item.productId ?? product?.id,
+          productTitle: product?.title ?? '',
+          imageUrl: product?.media?.[0]?.url ?? null,
+          skuId: item.skuId ?? sku?.id,
+          skuTitle: sku?.title ?? '',
+          stock: Number(sku?.stock ?? 0),
+          weightGram: Number(sku?.weightGram ?? 0),
+          quantity,
+          sortOrder: item.sortOrder ?? index,
+        };
+      })
+      .sort((a: BuyerGroupBuyActivityItem, b: BuyerGroupBuyActivityItem) => a.sortOrder - b.sortOrder);
+  }
+
+  private calculateAvailableStock(items: Array<{ stock: number; quantity: number }>) {
+    if (items.length === 0) return 0;
+    return Math.max(0, items.reduce((minAvailability, item) => {
+      const quantity = Math.max(1, Math.floor(Number(item.quantity)));
+      const stock = Math.max(0, Math.floor(Number(item.stock)));
+      return Math.min(minAvailability, Math.floor(stock / quantity));
+    }, Number.POSITIVE_INFINITY));
   }
 }

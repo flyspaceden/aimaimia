@@ -114,7 +114,7 @@ export default function GroupBuyIndexScreen() {
   };
 
   const handlePurchasePress = (activity: GroupBuyActivity) => {
-    if (activity.sku.stock <= 0) {
+    if ((activity.availableStock ?? activity.sku.stock) <= 0) {
       show({ message: '该团购商品暂无库存', type: 'info' });
       return;
     }

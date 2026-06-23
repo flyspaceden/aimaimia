@@ -15,7 +15,7 @@ import {
 
 type RewardProductReferenceClient = Pick<
   PrismaService,
-  'vipGiftItem' | 'lotteryPrize' | 'groupBuyActivity'
+  'vipGiftItem' | 'lotteryPrize' | 'groupBuyActivity' | 'groupBuyActivityItem'
 >;
 
 @Injectable()
@@ -39,7 +39,12 @@ export class RewardProductService {
     const productIds = products.map((product) => product.id);
     const skuIds = products.flatMap((product) => product.skus.map((sku) => sku.id));
 
-    const [vipGiftItems, lotteryPrizes, groupBuyActivities] = await Promise.all([
+    const [
+      vipGiftItems,
+      lotteryPrizes,
+      groupBuyActivities,
+      groupBuyActivityItems,
+    ] = await Promise.all([
       skuIds.length > 0
         ? this.prisma.vipGiftItem.findMany({
             where: {
@@ -72,6 +77,21 @@ export class RewardProductService {
               ],
             },
             select: { id: true, productId: true, skuId: true },
+          })
+        : Promise.resolve([]),
+      productIds.length > 0 || skuIds.length > 0
+        ? this.prisma.groupBuyActivityItem.findMany({
+            where: {
+              activity: {
+                deletedAt: null,
+                status: { in: ['ACTIVE', 'PAUSED'] },
+              },
+              OR: [
+                ...(productIds.length > 0 ? [{ productId: { in: productIds } }] : []),
+                ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+              ],
+            },
+            select: { activityId: true, productId: true, skuId: true },
           })
         : Promise.resolve([]),
     ]);
@@ -119,6 +139,21 @@ export class RewardProductService {
         groupBuyByProductId.get(targetProductId)!.add(activity.id);
       }
     }
+    for (const item of groupBuyActivityItems) {
+      const targetProductIds = new Set<string>();
+      if (item.productId) {
+        targetProductIds.add(item.productId);
+      }
+      if (item.skuId && productIdBySkuId.has(item.skuId)) {
+        targetProductIds.add(productIdBySkuId.get(item.skuId)!);
+      }
+      for (const targetProductId of targetProductIds) {
+        if (!groupBuyByProductId.has(targetProductId)) {
+          groupBuyByProductId.set(targetProductId, new Set());
+        }
+        groupBuyByProductId.get(targetProductId)!.add(item.activityId);
+      }
+    }
 
     return new Map(
       products.map((product) => {
@@ -154,10 +189,16 @@ export class RewardProductService {
     action: string,
     client: RewardProductReferenceClient = this.prisma,
   ) {
-    const [vipGiftItems, lotteryPrizes, groupBuyActivities]: [
+    const [
+      vipGiftItems,
+      lotteryPrizes,
+      groupBuyActivities,
+      groupBuyActivityItems,
+    ]: [
       Array<{ id: string; giftOption: { title: string } }>,
       Array<{ id: string; name: string }>,
       Array<{ id: string; title: string }>,
+      Array<{ activity: { id: string; title: string } }>,
     ] = await Promise.all([
       skuIds.length > 0
         ? client.vipGiftItem.findMany({
@@ -192,23 +233,46 @@ export class RewardProductService {
         select: { id: true, title: true },
         take: 5,
       }),
+      client.groupBuyActivityItem.findMany({
+        where: {
+          activity: {
+            deletedAt: null,
+            status: { in: ['ACTIVE', 'PAUSED'] },
+          },
+          OR: [
+            { productId },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { activity: { select: { id: true, title: true } } },
+        take: 5,
+      }),
     ]);
+
+    const groupBuyById = new Map<string, { id: string; title: string }>();
+    for (const activity of groupBuyActivities) {
+      groupBuyById.set(activity.id, activity);
+    }
+    for (const item of groupBuyActivityItems) {
+      groupBuyById.set(item.activity.id, item.activity);
+    }
+    const referencedGroupBuyActivities = Array.from(groupBuyById.values());
 
     if (
       vipGiftItems.length === 0
       && lotteryPrizes.length === 0
-      && groupBuyActivities.length === 0
+      && referencedGroupBuyActivities.length === 0
     ) {
       return;
     }
 
     const vipSummary = vipGiftItems.map((item) => item.giftOption.title).join('、');
     const lotterySummary = lotteryPrizes.map((item) => item.name).join('、');
-    const groupBuySummary = groupBuyActivities.map((item) => item.title).join('、');
+    const groupBuySummary = referencedGroupBuyActivities.map((item) => item.title).join('、');
     const details = [
       vipGiftItems.length > 0 ? `VIP赠品：${vipSummary}` : null,
       lotteryPrizes.length > 0 ? `抽奖奖品：${lotterySummary}` : null,
-      groupBuyActivities.length > 0 ? `团购活动：${groupBuySummary}` : null,
+      referencedGroupBuyActivities.length > 0 ? `团购活动：${groupBuySummary}` : null,
     ]
       .filter(Boolean)
       .join('；');
@@ -429,6 +493,7 @@ export class RewardProductService {
       vipGiftItems,
       lotteryPrizes,
       groupBuyActivities,
+      groupBuyActivityItems,
       orderItemCount,
       cartItemCount,
     ] = await Promise.all([
@@ -457,7 +522,18 @@ export class RewardProductService {
             ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
           ],
         },
-        select: { title: true },
+        select: { id: true, title: true },
+        take: 5,
+      }),
+      this.prisma.groupBuyActivityItem.findMany({
+        where: {
+          activity: { deletedAt: null },
+          OR: [
+            { productId: id },
+            ...(skuIds.length > 0 ? [{ skuId: { in: skuIds } }] : []),
+          ],
+        },
+        select: { activity: { select: { id: true, title: true } } },
         take: 5,
       }),
       skuIds.length > 0
@@ -477,8 +553,15 @@ export class RewardProductService {
       const summary = lotteryPrizes.map((i) => i.name).join('、');
       blockers.push(`抽奖奖品：${summary}`);
     }
-    if (groupBuyActivities.length > 0) {
-      const summary = groupBuyActivities.map((i) => i.title).join('、');
+    if (groupBuyActivities.length > 0 || groupBuyActivityItems.length > 0) {
+      const titles = new Map<string, string>();
+      for (const activity of groupBuyActivities) {
+        titles.set(activity.id, activity.title);
+      }
+      for (const item of groupBuyActivityItems) {
+        titles.set(item.activity.id, item.activity.title);
+      }
+      const summary = Array.from(titles.values()).join('、');
       blockers.push(`团购活动：${summary}`);
     }
     if (orderItemCount > 0) {
