@@ -80,6 +80,11 @@ describe('GroupBuyService', () => {
       status,
       validReferralCount: 0,
       candidateCount: 0,
+      tierSnapshot: [
+        { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+        { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+        { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+      ],
       createdAt: new Date('2026-06-22T00:00:00.000Z'),
       updatedAt: new Date('2026-06-22T00:00:00.000Z'),
       activity: {
@@ -256,6 +261,11 @@ describe('GroupBuyService', () => {
           userId: 'user_sharer',
           status: 'SHARING',
           validReferralCount: 1,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+            { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+            { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+          ],
           activity: buildInstance('SHARING').activity,
           user: {
             id: 'user_sharer',
@@ -298,6 +308,11 @@ describe('GroupBuyService', () => {
           status: 'SHARING',
           validReferralCount: 2,
           candidateCount: 0,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+            { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+            { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+          ],
           activity: buildInstance('SHARING').activity,
           user: {
             id: 'user_sharer',
@@ -325,6 +340,44 @@ describe('GroupBuyService', () => {
       });
     });
 
+    it('uses the referrer locked tier snapshot instead of current activity tiers when checking share landing slots', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyCode.findUnique.mockResolvedValueOnce({
+        code: 'GB123456',
+        status: 'ACTIVE',
+        instance: {
+          id: 'instance_1',
+          userId: 'user_sharer',
+          status: 'SHARING',
+          validReferralCount: 2,
+          candidateCount: 0,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+            { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+            { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+          ],
+          activity: {
+            ...buildInstance('SHARING').activity,
+            tiers: [
+              { sequence: 1, basisPoints: 5000, label: '第一位好友' },
+              { sequence: 2, basisPoints: 5000, label: '第二位好友' },
+            ],
+          },
+          user: {
+            id: 'user_sharer',
+            buyerNo: 'AIMM202606220001',
+            profile: { nickname: '分享用户' },
+          },
+        },
+      });
+      prisma.groupBuyReferral.count.mockResolvedValueOnce(2);
+
+      const result = await service.getLandingByCode('GB123456');
+
+      expect(result.valid).toBe(true);
+      expect(result.inviter?.userId).toBe('user_sharer');
+    });
+
     it('returns invalid landing info when the share code is completed or not sharing', async () => {
       const { prisma, service } = buildPrisma();
       prisma.groupBuyCode.findUnique.mockResolvedValueOnce({
@@ -335,6 +388,11 @@ describe('GroupBuyService', () => {
           userId: 'user_sharer',
           status: 'COMPLETED',
           validReferralCount: 3,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+            { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+            { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+          ],
           activity: buildInstance('SHARING').activity,
           user: {
             id: 'user_sharer',

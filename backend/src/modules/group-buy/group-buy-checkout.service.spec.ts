@@ -170,6 +170,11 @@ describe('GroupBuyCheckoutService', () => {
         userId: 'user_2',
         activityId: 'activity_1',
         status: 'SHARING',
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+          { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+          { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+        ],
       },
     });
     tx.groupBuyReferral.count.mockResolvedValueOnce(3);
@@ -179,6 +184,48 @@ describe('GroupBuyCheckoutService', () => {
       shareCode: 'GB123456',
     } as any)).rejects.toThrow('团购推荐码名额已满');
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('uses the referrer locked tier snapshot instead of the current activity tiers when checking share-code slots', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivity.findUnique.mockResolvedValueOnce({
+      ...buildActivity(),
+      tiers: [
+        { sequence: 1, basisPoints: 5000, label: '第一位好友' },
+        { sequence: 2, basisPoints: 5000, label: '第二位好友' },
+      ],
+    });
+    tx.groupBuyCode.findUnique.mockResolvedValueOnce({
+      id: 'code_1',
+      code: 'GB123456',
+      status: 'ACTIVE',
+      instance: {
+        id: 'instance_referrer',
+        userId: 'user_2',
+        activityId: 'activity_1',
+        status: 'SHARING',
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+          { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+          { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+        ],
+      },
+    });
+    tx.groupBuyReferral.count.mockResolvedValueOnce(2);
+
+    await service.createCheckout('user_1', {
+      ...dto,
+      shareCode: 'GB123456',
+    } as any);
+
+    expect(tx.checkoutSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        bizMeta: expect.objectContaining({
+          groupBuyCodeId: 'code_1',
+          referredByInstanceId: 'instance_referrer',
+        }),
+      }),
+    }));
   });
 
   it('creates a cash-only GROUP_BUY checkout session with locked activity snapshots', async () => {
@@ -472,10 +519,20 @@ describe('CheckoutService group-buy payment success integration', () => {
       },
       groupBuyInstance: {
         create: jest.fn().mockResolvedValue({ id: 'new_instance_1' }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'referrer_instance_1',
+          status: 'SHARING',
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+            { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+            { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+          ],
+        }),
         update: jest.fn().mockResolvedValue({ id: 'referrer_instance_1' }),
       },
       groupBuyReferral: {
         count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue({ id: 'referral_1' }),
       },
     };
@@ -532,12 +589,96 @@ describe('CheckoutService group-buy payment success integration', () => {
     }));
   });
 
-  it('keeps the paid group-buy order successful when share-code slots are filled before payment callback', async () => {
+  it('reuses the lowest available candidate sequence after an earlier referral became invalid', async () => {
     const { service, tx } = buildCheckoutHarness({
       groupBuyCodeId: 'code_1',
       referredByInstanceId: 'referrer_instance_1',
     });
-    tx.groupBuyReferral.count.mockResolvedValueOnce(3);
+    tx.groupBuyReferral.count.mockResolvedValueOnce(1);
+    tx.groupBuyReferral.findMany.mockResolvedValueOnce([
+      { candidateSequence: 2 },
+    ]);
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'CANDIDATE',
+        candidateSequence: 1,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referrer_instance_1' },
+      data: { candidateCount: { increment: 1 } },
+    }));
+  });
+
+  it('uses the referrer locked tier snapshot when assigning a candidate after activity tiers changed', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+      tierSnapshot: [
+        { sequence: 1, basisPoints: 5000, label: '第一位好友' },
+        { sequence: 2, basisPoints: 5000, label: '第二位好友' },
+      ],
+    });
+    tx.groupBuyReferral.findMany.mockResolvedValueOnce([
+      { candidateSequence: 1 },
+      { candidateSequence: 2 },
+    ]);
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'CANDIDATE',
+        candidateSequence: 3,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referrer_instance_1' },
+      data: { candidateCount: { increment: 1 } },
+    }));
+  });
+
+  it('records an invalid referral when the referrer terminated after checkout but before payment callback', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+    tx.groupBuyInstance.findUnique.mockResolvedValueOnce({
+      id: 'referrer_instance_1',
+      status: 'TERMINATED',
+      tierSnapshot: [
+        { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+        { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+        { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+      ],
+    });
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'INVALID',
+        candidateSequence: null,
+        effectiveSequence: null,
+        invalidReason: 'REFERRER_NOT_SHARING_AFTER_PAYMENT',
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps the paid group-buy order successful and records an invalid referral when share-code slots are filled before payment callback', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+    tx.groupBuyReferral.findMany.mockResolvedValueOnce([
+      { candidateSequence: 1 },
+      { candidateSequence: 2 },
+      { candidateSequence: 3 },
+    ]);
 
     const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
 
@@ -549,7 +690,81 @@ describe('CheckoutService group-buy payment success integration', () => {
         status: 'QUALIFICATION_PENDING',
       }),
     }));
-    expect(tx.groupBuyReferral.create).not.toHaveBeenCalled();
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        instanceId: 'referrer_instance_1',
+        codeId: 'code_1',
+        status: 'INVALID',
+        referredUserId: 'user_1',
+        referredOrderId: 'order_1',
+        referredInstanceId: 'new_instance_1',
+        candidateSequence: null,
+        effectiveSequence: null,
+        invalidReason: 'SLOT_FULL_AFTER_PAYMENT',
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
+  });
+
+  it('retries the next available candidate sequence when candidate sequence races after payment callback', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+    tx.groupBuyReferral.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ candidateSequence: 1 }]);
+    tx.groupBuyReferral.create
+      .mockRejectedValueOnce({ code: 'P2002' })
+      .mockResolvedValueOnce({ id: 'referral_2' });
+
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.groupBuyReferral.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'CANDIDATE',
+        candidateSequence: 1,
+      }),
+    }));
+    expect(tx.groupBuyReferral.create).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'CANDIDATE',
+        candidateSequence: 2,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referrer_instance_1' },
+      data: { candidateCount: { increment: 1 } },
+    }));
+  });
+
+  it('records an invalid referral when a candidate sequence race leaves no remaining slot', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+    });
+    tx.groupBuyReferral.findMany
+      .mockResolvedValueOnce([{ candidateSequence: 1 }, { candidateSequence: 2 }])
+      .mockResolvedValueOnce([
+        { candidateSequence: 1 },
+        { candidateSequence: 2 },
+        { candidateSequence: 3 },
+      ]);
+    tx.groupBuyReferral.create
+      .mockRejectedValueOnce({ code: 'P2002' })
+      .mockResolvedValueOnce({ id: 'invalid_referral_1' });
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(tx.groupBuyReferral.create).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'INVALID',
+        candidateSequence: null,
+        effectiveSequence: null,
+        invalidReason: 'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+      }),
+    }));
     expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
   });
 });
