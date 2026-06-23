@@ -22,6 +22,7 @@ import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { ProductModule } from '../product/product.module';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
+import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 
 @Module({
   imports: [
@@ -91,6 +92,10 @@ export class AfterSaleModule implements OnModuleInit {
       this.afterSaleRefundService.setGroupBuyRebateDeductionService(
         groupBuyRebateDeductionService,
       );
+    }
+    const groupBuyRebateService = this.moduleRef.get(GroupBuyRebateService, { strict: false });
+    if (groupBuyRebateService) {
+      this.afterSaleRefundService.setGroupBuyRebateService(groupBuyRebateService);
     }
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {

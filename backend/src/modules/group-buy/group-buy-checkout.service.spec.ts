@@ -271,6 +271,31 @@ describe('GroupBuyCheckoutService', () => {
     }));
   });
 
+  it('previews non-free-shipping payable amount before creating a payment session', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivity.findUnique.mockResolvedValueOnce({
+      ...buildActivity(),
+      freeShipping: false,
+    });
+    const shippingRuleService = {
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 12.34 }),
+    };
+    service.setShippingRuleService(shippingRuleService as any);
+
+    const result = await service.previewCheckout('user_1', {
+      ...dto,
+      expectedTotal: undefined,
+    } as any);
+
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      expectedTotal: 1012.34,
+      goodsAmount: 1000,
+      shippingFee: 12.34,
+      discountAmount: 0,
+    });
+  });
+
   it('creates multi-item snapshots whose line totals equal the configured group-buy price', async () => {
     const { tx, service } = buildPrisma();
     tx.groupBuyActivity.findUnique.mockResolvedValueOnce({
@@ -507,15 +532,24 @@ describe('CheckoutService group-buy payment success integration', () => {
     }));
   });
 
-  it('rejects candidate referral creation when the share code has no remaining slots', async () => {
+  it('keeps the paid group-buy order successful when share-code slots are filled before payment callback', async () => {
     const { service, tx } = buildCheckoutHarness({
       groupBuyCodeId: 'code_1',
       referredByInstanceId: 'referrer_instance_1',
     });
     tx.groupBuyReferral.count.mockResolvedValueOnce(3);
 
-    await expect(service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1'))
-      .rejects.toThrow('团购推荐码名额已满');
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.order.create).toHaveBeenCalled();
+    expect(tx.groupBuyInstance.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        userId: 'user_1',
+        status: 'QUALIFICATION_PENDING',
+      }),
+    }));
     expect(tx.groupBuyReferral.create).not.toHaveBeenCalled();
+    expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
   });
 });

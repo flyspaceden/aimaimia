@@ -64,7 +64,9 @@ describe('GroupBuyRebateService', () => {
       },
       groupBuyRebateLedger: {
         findUnique: jest.fn().mockResolvedValue(overrides.existingLedger ?? null),
+        findFirst: jest.fn().mockResolvedValue(overrides.releaseLedger ?? null),
         create: jest.fn().mockResolvedValue({ id: 'ledger_1' }),
+        update: jest.fn().mockResolvedValue({ id: 'release_ledger_1' }),
       },
       groupBuyInstance: {
         update: jest.fn().mockResolvedValue({ id: 'instance_1' }),
@@ -231,6 +233,97 @@ describe('GroupBuyRebateService', () => {
       data: { candidateCount: { decrement: 1 } },
     }));
     expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('voids an already released rebate when the referred order is refunded later', async () => {
+    const { prisma, tx, service } = buildPrisma({
+      referral: {
+        status: 'VALID',
+        effectiveSequence: 1,
+        amountSnapshot: 100,
+        referredOrder: {
+          id: 'order_1',
+          status: 'RECEIVED',
+          returnWindowExpiresAt: new Date('2026-06-20T00:00:00.000Z'),
+          afterSaleRequests: [],
+          refunds: [{ id: 'refund_1', status: 'REFUNDED' }],
+        },
+      },
+      validCount: 1,
+      account: {
+        id: 'account_1',
+        userId: 'initiator_1',
+        balance: 100,
+        reserved: 0,
+        withdrawn: 0,
+        deducted: 0,
+      },
+      releaseLedger: {
+        id: 'release_ledger_1',
+        accountId: 'account_1',
+        userId: 'initiator_1',
+        instanceId: 'instance_1',
+        referralId: 'referral_1',
+        orderId: 'order_1',
+        type: 'RELEASE',
+        status: 'AVAILABLE',
+        amount: 100,
+        balanceBefore: 0,
+        balanceAfter: 100,
+        meta: { tierSequence: 1 },
+      },
+    });
+
+    const result = await service.voidReleasedReferralByOrderIfValid(
+      'order_1',
+      'REFERRED_ORDER_AFTER_SALE_OR_REFUND',
+      now,
+    );
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), serializableOptions);
+    expect(result).toEqual({
+      status: 'VOIDED',
+      amount: 100,
+      referralId: 'referral_1',
+    });
+    expect(tx.groupBuyRebateAccount.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'account_1' },
+      data: { balance: { decrement: 100 } },
+    }));
+    expect(tx.groupBuyRebateLedger.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'release_ledger_1' },
+      data: expect.objectContaining({
+        status: 'VOIDED',
+      }),
+    }));
+    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountId: 'account_1',
+        userId: 'initiator_1',
+        instanceId: 'instance_1',
+        referralId: 'referral_1',
+        orderId: 'order_1',
+        type: 'VOID',
+        status: 'COMPLETED',
+        amount: -100,
+        balanceBefore: 100,
+        balanceAfter: 0,
+        idempotencyKey: 'GROUP_BUY_REBATE_VOID:referral_1',
+      }),
+    }));
+    expect(tx.groupBuyReferral.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referral_1' },
+      data: expect.objectContaining({
+        status: 'INVALID',
+        invalidReason: 'REFERRED_ORDER_AFTER_SALE_OR_REFUND',
+        invalidatedAt: now,
+        voidedAt: now,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'instance_1' },
+      data: { validReferralCount: { decrement: 1 } },
+    }));
   });
 
   it('keeps a terminated instance terminated but releases already paid candidate purchases', async () => {

@@ -23,6 +23,123 @@ export class GroupBuyRebateService {
     );
   }
 
+  async voidReleasedReferralByOrderIfValid(
+    orderId: string,
+    reason = 'REFERRED_ORDER_AFTER_SALE_OR_REFUND',
+    now = new Date(),
+  ) {
+    return this.runSerializableWithRetry(async (tx) => {
+      const referral = await tx.groupBuyReferral.findFirst({
+        where: { referredOrderId: orderId },
+        include: {
+          instance: true,
+        },
+      });
+      if (!referral) {
+        return { status: 'NOT_FOUND' };
+      }
+      if (referral.status !== 'VALID') {
+        return { status: 'SKIPPED' };
+      }
+
+      const idempotencyKey = `GROUP_BUY_REBATE_VOID:${referral.id}`;
+      const existingVoidLedger = await tx.groupBuyRebateLedger.findUnique({
+        where: { idempotencyKey },
+      });
+      if (existingVoidLedger) {
+        return {
+          status: 'ALREADY_VOIDED',
+          amount: Math.abs(Number(existingVoidLedger.amount ?? 0)),
+          referralId: referral.id,
+        };
+      }
+
+      const releaseLedger = await tx.groupBuyRebateLedger.findFirst({
+        where: {
+          referralId: referral.id,
+          type: 'RELEASE',
+          status: { in: ['AVAILABLE', 'RESERVED', 'COMPLETED'] },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!releaseLedger) {
+        return { status: 'RELEASE_LEDGER_NOT_FOUND' };
+      }
+
+      const amount = this.roundMoney(Math.abs(Number(releaseLedger.amount ?? referral.amountSnapshot ?? 0)));
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { status: 'SKIPPED' };
+      }
+
+      const account = await tx.groupBuyRebateAccount.findUnique({
+        where: { id: releaseLedger.accountId },
+      });
+      if (!account) {
+        return { status: 'ACCOUNT_NOT_FOUND' };
+      }
+
+      const balanceBefore = this.roundMoney(Number(account.balance ?? 0));
+      const balanceAfter = this.roundMoney(balanceBefore - amount);
+
+      await tx.groupBuyRebateAccount.update({
+        where: { id: account.id },
+        data: { balance: { decrement: amount } },
+      });
+      await tx.groupBuyRebateLedger.update({
+        where: { id: releaseLedger.id },
+        data: {
+          status: 'VOIDED',
+          meta: this.mergeLedgerMeta(releaseLedger.meta, {
+            voidReason: reason,
+            voidedAt: now.toISOString(),
+          }),
+        },
+      });
+      await tx.groupBuyRebateLedger.create({
+        data: {
+          accountId: account.id,
+          userId: referral.instance.userId,
+          instanceId: referral.instanceId,
+          referralId: referral.id,
+          orderId,
+          type: 'VOID',
+          status: 'COMPLETED',
+          amount: -amount,
+          balanceBefore,
+          balanceAfter,
+          idempotencyKey,
+          refType: 'GROUP_BUY_REFERRAL_VOID',
+          refId: referral.id,
+          meta: {
+            reason,
+            releaseLedgerId: releaseLedger.id,
+            effectiveSequence: referral.effectiveSequence,
+          },
+        },
+      });
+      await tx.groupBuyReferral.update({
+        where: { id: referral.id },
+        data: {
+          status: 'INVALID',
+          invalidReason: reason,
+          invalidatedAt: now,
+          voidedAt: now,
+        },
+      });
+      await tx.groupBuyInstance.update({
+        where: { id: referral.instanceId },
+        data: { validReferralCount: { decrement: 1 } },
+      });
+
+      return {
+        status: 'VOIDED',
+        amount,
+        referralId: referral.id,
+      };
+    });
+  }
+
   async getAccount(userId: string) {
     const account = await this.prisma.groupBuyRebateAccount.findUnique({
       where: { userId },
@@ -383,6 +500,16 @@ export class GroupBuyRebateService {
 
   private roundMoney(value: number) {
     return Math.round(value * 100) / 100;
+  }
+
+  private mergeLedgerMeta(
+    meta: unknown,
+    patch: Record<string, unknown>,
+  ): Prisma.InputJsonValue {
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      return { ...(meta as Record<string, unknown>), ...patch } as Prisma.InputJsonObject;
+    }
+    return patch as Prisma.InputJsonObject;
   }
 
   private async runSerializableWithRetry<T>(

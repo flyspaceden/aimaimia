@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Post, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -33,6 +33,9 @@ export class GroupBuyController {
   }
 
   @Get('me/current')
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   getCurrentState(@CurrentUser('sub') userId: string) {
     return this.groupBuyService.getCurrentState(userId);
   }
@@ -45,9 +48,23 @@ export class GroupBuyController {
     return this.checkoutService.createCheckout(userId, dto);
   }
 
-  @Post('me/current/abandon')
-  abandonCurrent(@CurrentUser('sub') userId: string) {
-    return this.lifecycleService.abandonCurrent(userId);
+  @Post('checkout/preview')
+  previewCheckout(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: GroupBuyCheckoutDto,
+  ) {
+    return this.checkoutService.previewCheckout(userId, dto);
+  }
+
+  @Post('me/current/:instanceId/abandon')
+  abandonCurrent(
+    @CurrentUser('sub') userId: string,
+    @Param('instanceId') instanceId: string,
+  ) {
+    if (!instanceId?.trim()) {
+      throw new BadRequestException('缺少团购资格ID');
+    }
+    return this.lifecycleService.abandonCurrent(userId, instanceId.trim());
   }
 
   @Post('me/current/terminate')

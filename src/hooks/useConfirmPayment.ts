@@ -22,7 +22,7 @@ export function useConfirmPayment() {
   const queryClient = useQueryClient();
   const { show } = useToast();
 
-  return async (args: { sessionId: string; sdkResultStatus: string; onSuccess?: () => void }) => {
+  return async (args: { sessionId: string; sdkResultStatus: string; onSuccess?: () => void | Promise<void> }) => {
     const { sessionId, sdkResultStatus, onSuccess } = args;
 
     // 用户取消：6001 — 不做任何 active-query
@@ -77,7 +77,7 @@ export function useConfirmPayment() {
     if (initialOutcome === 'completed') {
       await invalidatePaymentQueries();
       show({ message: '支付成功', type: 'success' });
-      onSuccess?.();
+      await onSuccess?.();
       return { outcome: 'completed' as const };
     }
     if (initialOutcome === 'terminal-failure') {
@@ -97,7 +97,7 @@ export function useConfirmPayment() {
         if (outcome === 'completed') {
           await invalidatePaymentQueries();
           show({ message: '支付成功', type: 'success' });
-          onSuccess?.();
+          await onSuccess?.();
           return { outcome: 'completed' as const };
         }
         if (outcome === 'terminal-failure') {
@@ -112,7 +112,7 @@ export function useConfirmPayment() {
         if (s === 'COMPLETED') {
           await invalidatePaymentQueries();
           show({ message: '支付成功', type: 'success' });
-          onSuccess?.();
+          await onSuccess?.();
           return { outcome: 'completed' as const };
         }
         if (s === 'EXPIRED' || s === 'FAILED') {

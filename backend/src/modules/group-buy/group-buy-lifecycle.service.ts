@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderStatus, Prisma } from '@prisma/client';
 
@@ -157,18 +157,18 @@ export class GroupBuyLifecycleService {
     };
   }
 
-  async abandonCurrent(userId: string, now = new Date()) {
+  async abandonCurrent(userId: string, instanceId: string, now = new Date()) {
     return this.prisma.$transaction(async (tx) => {
       const instance = await tx.groupBuyInstance.findFirst({
         where: {
+          id: instanceId,
           userId,
           status: 'QUALIFICATION_PENDING',
         },
-        orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
       if (!instance) {
-        return { status: 'NOOP' };
+        throw new ConflictException('团购状态已变化，请刷新后重试');
       }
 
       await tx.groupBuyInstance.update({
@@ -178,6 +178,7 @@ export class GroupBuyLifecycleService {
           abandonedAt: now,
         },
       });
+      this.logger.log(`团购资格已放弃: userId=${userId}; instanceId=${instance.id}`);
       return { status: 'ABANDONED' };
     }, this.serializableTransactionOptions);
   }
@@ -193,7 +194,7 @@ export class GroupBuyLifecycleService {
         include: { code: true },
       });
       if (!instance) {
-        return { status: 'NOOP' };
+        throw new ConflictException('当前没有进行中的团购分享，请刷新后重试');
       }
 
       await tx.groupBuyInstance.update({

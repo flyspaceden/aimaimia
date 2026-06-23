@@ -1792,6 +1792,7 @@ model GroupBuyReferral {
   @@index([instanceId, status])
   @@index([codeId, status])
   @@index([referredUserId, createdAt])
+  @@unique([instanceId, candidateSequence])
 }
 
 model GroupBuyRebateAccount {

@@ -85,6 +85,10 @@ export default function GroupBuyCheckoutScreen() {
     queryKey: ['group-buy-current'],
     queryFn: () => GroupBuyRepo.getCurrent(),
     enabled: isLoggedIn,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const landingQuery = useQuery({
@@ -102,10 +106,47 @@ export default function GroupBuyCheckoutScreen() {
   const landing = landingQuery.data?.ok ? landingQuery.data.data : null;
   const occupiesSlot = Boolean(currentState?.occupiesSlot);
 
+  const previewQuery = useQuery({
+    queryKey: ['group-buy-checkout-preview', activity?.id, selectedAddress?.id, shareCode],
+    queryFn: () => GroupBuyRepo.previewCheckout({
+      activityId: String(activity?.id),
+      addressId: String(selectedAddress?.id),
+      paymentChannel: paymentMethod,
+      shareCode,
+    }),
+    enabled: Boolean(isLoggedIn && activity?.id && selectedAddress?.id && !occupiesSlot),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const preview = previewQuery.data?.ok ? previewQuery.data.data : null;
+  const previewError = previewQuery.data && !previewQuery.data.ok
+    ? previewQuery.data.error.displayMessage ?? '金额计算失败，请刷新后重试'
+    : null;
+  const displayedShippingText = activity?.freeShipping
+    ? '包邮'
+    : preview
+      ? formatPrice(preview.shippingFee)
+      : selectedAddress
+        ? '计算中'
+        : '选择地址后计算';
+  const displayedTotalText = preview
+    ? formatPrice(preview.expectedTotal)
+    : activity?.freeShipping
+      ? formatPrice(activity.price)
+      : '待计算';
+
   const paymentMethodMeta = useMemo(
     () => paymentMethods.find((method) => method.value === paymentMethod) ?? paymentMethods[0],
     [paymentMethod],
   );
+
+  const refreshGroupBuyCurrent = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
+    const latest = await GroupBuyRepo.getCurrent();
+    queryClient.setQueryData(['group-buy-current'], latest);
+    return latest;
+  };
 
   const handleCreateCheckout = async (target: GroupBuyActivity) => {
     if (!isLoggedIn) {
@@ -134,11 +175,23 @@ export default function GroupBuyCheckoutScreen() {
 
     setSubmitting(true);
     try {
+      const previewResult = await GroupBuyRepo.previewCheckout({
+        activityId: target.id,
+        addressId: selectedAddress.id,
+        paymentChannel: paymentMethod,
+        shareCode,
+      });
+
+      if (!previewResult.ok) {
+        show({ message: previewResult.error.displayMessage ?? '金额计算失败，请刷新后重试', type: 'error' });
+        return;
+      }
+
       const sessionResult = await GroupBuyRepo.createCheckout({
         activityId: target.id,
         addressId: selectedAddress.id,
         paymentChannel: paymentMethod,
-        expectedTotal: target.freeShipping ? target.price : undefined,
+        expectedTotal: previewResult.data.expectedTotal,
         shareCode,
         idempotencyKey: idempotencyKeyRef.current,
       });
@@ -168,8 +221,15 @@ export default function GroupBuyCheckoutScreen() {
         } else if (alipayResult.resultStatus === '6001') {
           const activeR = await OrderRepo.activeQueryPayment(sessionId);
           if (activeR.ok && activeR.data.status === 'COMPLETED') {
-            await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
-            await confirmPayment({ sessionId, sdkResultStatus: '9000', onSuccess: () => router.replace('/orders') });
+            await refreshGroupBuyCurrent();
+            await confirmPayment({
+              sessionId,
+              sdkResultStatus: '9000',
+              onSuccess: async () => {
+                await refreshGroupBuyCurrent();
+                router.replace('/orders');
+              },
+            });
             return;
           }
           show({ message: '已取消支付，如需重新购买请稍后再试', type: 'info', duration: 4000 });
@@ -200,8 +260,15 @@ export default function GroupBuyCheckoutScreen() {
         } else if (wechatResult.resultStatus === '6001') {
           const activeR = await OrderRepo.activeQueryPayment(sessionId);
           if (activeR.ok && activeR.data.status === 'COMPLETED') {
-            await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
-            await confirmPayment({ sessionId, sdkResultStatus: '9000', onSuccess: () => router.replace('/orders') });
+            await refreshGroupBuyCurrent();
+            await confirmPayment({
+              sessionId,
+              sdkResultStatus: '9000',
+              onSuccess: async () => {
+                await refreshGroupBuyCurrent();
+                router.replace('/orders');
+              },
+            });
             return;
           }
           show({ message: '已取消支付，如需重新购买请稍后再试', type: 'info', duration: 4000 });
@@ -233,14 +300,17 @@ export default function GroupBuyCheckoutScreen() {
         return;
       }
 
-      await confirmPayment({
+      const confirmResult = await confirmPayment({
         sessionId,
         sdkResultStatus: '9000',
         onSuccess: async () => {
-          await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
+          await refreshGroupBuyCurrent();
           router.replace('/orders');
         },
       });
+      if (confirmResult.outcome === 'pending-confirm') {
+        await refreshGroupBuyCurrent();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -272,6 +342,20 @@ export default function GroupBuyCheckoutScreen() {
           title="团购商品加载失败"
           description={activityQuery.data?.ok === false ? activityQuery.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
           onAction={() => activityQuery.refetch()}
+        />
+      </Screen>
+    );
+  }
+
+  if (isLoggedIn && currentQuery.data && !currentQuery.data.ok) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="团购付款" />
+        <ErrorState
+          title="团购状态加载失败"
+          description={currentQuery.data.error.displayMessage ?? '请刷新后重试'}
+          actionLabel="重新加载"
+          onAction={() => currentQuery.refetch()}
         />
       </Screen>
     );
@@ -464,6 +548,17 @@ export default function GroupBuyCheckoutScreen() {
             </Text>
           </View>
           <View style={[styles.amountLine, { marginTop: spacing.sm }]}>
+            <Text style={[typography.bodySm, { color: colors.text.secondary }]}>运费</Text>
+            <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+              {displayedShippingText}
+            </Text>
+          </View>
+          {previewError ? (
+            <Text style={[typography.caption, { color: colors.danger, marginTop: spacing.sm }]}>
+              {previewError}
+            </Text>
+          ) : null}
+          <View style={[styles.amountLine, { marginTop: spacing.sm }]}>
             <Text style={[typography.bodySm, { color: colors.text.secondary }]}>活动优惠</Text>
             <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>不可叠加</Text>
           </View>
@@ -471,7 +566,7 @@ export default function GroupBuyCheckoutScreen() {
           <View style={styles.amountLine}>
             <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>应付金额</Text>
             <Text {...priceTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.coral, fontWeight: '800' }]}>
-              {formatPrice(activity.price)}
+              {displayedTotalText}
             </Text>
           </View>
           <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
@@ -487,7 +582,7 @@ export default function GroupBuyCheckoutScreen() {
       >
         <View style={styles.bottomPrice}>
           <Text {...priceTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.coral, fontWeight: '800' }]}>
-            {formatPrice(activity.price)}
+            {displayedTotalText}
           </Text>
           <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>
             现金支付
@@ -495,14 +590,14 @@ export default function GroupBuyCheckoutScreen() {
         </View>
         <Pressable
           onPress={() => handleCreateCheckout(activity)}
-          disabled={submitting}
+          disabled={submitting || (Boolean(selectedAddress) && previewQuery.isLoading)}
           style={[styles.payButton, { borderRadius: radius.pill, backgroundColor: GROUP_BUY_COLORS.pine }]}
         >
           {submitting ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: '#FFFFFF' }]}>
-              确认付款
+              {previewQuery.isLoading ? '计算中' : '确认付款'}
             </Text>
           )}
         </Pressable>

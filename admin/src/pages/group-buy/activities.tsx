@@ -507,7 +507,7 @@ export default function GroupBuyActivitiesPage() {
                       <InputNumber min={1} placeholder="序号" />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'percent']} rules={[{ required: true, message: '比例必填' }]}>
-                      <InputNumber min={0.01} max={100} precision={2} placeholder="比例" addonAfter="%" />
+                      <InputNumber min={0.01} precision={2} placeholder="比例" addonAfter="%" />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'label']}>
                       <Input placeholder="展示文案" style={{ width: 180 }} />

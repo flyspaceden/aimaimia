@@ -457,6 +457,36 @@ describe('AfterSaleRefundService', () => {
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('refund_001');
   });
 
+  it('handleRefundSuccess voids released group-buy rebate for the refunded order', async () => {
+    const groupBuyRebateService = {
+      voidReleasedReferralByOrderIfValid: jest.fn().mockResolvedValue({ status: 'VOIDED' }),
+    };
+    service.setGroupBuyRebateService(groupBuyRebateService as any);
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001',
+      afterSaleId: 'as_001',
+      orderId: 'order_001',
+      amount: 88,
+      status: 'REFUNDING',
+      providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001',
+      orderId: 'order_001',
+      userId: 'user_001',
+      status: 'REFUNDING',
+      refundAmount: 88,
+      refundId: 'refund_001',
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(groupBuyRebateService.voidReleasedReferralByOrderIfValid).toHaveBeenCalledWith(
+      'order_001',
+      'REFERRED_ORDER_AFTER_SALE_OR_REFUND',
+    );
+  });
+
   it('handleRefundSuccess does not fail when digital asset reversal fails', async () => {
     const reversalError = new Error('digital asset down');
     const digitalAssetService = {

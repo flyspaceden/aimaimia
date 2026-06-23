@@ -1,3 +1,5 @@
+import { ConflictException } from '@nestjs/common';
+
 import { GroupBuyLifecycleService } from './group-buy-lifecycle.service';
 
 describe('GroupBuyLifecycleService', () => {
@@ -139,16 +141,23 @@ describe('GroupBuyLifecycleService', () => {
     expect(tx.groupBuyCode.create).not.toHaveBeenCalled();
   });
 
-  it('abandons the current pending qualification', async () => {
+  it('abandons the specified pending qualification for the current user', async () => {
     const { prisma, tx, service } = buildPrisma();
     tx.groupBuyInstance.findFirst.mockResolvedValueOnce({
       id: 'instance_1',
       status: 'QUALIFICATION_PENDING',
     });
 
-    const result = await service.abandonCurrent('user_1');
+    const result = await service.abandonCurrent('user_1', 'instance_1');
 
     expect(prisma.$transaction).toHaveBeenCalled();
+    expect(tx.groupBuyInstance.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: 'instance_1',
+        userId: 'user_1',
+        status: 'QUALIFICATION_PENDING',
+      },
+    }));
     expect(result).toEqual({ status: 'ABANDONED' });
     expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'instance_1' },
@@ -157,6 +166,34 @@ describe('GroupBuyLifecycleService', () => {
         abandonedAt: expect.any(Date),
       }),
     }));
+  });
+
+  it('rejects abandon when the instance id does not match the current user', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyInstance.findFirst.mockResolvedValueOnce(null);
+
+    await expect(service.abandonCurrent('user_1', 'other_instance'))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.groupBuyInstance.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: 'other_instance',
+        userId: 'user_1',
+        status: 'QUALIFICATION_PENDING',
+      },
+    }));
+    expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects terminate when there is no active sharing instance', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyInstance.findFirst.mockResolvedValueOnce(null);
+
+    await expect(service.terminateCurrent('user_1'))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
+    expect(tx.groupBuyCode.update).not.toHaveBeenCalled();
   });
 
   it('terminates the current sharing instance and disables its code', async () => {

@@ -97,10 +97,22 @@ export default function ScannerScreen() {
     return null;
   };
 
+  const parseGroupBuyCode = (data: string): string | null => {
+    const urlMatch = data.match(/app\.ai-maimai\.com\/gb\/([A-Z2-9]{10})/i);
+    if (urlMatch) return urlMatch[1].toUpperCase();
+    return null;
+  };
+
   // 扫描回调
   const handleBarCodeScanned = useCallback(
     ({ data }: { data: string }) => {
       if (scanned || bindMutation.isPending) return;
+      const groupBuyCode = parseGroupBuyCode(data);
+      if (groupBuyCode) {
+        setScanned(true);
+        router.push({ pathname: '/gb/[code]' as any, params: { code: groupBuyCode } });
+        return;
+      }
       const code = parseReferralCode(data);
       if (!code) {
         show({ message: '未识别到有效推荐码', type: 'info' });

@@ -27,7 +27,6 @@ export class GroupBuyTierConfigDto {
   @Type(() => Number)
   @IsInt({ message: '返还比例必须为整数基点' })
   @Min(1, { message: '返还比例必须大于 0' })
-  @Max(10000, { message: '单个返还比例不能超过 100%' })
   basisPoints: number;
 
   @IsOptional()

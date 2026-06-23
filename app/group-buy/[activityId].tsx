@@ -19,7 +19,10 @@ import { GroupBuyRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
+import { buildGroupBuyActivityRules } from '../../src/utils/groupBuyRules';
 import type { GroupBuyActivity, GroupBuyCurrentState } from '../../src/types';
+
+type EndCurrentInput = { mode: 'terminate' | 'abandon'; instanceId?: string };
 
 const emptyCurrentState: GroupBuyCurrentState = {
   current: null,
@@ -81,30 +84,32 @@ export default function GroupBuyActivityDetailScreen() {
     queryKey: ['group-buy-current'],
     queryFn: () => GroupBuyRepo.getCurrent(),
     enabled: isLoggedIn,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const activity = activityQuery.data?.ok ? activityQuery.data.data : null;
   const currentState = currentQuery.data?.ok ? currentQuery.data.data : emptyCurrentState;
   const current = currentState.current;
 
-  const rules = useMemo(() => [
-    '购买本商品并确认收货后，若没有退换货，会生成本次团购推荐码。',
-    '只有通过你的推荐码购买同一团购商品的其他用户，才会计入推荐人数。',
-    '团购无法使用红包，消费积分抵扣等优惠活动。',
-    '最多推荐3人，每次推荐都会获得相应奖励。',
-    '同一时间只能有1个团购推荐码。',
-    '可以随时终止团购，终止后未推荐的奖励即刻失效。',
-  ], []);
+  const rules = useMemo(
+    () => buildGroupBuyActivityRules(activity?.tiers.length ?? 0),
+    [activity?.tiers.length],
+  );
 
   const endMutation = useMutation({
-    mutationFn: async (mode: 'terminate' | 'abandon') => {
+    mutationFn: async ({ mode, instanceId }: EndCurrentInput) => {
       if (mode === 'abandon') {
-        return runResult(GroupBuyRepo.abandonCurrent());
+        if (!instanceId) throw new Error('团购状态已变化，请刷新后重试');
+        return runResult(GroupBuyRepo.abandonCurrent(instanceId));
       }
       return runResult(GroupBuyRepo.terminateCurrent());
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
+      await queryClient.refetchQueries({ queryKey: ['group-buy-current'] });
       show({ message: '本次团购已处理', type: 'success' });
     },
     onError: (error) => {
@@ -142,7 +147,7 @@ export default function GroupBuyActivityDetailScreen() {
   const handleEndAndBuy = async () => {
     if (!activity || !current) return;
     const mode = current.status === 'QUALIFICATION_PENDING' ? 'abandon' : 'terminate';
-    await endMutation.mutateAsync(mode);
+    await endMutation.mutateAsync({ mode, instanceId: current.id });
     setGuardOpen(false);
     navigateToCheckout(activity);
   };
@@ -187,6 +192,20 @@ export default function GroupBuyActivityDetailScreen() {
           title="团购商品加载失败"
           description={activityQuery.data?.ok === false ? activityQuery.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
           onAction={() => activityQuery.refetch()}
+        />
+      </Screen>
+    );
+  }
+
+  if (isLoggedIn && currentQuery.data && !currentQuery.data.ok) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="团购详情" />
+        <ErrorState
+          title="团购状态加载失败"
+          description={currentQuery.data.error.displayMessage ?? '请刷新后重试'}
+          actionLabel="重新加载"
+          onAction={() => currentQuery.refetch()}
         />
       </Screen>
     );

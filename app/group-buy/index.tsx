@@ -27,6 +27,7 @@ import { compactActionTextProps, fitTextProps, useBottomInset, useResponsiveLayo
 import type { GroupBuyActivity, GroupBuyCurrentState } from '../../src/types';
 
 type TabKey = 'CURRENT' | 'PRODUCTS';
+type EndCurrentInput = { mode: 'terminate' | 'abandon'; instanceId?: string };
 
 const emptyCurrentState: GroupBuyCurrentState = {
   current: null,
@@ -66,6 +67,10 @@ export default function GroupBuyIndexScreen() {
     queryKey: ['group-buy-current'],
     queryFn: () => GroupBuyRepo.getCurrent(),
     enabled: isLoggedIn,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const activities = activitiesQuery.data?.ok ? activitiesQuery.data.data.items : [];
@@ -90,14 +95,16 @@ export default function GroupBuyIndexScreen() {
   const closeGuard = () => setGuardTarget(null);
 
   const endMutation = useMutation({
-    mutationFn: async (mode: 'terminate' | 'abandon') => {
+    mutationFn: async ({ mode, instanceId }: EndCurrentInput) => {
       if (mode === 'abandon') {
-        return runResult(GroupBuyRepo.abandonCurrent());
+        if (!instanceId) throw new Error('团购状态已变化，请刷新后重试');
+        return runResult(GroupBuyRepo.abandonCurrent(instanceId));
       }
       return runResult(GroupBuyRepo.terminateCurrent());
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
+      await queryClient.refetchQueries({ queryKey: ['group-buy-current'] });
       show({ message: '本次团购已处理', type: 'success' });
     },
     onError: (error) => {
@@ -133,7 +140,7 @@ export default function GroupBuyIndexScreen() {
   const handleEndAndBuy = async () => {
     if (!guardTarget || !current) return;
     const mode = current.status === 'QUALIFICATION_PENDING' ? 'abandon' : 'terminate';
-    await endMutation.mutateAsync(mode);
+    await endMutation.mutateAsync({ mode, instanceId: current.id });
     const target = guardTarget;
     closeGuard();
     navigateToActivity(target);
@@ -178,6 +185,20 @@ export default function GroupBuyIndexScreen() {
           title="团购加载失败"
           description={activitiesQuery.data?.ok === false ? activitiesQuery.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
           onAction={() => activitiesQuery.refetch()}
+        />
+      </Screen>
+    );
+  }
+
+  if (isLoggedIn && currentQuery.data && !currentQuery.data.ok) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="团购" />
+        <ErrorState
+          title="团购状态加载失败"
+          description={currentQuery.data.error.displayMessage ?? '请刷新后重试'}
+          actionLabel="重新加载"
+          onAction={() => currentQuery.refetch()}
         />
       </Screen>
     );
@@ -311,8 +332,8 @@ export default function GroupBuyIndexScreen() {
         {activeTab === 'CURRENT' && current ? (
           <GroupBuyCurrentPanel
             current={current}
-            onTerminate={() => endMutation.mutate('terminate')}
-            onAbandon={() => endMutation.mutate('abandon')}
+            onTerminate={() => endMutation.mutate({ mode: 'terminate', instanceId: current.id })}
+            onAbandon={() => endMutation.mutate({ mode: 'abandon', instanceId: current.id })}
             terminating={endMutation.isPending}
             abandoning={endMutation.isPending}
           />

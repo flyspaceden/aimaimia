@@ -2,6 +2,7 @@ import {
   GroupBuyActivity,
   GroupBuyActivityPage,
   GroupBuyCheckoutInput,
+  GroupBuyCheckoutPreview,
   GroupBuyCheckoutResponse,
   GroupBuyCurrentState,
   GroupBuyLandingInfo,
@@ -193,7 +194,7 @@ export const GroupBuyRepo = {
 
   getCurrent: async (): Promise<Result<GroupBuyCurrentState>> => {
     if (USE_MOCK) return simulateRequest(mockCurrent);
-    return ApiClient.get<GroupBuyCurrentState>('/group-buy/me/current');
+    return ApiClient.get<GroupBuyCurrentState>('/group-buy/me/current', undefined, { noCache: true });
   },
 
   createCheckout: async (
@@ -220,6 +221,24 @@ export const GroupBuyRepo = {
     });
   },
 
+  previewCheckout: async (
+    input: GroupBuyCheckoutInput,
+  ): Promise<Result<GroupBuyCheckoutPreview>> => {
+    if (USE_MOCK) {
+      const activity = mockActivities.find((item) => item.id === input.activityId);
+      if (!activity) return notFound('团购商品不存在') as Result<GroupBuyCheckoutPreview>;
+      const shippingFee = activity.freeShipping ? 0 : 12;
+      return simulateRequest({
+        expectedTotal: Number((activity.price + shippingFee).toFixed(2)),
+        goodsAmount: activity.price,
+        shippingFee,
+        discountAmount: 0,
+      });
+    }
+
+    return ApiClient.post<GroupBuyCheckoutPreview>('/group-buy/checkout/preview', input);
+  },
+
   getLanding: async (code: string): Promise<Result<GroupBuyLandingInfo>> => {
     if (USE_MOCK) {
       const valid = code === 'GB123456';
@@ -239,9 +258,12 @@ export const GroupBuyRepo = {
     return ApiClient.post('/group-buy/me/current/terminate');
   },
 
-  abandonCurrent: async (): Promise<Result<{ status: string }>> => {
+  abandonCurrent: async (instanceId: string): Promise<Result<{ status: string }>> => {
+    if (!instanceId) {
+      return err(createAppError('INVALID', '缺少团购资格ID', '团购状态已变化，请刷新后重试'));
+    }
     if (USE_MOCK) return simulateRequest({ status: 'ABANDONED' });
-    return ApiClient.post('/group-buy/me/current/abandon');
+    return ApiClient.post(`/group-buy/me/current/${encodeURIComponent(instanceId)}/abandon`);
   },
 
   getRebateAccount: async (): Promise<Result<GroupBuyRebateAccount>> => {

@@ -28,6 +28,11 @@
               "scheme": "https",
               "host": "app.ai-maimai.com",
               "pathPrefix": "/r/"
+            },
+            {
+              "scheme": "https",
+              "host": "app.ai-maimai.com",
+              "pathPrefix": "/gb/"
             }
           ],
           "category": [
