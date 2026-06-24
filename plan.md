@@ -63,7 +63,11 @@
 - [x] **卖家中心侧边菜单导航恢复**（2026-06-23 新增并完成）
   - **来源**: 测试版登录卖家中心后页面看起来变暗且侧边菜单点击无反应，需要确认正式版风险。
   - **实际做了**: 排查测试版 DOM 未发现 Ant Design modal/drawer mask 或前端报错；根因收敛为 SellerLayout 菜单项只绑定 `onClick`、没有真实 `href`，点击链路在当前构建中可被吞掉。菜单项已补 `href={item.path || '#'}`，保留未保存更改确认和 SPA `navigate`；正式版同源代码也同步修复。
-  - **验证**: `node --test seller/test/waybillPrint.test.ts`、`seller npm run build`、`backend npm test -- seller-shipping.controller.spec.ts --runInBand`、`backend npm run build` 通过。
+
+- [x] **测试版订单详情打印入口收口**（2026-06-23 新增并完成）
+  - **来源**: 测试版订单详情点击打印仍跳到 `test-api.../waybill/print`，后端返回“该订单未生成电子面单”的 JSON。
+  - **实际做了**: 审查确认 `staging` 订单详情发货操作区和物流信息区仍直接打开 `order.shipment.waybillPrintUrl`，而 `main` 已走本地拣货单打印。`staging` 已改为统一调用 `printSellerWaybill(order)`，不再依赖电子面单代理 URL；新增 `seller/test/orderDetailPrint.test.ts` 防回归。
+  - **验证**: `node --test seller/test/orderDetailPrint.test.ts seller/test/waybillPrint.test.ts seller/test/sellerLayoutNavigation.test.ts`、`seller npm run build` 通过。
 
 - [x] **配送买家 App 模块（Task 13）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 13 brief

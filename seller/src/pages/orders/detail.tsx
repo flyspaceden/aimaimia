@@ -35,8 +35,10 @@ import {
 } from '@/api/orders';
 import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
-import { toAbsoluteApiUrl } from '@/utils/api-url';
-import { buildPickingSheetHtml, resolveBundleComponentQuantity } from '@/utils/waybillPrint';
+import {
+  printSellerWaybill,
+  resolveBundleComponentQuantity,
+} from '@/utils/waybillPrint';
 import dayjs from 'dayjs';
 
 // 根据订单状态和物流状态计算进度步骤
@@ -120,6 +122,14 @@ export default function OrderDetailPage() {
     });
   };
 
+  const handlePrintWaybill = () => {
+    if (!order) return;
+    const result = printSellerWaybill(order);
+    if (result === 'blocked') {
+      message.error('浏览器拦截了打印窗口，请允许弹窗后重试');
+    }
+  };
+
   const handleCallBuyer = async () => {
     setCallingBuyer(true);
     try {
@@ -142,25 +152,6 @@ export default function OrderDetailPage() {
     } finally {
       setCallingBuyer(false);
     }
-  };
-
-  const handlePrintPickingSheet = () => {
-    if (!order) {
-      return;
-    }
-
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
-    if (!printWindow) {
-      message.warning('浏览器拦截了拣货单弹窗，请允许弹窗后重试');
-      return;
-    }
-
-    printWindow.document.write(buildPickingSheetHtml(order));
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.focus();
-      setTimeout(() => printWindow.print(), 200);
-    };
   };
 
   if (isLoading || !order) {
@@ -337,22 +328,15 @@ export default function OrderDetailPage() {
           ) : (
             <div>
               <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                面单已生成，打印并贴单后即可确认发货。
+                面单已生成，打印清单只包含商品明细和数量，拣货核对后即可确认发货。
               </Typography.Paragraph>
               <Space size="middle">
                 <Button
                   icon={<PrinterOutlined />}
                   size="large"
-                  onClick={() => {
-                    const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-                    if (url) {
-                      window.open(url, '_blank', 'noopener,noreferrer');
-                    } else {
-                      message.warning('面单文件暂无（生成时下载可能失败），请点「取消面单」后重新生成');
-                    }
-                  }}
+                  onClick={handlePrintWaybill}
                 >
-                  打印面单
+                  打印清单
                 </Button>
                 {order.shipment?.status === 'INIT' && (
                   <Button danger onClick={handleCancelWaybill}>
@@ -412,7 +396,7 @@ export default function OrderDetailPage() {
       <Card
         title={`商品清单 (${order.items.length})`}
         extra={(
-          <Button icon={<PrinterOutlined />} onClick={handlePrintPickingSheet}>
+          <Button icon={<PrinterOutlined />} onClick={handlePrintWaybill}>
             打印拣货单
           </Button>
         )}
@@ -580,16 +564,9 @@ export default function OrderDetailPage() {
                     type="link"
                     size="small"
                     icon={<PrinterOutlined />}
-                    onClick={() => {
-                      const url = toAbsoluteApiUrl(order.shipment?.waybillPrintUrl);
-                      if (url) {
-                        window.open(url, '_blank', 'noopener,noreferrer');
-                      } else {
-                        message.warning('面单文件暂无，请重新生成面单后再打印');
-                      }
-                    }}
+                    onClick={handlePrintWaybill}
                   >
-                    打印
+                    打印清单
                   </Button>
                   {order.shipment.status === 'INIT' && canManageShipment && (
                     <Button

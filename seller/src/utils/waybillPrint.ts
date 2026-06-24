@@ -1,5 +1,7 @@
 import type { Order, OrderItem, OrderItemBundleComponent } from '../types/index.ts';
 
+type PrintResult = 'opened' | 'blocked';
+
 const PRIZE_TYPE_LABELS: Record<string, string> = {
   THRESHOLD_GIFT: '满额赠品',
   DISCOUNT_BUY: '特价购',
@@ -191,4 +193,21 @@ export function buildPickingSheetHtml(
       </body>
     </html>
   `;
+}
+
+export function buildSellerWaybillPrintHtml(
+  order: Pick<Order, 'id' | 'createdDate' | 'buyerAlias' | 'buyerNo' | 'regionText' | 'items'>,
+): string {
+  return buildPickingSheetHtml(order);
+}
+
+export function printSellerWaybill(order: Order): PrintResult {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return 'blocked';
+
+  printWindow.document.write(buildSellerWaybillPrintHtml(order));
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 300);
+  return 'opened';
 }
