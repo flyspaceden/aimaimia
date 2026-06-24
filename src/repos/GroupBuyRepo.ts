@@ -61,7 +61,6 @@ const mockActivities: GroupBuyActivity[] = [
     price: 1000,
     freeShipping: true,
     shippingSummary: '本活动商品包邮',
-    ruleSummary: '仅限直接推荐全新用户购买同款商品',
     product: {
       id: 'product-lobster',
       title: '鲜活大龙虾',
@@ -111,7 +110,6 @@ const mockActivities: GroupBuyActivity[] = [
     price: 268,
     freeShipping: false,
     shippingSummary: '按商品配置收取运费',
-    ruleSummary: '新客完成有效订单后计入分享进度',
     product: {
       id: 'product-melon',
       title: '精品蜜瓜礼盒',

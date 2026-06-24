@@ -67,6 +67,14 @@ describe('GroupBuyService', () => {
       return { prisma, service: new (GroupBuyService as any)(prisma) as GroupBuyService };
     };
 
+    it('does not expose rule summary in buyer activity payloads', async () => {
+      const { service } = buildPrisma();
+
+      const result = await service.findActiveActivities();
+
+      expect(result.items[0]).not.toHaveProperty('ruleSummary');
+    });
+
     const buildInstance = (status: string, overrides: Record<string, unknown> = {}) => ({
       id: 'instance_1',
       status,

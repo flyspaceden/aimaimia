@@ -2,6 +2,13 @@ import type { Order, OrderItem, OrderItemBundleComponent } from '../types/index.
 
 type PrintResult = 'opened' | 'blocked';
 
+type SellerWaybillOrder = Pick<
+  Order,
+  'id' | 'createdDate' | 'buyerAlias' | 'buyerNo' | 'regionText' | 'items'
+> & {
+  shipment?: Order['shipment'] | null;
+};
+
 const PRIZE_TYPE_LABELS: Record<string, string> = {
   THRESHOLD_GIFT: '满额赠品',
   DISCOUNT_BUY: '特价购',
@@ -54,150 +61,205 @@ export function resolveBundleComponentQuantity(
   return quantityPerBundle * parent;
 }
 
-export function buildPickingSheetHtml(
-  order: Pick<Order, 'id' | 'createdDate' | 'buyerAlias' | 'buyerNo' | 'regionText' | 'items'>,
-): string {
+export function buildPickingSheetHtml(order: SellerWaybillOrder): string {
   const itemRows = order.items
     .map((item, index) => {
       const label = itemLabel(item);
       return `
-      <tr>
-        <td class="index">${index + 1}</td>
-        <td>
-          <div class="item-title-row">
-            <span class="item-title">${escapeHtml(item.title || '-')}</span>
-            <span class="item-inline-qty">x${item.quantity}</span>
-            ${label ? `<span class="item-type">${escapeHtml(label)}</span>` : ''}
-          </div>
-        </td>
-        <td class="quantity">${item.quantity}</td>
-      </tr>
-    `;
+        <tr>
+          <td class="index">${index + 1}</td>
+          <td>
+            <div class="item-title-row">
+              <span class="item-title">${escapeHtml(item.title || '-')}</span>
+              <span class="item-inline-qty">x${item.quantity}</span>
+              ${label ? `<span class="item-meta">${escapeHtml(label)}</span>` : ''}
+            </div>
+          </td>
+          <td class="quantity">${item.quantity}</td>
+        </tr>
+      `;
     })
     .join('');
 
-  return `
-    <!doctype html>
-    <html lang="zh-CN">
-      <head>
-        <meta charset="utf-8" />
-        <title>拣货单 - ${escapeHtml(order.id)}</title>
-        <style>
-          * { box-sizing: border-box; }
-          body {
-            margin: 0;
-            padding: 24px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            color: #1f1f1f;
-            background: #fff;
-            font-size: 16px;
-          }
-          h1 {
-            margin: 0 0 12px;
-            font-size: 34px;
-            line-height: 1.2;
-          }
-          .meta {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px 18px;
-            margin-bottom: 20px;
-            font-size: 16px;
-          }
-          .section {
-            margin-top: 24px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 17px;
-          }
-          th, td {
-            border: 1px solid #d9d9d9;
-            padding: 14px 12px;
-            vertical-align: top;
-            text-align: left;
-          }
-          th {
-            background: #fafafa;
-            font-weight: 600;
-          }
-          .index {
-            width: 44px;
-            text-align: center;
-            color: #5f6b7a;
-          }
-          .item-title-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            min-width: 0;
-          }
-          .item-title {
-            font-weight: 700;
-            font-size: 22px;
-            line-height: 1.35;
-          }
-          .item-inline-qty {
-            color: #111827;
-            font-family: Menlo, Consolas, monospace;
-            font-weight: 700;
-            font-size: 18px;
-          }
-          .item-type {
-            display: inline-block;
-            padding: 2px 8px;
-            border: 1px solid #d9d9d9;
-            border-radius: 999px;
-            font-size: 15px;
-            color: #595959;
-            white-space: nowrap;
-          }
-          .quantity {
-            width: 104px;
-            text-align: center;
-            white-space: nowrap;
-            font-family: Menlo, Consolas, monospace;
-            font-weight: 700;
-            font-size: 26px;
-          }
-          @media print {
-            body {
-              padding: 12mm;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <h1>订单拣货单</h1>
-        <div class="meta">
-          <div><strong>订单号：</strong>${escapeHtml(order.id)}</div>
-          <div><strong>下单日期：</strong>${escapeHtml(order.createdDate)}</div>
-          <div><strong>买家：</strong>${escapeHtml(order.buyerAlias)}</div>
-          <div><strong>买家编号：</strong>${escapeHtml(order.buyerNo || '-')}</div>
-          <div><strong>配送区域：</strong>${escapeHtml(order.regionText || '-')}</div>
-        </div>
+  const shipment = order.shipment;
+  const carrier = shipment?.carrierName || shipment?.carrierCode || '-';
+  const waybillNo = shipment?.waybillNo || shipment?.trackingNo || '-';
+  const buyerNo = order.buyerNo || '-';
+  const region = order.regionText || '-';
 
-        <section class="section">
-          <table>
-            <thead>
-              <tr>
-                <th class="index">#</th>
-                <th>商品</th>
-                <th class="quantity">数量</th>
-              </tr>
-            </thead>
-            <tbody>${itemRows}</tbody>
-          </table>
-        </section>
-      </body>
-    </html>
-  `;
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>订单拣货单 ${escapeHtml(order.id)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: #f5f5f5;
+        color: #1f2933;
+        font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-size: 16px;
+      }
+      .page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0 auto;
+        padding: 12mm;
+        background: #fff;
+      }
+      .header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        border-bottom: 2px solid #1f2933;
+        padding-bottom: 12px;
+        margin-bottom: 14px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.2;
+      }
+      .subtle {
+        color: #5f6b7a;
+        font-size: 16px;
+        margin-top: 6px;
+      }
+      .waybill-no {
+        text-align: right;
+        font-size: 16px;
+        line-height: 1.8;
+      }
+      .waybill-no strong {
+        display: block;
+        color: #111827;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 24px;
+      }
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px 18px;
+        margin-bottom: 18px;
+        font-size: 16px;
+      }
+      .meta span {
+        color: #5f6b7a;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 17px;
+      }
+      th {
+        text-align: left;
+        background: #eef2f7;
+        border: 1px solid #d8dee8;
+        padding: 11px 10px;
+      }
+      td {
+        border: 1px solid #d8dee8;
+        padding: 14px 10px;
+        vertical-align: top;
+      }
+      .index {
+        width: 44px;
+        text-align: center;
+        color: #5f6b7a;
+      }
+      .item-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 0;
+      }
+      .item-title {
+        font-weight: 700;
+        font-size: 22px;
+        line-height: 1.35;
+      }
+      .item-inline-qty {
+        color: #111827;
+        font-family: Menlo, Consolas, monospace;
+        font-weight: 700;
+        font-size: 18px;
+      }
+      .item-meta {
+        border: 1px solid #d8dee8;
+        border-radius: 999px;
+        color: #5f6b7a;
+        font-size: 15px;
+        padding: 2px 8px;
+      }
+      .quantity {
+        width: 104px;
+        text-align: center;
+        white-space: nowrap;
+        font-family: Menlo, Consolas, monospace;
+        font-weight: 700;
+        font-size: 26px;
+      }
+      @media print {
+        body { background: #fff; }
+        .page {
+          width: auto;
+          min-height: auto;
+          margin: 0;
+          padding: 10mm;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page">
+      <div class="header">
+        <div>
+          <h1>订单拣货单</h1>
+          <div class="subtle">爱买买卖家中心</div>
+        </div>
+        <div class="waybill-no">
+          电子面单号
+          <strong>${escapeHtml(waybillNo)}</strong>
+        </div>
+      </div>
+      <div class="meta">
+        <div><span>订单号：</span>${escapeHtml(order.id)}</div>
+        <div><span>下单日期：</span>${escapeHtml(order.createdDate || '-')}</div>
+        <div><span>买家：</span>${escapeHtml(order.buyerAlias || '-')}</div>
+        <div><span>用户编号：</span>${escapeHtml(buyerNo)}</div>
+        <div><span>地区：</span>${escapeHtml(region)}</div>
+        <div><span>快递公司：</span>${escapeHtml(carrier)}</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th class="index">#</th>
+            <th>商品</th>
+            <th class="quantity">数量</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+    </section>
+    <script>
+      (function () {
+        var printed = false;
+        function printNow() {
+          if (printed) return;
+          printed = true;
+          window.focus();
+          setTimeout(function () { window.print(); }, 300);
+        }
+        setTimeout(printNow, 1800);
+      })();
+    </script>
+  </body>
+</html>`;
 }
 
-export function buildSellerWaybillPrintHtml(
-  order: Pick<Order, 'id' | 'createdDate' | 'buyerAlias' | 'buyerNo' | 'regionText' | 'items'>,
-): string {
+export function buildSellerWaybillPrintHtml(order: SellerWaybillOrder): string {
   return buildPickingSheetHtml(order);
 }
 
@@ -207,7 +269,5 @@ export function printSellerWaybill(order: Order): PrintResult {
 
   printWindow.document.write(buildSellerWaybillPrintHtml(order));
   printWindow.document.close();
-  printWindow.focus();
-  setTimeout(() => printWindow.print(), 300);
   return 'opened';
 }
