@@ -136,8 +136,9 @@ export default function SellerLayout() {
         },
       }}
       menuItemRender={(item, dom) => (
-        <a onClick={() => {
+        <a href={item.path || '#'} onClick={(event) => {
           if (!item.path) return;
+          event.preventDefault();
           if (isGlobalDirty()) {
             // eslint-disable-next-line no-restricted-globals
             const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');

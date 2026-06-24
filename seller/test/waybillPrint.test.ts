@@ -62,7 +62,7 @@ test('builds a one-page seller packing slip with order items and quantities', ()
   assert.match(html, /龙虾 &lt;鲜活&gt;/);
   assert.doesNotMatch(html, /详情清单/);
   assert.doesNotMatch(html, /多样海产品组合/);
-  assert.doesNotMatch(html, /item-inline-qty/);
+  assert.match(html, /<span class="item-inline-qty">x2<\/span>/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.match(html, /满额赠品/);
   assert.doesNotMatch(html, /普通/);
@@ -83,6 +83,7 @@ test('uses larger print typography for warehouse picking', () => {
   assert.match(html, /\.meta\s*\{[\s\S]*font-size: 16px;/);
   assert.match(html, /table\s*\{[\s\S]*font-size: 17px;/);
   assert.match(html, /\.item-title\s*\{[\s\S]*font-size: 22px;/);
+  assert.match(html, /\.item-inline-qty\s*\{[\s\S]*font-size: 18px;/);
   assert.match(html, /\.quantity\s*\{[\s\S]*font-size: 26px;/);
 });
 
@@ -176,6 +177,7 @@ test('renders only the order item rows on the seller picking sheet', () => {
   const html = buildPickingSheetHtml(bundleOrder);
 
   assert.match(html, /水果礼盒/);
+  assert.match(html, /<span class="item-inline-qty">x2<\/span>/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.doesNotMatch(html, /详情清单/);
   assert.doesNotMatch(html, /红富士苹果 5斤装 \+ 皇冠梨 3斤装/);
@@ -230,6 +232,8 @@ test('does not print a second picking summary for normal and bundle items', () =
 
   assert.match(html, /红富士苹果/);
   assert.match(html, /水果礼盒/);
+  assert.match(html, /<span class="item-inline-qty">x1<\/span>/);
+  assert.match(html, /<span class="item-inline-qty">x2<\/span>/);
   assert.match(html, /<td class="quantity">1<\/td>/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.doesNotMatch(html, /普通/);
@@ -270,6 +274,7 @@ test('keeps normal item sku text out of the printable picking sheet', () => {
   const html = buildPickingSheetHtml(liveOrder);
 
   assert.match(html, /烟台苹果/);
+  assert.match(html, /<span class="item-inline-qty">x2<\/span>/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.doesNotMatch(html, /脆甜款/);
   assert.doesNotMatch(html, /普通/);
