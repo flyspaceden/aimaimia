@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPickingSheetHtml } from '../src/utils/waybillPrint.ts';
+import { buildPickingSheetHtml, resolveBundleComponentQuantity } from '../src/utils/waybillPrint.ts';
 import type { Order } from '../src/types/index.ts';
 
-test('renders bundle component rows and picking summary without prices', () => {
+test('renders only the order item rows on the seller picking sheet', () => {
   const order: Order = {
     id: 'order-bundle-1',
     status: 'PAID',
@@ -19,6 +19,7 @@ test('renders bundle component rows and picking summary without prices', () => {
       {
         id: 'item-bundle',
         title: '水果礼盒',
+        description: '红富士苹果 5斤装 + 皇冠梨 3斤装',
         unitPrice: 88,
         quantity: 2,
         productType: 'BUNDLE',
@@ -35,14 +36,19 @@ test('renders bundle component rows and picking summary without prices', () => {
 
   const html = buildPickingSheetHtml(order);
 
-  assert.match(html, /水果礼盒[\s\S]*x2/);
-  assert.match(html, /组合明细[\s\S]*红富士苹果[\s\S]*5斤装[\s\S]*x4/);
-  assert.match(html, /组合明细[\s\S]*皇冠梨[\s\S]*3斤装[\s\S]*x2/);
-  assert.match(html, /拣货汇总[\s\S]*红富士苹果[\s\S]*5斤装[\s\S]*x4/);
+  assert.match(html, /水果礼盒/);
+  assert.match(html, /<td class="quantity">2<\/td>/);
+  assert.doesNotMatch(html, /详情清单/);
+  assert.doesNotMatch(html, /红富士苹果 5斤装 \+ 皇冠梨 3斤装/);
+  assert.doesNotMatch(html, /组合明细/);
+  assert.doesNotMatch(html, /普通/);
+  assert.doesNotMatch(html, /红富士苹果[\s\S]*5斤装[\s\S]*x4/);
+  assert.doesNotMatch(html, /皇冠梨[\s\S]*3斤装[\s\S]*x2/);
+  assert.doesNotMatch(html, /拣货汇总/);
   assert.doesNotMatch(html, /¥88(?:\.00)?/);
 });
 
-test('aggregates normal and bundle quantities and falls back to quantityPerBundle', () => {
+test('does not print a second picking summary for normal and bundle items', () => {
   const order: Order = {
     id: 'order-bundle-2',
     status: 'PAID',
@@ -83,11 +89,17 @@ test('aggregates normal and bundle quantities and falls back to quantityPerBundl
 
   const html = buildPickingSheetHtml(order);
 
-  assert.match(html, /拣货汇总[\s\S]*红富士苹果[\s\S]*5斤装[\s\S]*x5/);
-  assert.match(html, /拣货汇总[\s\S]*皇冠梨[\s\S]*3斤装[\s\S]*x2/);
+  assert.match(html, /红富士苹果/);
+  assert.match(html, /水果礼盒/);
+  assert.match(html, /<td class="quantity">1<\/td>/);
+  assert.match(html, /<td class="quantity">2<\/td>/);
+  assert.doesNotMatch(html, /普通/);
+  assert.doesNotMatch(html, /拣货汇总/);
+  assert.doesNotMatch(html, /5斤装[\s\S]*x5/);
+  assert.doesNotMatch(html, /皇冠梨[\s\S]*3斤装[\s\S]*x2/);
 });
 
-test('shows skuTitle in picking summary for live seller detail normal items', () => {
+test('keeps normal item sku text out of the printable picking sheet', () => {
   const order: Order = {
     id: 'order-live-normal-1',
     status: 'PAID',
@@ -118,74 +130,20 @@ test('shows skuTitle in picking summary for live seller detail normal items', ()
 
   const html = buildPickingSheetHtml(order);
 
-  assert.match(html, /拣货汇总[\s\S]*烟台苹果[\s\S]*脆甜款[\s\S]*x2/);
+  assert.match(html, /烟台苹果/);
+  assert.match(html, /<td class="quantity">2<\/td>/);
+  assert.doesNotMatch(html, /脆甜款/);
+  assert.doesNotMatch(html, /普通/);
+  assert.doesNotMatch(html, /拣货汇总/);
 });
 
-test('does not merge picking rows when distinct skuIds share the same title and skuTitle', () => {
-  const order: Order = {
-    id: 'order-sku-split-1',
-    status: 'PAID',
-    bizType: 'NORMAL_GOODS',
-    totalAmount: 126,
-    goodsAmount: 126,
-    shippingFee: 0,
-    createdDate: '2026-06-22',
-    buyerAlias: '买家004',
-    buyerNo: null,
-    regionText: '陕西省西安市雁塔区',
-    items: [
-      {
-        id: 'item-normal-1',
-        title: '红富士苹果',
-        skuId: 'sku-normal-1',
-        skuTitle: '礼盒装',
-        unitPrice: 20,
-        quantity: 1,
-        productType: 'SIMPLE',
-        bundleItems: [],
-      },
-      {
-        id: 'item-bundle-1',
-        title: '水果礼盒A',
-        unitPrice: 50,
-        quantity: 1,
-        productType: 'BUNDLE',
-        bundleItems: [
-          { productTitle: '红富士苹果', skuId: 'sku-bundle-2', skuTitle: '礼盒装', quantityPerBundle: 2 },
-        ],
-      },
-      {
-        id: 'item-bundle-2',
-        title: '水果礼盒B',
-        unitPrice: 56,
-        quantity: 1,
-        productType: 'BUNDLE',
-        bundleItems: [
-          { productTitle: '红富士苹果', skuId: 'sku-bundle-3', skuTitle: '礼盒装', totalQuantity: 3 },
-        ],
-      },
-    ],
-    shipment: null,
-    refundSummary: null,
-    invoiceStatus: null,
-  };
-
-  const html = buildPickingSheetHtml(order);
-  const summarySection = html.match(/<h2>拣货汇总<\/h2>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? '';
-  const appleRows = Array.from(
-    summarySection.matchAll(/红富士苹果[\s\S]*?礼盒装\s*\(([^)]*?)\)[\s\S]*?x(\d+)/g),
-  ).map((match) => ({
-    label: match[1],
-    qty: Number(match[2]),
-  }));
-
-  assert.equal(appleRows.length, 3);
-  assert.deepEqual(
-    appleRows.map((row) => row.qty).sort((a, b) => a - b),
-    [1, 2, 3],
+test('still resolves bundle component quantity for the seller order detail view', () => {
+  assert.equal(
+    resolveBundleComponentQuantity({ productTitle: '红富士苹果', quantityPerBundle: 2 }, 3),
+    6,
   );
-  appleRows.forEach((row) => {
-    assert.match(row.label, /^#/);
-  });
-  assert.deepEqual(new Set(appleRows.map((row) => row.label)).size, 3);
+  assert.equal(
+    resolveBundleComponentQuantity({ productTitle: '皇冠梨', totalQuantity: 5 }, 3),
+    5,
+  );
 });
