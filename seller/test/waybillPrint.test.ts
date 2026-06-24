@@ -37,6 +37,7 @@ test('renders only the order item rows on the seller picking sheet', () => {
   const html = buildPickingSheetHtml(order);
 
   assert.match(html, /水果礼盒/);
+  assert.match(html, /<span class="item-inline-qty">x2<\/span>/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.doesNotMatch(html, /详情清单/);
   assert.doesNotMatch(html, /红富士苹果 5斤装 \+ 皇冠梨 3斤装/);
@@ -91,6 +92,8 @@ test('does not print a second picking summary for normal and bundle items', () =
 
   assert.match(html, /红富士苹果/);
   assert.match(html, /水果礼盒/);
+  assert.match(html, /<span class="item-inline-qty">x1<\/span>/);
+  assert.match(html, /<span class="item-inline-qty">x2<\/span>/);
   assert.match(html, /<td class="quantity">1<\/td>/);
   assert.match(html, /<td class="quantity">2<\/td>/);
   assert.doesNotMatch(html, /普通/);

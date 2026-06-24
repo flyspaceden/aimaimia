@@ -64,6 +64,7 @@ export function buildPickingSheetHtml(
         <td>
           <div class="item-title-row">
             <span class="item-title">${escapeHtml(item.title || '-')}</span>
+            <span class="item-inline-qty">x${item.quantity}</span>
             ${label ? `<span class="item-type">${escapeHtml(label)}</span>` : ''}
           </div>
         </td>
@@ -134,6 +135,12 @@ export function buildPickingSheetHtml(
             font-weight: 700;
             font-size: 22px;
             line-height: 1.35;
+          }
+          .item-inline-qty {
+            color: #111827;
+            font-family: Menlo, Consolas, monospace;
+            font-weight: 700;
+            font-size: 18px;
           }
           .item-type {
             display: inline-block;
