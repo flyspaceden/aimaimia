@@ -23,7 +23,7 @@
 
 - [x] **组合商品架构文档与安全清单补齐**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 15
-  - **实际做了**: 更新 `docs/architecture/data-system.md`、`seller.md`、`frontend.md`、`responsive-design.md`，补齐 `ProductType` / `ProductBundleItem`、卖家组合编辑器、买家组合展示、结算组件库存展开、整套售后规则与卖家拣货汇总说明；并按 `docs/issues/tofix-safe.md` checklist 完成组合商品安全审阅，结论为本任务不需要新增或改写 tracked issue
+  - **实际做了**: 更新 `docs/architecture/data-system.md`、`seller.md`、`frontend.md`、`responsive-design.md`，补齐 `ProductType` / `ProductBundleItem`、卖家组合编辑器、买家组合展示、结算组件库存展开、整套售后规则与卖家打印清单口径；并按 `docs/issues/tofix-safe.md` checklist 完成组合商品安全审阅，结论为本任务不需要新增或改写 tracked issue
   - **验证**: `git diff --check`、bundle 相关实现 grep 对齐、文档最小一致性复核
 
 - [x] **买家端组合商品购物车/订单/售后展示**（2026-06-22 新增并完成）
@@ -38,7 +38,7 @@
 
 - [x] **卖家订单详情组合商品展示与拣货单打印**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 12
-  - **实际做了**: 卖家订单详情 `OrderItem` 类型补齐 `productType` / `bundleItems`；商品清单卡为组合商品保留父购买行并展开组件明细；新增 `waybillPrint.ts` 生成无价格拣货单 HTML，打印页同时展示原始订单、组合组件明细和普通商品 + 组合组件合并后的 SKU 级拣货汇总
+  - **实际做了**: 卖家订单详情 `OrderItem` 类型补齐 `productType` / `bundleItems`；商品清单卡为组合商品保留父购买行并展开组件明细；新增 `waybillPrint.ts` 生成无价格拣货单 HTML；2026-06-23 调整打印页为只打印父订单商品行和数量，不再输出详情清单、组合组件明细或 SKU 级拣货汇总
   - **验证**: `cd seller && node --test test/waybillPrint.test.ts`、`cd seller && npm run build`、`git diff --check`
 
 - [x] **管理后台组合商品审核/详情展示**（2026-06-22 新增并完成）
@@ -123,7 +123,7 @@
 
 - [x] **卖家订单打印清单**（2026-06-18 新增并完成）
   - **来源**: 卖家中心订单详情点击打印后只打开面单/异常页面，卖家无法直接看包裹内有哪些货。
-  - **实际做了**: 卖家订单详情“打印”改为“打印清单”，新打印页只展示订单号、买家匿名信息、地区、电子面单号和商品明细/数量，不输出单价、小计、商品金额等卖家平台价格，不再附电子面单 iframe，避免第二页空白；打印清单整体改大字号，商品名称和数量加大加粗，普通商品不再显示“普通”标签；后端打印代理按 Content-Type / PDF 文件头识别 PDF，避免签名下载链接被误当图片处理。
+  - **实际做了**: 卖家订单详情“打印”改为“打印清单”，新打印页只展示订单号、买家匿名信息、地区、电子面单号和商品/数量，不输出单价、小计、商品金额等卖家平台价格，不再附电子面单 iframe，避免第二页空白；打印清单整体改大字号，商品名称和数量加大加粗，普通商品不再显示“普通”标签；2026-06-23 起进一步移除商品行内“详情清单”、组合明细和第二页拣货汇总，避免组合商品上线后重复打印；后端打印代理按 Content-Type / PDF 文件头识别 PDF，避免签名下载链接被误当图片处理。
   - **验证**: `node --test seller/test/waybillPrint.test.ts`、`seller npm run build`、`backend npm test -- seller-shipping.controller.spec.ts --runInBand`、`backend npm run build` 通过。
 
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）

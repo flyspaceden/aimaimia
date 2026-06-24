@@ -9,14 +9,6 @@ type SellerWaybillOrder = Pick<
   shipment?: Order['shipment'] | null;
 };
 
-type PickingComponentSummary = {
-  skuId?: string;
-  disambiguator?: string;
-  title: string;
-  skuTitle: string;
-  quantity: number;
-};
-
 const PRIZE_TYPE_LABELS: Record<string, string> = {
   THRESHOLD_GIFT: '满额赠品',
   DISCOUNT_BUY: '特价购',
@@ -36,15 +28,6 @@ function toPositiveInteger(value: unknown): number | null {
   return Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
 }
 
-function trimOptional(value?: string | null): string | undefined {
-  const text = value?.trim();
-  return text ? text : undefined;
-}
-
-function itemDescription(item: OrderItem): string {
-  return typeof item.description === 'string' ? item.description.trim() : '';
-}
-
 function itemLabel(item: OrderItem): string {
   if (item.productType === 'BUNDLE') {
     return '组合商品';
@@ -53,34 +36,6 @@ function itemLabel(item: OrderItem): string {
     return '';
   }
   return item.prizeType ? (PRIZE_TYPE_LABELS[item.prizeType] ?? '奖品') : '奖品';
-}
-
-function resolveMerchantSkuCode(source?: unknown): string | undefined {
-  const sourceObj = source as { skuCode?: string | null; merchantSkuCode?: string | null } | undefined;
-  const skuCode = trimOptional(sourceObj?.skuCode);
-  if (skuCode) {
-    return skuCode;
-  }
-  return trimOptional(sourceObj?.merchantSkuCode);
-}
-
-function shortSkuSuffix(skuId?: string): string | undefined {
-  const text = trimOptional(skuId);
-  if (!text) {
-    return undefined;
-  }
-  return text.length > 6 ? text.slice(-6) : text;
-}
-
-function visibleSummaryLabel(entry: PickingComponentSummary): string {
-  return `${entry.title}__${entry.skuTitle}`;
-}
-
-function disambiguatorForEntry(entry: PickingComponentSummary): string {
-  if (!entry.disambiguator) {
-    return '';
-  }
-  return ` (${entry.disambiguator})`;
 }
 
 export function resolveBundleComponentQuantity(
@@ -106,157 +61,20 @@ export function resolveBundleComponentQuantity(
   return quantityPerBundle * parent;
 }
 
-function componentDisplayTitle(component: OrderItemBundleComponent): string {
-  return component.productTitle?.trim() || '未命名组件';
-}
-
-function componentDisplaySku(component: OrderItemBundleComponent): string {
-  return component.skuTitle?.trim() || component.skuName?.trim() || '-';
-}
-
-function bundleComponentsOf(item: OrderItem): OrderItemBundleComponent[] {
-  return Array.isArray(item.bundleItems) ? item.bundleItems : [];
-}
-
-function summaryKeyOf(input: { skuId?: string; title: string; skuTitle: string }): string {
-  const skuId = input.skuId?.trim();
-  if (skuId) {
-    return `sku:${skuId}`;
-  }
-  return `text:${input.title}__${input.skuTitle}`;
-}
-
-function renderBundleDetails(item: OrderItem): string {
-  if (item.productType !== 'BUNDLE') {
-    return '';
-  }
-
-  const rows = bundleComponentsOf(item)
-    .map((component) => {
-      const quantity = resolveBundleComponentQuantity(component, item.quantity);
-      if (quantity === null) {
-        return '';
-      }
-
-      return `
-            <div class="bundle-line">
-              <span class="bundle-label">组合明细</span>
-              <span class="bundle-name">${escapeHtml(componentDisplayTitle(component))}</span>
-              <span class="bundle-sku">${escapeHtml(componentDisplaySku(component))}</span>
-              <span class="bundle-qty">x${quantity}</span>
-            </div>
-      `;
-    })
-    .filter(Boolean)
-    .join('');
-
-  if (!rows) {
-    return '';
-  }
-
-  return `<div class="bundle-list">${rows}</div>`;
-}
-
-function buildPickingSummary(items: OrderItem[]): PickingComponentSummary[] {
-  const summary = new Map<string, PickingComponentSummary>();
-
-  items.forEach((item) => {
-    if (item.productType === 'BUNDLE') {
-      bundleComponentsOf(item).forEach((component) => {
-        const quantity = resolveBundleComponentQuantity(component, item.quantity);
-        if (quantity === null) {
-          return;
-        }
-
-        const title = componentDisplayTitle(component);
-        const skuTitle = componentDisplaySku(component);
-        const skuId = component.skuId?.trim() || undefined;
-        const shortId = shortSkuSuffix(skuId);
-        const disambiguator = resolveMerchantSkuCode(component) ?? (shortId ? `#${shortId}` : undefined);
-        const key = summaryKeyOf({ skuId, title, skuTitle });
-        const existing = summary.get(key);
-        if (existing) {
-          existing.quantity += quantity;
-          return;
-        }
-        summary.set(key, { skuId, disambiguator, title, skuTitle, quantity });
-      });
-      return;
-    }
-
-    const quantity = toPositiveInteger(item.quantity);
-    if (quantity === null) {
-      return;
-    }
-
-    const title = item.title?.trim() || '未命名商品';
-    const skuId = item.skuId?.trim() || undefined;
-    const skuTitle = item.skuTitle?.trim() || '-';
-    const shortId = shortSkuSuffix(skuId);
-    const disambiguator = resolveMerchantSkuCode(item as {
-      skuCode?: string | null;
-      merchantSkuCode?: string | null;
-    }) ?? (shortId ? `#${shortId}` : undefined);
-    const key = summaryKeyOf({ skuId, title, skuTitle });
-    const existing = summary.get(key);
-    if (existing) {
-      existing.quantity += quantity;
-      return;
-    }
-    summary.set(key, { skuId, disambiguator, title, skuTitle, quantity });
-  });
-
-  return Array.from(summary.values()).sort((a, b) => {
-    if (a.title === b.title) {
-      const skuTitleCompare = a.skuTitle.localeCompare(b.skuTitle, 'zh-CN');
-      if (skuTitleCompare !== 0) {
-        return skuTitleCompare;
-      }
-      return (a.skuId || '').localeCompare(b.skuId || '', 'zh-CN');
-    }
-    return a.title.localeCompare(b.title, 'zh-CN');
-  });
-}
-
 export function buildPickingSheetHtml(order: SellerWaybillOrder): string {
   const itemRows = order.items
     .map((item, index) => {
       const label = itemLabel(item);
-      const description = itemDescription(item);
       return `
         <tr>
           <td class="index">${index + 1}</td>
           <td>
             <div class="item-title-row">
               <span class="item-title">${escapeHtml(item.title || '-')}</span>
-              <span class="item-inline-qty">x${item.quantity}</span>
               ${label ? `<span class="item-meta">${escapeHtml(label)}</span>` : ''}
             </div>
-            ${description ? `<div class="item-detail"><span>详情清单：</span>${escapeHtml(description)}</div>` : ''}
-            ${renderBundleDetails(item)}
           </td>
           <td class="quantity">${item.quantity}</td>
-        </tr>
-      `;
-    })
-    .join('');
-
-  const summaryEntries = buildPickingSummary(order.items);
-  const visibleLabelCount = new Map<string, number>();
-  for (const entry of summaryEntries) {
-    const key = visibleSummaryLabel(entry);
-    visibleLabelCount.set(key, (visibleLabelCount.get(key) ?? 0) + 1);
-  }
-
-  const summaryRows = summaryEntries
-    .map((entry) => {
-      const shouldDisambiguate = (visibleLabelCount.get(visibleSummaryLabel(entry)) ?? 0) > 1;
-      const suffix = shouldDisambiguate ? disambiguatorForEntry(entry) : '';
-      return `
-        <tr>
-          <td>${escapeHtml(entry.title)}</td>
-          <td>${escapeHtml(entry.skuTitle)}${escapeHtml(suffix)}</td>
-          <td class="summary-quantity">x${entry.quantity}</td>
         </tr>
       `;
     })
@@ -301,10 +119,6 @@ export function buildPickingSheetHtml(order: SellerWaybillOrder): string {
         margin: 0;
         font-size: 34px;
         line-height: 1.2;
-      }
-      h2 {
-        margin: 18px 0 8px;
-        font-size: 20px;
       }
       .subtle {
         color: #5f6b7a;
@@ -365,12 +179,6 @@ export function buildPickingSheetHtml(order: SellerWaybillOrder): string {
         font-size: 22px;
         line-height: 1.35;
       }
-      .item-inline-qty {
-        color: #111827;
-        font-family: Menlo, Consolas, monospace;
-        font-weight: 700;
-        font-size: 18px;
-      }
       .item-meta {
         border: 1px solid #d8dee8;
         border-radius: 999px;
@@ -378,53 +186,13 @@ export function buildPickingSheetHtml(order: SellerWaybillOrder): string {
         font-size: 15px;
         padding: 2px 8px;
       }
-      .item-detail {
-        color: #374151;
-        font-size: 16px;
-        line-height: 1.5;
-        margin-top: 8px;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-      .item-detail span {
-        color: #111827;
-        font-weight: 700;
-      }
-      .quantity,
-      .summary-quantity {
+      .quantity {
         width: 104px;
         text-align: center;
         white-space: nowrap;
         font-family: Menlo, Consolas, monospace;
         font-weight: 700;
         font-size: 26px;
-      }
-      .bundle-list {
-        margin-top: 8px;
-        padding-left: 12px;
-        border-left: 3px solid #eef2f7;
-      }
-      .bundle-line {
-        display: flex;
-        gap: 8px;
-        margin-top: 5px;
-        color: #374151;
-        flex-wrap: wrap;
-      }
-      .bundle-label {
-        color: #5f6b7a;
-        font-weight: 700;
-        min-width: 70px;
-      }
-      .bundle-qty {
-        margin-left: auto;
-        color: #111827;
-        font-family: Menlo, Consolas, monospace;
-        font-weight: 700;
-        white-space: nowrap;
-      }
-      .summary-table {
-        margin-top: 8px;
       }
       @media print {
         body { background: #fff; }
@@ -466,17 +234,6 @@ export function buildPickingSheetHtml(order: SellerWaybillOrder): string {
           </tr>
         </thead>
         <tbody>${itemRows}</tbody>
-      </table>
-      <h2>拣货汇总</h2>
-      <table class="summary-table">
-        <thead>
-          <tr>
-            <th>商品</th>
-            <th>规格</th>
-            <th class="summary-quantity">数量</th>
-          </tr>
-        </thead>
-        <tbody>${summaryRows}</tbody>
       </table>
     </section>
     <script>
