@@ -3,7 +3,11 @@ import { useLocation, useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { getApiBaseUrl } from '@/lib/apiBase'
 import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
-import { ANDROID_TEST_DOWNLOAD_URL, pickAndroidDownloadUrl } from '@/lib/downloadLinks'
+import {
+  ANDROID_TEST_DOWNLOAD_URL,
+  pickAndroidDownloadUrl,
+  resolveAndroidFallbackUrl,
+} from '@/lib/downloadLinks'
 import { buildReferralClipboardText, copyTextToClipboard } from '@/lib/referralClipboard'
 
 const API_BASE = getApiBaseUrl()
@@ -31,6 +35,40 @@ function setCookie(name: string, value: string, days: number) {
 
 function isValidReferralCode(code?: string): boolean {
   return !!code && /^[A-Za-z0-9]{8}$/.test(code)
+}
+
+function redirectToAndroidDownload(downloadUrl: string) {
+  const fallbackUrl = resolveAndroidFallbackUrl(downloadUrl)
+
+  if (!fallbackUrl) {
+    window.location.href = downloadUrl
+    return
+  }
+
+  let fallbackTimer: number | null = null
+
+  const cleanupFallback = () => {
+    if (fallbackTimer !== null) {
+      window.clearTimeout(fallbackTimer)
+      fallbackTimer = null
+    }
+    window.removeEventListener('pagehide', cleanupFallback)
+    document.removeEventListener('visibilitychange', cancelFallbackWhenHidden)
+  }
+
+  const cancelFallbackWhenHidden = () => {
+    if (document.hidden) cleanupFallback()
+  }
+
+  window.addEventListener('pagehide', cleanupFallback, { once: true })
+  document.addEventListener('visibilitychange', cancelFallbackWhenHidden)
+
+  fallbackTimer = window.setTimeout(() => {
+    cleanupFallback()
+    window.location.href = fallbackUrl
+  }, 1800)
+
+  window.location.href = downloadUrl
 }
 
 export default function Download() {
@@ -112,8 +150,8 @@ export default function Download() {
       // iOS 版尚未上架 App Store，给提示而非跳死链
       window.alert('iOS 版即将上线，请使用安卓手机扫码下载')
     } else if (platform === 'android') {
-      // 华为机 → 华为商店；其余 → 小米 OneLink（小米机进小米商店 / 其它机直下 APK）
-      window.location.href = pickAndroidDownloadUrl(navigator.userAgent)
+      // 厂商可识别时优先本机商店；识别不到或本机商店 scheme 打不开时回退小米 OneLink。
+      redirectToAndroidDownload(pickAndroidDownloadUrl(navigator.userAgent))
     }
   }
 
