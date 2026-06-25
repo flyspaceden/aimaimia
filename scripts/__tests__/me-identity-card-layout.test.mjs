@@ -17,10 +17,18 @@ test('me identity card prefixes buyer number with ID label', () => {
   assert.match(source, /profile\.buyerNo \? `ID: \$\{profile\.buyerNo\}` : 'ID: 用户编号生成中'/);
 });
 
-test('me identity card renders buyer number with a larger dedicated text style', () => {
+test('me identity card renders buyer number in a wider meta row with a larger text style', () => {
   const source = meTab();
+  const metaStackIndex = source.indexOf('style={styles.profileMetaStack}');
+  const buyerNoChipIndex = source.indexOf('style={[styles.buyerNoChip');
 
+  assert.ok(metaStackIndex > 0, 'buyer number meta stack should exist');
+  assert.ok(buyerNoChipIndex > metaStackIndex, 'buyer number chip should render inside the wider meta stack');
   assert.match(source, /style=\{\[styles\.buyerNoText, \{ color: colors\.gold\.primary, fontFamily: monoFamily \}\]\}/);
-  assert.match(source, /buyerNoText:\s*\{[^}]*fontSize:\s*13,[^}]*lineHeight:\s*18,/s);
+  assert.match(source, /minimumFontScale=\{0\.9\}/);
+  assert.match(source, /profileMetaStack:\s*\{[^}]*alignSelf:\s*'stretch',/s);
+  assert.doesNotMatch(source, /profileMetaStack:\s*\{[^}]*marginLeft:/s);
+  assert.match(source, /buyerNoChip:\s*\{[^}]*alignSelf:\s*'stretch',/s);
+  assert.match(source, /buyerNoText:\s*\{[^}]*fontSize:\s*16,[^}]*lineHeight:\s*22,/s);
   assert.match(source, /buyerNoText:\s*\{[^}]*minWidth:\s*0,[^}]*flexShrink:\s*1,/s);
 });

@@ -273,37 +273,6 @@ export default function MeScreen() {
                   >
                     {profile.name}
                   </Text>
-                  <Pressable
-                    onPress={handleCopyBuyerNo}
-                    style={[styles.buyerNoChip, { backgroundColor: colors.gold.light, borderRadius: radius.pill }]}
-                    accessibilityRole="button"
-                    accessibilityLabel="复制用户编号"
-                  >
-                    <Text
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.72}
-                      style={[styles.buyerNoText, { color: colors.gold.primary, fontFamily: monoFamily }]}
-                    >
-                      {profile.buyerNo ? `ID: ${profile.buyerNo}` : 'ID: 用户编号生成中'}
-                    </Text>
-                    <MaterialCommunityIcons
-                      name="content-copy"
-                      size={15}
-                      color={colors.gold.primary}
-                      style={{ marginLeft: 5 }}
-                    />
-                  </Pressable>
-                  {/* 推荐码按钮 */}
-                  {referralCode ? (
-                    <Pressable
-                      onPress={() => setReferralOpen(true)}
-                      style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
-                    >
-                      <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
-                      <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
-                    </Pressable>
-                  ) : null}
                 </View>
               </View>
               <View style={styles.userCardActions}>
@@ -323,6 +292,39 @@ export default function MeScreen() {
                   <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
                 </Pressable>
               </View>
+            </View>
+            <View style={styles.profileMetaStack}>
+              <Pressable
+                onPress={handleCopyBuyerNo}
+                style={[styles.buyerNoChip, { backgroundColor: colors.gold.light, borderRadius: radius.pill }]}
+                accessibilityRole="button"
+                accessibilityLabel="复制用户编号"
+              >
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.9}
+                  style={[styles.buyerNoText, { color: colors.gold.primary, fontFamily: monoFamily }]}
+                >
+                  {profile.buyerNo ? `ID: ${profile.buyerNo}` : 'ID: 用户编号生成中'}
+                </Text>
+                <MaterialCommunityIcons
+                  name="content-copy"
+                  size={18}
+                  color={colors.gold.primary}
+                  style={{ marginLeft: 6 }}
+                />
+              </Pressable>
+              {/* 推荐码按钮 */}
+              {referralCode ? (
+                <Pressable
+                  onPress={() => setReferralOpen(true)}
+                  style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
+                >
+                  <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                </Pressable>
+              ) : null}
             </View>
           </LinearGradient>
         ) : (
@@ -949,17 +951,22 @@ const styles = StyleSheet.create({
   profileNameText: {
     alignSelf: 'stretch',
   },
+  profileMetaStack: {
+    alignSelf: 'stretch',
+    marginTop: 12,
+    gap: 8,
+  },
   buyerNoChip: {
-    maxWidth: '100%',
-    minHeight: 30,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    alignSelf: 'stretch',
+    minHeight: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     flexDirection: 'row',
     alignItems: 'center',
   },
   buyerNoText: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '600',
     minWidth: 0,
     flexShrink: 1,
