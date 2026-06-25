@@ -552,8 +552,9 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 - 蒲公英：测试分发页已启用，当前 URL 为 `https://www.pgyer.com/aimaimai-android-test`
 - fir.im：未启用
-- 应用商店（华为 / 小米 / 应用宝）：需要软著 + App 备案，未启动
-- 当前安卓测试人员可通过推荐码落地页或蒲公英测试页安装；如蒲公英受限，再回退为直接发 EAS APK 链接。
+- 推荐码/下载落地页：`https://app.ai-maimai.com/download` 与 `https://app.ai-maimai.com/r/{CODE}` 已按 Android 品牌分流。华为走华为 App Linking 短链；vivo/iQOO 走 vivo 应用商店 H5；OPPO/一加/realme/荣耀走本机应用市场 `market://details?id=com.aimaimai.shop`；小米/红米、识别不到品牌和其他安卓继续使用小米 OneLink `https://m.malink.cn/s/6ZFjYj` 作为通用兜底。`market://` 打不开时页面会自动回退 OneLink。
+- 应用商店：华为 / 小米 / OPPO / vivo / 荣耀等渠道需分别保持上架版本更新；落地页只负责跳转，不证明各商店已同步到最新包。
+- 当前安卓测试人员可通过推荐码落地页或蒲公英测试页安装；如蒲公英受限，再回退为直接发 EAS APK 链接或后续稳定 `latest.apk` 直链。
 
 ### 备案启动后的方案（待 v1.0）
 

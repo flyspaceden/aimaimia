@@ -637,6 +637,7 @@
   - 状态: 🟡 部分完成 | 测试日期: 2026-04-18
 
 - [ ] **C43** — 部署官网 + App 落地页（含 .well-known Universal Link）
+  - 子任务 ✅ Android 下载落地页厂商分流更新：华为走华为短链，vivo/iQOO 走 vivo H5，OPPO/一加/realme/荣耀走本机应用市场 `market://details?id=com.aimaimai.shop`，小米/红米、识别不到品牌和其他安卓继续使用小米 OneLink `https://m.malink.cn/s/6ZFjYj` 兜底；market scheme 打不开时自动回退 OneLink — 2026-06-25
 - [ ] **C44** — App 客户端发布（EAS build + TestFlight + App Store + 国内商店）
   - 子任务 ✅ EAS CLI 安装 + Expo 账号登录 + 项目初始化（projectId d76ba8ac-06f3-45d2-b674-afec17737029）— 2026-04-19
   - 子任务 ✅ eas.json 三档配置（development/preview/production）+ OTA channel — 2026-04-19
@@ -644,7 +645,7 @@
   - 子任务 ✅ 第一次 Android preview 构建 (.apk) 成功，下载链接已就绪 — 2026-04-19
   - 子任务 ⬜ 上传蒲公英分发给国内测试人员
   - 子任务 ⬜ iOS TestFlight（依赖 U06 Apple Developer 账号）
-  - 子任务 ⬜ 国内安卓商店上架（华为/小米/OPPO/vivo/应用宝，依赖 U06）
+  - 子任务 ⬜ 国内安卓商店上架（华为/小米/OPPO/vivo/荣耀/应用宝，依赖 U06）
 - [ ] **C45** — 基础监控（PM2 monit + health cron + 慢查询 + 告警）
 - [ ] **C46** — 数据备份（pg_dump 定时 + Redis RDB + OSS 归档 + 恢复演练）
 
