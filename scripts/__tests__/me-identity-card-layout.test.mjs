@@ -16,3 +16,11 @@ test('me identity card prefixes buyer number with ID label', () => {
 
   assert.match(source, /profile\.buyerNo \? `ID: \$\{profile\.buyerNo\}` : 'ID: 用户编号生成中'/);
 });
+
+test('me identity card renders buyer number with a larger dedicated text style', () => {
+  const source = meTab();
+
+  assert.match(source, /style=\{\[styles\.buyerNoText, \{ color: colors\.gold\.primary, fontFamily: monoFamily \}\]\}/);
+  assert.match(source, /buyerNoText:\s*\{[^}]*fontSize:\s*13,[^}]*lineHeight:\s*18,/s);
+  assert.match(source, /buyerNoText:\s*\{[^}]*minWidth:\s*0,[^}]*flexShrink:\s*1,/s);
+});

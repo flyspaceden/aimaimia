@@ -283,15 +283,15 @@ export default function MeScreen() {
                       numberOfLines={1}
                       adjustsFontSizeToFit
                       minimumFontScale={0.72}
-                      style={[typography.captionSm, { color: colors.gold.primary, fontFamily: monoFamily }]}
+                      style={[styles.buyerNoText, { color: colors.gold.primary, fontFamily: monoFamily }]}
                     >
                       {profile.buyerNo ? `ID: ${profile.buyerNo}` : 'ID: 用户编号生成中'}
                     </Text>
                     <MaterialCommunityIcons
                       name="content-copy"
-                      size={13}
+                      size={15}
                       color={colors.gold.primary}
-                      style={{ marginLeft: 4 }}
+                      style={{ marginLeft: 5 }}
                     />
                   </Pressable>
                   {/* 推荐码按钮 */}
@@ -951,11 +951,18 @@ const styles = StyleSheet.create({
   },
   buyerNoChip: {
     maxWidth: '100%',
-    minHeight: 26,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    minHeight: 30,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  buyerNoText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    minWidth: 0,
+    flexShrink: 1,
   },
   userCardActions: {
     alignItems: 'flex-end',
